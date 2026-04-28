@@ -1,0 +1,346 @@
+{
+  "game": {
+    "title": "开放世界文字冒险",
+    "version": "1.0",
+    "defaultLocation": "新手村",
+    "startDate": "第1天",
+    "startTime": "早晨"
+  },
+
+  "timeSystem": {
+    "periods": ["早晨", "上午", "中午", "下午", "傍晚", "夜晚"],
+    "periodDuration": {
+      "早晨": "6:00-9:00",
+      "上午": "9:00-12:00",
+      "中午": "12:00-14:00",
+      "下午": "14:00-18:00",
+      "傍晚": "18:00-20:00",
+      "夜晚": "20:00-6:00"
+    },
+    "autoAdvancePeriods": 2,
+    "sleepAdvanceTo": {"next": true, "period": "早晨"}
+  },
+
+  "statusSystem": {
+    "vitality": {"max": 100, "start": 100, "decrease": {"action": 5, "combat": 20, "noSleep": 10}},
+    "mood": {"max": 100, "start": 80},
+    "money": {"start": 100, "currency": "金币"}
+  },
+
+  "worldState": {
+    "mainQuest": null,
+    "activeEvents": [],
+    "flags": {},
+    "npcRelations": {},
+    "discoveredPlaces": ["新手村"],
+    "completedQuests": []
+  },
+
+  "triggers": {
+    "timeAdvance": ["时间流转", "时间快进", "等待", "休息", "睡一晚", "睡一觉"],
+    "exploration": ["探索", "调查", "搜索", "仔细看看"],
+    "combat": ["战斗", "攻击", "打架", "开战"],
+    "trade": ["交易", "买卖", "购买", "出售"],
+    "talk": ["交谈", "对话", "聊聊", "打听"],
+    "move": ["前往", "去", "来到", "移动到"],
+    "system": ["状态", "背包", "帮助", "历史", "回忆"]
+  },
+
+  "events": {
+    "mainQuest": {
+      "start": {
+        "id": "start",
+        "name": "初入世界",
+        "trigger": "game_start",
+        "description": "你从昏迷中醒来，发现自己身处一个陌生的地方...",
+        "choices": [
+          {"text": "观察周围环境", "next": "observe_surrounding"},
+          {"text": "大声呼救", "next": "call_for_help"},
+          {"text": "尝试回忆过去", "next": "recall_past"}
+        ]
+      },
+      "meet_village_chief": {
+        "id": "meet_village_chief",
+        "name": "村长接见",
+        "trigger": ["前往村长家", "拜访村长", "找村长"],
+        "requires": {"location": "新手村", "notFlag": "met_village_chief"},
+        "description": "村长是一位慈祥的老人，他告诉你这个世界正面临着危机...",
+        "actions": [
+          {"type": "setFlag", "key": "met_village_chief", "value": true},
+          {"type": "giveItem", "item": "新手礼包", "count": 1},
+          {"type": "updateQuest", "quest": "主线：熟悉这个世界"}
+        ],
+        "nextEvents": ["explore_village", "first_battle"]
+      },
+      "time_skip_test": {
+        "id": "time_skip_test",
+        "name": "时间流转测试",
+        "trigger": ["时间流转", "时间快进"],
+        "description": "当你说出这个词，天空中似乎有什么在改变...",
+        "actions": [
+          {"type": "advanceTime", "periods": 1},
+          {"type": "setFlag", "key": "time_skipped", "value": true}
+        ],
+        "choices": [
+          {"text": "继续探索", "next": "free_exploration"},
+          {"text": "找个地方休息", "next": "rest_event"}
+        ]
+      }
+    },
+
+    "sideQuests": {
+      "wolf_crisis": {
+        "id": "wolf_crisis",
+        "name": "狼群危机",
+        "trigger": {
+          "keywords": ["狼群", "狼", "袭击"],
+          "conditions": {"flag": "heard_about_wolves", "location": "新手村"}
+        },
+        "description": "最近村外的狼群越来越频繁地出现在周围...",
+        "stages": ["investigate", "track_wolves", "solve_crisis"],
+        "rewards": {"money": 200, "exp": 100, "reputation": "village_respected"}
+      },
+      "black_market_merchant": {
+        "id": "black_market_merchant",
+        "name": "黑市商人",
+        "trigger": {
+          "keywords": ["黑市", "商人", "神秘商品"],
+          "conditions": {"timePeriod": "夜晚", "location": "新手村"}
+        },
+        "description": "在村子的角落里，一个神秘的身影向你招手...",
+        "unlockConditions": {"completedQuests": ["wolf_crisis"]}
+      },
+      "mysterious_ruins": {
+        "id": "mysterious_ruins",
+        "name": "神秘遗迹",
+        "trigger": {
+          "keywords": ["遗迹", "废墟", "古物"],
+          "conditions": {"hasItem": "旧地图"}
+        },
+        "description": "根据地图上的指引，你来到了一处被遗忘的古代遗迹...",
+        "unlockConditions": {"discoveredPlaces": ["废弃矿洞"]}
+      }
+    },
+
+    "randomEncounters": {
+      "wild_animal": {
+        "chance": 0.15,
+        "conditions": {"location": "森林", "timePeriod": ["夜晚", "傍晚"]},
+        "description": "一条野狼从树丛中窜出，向你露出獠牙！",
+        "choices": [
+          {"text": "战斗", "next": "combat_wild_wolf"},
+          {"text": "逃跑", "next": "flee_encounter"},
+          {"text": "尝试驯服", "next": "tame_attempt", "requires": {"skill": "animal_taming"}}
+        ]
+      },
+      "traveling_merchant": {
+        "chance": 0.2,
+        "conditions": {"location": ["道路", "森林"], "timePeriod": ["上午", "下午"]},
+        "description": "一个商队从远处走来，领头的商人向你点头致意。",
+        "choices": [
+          {"text": "上前交易", "next": "trade_merchant"},
+          {"text": "打听消息", "next": "ask_merchant_news"},
+          {"text": "无视继续前进", "next": "ignore_merchant"}
+        ]
+      },
+      "lost_child": {
+        "chance": 0.1,
+        "conditions": {"location": "新手村", "timePeriod": ["下午", "傍晚"]},
+        "description": "一个小女孩在村口哭泣，似乎和家人走散了。",
+        "choices": [
+          {"text": "上前询问", "next": "help_child"},
+          {"text": "交给村民处理", "next": "ignore_child"}
+        ]
+      }
+    },
+
+    "environmentEvents": {
+      "weather_change": {
+        "trigger": {"timeAdvance": 3},
+        "description": "天空中的云层渐渐聚拢，似乎要下雨了。",
+        "effects": [
+          {"type": "changeWeather", "weather": "阴天"},
+          {"type": "modifyStatus", "status": "mood", "value": -5}
+        ]
+      },
+      "night_falls": {
+        "trigger": {"timePeriod": "夜晚"},
+        "description": "太阳缓缓落下，村子里的灯火逐渐亮起。",
+        "effects": [
+          {"type": "setFlag", "key": "is_night", "value": true},
+          {"type": "unlockEvents", "events": ["black_market_merchant", "night_monster"]}
+        ]
+      },
+      "morning_comes": {
+        "trigger": {"timePeriod": "早晨"},
+        "description": "公鸡的啼叫声把你从睡梦中唤醒。新的一天开始了。",
+        "effects": [
+          {"type": "restoreStatus", "status": "vitality", "value": 30},
+          {"type": "clearFlag", "key": "is_night"},
+          {"type": "resetDailyFlags"}
+        ]
+      }
+    }
+  },
+
+  "npcs": {
+    "village_chief": {
+      "name": "李铁柱",
+      "title": "村长",
+      "location": "新手村-村长家",
+      "dialogue": {
+        "default": "外乡人，有什么需要帮忙的吗？",
+        "first_meet": "你可算醒了！在这个乱世，能活下来就是运气。",
+        "after_quest": "做得很好！村子里的大家都对你很感激。"
+      },
+      "quests": ["wolf_crisis"],
+      "relations": {"initial": 50, "max": 100}
+    },
+    "blacksmith": {
+      "name": "张铁匠",
+      "title": "铁匠",
+      "location": "新手村-铁匠铺",
+      "dialogue": {
+        "default": "要打造武器防具吗？",
+        "first_meet": "新面孔啊，我这儿什么都能打造，只要你有钱。",
+        "friendly": "朋友价！给你打个八折。"
+      },
+      "shop": {
+        "weapons": [
+          {"name": "铁剑", "price": 150, "stats": {"attack": 10}},
+          {"name": "匕首", "price": 80, "stats": {"attack": 5, "speed": 3}}
+        ],
+        "armor": [
+          {"name": "皮甲", "price": 120, "stats": {"defense": 8}}
+        ]
+      },
+      "relations": {"initial": 30, "max": 100}
+    },
+    "merchant": {
+      "name": "王商人",
+      "title": "杂货商",
+      "location": "新手村-杂货铺",
+      "dialogue": {
+        "default": "来看看我的货物吧！",
+        "first_meet": "欢迎光临！保证全市最便宜！"
+      },
+      "shop": {
+        "consumables": [
+          {"name": "生命药水", "price": 30, "effect": {"vitality": 30}},
+          {"name": "解毒药", "price": 25, "effect": {"cure": "poison"}}
+        ],
+        "misc": [
+          {"name": "矿灯", "price": 20, "description": "在黑暗处提供照明"},
+          {"name": "绳子", "price": 15, "description": "可用于攀爬或捆绑"}
+        ]
+      },
+      "relations": {"initial": 40, "max": 100}
+    }
+  },
+
+  "locations": {
+    "newbie_village": {
+      "name": "新手村",
+      "description": "一个宁静的小村庄，村民们过着日出而作、日落而息的生活。",
+      "areas": {
+        "village_entrance": {
+          "name": "村口",
+          "description": "村口立着一块破旧的木牌，上面写着'新手村'。一条小路通向村子内部。",
+          "exits": {"north": "village_square"},
+          "objects": ["破旧的木牌", "村口大树"]
+        },
+        "village_square": {
+          "name": "村中心广场",
+          "description": "这里是村子的中心，一口古井位于广场中央。几个村民正在闲聊。",
+          "exits": {"south": "village_entrance", "north": "village_chief_house", "east": "blacksmith", "west": "merchant"},
+          "objects": ["古井", "公告牌", "闲聊的村民"]
+        },
+        "village_chief_house": {
+          "name": "村长家",
+          "description": "村长家是一座古老的石屋，门口种着两棵槐树。",
+          "exits": {"south": "village_square"},
+          "objects": ["槐树", "木门"]
+        },
+        "blacksmith": {
+          "name": "铁匠铺",
+          "description": "炉火熊熊，铁锤敲击的声音从屋内传出。",
+          "exits": {"west": "village_square"},
+          "objects": ["锻造炉", "各种武器", "铁砧"]
+        },
+        "merchant": {
+          "name": "杂货铺",
+          "description": "各种商品摆满了货架，空气中弥漫着调料的味道。",
+          "exits": {"east": "village_square"},
+          "objects": ["货架", "算盘", "商品"]
+        }
+      }
+    },
+    "forest": {
+      "name": "新手森林",
+      "description": "茂密的森林充满了神秘和危险，据说有狼群出没。",
+      "areas": {
+        "forest_edge": {
+          "name": "森林边缘",
+          "description": "高大树木遮天蔽日，阳光只能从树叶缝隙中透出。",
+          "exits": {"south": "newbie_village", "north": "deep_forest"},
+          "objects": ["枯树", "蘑菇丛", "蜘蛛网"]
+        },
+        "deep_forest": {
+          "name": "森林深处",
+          "description": "四周越来越暗，奇怪的声响从远处传来。",
+          "exits": {"south": "forest_edge", "east": "abandoned_mine"},
+          "objects": ["古老树木", "动物足迹", "神秘足迹"]
+        },
+        "abandoned_mine": {
+          "name": "废弃矿洞",
+          "description": "一个废弃已久的矿洞入口，里面漆黑一片。",
+          "exits": {"west": "deep_forest"},
+          "objects": ["矿车轨道", "生锈矿灯", "坍塌的支架"],
+          "requires": {"item": "矿灯", "light": true}
+        }
+      }
+    }
+  },
+
+  "items": {
+    "newbie_pack": {
+      "name": "新手礼包",
+      "type": "misc",
+      "description": "村长给你的见面礼，里面有一些基础物品。",
+      "contains": [
+        {"name": "面包", "count": 3, "effect": {"vitality": 10}},
+        {"name": "清水", "count": 2, "effect": {"vitality": 5}},
+        {"name": "旧地图", "count": 1, "description": "一张泛黄的地图，上面标注着某些位置。"}
+      ]
+    },
+    "old_map": {
+      "name": "旧地图",
+      "type": "key",
+      "description": "一张标注着神秘遗迹位置的地图。",
+      "use": "reveals_location:神秘遗迹"
+    }
+  },
+
+  "skills": {
+    "combat": {
+      "name": "战斗",
+      "description": "影响战斗中的伤害和防御",
+      "levels": {"novice": 1, "skilled": 2, "expert": 3}
+    },
+    "animal_taming": {
+      "name": "驯兽",
+      "description": "影响驯服动物的成功率",
+      "levels": {"novice": 1, "skilled": 2, "expert": 3}
+    },
+    "trade": {
+      "name": "交易",
+      "description": "影响买卖物品的价格",
+      "levels": {"novice": 1, "skilled": 2, "expert": 3}
+    },
+    "investigation": {
+      "name": "调查",
+      "description": "影响发现隐藏物品和线索的能力",
+      "levels": {"novice": 1, "skilled": 2, "expert": 3}
+    }
+  }
+}
