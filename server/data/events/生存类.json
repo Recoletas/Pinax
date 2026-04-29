@@ -1,0 +1,62 @@
+[
+  {
+    "id": "eat_food",
+    "name": "进食",
+    "keywords": ["吃", "进食", "吃东西"],
+    "type": "survival",
+    "description": "摄入食物恢复体力",
+    "conditions": {"has_food": true},
+    "effects": [
+      {"type": "restore_vitality", "value": 20},
+      {"type": "consume_food"}
+    ],
+    "narrative": "你吃了些东西，饥饿感消除了，体力也恢复了一些。"
+  },
+  {
+    "id": "heal_injury",
+    "name": "疗伤",
+    "keywords": ["疗伤", "治疗", "休息"],
+    "type": "survival",
+    "description": "治疗伤病",
+    "conditions": {"has_medical_item": true},
+    "effects": [
+      {"type": "restore_vitality", "value": 30},
+      {"type": "consume_medical"}
+    ],
+    "narrative": "你使用药物处理了伤口，感觉好多了。"
+  },
+  {
+    "id": "find_shelter",
+    "name": "寻找避难所",
+    "keywords": ["避难", "寻找", "庇护"],
+    "type": "survival",
+    "description": "找到一个安全的地方",
+    "effects": [
+      {"type": "set_flag", "key": "has_shelter", "value": true}
+    ],
+    "narrative": "你找到了一个可以暂时容身的地方。"
+  },
+  {
+    "id": "collect_water",
+    "name": "收集水源",
+    "keywords": ["水", "喝水", "收集"],
+    "type": "survival",
+    "description": "寻找和收集水源",
+    "effects": [
+      {"type": "give_item", "item": "水袋", "count": 1}
+    ],
+    "narrative": "你找到了清洁的水源，并将水装满了水袋。"
+  },
+  {
+    "id": "make_camp",
+    "name": "扎营",
+    "keywords": ["扎营", "露营", "搭帐篷"],
+    "type": "survival",
+    "description": "建立临时营地",
+    "effects": [
+      {"type": "restore_vitality", "value": 50},
+      {"type": "advance_time", "periods": 1}
+    ],
+    "narrative": "你花了一些时间建立了一个简易的营地，在这里休息后感觉恢复了不少。"
+  }
+]

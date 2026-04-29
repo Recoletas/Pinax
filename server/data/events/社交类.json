@@ -1,0 +1,60 @@
+[
+  {
+    "id": "talk_npc",
+    "name": "与NPC交谈",
+    "keywords": ["交谈", "对话", "聊聊", "打听"],
+    "type": "social",
+    "description": "与附近的人交谈",
+    "effects": [
+      {"type": "increase_relation", "value": 5}
+    ],
+    "narrative": "你与对方开始交谈..."
+  },
+  {
+    "id": "trade",
+    "name": "交易",
+    "keywords": ["交易", "买卖", "购买", "出售"],
+    "type": "social",
+    "description": "进行商品交易",
+    "effects": [
+      {"type": "open_shop"}
+    ],
+    "narrative": "你提出了交易的想法。"
+  },
+  {
+    "id": "give_gift",
+    "name": "赠送礼物",
+    "keywords": ["送礼", "赠送", "给"],
+    "type": "social",
+    "description": "向NPC赠送礼物",
+    "conditions": {"has_item": true},
+    "effects": [
+      {"type": "increase_relation", "value": 15},
+      {"type": "remove_item"}
+    ],
+    "narrative": "你将礼物递给了对方。"
+  },
+  {
+    "id": "ask_favor",
+    "name": "请求帮忙",
+    "keywords": ["帮忙", "请求", "拜托"],
+    "type": "social",
+    "description": "请求NPC帮助",
+    "effects": [
+      {"type": "quest_possible"}
+    ],
+    "narrative": "你向对方提出了请求..."
+  },
+  {
+    "id": "share_info",
+    "name": "分享情报",
+    "keywords": ["分享", "情报", "消息"],
+    "type": "social",
+    "description": "与NPC分享信息",
+    "effects": [
+      {"type": "set_flag", "key": "shared_info", "value": true},
+      {"type": "increase_relation", "value": 10}
+    ],
+    "narrative": "你将与对方分享你所知道的信息。"
+  }
+]

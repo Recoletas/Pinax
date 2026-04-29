@@ -1,0 +1,57 @@
+[
+  {
+    "id": "start_combat",
+    "name": "遭遇战斗",
+    "keywords": ["战斗", "攻击", "打架", "开战"],
+    "type": "combat",
+    "description": "进入战斗",
+    "effects": [
+      {"type": "start_battle"}
+    ],
+    "narrative": "战斗一触即发！"
+  },
+  {
+    "id": "attack_enemy",
+    "name": "攻击敌人",
+    "keywords": ["攻击", "打", "砍"],
+    "type": "combat",
+    "description": "对敌人发起攻击",
+    "effects": [
+      {"type": "deal_damage", "base": 10, "variance": 5}
+    ],
+    "narrative": "你发动了攻击！"
+  },
+  {
+    "id": "defend",
+    "name": "防御",
+    "keywords": ["防御", "防守", "格挡"],
+    "type": "combat",
+    "description": "采取防御姿态",
+    "effects": [
+      {"type": "increase_defense", "value": 5}
+    ],
+    "narrative": "你举起武器，准备防御敌人的攻击。"
+  },
+  {
+    "id": "flee_combat",
+    "name": "逃跑",
+    "keywords": ["逃跑", "撤退", "逃跑"],
+    "type": "combat",
+    "description": "尝试逃离战斗",
+    "effects": [
+      {"type": "flee", "success_rate": 0.6}
+    ],
+    "narrative": "你决定不硬拼，寻找机会撤退..."
+  },
+  {
+    "id": "use_item_combat",
+    "name": "使用道具",
+    "keywords": "使用道具",
+    "type": "combat",
+    "description": "在战斗中使用道具",
+    "effects": [
+      {"type": "consume_item"}
+    ],
+    "narrative": "你从背包中取出道具..."
+  }
+]

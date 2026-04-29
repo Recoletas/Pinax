@@ -1,0 +1,50 @@
+[
+  {
+    "id": "explore_area",
+    "name": "探索区域",
+    "keywords": ["探索", "调查", "搜索", "仔细看看"],
+    "type": "exploration",
+    "description": "仔细搜索周围环境",
+    "effects": [
+      {"type": "discover_item", "chance": 0.3},
+      {"type": "discover_clue", "chance": 0.2}
+    ],
+    "narrative": "你对周围环境进行了仔细的搜索..."
+  },
+  {
+    "id": "find_treasure",
+    "name": "发现宝物",
+    "keywords": ["探索", "搜索"],
+    "type": "exploration",
+    "description": "在探索中发现了意外之财",
+    "conditions": {"random": 0.15},
+    "effects": [
+      {"type": "give_item", "item": "金币", "count": 50},
+      {"type": "add_exp", "value": 10}
+    ],
+    "narrative": "你的搜索没有白费！在角落的缝隙里，你发现了一些钱币和其他有价值的东西。"
+  },
+  {
+    "id": "discover_secret",
+    "name": "发现秘密",
+    "keywords": ["调查", "仔细看", "检查"],
+    "type": "exploration",
+    "description": "发现了一些隐藏的秘密",
+    "conditions": {"minLevel": 3},
+    "effects": [
+      {"type": "set_flag", "key": "discovered_secret", "value": true},
+      {"type": "add_exp", "value": 30}
+    ],
+    "narrative": "你的调查没有白费。你发现了一些隐藏的东西——这似乎是一个重要线索。"
+  },
+  {
+    "id": "nothing_found",
+    "name": "一无所获",
+    "keywords": ["探索", "搜索", "调查"],
+    "type": "exploration",
+    "description": "探索后没有发现特别的东西",
+    "conditions": {"random": 0.4},
+    "effects": [],
+    "narrative": "你仔细搜索了每一个角落，但除了灰尘和蛛网之外，什么都没有发现。"
+  }
+]

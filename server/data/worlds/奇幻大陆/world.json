@@ -1,0 +1,160 @@
+{
+  "config": {
+    "name": "奇幻大陆",
+    "description": "在剑与魔法的世界成为英雄。加入公会、接受委托、收集神器、击败魔王。",
+    "tags": ["魔法", "龙", "精灵", "王国", "工会", "史诗", "剑", "奇幻"],
+    "preview": "魔法塔高耸入云，远方巨龙盘旋在天际...",
+    "defaultLocation": "王都-城门",
+    "starterMoney": 100
+  },
+
+  "locations": {
+    "王都-城门": {
+      "name": "王都城门",
+      "description": "雄伟的亚尔斯特王都，城门高达三十米，镶嵌着魔导符文。",
+      "exits": {"north": "王都-中央广场"},
+      "npcs": ["城门-守卫"],
+      "events": []
+    },
+    "王都-中央广场": {
+      "name": "中央广场",
+      "description": "王都最繁华的地方，喷泉、雕像、熙攘的人群。冒险者公会的招牌在远处闪烁。",
+      "exits": {
+        "south": "王都-城门",
+        "east": "王都-商店街",
+        "north": "冒险者公会"
+      },
+      "npcs": ["广场-吟游诗人"],
+      "events": []
+    },
+    "冒险者公会": {
+      "name": "冒险者公会",
+      "description": "冒险者聚集的地方，墙上贴满了各种委托单。",
+      "exits": {"south": "王都-中央广场"},
+      "npcs": ["公会-接待员"],
+      "events": []
+    },
+    "王都-商店街": {
+      "name": "商店街",
+      "description": "装备店、药水店、杂货店鳞次栉比。",
+      "exits": {"west": "王都-中央广场"},
+      "npcs": ["商店街-装备商", "商店街-药水商"],
+      "events": []
+    },
+    "远古森林": {
+      "name": "远古森林",
+      "description": "传说中精灵的故乡，古树参天，魔法气息浓郁。",
+      "exits": {"south": "王都-城门"},
+      "npcs": ["森林-精灵"],
+      "events": []
+    }
+  },
+
+  "npcs": {
+    "城门-守卫": {
+      "name": "托马斯",
+      "title": "城门守卫",
+      "location": "王都-城门",
+      "dialogue": {
+        "default": "入城请排队，接受检查。",
+        "first_meet": "欢迎来到亚尔斯特王都，新来的冒险者？"
+      },
+      "relations": {"initial": 50, "max": 100}
+    },
+    "公会-接待员": {
+      "name": "莉娜",
+      "title": "公会接待员",
+      "location": "冒险者公会",
+      "dialogue": {
+        "default": "欢迎来到冒险者公会，今天想接什么任务？",
+        "first_meet": "你是新注册的冒险者吧？"
+      },
+      "shop": {
+        "委托": [
+          {"name": "清除史莱姆", "reward": 50},
+          {"name": "护送商队", "reward": 150},
+          {"name": "调查矿洞", "reward": 300}
+        ]
+      },
+      "relations": {"initial": 60, "max": 100}
+    },
+    "商店街-装备商": {
+      "name": "矮人铁匠",
+      "title": "装备商",
+      "location": "王都-商店街",
+      "dialogue": {
+        "default": "看看我的武器，保证品质！",
+        "first_meet": "我是格罗姆，矮人族，最好的武器找我！"
+      },
+      "shop": {
+        "武器": [
+          {"name": "铁剑", "price": 80},
+          {"name": "长剑", "price": 150}
+        ],
+        "防具": [
+          {"name": "皮甲", "price": 100},
+          {"name": "锁甲", "price": 200}
+        ]
+      },
+      "relations": {"initial": 50, "max": 100}
+    },
+    "商店街-药水商": {
+      "name": "埃琳娜",
+      "title": "药水商",
+      "location": "王都-商店街",
+      "dialogue": {
+        "default": "需要药水吗？都是我亲手炼制的。",
+        "first_meet": "我是埃琳娜，魔法药水专家。"
+      },
+      "shop": {
+        "药水": [
+          {"name": "生命药水", "price": 30},
+          {"name": "魔法药水", "price": 40}
+        ]
+      },
+      "relations": {"initial": 50, "max": 100}
+    },
+    "广场-吟游诗人": {
+      "name": "罗兰",
+      "title": "吟游诗人",
+      "location": "王都-中央广场",
+      "dialogue": {
+        "default": "想听首歌吗？关于龙王的故事...",
+        "first_meet": "我是罗兰，用歌声传递故事的人。"
+      },
+      "relations": {"initial": 70, "max": 100}
+    }
+  },
+
+  "enemies": [
+    {"name": "史莱姆", "description": "一团黏糊糊的史莱姆向你扑来！", "level": 1, "hp": 20, "attack": 5},
+    {"name": "哥布林", "description": "一只哥布林挥舞着木棒冲过来！", "level": 2, "hp": 35, "attack": 10},
+    {"name": "骷髅战士", "description": "不死族从墓地爬出！", "level": 3, "hp": 50, "attack": 15}
+  ],
+
+  "randomEncounters": [
+    {
+      "id": "宝藏猎人",
+      "chance": 0.12,
+      "conditions": {"location": "远古森林"},
+      "description": "你发现了前人留下的藏宝图碎片！",
+      "choices": [
+        {"text": "研究藏宝图", "action": "study_map"},
+        {"text": "先收起来", "action": "keep_map"}
+      ]
+    }
+  ],
+
+  "items": {
+    "铁剑": {"name": "铁剑", "type": "武器", "description": "基础近战武器", "rarity": "普通"},
+    "生命药水": {"name": "生命药水", "type": "消耗品", "description": "恢复30点HP", "rarity": "普通"}
+  },
+
+  "story": {
+    "mainQuest": {
+      "id": "龙王传说",
+      "name": "龙王传说",
+      "description": "传说中沉睡千年的龙王即将苏醒，你是预言中的勇者..."
+    }
+  }
+}

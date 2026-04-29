@@ -1,0 +1,150 @@
+{
+  "config": {
+    "name": "末日生存",
+    "description": "丧尸围城，资源匮乏，在废土世界中求生。建设避难所、收集物资、对抗变异生物。",
+    "tags": ["丧尸", "避难所", "物资", "变异", "辐射", "围城", "末日", "废土"],
+    "preview": "废墟中升起狼烟，丧尸的咆哮在远处回响...",
+    "defaultLocation": "废墟-街头",
+    "starterMoney": 0
+  },
+
+  "locations": {
+    "废墟-街头": {
+      "name": "废墟街头",
+      "description": "曾经繁华的街道如今满是废墟和丧尸。汽车残骸堵住了半边路。",
+      "exits": {
+        "north": "废墟-超市",
+        "east": "废墟-医院",
+        "west": "废墟-居民区",
+        "south": "郊外-公路"
+      },
+      "npcs": [],
+      "events": []
+    },
+    "废墟-超市": {
+      "name": "废弃超市",
+      "description": "大型超市已被洗劫一空，但仓库可能还有物资。",
+      "exits": {
+        "south": "废墟-街头",
+        "storage": "超市仓库"
+      },
+      "npcs": [],
+      "events": []
+    },
+    "废墟-医院": {
+      "name": "废弃医院",
+      "description": "医院大门敞开，里面漆黑一片。药品在这里是稀缺品。",
+      "exits": {"west": "废墟-街头"},
+      "npcs": [],
+      "events": []
+    },
+    "废墟-居民区": {
+      "name": "居民区",
+      "description": "公寓楼林立，很多房门敞开着。",
+      "exits": {"east": "废墟-街头"},
+      "npcs": ["幸存者"],
+      "events": []
+    },
+    "郊外-公路": {
+      "name": "郊外公路",
+      "description": "通往郊外的路，两旁是废弃的车辆。",
+      "exits": {
+        "north": "废墟-街头",
+        "south": "郊外-营地"
+      },
+      "npcs": [],
+      "events": []
+    },
+    "郊外-营地": {
+      "name": "幸存者营地",
+      "description": "用废弃车辆和铁丝网围成的临时营地。",
+      "exits": {"north": "郊外-公路"},
+      "npcs": ["营地-首领", "营地-居民"],
+      "events": []
+    }
+  },
+
+  "npcs": {
+    "幸存者": {
+      "name": "老张",
+      "title": "老兵",
+      "location": "废墟-居民区",
+      "dialogue": {
+        "default": "别出声，丧尸对声音敏感。",
+        "first_meet": "你是活人？我以为这片区域没人了。"
+      },
+      "shop": {
+        "物资": [
+          {"name": "罐头食品", "price": 0},
+          {"name": "子弹", "price": 0}
+        ]
+      },
+      "relations": {"initial": 40, "max": 100}
+    },
+    "营地-首领": {
+      "name": "赵队长",
+      "title": "营地首领",
+      "location": "郊外-营地",
+      "dialogue": {
+        "default": "想加入我们？先证明你的价值。",
+        "first_meet": "又来了一个幸存者。你有什么本事？"
+      },
+      "relations": {"initial": 20, "max": 100}
+    },
+    "营地-居民": {
+      "name": "小林",
+      "title": "营地居民",
+      "location": "郊外-营地",
+      "dialogue": {
+        "default": "外面的世界...还有救吗？",
+        "first_meet": "你从外面来的？外面现在怎么样了？"
+      },
+      "relations": {"initial": 50, "max": 100}
+    }
+  },
+
+  "enemies": [
+    {"name": "普通丧尸", "description": "行动迟缓的普通丧尸，向你扑来！", "level": 1, "hp": 40, "attack": 10},
+    {"name": "迅捷丧尸", "description": "被感染后变异的迅捷型丧尸，速度极快！", "level": 2, "hp": 30, "attack": 15},
+    {"name": "巨型丧尸", "description": "体型巨大的变异丧尸，一拳能砸碎汽车！", "level": 4, "hp": 150, "attack": 30}
+  ],
+
+  "randomEncounters": [
+    {
+      "id": "物资发现",
+      "chance": 0.2,
+      "conditions": {"location": "废墟-居民区"},
+      "description": "你在一个房间里发现了一个上锁的箱子...",
+      "choices": [
+        {"text": "撬开箱子", "action": "force_open"},
+        {"text": "寻找钥匙", "action": "find_key"},
+        {"text": "放弃", "action": "give_up"}
+      ]
+    },
+    {
+      "id": "幸存者求助",
+      "chance": 0.12,
+      "conditions": {"location": "废墟-街头"},
+      "description": "一个声音从废墟中传来：救命！有人吗！",
+      "choices": [
+        {"text": "前往查看", "action": "investigate_scream"},
+        {"text": "快速离开", "action": "run_away"}
+      ]
+    }
+  ],
+
+  "items": {
+    "罐头食品": {"name": "罐头食品", "type": "食物", "description": "恢复15点饥饿值", "rarity": "普通"},
+    "急救包": {"name": "急救包", "type": "医疗", "description": "恢复40点生命值", "rarity": "稀有"},
+    "子弹": {"name": "子弹", "type": "弹药", "description": "9mm子弹 x10", "rarity": "普通"},
+    "手电筒": {"name": "手电筒", "type": "工具", "description": "在黑暗中提供照明", "rarity": "普通"}
+  },
+
+  "story": {
+    "mainQuest": {
+      "id": "末日余生",
+      "name": "末日余生",
+      "description": "丧尸病毒爆发，你必须在废墟中生存下去..."
+    }
+  }
+}

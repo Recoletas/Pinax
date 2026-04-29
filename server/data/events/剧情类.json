@@ -1,0 +1,61 @@
+[
+  {
+    "id": "main_quest_trigger",
+    "name": "主线剧情",
+    "keywords": ["主线", "剧情"],
+    "type": "story",
+    "description": "推进主线剧情",
+    "effects": [
+      {"type": "advance_main_quest"}
+    ],
+    "narrative": "剧情发生了重大转折..."
+  },
+  {
+    "id": "side_quest_unlock",
+    "name": "支线解锁",
+    "keywords": ["支线", "任务"],
+    "type": "story",
+    "description": "解锁新的支线任务",
+    "conditions": {"minLevel": 2},
+    "effects": [
+      {"type": "unlock_quest"}
+    ],
+    "narrative": "一个新的任务机会出现在你面前..."
+  },
+  {
+    "id": "story_branch",
+    "name": "剧情分支",
+    "keywords": ["选择", "决定"],
+    "type": "story",
+    "description": "剧情面临重要选择",
+    "effects": [
+      {"type": "set_flag", "key": "story_choice", "value": "pending"}
+    ],
+    "narrative": "你面临一个重要的选择，这个决定可能会影响很多事情..."
+  },
+  {
+    "id": "plot_reveal",
+    "name": "剧情揭示",
+    "keywords": ["真相", "揭示"],
+    "type": "story",
+    "description": "揭示重要的剧情信息",
+    "conditions": {"flag": "ready_for_reveal"},
+    "effects": [
+      {"type": "set_flag", "key": "knows_truth", "value": true},
+      {"type": "add_exp", "value": 100}
+    ],
+    "narrative": "真相终于大白..."
+  },
+  {
+    "id": "ending_trigger",
+    "name": "结局触发",
+    "keywords": ["结局", "结束"],
+    "type": "story",
+    "description": "触发游戏结局",
+    "conditions": {"completedMainQuest": true},
+    "effects": [
+      {"type": "trigger_ending"}
+    ],
+    "narrative": "故事即将迎来终章..."
+  }
+]

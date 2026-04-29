@@ -1,0 +1,37 @@
+[
+  {
+    "id": "time_flow",
+    "name": "时间流转",
+    "keywords": ["时间流转", "时间快进", "等待"],
+    "type": "time",
+    "description": "时间缓缓流逝，世界在悄然变化...",
+    "effects": [
+      {"type": "advance_time", "periods": 1}
+    ],
+    "narrative": "你静静等待，周围的环境随着时间推移而发生变化。"
+  },
+  {
+    "id": "rest_night",
+    "name": "休息一晚",
+    "keywords": ["休息", "睡一晚", "睡一觉"],
+    "type": "time",
+    "description": "你找了个安全的地方休息",
+    "effects": [
+      {"type": "advance_time", "periods": 4},
+      {"type": "restore_vitality", "value": 100}
+    ],
+    "narrative": "你找到一处安静的所在度过了休息时间。当再次睁开眼睛时，已经是第二天的早晨，精力完全恢复。"
+  },
+  {
+    "id": "weather_change",
+    "name": "天气变化",
+    "keywords": ["天气"],
+    "type": "time",
+    "description": "天气开始变化",
+    "conditions": {"minActions": 10},
+    "effects": [
+      {"type": "change_weather"}
+    ],
+    "narrative": "抬头看看天空，云层正在聚拢。看来天气要变了。"
+  }
+]

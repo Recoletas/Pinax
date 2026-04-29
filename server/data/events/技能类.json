@@ -1,0 +1,49 @@
+[
+  {
+    "id": "learn_skill",
+    "name": "学习技能",
+    "keywords": ["学习", "练习", "训练"],
+    "type": "skill",
+    "description": "学习新的技能",
+    "conditions": {"minLevel": 2},
+    "effects": [
+      {"type": "learn_skill"},
+      {"type": "consume_item", "item": "技能书"}
+    ],
+    "narrative": "你翻开技能书，开始学习新的技能..."
+  },
+  {
+    "id": "train",
+    "name": "训练",
+    "keywords": ["训练", "锻炼", "练习"],
+    "type": "skill",
+    "description": "通过训练提升能力",
+    "effects": [
+      {"type": "add_exp", "value": 20},
+      {"type": "reduce_vitality", "value": 10}
+    ],
+    "narrative": "你进行了一番刻苦训练，虽然辛苦，但感觉有所提升。"
+  },
+  {
+    "id": "breakthrough",
+    "name": "突破",
+    "keywords": ["突破", "顿悟", "升华"],
+    "type": "skill",
+    "description": "能力达到瓶颈，尝试突破",
+    "conditions": {"flag": "can_breakthrough"},
+    "effects": [
+      {"type": "level_up"}
+    ],
+    "narrative": "经过长时间的积累，你的某项能力终于达到了突破的临界点..."
+  },
+  {
+    "id": "meditation",
+    "name": "冥想",
+    "keywords": ["冥想", "打坐", "静心"],
+    "type": "skill",
+    "description": "通过冥想提升精神力",
+    "effects": [
+      {"type": "add_exp", "value": 10},
+      {"type": "restore_mood", "value": 10}
+    ],
+    "narrative": "你找了个安静的地方冥想，让

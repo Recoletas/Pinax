@@ -1,0 +1,134 @@
+{
+  "config": {
+    "name": "科幻星际",
+    "description": "驾驶飞船穿梭于星系之间，探索未知星球，与外星文明交流或战斗。基因改造、机械义体、赛博朋克尽在掌握。",
+    "tags": ["飞船", "星球", "赛博", "基因", "机器人", "虫族", "星际", "科技"],
+    "preview": "星际飞船穿梭于星海之中，远处星球若隐若现...",
+    "defaultLocation": "新希望号空间站",
+    "starterMoney": 500
+  },
+
+  "locations": {
+    "新希望号空间站": {
+      "name": "新希望号空间站",
+      "description": "人类在银河系边缘建造的大型空间站，各色人等汇聚于此。霓虹灯光闪烁，太空电梯直达星球表面。",
+      "exits": {
+        "north": "商业区",
+        "east": "工业舱",
+        "west": "居住区",
+        "down": "停机坪"
+      },
+      "npcs": ["空间站-信息商人", "空间站-赏金猎人", "空间站-工程师"],
+      "events": [
+        {
+          "id": "空间站警报",
+          "category": "story",
+          "description": "广播响起：注意，一艘不明飞船正在接近..."
+        }
+      ]
+    },
+    "商业区": {
+      "name": "商业区",
+      "description": "霓虹闪烁的商业区，到处是全息广告和熙攘的人群。",
+      "exits": {
+        "south": "新希望号空间站"
+      },
+      "npcs": ["商业区-武器商", "商业区-基因商人"],
+      "events": []
+    },
+    "工业舱": {
+      "name": "工业舱",
+      "description": "机器轰鸣，火花四溅。空间站的工业心脏。",
+      "exits": {
+        "west": "新希望号空间站"
+      },
+      "npcs": ["工业舱-机械师"],
+      "events": []
+    },
+    "未知星球": {
+      "name": "未知星球-Z-779",
+      "description": "尚未被完全探索的星球，表面覆盖着奇异荧光植物。",
+      "exits": {
+        "orbit": "新希望号空间站"
+      },
+      "npcs": [],
+      "events": []
+    }
+  },
+
+  "npcs": {
+    "空间站-信息商人": {
+      "name": "接线员-7",
+      "title": "信息商人",
+      "location": "新希望号空间站",
+      "dialogue": {
+        "default": "想要什么情报？",
+        "first_meet": "欢迎来到黑市，所有信息明码标价。"
+      },
+      "shop": {
+        "情报": [
+          {"name": "虫族动向", "price": 100},
+          {"name": "星际航道", "price": 150}
+        ]
+      },
+      "relations": {"initial": 30, "max": 100}
+    },
+    "空间站-赏金猎人": {
+      "name": "雷克斯",
+      "title": "赏金猎人",
+      "location": "新希望号空间站",
+      "dialogue": {
+        "default": "别挡道，我很忙。",
+        "first_meet": "我是雷克斯，银河系最顶尖的赏金猎人。"
+      },
+      "relations": {"initial": 20, "max": 100}
+    },
+    "商业区-武器商": {
+      "name": "军火贩子",
+      "title": "武器商",
+      "location": "商业区",
+      "dialogue": {
+        "default": "要威力大的？还是隐蔽性强的？",
+        "first_meet": "这里什么武器都能买到。"
+      },
+      "shop": {
+        "枪械": [
+          {"name": "激光手枪", "price": 200},
+          {"name": "等离子步枪", "price": 500}
+        ]
+      },
+      "relations": {"initial": 40, "max": 100}
+    }
+  },
+
+  "enemies": [
+    {"name": "太空海盗", "description": "穿着破旧装甲的太空海盗向你开火！", "level": 2, "hp": 60, "attack": 12},
+    {"name": "虫族-工虫", "description": "虫族的工虫，数量众多！", "level": 1, "hp": 30, "attack": 8}
+  ],
+
+  "randomEncounters": [
+    {
+      "id": "太空救援",
+      "chance": 0.1,
+      "conditions": {"location": "未知星球"},
+      "description": "你收到一个微弱的求救信号...",
+      "choices": [
+        {"text": "前往调查", "action": "investigate_signal"},
+        {"text": "忽略信号", "action": "ignore_signal"}
+      ]
+    }
+  ],
+
+  "items": {
+    "激光手枪": {"name": "激光手枪", "type": "武器", "description": "标准激光武器", "rarity": "普通"},
+    "急救包": {"name": "急救包", "type": "消耗品", "description": "恢复50点生命值", "rarity": "普通"}
+  },
+
+  "story": {
+    "mainQuest": {
+      "id": "星际漂流",
+      "name": "星际漂流",
+      "description": "你的飞船在一次跳跃中失控..."
+    }
+  }
+}

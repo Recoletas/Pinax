@@ -1,0 +1,145 @@
+{
+  "config": {
+    "name": "都市生活",
+    "description": "在现代都市中体验职场奋斗、社交恋爱、投资理财。买房买车、升职加薪、邂逅姻缘，一切从平凡开始。",
+    "tags": ["工作", "恋爱", "买房", "投资", "职场", "社交", "现代", "都市"],
+    "preview": "繁忙的都市生活，每个人都在为梦想奔波...",
+    "defaultLocation": "城市-出租屋",
+    "starterMoney": 5000
+  },
+
+  "locations": {
+    "城市-出租屋": {
+      "name": "出租屋",
+      "description": "一间不大的单身公寓，虽然简陋，但这是你在这座城市的第一个家。",
+      "exits": {"out": "城市-街道"},
+      "npcs": [],
+      "events": []
+    },
+    "城市-街道": {
+      "name": "城市街道",
+      "description": "繁华的都市街道，车水马龙，霓虹闪烁。便利店、咖啡店、地铁站应有尽有。",
+      "exits": {
+        "north": "城市-商业区",
+        "east": "城市-公园",
+        "west": "城市-老城区",
+        "home": "城市-出租屋"
+      },
+      "npcs": ["街道-便利店员"],
+      "events": []
+    },
+    "城市-商业区": {
+      "name": "商业区",
+      "description": "高楼林立的白领聚集地，星巴克和高端餐厅林立。",
+      "exits": {
+        "south": "城市-街道"
+      },
+      "npcs": ["商业区-白领"],
+      "events": []
+    },
+    "城市-公园": {
+      "name": "中心公园",
+      "description": "城市中心的绿洲，有跑步道和长椅。",
+      "exits": {"west": "城市-街道"},
+      "npcs": ["公园-晨跑者"],
+      "events": []
+    },
+    "写字楼A座": {
+      "name": "写字楼A座",
+      "description": "你的公司所在，38层的玻璃幕墙建筑。",
+      "exits": {
+        "lobby": "城市-商业区",
+        "floor_20": "公司总部"
+      },
+      "npcs": ["公司-前台"],
+      "events": []
+    },
+    "公司总部": {
+      "name": "公司总部",
+      "description": "你工作的地方，开放式办公区，键盘声此起彼伏。",
+      "exits": {"down": "写字楼A座"},
+      "npcs": ["公司-上司", "公司-同事"],
+      "events": []
+    }
+  },
+
+  "npcs": {
+    "街道-便利店员": {
+      "name": "小美",
+      "title": "便利店员",
+      "location": "城市-街道",
+      "dialogue": {
+        "default": "欢迎光临！今天有什么需要？",
+        "first_meet": "你是新搬来的吧？之前没见过你。"
+      },
+      "shop": {
+        "食品": [
+          {"name": "便当", "price": 15},
+          {"name": "咖啡", "price": 8}
+        ]
+      },
+      "relations": {"initial": 50, "max": 100}
+    },
+    "公司-上司": {
+      "name": "王经理",
+      "title": "部门经理",
+      "location": "公司总部",
+      "dialogue": {
+        "default": "那个项目进展如何了？",
+        "first_meet": "你就是新来的？好好干。"
+      },
+      "relations": {"initial": 30, "max": 100}
+    },
+    "公司-同事": {
+      "name": "小李",
+      "title": "同事",
+      "location": "公司总部",
+      "dialogue": {
+        "default": "嗨，今天加班吗？",
+        "first_meet": "我是小李，以后有什么不懂的尽管问我。"
+      },
+      "relations": {"initial": 60, "max": 100}
+    },
+    "公园-晨跑者": {
+      "name": "神秘女子",
+      "title": "晨跑者",
+      "location": "城市-公园",
+      "dialogue": {
+        "default": "（戴着耳机，专心跑步）",
+        "first_meet": "你也喜欢晨跑？很少有人这么早。"
+      },
+      "relations": {"initial": 20, "max": 100}
+    }
+  },
+
+  "enemies": [
+    {"name": "加班", "description": "无休止的加班让你身心俱疲...", "level": 1, "hp": 20, "attack": 10},
+    {"name": "甲方", "description": "甲方爸爸又改需求了！", "level": 3, "hp": 50, "attack": 25}
+  ],
+
+  "randomEncounters": [
+    {
+      "id": "地铁让座",
+      "chance": 0.15,
+      "conditions": {"location": "城市-街道"},
+      "description": "地铁上，一位老人站在你面前...",
+      "choices": [
+        {"text": "主动让座", "action": "give_seat"},
+        {"text": "假装没看见", "action": "ignore_elder"}
+      ]
+    }
+  ],
+
+  "items": {
+    "便当": {"name": "便当", "type": "食品", "description": "恢复10点精力", "rarity": "普通"},
+    "咖啡": {"name": "咖啡", "type": "饮品", "description": "提神醒脑", "rarity": "普通"}
+  },
+
+  "story": {
+    "mainQuest": {
+      "id": "都市梦想",
+      "name": "都市梦想",
+      "description": "你独自来到这座城市，想要在这里闯出一片天地..."
+    }
+  }
+}

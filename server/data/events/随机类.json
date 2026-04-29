@@ -1,0 +1,66 @@
+[
+  {
+    "id": "lucky_find",
+    "name": "意外发现",
+    "keywords": [],
+    "type": "random",
+    "description": "意外发现了有用的东西",
+    "conditions": {"random": 0.08},
+    "effects": [
+      {"type": "give_item", "item": "金币", "count": 100},
+      {"type": "add_exp", "value": 20}
+    ],
+    "narrative": "运气真好！你在地上发现了别人遗落的财物。"
+  },
+  {
+    "id": "misfortune",
+    "name": "不幸遭遇",
+    "keywords": [],
+    "type": "random",
+    "description": "遇到了不好的事情",
+    "conditions": {"random": 0.1},
+    "effects": [
+      {"type": "reduce_vitality", "value": 15},
+      {"type": "lose_item", "chance": 0.3}
+    ],
+    "narrative": "倒霉的事情发生了...你遭受了损失。"
+  },
+  {
+    "id": "stranger_encounter",
+    "name": "陌生人相遇",
+    "keywords": [],
+    "type": "random",
+    "description": "路上遇到了陌生人",
+    "conditions": {"random": 0.12},
+    "effects": [
+      {"type": "increase_relation", "npc": "stranger", "value": 10}
+    ],
+    "narrative": "一个陌生人向你走来..."
+  },
+  {
+    "id": "old_friend",
+    "name": "故人重逢",
+    "keywords": [],
+    "type": "random",
+    "description": "遇到了认识的人",
+    "conditions": {"random": 0.05, "minDay": 5},
+    "effects": [
+      {"type": "set_flag", "key": "met_old_friend", "value": true},
+      {"type": "add_exp", "value": 50}
+    ],
+    "narrative": "意想不到！一个熟悉的身影出现在你面前——是你曾经的故人。"
+  },
+  {
+    "id": "miracle",
+    "name": "奇迹发生",
+    "keywords": [],
+    "type": "random",
+    "description": "遇到了奇迹般的好事",
+    "conditions": {"random": 0.02},
+    "effects": [
+      {"type": "full_restore"},
+      {"type": "give_item", "item": "稀有物品", "count": 1}
+    ],
+    "narrative": "难以置信！奇迹发生了，你获得了意想不到的好运。"
+  }
+]

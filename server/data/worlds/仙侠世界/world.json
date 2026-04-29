@@ -1,0 +1,223 @@
+{
+  "config": {
+    "name": "仙侠世界",
+    "description": "踏入修仙之路，御剑飞行、炼丹炼器、渡劫飞升。探寻天地奥秘，成就大道。",
+    "tags": ["修仙", "法宝", "丹药", "飞剑", "门派", "渡劫", "古风", "玄幻"],
+    "preview": "御剑飞行于云海之上，俯瞰人间烟火...",
+    "defaultLocation": "青云镇",
+    "starterMoney": 50
+  },
+
+  "locations": {
+    "青云镇": {
+      "name": "青云镇",
+      "description": "修仙界边缘的小镇，灵气稀薄，但常有散修在此落脚。",
+      "exits": {
+        "north": "青云山",
+        "east": "妖兽森林",
+        "west": "凡俗界"
+      },
+      "npcs": ["青云镇-药铺老板", "青云镇-铁匠", "青云镇-神秘老者"],
+      "events": [
+        {
+          "id": "镇口传闻",
+          "category": "story",
+          "description": "镇口有人在议论最近妖兽森林的异常..."
+        }
+      ]
+    },
+    "青云山": {
+      "name": "青云山",
+      "description": "青云宗所在，山峰高耸入云，灵气充沛。山门巍峨壮观。",
+      "exits": {
+        "south": "青云镇",
+        "up": "青云峰顶"
+      },
+      "npcs": ["青云宗-守门弟子", "青云宗-掌门"],
+      "events": [
+        {
+          "id": "入门测试",
+          "category": "story",
+          "description": "每年一度的入门测试即将开始..."
+        }
+      ]
+    },
+    "妖兽森林": {
+      "name": "妖兽森林",
+      "description": "妖兽横行的原始森林，低阶妖兽出没。危险与机遇并存。",
+      "exits": {
+        "west": "青云镇",
+        "north": "妖兽巢穴"
+      },
+      "npcs": [],
+      "events": [
+        {
+          "id": "妖兽遭遇",
+          "category": "combat",
+          "description": "一只妖兽从灌木丛中窜出！"
+        }
+      ]
+    },
+    "凡俗界": {
+      "name": "凡俗界",
+      "description": "普通人居住的世界，没有灵气，只有红尘烟火。",
+      "exits": {
+        "east": "青云镇"
+      },
+      "npcs": ["凡俗界-酒楼老板", "凡俗界-书生"],
+      "events": []
+    }
+  },
+
+  "npcs": {
+    "青云镇-药铺老板": {
+      "name": "孙神医",
+      "title": "药铺老板",
+      "location": "青云镇",
+      "dialogue": {
+        "default": "这位道友，要些什么丹药？",
+        "first_meet": "老夫孙神医，在此开铺多年，什么丹药都有。",
+        "friendly": "原来是老主顾了，给你打个折。"
+      },
+      "shop": {
+        "丹药": [
+          {"name": "回气丹", "price": 20, "effect": "恢复20点灵力"},
+          {"name": "疗伤丹", "price": 30, "effect": "恢复30点气血"},
+          {"name": "筑基丹", "price": 200, "effect": "增加筑基成功率"}
+        ],
+        "药材": [
+          {"name": "灵草", "price": 10, "description": "炼制丹药的基本材料"},
+          {"name": "妖兽内丹", "price": 50, "description": "妖兽修炼凝结的精华"}
+        ]
+      },
+      "relations": {"initial": 40, "max": 100}
+    },
+    "青云镇-铁匠": {
+      "name": "郑铁锤",
+      "title": "铁匠",
+      "location": "青云镇",
+      "dialogue": {
+        "default": "打造法器？没问题！",
+        "first_meet": "我郑铁锤，打造法器三十年，从不失手。"
+      },
+      "shop": {
+        "飞剑": [
+          {"name": "精铁剑", "price": 80, "stats": {"攻击": 10, "速度": 5}},
+          {"name": "寒铁剑", "price": 150, "stats": {"攻击": 18, "速度": 8}}
+        ],
+        "防具": [
+          {"name": "布甲", "price": 50, "stats": {"防御": 5}},
+          {"name": "皮甲", "price": 100, "stats": {"防御": 12}}
+        ]
+      },
+      "relations": {"initial": 30, "max": 100}
+    },
+    "青云镇-神秘老者": {
+      "name": "神秘老者",
+      "title": "隐世高人",
+      "location": "青云镇",
+      "dialogue": {
+        "default": "有缘人...你我相遇，便是缘分。",
+        "first_meet": "我观你根骨不凡，若有机缘，可来寻我。",
+        "secret": "那本功法...你若能寻得，我便收你为徒。"
+      },
+      "quests": ["神秘传承"],
+      "relations": {"initial": 20, "max": 100}
+    },
+    "青云宗-守门弟子": {
+      "name": "李师兄",
+      "title": "守门弟子",
+      "location": "青云山",
+      "dialogue": {
+        "default": "来者止步，请出示令牌。",
+        "first_meet": "青云宗不接待外客，请回吧。"
+      },
+      "relations": {"initial": 50, "max": 100}
+    },
+    "青云宗-掌门": {
+      "name": "清虚真人",
+      "title": "青云宗掌门",
+      "location": "青云山",
+      "dialogue": {
+        "default": "我观天道运转，自有其规律。",
+        "first_meet": "你便是那个想来拜师的小辈？"
+      },
+      "relations": {"initial": 0, "max": 100}
+    }
+  },
+
+  "enemies": [
+    {"name": "野狼", "description": "一只凶猛的野狼，露出獠牙向你扑来！", "level": 1, "hp": 30, "attack": 8},
+    {"name": "妖兽-野猪", "description": "一头妖兽野猪横冲直撞而来！", "level": 2, "hp": 50, "attack": 12},
+    {"name": "妖兽-毒蛇", "description": "一条五彩斑斓的毒蛇吐着信子！", "level": 2, "hp": 25, "attack": 15},
+    {"name": "妖兽-灰熊", "description": "巨大的灰熊咆哮着冲过来！", "level": 3, "hp": 80, "attack": 18},
+    {"name": "妖兽-青狼王", "description": "狼群之王，目光凶狠地盯着你！", "level": 5, "hp": 150, "attack": 25}
+  ],
+
+  "randomEncounters": [
+    {
+      "id": "灵草发现",
+      "chance": 0.15,
+      "conditions": {"location": "妖兽森林"},
+      "description": "你在草丛中发现了一株散发微光的灵草！",
+      "choices": [
+        {"text": "采摘", "action": "collect_herb"},
+        {"text": "继续前进", "action": "ignore"}
+      ]
+    },
+    {
+      "id": "仙人遗迹",
+      "chance": 0.08,
+      "conditions": {"location": "青云山"},
+      "description": "你似乎看到远处有一道光芒闪过，像是某种遗迹的信号...",
+      "choices": [
+        {"text": "前去查看", "action": "explore_ruins"},
+        {"text": "不予理会", "action": "ignore"}
+      ]
+    },
+    {
+      "id": "散修切磋",
+      "chance": 0.12,
+      "conditions": {"location": "青云镇"},
+      "description": "一位散修看中了你的法器，提出切磋比试...",
+      "choices": [
+        {"text": "接受切磋", "action": "accept_duel"},
+        {"text": "婉言拒绝", "action": "refuse_duel"}
+      ]
+    }
+  ],
+
+  "items": {
+    "回气丹": {"name": "回气丹", "type": "丹药", "description": "服用后恢复20点灵力", "rarity": "普通"},
+    "疗伤丹": {"name": "疗伤丹", "type": "丹药", "description": "服用后恢复30点气血", "rarity": "普通"},
+    "筑基丹": {"name": "筑基丹", "type": "丹药", "description": "增加筑基成功率", "rarity": "稀有"},
+    "精铁剑": {"name": "精铁剑", "type": "飞剑", "description": "普通铁剑，适合新手", "rarity": "普通"},
+    "灵草": {"name": "灵草", "type": "药材", "description": "炼制丹药的基本材料", "rarity": "普通"},
+    "妖兽内丹": {"name": "妖兽内丹", "type": "材料", "description": "妖兽修炼凝结的精华", "rarity": "稀有"}
+  },
+
+  "story": {
+    "mainQuest": {
+      "id": "初入仙途",
+      "name": "初入仙途",
+      "description": "你意外踏入修仙之路，必须在这里开始你的冒险..."
+    },
+    "chapters": [
+      {
+        "id": "chapter1",
+        "name": "第一章：机缘",
+        "events": ["初入世界", "遇见神秘老者", "初探妖兽森林"]
+      },
+      {
+        "id": "chapter2",
+        "name": "第二章：筑基",
+        "events": ["拜入山门", "修炼功法", "初战妖兽"]
+      },
+      {
+        "id": "chapter3",
+        "name": "第三章：问道",
+        "events": ["参加宗门大比", "结识同道中人", "探索秘境"]
+      }
+    ]
+  }
+}

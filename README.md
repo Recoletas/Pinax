@@ -1,128 +1,268 @@
 # 开放世界文字游戏框架
 
-基于 SillyTavern 提示词工程设计的文字冒险游戏框架。
+基于 SillyTavern 提示词工程设计的文字冒险游戏框架，支持前端界面和后端服务。
 
-## 核心特性
-
-- **关键词触发系统** - 输入特定词汇激活对应事件
-- **时间推进系统** - 自动或手动推进游戏时间
-- **状态追踪** - 完整管理玩家状态、世界状态、任务进度
-- **开放世界** - 高自由度探索，多分支剧情
-
-## 文件结构
+## 项目结构
 
 ```
 text-game-framework/
-├── SYSTEM_PROMPT.md    # 系统提示词（核心框架规则）
-├── game-config.json    # 事件、NPC、地点、物品配置
-├── example-world.md     # 示例世界观和剧情
-└── README.md            # 本文件
+├── package.json              # 项目配置 (Vue 3 + Express)
+├── vite.config.js            # Vite 构建配置
+├── jsconfig.json             # JS 项目配置
+│
+├── public/                   # 静态资源
+│   └── index.html            # HTML 入口
+│
+├── src/                      # 前端源码 (Vue 3)
+│   ├── main.js               # 入口文件
+│   ├── App.vue               # 根组件
+│   ├── styles/
+│   │   └── main.css          # 全局样式
+│   ├── components/           # Vue 组件
+│   │   ├── GamePanel.vue     # 故事输出区
+│   │   ├── InputArea.vue     # 玩家输入区
+│   │   ├── StatusBar.vue     # 状态栏
+│   │   ├── Inventory.vue     # 背包
+│   │   ├── QuestLog.vue      # 任务日志
+│   │   ├── WorldMap.vue      # 世界地图
+│   │   └── Settings.vue      # 设置面板
+│   ├── stores/               # Pinia 状态管理
+│   │   └── gameStore.js
+│   └── services/             # API 服务
+│       └── api.js
+│
+├── server/                   # 后端源码 (Express)
+│   ├── index.js              # 服务器入口
+│   ├── routes/               # API 路由
+│   │   ├── game.js           # 游戏 API
+│   │   ├── events.js         # 事件 API
+│   │   └── config.js         # 配置 API
+│   ├── services/             # 核心服务
+│   │   ├── eventEngine.js    # 事件引擎
+│   │   ├── timeSystem.js     # 时间系统
+│   │   └── stateManager.js   # 状态管理
+│   └── data/                 # 游戏数据
+│       ├── worlds/           # 世界设定
+│       │   ├── 仙侠世界/
+│       │   ├── 科幻星际/
+│       │   ├── 都市生活/
+│       │   ├── 奇幻大陆/
+│       │   └── 末日生存/
+│       └── events/           # 事件库
+│           ├── 时间类.json
+│           ├── 探索类.json
+│           ├── 战斗类.json
+│           ├── 社交类.json
+│           ├── 生存类.json
+│           ├── 技能类.json
+│           ├── 随机类.json
+│           └── 剧情类.json
+│
+├── SYSTEM_PROMPT.md          # AI 系统提示词
+├── game-config.json          # 游戏配置 (旧版)
+└── example-world.md          # 世界设定示例
 ```
 
 ## 快速开始
 
-### 1. 导入系统提示词
+### 1. 安装依赖
 
-将 `SYSTEM_PROMPT.md` 的内容作为系统提示词（System Prompt）发送给 LLM。
+```bash
+cd text-game-framework
+npm install
+```
 
-### 2. 配置游戏世界
+### 2. 启动服务器
 
-编辑 `game-config.json` 自定义：
-- 初始地点和时间
-- 事件触发条件
-- NPC 行为和对话
-- 物品和奖励
+```bash
+# 终端1: 启动后端 (端口 3001)
+node server/index.js
+
+# 终端2: 启动前端 (端口 5173)
+npm run dev
+```
 
 ### 3. 开始游戏
 
-玩家可以通过以下方式与游戏互动：
+访问 http://localhost:5173，选择世界后即可开始游戏。
 
-| 指令类型 | 示例 | 效果 |
-|---------|------|------|
-| 时间推进 | 时间流转、休息一晚 | 推进游戏时间 |
-| 主动探索 | 探索森林、调查矿洞 | 触发探索事件 |
-| NPC交互 | 与村长交谈、交易 | 进行对话或买卖 |
-| 系统查询 | 状态、背包、帮助 | 查看游戏信息 |
+---
 
-## 关键词触发机制
+## 功能说明
 
-### 直接触发
+### 世界系统
+
+| 世界 | 风格 | 核心机制 |
+|------|------|---------|
+| 仙侠世界 | 古风玄幻 | 修仙、法宝、丹药、门派 |
+| 科幻星际 | 未来科技 | 飞船、基因、机械义体 |
+| 都市生活 | 现代都市 | 职场、社交、投资 |
+| 奇幻大陆 | 西方奇幻 | 魔法、龙、佣兵公会 |
+| 末日生存 | 末日废土 |丧尸、资源、避难所 |
+
+### 关键词触发系统
+
+玩家输入文字时，系统会根据关键词触发对应事件：
+
+| 类型 | 关键词 | 效果 |
+|------|--------|------|
+| 时间 | 时间流转、休息、睡一晚 | 推进游戏时间 |
+| 探索 | 探索、调查、搜索 | 搜索当前区域 |
+| 战斗 | 战斗、攻击、打怪 | 进入战斗 |
+| 社交 | 交谈、交易、打听 | 与NPC互动 |
+| 系统 | 状态、背包、帮助 | 显示游戏信息 |
+
+### 时间推进规则
+
+- 每 **3个行动** 自动推进一个时段
+- 时段顺序：凌晨 → 清晨 → 早晨 → 上午 → 中午 → 下午 → 傍晚 → 夜晚 → 深夜
+- 休息/睡眠推进到次日早晨，并恢复全部精力
+
+---
+
+## API 文档
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/api/config/worlds` | 获取世界列表 |
+| GET | `/api/config/worlds/:id` | 获取世界详情 |
+| POST | `/api/game/start` | 开始新游戏 |
+| POST | `/api/game/action` | 发送玩家行动 |
+| GET | `/api/game/state/:gameId` | 获取游戏状态 |
+| GET | `/api/events/categories` | 获取事件分类 |
+
+### 开始游戏
+
+```bash
+curl -X POST http://localhost:3001/api/game/start \
+  -H "Content-Type: application/json" \
+  -d '{"worldId":"仙侠世界"}'
 ```
-玩家输入：「前往村长家」
-→ 检查事件列表中 trigger 包含「前往村长家」的事件
-→ 激活「村长接见」事件
+
+### 发送行动
+
+```bash
+curl -X POST http://localhost:3001/api/game/action \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"你的游戏ID","action":"时间流转"}'
 ```
 
-### 条件触发
+---
+
+## 添加新世界
+
+1. 在 `server/data/worlds/` 下创建新文件夹
+2. 添加 `world.json` 文件
+3. 配置地点、NPC、敌人、随机事件等
+
+示例结构：
+
 ```json
 {
-  "trigger": {
-    "keywords": ["狼群", "狼"],
-    "conditions": {
-      "flag": "heard_about_wolves",
-      "location": "新手村"
+  "config": {
+    "name": "新世界名称",
+    "description": "世界描述",
+    "tags": ["标签1", "标签2"],
+    "defaultLocation": "起始地点"
+  },
+  "locations": {
+    "地点ID": {
+      "name": "地点名称",
+      "description": "地点描述",
+      "exits": {"north": "另一个地点"},
+      "npcs": ["NPC_ID"]
     }
-  }
+  },
+  "npcs": {
+    "NPC_ID": {
+      "name": "NPC名称",
+      "location": "所在地点",
+      "dialogue": {"default": "默认对话"}
+    }
+  },
+  "enemies": [],
+  "randomEncounters": []
 }
 ```
 
-### 事件链
-```
-完成「获得钥匙」 → 设置 flag「has_key」
-→ 检查其他事件的 unlockConditions
-→ 「打开宝箱」事件变为可触发
-```
+---
 
-## 时间系统
+## 添加新事件
 
-游戏时间会自动推进，但玩家也可以主动控制：
-
-- 每 2-3 个行动自动推进一个时段
-- 「时间流转」可以主动跳到下一个剧情节点
-- 休息/睡眠直接推进到次日早晨
-
-## 状态管理
-
-AI 会维护一个状态追踪系统，包括：
-
-- 当前时间地点
-- 玩家属性和背包
-- 任务进度
-- 世界状态标志
-- NPC 好感度
-
-## 扩展框架
-
-### 添加新事件
-在 `game-config.json` 的 `events` 部分添加：
+在 `server/data/events/` 下添加 JSON 文件：
 
 ```json
-"my_event": {
-  "id": "my_event",
-  "name": "我的事件",
-  "trigger": ["关键词1", "关键词2"],
-  "description": "事件描述...",
-  "actions": [
-    {"type": "giveItem", "item": "物品名", "count": 1},
-    {"type": "setFlag", "key": "flag名", "value": true}
-  ],
-  "choices": [
-    {"text": "选项A", "next": "event_a"},
-    {"text": "选项B", "next": "event_b"}
-  ]
+[
+  {
+    "id": "event_id",
+    "name": "事件名称",
+    "keywords": ["触发关键词1", "触发关键词2"],
+    "type": "exploration",
+    "description": "事件描述",
+    "effects": [
+      {"type": "give_item", "item": "物品名", "count": 1}
+    ],
+    "narrative": "叙述文本..."
+  }
+]
+```
+
+事件效果类型：
+- `advance_time` - 推进时间
+- `restore_vitality` - 恢复生命
+- `give_item` - 给予物品
+- `set_flag` - 设置标志
+- `start_battle` - 开始战斗
+- `deal_damage` - 造成伤害
+
+---
+
+## 开发指南
+
+### 前端组件
+
+| 组件 | 功能 |
+|------|------|
+| GamePanel | 显示游戏故事和叙述 |
+| InputArea | 玩家输入和快捷按钮 |
+| StatusBar | 显示时间、地点、属性 |
+| Inventory | 背包物品管理 |
+| QuestLog | 任务列表 |
+| WorldMap | 已探索地点 |
+
+### 后端服务
+
+| 服务 | 功能 |
+|------|------|
+| eventEngine | 关键词解析和事件触发 |
+| timeSystem | 时间推进和时段管理 |
+| stateManager | 游戏状态存储和更新 |
+
+### 状态结构
+
+```javascript
+{
+  time: { day: 1, period: '早晨' },
+  player: { vitality: 100, mood: 80, money: 100 },
+  inventory: [],
+  quests: [],
+  flags: {},
+  worldState: { currentLocation: '地点' },
+  npcRelations: {},
+  discoveredPlaces: []
 }
 ```
 
-### 添加新地点
-在 `locations` 部分添加地点定义，包括：
-- 名称和描述
-- 出口连接
-- 可交互对象
-- 特殊条件
+---
 
-## 使用建议
+## 技术栈
 
-1. **新手引导**：让玩家先完成新手教程事件
-2. **节奏控制**：主线与支线交替，避免疲劳
-3. **反馈及时**：每个行动都要有明确的反馈
-4. **状态透明**：定期提醒玩家当前状态和可用选项
+- **前端**: Vue 3 + Vite + Pinia + Axios
+- **后端**: Express.js + Node.js
+- **样式**: CSS Variables + Flexbox
+
+---
+
+## 许可证
+
+MIT
