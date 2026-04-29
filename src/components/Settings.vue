@@ -1,4 +1,4 @@
-<template>
+<<template>
   <div class="settings-overlay" @click.self="$emit('close')">
     <div class="settings-modal">
       <div class="panel-header">
@@ -18,7 +18,7 @@
       </div>
 
       <div class="settings-content">
-        <!-- General Settings -->
+        <!-- 通用设置 -->
         <div v-if="activeTab === 'general'" class="tab-panel">
           <div class="setting-item">
             <label>语言</label>
@@ -41,7 +41,7 @@
           </div>
         </div>
 
-        <!-- API Settings -->
+        <!-- API 设置 -->
         <div v-if="activeTab === 'api'" class="tab-panel">
           <div class="setting-item">
             <label>API 提供商</label>
@@ -66,35 +66,34 @@
           </div>
 
           <div class="setting-item">
-            <label>Base URL</label>
+            <label>Base URL (例如 https://api.deepseek.com/v1)</label>
             <input
               v-model="apiSettings.baseUrl"
               class="input"
-              placeholder="https://api.openai.com/v1"
+              placeholder="请包含 /v1 路径"
               list="provider-urls"
               @blur="onUrlChange"
             />
             <datalist id="provider-urls">
-              <option v-for="p in providers" :key="p.id" :value="p.baseUrl"></option>
+              <option v-for="p in providers" :key="p.id" :value="p.baseUrl" />
             </datalist>
           </div>
 
           <div class="setting-item">
-            <label>模型</label>
+            <label>模型 (例如 deepseek-v4-flash)</label>
             <div class="model-select-wrapper">
-              <select v-model="selectedModel" class="input" :disabled="loadingModels">
-                <option value="">-- 选择模型 --</option>
-                <option v-if="detectedModels.length === 0 && !loadingModels" value="__custom__">自定义...</option>
-                <option v-for="m in detectedModels" :key="m" :value="m">{{ m }}</option>
-              </select>
-              <span v-if="loadingModels" class="loading-indicator">加载中...</span>
+              <input
+                v-model="apiSettings.model"
+                class="input"
+                :disabled="loadingModels"
+                list="model-suggestions"
+                placeholder="选择或手动输入模型名称..."
+              />
+              <datalist id="model-suggestions">
+                <option v-for="m in detectedModels" :key="m" :value="m"></option>
+              </datalist>
+              <span v-if="loadingModels" class="loading-indicator">获取模型中...</span>
             </div>
-            <input
-              v-if="selectedModel === '__custom__'"
-              v-model="apiSettings.model"
-              class="input mt-2"
-              placeholder="输入模型名称..."
-            />
           </div>
 
           <div class="setting-presets">
@@ -110,23 +109,8 @@
             </button>
           </div>
 
-          <div class="setting-presets mt-1">
-            <button
-              v-for="p in providers.slice(8)"
-              :key="p.id"
-              class="preset-btn"
-              :class="{ active: apiSettings.provider === p.id }"
-              @click="applyProvider(p.id)"
-            >
-              {{ p.name }}
-            </button>
-          </div>
-
           <div class="setting-info">
-            <p>{{ currentProvider?.description || '选择一个提供商开始' }}</p>
-            <p v-if="isCustomUrl" class="info-hint">
-              检测到自定义 URL，将自动获取可用模型列表。
-            </p>
+            <p>{{ currentProvider?.description || '建议：DeepSeek 模型请确保 Base URL 以 /v1 结尾' }}</p>
           </div>
 
           <div v-if="testResult" :class="['test-result', testResult.ok ? 'ok' : 'error']">
@@ -136,11 +120,11 @@
       </div>
 
       <div class="settings-actions">
-        <button class="btn" @click="testConnection" :disabled="testing || !apiSettings.baseUrl">
+        <button class="btn" @click="testConn" :disabled="testing || !apiSettings.baseUrl">
           {{ testing ? '测试中...' : '测试连接' }}
         </button>
-        <button class="btn btn-primary" @click="saveSettings">保存</button>
-        <button class="btn" @click="$emit('close')">关闭</button>
+        <button class="btn btn-primary" @click="saveAll">保存并关闭</button>
+        <button class="btn" @click="$emit('close')">取消</button>
       </div>
     </div>
   </div>
@@ -148,6 +132,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { testApiConnection, fetchAvailableModels, saveApiSettings } from '@/services/api.js' // 确保路径正确
 
 const emit = defineEmits(['close'])
 
@@ -157,32 +142,17 @@ const testing = ref(false)
 const loadingModels = ref(false)
 const testResult = ref(null)
 const detectedModels = ref([])
-const selectedModel = ref('')
+const isInitializing = ref(true)
 
 const providers = [
-  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', modelsUrl: '/models' },
-  { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelsUrl: '/models' },
-  { id: 'claude', name: 'Claude', baseUrl: 'https://api.anthropic.com/v1', modelsUrl: '/models' },
-  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', modelsUrl: '/models' },
-  { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', modelsUrl: '/models' },
-  { id: 'mistral', name: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', modelsUrl: '/models' },
-  { id: 'cohere', name: 'Cohere', baseUrl: 'https://api.cohere.ai/v1', modelsUrl: '/models' },
-  { id: 'perplexity', name: 'Perplexity', baseUrl: 'https://api.perplexity.ai', modelsUrl: '/models' },
-  { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434', modelsUrl: '/api/tags' },
-  { id: 'lmstudio', name: 'LM Studio', baseUrl: 'http://localhost:1234/v1', modelsUrl: '/models' },
-  { id: 'textgenwebui', name: 'Text Gen WebUI', baseUrl: 'http://localhost:5000', modelsUrl: '/v1/models' },
-  { id: 'one-api', name: 'One API', baseUrl: '', modelsUrl: '/models' },
-  { id: 'next-chat', name: 'NextChat', baseUrl: '', modelsUrl: '/models' },
-  { id: 'custom', name: '自定义', baseUrl: '', modelsUrl: '/models' },
-  { id: 'ai21', name: 'AI21', baseUrl: 'https://api.ai21.com/v1', modelsUrl: '/models' },
-  { id: 'makersuite', name: 'Google AI', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', modelsUrl: '/models' },
-  { id: 'vertexai', name: 'Vertex AI', baseUrl: 'https://dialogflow.googleapis.com/v3', modelsUrl: '/models' },
-  { id: 'azure', name: 'Azure OpenAI', baseUrl: '', modelsUrl: '/openai/models' },
-  { id: 'pollinations', name: 'Pollinations', baseUrl: 'https://gen.pollinations.ai', modelsUrl: '/models' },
-  { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', modelsUrl: '/models' },
-  { id: 'fireworks', name: 'Fireworks', baseUrl: 'https://api.fireworks.ai/inference/v1', modelsUrl: '/models' },
-  { id: 'xai', name: 'xAI', baseUrl: 'https://api.x.ai/v1', modelsUrl: '/models' },
-  { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', modelsUrl: '/models' },
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
+  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
+  { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1' },
+  { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
+  { id: 'ollama', name: 'Ollama (本地)', baseUrl: 'http://localhost:11434' },
+  { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
+  { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1' },
+  { id: 'custom', name: '自定义', baseUrl: '' },
 ]
 
 const settings = reactive({
@@ -192,163 +162,120 @@ const settings = reactive({
 })
 
 const apiSettings = reactive({
-  provider: 'openai',
+  provider: 'deepseek',
   apiKey: '',
   baseUrl: '',
-  model: '',
-  customModel: ''
+  model: ''
 })
 
 const currentProvider = computed(() => {
   return providers.find(p => p.id === apiSettings.provider)
 })
 
-const isCustomUrl = computed(() => {
-  const url = apiSettings.baseUrl
-  if (!url) return false
-  const knownUrls = providers.map(p => p.baseUrl).filter(Boolean)
-  // Check if URL exactly matches a known URL or is a subpath of it
-  return !knownUrls.some(known => url === known || url.startsWith(known + '/'))
-})
-
-onMounted(() => {
+onMounted(async () => {
+  // 加载通用设置
   const saved = localStorage.getItem('gameSettings')
-  if (saved) {
-    Object.assign(settings, JSON.parse(saved))
-  }
+  if (saved) Object.assign(settings, JSON.parse(saved))
 
+  // 加载 API 设置
   const savedApi = localStorage.getItem('apiSettings')
   if (savedApi) {
     Object.assign(apiSettings, JSON.parse(savedApi))
-    if (apiSettings.baseUrl) {
-      loadModelsFromUrl()
+    if (apiSettings.baseUrl && apiSettings.apiKey) {
+      loadModels()
     }
   } else {
     onProviderChange()
   }
+
+  isInitializing.value = false
 })
 
-watch(() => apiSettings.provider, () => {
-  selectedModel.value = ''
-  apiSettings.model = ''
-  if (apiSettings.baseUrl) {
-    loadModelsFromUrl()
-  } else {
-    detectedModels.value = []
+// 监听供应商变化
+watch(() => apiSettings.provider, (newVal) => {
+  if (isInitializing.value) return
+  const p = providers.find(item => item.id === newVal)
+  if (p && p.baseUrl) {
+    apiSettings.baseUrl = p.baseUrl
   }
+  // 如果是 DeepSeek，默认给个提示模型名
+  if (newVal === 'deepseek') apiSettings.model = 'deepseek-v4-flash'
 })
 
 function onProviderChange() {
-  const provider = currentProvider.value
-  if (provider && provider.baseUrl) {
-    apiSettings.baseUrl = provider.baseUrl
-  }
-  apiSettings.model = ''
-  apiSettings.customModel = ''
-  detectedModels.value = []
-  loadModelsFromUrl()
+  const p = currentProvider.value
+  if (p && p.baseUrl) apiSettings.baseUrl = p.baseUrl
+  loadModels()
 }
 
 function applyProvider(id) {
   apiSettings.provider = id
-  onProviderChange()
-  loadModelsFromUrl()
 }
 
 async function onUrlChange() {
-  if (isCustomUrl.value && apiSettings.baseUrl) {
-    await loadModelsFromUrl()
+  if (apiSettings.baseUrl && apiSettings.apiKey) {
+    await loadModels()
   }
 }
 
-async function loadModelsFromUrl() {
-  if (!apiSettings.baseUrl) return
-
+async function loadModels() {
+  if (!apiSettings.baseUrl || !apiSettings.apiKey) return
   loadingModels.value = true
-  detectedModels.value = []
-
   try {
-    const response = await fetch('/api/chat/models', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baseUrl: apiSettings.baseUrl,
-        apiKey: apiSettings.apiKey,
-        provider: apiSettings.provider
-      })
-    })
-
-    if (response.ok) {
-      const data = await response.json()
-      if (data.models && Array.isArray(data.models)) {
-        detectedModels.value = data.models
-        // Auto-select first model if none selected AND no saved model to restore
-        if (!apiSettings.model && !selectedModel.value && detectedModels.value.length > 0) {
-          selectedModel.value = detectedModels.value[0]
-        }
-        // Restore saved model if it exists in the list
-        if (apiSettings.model && detectedModels.value.includes(apiSettings.model)) {
-          selectedModel.value = apiSettings.model
-        }
-      }
+    const models = await fetchAvailableModels(apiSettings)
+    detectedModels.value = models
+    // 如果当前没选模型，自动选第一个
+    if (!apiSettings.model && models.length > 0) {
+      apiSettings.model = models[0]
     }
-  } catch (e) {
-    console.error('Failed to load models:', e)
   } finally {
     loadingModels.value = false
   }
 }
 
-async function testConnection() {
+async function testConn() {
+  if (!apiSettings.model) {
+    testResult.value = { ok: false, message: '请先输入模型名称，例如 deepseek-v4-flash' }
+    return
+  }
+
   testing.value = true
   testResult.value = null
 
   try {
-    const response = await fetch('/api/chat/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baseUrl: apiSettings.baseUrl,
-        apiKey: apiSettings.apiKey,
-        provider: apiSettings.provider
-      })
-    })
-    const data = await response.json()
-    testResult.value = {
-      ok: data.ok,
-      message: data.message || (data.ok ? '连接成功' : '连接失败')
-    }
+    const result = await testApiConnection(apiSettings)
+    testResult.value = result
   } catch (e) {
-    testResult.value = {
-      ok: false,
-      message: '连接超时或地址无效'
-    }
+    testResult.value = { ok: false, message: '网络异常或配置错误' }
   } finally {
     testing.value = false
   }
 }
 
-function saveSettings() {
+async function saveAll() {
   localStorage.setItem('gameSettings', JSON.stringify(settings))
-  // Use selectedModel for normal selection, or apiSettings.model for custom input
-  const finalModel = selectedModel.value === '__custom__' ? apiSettings.model : selectedModel.value
-  const finalSettings = {
-    ...apiSettings,
-    model: finalModel
+  localStorage.setItem('apiSettings', JSON.stringify(apiSettings))
+  
+  // 如果后端需要保存 secrets
+  try {
+    await saveApiSettings(apiSettings)
+  } catch (e) {
+    console.warn('后端存储失败，已保存至本地缓存')
   }
-  localStorage.setItem('apiSettings', JSON.stringify(finalSettings))
+  
   emit('close')
 }
 </script>
 
 <style scoped>
+/* 保持你原来的样式不变，只需确保包含以下几个关键点 */
 .settings-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -356,279 +283,30 @@ function saveSettings() {
 }
 
 .settings-modal {
-  width: 520px;
-  max-width: 90%;
-  max-height: 90vh;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  width: 500px;
+  background: #1e1e1e;
+  border: 1px solid #333;
   border-radius: 8px;
-  overflow: hidden;
+  color: #eee;
   display: flex;
   flex-direction: column;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.close-btn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1.2rem;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s ease;
-}
-
-.close-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.settings-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-}
-
-.tab {
-  flex: 1;
-  padding: 0.75rem;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tab:hover {
-  color: var(--text-secondary);
-}
-
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.settings-content {
-  flex: 1;
-  padding: 1rem;
-  overflow-y: auto;
-}
-
-.tab-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.setting-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.setting-item label {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.input {
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.85rem;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.input::placeholder {
-  color: var(--text-muted);
-}
-
-select.input {
-  cursor: pointer;
-}
-
-select.input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.mt-1 { margin-top: 0.5rem; }
-.mt-2 { margin-top: 0.75rem; }
-
-.api-key-input {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.api-key-input .input {
-  flex: 1;
-}
-
-.toggle-visibility {
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.toggle-visibility:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.model-select-wrapper {
-  position: relative;
-}
-
-.model-select-wrapper .input {
-  width: 100%;
-}
-
-.loading-indicator {
-  position: absolute;
-  right: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.75rem;
-  color: var(--accent);
-}
-
-.setting-presets {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  flex-wrap: wrap;
-}
-
-.presets-label {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.preset-btn {
-  padding: 0.25rem 0.5rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 0.7rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.preset-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.preset-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.setting-info {
-  padding: 0.75rem;
-  background: var(--bg-primary);
-  border-radius: 6px;
-}
-
-.setting-info p {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.info-hint {
-  margin-top: 0.5rem;
-  font-style: italic;
-}
-
-.test-result {
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-.test-result.ok {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--success);
-}
-
-.test-result.error {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-}
-
-.settings-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  padding: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-.btn {
-  padding: 0.5rem 1rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--text-muted);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
+.panel-header { padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+.settings-tabs { display: flex; background: #252525; }
+.tab { flex: 1; padding: 10px; border: none; background: none; color: #888; cursor: pointer; }
+.tab.active { color: #fff; border-bottom: 2px solid #4f46e5; }
+.settings-content { padding: 20px; max-height: 60vh; overflow-y: auto; }
+.setting-item { margin-bottom: 15px; display: flex; flex-direction: column; gap: 5px; }
+.input { padding: 8px; background: #121212; border: 1px solid #333; color: #fff; border-radius: 4px; }
+.btn { padding: 8px 16px; cursor: pointer; border-radius: 4px; border: 1px solid #444; background: #333; color: #fff; }
+.btn-primary { background: #4f46e5; border-color: #4f46e5; }
+.test-result { margin-top: 10px; padding: 10px; border-radius: 4px; font-size: 13px; }
+.test-result.ok { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.test-result.error { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.api-key-input { display: flex; gap: 5px; }
+.api-key-input .input { flex: 1; }
+.preset-btn { font-size: 11px; margin: 2px; padding: 4px 8px; cursor: pointer; background: #222; border: 1px solid #444; color: #aaa; border-radius: 4px; }
+.preset-btn.active { background: #4f46e5; color: white; }
+.loading-indicator { font-size: 11px; color: #4f46e5; }
 </style>

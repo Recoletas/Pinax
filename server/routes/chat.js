@@ -1,14 +1,71 @@
 import express from 'express'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const router = express.Router()
 
+const PROVIDER_DEFAULTS = {
+  openai: { baseUrl: 'https://api.openai.com/v1', chatPath: '/chat/completions' },
+  openrouter: { baseUrl: 'https://openrouter.ai/api/v1', chatPath: '/chat/completions' },
+  claude: { baseUrl: 'https://api.anthropic.com/v1', chatPath: '/messages', type: 'claude' },
+  deepseek: { baseUrl: 'https://api.deepseek.com/v1', chatPath: '/chat/completions' },
+  groq: { baseUrl: 'https://api.groq.com/openai/v1', chatPath: '/chat/completions' },
+  mistral: { baseUrl: 'https://api.mistral.ai/v1', chatPath: '/chat/completions' },
+  cohere: { baseUrl: 'https://api.cohere.ai/v2', chatPath: '/chat', type: 'cohere' },
+  perplexity: { baseUrl: 'https://api.perplexity.ai', chatPath: '/chat/completions' },
+  ollama: { baseUrl: 'http://localhost:11434', chatPath: '/v1/chat/completions' },
+  lmstudio: { baseUrl: 'http://localhost:1234/v1', chatPath: '/chat/completions' },
+  textgenwebui: { baseUrl: 'http://localhost:5000', chatPath: '/v1/chat/completions' },
+  pollinations: { baseUrl: 'https://gen.pollinations.ai', chatPath: '/v1/chat/completions' },
+  moonshot: { baseUrl: 'https://api.moonshot.cn/v1', chatPath: '/chat/completions' },
+  fireworks: { baseUrl: 'https://api.fireworks.ai/inference/v1', chatPath: '/chat/completions' },
+  xai: { baseUrl: 'https://api.x.ai/v1', chatPath: '/chat/completions' },
+  siliconflow: { baseUrl: 'https://api.siliconflow.cn/v1', chatPath: '/chat/completions' },
+  ai21: { baseUrl: 'https://api.ai21.com/v1', chatPath: '/chat/completions' }
+}
+
+function resolveBaseUrl(provider, baseUrl, fallbackUrl) {
+  const defaults = PROVIDER_DEFAULTS[provider] || {}
+  let resolved = baseUrl || fallbackUrl || defaults.baseUrl || ''
+
+  if (provider === 'cohere' && /\/v1\/?$/.test(resolved)) {
+    resolved = resolved.replace(/\/v1\/?$/, '/v2')
+  }
+
+  return resolved
+}
+
+function normalizeBaseUrl(baseUrl, chatPath) {
+  if (!baseUrl) return ''
+
+  let normalized = baseUrl.replace(/\/$/, '')
+
+  if (chatPath.startsWith('/v1/') && normalized.endsWith('/v1')) {
+    normalized = normalized.slice(0, -3)
+  }
+
+  return normalized
+}
+
+function buildChatUrl(baseUrl, chatPath) {
+  if (!baseUrl) return ''
+
+  if (baseUrl.endsWith(chatPath)) {
+    return baseUrl
+  }
+
+  return `${baseUrl}${chatPath}`
+}
+
 function loadApiSettings() {
   try {
-    const fs = require('fs')
-    const path = require('path')
-    const secretsPath = path.join(__dirname, '../../data/secrets.json')
-    if (fs.existsSync(secretsPath)) {
-      return JSON.parse(fs.readFileSync(secretsPath, 'utf-8'))
+    const secretsPath = join(__dirname, '../../data/secrets.json')
+    if (existsSync(secretsPath)) {
+      return JSON.parse(readFileSync(secretsPath, 'utf-8'))
     }
   } catch (e) {
     console.error('Error loading secrets:', e)
@@ -26,15 +83,25 @@ router.post('/chat', async (req, res) => {
   const secrets = loadApiSettings()
 
   const effectiveProvider = provider || secrets.provider || 'openai'
-  const effectiveBaseUrl = baseUrl || secrets.base_url || ''
+  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, secrets.base_url)
   const effectiveApiKey = apiKey || secrets.api_key_openai || process.env.OPENAI_API_KEY
   const effectiveModel = model || secrets.openai_model || 'gpt-4o-mini'
+  const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
+  const chatPath = providerDefaults.chatPath || '/chat/completions'
+  const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
+  const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey && !effectiveBaseUrl) {
+  if (!effectiveApiKey && !chatUrl) {
     const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || ''
     return res.json({
       content: `你说了"${lastUserMessage.slice(0, 20)}..."，但目前没有配置 AI API，无法生成智能回复。请在设置中添加 API Key。`,
       error: 'no_api_key'
+    })
+  }
+
+  if (!chatUrl) {
+    return res.status(400).json({
+      error: 'Base URL 未配置或无效，请在设置中填写正确的 Base URL。'
     })
   }
 
@@ -90,6 +157,7 @@ router.post('/chat', async (req, res) => {
 
     // Special handling for Claude API
     if (effectiveProvider === 'claude') {
+      delete headers['Authorization']
       headers['x-api-key'] = effectiveApiKey
       headers['anthropic-version'] = '2023-06-01'
       requestBody = {
@@ -103,7 +171,17 @@ router.post('/chat', async (req, res) => {
       }
     }
 
-    const chatUrl = `${effectiveBaseUrl}/chat/completions`
+    if (effectiveProvider === 'cohere') {
+      requestBody = {
+        model: effectiveModel,
+        messages: messages.map(m => ({
+          role: m.role,
+          content: m.content
+        })),
+        preamble: systemPrompt,
+        temperature: 0.8
+      }
+    }
 
     const response = await fetch(chatUrl, {
       method: 'POST',
@@ -121,11 +199,15 @@ router.post('/chat', async (req, res) => {
     }
 
     const data = await response.json()
-    let content = data.choices?.[0]?.message?.content || '...'
+    let content = data.choices?.[0]?.message?.content || data.message?.content?.[0]?.text || '...'
 
     // Handle Claude response format
     if (effectiveProvider === 'claude' && data.content) {
       content = data.content[0]?.text || content
+    }
+
+    if (effectiveProvider === 'cohere' && data.message?.content) {
+      content = data.message.content.map(c => c.text || '').join('') || content
     }
 
     res.json({ content })
@@ -138,8 +220,9 @@ router.post('/chat', async (req, res) => {
 // Fetch available models from API URL
 router.post('/models', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body
+  const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
 
-  if (!baseUrl) {
+  if (!effectiveBaseUrl) {
     return res.status(400).json({ error: 'baseUrl is required' })
   }
 
@@ -150,7 +233,7 @@ router.post('/models', async (req, res) => {
     }
 
     // Different providers use different endpoints for model lists
-    let modelsUrl = baseUrl
+    let modelsUrl = effectiveBaseUrl
 
     if (provider === 'ollama') {
       modelsUrl = `${baseUrl}/api/tags`
@@ -184,9 +267,9 @@ router.post('/models', async (req, res) => {
 
     // Try alternative endpoints
     const altUrls = [
-      `${baseUrl}/v1/models`,
-      `${baseUrl}/models`,
-      `${baseUrl}/api/models`
+      `${effectiveBaseUrl}/v1/models`,
+      `${effectiveBaseUrl}/models`,
+      `${effectiveBaseUrl}/api/models`
     ]
 
     for (const url of altUrls) {
@@ -223,8 +306,9 @@ router.post('/models', async (req, res) => {
 // Test connection endpoint
 router.post('/test', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body
+  const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
 
-  if (!baseUrl) {
+  if (!effectiveBaseUrl) {
     return res.json({ ok: false, message: '请输入 Base URL' })
   }
 
@@ -235,7 +319,7 @@ router.post('/test', async (req, res) => {
     }
 
     // Try the models endpoint to test connection
-    let testUrl = baseUrl
+    let testUrl = effectiveBaseUrl
     if (!testUrl.endsWith('/models')) {
       testUrl = `${testUrl.replace(/\/$/, '')}/models`
     }
@@ -252,8 +336,8 @@ router.post('/test', async (req, res) => {
     } else {
       // Try alternative
       const altUrls = [
-        `${baseUrl}/v1/models`,
-        `${baseUrl}/api/tags`
+        `${effectiveBaseUrl}/v1/models`,
+        `${effectiveBaseUrl}/api/tags`
       ]
 
       for (const url of altUrls) {
@@ -292,21 +376,19 @@ router.post('/test', async (req, res) => {
 // Secrets management endpoints
 router.post('/secrets/write', async (req, res) => {
   const { key, value } = req.body
-  const fs = require('fs')
-  const path = require('path')
-  const secretsPath = path.join(__dirname, '../../data/secrets.json')
+  const secretsPath = join(__dirname, '../../data/secrets.json')
 
   let secrets = {}
   try {
-    if (fs.existsSync(secretsPath)) {
-      secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf-8'))
+    if (existsSync(secretsPath)) {
+      secrets = JSON.parse(readFileSync(secretsPath, 'utf-8'))
     }
   } catch (e) {}
 
   secrets[key] = value || ''
 
   try {
-    fs.writeFileSync(secretsPath, JSON.stringify(secrets, null, 2))
+    writeFileSync(secretsPath, JSON.stringify(secrets, null, 2))
     res.json({ success: true })
   } catch (e) {
     res.status(500).json({ error: 'Failed to save secrets' })
@@ -314,13 +396,11 @@ router.post('/secrets/write', async (req, res) => {
 })
 
 router.post('/secrets/read', async (req, res) => {
-  const fs = require('fs')
-  const path = require('path')
-  const secretsPath = path.join(__dirname, '../../data/secrets.json')
+  const secretsPath = join(__dirname, '../../data/secrets.json')
 
   try {
-    if (fs.existsSync(secretsPath)) {
-      res.json(JSON.parse(fs.readFileSync(secretsPath, 'utf-8')))
+    if (existsSync(secretsPath)) {
+      res.json(JSON.parse(readFileSync(secretsPath, 'utf-8')))
     } else {
       res.json({})
     }
