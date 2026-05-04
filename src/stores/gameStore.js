@@ -26,50 +26,107 @@ export const useGameStore = defineStore('game', {
       baseUrl: '',
       model: ''
     },
-    currentCharacter: {
-      name: 'Seraphina',
-      avatar: 'https://img.moegirl.org.cn/common/thumb/b/b7/Seraphina_Portrait.png/250px-Seraphina_Portrait.png' // 示例头像
+    playerCharacter: {
+      name: 'User', // 默认名，用户可以改
+      avatar: ''    // 玩家头像
+    },
+    
+    // AI 扮演的角色
+    aiCharacter: {
+      name: 'Assistant', // 默认名，导入后会变
+      avatar: ''
     }
   }),
 
   actions: {
-    loadApiSettings() {
-      const saved = localStorage.getItem('apiSettings')
-      if (saved) {
-        this.apiSettings = JSON.parse(saved)
+     async sendAction(text) {
+      if (!text.trim()) return
+      
+      this.messages.push({
+        role: 'user',
+        name: this.playerCharacter.name, // 使用当前玩家设定的名字
+        content: text,
+        timestamp: Date.now()
+      })
+      this.chatHistory.push({ role: 'user', content: text })
+
+      if (this.useAI) {
+        await this.generateAIResponse()
       }
     },
 
-    // --- 新增：更新消息 ---
+    // --- 修改：更新消息后同步记忆 ---
     updateMessage(index, newContent) {
-      const msg = this.messages[index]
-      if (!msg) return
-
-      const oldContent = msg.content
-      // 1. 更新 UI 数组
-      msg.content = newContent
-
-      // 2. 同步更新 AI 上下文数组 (chatHistory)
-      // 找到内容相同的项进行替换
-      const historyItem = this.chatHistory.find(h => h.content === oldContent)
-      if (historyItem) {
-        historyItem.content = newContent
+      if (this.messages[index]) {
+        this.messages[index].content = newContent;
+        this.rebuildChatHistory(); // 同步 AI 记忆
       }
     },
 
-    // --- 新增：删除消息 ---
+    // --- 修改：删除消息后同步记忆 ---
     deleteMessage(index) {
-      const msg = this.messages[index]
-      if (!msg) return
+      if (this.messages[index]) {
+        this.messages.splice(index, 1);
+        this.rebuildChatHistory(); // 同步 AI 记忆
+      }
+    },
 
-      const oldContent = msg.content
-      // 1. 从 UI 数组删除
-      this.messages.splice(index, 1)
+    // --- 新增：核心“执行”功能 ---
+    // 点击某条消息的“执行”按钮时调用
+    async regenerateFrom(index) {
+      // 1. 截断消息列表，只保留到当前点击的这一条
+      this.messages = this.messages.slice(0, index + 1);
+      
+      // 2. 重新构建 AI 记忆
+      this.rebuildChatHistory();
 
-      // 2. 从 AI 上下文数组删除
-      const hIndex = this.chatHistory.findIndex(h => h.content === oldContent)
-      if (hIndex !== -1) {
-        this.chatHistory.splice(hIndex, 1)
+      // 3. 如果开启了 AI，立即触发重新生成
+      if (this.useAI) {
+        await this.generateAIResponse();
+      }
+    },
+
+    // --- 新增：辅助方法，确保界面和 AI 记忆完全一致 ---
+    rebuildChatHistory() {
+      // 保持最开始的系统提示词（如果有的话）
+      const systemPrompt = this.chatHistory[0] || {
+        role: 'system',
+        content: '你是一个文字冒险游戏的叙述者，请用生动的语言描述场景并与玩家互动。'
+      };
+
+      // 将当前的 messages 转换为 chatHistory
+      const history = this.messages
+        .filter(m => m.type === 'user' || m.type === 'narrator')
+        .map(m => ({
+          role: m.type === 'user' ? 'user' : 'assistant',
+          content: m.content
+        }));
+
+      this.chatHistory = [systemPrompt, ...history];
+    },
+
+    // --- 新增：提取出来的 AI 生成逻辑 ---
+    // ... 在 generateAIResponse action 内部
+    async generateAIResponse() {
+      this.isLoading = true;
+      try {
+        this.loadApiSettings();
+        const response = await sendChat(this.chatHistory, null, this.worldId, this.apiSettings);
+        
+        // 添加 AI 回复
+        this.messages.push({
+          role: 'assistant',
+          name: this.currentCharacter.name, 
+          content: response.content,
+          reasoning_content: response.reasoning_content || null,
+          timestamp: Date.now()
+        })
+
+        this.chatHistory.push({ role: 'assistant', content: response.content });
+      } catch (e) {
+        // ... 错误处理
+      } finally {
+        this.isLoading = false;
       }
     },
 
@@ -112,53 +169,25 @@ export const useGameStore = defineStore('game', {
       }
     },
 
+    // --- 修改：简化后的发送逻辑 ---
     async sendAction(text) {
       if (!text.trim()) return
 
-      // 用户消息
-      const userMsg = {
+      this.messages.push({
         type: 'user',
         content: text,
         timestamp: Date.now()
-      }
-      this.messages.push(userMsg)
+      })
       this.chatHistory.push({ role: 'user', content: text })
 
-      this.isLoading = true
-      try {
-        if (this.useAI) {
-          this.loadApiSettings()
-
-          // 发送给 AI
-          const response = await sendChat(
-            this.chatHistory,
-            null,
-            this.worldId,
-            this.apiSettings
-          )
-          
-          // 提取内容和思考过程 (DeepSeek 支持)
-          const aiContent = response.content
-          const reasoning = response.reasoning_content || null
-
-          // 添加到 UI
-          this.messages.push({
-            type: 'narrator',
-            content: aiContent,
-            reasoning_content: reasoning, // 存储思考过程
-            timestamp: Date.now()
-          })
-
-          // 添加到 AI 记忆
-          this.chatHistory.push({
-            role: 'assistant',
-            content: aiContent
-          })
-        } else {
-          // 非 AI 模式逻辑
+      if (this.useAI) {
+        await this.generateAIResponse(); // 调用提取出来的方法
+      } else {
+        this.isLoading = true
+        try {
           const response = await apiSendAction(this.gameId, text)
           this.updateState(response)
-
+          // ... 剩下的非 AI 逻辑保持不变 ...
           if (response.events) {
             for (const event of response.events) {
               if (event.type !== 'system' && event.type !== 'time_advance') {
@@ -172,7 +201,6 @@ export const useGameStore = defineStore('game', {
               }
             }
           }
-
           if (response.timeAdvanced) {
             this.messages.push({
               type: 'system',
@@ -180,20 +208,17 @@ export const useGameStore = defineStore('game', {
               timestamp: Date.now()
             })
           }
+        } catch (e) {
+          this.lastError = e.message
+          this.messages.push({ type: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
+        } finally {
+          this.isLoading = false
         }
-      } catch (e) {
-        this.lastError = e.message
-        this.messages.push({
-          type: 'system',
-          content: `发生错误：${e.message}`,
-          timestamp: Date.now()
-        })
-      } finally {
-        this.isLoading = false
       }
     },
 
     updateState(response) {
+      // ... 保持不变 ...
       if (response.state) {
         if (response.state.time) this.time = response.state.time
         if (response.state.player) this.player = response.state.player

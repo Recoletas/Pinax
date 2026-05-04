@@ -1,218 +1,215 @@
 <template>
+  <!-- 确保容器有高度且可滚动 -->
   <div class="chat-container" ref="scrollContainer">
-    <div v-for="(msg, index) in gameStore.messages" :key="index" :class="['message-item', msg.role]">
+    <div v-for="(msg, index) in gameStore.messages" :key="index" :class="['msg-item', msg.role]">
       
-      <!-- 左侧头像 -->
-      <div class="avatar-wrapper">
-        <img v-if="msg.role === 'assistant'" :src="getCharacterAvatar()" class="avatar" />
-        <div v-else class="avatar user-avatar">?</div>
+      <!-- 头像列 -->
+      <div class="avatar-column">
+        <template v-if="msg.role === 'assistant'">
+          <!-- 这里的 ?. 是为了防止 aiCharacter 为空时报错 -->
+          <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
+          <div v-else class="tavern-avatar ai-icon">
+            {{ (msg.name || 'A')[0] }}
+          </div>
+        </template>
+        
+        <template v-else>
+          <img v-if="gameStore.playerCharacter?.avatar" :src="gameStore.playerCharacter.avatar" class="tavern-avatar" />
+          <div v-else class="tavern-avatar user-icon">
+            {{ (msg.name || 'U')[0] }}
+          </div>
+        </template>
       </div>
 
-      <!-- 右侧内容 -->
-      <div class="message-content">
-        <div class="message-header">
-          <span class="sender-name">{{ msg.role === 'assistant' ? getCharacterName() : 'User' }}</span>
-          <span class="timestamp">{{ formatTime(msg.timestamp) }}</span>
+      <!-- 内容列 -->
+      <div class="msg-column">
+        <div class="msg-header">
+          <!-- 名字优先级：消息记录的名字 > Store当前角色名 > 默认占位符 -->
+          <span class="display-name">
+            {{ msg.name || (msg.role === 'user' ? (gameStore.playerCharacter?.name || 'User') : (gameStore.aiCharacter?.name || 'Assistant')) }}
+          </span>
+          <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
           
-          <div class="message-actions">
-            <!-- 删除按钮 -->
-            <span class="icon delete-icon" @click="deleteMsg(index)" title="删除">🗑</span>
-            <!-- 编辑按钮 -->
-            <span class="icon edit-icon" @click="startEdit(index, msg.content)" title="编辑">✎</span>
+          <div class="msg-actions">
+            <!-- 只有用户消息可以触发“重新执行” -->
+            <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">▶</span>
+            <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">✎</span>
+            <!-- 建议增加删除，方便调试 -->
+            <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">🗑</span>
           </div>
         </div>
 
-        <!-- 思考模块 -->
-        <div v-if="msg.reasoning_content" class="reasoning-block">
+        <!-- 思考框 (DeepSeek 专用) -->
+        <div v-if="msg.reasoning_content" class="thought-wrapper">
           <details :open="index === gameStore.messages.length - 1">
-            <summary>思考了一会</summary>
-            <div class="reasoning-text">{{ msg.reasoning_content }}</div>
+            <summary>思考过程 <span class="arrow">▾</span></summary>
+            <div class="thought-body">{{ msg.reasoning_content }}</div>
           </details>
         </div>
 
-        <!-- 内容区域：根据是否在编辑状态切换显示 -->
-        <div class="text-area-wrapper">
-          <!-- 编辑模式 -->
-          <div v-if="editingIndex === index" class="edit-mode">
-            <textarea 
-              v-model="editText" 
-              class="edit-textarea" 
-              ref="editInput"
-              rows="3"
-            ></textarea>
-            <div class="edit-buttons">
-              <button class="edit-btn save" @click="saveEdit(index)">保存</button>
-              <button class="edit-btn cancel" @click="cancelEdit">取消</button>
+        <!-- 正文区域 -->
+        <div class="text-wrapper">
+          <div v-if="editingIndex === index" class="edit-area">
+            <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
+            <div class="edit-footer">
+              <button class="tavern-btn primary" @click="saveEdit(index)">保存修改</button>
+              <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
-          
-          <!-- 阅读模式 -->
-          <div 
-            v-else 
-            class="text-body" 
-            v-html="formatRPText(msg.content)"
-            @dblclick="startEdit(index, msg.content)" 
-          ></div>
+          <!-- 渲染 Markdown/引号/星号 -->
+          <div v-else class="text-main" v-html="formatRPText(msg.content)"></div>
         </div>
       </div>
     </div>
-    <div ref="bottomAnchor"></div>
+    <!-- 自动滚动锚点 -->
+    <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
 const bottomAnchor = ref(null)
-
-// 编辑相关的响应式变量
 const editingIndex = ref(-1)
 const editText = ref('')
-const editInput = ref(null)
+const editTextarea = ref(null)
 
-// 开始编辑
-function startEdit(index, content) {
+const startEdit = (index, text) => {
   editingIndex.value = index
-  editText.value = content
-  // 自动聚焦 textarea
+  editText.value = text
   nextTick(() => {
-    const el = document.querySelector('.edit-textarea')
-    if (el) el.focus()
+    editTextarea.value?.focus()
   })
 }
 
-// 取消编辑
-function cancelEdit() {
-  editingIndex.value = -1
-  editText.value = ''
-}
-
-// 保存编辑
-function saveEdit(index) {
+const saveEdit = (index) => {
   if (editText.value.trim()) {
-    // 调用 store 的更新方法
     gameStore.updateMessage(index, editText.value)
   }
-  cancelEdit()
+  editingIndex.value = -1
 }
 
-// 删除消息
-function deleteMsg(index) {
-  if (confirm('确定要删除这条消息吗？')) {
-    gameStore.deleteMessage(index)
-  }
-}
-
-// 基础辅助函数
-function getCharacterName() { return gameStore.currentCharacter?.name || 'Seraphina' }
-function getCharacterAvatar() { return gameStore.currentCharacter?.avatar || '' }
-
-function formatRPText(text) {
+const formatRPText = (text) => {
   if (!text) return ''
-  let safeText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  // 基础转义
+  const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return safeText
-    .replace(/\*([^*]+)\*/g, '<em class="action">*$1*</em>')
-    .replace(/"([^"]+)"/g, '<span class="dialogue">"$1"</span>')
+    // *星号动作* -> 斜体
+    .replace(/\*([^*]+)\*/g, '<em class="rp-action">*$1*</em>')
+    // "双引号对话" -> 橙色高亮
+    .replace(/"([^"]+)"/g, '<span class="rp-dialogue">"$1"</span>')
+    // 换行符 -> <br>
     .replace(/\n/g, '<br>')
 }
 
-function formatTime(ts) {
-  const date = ts ? new Date(ts) : new Date()
-  return date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0')
+const formatTime = (ts) => {
+  const d = ts ? new Date(ts) : new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// 自动滚动
-watch(() => gameStore.messages, () => {
+// 自动滚动逻辑
+const scroll = () => {
   nextTick(() => {
-    if (bottomAnchor.value && editingIndex.value === -1) {
-      bottomAnchor.value.scrollIntoView({ behavior: 'smooth' })
+    if (bottomAnchor.value) {
+      bottomAnchor.value.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
   })
-}, { deep: true })
+}
+
+watch(() => gameStore.messages.length, scroll)
+onMounted(scroll)
 </script>
 
 <style scoped>
-/* 继承之前的样式，增加编辑模式相关的样式 */
 .chat-container {
-  display: flex; flex-direction: column; gap: 24px; padding: 20px;
-  background: #111111; height: 100%; overflow-y: auto;
-}
-
-.message-item { display: flex; gap: 16px; }
-.avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #222; border: 1px solid #333; }
-.user-avatar { background: #252525; display: flex; align-items: center; justify-content: center; color: #555; }
-
-.message-content { flex: 1; min-width: 0; }
-.message-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.sender-name { font-weight: 600; color: #fff; font-size: 15px; }
-.timestamp { font-size: 11px; color: #555; }
-
-.message-actions { margin-left: auto; display: flex; gap: 12px; color: #222; }
-.message-item:hover .message-actions { color: #555; }
-.icon { cursor: pointer; font-size: 14px; }
-.icon:hover { color: #aaa; }
-.delete-icon:hover { color: #ff4d4f; }
-
-/* 编辑模式样式 */
-.edit-mode {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px;
+  background: #111; /* 背景色必须有 */
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 5px;
+  gap: 30px;
 }
 
-.edit-textarea {
-  width: 100%;
-  background: #1a1a1a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #ccc;
-  padding: 10px;
-  font-size: 15px;
-  line-height: 1.6;
-  outline: none;
-  font-family: inherit;
-}
+.msg-item { display: flex; gap: 16px; width: 100%; }
 
-.edit-textarea:focus {
-  border-color: #e58e35;
-}
-
-.edit-buttons {
+/* 头像列 */
+.avatar-column { flex-shrink: 0; }
+.tavern-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #333;
+  font-size: 20px;
+  font-weight: bold;
   display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* AI 默认头像颜色 */
+.ai-icon { background: #2c3e50; color: #3498db; }
+/* 用户默认头像颜色 */
+.user-icon { background: #222; color: #666; }
+
+.msg-column { flex: 1; min-width: 0; }
+
+.msg-header {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
-.edit-btn {
-  padding: 4px 12px;
-  font-size: 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  border: 1px solid #444;
-}
+.display-name { font-weight: bold; color: #fff; font-size: 15px; }
+.msg-time { font-size: 11px; color: #444; }
 
-.edit-btn.save {
-  background: #e58e35;
-  color: white;
-  border: none;
-}
+/* 操作按钮 */
+.msg-actions { margin-left: auto; display: flex; gap: 12px; opacity: 0; transition: 0.2s; }
+.msg-item:hover .msg-actions { opacity: 1; }
+.icon-btn { cursor: pointer; color: #444; font-size: 14px; }
+.icon-btn:hover { color: #888; }
+.icon-btn.execute:hover { color: #52c41a; }
+.icon-btn.delete:hover { color: #ff4d4f; }
 
-.edit-btn.cancel {
-  background: #333;
-  color: #ccc;
-}
+/* 思考过程 */
+.thought-wrapper { margin-bottom: 12px; max-width: 90%; }
+details { background: #1a1a1a; border-radius: 8px; border: 1px solid #252525; }
+summary { padding: 8px 12px; color: #666; font-size: 12px; cursor: pointer; list-style: none; outline: none; }
+summary .arrow { margin-left: 5px; }
+.thought-body { padding: 12px; color: #555; font-size: 13px; border-top: 1px solid #222; font-style: italic; line-height: 1.5; }
 
 /* 文本正文 */
-.text-body { line-height: 1.6; font-size: 15px; color: #b5b5b5; white-space: pre-wrap; cursor: text; }
-:deep(.dialogue) { color: #e58e35; }
-:deep(.action) { font-style: italic; opacity: 0.9; }
+.text-main {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #a0a0a0; /* 叙述文字调浅一点的灰色 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
-.reasoning-block { margin: 12px 0; max-width: 90%; }
-details { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; }
-summary { padding: 6px 12px; color: #777; font-size: 12px; cursor: pointer; }
-.reasoning-text { padding: 10px 12px; color: #666; font-size: 13px; font-style: italic; border-top: 1px solid #252525; }
+/* 引号高亮：橙黄色 */
+:deep(.rp-dialogue) {
+  color: #e58e35;
+}
+
+/* 星号动作：斜体 */
+:deep(.rp-action) {
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* 编辑器 */
+.tavern-textarea {
+  width: 100%; background: #080808; color: #ccc; border: 1px solid #333;
+  padding: 12px; border-radius: 4px; font-family: inherit; line-height: 1.6;
+  resize: vertical; outline: none;
+}
+.tavern-textarea:focus { border-color: #e58e35; }
+.edit-footer { margin-top: 10px; display: flex; gap: 10px; justify-content: flex-end; }
+.tavern-btn { padding: 5px 15px; border-radius: 4px; cursor: pointer; border: 1px solid #333; background: #222; color: #999; }
+.tavern-btn.primary { background: #e58e35; color: #fff; border: none; }
 </style>
