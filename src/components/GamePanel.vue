@@ -1,18 +1,16 @@
 <template>
-  <!-- 确保容器有高度且可滚动 -->
   <div class="chat-container" ref="scrollContainer">
     <div v-for="(msg, index) in gameStore.messages" :key="index" :class="['msg-item', msg.role]">
-      
+
       <!-- 头像列 -->
       <div class="avatar-column">
         <template v-if="msg.role === 'assistant'">
-          <!-- 这里的 ?. 是为了防止 aiCharacter 为空时报错 -->
           <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
           <div v-else class="tavern-avatar ai-icon">
             {{ (msg.name || 'A')[0] }}
           </div>
         </template>
-        
+
         <template v-else>
           <img v-if="gameStore.playerCharacter?.avatar" :src="gameStore.playerCharacter.avatar" class="tavern-avatar" />
           <div v-else class="tavern-avatar user-icon">
@@ -24,22 +22,31 @@
       <!-- 内容列 -->
       <div class="msg-column">
         <div class="msg-header">
-          <!-- 名字优先级：消息记录的名字 > Store当前角色名 > 默认占位符 -->
           <span class="display-name">
             {{ msg.name || (msg.role === 'user' ? (gameStore.playerCharacter?.name || 'User') : (gameStore.aiCharacter?.name || 'Assistant')) }}
           </span>
           <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-          
+
           <div class="msg-actions">
-            <!-- 只有用户消息可以触发“重新执行” -->
-            <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">▶</span>
-            <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">✎</span>
-            <!-- 建议增加删除，方便调试 -->
-            <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">🗑</span>
+            <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M2 1l9 5-9 5V1z"/>
+              </svg>
+            </span>
+            <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
+              </svg>
+            </span>
+            <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
+              </svg>
+            </span>
           </div>
         </div>
 
-        <!-- 思考框 (DeepSeek 专用) -->
+        <!-- 思考框 -->
         <div v-if="msg.reasoning_content" class="thought-wrapper">
           <details :open="index === gameStore.messages.length - 1">
             <summary>思考过程 <span class="arrow">▾</span></summary>
@@ -56,12 +63,10 @@
               <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
-          <!-- 渲染 Markdown/引号/星号 -->
           <div v-else class="text-main" v-html="formatRPText(msg.content)"></div>
         </div>
       </div>
     </div>
-    <!-- 自动滚动锚点 -->
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
 </template>
@@ -94,14 +99,10 @@ const saveEdit = (index) => {
 
 const formatRPText = (text) => {
   if (!text) return ''
-  // 基础转义
   const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return safeText
-    // *星号动作* -> 斜体
     .replace(/\*([^*]+)\*/g, '<em class="rp-action">*$1*</em>')
-    // "双引号对话" -> 橙色高亮
     .replace(/"([^"]+)"/g, '<span class="rp-dialogue">"$1"</span>')
-    // 换行符 -> <br>
     .replace(/\n/g, '<br>')
 }
 
@@ -110,7 +111,6 @@ const formatTime = (ts) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// 自动滚动逻辑
 const scroll = () => {
   nextTick(() => {
     if (bottomAnchor.value) {
@@ -127,89 +127,213 @@ onMounted(scroll)
 .chat-container {
   height: 100%;
   overflow-y: auto;
-  padding: 24px;
-  background: #111; /* 背景色必须有 */
+  padding: 20px;
+  background: var(--bg-primary);
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 20px;
 }
 
-.msg-item { display: flex; gap: 16px; width: 100%; }
+.msg-item {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+}
 
-/* 头像列 */
-.avatar-column { flex-shrink: 0; }
+.avatar-column {
+  flex-shrink: 0;
+}
+
 .tavern-avatar {
-  width: 50px;
-  height: 50px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1px solid #333;
-  font-size: 20px;
+  border: 1px solid var(--border);
+  font-size: 18px;
   font-weight: bold;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-/* AI 默认头像颜色 */
-.ai-icon { background: #2c3e50; color: #3498db; }
-/* 用户默认头像颜色 */
-.user-icon { background: #222; color: #666; }
 
-.msg-column { flex: 1; min-width: 0; }
+.ai-icon {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.user-icon {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.msg-column {
+  flex: 1;
+  min-width: 0;
+}
 
 .msg-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-.display-name { font-weight: bold; color: #fff; font-size: 15px; }
-.msg-time { font-size: 11px; color: #444; }
+.display-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
 
-/* 操作按钮 */
-.msg-actions { margin-left: auto; display: flex; gap: 12px; opacity: 0; transition: 0.2s; }
-.msg-item:hover .msg-actions { opacity: 1; }
-.icon-btn { cursor: pointer; color: #444; font-size: 14px; }
-.icon-btn:hover { color: #888; }
-.icon-btn.execute:hover { color: #52c41a; }
-.icon-btn.delete:hover { color: #ff4d4f; }
+.msg-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
-/* 思考过程 */
-.thought-wrapper { margin-bottom: 12px; max-width: 90%; }
-details { background: #1a1a1a; border-radius: 8px; border: 1px solid #252525; }
-summary { padding: 8px 12px; color: #666; font-size: 12px; cursor: pointer; list-style: none; outline: none; }
-summary .arrow { margin-left: 5px; }
-.thought-body { padding: 12px; color: #555; font-size: 13px; border-top: 1px solid #222; font-style: italic; line-height: 1.5; }
+.msg-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: 0.2s;
+}
 
-/* 文本正文 */
+.msg-item:hover .msg-actions {
+  opacity: 1;
+}
+
+.icon-btn {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.icon-btn.execute:hover {
+  color: var(--success);
+}
+
+.icon-btn.delete:hover {
+  color: var(--danger);
+}
+
+.thought-wrapper {
+  margin-bottom: 10px;
+  max-width: 90%;
+}
+
+details {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+summary {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+  outline: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+summary .arrow {
+  font-size: 10px;
+}
+
+.thought-body {
+  padding: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  font-style: italic;
+  line-height: 1.6;
+}
+
 .text-main {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.7;
-  color: #a0a0a0; /* 叙述文字调浅一点的灰色 */
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* 引号高亮：橙黄色 */
 :deep(.rp-dialogue) {
-  color: #e58e35;
+  color: var(--accent);
 }
 
-/* 星号动作：斜体 */
 :deep(.rp-action) {
   font-style: italic;
   opacity: 0.8;
 }
 
-/* 编辑器 */
-.tavern-textarea {
-  width: 100%; background: #080808; color: #ccc; border: 1px solid #333;
-  padding: 12px; border-radius: 4px; font-family: inherit; line-height: 1.6;
-  resize: vertical; outline: none;
+.edit-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.tavern-textarea:focus { border-color: #e58e35; }
-.edit-footer { margin-top: 10px; display: flex; gap: 10px; justify-content: flex-end; }
-.tavern-btn { padding: 5px 15px; border-radius: 4px; cursor: pointer; border: 1px solid #333; background: #222; color: #999; }
-.tavern-btn.primary { background: #e58e35; color: #fff; border: none; }
+
+.tavern-textarea {
+  width: 100%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.tavern-textarea:focus {
+  border-color: var(--accent);
+}
+
+.edit-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tavern-btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.tavern-btn:hover {
+  background: var(--bg-hover);
+}
+
+.tavern-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tavern-btn.primary:hover {
+  background: var(--accent-hover);
+}
 </style>

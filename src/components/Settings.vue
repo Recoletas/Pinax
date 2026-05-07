@@ -1,4 +1,4 @@
-<<template>
+<template>
   <div class="settings-overlay" @click.self="$emit('close')">
     <div class="settings-modal">
       <div class="panel-header">
@@ -268,14 +268,13 @@ async function saveAll() {
 </script>
 
 <style scoped>
-/* 保持你原来的样式不变，只需确保包含以下几个关键点 */
 .settings-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -284,29 +283,200 @@ async function saveAll() {
 
 .settings-modal {
   width: 500px;
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: #eee;
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
 }
 
-.panel-header { padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
-.settings-tabs { display: flex; background: #252525; }
-.tab { flex: 1; padding: 10px; border: none; background: none; color: #888; cursor: pointer; }
-.tab.active { color: #fff; border-bottom: 2px solid #4f46e5; }
-.settings-content { padding: 20px; max-height: 60vh; overflow-y: auto; }
-.setting-item { margin-bottom: 15px; display: flex; flex-direction: column; gap: 5px; }
-.input { padding: 8px; background: #121212; border: 1px solid #333; color: #fff; border-radius: 4px; }
-.btn { padding: 8px 16px; cursor: pointer; border-radius: 4px; border: 1px solid #444; background: #333; color: #fff; }
-.btn-primary { background: #4f46e5; border-color: #4f46e5; }
-.test-result { margin-top: 10px; padding: 10px; border-radius: 4px; font-size: 13px; }
-.test-result.ok { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-.test-result.error { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-.api-key-input { display: flex; gap: 5px; }
-.api-key-input .input { flex: 1; }
-.preset-btn { font-size: 11px; margin: 2px; padding: 4px 8px; cursor: pointer; background: #222; border: 1px solid #444; color: #aaa; border-radius: 4px; }
-.preset-btn.active { background: #4f46e5; color: white; }
-.loading-indicator { font-size: 11px; color: #4f46e5; }
+.panel-header {
+  padding: 15px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.settings-tabs {
+  display: flex;
+  background: var(--bg-tertiary);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+
+.settings-content {
+  padding: 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-item label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.input {
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.btn {
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.test-result {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.test-result.ok {
+  background: var(--accent-light);
+  color: var(--success);
+}
+
+.test-result.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.api-key-input {
+  display: flex;
+  gap: 8px;
+}
+
+.api-key-input .input {
+  flex: 1;
+}
+
+.toggle-visibility {
+  padding: 0 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toggle-visibility:hover {
+  background: var(--bg-hover);
+}
+
+.model-select-wrapper {
+  position: relative;
+}
+
+.preset-btn {
+  font-size: 11px;
+  margin: 2px;
+  padding: 4px 8px;
+  cursor: pointer;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.preset-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preset-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.loading-indicator {
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 4px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 15px;
+  border-top: 1px solid var(--border);
+}
 </style>

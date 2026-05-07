@@ -1,9 +1,27 @@
 <template>
   <div class="game-page">
-    <header class="game-header">
-      <button class="back-btn" @click="goBack">← 返回</button>
-      <h1>游戏</h1>
-      <div class="header-actions">
+    <!-- 标题栏 -->
+    <header class="title-bar">
+      <div class="title-left">
+        <button class="icon-btn" @click="goBack" title="返回">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
+          </svg>
+        </button>
+        <span class="app-title">游戏</span>
+      </div>
+      <div class="title-right">
+        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+          <span class="theme-icon">
+            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+            </svg>
+            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+            </svg>
+          </span>
+          <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+        </button>
         <button class="action-btn" :class="{ active: gameStore.useAI }" @click="gameStore.toggleAI">
           AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
         </button>
@@ -43,6 +61,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
+import { useTheme } from '../composables/useTheme'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
@@ -54,11 +73,12 @@ import Character from '../components/Character.vue'
 
 const router = useRouter()
 const gameStore = useGameStore()
+const { isDark, toggleTheme } = useTheme()
 const showCharacter = ref(false)
 const showSettings = ref(false)
 
 function goBack() {
-  router.push('/')
+  router.push('/fit')
 }
 
 function handleSend(text) {
@@ -68,63 +88,103 @@ function handleSend(text) {
 
 <style scoped>
 .game-page {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.game-header {
+.title-bar {
+  height: 48px;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.5rem;
+  justify-content: space-between;
+  padding: 0 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-.game-header h1 {
-  flex: 1;
-  font-size: 0.9rem;
+.title-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-left .app-title {
+  font-size: 14px;
   font-weight: 600;
+}
+
+.title-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.back-btn {
-  padding: 0.4rem 0.75rem;
-  background: transparent;
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 14px;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s;
 }
 
-.back-btn:hover {
+.theme-toggle:hover {
+  background: var(--bg-hover);
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.header-actions {
+.theme-icon {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
 }
 
 .action-btn {
-  padding: 0.4rem 0.75rem;
+  height: 32px;
+  padding: 0 12px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s;
 }
 
 .action-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .action-btn.active {
@@ -136,33 +196,36 @@ function handleSend(text) {
 .game-layout {
   flex: 1;
   display: flex;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
+  gap: 12px;
+  padding: 12px 16px;
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
-  width: 240px;
+  width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 8px;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .sidebar-section {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 12px;
 }
 
 .game-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 </style>
