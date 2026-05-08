@@ -33,6 +33,9 @@
     <div class="game-layout">
       <aside class="sidebar">
         <div class="sidebar-section">
+          <ContextSelector />
+        </div>
+        <div class="sidebar-section">
           <StatusBar />
         </div>
         <div class="sidebar-section">
@@ -65,6 +68,7 @@ import { useTheme } from '../composables/useTheme'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
+import ContextSelector from '../components/ContextSelector.vue'
 import Inventory from '../components/Inventory.vue'
 import QuestLog from '../components/QuestLog.vue'
 import WorldMap from '../components/WorldMap.vue'

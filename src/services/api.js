@@ -108,6 +108,283 @@ export async function saveApiSettings(settings) {
   }
 }
 
+// ---------------- 写作上下文嵌入 LLM ----------------
+
+/**
+ * 提示词模板引擎 - 严谨的提示词工程
+ */
+const SYSTEM_PROMPT_TEMPLATE = `【身份】你是一位资深的文学创作助手，专注于为作者提供叙事支持和灵感启发。
+
+【核心能力】
+- 用生动的语言描绘场景氛围、环境细节、人物动作与心理活动
+- 根据既有设定自然地推进叙事脉络
+- 与创作者互动，响应其创作意图并提供灵感
+
+【回复格式要求】
+- 使用 *动作* 格式描述角色动作
+- 使用 "对话" 格式描述对话
+- 段落分明，场景转换时使用空行
+- 长度适中，一般 50-200 字
+
+{context}
+
+【当前情境】
+{current_situation}
+
+请作为创作助手，根据上述设定和情境，延续叙事并回应创作动作。`
+
+/**
+ * 获取写作上下文详情
+ */
+export function getWritingContextDetail() {
+  const context = {
+    character: null,
+    time: null,
+    location: null,
+    scene: null,
+    activities: []
+  }
+
+  // 角色信息
+  const character = JSON.parse(localStorage.getItem('writing_character') || '{}')
+  if (character.name) {
+    context.character = {
+      name: character.name,
+      gender: character.gender || null,
+      age: character.age || null,
+      traits: character.traits || [],
+      description: character.description || null,
+      goal: character.goal || null,
+      mood: character.mood
+    }
+  }
+
+  // 时间信息
+  const time = JSON.parse(localStorage.getItem('writing_time') || '{}')
+  if (time.year) {
+    context.time = {
+      era: time.eraId === 'gregorian' ? '公元' : (time.eraName || ''),
+      year: time.year,
+      month: time.month || null,
+      day: time.day || null
+    }
+  }
+
+  // 当前位置
+  const worldmap = JSON.parse(localStorage.getItem('writing_worldmap') || '{}')
+  if (worldmap.currentCountry || worldmap.currentCity || worldmap.currentScene) {
+    context.location = {
+      country: worldmap.currentCountry || null,
+      city: worldmap.currentCity || null,
+      scene: worldmap.currentScene || null
+    }
+  }
+
+  // 当前场景
+  const scenes = JSON.parse(localStorage.getItem('writing_scenes') || '{}')
+  if (scenes.currentId) {
+    const current = scenes.scenes?.find(s => s.id === scenes.currentId)
+    if (current) {
+      context.scene = {
+        name: current.name,
+        position: current.position || null,
+        action: current.action || null,
+        description: current.description || null
+      }
+    }
+  }
+
+  // 最近活动
+  const activities = JSON.parse(localStorage.getItem('writing_activities') || '[]')
+  if (activities.length > 0) {
+    context.activities = activities.slice(-5).reverse().map(a => ({
+      title: a.title,
+      date: a.date || null,
+      type: a.type || 'event'
+    }))
+  }
+
+  return context
+}
+
+/**
+ * 获取格式化后的写作上下文字符串
+ */
+export function getWritingContext() {
+  const detail = getWritingContextDetail()
+  const parts = []
+
+  // 角色
+  if (detail.character) {
+    parts.push(`【角色信息】`)
+    parts.push(`姓名：${detail.character.name}`)
+    if (detail.character.gender) parts.push(`性别：${detail.character.gender}`)
+    if (detail.character.age) parts.push(`年龄：${detail.character.age}`)
+    if (detail.character.traits.length) {
+      parts.push(`性格特征：${detail.character.traits.join('、')}`)
+    }
+    if (detail.character.description) {
+      parts.push(`角色设定：${detail.character.description}`)
+    }
+    if (detail.character.goal) {
+      parts.push(`当前目标：${detail.character.goal}`)
+    }
+    if (detail.character.mood !== undefined) {
+      const moodValue = detail.character.mood
+      const moodLabels = { 15: '悲伤', 30: '低落', 50: '平静', 70: '愉悦', 85: '亢奋', 95: '激动' }
+      const label = moodLabels[Math.round(moodValue / 15) * 15] || '平静'
+
+      // 心境基础状态
+      parts.push(`心境状态：${label} (${moodValue}%)`)
+
+      // 心境对应的叙事走向引导
+      const moodNarrativeGuides = {
+        15: '叙事倾向于内省与回忆，可能出现失落、怀念、孤独的主题，场景描写偏感伤。',
+        30: '叙事节奏放缓，倾向于犹豫、迷茫或等待的心理状态，事件发展可能遭遇阻碍。',
+        50: '叙事保持平稳客观，以场景描写和情节推进为主，情绪渲染适度。',
+        70: '叙事倾向于积极元素，可能出现巧合、顺利的发展，人际互动愉悦。',
+        85: '叙事节奏加快，可能出现戏剧性转折、意外事件或内心激荡的表达。',
+        95: '叙事充满张力，可能伴随激烈冲突、突发状况或情感爆发，节奏紧张急促。'
+      }
+      const roundedMood = Math.round(moodValue / 15) * 15
+      if (moodNarrativeGuides[roundedMood]) {
+        parts.push(`【叙事氛围引导】${moodNarrativeGuides[roundedMood]}`)
+      }
+    }
+  }
+
+  // 时间
+  if (detail.time) {
+    parts.push(`【时间背景】`)
+    let timeStr = `纪年：${detail.time.era} `
+    timeStr += `${detail.time.year}`
+    if (detail.time.month) timeStr += `年${detail.time.month}`
+    if (detail.time.day) timeStr += `月${detail.time.day}`
+    timeStr += '日'
+    parts.push(timeStr)
+  }
+
+  // 地点
+  if (detail.location) {
+    parts.push(`【当前位置】`)
+    const locParts = [detail.location.country, detail.location.city, detail.location.scene].filter(Boolean)
+    parts.push(`地点：${locParts.join(' - ')}`)
+  }
+
+  // 场景详情
+  if (detail.scene) {
+    parts.push(`【场景详情】`)
+    parts.push(`场景：${detail.scene.name}`)
+    if (detail.scene.position) parts.push(`位置：${detail.scene.position}`)
+    if (detail.scene.action) parts.push(`正在做：${detail.scene.action}`)
+    if (detail.scene.description) parts.push(`场景描述：${detail.scene.description}`)
+  }
+
+  // 最近活动
+  if (detail.activities.length > 0) {
+    parts.push(`【最近重要活动】`)
+    const typeLabels = { event: '事件', milestone: '里程碑', decision: '决定', encounter: '遭遇' }
+    detail.activities.forEach(a => {
+      parts.push(`- ${a.date || ''} ${a.title} (${typeLabels[a.type] || a.type})`)
+    })
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * 构建当前情境简述
+ */
+function buildCurrentSituation(context) {
+  const situation = []
+
+  if (context.character) {
+    situation.push(`${context.character.name}正处于`)
+  }
+
+  if (context.location) {
+    const loc = [context.location.country, context.location.city, context.location.scene].filter(Boolean).join(' - ')
+    situation.push(`地点：${loc}`)
+  }
+
+  if (context.scene) {
+    situation.push(`场景：${context.scene.name}`)
+    if (context.scene.position) situation.push(`位置：${context.scene.position}`)
+    if (context.scene.action) situation.push(`动作：${context.scene.action}`)
+  }
+
+  if (context.time) {
+    let timeStr = `时间：${context.time.era} `
+    timeStr += `${context.time.year}`
+    if (context.time.month) timeStr += `年${context.time.month}`
+    if (context.time.day) timeStr += `月${context.time.day}`
+    timeStr += '日'
+    situation.push(timeStr)
+  }
+
+  // 基于心境的场景氛围补充
+  if (context.character && context.character.mood !== undefined) {
+    const moodValue = context.character.mood
+    const roundedMood = Math.round(moodValue / 15) * 15
+
+    const moodSceneHints = {
+      15: '此刻氛围略显沉重，周围的一切似乎都蒙上了一层淡淡的忧郁。',
+      30: '空气中弥漫着些许沉闷，气氛不算太好，但仍有等待转机的余地。',
+      50: '一切如常，没有特别的好坏之分，是一个平静的时空切片。',
+      70: '此刻心情不错，环境中的一切似乎都显得顺眼，机遇似乎也在悄然出现。',
+      85: '情绪高涨，精力充沛，似乎万事俱备，行动力十足。',
+      95: '心潮澎湃，情绪激昂，可能即将迎来某种转折或突破。'
+    }
+
+    if (moodSceneHints[roundedMood]) {
+      situation.push(moodSceneHints[roundedMood])
+    }
+  }
+
+  return situation.length > 0 ? situation.join('\n') : '暂无特定情境'
+}
+
+/**
+ * 将写作上下文作为系统消息注入
+ */
+export function buildContextMessage() {
+  const context = getWritingContextDetail()
+  if (!context.character && !context.time && !context.location && !context.scene && context.activities.length === 0) {
+    return null
+  }
+
+  const contextStr = getWritingContext()
+  const situation = buildCurrentSituation(context)
+
+  return {
+    role: 'system',
+    content: SYSTEM_PROMPT_TEMPLATE
+      .replace('{context}', contextStr ? `\n【背景信息】\n${contextStr}` : '')
+      .replace('{current_situation}', situation)
+  }
+}
+
+/**
+ * 计算提示词信息
+ */
+export function getPromptInfo(chatHistory = []) {
+  const contextMsg = buildContextMessage()
+
+  let historyLength = 0
+  chatHistory.forEach(m => {
+    if (m.content) historyLength += m.content.length
+  })
+
+  return {
+    contextLength: contextMsg ? contextMsg.content.length : 0,
+    contextTokens: contextMsg ? Math.ceil(contextMsg.content.length / 4) : 0,
+    historyLength,
+    historyTokens: Math.ceil(historyLength / 4),
+    totalLength: (contextMsg ? contextMsg.content.length : 0) + historyLength,
+    totalTokens: (contextMsg ? Math.ceil(contextMsg.content.length / 4) : 0) + Math.ceil(historyLength / 4)
+  }
+}
+
 // ---------------- 其他 ----------------
 
 export async function getEventCategories() {

@@ -9,59 +9,105 @@
       <span>角色</span>
     </div>
 
-    <div class="character-profile" @click="showDetail = true">
-      <div class="avatar-wrapper">
-        <img v-if="playerAvatar" :src="playerAvatar" class="avatar" />
-        <div v-else class="avatar placeholder">
-          {{ (playerName || '你')[0] }}
-        </div>
+    <!-- 当前时间显示 -->
+    <div class="current-time" @click="showTimeDetail = true">
+      <div class="time-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 1a5 5 0 110 10A5 5 0 017 2z"/>
+          <path d="M7 4v3l2 2"/>
+        </svg>
       </div>
-      <div class="profile-info">
-        <div class="character-name">{{ playerName || '未命名' }}</div>
-        <div class="character-mood">
-          <span class="mood-indicator" :style="{ background: moodGradient }"></span>
-          <span class="mood-text">{{ currentMoodLabel }}</span>
-        </div>
+      <div class="time-info">
+        <span class="time-era">{{ currentEraName || '公元' }}</span>
+        <span class="time-value">{{ currentTimeDisplay }}</span>
       </div>
-      <svg class="expand-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor">
-        <path d="M3 4.5L6 7.5L9 4.5" stroke-width="1.5"/>
+      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
       </svg>
     </div>
 
-    <div class="traits-section">
-      <div class="section-label">性格标签</div>
-      <div class="trait-tags">
-        <span v-for="trait in characterTraits" :key="trait" class="trait-tag">{{ trait }}</span>
-        <span v-if="!characterTraits.length" class="no-trait">暂无性格标签</span>
+    <!-- 角色概览 - 点击打开详情 -->
+    <div class="compact-profile" @click="showDetail = true">
+      <div class="avatar-mini">
+        <img v-if="playerAvatar" :src="playerAvatar" class="avatar" />
+        <div v-else class="avatar-placeholder">{{ (playerName || '你')[0] }}</div>
       </div>
-    </div>
-
-    <div class="mood-section">
-      <div class="section-label">当前心境</div>
-      <div class="mood-bar-wrapper">
-        <div class="mood-bar">
-          <div class="mood-fill" :style="{ width: moodPercent + '%', background: moodGradient }"></div>
-        </div>
-        <div class="mood-labels">
-          <span>低落</span>
-          <span>平静</span>
-          <span>昂扬</span>
+      <div class="profile-info">
+        <div class="character-name">{{ playerName || '未命名' }}</div>
+        <div class="mood-compact">
+          <div class="mood-bar">
+            <div class="mood-fill" :style="{ width: moodPercent + '%', background: moodGradient }"></div>
+          </div>
+          <span class="mood-label">{{ currentMoodLabel }}</span>
         </div>
       </div>
+      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
+      </svg>
     </div>
 
-    <div class="quick-stats">
-      <div class="stat-item">
-        <span class="stat-label">年龄</span>
-        <span class="stat-value">{{ playerAge }}</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">性别</span>
-        <span class="stat-value">{{ playerGender }}</span>
+    <!-- 时间设置弹窗 -->
+    <div v-if="showTimeDetail" class="detail-overlay" @click.self="showTimeDetail = false">
+      <div class="detail-modal">
+        <div class="modal-header">
+          <span>时间设定</span>
+          <button class="close-btn" @click="showTimeDetail = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="detail-section">
+            <div class="section-title">历法体系</div>
+            <div class="era-presets">
+              <button
+                v-for="p in presetEras"
+                :key="p.id"
+                :class="['era-preset-btn', { active: currentEraId === p.id }]"
+                @click="selectEra(p)"
+              >
+                {{ p.name }}
+              </button>
+            </div>
+          </div>
+
+          <div class="detail-section" v-if="currentEraId !== 'gregorian'">
+            <div class="section-title">当前纪年</div>
+            <div class="era-display">
+              <input
+                v-model="editEraName"
+                type="text"
+                class="era-input"
+                placeholder="输入年号，如：康熙、令和、大正..."
+              />
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="section-title">当前时间</div>
+            <div class="time-inputs">
+              <div class="time-input-group">
+                <label>年</label>
+                <input v-model="editYear" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="year-input" placeholder="年份" />
+              </div>
+              <div class="time-input-group">
+                <label>月</label>
+                <input v-model="editMonth" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="month-input" placeholder="月份" />
+              </div>
+              <div class="time-input-group">
+                <label>日</label>
+                <input v-model="editDay" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="day-input" placeholder="日期" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn" @click="showTimeDetail = false">关闭</button>
+          <button class="btn primary" @click="saveTime">保存</button>
+        </div>
       </div>
     </div>
 
-    <!-- 详情弹窗 -->
+    <!-- 角色详情弹窗 -->
     <div v-if="showDetail" class="detail-overlay" @click.self="closeModal">
       <div class="detail-modal">
         <div class="modal-header">
@@ -75,7 +121,6 @@
         </div>
 
         <div class="modal-body">
-          <!-- 信息标签页 -->
           <div v-if="activeTab === 'info'" class="tab-content">
             <div class="detail-section">
               <div class="detail-avatar-wrapper">
@@ -173,7 +218,6 @@
             </div>
           </div>
 
-          <!-- 导入标签页 -->
           <div v-if="activeTab === 'import'" class="tab-content">
             <div class="import-section">
               <p class="import-tip">从 JSON 格式的角色卡数据导入角色信息</p>
@@ -205,6 +249,7 @@ import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
 const showDetail = ref(false)
+const showTimeDetail = ref(false)
 const activeTab = ref('info')
 const newTrait = ref('')
 const moodIntensity = ref(50)
@@ -215,6 +260,25 @@ const editingGender = ref('')
 const editingAge = ref('')
 const importText = ref('')
 const importError = ref('')
+
+// Time settings
+const currentEraId = ref('custom')
+const currentEraName = ref('')
+const currentYear = ref(2024)
+const currentMonth = ref(1)
+const currentDay = ref(1)
+
+// Edit fields
+const editEraName = ref('')
+const editYear = ref(2024)
+const editMonth = ref(1)
+const editDay = ref(1)
+
+const presetEras = [
+  { id: 'custom', name: '自定义' },
+  { id: 'chinese', name: '年号' },
+  { id: 'gregorian', name: '公元' }
+]
 
 const moodOptions = [
   { value: 15, color: '#6b7280', label: '悲伤' },
@@ -227,29 +291,18 @@ const moodOptions = [
 
 const characterTraits = ref([])
 
-const currentMoodValue = computed(() => {
-  return moodIntensity.value
-})
+const currentMoodValue = computed(() => moodIntensity.value)
 
-const currentMoodLabel = computed(() => {
-  const m = moodOptions.reduce((prev, curr) => {
+const currentMood = computed(() => {
+  return moodOptions.reduce((prev, curr) => {
     return Math.abs(curr.value - moodIntensity.value) < Math.abs(prev.value - moodIntensity.value) ? curr : prev
   })
-  return m.label
 })
 
-const moodColor = computed(() => {
-  const m = moodOptions.reduce((prev, curr) => {
-    return Math.abs(curr.value - moodIntensity.value) < Math.abs(prev.value - moodIntensity.value) ? curr : prev
-  })
-  return m.color
-})
+const currentMoodLabel = computed(() => currentMood.value.label)
 
-// 平滑渐变颜色
 const moodGradient = computed(() => {
   const value = moodIntensity.value
-
-  // 找到value前后两个锚点
   let prev = moodOptions[0]
   let next = moodOptions[moodOptions.length - 1]
 
@@ -261,14 +314,25 @@ const moodGradient = computed(() => {
     }
   }
 
-  // 计算插值比例
   const range = next.value - prev.value
   const ratio = range === 0 ? 0 : (value - prev.value) / range
-
-  // 插值计算颜色
   const color = interpolateColor(prev.color, next.color, ratio)
   return color
 })
+
+const currentTimeDisplay = computed(() => {
+  const eraStr = currentEraName.value ? `${currentEraName.value} ` : ''
+  return `${eraStr}${currentYear.value}年${currentMonth.value}月${currentDay.value}日`
+})
+
+function interpolateColor(color1, color2, ratio) {
+  const c1 = hexToRgb(color1)
+  const c2 = hexToRgb(color2)
+  const r = Math.round(c1.r + (c2.r - c1.r) * ratio)
+  const g = Math.round(c1.g + (c2.g - c1.g) * ratio)
+  const b = Math.round(c1.b + (c2.b - c1.b) * ratio)
+  return `rgb(${r}, ${g}, ${b})`
+}
 
 function hexToRgb(hex) {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -279,37 +343,16 @@ function hexToRgb(hex) {
   } : { r: 0, g: 0, b: 0 }
 }
 
-function interpolateColor(color1, color2, ratio) {
-  const c1 = hexToRgb(color1)
-  const c2 = hexToRgb(color2)
-
-  const r = Math.round(c1.r + (c2.r - c1.r) * ratio)
-  const g = Math.round(c1.g + (c2.g - c1.g) * ratio)
-  const b = Math.round(c1.b + (c2.b - c1.b) * ratio)
-
-  return `rgb(${r}, ${g}, ${b})`
-}
-
 const moodPercent = computed(() => moodIntensity.value)
 
-const playerName = computed(() => {
-  return editingName.value || gameStore.playerCharacter?.name || '未命名'
-})
-
-const playerAvatar = computed(() => {
-  return gameStore.playerCharacter?.avatar || ''
-})
-
-const playerAge = computed(() => {
-  return editingAge.value || gameStore.playerCharacter?.age || '-'
-})
-
-const playerGender = computed(() => {
-  return editingGender.value || gameStore.playerCharacter?.gender || '-'
-})
+const playerName = computed(() => editingName.value || gameStore.playerCharacter?.name || '未命名')
+const playerAvatar = computed(() => gameStore.playerCharacter?.avatar || '')
+const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.age || '-')
+const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')
 
 onMounted(() => {
   loadCharacterData()
+  loadTimeData()
 })
 
 function loadCharacterData() {
@@ -324,6 +367,42 @@ function loadCharacterData() {
     editingGender.value = data.gender || ''
     editingAge.value = data.age || ''
   }
+}
+
+function loadTimeData() {
+  const saved = localStorage.getItem('writing_time')
+  if (saved) {
+    const data = JSON.parse(saved)
+    currentEraId.value = data.eraId || 'custom'
+    currentEraName.value = data.eraName || ''
+    currentYear.value = data.year || ''
+    currentMonth.value = data.month || ''
+    currentDay.value = data.day || ''
+  }
+  editEraName.value = currentEraName.value
+  editYear.value = currentYear.value
+  editMonth.value = currentMonth.value
+  editDay.value = currentDay.value
+}
+
+function saveTime() {
+  currentEraName.value = editEraName.value
+  currentYear.value = editYear.value || '1'
+  currentMonth.value = editMonth.value || '1'
+  currentDay.value = editDay.value || '1'
+
+  localStorage.setItem('writing_time', JSON.stringify({
+    eraId: currentEraId.value,
+    eraName: currentEraName.value,
+    year: currentYear.value,
+    month: currentMonth.value,
+    day: currentDay.value
+  }))
+  showTimeDetail.value = false
+}
+
+function selectEra(era) {
+  currentEraId.value = era.id
 }
 
 function closeModal() {
@@ -396,647 +475,286 @@ function saveCharacter() {
 </script>
 
 <style scoped>
-.status-bar {
-  color: var(--text-primary);
-}
+.status-bar { color: var(--text-primary); }
 
 .status-header {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
+  margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
 }
 
-.status-icon {
-  display: flex;
-  align-items: center;
-  color: var(--accent);
+.status-icon { display: flex; align-items: center; color: var(--accent); }
+
+/* 当前时间 */
+.current-time {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; background: var(--bg-tertiary);
+  border-radius: 6px; cursor: pointer; transition: all 0.15s;
+  margin-bottom: 10px;
+}
+.current-time:hover { background: var(--bg-hover); }
+
+.time-icon { color: var(--text-muted); display: flex; align-items: center; }
+
+.time-info { flex: 1; min-width: 0; }
+
+.time-era {
+  font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 1px;
 }
 
-/* 角色卡片 */
-.character-profile {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-  margin-bottom: 12px;
+.time-value {
+  font-size: 12px; color: var(--text-primary); display: block;
 }
 
-.character-profile:hover {
-  background: var(--bg-hover);
+/* 角色卡片 - 紧凑版 */
+.compact-profile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; background: var(--bg-tertiary); border-radius: 8px;
+  cursor: pointer; transition: all 0.15s;
+}
+.compact-profile:hover { background: var(--bg-hover); }
+
+.avatar-mini { flex-shrink: 0; }
+
+.avatar-mini .avatar,
+.avatar-mini .avatar-placeholder {
+  width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border);
 }
 
-.avatar-wrapper {
-  flex-shrink: 0;
+.avatar-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-light); color: var(--accent);
+  font-size: 14px; font-weight: 600;
 }
 
-.avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid var(--border);
-}
+.profile-info { flex: 1; min-width: 0; }
 
-.avatar.placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-light);
-  color: var(--accent);
-  font-size: 18px;
-  font-weight: 600;
-}
+.character-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
 
-.profile-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.character-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-
-.character-mood {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.mood-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.mood-text {
-  color: var(--text-secondary);
-}
-
-.expand-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-/* 性格标签 */
-.traits-section {
-  margin-bottom: 12px;
-}
-
-.section-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.trait-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.trait-tag {
-  padding: 3px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.no-trait {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* 心境 */
-.mood-section {
-  margin-bottom: 12px;
-}
-
-.mood-bar-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+.mood-compact { display: flex; align-items: center; gap: 8px; }
 
 .mood-bar {
-  height: 6px;
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-  overflow: hidden;
+  flex: 1; height: 4px; background: var(--bg-primary); border-radius: 2px; overflow: hidden;
 }
 
-.mood-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
+.mood-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
 
-.mood-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: 9px;
-  color: var(--text-muted);
-}
+.mood-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 
-/* 快速统计 */
-.quick-stats {
-  display: flex;
-  gap: 8px;
-}
+.expand-icon { color: var(--text-muted); flex-shrink: 0; }
 
-.stat-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-}
-
-.stat-label {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.stat-value {
-  font-size: 11px;
-  color: var(--text-primary);
-  margin-left: auto;
-}
-
-/* 详情弹窗 */
+/* 弹窗 */
 .detail-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5); display: flex; align-items: center;
+  justify-content: center; z-index: 1000;
 }
 
 .detail-modal {
-  width: 480px;
-  max-width: 95%;
-  max-height: 85vh;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  width: 420px; max-width: 95%; max-height: 85vh;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.modal-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-}
-
-.tab {
-  flex: 1;
-  padding: 12px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border-bottom: 2px solid transparent;
-}
-
-.tab:hover {
-  color: var(--text-secondary);
-}
-
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 600;
 }
 
 .close-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 18px;
-  cursor: pointer;
-  border-radius: 4px;
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-muted); font-size: 18px;
+  cursor: pointer; border-radius: 4px;
 }
+.close-btn:hover { background: var(--bg-hover); }
 
-.close-btn:hover {
-  background: var(--bg-hover);
-}
+.modal-tabs { display: flex; border-bottom: 1px solid var(--border); }
 
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
+.tab {
+  flex: 1; padding: 12px; background: none; border: none;
+  color: var(--text-muted); font-size: 13px; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
 }
+.tab:hover { color: var(--text-secondary); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-.tab-content {
-  padding: 20px;
-}
+.modal-body { flex: 1; overflow-y: auto; }
 
-.detail-section {
-  margin-bottom: 20px;
-}
+.tab-content { padding: 20px; }
 
-.detail-section:last-child {
-  margin-bottom: 0;
-}
+.detail-section { margin-bottom: 20px; }
+.detail-section:last-child { margin-bottom: 0; }
 
 .detail-section h3 {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 10px;
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
 }
 
-.detail-avatar-wrapper {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 12px;
+.section-title {
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
 }
+
+/* 时间设置 */
+.time-presets { margin-bottom: 16px; }
+
+.preset-label { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+
+.era-presets { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); justify-content: center; }
+
+.era-preset-btn {
+  padding: 10px 20px; background: var(--bg-tertiary);
+  border: none; border-right: 1px solid var(--border); color: var(--text-secondary);
+  font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.era-preset-btn:last-child { border-right: none; }
+.era-preset-btn:hover { background: var(--bg-hover); }
+.era-preset-btn.active { background: var(--accent); color: #fff; }
+
+.era-display { margin-bottom: 12px; }
+
+.era-input {
+  width: 100%; padding: 10px 12px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-primary); font-size: 14px;
+}
+.era-input:focus { outline: none; border-color: var(--accent); }
+
+.time-inputs { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); justify-content: center; }
+
+.time-input-group { display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--border); }
+.time-input-group:last-child { border-right: none; }
+.time-input-group label { font-size: 10px; color: var(--text-muted); padding: 8px 12px 0; white-space: nowrap; }
+
+.year-input, .month-input, .day-input {
+  padding: 10px 12px; background: var(--bg-primary); border: none;
+  color: var(--text-primary); font-size: 14px; text-align: center;
+  width: 80px;
+}
+.year-input:focus, .month-input:focus, .day-input:focus { outline: none; background: var(--bg-hover); }
+
+.time-input-group:has(input:focus) { background: var(--bg-tertiary); }
+
+/* 角色详情 */
+.detail-avatar-wrapper { display: flex; justify-content: center; margin-bottom: 12px; }
 
 .detail-avatar {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  object-fit: cover;
+  width: 80px; height: 80px; border-radius: 50%; object-fit: cover;
   border: 3px solid var(--accent);
 }
-
 .detail-avatar.placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-light);
-  color: var(--accent);
-  font-size: 32px;
-  font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-light); color: var(--accent);
+  font-size: 32px; font-weight: 600;
 }
 
-.name-edit-wrapper {
-  display: flex;
-  justify-content: center;
-}
+.name-edit-wrapper { display: flex; justify-content: center; }
 
 .name-input {
-  text-align: center;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 600;
-  outline: none;
-  max-width: 200px;
+  text-align: center; padding: 6px 12px; background: transparent;
+  border: none; border-bottom: 1px solid var(--border);
+  color: var(--text-primary); font-size: 16px; font-weight: 600; outline: none; max-width: 200px;
 }
+.name-input:focus { border-bottom-color: var(--accent); }
 
-.name-input:focus {
-  border-bottom-color: var(--accent);
-}
-
-/* 信息网格 */
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px;
 }
 
-.info-label {
-  font-size: 11px;
-  color: var(--text-muted);
-}
+.info-label { font-size: 11px; color: var(--text-muted); }
+.info-input { background: transparent; border: none; color: var(--text-primary); font-size: 13px; padding: 0; outline: none; }
 
-.info-input {
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  padding: 0;
-  outline: none;
-}
-
-/* 性格标签编辑 */
-.traits-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.traits-editor { display: flex; flex-direction: column; gap: 8px; }
 
 .trait-input {
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
+  width: 100%; padding: 8px 12px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-primary); font-size: 13px;
 }
+.trait-input:focus { outline: none; border-color: var(--accent); }
 
-.trait-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.traits-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+.traits-list { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .trait-tag.editable {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: var(--accent-light);
-  color: var(--accent);
-  border-radius: 4px;
-  font-size: 12px;
+  display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+  background: var(--accent-light); color: var(--accent); border-radius: 4px; font-size: 12px;
 }
 
 .trait-remove {
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 12px;
-  border-radius: 50%;
+  width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; border-radius: 50%;
 }
+.trait-remove:hover { background: rgba(0,0,0,0.1); }
 
-.trait-remove:hover {
-  background: rgba(0,0,0,0.1);
-}
-
-/* 心境选择器 */
-.mood-selector {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
+.mood-selector { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 
 .mood-option {
-  flex: 1;
-  min-width: 55px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
+  flex: 1; min-width: 55px; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 10px 4px; background: var(--bg-tertiary);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.15s;
 }
+.mood-option:hover { border-color: var(--accent); }
+.mood-option.active { background: var(--accent-light); border-color: var(--accent); }
 
-.mood-option:hover {
-  border-color: var(--accent);
-}
+.mood-dot { width: 12px; height: 12px; border-radius: 50%; }
+.mood-label { font-size: 10px; color: var(--text-secondary); }
+.mood-option.active .mood-label { color: var(--accent); font-weight: 500; }
 
-.mood-option.active {
-  background: var(--accent-light);
-  border-color: var(--accent);
-}
-
-.mood-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.mood-label {
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.mood-option.active .mood-label {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.mood-slider-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.slider-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
+.mood-slider-wrapper { display: flex; align-items: center; gap: 12px; }
+.slider-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
 .mood-slider {
-  flex: 1;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-  outline: none;
+  flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
+  background: var(--bg-tertiary); border-radius: 3px; outline: none;
 }
-
 .mood-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: var(--thumb-color, var(--accent));
-  border-radius: 50%;
-  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; background: var(--thumb-color, var(--accent)); border-radius: 50%; cursor: pointer;
 }
 
-.slider-value {
-  font-size: 12px;
-  color: var(--text-secondary);
-  min-width: 35px;
-  text-align: right;
-}
+.slider-value { font-size: 12px; color: var(--text-secondary); min-width: 35px; text-align: right; }
 
-/* 描述文本框 */
 .description-textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.5;
-  resize: vertical;
-  font-family: inherit;
+  width: 100%; min-height: 80px; padding: 10px 12px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+  font-size: 13px; line-height: 1.5; resize: vertical; font-family: inherit;
 }
+.description-textarea.short { min-height: 60px; }
+.description-textarea:focus { outline: none; border-color: var(--accent); }
+.description-textarea::placeholder { color: var(--text-muted); }
 
-.description-textarea.short {
-  min-height: 60px;
-}
-
-.description-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.description-textarea::placeholder {
-  color: var(--text-muted);
-}
-
-.status-input {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.status-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.status-input::placeholder {
-  color: var(--text-muted);
-}
-
-/* 导入部分 */
-.import-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.import-tip {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
+/* 导入 */
+.import-section { display: flex; flex-direction: column; gap: 12px; }
+.import-tip { font-size: 13px; color: var(--text-secondary); }
 
 .import-textarea {
-  width: 100%;
-  min-height: 200px;
-  padding: 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: monospace;
-  line-height: 1.5;
-  resize: vertical;
+  width: 100%; min-height: 200px; padding: 12px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+  font-size: 12px; font-family: monospace; line-height: 1.5; resize: vertical;
 }
+.import-textarea:focus { outline: none; border-color: var(--accent); }
+.import-textarea::placeholder { color: var(--text-muted); }
 
-.import-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.import-textarea::placeholder {
-  color: var(--text-muted);
-}
-
-.import-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.import-error {
-  padding: 8px 12px;
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--danger);
-  border-radius: 6px;
-  font-size: 12px;
-}
+.import-error { padding: 8px 12px; background: rgba(239, 68, 68, 0.15); color: var(--danger); border-radius: 6px; font-size: 12px; }
 
 .modal-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 16px 20px; border-top: 1px solid var(--border);
 }
 
 .btn {
-  padding: 8px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
+  padding: 8px 16px; background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-primary); font-size: 13px; cursor: pointer; transition: all 0.15s;
 }
+.btn:hover { background: var(--bg-hover); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn:hover {
-  background: var(--bg-hover);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn.primary:hover {
-  background: var(--accent-hover);
-}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-hover); }
 </style>

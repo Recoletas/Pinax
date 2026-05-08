@@ -2,44 +2,67 @@
   <div class="quest-log">
     <div class="panel-header">
       <span>重要活动</span>
+      <span class="count-badge" v-if="activities.length > 0">{{ activities.length }}</span>
     </div>
 
-    <!-- 时间线视图 -->
-    <div class="timeline-view" v-if="activities.length > 0">
-      <div class="timeline-group" v-for="(group, dateKey) in groupedActivities" :key="dateKey">
-        <div class="timeline-date">{{ formatDateKey(dateKey) }}</div>
-        <div class="timeline-items">
-          <div
-            v-for="activity in group"
-            :key="activity.id"
-            class="timeline-item"
-            @click="editActivity(activity)"
-          >
-            <div class="item-time">{{ formatTime(activity.time) }}</div>
-            <div class="item-marker">
-              <div class="marker-dot" :style="{ background: getActivityColor(activity.type) }"></div>
-              <div class="marker-line"></div>
-            </div>
-            <div class="item-content">
-              <div class="item-title">{{ activity.title }}</div>
-              <div class="item-type" :style="{ color: getActivityColor(activity.type) }">
-                {{ getActivityLabel(activity.type) }}
+    <!-- 最近活动 -->
+    <div class="recent-activity" v-if="activities.length > 0" @click="showDetail = true">
+      <div class="activity-preview">
+        <div class="activity-dot" :style="{ background: getActivityColor(latestActivity.type) }"></div>
+        <div class="activity-info">
+          <div class="activity-title">{{ latestActivity.title }}</div>
+          <div class="activity-meta">{{ formatDateKey(latestActivity.date) }} · {{ getActivityLabel(latestActivity.type) }}</div>
+        </div>
+      </div>
+      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
+      </svg>
+    </div>
+    <div v-else class="empty-state" @click="openAddModal">
+      点击记录第一个活动
+    </div>
+
+    <!-- 详情弹窗 -->
+    <div v-if="showDetail" class="detail-overlay" @click.self="showDetail = false">
+      <div class="detail-modal">
+        <div class="modal-header">
+          <span>活动记录</span>
+          <button class="close-btn" @click="showDetail = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="timeline-view" v-if="activities.length > 0">
+            <div class="timeline-group" v-for="(group, dateKey) in groupedActivities" :key="dateKey">
+              <div class="timeline-date">{{ formatDateKey(dateKey) }}</div>
+              <div class="timeline-items">
+                <div
+                  v-for="activity in group"
+                  :key="activity.id"
+                  class="timeline-item"
+                  @click="editActivity(activity)"
+                >
+                  <div class="item-time">{{ formatTime(activity.time) }}</div>
+                  <div class="item-marker">
+                    <div class="marker-dot" :style="{ background: getActivityColor(activity.type) }"></div>
+                    <div class="marker-line"></div>
+                  </div>
+                  <div class="item-content">
+                    <div class="item-title">{{ activity.title }}</div>
+                    <div class="item-type" :style="{ color: getActivityColor(activity.type) }">
+                      {{ getActivityLabel(activity.type) }}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+          <div v-else class="empty-state">暂无活动记录</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" @click="showDetail = false">关闭</button>
+          <button class="btn primary" @click="openAddModal">添加活动</button>
         </div>
       </div>
     </div>
-    <div v-else class="empty-state">
-      暂无重要活动记录
-    </div>
-
-    <button class="add-btn" @click="openAddModal()">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-        <path d="M6 1v10M1 6h10"/>
-      </svg>
-      记录活动
-    </button>
 
     <!-- 添加/编辑弹窗 -->
     <div v-if="showAddModal" class="detail-overlay" @click.self="closeModal">
@@ -125,6 +148,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 
+const showDetail = ref(false)
 const showAddModal = ref(false)
 const editingActivity = ref(null)
 const editTitle = ref('')
@@ -141,6 +165,15 @@ const activityTypes = [
   { value: 'decision', label: '决定', color: '#fbbf24' },
   { value: 'encounter', label: '遭遇', color: '#f97316' }
 ]
+
+const latestActivity = computed(() => {
+  if (activities.value.length === 0) return null
+  return activities.value.reduce((latest, a) => {
+    const aTime = a.time || a.date || ''
+    const latestTime = latest.time || latest.date || ''
+    return aTime > latestTime ? a : latest
+  })
+})
 
 const getActivityColor = (type) => {
   const t = activityTypes.find(t => t.value === type)
@@ -321,10 +354,49 @@ function deleteActivity() {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+.count-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.recent-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.recent-activity:hover { background: var(--bg-hover); }
+
+.activity-preview { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+
+.activity-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+
+.activity-info { flex: 1; min-width: 0; }
+
+.activity-title {
+  font-size: 12px; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.activity-meta {
+  font-size: 10px; color: var(--text-muted); margin-top: 2px;
+}
+
+.expand-icon { color: var(--text-muted); flex-shrink: 0; }
 
 .timeline-view {
   display: flex;
@@ -414,28 +486,7 @@ function deleteActivity() {
   text-align: center;
   padding: 1rem;
   font-size: 0.8rem;
-  margin-bottom: 10px;
-}
-
-.add-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
-}
-
-.add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* 弹窗 */

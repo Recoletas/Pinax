@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { sendAction as apiSendAction, getState, sendChat } from '../services/api'
+import { sendAction as apiSendAction, getState, sendChat, buildContextMessage } from '../services/api'
 
 export const useGameStore = defineStore('game', {
   state: () => ({
@@ -41,10 +41,9 @@ export const useGameStore = defineStore('game', {
   actions: {
      async sendAction(text) {
       if (!text.trim()) return
-      
+
       this.messages.push({
         role: 'user',
-        name: this.playerCharacter.name, // 使用当前玩家设定的名字
         content: text,
         timestamp: Date.now()
       })
@@ -52,6 +51,35 @@ export const useGameStore = defineStore('game', {
 
       if (this.useAI) {
         await this.generateAIResponse()
+      } else {
+        this.isLoading = true
+        try {
+          const response = await apiSendAction(this.gameId, text)
+          this.updateState(response)
+          if (response.events) {
+            for (const event of response.events) {
+              if (event.type !== 'system' && event.type !== 'time_advance') {
+                this.messages.push({
+                  role: 'assistant',
+                  content: event.description,
+                  timestamp: Date.now()
+                })
+              }
+            }
+          }
+          if (response.timeAdvanced) {
+            this.messages.push({
+              role: 'system',
+              content: `时间已推进：${response.timeDescription}`,
+              timestamp: Date.now()
+            })
+          }
+        } catch (e) {
+          this.lastError = e.message
+          this.messages.push({ role: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
+        } finally {
+          this.isLoading = false
+        }
       }
     },
 
@@ -106,17 +134,26 @@ export const useGameStore = defineStore('game', {
     },
 
     // --- 新增：提取出来的 AI 生成逻辑 ---
-    // ... 在 generateAIResponse action 内部
     async generateAIResponse() {
       this.isLoading = true;
       try {
         this.loadApiSettings();
-        const response = await sendChat(this.chatHistory, null, this.worldId, this.apiSettings);
-        
+
+        // 注入写作上下文
+        const contextMsg = buildContextMessage()
+        console.log('Context message:', contextMsg)
+        const messagesToSend = contextMsg
+          ? [contextMsg, ...this.chatHistory]
+          : this.chatHistory
+        console.log('Messages to send:', messagesToSend)
+
+        const response = await sendChat(messagesToSend, null, this.worldId, this.apiSettings);
+        console.log('AI response:', response)
+
         // 添加 AI 回复
         this.messages.push({
           role: 'assistant',
-          name: this.currentCharacter.name, 
+          name: this.aiCharacter.name,
           content: response.content,
           reasoning_content: response.reasoning_content || null,
           timestamp: Date.now()
@@ -124,7 +161,9 @@ export const useGameStore = defineStore('game', {
 
         this.chatHistory.push({ role: 'assistant', content: response.content });
       } catch (e) {
-        // ... 错误处理
+        console.error('AI Error:', e)
+        this.lastError = e.message;
+        this.messages.push({ role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() });
       } finally {
         this.isLoading = false;
       }
@@ -169,54 +208,6 @@ export const useGameStore = defineStore('game', {
       }
     },
 
-    // --- 修改：简化后的发送逻辑 ---
-    async sendAction(text) {
-      if (!text.trim()) return
-
-      this.messages.push({
-        type: 'user',
-        content: text,
-        timestamp: Date.now()
-      })
-      this.chatHistory.push({ role: 'user', content: text })
-
-      if (this.useAI) {
-        await this.generateAIResponse(); // 调用提取出来的方法
-      } else {
-        this.isLoading = true
-        try {
-          const response = await apiSendAction(this.gameId, text)
-          this.updateState(response)
-          // ... 剩下的非 AI 逻辑保持不变 ...
-          if (response.events) {
-            for (const event of response.events) {
-              if (event.type !== 'system' && event.type !== 'time_advance') {
-                this.messages.push({
-                  type: 'narrator',
-                  category: event.category,
-                  content: event.description,
-                  choices: event.choices,
-                  timestamp: Date.now()
-                })
-              }
-            }
-          }
-          if (response.timeAdvanced) {
-            this.messages.push({
-              type: 'system',
-              content: `时间已推进：${response.timeDescription}`,
-              timestamp: Date.now()
-            })
-          }
-        } catch (e) {
-          this.lastError = e.message
-          this.messages.push({ type: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
-        } finally {
-          this.isLoading = false
-        }
-      }
-    },
-
     updateState(response) {
       // ... 保持不变 ...
       if (response.state) {
@@ -234,6 +225,16 @@ export const useGameStore = defineStore('game', {
 
     toggleAI() {
       this.useAI = !this.useAI
+      if (this.useAI) {
+        this.loadApiSettings()
+      }
+    },
+
+    loadApiSettings() {
+      const saved = localStorage.getItem('apiSettings')
+      if (saved) {
+        this.apiSettings = { ...this.apiSettings, ...JSON.parse(saved) }
+      }
     }
   }
 })

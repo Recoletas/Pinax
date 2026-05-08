@@ -8,53 +8,12 @@
     <div class="current-scene" @click="showDetail = true">
       <div class="scene-marker"></div>
       <div class="scene-info">
-        <span class="scene-label">当前</span>
-        <span class="scene-name">{{ currentScene?.name || '无场景' }}</span>
+        <span class="scene-name">{{ currentScene?.name || '点击设置场景' }}</span>
       </div>
       <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
         <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
       </svg>
     </div>
-
-    <!-- 场景列表 -->
-    <div class="scene-list">
-      <div
-        v-for="scene in scenes"
-        :key="scene.id"
-        :class="['scene-item', { active: currentSceneId === scene.id }]"
-        @click="selectScene(scene)"
-      >
-        <span class="scene-icon">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <circle cx="6" cy="6" r="4"/>
-          </svg>
-        </span>
-        <span class="scene-name">{{ scene.name }}</span>
-      </div>
-    </div>
-
-    <!-- 预设场景 -->
-    <div class="presets-section" v-if="showPresets">
-      <div class="section-label">预设场景</div>
-      <div class="preset-list">
-        <div
-          v-for="preset in presetScenes"
-          :key="preset.id"
-          class="preset-item"
-          @click="addPreset(preset)"
-        >
-          {{ preset.name }}
-        </div>
-      </div>
-    </div>
-
-    <!-- 添加按钮 -->
-    <button class="add-btn" @click="showAddModal = true">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-        <path d="M6 1v10M1 6h10"/>
-      </svg>
-      添加场景
-    </button>
 
     <!-- 详情弹窗 -->
     <div v-if="showDetail" class="detail-overlay" @click.self="showDetail = false">
@@ -338,111 +297,6 @@ function deleteScene() {
 .expand-icon {
   color: var(--text-muted);
   flex-shrink: 0;
-}
-
-/* 场景列表 */
-.scene-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.scene-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.scene-item:hover {
-  background: var(--bg-tertiary);
-}
-
-.scene-item.active {
-  background: var(--accent-light);
-}
-
-.scene-item .scene-icon {
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-}
-
-.scene-item.active .scene-icon {
-  color: var(--accent);
-}
-
-.scene-item .scene-name {
-  font-size: 12px;
-  color: var(--text-secondary);
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.scene-item.active .scene-name {
-  color: var(--accent);
-}
-
-/* 预设区域 */
-.presets-section {
-  margin-bottom: 10px;
-}
-
-.section-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.preset-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.preset-item {
-  padding: 3px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.preset-item:hover {
-  background: var(--accent-light);
-  color: var(--accent);
-}
-
-/* 添加按钮 */
-.add-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* 弹窗 */

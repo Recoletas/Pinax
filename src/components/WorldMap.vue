@@ -13,37 +13,12 @@
     <div class="current-loc" @click="showDetail = true">
       <div class="loc-marker"></div>
       <div class="loc-info">
-        <span class="loc-label">当前</span>
-        <span class="loc-value">{{ currentLocationPath || '未设置' }}</span>
+        <span class="loc-value">{{ currentLocationPath || '点击设置' }}</span>
       </div>
       <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
         <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
       </svg>
     </div>
-
-    <!-- 当前位置详情 -->
-    <div class="loc-detail" v-if="currentCountry || currentCity || currentScene">
-      <div v-if="currentCountry" class="detail-item">
-        <span class="detail-icon">🌍</span>
-        <span class="detail-text">{{ currentCountry }}</span>
-      </div>
-      <div v-if="currentCity" class="detail-item">
-        <span class="detail-icon">🏙️</span>
-        <span class="detail-text">{{ currentCity }}</span>
-      </div>
-      <div v-if="currentScene" class="detail-item">
-        <span class="detail-icon">📍</span>
-        <span class="detail-text">{{ currentScene }}</span>
-      </div>
-    </div>
-
-    <!-- 添加按钮 -->
-    <button class="add-btn" @click="showAddModal = true">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-        <path d="M6 1v10M1 6h10"/>
-      </svg>
-      添加地点
-    </button>
 
     <!-- 详情弹窗 -->
     <div v-if="showDetail" class="detail-overlay" @click.self="showDetail = false">
@@ -444,54 +419,6 @@ watch(showAddScene, (val) => {
 .expand-icon {
   color: var(--text-muted);
   flex-shrink: 0;
-}
-
-/* 位置详情 */
-.loc-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  margin-bottom: 8px;
-}
-
-.detail-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.detail-icon {
-  font-size: 10px;
-}
-
-.detail-text {
-  color: var(--text-secondary);
-}
-
-/* 添加按钮 */
-.add-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* 弹窗 */
