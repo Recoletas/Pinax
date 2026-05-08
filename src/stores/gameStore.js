@@ -30,15 +30,102 @@ export const useGameStore = defineStore('game', {
       name: 'User', // 默认名，用户可以改
       avatar: ''    // 玩家头像
     },
-    
+
     // AI 扮演的角色
     aiCharacter: {
       name: 'Assistant', // 默认名，导入后会变
       avatar: ''
-    }
+    },
+
+    // 对话模式
+    dialogueMode: false,       // 是否开启对话模式
+    dialogueCharacter: null,   // 当前对话角色
+    dialogueCharacters: []     // 已保存的角色列表
   }),
 
   actions: {
+    // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
+    async compressContext() {
+      if (this.chatHistory.length <= 4) return { compressed: false, reason: '历史过短，无需压缩' }
+
+      // 保留：系统提示 + 最近 4 条消息
+      const systemPrompt = this.chatHistory[0]?.role === 'system' ? this.chatHistory[0] : null
+      const recentMessages = this.chatHistory.slice(-4)
+      const oldMessages = this.chatHistory.slice(systemPrompt ? 1 : 0, -4)
+
+      if (oldMessages.length === 0) return { compressed: false, reason: '无可压缩的历史' }
+
+      // 生成摘要
+      const summary = this.summarizeMessages(oldMessages)
+
+      // 构建精简后的历史
+      const newHistory = systemPrompt
+        ? [systemPrompt, { role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
+        : [{ role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
+
+      this.chatHistory = newHistory
+
+      return {
+        compressed: true,
+        oldCount: oldMessages.length,
+        newCount: newHistory.length,
+        summary
+      }
+    },
+
+    // 简单摘要：提取各角色的主要行动/对话
+    summarizeMessages(messages) {
+      const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content)
+      const aiMsgs = messages.filter(m => m.role === 'assistant').map(m => m.content)
+
+      const summarize = (msgs, maxLen = 60) => {
+        if (msgs.length === 0) return '无'
+        const combined = msgs.join('；').replace(/\n/g, ' ')
+        return combined.length > maxLen ? combined.slice(0, maxLen) + '…' : combined
+      }
+
+      const userSummary = summarize(userMsgs)
+      const aiSummary = summarize(aiMsgs)
+
+      return `用户进行 ${userMsgs.length} 次行动，主要：${userSummary}；AI 描述了 ${aiMsgs.length} 次叙事，主要：${aiSummary}`
+    },
+
+    // --- 对话模式 ---
+    toggleDialogueMode() {
+      this.dialogueMode = !this.dialogueMode
+      if (!this.dialogueMode) {
+        this.dialogueCharacter = null
+      }
+    },
+
+    selectDialogueCharacter(character) {
+      this.dialogueCharacter = character
+      this.dialogueMode = false
+    },
+
+    loadDialogueCharacters() {
+      const saved = localStorage.getItem('dialogue_characters')
+      if (saved) {
+        this.dialogueCharacters = JSON.parse(saved)
+      }
+    },
+
+    saveDialogueCharacter(character) {
+      const exists = this.dialogueCharacters.find(c => c.id === character.id)
+      if (!exists) {
+        this.dialogueCharacters.push(character)
+        localStorage.setItem('dialogue_characters', JSON.stringify(this.dialogueCharacters))
+      }
+    },
+
+    deleteDialogueCharacter(id) {
+      this.dialogueCharacters = this.dialogueCharacters.filter(c => c.id !== id)
+      if (this.dialogueCharacter?.id === id) {
+        this.dialogueCharacter = null
+      }
+      localStorage.setItem('dialogue_characters', JSON.stringify(this.dialogueCharacters))
+    },
+
      async sendAction(text) {
       if (!text.trim()) return
 
@@ -139,8 +226,8 @@ export const useGameStore = defineStore('game', {
       try {
         this.loadApiSettings();
 
-        // 注入写作上下文
-        const contextMsg = buildContextMessage()
+        // 注入写作上下文（对话模式时传入对话角色）
+        const contextMsg = buildContextMessage(this.dialogueCharacter)
         console.log('Context message:', contextMsg)
         const messagesToSend = contextMsg
           ? [contextMsg, ...this.chatHistory]
@@ -153,10 +240,11 @@ export const useGameStore = defineStore('game', {
         // 添加 AI 回复
         this.messages.push({
           role: 'assistant',
-          name: this.aiCharacter.name,
+          name: this.dialogueCharacter?.name || this.aiCharacter.name,
           content: response.content,
           reasoning_content: response.reasoning_content || null,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          dialogueMode: !!this.dialogueCharacter
         })
 
         this.chatHistory.push({ role: 'assistant', content: response.content });

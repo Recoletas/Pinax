@@ -63,7 +63,7 @@
               <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
-          <div v-else class="text-main" v-html="formatRPText(msg.content)"></div>
+          <div v-else class="text-main" v-html="formatRPText(msg.content, msg.dialogueMode)"></div>
         </div>
       </div>
     </div>
@@ -97,13 +97,38 @@ const saveEdit = (index) => {
   editingIndex.value = -1
 }
 
-const formatRPText = (text) => {
+const formatRPText = (text, dialogueMode = false) => {
   if (!text) return ''
-  const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return safeText
-    .replace(/\*([^*]+)\*/g, '<em class="rp-action">*$1*</em>')
-    .replace(/"([^"]+)"/g, '<span class="rp-dialogue">"$1"</span>')
-    .replace(/\n/g, '<br>')
+
+  // 步骤1：HTML 转义原始文本（& < > 先转，" 后转因为要用单引号属性）
+  let result = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/'/g, '&apos;')
+
+  // 步骤2：换行
+  result = result.replace(/\n/g, '<br>')
+
+  // 步骤3：动作格式 - 对话模式用（...），普通模式用 *...*
+  if (dialogueMode) {
+    // 对话模式：括号格式（...）
+    result = result.replace(/[（]([^）]+)[）]/g, (match) => {
+      return "<em class='rp-action'>" + match + "</em>"
+    })
+  } else {
+    // 普通模式：星号格式 *...*
+    result = result.replace(/\*([^*]+)\*/g, (match) => {
+      return "<em class='rp-action'>" + match + "</em>"
+    })
+  }
+
+  // 步骤4：引号格式 "..."
+  result = result.replace(/"([^"]+)"/g, (match) => {
+    return '<span class="rp-dialogue">' + match + '</span>'
+  })
+
+  return result
 }
 
 const formatTime = (ts) => {

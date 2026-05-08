@@ -345,10 +345,59 @@ function buildCurrentSituation(context) {
 }
 
 /**
+ * 对话角色口吻的系统提示词
+ */
+const DIALOGUE_SYSTEM_TEMPLATE = `【角色扮演】你正在以特定角色的身份与用户对话。
+
+【角色设定】
+{character_info}
+
+【对话规则】
+- 你就是这个角色，以第一人称视角直接与用户对话
+- 所有对话使用「"对话内容"」格式，如："今天天气真好"
+- 动作和心理描写使用「（动作/心理内容）」格式，如：（他皱起眉头，陷入沉思）
+- 不要以旁白身份说话，不要描述角色自身的内心活动
+- 保持角色性格、说话方式和语气一致
+- 长度适中，一般 30-150 字
+
+{writing_context}
+
+【当前情境】
+{current_situation}
+
+请以该角色的身份，延续对话并回应用户的行动。`
+
+/**
  * 将写作上下文作为系统消息注入
  */
-export function buildContextMessage() {
+export function buildContextMessage(dialogueCharacter = null) {
   const context = getWritingContextDetail()
+
+  // 对话模式：使用角色口吻模板
+  if (dialogueCharacter) {
+    const situation = buildCurrentSituation(context)
+    const contextStr = getWritingContext()
+
+    const characterInfo = [dialogueCharacter.name]
+    if (dialogueCharacter.gender) characterInfo.push(`性别：${dialogueCharacter.gender}`)
+    if (dialogueCharacter.age) characterInfo.push(`年龄：${dialogueCharacter.age}`)
+    if (dialogueCharacter.traits && dialogueCharacter.traits.length) {
+      characterInfo.push(`性格特征：${dialogueCharacter.traits.join('、')}`)
+    }
+    if (dialogueCharacter.description) {
+      characterInfo.push(`角色设定：${dialogueCharacter.description}`)
+    }
+
+    return {
+      role: 'system',
+      content: DIALOGUE_SYSTEM_TEMPLATE
+        .replace('{character_info}', characterInfo.join('\n'))
+        .replace('{writing_context}', contextStr ? `\n【背景信息】\n${contextStr}` : '')
+        .replace('{current_situation}', situation)
+    }
+  }
+
+  // 普通模式
   if (!context.character && !context.time && !context.location && !context.scene && context.activities.length === 0) {
     return null
   }

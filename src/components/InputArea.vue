@@ -73,6 +73,60 @@
       >
         {{ action.icon }} {{ action.label }}
       </button>
+      <button
+        :class="['quick-btn', 'dialogue-btn', { active: gameStore.dialogueMode || gameStore.dialogueCharacter }]"
+        @click="handleDialogueToggle"
+      >
+        💬 对话模式
+      </button>
+    </div>
+
+    <!-- 角色选择面板 -->
+    <div v-if="showDialoguePanel" class="dialogue-panel">
+      <div class="dialogue-header">
+        <span>选择对话角色</span>
+        <button class="close-btn" @click="showDialoguePanel = false">×</button>
+      </div>
+
+      <!-- 当前选中 -->
+      <div v-if="gameStore.dialogueCharacter" class="selected-char">
+        <div class="char-avatar">
+          {{ gameStore.dialogueCharacter.name?.[0] || '?' }}
+        </div>
+        <div class="char-info">
+          <div class="char-name">{{ gameStore.dialogueCharacter.name }}</div>
+          <div class="char-desc">{{ gameStore.dialogueCharacter.description || '暂无描述' }}</div>
+        </div>
+        <button class="clear-btn" @click="clearDialogueCharacter(); showDialoguePanel = false">清除</button>
+      </div>
+
+      <!-- 已保存角色列表 -->
+      <div class="char-list" v-if="gameStore.dialogueCharacters.length > 0">
+        <div
+          v-for="char in gameStore.dialogueCharacters"
+          :key="char.id"
+          :class="['char-item', { active: gameStore.dialogueCharacter?.id === char.id }]"
+          @click="selectDialogueCharacter(char)"
+        >
+          <div class="char-avatar small">{{ char.name?.[0] || '?' }}</div>
+          <div class="char-info">
+            <div class="char-name">{{ char.name }}</div>
+            <div class="char-desc">{{ char.description?.slice(0, 20) || '暂无描述' }}</div>
+          </div>
+          <button class="delete-btn" @click.stop="deleteDialogueCharacter(char.id)">×</button>
+        </div>
+      </div>
+      <div v-else class="empty-char">暂无已保存的角色</div>
+
+      <!-- 新建角色 -->
+      <div class="add-char-section">
+        <div class="section-label">新建角色</div>
+        <div class="char-form">
+          <input v-model="newCharName" class="char-input" placeholder="角色名称" />
+          <input v-model="newCharDesc" class="char-input" placeholder="角色描述（简短）" />
+          <button class="add-char-btn" @click="addNewDialogueCharacter" :disabled="!newCharName.trim()">添加</button>
+        </div>
+      </div>
     </div>
     <div class="input-row">
       <input
@@ -92,7 +146,16 @@
         <span v-if="!gameStore.isLoading">发送</span>
         <span v-else class="loading-spinner"></span>
       </button>
-      <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词信息">
+      <!-- 上下文用量指示 -->
+      <div class="context-usage-mini" @click="handleCompress" title="压缩上下文">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <path :d="contextArc" :stroke="contextColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="usage-text">{{ totalTokens }}</span>
+      </div>
+
+      <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
           <path d="M7 0h1v9h-1V0zm0 10h1v4h-1v-4zM4 4h1v6H4V4zm6 2h1v4h-1V6z"/>
         </svg>
@@ -112,6 +175,9 @@ const inputText = ref('')
 const showPromptInfo = ref(false)
 const showDetail = ref(false)
 const detailTab = ref('context')
+const showDialoguePanel = ref(false)
+const newCharName = ref('')
+const newCharDesc = ref('')
 
 const systemPromptContent = `【身份】你是一位资深的文学创作助手，专注于为作者提供叙事支持和灵感启发。
 
@@ -127,10 +193,10 @@ const systemPromptContent = `【身份】你是一位资深的文学创作助手
 - 长度适中，一般 50-200 字`
 
 const quickActions = [
-  { label: '时间流转', icon: '⏰', text: '时间流转' },
-  { label: '探索', icon: '🔍', text: '探索' },
-  { label: '状态', icon: '📊', text: '状态' },
-  { label: '背包', icon: '🎒', text: '背包' }
+  { label: '继续', icon: '▶', text: '继续' },
+  { label: '场景', icon: '🌿', text: '描写场景' },
+  { label: '对话', icon: '💬', text: '描写对话' },
+  { label: '心理', icon: '💭', text: '描写心理' }
 ]
 
 function handleSend() {
@@ -142,6 +208,70 @@ function handleSend() {
 
 function handleQuickAction(text) {
   emit('send', text)
+}
+
+async function handleCompress() {
+  const result = await gameStore.compressContext()
+  if (result.compressed) {
+    gameStore.messages.push({
+      role: 'system',
+      content: `【上下文已压缩】${result.oldCount} 条历史 → 摘要，精简至 ${result.newCount} 条`,
+      timestamp: Date.now()
+    })
+  } else {
+    gameStore.messages.push({
+      role: 'system',
+      content: `【压缩失败】${result.reason}`,
+      timestamp: Date.now()
+    })
+  }
+}
+
+function toggleDialoguePanel() {
+  showDialoguePanel.value = !showDialoguePanel.value
+  if (showDialoguePanel.value) {
+    gameStore.loadDialogueCharacters()
+  }
+}
+
+function handleDialogueToggle() {
+  // 已有角色：直接退出对话模式
+  if (gameStore.dialogueCharacter) {
+    gameStore.dialogueCharacter = null
+    showDialoguePanel.value = false
+    return
+  }
+  // 无角色：打开选择面板
+  showDialoguePanel.value = true
+  gameStore.loadDialogueCharacters()
+}
+
+function selectDialogueCharacter(char) {
+  gameStore.selectDialogueCharacter(char)
+  showDialoguePanel.value = false
+}
+
+function clearDialogueCharacter() {
+  gameStore.dialogueCharacter = null
+}
+
+function addNewDialogueCharacter() {
+  if (!newCharName.value.trim()) return
+  const char = {
+    id: 'char_' + Date.now(),
+    name: newCharName.value.trim(),
+    description: newCharDesc.value.trim(),
+    gender: '',
+    age: '',
+    traits: []
+  }
+  gameStore.saveDialogueCharacter(char)
+  newCharName.value = ''
+  newCharDesc.value = ''
+}
+
+function deleteDialogueCharacter(id) {
+  gameStore.deleteDialogueCharacter(id)
 }
 
 function estimateTokens(text) {
@@ -163,6 +293,26 @@ const historyTokens = computed(() => {
 const inputTokens = computed(() => estimateTokens(inputText.value))
 
 const totalTokens = computed(() => contextTokens.value + historyTokens.value + inputTokens.value)
+
+// 上下文用量圆弧
+const contextArc = computed(() => {
+  const percent = Math.min((totalTokens.value / 8000) * 100, 100) // 假设上限 8000 tokens
+  const angle = (percent / 100) * 360
+  const rad = (angle - 90) * (Math.PI / 180)
+  const x = 7 + 5 * Math.cos(rad)
+  const y = 7 + 5 * Math.sin(rad)
+  const large = angle > 180 ? 1 : 0
+  if (percent === 0) return 'M7 2 A5 5 0 0 1 7 12'
+  if (percent >= 100) return 'M7 2 A5 5 0 1 1 7 12 A5 5 0 1 1 7 2'
+  return `M7 2 A5 5 0 ${large} 1 ${x.toFixed(2)} ${y.toFixed(2)}`
+})
+
+const contextColor = computed(() => {
+  const percent = (totalTokens.value / 8000) * 100
+  if (percent < 50) return 'var(--success, #34d399)'
+  if (percent < 80) return 'var(--warning, #fbbf24)'
+  return 'var(--danger, #f87171)'
+})
 
 const contextPercent = computed(() => {
   const total = totalTokens.value || 1
@@ -464,6 +614,29 @@ function updatePromptInfo() {
   font-size: 13px;
 }
 
+.context-usage-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 34px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.context-usage-mini:hover { border-color: var(--accent); color: var(--accent); }
+
+.usage-text {
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: right;
+}
+
 .info-btn {
   width: 34px;
   height: 34px;
@@ -478,4 +651,212 @@ function updatePromptInfo() {
   transition: all 0.15s;
 }
 .info-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 对话模式按钮 */
+.quick-btn.dialogue-btn {
+  border-right: 1px solid var(--border);
+}
+.quick-btn.dialogue-btn:last-child { border-right: none; border-radius: 0 6px 6px 0; }
+.quick-btn.dialogue-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* 角色选择面板 */
+.dialogue-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 0;
+}
+
+.dialogue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.dialogue-header .close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.dialogue-header .close-btn:hover { color: var(--text-primary); }
+
+.selected-char {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--accent-light);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.selected-char .char-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.selected-char .char-info { flex: 1; min-width: 0; }
+
+.selected-char .char-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.selected-char .char-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clear-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+.char-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.char-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.char-item:hover { background: var(--bg-hover); }
+.char-item.active { background: var(--accent-light); border: 1px solid var(--accent); }
+
+.char-item .char-avatar.small {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.char-item.active .char-avatar.small { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.char-item .char-info { flex: 1; min-width: 0; }
+.char-item .char-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.char-item .char-desc { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.char-item .delete-btn {
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.char-item:hover .delete-btn { opacity: 1; }
+.char-item .delete-btn:hover { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+.empty-char {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 16px;
+}
+
+.add-char-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.char-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.char-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  transition: border-color 0.15s;
+}
+.char-input:focus { outline: none; border-color: var(--accent); }
+.char-input::placeholder { color: var(--text-muted); }
+
+.add-char-btn {
+  width: 100%;
+  padding: 8px;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.add-char-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.add-char-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
