@@ -26,28 +26,34 @@
     </header>
 
     <div class="content-area">
-      <div class="worlds-container">
-        <h2 class="section-title">选择世界</h2>
-        <p class="section-desc">选择一个世界开始你的冒险旅程</p>
+      <div class="genre-container">
+        <h2 class="section-title">选择体裁</h2>
+        <p class="section-desc">在文字中遇见另一个自己</p>
 
-        <div class="world-grid">
-          <div
-            v-for="world in worlds"
-            :key="world.id"
-            class="world-card"
-            @click="startGame(world.id)"
-          >
-            <div class="world-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        <div class="genre-grid">
+          <div class="genre-card" @click="enterExperience('novel')">
+            <div class="genre-icon">
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="6" y="5" width="24" height="26" rx="2"/>
+                <line x1="10" y1="11" x2="26" y2="11"/>
+                <line x1="10" y1="16" x2="26" y2="16"/>
+                <line x1="10" y1="21" x2="20" y2="21"/>
+                <line x1="10" y1="26" x2="16" y2="26"/>
               </svg>
             </div>
-            <h3>{{ world.name }}</h3>
-            <p>{{ world.description }}</p>
-            <div class="world-tags">
-              <span v-for="tag in (world.tags || []).slice(0, 4)" :key="tag" class="tag">{{ tag }}</span>
+            <h3>小说</h3>
+            <p>以叙事之线，织就人情与世事的纹理</p>
+          </div>
+
+          <div class="genre-card" @click="enterExperience('poetry')">
+            <div class="genre-icon accent">
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M18 6c-2 4-6 7-6 12a6 6 0 1012 0c0-5-4-8-6-12z"/>
+                <path d="M14 26c1 2 3 3 4 3s3-1 4-3" stroke-linecap="round"/>
+              </svg>
             </div>
-            <button class="start-btn">开始冒险</button>
+            <h3>诗歌</h3>
+            <p>以凝练之词，写尽悲欢与美的瞬间</p>
           </div>
         </div>
       </div>
@@ -56,37 +62,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getWorlds, startGame as apiStartGame } from '../services/api'
 import { useGameStore } from '../stores/gameStore'
 import { useTheme } from '../composables/useTheme'
 
 const router = useRouter()
 const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
-const worlds = ref([])
-
-onMounted(async () => {
-  try {
-    worlds.value = await getWorlds()
-  } catch (e) {
-    console.error('Failed to load worlds:', e)
-  }
-})
 
 function goBack() {
   router.push('/')
 }
 
-async function startGame(worldId) {
-  try {
-    await apiStartGame(worldId)
-    await gameStore.initGame()
-    router.push('/game')
-  } catch (e) {
-    console.error('Failed to start game:', e)
-  }
+async function enterExperience(genre) {
+  gameStore.genre = genre
+  await gameStore.initGame()
+  router.push('/game')
 }
 </script>
 
@@ -180,8 +171,8 @@ async function startGame(worldId) {
   padding: 32px;
 }
 
-.worlds-container {
-  max-width: 1000px;
+.genre-container {
+  max-width: 700px;
   margin: 0 auto;
 }
 
@@ -189,88 +180,67 @@ async function startGame(worldId) {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 8px;
+  text-align: center;
 }
 
 .section-desc {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 32px;
+  margin-bottom: 40px;
+  text-align: center;
 }
 
-.world-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+.genre-grid {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
 }
 
-.world-card {
+.genre-card {
+  flex: 1;
+  max-width: 280px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 20px;
+  border-radius: 12px;
+  padding: 32px 24px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  text-align: center;
+  transition: all 0.2s ease;
 }
 
-.world-card:hover {
+.genre-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 4px 12px var(--shadow);
+  box-shadow: 0 8px 24px var(--shadow);
+  transform: translateY(-2px);
 }
 
-.world-icon {
-  width: 40px;
-  height: 40px;
+.genre-icon {
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  margin: 0 auto 16px;
+  color: var(--text-secondary);
+}
+
+.genre-icon.accent {
   background: var(--accent-light);
   color: var(--accent);
-  border-radius: 8px;
-  margin-bottom: 12px;
 }
 
-.world-card h3 {
-  font-size: 16px;
+.genre-card h3 {
+  font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--text-primary);
 }
 
-.world-card p {
+.genre-card p {
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-
-.world-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.tag {
-  padding: 4px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.start-btn {
-  width: 100%;
-  padding: 10px;
-  background: var(--accent);
-  border: none;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.start-btn:hover {
-  background: var(--accent-hover);
+  line-height: 1.6;
 }
 </style>

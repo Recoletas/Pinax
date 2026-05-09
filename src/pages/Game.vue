@@ -8,7 +8,7 @@
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">游戏</span>
+        <span class="app-title">体验</span>
       </div>
       <div class="title-right">
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">

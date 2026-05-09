@@ -35,8 +35,8 @@
               <path d="M16 4L4 10v12l12 6 12-6V10L16 4zm0 3l9 4.5v9L16 25l-9-4.5v-9L16 7z"/>
             </svg>
           </div>
-          <h2>进入拟合</h2>
-          <p>选择一个世界，开始文字冒险游戏</p>
+          <h2>体验</h2>
+          <p>亲身体验其中，感知文字的温度</p>
         </router-link>
 
         <router-link to="/writing" class="entry-card">

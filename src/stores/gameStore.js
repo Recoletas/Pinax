@@ -5,6 +5,7 @@ export const useGameStore = defineStore('game', {
   state: () => ({
     gameId: null,
     worldId: null,
+    genre: 'novel', // 'novel' | 'poetry'
     isPlaying: false,
     messages: [], // UI 显示
     time: { day: 1, period: '早晨' },
