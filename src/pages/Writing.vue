@@ -46,16 +46,24 @@
 
     <div class="content-area">
       <!-- 左侧边栏：目录 -->
-      <aside class="sidebar chapters-sidebar" :style="{ width: leftWidth + 'px' }" v-if="selectedBookId">
+      <aside class="sidebar chapters-sidebar" :style="{ width: leftSidebarWidth + 'px' }" v-if="selectedBookId">
         <div class="sidebar-header">
           <span class="sidebar-title">目录</span>
-          <button class="add-btn" @click="createNewChapter" title="新建章节">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 0v14M0 7h14"/>
-            </svg>
-          </button>
+          <div class="sidebar-actions">
+            <button class="icon-btn side-toggle" @click="toggleLeftSidebar" :title="isLeftCollapsed ? '展开目录' : '收起目录'">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path v-if="isLeftCollapsed" d="M4 2l4 4-4 4V2z"/>
+                <path v-else d="M8 2L4 6l4 4V2z"/>
+              </svg>
+            </button>
+            <button class="add-btn" @click="createNewChapter" title="新建章节" :disabled="isLeftCollapsed">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 0v14M0 7h14"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="chapter-list">
+        <div class="chapter-list" v-show="!isLeftCollapsed">
           <div
             v-for="(chapter, index) in chapters"
             :key="chapter.id"
@@ -76,21 +84,29 @@
       <!-- 可拉伸分隔栏 -->
       <div
         class="resize-handle"
-        v-if="selectedBookId"
+        v-if="selectedBookId && !isLeftCollapsed"
         @mousedown="startResize($event, 'left')"
       ></div>
 
       <!-- 右侧边栏：书籍 -->
-      <aside class="sidebar books-sidebar" :style="{ width: rightWidth + 'px' }">
+      <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
           <span class="sidebar-title">书籍</span>
-          <button class="add-btn btn-new" @click="createNewBook" title="新建书籍">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 0v14M0 7h14"/>
-            </svg>
-          </button>
+          <div class="sidebar-actions">
+            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开书籍' : '收起书籍'">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path v-if="isRightCollapsed" d="M8 2L4 6l4 4V2z"/>
+                <path v-else d="M4 2l4 4-4 4V2z"/>
+              </svg>
+            </button>
+            <button class="add-btn btn-new" @click="createNewBook" title="新建书籍" :disabled="isRightCollapsed">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 0v14M0 7h14"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="book-list">
+        <div class="book-list" v-show="!isRightCollapsed">
           <div
             v-for="book in books"
             :key="book.id"
@@ -113,7 +129,7 @@
       </aside>
 
       <!-- 右侧分隔栏 -->
-      <div class="resize-handle" @mousedown="startResizeRight"></div>
+      <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
       <main class="editor-main">
@@ -143,110 +159,137 @@
           <div class="editor-header">
             <!-- 编辑工具栏 -->
             <div class="editor-toolbar">
-              <button class="tool-btn" @click="autoFormat" title="一键排版">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <path d="M1 2h12v1.5H1V2zm0 4h12v1.5H1V6zm0 4h8v1.5H1v-1.5z"/>
-                </svg>
-                排版
-              </button>
-              <button class="tool-btn" @click="insertSeparator" title="插入分隔线">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <path d="M1 7h12" stroke="currentColor" stroke-width="1.5"/>
-                  <circle cx="7" cy="7" r="2" fill="currentColor"/>
-                </svg>
-                分隔
-              </button>
-              <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <path d="M2 2h10v2H2V2zm1 3h8v7H3V5zm0 0l2 6h4l2-6"/>
-                </svg>
-                字体
-              </button>
-
-              <!-- 字体面板 -->
-              <div class="font-panel" v-if="showFontPanel" @click.stop>
-                <div class="fp-row">
-                  <span class="fp-label">字体</span>
-                  <select class="fp-select" v-model="editorFont">
-                    <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
-                    <option value="'SimSun', serif">宋体</option>
-                    <option value="'KaiTi', serif">楷体</option>
-                    <option value="'STHeiti', sans-serif">黑体</option>
-                    <option value="'MingLiU', serif">细明体</option>
-                    <option value="system-ui, sans-serif">系统默认</option>
-                  </select>
-                </div>
-                <div class="fp-row">
-                  <span class="fp-label">大小</span>
-                  <div class="fp-size-btns">
-                    <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小">A-</button>
-                    <span class="fp-size-val">{{ editorFontSize }}</span>
-                    <button class="fp-btn" @click="adjustFontSize(1)" title="放大">A+</button>
-                  </div>
-                </div>
-                <div class="fp-row">
-                  <span class="fp-label">样式</span>
-                  <div class="fp-btns">
-                    <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold" title="加粗">
-                      <strong>B</strong>
-                    </button>
-                    <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic" title="斜体">
-                      <em>I</em>
-                    </button>
-                    <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline" title="下划线">
-                      <u>U</u>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <path d="M7 1a3 3 0 100 6 3 3 0 000-6zm-5 12l1-4h8l1 4H2z"/>
-                </svg>
-                取名
-              </button>
-
-              <!-- 取名面板 -->
-              <div class="name-gen-panel" v-if="showNameGen" @click.stop>
-                <div class="ng-row">
-                  <span class="ng-label">类型</span>
-                  <div class="ng-btns">
-                    <button :class="['ng-btn', { active: nameType === 'character' }]" @click="nameType = 'character'">人物</button>
-                    <button :class="['ng-btn', { active: nameType === 'place' }]" @click="nameType = 'place'">地点</button>
-                  </div>
-                </div>
-                <div class="ng-row">
-                  <span class="ng-label">风格</span>
-                  <div class="ng-btns">
-                    <button :class="['ng-btn', { active: nameStyle === 'western' }]" @click="nameStyle = 'western'">西方</button>
-                    <button :class="['ng-btn', { active: nameStyle === 'ancient' }]" @click="nameStyle = 'ancient'">古风</button>
-                    <button :class="['ng-btn', { active: nameStyle === 'modern' }]" @click="nameStyle = 'modern'">现代</button>
-                  </div>
-                </div>
-                <div class="ng-row" v-if="nameType === 'character'">
-                  <span class="ng-label">姓氏</span>
-                  <input v-model="fixedSurname" class="ng-input ng-sm" placeholder="可留空" />
-                </div>
-                <div class="ng-row" v-if="nameType === 'character'">
-                  <span class="ng-label">名字</span>
-                  <input v-model="fixedGivenName" class="ng-input ng-sm" placeholder="可留空" />
-                </div>
-                <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">
-                  生成
+              <div class="toolbar-group">
+                <button class="tool-btn" @click="autoFormat" title="一键排版">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <path d="M1 2h12v1.5H1V2zm0 4h12v1.5H1V6zm0 4h8v1.5H1v-1.5z"/>
+                  </svg>
+                  排版
                 </button>
-                <div class="ng-results" v-if="generatedNames.length > 0">
-                  <div class="ng-result-item" v-for="(item, idx) in generatedNames" :key="idx" @click="selectName(item)">
-                    <span v-if="typeof item === 'string'">{{ item }}</span>
-                    <span v-else class="ng-name-pair">{{ item.en }}<span class="ng-cn">{{ item.cn }}</span></span>
+                <button class="tool-btn" @click="insertSeparator" title="插入分隔线">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <path d="M1 7h12" stroke="currentColor" stroke-width="1.5"/>
+                    <circle cx="7" cy="7" r="2" fill="currentColor"/>
+                  </svg>
+                  分隔
+                </button>
+              </div>
+
+              <div class="toolbar-sep"></div>
+
+              <div class="toolbar-group">
+                <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <path d="M2 2h10v2H2V2zm1 3h8v7H3V5zm0 0l2 6h4l2-6"/>
+                  </svg>
+                  字体
+                </button>
+
+                <!-- 字体面板 -->
+                <div class="font-panel" v-if="showFontPanel" @click.stop>
+                  <div class="fp-row">
+                    <span class="fp-label">字体</span>
+                    <select class="fp-select" v-model="editorFont">
+                      <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+                      <option value="'SimSun', serif">宋体</option>
+                      <option value="'KaiTi', serif">楷体</option>
+                      <option value="'STHeiti', sans-serif">黑体</option>
+                      <option value="'MingLiU', serif">细明体</option>
+                      <option value="system-ui, sans-serif">系统默认</option>
+                    </select>
+                  </div>
+                  <div class="fp-row">
+                    <span class="fp-label">大小</span>
+                    <div class="fp-size-btns">
+                      <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小">A-</button>
+                      <span class="fp-size-val">{{ editorFontSize }}</span>
+                      <button class="fp-btn" @click="adjustFontSize(1)" title="放大">A+</button>
+                    </div>
+                  </div>
+                  <div class="fp-row">
+                    <span class="fp-label">样式</span>
+                    <div class="fp-btns">
+                      <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold" title="加粗">
+                        <strong>B</strong>
+                      </button>
+                      <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic" title="斜体">
+                        <em>I</em>
+                      </button>
+                      <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline" title="下划线">
+                        <u>U</u>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <path d="M7 1a3 3 0 100 6 3 3 0 000-6zm-5 12l1-4h8l1 4H2z"/>
+                  </svg>
+                  取名
+                </button>
+
+                <!-- 取名面板 -->
+                <div class="name-gen-panel" v-if="showNameGen" @click.stop>
+                  <div class="ng-row">
+                    <span class="ng-label">类型</span>
+                    <div class="ng-btns">
+                      <button :class="['ng-btn', { active: nameType === 'character' }]" @click="nameType = 'character'">人物</button>
+                      <button :class="['ng-btn', { active: nameType === 'place' }]" @click="nameType = 'place'">地点</button>
+                    </div>
+                  </div>
+                  <div class="ng-row">
+                    <span class="ng-label">风格</span>
+                    <div class="ng-btns">
+                      <button :class="['ng-btn', { active: nameStyle === 'western' }]" @click="nameStyle = 'western'">西方</button>
+                      <button :class="['ng-btn', { active: nameStyle === 'ancient' }]" @click="nameStyle = 'ancient'">古风</button>
+                      <button :class="['ng-btn', { active: nameStyle === 'modern' }]" @click="nameStyle = 'modern'">现代</button>
+                    </div>
+                  </div>
+                  <div class="ng-row" v-if="nameType === 'character'">
+                    <span class="ng-label">姓氏</span>
+                    <input v-model="fixedSurname" class="ng-input ng-sm" placeholder="可留空" />
+                  </div>
+                  <div class="ng-row" v-if="nameType === 'character'">
+                    <span class="ng-label">名字</span>
+                    <input v-model="fixedGivenName" class="ng-input ng-sm" placeholder="可留空" />
+                  </div>
+                  <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">
+                    生成
+                  </button>
+                  <div class="ng-results" v-if="generatedNames.length > 0">
+                    <div class="ng-result-item" v-for="(item, idx) in generatedNames" :key="idx" @click="selectName(item)">
+                      <span v-if="typeof item === 'string'">{{ item }}</span>
+                      <span v-else class="ng-name-pair">{{ item.en }}<span class="ng-cn">{{ item.cn }}</span></span>
+                    </div>
                   </div>
                 </div>
               </div>
-              <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <path d="M5 1a4 4 0 014 4c0 1.5-.8 2.8-2 3.5l3 3-1.5 1.5-3-3A4 4 0 115 1zm0 1.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
-                </svg>
-                查找
-              </button>
+
+              <div class="toolbar-sep"></div>
+
+              <div class="toolbar-group">
+                <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <path d="M5 1a4 4 0 014 4c0 1.5-.8 2.8-2 3.5l3 3-1.5 1.5-3-3A4 4 0 115 1zm0 1.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
+                  </svg>
+                  查找
+                </button>
+              </div>
+
+              <div class="toolbar-spacer"></div>
+
+              <div class="mode-switch">
+                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">
+                  编辑
+                </button>
+                <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">
+                  Markdown
+                </button>
+                <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">
+                  预览
+                </button>
+              </div>
             </div>
 
             <!-- 查找替换栏 -->
@@ -289,8 +332,11 @@
           </div>
 
           <textarea
-            v-model="editorContent"
-            class="editor-textarea"
+            v-if="editorMode === 'wysiwyg'"
+            v-model="markdownContent"
+            class="editor-textarea prose-textarea"
+            placeholder="开始写作..."
+            ref="editorRef"
             :style="{
               fontFamily: editorFont,
               fontSize: editorFontSize,
@@ -298,29 +344,23 @@
               fontStyle: editorItalic ? 'italic' : 'normal',
               textDecoration: editorUnderline ? 'underline' : 'none'
             }"
-            placeholder="开始写作..."
-            @input="onContentChange"
-            ref="textareaRef"
-            @keydown="onEditorKeydown"
-            @contextmenu.prevent="showContextMenu"
-            @mouseup="updateSelectionStyle"
+            @input="onMarkdownInput"
+            @keydown="onTextAreaKeydown"
           ></textarea>
-          <div v-if="hasSelection" class="selection-toolbar" :style="selectionToolbarStyle">
-            <button class="fp-btn" :class="{ active: editorBold }" @click="applyStyleToSelection('bold')" title="加粗">B</button>
-            <button class="fp-btn" :class="{ active: editorItalic }" @click="applyStyleToSelection('italic')" title="斜体">I</button>
-            <button class="fp-btn" :class="{ active: editorUnderline }" @click="applyStyleToSelection('underline')" title="下划线">U</button>
-            <div class="fp-divider"></div>
-            <select class="fp-select sm" v-model="selectionFont" @change="applyFontToSelection">
-              <option value="">字体</option>
-              <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
-              <option value="'SimSun', serif">宋体</option>
-              <option value="'KaiTi', serif">楷体</option>
-              <option value="'STHeiti', sans-serif">黑体</option>
-            </select>
-            <button class="fp-btn" @click="adjustSelectionFont(-1)" title="缩小">A-</button>
-            <span class="fp-size-val">{{ selectionFontSize }}</span>
-            <button class="fp-btn" @click="adjustSelectionFont(1)" title="放大">A+</button>
-          </div>
+          <textarea
+            v-if="editorMode === 'markdown'"
+            v-model="markdownContent"
+            class="editor-textarea markdown-textarea"
+            placeholder="开始写作（Markdown）..."
+            @input="onMarkdownInput"
+            @keydown="onTextAreaKeydown"
+          ></textarea>
+          <div
+            v-if="editorMode === 'preview'"
+            class="editor-textarea editor-preview"
+            v-html="previewHtml"
+          ></div>
+
 
       <!-- 右键菜单 -->
       <div
@@ -381,6 +421,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { marked } from 'marked'
+import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 
@@ -397,10 +439,14 @@ const showNewBookModal = ref(false)
 const newBookTitle = ref('')
 const newBookDesc = ref('')
 const newBookInput = ref(null)
-const textareaRef = ref(null)
+const editorRef = ref(null)
+const editorMode = ref('wysiwyg')
+const markdownContent = ref('')
 
-const leftWidth = ref(220)
-const rightWidth = ref(240)
+const leftWidth = ref(190)
+const rightWidth = ref(210)
+const isLeftCollapsed = ref(false)
+const isRightCollapsed = ref(false)
 const resizing = ref(null)
 const minWidth = 150
 const selectedText = ref('')
@@ -424,10 +470,8 @@ const editorFontSize = ref('16px')
 const editorBold = ref(false)
 const editorItalic = ref(false)
 const editorUnderline = ref(false)
-const fontApplyMode = ref('global')
 const hasSelection = ref(false)
 const selectionFontSize = ref('16px')
-const selectionFont = ref('')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
 
 const saveStatus = ref('saved')
@@ -438,11 +482,35 @@ onMounted(() => {
   loadBooks()
 })
 
-const charCount = computed(() => editorContent.value.length)
+const previewHtml = computed(() => markdownToHtml(markdownContent.value))
+const collapsedSidebarWidth = 44
+const leftSidebarWidth = computed(() => (isLeftCollapsed.value ? collapsedSidebarWidth : leftWidth.value))
+const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
+
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced',
+  emDelimiter: '*',
+  strongDelimiter: '**',
+  br: '  '
+})
+turndownService.addRule('underline', {
+  filter: ['u'],
+  replacement(content) {
+    return `<u>${content}</u>`
+  }
+})
+
+marked.setOptions({
+  gfm: true,
+  breaks: true
+})
+
+const charCount = computed(() => getEditorText().length)
 
 const wordCount = computed(() => {
-  if (!editorContent.value) return 0
-  const text = editorContent.value.trim()
+  const text = getEditorText().trim()
   if (!text) return 0
   const chineseChars = (text.match(/[一-龥]/g) || []).length
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
@@ -488,6 +556,7 @@ function selectBook(bookId) {
       selectedChapterId.value = null
       currentChapterTitle.value = ''
       editorContent.value = ''
+      markdownContent.value = ''
     }
   }
   saveStatus.value = 'saved'
@@ -501,7 +570,13 @@ function selectChapter(chapterId) {
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
     currentChapterTitle.value = chapter.title || ''
-    editorContent.value = chapter.content || ''
+    const raw = chapter.content || ''
+    const format = chapter.contentFormat || (looksLikeHtml(raw) ? 'html' : 'md')
+    markdownContent.value = format === 'md' ? raw : htmlToMarkdown(raw)
+    editorContent.value = markdownToHtml(markdownContent.value)
+    nextTick(() => {
+      if (editorRef.value) editorRef.value.value = markdownContent.value
+    })
   }
 }
 
@@ -536,6 +611,7 @@ function createNewChapter() {
     id: Date.now().toString(),
     title: '',
     content: '',
+    contentFormat: 'md',
     wordCount: 0,
     createdAt: new Date().toISOString()
   }
@@ -554,6 +630,7 @@ function deleteChapter(chapterId) {
     } else {
       currentChapterTitle.value = ''
       editorContent.value = ''
+      markdownContent.value = ''
     }
   }
   saveChapters()
@@ -571,6 +648,7 @@ function deleteBook(bookId) {
       selectedChapterId.value = null
       currentChapterTitle.value = ''
       editorContent.value = ''
+      markdownContent.value = ''
     }
   }
 }
@@ -590,7 +668,9 @@ function saveCurrentChapter() {
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   if (chapter) {
     chapter.title = currentChapterTitle.value
-    chapter.content = editorContent.value
+    syncFromCurrentEditor()
+    chapter.content = markdownContent.value
+    chapter.contentFormat = 'md'
     chapter.wordCount = wordCount.value
     chapter.updatedAt = new Date().toISOString()
     saveChapters()
@@ -609,30 +689,32 @@ function onTitleChange() {
 
 // 一键排版：规范段落分隔
 function autoFormat() {
-  let text = editorContent.value
+  let text = markdownContent.value
   // 替换多个换行为双换行（段落分隔）
   text = text.replace(/\n{3,}/g, '\n\n')
   // 移除行首行尾多余空格
   text = text.split('\n').map(line => line.trim()).join('\n')
   // 移除全角空格
   text = text.replace(/　/g, ' ').trim()
-  editorContent.value = text
+  markdownContent.value = text
+  syncMarkdownToEditor()
   onContentChange()
 }
 
 // 插入分隔线
 function insertSeparator() {
-  const ta = textareaRef.value
-  if (!ta) return
-  const pos = ta.selectionStart
-  const before = editorContent.value.substring(0, pos)
-  const after = editorContent.value.substring(pos)
-  const sep = before && !before.endsWith('\n') ? '\n\n—— · ——\n\n' : '—— · ——\n\n'
-  editorContent.value = before + sep + after
+  const editor = editorRef.value
+  if (!editor) return
+  const start = editor.selectionStart ?? markdownContent.value.length
+  const end = editor.selectionEnd ?? markdownContent.value.length
+  const sepText = '—— · ——\n\n'
+  markdownContent.value = markdownContent.value.slice(0, start) + sepText + markdownContent.value.slice(end)
   nextTick(() => {
-    ta.selectionStart = ta.selectionEnd = pos + sep.length
-    ta.focus()
+    editor.focus()
+    const pos = start + sepText.length
+    editor.setSelectionRange(pos, pos)
   })
+  syncMarkdownToEditor()
   onContentChange()
 }
 
@@ -721,15 +803,18 @@ function doGenerateName() {
 }
 
 function selectName(item) {
-  const ta = textareaRef.value
-  if (!ta) return
-  const pos = ta.selectionStart
+  const editor = editorRef.value
+  if (!editor) return
   const name = typeof item === 'string' ? item : item.en
-  editorContent.value = editorContent.value.substring(0, pos) + name + editorContent.value.substring(pos)
+  const start = editor.selectionStart ?? markdownContent.value.length
+  const end = editor.selectionEnd ?? markdownContent.value.length
+  markdownContent.value = markdownContent.value.slice(0, start) + name + markdownContent.value.slice(end)
   nextTick(() => {
-    ta.selectionStart = ta.selectionEnd = pos + name.length
-    ta.focus()
+    editor.focus()
+    const pos = start + name.length
+    editor.setSelectionRange(pos, pos)
   })
+  syncMarkdownToEditor()
   onContentChange()
   showNameGen.value = false
   generatedNames.value = []
@@ -749,15 +834,54 @@ function findNext() {
 
 // 更新选区状态
 function updateSelectionStyle() {
-  const ta = textareaRef.value
-  if (!ta) return
-  hasSelection.value = ta.selectionStart !== ta.selectionEnd
-  if (hasSelection.value) {
-    const rect = ta.getBoundingClientRect()
-    selectionToolbarStyle.value = {
-      top: (rect.top + 30) + 'px',
-      left: (rect.left + 50) + 'px'
-    }
+  if (editorMode.value !== 'wysiwyg') {
+    hasSelection.value = false
+    return
+  }
+
+  const editor = editorRef.value
+  if (!editor) {
+    hasSelection.value = false
+    return
+  }
+
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    hasSelection.value = false
+    return
+  }
+
+  const range = sel.getRangeAt(0)
+  if (range.collapsed || !editor.contains(range.commonAncestorContainer)) {
+    hasSelection.value = false
+    syncSelectionCommandState()
+    return
+  }
+
+  const rangeRect = range.getBoundingClientRect()
+  if (!rangeRect || (!rangeRect.width && !rangeRect.height)) {
+    hasSelection.value = false
+    return
+  }
+
+  hasSelection.value = true
+  syncSelectionCommandState()
+
+  const toolbarWidth = 280
+  const toolbarHeight = 36
+  const margin = 8
+  let left = rangeRect.left + rangeRect.width / 2 - toolbarWidth / 2
+  let top = rangeRect.top - toolbarHeight - margin
+
+  if (top < 8) {
+    top = rangeRect.bottom + margin
+  }
+
+  left = Math.max(12, Math.min(left, window.innerWidth - toolbarWidth - 12))
+
+  selectionToolbarStyle.value = {
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`
   }
 }
 
@@ -768,42 +892,14 @@ function toggleStyle(style) {
 }
 
 function applyStyleToSelection(style) {
-  const ta = textareaRef.value
-  if (!ta) return
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  if (start === end) return
-
-  const selText = editorContent.value.substring(start, end)
-
-  // 检查是否已经应用了样式，若已应用则移除
-  let prefix = '', suffix = '', pattern = ''
-  if (style === 'bold') { prefix = '**'; suffix = '**'; pattern = '\\*\\*(.+?)\\*\\*' }
-  else if (style === 'italic') { prefix = '*'; suffix = '*'; pattern = '\\*(.+?)\\*' }
-  else if (style === 'underline') { prefix = '<u>'; suffix = '</u>'; pattern = '<u>(.+?)</u>' }
-
-  const regex = new RegExp(pattern)
-  const match = selText.match(regex)
-  let newText
-  if (match && match[0] === selText) {
-    // 已应用，移除样式
-    newText = match[1]
-  } else {
-    // 未应用，添加样式
-    newText = prefix + selText + suffix
-  }
-
-  editorContent.value = editorContent.value.substring(0, start) + newText + editorContent.value.substring(end)
-  nextTick(() => {
-    ta.selectionStart = start
-    ta.selectionEnd = start + newText.length
-    ta.focus()
-  })
+  if (editorMode.value !== 'wysiwyg') return
+  const editor = editorRef.value
+  if (!editor) return
+  editor.focus()
+  if (style === 'bold') document.execCommand('bold')
+  if (style === 'italic') document.execCommand('italic')
+  if (style === 'underline') document.execCommand('underline')
   onContentChange()
-}
-
-function applyFontToSelection() {
-  // 字体应用到选区
 }
 
 function adjustSelectionFont(delta) {
@@ -812,6 +908,28 @@ function adjustSelectionFont(delta) {
   const idx = sizes.indexOf(current)
   const newIdx = Math.max(0, Math.min(sizes.length - 1, idx + delta))
   selectionFontSize.value = sizes[newIdx] + 'px'
+  const sel = window.getSelection()
+  if (editorMode.value === 'wysiwyg' && sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
+    applyStyleToRange({ fontSize: selectionFontSize.value })
+    onContentChange()
+  }
+}
+
+function clearSelectionStyle() {
+  if (editorMode.value !== 'wysiwyg') return
+  const editor = editorRef.value
+  if (!editor) return
+  editor.focus()
+  document.execCommand('removeFormat')
+  onContentChange()
+}
+
+function toggleLeftSidebar() {
+  isLeftCollapsed.value = !isLeftCollapsed.value
+}
+
+function toggleRightSidebar() {
+  isRightCollapsed.value = !isRightCollapsed.value
 }
 
 function adjustFontSize(delta) {
@@ -841,9 +959,10 @@ function searchFind() {
   findResults.value = []
   findCurrent.value = 0
   if (!findText.value) return
+  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
   const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
   let match
-  while ((match = regex.exec(editorContent.value)) !== null) {
+  while ((match = regex.exec(text)) !== null) {
     findResults.value.push(match.index)
   }
 }
@@ -851,20 +970,27 @@ function searchFind() {
 // 高亮当前匹配并滚动
 function highlightFind() {
   nextTick(() => {
-    const ta = textareaRef.value
-    if (!ta || findResults.value.length === 0) return
+    if (findResults.value.length === 0) return
     const pos = findResults.value[findCurrent.value]
-    ta.selectionStart = pos
-    ta.selectionEnd = pos + findText.value.length
-    ta.focus()
+    if (editorMode.value === 'markdown') return
+    if (!editorRef.value) return
+    setSelectionByTextOffsets(pos, pos + findText.value.length)
+    editorRef.value.focus()
   })
 }
 
 // 替换一处
 function replaceOne() {
   if (!findText.value || findResults.value.length === 0) return
+  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
   const pos = findResults.value[findCurrent.value]
-  editorContent.value = editorContent.value.substring(0, pos) + replaceText.value + editorContent.value.substring(pos + findText.value.length)
+  const nextText = text.substring(0, pos) + replaceText.value + text.substring(pos + findText.value.length)
+  if (editorMode.value === 'markdown') {
+    markdownContent.value = nextText
+    syncMarkdownToEditor()
+  } else {
+    setEditorPlainText(nextText)
+  }
   searchFind()
   onContentChange()
 }
@@ -872,14 +998,22 @@ function replaceOne() {
 // 替换全部
 function replaceAll() {
   if (!findText.value) return
+  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
   const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
-  editorContent.value = editorContent.value.replace(regex, replaceText.value)
+  const nextText = text.replace(regex, replaceText.value)
+  if (editorMode.value === 'markdown') {
+    markdownContent.value = nextText
+    syncMarkdownToEditor()
+  } else {
+    setEditorPlainText(nextText)
+  }
   findResults.value = []
   findCurrent.value = 0
   onContentChange()
 }
 
 function onContentChange() {
+  syncFromCurrentEditor()
   saveStatus.value = 'unsaved'
   if (saveTimeout) clearTimeout(saveTimeout)
   saveTimeout = setTimeout(() => {
@@ -889,23 +1023,38 @@ function onContentChange() {
   }, 1000)
 }
 
-function onEditorKeydown(e) {
+function onEditorInput() {
+  onContentChange()
+}
+
+function onMarkdownInput() {
+  if (editorMode.value === 'wysiwyg' && editorRef.value) {
+    markdownContent.value = editorRef.value.value
+  }
+  syncMarkdownToEditor()
+  onContentChange()
+}
+
+function onTextAreaKeydown(e) {
   if (e.key === 'Tab') {
     e.preventDefault()
     const ta = e.target
     const start = ta.selectionStart
     const end = ta.selectionEnd
-    editorContent.value = editorContent.value.substring(0, start) + '\t' + editorContent.value.substring(end)
+    markdownContent.value = markdownContent.value.slice(0, start) + '\t' + markdownContent.value.slice(end)
     nextTick(() => {
-      ta.selectionStart = ta.selectionEnd = start + 1
+      ta.setSelectionRange(start + 1, start + 1)
     })
+    syncMarkdownToEditor()
+    onContentChange()
   }
 }
 
 function showContextMenu(e) {
-  const ta = e.target
-  selectedText.value = ta.value.substring(ta.selectionStart, ta.selectionEnd)
-  const rect = ta.getBoundingClientRect()
+  if (editorMode.value !== 'wysiwyg') return
+  const sel = window.getSelection()
+  selectedText.value = sel ? sel.toString() : ''
+  const rect = editorRef.value.getBoundingClientRect()
   contextMenu.value = {
     show: true,
     x: Math.min(e.clientX, rect.right - 160),
@@ -914,14 +1063,10 @@ function showContextMenu(e) {
 }
 
 function ctxAction(action) {
-  const ta = textareaRef.value
-  if (!ta) return
-  ta.focus()
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  const before = editorContent.value.substring(0, start)
-  const after = editorContent.value.substring(end)
-  const sel = selectedText.value
+  if (editorMode.value !== 'wysiwyg') return
+  const editor = editorRef.value
+  if (!editor) return
+  editor.focus()
 
   switch (action) {
     case 'undo': document.execCommand('undo'); break
@@ -934,20 +1079,140 @@ function ctxAction(action) {
       document.execCommand('copy')
       break
     case 'paste':
-      navigator.clipboard.readText().then(text => {
-        editorContent.value = before + text + after
-        onContentChange()
-      })
+      document.execCommand('paste')
       break
     case 'delete':
-      editorContent.value = before + after
+      document.execCommand('delete')
       onContentChange()
       break
     case 'selectAll':
-      ta.select()
+      document.execCommand('selectAll')
       break
   }
   contextMenu.value.show = false
+}
+
+function applyStyleToRange(styleMap) {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  if (range.collapsed) return
+
+  const span = document.createElement('span')
+  Object.entries(styleMap).forEach(([k, v]) => {
+    span.style[k] = v
+  })
+
+  try {
+    range.surroundContents(span)
+  } catch {
+    const fragment = range.extractContents()
+    span.appendChild(fragment)
+    range.insertNode(span)
+  }
+
+  sel.removeAllRanges()
+  const newRange = document.createRange()
+  newRange.selectNodeContents(span)
+  sel.addRange(newRange)
+}
+
+function getEditorText() {
+  return markdownToPlainText(markdownContent.value || '')
+}
+
+function setEditorPlainText(text) {
+  markdownContent.value = text
+  if (editorRef.value) {
+    editorRef.value.value = text
+  }
+  editorContent.value = markdownToHtml(text)
+}
+
+function switchEditorMode(mode) {
+  if (editorMode.value === mode) return
+  syncFromCurrentEditor()
+  editorMode.value = mode
+  if (mode !== 'wysiwyg') {
+    hasSelection.value = false
+  }
+  if (mode === 'wysiwyg') {
+    nextTick(() => {
+      if (editorRef.value) editorRef.value.value = markdownContent.value
+    })
+  }
+}
+
+function syncMarkdownToEditor() {
+  editorContent.value = markdownToHtml(markdownContent.value || '')
+}
+
+function syncFromCurrentEditor() {
+  if (editorMode.value === 'wysiwyg' && editorRef.value) {
+    markdownContent.value = editorRef.value.value
+    editorContent.value = markdownToHtml(markdownContent.value)
+    return
+  }
+  if (editorMode.value === 'markdown') {
+    editorContent.value = markdownToHtml(markdownContent.value || '')
+  }
+}
+
+function markdownToHtml(md) {
+  if (!md) return ''
+  return marked.parse(md)
+}
+
+function htmlToMarkdown(html) {
+  if (!html) return ''
+  return turndownService.turndown(html).replace(/\n{3,}/g, '\n\n')
+}
+
+function looksLikeHtml(text) {
+  return /<\/?[a-z][\s\S]*>/i.test(text)
+}
+
+function markdownToPlainText(md) {
+  if (!md) return ''
+  if (typeof document === 'undefined') return md
+  const div = document.createElement('div')
+  div.innerHTML = markdownToHtml(md)
+  return div.innerText || ''
+}
+
+function setSelectionByTextOffsets(start, end) {
+  const root = editorRef.value
+  if (!root) return
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node
+  let offset = 0
+  let startNode = null
+  let endNode = null
+  let startOffset = 0
+  let endOffset = 0
+
+  while ((node = walker.nextNode())) {
+    const len = node.textContent.length
+    if (!startNode && offset + len >= start) {
+      startNode = node
+      startOffset = Math.max(0, start - offset)
+    }
+    if (offset + len >= end) {
+      endNode = node
+      endOffset = Math.max(0, end - offset)
+      break
+    }
+    offset += len
+  }
+
+  if (!startNode || !endNode) return
+  const range = document.createRange()
+  range.setStart(startNode, startOffset)
+  range.setEnd(endNode, endOffset)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
 }
 
 // 点击其他区域关闭右键菜单
@@ -956,9 +1221,21 @@ function onGlobalClick() {
   showFontPanel.value = false
   showNameGen.value = false
   showFindReplace.value = false
+  hasSelection.value = false
+}
+
+function syncSelectionCommandState() {
+  try {
+    editorBold.value = document.queryCommandState('bold')
+    editorItalic.value = document.queryCommandState('italic')
+    editorUnderline.value = document.queryCommandState('underline')
+  } catch {
+    // ignore unsupported environments
+  }
 }
 
 function startResize(e, side) {
+  if (isLeftCollapsed.value) return
   resizing.value = side
   document.addEventListener('mousemove', onResize)
   document.addEventListener('mouseup', stopResize)
@@ -966,6 +1243,7 @@ function startResize(e, side) {
 }
 
 function startResizeRight(e) {
+  if (isRightCollapsed.value) return
   resizing.value = 'right'
   document.addEventListener('mousemove', onResizeRight)
   document.addEventListener('mouseup', stopResizeRight)
@@ -983,7 +1261,7 @@ function onResize(e) {
 function onResizeRight(e) {
   if (resizing.value !== 'right') return
   // 向右拖 = 书籍栏变宽（e.clientX 增大，rightWidth 增大）
-  const newWidth = Math.max(minWidth, e.clientX - leftWidth.value - 8)
+  const newWidth = Math.max(minWidth, e.clientX - leftSidebarWidth.value - 8)
   rightWidth.value = newWidth
 }
 
@@ -1176,6 +1454,7 @@ function stopResize() {
   border-right: none;
   display: flex;
   flex-direction: column;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
 }
 
 /* 可拉伸分隔栏 */
@@ -1199,6 +1478,25 @@ function stopResize() {
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+}
+
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-toggle {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.side-toggle:hover {
+  border-color: var(--accent);
 }
 
 .sidebar-title {
@@ -1271,11 +1569,16 @@ function stopResize() {
   padding: 8px;
 }
 
+.chapters-sidebar[style*='44px'] .sidebar-title,
+.books-sidebar[style*='44px'] .sidebar-title {
+  display: none;
+}
+
 .book-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
@@ -1325,7 +1628,7 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 6px 7px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
@@ -1509,7 +1812,7 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1518,11 +1821,49 @@ function stopResize() {
   box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  gap: 2px;
+}
+
+.mode-switch .tool-btn {
+  height: 24px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.mode-switch .tool-btn.active {
+  border-color: var(--accent);
+}
+
 .tool-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 9px;
   height: 26px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
@@ -1664,20 +2005,20 @@ function stopResize() {
 }
 
 .selection-toolbar {
-  position: absolute;
+  position: fixed;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 4px 6px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-  z-index: 200;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.16);
+  z-index: 1200;
 }
 
 .fp-btn {
-  width: 24px;
+  min-width: 24px;
   height: 24px;
   display: flex;
   align-items: center;
@@ -1690,6 +2031,7 @@ function stopResize() {
   cursor: pointer;
   transition: all 0.15s;
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  padding: 0 6px;
 }
 
 .fp-btn:hover {
@@ -1874,8 +2216,41 @@ function stopResize() {
   overflow-y: auto;
 }
 
+.prose-textarea {
+  line-height: 1.9;
+}
+
+.markdown-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  border-top: 1px solid var(--border);
+}
+
+.editor-preview {
+  border-top: 1px solid var(--border);
+}
+
+.editor-preview :deep(h1),
+.editor-preview :deep(h2),
+.editor-preview :deep(h3) {
+  margin: 0.8em 0 0.4em;
+}
+
+.editor-preview :deep(code) {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 .editor-textarea::placeholder {
   color: var(--text-muted);
+}
+
+.editor-textarea:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 /* Modal */
