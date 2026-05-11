@@ -156,7 +156,7 @@
                 </svg>
                 分隔
               </button>
-              <button class="tool-btn" :class="{ active: showFontPanel }" @click="showFontPanel = !showFontPanel" title="字体">
+              <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                   <path d="M2 2h10v2H2V2zm1 3h8v7H3V5zm0 0l2 6h4l2-6"/>
                 </svg>
@@ -164,7 +164,7 @@
               </button>
 
               <!-- 字体面板 -->
-              <div class="font-panel" v-if="showFontPanel">
+              <div class="font-panel" v-if="showFontPanel" @click.stop>
                 <div class="fp-row">
                   <span class="fp-label">字体</span>
                   <select class="fp-select" v-model="editorFont">
@@ -178,14 +178,11 @@
                 </div>
                 <div class="fp-row">
                   <span class="fp-label">大小</span>
-                  <select class="fp-select" v-model="editorFontSize">
-                    <option value="14px">14px</option>
-                    <option value="15px">15px</option>
-                    <option value="16px">16px</option>
-                    <option value="18px">18px</option>
-                    <option value="20px">20px</option>
-                    <option value="22px">22px</option>
-                  </select>
+                  <div class="fp-size-btns">
+                    <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小">A-</button>
+                    <span class="fp-size-val">{{ editorFontSize }}</span>
+                    <button class="fp-btn" @click="adjustFontSize(1)" title="放大">A+</button>
+                  </div>
                 </div>
                 <div class="fp-row">
                   <span class="fp-label">样式</span>
@@ -202,7 +199,7 @@
                   </div>
                 </div>
               </div>
-              <button class="tool-btn" :class="{ active: showNameGen }" @click="showNameGen = !showNameGen" title="随机取名">
+              <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                   <path d="M7 1a3 3 0 100 6 3 3 0 000-6zm-5 12l1-4h8l1 4H2z"/>
                 </svg>
@@ -210,7 +207,7 @@
               </button>
 
               <!-- 取名面板 -->
-              <div class="name-gen-panel" v-if="showNameGen">
+              <div class="name-gen-panel" v-if="showNameGen" @click.stop>
                 <div class="ng-row">
                   <span class="ng-label">类型</span>
                   <div class="ng-btns">
@@ -244,7 +241,7 @@
                   </div>
                 </div>
               </div>
-              <button class="tool-btn" :class="{ active: showFindReplace }" @click="showFindReplace = !showFindReplace" title="查找替换">
+              <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                   <path d="M5 1a4 4 0 014 4c0 1.5-.8 2.8-2 3.5l3 3-1.5 1.5-3-3A4 4 0 115 1zm0 1.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
                 </svg>
@@ -253,7 +250,7 @@
             </div>
 
             <!-- 查找替换栏 -->
-            <div class="find-replace-bar" v-if="showFindReplace">
+            <div class="find-replace-bar" v-if="showFindReplace" @click.stop>
               <input
                 v-model="findText"
                 class="find-input"
@@ -306,7 +303,24 @@
             ref="textareaRef"
             @keydown="onEditorKeydown"
             @contextmenu.prevent="showContextMenu"
+            @mouseup="updateSelectionStyle"
           ></textarea>
+          <div v-if="hasSelection" class="selection-toolbar" :style="selectionToolbarStyle">
+            <button class="fp-btn" :class="{ active: editorBold }" @click="applyStyleToSelection('bold')" title="加粗">B</button>
+            <button class="fp-btn" :class="{ active: editorItalic }" @click="applyStyleToSelection('italic')" title="斜体">I</button>
+            <button class="fp-btn" :class="{ active: editorUnderline }" @click="applyStyleToSelection('underline')" title="下划线">U</button>
+            <div class="fp-divider"></div>
+            <select class="fp-select sm" v-model="selectionFont" @change="applyFontToSelection">
+              <option value="">字体</option>
+              <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+              <option value="'SimSun', serif">宋体</option>
+              <option value="'KaiTi', serif">楷体</option>
+              <option value="'STHeiti', sans-serif">黑体</option>
+            </select>
+            <button class="fp-btn" @click="adjustSelectionFont(-1)" title="缩小">A-</button>
+            <span class="fp-size-val">{{ selectionFontSize }}</span>
+            <button class="fp-btn" @click="adjustSelectionFont(1)" title="放大">A+</button>
+          </div>
 
       <!-- 右键菜单 -->
       <div
@@ -410,6 +424,11 @@ const editorFontSize = ref('16px')
 const editorBold = ref(false)
 const editorItalic = ref(false)
 const editorUnderline = ref(false)
+const fontApplyMode = ref('global')
+const hasSelection = ref(false)
+const selectionFontSize = ref('16px')
+const selectionFont = ref('')
+const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
 
 const saveStatus = ref('saved')
 let saveTimeout = null
@@ -619,93 +638,84 @@ function insertSeparator() {
 
 // 随机取名
 function doGenerateName() {
-  const nameData = {
-    character: {
-      western: {
-        first: ['Oliver', 'Emma', 'Liam', 'Sophia', 'Noah', 'Isabella', 'James', 'Mia', 'Benjamin', 'Charlotte', 'Lucas', 'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Alexander', 'Abigail', 'Henry', 'Emily'],
-        last: ['Anderson', 'Thompson', 'White', 'Mitchell', 'Clark', 'Roberts', 'Taylor', 'Martinez', 'Harris', 'Robinson', 'Lee', 'Walker', 'Hall', 'Allen', 'Young'],
-        firstCn: ['奥利弗', '艾玛', '利亚姆', '索菲亚', '诺亚', '伊莎贝拉', '詹姆斯', '米娅', '本杰明', '夏洛特', '卢卡斯', '艾米莉亚', '梅森', '哈珀', '伊桑', '伊芙琳', '亚历山大', '阿比盖尔', '亨利', '艾米丽'],
-        lastCn: ['安德森', '汤普森', '怀特', '米切尔', '克拉克', '罗伯茨', '泰勒', '马丁内斯', '哈里斯', '鲁宾逊', '李', '沃克', '霍尔', '艾伦', '扬']
-      },
-      ancient: {
-        surname: ['李', '叶', '西门', '沈', '陆', '楚', '铁', '萧', '卓', '风', '任', '向', '曲', '刘', '莫', '定', '方', '冲'],
-        givenName: ['寻欢', '孤城', '吹雪', '小凤', '留香', '浪', '中棠', '南孙', '十一郎', '不凡', '清扬', '我行', '问天', '洋', '正风', '大', '闲', '证', '虚', '不戒', '慕白', '未央', '长安', '紫轩', '飞羽', '寒江', '孤鸿', '云中']
-      },
-      modern: {
-        surname: ['张', '王', '李', '刘', '陈', '杨', '赵', '周', '吴', '郑', '孙', '钱', '孙', '周', '吴', '徐', '马', '朱', '胡', '林'],
-        givenName: ['伟', '芳', '娜', '洋', '静', '明', '雪', '涛', '晓', '强', '晨', '鹏', '浩', '涛', '鑫', '勇', '艳', '杰', '丽', '敏', '超', '华', '辉', '波', '刚', '峰', '超', '勇', '军']
-      }
-    },
-    place: {
-      western: ['Willowbrook', 'Ironforge', 'Silvermoon', 'DragonSpine', 'Stormwind', 'Darkwood', 'Brightport', 'Goldshire', 'Misty Valley', 'Sunnyridge'],
-      ancient: ['长安城', '洛阳城', '扬州城', '成都府', '苏州城', '杭州城', '汴京城', '金陵城', '燕京城', '成都府'],
-      modern: ['朝阳区', '海淀区', '浦东新区', '天河区', '南山区', '江汉区', '玄武区', '西城区', '东城区', '西湖区']
-    }
-  }
+  // 中文字符池
+  const charPool = '瑾言清晚长风昭华知意逾白屿森念卿知行听澜挽棠墨深绾绾晏礼言蹊如故未歇星野映之清欢妄惊鸿云深瑶霜露璃萤雪'
+  const ancientCharPool = '寻欢孤城吹雪小凤留香浪中棠十一郎不凡清扬我行问天慕白未央紫轩飞羽寒江孤鸿寒烟凝蝶落霞凌霜白露秋璃夏萤冬雪云浅萧默'
 
   generatedNames.value = []
 
   if (nameType.value === 'place') {
-    const placeNames = nameData.place[nameStyle.value] || nameData.place.modern
+    const places = {
+      western: ['Willowbrook', 'Ironforge', 'Silvermoon', 'DragonSpine', 'Stormwind', 'Darkwood', 'Brightport', 'Goldshire', 'Misty Valley', 'Sunnyridge', 'CrystalLake', 'Ravencliff', 'Thornwood', 'Stonehaven', 'Duskwood'],
+      ancient: ['长安城', '洛阳城', '扬州城', '成都府', '苏州城', '杭州城', '汴京城', '金陵城', '燕京城', '临安府', '襄阳城', '荆州城', '泉州城', '广州城', '福州城'],
+      modern: ['朝阳区', '海淀区', '浦东新区', '天河区', '南山区', '江汉区', '玄武区', '西城区', '东城区', '西湖区', '静安区', '黄浦区', '南开区', '和平区', '江岸区']
+    }
+    const list = places[nameStyle.value] || places.modern
     for (let i = 0; i < 5; i++) {
-      const idx = Math.floor(Math.random() * placeNames.length)
-      generatedNames.value.push(placeNames[idx])
+      generatedNames.value.push(list[Math.floor(Math.random() * list.length)])
     }
     generatedNames.value = [...new Set(generatedNames.value)]
     return
   }
 
-  // 人物取名
   const hasSurname = fixedSurname.value.trim()
   const hasGivenName = fixedGivenName.value.trim()
-  const seen = new Set()
 
   if (nameStyle.value === 'western') {
-    const first = nameData.character.western.first
-    const last = nameData.character.western.last
-    const firstCn = nameData.character.western.firstCn
-    const lastCn = nameData.character.western.lastCn
+    const firstNames = ['Oliver', 'Emma', 'Liam', 'Sophia', 'Noah', 'Isabella', 'James', 'Mia', 'Benjamin', 'Charlotte', 'Lucas', 'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Alexander', 'Abigail', 'Henry', 'Emily', 'William', 'Ava', 'Michael', 'Ella', 'Daniel', 'Scarlett', 'Matthew', 'Grace', 'Sebastian', 'Chloe', 'Jack', 'Victoria', 'Owen', 'Aria', 'Luke', 'Lily', 'Dylan', 'Hannah', 'Gabriel', 'Zoey']
+    const lastNames = ['Anderson', 'Thompson', 'White', 'Mitchell', 'Clark', 'Roberts', 'Taylor', 'Martinez', 'Harris', 'Robinson', 'Lee', 'Walker', 'Hall', 'Allen', 'Young', 'King', 'Wright', 'Lopez', 'Hill', 'Scott', 'Green', 'Adams', 'Baker', 'Nelson', 'Carter', 'Mitchell', 'Perez', 'Roberts', 'Turner', 'Phillips', 'Campbell', 'Parker', 'Evans', 'Edwards', 'Collins']
+    const firstCn = ['奥利弗', '艾玛', '利亚姆', '索菲亚', '诺亚', '伊莎贝拉', '詹姆斯', '米娅', '本杰明', '夏洛特', '卢卡斯', '艾米莉亚', '梅森', '哈珀', '伊桑', '伊芙琳', '亚历山大', '阿比盖尔', '亨利', '艾米丽', '威廉', '艾娃', '迈克尔', '艾拉', '丹尼尔', '斯嘉丽', '马修', '格蕾丝', '塞巴斯蒂安', '克洛伊', '杰克', '维多利亚', '欧文', '艾瑞亚', '卢克', '莉莉', '迪伦', '汉娜', '加布里埃尔', '佐伊']
+    const lastCn = ['安德森', '汤普森', '怀特', '米切尔', '克拉克', '罗伯茨', '泰勒', '马丁内斯', '哈里斯', '鲁宾逊', '李', '沃克', '霍尔', '艾伦', '扬', '金', '赖特', '洛佩兹', '希尔', '斯科特', '格林', '亚当斯', '贝克', '纳尔逊', '卡特', '米切尔', '佩雷斯', '罗伯茨', '特纳', '菲利普斯', '坎贝尔', '帕克', '埃文斯', '爱德华兹', '柯林斯']
 
-    // 如果输入了中文名，尝试找到对应的英文名
-    const userGiven = hasGivenName ? fixedGivenName.value.trim() : ''
-    const userSurname = hasSurname ? fixedSurname.value.trim() : ''
-    let fIdx = -1, lIdx = -1
-
-    if (userGiven) {
-      // 尝试在中文名中找
-      fIdx = firstCn.indexOf(userGiven)
-      if (fIdx < 0) {
-        // 尝试在英文名中找
-        fIdx = first.indexOf(userGiven)
-      }
+    // 尝试匹配用户输入
+    let fixedFirst = null, fixedLast = null
+    if (hasGivenName) {
+      const idx = firstCn.indexOf(fixedGivenName.value.trim())
+      if (idx >= 0) fixedFirst = firstNames[idx]
+      else fixedFirst = fixedGivenName.value.trim()
     }
-    if (userSurname) {
-      lIdx = lastCn.indexOf(userSurname)
-      if (lIdx < 0) {
-        lIdx = last.indexOf(userSurname)
-      }
+    if (hasSurname) {
+      const idx = lastCn.indexOf(fixedSurname.value.trim())
+      if (idx >= 0) fixedLast = lastNames[idx]
+      else fixedLast = fixedSurname.value.trim()
     }
 
-    for (let i = 0; i < 5 && generatedNames.value.length < 5; i++) {
-      const newFIdx = fIdx >= 0 ? fIdx : Math.floor(Math.random() * first.length)
-      const newLIdx = lIdx >= 0 ? lIdx : Math.floor(Math.random() * last.length)
-      let enName = first[newFIdx] + ' ' + last[newLIdx]
+    const seen = new Set()
+    for (let i = 0; i < 8 && seen.size < 8; i++) {
+      let f = fixedFirst || firstNames[Math.floor(Math.random() * firstNames.length)]
+      let l = fixedLast || lastNames[Math.floor(Math.random() * lastNames.length)]
+      let enName = f + ' ' + l
       if (seen.has(enName)) continue
       seen.add(enName)
-      let cnName = firstCn[newFIdx] + '·' + lastCn[newLIdx]
+      let fIdx = firstNames.indexOf(f)
+      let lIdx = lastNames.indexOf(l)
+      let cnName = (fIdx >= 0 ? firstCn[fIdx] : f) + '·' + (lIdx >= 0 ? lastCn[lIdx] : l)
       generatedNames.value.push({ en: enName, cn: cnName })
     }
   } else {
-    const data = nameData.character[nameStyle.value]
-    const surnames = data.surname
-    const givenNames = data.givenName
-    for (let i = 0; i < 10 && generatedNames.value.length < 10; i++) {
+    // 算法化生成中文姓名
+    const surnames = ['李', '王', '张', '刘', '陈', '杨', '赵', '黄', '周', '吴', '徐', '孙', '胡', '朱', '高', '林', '何', '郭', '马', '罗', '梁', '宋', '郑', '谢', '韩', '唐', '冯', '于', '董', '萧', '程', '曹', '袁', '邓', '许', '傅', '沈', '曾', '彭', '吕', '苏', '卢', '蒋', '蔡', '贾', '丁', '魏', '薛', '叶', '阎', '余', '潘', '杜', '戴', '夏', '钟', '汪', '田', '任', '姜', '范', '方', '石', '姚', '谭', '廖', '邹', '熊', '金', '陆', '郝', '孔', '白', '崔', '康', '毛', '邱', '秦', '江', '史', '顾', '侯', '邵', '孟', '龙', '万', '段', '漕', '钱', '汤', '尹', '黎', '易', '常', '武', '乔', '贺', '赖', '龚', '文']
+    const pool = nameStyle.value === 'ancient' ? ancientCharPool : charPool
+
+    const seen = new Set()
+    const getName = () => {
       let surname = hasSurname ? fixedSurname.value.trim() : surnames[Math.floor(Math.random() * surnames.length)]
-      let givenName = hasGivenName ? fixedGivenName.value.trim() : givenNames[Math.floor(Math.random() * givenNames.length)]
-      let fullName = surname + givenName
-      if (seen.has(fullName)) continue
-      seen.add(fullName)
-      generatedNames.value.push(fullName)
+      let given = hasGivenName ? fixedGivenName.value.trim() : ''
+      if (!given) {
+        // 随机生成1-2个汉字的名字
+        const len = Math.random() < 0.6 ? 1 : 2
+        for (let i = 0; i < len; i++) {
+          given += pool[Math.floor(Math.random() * pool.length)]
+        }
+      }
+      return surname + given
+    }
+
+    for (let i = 0; i < 20 && seen.size < 10; i++) {
+      const name = getName()
+      if (seen.has(name)) continue
+      seen.add(name)
+      generatedNames.value.push(name)
     }
   }
 }
@@ -735,6 +745,83 @@ function findNext() {
     findCurrent.value = (findCurrent.value + 1) % findResults.value.length
     highlightFind()
   }
+}
+
+// 更新选区状态
+function updateSelectionStyle() {
+  const ta = textareaRef.value
+  if (!ta) return
+  hasSelection.value = ta.selectionStart !== ta.selectionEnd
+  if (hasSelection.value) {
+    const rect = ta.getBoundingClientRect()
+    selectionToolbarStyle.value = {
+      top: (rect.top + 30) + 'px',
+      left: (rect.left + 50) + 'px'
+    }
+  }
+}
+
+function toggleStyle(style) {
+  if (style === 'bold') editorBold.value = !editorBold.value
+  else if (style === 'italic') editorItalic.value = !editorItalic.value
+  else if (style === 'underline') editorUnderline.value = !editorUnderline.value
+}
+
+function applyStyleToSelection(style) {
+  const ta = textareaRef.value
+  if (!ta) return
+  const start = ta.selectionStart
+  const end = ta.selectionEnd
+  if (start === end) return
+
+  const selText = editorContent.value.substring(start, end)
+
+  // 检查是否已经应用了样式，若已应用则移除
+  let prefix = '', suffix = '', pattern = ''
+  if (style === 'bold') { prefix = '**'; suffix = '**'; pattern = '\\*\\*(.+?)\\*\\*' }
+  else if (style === 'italic') { prefix = '*'; suffix = '*'; pattern = '\\*(.+?)\\*' }
+  else if (style === 'underline') { prefix = '<u>'; suffix = '</u>'; pattern = '<u>(.+?)</u>' }
+
+  const regex = new RegExp(pattern)
+  const match = selText.match(regex)
+  let newText
+  if (match && match[0] === selText) {
+    // 已应用，移除样式
+    newText = match[1]
+  } else {
+    // 未应用，添加样式
+    newText = prefix + selText + suffix
+  }
+
+  editorContent.value = editorContent.value.substring(0, start) + newText + editorContent.value.substring(end)
+  nextTick(() => {
+    ta.selectionStart = start
+    ta.selectionEnd = start + newText.length
+    ta.focus()
+  })
+  onContentChange()
+}
+
+function applyFontToSelection() {
+  // 字体应用到选区
+}
+
+function adjustSelectionFont(delta) {
+  const sizes = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24]
+  const current = parseInt(selectionFontSize.value)
+  const idx = sizes.indexOf(current)
+  const newIdx = Math.max(0, Math.min(sizes.length - 1, idx + delta))
+  selectionFontSize.value = sizes[newIdx] + 'px'
+}
+
+function adjustFontSize(delta) {
+  const sizes = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30]
+  const currentStr = editorFontSize.value
+  const current = parseInt(currentStr.replace('px', ''))
+  const idx = sizes.indexOf(current)
+  const newIdx = Math.max(0, Math.min(sizes.length - 1, idx + delta))
+  editorFontSize.value = sizes[newIdx] + 'px'
+  onContentChange()
 }
 
 // 查找上一个
@@ -866,6 +953,9 @@ function ctxAction(action) {
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
   contextMenu.value.show = false
+  showFontPanel.value = false
+  showNameGen.value = false
+  showFindReplace.value = false
 }
 
 function startResize(e, side) {
@@ -1375,7 +1465,7 @@ function stopResize() {
 .editor-header {
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
 }
 
 .title-row {
@@ -1419,11 +1509,13 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 0;
+  padding: 6px 8px;
   background: var(--bg-tertiary);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   flex-shrink: 0;
   position: relative;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
 .tool-btn {
@@ -1432,7 +1524,7 @@ function stopResize() {
   gap: 4px;
   padding: 4px 10px;
   height: 26px;
-  background: var(--bg-tertiary);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-secondary);
@@ -1440,42 +1532,49 @@ function stopResize() {
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .tool-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+  background: var(--bg-primary);
 }
 
 .tool-btn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 .tool-btn.sm {
   padding: 4px 8px;
   height: 24px;
+  background: var(--bg-primary);
 }
 
 .tool-btn.close {
   color: var(--text-muted);
+  background: var(--bg-primary);
 }
 
 .tool-btn.close:hover {
   color: var(--danger);
   border-color: var(--danger);
+  background: var(--bg-primary);
 }
 
 .font-selector {
   height: 26px;
   padding: 0 8px;
-  background: var(--bg-tertiary);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .font-selector:focus {
@@ -1537,6 +1636,46 @@ function stopResize() {
   gap: 3px;
 }
 
+.fp-size-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fp-size-val {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: center;
+}
+
+.fp-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.fp-select.sm {
+  height: 22px;
+  font-size: 11px;
+  padding: 0 4px;
+  min-width: 70px;
+}
+
+.selection-toolbar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  z-index: 200;
+}
+
 .fp-btn {
   width: 24px;
   height: 24px;
@@ -1550,6 +1689,7 @@ function stopResize() {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .fp-btn:hover {
@@ -1561,6 +1701,7 @@ function stopResize() {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 /* 取名面板 */
@@ -1610,6 +1751,7 @@ function stopResize() {
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .ng-btn:hover {
@@ -1621,6 +1763,7 @@ function stopResize() {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 .ng-input {

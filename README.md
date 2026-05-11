@@ -1,6 +1,6 @@
 # 开放世界文字游戏框架
 
-基于 SillyTavern 提示词工程设计的文字冒险游戏框架，支持前端界面和后端服务。
+一个前后端分离的开放世界文字冒险游戏框架，支持世界选择、事件触发与状态管理。
 
 ## 项目结构
 
@@ -10,8 +10,8 @@ text-game-framework/
 ├── vite.config.js            # Vite 构建配置
 ├── jsconfig.json             # JS 项目配置
 │
+├── index.html                # 前端 HTML 入口
 ├── public/                   # 静态资源
-│   └── index.html            # HTML 入口
 │
 ├── src/                      # 前端源码 (Vue 3)
 │   ├── main.js               # 入口文件
@@ -57,10 +57,6 @@ text-game-framework/
 │           ├── 技能类.json
 │           ├── 随机类.json
 │           └── 剧情类.json
-│
-├── SYSTEM_PROMPT.md          # AI 系统提示词
-├── game-config.json          # 游戏配置 (旧版)
-└── example-world.md          # 世界设定示例
 ```
 
 ## 快速开始
@@ -76,7 +72,7 @@ npm install
 
 ```bash
 # 终端1: 启动后端 (端口 3001)
-node server/index.js
+npm run server
 
 # 终端2: 启动前端 (端口 5173)
 npm run dev
