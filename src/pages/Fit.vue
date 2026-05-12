@@ -75,6 +75,11 @@ function goBack() {
 }
 
 async function enterExperience(genre) {
+  if (genre === 'poetry') {
+    router.push('/poetry-lab')
+    return
+  }
+
   gameStore.genre = genre
   await gameStore.initGame()
   router.push('/game')

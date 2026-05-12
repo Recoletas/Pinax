@@ -3,12 +3,14 @@ import Home from '../pages/Home.vue'
 import Fit from '../pages/Fit.vue'
 import Game from '../pages/Game.vue'
 import Writing from '../pages/Writing.vue'
+import PoetryLab from '../pages/PoetryLab.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
   { path: '/fit', name: 'fit', component: Fit },
   { path: '/game', name: 'game', component: Game },
-  { path: '/writing', name: 'writing', component: Writing }
+  { path: '/writing', name: 'writing', component: Writing },
+  { path: '/poetry-lab', name: 'poetry-lab', component: PoetryLab }
 ]
 
 const router = createRouter({

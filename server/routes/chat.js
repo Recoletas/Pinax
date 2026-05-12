@@ -73,8 +73,49 @@ function loadApiSettings() {
   return {}
 }
 
+function extractTextContent(payload) {
+  if (typeof payload === 'string') return payload
+  if (payload == null) return ''
+
+  if (Array.isArray(payload)) {
+    return payload
+      .map((item) => extractTextContent(item))
+      .filter(Boolean)
+      .join('')
+  }
+
+  if (typeof payload === 'object') {
+    if (typeof payload.reasoning_content === 'string' && payload.reasoning_content.trim()) return payload.reasoning_content
+    if (typeof payload.reasoning === 'string' && payload.reasoning.trim()) return payload.reasoning
+    if (typeof payload.text === 'string') return payload.text
+    if (typeof payload.content === 'string') return payload.content
+    if (Array.isArray(payload.content)) return extractTextContent(payload.content)
+    if (typeof payload.output_text === 'string') return payload.output_text
+    if (Array.isArray(payload.output)) return extractTextContent(payload.output)
+    if (typeof payload.response === 'string') return payload.response
+    if (Array.isArray(payload.parts)) return extractTextContent(payload.parts)
+  }
+
+  return ''
+}
+
+function extractOpenAIChoiceText(choice) {
+  if (!choice || typeof choice !== 'object') return ''
+
+  return (
+    extractTextContent(choice?.message?.content) ||
+    extractTextContent(choice?.message?.reasoning_content) ||
+    extractTextContent(choice?.message?.reasoning) ||
+    extractTextContent(choice?.content) ||
+    extractTextContent(choice?.text) ||
+    extractTextContent(choice?.delta?.content) ||
+    extractTextContent(choice?.delta?.reasoning_content) ||
+    ''
+  )
+}
+
 router.post('/chat', async (req, res) => {
-  const { messages, character, worldId, provider, baseUrl, apiKey, model } = req.body
+  const { messages, character, worldId, provider, baseUrl, apiKey, model, max_tokens, temperature, response_format } = req.body
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array is required' })
@@ -117,6 +158,9 @@ router.post('/chat', async (req, res) => {
 
 `
 
+  const hasClientSystemPrompt = messages.some((m) => m?.role === 'system')
+  const effectiveSystemPrompt = hasClientSystemPrompt ? '' : systemPrompt
+
     if (character) {
       systemPrompt += `
 角色信息：
@@ -142,17 +186,22 @@ router.post('/chat', async (req, res) => {
     }
 
     // Determine API format based on provider
+    const normalizedMessages = messages.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+
     let requestBody = {
       model: effectiveModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.map(m => ({
-          role: m.role,
-          content: m.content
-        }))
-      ],
-      max_tokens: 500,
-      temperature: 0.8
+      messages: effectiveSystemPrompt
+        ? [{ role: 'system', content: effectiveSystemPrompt }, ...normalizedMessages]
+        : normalizedMessages,
+      max_tokens: Number.isFinite(Number(max_tokens)) ? Number(max_tokens) : 500,
+      temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8
+    }
+
+    if (response_format && effectiveProvider !== 'claude' && effectiveProvider !== 'cohere') {
+      requestBody.response_format = response_format
     }
 
     // Special handling for Claude API
@@ -162,24 +211,25 @@ router.post('/chat', async (req, res) => {
       headers['anthropic-version'] = '2023-06-01'
       requestBody = {
         model: effectiveModel,
-        max_tokens: 500,
-        messages: messages.map(m => ({
+        max_tokens: Number.isFinite(Number(max_tokens)) ? Number(max_tokens) : 500,
+        messages: normalizedMessages.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : m.role,
           content: m.content
         })),
-        system: systemPrompt
+        ...(effectiveSystemPrompt ? { system: effectiveSystemPrompt } : {})
       }
     }
 
     if (effectiveProvider === 'cohere') {
       requestBody = {
         model: effectiveModel,
-        messages: messages.map(m => ({
+        messages: normalizedMessages.map(m => ({
           role: m.role,
           content: m.content
         })),
-        preamble: systemPrompt,
-        temperature: 0.8
+        ...(effectiveSystemPrompt ? { preamble: effectiveSystemPrompt } : {}),
+        temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8,
+        ...(Number.isFinite(Number(max_tokens)) ? { max_tokens: Number(max_tokens) } : {})
       }
     }
 
@@ -199,15 +249,41 @@ router.post('/chat', async (req, res) => {
     }
 
     const data = await response.json()
-    let content = data.choices?.[0]?.message?.content || data.message?.content?.[0]?.text || '...'
+    const message = data?.choices?.[0]?.message
+    let content =
+      extractOpenAIChoiceText(data?.choices?.[0]) ||
+      extractTextContent(message?.content) ||
+      extractTextContent(message?.reasoning_content) ||
+      extractTextContent(data?.message?.content) ||
+      extractTextContent(data?.message?.reasoning_content) ||
+      extractTextContent(data?.content) ||
+      extractTextContent(data?.output_text) ||
+      extractTextContent(data?.output) ||
+      ''
 
     // Handle Claude response format
     if (effectiveProvider === 'claude' && data.content) {
-      content = data.content[0]?.text || content
+      content = extractTextContent(data.content) || content
     }
 
     if (effectiveProvider === 'cohere' && data.message?.content) {
-      content = data.message.content.map(c => c.text || '').join('') || content
+      content = extractTextContent(data.message.content) || content
+    }
+
+    if (!content) {
+      console.error('Empty model content:', {
+        provider: effectiveProvider,
+        model: effectiveModel,
+        hasChoices: Boolean(data?.choices?.length),
+        keys: Object.keys(data || {}).slice(0, 12),
+        choiceKeys: Object.keys(data?.choices?.[0] || {}).slice(0, 12),
+        messageKeys: Object.keys(message || {}).slice(0, 12),
+        rawPreview: JSON.stringify(data).slice(0, 1200)
+      })
+      return res.status(502).json({
+        error: '上游模型返回为空内容',
+        details: `provider=${effectiveProvider}, model=${effectiveModel}`
+      })
     }
 
     res.json({ content })
