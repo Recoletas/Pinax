@@ -57,38 +57,49 @@
 
         <div class="btn-row">
           <button class="btn-secondary" @click="exportMarkdown" :disabled="flatNodes.length === 0">导出 Markdown</button>
-          <button class="btn-secondary" @click="exportSvg" :disabled="flatNodes.length === 0">导出 SVG</button>
+          <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0">导出 TXT</button>
+        </div>
+
+        <div class="export-panel" v-if="flatNodes.length">
+          <div class="export-panel-head">
+            <h3>导出设置</h3>
+          </div>
+          <div class="control-row">
+            <label>导出范围</label>
+            <select v-model="exportScope">
+              <option value="all">全树</option>
+              <option value="custom">自定义勾选节点</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label>连接顺序</label>
+            <select v-model="exportOrder">
+              <option value="dfs">深度优先</option>
+              <option value="bfs">广度优先</option>
+            </select>
+          </div>
+          <div v-if="exportScope === 'custom'" class="pick-list">
+            <div class="pick-toolbar">
+              <div class="pick-actions">
+                <button class="small-btn" @click="selectAllExportNodes">全选节点</button>
+                <button class="small-btn" @click="clearExportNodes">清空节点</button>
+              </div>
+            </div>
+            <p class="meta">单击画布节点即可切换导出；未选节点会置灰。已选 {{ exportNodeSelectedCount }} 个节点。</p>
+          </div>
         </div>
 
         <div class="mode-row">
           <button class="mode-btn" :class="{ active: viewMode === 'map' }" @click="viewMode = 'map'">思维导图</button>
-          <button class="mode-btn" :class="{ active: viewMode === 'bubble' }" @click="viewMode = 'bubble'">泡泡视图</button>
         </div>
 
         <div class="status" v-if="statusText">{{ statusText }}</div>
         <div class="status sub" v-if="lastSourceLabel">本次来源：{{ lastSourceLabel }}</div>
 
-        <div class="adapter-card">
-          <h3>轻量自适应 (LoRA/GAN 思路)</h3>
-          <p class="meta">反馈会微调后续分支生成倾向。</p>
-          <div class="weight-grid">
-            <div>意象浓度 {{ percent(adaptState.generator.imagery) }}</div>
-            <div>节奏跳跃 {{ percent(adaptState.generator.rhythm) }}</div>
-            <div>反差强度 {{ percent(adaptState.generator.contrast) }}</div>
-            <div>新颖度 {{ percent(adaptState.generator.novelty) }}</div>
-          </div>
-          <div class="critic">判别器得分: {{ adaptState.critic.lastScore.toFixed(2) }}</div>
-        </div>
-
         <div v-if="selectedNode" class="node-detail">
           <h3>当前灵感</h3>
           <p class="node-text">{{ selectedNode.text }}</p>
           <p class="meta">层级：{{ selectedNode.depth + 1 }} · 子节点：{{ selectedNode.children.length }} · 反馈分：{{ selectedNode.feedbackScore || 0 }}</p>
-
-          <div class="examples" v-if="selectedNode.examples && selectedNode.examples.length">
-            <h4>示例语句</h4>
-            <p v-for="(line, idx) in selectedNode.examples" :key="idx" class="example-line">{{ line }}</p>
-          </div>
 
           <div class="feedback-panel">
             <h4>反馈与进一步生成</h4>
@@ -98,11 +109,13 @@
               placeholder="例如：想更冷峻、更具体，减少抒情空话"
             ></textarea>
             <div class="feedback-actions">
-              <button class="small-btn" @click="submitFeedback('positive')">正向反馈</button>
-              <button class="small-btn" @click="submitFeedback('negative')">负向反馈</button>
-              <button class="small-btn" @click="submitFeedback('neutral')">中性反馈</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'positive' }" @click="feedbackMode = 'positive'">正向</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'negative' }" @click="feedbackMode = 'negative'">负向</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'neutral' }" @click="feedbackMode = 'neutral'">中性</button>
             </div>
-            <button class="btn-primary wide" :disabled="isGenerating" @click="continueGenerateFromNode">根据反馈进一步生成</button>
+            <div class="meta">当前模式：{{ feedbackMode === 'positive' ? '正向' : feedbackMode === 'negative' ? '负向' : '中性' }}</div>
+            <button class="small-btn" @click="submitFeedback(feedbackMode)">记录反馈</button>
+            <button class="btn-primary action-btn" :disabled="isGenerating" @click="continueGenerateFromNode">继续生成</button>
           </div>
 
           <div class="node-actions">
@@ -136,16 +149,26 @@
             class="idea-node"
             :class="[
               `depth-${Math.min(node.depth, 3)}`,
-              { active: selectedNode && selectedNode.id === node.id }
+              {
+                active: selectedNode && selectedNode.id === node.id,
+                muted: exportScope === 'custom' && !isNodeExportSelected(node.id)
+              }
             ]"
             :style="{
               left: `${node.x}px`,
               top: `${node.y}px`
             }"
-            @click="selectNode(node)"
+            @click="onNodeClick(node)"
             @pointerdown.stop="startDrag($event, node)"
             :title="nodeTitle(node)"
           >
+            <label v-if="exportScope === 'custom'" class="node-check" @click.stop>
+              <input
+                type="checkbox"
+                :checked="isNodeExportSelected(node.id)"
+                @change="toggleExportNodeSelection(node.id)"
+              />
+            </label>
             <div class="node-main">{{ node.text }}</div>
             <div v-if="node.examples && node.examples[0]" class="node-sub">{{ node.examples[0] }}</div>
           </div>
@@ -177,8 +200,12 @@ const isGenerating = ref(false)
 const statusText = ref('')
 const viewMode = ref('map')
 const lastSourceLabel = ref('')
+const exportScope = ref('all')
+const exportOrder = ref('dfs')
+const exportPickedNodeIds = ref([])
 
 const feedbackText = ref('')
+const feedbackMode = ref('neutral')
 
 const rootTree = ref(loadSavedTree())
 const selectedNode = ref(null)
@@ -194,6 +221,16 @@ const canvasRef = ref(null)
 if (rootTree.value && !selectedNode.value) {
   selectedNode.value = rootTree.value
 }
+
+watch(exportScope, (scope) => {
+  if (scope !== 'custom') return
+  if (exportPickedNodeIds.value.length) return
+  if (selectedNode.value?.id) {
+    exportPickedNodeIds.value = [selectedNode.value.id]
+  } else if (rootTree.value?.id) {
+    exportPickedNodeIds.value = [rootTree.value.id]
+  }
+})
 
 function defaultAdaptState() {
   return {
@@ -351,6 +388,26 @@ function extractLineBlock(text) {
   return raw
 }
 
+function sanitizeIdeaTitle(input, maxLen = 36) {
+  let title = String(input || '').trim()
+  if (!title) return ''
+
+  title = title
+    .replace(/^L\d+\s*[|｜]\s*N[\d.]+\s*[|｜]\s*P[\d.]+\s*[|｜]\s*/i, '')
+    .replace(/^N[\d.]+\s*[|｜]\s*N?[\d.]+\s*[|｜]\s*/i, '')
+    .replace(/^N[\d.]+\s*[|｜]\s*P?[\d.]+\s*[|｜]\s*/i, '')
+    .replace(/^N\d+\s*P\d+\s*/i, '')
+    .replace(/^[-*\d.、\s]+/, '')
+    .trim()
+
+  if (title.includes('|') || title.includes('｜')) {
+    const parts = title.split(/[|｜]/).map((s) => s.trim()).filter(Boolean)
+    if (parts.length) title = parts[parts.length - 1]
+  }
+
+  return title.slice(0, maxLen).trim()
+}
+
 function parseLineTree(text) {
   const block = extractLineBlock(text)
   const lines = String(block || '')
@@ -389,10 +446,7 @@ function parseLineTree(text) {
       }
     }
 
-    title = title
-      .replace(/^N\d+\s*P\d+\s*/i, '')
-      .replace(/^[-*\d.、\s]+/, '')
-      .slice(0, 36)
+    title = sanitizeIdeaTitle(title, 36)
 
     if (!title) continue
     if (depth < 0 || depth > 5) continue
@@ -446,6 +500,34 @@ function parseLineTree(text) {
   })
 
   return root
+}
+
+function extractLooseTitlesFromText(text, limit = 6) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const ban = /(解释|分析|思考|要求|约束|格式|输出|BEGIN_|END_|L\d+\|N\d+\|P\d+)/i
+  const out = []
+
+  for (const raw of lines) {
+    let t = raw
+      .replace(/^[-*\d.、\s]+/, '')
+      .replace(/^L\d+\s*[:：|｜-]\s*/i, '')
+      .replace(/[，。；：,.!！?？].*$/, '')
+      .trim()
+
+    t = sanitizeIdeaTitle(t, 18)
+
+    if (!t) continue
+    if (ban.test(t)) continue
+    if (t.length < 2) continue
+    if (!out.includes(t)) out.push(t)
+    if (out.length >= limit) break
+  }
+
+  return out
 }
 
 function flattenRawTree(raw, out = [], seen = new Set()) {
@@ -554,9 +636,11 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
 function applyExamplesByTitle(rawTree, mapping) {
   const list = flattenRawTree(rawTree)
   for (const node of list) {
-    const key = String(node.title || node.text || '')
-    const got = mapping.get(key)
+    const key = sanitizeIdeaTitle(String(node.title || node.text || ''), 36)
+    const got = mapping.get(key) || mapping.get(String(node.title || node.text || ''))
     if (got && got.length >= 2) {
+      if (node.title) node.title = key
+      if (node.text) node.text = key
       node.examples = got.slice(0, 2)
     }
   }
@@ -609,7 +693,7 @@ async function repairExamplesBatchByLLM(titles, apiSettings) {
     const arr = Array.isArray(parsed?.items) ? parsed.items : []
     const out = new Map()
     for (const item of arr) {
-      const title = String(item?.title || '').trim()
+      const title = sanitizeIdeaTitle(String(item?.title || '').trim(), 36)
       const examples = Array.isArray(item?.examples) ? item.examples.filter(Boolean).slice(0, 2) : []
       if (title && examples.length === 2) {
         out.set(title, examples)
@@ -635,7 +719,7 @@ function parseExampleLineBlock(text) {
     const normalized = line.replace(/[｜]/g, '|')
     const m = normalized.match(/^T\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*$/)
     if (!m) continue
-    const title = String(m[1] || '').trim()
+    const title = sanitizeIdeaTitle(String(m[1] || '').trim(), 36)
     const e1 = String(m[2] || '').trim()
     const e2 = String(m[3] || '').trim()
     if (title && e1 && e2) {
@@ -735,7 +819,7 @@ async function fillExamplesForMissingTitles(missingTitles, apiSettings) {
 
 async function postProcessExamplesByLLM(rawTree, apiSettings) {
   const nodes = flattenRawTree(rawTree)
-  const titles = [...new Set(nodes.map((node) => String(node.title || '').trim()).filter(Boolean))].slice(0, 120)
+  const titles = [...new Set(nodes.map((node) => sanitizeIdeaTitle(String(node.title || ''), 36)).filter(Boolean))].slice(0, 120)
 
   const fixed = new Map()
   const chunkSize = 24
@@ -837,6 +921,49 @@ function flattenTree(tree) {
   return result
 }
 
+function flattenTreeByOrder(tree, order = 'dfs') {
+  if (!tree) return []
+
+  if (order === 'bfs') return flattenTree(tree)
+
+  const out = []
+  const seen = new Set()
+
+  function walk(node) {
+    if (!node || seen.has(node)) return
+    seen.add(node)
+    out.push(node)
+    for (const child of node.children || []) walk(child)
+  }
+
+  walk(tree)
+  return out
+}
+
+function cloneTree(node) {
+  if (!node) return null
+  return {
+    id: node.id,
+    parentId: node.parentId || null,
+    depth: Number(node.depth || 0),
+    text: String(node.text || ''),
+    examples: Array.isArray(node.examples) ? [...node.examples] : [],
+    feedbackScore: Number(node.feedbackScore || 0),
+    children: Array.isArray(node.children) ? node.children.map((child) => cloneTree(child)) : []
+  }
+}
+
+function buildExportTree() {
+  if (!rootTree.value) return null
+
+  return cloneTree(rootTree.value)
+}
+
+function exportScopeLabel() {
+  if (exportScope.value === 'all') return '全树'
+  return '自定义勾选节点'
+}
+
 function removeNodeById(node, id) {
   if (!node || !node.children) return false
   const idx = node.children.findIndex((child) => child.id === id)
@@ -854,6 +981,98 @@ function removeNodeById(node, id) {
 
 function selectNode(node) {
   selectedNode.value = node
+}
+
+function toggleExportNodeSelection(nodeId) {
+  const list = [...exportPickedNodeIds.value]
+  const idx = list.indexOf(nodeId)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+  } else {
+    list.push(nodeId)
+  }
+  exportPickedNodeIds.value = list
+}
+
+function isNodeExportSelected(nodeId) {
+  return exportPickedNodeIds.value.includes(nodeId)
+}
+
+function onNodeClick(node) {
+  selectedNode.value = node
+  if (exportScope.value === 'custom') {
+    toggleExportNodeSelection(node.id)
+  }
+}
+
+function selectAllExportNodes() {
+  exportPickedNodeIds.value = flattenTree(rootTree.value).map((node) => node.id)
+}
+
+function clearExportNodes() {
+  exportPickedNodeIds.value = []
+}
+
+function buildCustomExportGraph() {
+  const allNodes = flattenTree(rootTree.value)
+  const pickedSet = new Set(exportPickedNodeIds.value)
+  const picked = allNodes.filter((node) => pickedSet.has(node.id))
+  const cloneMap = new Map()
+
+  for (const node of picked) {
+    cloneMap.set(node.id, {
+      id: node.id,
+      parentId: null,
+      depth: Number(node.depth || 0),
+      text: node.text,
+      examples: Array.isArray(node.examples) ? [...node.examples] : [],
+      feedbackScore: Number(node.feedbackScore || 0),
+      children: []
+    })
+  }
+
+  for (const node of picked) {
+    const cur = cloneMap.get(node.id)
+    const pid = node.parentId
+    if (pid && cloneMap.has(pid)) {
+      cur.parentId = pid
+      cloneMap.get(pid).children.push(cur)
+    }
+  }
+
+  const roots = [...cloneMap.values()].filter((node) => !node.parentId)
+  return {
+    nodes: [...cloneMap.values()],
+    roots
+  }
+}
+
+function orderCustomExportNodes(graph, order = 'dfs') {
+  if (!graph?.nodes?.length) return []
+  if (order === 'bfs') {
+    const out = []
+    const queue = [...graph.roots]
+    const seen = new Set()
+    while (queue.length) {
+      const node = queue.shift()
+      if (!node || seen.has(node.id)) continue
+      seen.add(node.id)
+      out.push(node)
+      for (const child of node.children || []) queue.push(child)
+    }
+    return out
+  }
+
+  const out = []
+  const seen = new Set()
+  function walk(node) {
+    if (!node || seen.has(node.id)) return
+    seen.add(node.id)
+    out.push(node)
+    for (const child of node.children || []) walk(child)
+  }
+  for (const root of graph.roots) walk(root)
+  return out
 }
 
 function keywordList(text) {
@@ -904,7 +1123,7 @@ function submitFeedback(mode) {
   statusText.value = `已记录${mode === 'positive' ? '正向' : mode === 'negative' ? '负向' : '中性'}反馈，生成参数已微调`
 }
 
-async function generateContinueByLLM(node, count) {
+async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '') {
   const apiSettings = await resolveApiSettings()
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('未配置可用模型，无法继续生成')
@@ -927,6 +1146,8 @@ async function generateContinueByLLM(node, count) {
   const userPrompt = [
     `父节点主题：${node.text}`,
     `生成数量：${count}`,
+    `反馈模式：${mode}`,
+    `用户反馈：${feedback || '无'}`,
     '输出层级从 L2 开始。'
   ].join('\n')
 
@@ -936,13 +1157,50 @@ async function generateContinueByLLM(node, count) {
   ], null, null, generationSettings)
 
   const text = String(response?.content || '')
-  const parsed = parseLineTree(`L1|N1|P0|${node.text}\n${text}`)
-  const children = Array.isArray(parsed?.children) ? parsed.children : []
+  let children = []
 
-  const childTitles = [...new Set(flattenRawTree({ title: 'tmp', children }).map((n) => String(n.title || '').trim()).filter(Boolean))]
-  const map = await repairExamplesBatchByLLM(childTitles, apiSettings)
+  try {
+    const parsed = parseLineTree(`L1|N1|P0|${node.text}\n${text}`)
+    children = Array.isArray(parsed?.children) ? parsed.children : []
+  } catch (e) {
+    children = []
+  }
+
+  if (!children.length) {
+    const retry = await sendChat([
+      {
+        role: 'system',
+        content: [
+          '你是诗歌分支扩展器。',
+          '请只输出分步行格式，不要解释。',
+          '每行必须是：L2|N<编号>|P1|<标题> 或 L3|N<编号>|P<父编号>|<标题>',
+          '必须使用 BEGIN_LINES 和 END_LINES 包裹。'
+        ].join('\n')
+      },
+      { role: 'user', content: userPrompt }
+    ], null, null, generationSettings)
+
+    const retryText = String(retry?.content || '')
+    try {
+      const parsedRetry = parseLineTree(`L1|N1|P0|${node.text}\n${retryText}`)
+      children = Array.isArray(parsedRetry?.children) ? parsedRetry.children : []
+    } catch (e) {
+      children = []
+    }
+
+    if (!children.length) {
+      const looseTitles = extractLooseTitlesFromText(`${text}\n${retryText}`, count)
+      children = looseTitles.map((title) => ({ title, children: [] }))
+    }
+  }
+
+  if (!children.length) {
+    throw new Error('模型未返回可用续写分支')
+  }
+
+  const wrapper = { title: 'tmp', children }
+  await postProcessExamplesByLLM(wrapper, apiSettings)
   for (const child of children) {
-    applyExamplesByTitle(child, map)
     assertAllNodesHaveExamples(child)
   }
 
@@ -966,10 +1224,15 @@ async function continueGenerateFromNode() {
     }
 
     if (feedbackText.value.trim()) {
-      submitFeedback('neutral')
+      submitFeedback(feedbackMode.value)
     }
 
-    const llmChildren = await generateContinueByLLM(target, continueCount.value)
+    const llmChildren = await generateContinueByLLM(
+      target,
+      continueCount.value,
+      feedbackMode.value,
+      feedbackText.value.trim()
+    )
     if (!Array.isArray(llmChildren) || llmChildren.length === 0) {
       throw new Error('模型未返回可用续写分支')
     }
@@ -1042,7 +1305,7 @@ const flatNodes = computed(() => {
   const nodes = flattenTree(rootTree.value)
   if (!nodes.length) return []
 
-  const laidOut = viewMode.value === 'bubble' ? layoutBubble(nodes) : layoutMap(nodes)
+  const laidOut = layoutMap(nodes)
 
   return laidOut.map((node) => {
     const manual = manualPositions.value[node.id]
@@ -1076,39 +1339,6 @@ function layoutMap(nodes) {
   return positioned
 }
 
-function layoutBubble(nodes) {
-  const depthRows = new Map()
-  for (const node of nodes) {
-    if (!depthRows.has(node.depth)) depthRows.set(node.depth, [])
-    depthRows.get(node.depth).push(node)
-  }
-
-  const cx = 760
-  const cy = 500
-  const ringStep = 170
-  const arranged = []
-
-  for (const [depth, list] of [...depthRows.entries()].sort((a, b) => a[0] - b[0])) {
-    if (depth === 0) {
-      const root = list[0]
-      arranged.push({ ...root, x: cx, y: cy })
-      continue
-    }
-
-    const radius = ringStep * depth
-    list.forEach((node, idx) => {
-      const angle = (Math.PI * 2 * idx) / Math.max(1, list.length)
-      arranged.push({
-        ...node,
-        x: cx + Math.cos(angle) * radius,
-        y: cy + Math.sin(angle) * radius
-      })
-    })
-  }
-
-  return arranged
-}
-
 const edges = computed(() => {
   const nodeMap = new Map(flatNodes.value.map((node) => [node.id, node]))
   const lineList = []
@@ -1129,6 +1359,8 @@ const edges = computed(() => {
 
   return lineList
 })
+
+const exportNodeSelectedCount = computed(() => exportPickedNodeIds.value.length)
 
 function startDrag(event, node) {
   dragState.value = {
@@ -1166,20 +1398,81 @@ onBeforeUnmount(() => {
 })
 
 function exportMarkdown() {
-  if (!rootTree.value) return
+  if (exportScope.value === 'custom') {
+    const graph = buildCustomExportGraph()
+    const orderedNodes = orderCustomExportNodes(graph, exportOrder.value)
+    if (!orderedNodes.length) {
+      statusText.value = '请先在画布中勾选要导出的节点'
+      return
+    }
+
+    const lines = []
+    lines.push('导出范围：自定义勾选节点')
+    lines.push(`连接顺序：${exportOrder.value === 'dfs' ? '深度优先' : '广度优先'}`)
+    lines.push('')
+
+    for (const node of orderedNodes) {
+      lines.push(`### ${node.text}`)
+      if (node.examples?.[0]) lines.push(`例句一：${node.examples[0]}`)
+      if (node.examples?.[1]) lines.push(`例句二：${node.examples[1]}`)
+      lines.push('')
+    }
+
+    lines.push('连接关系：')
+    let edgeIndex = 1
+    for (const node of orderedNodes) {
+      for (const child of node.children || []) {
+        lines.push(`连接${String(edgeIndex).padStart(2, '0')}：${node.text} -> ${child.text}`)
+        edgeIndex += 1
+      }
+    }
+    if (edgeIndex === 1) lines.push('连接00：未形成父子连接')
+    lines.push('')
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `poetry-idea-tree-${Date.now()}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+    statusText.value = `已导出：自定义勾选节点，共 ${orderedNodes.length} 个`
+    return
+  }
+
+  const exportTree = buildExportTree()
+  if (!exportTree) return
+  reindexTree(exportTree)
 
   const lines = []
+  lines.push(`导出范围：${exportScopeLabel()}`)
+  lines.push(`连接顺序：${exportOrder.value === 'dfs' ? '深度优先' : '广度优先'}`)
+  lines.push('')
+
   function walk(node, level = 1) {
     const hashes = '#'.repeat(Math.min(6, level + 1))
     lines.push(`${hashes} ${node.text}`)
     if (node.examples?.length) {
-      node.examples.forEach((line) => lines.push(`- ${line}`))
+      if (node.examples[0]) lines.push(`例句一：${node.examples[0]}`)
+      if (node.examples[1]) lines.push(`例句二：${node.examples[1]}`)
     }
     lines.push('')
     node.children?.forEach((child) => walk(child, level + 1))
   }
 
-  walk(rootTree.value)
+  walk(exportTree)
+
+  const orderedNodes = flattenTreeByOrder(exportTree, exportOrder.value)
+  lines.push('连接关系：')
+  let edgeIndex = 1
+  for (const node of orderedNodes) {
+    if (!node.children?.length) continue
+    for (const child of node.children) {
+      lines.push(`连接${String(edgeIndex).padStart(2, '0')}：${node.text} -> ${child.text}`)
+      edgeIndex += 1
+    }
+  }
+  lines.push('')
 
   const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -1190,53 +1483,80 @@ function exportMarkdown() {
   URL.revokeObjectURL(url)
 }
 
-function exportSvg() {
-  if (!flatNodes.value.length) return
+function exportTxt() {
+  if (exportScope.value === 'custom') {
+    const graph = buildCustomExportGraph()
+    const orderedNodes = orderCustomExportNodes(graph, exportOrder.value)
+    if (!orderedNodes.length) {
+      statusText.value = '请先在画布中勾选要导出的节点'
+      return
+    }
 
-  const width = canvasWidth
-  const height = canvasHeight
+    const lines = []
+    lines.push('导出范围：自定义勾选节点')
+    lines.push(`连接顺序：${exportOrder.value === 'dfs' ? '深度优先' : '广度优先'}`)
+    lines.push('')
+    for (const node of orderedNodes) {
+      lines.push(node.text)
+      if (node.examples?.[0]) lines.push(`  例句一：${node.examples[0]}`)
+      if (node.examples?.[1]) lines.push(`  例句二：${node.examples[1]}`)
+    }
+    lines.push('')
+    lines.push('连接关系：')
+    let edgeIndex = 1
+    for (const node of orderedNodes) {
+      for (const child of node.children || []) {
+        lines.push(`连接${String(edgeIndex).padStart(2, '0')}：${node.text} -> ${child.text}`)
+        edgeIndex += 1
+      }
+    }
+    if (edgeIndex === 1) lines.push('连接00：未形成父子连接')
 
-  const edgeMarkup = edges.value.map((edge) => {
-    return `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#7f8ea3" stroke-opacity="0.5"/>`
-  }).join('')
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `poetry-idea-tree-${Date.now()}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    statusText.value = `已导出：自定义勾选节点，共 ${orderedNodes.length} 个`
+    return
+  }
 
-  const nodeMarkup = flatNodes.value.map((node) => {
-    const fill = node.id === selectedNode.value?.id ? '#ff9d2f' : '#2a303b'
-    const stroke = node.id === selectedNode.value?.id ? '#ffbf69' : '#3a4352'
-    const text = escapeXml(node.text)
+  const exportTree = buildExportTree()
+  if (!exportTree) return
+  reindexTree(exportTree)
 
-    return `
-      <g transform="translate(${node.x},${node.y})">
-        <rect width="172" height="72" rx="12" fill="${fill}" stroke="${stroke}"/>
-        <text x="12" y="30" fill="#f6f7f9" font-size="13" font-family="Segoe UI, Arial">${text}</text>
-      </g>
-    `
-  }).join('')
+  const exportNodes = flattenTreeByOrder(exportTree, exportOrder.value)
+  if (!exportNodes.length) return
+  const lines = []
+  lines.push(`导出范围：${exportScopeLabel()}`)
+  lines.push(`连接顺序：${exportOrder.value === 'dfs' ? '深度优先' : '广度优先'}`)
+  lines.push('')
+  for (const node of exportNodes) {
+    lines.push(node.text)
+    if (node.examples?.[0]) lines.push(`  例句一：${node.examples[0]}`)
+    if (node.examples?.[1]) lines.push(`  例句二：${node.examples[1]}`)
+  }
+  lines.push('')
+  lines.push('连接关系：')
+  let edgeIndex = 1
+  for (const node of exportNodes) {
+    for (const child of node.children || []) {
+      lines.push(`连接${String(edgeIndex).padStart(2, '0')}：${node.text} -> ${child.text}`)
+      edgeIndex += 1
+    }
+  }
+  if (edgeIndex === 1) lines.push('连接00：仅根节点')
 
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-      <rect width="100%" height="100%" fill="#151a22"/>
-      ${edgeMarkup}
-      ${nodeMarkup}
-    </svg>
-  `
-
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `poetry-idea-tree-${Date.now()}.svg`
+  a.download = `poetry-idea-tree-${Date.now()}.txt`
   a.click()
   URL.revokeObjectURL(url)
-}
-
-function escapeXml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
+  statusText.value = `已导出：${exportScopeLabel()}，顺序${exportOrder.value === 'dfs' ? '深度优先' : '广度优先'}`
 }
 </script>
 
@@ -1329,6 +1649,7 @@ function escapeXml(str) {
   background: var(--bg-secondary);
   padding: 14px;
   overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .control-panel h2 {
@@ -1355,8 +1676,10 @@ function escapeXml(str) {
   color: var(--text-primary);
   padding: 10px;
   font-size: 13px;
+  line-height: 1.6;
   resize: vertical;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .feedback-input {
@@ -1366,6 +1689,7 @@ function escapeXml(str) {
 .prompt-input:focus,
 .feedback-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .control-row {
@@ -1387,6 +1711,77 @@ function escapeXml(str) {
   background: var(--bg-primary);
   color: var(--text-primary);
   padding: 6px 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.control-row select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.control-row input:focus,
+.control-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.export-panel {
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 90%, #ffffff 10%);
+  padding: 12px;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.export-panel h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.export-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.pick-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.pick-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.pick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pick-item {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, #ffffff 15%);
+}
+
+.pick-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 
 .btn-row {
@@ -1407,12 +1802,13 @@ function escapeXml(str) {
   padding: 8px 10px;
   cursor: pointer;
   transition: all 0.15s;
+  font-weight: 500;
 }
 
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #121417;
+  color: #f7fbff;
   font-weight: 600;
 }
 
@@ -1424,16 +1820,22 @@ function escapeXml(str) {
 .mode-btn:hover,
 .small-btn:hover {
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-tertiary) 84%, #ffffff 16%);
 }
 
 .mode-row {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
 .mode-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.small-btn.active {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1449,16 +1851,14 @@ function escapeXml(str) {
   color: var(--accent);
 }
 
-.adapter-card,
 .node-detail {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%);
   padding: 10px;
 }
 
-.adapter-card h3,
 .node-detail h3 {
   margin: 0;
   font-size: 13px;
@@ -1471,20 +1871,6 @@ function escapeXml(str) {
   font-size: 12px;
 }
 
-.weight-grid {
-  margin-top: 8px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.critic {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 .node-text {
   margin-top: 8px;
   margin-bottom: 0;
@@ -1492,22 +1878,9 @@ function escapeXml(str) {
   line-height: 1.6;
 }
 
-.examples {
-  margin-top: 10px;
-}
-
-.examples h4,
 .feedback-panel h4 {
   margin: 0;
   font-size: 12px;
-}
-
-.example-line {
-  margin-top: 6px;
-  margin-bottom: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
 }
 
 .feedback-panel {
@@ -1521,9 +1894,11 @@ function escapeXml(str) {
   gap: 6px;
 }
 
-.wide {
+.action-btn {
   margin-top: 8px;
-  width: 100%;
+  width: auto;
+  min-width: 180px;
+  justify-self: start;
 }
 
 .node-actions {
@@ -1590,7 +1965,7 @@ function escapeXml(str) {
   background: var(--bg-secondary);
   cursor: grab;
   user-select: none;
-  box-shadow: 0 6px 18px var(--shadow);
+  box-shadow: 0 8px 20px var(--shadow);
   transition: border-color 0.15s, transform 0.15s;
 }
 
@@ -1602,6 +1977,31 @@ function escapeXml(str) {
 .idea-node.active {
   border-color: var(--accent);
   box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.idea-node.muted {
+  opacity: 0.36;
+  filter: grayscale(0.35);
+}
+
+.node-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, #ffffff 18%);
+  border: 1px solid var(--border);
+}
+
+.node-check input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
 }
 
 .idea-node.depth-0 {
