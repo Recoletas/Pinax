@@ -68,38 +68,53 @@
           <div class="quick-note-actions">
             <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M5 4h11l3 3v13H5V4z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M8 4v6h8V4" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M8 16h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <button class="quick-note-icon-btn" type="button" @click="importQuickNote" title="导入" aria-label="导入">
+            <button class="quick-note-icon-btn" type="button" @click="toggleQuickNoteImport" title="导入" aria-label="导入">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 4v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                <path d="M8.5 10.5L12 14l3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M5 17h14v3H5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                <path d="M12 6.5v7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+                <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
             <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 5h12v14H6V5z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
+                <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
               </svg>
             </button>
             <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 6h7a3 3 0 013 3v9H7a3 3 0 00-3 3V6z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M20 6h-7a3 3 0 00-3 3v9h7a3 3 0 013 3V6z" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M6.5 7h4.8c1.2 0 2.2.9 2.2 2v8H9c-1 0-1.9.4-2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
+                <path d="M17.5 7h-4.8c-1.2 0-2.2.9-2.2 2v8H15c1 0 1.9.4 2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
               </svg>
             </button>
+          </div>
+        </div>
+        <div v-if="quickNoteImportOpen" class="quick-note-import-panel">
+          <div class="quick-note-import-toolbar">
+            <span class="quick-note-import-title">导入对话段</span>
+            <button class="quick-note-mini-btn primary" type="button" @click="importSelectedDialogueSegments">导入</button>
+            <button class="quick-note-mini-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空</button>
+          </div>
+          <div class="quick-note-import-body">
+            <div class="quick-note-import-left">
+              <div class="quick-note-import-empty">请直接在左侧对话区域勾选要导入的段落。</div>
+            </div>
+            <aside class="quick-note-import-side">
+              <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
+              <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
+              <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
+              <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
+            </aside>
           </div>
         </div>
         <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
       </div>
       <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 20l4.2-.9L19.3 8a1.8 1.8 0 000-2.6l-.7-.7a1.8 1.8 0 00-2.6 0L4.9 15.8 4 20z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.5 6.5l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
         </svg>
       </button>
     </aside>
@@ -110,7 +125,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useTheme } from '../composables/useTheme'
@@ -135,6 +150,20 @@ const quickNoteOpen = ref(false)
 const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
 const quickNoteInputRef = ref(null)
+const quickNoteImportOpen = ref(false)
+
+const dialogueImportStats = computed(() => {
+  const list = (gameStore.messages || []).filter((message) => {
+    const role = message.role || message.type || 'assistant'
+    return role !== 'system' && String(message.content || '').trim()
+  })
+  const selected = gameStore.selectedQuickNoteMessages()
+  const totalCount = list.length
+  const selectedCount = selected.length
+  const totalWords = list.reduce((sum, item) => sum + quickNoteWordCount(item.content), 0)
+  const selectedWords = selected.reduce((sum, item) => sum + quickNoteWordCount(item), 0)
+  return { totalCount, selectedCount, totalWords, selectedWords }
+})
 
 function goBack() {
   router.push('/fit')
@@ -175,24 +204,28 @@ function handleQuickNoteInput(event) {
   resizeQuickNoteInput(event?.target)
 }
 
-async function importQuickNote() {
-  if (!navigator?.clipboard?.readText) {
-    quickNoteStatus.value = '当前环境不支持导入'
+function toggleQuickNoteImport() {
+  if (!dialogueImportStats.value.totalCount) {
+    quickNoteStatus.value = '当前没有可导入的对话段'
     return
   }
-  try {
-    const text = (await navigator.clipboard.readText()).trimEnd()
-    if (!text) {
-      quickNoteStatus.value = '剪贴板没有可导入内容'
-      return
-    }
-    quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n${text}` : text
-    persistQuickNoteDraft()
-    quickNoteStatus.value = '已导入剪贴板'
-    nextTick(() => resizeQuickNoteInput())
-  } catch {
-    quickNoteStatus.value = '导入失败，请检查剪贴板权限'
+  quickNoteImportOpen.value = !quickNoteImportOpen.value
+  gameStore.setQuickNoteImportMode(quickNoteImportOpen.value)
+}
+
+function importSelectedDialogueSegments() {
+  const picked = gameStore.selectedQuickNoteMessages()
+  if (!picked.length) {
+    quickNoteStatus.value = '先选对话段再导入'
+    return
   }
+  const text = picked.join('\n\n')
+  quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n\n${text}` : text
+  persistQuickNoteDraft()
+  quickNoteImportOpen.value = false
+  gameStore.setQuickNoteImportMode(false)
+  quickNoteStatus.value = `已导入 ${picked.length} 段对话`
+  nextTick(() => resizeQuickNoteInput())
 }
 
 function clearQuickNoteDraft() {
@@ -206,7 +239,11 @@ function clearQuickNoteDraft() {
 }
 
 watch(quickNoteOpen, (open) => {
-  if (!open) return
+  if (!open) {
+    quickNoteImportOpen.value = false
+    gameStore.setQuickNoteImportMode(false)
+    return
+  }
   nextTick(() => resizeQuickNoteInput())
 })
 
@@ -513,6 +550,77 @@ function jumpToWriting() {
 .quick-note-icon-btn:hover {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.quick-note-import-panel {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+
+.quick-note-import-body {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  gap: 8px;
+}
+
+.quick-note-import-left {
+  min-width: 0;
+}
+
+.quick-note-import-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.quick-note-import-title {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.quick-note-mini-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.quick-note-mini-btn:hover,
+.quick-note-mini-btn.primary {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.quick-note-import-side {
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  padding-left: 8px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.quick-note-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.quick-note-stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.quick-note-import-empty {
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .quick-note-tip {

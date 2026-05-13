@@ -41,10 +41,42 @@ export const useGameStore = defineStore('game', {
     // 对话模式
     dialogueMode: false,       // 是否开启对话模式
     dialogueCharacter: null,   // 当前对话角色
-    dialogueCharacters: []     // 已保存的角色列表
+    dialogueCharacters: [],    // 已保存的角色列表
+    quickNoteImportMode: false,
+    quickNoteSelectedMessageIndexes: []
   }),
 
   actions: {
+    setQuickNoteImportMode(enabled) {
+      this.quickNoteImportMode = !!enabled
+      if (!enabled) this.quickNoteSelectedMessageIndexes = []
+    },
+
+    toggleQuickNoteMessageSelection(index) {
+      const idx = Number(index)
+      if (!Number.isInteger(idx) || idx < 0) return
+      const next = [...this.quickNoteSelectedMessageIndexes]
+      const found = next.indexOf(idx)
+      if (found >= 0) next.splice(found, 1)
+      else next.push(idx)
+      this.quickNoteSelectedMessageIndexes = next.sort((a, b) => a - b)
+    },
+
+    clearQuickNoteMessageSelection() {
+      this.quickNoteSelectedMessageIndexes = []
+    },
+
+    selectedQuickNoteMessages() {
+      const picked = new Set(this.quickNoteSelectedMessageIndexes)
+      return this.messages
+        .map((message, index) => ({ message, index }))
+        .filter(({ message, index }) => {
+          const role = message.role || message.type || 'assistant'
+          return picked.has(index) && role !== 'system' && String(message.content || '').trim()
+        })
+        .map(({ message }) => String(message.content || '').trim())
+    },
+
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
     async compressContext() {
       if (this.chatHistory.length <= 4) return { compressed: false, reason: '历史过短，无需压缩' }

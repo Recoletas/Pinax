@@ -1,6 +1,16 @@
 <template>
   <div class="chat-container" ref="scrollContainer">
-    <div v-for="(msg, index) in gameStore.messages" :key="index" :class="['msg-item', msg.role]">
+    <div
+      v-for="(msg, index) in gameStore.messages"
+      :key="index"
+      :class="[
+        'msg-item',
+        msg.role,
+        {
+          'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(index)
+        }
+      ]"
+    >
 
       <!-- 头像列 -->
       <div class="avatar-column">
@@ -26,23 +36,40 @@
             {{ msg.name || (msg.role === 'user' ? (gameStore.playerCharacter?.name || 'User') : (gameStore.aiCharacter?.name || 'Assistant')) }}
           </span>
           <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-
-          <div class="msg-actions">
-            <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path d="M2 1l9 5-9 5V1z"/>
-              </svg>
+          <div
+            class="msg-actions"
+            :class="{ 'import-mode': gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system' }"
+          >
+            <span
+              v-if="gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system'"
+              class="import-picker"
+              @click="gameStore.toggleQuickNoteMessageSelection(index)"
+              :title="gameStore.quickNoteSelectedMessageIndexes.includes(index) ? '取消导入' : '加入导入'"
+            >
+              <input
+                type="checkbox"
+                :checked="gameStore.quickNoteSelectedMessageIndexes.includes(index)"
+                @click.stop
+                @change="gameStore.toggleQuickNoteMessageSelection(index)"
+              />
             </span>
-            <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
-              </svg>
-            </span>
-            <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
-              </svg>
-            </span>
+            <div class="msg-actions-row">
+              <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M2 1l9 5-9 5V1z"/>
+                </svg>
+              </span>
+              <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
+                </svg>
+              </span>
+              <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
+                </svg>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -55,7 +82,10 @@
         </div>
 
         <!-- 正文区域 -->
-        <div class="text-wrapper">
+        <div
+          class="text-wrapper"
+          @click="onTextWrapperClick(index, msg, $event)"
+        >
           <div v-if="editingIndex === index" class="edit-area">
             <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
             <div class="edit-footer">
@@ -144,6 +174,14 @@ const scroll = () => {
   })
 }
 
+const onTextWrapperClick = (index, msg, event) => {
+  if (!gameStore.quickNoteImportMode) return
+  const role = msg.role || msg.type
+  if (role === 'system') return
+  if (event?.target?.closest('textarea,button,input,.icon-btn,.edit-area')) return
+  gameStore.toggleQuickNoteMessageSelection(index)
+}
+
 watch(() => gameStore.messages.length, scroll)
 onMounted(scroll)
 </script>
@@ -163,6 +201,11 @@ onMounted(scroll)
   display: flex;
   gap: 14px;
   width: 100%;
+}
+
+.msg-item.import-picked .text-wrapper {
+  outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 8px;
 }
 
 .avatar-column {
@@ -218,13 +261,41 @@ onMounted(scroll)
 .msg-actions {
   margin-left: auto;
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
   opacity: 0;
   transition: 0.2s;
 }
 
 .msg-item:hover .msg-actions {
   opacity: 1;
+}
+
+.msg-actions.import-mode {
+  opacity: 1;
+}
+
+.msg-actions-row {
+  display: flex;
+  gap: 8px;
+}
+
+.import-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.import-picker input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .icon-btn {
