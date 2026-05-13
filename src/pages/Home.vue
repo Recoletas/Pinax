@@ -175,9 +175,10 @@ const { isDark, toggleTheme } = useTheme()
 }
 
 .entry-grid {
-  display: flex;
-  gap: 20px;
-  max-width: 700px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 22px;
+  max-width: 760px;
   width: 100%;
 }
 
@@ -229,11 +230,27 @@ const { isDark, toggleTheme } = useTheme()
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .content-area {
+    padding: 24px;
+  }
+
+  .hero-section {
+    margin-bottom: 28px;
+  }
+
+  .entry-grid {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+  }
 }
 
 @media (max-width: 600px) {
   .entry-grid {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 }
 </style>

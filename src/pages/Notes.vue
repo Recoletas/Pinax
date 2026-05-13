@@ -8,19 +8,11 @@
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">写作</span>
+        <span class="app-title">笔记</span>
         <div class="workspace-switch" role="tablist" aria-label="写作模式">
-          <button class="switch-btn active" type="button">小说</button>
-          <button class="switch-btn" type="button" @click="router.push('/notes')">笔记</button>
+          <button class="switch-btn" type="button" @click="router.push('/writing')">小说</button>
+          <button class="switch-btn active" type="button">笔记</button>
         </div>
-      </div>
-      <div class="title-center">
-        <select v-model="selectedBookId" class="book-selector">
-          <option value="">选择书籍...</option>
-          <option v-for="book in books" :key="book.id" :value="book.id">
-            {{ book.title }}
-          </option>
-        </select>
       </div>
       <div class="title-right">
         <div class="status-indicator" :class="saveStatus">
@@ -29,7 +21,7 @@
           <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
           <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
         </div>
-        <button class="icon-btn" @click="createNewBook" title="新建书籍">
+        <button class="icon-btn" @click="createNewNote" title="新建笔记">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 2v12M2 8h12"/>
           </svg>
@@ -49,61 +41,18 @@
     </header>
 
     <div class="content-area">
-      <!-- 左侧边栏：目录 -->
-      <aside class="sidebar chapters-sidebar" :style="{ width: leftSidebarWidth + 'px' }" v-if="selectedBookId">
-        <div class="sidebar-header">
-          <span class="sidebar-title">目录</span>
-          <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleLeftSidebar" :title="isLeftCollapsed ? '展开目录' : '收起目录'">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path v-if="isLeftCollapsed" d="M4 2l4 4-4 4V2z"/>
-                <path v-else d="M8 2L4 6l4 4V2z"/>
-              </svg>
-            </button>
-            <button class="add-btn" @click="createNewChapter" title="新建章节" :disabled="isLeftCollapsed">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 0v14M0 7h14"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="chapter-list" v-show="!isLeftCollapsed">
-          <div
-            v-for="(chapter, index) in chapters"
-            :key="chapter.id"
-            :class="['chapter-item', { active: selectedChapterId === chapter.id }]"
-            @click="selectChapter(chapter.id)"
-          >
-            <span class="chapter-num">{{ index + 1 }}</span>
-            <span class="chapter-title">{{ chapter.title || '无标题章节' }}</span>
-            <span class="chapter-words">{{ chapter.wordCount || 0 }}</span>
-            <button class="delete-btn" @click.stop="deleteChapter(chapter.id)" title="删除章节">×</button>
-          </div>
-          <div v-if="chapters.length === 0" class="empty-hint">
-            暂无章节，点击 + 添加
-          </div>
-        </div>
-      </aside>
-
-      <!-- 可拉伸分隔栏 -->
-      <div
-        class="resize-handle"
-        v-if="selectedBookId && !isLeftCollapsed"
-        @mousedown="startResize($event, 'left')"
-      ></div>
-
-      <!-- 右侧边栏：书籍 -->
+      <!-- 右侧边栏：笔记 -->
       <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
-          <span class="sidebar-title">书籍</span>
+          <span class="sidebar-title">笔记</span>
           <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开书籍' : '收起书籍'">
+            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开笔记' : '收起笔记'">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                 <path v-if="isRightCollapsed" d="M8 2L4 6l4 4V2z"/>
                 <path v-else d="M4 2l4 4-4 4V2z"/>
               </svg>
             </button>
-            <button class="add-btn btn-new" @click="createNewBook" title="新建书籍" :disabled="isRightCollapsed">
+            <button class="add-btn btn-new" @click="createNewNote" title="新建笔记" :disabled="isRightCollapsed">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 0v14M0 7h14"/>
               </svg>
@@ -112,22 +61,22 @@
         </div>
         <div class="book-list" v-show="!isRightCollapsed">
           <div
-            v-for="book in books"
-            :key="book.id"
-            :class="['book-item', { active: selectedBookId === book.id }]"
-            @click="selectBook(book.id)"
+            v-for="note in chapters"
+            :key="note.id"
+            :class="['book-item', { active: selectedChapterId === note.id }]"
+            @click="selectChapter(note.id)"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" class="book-icon">
-              <path d="M2 2h5.5v12H2V2zm6 0h6v12H8V2z"/>
+              <path d="M3 2h10v12H3V2zm2 3h6v1.5H5V5zm0 3h6v1.5H5V8zm0 3h4v1.5H5V11z"/>
             </svg>
             <div class="book-info">
-              <span class="book-title">{{ book.title }}</span>
-              <span class="book-meta">{{ book.chapters?.length || 0 }} 章</span>
+              <span class="book-title">{{ note.title || '无标题笔记' }}</span>
+              <span class="book-meta">{{ note.wordCount || 0 }} 字</span>
             </div>
-            <button class="delete-btn" @click.stop="deleteBook(book.id)" title="删除书籍">×</button>
+            <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除笔记">×</button>
           </div>
-          <div v-if="books.length === 0" class="empty-hint">
-            暂无书籍，点击上方 + 新建
+          <div v-if="chapters.length === 0" class="empty-hint">
+            暂无笔记，点击上方 + 新建
           </div>
         </div>
       </aside>
@@ -137,25 +86,14 @@
 
       <!-- 主编辑区 -->
       <main class="editor-main">
-        <template v-if="!selectedBookId">
+        <template v-if="!selectedChapterId">
           <div class="empty-state">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
-              <path d="M6 6h18v36H6V6zm24 0h12v36H30V6zM12 12h6v4h-6v-4zm0 8h12v4H12v-4zm0 8h10v4H12v-4z"/>
+              <path d="M8 6h32v36H8V6zm6 8h20v2H14v-2zm0 7h20v2H14v-2zm0 7h14v2H14v-2z"/>
             </svg>
-            <p class="empty-title">选择或创建书籍</p>
-            <p class="empty-desc">从右侧选择一本书籍开始写作</p>
-            <button class="btn-primary" @click="createNewBook">新建书籍</button>
-          </div>
-        </template>
-
-        <template v-else-if="!selectedChapterId">
-          <div class="empty-state">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
-              <path d="M8 8h32v32H8V8zm4 4v24h24V12H12zm4 4h16v2H16v-2zm0 6h16v2H16v-2zm0 6h10v2H16v-2z"/>
-            </svg>
-            <p class="empty-title">选择或创建章节</p>
-            <p class="empty-desc">从左侧目录中选择一个章节开始编辑</p>
-            <button class="btn-primary" @click="createNewChapter">新建章节</button>
+            <p class="empty-title">选择或创建笔记</p>
+            <p class="empty-desc">从右侧选择一条笔记开始编辑</p>
+            <button class="btn-primary" @click="createNewNote">新建笔记</button>
           </div>
         </template>
 
@@ -324,7 +262,7 @@
                 v-model="currentChapterTitle"
                 type="text"
                 class="chapter-title-input"
-                placeholder="章节标题"
+                placeholder="笔记标题"
                 @input="onTitleChange"
               />
               <div class="editor-stats">
@@ -339,7 +277,7 @@
             v-if="editorMode === 'wysiwyg'"
             v-model="markdownContent"
             class="editor-textarea prose-textarea"
-            placeholder="开始写作..."
+            placeholder="开始记录..."
             ref="editorRef"
             :style="{
               fontFamily: editorFont,
@@ -355,7 +293,7 @@
             v-if="editorMode === 'markdown'"
             v-model="markdownContent"
             class="editor-textarea markdown-textarea"
-            placeholder="开始写作（Markdown）..."
+            placeholder="开始记录（Markdown）..."
             @input="onMarkdownInput"
             @keydown="onTextAreaKeydown"
           ></textarea>
@@ -387,85 +325,30 @@
       </main>
     </div>
 
-    <aside class="quick-notes-rail" aria-label="快捷入口">
-      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-        <div class="quick-note-row">
-          <textarea
-            ref="quickNoteInputRef"
-            v-model="quickNoteDraft"
-            class="quick-note-input"
-            placeholder="随手记一段..."
-            @input="handleQuickNoteInput"
-          ></textarea>
-          <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M5 4h11l3 3v13H5V4z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M8 4v6h8V4" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M8 16h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="importQuickNote" title="导入" aria-label="导入">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 4v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                <path d="M8.5 10.5L12 14l3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M5 17h14v3H5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 5h12v14H6V5z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 6h7a3 3 0 013 3v9H7a3 3 0 00-3 3V6z" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M20 6h-7a3 3 0 00-3 3v9h7a3 3 0 013 3V6z" stroke="currentColor" stroke-width="1.8"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
-      </div>
-      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 20l4.2-.9L19.3 8a1.8 1.8 0 000-2.6l-.7-.7a1.8 1.8 0 00-2.6 0L4.9 15.8 4 20z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.5 6.5l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </aside>
-
-    <!-- 新建书籍弹窗 -->
-    <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
+    <!-- 新建笔记弹窗 -->
+    <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
       <div class="modal">
         <div class="modal-header">
-          <h3>新建书籍</h3>
-          <button class="modal-close" @click="showNewBookModal = false">
+          <h3>新建笔记</h3>
+          <button class="modal-close" @click="showNewNoteModal = false">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
               <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
             </svg>
           </button>
         </div>
         <div class="modal-body">
-          <label class="input-label">书名</label>
+          <label class="input-label">笔记标题</label>
           <input
-            v-model="newBookTitle"
+            v-model="newNoteTitle"
             type="text"
             class="input"
-            placeholder="输入书籍名称"
-            ref="newBookInput"
+            placeholder="输入笔记标题"
+            ref="newNoteInput"
           />
-          <label class="input-label">简介（可选）</label>
-          <textarea
-            v-model="newBookDesc"
-            class="input textarea"
-            placeholder="输入书籍简介"
-          ></textarea>
         </div>
         <div class="modal-footer">
-          <button class="btn" @click="showNewBookModal = false">取消</button>
-          <button class="btn-primary" @click="confirmCreateBook" :disabled="!newBookTitle.trim()">创建</button>
+          <button class="btn" @click="showNewNoteModal = false">取消</button>
+          <button class="btn-primary" @click="confirmCreateNote" :disabled="!newNoteTitle.trim()">创建</button>
         </div>
       </div>
     </div>
@@ -481,26 +364,19 @@ import { useTheme } from '../composables/useTheme'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
-const QUICK_NOTE_STORE_KEY = 'writing_notes'
 
-const books = ref([])
-const selectedBookId = ref('')
 const chapters = ref([])
 const selectedChapterId = ref(null)
 const currentChapterTitle = ref('')
 const editorContent = ref('')
-const showNewBookModal = ref(false)
-const newBookTitle = ref('')
-const newBookDesc = ref('')
-const newBookInput = ref(null)
+const showNewNoteModal = ref(false)
+const newNoteTitle = ref('')
+const newNoteInput = ref(null)
 const editorRef = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
 
-const leftWidth = ref(190)
 const rightWidth = ref(210)
-const isLeftCollapsed = ref(false)
 const isRightCollapsed = ref(false)
 const resizing = ref(null)
 const minWidth = 150
@@ -528,22 +404,17 @@ const editorUnderline = ref(false)
 const hasSelection = ref(false)
 const selectionFontSize = ref('16px')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
-const quickNoteOpen = ref(false)
-const quickNoteDraft = ref(loadQuickNoteDraft())
-const quickNoteInputRef = ref(null)
-const quickNoteStatus = ref('')
 
 const saveStatus = ref('saved')
 let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
-  loadBooks()
+  loadNotes()
 })
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
 const collapsedSidebarWidth = 44
-const leftSidebarWidth = computed(() => (isLeftCollapsed.value ? collapsedSidebarWidth : leftWidth.value))
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 
 const turndownService = new TurndownService({
@@ -590,166 +461,26 @@ function goBack() {
   router.push('/')
 }
 
-function loadQuickNoteDraft() {
+function loadNotes() {
   try {
-    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
-  } catch {
-    return ''
-  }
-}
-
-function persistQuickNoteDraft() {
-  try {
-    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-  } catch {
-    // ignore localStorage failures
-  }
-}
-
-function resizeQuickNoteInput(el = quickNoteInputRef.value) {
-  if (!el) return
-  const minHeight = 30
-  const maxHeight = 104
-  el.style.height = `${minHeight}px`
-  const nextHeight = Math.min(el.scrollHeight, maxHeight)
-  el.style.height = `${Math.max(minHeight, nextHeight)}px`
-  el.style.borderRadius = nextHeight > 44 ? '12px' : '999px'
-}
-
-function handleQuickNoteInput(event) {
-  persistQuickNoteDraft()
-  resizeQuickNoteInput(event?.target)
-}
-
-async function importQuickNote() {
-  if (!navigator?.clipboard?.readText) {
-    quickNoteStatus.value = '当前环境不支持导入'
-    return
-  }
-  try {
-    const text = (await navigator.clipboard.readText()).trimEnd()
-    if (!text) {
-      quickNoteStatus.value = '剪贴板没有可导入内容'
-      return
-    }
-    quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n${text}` : text
-    persistQuickNoteDraft()
-    quickNoteStatus.value = '已导入剪贴板'
-    nextTick(() => resizeQuickNoteInput())
-  } catch {
-    quickNoteStatus.value = '导入失败，请检查剪贴板权限'
-  }
-}
-
-function clearQuickNoteDraft() {
-  quickNoteDraft.value = ''
-  try {
-    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
-  } catch {
-    // ignore localStorage failures
-  }
-  nextTick(() => resizeQuickNoteInput())
-}
-
-watch(quickNoteOpen, (open) => {
-  if (!open) return
-  nextTick(() => resizeQuickNoteInput())
-})
-
-function quickNoteWordCount(text) {
-  const normalized = String(text || '').trim()
-  if (!normalized) return 0
-  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
-  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-}
-
-function buildQuickNoteTitle(text) {
-  const firstLine = String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean)
-
-  if (firstLine) return firstLine.slice(0, 18)
-
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mi = String(now.getMinutes()).padStart(2, '0')
-  return `速记 ${mm}-${dd} ${hh}:${mi}`
-}
-
-function saveQuickNote() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再保存'
-    return false
-  }
-
-  let notes = []
-  try {
-    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
-    if (!Array.isArray(notes)) notes = []
-  } catch {
-    notes = []
-  }
-
-  notes.unshift({
-    id: Date.now().toString(),
-    title: buildQuickNoteTitle(content),
-    content,
-    contentFormat: 'md',
-    wordCount: quickNoteWordCount(content),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  })
-
-  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
-  clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到笔记'
-  return true
-}
-
-function jumpToNotes() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/notes')
-}
-
-function jumpToWriting() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/writing')
-}
-
-function loadBooks() {
-  try {
-    const stored = localStorage.getItem('writing_books')
-    books.value = stored ? JSON.parse(stored) : []
+    const stored = localStorage.getItem('writing_notes')
+    chapters.value = stored ? JSON.parse(stored) : []
   } catch (e) {
-    books.value = []
+    chapters.value = []
+  }
+
+  if (chapters.value.length > 0) {
+    selectChapter(chapters.value[0].id)
+  } else {
+    selectedChapterId.value = null
+    currentChapterTitle.value = ''
+    editorContent.value = ''
+    markdownContent.value = ''
   }
 }
 
-function saveBooks() {
-  localStorage.setItem('writing_books', JSON.stringify(books.value))
-}
-
-function selectBook(bookId) {
-  saveCurrentChapter()
-  selectedBookId.value = bookId
-  const book = books.value.find(b => b.id === bookId)
-  if (book) {
-    chapters.value = book.chapters || []
-    if (chapters.value.length > 0) {
-      selectChapter(chapters.value[0].id)
-    } else {
-      selectedChapterId.value = null
-      currentChapterTitle.value = ''
-      editorContent.value = ''
-      markdownContent.value = ''
-    }
-  }
-  saveStatus.value = 'saved'
+function saveNotes() {
+  localStorage.setItem('writing_notes', JSON.stringify(chapters.value))
 }
 
 function selectChapter(chapterId) {
@@ -770,45 +501,39 @@ function selectChapter(chapterId) {
   }
 }
 
-function createNewBook() {
-  showNewBookModal.value = true
-  newBookTitle.value = ''
-  newBookDesc.value = ''
-  nextTick(() => newBookInput.value?.focus())
+function createNewNote() {
+  showNewNoteModal.value = true
+  newNoteTitle.value = ''
+  nextTick(() => newNoteInput.value?.focus())
 }
 
-function confirmCreateBook() {
-  if (!newBookTitle.value.trim()) return
+function confirmCreateNote() {
+  if (!newNoteTitle.value.trim()) return
 
-  const newBook = {
+  const newNote = {
     id: Date.now().toString(),
-    title: newBookTitle.value.trim(),
-    description: newBookDesc.value.trim(),
-    createdAt: new Date().toISOString(),
-    chapters: []
-  }
-
-  books.value.push(newBook)
-  saveBooks()
-  selectBook(newBook.id)
-  showNewBookModal.value = false
-}
-
-function createNewChapter() {
-  if (!selectedBookId.value) return
-
-  const newChapter = {
-    id: Date.now().toString(),
-    title: '',
+    title: newNoteTitle.value.trim(),
     content: '',
     contentFormat: 'md',
     wordCount: 0,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   }
 
-  chapters.value.push(newChapter)
-  saveChapters()
-  selectChapter(newChapter.id)
+  chapters.value.push(newNote)
+  saveNotes()
+  selectChapter(newNote.id)
+  showNewNoteModal.value = false
+}
+
+function saveChapters() {
+  saveNotes()
+}
+
+function ensureCurrentNoteFallback() {
+  if (selectedChapterId.value) return
+  currentChapterTitle.value = ''
+  editorContent.value = ''
+  markdownContent.value = ''
 }
 
 function deleteChapter(chapterId) {
@@ -818,38 +543,10 @@ function deleteChapter(chapterId) {
     if (selectedChapterId.value) {
       selectChapter(selectedChapterId.value)
     } else {
-      currentChapterTitle.value = ''
-      editorContent.value = ''
-      markdownContent.value = ''
+      ensureCurrentNoteFallback()
     }
   }
   saveChapters()
-}
-
-function deleteBook(bookId) {
-  books.value = books.value.filter(b => b.id !== bookId)
-  saveBooks()
-  if (selectedBookId.value === bookId) {
-    selectedBookId.value = books.value.length > 0 ? books.value[0].id : null
-    if (selectedBookId.value) {
-      selectBook(selectedBookId.value)
-    } else {
-      chapters.value = []
-      selectedChapterId.value = null
-      currentChapterTitle.value = ''
-      editorContent.value = ''
-      markdownContent.value = ''
-    }
-  }
-}
-
-function saveChapters() {
-  const book = books.value.find(b => b.id === selectedBookId.value)
-  if (book) {
-    book.chapters = chapters.value
-    book.updatedAt = new Date().toISOString()
-    saveBooks()
-  }
 }
 
 function saveCurrentChapter() {
@@ -1112,10 +809,6 @@ function clearSelectionStyle() {
   editor.focus()
   document.execCommand('removeFormat')
   onContentChange()
-}
-
-function toggleLeftSidebar() {
-  isLeftCollapsed.value = !isLeftCollapsed.value
 }
 
 function toggleRightSidebar() {
@@ -1412,7 +1105,6 @@ function onGlobalClick() {
   showNameGen.value = false
   showFindReplace.value = false
   hasSelection.value = false
-  quickNoteOpen.value = false
 }
 
 function syncSelectionCommandState() {
@@ -1425,14 +1117,6 @@ function syncSelectionCommandState() {
   }
 }
 
-function startResize(e, side) {
-  if (isLeftCollapsed.value) return
-  resizing.value = side
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-  e.preventDefault()
-}
-
 function startResizeRight(e) {
   if (isRightCollapsed.value) return
   resizing.value = 'right'
@@ -1441,18 +1125,9 @@ function startResizeRight(e) {
   e.preventDefault()
 }
 
-function onResize(e) {
-  if (!resizing.value) return
-  if (resizing.value === 'left') {
-    const newWidth = Math.max(minWidth, e.clientX)
-    leftWidth.value = newWidth
-  }
-}
-
 function onResizeRight(e) {
   if (resizing.value !== 'right') return
-  // 向右拖 = 书籍栏变宽（e.clientX 增大，rightWidth 增大）
-  const newWidth = Math.max(minWidth, e.clientX - leftSidebarWidth.value - 8)
+  const newWidth = Math.max(minWidth, window.innerWidth - e.clientX)
   rightWidth.value = newWidth
 }
 
@@ -1462,11 +1137,6 @@ function stopResizeRight() {
   document.removeEventListener('mouseup', stopResizeRight)
 }
 
-function stopResize() {
-  resizing.value = null
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
-}
 </script>
 
 <style scoped>
@@ -1656,114 +1326,6 @@ function stopResize() {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-
-.quick-notes-rail {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translate(34px, -50%);
-  z-index: 80;
-  transition: transform 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.quick-notes-rail:hover,
-.quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.quick-notes-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
-.quick-notes-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* 侧边栏 */
@@ -2734,27 +2296,5 @@ function stopResize() {
   height: 1px;
   background: var(--border);
   margin: 6px 0;
-}
-
-@media (max-width: 980px) {
-  .quick-notes-rail {
-    top: auto;
-    right: 12px;
-    bottom: 14px;
-    transform: none;
-    transition: none;
-    flex-direction: column-reverse;
-    align-items: flex-end;
-  }
-
-  .quick-notes-btn {
-    width: 46px;
-    height: 46px;
-    border-radius: 999px;
-  }
-
-  .quick-notes-drawer {
-    width: min(280px, calc(100vw - 24px));
-  }
 }
 </style>

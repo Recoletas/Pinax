@@ -27,7 +27,6 @@
     <div class="layout">
       <aside class="control-panel">
         <h2>提示词</h2>
-        <p class="hint">切换为分步行格式：先生成标题树，再批量补全例句，避免一次性 JSON 失败。</p>
 
         <textarea
           v-model="prompt"
@@ -35,17 +34,19 @@
           placeholder="例如：雨夜的路灯，孤独与希望并存"
         ></textarea>
 
-        <div class="control-row">
-          <label>一级分支</label>
-          <input v-model.number="branchCount" type="number" min="3" max="8" />
-        </div>
-        <div class="control-row">
-          <label>树层数</label>
-          <input v-model.number="depthLimit" type="number" min="2" max="4" />
-        </div>
-        <div class="control-row">
-          <label>续写分支数</label>
-          <input v-model.number="continueCount" type="number" min="2" max="6" />
+        <div class="param-row">
+          <div class="param-item inline">
+            <label>一级</label>
+            <input v-model.number="branchCount" type="number" min="3" max="8" />
+          </div>
+          <div class="param-item inline">
+            <label>层数</label>
+            <input v-model.number="depthLimit" type="number" min="2" max="4" />
+          </div>
+          <div class="param-item inline">
+            <label>续写分支</label>
+            <input v-model.number="continueCount" type="number" min="2" max="6" />
+          </div>
         </div>
 
         <div class="btn-row">
@@ -89,10 +90,6 @@
           </div>
         </div>
 
-        <div class="mode-row">
-          <button class="mode-btn" :class="{ active: viewMode === 'map' }" @click="viewMode = 'map'">思维导图</button>
-        </div>
-
         <div class="status" v-if="statusText">{{ statusText }}</div>
         <div class="status sub" v-if="lastSourceLabel">本次来源：{{ lastSourceLabel }}</div>
 
@@ -114,12 +111,10 @@
               <button class="small-btn" :class="{ active: feedbackMode === 'neutral' }" @click="feedbackMode = 'neutral'">中性</button>
             </div>
             <div class="meta">当前模式：{{ feedbackMode === 'positive' ? '正向' : feedbackMode === 'negative' ? '负向' : '中性' }}</div>
-            <button class="small-btn" @click="submitFeedback(feedbackMode)">记录反馈</button>
-            <button class="btn-primary action-btn" :disabled="isGenerating" @click="continueGenerateFromNode">继续生成</button>
-          </div>
-
-          <div class="node-actions">
-            <button class="small-btn danger" @click="deleteSelectedNode">删除当前节点</button>
+            <div class="feedback-main-actions">
+              <button class="btn-primary action-btn" :disabled="isGenerating" @click="continueGenerateFromNode">继续生成</button>
+              <button class="small-btn danger" @click="deleteSelectedNode">删除当前节点</button>
+            </div>
           </div>
         </div>
       </aside>
@@ -175,11 +170,60 @@
         </div>
       </main>
     </div>
+
+    <aside class="quick-notes-rail" aria-label="快捷入口">
+      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
+        <div class="quick-note-row">
+          <textarea
+            ref="quickNoteInputRef"
+            v-model="quickNoteDraft"
+            class="quick-note-input"
+            placeholder="随手记一段..."
+            @input="handleQuickNoteInput"
+          ></textarea>
+          <div class="quick-note-actions">
+            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 4h11l3 3v13H5V4z" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M8 4v6h8V4" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M8 16h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="quick-note-icon-btn" type="button" @click="importQuickNote" title="导入" aria-label="导入">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 4v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M8.5 10.5L12 14l3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M5 17h14v3H5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 5h12v14H6V5z" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h7a3 3 0 013 3v9H7a3 3 0 00-3 3V6z" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M20 6h-7a3 3 0 00-3 3v9h7a3 3 0 013 3V6z" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
+      </div>
+      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 20l4.2-.9L19.3 8a1.8 1.8 0 000-2.6l-.7-.7a1.8 1.8 0 00-2.6 0L4.9 15.8 4 20z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M13.5 6.5l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </aside>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getApiSettings, sendChat } from '../services/api'
 import { useTheme } from '../composables/useTheme'
@@ -191,6 +235,8 @@ const LLM_DEBUG_PREFIX = '[PoetryLab LLM]'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
+const QUICK_NOTE_STORE_KEY = 'writing_notes'
 
 const prompt = ref('')
 const branchCount = ref(5)
@@ -198,7 +244,6 @@ const depthLimit = ref(3)
 const continueCount = ref(3)
 const isGenerating = ref(false)
 const statusText = ref('')
-const viewMode = ref('map')
 const lastSourceLabel = ref('')
 const exportScope = ref('all')
 const exportOrder = ref('dfs')
@@ -206,6 +251,10 @@ const exportPickedNodeIds = ref([])
 
 const feedbackText = ref('')
 const feedbackMode = ref('neutral')
+const quickNoteOpen = ref(false)
+const quickNoteDraft = ref(loadQuickNoteDraft())
+const quickNoteStatus = ref('')
+const quickNoteInputRef = ref(null)
 
 const rootTree = ref(loadSavedTree())
 const selectedNode = ref(null)
@@ -264,6 +313,137 @@ function randomId() {
 
 function goBack() {
   router.push('/fit')
+}
+
+function loadQuickNoteDraft() {
+  try {
+    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function persistQuickNoteDraft() {
+  try {
+    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function resizeQuickNoteInput(el = quickNoteInputRef.value) {
+  if (!el) return
+  const minHeight = 30
+  const maxHeight = 104
+  el.style.height = `${minHeight}px`
+  const nextHeight = Math.min(el.scrollHeight, maxHeight)
+  el.style.height = `${Math.max(minHeight, nextHeight)}px`
+  el.style.borderRadius = nextHeight > 44 ? '12px' : '999px'
+}
+
+function handleQuickNoteInput(event) {
+  persistQuickNoteDraft()
+  resizeQuickNoteInput(event?.target)
+}
+
+async function importQuickNote() {
+  if (!navigator?.clipboard?.readText) {
+    quickNoteStatus.value = '当前环境不支持导入'
+    return
+  }
+  try {
+    const text = (await navigator.clipboard.readText()).trimEnd()
+    if (!text) {
+      quickNoteStatus.value = '剪贴板没有可导入内容'
+      return
+    }
+    quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n${text}` : text
+    persistQuickNoteDraft()
+    quickNoteStatus.value = '已导入剪贴板'
+    nextTick(() => resizeQuickNoteInput())
+  } catch {
+    quickNoteStatus.value = '导入失败，请检查剪贴板权限'
+  }
+}
+
+function clearQuickNoteDraft() {
+  quickNoteDraft.value = ''
+  try {
+    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
+  } catch {
+    // ignore localStorage failures
+  }
+  nextTick(() => resizeQuickNoteInput())
+}
+
+watch(quickNoteOpen, (open) => {
+  if (!open) return
+  nextTick(() => resizeQuickNoteInput())
+})
+
+function quickNoteWordCount(text) {
+  const normalized = String(text || '').trim()
+  if (!normalized) return 0
+  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
+  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
+  return chineseChars + englishWords
+}
+
+function buildQuickNoteTitle(text) {
+  const firstLine = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  if (firstLine) return firstLine.slice(0, 18)
+
+  const now = new Date()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mi = String(now.getMinutes()).padStart(2, '0')
+  return `速记 ${mm}-${dd} ${hh}:${mi}`
+}
+
+function saveQuickNote() {
+  const content = quickNoteDraft.value.trim()
+  if (!content) {
+    quickNoteStatus.value = '先写点内容再保存'
+    return false
+  }
+
+  let notes = []
+  try {
+    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
+    if (!Array.isArray(notes)) notes = []
+  } catch {
+    notes = []
+  }
+
+  notes.unshift({
+    id: Date.now().toString(),
+    title: buildQuickNoteTitle(content),
+    content,
+    contentFormat: 'md',
+    wordCount: quickNoteWordCount(content),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  })
+
+  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  clearQuickNoteDraft()
+  quickNoteStatus.value = '已保存到笔记'
+  return true
+}
+
+function jumpToNotes() {
+  if (quickNoteDraft.value.trim()) saveQuickNote()
+  router.push('/notes')
+}
+
+function jumpToWriting() {
+  if (quickNoteDraft.value.trim()) saveQuickNote()
+  router.push('/writing')
 }
 
 function nodeTitle(node) {
@@ -408,6 +588,15 @@ function sanitizeIdeaTitle(input, maxLen = 36) {
   return title.slice(0, maxLen).trim()
 }
 
+function isMetaNarrationTitle(title) {
+  const s = String(title || '').trim()
+  if (!s) return true
+  if (s.length < 2) return true
+  const lead = /^(我们|你|请|以下|根据|基于|现在|本次|用户反馈|继续|由于|为了)/
+  const meta = /(根据用户反馈|继续生成|生成分支|输出|说明|子节点|分支如下|标题如下|请输出|我们将)/
+  return lead.test(s) || meta.test(s)
+}
+
 function parseLineTree(text) {
   const block = extractLineBlock(text)
   const lines = String(block || '')
@@ -449,6 +638,7 @@ function parseLineTree(text) {
     title = sanitizeIdeaTitle(title, 36)
 
     if (!title) continue
+    if (isMetaNarrationTitle(title)) continue
     if (depth < 0 || depth > 5) continue
 
     items.push({ depth, idNum, parentNum, title })
@@ -522,6 +712,7 @@ function extractLooseTitlesFromText(text, limit = 6) {
 
     if (!t) continue
     if (ban.test(t)) continue
+    if (isMetaNarrationTitle(t)) continue
     if (t.length < 2) continue
     if (!out.includes(t)) out.push(t)
     if (out.length >= limit) break
@@ -1083,11 +1274,18 @@ function keywordList(text) {
     .slice(0, 8)
 }
 
-function submitFeedback(mode) {
-  if (!selectedNode.value) return
-  const text = feedbackText.value.trim()
-  const score = mode === 'positive' ? 1 : mode === 'negative' ? -1 : 0
+function clampBias(v) {
+  return Math.max(-5, Math.min(5, v))
+}
 
+function applyFeedback(mode, text = '', options = {}) {
+  if (!selectedNode.value) return
+  const { silent = false } = options
+  const normalizedText = String(text || '').trim()
+  const meaningful = normalizedText.length > 0 || mode !== 'neutral'
+  if (!meaningful) return false
+
+  const score = mode === 'positive' ? 1 : mode === 'negative' ? -1 : 0
   selectedNode.value.feedbackScore = Number(selectedNode.value.feedbackScore || 0) + score
 
   const g = adaptState.value.generator
@@ -1104,23 +1302,28 @@ function submitFeedback(mode) {
     g.rhythm = clamp01(g.rhythm * 0.99)
   }
 
-  const kws = keywordList(text)
+  const kws = keywordList(normalizedText)
   for (const kw of kws) {
     const old = adaptState.value.loraLike.keywordBias[kw] || 0
-    adaptState.value.loraLike.keywordBias[kw] = old + (mode === 'negative' ? -1 : 1)
+    const delta = mode === 'negative' ? -1 : 1
+    adaptState.value.loraLike.keywordBias[kw] = clampBias(old + delta)
   }
 
   const criticDelta = mode === 'positive' ? 0.08 : mode === 'negative' ? -0.09 : 0.01
   adaptState.value.critic.lastScore = clamp01(adaptState.value.critic.lastScore + criticDelta)
   adaptState.value.critic.history.unshift({
     mode,
-    text,
+    text: normalizedText,
     score: adaptState.value.critic.lastScore,
     at: Date.now()
   })
   adaptState.value.critic.history = adaptState.value.critic.history.slice(0, 20)
 
-  statusText.value = `已记录${mode === 'positive' ? '正向' : mode === 'negative' ? '负向' : '中性'}反馈，生成参数已微调`
+  if (!silent) {
+    statusText.value = `已记录${mode === 'positive' ? '正向' : mode === 'negative' ? '负向' : '中性'}反馈，生成参数已微调`
+  }
+
+  return true
 }
 
 async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '') {
@@ -1140,6 +1343,7 @@ async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '
     '请输出分步行格式，不要输出 JSON。',
     '每行格式：L<层级>|N<编号>|P<父编号>|<标题>',
     '本次只输出子节点及其子树，根父编号统一写 P1。',
+    '标题必须是意象短语，不得出现“我们根据用户反馈”“请输出”等说明句。',
     '不要解释。'
   ].join('\n')
 
@@ -1162,6 +1366,9 @@ async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '
   try {
     const parsed = parseLineTree(`L1|N1|P0|${node.text}\n${text}`)
     children = Array.isArray(parsed?.children) ? parsed.children : []
+    children = children
+      .map((c) => ({ ...c, title: sanitizeIdeaTitle(c?.title || '', 18) }))
+      .filter((c) => c.title && !isMetaNarrationTitle(c.title))
   } catch (e) {
     children = []
   }
@@ -1184,13 +1391,19 @@ async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '
     try {
       const parsedRetry = parseLineTree(`L1|N1|P0|${node.text}\n${retryText}`)
       children = Array.isArray(parsedRetry?.children) ? parsedRetry.children : []
+      children = children
+        .map((c) => ({ ...c, title: sanitizeIdeaTitle(c?.title || '', 18) }))
+        .filter((c) => c.title && !isMetaNarrationTitle(c.title))
     } catch (e) {
       children = []
     }
 
     if (!children.length) {
       const looseTitles = extractLooseTitlesFromText(`${text}\n${retryText}`, count)
-      children = looseTitles.map((title) => ({ title, children: [] }))
+      children = looseTitles
+        .map((title) => sanitizeIdeaTitle(title, 18))
+        .filter((title) => title && !isMetaNarrationTitle(title))
+        .map((title) => ({ title, children: [] }))
     }
   }
 
@@ -1223,15 +1436,14 @@ async function continueGenerateFromNode() {
       return
     }
 
-    if (feedbackText.value.trim()) {
-      submitFeedback(feedbackMode.value)
-    }
+    const feedbackInput = feedbackText.value.trim()
+    const feedbackApplied = applyFeedback(feedbackMode.value, feedbackInput, { silent: true })
 
     const llmChildren = await generateContinueByLLM(
       target,
       continueCount.value,
       feedbackMode.value,
-      feedbackText.value.trim()
+      feedbackInput
     )
     if (!Array.isArray(llmChildren) || llmChildren.length === 0) {
       throw new Error('模型未返回可用续写分支')
@@ -1243,7 +1455,9 @@ async function continueGenerateFromNode() {
     selectedNode.value = target
     feedbackText.value = ''
 
-    statusText.value = '已根据反馈生成新分支（分步行格式）'
+    statusText.value = feedbackApplied
+      ? '已应用反馈并生成新分支（分步行格式）'
+      : '已生成新分支（分步行格式）'
     lastSourceLabel.value = '大模型'
   } catch (e) {
     statusText.value = `继续生成失败：${e.message || '请检查模型配置或网络'}`
@@ -1644,6 +1858,114 @@ function exportTxt() {
   grid-template-columns: 340px 1fr;
 }
 
+.quick-notes-rail {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translate(34px, -50%);
+  z-index: 80;
+  transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-notes-rail:hover,
+.quick-notes-rail:focus-within {
+  transform: translate(0, -50%);
+}
+
+.quick-notes-btn {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 12px 0 0 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.quick-notes-drawer {
+  width: 262px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.quick-note-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.quick-note-input {
+  flex: 1;
+  width: auto;
+  min-height: 30px;
+  height: 30px;
+  max-height: 104px;
+  resize: none;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 5px 11px;
+  font-size: 11px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.quick-note-input:focus {
+  border-color: var(--accent);
+}
+
+.quick-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-note-icon-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-note-icon-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.quick-note-tip {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.quick-notes-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .control-panel {
   border-right: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -1655,14 +1977,6 @@ function exportTxt() {
 .control-panel h2 {
   margin: 0;
   font-size: 16px;
-}
-
-.hint {
-  margin-top: 8px;
-  margin-bottom: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .prompt-input,
@@ -1725,6 +2039,45 @@ function exportTxt() {
 
 .control-row input:focus,
 .control-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.param-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.param-item {
+  display: grid;
+  gap: 6px;
+}
+
+.param-item.inline {
+  grid-template-columns: auto 56px;
+  align-items: center;
+  gap: 6px;
+}
+
+.param-item label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.param-item input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.param-item input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
@@ -1793,7 +2146,6 @@ function exportTxt() {
 
 .btn-primary,
 .btn-secondary,
-.mode-btn,
 .small-btn {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1817,22 +2169,9 @@ function exportTxt() {
 }
 
 .btn-secondary:hover,
-.mode-btn:hover,
 .small-btn:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--bg-tertiary) 84%, #ffffff 16%);
-}
-
-.mode-row {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-.mode-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .small-btn.active {
@@ -1896,13 +2235,17 @@ function exportTxt() {
 
 .action-btn {
   margin-top: 8px;
-  width: auto;
-  min-width: 180px;
-  justify-self: start;
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
 }
 
-.node-actions {
+.feedback-main-actions {
   margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: center;
 }
 
 .small-btn.danger {
@@ -2042,6 +2385,34 @@ function exportTxt() {
     border-right: none;
     border-bottom: 1px solid var(--border);
     max-height: 48vh;
+  }
+
+  .param-row {
+    grid-template-columns: 1fr;
+  }
+
+  .param-item.inline {
+    grid-template-columns: auto 72px;
+  }
+
+  .quick-notes-rail {
+    top: auto;
+    right: 12px;
+    bottom: 14px;
+    transform: none;
+    transition: none;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+  }
+
+  .quick-notes-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+  }
+
+  .quick-notes-drawer {
+    width: min(280px, calc(100vw - 24px));
   }
 }
 </style>
