@@ -50,15 +50,15 @@
         </div>
 
         <div class="btn-row">
-          <button class="btn-primary" :disabled="isGenerating" @click="generateTree">
+          <button class="btn-primary" :disabled="isGenerating || isSnapshotReadonly" @click="generateTree">
             {{ isGenerating ? '生成中...' : '生成灵感树' }}
           </button>
-          <button class="btn-secondary" @click="clearTree">清空</button>
+          <button class="btn-secondary" :disabled="isSnapshotReadonly" @click="clearTree">清空</button>
         </div>
 
         <div class="btn-row">
-          <button class="btn-secondary" @click="exportMarkdown" :disabled="flatNodes.length === 0">导出 Markdown</button>
-          <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0">导出 TXT</button>
+          <button class="btn-secondary" @click="exportMarkdown" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 Markdown</button>
+          <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 TXT</button>
         </div>
 
         <div class="export-panel" v-if="flatNodes.length">
@@ -67,14 +67,14 @@
           </div>
           <div class="control-row">
             <label>导出范围</label>
-            <select v-model="exportScope">
+            <select v-model="exportScope" :disabled="isSnapshotReadonly">
               <option value="all">全树</option>
               <option value="custom">自定义勾选节点</option>
             </select>
           </div>
           <div class="control-row">
             <label>连接顺序</label>
-            <select v-model="exportOrder">
+            <select v-model="exportOrder" :disabled="isSnapshotReadonly">
               <option value="dfs">深度优先</option>
               <option value="bfs">广度优先</option>
             </select>
@@ -82,21 +82,99 @@
           <div v-if="exportScope === 'custom'" class="pick-list">
             <div class="pick-toolbar">
               <div class="pick-actions">
-                <button class="small-btn" @click="selectAllExportNodes">全选节点</button>
-                <button class="small-btn" @click="clearExportNodes">清空节点</button>
+                <button class="small-btn" :disabled="isSnapshotReadonly" @click="selectAllExportNodes">全选节点</button>
+                <button class="small-btn" :disabled="isSnapshotReadonly" @click="clearExportNodes">清空节点</button>
               </div>
             </div>
             <p class="meta">单击画布节点即可切换导出；未选节点会置灰。已选 {{ exportNodeSelectedCount }} 个节点。</p>
           </div>
         </div>
 
+        <div v-if="flatNodes.length" class="tool-panel">
+          <div class="export-panel-head">
+            <h3>画布工具</h3>
+          </div>
+          <div class="mode-switch-row">
+            <button
+              v-for="mode in interactionModes"
+              :key="mode.value"
+              class="small-btn"
+              :class="{ active: interactionMode === mode.value }"
+              :disabled="isSnapshotReadonly && mode.value !== 'pointer'"
+              @click="interactionMode = mode.value"
+            >
+              {{ mode.label }}
+            </button>
+          </div>
+          <div class="control-row" v-if="interactionMode === 'link'">
+            <label>边类型</label>
+            <select v-model="edgeDraftType" :disabled="isSnapshotReadonly">
+              <option v-for="edgeType in editableEdgeTypes" :key="edgeType" :value="edgeType">
+                {{ edgeTypeLabels[edgeType] }}
+              </option>
+            </select>
+          </div>
+          <p class="meta">
+            {{ interactionModeHint }}
+          </p>
+          <div class="edge-legend">
+            <div v-for="item in edgeLegendItems" :key="item.type" class="legend-item">
+              <span class="legend-line" :class="`edge-${item.type.toLowerCase()}`"></span>
+              <span>{{ item.label }}</span>
+            </div>
+          </div>
+        </div>
+
         <div class="status" v-if="statusText">{{ statusText }}</div>
         <div class="status sub" v-if="lastSourceLabel">本次来源：{{ lastSourceLabel }}</div>
+        <div v-if="isSnapshotReadonly" class="status snapshot-readonly">
+          正在查看快照 {{ currentSnapshotLabel }}，当前画布只读。
+        </div>
 
-        <div v-if="selectedNode" class="node-detail">
+        <div v-if="snapshots.length" class="history-panel">
+          <div class="export-panel-head">
+            <h3>版本历史</h3>
+          </div>
+          <div class="history-list">
+            <button
+              v-for="snapshot in snapshots"
+              :key="snapshot.id"
+              class="history-item"
+              :class="{ active: snapshotViewId === snapshot.id }"
+              @click="previewSnapshot(snapshot.id)"
+            >
+              <span>{{ snapshot.label }}</span>
+              <small>{{ formatSnapshotTime(snapshot.createdAt) }}</small>
+            </button>
+          </div>
+          <div v-if="currentSnapshot" class="history-actions">
+            <button class="small-btn" @click="continueFromSnapshot(currentSnapshot.id)">从快照继续编辑</button>
+            <button class="small-btn" @click="exitSnapshotPreview">退出查看</button>
+          </div>
+        </div>
+
+        <div v-if="displayedSelectedNode" class="node-detail">
           <h3>当前灵感</h3>
-          <p class="node-text">{{ selectedNode.text }}</p>
-          <p class="meta">层级：{{ selectedNode.depth + 1 }} · 子节点：{{ selectedNode.children.length }} · 反馈分：{{ selectedNode.feedbackScore || 0 }}</p>
+          <p class="node-text">{{ displayedSelectedNode.text }}</p>
+          <p class="meta">层级：{{ displayedSelectedNode.depth + 1 }} · 子节点：{{ displayedSelectedNode.children.length }} · 反馈分：{{ displayedSelectedNode.feedbackScore || 0 }}</p>
+
+          
+          <div v-if="selectedNodeGroups.length" class="group-panel">
+            <h4>所属意象群</h4>
+            <div class="group-list compact">
+              <div v-for="group in selectedNodeGroups" :key="group.id" class="group-chip">{{ group.name }}</div>
+            </div>
+          </div>
+
+          <div v-if="displayedImageryGroups.length" class="group-panel">
+            <h4>意象群</h4>
+            <div class="group-list">
+              <div v-for="group in displayedImageryGroups" :key="group.id" class="group-card">
+                <strong>{{ group.name }}</strong>
+                <span>{{ group.nodeIds.length }} 节点</span>
+              </div>
+            </div>
+          </div>
 
           <div class="feedback-panel">
             <h4>反馈与进一步生成</h4>
@@ -104,16 +182,17 @@
               v-model="feedbackText"
               class="feedback-input"
               placeholder="例如：想更冷峻、更具体，减少抒情空话"
+              :disabled="isSnapshotReadonly"
             ></textarea>
             <div class="feedback-actions">
-              <button class="small-btn" :class="{ active: feedbackMode === 'positive' }" @click="feedbackMode = 'positive'">正向</button>
-              <button class="small-btn" :class="{ active: feedbackMode === 'negative' }" @click="feedbackMode = 'negative'">负向</button>
-              <button class="small-btn" :class="{ active: feedbackMode === 'neutral' }" @click="feedbackMode = 'neutral'">中性</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'positive' }" :disabled="isSnapshotReadonly" @click="feedbackMode = 'positive'">正向</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'negative' }" :disabled="isSnapshotReadonly" @click="feedbackMode = 'negative'">负向</button>
+              <button class="small-btn" :class="{ active: feedbackMode === 'neutral' }" :disabled="isSnapshotReadonly" @click="feedbackMode = 'neutral'">中性</button>
             </div>
             <div class="meta">当前模式：{{ feedbackMode === 'positive' ? '正向' : feedbackMode === 'negative' ? '负向' : '中性' }}</div>
             <div class="feedback-main-actions">
-              <button class="btn-primary action-btn" :disabled="isGenerating" @click="continueGenerateFromNode">继续生成</button>
-              <button class="small-btn danger" @click="deleteSelectedNode">删除当前节点</button>
+              <button class="btn-primary action-btn" :disabled="isGenerating || isSnapshotReadonly" @click="continueGenerateFromNode">继续生成</button>
+              <button class="small-btn danger" :disabled="isSnapshotReadonly" @click="deleteSelectedNode">删除当前节点</button>
             </div>
           </div>
         </div>
@@ -125,18 +204,33 @@
           <div class="empty-desc">输入提示词后点击“生成灵感树”。</div>
         </div>
 
-        <div v-else class="mind-canvas" ref="canvasRef">
-          <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
-            <line
-              v-for="edge in edges"
+        <div v-else class="mind-canvas" ref="canvasRef" @pointerdown="onCanvasPointerDown">
+          <svg class="edge-layer" :class="{ interactive: interactionMode === 'scissor' }" :width="canvasWidth" :height="canvasHeight">
+            <defs>
+              <marker id="edge-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+              </marker>
+            </defs>
+            <path
+              v-for="edge in renderedEdges"
               :key="edge.id"
-              :x1="edge.x1"
-              :y1="edge.y1"
-              :x2="edge.x2"
-              :y2="edge.y2"
-              class="edge"
+              :d="edge.d"
+              :class="['edge', `edge-${edge.type.toLowerCase()}`, { removable: interactionMode === 'scissor' && !edge.builtIn }]"
+              @click.stop="onEdgeClick(edge)"
+              marker-end="url(#edge-arrow)"
+            />
+            <path
+              v-if="edgeLinkDraft"
+              class="edge edge-draft"
+              :d="edgeLinkDraftPath"
             />
           </svg>
+
+          <div
+            v-if="groupDraft"
+            class="selection-rect"
+            :style="selectionRectStyle"
+          ></div>
 
           <div
             v-for="node in flatNodes"
@@ -145,26 +239,31 @@
             :class="[
               `depth-${Math.min(node.depth, 3)}`,
               {
-                active: selectedNode && selectedNode.id === node.id,
+                active: displayedSelectedNode && displayedSelectedNode.id === node.id,
                 muted: exportScope === 'custom' && !isNodeExportSelected(node.id),
-                'import-picked': quickNoteImportOpen && isNodeExportSelected(node.id)
+                'import-picked': quickNoteImportOpen && isNodeExportSelected(node.id),
+                grouped: isNodeInGroup(node.id),
+                readonly: isSnapshotReadonly,
+                'scissor-pending': scissorDeletePendingNodeId === node.id
               }
             ]"
+            :data-node-id="node.id"
             :style="{
               left: `${node.x}px`,
               top: `${node.y}px`
             }"
             @click="onNodeClick(node)"
-            @pointerdown.stop="startDrag($event, node)"
+            @pointerdown.stop="onNodePointerDown($event, node)"
             :title="nodeTitle(node)"
           >
-            <label v-if="exportScope === 'custom'" class="node-check" @click.stop>
+            <label v-if="exportScope === 'custom' && !isSnapshotReadonly" class="node-check" @click.stop>
               <input
                 type="checkbox"
                 :checked="isNodeExportSelected(node.id)"
                 @change="toggleExportNodeSelection(node.id)"
               />
             </label>
+            <div v-if="nodeGroupLabels(node.id).length" class="group-badge">{{ nodeGroupLabels(node.id)[0] }}</div>
             <div class="node-main">{{ node.text }}</div>
             <div v-if="node.examples && node.examples[0]" class="node-sub">{{ node.examples[0] }}</div>
             <div v-if="quickNoteImportOpen && !node.children?.length && isNodeExportSelected(node.id)" class="import-mark">选中</div>
@@ -248,7 +347,23 @@ import { useTheme } from '../composables/useTheme'
 const TREE_KEY = 'poetry_idea_tree_v2'
 const POS_KEY = 'poetry_idea_positions_v2'
 const ADAPT_KEY = 'poetry_adapt_profile_v2'
+const GRAPH_EDGE_KEY = 'poetry_graph_edges_v1'
+const GROUP_KEY = 'poetry_imagery_groups_v1'
+const SNAPSHOT_KEY = 'poetry_snapshots_v1'
 const LLM_DEBUG_PREFIX = '[PoetryLab LLM]'
+const EDGE_TYPE_LABELS = {
+  HIERARCHY: '层级',
+  METAPHOR: '隐喻',
+  JUXTAPOSE: '并置',
+  RUPTURE: '断裂',
+  ECHO: '回声'
+}
+const INTERACTION_MODES = [
+  { value: 'pointer', label: '指针' },
+  { value: 'link', label: '连线' },
+  { value: 'scissor', label: '剪刀' },
+  { value: 'group', label: '成组' }
+]
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -274,6 +389,15 @@ const quickNoteStatus = ref('')
 const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
 const exportScopeBeforeImport = ref('all')
+const graphEdges = ref(loadGraphEdges())
+const imageryGroups = ref(loadImageryGroups())
+const snapshots = ref(loadSnapshots())
+const interactionMode = ref('pointer')
+const edgeDraftType = ref('METAPHOR')
+const edgeLinkDraft = ref(null)
+const groupDraft = ref(null)
+const snapshotViewId = ref('')
+const snapshotSelectedNodeId = ref('')
 
 const rootTree = ref(loadSavedTree())
 const selectedNode = ref(null)
@@ -286,11 +410,46 @@ const canvasWidth = 1680
 const canvasHeight = 1040
 const canvasRef = ref(null)
 
+const interactionModes = INTERACTION_MODES
+const editableEdgeTypes = ['METAPHOR', 'JUXTAPOSE', 'RUPTURE', 'ECHO', 'HIERARCHY']
+const edgeTypeLabels = EDGE_TYPE_LABELS
+const edgeLegendItems = [
+  { type: 'HIERARCHY', label: '层级' },
+  { type: 'METAPHOR', label: '隐喻' },
+  { type: 'JUXTAPOSE', label: '并置' },
+  { type: 'RUPTURE', label: '断裂' },
+  { type: 'ECHO', label: '回声' }
+]
+
+const scissorDeletePendingNodeId = ref('')
+const scissorDeletePendingAt = ref(0)
+
 if (rootTree.value && !selectedNode.value) {
   selectedNode.value = rootTree.value
+  syncAuxiliaryState()
 }
 
+const currentSnapshot = computed(() => snapshots.value.find((item) => item.id === snapshotViewId.value) || null)
+const isSnapshotReadonly = computed(() => Boolean(currentSnapshot.value))
+const displayedRootTree = computed(() => currentSnapshot.value?.tree || rootTree.value)
+const displayedGraphEdges = computed(() => currentSnapshot.value?.graphEdges || graphEdges.value)
+const displayedImageryGroups = computed(() => currentSnapshot.value?.imageryGroups || imageryGroups.value)
+const displayedSelectedNode = computed(() => {
+  if (currentSnapshot.value) {
+    return findNodeById(displayedRootTree.value, snapshotSelectedNodeId.value) || displayedRootTree.value
+  }
+  return selectedNode.value
+})
+const currentSnapshotLabel = computed(() => currentSnapshot.value?.label || '')
+const interactionModeHint = computed(() => {
+  if (interactionMode.value === 'link') return '从一个节点拖到另一个节点，按当前边类型创建关系。'
+  if (interactionMode.value === 'scissor') return '点击关系线删除关系，点击节点删除节点并自动记录快照。'
+  if (interactionMode.value === 'group') return '在画布空白区域拖出框选，松手后为选中节点命名成组。'
+  return '指针模式下可正常选择、拖动节点并保留原有生成/导出流程。'
+})
+
 watch(exportScope, (scope) => {
+  if (isSnapshotReadonly.value) return
   if (scope !== 'custom') return
   if (exportPickedNodeIds.value.length) return
   if (selectedNode.value?.id) {
@@ -366,6 +525,7 @@ function handleQuickNoteInput(event) {
 }
 
 function toggleQuickNoteImport() {
+  if (!ensureEditable()) return
   if (!leafImportCandidates.value.length) {
     quickNoteStatus.value = '当前没有可导入的叶节点'
     return
@@ -381,6 +541,7 @@ function toggleQuickNoteImport() {
 }
 
 function clearLeafImports() {
+  if (!ensureEditable()) return
   exportPickedNodeIds.value = []
 }
 
@@ -491,10 +652,13 @@ function nodeTitle(node) {
 }
 
 function clearTree() {
+  if (!ensureEditable()) return
   rootTree.value = null
   selectedNode.value = null
   feedbackText.value = ''
   manualPositions.value = {}
+  graphEdges.value = []
+  imageryGroups.value = []
   statusText.value = '已清空灵感树'
   lastSourceLabel.value = ''
 }
@@ -532,12 +696,176 @@ function loadAdaptState() {
   }
 }
 
+function loadGraphEdges() {
+  const raw = localStorage.getItem(GRAPH_EDGE_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function loadImageryGroups() {
+  const raw = localStorage.getItem(GROUP_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function loadSnapshots() {
+  const raw = localStorage.getItem(SNAPSHOT_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function ensureEditable(message = '当前为快照只读视图，请先从版本历史继续编辑') {
+  if (!isSnapshotReadonly.value) return true
+  statusText.value = message
+  return false
+}
+
+function cloneGraphEdges(edges = graphEdges.value) {
+  return (edges || []).map((edge) => ({ ...edge }))
+}
+
+function cloneImageryGroups(groups = imageryGroups.value) {
+  return (groups || []).map((group) => ({ ...group, nodeIds: [...(group.nodeIds || [])] }))
+}
+
+function makeEdgePath(x1, y1, x2, y2) {
+  const dx = Math.max(40, Math.abs(x2 - x1))
+  const bend = Math.min(160, dx * 0.42)
+  const c1x = x1 + bend
+  const c2x = x2 - bend
+  return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`
+}
+
+function syncAuxiliaryState() {
+  const validIds = new Set(flattenTree(rootTree.value).map((node) => node.id))
+  graphEdges.value = graphEdges.value.filter((edge) => validIds.has(edge.sourceId) && validIds.has(edge.targetId))
+  imageryGroups.value = imageryGroups.value
+    .map((group) => ({ ...group, nodeIds: (group.nodeIds || []).filter((id) => validIds.has(id)) }))
+    .filter((group) => group.nodeIds.length >= 2)
+  exportPickedNodeIds.value = exportPickedNodeIds.value.filter((id) => validIds.has(id))
+  if (selectedNode.value && !validIds.has(selectedNode.value.id)) {
+    selectedNode.value = rootTree.value || null
+  }
+}
+
+function recordSnapshot(label) {
+  if (!rootTree.value) return
+  const snapshotId = `snap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  snapshots.value = [
+    {
+      id: snapshotId,
+      label,
+      createdAt: new Date().toISOString(),
+      tree: cloneTree(rootTree.value),
+      graphEdges: cloneGraphEdges(),
+      imageryGroups: cloneImageryGroups(),
+      selectedNodeId: selectedNode.value?.id || rootTree.value?.id || ''
+    },
+    ...snapshots.value
+  ].slice(0, 20)
+}
+
+function clearScissorPending() {
+  scissorDeletePendingNodeId.value = ''
+  scissorDeletePendingAt.value = 0
+}
+
+function previewSnapshot(snapshotId) {
+  const snapshot = snapshots.value.find((item) => item.id === snapshotId)
+  if (!snapshot) return
+  snapshotViewId.value = snapshot.id
+  snapshotSelectedNodeId.value = snapshot.selectedNodeId || snapshot.tree?.id || ''
+  quickNoteImportOpen.value = false
+  statusText.value = `正在查看快照：${snapshot.label}`
+}
+
+function exitSnapshotPreview() {
+  snapshotViewId.value = ''
+  snapshotSelectedNodeId.value = ''
+  statusText.value = '已退出快照查看'
+}
+
+function continueFromSnapshot(snapshotId) {
+  const snapshot = snapshots.value.find((item) => item.id === snapshotId)
+  if (!snapshot) return
+  rootTree.value = reindexTree(cloneTree(snapshot.tree))
+  graphEdges.value = cloneGraphEdges(snapshot.graphEdges)
+  imageryGroups.value = cloneImageryGroups(snapshot.imageryGroups)
+  selectedNode.value = findNodeById(rootTree.value, snapshot.selectedNodeId) || rootTree.value
+  snapshotViewId.value = ''
+  snapshotSelectedNodeId.value = ''
+  statusText.value = `已从快照恢复：${snapshot.label}`
+}
+
+function formatSnapshotTime(value) {
+  const date = value ? new Date(value) : new Date()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${mm}-${dd} ${hh}:${mi}`
+}
+
+function createGraphEdge(sourceId, targetId, type = edgeDraftType.value, weight = 1) {
+  if (!ensureEditable()) return
+  if (!sourceId || !targetId || sourceId === targetId) return
+  const exists = graphEdges.value.some((edge) => edge.sourceId === sourceId && edge.targetId === targetId && edge.type === type)
+  if (exists) {
+    statusText.value = `已存在 ${EDGE_TYPE_LABELS[type]} 关系`
+    return
+  }
+  graphEdges.value = [
+    ...graphEdges.value,
+    {
+      id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      sourceId,
+      targetId,
+      type,
+      weight
+    }
+  ]
+  statusText.value = `已新增 ${EDGE_TYPE_LABELS[type]} 关系`
+}
+
+function removeGraphEdge(edgeId) {
+  if (!ensureEditable()) return
+  const targetEdge = graphEdges.value.find((edge) => edge.id === edgeId)
+  if (!targetEdge) return
+  recordSnapshot(`删除 ${EDGE_TYPE_LABELS[targetEdge.type] || '关系'}`)
+  graphEdges.value = graphEdges.value.filter((edge) => edge.id !== edgeId)
+  statusText.value = '已删除关系线'
+}
+
+function isNodeInGroup(nodeId) {
+  return displayedImageryGroups.value.some((group) => (group.nodeIds || []).includes(nodeId))
+}
+
+function nodeGroupLabels(nodeId) {
+  return displayedImageryGroups.value.filter((group) => (group.nodeIds || []).includes(nodeId)).map((group) => group.name)
+}
+
 watch(rootTree, (newTree) => {
   if (newTree) {
     localStorage.setItem(TREE_KEY, JSON.stringify(newTree))
   } else {
     localStorage.removeItem(TREE_KEY)
   }
+  syncAuxiliaryState()
 }, { deep: true })
 
 watch(manualPositions, (newPos) => {
@@ -546,6 +874,18 @@ watch(manualPositions, (newPos) => {
 
 watch(adaptState, (state) => {
   localStorage.setItem(ADAPT_KEY, JSON.stringify(state))
+}, { deep: true })
+
+watch(graphEdges, (edges) => {
+  localStorage.setItem(GRAPH_EDGE_KEY, JSON.stringify(edges))
+}, { deep: true })
+
+watch(imageryGroups, (groups) => {
+  localStorage.setItem(GROUP_KEY, JSON.stringify(groups))
+}, { deep: true })
+
+watch(snapshots, (items) => {
+  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(items))
 }, { deep: true })
 
 function normalizeApiSettingsShape(raw) {
@@ -1214,6 +1554,7 @@ function selectNode(node) {
 }
 
 function toggleExportNodeSelection(nodeId) {
+  if (!ensureEditable()) return
   const list = [...exportPickedNodeIds.value]
   const idx = list.indexOf(nodeId)
   if (idx >= 0) {
@@ -1229,7 +1570,37 @@ function isNodeExportSelected(nodeId) {
 }
 
 function onNodeClick(node) {
+  if (isSnapshotReadonly.value) {
+    snapshotSelectedNodeId.value = node.id
+    return
+  }
   selectedNode.value = node
+  if (interactionMode.value === 'scissor') {
+    if (node.id === rootTree.value?.id) {
+      statusText.value = '根节点不能删除，可使用“清空”'
+      return
+    }
+    const now = Date.now()
+    const pendingSameNode = scissorDeletePendingNodeId.value === node.id && (now - scissorDeletePendingAt.value) <= 2500
+    if (!pendingSameNode) {
+      scissorDeletePendingNodeId.value = node.id
+      scissorDeletePendingAt.value = now
+      statusText.value = `再次点击确认删除：${node.text}`
+      return
+    }
+    recordSnapshot(`剪刀删除节点：${node.text}`)
+    const ok = removeNodeById(rootTree.value, node.id)
+    if (ok) {
+      rootTree.value = reindexTree(rootTree.value)
+      selectedNode.value = rootTree.value
+      statusText.value = `已删除节点：${node.text}`
+    }
+    clearScissorPending()
+    return
+  }
+  if (interactionMode.value === 'link' || interactionMode.value === 'group') {
+    return
+  }
   if (quickNoteImportOpen.value) {
     if (node.children?.length) {
       quickNoteStatus.value = '导入模式下仅可选择叶节点'
@@ -1244,10 +1615,12 @@ function onNodeClick(node) {
 }
 
 function selectAllExportNodes() {
+  if (!ensureEditable()) return
   exportPickedNodeIds.value = flattenTree(rootTree.value).map((node) => node.id)
 }
 
 function clearExportNodes() {
+  if (!ensureEditable()) return
   exportPickedNodeIds.value = []
 }
 
@@ -1468,6 +1841,7 @@ async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '
 }
 
 async function continueGenerateFromNode() {
+  if (!ensureEditable()) return
   if (!rootTree.value || !selectedNode.value) {
     statusText.value = '请先选中一个节点'
     return
@@ -1515,6 +1889,7 @@ async function continueGenerateFromNode() {
 }
 
 async function generateTree() {
+  if (!ensureEditable()) return
   const promptText = prompt.value.trim()
   if (!promptText) {
     statusText.value = '请先输入提示词'
@@ -1549,11 +1924,14 @@ async function generateTree() {
 }
 
 function deleteSelectedNode() {
+  if (!ensureEditable()) return
   if (!rootTree.value || !selectedNode.value) return
   if (selectedNode.value.id === rootTree.value.id) {
     statusText.value = '根节点不能删除，可使用“清空”'
     return
   }
+  clearScissorPending()
+  recordSnapshot(`删除节点：${selectedNode.value.text}`)
   const ok = removeNodeById(rootTree.value, selectedNode.value.id)
   if (ok) {
     rootTree.value = reindexTree(rootTree.value)
@@ -1563,7 +1941,7 @@ function deleteSelectedNode() {
 }
 
 const flatNodes = computed(() => {
-  const nodes = flattenTree(rootTree.value)
+  const nodes = flattenTree(displayedRootTree.value)
   if (!nodes.length) return []
 
   const laidOut = layoutMap(nodes)
@@ -1596,6 +1974,11 @@ const leafImportStats = computed(() => {
   return { totalCount, selectedCount, totalWords, selectedWords }
 })
 
+const selectedNodeGroups = computed(() => {
+  if (!displayedSelectedNode.value) return []
+  return displayedImageryGroups.value.filter((group) => (group.nodeIds || []).includes(displayedSelectedNode.value.id))
+})
+
 function layoutMap(nodes) {
   const depthRows = new Map()
   for (const node of nodes) {
@@ -1621,7 +2004,7 @@ function layoutMap(nodes) {
   return positioned
 }
 
-const edges = computed(() => {
+const renderedEdges = computed(() => {
   const nodeMap = new Map(flatNodes.value.map((node) => [node.id, node]))
   const lineList = []
 
@@ -1631,20 +2014,53 @@ const edges = computed(() => {
     if (!parent) continue
 
     lineList.push({
-      id: `${parent.id}_${node.id}`,
+      id: `hier_${parent.id}_${node.id}`,
+      builtIn: true,
+      sourceId: parent.id,
+      targetId: node.id,
+      type: 'HIERARCHY',
+      weight: 1,
       x1: parent.x + 86,
       y1: parent.y + 36,
       x2: node.x + 6,
-      y2: node.y + 36
+      y2: node.y + 36,
+      d: makeEdgePath(parent.x + 86, parent.y + 36, node.x + 6, node.y + 36)
+    })
+  }
+
+  for (const edge of displayedGraphEdges.value) {
+    const source = nodeMap.get(edge.sourceId)
+    const target = nodeMap.get(edge.targetId)
+    if (!source || !target) continue
+    lineList.push({
+      ...edge,
+      builtIn: false,
+      x1: source.x + 86,
+      y1: source.y + 36,
+      x2: target.x + 6,
+      y2: target.y + 36,
+      d: makeEdgePath(source.x + 86, source.y + 36, target.x + 6, target.y + 36)
     })
   }
 
   return lineList
 })
 
+watch(interactionMode, () => {
+  clearScissorPending()
+  edgeLinkDraft.value = null
+  groupDraft.value = null
+})
+
 const exportNodeSelectedCount = computed(() => exportPickedNodeIds.value.length)
 
+const edgeLinkDraftPath = computed(() => {
+  if (!edgeLinkDraft.value) return ''
+  return makeEdgePath(edgeLinkDraft.value.x1, edgeLinkDraft.value.y1, edgeLinkDraft.value.x2, edgeLinkDraft.value.y2)
+})
+
 function startDrag(event, node) {
+  if (!ensureEditable()) return
   dragState.value = {
     id: node.id,
     offsetX: event.clientX - node.x,
@@ -1674,9 +2090,136 @@ function stopDrag() {
   window.removeEventListener('pointerup', stopDrag)
 }
 
+function canvasPointFromEvent(event) {
+  if (!canvasRef.value) return { x: 0, y: 0 }
+  const rect = canvasRef.value.getBoundingClientRect()
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top
+  }
+}
+
+function onNodePointerDown(event, node) {
+  if (interactionMode.value === 'pointer') {
+    startDrag(event, node)
+    return
+  }
+  if (!ensureEditable()) return
+  if (interactionMode.value === 'link') {
+    const point = canvasPointFromEvent(event)
+    edgeLinkDraft.value = {
+      sourceId: node.id,
+      x1: node.x + 86,
+      y1: node.y + 36,
+      x2: point.x,
+      y2: point.y
+    }
+    window.addEventListener('pointermove', onEdgeDraftMove)
+    window.addEventListener('pointerup', onEdgeDraftEnd)
+  }
+}
+
+function onEdgeDraftMove(event) {
+  if (!edgeLinkDraft.value) return
+  const point = canvasPointFromEvent(event)
+  edgeLinkDraft.value = {
+    ...edgeLinkDraft.value,
+    x2: point.x,
+    y2: point.y
+  }
+}
+
+function onEdgeDraftEnd(event) {
+  if (!edgeLinkDraft.value) return
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-node-id]')
+  const sourceId = edgeLinkDraft.value.sourceId
+  const targetId = target?.dataset?.nodeId
+  if (targetId) createGraphEdge(sourceId, targetId, edgeDraftType.value, 1)
+  edgeLinkDraft.value = null
+  window.removeEventListener('pointermove', onEdgeDraftMove)
+  window.removeEventListener('pointerup', onEdgeDraftEnd)
+}
+
+function onCanvasPointerDown(event) {
+  if (interactionMode.value !== 'group') return
+  if (!ensureEditable()) return
+  if (event.target.closest('.idea-node')) return
+  const point = canvasPointFromEvent(event)
+  groupDraft.value = {
+    startX: point.x,
+    startY: point.y,
+    currentX: point.x,
+    currentY: point.y
+  }
+  window.addEventListener('pointermove', onGroupDraftMove)
+  window.addEventListener('pointerup', onGroupDraftEnd)
+}
+
+function onGroupDraftMove(event) {
+  if (!groupDraft.value) return
+  const point = canvasPointFromEvent(event)
+  groupDraft.value = {
+    ...groupDraft.value,
+    currentX: point.x,
+    currentY: point.y
+  }
+}
+
+const selectionRectStyle = computed(() => {
+  if (!groupDraft.value) return {}
+  const left = Math.min(groupDraft.value.startX, groupDraft.value.currentX)
+  const top = Math.min(groupDraft.value.startY, groupDraft.value.currentY)
+  const width = Math.abs(groupDraft.value.currentX - groupDraft.value.startX)
+  const height = Math.abs(groupDraft.value.currentY - groupDraft.value.startY)
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`
+  }
+})
+
+function onGroupDraftEnd() {
+  if (!groupDraft.value) return
+  const left = Math.min(groupDraft.value.startX, groupDraft.value.currentX)
+  const right = Math.max(groupDraft.value.startX, groupDraft.value.currentX)
+  const top = Math.min(groupDraft.value.startY, groupDraft.value.currentY)
+  const bottom = Math.max(groupDraft.value.startY, groupDraft.value.currentY)
+  const picked = flatNodes.value
+    .filter((node) => node.x >= left && node.x + 172 <= right && node.y >= top && node.y + 72 <= bottom)
+    .map((node) => node.id)
+  if (picked.length >= 2) {
+    const name = window.prompt('为这组意象命名', `意象群 ${imageryGroups.value.length + 1}`)?.trim()
+    if (name) {
+      imageryGroups.value = [
+        ...imageryGroups.value,
+        {
+          id: `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name,
+          nodeIds: picked,
+          createdAt: new Date().toISOString()
+        }
+      ]
+      statusText.value = `已创建意象群：${name}`
+    }
+  }
+  groupDraft.value = null
+  window.removeEventListener('pointermove', onGroupDraftMove)
+  window.removeEventListener('pointerup', onGroupDraftEnd)
+}
+
+function onEdgeClick(edge) {
+  if (interactionMode.value !== 'scissor' || edge.builtIn) return
+  removeGraphEdge(edge.id)
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onDragMove)
   window.removeEventListener('pointerup', stopDrag)
+  window.removeEventListener('pointermove', onEdgeDraftMove)
+  window.removeEventListener('pointerup', onEdgeDraftEnd)
+  window.removeEventListener('pointermove', onGroupDraftMove)
+  window.removeEventListener('pointerup', onGroupDraftEnd)
 })
 
 function exportMarkdown() {
@@ -2287,6 +2830,89 @@ function exportTxt() {
   font-size: 12px;
 }
 
+.tool-panel,
+.history-panel {
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 94%, #ffffff 6%);
+  padding: 12px;
+}
+
+.mode-switch-row {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.snapshot-readonly {
+  color: #ffb36b;
+}
+
+.history-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.history-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.history-item.active {
+  border-color: var(--accent);
+}
+
+.history-actions {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.group-panel {
+  margin-top: 12px;
+}
+
+.group-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.group-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.group-list.compact {
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+.group-chip {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  text-align: center;
+}
+
 .btn-row {
   margin-top: 12px;
   display: grid;
@@ -2442,10 +3068,108 @@ function exportTxt() {
   pointer-events: none;
 }
 
+.edge-layer.interactive {
+  pointer-events: auto;
+}
+
 .edge {
+  fill: none;
   stroke: #7f8ea3;
   stroke-width: 1.2;
   stroke-opacity: 0.52;
+}
+
+.edge-hierarchy {
+  color: #7f8ea3;
+}
+
+.edge-metaphor {
+  color: #ef8f6a;
+  stroke: #ef8f6a;
+  stroke-dasharray: 6 4;
+}
+
+.edge-juxtapose {
+  color: #62b6cb;
+  stroke: #62b6cb;
+  stroke-dasharray: 2 4;
+}
+
+.edge-rupture {
+  color: #ff6b6b;
+  stroke: #ff6b6b;
+  stroke-dasharray: 10 4;
+}
+
+.edge-echo {
+  color: #9b8cff;
+  stroke: #9b8cff;
+  stroke-dasharray: 3 3;
+}
+
+.edge.removable {
+  cursor: pointer;
+  stroke-width: 2;
+}
+
+.edge-draft {
+  color: color-mix(in srgb, var(--accent) 80%, #ffffff 20%);
+  stroke: color-mix(in srgb, var(--accent) 80%, #ffffff 20%);
+  stroke-width: 1.8;
+  stroke-dasharray: 5 5;
+}
+
+.edge-legend {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-line {
+  width: 26px;
+  height: 0;
+  border-top: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.legend-line.edge-hierarchy {
+  color: #7f8ea3;
+}
+
+.legend-line.edge-metaphor {
+  color: #ef8f6a;
+  border-top-style: dashed;
+}
+
+.legend-line.edge-juxtapose {
+  color: #62b6cb;
+  border-top-style: dotted;
+}
+
+.legend-line.edge-rupture {
+  color: #ff6b6b;
+  border-top-style: dashed;
+}
+
+.legend-line.edge-echo {
+  color: #9b8cff;
+  border-top-style: dashed;
+}
+
+.selection-rect {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--accent) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
 }
 
 .idea-node {
@@ -2472,6 +3196,19 @@ function exportTxt() {
   box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.idea-node.scissor-pending {
+  border-color: #ffb36b;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ffb36b 28%, transparent);
+}
+
+.idea-node.grouped {
+  box-shadow: 0 8px 22px color-mix(in srgb, #4bc0a7 18%, transparent);
+}
+
+.idea-node.readonly {
+  cursor: default;
+}
+
 .idea-node.muted {
   opacity: 0.36;
   filter: grayscale(0.35);
@@ -2495,6 +3232,20 @@ function exportTxt() {
   width: 12px;
   height: 12px;
   margin: 0;
+}
+
+.group-badge {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px 6px;
+  margin-bottom: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #4bc0a7 20%, var(--bg-primary));
+  color: #4bc0a7;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .idea-node.depth-0 {

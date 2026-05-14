@@ -5,6 +5,7 @@ import Game from '../pages/Game.vue'
 import Writing from '../pages/Writing.vue'
 import Notes from '../pages/Notes.vue'
 import PoetryLab from '../pages/PoetryLab.vue'
+import ProseEssay from '../pages/ProseEssay.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
@@ -12,7 +13,8 @@ const routes = [
   { path: '/game', name: 'game', component: Game },
   { path: '/writing', name: 'writing', component: Writing },
   { path: '/notes', name: 'notes', component: Notes },
-  { path: '/poetry-lab', name: 'poetry-lab', component: PoetryLab }
+  { path: '/poetry-lab', name: 'poetry-lab', component: PoetryLab },
+  { path: '/prose-essay', name: 'prose-essay', component: ProseEssay }
 ]
 
 const router = createRouter({

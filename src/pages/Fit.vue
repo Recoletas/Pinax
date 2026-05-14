@@ -55,6 +55,19 @@
             <h3>诗歌</h3>
             <p>以凝练之词，写尽悲欢与美的瞬间</p>
           </div>
+
+          <div class="genre-card" @click="router.push('/prose-essay')">
+            <div class="genre-icon accent">
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="6" y="6" width="24" height="24" rx="2"/>
+                <line x1="11" y1="12" x2="25" y2="12"/>
+                <line x1="11" y1="17" x2="25" y2="17"/>
+                <line x1="11" y1="22" x2="19" y2="22"/>
+              </svg>
+            </div>
+            <h3>散文随笔</h3>
+            <p>自由联想，卡片拼贴与大纲组织</p>
+          </div>
         </div>
       </div>
     </div>
@@ -196,8 +209,9 @@ async function enterExperience(genre) {
 }
 
 .genre-grid {
-  display: flex;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  gap: 20px;
   justify-content: center;
 }
 
