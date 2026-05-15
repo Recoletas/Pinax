@@ -31,102 +31,11 @@
             <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
           </svg>
         </button>
+        <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
       </div>
     </header>
 
     <div class="pe-main">
-      <!-- Canvas area with absolute positioned cards -->
-      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }">
-        <!-- Edge SVG layer - absolutely positioned to overlay cards -->
-        <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
-          <defs>
-            <marker id="prose-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
-            </marker>
-          </defs>
-          <path
-            v-for="edge in renderedEdges"
-            :key="edge.id"
-            :d="edge.d"
-            :class="['edge', `edge-${edge.type}`]"
-            marker-end="url(#prose-arrow)"
-          />
-        </svg>
-
-        <div v-if="cards.length === 0" class="empty-cards">
-          <div class="empty-icon">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor">
-              <path d="M8 8h14v32H8V8zm18 0h14v32H26V8zM12 14h6v4h-6v-4zm0 10h10v4H12v-4zm0 10h8v4h-8v-4z"/>
-            </svg>
-          </div>
-          <p class="empty-title">开始你的自由写作</p>
-          <p class="empty-desc">输入主题或草稿，AI 将生成一组联想卡片</p>
-          <p class="empty-hint">每张卡片会自动获得情绪标签和关联关系</p>
-        </div>
-
-        <!-- Absolute positioned cards -->
-        <div
-          v-for="card in flatCards"
-          :key="card.id"
-          class="writing-card"
-          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id) }]"
-          :style="{
-            position: 'absolute',
-            left: card.x + 'px',
-            top: card.y + 'px',
-            '--card-accent': emotionColors[card.emotion]?.bg || '#888'
-          }"
-          :data-card-id="card.id"
-          @click="selectCard(card)"
-          @dblclick="startInlineEdit(card, $event)"
-        >
-          <div class="card-header">
-            <span class="card-emotion-badge" :style="{ background: emotionColors[card.emotion]?.badge || '#888' }">
-              {{ emotionLabels[card.emotion] || card.emotion }}
-            </span>
-            <span v-if="getContinuationGroup(card.id)?.size" class="continuation-indicator" title="已生成延伸卡片">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                <path d="M5 1v4M3.5 3.5L5 5l1.5-1.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-              </svg>
-            </span>
-            <span v-else-if="isInSameGroup(card.id)" class="continuation-badge">衍生</span>
-            <span class="card-time">{{ formatTime(card.createdAt) }}</span>
-          </div>
-          <div v-if="inlineEditingCard?.id === card.id" class="card-inline-edit">
-            <textarea
-              v-model="inlineEditingContent"
-              class="inline-textarea"
-              @click.stop
-              @keydown="handleInlineKeydown"
-              autofocus
-            ></textarea>
-            <div class="inline-emotion-row">
-              <select v-model="inlineEditingEmotion" class="inline-emotion-select">
-                <option v-for="(label, key) in emotionLabels" :key="key" :value="key">{{ label }}</option>
-              </select>
-              <button class="inline-save-btn" @click.stop="saveInlineEdit" title="保存 (Ctrl+Enter)">保存</button>
-              <button class="inline-cancel-btn" @click.stop="cancelInlineEdit" title="取消 (Esc)">取消</button>
-            </div>
-          </div>
-          <div v-else class="card-content">{{ card.content }}</div>
-          <div class="card-footer">
-            <span class="card-words">{{ card.wordCount }} 字</span>
-            <div class="card-actions" @click.stop>
-              <button class="card-action-btn" @click.stop="expandFromCard(card)" :disabled="isGenerating" title="基于此卡片生成更多">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              <button class="card-action-btn" @click.stop="deleteCard(card.id)" title="删除">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- 左侧面板 -->
       <aside class="left-panel">
         <!-- 选中卡片详情面板 -->
@@ -283,10 +192,108 @@
           </div>
         </div>
       </aside>
+
+      <!-- Canvas area with absolute positioned cards -->
+      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }">
+        <!-- Edge SVG layer - absolutely positioned to overlay cards -->
+        <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
+          <defs>
+            <marker id="prose-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <path
+            v-for="edge in renderedEdges"
+            :key="edge.id"
+            :d="edge.d"
+            :class="['edge', `edge-${edge.type}`]"
+            marker-end="url(#prose-arrow)"
+          />
+        </svg>
+
+        <div v-if="cards.length === 0" class="empty-cards">
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor">
+              <path d="M8 8h14v32H8V8zm18 0h14v32H26V8zM12 14h6v4h-6v-4zm0 10h10v4H12v-4zm0 10h8v4h-8v-4z"/>
+            </svg>
+          </div>
+          <p class="empty-title">开始你的自由写作</p>
+          <p class="empty-desc">输入主题或草稿，AI 将生成一组联想卡片</p>
+          <p class="empty-hint">每张卡片会自动获得情绪标签和关联关系</p>
+        </div>
+
+        <!-- Absolute positioned cards -->
+        <div
+          v-for="card in flatCards"
+          :key="card.id"
+          class="writing-card"
+          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id) }]"
+          :style="{
+            position: 'absolute',
+            left: card.x + 'px',
+            top: card.y + 'px',
+            '--card-accent': emotionColors[card.emotion]?.bg || '#888'
+          }"
+          :data-card-id="card.id"
+          @click="selectCard(card)"
+          @dblclick="startInlineEdit(card, $event)"
+        >
+          <div class="card-header">
+            <span class="card-emotion-badge" :style="{ background: emotionColors[card.emotion]?.badge || '#888' }">
+              {{ emotionLabels[card.emotion] || card.emotion }}
+            </span>
+            <span v-if="getContinuationGroup(card.id)?.size" class="continuation-indicator" title="已生成延伸卡片">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                <path d="M5 1v4M3.5 3.5L5 5l1.5-1.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              </svg>
+            </span>
+            <span v-else-if="isInSameGroup(card.id)" class="continuation-badge">衍生</span>
+            <span class="card-time">{{ formatTime(card.createdAt) }}</span>
+          </div>
+          <div v-if="inlineEditingCard?.id === card.id" class="card-inline-edit">
+            <textarea
+              v-model="inlineEditingContent"
+              class="inline-textarea"
+              @click.stop
+              @keydown="handleInlineKeydown"
+              autofocus
+            ></textarea>
+            <div class="inline-emotion-row">
+              <select v-model="inlineEditingEmotion" class="inline-emotion-select">
+                <option v-for="(label, key) in emotionLabels" :key="key" :value="key">{{ label }}</option>
+              </select>
+              <button class="inline-save-btn" @click.stop="saveInlineEdit" title="保存 (Ctrl+Enter)">保存</button>
+              <button class="inline-cancel-btn" @click.stop="cancelInlineEdit" title="取消 (Esc)">取消</button>
+            </div>
+          </div>
+          <div v-else class="card-content">{{ card.content }}</div>
+          <div class="card-footer">
+            <span class="card-words">{{ card.wordCount }} 字</span>
+            <div class="card-actions" @click.stop>
+              <button class="card-action-btn" @click.stop="expandFromCard(card)" :disabled="isGenerating" title="基于此卡片生成更多">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button class="card-action-btn" @click.stop="deleteCard(card.id)" title="删除">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 右下角悬浮工具栏 -->
     <div class="floating-toolbar">
+      <button class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="toolbar-divider"></div>
       <button class="toolbar-btn" @click="insertCard" title="新建空白卡片">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
@@ -314,6 +321,12 @@
 
     <!-- 右下角悬浮工具栏 -->
     <div class="floating-toolbar">
+      <button class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="toolbar-divider"></div>
       <button class="toolbar-btn" @click="insertCard" title="新建空白卡片">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
@@ -336,6 +349,231 @@
         <button @click="exportToMarkdown">导出为 Markdown</button>
         <button @click="exportToTxt">导出为 TXT</button>
         <button @click="exportToJson">导出完整关系网 JSON</button>
+      </div>
+    </div>
+
+    <!-- 快捷笔记侧边栏 -->
+    <aside class="quick-notes-rail" aria-label="快捷入口">
+      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
+        <div class="quick-note-row">
+          <textarea
+            ref="quickNoteInputRef"
+            v-model="quickNoteDraft"
+            class="quick-note-input"
+            placeholder="随手记一段..."
+            @input="handleQuickNoteInput"
+          ></textarea>
+          <div class="quick-note-actions">
+            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
+                <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6.5 7h4.8c1.2 0 2.2.9 2.2 2v8H9c-1 0-1.9.4-2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
+                <path d="M17.5 7h-4.8c-1.2 0-2.2.9-2.2 2v8H15c1 0 1.9.4 2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
+      </div>
+      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </aside>
+
+    <!-- 生图悬浮按钮 -->
+    <aside class="image-gen-rail" aria-label="生图功能">
+      <div class="image-gen-drawer" v-if="imageDrawerOpen" @click.stop>
+        <div class="image-gen-header">
+          <span class="image-gen-title">生图</span>
+          <button class="image-gen-config-btn" type="button" @click="openImageConfig" title="模型配置">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="image-gen-prompt-row">
+          <textarea
+            v-model="imagePrompt"
+            class="image-gen-prompt-input"
+            placeholder="描述你想生成的图片..."
+            rows="3"
+          ></textarea>
+        </div>
+
+        <div class="image-gen-prompt-row" v-if="selectedCard">
+          <button class="image-gen-use-card-btn" type="button" @click="useCardContentAsPrompt">
+            使用卡片内容
+          </button>
+        </div>
+
+        <div class="image-gen-section">
+          <label class="image-gen-label">模型</label>
+          <select v-model="imageSelectedModel" class="image-gen-select">
+            <option value="">选择模型...</option>
+            <option v-for="cfg in modelConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</option>
+          </select>
+        </div>
+
+        <div class="image-gen-section">
+          <label class="image-gen-label">尺寸</label>
+          <div class="image-gen-sizes">
+            <button
+              v-for="preset in sizePresets"
+              :key="preset.label"
+              class="image-gen-size-btn"
+              :class="{ active: imageWidth === preset.width && imageHeight === preset.height }"
+              type="button"
+              @click="imageWidth = preset.width; imageHeight = preset.height"
+            >
+              {{ preset.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="image-gen-section">
+          <label class="image-gen-label">数量</label>
+          <div class="image-gen-count-row">
+            <button
+              v-for="n in [1,2,3,4]"
+              :key="n"
+              class="image-gen-count-btn"
+              :class="{ active: imageCount === n }"
+              type="button"
+              @click="imageCount = n"
+            >{{ n }}</button>
+          </div>
+        </div>
+
+        <div class="image-gen-section">
+          <label class="image-gen-label">负面提示词（可选）</label>
+          <textarea
+            v-model="imageNegativePrompt"
+            class="image-gen-prompt-input small"
+            placeholder="不想出现的内容..."
+            rows="2"
+          ></textarea>
+        </div>
+
+        <div class="image-gen-actions">
+          <button
+            class="image-gen-generate-btn"
+            type="button"
+            @click="generateImages"
+            :disabled="imageGenerating || !imagePrompt.trim() || !imageSelectedModel"
+          >
+            <span v-if="imageGenerating" class="spin-icon">⟳</span>
+            <span v-else>生成</span>
+          </button>
+        </div>
+
+        <div v-if="imageLibrary.length > 0" class="image-gen-results">
+          <div class="image-gen-results-title">历史记录</div>
+          <div class="image-gen-grid">
+            <div
+              v-for="(img, idx) in imageLibrary"
+              :key="img.id"
+              class="image-gen-thumb"
+              @click="imagePreviewIndex = idx"
+            >
+              <img :src="img.data" alt="generated" />
+            </div>
+          </div>
+        </div>
+
+        <div class="image-gen-footer">
+          <button class="image-gen-link-btn" type="button" @click="goToNotesImageGen">去笔记内生图 →</button>
+        </div>
+      </div>
+
+      <button class="image-gen-btn" type="button" @click.stop="imageDrawerOpen = !imageDrawerOpen" title="生图">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <path d="M21 15l-5-5L5 21"/>
+        </svg>
+      </button>
+    </aside>
+
+    <!-- 图片预览弹窗 -->
+    <div v-if="imagePreviewIndex >= 0" class="image-preview-overlay" @click="imagePreviewIndex = -1">
+      <div class="image-preview-modal" @click.stop>
+        <div class="image-preview-header">
+          <span>图片预览</span>
+          <button class="image-preview-close" @click="imagePreviewIndex = -1">×</button>
+        </div>
+        <div class="image-preview-body">
+          <img :src="imageLibrary[imagePreviewIndex]?.data" alt="preview" />
+        </div>
+        <div class="image-preview-actions">
+          <button v-if="selectedCard" class="image-preview-action-btn" @click="attachImageToCard(imageLibrary[imagePreviewIndex])">
+            插入当前卡片
+          </button>
+          <button class="image-preview-action-btn" @click="saveAsNewCard(imageLibrary[imagePreviewIndex])">
+            存为新素材卡片
+          </button>
+          <button class="image-preview-action-btn" @click="copyImagePrompt(imageLibrary[imagePreviewIndex])">
+            复制提示词
+          </button>
+          <button class="image-preview-action-btn" @click="saveToMaterialLib(imageLibrary[imagePreviewIndex])">
+            保存到素材库
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模型配置弹窗 -->
+    <div v-if="showImageConfigDialog && editingModelConfig" class="dialog-overlay" @click="showImageConfigDialog = false">
+      <div class="dialog image-config-dialog" @click.stop>
+        <div class="dialog-header">
+          {{ editingModelConfig.id ? '编辑模型' : '添加模型' }}
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>名称</label>
+            <input v-model="editingModelConfig.name" class="input" placeholder="例如：我的SD" />
+          </div>
+          <div class="form-group">
+            <label>类型</label>
+            <select v-model="editingModelConfig.type" class="input">
+              <option v-for="t in modelTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>API 地址</label>
+            <input v-model="editingModelConfig.baseUrl" class="input" placeholder="http://127.0.0.1:7860" />
+          </div>
+          <div class="form-group">
+            <label>API Key（可选）</label>
+            <input v-model="editingModelConfig.apiKey" class="input" type="password" placeholder="sk-..." />
+          </div>
+          <div class="form-group">
+            <label>默认模型 ID</label>
+            <input v-model="editingModelConfig.defaultModel" class="input" placeholder="stable-diffusion-xl-base-1.0" />
+          </div>
+          <div v-if="editingModelConfig.type === 'http'" class="form-group">
+            <label>请求体模板（JSON）</label>
+            <textarea v-model="editingModelConfig.requestTemplate" class="input" rows="3" placeholder='{"prompt": "{{prompt}}"}'></textarea>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn" type="button" @click="testModelConnection">测试连通性</button>
+          <button class="btn" type="button" @click="showImageConfigDialog = false">取消</button>
+          <button class="btn-primary" type="button" @click="saveModelConfig">保存</button>
+        </div>
       </div>
     </div>
 
@@ -388,6 +626,50 @@ import { getApiSettings, sendChat } from '../services/api'
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 
+// Quick note
+const QUICK_NOTE_DRAFT_KEY = 'prose_quick_note_draft'
+const QUICK_NOTE_STORE_KEY = 'writing_notes'
+const quickNoteOpen = ref(false)
+const quickNoteDraft = ref(loadQuickNoteDraft())
+const quickNoteStatus = ref('')
+const quickNoteInputRef = ref(null)
+const quickNoteImportOpen = ref(false)
+
+// Image generation
+const IMG_LIBRARY_KEY = 'prose_image_library'
+const IMG_MODEL_CONFIGS_KEY = 'image_model_configs'
+const imageDrawerOpen = ref(false)
+const imagePrompt = ref('')
+const imageNegativePrompt = ref('')
+const imageSelectedModel = ref('')
+const imageWidth = ref(1024)
+const imageHeight = ref(1024)
+const imageCount = ref(1)
+const imageGenerating = ref(false)
+const imageLibrary = ref([])
+const imagePreviewIndex = ref(-1)
+const showImageConfigDialog = ref(false)
+const editingModelConfig = ref(null)
+const modelConfigs = ref([])
+
+// Image size presets
+const sizePresets = [
+  { label: '1:1 方图', width: 1024, height: 1024 },
+  { label: '16:9 宽图', width: 1280, height: 720 },
+  { label: '9:16 竖图', width: 720, height: 1280 },
+  { label: '4:3 横图', width: 1024, height: 768 },
+  { label: '3:4 竖图', width: 768, height: 1024 },
+]
+
+// Model types
+const modelTypes = [
+  { value: 'openai_dalle', label: 'OpenAI DALL-E' },
+  { value: 'stability', label: 'Stability AI' },
+  { value: 'sd_webui', label: 'Stable Diffusion WebUI' },
+  { value: 'comfyui', label: 'ComfyUI' },
+  { value: 'http', label: '通用 HTTP' },
+]
+
 // Storage keys
 const CARDS_KEY = 'prose_cards_v1'
 const EDGES_KEY = 'prose_edges_v1'
@@ -407,14 +689,14 @@ const emotionLabels = {
 }
 
 const emotionColors = {
-  joy: { bg: '#fff8e1', badge: '#ffb300', dot: '#ffc107' },
-  sorrow: { bg: '#e3f2fd', badge: '#5c6bc0', dot: '#7986cb' },
-  calm: { bg: '#e8f5e9', badge: '#66bb6a', dot: '#81c784' },
-  anxiety: { bg: '#fce4ec', badge: '#ec407a', dot: '#f06292' },
-  anger: { bg: '#ffebee', badge: '#ef5350', dot: '#e57373' },
-  surprise: { bg: '#fff3e0', badge: '#ff7043', dot: '#ff8a65' },
-  nostalgia: { bg: '#f3e5f5', badge: '#ab47bc', dot: '#ba68c8' },
-  hope: { bg: '#e0f7fa', badge: '#26c6da', dot: '#4dd0e1' }
+  joy: { bg: 'var(--bg-secondary)', badge: '#ffb300', dot: '#ffc107' },
+  sorrow: { bg: 'var(--bg-secondary)', badge: '#5c6bc0', dot: '#7986cb' },
+  calm: { bg: 'var(--bg-secondary)', badge: '#66bb6a', dot: '#81c784' },
+  anxiety: { bg: 'var(--bg-secondary)', badge: '#ec407a', dot: '#f06292' },
+  anger: { bg: 'var(--bg-secondary)', badge: '#ef5350', dot: '#e57373' },
+  surprise: { bg: 'var(--bg-secondary)', badge: '#ff7043', dot: '#ff8a65' },
+  nostalgia: { bg: 'var(--bg-secondary)', badge: '#ab47bc', dot: '#ba68c8' },
+  hope: { bg: 'var(--bg-secondary)', badge: '#26c6da', dot: '#4dd0e1' }
 }
 
 const edgeColors = {
@@ -521,8 +803,11 @@ function computeEdgePaths() {
 const renderedEdges = ref([])
 
 function updateLayout() {
-  if (!cards.value.length) return
   flatCards.value = layoutCards(cards.value)
+  if (!cards.value.length) {
+    renderedEdges.value = []
+    return
+  }
   nextTick(() => {
     renderedEdges.value = computeEdgePaths()
     const wall = cardWallRef.value
@@ -532,6 +817,10 @@ function updateLayout() {
     }
   })
 }
+
+watch(cards, () => {
+  updateLayout()
+}, { deep: true })
 
 // Per-card undo/redo history
 const cardHistory = ref({}) // cardId -> { past: [], future: [] }
@@ -670,6 +959,8 @@ onMounted(() => {
   loadData()
   resolveApiSettings()
   document.addEventListener('keydown', handleKeydown)
+  loadImageConfigs()
+  loadImageLibrary()
 })
 
 async function resolveApiSettings() {
@@ -789,6 +1080,18 @@ function deleteCard(cardId) {
   if (selectedCard.value?.id === cardId) selectedCard.value = null
   addTimeline('删除卡片')
   saveData()
+}
+
+function confirmClearAll() {
+  if (!cards.value.length) return
+  if (!confirm('确定要清空所有卡片吗？此操作不可撤销。')) return
+  cards.value = []
+  edges.value = []
+  outline.value = []
+  timeline.value = []
+  selectedCard.value = null
+  saveData()
+  addTimeline('清空所有卡片')
 }
 
 // 基于已有卡片生成更多相关卡片
@@ -1288,6 +1591,539 @@ function downloadFile(content, filename, mimeType) {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// Quick note functions
+function loadQuickNoteDraft() {
+  try {
+    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function persistQuickNoteDraft() {
+  try {
+    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
+  } catch {
+    // ignore
+  }
+}
+
+function resizeQuickNoteInput(el = quickNoteInputRef.value) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 104) + 'px'
+}
+
+function handleQuickNoteInput(event) {
+  persistQuickNoteDraft()
+  resizeQuickNoteInput(event?.target)
+}
+
+function clearQuickNoteDraft() {
+  quickNoteDraft.value = ''
+  try {
+    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
+  } catch {
+    // ignore localStorage failures
+  }
+  nextTick(() => resizeQuickNoteInput())
+}
+
+watch(quickNoteOpen, (open) => {
+  if (!open) {
+    quickNoteImportOpen.value = false
+    return
+  }
+  nextTick(() => resizeQuickNoteInput())
+})
+
+function quickNoteWordCount(text) {
+  const normalized = String(text || '').trim()
+  if (!normalized) return 0
+  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
+  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
+  return chineseChars + englishWords
+}
+
+function buildQuickNoteTitle(text) {
+  const firstLine = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  if (firstLine) return firstLine.slice(0, 18)
+  return '速记'
+}
+
+function saveQuickNote() {
+  const content = quickNoteDraft.value.trim()
+  if (!content) {
+    quickNoteStatus.value = '先写点内容再保存'
+    return false
+  }
+
+  let notes = []
+  try {
+    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
+    if (!Array.isArray(notes)) notes = []
+  } catch {
+    notes = []
+  }
+
+  notes.unshift({
+    id: Date.now().toString(),
+    title: buildQuickNoteTitle(content),
+    content,
+    contentFormat: 'md',
+    wordCount: quickNoteWordCount(content),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  })
+
+  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  clearQuickNoteDraft()
+  quickNoteStatus.value = '已保存到笔记'
+  return true
+}
+
+function jumpToNotes() {
+  if (quickNoteDraft.value.trim()) saveQuickNote()
+  router.push('/notes')
+}
+
+function jumpToWriting() {
+  if (quickNoteDraft.value.trim()) saveQuickNote()
+  router.push('/writing')
+}
+
+// Image generation functions
+function loadImageConfigs() {
+  try {
+    const raw = localStorage.getItem(IMG_MODEL_CONFIGS_KEY)
+    if (raw) {
+      modelConfigs.value = JSON.parse(raw)
+      if (modelConfigs.value.length > 0 && !imageSelectedModel.value) {
+        imageSelectedModel.value = modelConfigs.value[0].id
+      }
+    }
+  } catch {
+    modelConfigs.value = []
+  }
+}
+
+function loadImageLibrary() {
+  try {
+    const raw = localStorage.getItem(IMG_LIBRARY_KEY)
+    if (raw) {
+      imageLibrary.value = JSON.parse(raw)
+    }
+  } catch {
+    imageLibrary.value = []
+  }
+}
+
+function saveImageLibrary() {
+  const trimmed = imageLibrary.value.slice(0, 20)
+  localStorage.setItem(IMG_LIBRARY_KEY, JSON.stringify(trimmed))
+}
+
+function useCardContentAsPrompt() {
+  if (selectedCard.value) {
+    imagePrompt.value = selectedCard.value.content
+  }
+}
+
+function openImageConfig() {
+  editingModelConfig.value = {
+    id: '',
+    name: '',
+    type: 'sd_webui',
+    baseUrl: 'http://127.0.0.1:7860',
+    apiKey: '',
+    defaultModel: '',
+    requestTemplate: ''
+  }
+  showImageConfigDialog.value = true
+}
+
+function saveModelConfig() {
+  if (!editingModelConfig.value?.name) return
+  const cfg = { ...editingModelConfig.value }
+  if (!cfg.id) {
+    cfg.id = `model_${Date.now()}`
+    modelConfigs.value.push(cfg)
+  } else {
+    const idx = modelConfigs.value.findIndex(c => c.id === cfg.id)
+    if (idx >= 0) modelConfigs.value[idx] = cfg
+  }
+  localStorage.setItem(IMG_MODEL_CONFIGS_KEY, JSON.stringify(modelConfigs.value))
+  showImageConfigDialog.value = false
+  if (!imageSelectedModel.value) {
+    imageSelectedModel.value = cfg.id
+  }
+}
+
+function deleteModelConfig(modelId) {
+  modelConfigs.value = modelConfigs.value.filter(c => c.id !== modelId)
+  localStorage.setItem(IMG_MODEL_CONFIGS_KEY, JSON.stringify(modelConfigs.value))
+  if (imageSelectedModel.value === modelId) {
+    imageSelectedModel.value = modelConfigs.value[0]?.id || ''
+  }
+}
+
+async function testModelConnection() {
+  if (!editingModelConfig.value?.baseUrl) {
+    alert('请先填写 API 地址')
+    return
+  }
+  try {
+    const baseUrl = editingModelConfig.value.baseUrl.replace(/\/$/, '')
+    const type = editingModelConfig.value.type
+
+    if (type === 'http') {
+      // HTTP 类型用 POST 测试
+      const headers = { 'Content-Type': 'application/json' }
+      if (editingModelConfig.value.apiKey) {
+        headers['Authorization'] = `Bearer ${editingModelConfig.value.apiKey}`
+      }
+      let body = editingModelConfig.value.requestTemplate || '{"prompt":"test"}'
+      body = body.replace(/\{\{prompt\}\}/g, 'test').replace(/\{\{negative_prompt\}\}/g, '')
+
+      const resp = await fetch(baseUrl, { method: 'POST', headers, body })
+      if (resp.ok) {
+        alert('连接成功！')
+      } else {
+        const errText = await resp.text().catch(() => '')
+        alert(`连接失败: ${resp.status} ${errText}`)
+      }
+      return
+    }
+
+    // 其他类型用 GET 测试
+    let testUrl = baseUrl
+    if (type === 'sd_webui') {
+      testUrl = baseUrl + '/sdapi/v1/progress'
+    } else if (type === 'comfyui') {
+      testUrl = baseUrl + '/api/system_stats'
+    } else if (type === 'openai_dalle') {
+      testUrl = 'https://api.openai.com/v1/models'
+    } else if (type === 'stability') {
+      testUrl = 'https://api.stability.ai/v1/account'
+    }
+    const opts = { method: 'GET' }
+    if (editingModelConfig.value.apiKey && (type === 'openai_dalle' || type === 'stability')) {
+      opts.headers = { 'Authorization': `Bearer ${editingModelConfig.value.apiKey}` }
+    }
+    const resp = await fetch(testUrl, opts)
+    if (resp.ok) {
+      alert('连接成功！')
+    } else {
+      alert(`连接失败: ${resp.status} ${resp.statusText}`)
+    }
+  } catch (e) {
+    alert('连接失败: ' + e.message)
+  }
+}
+
+async function generateImages() {
+  if (!imagePrompt.value.trim()) {
+    alert('请输入提示词')
+    return
+  }
+  if (!imageSelectedModel.value) {
+    alert('请先选择或添加模型')
+    return
+  }
+
+  const cfg = modelConfigs.value.find(c => c.id === imageSelectedModel.value)
+  if (!cfg) {
+    alert('未找到选中的模型配置')
+    return
+  }
+
+  imageGenerating.value = true
+  try {
+    const results = []
+    for (let i = 0; i < imageCount.value; i++) {
+      const base64 = await callImageAPI(cfg, imagePrompt.value, imageNegativePrompt.value)
+      results.push(base64)
+    }
+
+    for (const data of results) {
+      const entry = {
+        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        prompt: imagePrompt.value,
+        negativePrompt: imageNegativePrompt.value,
+        modelName: cfg.name,
+        modelType: cfg.type,
+        width: imageWidth.value,
+        height: imageHeight.value,
+        data,
+        createdAt: new Date().toISOString()
+      }
+      imageLibrary.value.unshift(entry)
+    }
+    saveImageLibrary()
+  } catch (e) {
+    alert('生成失败: ' + e.message)
+  } finally {
+    imageGenerating.value = false
+  }
+}
+
+async function callImageAPI(cfg, prompt, negativePrompt) {
+  const baseUrl = (cfg.baseUrl || '').replace(/\/$/, '')
+
+  switch (cfg.type) {
+    case 'sd_webui': {
+      const resp = await fetch(baseUrl + '/sdapi/v1/txt2img', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          negative_prompt: negativePrompt,
+          steps: 20,
+          width: imageWidth.value,
+          height: imageHeight.value
+        })
+      })
+      if (!resp.ok) throw new Error(`SD WebUI error: ${resp.status}`)
+      const json = await resp.json()
+      if (json.images && json.images[0]) {
+        return 'data:image/png;base64,' + json.images[0]
+      }
+      throw new Error('No image in response')
+    }
+    case 'openai_dalle': {
+      const resp = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`
+        },
+        body: JSON.stringify({
+          model: cfg.defaultModel || 'dall-e-3',
+          prompt,
+          n: 1,
+          size: `${imageWidth.value}x${imageHeight.value}`
+        })
+      })
+      if (!resp.ok) throw new Error(`DALL-E error: ${resp.status}`)
+      const json = await resp.json()
+      if (json.data && json.data[0]) {
+        const base64 = await fetch(json.data[0].url).then(r => r.blob()).then(b => {
+          return new Promise(resolve => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.readAsDataURL(b)
+          })
+        })
+        return base64
+      }
+      throw new Error('No image in response')
+    }
+    case 'stability': {
+      const resp = await fetch('https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`
+        },
+        body: JSON.stringify({
+          text_prompts: [{ text: prompt, weight: 1 }, ...(negativePrompt ? [{ text: negativePrompt, weight: -1 }] : [])],
+          height: imageHeight.value,
+          width: imageWidth.value
+        })
+      })
+      if (!resp.ok) throw new Error(`Stability error: ${resp.status}`)
+      const json = await resp.json()
+      if (json.artifacts && json.artifacts[0]) {
+        return 'data:image/png;base64,' + json.artifacts[0].base64
+      }
+      throw new Error('No image in response')
+    }
+    case 'comfyui': {
+      const resp = await fetch(baseUrl + '/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      })
+      if (!resp.ok) throw new Error(`ComfyUI error: ${resp.status}`)
+      const json = await resp.json()
+      const promptId = json.prompt_id
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const histResp = await fetch(baseUrl + '/history/' + promptId)
+        if (histResp.ok) {
+          const hist = await histResp.json()
+          if (hist[promptId]?.outputs) {
+            const outputs = hist[promptId].outputs
+            for (const nodeId of Object.keys(outputs)) {
+              const node = outputs[nodeId]
+              if (node.images) {
+                const img = node.images[0]
+                const imgResp = await fetch(baseUrl + '/view?filename=' + img.filename)
+                if (imgResp.ok) {
+                  const blob = await imgResp.blob()
+                  return new Promise(resolve => {
+                    const reader = new FileReader()
+                    reader.onloadend = () => resolve(reader.result)
+                    reader.readAsDataURL(blob)
+                  })
+                }
+              }
+            }
+          }
+        }
+      }
+      throw new Error('ComfyUI timeout')
+    }
+    case 'http': {
+      let body = cfg.requestTemplate || '{"prompt":"{{prompt}}"}'
+      body = body
+        .replace(/{{prompt}}/g, prompt.replace(/"/g, '\"'))
+        .replace(/{{negative_prompt}}/g, (negativePrompt || '').replace(/"/g, '\"'))
+        .replace(/{{width}}/g, imageWidth.value)
+        .replace(/{{height}}/g, imageHeight.value)
+        .replace(/{{n}}/g, imageCount.value)
+        .replace(/{{aspect_ratio}}/g, `${imageWidth.value}:${imageHeight.value}`)
+
+      const headers = { 'Content-Type': 'application/json' }
+      if (cfg.apiKey) {
+        headers['Authorization'] = `Bearer ${cfg.apiKey}`
+      }
+
+      const resp = await fetch(baseUrl, {
+        method: 'POST',
+        headers,
+        body
+      })
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '')
+        throw new Error(`HTTP ${resp.status}: ${errText}`)
+      }
+
+      const json = await resp.json()
+
+      // 先看用户有没有配 responsePath
+      let imageData = null
+      if (cfg.responsePath) {
+        try {
+          const keys = cfg.responsePath.split('.')
+          let val = json
+          for (const key of keys) {
+            val = val?.[key]
+          }
+          imageData = val
+        } catch {}
+      }
+
+      // 没配或取不到就自动识别常见格式
+      if (!imageData) {
+        if (json.data?.image_urls?.[0]) {
+          const imgResp = await fetch(json.data.image_urls[0])
+          if (!imgResp.ok) throw new Error(`下载图片失败: ${imgResp.status}`)
+          const blob = await imgResp.blob()
+          imageData = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+        } else if (json.data?.image_base64?.[0]) {
+          imageData = 'data:image/png;base64,' + json.data.image_base64[0]
+        } else if (json.images?.[0]) {
+          imageData = 'data:image/png;base64,' + json.images[0]
+        } else if (json.data?.[0]?.url) {
+          const imgResp = await fetch(json.data[0].url)
+          const blob = await imgResp.blob()
+          imageData = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+        } else if (json.artifacts?.[0]?.base64) {
+          imageData = 'data:image/png;base64,' + json.artifacts[0].base64
+        }
+      }
+
+      if (imageData) {
+        if (typeof imageData === 'string' && imageData.startsWith('http')) {
+          const imgResp = await fetch(imageData)
+          const blob = await imgResp.blob()
+          imageData = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+        }
+        return imageData
+      }
+
+      throw new Error('未能从响应中提取图片，请检查响应字段映射或模型返回格式')
+    }
+    default:
+      throw new Error('Unknown model type')
+  }
+}
+
+function attachImageToCard(imgEntry) {
+  if (!selectedCard.value) return
+  const card = cards.value.find(c => c.id === selectedCard.value.id)
+  if (!card) return
+  if (!card.attachedImages) card.attachedImages = []
+  if (card.attachedImages.length >= 3) {
+    alert('最多附加3张图片')
+    return
+  }
+  card.attachedImages.push({
+    id: imgEntry.id,
+    prompt: imgEntry.prompt,
+    data: imgEntry.data
+  })
+  saveData()
+  imagePreviewIndex.value = -1
+}
+
+function saveAsNewCard(imgEntry) {
+  const newCard = {
+    id: `card_${Date.now()}`,
+    content: `[图片素材] ${imgEntry.prompt}`,
+    emotion: 'calm',
+    wordCount: imgEntry.prompt.length,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    attachedImages: [{
+      id: imgEntry.id,
+      prompt: imgEntry.prompt,
+      data: imgEntry.data
+    }]
+  }
+  cards.value.push(newCard)
+  saveData()
+  imagePreviewIndex.value = -1
+}
+
+function copyImagePrompt(imgEntry) {
+  navigator.clipboard.writeText(imgEntry.prompt)
+}
+
+function saveToMaterialLib(imgEntry) {
+  // Already in library, just close
+  imagePreviewIndex.value = -1
+}
+
+function goToNotesImageGen() {
+  if (imagePrompt.value.trim()) {
+    localStorage.setItem('notes_image_prompt', imagePrompt.value)
+    localStorage.setItem('notes_image_negative', imageNegativePrompt.value)
+  }
+  router.push('/notes')
+}
 </script>
 
 <style scoped>
@@ -1468,6 +2304,7 @@ function downloadFile(content, filename, mimeType) {
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   box-shadow: 0 4px 16px var(--shadow);
   z-index: 2;
+  color: var(--text-primary);
 }
 
 .writing-card:hover {
@@ -1491,14 +2328,16 @@ function downloadFile(content, filename, mimeType) {
   border-left: 3px solid var(--accent);
 }
 
-.writing-card.emotion-joy { --card-accent: #fff8e1; }
-.writing-card.emotion-sorrow { --card-accent: #e3f2fd; }
-.writing-card.emotion-calm { --card-accent: #e8f5e9; }
-.writing-card.emotion-anxiety { --card-accent: #fce4ec; }
-.writing-card.emotion-anger { --card-accent: #ffebee; }
-.writing-card.emotion-surprise { --card-accent: #fff3e0; }
-.writing-card.emotion-nostalgia { --card-accent: #f3e5f5; }
-.writing-card.emotion-hope { --card-accent: #e0f7fa; }
+.writing-card.emotion-joy,
+.writing-card.emotion-sorrow,
+.writing-card.emotion-calm,
+.writing-card.emotion-anxiety,
+.writing-card.emotion-anger,
+.writing-card.emotion-surprise,
+.writing-card.emotion-nostalgia,
+.writing-card.emotion-hope {
+  --card-accent: var(--bg-secondary);
+}
 
 .card-header {
   display: flex;
@@ -1521,7 +2360,7 @@ function downloadFile(content, filename, mimeType) {
   padding: 1px 5px;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1529,7 +2368,7 @@ function downloadFile(content, filename, mimeType) {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
@@ -1600,7 +2439,7 @@ function downloadFile(content, filename, mimeType) {
   border: none;
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: #f7fbff;
   font-size: 12px;
   cursor: pointer;
 }
@@ -1642,14 +2481,14 @@ function downloadFile(content, filename, mimeType) {
 
 .card-action-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-primary);
 }
 
 /* Left Panel */
 .left-panel {
   width: 320px;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1682,7 +2521,7 @@ function downloadFile(content, filename, mimeType) {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
@@ -1785,16 +2624,17 @@ function downloadFile(content, filename, mimeType) {
   flex: 1;
   padding: 8px 12px;
   background: var(--accent);
-  color: #fff;
+  color: #f7fbff;
   border: none;
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
+  font-weight: 600;
 }
 
 .btn-primary:hover {
-  background: var(--accent-hover);
+  filter: brightness(1.06);
 }
 
 .btn-secondary {
@@ -1823,15 +2663,16 @@ function downloadFile(content, filename, mimeType) {
 
 .btn-accent {
   background: var(--accent);
-  color: #fff;
+  color: #f7fbff;
   border: none;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
+  font-weight: 600;
 }
 
 .btn-accent:hover:not(:disabled) {
-  background: var(--accent-hover);
+  filter: brightness(1.06);
 }
 
 .btn-accent:disabled {
@@ -1852,7 +2693,7 @@ function downloadFile(content, filename, mimeType) {
 
 .btn-danger:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-primary);
 }
 
 /* Timeline Panel - floating card style */
@@ -1883,7 +2724,7 @@ function downloadFile(content, filename, mimeType) {
 
 .timeline-count {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-primary);
   border-radius: 999px;
   padding: 1px 7px;
   font-size: 11px;
@@ -2062,7 +2903,7 @@ function downloadFile(content, filename, mimeType) {
 /* Floating Toolbar */
 .floating-toolbar {
   position: fixed;
-  right: 24px;
+  left: 340px;
   bottom: 24px;
   display: flex;
   gap: 4px;
@@ -2100,12 +2941,12 @@ function downloadFile(content, filename, mimeType) {
 
 .toolbar-btn.export-btn {
   background: var(--accent);
-  color: #fff;
+  color: #f7fbff;
 }
 
 .toolbar-btn.export-btn:hover {
-  background: var(--accent-hover);
-  color: #fff;
+  filter: brightness(1.06);
+  color: #f7fbff;
 }
 
 .toolbar-divider {
@@ -2267,6 +3108,34 @@ function downloadFile(content, filename, mimeType) {
   color: var(--accent);
 }
 
+.theme-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-toggle .theme-label {
+  margin-left: 0;
+}
+
 .add-btn {
   width: 28px;
   height: 28px;
@@ -2277,12 +3146,12 @@ function downloadFile(content, filename, mimeType) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: #f7fbff;
   transition: background 0.15s;
 }
 
 .add-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  filter: brightness(1.06);
 }
 
 .add-btn:disabled {
@@ -2334,7 +3203,7 @@ function downloadFile(content, filename, mimeType) {
 .emotion-btn.active {
   background: var(--emotion-color);
   border-color: var(--emotion-color);
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .spin-icon {
@@ -2344,5 +3213,495 @@ function downloadFile(content, filename, mimeType) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Quick Notes Rail */
+.quick-notes-rail {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translate(34px, -50%);
+  z-index: 80;
+  transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-notes-rail:hover,
+.quick-notes-rail:focus-within {
+  transform: translate(0, -50%);
+}
+
+.quick-notes-btn {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 12px 0 0 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.quick-notes-drawer {
+  width: 262px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.quick-note-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.quick-note-input {
+  flex: 1;
+  width: auto;
+  min-height: 30px;
+  height: 30px;
+  max-height: 104px;
+  resize: none;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 5px 11px;
+  font-size: 11px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.quick-note-input:focus {
+  border-color: var(--accent);
+}
+
+.quick-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-note-icon-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-note-icon-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.quick-note-tip {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.quick-notes-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Image Generation Rail */
+.image-gen-rail {
+  position: fixed;
+  right: 0;
+  top: calc(50% + 60px);
+  transform: translate(34px, -50%);
+  z-index: 80;
+  transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.image-gen-rail:hover,
+.image-gen-rail:focus-within {
+  transform: translate(0, -50%);
+}
+
+.image-gen-btn {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 12px 0 0 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.image-gen-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.image-gen-drawer {
+  width: 320px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.image-gen-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.image-gen-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-gen-config-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.image-gen-config-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.image-gen-prompt-row {
+  margin-bottom: 8px;
+}
+
+.image-gen-prompt-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: none;
+  font-family: inherit;
+}
+
+.image-gen-prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.image-gen-prompt-input.small {
+  font-size: 11px;
+  padding: 6px;
+}
+
+.image-gen-use-card-btn {
+  font-size: 11px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.image-gen-use-card-btn:hover {
+  text-decoration: underline;
+}
+
+.image-gen-section {
+  margin-bottom: 10px;
+}
+
+.image-gen-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.image-gen-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.image-gen-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.image-gen-size-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.image-gen-size-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.image-gen-size-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #f7fbff;
+}
+
+.image-gen-count-row {
+  display: flex;
+  gap: 4px;
+}
+
+.image-gen-count-btn {
+  width: 32px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.image-gen-count-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.image-gen-count-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #f7fbff;
+}
+
+.image-gen-actions {
+  margin: 12px 0 8px;
+}
+
+.image-gen-generate-btn {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #f7fbff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.image-gen-generate-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.image-gen-generate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.image-gen-results {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.image-gen-results-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.image-gen-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.image-gen-thumb {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.image-gen-thumb:hover {
+  border-color: var(--accent);
+}
+
+.image-gen-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-gen-footer {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.image-gen-link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.image-gen-link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Image Preview Modal */
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+.image-preview-modal {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.image-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-preview-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview-close:hover {
+  background: var(--bg-hover);
+}
+
+.image-preview-body {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.image-preview-body img {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: 8px;
+}
+
+.image-preview-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.image-preview-action-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.image-preview-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Image Config Dialog */
+.image-config-dialog {
+  width: 420px;
 }
 </style>
