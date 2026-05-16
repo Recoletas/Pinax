@@ -391,7 +391,7 @@
       storage-key="writing_image_library_v1"
       side="right"
       :vertical-offset="0"
-      :horizontal-offset="210"
+      :horizontal-offset="rightSidebarWidth"
       drawer-title="小说生图"
       selected-prompt-label="选中文本"
       :selected-text="selectedText"

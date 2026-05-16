@@ -244,7 +244,9 @@ const railStyle = computed(() => {
   const offset = props.horizontalOffset > 0 ? `${props.horizontalOffset}px` : '0px'
   return {
     [side]: offset,
-    '--rail-shift-y': `${props.verticalOffset}px`
+    '--rail-shift-y': `${props.verticalOffset}px`,
+    '--rail-right-offset': props.side === 'right' ? offset : undefined,
+    '--rail-left-offset': props.side === 'left' ? offset : undefined
   }
 })
 
@@ -634,7 +636,8 @@ async function urlToDataUrl(url) {
   display: flex;
   align-items: center;
   gap: 10px;
-  z-index: 90;
+  z-index: 200;
+  transition: transform 0.2s ease;
 }
 
 .image-gen-rail--right {
@@ -645,9 +648,23 @@ async function urlToDataUrl(url) {
   flex-direction: row;
 }
 
+.image-gen-rail--right {
+  right: var(--rail-right-offset, 0px);
+  transform: translateX(48px) translateY(calc(-50% + var(--rail-shift-y, 0px)));
+}
+
+.image-gen-rail--left {
+  left: var(--rail-left-offset, 0px);
+  transform: translateX(-48px) translateY(calc(-50% + var(--rail-shift-y, 0px)));
+}
+
 .image-gen-rail:hover,
 .image-gen-rail:focus-within {
-  transform: translateY(calc(-50% + var(--rail-shift-y, 0px)));
+  transform: translateX(0) translateY(calc(-50% + var(--rail-shift-y, 0px)));
+}
+
+.image-gen-rail:has(.image-gen-drawer) {
+  transform: translateX(0) translateY(calc(-50% + var(--rail-shift-y, 0px)));
 }
 
 .image-gen-btn {

@@ -121,6 +121,18 @@
 
     <Character v-if="showCharacter" @close="showCharacter = false" />
     <Settings v-if="showSettings" @close="showSettings = false" />
+
+    <div class="game-image-gen-rail">
+      <ImageGenRail
+        storage-key="game_image_library_v1"
+        side="right"
+        :vertical-offset="0"
+        :horizontal-offset="0"
+        drawer-title="体验生图"
+        selected-prompt-label="当前输入"
+        :selected-text="gameStore.inputText || ''"
+      />
+    </div>
   </div>
 </template>
 
@@ -128,6 +140,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
+import ImageGenRail from '../components/ImageGenRail.vue'
 import { useTheme } from '../composables/useTheme'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
@@ -457,20 +470,47 @@ function jumpToWriting() {
 }
 
 .quick-notes-rail {
-  position: fixed;
-  right: 0;
-  top: 50%;
+  position: fixed !important;
+  right: 0 !important;
+  top: calc(50% - 60px) !important; /* 向上移动 60px */
+  z-index: 2000 !important; /* 确保层级足够高 */
   transform: translate(34px, -50%);
-  z-index: 80;
   transition: transform 0.2s ease;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+.quick-notes-rail > *,
+.game-image-gen-rail > * {
+  pointer-events: auto;
+}
+
+
 .quick-notes-rail:hover,
 .quick-notes-rail:focus-within {
   transform: translate(0, -50%);
+}
+
+.game-image-gen-rail :deep(.image-gen-rail) {
+  position: fixed !important;
+  right: 0 !important;
+  top: calc(50% + 60px) !important; /* 向下移动 60px，彻底避开笔记 */
+  z-index: 2001 !important; /* 比笔记更高，防止遮挡 */
+  transform: translate(34px, -50%) !important;
+  display: flex !important;
+  visibility: visible !important;
+}
+
+.game-image-gen-rail :deep(.image-gen-rail:hover),
+.game-image-gen-rail :deep(.image-gen-rail:has(.image-gen-drawer)) {
+  transform: translate(0, -50%) !important;
+}
+
+/* 4. 辅助：修正按钮样式，确保它在 wrapper 中可见 */
+.game-image-gen-rail :deep(.image-gen-btn) {
+  display: flex !important;
+  opacity: 1 !important;
 }
 
 .quick-notes-btn {
