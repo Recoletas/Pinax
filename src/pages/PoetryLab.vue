@@ -272,6 +272,16 @@
       </main>
     </div>
 
+    <ImageGenRail
+      storage-key="poetry_image_library_v1"
+      side="left"
+      :vertical-offset="0"
+      :horizontal-offset="340"
+      drawer-title="诗歌生图"
+      selected-prompt-label="节点及例句"
+      :selected-text="selectedNodePrompt"
+    />
+
     <aside class="quick-notes-rail" aria-label="快捷入口">
       <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
         <div class="quick-note-row">
@@ -343,6 +353,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getApiSettings, sendChat } from '../services/api'
 import { useTheme } from '../composables/useTheme'
+import ImageGenRail from '../components/ImageGenRail.vue'
 
 const TREE_KEY = 'poetry_idea_tree_v2'
 const POS_KEY = 'poetry_idea_positions_v2'
@@ -439,6 +450,13 @@ const displayedSelectedNode = computed(() => {
     return findNodeById(displayedRootTree.value, snapshotSelectedNodeId.value) || displayedRootTree.value
   }
   return selectedNode.value
+})
+const selectedNodePrompt = computed(() => {
+  if (!displayedSelectedNode.value) return ''
+  const node = displayedSelectedNode.value
+  const lines = [node.text]
+  if (node.examples?.[0]) lines.push(node.examples[0])
+  return lines.join(' ').replace(/\n+/g, ' ').trim()
 })
 const currentSnapshotLabel = computed(() => currentSnapshot.value?.label || '')
 const interactionModeHint = computed(() => {

@@ -387,6 +387,16 @@
       </main>
     </div>
 
+    <ImageGenRail
+      storage-key="writing_image_library_v1"
+      side="right"
+      :vertical-offset="0"
+      :horizontal-offset="210"
+      drawer-title="小说生图"
+      selected-prompt-label="选中文本"
+      :selected-text="selectedText"
+    />
+
     <aside class="quick-notes-rail" aria-label="快捷入口">
       <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
         <div class="quick-note-row">
@@ -508,6 +518,7 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
+import ImageGenRail from '../components/ImageGenRail.vue'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
