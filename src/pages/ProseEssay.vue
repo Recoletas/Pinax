@@ -194,7 +194,7 @@
       </aside>
 
       <!-- Canvas area with absolute positioned cards -->
-      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }">
+      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
         <div class="zone-divider" :style="{ left: (canvasSplitX * 100) + '%' }">
           <span class="zone-label zone-material">素材区</span>
           <span class="zone-label zone-editing">编排区</span>
@@ -828,7 +828,7 @@ function layoutCards(cardsToLayout) {
         // Fan arrangement - cards spread in an arc (like a hand of cards)
         const total = cardIdsInPile.length
         const fanStep = 10 // degrees between cards
-        const fanRadius = isExpanded ? 180 : 100
+        const fanRadius = isExpanded ? 250 : 150
         const firstCard = cardsToLayout.find(c => c.id === cardIdsInPile[0])
         const cx = firstCard?.x ?? baseX
         const cy = firstCard?.y ?? baseY
@@ -1661,16 +1661,16 @@ function onCardDrop(targetCard, e) {
 }
 
 function onCardDragEnd() {
-  // If dragged card was in a pile but dropped outside any card, remove from pile
+  console.log('dragend, draggingCardId=' + draggingCardId.value + ' pileId=' + cards.value.find(c => c.id === draggingCardId.value)?.pileId)
   const cardId = draggingCardId.value
   if (cardId) {
     const card = cards.value.find(c => c.id === cardId)
     if (card?.pileId) {
+      console.log('dragend: removing from pile')
       const pile = piles.value.find(p => p.pileId === card.pileId)
       if (pile) {
         pile.cardIds = pile.cardIds.filter(id => id !== cardId)
         if (pile.cardIds.length < 2) {
-          // Dissolve pile if only 1 or 0 cards left
           piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
         }
         card.pileId = null
@@ -1680,6 +1680,63 @@ function onCardDragEnd() {
     }
   }
   draggingCardId.value = null
+}
+
+function onCardWallDragOver(e) {
+  console.log('wall dragover, dragging=' + draggingCardId.value)
+  if (!draggingCardId.value) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+}
+
+function onCardWallDrop(e) {
+  e.preventDefault()
+  console.log('=== WALL DROP FIRED ===')
+  console.log('cardId from state=' + draggingCardId.value)
+  const cardId = draggingCardId.value
+  if (!cardId) {
+    console.log('no cardId, returning')
+    draggingCardId.value = null
+    return
+  }
+
+  const card = cards.value.find(c => c.id === cardId)
+  console.log('card found=', card?.id, 'pileId=' + card?.pileId)
+  if (!card) {
+    draggingCardId.value = null
+    return
+  }
+
+  if (!card.pileId) {
+    console.log('card has no pileId, nothing to do')
+    draggingCardId.value = null
+    return
+  }
+
+  const pile = piles.value.find(p => p.pileId === card.pileId)
+  if (pile) {
+    console.log('removing from pile, pile cardIds before=', pile.cardIds)
+    pile.cardIds = pile.cardIds.filter(id => id !== cardId)
+    console.log('pile cardIds after=', pile.cardIds)
+    if (pile.cardIds.length < 2) {
+      console.log('dissolving pile')
+      piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
+    }
+  }
+
+  const rect = e.currentTarget.getBoundingClientRect()
+  const dropX = e.clientX - rect.left
+  const dropY = e.clientY - rect.top
+  const wall = cardWallRef.value
+  const scrollX = wall?.scrollLeft || 0
+  const scrollY = wall?.scrollTop || 0
+  card.x = dropX + scrollX - 140
+  card.y = dropY + scrollY - 90
+  card.pileId = null
+  console.log('card repositioned to', card.x, card.y)
+  draggingCardId.value = null
+  updateLayout()
+  saveData()
 }
 
 function removeFromOutline(index) {
