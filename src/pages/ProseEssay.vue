@@ -22,6 +22,13 @@
         </button>
       </div>
       <div class="pe-header-right">
+        <div class="mode-switch">
+          <span class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">写作</span>
+          <button class="mode-toggle" @click="currentMode = currentMode === 'writing' ? 'directing' : 'writing'" :class="{ 'is-directing': currentMode === 'directing' }">
+            <span class="mode-toggle-dot"></span>
+          </button>
+          <span class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">编导</span>
+        </div>
         <span class="card-count">{{ cards.length }} 张卡片</span>
         <button class="icon-btn" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -95,6 +102,40 @@
             </div>
           </div>
 
+          <!-- Director mode extra fields -->
+          <template v-if="currentMode === 'directing'">
+            <div class="detail-panel-section">
+              <label class="section-label">景别</label>
+              <select v-model="editingShotType" class="input">
+                <option value="">选择景别...</option>
+                <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
+              </select>
+            </div>
+
+            <div class="detail-panel-section">
+              <label class="section-label">运镜</label>
+              <select v-model="editingCameraMovement" class="input">
+                <option value="">选择运镜...</option>
+                <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
+              </select>
+            </div>
+
+            <div class="detail-panel-section">
+              <label class="section-label">时长（秒）</label>
+              <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
+            </div>
+
+            <div class="detail-panel-section">
+              <label class="section-label">台词</label>
+              <textarea v-model="editingDialogue" class="input" rows="2" placeholder="角色台词..."></textarea>
+            </div>
+
+            <div class="detail-panel-section">
+              <label class="section-label">音效</label>
+              <textarea v-model="editingSoundEffects" class="input" rows="2" placeholder="环境音、音乐..."></textarea>
+            </div>
+          </template>
+
           <div class="detail-panel-actions">
             <button class="btn-accent expand-btn" @click="expandByEmotion" :disabled="isGenerating">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -131,15 +172,54 @@
 
         <div class="outline-section">
           <div class="outline-header">
-            <span class="outline-title">大纲序列</span>
-            <button class="add-btn" @click="addToOutline" :disabled="!selectedCard" title="将选中卡片加入大纲">
+            <span class="outline-title">{{ currentMode === 'directing' ? '时间轴' : '大纲序列' }}</span>
+            <button class="add-btn" @click="addToOutline" :disabled="!selectedCard" :title="currentMode === 'directing' ? '将选中卡片加入时间轴' : '将选中卡片加入大纲'">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
 
-          <div class="outline-list" ref="outlineListRef">
+          <!-- Director mode timeline view -->
+          <div v-if="currentMode === 'directing'" class="timeline-view">
+            <div class="timeline-track">
+              <div
+                v-for="(item, index) in outline"
+                :key="item.pileId || item.cardId"
+                class="timeline-card"
+                :class="{ active: selectedCard?.id === item.cardId }"
+                :style="{ width: getTimelineCardWidth(item) + 'px' }"
+                @click="jumpToCard(item.pileId ? piles.find(p => p.pileId === item.pileId)?.cardIds[0] : item.cardId)"
+                draggable="true"
+                @dragstart="onOutlineDragStart(index, $event)"
+                @dragover.prevent="onOutlineDragOver(index)"
+                @drop="onOutlineDrop(index)"
+                @dragend="onOutlineDragEnd"
+              >
+                <div class="timeline-card-header">
+                  <span class="timeline-index">{{ index + 1 }}</span>
+                  <span class="timeline-duration">{{ getTimelineDuration(item) }}s</span>
+                </div>
+                <div class="timeline-card-content">{{ item.preview }}</div>
+                <div class="timeline-card-meta" v-if="getCardExtraFields(item.cardId)">
+                  <span v-if="getCardExtraFields(item.cardId).shotType">{{ getShotTypeLabel(getCardExtraFields(item.cardId).shotType) }}</span>
+                </div>
+              </div>
+              <div v-if="outline.length === 0" class="timeline-empty">
+                点击 + 将卡片加入时间轴
+              </div>
+            </div>
+            <!-- Audio track layer -->
+            <div class="audio-track">
+              <div class="audio-track-label">音轨</div>
+              <div class="audio-track-content">
+                <!-- Placeholder for audio markers -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Writing mode outline list -->
+          <div v-else class="outline-list" ref="outlineListRef">
             <div
               v-for="(item, index) in outline"
               :key="item.pileId || item.cardId"
@@ -215,7 +295,8 @@
             v-for="edge in renderedEdges"
             :key="edge.id"
             :d="edge.d"
-            :class="['edge', `edge-${edge.type}`]"
+            :class="['edge', `edge-${edge.type}`, getEdgeClass(edge.type)]"
+            :style="getEdgeStyle(edge)"
             marker-end="url(#prose-arrow)"
           />
         </svg>
@@ -260,6 +341,12 @@
           <div class="card-header">
             <span class="card-emotion-badge" :style="{ background: emotionColors[card.emotion]?.badge || '#888' }">
               {{ emotionLabels[card.emotion] || card.emotion }}
+            </span>
+            <span v-if="currentMode === 'directing' && card.extraFields?.shotType" class="card-shot-badge" :title="'景别: ' + getShotTypeLabel(card.extraFields.shotType)">
+              {{ getShotTypeLabel(card.extraFields.shotType) }}
+            </span>
+            <span v-if="currentMode === 'directing' && card.extraFields?.duration" class="card-duration-badge">
+              {{ card.extraFields.duration }}s
             </span>
             <span v-if="getContinuationGroup(card.id)?.size" class="continuation-indicator" title="已生成延伸卡片">
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
@@ -340,39 +427,7 @@
         <button @click="exportToMarkdown">导出为 Markdown</button>
         <button @click="exportToTxt">导出为 TXT</button>
         <button @click="exportToJson">导出完整关系网 JSON</button>
-      </div>
-    </div>
-
-    <!-- 右下角悬浮工具栏 -->
-    <div class="floating-toolbar">
-      <button class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div class="toolbar-divider"></div>
-      <button class="toolbar-btn" @click="insertCard" title="新建空白卡片">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-        </svg>
-      </button>
-      <button class="toolbar-btn" @click="showEdgeDialog = true" :disabled="!selectedCard" title="添加关联">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div class="toolbar-divider"></div>
-      <button class="toolbar-btn export-btn" @click="showExportMenu = !showExportMenu" title="导出">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M7 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div v-if="showExportMenu" class="export-menu">
-        <button @click="exportToMarkdown">导出为 Markdown</button>
-        <button @click="exportToTxt">导出为 TXT</button>
-        <button @click="exportToJson">导出完整关系网 JSON</button>
+        <button v-if="currentMode === 'directing'" @click="exportToPremiereFormat">剪映/Premiere 格式</button>
       </div>
     </div>
 
@@ -446,10 +501,18 @@
 
         <div class="image-gen-section">
           <label class="image-gen-label">模型</label>
-          <select v-model="imageSelectedModel" class="image-gen-select">
-            <option value="">选择模型...</option>
-            <option v-for="cfg in modelConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</option>
-          </select>
+          <div class="image-gen-model-row">
+            <select v-model="imageSelectedModel" class="image-gen-select">
+              <option value="">选择模型...</option>
+              <option v-for="cfg in modelConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</option>
+            </select>
+            <button v-if="imageSelectedModel" class="image-gen-edit-model-btn" type="button" @click="editSelectedModel" title="编辑模型">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="image-gen-section">
@@ -610,7 +673,7 @@
             <label>关联类型</label>
             <div class="edge-type-grid">
               <button
-                v-for="type in edgeTypes"
+                v-for="type in (currentMode === 'directing' ? directorEdgeTypes : edgeTypes)"
                 :key="type.value"
                 class="edge-type-btn"
                 :class="{ active: newEdgeType === type.value }"
@@ -649,6 +712,50 @@ import { getApiSettings, sendChat } from '../services/api'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+
+// Mode switching
+const currentMode = ref('writing') // 'writing' | 'directing'
+
+// Director mode edge types
+const directorEdgeTypes = [
+  { value: 'jump_cut', label: '跳切', desc: '快速切换场景', color: '#ff7043' },
+  { value: 'dissolve', label: '叠化', desc: '画面渐变过渡', color: '#ab47bc' },
+  { value: 'fade', label: '淡入淡出', desc: '淡出到黑或白', color: '#78909c' },
+  { value: 'contrast_montage', label: '对比蒙太奇', desc: '对比性剪辑', color: '#ef5350' },
+  { value: 'cross_cut', label: '交叉剪辑', desc: '平行事件交替', color: '#26c6da' },
+  { value: 'match_cut', label: '匹配剪辑', desc: '相似性转场', color: '#66bb6a' }
+]
+
+// Director mode shot options
+const shotTypes = [
+  { value: 'extreme_wide', label: '极远景' },
+  { value: 'wide', label: '远景' },
+  { value: 'full', label: '全景' },
+  { value: 'medium_wide', label: '中远景' },
+  { value: 'medium', label: '中景' },
+  { value: 'medium_close', label: '中近景' },
+  { value: 'close_up', label: '近景' },
+  { value: 'extreme_close_up', label: '特写' },
+  { value: 'two_shot', label: '双人镜头' },
+  { value: 'over_shoulder', label: '过肩镜头' },
+  { value: 'pov', label: '主观镜头' },
+  { value: 'aerial', label: '航拍' }
+]
+
+const cameraMovements = [
+  { value: 'static', label: '固定' },
+  { value: 'pan', label: '横摇' },
+  { value: 'tilt', label: '竖摇' },
+  { value: 'dolly', label: '推拉' },
+  { value: 'track', label: '轨道' },
+  { value: 'crane', label: '升降' },
+  { value: 'zoom', label: '变焦' },
+  { value: 'handheld', label: '手持' },
+  { value: 'steadicam', label: '稳定器' },
+  { value: 'spin', label: '旋转' },
+  { value: 'tilt_up', label: '仰拍' },
+  { value: 'tilt_down', label: '俯拍' }
+]
 
 // Quick note
 const QUICK_NOTE_DRAFT_KEY = 'prose_quick_note_draft'
@@ -777,6 +884,13 @@ const edgesSvgRef = ref(null)
 const apiSettings = ref(null)
 const canvasWidth = ref(1200)
 const canvasHeight = ref(800)
+
+// Director mode editing
+const editingShotType = ref('')
+const editingCameraMovement = ref('')
+const editingDuration = ref(3)
+const editingDialogue = ref('')
+const editingSoundEffects = ref('')
 
 // Piles
 const piles = ref([])
@@ -1111,7 +1225,8 @@ function loadData() {
       pileId: card.pileId || null,
       zone: card.zone || inferZone(card.id),
       x: card.x ?? (60 + (idx % 3) * 320),
-      y: card.y ?? (60 + Math.floor(idx / 3) * 200)
+      y: card.y ?? (60 + Math.floor(idx / 3) * 200),
+      extraFields: card.extraFields || null
     }))
 
     try { piles.value = JSON.parse(localStorage.getItem(PILES_KEY) || '[]') } catch { piles.value = [] }
@@ -1170,12 +1285,48 @@ function handleKeydown(e) {
   }
 }
 
+function getShotTypeLabel(shotType) {
+  const found = shotTypes.find(s => s.value === shotType)
+  return found ? found.label : shotType
+}
+
+function getTimelineCardWidth(item) {
+  const extra = getCardExtraFields(item.cardId)
+  const duration = extra?.duration || 3
+  return Math.max(80, duration * 20) // 20px per second, minimum 80px
+}
+
+function getTimelineDuration(item) {
+  const extra = getCardExtraFields(item.cardId)
+  return extra?.duration || 3
+}
+
+function getCardExtraFields(cardId) {
+  if (!cardId) return null
+  const card = cards.value.find(c => c.id === cardId)
+  return card?.extraFields || null
+}
+
 function selectCard(card) {
   selectedCard.value = card
   editingContent.value = card.content;
   editingEmotion.value = card.emotion;
   if (!cardHistory.value[card.id]) {
     cardHistory.value[card.id] = { past: [], future: [] }
+  }
+  // Load director mode extra fields
+  if (card.extraFields) {
+    editingShotType.value = card.extraFields.shotType || ''
+    editingCameraMovement.value = card.extraFields.cameraMovement || ''
+    editingDuration.value = card.extraFields.duration || 3
+    editingDialogue.value = card.extraFields.dialogue || ''
+    editingSoundEffects.value = card.extraFields.soundEffects || ''
+  } else {
+    editingShotType.value = ''
+    editingCameraMovement.value = ''
+    editingDuration.value = 3
+    editingDialogue.value = ''
+    editingSoundEffects.value = ''
   }
 }
 
@@ -1188,6 +1339,16 @@ function saveCardDetail() {
   card.emotion = editingEmotion.value
   card.wordCount = countWords(editingContent.value)
   card.updatedAt = new Date().toISOString()
+  // Save director mode extra fields
+  if (currentMode.value === 'directing') {
+    card.extraFields = {
+      shotType: editingShotType.value,
+      cameraMovement: editingCameraMovement.value,
+      duration: editingDuration.value,
+      dialogue: editingDialogue.value,
+      soundEffects: editingSoundEffects.value
+    }
+  }
   addTimeline('更新卡片')
   saveData()
 }
@@ -1443,19 +1604,38 @@ async function generateCards() {
     generationMessage.value = generationMessages[generationMsgIndex]
   }, 1500)
   try {
-    const systemPrompt = [
-      '你是散文随笔写作助手。根据给定的主题，生成一组自由联想的写作卡片。',
-      '要求：',
-      '1. 每张卡片是一段完整的文字（80-200字），文笔优美有意境',
-      '2. 为每张卡片选择一个情绪标签：喜悦、忧伤、平静、焦虑、愤怒、惊艳、怀旧、希望',
-      '3. 必须用 JSON 数组格式输出，每项包含 content 和 emotion',
-      '4. 只输出 JSON，不要任何解释',
-      '5. 用 BEGIN_CARDS 和 END_CARDS 包裹数组',
-      '示例：',
-      'BEGIN_CARDS',
-      '[{"content":"...","emotion":"平静"},{"content":"...","emotion":"喜悦"}]',
-      'END_CARDS'
-    ].join('\n')
+    let systemPrompt
+    if (currentMode.value === 'directing') {
+      systemPrompt = [
+        '你是影视分镜助手。根据给定的主题，生成一组分镜描述卡片。',
+        '要求：',
+        '1. 每张卡片是一段分镜描述（60-120字），描述画面构图和场景氛围',
+        '2. 必须用 JSON 数组格式输出，每项包含 content, emotion, shotType, cameraMovement, duration',
+        '3. shotType 可选值：extreme_wide/wide/full/medium_wide/medium/medium_close/close_up/extreme_close_up/two_shot/over_shoulder/pov/aerial',
+        '4. cameraMovement 可选值：static/pan/tilt/dolly/track/crane/zoom/handheld/steadicam/spin/tilt_up/tilt_down',
+        '5. duration 为建议时长（秒），填数字',
+        '6. 只输出 JSON，不要任何解释',
+        '7. 用 BEGIN_CARDS 和 END_CARDS 包裹数组',
+        '示例：',
+        'BEGIN_CARDS',
+        '[{"content":"...","emotion":"平静","shotType":"wide","cameraMovement":"static","duration":5}]',
+        'END_CARDS'
+      ].join('\n')
+    } else {
+      systemPrompt = [
+        '你是散文随笔写作助手。根据给定的主题，生成一组自由联想的写作卡片。',
+        '要求：',
+        '1. 每张卡片是一段完整的文字（80-200字），文笔优美有意境',
+        '2. 为每张卡片选择一个情绪标签：喜悦、忧伤、平静、焦虑、愤怒、惊艳、怀旧、希望',
+        '3. 必须用 JSON 数组格式输出，每项包含 content 和 emotion',
+        '4. 只输出 JSON，不要任何解释',
+        '5. 用 BEGIN_CARDS 和 END_CARDS 包裹数组',
+        '示例：',
+        'BEGIN_CARDS',
+        '[{"content":"...","emotion":"平静"},{"content":"...","emotion":"喜悦"}]',
+        'END_CARDS'
+      ].join('\n')
+    }
 
     const response = await sendChat([
       { role: 'system', content: systemPrompt },
@@ -1553,7 +1733,7 @@ function createNewCards(generated, topic) {
   const newCards = generated.map(item => {
     let emotion = item.emotion || 'calm'
     if (!validEmotions.includes(emotion)) emotion = 'calm'
-    return {
+    const card = {
       id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       content: item.content || '',
       emotion,
@@ -1565,6 +1745,17 @@ function createNewCards(generated, topic) {
       x: null,
       y: null
     }
+    // Add director mode extra fields
+    if (currentMode.value === 'directing') {
+      card.extraFields = {
+        shotType: item.shotType || '',
+        cameraMovement: item.cameraMovement || '',
+        duration: item.duration || 3,
+        dialogue: item.dialogue || '',
+        soundEffects: item.soundEffects || ''
+      }
+    }
+    return card
   }).filter(c => c.content.length > 0)
 
   if (newCards.length === 0) return
@@ -1802,19 +1993,58 @@ function addEdge() {
 // Export operations
 function exportToMarkdown() {
   showExportMenu.value = false
-  let md = `# ${currentTopic.value || '散文随笔'}\n\n`
-
-  for (let i = 0; i < outline.value.length; i++) {
-    const item = outline.value[i]
-    const card = cards.value.find(c => c.id === item.cardId)
-    if (card) {
-      md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
+  if (currentMode.value === 'directing') {
+    // Director mode: export as storyboard markdown
+    let md = `# 分镜脚本\n\n`
+    md += `**主题：** ${currentTopic.value || '未命名'}\n\n`
+    md += `| 序号 | 时长 | 景别 | 运镜 | 画面描述 | 台词 | 音效 |\n`
+    md += `|------|------|------|------|----------|------|------|\n`
+    outline.value.forEach((item, index) => {
+      const card = cards.value.find(c => c.id === item.cardId)
+      if (card) {
+        const ef = card.extraFields || {}
+        md += `| ${index + 1} | ${ef.duration || 3}s | ${getShotTypeLabel(ef.shotType) || '-'} | ${getCameraMovementLabel(ef.cameraMovement) || '-'} | ${card.content.slice(0, 50)}... | ${ef.dialogue || '-'} | ${ef.soundEffects || '-'} |\n`
+      }
+    })
+    downloadFile(md, '分镜脚本.md', 'text/markdown')
+    addTimeline('导出分镜脚本 Markdown')
+  } else {
+    // Writing mode: existing markdown export
+    let md = `# ${currentTopic.value || '散文随笔'}\n\n`
+    for (let i = 0; i < outline.value.length; i++) {
+      const item = outline.value[i]
+      const card = cards.value.find(c => c.id === item.cardId)
+      if (card) {
+        md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
+      }
     }
+    md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
+    downloadFile(md, '散文随笔.md', 'text/markdown')
+    addTimeline('导出为 Markdown')
   }
+}
 
-  md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
-  downloadFile(md, '散文随笔.md', 'text/markdown')
-  addTimeline('导出为 Markdown')
+function getCameraMovementLabel(movement) {
+  const found = cameraMovements.find(m => m.value === movement)
+  return found ? found.label : movement
+}
+
+function getEdgeClass(edgeType) {
+  if (currentMode.value === 'directing') {
+    return 'director-edge'
+  }
+  return ''
+}
+
+function getEdgeStyle(edge) {
+  if (currentMode.value === 'directing') {
+    const edgeTypeConfig = directorEdgeTypes.find(e => e.value === edge.type)
+    if (edgeTypeConfig) {
+      return { stroke: edgeTypeConfig.color }
+    }
+    return { stroke: 'var(--accent)' }
+  }
+  return { stroke: edgeColors[edge.type] || 'var(--accent)' }
 }
 
 function exportToTxt() {
@@ -1836,16 +2066,42 @@ function exportToTxt() {
 
 function exportToJson() {
   showExportMenu.value = false
-  const data = {
-    topic: currentTopic.value,
-    exportedAt: new Date().toISOString(),
-    cards: cards.value,
-    edges: edges.value,
-    outline: outline.value,
-    timeline: timeline.value
+  if (currentMode.value === 'directing') {
+    // Director mode: export as AI video prompts JSON
+    const prompts = outline.value.map((item, index) => {
+      const card = cards.value.find(c => c.id === item.cardId)
+      const ef = card?.extraFields || {}
+      return {
+        index: index + 1,
+        shotType: ef.shotType || 'medium',
+        cameraMovement: ef.cameraMovement || 'static',
+        duration: ef.duration || 3,
+        description: card?.content || '',
+        dialogue: ef.dialogue || '',
+        soundEffects: ef.soundEffects || ''
+      }
+    })
+    const data = {
+      topic: currentTopic.value,
+      exportedAt: new Date().toISOString(),
+      mode: 'directing',
+      prompts
+    }
+    downloadFile(JSON.stringify(data, null, 2), 'AI视频提示词.json', 'application/json')
+    addTimeline('导出 AI 视频提示词 JSON')
+  } else {
+    const data = {
+      topic: currentTopic.value,
+      exportedAt: new Date().toISOString(),
+      mode: 'writing',
+      cards: cards.value,
+      edges: edges.value,
+      outline: outline.value,
+      timeline: timeline.value
+    }
+    downloadFile(JSON.stringify(data, null, 2), '散文随笔_关系网.json', 'application/json')
+    addTimeline('导出完整关系网 JSON')
   }
-  downloadFile(JSON.stringify(data, null, 2), '散文随笔_关系网.json', 'application/json')
-  addTimeline('导出完整关系网 JSON')
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -1894,6 +2150,21 @@ function clearQuickNoteDraft() {
     // ignore localStorage failures
   }
   nextTick(() => resizeQuickNoteInput())
+}
+
+function exportToPremiereFormat() {
+  showExportMenu.value = false
+  let csv = '序号,景别,运镜,时长(秒),画面描述,台词,音效\n'
+  outline.value.forEach((item, index) => {
+    const card = cards.value.find(c => c.id === item.cardId)
+    const ef = card?.extraFields || {}
+    const desc = (card?.content || '').replace(/"/g, '""').replace(/\n/g, ' ')
+    const dialogue = (ef.dialogue || '').replace(/"/g, '""').replace(/\n/g, ' ')
+    const soundFx = (ef.soundEffects || '').replace(/"/g, '""').replace(/\n/g, ' ')
+    csv += `${index + 1},"${getShotTypeLabel(ef.shotType) || ''}","${getCameraMovementLabel(ef.cameraMovement) || ''}",${ef.duration || 3},"${desc}","${dialogue}","${soundFx}"\n`
+  })
+  downloadFile(csv, '分镜导入_Premiere.csv', 'text/csv')
+  addTimeline('导出剪映/Premiere 格式')
 }
 
 watch(quickNoteOpen, (open) => {
@@ -2010,6 +2281,14 @@ function openImageConfig() {
     defaultModel: '',
     requestTemplate: ''
   }
+  showImageConfigDialog.value = true
+}
+
+function editSelectedModel() {
+  if (!imageSelectedModel.value) return
+  const cfg = modelConfigs.value.find(c => c.id === imageSelectedModel.value)
+  if (!cfg) return
+  editingModelConfig.value = { ...cfg, requestTemplate: cfg.requestTemplate || '' }
   showImageConfigDialog.value = true
 }
 
@@ -2461,8 +2740,57 @@ function goToNotesImageGen() {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 120px;
+  min-width: 180px;
   justify-content: flex-end;
+}
+
+/* Mode Switch */
+.mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.mode-label.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.mode-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border);
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.mode-toggle.is-directing {
+  background: var(--accent);
+}
+
+.mode-toggle-dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s;
+}
+
+.mode-toggle.is-directing .mode-toggle-dot {
+  transform: translateX(16px);
 }
 
 .card-count {
@@ -3168,6 +3496,125 @@ function goToNotesImageGen() {
   color: var(--danger);
 }
 
+/* Director mode timeline view */
+.timeline-view {
+  padding: 8px;
+}
+
+.timeline-track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 4px;
+  min-height: 100px;
+}
+
+.timeline-card {
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 80px;
+}
+
+.timeline-card:hover {
+  border-color: var(--accent);
+}
+
+.timeline-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.timeline-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.timeline-index {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.timeline-duration {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.timeline-card-content {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.timeline-card-meta {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.timeline-empty {
+  text-align: center;
+  padding: 24px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 100%;
+}
+
+.audio-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  min-height: 32px;
+}
+
+.audio-track-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.audio-track-content {
+  flex: 1;
+  height: 16px;
+  background: var(--border);
+  border-radius: 4px;
+}
+
+/* Card badges for director mode */
+.card-shot-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.card-duration-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
 .outline-empty {
   text-align: center;
   padding: 24px 16px;
@@ -3785,13 +4232,38 @@ function goToNotesImageGen() {
 }
 
 .image-gen-select {
-  width: 100%;
+  flex: 1;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 12px;
+}
+
+.image-gen-model-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.image-gen-edit-model-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.image-gen-edit-model-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .image-gen-sizes {
