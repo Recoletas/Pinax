@@ -62,14 +62,6 @@
             </span>
           </div>
 
-          <div class="detail-panel-section">
-            <label class="section-label">内容</label>
-            <textarea
-              v-model="editingContent"
-              class="detail-textarea"
-              placeholder="编辑卡片内容..."
-            ></textarea>
-          </div>
 
           <div class="detail-panel-section">
             <label class="section-label">情绪</label>
@@ -150,16 +142,21 @@
           <div class="outline-list" ref="outlineListRef">
             <div
               v-for="(item, index) in outline"
-              :key="item.cardId"
+              :key="item.pileId || item.cardId"
               class="outline-item"
-              :class="{ active: selectedCard?.id === item.cardId, 'outline-dragging': draggingOutlineIndex === index }"
+              :class="{ active: selectedCard?.id === item.cardId, 'outline-dragging': draggingOutlineIndex === index, 'is-pile-item': !!item.pileId }"
               :draggable="true"
-              @click="jumpToCard(item.cardId)"
+              @click="jumpToCard(item.pileId ? piles.find(p => p.pileId === item.pileId)?.cardIds[0] : item.cardId)"
               @dragstart="onOutlineDragStart(index, $event)"
               @dragover.prevent="onOutlineDragOver(index)"
               @drop="onOutlineDrop(index)"
               @dragend="onOutlineDragEnd"
+              @dblclick="item.pileId ? startPileInlineEdit(piles.find(p => p.pileId === item.pileId), $event) : null"
             >
+              <div class="outline-node-col">
+                <div class="outline-node-line" :class="{ 'is-last': index === outline.length - 1 }"></div>
+                <div class="outline-node-dot"></div>
+              </div>
               <span class="drag-handle" title="拖拽排序">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                   <circle cx="3" cy="3" r="1"/><circle cx="9" cy="3" r="1"/>
@@ -167,7 +164,19 @@
                 </svg>
               </span>
               <span class="outline-emotion" :style="{ background: emotionColors[item.emotion]?.dot || '#888' }"></span>
-              <span class="outline-text">{{ item.preview }}</span>
+              <template v-if="inlineEditingPile?.pileId === item.pileId">
+                <input
+                  v-model="inlineEditingPileName"
+                  class="inline-pile-input"
+                  type="text"
+                  placeholder="给牌堆添加说明..."
+                  @keydown.enter="savePileInlineEdit(); $event.target.blur()"
+                  @keydown.escape="cancelPileInlineEdit"
+                  @blur="savePileInlineEdit"
+                  @click.stop
+                />
+              </template>
+              <span v-else class="outline-text">{{ item.preview }}</span>
               <div class="outline-item-actions">
                 <button class="outline-action-btn" @click.stop="moveOutlineUp(index)" :disabled="index === 0" title="上移">
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -179,7 +188,7 @@
                     <path d="M2 4l4 4 4-4"/>
                   </svg>
                 </button>
-                <button class="outline-action-btn outline-delete-btn" @click.stop="removeFromOutline(index)" title="移除">
+                <button class="outline-action-btn outline-delete-btn" @click.stop="removeCardFromOutline(item.pileId || item.cardId)" title="移除">
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
                     <path d="M2 2l8 8M10 2l-8 8"/>
                   </svg>
@@ -195,10 +204,6 @@
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
-        <div class="zone-divider" :style="{ left: (canvasSplitX * 100) + '%' }">
-          <span class="zone-label zone-material">素材区</span>
-          <span class="zone-label zone-editing">编排区</span>
-        </div>
         <!-- Edge SVG layer - absolutely positioned to overlay cards -->
         <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
           <defs>
@@ -231,7 +236,7 @@
           v-for="card in flatCards"
           :key="card.id"
           class="writing-card"
-          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id), 'zone-material': card.zone === 'material', 'zone-editing': card.zone === 'editing' }]"
+          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id) }]"
           :style="{
             position: 'absolute',
             left: card.x + 'px',
@@ -779,9 +784,6 @@ const hoveredPileId = ref(null)
 const expandedPileId = ref(null)
 const draggingCardId = ref(null)
 
-// Canvas zones
-const canvasSplitX = ref(0.35)
-
 // Git-style commits (renamed to avoid conflicts)
 const proseCommits = ref([])
 const proseBranches = ref({ current: 'main', list: [{ name: 'main', headCommitId: null }] })
@@ -910,6 +912,8 @@ const cardHistory = ref({}) // cardId -> { past: [], future: [] }
 const inlineEditingCard = ref(null) // card being edited inline
 const inlineEditingContent = ref('')
 const inlineEditingEmotion = ref('calm')
+const inlineEditingPile = ref(null) // pile being edited inline
+const inlineEditingPileName = ref('')
 
 // Continuation groups (sourceId -> Set of cardIds)
 const continuationGroups = ref({})
@@ -1028,6 +1032,34 @@ function saveInlineEdit() {
 
 function cancelInlineEdit() {
   inlineEditingCard.value = null
+}
+
+function startPileInlineEdit(pile, e) {
+  e.stopPropagation()
+  e.preventDefault()
+  inlineEditingPile.value = pile
+  inlineEditingPileName.value = pile.name || ''
+}
+
+function savePileInlineEdit() {
+  if (!inlineEditingPile.value) return
+  const pile = piles.value.find(p => p.pileId === inlineEditingPile.value.pileId)
+  if (pile) {
+    pile.name = inlineEditingPileName.value
+    // update outline preview
+    outline.value.forEach(o => {
+      if (o.pileId === pile.pileId) {
+        o.preview = pile.name ? pile.name : `[牌堆 ${pile.cardIds.length}张]`
+      }
+    })
+    createSnapshot('更新牌堆')
+    saveData()
+  }
+  inlineEditingPile.value = null
+}
+
+function cancelPileInlineEdit() {
+  inlineEditingPile.value = null
 }
 
 function handleInlineKeydown(e) {
@@ -1248,15 +1280,19 @@ async function expandFromCard(card) {
         const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
 
         const newCards = parsed.map(item => {
-          let emotion = item.emotion || 'calm'
-          if (!validEmotions.includes(emotion)) emotion = 'calm'
+          let emotion = item.emotion || editingEmotion.value
+          if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
           return {
             id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             content: item.content || '',
             emotion,
             wordCount: countWords(item.content || ''),
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            pileId: null,
+            zone: 'material',
+            x: null,
+            y: null
           }
         }).filter(c => c.content.length > 0)
 
@@ -1344,7 +1380,11 @@ async function expandByEmotion() {
             emotion,
             wordCount: countWords(item.content || ''),
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            pileId: null,
+            zone: 'material',
+            x: null,
+            y: null
           }
         }).filter(c => c.content.length > 0)
 
@@ -1554,15 +1594,29 @@ function createNewCards(generated, topic) {
 // Outline operations
 function addToOutline() {
   if (!selectedCard.value) return
-  const existing = outline.value.find(o => o.cardId === selectedCard.value.id)
-  if (existing) return
 
-  outline.value.push({
-    cardId: selectedCard.value.id,
-    emotion: selectedCard.value.emotion,
-    preview: selectedCard.value.content.slice(0, 20) + '...'
-  })
-  addTimeline(`卡片加入大纲`)
+  if (selectedCard.value.pileId) {
+    // Pile: add entire pile as one outline entry
+    const pileId = selectedCard.value.pileId
+    if (outline.value.some(o => o.pileId === pileId)) return
+    const pile = piles.value.find(p => p.pileId === pileId)
+    if (!pile) return
+    outline.value.push({
+      pileId,
+      emotion: selectedCard.value.emotion,
+      preview: pile.name ? pile.name : `[牌堆 ${pile.cardIds.length}张]`
+    })
+  } else {
+    // Single card
+    const existing = outline.value.find(o => o.cardId === selectedCard.value.id)
+    if (existing) return
+    outline.value.push({
+      cardId: selectedCard.value.id,
+      emotion: selectedCard.value.emotion,
+      preview: selectedCard.value.content.slice(0, 20) + '...'
+    })
+  }
+  createSnapshot('加入大纲')
   saveData()
 }
 
@@ -1707,6 +1761,15 @@ function removeFromOutline(index) {
   outline.value.splice(index, 1)
   addTimeline(`卡片移出大纲`)
   saveData()
+}
+
+function removeCardFromOutline(cardIdOrPileId) {
+  const idx = outline.value.findIndex(o => o.cardId === cardIdOrPileId || o.pileId === cardIdOrPileId)
+  if (idx !== -1) {
+    outline.value.splice(idx, 1)
+    createSnapshot('移出大纲')
+    saveData()
+  }
 }
 
 function jumpToCard(cardId) {
@@ -3112,6 +3175,57 @@ function goToNotesImageGen() {
   color: var(--text-muted);
 }
 
+.outline-node-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.outline-node-line {
+  width: 1px;
+  flex: 1;
+  min-height: 16px;
+  background: var(--border);
+  margin-bottom: 2px;
+}
+
+.outline-node-line.is-last {
+  display: none;
+}
+
+.outline-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-primary);
+  box-shadow: 0 0 0 1px var(--accent);
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.is-pile-item .outline-node-dot {
+  background: #ab47bc;
+  box-shadow: 0 0 0 1px #ab47bc;
+}
+
+.inline-pile-input {
+  flex: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  min-width: 120px;
+}
+
+.inline-pile-input:focus {
+  outline: none;
+}
+
 /* Floating Toolbar */
 .floating-toolbar {
   position: fixed;
@@ -3915,42 +4029,5 @@ function goToNotesImageGen() {
 /* Image Config Dialog */
 .image-config-dialog {
   width: 420px;
-}
-
-.zone-divider {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--border);
-  pointer-events: none;
-  z-index: 5;
-}
-
-.zone-label {
-  position: absolute;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.6;
-  writing-mode: vertical-rl;
-  color: var(--accent);
-}
-
-.writing-card.zone-material {
-  border-left: 3px solid rgba(100, 150, 255, 0.4);
-}
-
-.writing-card.zone-editing {
-  border-right: 3px solid rgba(100, 200, 150, 0.4);
-}
-
-.zone-material {
-  left: 4px;
-}
-
-.zone-editing {
-  right: 4px;
 }
 </style>

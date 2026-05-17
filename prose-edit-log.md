@@ -77,11 +77,66 @@
 - 修复 targetCard.pileId 直接赋值（之前用 find + 赋值没用）
 - build: 成功
 
-### Step 13 (2026-05-17)
-- 添加 hoveredPileId, expandedPileId 状态
-- 鼠标悬停牌堆：轻微扇形展开（35度间隔，半径80px）
-- 点击牌堆卡片：完整扇形展开（半径160px）
-- 牌堆收起时保持轻微堆叠可见（不完全遮挡）
+### Step 14 (2026-05-17)
+- 牌堆收起时堆叠偏移加大（X 12px，Y 16px）
+- 修复 onCardWallDrop：对无 pileId 的卡也更新位置
+- 修复 onCardDragEnd：只清除 draggingCardId，不自动移出牌堆
+- pileGroups 从 piles.value 直接读取 cardIds 顺序
+- zIndex 统一：posInPile 越小越在底部（收起/悬浮一致）
+- build: 成功
+- 状态: 牌堆功能基本正常
+
+### Step 15 (2026-05-17)
+- 添加 cloneState() / recordCommit() / rollbackToCommit()
+- 添加 showCommitPanel，提交历史面板 UI（右上角按钮）
+- 结构变更自动触发 recordCommit（加入/移出大纲、牌堆变动）
+- 提交历史支持回滚
+- 修复工具栏重复问题
 - build: 成功
 - 状态: 正常
-- 状态: 待测试
+
+### Step 16 (2026-05-17)
+- 添加 fusePileCards() 导出时牌堆融合
+- exportToMarkdown/Txt 支持牌堆融合输出
+- exportToJson 额外导出 piles 和 commits
+- build: 成功
+- 状态: 正常
+
+### Step 19 (2026-05-17)
+- 大纲牌堆条目支持双击编辑说明（inline edit）
+- 添加 inlineEditingPile / inlineEditingPileName 状态
+- 添加 startPileInlineEdit / savePileInlineEdit / cancelPileInlineEdit
+- savePileInlineEdit 同时更新 outline 里的 preview
+- 添加 .inline-pile-input 样式
+- build: 成功
+
+### Step 20 (2026-05-17)
+- 大纲改为 VSCode Git 风格（垂直时间线连线）
+- 添加 .outline-node-col / .outline-node-line / .outline-node-dot
+- 每个条目左侧有圆点+垂直连线（最后一项不显示连线）
+- 牌堆条目圆点用紫色区分普通卡片
+- build: 成功
+
+### Step 21 (2026-05-17)
+- 修复 Enter 确认：input 加 @blur="savePileInlineEdit"，失焦自动保存
+- 卡片详情面板紧促化（padding 10→6, font-size 缩小）
+- 分离卡片详情和大纲：卡片详情留在左侧面板，大纲独立浮动面板（VSCode Git风格）
+- build: 成功
+- 状态: 大纲需做成可拖动浮窗
+
+### Step 23 (2026-05-17)
+- 从头开始重建改动（避免结构错误）
+- 大纲移除改用 cardId/pileId（removeCardFromOutline）
+- 大纲模板 key 改为 `item.pileId || item.cardId`
+- addToOutline 支持牌堆整体加入大纲
+- 大纲节点加垂直时间线样式（VSCode Git风格）
+- 牌堆说明 inline 编辑支持
+- build: 成功
+- 状态: 正常
+
+### 已完成功能
+- Phase 1: 数据模型扩展（pileId/zone/x/y）
+- Phase 2: 画布分区（35%/65% split）
+- Phase 3: 牌堆（拖拽堆叠/悬浮展开/点击扇形展开/拖出解散）
+- Phase 4: Git风格提交历史（快照/回滚/面板）
+- Phase 5: 导出牌堆融合
