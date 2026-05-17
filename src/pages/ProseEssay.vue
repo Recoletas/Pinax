@@ -797,12 +797,13 @@ function layoutCards(cardsToLayout) {
   const leftBase = 60
   const maxPerRow = Math.floor((cardWallRef.value.scrollWidth - leftBase * 2) / xGap) || 3
 
-  // Group cards by pile
+  // Group cards by pile - use pile.cardIds order directly
   const pileGroups = {}
-  cardsToLayout.forEach((card) => {
-    if (card.pileId) {
-      if (!pileGroups[card.pileId]) pileGroups[card.pileId] = []
-      pileGroups[card.pileId].push(card.id)
+  const pileCenters = {}
+  piles.value.forEach(pile => {
+    if (pile.cardIds && pile.cardIds.length > 0) {
+      pileGroups[pile.pileId] = [...pile.cardIds]
+      pileCenters[pile.pileId] = { x: pile.pileX, y: pile.pileY }
     }
   })
 
@@ -820,38 +821,31 @@ function layoutCards(cardsToLayout) {
     if (card.pileId && pileGroups[card.pileId]) {
       const cardIdsInPile = pileGroups[card.pileId]
       const posInPile = cardIdsInPile.indexOf(card.id)
+      const pileCenter = pileCenters[card.pileId]
 
       const isHovered = hoveredPileId.value === card.pileId
       const isExpanded = expandedPileId.value === card.pileId
 
       if (isHovered || isExpanded) {
-        // Fan arrangement - cards spread in an arc (like a hand of cards)
+        // Fan arrangement - host card (pos 0) stays straight, others fan out
         const total = cardIdsInPile.length
         const fanStep = 10 // degrees between cards
         const fanRadius = isExpanded ? 250 : 150
-        const firstCard = cardsToLayout.find(c => c.id === cardIdsInPile[0])
-        const cx = firstCard?.x ?? baseX
-        const cy = firstCard?.y ?? baseY
         const startAngle = -((total - 1) / 2) * fanStep
         const angle = startAngle + posInPile * fanStep
 
-        zIndex = 10 + posInPile
-        rotate = angle // Rotate the card itself to match fan angle
+        zIndex = 10 + posInPile // first added (pos0) = bottom, last added (top)
+        rotate = posInPile === 0 ? 0 : angle // host card stays straight
 
         const rad = (angle * Math.PI) / 180
-        finalX = cx + Math.sin(rad) * fanRadius
-        finalY = cy - Math.cos(rad) * fanRadius + fanRadius
+        finalX = pileCenter.x + Math.sin(rad) * fanRadius
+        finalY = pileCenter.y - Math.cos(rad) * fanRadius + fanRadius
       } else {
-        // Collapsed pile - stack with slight offset
-        if (posInPile > 0) {
-          const firstCard = cardsToLayout.find(c => c.id === cardIdsInPile[0])
-          const refX = firstCard?.x ?? baseX
-          const refY = firstCard?.y ?? baseY
-          zIndex = 10 + posInPile
-          rotate = (posInPile % 2 === 0 ? 1 : -1) * (posInPile * 2)
-          finalX = refX + (posInPile % 3) * 6 - 3
-          finalY = refY - posInPile * 3
-        }
+        // Collapsed pile - stack near pile center, host card on bottom
+        zIndex = 10 + posInPile
+        rotate = posInPile === 0 ? 0 : (posInPile % 2 === 0 ? 1 : -1) * (posInPile * 2)
+        finalX = pileCenter.x + (posInPile % 3) * 12 - 6
+        finalY = pileCenter.y - posInPile * 16
       }
     }
 
@@ -1661,29 +1655,10 @@ function onCardDrop(targetCard, e) {
 }
 
 function onCardDragEnd() {
-  console.log('dragend, draggingCardId=' + draggingCardId.value + ' pileId=' + cards.value.find(c => c.id === draggingCardId.value)?.pileId)
-  const cardId = draggingCardId.value
-  if (cardId) {
-    const card = cards.value.find(c => c.id === cardId)
-    if (card?.pileId) {
-      console.log('dragend: removing from pile')
-      const pile = piles.value.find(p => p.pileId === card.pileId)
-      if (pile) {
-        pile.cardIds = pile.cardIds.filter(id => id !== cardId)
-        if (pile.cardIds.length < 2) {
-          piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
-        }
-        card.pileId = null
-        updateLayout()
-        saveData()
-      }
-    }
-  }
   draggingCardId.value = null
 }
 
 function onCardWallDragOver(e) {
-  console.log('wall dragover, dragging=' + draggingCardId.value)
   if (!draggingCardId.value) return
   e.preventDefault()
   e.dataTransfer.dropEffect = 'move'
@@ -1691,36 +1666,26 @@ function onCardWallDragOver(e) {
 
 function onCardWallDrop(e) {
   e.preventDefault()
-  console.log('=== WALL DROP FIRED ===')
-  console.log('cardId from state=' + draggingCardId.value)
   const cardId = draggingCardId.value
   if (!cardId) {
-    console.log('no cardId, returning')
     draggingCardId.value = null
     return
   }
 
   const card = cards.value.find(c => c.id === cardId)
-  console.log('card found=', card?.id, 'pileId=' + card?.pileId)
   if (!card) {
     draggingCardId.value = null
     return
   }
 
-  if (!card.pileId) {
-    console.log('card has no pileId, nothing to do')
-    draggingCardId.value = null
-    return
-  }
-
-  const pile = piles.value.find(p => p.pileId === card.pileId)
-  if (pile) {
-    console.log('removing from pile, pile cardIds before=', pile.cardIds)
-    pile.cardIds = pile.cardIds.filter(id => id !== cardId)
-    console.log('pile cardIds after=', pile.cardIds)
-    if (pile.cardIds.length < 2) {
-      console.log('dissolving pile')
-      piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
+  if (card.pileId) {
+    const pile = piles.value.find(p => p.pileId === card.pileId)
+    if (pile) {
+      pile.cardIds = pile.cardIds.filter(id => id !== cardId)
+      if (pile.cardIds.length < 2) {
+        cards.value.forEach(c => { if (c.pileId === pile.pileId) c.pileId = null })
+        piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
+      }
     }
   }
 
@@ -1733,7 +1698,6 @@ function onCardWallDrop(e) {
   card.x = dropX + scrollX - 140
   card.y = dropY + scrollY - 90
   card.pileId = null
-  console.log('card repositioned to', card.x, card.y)
   draggingCardId.value = null
   updateLayout()
   saveData()
