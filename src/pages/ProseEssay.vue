@@ -195,6 +195,10 @@
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }">
+        <div class="zone-divider" :style="{ left: (canvasSplitX * 100) + '%' }">
+          <span class="zone-label zone-material">素材区</span>
+          <span class="zone-label zone-editing">编排区</span>
+        </div>
         <!-- Edge SVG layer - absolutely positioned to overlay cards -->
         <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
           <defs>
@@ -227,16 +231,26 @@
           v-for="card in flatCards"
           :key="card.id"
           class="writing-card"
-          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id) }]"
+          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id), 'zone-material': card.zone === 'material', 'zone-editing': card.zone === 'editing' }]"
           :style="{
             position: 'absolute',
             left: card.x + 'px',
             top: card.y + 'px',
-            '--card-accent': emotionColors[card.emotion]?.bg || '#888'
+            '--card-accent': emotionColors[card.emotion]?.bg || '#888',
+            zIndex: card.zIndex || 1,
+            transform: card.rotate ? `rotate(${card.rotate}deg)` : undefined
           }"
+          @mouseenter="card.pileId && (hoveredPileId = card.pileId)"
+          @mouseleave="card.pileId && (hoveredPileId = null)"
+          @click.stop="card.pileId && (expandedPileId = expandedPileId === card.pileId ? null : card.pileId)"
           :data-card-id="card.id"
+          draggable="true"
           @click="selectCard(card)"
           @dblclick="startInlineEdit(card, $event)"
+          @dragstart="onCardDragStart(card, $event)"
+          @dragover.prevent="onCardDragOver(card, $event)"
+          @drop="onCardDrop(card, $event)"
+          @dragend="onCardDragEnd"
         >
           <div class="card-header">
             <span class="card-emotion-badge" :style="{ background: emotionColors[card.emotion]?.badge || '#888' }">
@@ -280,6 +294,11 @@
                   <path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
+            </div>
+            <div v-if="card.pileId" class="pile-badge" :title="'牌堆 #' + card.pileId.split('_')[1]">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <rect x="1" y="4" width="10" height="7" rx="1"/><rect x="2" y="2" width="8" height="5" rx="1" opacity="0.7"/><rect x="3" y="0" width="6" height="3" rx="1" opacity="0.4"/>
+              </svg>
             </div>
           </div>
         </div>
@@ -675,6 +694,9 @@ const CARDS_KEY = 'prose_cards_v1'
 const EDGES_KEY = 'prose_edges_v1'
 const OUTLINE_KEY = 'prose_outline_v1'
 const TIMELINE_KEY = 'prose_timeline_v1'
+const PILES_KEY = 'prose_piles_v1'
+const COMMITS_KEY = 'prose_commits_v1'
+const BRANCHES_KEY = 'prose_branches_v1'
 
 // Emotion config
 const emotionLabels = {
@@ -751,6 +773,19 @@ const apiSettings = ref(null)
 const canvasWidth = ref(1200)
 const canvasHeight = ref(800)
 
+// Piles
+const piles = ref([])
+const hoveredPileId = ref(null)
+const expandedPileId = ref(null)
+const draggingCardId = ref(null)
+
+// Canvas zones
+const canvasSplitX = ref(0.35)
+
+// Git-style commits (renamed to avoid conflicts)
+const proseCommits = ref([])
+const proseBranches = ref({ current: 'main', list: [{ name: 'main', headCommitId: null }] })
+
 // Flat positioned nodes for rendering
 const flatCards = ref([])
 
@@ -762,14 +797,65 @@ function layoutCards(cardsToLayout) {
   const leftBase = 60
   const maxPerRow = Math.floor((cardWallRef.value.scrollWidth - leftBase * 2) / xGap) || 3
 
+  // Group cards by pile
+  const pileGroups = {}
+  cardsToLayout.forEach((card) => {
+    if (card.pileId) {
+      if (!pileGroups[card.pileId]) pileGroups[card.pileId] = []
+      pileGroups[card.pileId].push(card.id)
+    }
+  })
+
   return cardsToLayout.map((card, idx) => {
     const col = idx % maxPerRow
     const row = Math.floor(idx / maxPerRow)
-    return {
-      ...card,
-      x: leftBase + col * xGap,
-      y: topBase + row * yGap
+    const baseX = card.x ?? (leftBase + col * xGap)
+    const baseY = card.y ?? (topBase + row * yGap)
+
+    let zIndex = 1
+    let rotate = 0
+    let finalX = baseX
+    let finalY = baseY
+
+    if (card.pileId && pileGroups[card.pileId]) {
+      const cardIdsInPile = pileGroups[card.pileId]
+      const posInPile = cardIdsInPile.indexOf(card.id)
+
+      const isHovered = hoveredPileId.value === card.pileId
+      const isExpanded = expandedPileId.value === card.pileId
+
+      if (isHovered || isExpanded) {
+        // Fan arrangement - cards spread in an arc (like a hand of cards)
+        const total = cardIdsInPile.length
+        const fanStep = 10 // degrees between cards
+        const fanRadius = isExpanded ? 180 : 100
+        const firstCard = cardsToLayout.find(c => c.id === cardIdsInPile[0])
+        const cx = firstCard?.x ?? baseX
+        const cy = firstCard?.y ?? baseY
+        const startAngle = -((total - 1) / 2) * fanStep
+        const angle = startAngle + posInPile * fanStep
+
+        zIndex = 10 + posInPile
+        rotate = angle // Rotate the card itself to match fan angle
+
+        const rad = (angle * Math.PI) / 180
+        finalX = cx + Math.sin(rad) * fanRadius
+        finalY = cy - Math.cos(rad) * fanRadius + fanRadius
+      } else {
+        // Collapsed pile - stack with slight offset
+        if (posInPile > 0) {
+          const firstCard = cardsToLayout.find(c => c.id === cardIdsInPile[0])
+          const refX = firstCard?.x ?? baseX
+          const refY = firstCard?.y ?? baseY
+          zIndex = 10 + posInPile
+          rotate = (posInPile % 2 === 0 ? 1 : -1) * (posInPile * 2)
+          finalX = refX + (posInPile % 3) * 6 - 3
+          finalY = refY - posInPile * 3
+        }
+      }
     }
+
+    return { ...card, x: finalX, y: finalY, zIndex, rotate }
   })
 }
 
@@ -822,6 +908,9 @@ watch(cards, () => {
   updateLayout()
 }, { deep: true })
 
+watch(hoveredPileId, () => updateLayout())
+watch(expandedPileId, () => updateLayout())
+
 // Per-card undo/redo history
 const cardHistory = ref({}) // cardId -> { past: [], future: [] }
 const inlineEditingCard = ref(null) // card being edited inline
@@ -856,7 +945,7 @@ function computeEdgePositions() {
     const ty = targetEl.offsetTop
     newEdges.push({ ...edge, x1: sx, y1: sy, x2: tx, y2: ty })
   })
-  visibleEdges.value = newEdges
+  renderedEdges.value = newEdges
 }
 
 function getRelatedCards(cardId) {
@@ -980,12 +1069,28 @@ async function resolveApiSettings() {
 }
 
 // Data operations
+function inferZone(cardId) {
+  return outline.value.some(o => o.cardId === cardId) ? 'editing' : 'material'
+}
+
 function loadData() {
   try {
-    cards.value = JSON.parse(localStorage.getItem(CARDS_KEY) || '[]')
+    const rawCards = JSON.parse(localStorage.getItem(CARDS_KEY) || '[]')
     edges.value = JSON.parse(localStorage.getItem(EDGES_KEY) || '[]')
     outline.value = JSON.parse(localStorage.getItem(OUTLINE_KEY) || '[]')
     timeline.value = JSON.parse(localStorage.getItem(TIMELINE_KEY) || '[]')
+
+    cards.value = rawCards.map((card, idx) => ({
+      ...card,
+      pileId: card.pileId || null,
+      zone: card.zone || inferZone(card.id),
+      x: card.x ?? (60 + (idx % 3) * 320),
+      y: card.y ?? (60 + Math.floor(idx / 3) * 200)
+    }))
+
+    try { piles.value = JSON.parse(localStorage.getItem(PILES_KEY) || '[]') } catch { piles.value = [] }
+    try { proseCommits.value = JSON.parse(localStorage.getItem(COMMITS_KEY) || '[]') } catch { proseCommits.value = [] }
+    try { proseBranches.value = JSON.parse(localStorage.getItem(BRANCHES_KEY) || '{"current":"main","list":[{"name":"main","headCommitId":null}]}') } catch { proseBranches.value = { current: 'main', list: [{ name: 'main', headCommitId: null }] } }
   } catch {
     cards.value = []
     edges.value = []
@@ -1000,6 +1105,9 @@ function saveData() {
   localStorage.setItem(EDGES_KEY, JSON.stringify(edges.value))
   localStorage.setItem(OUTLINE_KEY, JSON.stringify(outline.value))
   localStorage.setItem(TIMELINE_KEY, JSON.stringify(timeline.value))
+  localStorage.setItem(PILES_KEY, JSON.stringify(piles.value))
+  localStorage.setItem(COMMITS_KEY, JSON.stringify(proseCommits.value.slice(0, 50)))
+  localStorage.setItem(BRANCHES_KEY, JSON.stringify(proseBranches.value))
   nextTick(() => computeEdgePositions())
 }
 
@@ -1065,7 +1173,11 @@ function insertCard() {
     emotion: 'calm',
     wordCount: 0,
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    pileId: null,
+    zone: 'material',
+    x: null,
+    y: null
   }
   cards.value.push(newCard)
   selectedCard.value = newCard
@@ -1413,7 +1525,11 @@ function createNewCards(generated, topic) {
       emotion,
       wordCount: countWords(item.content || ''),
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      pileId: null,
+      zone: 'material',
+      x: null,
+      y: null
     }
   }).filter(c => c.content.length > 0)
 
@@ -1498,6 +1614,72 @@ function onOutlineDrop(index) {
 function onOutlineDragEnd() {
   draggingOutlineIndex.value = -1
   outlineDragOverIndex.value = -1
+}
+
+function onCardDragStart(card, e) {
+  draggingCardId.value = card.id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', card.id)
+}
+
+function onCardDragOver(card, e) {
+  if (!draggingCardId.value || draggingCardId.value === card.id) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+}
+
+function onCardDrop(targetCard, e) {
+  e.preventDefault()
+  const draggedId = draggingCardId.value
+  if (!draggedId || draggedId === targetCard.id) {
+    draggingCardId.value = null
+    return
+  }
+
+  const draggedCardInCards = cards.value.find(c => c.id === draggedId)
+  if (!draggedCardInCards) {
+    draggingCardId.value = null
+    return
+  }
+
+  const targetPileId = targetCard.pileId
+  if (targetPileId) {
+    const pile = piles.value.find(p => p.pileId === targetPileId)
+    if (pile) pile.cardIds.push(draggedId)
+    cards.value.forEach(c => { if (c.id === draggedId) c.pileId = targetPileId })
+  } else {
+    const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, draggedId], pileX: targetCard.x, pileY: targetCard.y })
+    cards.value.forEach(c => {
+      if (c.id === draggedId || c.id === targetCard.id) c.pileId = newPileId
+    })
+  }
+  draggingCardId.value = null
+  updateLayout()
+  addTimeline('卡片加入牌堆')
+  saveData()
+}
+
+function onCardDragEnd() {
+  // If dragged card was in a pile but dropped outside any card, remove from pile
+  const cardId = draggingCardId.value
+  if (cardId) {
+    const card = cards.value.find(c => c.id === cardId)
+    if (card?.pileId) {
+      const pile = piles.value.find(p => p.pileId === card.pileId)
+      if (pile) {
+        pile.cardIds = pile.cardIds.filter(id => id !== cardId)
+        if (pile.cardIds.length < 2) {
+          // Dissolve pile if only 1 or 0 cards left
+          piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
+        }
+        card.pileId = null
+        updateLayout()
+        saveData()
+      }
+    }
+  }
+  draggingCardId.value = null
 }
 
 function removeFromOutline(index) {
@@ -2388,6 +2570,15 @@ function goToNotesImageGen() {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pile-badge {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  opacity: 0.7;
 }
 
 .card-words {
@@ -3703,5 +3894,42 @@ function goToNotesImageGen() {
 /* Image Config Dialog */
 .image-config-dialog {
   width: 420px;
+}
+
+.zone-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.zone-label {
+  position: absolute;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  writing-mode: vertical-rl;
+  color: var(--accent);
+}
+
+.writing-card.zone-material {
+  border-left: 3px solid rgba(100, 150, 255, 0.4);
+}
+
+.writing-card.zone-editing {
+  border-right: 3px solid rgba(100, 200, 150, 0.4);
+}
+
+.zone-material {
+  left: 4px;
+}
+
+.zone-editing {
+  right: 4px;
 }
 </style>

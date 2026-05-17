@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://localhost:5177/src/pages/ProseEssay.vue\")",
+      "Bash(curl -s \"http://localhost:5177/\")",
+      "Bash(curl -s http://localhost:5177/)",
+      "Bash(pkill -f \"vite\")",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5180/)",
+      "Bash(pkill -f vite)",
+      "Bash(curl -s http://localhost:5178/)"
+    ]
+  }
+}
