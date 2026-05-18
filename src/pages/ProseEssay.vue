@@ -54,22 +54,6 @@
             </span>
           </div>
 
-          <div class="detail-panel-meta">
-            <span class="meta-item">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-              </svg>
-              {{ formatTime(selectedCard.createdAt) }}
-            </span>
-            <span class="meta-item">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M4 6h16M4 10h16M4 14h8"/>
-              </svg>
-              {{ selectedCard.wordCount }} 字
-            </span>
-          </div>
-
-
           <div class="detail-panel-section">
             <label class="section-label">情绪</label>
             <div class="emotion-buttons">
@@ -86,55 +70,13 @@
             </div>
           </div>
 
-          <div class="detail-panel-section">
-            <label class="section-label">关联</label>
-            <div class="related-cards">
-              <div v-if="getRelatedCards(selectedCard.id).length === 0" class="related-empty">暂无关联</div>
-              <div
-                v-for="rel in getRelatedCards(selectedCard.id)"
-                :key="rel.id"
-                class="related-card-item"
-                @click="jumpToCard(rel.id)"
-              >
-                <span class="related-emotion-dot" :style="{ background: emotionColors[rel.emotion]?.dot }"></span>
-                <span class="related-preview">{{ rel.content.slice(0, 20) }}...</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Director mode extra fields -->
-          <template v-if="currentMode === 'directing'">
-            <div class="detail-panel-section">
-              <label class="section-label">景别</label>
-              <select v-model="editingShotType" class="input">
-                <option value="">选择景别...</option>
-                <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
-              </select>
-            </div>
-
-            <div class="detail-panel-section">
-              <label class="section-label">运镜</label>
-              <select v-model="editingCameraMovement" class="input">
-                <option value="">选择运镜...</option>
-                <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
-              </select>
-            </div>
-
-            <div class="detail-panel-section">
-              <label class="section-label">时长（秒）</label>
-              <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
-            </div>
-
-            <div class="detail-panel-section">
-              <label class="section-label">台词</label>
-              <textarea v-model="editingDialogue" class="input" rows="2" placeholder="角色台词..."></textarea>
-            </div>
-
-            <div class="detail-panel-section">
-              <label class="section-label">音效</label>
-              <textarea v-model="editingSoundEffects" class="input" rows="2" placeholder="环境音、音乐..."></textarea>
-            </div>
-          </template>
+          <button
+            v-if="currentMode === 'directing'"
+            class="btn-secondary detail-btn"
+            @click="showCardDetailDialog = true"
+          >
+            详情
+          </button>
 
           <div class="detail-panel-actions">
             <button class="btn-accent expand-btn" @click="expandByEmotion" :disabled="isGenerating">
@@ -309,7 +251,7 @@
           </div>
           <p class="empty-title">开始你的自由写作</p>
           <p class="empty-desc">输入主题或草稿，AI 将生成一组联想卡片</p>
-          <p class="empty-hint">每张卡片会自动获得情绪标签和关联关系</p>
+          <p class="empty-hint">输入主题或草稿，AI 将生成联想卡片</p>
         </div>
 
         <!-- Absolute positioned cards -->
@@ -373,6 +315,11 @@
             </div>
           </div>
           <div v-else class="card-content">{{ card.content }}</div>
+          <div v-if="card.attachedImages?.length" class="card-images" @click.stop>
+            <div v-for="(img, idx) in card.attachedImages" :key="img.id" class="card-image-item" @click="openImagePreview(card, idx)">
+              <img :src="img.data" :alt="'图片' + (idx + 1)" />
+            </div>
+          </div>
           <div class="card-footer">
             <span class="card-words">{{ card.wordCount }} 字</span>
             <div class="card-actions" @click.stop>
@@ -408,11 +355,6 @@
       <button class="toolbar-btn" @click="insertCard" title="新建空白卡片">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-        </svg>
-      </button>
-      <button class="toolbar-btn" @click="showEdgeDialog = true" :disabled="!selectedCard" title="添加关联">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
       <div class="toolbar-divider"></div>
@@ -664,39 +606,44 @@
       </div>
     </div>
 
-    <!-- 添加关联边对话框 -->
-    <div v-if="showEdgeDialog" class="dialog-overlay" @click="showEdgeDialog = false">
+    <!-- 卡片详情对话框（编导模式） -->
+    <div v-if="showCardDetailDialog && selectedCard" class="dialog-overlay" @click="showCardDetailDialog = false">
       <div class="dialog" @click.stop>
-        <div class="dialog-header">添加关联</div>
+        <div class="dialog-header">卡片详情</div>
         <div class="dialog-body">
           <div class="form-group">
-            <label>关联类型</label>
-            <div class="edge-type-grid">
-              <button
-                v-for="type in (currentMode === 'directing' ? directorEdgeTypes : edgeTypes)"
-                :key="type.value"
-                class="edge-type-btn"
-                :class="{ active: newEdgeType === type.value }"
-                @click="newEdgeType = type.value"
-              >
-                <span class="edge-type-label">{{ type.label }}</span>
-                <span class="edge-type-desc">{{ type.desc }}</span>
-              </button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>目标卡片</label>
-            <select v-model="newEdgeTarget" class="input">
-              <option value="">选择一张卡片...</option>
-              <option v-for="card in cards.filter(c => c.id !== selectedCard?.id)" :key="card.id" :value="card.id">
-                {{ card.content.slice(0, 30) }}...
-              </option>
+            <label>景别</label>
+            <select v-model="editingShotType" class="input">
+              <option value="">选择景别...</option>
+              <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
+          </div>
+
+          <div class="form-group">
+            <label>运镜</label>
+            <select v-model="editingCameraMovement" class="input">
+              <option value="">选择运镜...</option>
+              <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>时长（秒）</label>
+            <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
+          </div>
+
+          <div class="form-group">
+            <label>台词</label>
+            <textarea v-model="editingDialogue" class="input" rows="2" placeholder="角色台词..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>音效</label>
+            <textarea v-model="editingSoundEffects" class="input" rows="2" placeholder="环境音、音乐..."></textarea>
           </div>
         </div>
         <div class="dialog-footer">
-          <button class="btn" @click="showEdgeDialog = false">取消</button>
-          <button class="btn-primary" @click="addEdge" :disabled="!newEdgeTarget">确认</button>
+          <button class="btn" @click="showCardDetailDialog = false">关闭</button>
         </div>
       </div>
     </div>
@@ -779,7 +726,9 @@ const imageCount = ref(1)
 const imageGenerating = ref(false)
 const imageLibrary = ref([])
 const imagePreviewIndex = ref(-1)
+const previewingCard = ref(null)
 const showImageConfigDialog = ref(false)
+const showCardDetailDialog = ref(false)
 const editingModelConfig = ref(null)
 const modelConfigs = ref([])
 
@@ -1760,23 +1709,7 @@ function createNewCards(generated, topic) {
 
   if (newCards.length === 0) return
 
-  // 建立初始关联（意识流和对比）
-  const newEdges = []
-  for (let i = 0; i < newCards.length - 1; i++) {
-    for (let j = i + 1; j < newCards.length; j++) {
-      if (Math.random() > 0.5) {
-        newEdges.push({
-          id: `edge_${Date.now()}_${i}_${j}`,
-          sourceId: newCards[i].id,
-          targetId: newCards[j].id,
-          type: Math.random() > 0.6 ? 'contrast' : 'consciousness'
-        })
-      }
-    }
-  }
-
   cards.value.push(...newCards)
-  edges.value.push(...newEdges)
   addTimeline(`根据「${topic.slice(0, 20)}...」生成了 ${newCards.length} 张卡片`)
   currentTopic.value = ''
   saveData()
@@ -2634,6 +2567,15 @@ function attachImageToCard(imgEntry) {
   imagePreviewIndex.value = -1
 }
 
+function openImagePreview(card, imageIndex) {
+  previewingCard.value = card
+  const img = card.attachedImages[imageIndex]
+  if (img) {
+    imageLibrary.value = [{ id: img.id, prompt: img.prompt, data: img.data }]
+    imagePreviewIndex.value = 0
+  }
+}
+
 function saveAsNewCard(imgEntry) {
   const newCard = {
     id: `card_${Date.now()}`,
@@ -2976,6 +2918,33 @@ function goToNotesImageGen() {
   line-height: 1.7;
   color: var(--text-primary);
   margin-bottom: 12px;
+}
+
+.card-images {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.card-image-item {
+  width: 60px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: transform 0.15s;
+}
+
+.card-image-item:hover {
+  transform: scale(1.05);
+}
+
+.card-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .card-footer {

@@ -21,6 +21,13 @@
           </span>
           <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
         </button>
+        <div class="mode-toggle-group">
+          <span class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">写作</span>
+          <button class="mode-toggle" @click="currentMode = currentMode === 'writing' ? 'directing' : 'writing'" :class="{ 'is-directing': currentMode === 'directing' }">
+            <span class="mode-toggle-dot"></span>
+          </button>
+          <span class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">编导</span>
+        </div>
       </div>
     </header>
 
@@ -51,7 +58,7 @@
 
         <div class="btn-row">
           <button class="btn-primary" :disabled="isGenerating || isSnapshotReadonly" @click="generateTree">
-            {{ isGenerating ? '生成中...' : '生成灵感树' }}
+            {{ isGenerating ? '生成中...' : (currentMode === 'directing' ? '生成分镜图' : '生成灵感树') }}
           </button>
           <button class="btn-secondary" :disabled="isSnapshotReadonly" @click="clearTree">清空</button>
         </div>
@@ -117,12 +124,6 @@
           <p class="meta">
             {{ interactionModeHint }}
           </p>
-          <div class="edge-legend">
-            <div v-for="item in edgeLegendItems" :key="item.type" class="legend-item">
-              <span class="legend-line" :class="`edge-${item.type.toLowerCase()}`"></span>
-              <span>{{ item.label }}</span>
-            </div>
-          </div>
         </div>
 
         <div class="status" v-if="statusText">{{ statusText }}</div>
@@ -132,11 +133,12 @@
         </div>
 
         <div v-if="snapshots.length" class="history-panel">
-          <div class="export-panel-head">
-            <h3>版本历史</h3>
+          <div class="export-panel-head" style="cursor: pointer;" @click="historyExpanded = !historyExpanded">
+            <h3>版本历史 ({{ snapshots.length }})</h3>
+            <span class="collapse-arrow" :class="{ expanded: historyExpanded }">▼</span>
           </div>
-          <div class="history-list">
-            <button
+          <div v-if="historyExpanded" class="history-list" style="max-height: 180px; overflow-y: auto;">
+            <div
               v-for="snapshot in snapshots"
               :key="snapshot.id"
               class="history-item"
@@ -144,8 +146,11 @@
               @click="previewSnapshot(snapshot.id)"
             >
               <span>{{ snapshot.label }}</span>
-              <small>{{ formatSnapshotTime(snapshot.createdAt) }}</small>
-            </button>
+              <div class="history-item-right">
+                <small>{{ formatSnapshotTime(snapshot.createdAt) }}</small>
+                <button v-if="!isSnapshotReadonly" class="small-btn danger" @click.stop="deleteSnapshot(snapshot.id)" title="删除">✕</button>
+              </div>
+            </div>
           </div>
           <div v-if="currentSnapshot" class="history-actions">
             <button class="small-btn" @click="continueFromSnapshot(currentSnapshot.id)">从快照继续编辑</button>
@@ -158,16 +163,17 @@
           <p class="node-text">{{ displayedSelectedNode.text }}</p>
           <p class="meta">层级：{{ displayedSelectedNode.depth + 1 }} · 子节点：{{ displayedSelectedNode.children.length }} · 反馈分：{{ displayedSelectedNode.feedbackScore || 0 }}</p>
 
-          
+          <button class="btn-secondary detail-btn" @click="showNodeDetailDialog = true">详情</button>
+
           <div v-if="selectedNodeGroups.length" class="group-panel">
-            <h4>所属意象群</h4>
+            <h4>{{ currentMode === 'directing' ? '所属场景组' : '所属意象群' }}</h4>
             <div class="group-list compact">
               <div v-for="group in selectedNodeGroups" :key="group.id" class="group-chip">{{ group.name }}</div>
             </div>
           </div>
 
           <div v-if="displayedImageryGroups.length" class="group-panel">
-            <h4>意象群</h4>
+            <h4>{{ currentMode === 'directing' ? '场景组' : '意象群' }}</h4>
             <div class="group-list">
               <div v-for="group in displayedImageryGroups" :key="group.id" class="group-card">
                 <strong>{{ group.name }}</strong>
@@ -175,6 +181,37 @@
               </div>
             </div>
           </div>
+
+          <!-- Director mode extra fields -->
+          <template v-if="currentMode === 'directing'">
+            <div class="detail-panel-section">
+              <label>景别</label>
+              <select v-model="editingShotType" class="input">
+                <option value="">选择景别...</option>
+                <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
+              </select>
+            </div>
+            <div class="detail-panel-section">
+              <label>运镜</label>
+              <select v-model="editingCameraMovement" class="input">
+                <option value="">选择运镜...</option>
+                <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
+              </select>
+            </div>
+            <div class="detail-panel-section">
+              <label>时长（秒）</label>
+              <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
+            </div>
+            <div class="detail-panel-section">
+              <label>色调描述</label>
+              <textarea v-model="editingToneDescription" class="input" rows="2" placeholder="冷色调、低饱和..."></textarea>
+            </div>
+            <div class="detail-panel-section">
+              <label>声音描述</label>
+              <textarea v-model="editingSoundDescription" class="input" rows="2" placeholder="雨声、背景音乐..."></textarea>
+            </div>
+            <button class="btn-primary save-btn" @click="saveNodeExtraFields" :disabled="isSnapshotReadonly">保存字段</button>
+          </template>
 
           <div class="feedback-panel">
             <h4>反馈与进一步生成</h4>
@@ -199,6 +236,12 @@
       </aside>
 
       <main class="canvas-panel">
+        <div class="canvas-legend" v-if="flatNodes.length">
+          <div v-for="item in edgeLegendItems" :key="item.type" class="legend-item">
+            <span class="legend-line" :class="`edge-${item.type.toLowerCase()}`"></span>
+            <span>{{ item.label }}</span>
+          </div>
+        </div>
         <div v-if="flatNodes.length === 0" class="empty-state">
           <div class="empty-title">还没有灵感树</div>
           <div class="empty-desc">输入提示词后点击“生成灵感树”。</div>
@@ -216,8 +259,20 @@
               :key="edge.id"
               :d="edge.d"
               :class="['edge', `edge-${edge.type.toLowerCase()}`, { removable: interactionMode === 'scissor' && !edge.builtIn }]"
+              :style="getEdgeSvgStyle(edge.type)"
               @click.stop="onEdgeClick(edge)"
               marker-end="url(#edge-arrow)"
+            />
+            <path
+              v-if="interactionMode === 'scissor'"
+              v-for="edge in renderedEdges"
+              :key="'hit-' + edge.id"
+              :d="edge.d"
+              stroke="transparent"
+              stroke-width="12"
+              fill="none"
+              style="cursor: pointer;"
+              @click.stop="onEdgeClick(edge)"
             />
             <path
               v-if="edgeLinkDraft"
@@ -263,13 +318,65 @@
                 @change="toggleExportNodeSelection(node.id)"
               />
             </label>
-            <div v-if="nodeGroupLabels(node.id).length" class="group-badge">{{ nodeGroupLabels(node.id)[0] }}</div>
             <div class="node-main">{{ node.text }}</div>
             <div v-if="node.examples && node.examples[0]" class="node-sub">{{ node.examples[0] }}</div>
             <div v-if="quickNoteImportOpen && !node.children?.length && isNodeExportSelected(node.id)" class="import-mark">选中</div>
           </div>
         </div>
       </main>
+    </div>
+
+    <!-- 节点详情对话框 -->
+    <div v-if="showNodeDetailDialog && displayedSelectedNode" class="dialog-overlay" @click="showNodeDetailDialog = false">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">节点详情</div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>标题</label>
+            <div class="dialog-node-text">{{ displayedSelectedNode.text }}</div>
+          </div>
+          <div v-if="displayedSelectedNode.examples && displayedSelectedNode.examples.length" class="form-group">
+            <label>例句</label>
+            <div v-for="(ex, i) in displayedSelectedNode.examples" :key="i" class="dialog-example">{{ ex }}</div>
+          </div>
+          <div class="form-group">
+            <label>元数据</label>
+            <div class="dialog-meta">层级：{{ displayedSelectedNode.depth + 1 }} · 子节点：{{ displayedSelectedNode.children.length }} · 反馈分：{{ displayedSelectedNode.feedbackScore || 0 }}</div>
+          </div>
+          <template v-if="currentMode === 'directing'">
+            <div class="form-group">
+              <label>景别</label>
+              <select v-model="editingShotType" class="input">
+                <option value="">选择景别...</option>
+                <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>运镜</label>
+              <select v-model="editingCameraMovement" class="input">
+                <option value="">选择运镜...</option>
+                <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>时长（秒）</label>
+              <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" />
+            </div>
+            <div class="form-group">
+              <label>色调描述</label>
+              <textarea v-model="editingToneDescription" class="input" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+              <label>声音描述</label>
+              <textarea v-model="editingSoundDescription" class="input" rows="2"></textarea>
+            </div>
+          </template>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn" @click="showNodeDetailDialog = false">关闭</button>
+          <button v-if="currentMode === 'directing'" class="btn-primary" @click="saveNodeExtraFields">保存</button>
+        </div>
+      </div>
     </div>
 
     <ImageGenRail
@@ -369,6 +476,16 @@ const EDGE_TYPE_LABELS = {
   RUPTURE: '断裂',
   ECHO: '回声'
 }
+
+// Director mode edge types
+const DIRECTING_EDGE_TYPES = {
+  VISUAL_METAPHOR: { label: '视觉隐喻', color: '#9c27b0', dashArray: null },
+  PARALLEL_SHOT: { label: '并列镜头', color: '#2196f3', dashArray: null },
+  JUMP_CUT: { label: '跳切', color: '#ff5722', dashArray: '6,4' },
+  VISUAL_ECHO: { label: '视觉回声', color: '#00bcd4', dashArray: '3,3' },
+  DETAIL_INSERT: { label: '细节切入', color: '#8bc34a', dashArray: null }
+}
+
 const INTERACTION_MODES = [
   { value: 'pointer', label: '指针' },
   { value: 'link', label: '连线' },
@@ -378,6 +495,26 @@ const INTERACTION_MODES = [
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+const currentMode = ref('writing') // 'writing' | 'directing'
+
+// Director mode shot types
+const shotTypes = [
+  { value: 'extreme_wide', label: '远景' },
+  { value: 'wide', label: '全景' },
+  { value: 'medium', label: '中景' },
+  { value: 'close_up', label: '近景' },
+  { value: 'extreme_close_up', label: '特写' }
+]
+
+const cameraMovements = [
+  { value: 'push', label: '推' },
+  { value: 'pull', label: '拉' },
+  { value: 'pan', label: '摇' },
+  { value: 'track', label: '移' },
+  { value: 'follow', label: '跟' },
+  { value: 'fixed', label: '固定' }
+]
+
 const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
 const QUICK_NOTE_STORE_KEY = 'writing_notes'
 
@@ -394,6 +531,11 @@ const exportPickedNodeIds = ref([])
 
 const feedbackText = ref('')
 const feedbackMode = ref('neutral')
+const editingShotType = ref('')
+const editingCameraMovement = ref('')
+const editingDuration = ref(3)
+const editingToneDescription = ref('')
+const editingSoundDescription = ref('')
 const quickNoteOpen = ref(false)
 const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
@@ -405,10 +547,12 @@ const imageryGroups = ref(loadImageryGroups())
 const snapshots = ref(loadSnapshots())
 const interactionMode = ref('pointer')
 const edgeDraftType = ref('METAPHOR')
+const showNodeDetailDialog = ref(false)
 const edgeLinkDraft = ref(null)
 const groupDraft = ref(null)
 const snapshotViewId = ref('')
 const snapshotSelectedNodeId = ref('')
+const historyExpanded = ref(false)
 
 const rootTree = ref(loadSavedTree())
 const selectedNode = ref(null)
@@ -422,15 +566,30 @@ const canvasHeight = 1040
 const canvasRef = ref(null)
 
 const interactionModes = INTERACTION_MODES
-const editableEdgeTypes = ['METAPHOR', 'JUXTAPOSE', 'RUPTURE', 'ECHO', 'HIERARCHY']
-const edgeTypeLabels = EDGE_TYPE_LABELS
-const edgeLegendItems = [
-  { type: 'HIERARCHY', label: '层级' },
-  { type: 'METAPHOR', label: '隐喻' },
-  { type: 'JUXTAPOSE', label: '并置' },
-  { type: 'RUPTURE', label: '断裂' },
-  { type: 'ECHO', label: '回声' }
-]
+const editableEdgeTypes = computed(() => {
+  if (currentMode.value === 'directing') {
+    return Object.keys(DIRECTING_EDGE_TYPES)
+  }
+  return ['METAPHOR', 'JUXTAPOSE', 'RUPTURE', 'ECHO', 'HIERARCHY']
+})
+const edgeTypeLabels = computed(() => {
+  if (currentMode.value === 'directing') {
+    return Object.fromEntries(Object.entries(DIRECTING_EDGE_TYPES).map(([k, v]) => [k, v.label]))
+  }
+  return EDGE_TYPE_LABELS
+})
+const edgeLegendItems = computed(() => {
+  if (currentMode.value === 'directing') {
+    return Object.entries(DIRECTING_EDGE_TYPES).map(([k, v]) => ({ type: k, label: v.label }))
+  }
+  return [
+    { type: 'HIERARCHY', label: '层级' },
+    { type: 'METAPHOR', label: '隐喻' },
+    { type: 'JUXTAPOSE', label: '并置' },
+    { type: 'RUPTURE', label: '断裂' },
+    { type: 'ECHO', label: '回声' }
+  ]
+})
 
 const scissorDeletePendingNodeId = ref('')
 const scissorDeletePendingAt = ref(0)
@@ -769,6 +928,14 @@ function makeEdgePath(x1, y1, x2, y2) {
   return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`
 }
 
+function getEdgeSvgStyle(type) {
+  if (currentMode.value === 'directing' && DIRECTING_EDGE_TYPES[type]) {
+    const cfg = DIRECTING_EDGE_TYPES[type]
+    return { stroke: cfg.color, 'stroke-dasharray': cfg.dashArray || 'none' }
+  }
+  return {}
+}
+
 function syncAuxiliaryState() {
   const validIds = new Set(flattenTree(rootTree.value).map((node) => node.id))
   graphEdges.value = graphEdges.value.filter((edge) => validIds.has(edge.sourceId) && validIds.has(edge.targetId))
@@ -827,7 +994,17 @@ function continueFromSnapshot(snapshotId) {
   selectedNode.value = findNodeById(rootTree.value, snapshot.selectedNodeId) || rootTree.value
   snapshotViewId.value = ''
   snapshotSelectedNodeId.value = ''
+  historyExpanded.value = false
   statusText.value = `已从快照恢复：${snapshot.label}`
+}
+
+function deleteSnapshot(snapshotId) {
+  snapshots.value = snapshots.value.filter(s => s.id !== snapshotId)
+  if (snapshotViewId.value === snapshotId) {
+    snapshotViewId.value = ''
+    snapshotSelectedNodeId.value = ''
+  }
+  statusText.value = '已删除快照'
 }
 
 function formatSnapshotTime(value) {
@@ -905,6 +1082,16 @@ watch(imageryGroups, (groups) => {
 watch(snapshots, (items) => {
   localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(items))
 }, { deep: true })
+
+watch(selectedNode, (node) => {
+  if (node) {
+    editingShotType.value = node.extraFields?.shotType || ''
+    editingCameraMovement.value = node.extraFields?.cameraMovement || ''
+    editingDuration.value = node.extraFields?.duration || 3
+    editingToneDescription.value = node.extraFields?.toneDescription || ''
+    editingSoundDescription.value = node.extraFields?.soundDescription || ''
+  }
+})
 
 function normalizeApiSettingsShape(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
@@ -1915,21 +2102,26 @@ async function generateTree() {
   }
 
   isGenerating.value = true
-  statusText.value = '正在生成灵感树（分步行格式）...'
+  statusText.value = currentMode.value === 'directing' ? '正在生成分镜图...' : '正在生成灵感树（分步行格式）...'
 
   try {
-    const llmResult = await generateByLLM(promptText, branchCount.value, depthLimit.value)
-    const normalized = normalizeNode(llmResult)
-    rootTree.value = reindexTree(normalized)
-
-    const nodeCount = flattenTree(rootTree.value).length
-    if (nodeCount < 2) {
-      throw new Error('模型仅返回根节点，未生成有效分支，请重试')
+    if (currentMode.value === 'directing') {
+      const llmResult = await generateDirectingTree(promptText, branchCount.value, depthLimit.value)
+      const normalized = normalizeNode(llmResult)
+      rootTree.value = reindexTree(normalized)
+      const nodeCount = flattenTree(rootTree.value).length
+      if (nodeCount < 2) throw new Error('模型仅返回根节点，未生成有效分支，请重试')
+      selectedNode.value = rootTree.value
+      statusText.value = `分镜图生成成功，共 ${nodeCount} 个节点`
+    } else {
+      const llmResult = await generateByLLM(promptText, branchCount.value, depthLimit.value)
+      const normalized = normalizeNode(llmResult)
+      rootTree.value = reindexTree(normalized)
+      const nodeCount = flattenTree(rootTree.value).length
+      if (nodeCount < 2) throw new Error('模型仅返回根节点，未生成有效分支，请重试')
+      selectedNode.value = rootTree.value
+      statusText.value = `大模型生成成功，共 ${nodeCount} 个节点（分步行格式）`
     }
-
-    selectedNode.value = rootTree.value
-
-    statusText.value = `大模型生成成功，共 ${nodeCount} 个节点（分步行格式）`
     lastSourceLabel.value = '大模型'
   } catch (e) {
     rootTree.value = null
@@ -1939,6 +2131,88 @@ async function generateTree() {
   } finally {
     isGenerating.value = false
   }
+}
+
+async function generateDirectingTree(promptText, count, depth) {
+  const apiSettings = await resolveApiSettings()
+  if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
+    throw new Error('未配置可用模型，请先在设置里填写 baseUrl / apiKey / model')
+  }
+
+  const generationSettings = {
+    ...apiSettings,
+    max_tokens: 3200,
+    temperature: 0.2,
+    response_format: null
+  }
+
+  const systemPrompt = [
+    '你是分镜图生成器。',
+    '请严格使用分步行格式输出，不要输出 JSON。',
+    '每一行格式必须是：L<层级>|N<编号>|P<父编号>|<镜头描述>',
+    '约束：层级从1开始；根节点唯一；每个节点描述一个分镜画面；需包含景别、运镜、色调、声音建议；只能输出行，不要解释。',
+    '必须用 BEGIN_LINES 和 END_LINES 包裹所有行。',
+    '示例：',
+    'BEGIN_LINES',
+    'L1|N1|P0|雨夜街道全景，固定镜头，冷蓝色调',
+    'L2|N2|P1|路灯特写，推镜头，暖黄光晕，雨声',
+    'END_LINES'
+  ].join('\n')
+
+  const userPrompt = [
+    `场景主题：${promptText}`,
+    `一级分镜数量：${count}`,
+    `最大层数：${depth}`,
+    '请按叙事逻辑生成分镜序列，每节点包含画面描述、建议景别和运镜、色调情绪。'
+  ].join('\n')
+
+  const response = await sendChat([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt }
+  ], null, null, generationSettings)
+
+  const content = String(response?.content || '')
+  console.info(`${LLM_DEBUG_PREFIX} 分镜图预览`, content.slice(0, 300))
+
+  try {
+    return parseLineTree(content)
+  } catch (e) {
+    const retry = await sendChat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+      {
+        role: 'user',
+        content: '上一条格式不合规。请重新输出分步行格式，不要解释，每行匹配：L<层级>|N<编号>|P<父编号>|<镜头描述>。'
+      }
+    ], null, null, generationSettings)
+
+    const retryText = String(retry?.content || '')
+    console.info(`${LLM_DEBUG_PREFIX} 分镜图二轮预览`, retryText.slice(0, 300))
+    try {
+      return parseLineTree(retryText)
+    } catch (e2) {
+      throw new Error('分镜图解析失败，请重试')
+    }
+  }
+}
+
+function saveNodeExtraFields() {
+  if (!selectedNode.value) return
+  if (!selectedNode.value.extraFields) selectedNode.value.extraFields = {}
+  selectedNode.value.extraFields.shotType = editingShotType.value
+  selectedNode.value.extraFields.cameraMovement = editingCameraMovement.value
+  selectedNode.value.extraFields.duration = editingDuration.value
+  selectedNode.value.extraFields.toneDescription = editingToneDescription.value
+  selectedNode.value.extraFields.soundDescription = editingSoundDescription.value
+  statusText.value = '已保存字段'
+}
+
+function getShotTypeLabel(value) {
+  return shotTypes.find(s => s.value === value)?.label || value
+}
+
+function getCameraMovementLabel(value) {
+  return cameraMovements.find(m => m.value === value)?.label || value
 }
 
 function deleteSelectedNode() {
@@ -2227,7 +2501,7 @@ function onGroupDraftEnd() {
 }
 
 function onEdgeClick(edge) {
-  if (interactionMode.value !== 'scissor' || edge.builtIn) return
+  if (interactionMode.value !== 'scissor') return
   removeGraphEdge(edge.id)
 }
 
@@ -2478,6 +2752,57 @@ function exportTxt() {
   background: var(--bg-hover);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.mode-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+}
+
+.mode-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.mode-label.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.mode-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.mode-toggle.is-directing {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mode-toggle-dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.mode-toggle.is-directing .mode-toggle-dot {
+  left: calc(100% - 16px);
+  background: white;
 }
 
 .layout {
@@ -2890,6 +3215,28 @@ function exportTxt() {
   border-color: var(--accent);
 }
 
+.export-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.collapse-arrow {
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+}
+
+.collapse-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.history-item-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .history-actions {
   margin-top: 8px;
   display: grid;
@@ -2936,6 +3283,73 @@ function exportTxt() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.detail-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+
+/* Dialog */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.dialog {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px var(--shadow-md);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-body {
+  padding: 16px 20px;
+}
+
+.dialog-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-node-text {
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.dialog-example {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.dialog-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .btn-primary,
@@ -2995,6 +3409,51 @@ function exportTxt() {
 .node-detail h3 {
   margin: 0;
   font-size: 13px;
+}
+
+.detail-panel-section {
+  margin-top: 10px;
+}
+
+.extra-fields-list {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+.extra-fields-list > div {
+  display: flex;
+  gap: 4px;
+}
+
+.extra-fields-list > div > span {
+  color: var(--text-primary);
+}
+
+.extra-example {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.detail-panel-section label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.detail-panel-section .input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.save-btn {
+  margin-top: 10px;
+  width: 100%;
 }
 
 .meta {
@@ -3080,6 +3539,21 @@ function exportTxt() {
   height: 1040px;
 }
 
+.canvas-legend {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 95%, #ffffff 5%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 10;
+  pointer-events: none;
+}
+
 .edge-layer {
   position: absolute;
   inset: 0;
@@ -3123,6 +3597,33 @@ function exportTxt() {
   color: #9b8cff;
   stroke: #9b8cff;
   stroke-dasharray: 3 3;
+}
+
+.edge-visual_metaphor {
+  color: #9c27b0;
+  stroke: #9c27b0;
+}
+
+.edge-parallel_shot {
+  color: #2196f3;
+  stroke: #2196f3;
+}
+
+.edge-jump_cut {
+  color: #ff5722;
+  stroke: #ff5722;
+  stroke-dasharray: 6 4;
+}
+
+.edge-visual_echo {
+  color: #00bcd4;
+  stroke: #00bcd4;
+  stroke-dasharray: 3 3;
+}
+
+.edge-detail_insert {
+  color: #8bc34a;
+  stroke: #8bc34a;
 }
 
 .edge.removable {
@@ -3181,6 +3682,26 @@ function exportTxt() {
 .legend-line.edge-echo {
   color: #9b8cff;
   border-top-style: dashed;
+}
+
+.legend-line.edge-visual_metaphor {
+  color: #9c27b0;
+}
+
+.legend-line.edge-parallel_shot {
+  color: #2196f3;
+}
+
+.legend-line.edge-jump_cut {
+  color: #ff5722;
+}
+
+.legend-line.edge-visual_echo {
+  color: #00bcd4;
+}
+
+.legend-line.edge-detail_insert {
+  color: #8bc34a;
 }
 
 .selection-rect {
