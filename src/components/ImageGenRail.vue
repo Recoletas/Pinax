@@ -174,6 +174,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const props = defineProps({
   storageKey: {
@@ -206,7 +207,7 @@ const props = defineProps({
   }
 })
 
-const sharedModelKey = 'image_model_configs'
+const sharedModelKey = STORAGE_KEYS.IMAGE_MODEL_CONFIGS
 const imageDrawerOpen = ref(false)
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
@@ -258,22 +259,12 @@ onMounted(() => {
 watch(imageLibrary, () => saveImageLibrary(), { deep: true })
 
 function readJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw)
-    return parsed ?? fallback
-  } catch {
-    return fallback
-  }
+  const parsed = getItem(key)
+  return parsed ?? fallback
 }
 
 function writeJson(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // ignore storage failures
-  }
+  setItem(key, value)
 }
 
 function loadModelConfigs() {

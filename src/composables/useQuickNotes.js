@@ -1,23 +1,22 @@
 import { ref } from 'vue'
+import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from './useStorage'
 
-const QUICK_NOTE_KEY = 'prose_quick_note_draft'
-
-export function useQuickNotes() {
+export function useQuickNotes(storageKey = STORAGE_KEYS.QUICK_NOTE_DRAFT) {
   const draft = ref('')
 
   function loadDraft() {
-    draft.value = localStorage.getItem(QUICK_NOTE_KEY) || ''
+    draft.value = getTextItem(storageKey)
     return draft.value
   }
 
   function saveDraft(content) {
     draft.value = content
-    localStorage.setItem(QUICK_NOTE_KEY, content)
+    setTextItem(storageKey, content)
   }
 
   function clearDraft() {
     draft.value = ''
-    localStorage.removeItem(QUICK_NOTE_KEY)
+    removeItem(storageKey)
   }
 
   async function importFromClipboard() {

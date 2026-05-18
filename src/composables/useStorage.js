@@ -5,10 +5,16 @@
 
 export const STORAGE_KEYS = {
   // 通用
-  QUICK_NOTE_DRAFT: 'prose_quick_note_draft',
+  QUICK_NOTE_DRAFT: 'quick_note_draft',
+  PROSE_QUICK_NOTE_DRAFT: 'prose_quick_note_draft',
 
   // 小说写作
   WRITING_BOOKS: 'writing_books',
+  WRITING_CHARACTER: 'writing_character',
+  WRITING_TIME: 'writing_time',
+  WRITING_WORLDMAP: 'writing_worldmap',
+  WRITING_SCENES: 'writing_scenes',
+  WRITING_ACTIVITIES: 'writing_activities',
   WRITING_CHARACTERS: 'writing_characters',
   WRITING_TIMELINES: 'writing_timelines',
   WRITING_WORLD_SETTINGS: 'writing_world_settings',
@@ -19,10 +25,15 @@ export const STORAGE_KEYS = {
   PROSE_EDGES_V1: 'prose_edges_v1',
   PROSE_OUTLINE_V1: 'prose_outline_v1',
   PROSE_TIMELINE_V1: 'prose_timeline_v1',
+  PROSE_PILES_V1: 'prose_piles_v1',
+  PROSE_COMMITS_V1: 'prose_commits_v1',
+  PROSE_BRANCHES_V1: 'prose_branches_v1',
+  PROSE_IMAGE_LIBRARY: 'prose_image_library',
 
   // 诗歌工坊
   POETRY_IDEA_TREE_V2: 'poetry_idea_tree_v2',
   POETRY_IDEA_POSITIONS_V2: 'poetry_idea_positions_v2',
+  POETRY_ADAPT_PROFILE_V2: 'poetry_adapt_profile_v2',
   POETRY_GRAPH_EDGES_V1: 'poetry_graph_edges_v1',
   POETRY_IMAGERY_GROUPS_V1: 'poetry_imagery_groups_v1',
   POETRY_SNAPSHOTS_V1: 'poetry_snapshots_v1',
@@ -83,6 +94,31 @@ export function setItem(key, value) {
     return true
   } catch (e) {
     console.warn(`[storage] setItem failed for key: ${key}`, e)
+    return false
+  }
+}
+
+/**
+ * 获取原始字符串存储
+ */
+export function getTextItem(key) {
+  try {
+    return localStorage.getItem(key) || ''
+  } catch (e) {
+    console.warn(`[storage] getTextItem failed for key: ${key}`, e)
+    return ''
+  }
+}
+
+/**
+ * 设置原始字符串存储
+ */
+export function setTextItem(key, value) {
+  try {
+    localStorage.setItem(key, String(value ?? ''))
+    return true
+  } catch (e) {
+    console.warn(`[storage] setTextItem failed for key: ${key}`, e)
     return false
   }
 }

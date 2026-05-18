@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { getItem, setItem, removeItem, STORAGE_KEYS } from '@/composables/useStorage'
+import { describe, it, expect, vi } from 'vitest'
+import { getItem, getTextItem, setItem, setTextItem, removeItem, STORAGE_KEYS } from '@/composables/useStorage'
 
 describe('useStorage', () => {
   describe('getItem', () => {
@@ -16,9 +16,11 @@ describe('useStorage', () => {
     })
 
     it('should return null for invalid JSON', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       localStorage.setItem('test_key', 'not valid json')
       const result = getItem('test_key')
       expect(result).toBeNull()
+      warnSpy.mockRestore()
       localStorage.removeItem('test_key')
     })
 
@@ -44,6 +46,18 @@ describe('useStorage', () => {
     })
   })
 
+  describe('text helpers', () => {
+    it('should return empty string for missing text key', () => {
+      expect(getTextItem('missing_text_key')).toBe('')
+    })
+
+    it('should store and read raw text value', () => {
+      setTextItem('text_key', 'plain text')
+      expect(getTextItem('text_key')).toBe('plain text')
+      localStorage.removeItem('text_key')
+    })
+  })
+
   describe('removeItem', () => {
     it('should remove item from localStorage', () => {
       localStorage.setItem('test_key', 'value')
@@ -56,6 +70,11 @@ describe('useStorage', () => {
     it('should have all required keys', () => {
       expect(STORAGE_KEYS.QUICK_NOTE_DRAFT).toBeDefined()
       expect(STORAGE_KEYS.WRITING_BOOKS).toBeDefined()
+      expect(STORAGE_KEYS.WRITING_CHARACTER).toBeDefined()
+      expect(STORAGE_KEYS.WRITING_TIME).toBeDefined()
+      expect(STORAGE_KEYS.WRITING_WORLDMAP).toBeDefined()
+      expect(STORAGE_KEYS.WRITING_SCENES).toBeDefined()
+      expect(STORAGE_KEYS.WRITING_ACTIVITIES).toBeDefined()
       expect(STORAGE_KEYS.PROSE_CARDS_V1).toBeDefined()
       expect(STORAGE_KEYS.POETRY_IDEA_TREE_V2).toBeDefined()
       expect(STORAGE_KEYS.API_SETTINGS).toBeDefined()

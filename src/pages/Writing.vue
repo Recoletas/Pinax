@@ -519,11 +519,12 @@ import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
-const QUICK_NOTE_STORE_KEY = 'writing_notes'
+const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
+const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 
 const books = ref([])
 const selectedBookId = ref('')
@@ -645,19 +646,11 @@ function goBack() {
 }
 
 function loadQuickNoteDraft() {
-  try {
-    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
-  } catch {
-    return ''
-  }
+  return getTextItem(QUICK_NOTE_DRAFT_KEY)
 }
 
 function persistQuickNoteDraft() {
-  try {
-    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-  } catch {
-    // ignore localStorage failures
-  }
+  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
 }
 
 function resizeQuickNoteInput(el = quickNoteInputRef.value) {
@@ -740,11 +733,7 @@ function importSelectedDialogueSegments() {
 
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
-  try {
-    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
-  } catch {
-    // ignore localStorage failures
-  }
+  removeItem(QUICK_NOTE_DRAFT_KEY)
   nextTick(() => resizeQuickNoteInput())
 }
 
@@ -789,12 +778,8 @@ function saveQuickNote() {
   }
 
   let notes = []
-  try {
-    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
-    if (!Array.isArray(notes)) notes = []
-  } catch {
-    notes = []
-  }
+  notes = getItem(QUICK_NOTE_STORE_KEY) || []
+  if (!Array.isArray(notes)) notes = []
 
   notes.unshift({
     id: Date.now().toString(),
@@ -806,7 +791,7 @@ function saveQuickNote() {
     updatedAt: new Date().toISOString()
   })
 
-  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true
@@ -824,7 +809,7 @@ function jumpToWriting() {
 
 function loadBooks() {
   try {
-    const stored = localStorage.getItem('writing_books')
+    const stored = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
     books.value = stored ? JSON.parse(stored) : []
   } catch (e) {
     books.value = []
@@ -832,7 +817,7 @@ function loadBooks() {
 }
 
 function saveBooks() {
-  localStorage.setItem('writing_books', JSON.stringify(books.value))
+  localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books.value))
 }
 
 function selectBook(bookId) {

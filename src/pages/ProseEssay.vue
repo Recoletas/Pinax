@@ -655,6 +655,7 @@
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
+import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getApiSettings, sendChat } from '../services/api'
 
 const router = useRouter()
@@ -705,8 +706,8 @@ const cameraMovements = [
 ]
 
 // Quick note
-const QUICK_NOTE_DRAFT_KEY = 'prose_quick_note_draft'
-const QUICK_NOTE_STORE_KEY = 'writing_notes'
+const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.PROSE_QUICK_NOTE_DRAFT
+const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 const quickNoteOpen = ref(false)
 const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
@@ -714,8 +715,8 @@ const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
 
 // Image generation
-const IMG_LIBRARY_KEY = 'prose_image_library'
-const IMG_MODEL_CONFIGS_KEY = 'image_model_configs'
+const IMG_LIBRARY_KEY = STORAGE_KEYS.PROSE_IMAGE_LIBRARY
+const IMG_MODEL_CONFIGS_KEY = STORAGE_KEYS.IMAGE_MODEL_CONFIGS
 const imageDrawerOpen = ref(false)
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
@@ -751,13 +752,13 @@ const modelTypes = [
 ]
 
 // Storage keys
-const CARDS_KEY = 'prose_cards_v1'
-const EDGES_KEY = 'prose_edges_v1'
-const OUTLINE_KEY = 'prose_outline_v1'
-const TIMELINE_KEY = 'prose_timeline_v1'
-const PILES_KEY = 'prose_piles_v1'
-const COMMITS_KEY = 'prose_commits_v1'
-const BRANCHES_KEY = 'prose_branches_v1'
+const CARDS_KEY = STORAGE_KEYS.PROSE_CARDS_V1
+const EDGES_KEY = STORAGE_KEYS.PROSE_EDGES_V1
+const OUTLINE_KEY = STORAGE_KEYS.PROSE_OUTLINE_V1
+const TIMELINE_KEY = STORAGE_KEYS.PROSE_TIMELINE_V1
+const PILES_KEY = STORAGE_KEYS.PROSE_PILES_V1
+const COMMITS_KEY = STORAGE_KEYS.PROSE_COMMITS_V1
+const BRANCHES_KEY = STORAGE_KEYS.PROSE_BRANCHES_V1
 
 // Emotion config
 const emotionLabels = {
@@ -1142,7 +1143,7 @@ onMounted(() => {
 })
 
 async function resolveApiSettings() {
-  const localRaw = JSON.parse(localStorage.getItem('apiSettings') || '{}')
+  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
   if (localRaw.baseUrl && localRaw.apiKey && localRaw.model) {
     apiSettings.value = localRaw
     return
@@ -1164,10 +1165,10 @@ function inferZone(cardId) {
 
 function loadData() {
   try {
-    const rawCards = JSON.parse(localStorage.getItem(CARDS_KEY) || '[]')
-    edges.value = JSON.parse(localStorage.getItem(EDGES_KEY) || '[]')
-    outline.value = JSON.parse(localStorage.getItem(OUTLINE_KEY) || '[]')
-    timeline.value = JSON.parse(localStorage.getItem(TIMELINE_KEY) || '[]')
+    const rawCards = getItem(CARDS_KEY) || []
+    edges.value = getItem(EDGES_KEY) || []
+    outline.value = getItem(OUTLINE_KEY) || []
+    timeline.value = getItem(TIMELINE_KEY) || []
 
     cards.value = rawCards.map((card, idx) => ({
       ...card,
@@ -1178,9 +1179,9 @@ function loadData() {
       extraFields: card.extraFields || null
     }))
 
-    try { piles.value = JSON.parse(localStorage.getItem(PILES_KEY) || '[]') } catch { piles.value = [] }
-    try { proseCommits.value = JSON.parse(localStorage.getItem(COMMITS_KEY) || '[]') } catch { proseCommits.value = [] }
-    try { proseBranches.value = JSON.parse(localStorage.getItem(BRANCHES_KEY) || '{"current":"main","list":[{"name":"main","headCommitId":null}]}') } catch { proseBranches.value = { current: 'main', list: [{ name: 'main', headCommitId: null }] } }
+    piles.value = getItem(PILES_KEY) || []
+    proseCommits.value = getItem(COMMITS_KEY) || []
+    proseBranches.value = getItem(BRANCHES_KEY) || { current: 'main', list: [{ name: 'main', headCommitId: null }] }
   } catch {
     cards.value = []
     edges.value = []
@@ -1191,13 +1192,13 @@ function loadData() {
 }
 
 function saveData() {
-  localStorage.setItem(CARDS_KEY, JSON.stringify(cards.value))
-  localStorage.setItem(EDGES_KEY, JSON.stringify(edges.value))
-  localStorage.setItem(OUTLINE_KEY, JSON.stringify(outline.value))
-  localStorage.setItem(TIMELINE_KEY, JSON.stringify(timeline.value))
-  localStorage.setItem(PILES_KEY, JSON.stringify(piles.value))
-  localStorage.setItem(COMMITS_KEY, JSON.stringify(proseCommits.value.slice(0, 50)))
-  localStorage.setItem(BRANCHES_KEY, JSON.stringify(proseBranches.value))
+  setItem(CARDS_KEY, cards.value)
+  setItem(EDGES_KEY, edges.value)
+  setItem(OUTLINE_KEY, outline.value)
+  setItem(TIMELINE_KEY, timeline.value)
+  setItem(PILES_KEY, piles.value)
+  setItem(COMMITS_KEY, proseCommits.value.slice(0, 50))
+  setItem(BRANCHES_KEY, proseBranches.value)
   nextTick(() => computeEdgePositions())
 }
 
@@ -2049,19 +2050,11 @@ function downloadFile(content, filename, mimeType) {
 
 // Quick note functions
 function loadQuickNoteDraft() {
-  try {
-    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
-  } catch {
-    return ''
-  }
+  return getTextItem(QUICK_NOTE_DRAFT_KEY)
 }
 
 function persistQuickNoteDraft() {
-  try {
-    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-  } catch {
-    // ignore
-  }
+  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
 }
 
 function resizeQuickNoteInput(el = quickNoteInputRef.value) {
@@ -2077,11 +2070,7 @@ function handleQuickNoteInput(event) {
 
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
-  try {
-    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
-  } catch {
-    // ignore localStorage failures
-  }
+  removeItem(QUICK_NOTE_DRAFT_KEY)
   nextTick(() => resizeQuickNoteInput())
 }
 
@@ -2134,12 +2123,8 @@ function saveQuickNote() {
   }
 
   let notes = []
-  try {
-    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
-    if (!Array.isArray(notes)) notes = []
-  } catch {
-    notes = []
-  }
+  notes = getItem(QUICK_NOTE_STORE_KEY) || []
+  if (!Array.isArray(notes)) notes = []
 
   notes.unshift({
     id: Date.now().toString(),
@@ -2151,7 +2136,7 @@ function saveQuickNote() {
     updatedAt: new Date().toISOString()
   })
 
-  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true
@@ -2169,33 +2154,21 @@ function jumpToWriting() {
 
 // Image generation functions
 function loadImageConfigs() {
-  try {
-    const raw = localStorage.getItem(IMG_MODEL_CONFIGS_KEY)
-    if (raw) {
-      modelConfigs.value = JSON.parse(raw)
-      if (modelConfigs.value.length > 0 && !imageSelectedModel.value) {
-        imageSelectedModel.value = modelConfigs.value[0].id
-      }
-    }
-  } catch {
-    modelConfigs.value = []
+  const loaded = getItem(IMG_MODEL_CONFIGS_KEY)
+  modelConfigs.value = Array.isArray(loaded) ? loaded : []
+  if (modelConfigs.value.length > 0 && !imageSelectedModel.value) {
+    imageSelectedModel.value = modelConfigs.value[0].id
   }
 }
 
 function loadImageLibrary() {
-  try {
-    const raw = localStorage.getItem(IMG_LIBRARY_KEY)
-    if (raw) {
-      imageLibrary.value = JSON.parse(raw)
-    }
-  } catch {
-    imageLibrary.value = []
-  }
+  const loaded = getItem(IMG_LIBRARY_KEY)
+  imageLibrary.value = Array.isArray(loaded) ? loaded : []
 }
 
 function saveImageLibrary() {
   const trimmed = imageLibrary.value.slice(0, 20)
-  localStorage.setItem(IMG_LIBRARY_KEY, JSON.stringify(trimmed))
+  setItem(IMG_LIBRARY_KEY, trimmed)
 }
 
 function useCardContentAsPrompt() {
@@ -2235,7 +2208,7 @@ function saveModelConfig() {
     const idx = modelConfigs.value.findIndex(c => c.id === cfg.id)
     if (idx >= 0) modelConfigs.value[idx] = cfg
   }
-  localStorage.setItem(IMG_MODEL_CONFIGS_KEY, JSON.stringify(modelConfigs.value))
+  setItem(IMG_MODEL_CONFIGS_KEY, modelConfigs.value)
   showImageConfigDialog.value = false
   if (!imageSelectedModel.value) {
     imageSelectedModel.value = cfg.id
@@ -2244,7 +2217,7 @@ function saveModelConfig() {
 
 function deleteModelConfig(modelId) {
   modelConfigs.value = modelConfigs.value.filter(c => c.id !== modelId)
-  localStorage.setItem(IMG_MODEL_CONFIGS_KEY, JSON.stringify(modelConfigs.value))
+  setItem(IMG_MODEL_CONFIGS_KEY, modelConfigs.value)
   if (imageSelectedModel.value === modelId) {
     imageSelectedModel.value = modelConfigs.value[0]?.id || ''
   }

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const api = axios.create({
   baseURL: '/api',
@@ -43,7 +44,7 @@ export async function getState(gameId) {
  * 优先从 localStorage 读取，回退到后端 secrets
  */
 export async function getResolvedApiSettings() {
-  const localRaw = JSON.parse(localStorage.getItem('apiSettings') || '{}')
+  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
 
   const normalize = (raw) => ({
     provider: raw.provider || null,
@@ -198,7 +199,7 @@ export function getWritingContextDetail() {
   }
 
   // 角色信息
-  const character = JSON.parse(localStorage.getItem('writing_character') || '{}')
+  const character = getItem(STORAGE_KEYS.WRITING_CHARACTER) || {}
   if (character.name) {
     context.character = {
       name: character.name,
@@ -212,7 +213,7 @@ export function getWritingContextDetail() {
   }
 
   // 时间信息
-  const time = JSON.parse(localStorage.getItem('writing_time') || '{}')
+  const time = getItem(STORAGE_KEYS.WRITING_TIME) || {}
   if (time.year) {
     context.time = {
       era: time.eraId === 'gregorian' ? '公元' : (time.eraName || ''),
@@ -223,7 +224,7 @@ export function getWritingContextDetail() {
   }
 
   // 当前位置
-  const worldmap = JSON.parse(localStorage.getItem('writing_worldmap') || '{}')
+  const worldmap = getItem(STORAGE_KEYS.WRITING_WORLDMAP) || {}
   if (worldmap.currentCountry || worldmap.currentCity || worldmap.currentScene) {
     context.location = {
       country: worldmap.currentCountry || null,
@@ -233,7 +234,7 @@ export function getWritingContextDetail() {
   }
 
   // 当前场景
-  const scenes = JSON.parse(localStorage.getItem('writing_scenes') || '{}')
+  const scenes = getItem(STORAGE_KEYS.WRITING_SCENES) || {}
   if (scenes.currentId) {
     const current = scenes.scenes?.find(s => s.id === scenes.currentId)
     if (current) {
@@ -247,7 +248,7 @@ export function getWritingContextDetail() {
   }
 
   // 最近活动
-  const activities = JSON.parse(localStorage.getItem('writing_activities') || '[]')
+  const activities = getItem(STORAGE_KEYS.WRITING_ACTIVITIES) || []
   if (activities.length > 0) {
     context.activities = activities.slice(-5).reverse().map(a => ({
       title: a.title,

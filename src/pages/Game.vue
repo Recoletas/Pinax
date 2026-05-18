@@ -151,14 +151,15 @@ import QuestLog from '../components/QuestLog.vue'
 import WorldMap from '../components/WorldMap.vue'
 import Settings from '../components/Settings.vue'
 import Character from '../components/Character.vue'
+import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const router = useRouter()
 const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
 const showCharacter = ref(false)
 const showSettings = ref(false)
-const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
-const QUICK_NOTE_STORE_KEY = 'writing_notes'
+const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
+const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 const quickNoteOpen = ref(false)
 const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
@@ -187,19 +188,11 @@ function handleSend(text) {
 }
 
 function loadQuickNoteDraft() {
-  try {
-    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
-  } catch {
-    return ''
-  }
+  return getTextItem(QUICK_NOTE_DRAFT_KEY)
 }
 
 function persistQuickNoteDraft() {
-  try {
-    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-  } catch {
-    // ignore localStorage failures
-  }
+  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
 }
 
 function resizeQuickNoteInput(el = quickNoteInputRef.value) {
@@ -243,11 +236,7 @@ function importSelectedDialogueSegments() {
 
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
-  try {
-    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
-  } catch {
-    // ignore localStorage failures
-  }
+  removeItem(QUICK_NOTE_DRAFT_KEY)
   nextTick(() => resizeQuickNoteInput())
 }
 
@@ -292,12 +281,8 @@ function saveQuickNote() {
   }
 
   let notes = []
-  try {
-    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
-    if (!Array.isArray(notes)) notes = []
-  } catch {
-    notes = []
-  }
+  notes = getItem(QUICK_NOTE_STORE_KEY) || []
+  if (!Array.isArray(notes)) notes = []
 
   notes.unshift({
     id: Date.now().toString(),
@@ -309,7 +294,7 @@ function saveQuickNote() {
     updatedAt: new Date().toISOString()
   })
 
-  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true

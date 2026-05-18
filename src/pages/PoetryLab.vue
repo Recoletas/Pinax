@@ -461,13 +461,14 @@ import { useRouter } from 'vue-router'
 import { getApiSettings, sendChat } from '../services/api'
 import { useTheme } from '../composables/useTheme'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
-const TREE_KEY = 'poetry_idea_tree_v2'
-const POS_KEY = 'poetry_idea_positions_v2'
-const ADAPT_KEY = 'poetry_adapt_profile_v2'
-const GRAPH_EDGE_KEY = 'poetry_graph_edges_v1'
-const GROUP_KEY = 'poetry_imagery_groups_v1'
-const SNAPSHOT_KEY = 'poetry_snapshots_v1'
+const TREE_KEY = STORAGE_KEYS.POETRY_IDEA_TREE_V2
+const POS_KEY = STORAGE_KEYS.POETRY_IDEA_POSITIONS_V2
+const ADAPT_KEY = STORAGE_KEYS.POETRY_ADAPT_PROFILE_V2
+const GRAPH_EDGE_KEY = STORAGE_KEYS.POETRY_GRAPH_EDGES_V1
+const GROUP_KEY = STORAGE_KEYS.POETRY_IMAGERY_GROUPS_V1
+const SNAPSHOT_KEY = STORAGE_KEYS.POETRY_SNAPSHOTS_V1
 const LLM_DEBUG_PREFIX = '[PoetryLab LLM]'
 const EDGE_TYPE_LABELS = {
   HIERARCHY: '层级',
@@ -515,8 +516,8 @@ const cameraMovements = [
   { value: 'fixed', label: '固定' }
 ]
 
-const QUICK_NOTE_DRAFT_KEY = 'quick_note_draft'
-const QUICK_NOTE_STORE_KEY = 'writing_notes'
+const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
+const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 
 const prompt = ref('')
 const branchCount = ref(5)
@@ -671,19 +672,11 @@ function goBack() {
 }
 
 function loadQuickNoteDraft() {
-  try {
-    return localStorage.getItem(QUICK_NOTE_DRAFT_KEY) || ''
-  } catch {
-    return ''
-  }
+  return getTextItem(QUICK_NOTE_DRAFT_KEY)
 }
 
 function persistQuickNoteDraft() {
-  try {
-    localStorage.setItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-  } catch {
-    // ignore localStorage failures
-  }
+  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
 }
 
 function resizeQuickNoteInput(el = quickNoteInputRef.value) {
@@ -740,11 +733,7 @@ function importSelectedLeafNodes() {
 
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
-  try {
-    localStorage.removeItem(QUICK_NOTE_DRAFT_KEY)
-  } catch {
-    // ignore localStorage failures
-  }
+  removeItem(QUICK_NOTE_DRAFT_KEY)
   nextTick(() => resizeQuickNoteInput())
 }
 
@@ -790,12 +779,8 @@ function saveQuickNote() {
   }
 
   let notes = []
-  try {
-    notes = JSON.parse(localStorage.getItem(QUICK_NOTE_STORE_KEY) || '[]')
-    if (!Array.isArray(notes)) notes = []
-  } catch {
-    notes = []
-  }
+  notes = getItem(QUICK_NOTE_STORE_KEY) || []
+  if (!Array.isArray(notes)) notes = []
 
   notes.unshift({
     id: Date.now().toString(),
@@ -807,7 +792,7 @@ function saveQuickNote() {
     updatedAt: new Date().toISOString()
   })
 
-  localStorage.setItem(QUICK_NOTE_STORE_KEY, JSON.stringify(notes))
+  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true
@@ -841,69 +826,36 @@ function clearTree() {
 }
 
 function loadSavedTree() {
-  const raw = localStorage.getItem(TREE_KEY)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw)
-  } catch (e) {
-    return null
-  }
+  return getItem(TREE_KEY)
 }
 
 function loadSavedPositions() {
-  const raw = localStorage.getItem(POS_KEY)
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw)
-  } catch (e) {
-    return {}
-  }
+  const stored = getItem(POS_KEY)
+  return stored && typeof stored === 'object' ? stored : {}
 }
 
 function loadAdaptState() {
-  const raw = localStorage.getItem(ADAPT_KEY)
-  if (!raw) return defaultAdaptState()
-  try {
-    return {
-      ...defaultAdaptState(),
-      ...JSON.parse(raw)
-    }
-  } catch (e) {
-    return defaultAdaptState()
+  const stored = getItem(ADAPT_KEY)
+  if (!stored || typeof stored !== 'object') return defaultAdaptState()
+  return {
+    ...defaultAdaptState(),
+    ...stored
   }
 }
 
 function loadGraphEdges() {
-  const raw = localStorage.getItem(GRAPH_EDGE_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+  const stored = getItem(GRAPH_EDGE_KEY)
+  return Array.isArray(stored) ? stored : []
 }
 
 function loadImageryGroups() {
-  const raw = localStorage.getItem(GROUP_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+  const stored = getItem(GROUP_KEY)
+  return Array.isArray(stored) ? stored : []
 }
 
 function loadSnapshots() {
-  const raw = localStorage.getItem(SNAPSHOT_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+  const stored = getItem(SNAPSHOT_KEY)
+  return Array.isArray(stored) ? stored : []
 }
 
 function ensureEditable(message = '当前为快照只读视图，请先从版本历史继续编辑') {
@@ -1056,31 +1008,31 @@ function nodeGroupLabels(nodeId) {
 
 watch(rootTree, (newTree) => {
   if (newTree) {
-    localStorage.setItem(TREE_KEY, JSON.stringify(newTree))
+    setItem(TREE_KEY, newTree)
   } else {
-    localStorage.removeItem(TREE_KEY)
+    removeItem(TREE_KEY)
   }
   syncAuxiliaryState()
 }, { deep: true })
 
 watch(manualPositions, (newPos) => {
-  localStorage.setItem(POS_KEY, JSON.stringify(newPos))
+  setItem(POS_KEY, newPos)
 }, { deep: true })
 
 watch(adaptState, (state) => {
-  localStorage.setItem(ADAPT_KEY, JSON.stringify(state))
+  setItem(ADAPT_KEY, state)
 }, { deep: true })
 
 watch(graphEdges, (edges) => {
-  localStorage.setItem(GRAPH_EDGE_KEY, JSON.stringify(edges))
+  setItem(GRAPH_EDGE_KEY, edges)
 }, { deep: true })
 
 watch(imageryGroups, (groups) => {
-  localStorage.setItem(GROUP_KEY, JSON.stringify(groups))
+  setItem(GROUP_KEY, groups)
 }, { deep: true })
 
 watch(snapshots, (items) => {
-  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(items))
+  setItem(SNAPSHOT_KEY, items)
 }, { deep: true })
 
 watch(selectedNode, (node) => {
@@ -1111,7 +1063,7 @@ function maskKey(key) {
 }
 
 async function resolveApiSettings() {
-  const localRaw = JSON.parse(localStorage.getItem('apiSettings') || '{}')
+  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
   const local = normalizeApiSettingsShape(localRaw)
 
   let merged = { ...local }
