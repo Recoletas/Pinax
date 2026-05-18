@@ -411,3 +411,59 @@ text-game-framework/
 - [ ] 多设备同步（需后端持久化）
 - [ ] 协作功能
 - [ ] 更多导出格式
+
+## 后续规划
+
+### P0 — 稳住根基
+
+优先修复现有工程问题，避免积累更多技术债：
+
+1. **修 chat.js 的 secrets 路径和 prompt/baseUrl 逻辑**
+   - 统一 API 设置读取入口（避免各页面自行解析 settings）
+   - 补最基本的错误提示与日志边界
+
+2. **统一 AI 配置读取**
+   - 合并 `getApiSettings` 调用路径
+   - 统一错误处理和重试逻辑
+
+### P1 — 拆分与抽象
+
+抽共享层、拆大页面前先做：
+
+1. **抽两个共享 composable**
+   - `useQuickNotes`：速记草稿暂存、持久化、导入导出逻辑
+   - `useRichEditor`：编辑器基础能力（排版、查找替换、字体）
+
+2. **大页面拆分示例（PoetryLab 或 ProseEssay）**
+   - 容器页：路由参数解析、布局
+   - 子组件：Canvas / NodeDetail / HistoryPanel / ToolPanel
+   - composables：节点操作逻辑、画布交互逻辑
+   - utils：树结构操作（flatten/reindex/clone）、导出格式化
+
+3. **统一数据模型**
+   - 集中定义 localStorage 键（含版本号）
+   - 定义 schema（含迁移函数）
+   - 避免各页面各自解析、自己写版本迁移
+
+### P1 — 工程护栏
+
+- 加 ESLint 基础配置
+- 写基础单测（Vitest）：先覆盖纯函数（如 `flattenTree`/`reindexTree`/`cloneTree`）和 store
+- 写 1~2 条关键 E2E 流程（如"写作保存后刷新不丢失"、"AI 配置连通成功可正常调用"）
+
+### P2 — 体验增强
+
+功能稳定后，再做体验优化：
+
+1. **性能优化**
+   - 画布节点数量超 200 时考虑虚拟列表或懒加载
+   - 大文件写作时编辑器按需渲染
+
+2. **设计系统收敛**
+   - 统一 title-bar / theme / 按钮样式
+   - 统一组件样式 token
+
+3. **功能扩展**
+   - 更多导出格式（PDF、EPUB）
+   - 多设备同步（后端持久化）
+   - 协作功能

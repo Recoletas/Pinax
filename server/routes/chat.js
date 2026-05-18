@@ -61,14 +61,16 @@ function buildChatUrl(baseUrl, chatPath) {
   return `${baseUrl}${chatPath}`
 }
 
-function loadApiSettings() {
+const DATA_DIR = join(__dirname, '../../data')
+
+function loadSecrets() {
+  const secretsPath = join(DATA_DIR, 'secrets.json')
   try {
-    const secretsPath = join(__dirname, '../../data/secrets.json')
     if (existsSync(secretsPath)) {
       return JSON.parse(readFileSync(secretsPath, 'utf-8'))
     }
   } catch (e) {
-    console.error('Error loading secrets:', e)
+    console.error('[chat] Error loading secrets:', e)
   }
   return {}
 }
@@ -121,7 +123,7 @@ router.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'messages array is required' })
   }
 
-  const secrets = loadApiSettings()
+  const secrets = loadSecrets()
 
   const effectiveProvider = provider || secrets.provider || 'openai'
   const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, secrets.base_url)
@@ -449,40 +451,32 @@ router.post('/test', async (req, res) => {
   }
 })
 
+function saveSecrets(secrets) {
+  const secretsPath = join(DATA_DIR, 'secrets.json')
+  try {
+    writeFileSync(secretsPath, JSON.stringify(secrets, null, 2))
+    return true
+  } catch (e) {
+    console.error('[chat] Error saving secrets:', e)
+    return false
+  }
+}
+
 // Secrets management endpoints
 router.post('/secrets/write', async (req, res) => {
   const { key, value } = req.body
-  const secretsPath = join(__dirname, '../../data/secrets.json')
-
-  let secrets = {}
-  try {
-    if (existsSync(secretsPath)) {
-      secrets = JSON.parse(readFileSync(secretsPath, 'utf-8'))
-    }
-  } catch (e) {}
-
+  const secrets = loadSecrets()
   secrets[key] = value || ''
 
-  try {
-    writeFileSync(secretsPath, JSON.stringify(secrets, null, 2))
+  if (saveSecrets(secrets)) {
     res.json({ success: true })
-  } catch (e) {
+  } else {
     res.status(500).json({ error: 'Failed to save secrets' })
   }
 })
 
 router.post('/secrets/read', async (req, res) => {
-  const secretsPath = join(__dirname, '../../data/secrets.json')
-
-  try {
-    if (existsSync(secretsPath)) {
-      res.json(JSON.parse(readFileSync(secretsPath, 'utf-8')))
-    } else {
-      res.json({})
-    }
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to read secrets' })
-  }
+  res.json(loadSecrets())
 })
 
 export default router

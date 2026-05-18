@@ -19,6 +19,10 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# Local secrets (API keys)
+data/
+*.local.json
+
 # Testing
 coverage/
 .nyc_output/

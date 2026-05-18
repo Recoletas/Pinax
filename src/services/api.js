@@ -39,16 +39,69 @@ export async function getState(gameId) {
 // ---------------- AI 与 聊天 (核心修改区) ----------------
 
 /**
- * 发送聊天请求
+ * 获取完整 API 配置（统一入口）
+ * 优先从 localStorage 读取，回退到后端 secrets
  */
-export async function sendChat(messages, character = null, worldId = null, apiSettings = null) {
+export async function getResolvedApiSettings() {
+  const localRaw = JSON.parse(localStorage.getItem('apiSettings') || '{}')
+
+  const normalize = (raw) => ({
+    provider: raw.provider || null,
+    baseUrl: raw.baseUrl || null,
+    apiKey: raw.apiKey || null,
+    model: raw.model || null
+  })
+
+  const local = normalize(localRaw)
+  let merged = { ...local }
+  let source = 'localStorage'
+
+  if (!merged.baseUrl || !merged.apiKey || !merged.model) {
+    try {
+      const remote = await getApiSettings()
+      merged = {
+        provider: local.provider || remote.provider || null,
+        baseUrl: local.baseUrl || remote.base_url || remote.baseUrl || null,
+        apiKey: local.apiKey || remote.api_key_openai || remote.apiKey || null,
+        model: local.model || remote.openai_model || remote.model || null
+      }
+      source = 'localStorage + backend secrets'
+    } catch (e) {
+      console.warn('[API] Failed to load backend secrets, using localStorage only', e)
+    }
+  }
+
+  console.info('[API] Resolved settings:', {
+    source,
+    provider: merged.provider,
+    baseUrl: merged.baseUrl,
+    model: merged.model,
+    hasApiKey: Boolean(merged.apiKey)
+  })
+
+  return merged
+}
+
+/**
+ * 发送聊天请求
+ * settings 参数优先传入，否则自动 resolve
+ */
+export async function sendChat(messages, character = null, worldId = null, settings = null) {
+  const apiSettings = settings || await getResolvedApiSettings()
+
+  if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
+    throw new Error('AI 配置不完整，请前往设置填写 API Key、Base URL 和模型名称')
+  }
+
   try {
-    // 确保 apiSettings 包含 model, baseUrl, apiKey
-    const response = await api.post('/chat/chat', { 
-      messages, 
-      character, 
-      worldId, 
-      ...apiSettings 
+    const response = await api.post('/chat/chat', {
+      messages,
+      character,
+      worldId,
+      provider: apiSettings.provider,
+      baseUrl: apiSettings.baseUrl,
+      apiKey: apiSettings.apiKey,
+      model: apiSettings.model
     })
     return response.data
   } catch (error) {
@@ -57,8 +110,7 @@ export async function sendChat(messages, character = null, worldId = null, apiSe
 }
 
 /**
- * 测试 API 连接 (新增)
- * 解决你之前测试不通的问题：必须把 model 传给后端验证
+ * 测试 API 连接
  */
 export async function testApiConnection(apiSettings) {
   try {
@@ -66,7 +118,7 @@ export async function testApiConnection(apiSettings) {
       baseUrl: apiSettings.baseUrl,
       apiKey: apiSettings.apiKey,
       provider: apiSettings.provider,
-      model: apiSettings.model // 关键：必须传递模型名称
+      model: apiSettings.model
     })
     return response.data
   } catch (error) {
@@ -78,7 +130,7 @@ export async function testApiConnection(apiSettings) {
 }
 
 /**
- * 获取支持的模型列表 (新增)
+ * 获取支持的模型列表
  */
 export async function fetchAvailableModels(apiSettings) {
   try {
@@ -89,7 +141,7 @@ export async function fetchAvailableModels(apiSettings) {
     })
     return response.data.models || []
   } catch (error) {
-    console.error('获取模型列表失败:', error)
+    console.error('[API] fetchAvailableModels failed:', error)
     return []
   }
 }

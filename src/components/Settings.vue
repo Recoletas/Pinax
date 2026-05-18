@@ -85,14 +85,14 @@
               <input
                 v-model="apiSettings.model"
                 class="input"
-                :disabled="loadingModels"
+                :disabled="isLoading"
                 list="model-suggestions"
                 placeholder="选择或手动输入模型名称..."
               />
               <datalist id="model-suggestions">
                 <option v-for="m in detectedModels" :key="m" :value="m"></option>
               </datalist>
-              <span v-if="loadingModels" class="loading-indicator">获取模型中...</span>
+              <span v-if="isLoading" class="loading-indicator">获取模型中...</span>
             </div>
           </div>
 
@@ -123,7 +123,7 @@
         <button class="btn" @click="testConn" :disabled="testing || !apiSettings.baseUrl">
           {{ testing ? '测试中...' : '测试连接' }}
         </button>
-        <button class="btn btn-primary" @click="saveAll">保存并关闭</button>
+        <button class="btn btn-primary" @click="saveAllAndClose">保存并关闭</button>
         <button class="btn" @click="$emit('close')">取消</button>
       </div>
     </div>
@@ -131,29 +131,28 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { testApiConnection, fetchAvailableModels, saveApiSettings } from '@/services/api.js' // 确保路径正确
+import { ref, reactive, watch, onMounted } from 'vue'
+import { useApiSettings } from '@/composables/useApiSettings'
 
 const emit = defineEmits(['close'])
 
 const activeTab = ref('general')
 const showApiKey = ref(false)
-const testing = ref(false)
-const loadingModels = ref(false)
-const testResult = ref(null)
-const detectedModels = ref([])
 const isInitializing = ref(true)
 
-const providers = [
-  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
-  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
-  { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1' },
-  { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
-  { id: 'ollama', name: 'Ollama (本地)', baseUrl: 'http://localhost:11434' },
-  { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
-  { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1' },
-  { id: 'custom', name: '自定义', baseUrl: '' },
-]
+const {
+  apiSettings,
+  detectedModels,
+  testResult,
+  testing,
+  currentProvider,
+  providers,
+  loadSettings,
+  applyProvider,
+  loadModels,
+  testConn,
+  saveAll
+} = useApiSettings()
 
 const settings = reactive({
   locale: 'zh-CN',
@@ -161,108 +160,42 @@ const settings = reactive({
   autoSave: true
 })
 
-const apiSettings = reactive({
-  provider: 'deepseek',
-  apiKey: '',
-  baseUrl: '',
-  model: ''
-})
-
-const currentProvider = computed(() => {
-  return providers.find(p => p.id === apiSettings.provider)
-})
-
 onMounted(async () => {
-  // 加载通用设置
   const saved = localStorage.getItem('gameSettings')
   if (saved) Object.assign(settings, JSON.parse(saved))
-
-  // 加载 API 设置
-  const savedApi = localStorage.getItem('apiSettings')
-  if (savedApi) {
-    Object.assign(apiSettings, JSON.parse(savedApi))
-    if (apiSettings.baseUrl && apiSettings.apiKey) {
-      loadModels()
-    }
+  await loadSettings()
+  if (apiSettings.value?.baseUrl && apiSettings.value?.apiKey) {
+    loadModels()
   } else {
-    onProviderChange()
+    const p = providers.find(item => item.id === apiSettings.value?.provider)
+    if (p?.baseUrl) apiSettings.value.baseUrl = p.baseUrl
   }
-
   isInitializing.value = false
 })
 
-// 监听供应商变化
-watch(() => apiSettings.provider, (newVal) => {
+watch(() => apiSettings.value?.provider, (newVal) => {
   if (isInitializing.value) return
-  const p = providers.find(item => item.id === newVal)
-  if (p && p.baseUrl) {
-    apiSettings.baseUrl = p.baseUrl
+  applyProvider(newVal)
+  if (newVal === 'deepseek' && !apiSettings.value?.model) {
+    apiSettings.value.model = 'deepseek-v4-flash'
   }
-  // 如果是 DeepSeek，默认给个提示模型名
-  if (newVal === 'deepseek') apiSettings.model = 'deepseek-v4-flash'
 })
 
 function onProviderChange() {
   const p = currentProvider.value
-  if (p && p.baseUrl) apiSettings.baseUrl = p.baseUrl
+  if (p?.baseUrl) apiSettings.value.baseUrl = p.baseUrl
   loadModels()
 }
 
-function applyProvider(id) {
-  apiSettings.provider = id
-}
-
 async function onUrlChange() {
-  if (apiSettings.baseUrl && apiSettings.apiKey) {
-    await loadModels()
+  if (apiSettings.value?.baseUrl && apiSettings.value?.apiKey) {
+    loadModels()
   }
 }
 
-async function loadModels() {
-  if (!apiSettings.baseUrl || !apiSettings.apiKey) return
-  loadingModels.value = true
-  try {
-    const models = await fetchAvailableModels(apiSettings)
-    detectedModels.value = models
-    // 如果当前没选模型，自动选第一个
-    if (!apiSettings.model && models.length > 0) {
-      apiSettings.model = models[0]
-    }
-  } finally {
-    loadingModels.value = false
-  }
-}
-
-async function testConn() {
-  if (!apiSettings.model) {
-    testResult.value = { ok: false, message: '请先输入模型名称，例如 deepseek-v4-flash' }
-    return
-  }
-
-  testing.value = true
-  testResult.value = null
-
-  try {
-    const result = await testApiConnection(apiSettings)
-    testResult.value = result
-  } catch (e) {
-    testResult.value = { ok: false, message: '网络异常或配置错误' }
-  } finally {
-    testing.value = false
-  }
-}
-
-async function saveAll() {
+async function saveAllAndClose() {
   localStorage.setItem('gameSettings', JSON.stringify(settings))
-  localStorage.setItem('apiSettings', JSON.stringify(apiSettings))
-  
-  // 如果后端需要保存 secrets
-  try {
-    await saveApiSettings(apiSettings)
-  } catch (e) {
-    console.warn('后端存储失败，已保存至本地缓存')
-  }
-  
+  await saveAll()
   emit('close')
 }
 </script>
