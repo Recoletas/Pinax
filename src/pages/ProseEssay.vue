@@ -656,7 +656,7 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getApiSettings, sendChat } from '../services/api'
+import { getApiSettings, sendChat, recordPreference } from '../services/api'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -1084,6 +1084,7 @@ function saveInlineEdit() {
   if (!inlineEditingCard.value) return
   const card = cards.value.find(c => c.id === inlineEditingCard.value.id)
   if (!card) return
+  const previousEmotion = card.emotion
   pushHistory(inlineEditingCard.value.id, card.content, card.emotion)
   card.content = inlineEditingContent.value
   card.emotion = inlineEditingEmotion.value
@@ -1091,6 +1092,11 @@ function saveInlineEdit() {
   card.updatedAt = new Date().toISOString()
   addTimeline('更新卡片')
   saveData()
+
+  if (card.emotion !== previousEmotion) {
+    trackPreference('emotion_changed', card)
+  }
+
   inlineEditingCard.value = null
 }
 
@@ -1224,6 +1230,23 @@ function countWords(text) {
   return String(text).replace(/\s/g, '').length
 }
 
+function trackPreference(action, card) {
+  if (!card) return
+
+  const normalizedCard = {
+    id: card.id || '',
+    content: String(card.content || '').trim(),
+    emotion: String(card.emotion || '').trim()
+  }
+
+  if (!normalizedCard.content) return
+
+  void recordPreference({
+    action,
+    card: normalizedCard
+  })
+}
+
 // Card operations
 function handleKeydown(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -1284,6 +1307,7 @@ function saveCardDetail() {
   if (!selectedCard.value) return
   const card = cards.value.find(c => c.id === selectedCard.value.id)
   if (!card) return
+  const previousEmotion = card.emotion
   pushHistory(selectedCard.value.id, card.content, card.emotion)
   card.content = editingContent.value
   card.emotion = editingEmotion.value
@@ -1301,6 +1325,10 @@ function saveCardDetail() {
   }
   addTimeline('更新卡片')
   saveData()
+
+  if (card.emotion !== previousEmotion) {
+    trackPreference('emotion_changed', card)
+  }
 }
 
 function insertCard() {
@@ -1743,6 +1771,7 @@ function addToOutline() {
   }
   createSnapshot('加入大纲')
   saveData()
+  trackPreference('adopt_card', selectedCard.value)
 }
 
 function moveOutlineUp(index) {

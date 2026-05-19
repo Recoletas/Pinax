@@ -44,7 +44,10 @@ export const STORAGE_KEYS = {
 
   // 游戏
   GAME_SETTINGS: 'gameSettings',
-  API_SETTINGS: 'apiSettings'
+  API_SETTINGS: 'apiSettings',
+
+  // 偏好记忆
+  PREFERENCE_USER_ID: 'preference_user_id'
 }
 
 export const SCHEMA = {

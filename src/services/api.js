@@ -1,10 +1,24 @@
 import axios from 'axios'
-import { getItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, getTextItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
+
+function createPreferenceUserId() {
+  return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+export function getOrCreatePreferenceUserId() {
+  const key = STORAGE_KEYS.PREFERENCE_USER_ID || 'preference_user_id'
+  const existing = getTextItem(key).trim()
+  if (existing) return existing
+
+  const nextId = createPreferenceUserId()
+  setTextItem(key, nextId)
+  return nextId
+}
 
 // ---------------- 游戏配置与状态 ----------------
 
@@ -89,16 +103,18 @@ export async function getResolvedApiSettings() {
  */
 export async function sendChat(messages, character = null, worldId = null, settings = null) {
   const apiSettings = settings || await getResolvedApiSettings()
+  const userId = getOrCreatePreferenceUserId()
 
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('AI 配置不完整，请前往设置填写 API Key、Base URL 和模型名称')
   }
 
   try {
-    const response = await api.post('/chat/chat', {
+    const response = await api.post('/generate', {
       messages,
       character,
       worldId,
+      userId,
       provider: apiSettings.provider,
       baseUrl: apiSettings.baseUrl,
       apiKey: apiSettings.apiKey,
@@ -107,6 +123,24 @@ export async function sendChat(messages, character = null, worldId = null, setti
     return response.data
   } catch (error) {
     handleApiError(error)
+  }
+}
+
+export async function recordPreference({ userId, action, card }) {
+  if (!action || !card || !String(card.content || '').trim()) {
+    return { success: false, skipped: true }
+  }
+
+  try {
+    const response = await api.post('/preferences/record', {
+      userId: userId || getOrCreatePreferenceUserId(),
+      action,
+      card
+    })
+    return response.data
+  } catch (error) {
+    console.warn('[API] recordPreference failed:', error.response?.data || error.message)
+    return { success: false, recorded: false }
   }
 }
 

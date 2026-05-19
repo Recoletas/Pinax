@@ -6,6 +6,8 @@ import gameRouter from './routes/game.js'
 import eventsRouter from './routes/events.js'
 import configRouter from './routes/config.js'
 import chatRouter from './routes/chat.js'
+import generateRouter from './routes/generate.js'
+import preferencesRouter from './routes/preferences.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -20,6 +22,8 @@ app.use('/api/game', gameRouter)
 app.use('/api/events', eventsRouter)
 app.use('/api/config', configRouter)
 app.use('/api/chat', chatRouter)
+app.use('/api/generate', generateRouter)
+app.use('/api/preferences', preferencesRouter)
 
 app.use(express.static(join(__dirname, '../public')))
 

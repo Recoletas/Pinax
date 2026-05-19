@@ -2,6 +2,7 @@ import express from 'express'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { memoryService } from '../services/memoryService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -116,8 +117,33 @@ function extractOpenAIChoiceText(choice) {
   )
 }
 
-router.post('/chat', async (req, res) => {
-  const { messages, character, worldId, provider, baseUrl, apiKey, model, max_tokens, temperature, response_format } = req.body
+function extractLatestUserQuery(messages = []) {
+  const latestUserMessage = [...messages].reverse().find((message) => message?.role === 'user')
+  if (!latestUserMessage) return ''
+  return extractTextContent(latestUserMessage.content)
+}
+
+function buildMemoryPrompt(memoryContextText) {
+  if (!memoryContextText) return ''
+  return `用户偏好记忆（来自历史采纳与情绪反馈）：\n${memoryContextText}\n\n请在不违背当前用户输入的前提下，优先贴合这些偏好风格与情绪倾向。`
+}
+
+export async function handleGenerateRequest(req, res) {
+  const {
+    messages,
+    character,
+    worldId,
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    max_tokens,
+    temperature,
+    response_format,
+    userId,
+    mem0ApiKey,
+    mem0Host
+  } = req.body
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array is required' })
@@ -160,9 +186,6 @@ router.post('/chat', async (req, res) => {
 
 `
 
-  const hasClientSystemPrompt = messages.some((m) => m?.role === 'system')
-  const effectiveSystemPrompt = hasClientSystemPrompt ? '' : systemPrompt
-
     if (character) {
       systemPrompt += `
 角色信息：
@@ -179,6 +202,30 @@ router.post('/chat', async (req, res) => {
 `
     }
 
+    let memoryPrompt = ''
+    const memoryQuery = extractLatestUserQuery(messages)
+    if (userId && memoryQuery) {
+      const memoryResults = await memoryService.search({
+        userId,
+        query: memoryQuery,
+        topK: 5,
+        apiKey: mem0ApiKey,
+        host: mem0Host
+      })
+      memoryPrompt = buildMemoryPrompt(memoryService.formatResults(memoryResults, 5))
+    }
+
+    const hasClientSystemPrompt = messages.some((m) => m?.role === 'system')
+    const systemPromptBlocks = []
+
+    if (!hasClientSystemPrompt) {
+      systemPromptBlocks.push(systemPrompt)
+    }
+
+    if (memoryPrompt) {
+      systemPromptBlocks.push(memoryPrompt)
+    }
+
     const headers = {
       'Content-Type': 'application/json'
     }
@@ -193,11 +240,14 @@ router.post('/chat', async (req, res) => {
       content: m.content
     }))
 
+    const mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
+    const composedMessages = mergedSystemPrompt
+      ? [{ role: 'system', content: mergedSystemPrompt }, ...normalizedMessages]
+      : normalizedMessages
+
     let requestBody = {
       model: effectiveModel,
-      messages: effectiveSystemPrompt
-        ? [{ role: 'system', content: effectiveSystemPrompt }, ...normalizedMessages]
-        : normalizedMessages,
+      messages: composedMessages,
       max_tokens: Number.isFinite(Number(max_tokens)) ? Number(max_tokens) : 500,
       temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8
     }
@@ -218,7 +268,7 @@ router.post('/chat', async (req, res) => {
           role: m.role === 'assistant' ? 'assistant' : m.role,
           content: m.content
         })),
-        ...(effectiveSystemPrompt ? { system: effectiveSystemPrompt } : {})
+        ...(mergedSystemPrompt ? { system: mergedSystemPrompt } : {})
       }
     }
 
@@ -229,7 +279,7 @@ router.post('/chat', async (req, res) => {
           role: m.role,
           content: m.content
         })),
-        ...(effectiveSystemPrompt ? { preamble: effectiveSystemPrompt } : {}),
+        ...(mergedSystemPrompt ? { preamble: mergedSystemPrompt } : {}),
         temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8,
         ...(Number.isFinite(Number(max_tokens)) ? { max_tokens: Number(max_tokens) } : {})
       }
@@ -293,7 +343,9 @@ router.post('/chat', async (req, res) => {
     console.error('Chat error:', e)
     res.status(500).json({ error: e.message })
   }
-})
+}
+
+router.post('/chat', handleGenerateRequest)
 
 // Fetch available models from API URL
 router.post('/models', async (req, res) => {
