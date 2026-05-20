@@ -1673,6 +1673,46 @@ function parseCardBlock(text) {
     if (Array.isArray(parsed)) return parsed
   } catch { }
 
+  // Recover complete JSON objects from partial/truncated output.
+  // This handles responses like: BEGIN_CARDS [ {...}, {...}, { ...incomplete
+  const objectMatches = block.match(/\{[\s\S]*?\}/g) || []
+  const objectItems = []
+  for (const rawObject of objectMatches) {
+    try {
+      const parsedObject = JSON.parse(rawObject)
+      const content = String(parsedObject?.content || '').trim()
+      const emotion = String(parsedObject?.emotion || '').trim()
+      if (content) {
+        objectItems.push({ content, emotion })
+      }
+      continue
+    } catch { }
+
+    const contentMatch = rawObject.match(/["']?content["']?\s*[:：]\s*["']([\s\S]*?)["']/)
+    const emotionMatch = rawObject.match(/["']?emotion["']?\s*[:：]\s*["']([\s\S]*?)["']/)
+    if (contentMatch) {
+      objectItems.push({
+        content: String(contentMatch[1] || '').trim(),
+        emotion: String(emotionMatch?.[1] || '').trim()
+      })
+    }
+  }
+  if (objectItems.length > 0) return objectItems
+
+  // Try to extract repeated inline content/emotion pairs in one long line.
+  const inlineItems = []
+  const pairRegex = /["']?content["']?\s*[:：]\s*["']([\s\S]*?)["']\s*,\s*["']?emotion["']?\s*[:：]\s*["']([\s\S]*?)["']/g
+  let pairMatch = pairRegex.exec(block)
+  while (pairMatch) {
+    const content = String(pairMatch[1] || '').trim()
+    const emotion = String(pairMatch[2] || '').trim()
+    if (content) {
+      inlineItems.push({ content, emotion })
+    }
+    pairMatch = pairRegex.exec(block)
+  }
+  if (inlineItems.length > 0) return inlineItems
+
   // Try to extract content/emotion pairs from text format
   const items = []
   const lines = block.split('\n').filter(l => l.trim())
@@ -1691,26 +1731,105 @@ function parseCardBlock(text) {
     }
   }
 
-  return items.length > 0 ? items : null
+  if (items.length > 0) return items
+
+  // Fallback for prose list format:
+  // 1. 文本...
+  // 情绪：惊艳
+  const proseItems = []
+  let pendingContent = ''
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    const contentLineMatch = line.match(/^\d+[.、]\s*(.+)$/)
+    if (contentLineMatch) {
+      if (pendingContent) {
+        pendingContent += ` ${contentLineMatch[1]}`
+      } else {
+        pendingContent = contentLineMatch[1]
+      }
+      continue
+    }
+
+    const emotionLineMatch = line.match(/^(?:情绪|emotion)\s*[:：]\s*(.+)$/i)
+    if (emotionLineMatch && pendingContent) {
+      proseItems.push({
+        content: pendingContent.trim(),
+        emotion: String(emotionLineMatch[1] || '').trim()
+      })
+      pendingContent = ''
+      continue
+    }
+
+    if (pendingContent) {
+      pendingContent += ` ${line}`
+    }
+  }
+
+  return proseItems.length > 0 ? proseItems : null
 }
 
 function extractCardBlock(text) {
-  const blockMatch = text.match(/BEGIN_CARDS([\s\S]*?)END_CARDS/)
-  if (blockMatch) return blockMatch[1].trim()
+  const raw = String(text || '')
 
-  // Fallback: try to find JSON array
-  const arrayMatch = text.match(/\[[\s\S]*\]/)
-  if (arrayMatch) return arrayMatch[0]
+  const beginIndex = raw.indexOf('BEGIN_CARDS')
+  if (beginIndex >= 0) {
+    const afterBegin = raw.slice(beginIndex + 'BEGIN_CARDS'.length)
+    const endIndex = afterBegin.indexOf('END_CARDS')
+    return (endIndex >= 0 ? afterBegin.slice(0, endIndex) : afterBegin).trim()
+  }
 
-  return null
+  // Fallback: try to find JSON array (even if tail is truncated).
+  const firstBracket = raw.indexOf('[')
+  if (firstBracket >= 0) {
+    const lastBracket = raw.lastIndexOf(']')
+    if (lastBracket > firstBracket) {
+      return raw.slice(firstBracket, lastBracket + 1).trim()
+    }
+    return raw.slice(firstBracket).trim()
+  }
+
+  return raw.trim() || null
+}
+
+function normalizeEmotionKey(emotion) {
+  const rawEmotion = String(emotion || '').trim()
+  const lowerEmotion = rawEmotion.toLowerCase()
+  const aliasMap = {
+    joy: 'joy',
+    喜悦: 'joy',
+    开心: 'joy',
+    高兴: 'joy',
+    sorrow: 'sorrow',
+    sad: 'sorrow',
+    忧伤: 'sorrow',
+    悲伤: 'sorrow',
+    calm: 'calm',
+    平静: 'calm',
+    宁静: 'calm',
+    anxiety: 'anxiety',
+    焦虑: 'anxiety',
+    紧张: 'anxiety',
+    anger: 'anger',
+    愤怒: 'anger',
+    生气: 'anger',
+    surprise: 'surprise',
+    惊艳: 'surprise',
+    惊讶: 'surprise',
+    nostalgia: 'nostalgia',
+    怀旧: 'nostalgia',
+    hope: 'hope',
+    希望: 'hope'
+  }
+
+  return aliasMap[rawEmotion] || aliasMap[lowerEmotion] || 'calm'
 }
 
 function createNewCards(generated, topic) {
-  const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
-
   const newCards = generated.map(item => {
-    let emotion = item.emotion || 'calm'
-    if (!validEmotions.includes(emotion)) emotion = 'calm'
+    const emotion = normalizeEmotionKey(item.emotion)
     const card = {
       id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       content: item.content || '',

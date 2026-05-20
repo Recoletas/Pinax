@@ -128,6 +128,174 @@ function buildMemoryPrompt(memoryContextText) {
   return `用户偏好记忆（来自历史采纳与情绪反馈）：\n${memoryContextText}\n\n请在不违背当前用户输入的前提下，优先贴合这些偏好风格与情绪倾向。`
 }
 
+const DEFAULT_MAX_TOKENS = 500
+const DEFAULT_TEMPERATURE = 0.8
+const DEFAULT_MAX_INPUT_CHARS = 18000
+const MIN_CLIP_CHARS = 120
+
+function toFiniteNumber(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function sendApiError(res, status, code, message, details = null, meta = null) {
+  const payload = { error: message, code }
+  if (details) payload.details = details
+  if (meta && typeof meta === 'object') payload.meta = meta
+  return res.status(status).json(payload)
+}
+
+function inferRetryCountFromMessages(messages = []) {
+  if (!Array.isArray(messages) || !messages.length) return 0
+  const retryHints = ['上一条', '重试', '重新输出', '格式不合规', '严格输出']
+  const recentUserMessages = messages
+    .filter((m) => m?.role === 'user')
+    .slice(-3)
+    .map((m) => extractTextContent(m?.content))
+    .join('\n')
+
+  if (!recentUserMessages) return 0
+  return retryHints.some((hint) => recentUserMessages.includes(hint)) ? 1 : 0
+}
+
+function collectInputStats(messages = []) {
+  if (!Array.isArray(messages)) {
+    return {
+      messageCount: 0,
+      totalChars: 0
+    }
+  }
+
+  return messages.reduce(
+    (acc, message) => {
+      const contentText = extractTextContent(message?.content)
+      acc.messageCount += 1
+      acc.totalChars += contentText.length
+      return acc
+    },
+    { messageCount: 0, totalChars: 0 }
+  )
+}
+
+function clipMessageContent(message, maxChars, keepTail = false) {
+  const normalizedMax = Math.max(0, Math.floor(maxChars))
+  const contentText = extractTextContent(message?.content)
+
+  if (contentText.length <= normalizedMax) {
+    return {
+      message,
+      chars: contentText.length,
+      clipped: false
+    }
+  }
+
+  const clippedContent = keepTail
+    ? contentText.slice(Math.max(0, contentText.length - normalizedMax))
+    : contentText.slice(0, normalizedMax)
+
+  return {
+    message: {
+      ...message,
+      content: clippedContent
+    },
+    chars: clippedContent.length,
+    clipped: true
+  }
+}
+
+function applyInputBudget(messages = [], maxInputChars = DEFAULT_MAX_INPUT_CHARS) {
+  const safeMessages = Array.isArray(messages) ? messages.filter(Boolean) : []
+  const safeMaxChars = Math.max(1200, Math.floor(toFiniteNumber(maxInputChars, DEFAULT_MAX_INPUT_CHARS)))
+  const originalStats = collectInputStats(safeMessages)
+
+  if (originalStats.totalChars <= safeMaxChars) {
+    return {
+      messages: safeMessages,
+      truncatedInput: false,
+      droppedMessages: 0,
+      originalStats,
+      finalStats: originalStats,
+      warnings: []
+    }
+  }
+
+  const firstSystemIndex = safeMessages.findIndex((message) => message?.role === 'system')
+  const restMessages = safeMessages.filter((_, index) => index !== firstSystemIndex)
+  const maxSystemChars = Math.max(280, Math.floor(safeMaxChars * 0.2))
+
+  let systemMessage = null
+  let systemChars = 0
+  let systemClipped = false
+
+  if (firstSystemIndex >= 0) {
+    const clippedSystem = clipMessageContent(safeMessages[firstSystemIndex], maxSystemChars, false)
+    systemMessage = clippedSystem.message
+    systemChars = clippedSystem.chars
+    systemClipped = clippedSystem.clipped
+  }
+
+  const remainingBudget = Math.max(0, safeMaxChars - systemChars)
+  const keptReversed = []
+  let usedChars = 0
+  let tailClipped = false
+
+  for (let index = restMessages.length - 1; index >= 0; index -= 1) {
+    const message = restMessages[index]
+    const messageChars = extractTextContent(message?.content).length
+
+    if (!messageChars) {
+      keptReversed.push(message)
+      continue
+    }
+
+    if (usedChars + messageChars <= remainingBudget) {
+      keptReversed.push(message)
+      usedChars += messageChars
+      continue
+    }
+
+    const room = remainingBudget - usedChars
+    if (room >= MIN_CLIP_CHARS) {
+      const clipped = clipMessageContent(message, room, message?.role !== 'system')
+      keptReversed.push(clipped.message)
+      usedChars += clipped.chars
+      tailClipped = tailClipped || clipped.clipped
+    }
+
+    break
+  }
+
+  let budgetedMessages = keptReversed.reverse()
+  if (systemMessage) {
+    budgetedMessages = [systemMessage, ...budgetedMessages]
+  }
+
+  if (!budgetedMessages.length && safeMessages.length) {
+    const fallbackMessage = clipMessageContent(safeMessages[safeMessages.length - 1], safeMaxChars, true)
+    budgetedMessages = [fallbackMessage.message]
+    tailClipped = tailClipped || fallbackMessage.clipped
+  }
+
+  const finalStats = collectInputStats(budgetedMessages)
+  const truncatedInput =
+    finalStats.totalChars < originalStats.totalChars ||
+    budgetedMessages.length < safeMessages.length ||
+    systemClipped ||
+    tailClipped
+
+  const warnings = truncatedInput
+    ? [`输入过长，已按 ${safeMaxChars} 字符预算截断历史上下文`] : []
+
+  return {
+    messages: budgetedMessages,
+    truncatedInput,
+    droppedMessages: Math.max(0, safeMessages.length - budgetedMessages.length),
+    originalStats,
+    finalStats,
+    warnings
+  }
+}
+
 export async function handleGenerateRequest(req, res) {
   const {
     messages,
@@ -142,12 +310,27 @@ export async function handleGenerateRequest(req, res) {
     response_format,
     userId,
     mem0ApiKey,
-    mem0Host
-  } = req.body
+    mem0Host,
+    retryCount,
+    max_input_chars,
+    request_id
+  } = req.body || {}
 
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'messages array is required' })
+    return sendApiError(res, 400, 'BAD_REQUEST_MESSAGES_REQUIRED', 'messages array is required')
   }
+
+  const inferredRetryCount = inferRetryCountFromMessages(messages)
+  const effectiveRetryCount = Math.max(0, Math.floor(toFiniteNumber(retryCount, inferredRetryCount)))
+  const maxInputChars = Math.max(
+    1200,
+    Math.floor(toFiniteNumber(max_input_chars, process.env.GENERATE_MAX_INPUT_CHARS || DEFAULT_MAX_INPUT_CHARS))
+  )
+  const budgetedInput = applyInputBudget(messages, maxInputChars)
+  const budgetWarnings = [...budgetedInput.warnings]
+  const requestId = typeof request_id === 'string' && request_id.trim()
+    ? request_id.trim()
+    : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
   const secrets = loadSecrets()
 
@@ -161,17 +344,55 @@ export async function handleGenerateRequest(req, res) {
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
   if (!effectiveApiKey && !chatUrl) {
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || ''
+    const lastUserMessage = budgetedInput.messages.filter(m => m.role === 'user').pop()?.content || ''
     return res.json({
       content: `你说了"${lastUserMessage.slice(0, 20)}..."，但目前没有配置 AI API，无法生成智能回复。请在设置中添加 API Key。`,
-      error: 'no_api_key'
+      error: 'no_api_key',
+      code: 'NO_API_KEY',
+      meta: {
+        requestId,
+        retryCount: effectiveRetryCount,
+        truncatedInput: budgetedInput.truncatedInput,
+        droppedMessages: budgetedInput.droppedMessages,
+        inputChars: budgetedInput.finalStats.totalChars,
+        inputCharsOriginal: budgetedInput.originalStats.totalChars,
+        warnings: budgetWarnings,
+        maxInputChars
+      }
     })
   }
 
   if (!chatUrl) {
-    return res.status(400).json({
-      error: 'Base URL 未配置或无效，请在设置中填写正确的 Base URL。'
-    })
+    return sendApiError(
+      res,
+      400,
+      'INVALID_BASE_URL',
+      'Base URL 未配置或无效，请在设置中填写正确的 Base URL。',
+      null,
+      {
+        requestId,
+        retryCount: effectiveRetryCount,
+        truncatedInput: budgetedInput.truncatedInput,
+        droppedMessages: budgetedInput.droppedMessages,
+        inputChars: budgetedInput.finalStats.totalChars,
+        inputCharsOriginal: budgetedInput.originalStats.totalChars,
+        warnings: budgetWarnings,
+        maxInputChars
+      }
+    )
+  }
+
+  let responseMeta = {
+    requestId,
+    retryCount: effectiveRetryCount,
+    truncatedInput: budgetedInput.truncatedInput,
+    droppedMessages: budgetedInput.droppedMessages,
+    inputChars: budgetedInput.finalStats.totalChars,
+    inputCharsOriginal: budgetedInput.originalStats.totalChars,
+    messageCount: budgetedInput.finalStats.messageCount,
+    messageCountOriginal: budgetedInput.originalStats.messageCount,
+    warnings: budgetWarnings,
+    maxInputChars
   }
 
   try {
@@ -203,7 +424,7 @@ export async function handleGenerateRequest(req, res) {
     }
 
     let memoryPrompt = ''
-    const memoryQuery = extractLatestUserQuery(messages)
+    const memoryQuery = extractLatestUserQuery(budgetedInput.messages)
     if (userId && memoryQuery) {
       const memoryResults = await memoryService.search({
         userId,
@@ -215,7 +436,7 @@ export async function handleGenerateRequest(req, res) {
       memoryPrompt = buildMemoryPrompt(memoryService.formatResults(memoryResults, 5))
     }
 
-    const hasClientSystemPrompt = messages.some((m) => m?.role === 'system')
+    const hasClientSystemPrompt = budgetedInput.messages.some((m) => m?.role === 'system')
     const systemPromptBlocks = []
 
     if (!hasClientSystemPrompt) {
@@ -235,21 +456,56 @@ export async function handleGenerateRequest(req, res) {
     }
 
     // Determine API format based on provider
-    const normalizedMessages = messages.map(m => ({
+    const normalizedMessages = budgetedInput.messages.map(m => ({
       role: m.role,
       content: m.content
     }))
 
-    const mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
+    let mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
+    const maxSystemPromptChars = Math.max(120, Math.floor(maxInputChars * 0.2))
+
+    if (mergedSystemPrompt.length > maxSystemPromptChars) {
+      mergedSystemPrompt = mergedSystemPrompt.slice(0, maxSystemPromptChars)
+      budgetWarnings.push(`系统提示词过长，已截断到 ${maxSystemPromptChars} 字符`)
+    }
+
+    const messageChars = collectInputStats(normalizedMessages).totalChars
+    const allowedSystemChars = Math.max(0, maxInputChars - messageChars)
+    if (mergedSystemPrompt && mergedSystemPrompt.length > allowedSystemChars) {
+      if (allowedSystemChars >= MIN_CLIP_CHARS) {
+        mergedSystemPrompt = mergedSystemPrompt.slice(0, allowedSystemChars)
+        budgetWarnings.push('系统提示词已进一步压缩，以满足输入预算')
+      } else {
+        mergedSystemPrompt = ''
+        budgetWarnings.push('输入预算紧张，已跳过附加系统提示词')
+      }
+    }
+
     const composedMessages = mergedSystemPrompt
       ? [{ role: 'system', content: mergedSystemPrompt }, ...normalizedMessages]
       : normalizedMessages
 
+    responseMeta = {
+      requestId,
+      retryCount: effectiveRetryCount,
+      truncatedInput: budgetedInput.truncatedInput || budgetWarnings.length > 0,
+      droppedMessages: budgetedInput.droppedMessages,
+      inputChars: collectInputStats(composedMessages).totalChars,
+      inputCharsOriginal: budgetedInput.originalStats.totalChars,
+      messageCount: composedMessages.length,
+      messageCountOriginal: budgetedInput.originalStats.messageCount,
+      warnings: [...new Set(budgetWarnings)],
+      maxInputChars
+    }
+
+    const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
+    const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
+
     let requestBody = {
       model: effectiveModel,
       messages: composedMessages,
-      max_tokens: Number.isFinite(Number(max_tokens)) ? Number(max_tokens) : 500,
-      temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8
+      max_tokens: effectiveMaxTokens,
+      temperature: effectiveTemperature
     }
 
     if (response_format && effectiveProvider !== 'claude' && effectiveProvider !== 'cohere') {
@@ -263,7 +519,7 @@ export async function handleGenerateRequest(req, res) {
       headers['anthropic-version'] = '2023-06-01'
       requestBody = {
         model: effectiveModel,
-        max_tokens: Number.isFinite(Number(max_tokens)) ? Number(max_tokens) : 500,
+        max_tokens: effectiveMaxTokens,
         messages: normalizedMessages.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : m.role,
           content: m.content
@@ -280,8 +536,8 @@ export async function handleGenerateRequest(req, res) {
           content: m.content
         })),
         ...(mergedSystemPrompt ? { preamble: mergedSystemPrompt } : {}),
-        temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.8,
-        ...(Number.isFinite(Number(max_tokens)) ? { max_tokens: Number(max_tokens) } : {})
+        temperature: effectiveTemperature,
+        max_tokens: effectiveMaxTokens
       }
     }
 
@@ -294,10 +550,14 @@ export async function handleGenerateRequest(req, res) {
     if (!response.ok) {
       const error = await response.text()
       console.error('API error:', response.status, error)
-      return res.status(response.status).json({
-        error: `API 请求失败 (${response.status})`,
-        details: error.slice(0, 200)
-      })
+      return sendApiError(
+        res,
+        response.status,
+        'UPSTREAM_REQUEST_FAILED',
+        `API 请求失败 (${response.status})`,
+        error.slice(0, 200),
+        responseMeta
+      )
     }
 
     const data = await response.json()
@@ -332,16 +592,36 @@ export async function handleGenerateRequest(req, res) {
         messageKeys: Object.keys(message || {}).slice(0, 12),
         rawPreview: JSON.stringify(data).slice(0, 1200)
       })
-      return res.status(502).json({
-        error: '上游模型返回为空内容',
-        details: `provider=${effectiveProvider}, model=${effectiveModel}`
-      })
+      return sendApiError(
+        res,
+        502,
+        'UPSTREAM_EMPTY_CONTENT',
+        '上游模型返回为空内容',
+        `provider=${effectiveProvider}, model=${effectiveModel}`,
+        responseMeta
+      )
     }
 
-    res.json({ content })
+    res.json({ content, meta: responseMeta })
   } catch (e) {
     console.error('Chat error:', e)
-    res.status(500).json({ error: e.message })
+    const isUpstreamNetworkError =
+      e?.name === 'TypeError' &&
+      (String(e?.message || '').toLowerCase().includes('fetch failed') || Boolean(e?.cause))
+
+    const errorCode = isUpstreamNetworkError ? 'UPSTREAM_NETWORK_ERROR' : 'INTERNAL_CHAT_ERROR'
+    const errorMessage = isUpstreamNetworkError
+      ? '上游服务网络请求失败'
+      : (e.message || '内部错误')
+
+    return sendApiError(
+      res,
+      isUpstreamNetworkError ? 502 : 500,
+      errorCode,
+      errorMessage,
+      null,
+      responseMeta
+    )
   }
 }
 

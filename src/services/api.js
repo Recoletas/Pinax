@@ -97,13 +97,61 @@ export async function getResolvedApiSettings() {
   return merged
 }
 
+function normalizeGenerationOptions(options = {}) {
+  const normalized = {}
+
+  if (Number.isFinite(Number(options.max_tokens))) {
+    normalized.max_tokens = Number(options.max_tokens)
+  }
+
+  if (Number.isFinite(Number(options.temperature))) {
+    normalized.temperature = Number(options.temperature)
+  }
+
+  if (options.response_format && typeof options.response_format === 'object') {
+    normalized.response_format = options.response_format
+  }
+
+  if (Number.isFinite(Number(options.max_input_chars))) {
+    normalized.max_input_chars = Math.max(1200, Math.floor(Number(options.max_input_chars)))
+  }
+
+  if (Number.isFinite(Number(options.retryCount))) {
+    normalized.retryCount = Math.max(0, Math.floor(Number(options.retryCount)))
+  }
+
+  if (typeof options.request_id === 'string' && options.request_id.trim()) {
+    normalized.request_id = options.request_id.trim()
+  }
+
+  return normalized
+}
+
+function createRequestId() {
+  return `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function notifyGenerationMeta(meta) {
+  if (typeof window === 'undefined' || !meta || typeof meta !== 'object') return
+  try {
+    window.dispatchEvent(new CustomEvent('ai-generation-meta', { detail: meta }))
+  } catch (e) {
+    console.warn('[API] failed to dispatch ai-generation-meta event:', e)
+  }
+}
+
 /**
  * 发送聊天请求
  * settings 参数优先传入，否则自动 resolve
  */
-export async function sendChat(messages, character = null, worldId = null, settings = null) {
+export async function sendChat(messages, character = null, worldId = null, settings = null, generationOptions = null) {
   const apiSettings = settings || await getResolvedApiSettings()
   const userId = getOrCreatePreferenceUserId()
+  const generation = normalizeGenerationOptions({
+    ...apiSettings,
+    ...(generationOptions || {}),
+    request_id: generationOptions?.request_id || createRequestId()
+  })
 
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('AI 配置不完整，请前往设置填写 API Key、Base URL 和模型名称')
@@ -118,10 +166,21 @@ export async function sendChat(messages, character = null, worldId = null, setti
       provider: apiSettings.provider,
       baseUrl: apiSettings.baseUrl,
       apiKey: apiSettings.apiKey,
-      model: apiSettings.model
+      model: apiSettings.model,
+      ...generation
     })
+
+    const meta = response?.data?.meta
+    if (meta && (meta.truncatedInput || Number(meta.retryCount) > 0 || (Array.isArray(meta.warnings) && meta.warnings.length > 0))) {
+      notifyGenerationMeta(meta)
+    }
+
     return response.data
   } catch (error) {
+    const errorMeta = error?.response?.data?.meta
+    if (errorMeta && (errorMeta.truncatedInput || Number(errorMeta.retryCount) > 0 || (Array.isArray(errorMeta.warnings) && errorMeta.warnings.length > 0))) {
+      notifyGenerationMeta(errorMeta)
+    }
     handleApiError(error)
   }
 }
@@ -541,6 +600,8 @@ function handleApiError(error) {
   console.error('API Error:', errorData || error.message)
   
   // 抛出一个友好的错误，包含后端返回的细节
-  const message = errorData?.message || errorData?.error?.message || '请求失败，请检查网络或配置'
+  const baseMessage = errorData?.message || errorData?.error?.message || errorData?.error || '请求失败，请检查网络或配置'
+  const code = errorData?.code
+  const message = code ? `${baseMessage} [${code}]` : baseMessage
   throw new Error(message)
 }
