@@ -458,7 +458,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getApiSettings, sendChat } from '../services/api'
+import { getApiSettings } from '../services/api'
+import { runGenerationRetryPlan } from '../services/generationRetry'
 import { useTheme } from '../composables/useTheme'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -1296,68 +1297,68 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
     '请覆盖不同意象方向，避免同义重复。'
   ].join('\n')
 
-  const response = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], null, null, generationSettings)
+  const strictRetryPrompt = [
+    '上一条格式不合规。',
+    '请重新输出，且只能输出分步行格式。',
+    '不要任何解释文字。',
+    '每行必须匹配：L<层级>|N<编号>|P<父编号>|<标题>',
+    '必须用 BEGIN_LINES 开始，END_LINES 结束。'
+  ].join('\n')
 
-  const content = String(response?.content || '')
-  console.info(`${LLM_DEBUG_PREFIX} 分步行首轮预览`, content.slice(0, 300))
+  const hardSystemPrompt = [
+    '只做格式转换任务。',
+    '输出必须是分步行格式。',
+    '禁止解释。',
+    '必须用 BEGIN_LINES 和 END_LINES 包裹。'
+  ].join('\n')
 
-  try {
-    return parseLineTree(content)
-  } catch (e) {
-    const retry = await sendChat([
+  const hardUserPrompt = [
+    `主题：${promptText}`,
+    `一级分支数量：${count}`,
+    `最大层数：${depth}`,
+    '严格输出：',
+    'BEGIN_LINES',
+    'L1|N1|P0|<主题>',
+    'L2|N2|P1|<分支标题>',
+    'L3|N3|P2|<子分支标题>',
+    'END_LINES'
+  ].join('\n')
+
+  const generationResult = await runGenerationRetryPlan({
+    baseMessages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    settings: generationSettings,
+    parseContent: parseLineTree,
+    isValidParsed: (parsed) => Boolean(parsed),
+    attempts: [
       {
-        role: 'user',
-        content: [
-          '上一条格式不合规。',
-          '请重新输出，且只能输出分步行格式。',
-          '不要任何解释文字。',
-          '每行必须匹配：L<层级>|N<编号>|P<父编号>|<标题>',
-          '必须用 BEGIN_LINES 开始，END_LINES 结束。'
-        ].join('\n')
+        name: '分步行首轮'
+      },
+      {
+        name: '分步行二轮',
+        appendMessages: [{ role: 'user', content: strictRetryPrompt }]
+      },
+      {
+        name: '分步行三轮',
+        messages: [
+          { role: 'system', content: hardSystemPrompt },
+          { role: 'user', content: hardUserPrompt }
+        ]
       }
-    ], null, null, generationSettings)
+    ]
+  })
 
-    const retryText = String(retry?.content || '')
-    console.info(`${LLM_DEBUG_PREFIX} 分步行二轮预览`, retryText.slice(0, 300))
-    try {
-      return parseLineTree(retryText)
-    } catch (e2) {
-      const hardRetry = await sendChat([
-        {
-          role: 'system',
-          content: [
-            '只做格式转换任务。',
-            '输出必须是分步行格式。',
-            '禁止解释。',
-            '必须用 BEGIN_LINES 和 END_LINES 包裹。'
-          ].join('\n')
-        },
-        {
-          role: 'user',
-          content: [
-            `主题：${promptText}`,
-            `一级分支数量：${count}`,
-            `最大层数：${depth}`,
-            '严格输出：',
-            'BEGIN_LINES',
-            'L1|N1|P0|<主题>',
-            'L2|N2|P1|<分支标题>',
-            'L3|N3|P2|<子分支标题>',
-            'END_LINES'
-          ].join('\n')
-        }
-      ], null, null, generationSettings)
-
-      const hardText = String(hardRetry?.content || '')
-      console.info(`${LLM_DEBUG_PREFIX} 分步行三轮预览`, hardText.slice(0, 300))
-      return parseLineTree(hardText)
-    }
+  for (const attempt of generationResult.attempts) {
+    console.info(`${LLM_DEBUG_PREFIX} ${attempt.name}预览`, String(attempt.content || '').slice(0, 300))
   }
+
+  if (generationResult.success && generationResult.parsed) {
+    return generationResult.parsed
+  }
+
+  throw new Error('分步行解析失败，请重试')
 }
 
 function applyExamplesByTitle(rawTree, mapping) {
@@ -1406,30 +1407,76 @@ async function repairExamplesBatchByLLM(titles, apiSettings) {
 
   const userPrompt = JSON.stringify({ titles })
 
-  const response = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], null, null, generationSettings)
+  const parseExamplesJsonMap = (content) => {
+    const text = String(content || '').trim()
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const candidate = jsonMatch?.[0] || text
 
-  const text = String(response?.content || '').trim()
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  const candidate = jsonMatch?.[0] || text
+    try {
+      const parsed = JSON.parse(candidate)
+      const arr = Array.isArray(parsed?.items) ? parsed.items : []
+      const out = new Map()
+      for (const item of arr) {
+        const title = sanitizeIdeaTitle(String(item?.title || '').trim(), 36)
+        const examples = Array.isArray(item?.examples) ? item.examples.filter(Boolean).slice(0, 2) : []
+        if (title && examples.length === 2) {
+          out.set(title, examples)
+        }
+      }
+      return out
+    } catch (e) {
+      return new Map()
+    }
+  }
 
-  try {
-    const parsed = JSON.parse(candidate)
-    const arr = Array.isArray(parsed?.items) ? parsed.items : []
-    const out = new Map()
-    for (const item of arr) {
-      const title = sanitizeIdeaTitle(String(item?.title || '').trim(), 36)
-      const examples = Array.isArray(item?.examples) ? item.examples.filter(Boolean).slice(0, 2) : []
-      if (title && examples.length === 2) {
-        out.set(title, examples)
+  const collectExamplesMap = (attempts = []) => {
+    const merged = new Map()
+    for (const attempt of attempts) {
+      if (attempt?.parsed instanceof Map) {
+        for (const [k, v] of attempt.parsed.entries()) {
+          merged.set(k, v)
+        }
       }
     }
-    return out
-  } catch (e) {
-    return new Map()
+    return merged
   }
+
+  const generationResult = await runGenerationRetryPlan({
+    baseMessages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    settings: generationSettings,
+    parseContent: parseExamplesJsonMap,
+    isValidParsed: (parsed, { history }) => {
+      const merged = collectExamplesMap([...history, { parsed }])
+      return merged.size >= titles.length
+    },
+    attempts: [
+      {
+        name: '例句JSON首轮'
+      },
+      {
+        name: '例句JSON重试',
+        appendMessages: [
+          {
+            role: 'user',
+            content: [
+              '上一条 JSON 不完整或格式不正确。',
+              '请仅输出 JSON 对象：{"items":[{"title":"...","examples":["句1","句2"]}] }。',
+              '不要额外解释。'
+            ].join('\n')
+          }
+        ]
+      }
+    ]
+  })
+
+  for (const attempt of generationResult.attempts) {
+    console.info(`${LLM_DEBUG_PREFIX} ${attempt.name}预览`, String(attempt.content || '').slice(0, 280))
+  }
+
+  return collectExamplesMap(generationResult.attempts)
 }
 
 function parseExampleLineBlock(text) {
@@ -1481,67 +1528,123 @@ async function fillExamplesForMissingTitles(missingTitles, apiSettings) {
     ...missingTitles.map((t) => `- ${t}`)
   ].join('\n')
 
-  const first = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], null, null, generationSettings)
-
-  const firstMap = parseExampleLineBlock(first?.content || '')
-  if (firstMap.size >= missingTitles.length) return firstMap
-
-  const stillMissing = missingTitles.filter((t) => !firstMap.has(t))
-  if (!stillMissing.length) return firstMap
-
-  const retry = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
-    {
-      role: 'user',
-      content: [
-        '上一条格式或覆盖不完整。',
-        '请只输出缺失标题的行。',
-        '必须使用 BEGIN_EXAMPLES/END_EXAMPLES。',
-        '缺失标题：',
-        ...stillMissing.map((t) => `- ${t}`)
-      ].join('\n')
+  const collectExamplesMap = (attempts = []) => {
+    const merged = new Map()
+    for (const attempt of attempts) {
+      if (attempt?.parsed instanceof Map) {
+        for (const [k, v] of attempt.parsed.entries()) {
+          merged.set(k, v)
+        }
+      }
     }
-  ], null, null, generationSettings)
+    return merged
+  }
 
-  const retryMap = parseExampleLineBlock(retry?.content || '')
-  for (const [k, v] of retryMap.entries()) firstMap.set(k, v)
+  const generationResult = await runGenerationRetryPlan({
+    baseMessages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    settings: generationSettings,
+    parseContent: (content) => parseExampleLineBlock(content || ''),
+    isValidParsed: (parsed, { history }) => {
+      const merged = collectExamplesMap([...history, { parsed }])
+      return merged.size >= missingTitles.length
+    },
+    attempts: [
+      {
+        name: '例句首轮'
+      },
+      {
+        name: '例句补齐重试',
+        buildMessages: ({ baseMessages, history }) => {
+          const merged = collectExamplesMap(history)
+          const stillMissing = missingTitles.filter((t) => !merged.has(t))
+          if (!stillMissing.length) return baseMessages
+          return [
+            ...baseMessages,
+            {
+              role: 'user',
+              content: [
+                '上一条格式或覆盖不完整。',
+                '请只输出缺失标题的行。',
+                '必须使用 BEGIN_EXAMPLES/END_EXAMPLES。',
+                '缺失标题：',
+                ...stillMissing.map((t) => `- ${t}`)
+              ].join('\n')
+            }
+          ]
+        }
+      }
+    ]
+  })
 
-  const finalMissing = missingTitles.filter((t) => !firstMap.has(t))
-  if (!finalMissing.length) return firstMap
+  for (const attempt of generationResult.attempts) {
+    console.info(`${LLM_DEBUG_PREFIX} ${attempt.name}预览`, String(attempt.content || '').slice(0, 300))
+  }
+
+  const mergedMap = collectExamplesMap(generationResult.attempts)
+  const finalMissing = missingTitles.filter((t) => !mergedMap.has(t))
+  if (!finalMissing.length) return mergedMap
 
   // Last LLM-only fallback: one-by-one prompts for stubborn titles.
   for (const title of finalMissing) {
-    const single = await sendChat([
-      {
-        role: 'system',
-        content: '你是诗句补全器。仅输出一行：T|标题|句子1|句子2，不要解释。'
-      },
-      {
-        role: 'user',
-        content: `标题：${title}`
-      }
-    ], null, null, generationSettings)
+    try {
+      const singleResult = await runGenerationRetryPlan({
+        baseMessages: [
+          {
+            role: 'system',
+            content: '你是诗句补全器。仅输出一行：T|标题|句子1|句子2，不要解释。'
+          },
+          {
+            role: 'user',
+            content: `标题：${title}`
+          }
+        ],
+        settings: generationSettings,
+        parseContent: (content) => parseExampleLineBlock(String(content || 'BEGIN_EXAMPLES\nEND_EXAMPLES')),
+        isValidParsed: (parsed) => parsed instanceof Map && parsed.size > 0,
+        attempts: [
+          {
+            name: '单标题兜底首轮'
+          },
+          {
+            name: '单标题兜底重试',
+            appendMessages: [
+              {
+                role: 'user',
+                content: '上一条格式不正确。仅输出一行：T|标题|句子1|句子2。不要解释。'
+              }
+            ]
+          }
+        ]
+      })
 
-    const singleMap = parseExampleLineBlock(String(single?.content || 'BEGIN_EXAMPLES\nEND_EXAMPLES'))
-    if (singleMap.has(title)) {
-      firstMap.set(title, singleMap.get(title))
-    } else {
-      const oneLine = String(single?.content || '').trim().replace(/[｜]/g, '|')
+      const singleMap = collectExamplesMap(singleResult.attempts)
+      if (singleMap.has(title)) {
+        mergedMap.set(title, singleMap.get(title))
+        continue
+      }
+
+      const fallbackText = singleResult.attempts
+        .map((attempt) => String(attempt.content || ''))
+        .join('\n')
+        .trim()
+
+      const oneLine = fallbackText.replace(/[｜]/g, '|')
       const m = oneLine.match(/^T\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*$/)
       if (m) {
         const t = String(m[1] || '').trim()
         const e1 = String(m[2] || '').trim()
         const e2 = String(m[3] || '').trim()
-        if (t && e1 && e2) firstMap.set(t, [e1, e2])
+        if (t && e1 && e2) mergedMap.set(t, [e1, e2])
       }
+    } catch (e) {
+      console.warn(`${LLM_DEBUG_PREFIX} 单标题兜底失败`, { title, error: e?.message || e })
     }
   }
 
-  return firstMap
+  return mergedMap
 }
 
 async function postProcessExamplesByLLM(rawTree, apiSettings) {
@@ -1932,56 +2035,57 @@ async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '
     '输出层级从 L2 开始。'
   ].join('\n')
 
-  const response = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], null, null, generationSettings)
-
-  const text = String(response?.content || '')
-  let children = []
-
-  try {
-    const parsed = parseLineTree(`L1|N1|P0|${node.text}\n${text}`)
-    children = Array.isArray(parsed?.children) ? parsed.children : []
-    children = children
+  const parseChildrenFromLineText = (rawText = '') => {
+    const parsed = parseLineTree(`L1|N1|P0|${node.text}\n${rawText}`)
+    const children = Array.isArray(parsed?.children) ? parsed.children : []
+    return children
       .map((c) => ({ ...c, title: sanitizeIdeaTitle(c?.title || '', 18) }))
       .filter((c) => c.title && !isMetaNarrationTitle(c.title))
-  } catch (e) {
-    children = []
   }
 
-  if (!children.length) {
-    const retry = await sendChat([
-      {
-        role: 'system',
-        content: [
-          '你是诗歌分支扩展器。',
-          '请只输出分步行格式，不要解释。',
-          '每行必须是：L2|N<编号>|P1|<标题> 或 L3|N<编号>|P<父编号>|<标题>',
-          '必须使用 BEGIN_LINES 和 END_LINES 包裹。'
-        ].join('\n')
-      },
+  const generationResult = await runGenerationRetryPlan({
+    baseMessages: [
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
-    ], null, null, generationSettings)
+    ],
+    settings: generationSettings,
+    parseContent: parseChildrenFromLineText,
+    isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length > 0,
+    attempts: [
+      {
+        name: '续写首轮'
+      },
+      {
+        name: '续写格式重试',
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是诗歌分支扩展器。',
+              '请只输出分步行格式，不要解释。',
+              '每行必须是：L2|N<编号>|P1|<标题> 或 L3|N<编号>|P<父编号>|<标题>',
+              '必须使用 BEGIN_LINES 和 END_LINES 包裹。'
+            ].join('\n')
+          },
+          { role: 'user', content: userPrompt }
+        ]
+      }
+    ]
+  })
 
-    const retryText = String(retry?.content || '')
-    try {
-      const parsedRetry = parseLineTree(`L1|N1|P0|${node.text}\n${retryText}`)
-      children = Array.isArray(parsedRetry?.children) ? parsedRetry.children : []
-      children = children
-        .map((c) => ({ ...c, title: sanitizeIdeaTitle(c?.title || '', 18) }))
-        .filter((c) => c.title && !isMetaNarrationTitle(c.title))
-    } catch (e) {
-      children = []
-    }
+  for (const attempt of generationResult.attempts) {
+    console.info(`${LLM_DEBUG_PREFIX} ${attempt.name}预览`, String(attempt.content || '').slice(0, 300))
+  }
 
-    if (!children.length) {
-      const looseTitles = extractLooseTitlesFromText(`${text}\n${retryText}`, count)
-      children = looseTitles
-        .map((title) => sanitizeIdeaTitle(title, 18))
-        .filter((title) => title && !isMetaNarrationTitle(title))
-        .map((title) => ({ title, children: [] }))
-    }
+  let children = Array.isArray(generationResult.parsed) ? generationResult.parsed : []
+
+  if (!children.length) {
+    const combinedText = generationResult.attempts.map((item) => String(item.content || '')).join('\n')
+    const looseTitles = extractLooseTitlesFromText(combinedText, count)
+    children = looseTitles
+      .map((title) => sanitizeIdeaTitle(title, 18))
+      .filter((title) => title && !isMetaNarrationTitle(title))
+      .map((title) => ({ title, children: [] }))
   }
 
   if (!children.length) {
@@ -2118,34 +2222,39 @@ async function generateDirectingTree(promptText, count, depth) {
     '请按叙事逻辑生成分镜序列，每节点包含画面描述、建议景别和运镜、色调情绪。'
   ].join('\n')
 
-  const response = await sendChat([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ], null, null, generationSettings)
-
-  const content = String(response?.content || '')
-  console.info(`${LLM_DEBUG_PREFIX} 分镜图预览`, content.slice(0, 300))
-
-  try {
-    return parseLineTree(content)
-  } catch (e) {
-    const retry = await sendChat([
+  const generationResult = await runGenerationRetryPlan({
+    baseMessages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    settings: generationSettings,
+    parseContent: parseLineTree,
+    isValidParsed: (parsed) => Boolean(parsed),
+    attempts: [
       {
-        role: 'user',
-        content: '上一条格式不合规。请重新输出分步行格式，不要解释，每行匹配：L<层级>|N<编号>|P<父编号>|<镜头描述>。'
+        name: '分镜图首轮'
+      },
+      {
+        name: '分镜图二轮',
+        appendMessages: [
+          {
+            role: 'user',
+            content: '上一条格式不合规。请重新输出分步行格式，不要解释，每行匹配：L<层级>|N<编号>|P<父编号>|<镜头描述>。'
+          }
+        ]
       }
-    ], null, null, generationSettings)
+    ]
+  })
 
-    const retryText = String(retry?.content || '')
-    console.info(`${LLM_DEBUG_PREFIX} 分镜图二轮预览`, retryText.slice(0, 300))
-    try {
-      return parseLineTree(retryText)
-    } catch (e2) {
-      throw new Error('分镜图解析失败，请重试')
-    }
+  for (const attempt of generationResult.attempts) {
+    console.info(`${LLM_DEBUG_PREFIX} ${attempt.name}预览`, String(attempt.content || '').slice(0, 300))
   }
+
+  if (generationResult.success && generationResult.parsed) {
+    return generationResult.parsed
+  }
+
+  throw new Error('分镜图解析失败，请重试')
 }
 
 function saveNodeExtraFields() {

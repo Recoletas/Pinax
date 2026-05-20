@@ -60,3 +60,98 @@
 	- `npm run build`：构建通过。
 	- 端口 3907 长输入冒烟：`max_input_chars=1200` 时返回 `meta.inputChars=1200`（严格不超限）。
 - 回滚：不需要。
+
+## 2026-05-20 Step 7
+- 动作：进入 P1 的第一步，抽取统一重试执行器并接入两条主生成链路。
+	- 新增 [src/services/generationRetry.js](src/services/generationRetry.js)：统一处理多轮 sendChat、retryCount/request_id 透传、解析判定与结果回收。
+	- 修改 [src/pages/ProseEssay.vue](src/pages/ProseEssay.vue)：`generateCards` 改为统一重试计划执行（首轮 + 格式修复重试）。
+	- 修改 [src/pages/PoetryLab.vue](src/pages/PoetryLab.vue)：`buildTitleTreeByLines` 与 `generateDirectingTree` 改为统一重试计划执行。
+- 测试：
+	- IDE 问题检查：上述 3 个文件均无错误。
+	- `npm run test:run`：29/29 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 8
+- 动作：继续收敛 Poetry 剩余手写重试路径。
+	- 修改 [src/pages/PoetryLab.vue](src/pages/PoetryLab.vue)：
+		- `fillExamplesForMissingTitles` 改为统一重试计划（例句首轮 + 缺失补齐重试）后再进入逐条兜底。
+		- `generateContinueByLLM` 改为统一重试计划（续写首轮 + 格式重试）并保留 loose title 回退。
+- 测试：
+	- IDE 问题检查：`src/pages/PoetryLab.vue`、`src/services/generationRetry.js` 无错误。
+	- `npm run test:run`：29/29 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 9
+- 动作：补齐统一重试执行器回归测试，并继续收敛 Prose 生成链路。
+	- 新增 [src/__tests__/generationRetry.test.js](src/__tests__/generationRetry.test.js)：覆盖首轮成功、二轮成功、全失败、buildMessages 4 类重试行为。
+	- 修改 [src/pages/ProseEssay.vue](src/pages/ProseEssay.vue)：
+		- `expandFromCard` 改为统一重试计划（延伸首轮 + 格式修复重试）。
+		- `expandByEmotion` 改为统一重试计划（情绪扩展首轮 + 格式修复重试）。
+- 测试：
+	- IDE 问题检查：`src/__tests__/generationRetry.test.js`、`src/pages/ProseEssay.vue`、`src/services/generationRetry.js` 无错误。
+	- `npm run test:run`：34/34 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 10
+- 动作：增强统一重试执行器对请求失败的容错能力。
+	- 修改 [src/services/generationRetry.js](src/services/generationRetry.js)：当某一轮 `sendChat` 请求失败时，记录 requestError 并进入下一轮；仅在最后一轮仍失败时抛错。
+	- 修改 [src/__tests__/generationRetry.test.js](src/__tests__/generationRetry.test.js)：新增“首轮请求失败后次轮成功”与“全部请求失败最终抛错”两条测试。
+- 测试：
+	- IDE 问题检查：`src/services/generationRetry.js`、`src/__tests__/generationRetry.test.js` 无错误。
+	- `npm run test:run`：36/36 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 11
+- 动作：将 Game 主聊天链路接入统一重试执行器。
+	- 修改 [src/stores/gameStore.js](src/stores/gameStore.js)：`generateAIResponse` 改为 `runGenerationRetryPlan` 双尝试策略（同上下文重试），并在重试全部失败时抛出友好错误。
+- 测试：
+	- IDE 问题检查：`src/stores/gameStore.js`、`src/services/generationRetry.js` 无错误。
+	- `npm run test:run`：36/36 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 12
+- 动作：将 Poetry 批量例句 JSON 修复链路接入统一重试执行器。
+	- 修改 [src/pages/PoetryLab.vue](src/pages/PoetryLab.vue)：`repairExamplesBatchByLLM` 改为“JSON 首轮 + JSON 重试”策略，并合并多轮部分结果。
+- 测试：
+	- IDE 问题检查：`src/pages/PoetryLab.vue`、`src/services/generationRetry.js`、`src/__tests__/generationRetry.test.js` 无错误。
+	- `npm run test:run`：36/36 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 13
+- 动作：收口最后一个业务层直接 `sendChat` 调用点。
+	- 修改 [src/pages/PoetryLab.vue](src/pages/PoetryLab.vue)：`fillExamplesForMissingTitles` 的单标题兜底改为统一重试计划（首轮 + 重试），并保留逐行正则兜底。
+	- 同步移除 `PoetryLab` 对 `sendChat` 的直接导入，业务层统一经由 [src/services/generationRetry.js](src/services/generationRetry.js) 调用。
+- 测试：
+	- 全仓检索 `sendChat(`：仅剩 [src/services/generationRetry.js](src/services/generationRetry.js) 与 [src/services/api.js](src/services/api.js) 两处。
+	- IDE 问题检查：`src/pages/PoetryLab.vue`、`src/services/generationRetry.js` 无错误。
+	- `npm run test:run`：36/36 通过。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 14
+- 动作：新增“架构守卫测试”，防止业务层回归到直接调用 `sendChat`。
+	- 新增 [src/__tests__/architectureGuard.test.js](src/__tests__/architectureGuard.test.js)：
+		- 仅允许 [src/services/api.js](src/services/api.js) 与 [src/services/generationRetry.js](src/services/generationRetry.js) 出现 `sendChat(` 调用。
+		- 限制 `pages` / `stores` 目录不得直接 import `sendChat`。
+	- 修复：守卫测试首轮发现 [src/pages/ProseEssay.vue](src/pages/ProseEssay.vue) 仍有 `sendChat` 导入，已移除并复测通过。
+- 测试：
+	- `npm run test:run`：38/38 通过（含 architecture guard）。
+	- `npm run build`：构建通过。
+- 回滚：不需要。
+
+## 2026-05-20 Step 15
+- 动作：将架构守卫纳入本地与 CI 自动化门禁。
+	- 修改 [package.json](package.json)：新增 `test:arch` 与 `verify` 脚本（`verify = test:run + build`）。
+	- 新增 [/.github/workflows/ci.yml](.github/workflows/ci.yml)：在 `push` / `pull_request` 自动执行 `npm run verify`。
+	- 修改 [README.md](README.md)：补充“提交前质量门禁”与 CI 自动校验说明。
+- 测试：
+	- 执行 `npm run verify`：
+		- `npm run test:run`：38/38 通过。
+		- `npm run build`：构建通过。
+- 回滚：不需要。

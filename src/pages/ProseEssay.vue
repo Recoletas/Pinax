@@ -656,7 +656,8 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getApiSettings, sendChat, recordPreference } from '../services/api'
+import { getApiSettings, recordPreference } from '../services/api'
+import { runGenerationRetryPlan } from '../services/generationRetry'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -1405,58 +1406,73 @@ async function expandFromCard(card) {
       '6. 用 BEGIN_CARDS 和 END_CARDS 包裹数组'
     ].join('\n')
 
-    const response = await sendChat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `原卡片：${card.content}` }
-    ], null, null, generationSettings)
-
-    const content = String(response?.content || '')
-    console.info('[ProseEssay expand]', content.slice(0, 500))
-
-    try {
-      const parsed = parseCardBlock(content)
-      if (parsed && Array.isArray(parsed) && parsed.length > 0) {
-        const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
-
-        const newCards = parsed.map(item => {
-          let emotion = item.emotion || editingEmotion.value
-          if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
-          return {
-            id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            content: item.content || '',
-            emotion,
-            wordCount: countWords(item.content || ''),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            pileId: null,
-            zone: 'material',
-            x: null,
-            y: null
-          }
-        }).filter(c => c.content.length > 0)
-
-        if (newCards.length === 0) return
-
-        // 与原卡片建立"延续"边
-        const newEdges = newCards.map(newCard => ({
-          id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          sourceId: card.id,
-          targetId: newCard.id,
-          type: 'continuation'
-        }))
-
-        if (!continuationGroups.value[card.id]) {
-          continuationGroups.value[card.id] = new Set()
+    const generationResult = await runGenerationRetryPlan({
+      baseMessages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `原卡片：${card.content}` }
+      ],
+      settings: generationSettings,
+      parseContent: parseCardBlock,
+      isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length > 0,
+      attempts: [
+        {
+          name: '延伸首轮'
+        },
+        {
+          name: '延伸格式重试',
+          appendMessages: [
+            { role: 'user', content: '上一条输出格式不合规。请严格用 BEGIN_CARDS 和 END_CARDS 包裹 JSON 数组输出。' }
+          ]
         }
-        newCards.forEach(n => continuationGroups.value[card.id].add(n.id))
+      ]
+    })
 
-        cards.value.push(...newCards)
-        edges.value.push(...newEdges)
-        addTimeline(`基于「${card.content.slice(0, 15)}...」生成了 ${newCards.length} 张延伸卡片`)
-        saveData()
+    for (const attempt of generationResult.attempts) {
+      console.info('[ProseEssay expand]', String(attempt.content || '').slice(0, 500))
+      if (attempt.parseError) {
+        console.error('[ProseEssay expand] parse error:', attempt.parseError)
       }
-    } catch (e) {
-      console.error('解析失败:', e)
+    }
+
+    if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
+      const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
+
+      const newCards = generationResult.parsed.map(item => {
+        let emotion = item.emotion || editingEmotion.value
+        if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
+        return {
+          id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          content: item.content || '',
+          emotion,
+          wordCount: countWords(item.content || ''),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          pileId: null,
+          zone: 'material',
+          x: null,
+          y: null
+        }
+      }).filter(c => c.content.length > 0)
+
+      if (newCards.length === 0) return
+
+      // 与原卡片建立"延续"边
+      const newEdges = newCards.map(newCard => ({
+        id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        sourceId: card.id,
+        targetId: newCard.id,
+        type: 'continuation'
+      }))
+
+      if (!continuationGroups.value[card.id]) {
+        continuationGroups.value[card.id] = new Set()
+      }
+      newCards.forEach(n => continuationGroups.value[card.id].add(n.id))
+
+      cards.value.push(...newCards)
+      edges.value.push(...newEdges)
+      addTimeline(`基于「${card.content.slice(0, 15)}...」生成了 ${newCards.length} 张延伸卡片`)
+      saveData()
     }
   } catch (e) {
     console.error('生成失败:', e)
@@ -1497,57 +1513,72 @@ async function expandByEmotion() {
       'Wrap array with BEGIN_CARDS and END_CARDS.'
     ].join('\n')
 
-    const response = await sendChat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: 'Original card: ' + editingContent.value + ', Emotion: ' + emotionLabel }
-    ], null, null, generationSettings)
-
-    const content = String(response?.content || '')
-    console.info('[ProseEssay expandByEmotion]', content.slice(0, 500))
-
-    try {
-      const parsed = parseCardBlock(content)
-      if (parsed && Array.isArray(parsed) && parsed.length > 0) {
-        const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
-
-        const newCards = parsed.map(item => {
-          let emotion = item.emotion || editingEmotion.value
-          if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
-          return {
-            id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            content: item.content || '',
-            emotion,
-            wordCount: countWords(item.content || ''),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            pileId: null,
-            zone: 'material',
-            x: null,
-            y: null
-          }
-        }).filter(c => c.content.length > 0)
-
-        if (newCards.length === 0) return
-
-        const newEdges = newCards.map(newCard => ({
-          id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          sourceId: selectedCard.value.id,
-          targetId: newCard.id,
-          type: 'continuation'
-        }))
-
-        if (!continuationGroups.value[selectedCard.value.id]) {
-          continuationGroups.value[selectedCard.value.id] = new Set()
+    const generationResult = await runGenerationRetryPlan({
+      baseMessages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Original card: ' + editingContent.value + ', Emotion: ' + emotionLabel }
+      ],
+      settings: generationSettings,
+      parseContent: parseCardBlock,
+      isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length > 0,
+      attempts: [
+        {
+          name: '情绪扩展首轮'
+        },
+        {
+          name: '情绪扩展重试',
+          appendMessages: [
+            { role: 'user', content: 'Previous output format is invalid. Use BEGIN_CARDS and END_CARDS wrapping a JSON array only.' }
+          ]
         }
-        newCards.forEach(n => continuationGroups.value[selectedCard.value.id].add(n.id))
+      ]
+    })
 
-        cards.value.push(...newCards)
-        edges.value.push(...newEdges)
-        addTimeline(`基于「${emotionLabel}」情绪扩展了 ${newCards.length} 张卡片`)
-        saveData()
+    for (const attempt of generationResult.attempts) {
+      console.info('[ProseEssay expandByEmotion]', String(attempt.content || '').slice(0, 500))
+      if (attempt.parseError) {
+        console.error('[ProseEssay expandByEmotion] parse error:', attempt.parseError)
       }
-    } catch (e) {
-      console.error('解析失败:', e)
+    }
+
+    if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
+      const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
+
+      const newCards = generationResult.parsed.map(item => {
+        let emotion = item.emotion || editingEmotion.value
+        if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
+        return {
+          id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          content: item.content || '',
+          emotion,
+          wordCount: countWords(item.content || ''),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          pileId: null,
+          zone: 'material',
+          x: null,
+          y: null
+        }
+      }).filter(c => c.content.length > 0)
+
+      if (newCards.length === 0) return
+
+      const newEdges = newCards.map(newCard => ({
+        id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        sourceId: selectedCard.value.id,
+        targetId: newCard.id,
+        type: 'continuation'
+      }))
+
+      if (!continuationGroups.value[selectedCard.value.id]) {
+        continuationGroups.value[selectedCard.value.id] = new Set()
+      }
+      newCards.forEach(n => continuationGroups.value[selectedCard.value.id].add(n.id))
+
+      cards.value.push(...newCards)
+      edges.value.push(...newEdges)
+      addTimeline(`基于「${emotionLabel}」情绪扩展了 ${newCards.length} 张卡片`)
+      saveData()
     }
   } catch (e) {
     console.error('生成失败:', e)
@@ -1615,42 +1646,40 @@ async function generateCards() {
       ].join('\n')
     }
 
-    const response = await sendChat([
+    const baseMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `主题：${topic}` }
-    ], null, null, generationSettings)
+    ]
 
-    const content = String(response?.content || '')
-    console.info('[ProseEssay LLM]', content.slice(0, 500))
+    const generationResult = await runGenerationRetryPlan({
+      baseMessages,
+      settings: generationSettings,
+      parseContent: parseCardBlock,
+      isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length > 0,
+      attempts: [
+        {
+          name: '首轮生成'
+        },
+        {
+          name: '格式修复重试',
+          appendMessages: [
+            { role: 'user', content: '上一条输出格式不合规。请严格用 BEGIN_CARDS 和 END_CARDS 包裹 JSON 数组输出。' }
+          ]
+        }
+      ]
+    })
 
-    try {
-      const parsed = parseCardBlock(content)
-      if (parsed && Array.isArray(parsed) && parsed.length > 0) {
-        createNewCards(parsed, topic)
-        return
+    for (const attempt of generationResult.attempts) {
+      const logLabel = attempt.index === 0 ? '[ProseEssay LLM]' : '[ProseEssay LLM retry]'
+      console.info(logLabel, String(attempt.content || '').slice(0, 500))
+      if (attempt.parseError) {
+        console.error(`${logLabel} parse error:`, attempt.parseError)
       }
-    } catch (e) {
-      console.error('解析失败:', e)
     }
 
-    // Retry
-    const retry = await sendChat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `主题：${topic}` },
-      { role: 'user', content: '上一条输出格式不合规。请严格用 BEGIN_CARDS 和 END_CARDS 包裹 JSON 数组输出。' }
-    ], null, null, generationSettings)
-
-    const retryContent = String(retry?.content || '')
-    console.info('[ProseEssay LLM retry]', retryContent.slice(0, 500))
-
-    try {
-      const parsed = parseCardBlock(retryContent)
-      if (parsed && Array.isArray(parsed) && parsed.length > 0) {
-        createNewCards(parsed, topic)
-        return
-      }
-    } catch (e) {
-      console.error('重试解析失败:', e)
+    if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
+      createNewCards(generationResult.parsed, topic)
+      return
     }
 
     console.error('卡片生成失败，未能解析有效内容')

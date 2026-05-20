@@ -117,6 +117,16 @@ npm run build
 npm run preview
 ```
 
+### 5. 提交前质量门禁（建议）
+
+```bash
+npm run verify
+```
+
+该命令会串行执行：
+- `npm run test:run`（包含架构守卫测试，防止页面/store 直接调用 `sendChat`）
+- `npm run build`
+
 ---
 
 ## 项目结构
@@ -391,6 +401,12 @@ text-game-framework/
 ### AI 提供商配置
 
 后端 `server/routes/chat.js` 已内置多提供商默认参数（OpenAI、Claude、OpenRouter、Ollama 等），建议通过前端设置页写入后端 secrets 再测试连接。
+
+### CI 自动校验
+
+- 已新增 GitHub Actions 工作流：`.github/workflows/ci.yml`
+- 触发时机：`push` 与 `pull_request`
+- 执行内容：`npm run verify`
 
 ### 新增页面
 

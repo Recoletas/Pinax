@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { sendAction as apiSendAction, getState, sendChat, buildContextMessage } from '../services/api'
+import { sendAction as apiSendAction, getState, buildContextMessage } from '../services/api'
+import { runGenerationRetryPlan } from '../services/generationRetry'
 
 export const useGameStore = defineStore('game', {
   state: () => ({
@@ -267,7 +268,21 @@ export const useGameStore = defineStore('game', {
           : this.chatHistory
         console.log('Messages to send:', messagesToSend)
 
-        const response = await sendChat(messagesToSend, null, this.worldId, this.apiSettings);
+        const generationResult = await runGenerationRetryPlan({
+          baseMessages: messagesToSend,
+          settings: this.apiSettings,
+          worldId: this.worldId,
+          attempts: [
+            { name: 'game-first' },
+            { name: 'game-retry' }
+          ]
+        })
+
+        if (!generationResult.success) {
+          throw new Error('AI 返回空内容，请稍后重试')
+        }
+
+        const response = generationResult.response || { content: generationResult.content }
         console.log('AI response:', response)
 
         // 添加 AI 回复
