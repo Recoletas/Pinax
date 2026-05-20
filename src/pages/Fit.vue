@@ -3,11 +3,6 @@
     <!-- 标题栏 -->
     <header class="title-bar">
       <div class="title-left">
-        <button class="icon-btn" @click="goBack" title="返回">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-          </svg>
-        </button>
         <span class="app-title">拟合</span>
       </div>
       <div class="title-right">
@@ -83,10 +78,6 @@ const router = useRouter()
 const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
 
-function goBack() {
-  router.push('/')
-}
-
 async function enterExperience(genre) {
   if (genre === 'poetry') {
     router.push('/poetry-lab')
@@ -135,25 +126,6 @@ async function enterExperience(genre) {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 .theme-toggle {

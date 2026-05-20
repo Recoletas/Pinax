@@ -127,6 +127,18 @@ npm run verify
 - `npm run test:run`（包含架构守卫测试，防止页面/store 直接调用 `sendChat`）
 - `npm run build`
 
+### 6. 路由重构阶段一（工作台壳）
+
+- 新增工作台壳路由：`/work/*`
+- 新增壳层组件：`src/layouts/AppShell.vue`
+- 新增导航配置：`src/config/workbenchNav.js`
+- 新增导航组件：
+   - `src/components/workbench/ActivityBar.vue`
+   - `src/components/workbench/SidePanel.vue`
+- 兼容旧路径：`/fit`、`/game`、`/writing`、`/notes`、`/poetry-lab`、`/prose-essay` 会重定向到 `/work/*` 下的对应页面
+
+该阶段只完成“壳层承载旧页面”，业务页面逻辑与数据流保持不变，便于稳步迁移。
+
 ---
 
 ## 项目结构
@@ -406,7 +418,10 @@ text-game-framework/
 
 - 已新增 GitHub Actions 工作流：`.github/workflows/ci.yml`
 - 触发时机：`push` 与 `pull_request`
-- 执行内容：`npm run verify`
+- 执行方式：
+   - `deps`：先执行一次 `npm ci` 并产出 `node_modules` artifact
+   - `test` / `build`：并行下载同一依赖产物后分别执行 `npm run test:run` 与 `npm run build`
+- 本地仍建议先执行：`npm run verify`
 
 ### 新增页面
 

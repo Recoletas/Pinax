@@ -1,9 +1,8 @@
 <template>
-  <div class="home-page">
-    <!-- 标题栏 -->
+  <div class="welcome-page">
     <header class="title-bar">
       <div class="title-left">
-        <span class="app-title">WriterHelper</span>
+        <span class="app-title">WriterHelper 欢迎页</span>
       </div>
       <div class="title-right">
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
@@ -20,51 +19,125 @@
       </div>
     </header>
 
-    <!-- 主内容 -->
     <main class="content-area">
-      <div class="hero-section">
-        <h1 class="app-logo">✦</h1>
-        <h1 class="app-name">WriterHelper</h1>
-        <p class="app-desc">你的写作与冒险助手</p>
-      </div>
+      <section class="hero-panel">
+        <p class="hero-kicker">WELCOME</p>
+        <h1 class="hero-title">进入你的写作与冒险工作台</h1>
+        <p class="hero-subtitle">首页只负责欢迎与分发入口，体验模式改为直接进入，不再经过体裁选择页。</p>
+      </section>
 
-      <div class="entry-grid">
-        <router-link to="/fit" class="entry-card">
-          <div class="entry-icon">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor">
-              <path d="M16 4L4 10v12l12 6 12-6V10L16 4zm0 3l9 4.5v9L16 25l-9-4.5v-9L16 7z"/>
-            </svg>
-          </div>
-          <h2>体验</h2>
-          <p>亲身体验其中，感知文字的温度</p>
-        </router-link>
+      <section class="entry-section">
+        <h2 class="section-title">快捷入口</h2>
+        <div class="entry-grid">
+          <router-link to="/game" class="entry-card primary">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="8"></circle>
+                <path d="M9.2 13.8L10.8 10.2L14.4 8.6L12.8 12.2L9.2 13.8Z"></path>
+              </svg>
+            </div>
+            <h3>开始体验</h3>
+            <p>直接进入冒险，不再经过体裁选择界面</p>
+          </router-link>
 
-        <router-link to="/writing" class="entry-card">
-          <div class="entry-icon accent">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor">
-              <path d="M6 6h14v20H6V6zm4 4v12h10V10H10zm4 2h6v2h-6v-2zm0 4h4v2h-4v-2z"/>
-            </svg>
-          </div>
-          <h2>写作</h2>
-          <p>创建书籍，编写章节，管理你的作品</p>
-        </router-link>
-      </div>
+          <router-link to="/writing" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 4H11A3 3 0 0 1 14 7V20H7A2 2 0 0 0 5 22V4Z"></path>
+                <path d="M19 4H13A3 3 0 0 0 10 7V20H17A2 2 0 0 1 19 22V4Z"></path>
+              </svg>
+            </div>
+            <h3>小说写作</h3>
+            <p>书籍管理、章节编辑与内容创作</p>
+          </router-link>
+
+          <router-link to="/notes" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 3H14L18 7V19A2 2 0 0 1 16 21H6A2 2 0 0 1 4 19V5A2 2 0 0 1 6 3Z"></path>
+                <path d="M14 3V7H18"></path>
+                <path d="M8 11H14"></path>
+                <path d="M8 15H14"></path>
+              </svg>
+            </div>
+            <h3>灵感笔记</h3>
+            <p>记录想法、整理素材与导入速记</p>
+          </router-link>
+
+          <router-link to="/poetry-lab" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.5 4V14"></path>
+                <path d="M14.5 4L19 3V13"></path>
+                <circle cx="9" cy="15" r="3"></circle>
+                <circle cx="17" cy="14" r="3"></circle>
+              </svg>
+            </div>
+            <h3>诗歌工坊</h3>
+            <p>灵感树、续写与分镜创作</p>
+          </router-link>
+
+          <router-link to="/prose-essay" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                <path d="M8 9H16"></path>
+                <path d="M8 13H16"></path>
+                <path d="M8 17H13"></path>
+              </svg>
+            </div>
+            <h3>散文工坊</h3>
+            <p>卡片扩展、大纲组织与导出</p>
+          </router-link>
+        </div>
+      </section>
+
+      <section class="tips-panel">
+        <h2>今天怎么开始？</h2>
+        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入小说、笔记、诗歌或散文模块。</p>
+      </section>
     </main>
+
+    <footer class="welcome-status" aria-label="状态栏">
+      <div class="status-left">
+        <span class="status-item">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" fill="currentColor" />
+          </svg>
+          就绪
+        </span>
+        <span class="status-item">欢迎模式</span>
+        <span class="status-item hide-mobile">路径 {{ currentPath }}</span>
+      </div>
+
+      <div class="status-right">
+        <span class="status-item hide-mobile">UTF-8</span>
+        <span class="status-item hide-mobile">Vue 3</span>
+        <span class="status-item">端口 5173</span>
+      </div>
+    </footer>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 
 const { isDark, toggleTheme } = useTheme()
+const route = useRoute()
+const currentPath = computed(() => route.path || '/')
 </script>
 
 <style scoped>
-.home-page {
-  height: 100vh;
+.welcome-page {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background:
+    radial-gradient(circle at 10% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 38%),
+    var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
@@ -75,8 +148,9 @@ const { isDark, toggleTheme } = useTheme()
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
   flex-shrink: 0;
 }
 
@@ -94,26 +168,6 @@ const { isDark, toggleTheme } = useTheme()
 .title-right {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 .theme-toggle {
@@ -145,112 +199,199 @@ const { isDark, toggleTheme } = useTheme()
 
 .content-area {
   flex: 1;
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 30px 0 32px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 24px;
+}
+
+.welcome-status {
+  height: 24px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 32px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--accent);
+  color: #fff;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 72%, #000 28%);
+  flex-shrink: 0;
 }
 
-.hero-section {
-  text-align: center;
-  margin-bottom: 48px;
+.status-left,
+.status-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.app-logo {
-  font-size: 48px;
+.status-item {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  color: inherit;
+  background: color-mix(in srgb, #fff 16%, transparent);
+}
+
+.hero-panel {
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.hero-kicker {
+  font-size: 11px;
+  letter-spacing: 0.14em;
   color: var(--accent);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.app-name {
-  font-size: 36px;
-  font-weight: 600;
-  margin-bottom: 8px;
+.hero-title {
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.2;
+  margin: 0 0 10px;
 }
 
-.app-desc {
-  font-size: 16px;
+.hero-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.entry-section {
+  background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.section-title {
+  font-size: 14px;
+  margin: 0 0 12px;
   color: var(--text-secondary);
 }
 
 .entry-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
-  gap: 22px;
-  max-width: 760px;
-  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .entry-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 32px 24px;
-  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
+  background: var(--bg-secondary);
   text-decoration: none;
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .entry-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 8px 24px var(--shadow);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px var(--shadow);
+}
+
+.entry-card.primary {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
 }
 
 .entry-icon {
-  width: 64px;
-  height: 64px;
-  display: flex;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border-radius: 12px;
-  margin-bottom: 16px;
-}
-
-.entry-icon.accent {
-  background: var(--accent-light);
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.entry-card h2 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.entry-card p {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+.entry-card h3 {
+  font-size: 16px;
   margin: 0;
 }
 
-@media (max-width: 820px) {
-  .content-area {
-    padding: 24px;
-  }
+.entry-card p {
+  font-size: 12px;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 
-  .hero-section {
-    margin-bottom: 28px;
-  }
+.tips-panel {
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
 
+.tips-panel h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.tips-panel p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+@media (max-width: 980px) {
   .entry-grid {
-    grid-template-columns: 1fr;
-    max-width: 520px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 700px) {
+  .content-area {
+    width: calc(100% - 20px);
+    padding: 16px 0 20px;
+    gap: 14px;
+  }
+
+  .welcome-status {
+    height: 26px;
+    padding: 0 6px;
+  }
+
+  .status-left,
+  .status-right {
+    gap: 4px;
+  }
+
+  .status-item {
+    padding: 0 5px;
+    font-size: 10px;
+  }
+
+  .hide-mobile {
+    display: none;
+  }
+
   .entry-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero-panel,
+  .entry-section,
+  .tips-panel {
+    padding: 14px;
   }
 }
 </style>

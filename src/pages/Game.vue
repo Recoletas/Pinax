@@ -3,11 +3,6 @@
     <!-- 标题栏 -->
     <header class="title-bar">
       <div class="title-left">
-        <button class="icon-btn" @click="goBack" title="返回">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-          </svg>
-        </button>
         <span class="app-title">体验</span>
       </div>
       <div class="title-right">
@@ -137,7 +132,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -166,6 +161,15 @@ const quickNoteStatus = ref('')
 const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
 
+onMounted(async () => {
+  if (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0) {
+    await gameStore.initGame()
+  }
+  if (typeof gameStore.loadDialogueCharacters === 'function') {
+    gameStore.loadDialogueCharacters()
+  }
+})
+
 const dialogueImportStats = computed(() => {
   const list = (gameStore.messages || []).filter((message) => {
     const role = message.role || message.type || 'assistant'
@@ -178,10 +182,6 @@ const dialogueImportStats = computed(() => {
   const selectedWords = selected.reduce((sum, item) => sum + quickNoteWordCount(item), 0)
   return { totalCount, selectedCount, totalWords, selectedWords }
 })
-
-function goBack() {
-  router.push('/fit')
-}
 
 function handleSend(text) {
   gameStore.sendAction(text)
@@ -313,7 +313,8 @@ function jumpToWriting() {
 
 <style scoped>
 .game-page {
-  height: 100vh;
+  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -347,25 +348,6 @@ function jumpToWriting() {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 .theme-toggle {

@@ -648,7 +648,21 @@
       </div>
     </div>
 
-      </div>
+      <!-- 创作顾问悬浮按钮 -->
+      <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
+        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="8" r="5"></circle>
+          <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+        </svg>
+      </button>
+
+      <AdvisorPanel
+        :isOpen="advisorOpen"
+        :onGetAdvice="handleGetAdviceAI"
+        :contextProvider="collectProseContext"
+        @close="closeAdvisor"
+      />
+    </div>
 </template>
 
 <script setup>
@@ -656,11 +670,14 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getApiSettings, recordPreference } from '../services/api'
+import { getApiSettings, recordPreference, sendChat } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
+import AdvisorPanel from '../components/AdvisorPanel.vue'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+const advisorOpen = ref(false)
+const advisorPanelRef = ref(null)
 
 // Mode switching
 const currentMode = ref('writing') // 'writing' | 'directing'
@@ -1163,6 +1180,47 @@ async function resolveApiSettings() {
   } catch {
     // ignore
   }
+}
+
+// Advisor functions
+function collectProseContext() {
+  return {
+    mode: currentMode.value,
+    cards: flatCards.value.map(c => ({
+      id: c.id,
+      content: c.content,
+      emotion: c.emotion,
+      extraFields: c.extraFields || null
+    })),
+    edges: edges.value.map(e => ({
+      sourceId: e.sourceId,
+      targetId: e.targetId,
+      type: e.type
+    })),
+    outline: outline.value,
+    timeline: currentMode.value === 'directing' ? timeline.value : null
+  }
+}
+
+async function handleGetAdviceAI(question) {
+  if (!apiSettings.value?.baseUrl || !apiSettings.value?.apiKey || !apiSettings.value?.model) {
+    throw new Error('未配置 AI，请先在设置中填写 API 信息')
+  }
+  const context = collectProseContext()
+  const messages = [
+    { role: 'system', content: '你是一位资深的文学创作顾问，擅长为作者提供精准、实用的叙事建议。\n\n【核心原则】\n1. 简洁直接：每个建议聚焦一点，优先针对用户当前困境，不冗言铺陈\n2. 专业精准：运用叙事学专业术语（节奏、视角、张力、弧光等），分析到位不模糊\n3. 可操作：建议须具体可执行，避免空泛的"要加油"类表达\n4. 克制废话：不多次重复已知信息，不以"当然"/"其实"/"总的来说"等词堆砌开场\n\n【回复规范】\n- 优先分析当前创作状态的核心问题，再给出具体建议\n- 如涉及情绪、节奏、结构等维度，需指出具体位置或问题所在\n- 用 *动作* 格式描述角色动作，用"对话"格式描述对话，段落分明\n- 单次建议不超过 150 字，除非用户明确要求展开\n- 不重复上下文已提供的信息\n\n【用户问题类型】\n- 分析节奏/情绪分布：直接指出当前节奏或情绪的问题，给出调整方向\n- 结构建议：指出当前结构的核心问题，给出优化路径\n- 续写灵感：给出 1-2 个具体推进方向，避免发散过多\n- 自定义问题：针对问题直接作答，不答非所问' },
+    { role: 'user', content: `当前创作上下文：\n${JSON.stringify(context, null, 2)}\n\n用户的问题：${question}` }
+  ]
+  const result = await sendChat(messages, null, null, apiSettings.value, { max_tokens: 1500 })
+  return result?.content || result?.message?.content || '未获取到有效回复'
+}
+
+function openAdvisor() {
+  advisorOpen.value = true
+}
+
+function closeAdvisor() {
+  advisorOpen.value = false
 }
 
 // Data operations
@@ -2765,7 +2823,8 @@ function goToNotesImageGen() {
 
 <style scoped>
 .prose-essay-page {
-  height: 100vh;
+  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -4262,6 +4321,30 @@ function goToNotesImageGen() {
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
   box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 200;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .image-gen-header {

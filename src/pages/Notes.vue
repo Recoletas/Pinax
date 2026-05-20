@@ -9,10 +9,6 @@
           </svg>
         </button>
         <span class="app-title">笔记</span>
-        <div class="workspace-switch" role="tablist" aria-label="写作模式">
-          <button class="switch-btn" type="button" @click="router.push('/writing')">小说</button>
-          <button class="switch-btn active" type="button">笔记</button>
-        </div>
       </div>
       <div class="title-right">
         <div class="status-indicator" :class="saveStatus">
@@ -1166,39 +1162,6 @@ function stopResizeRight() {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.workspace-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 4px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-tertiary);
-}
-
-.switch-btn {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.switch-btn:hover {
-  color: var(--accent);
-}
-
-.switch-btn.active {
-  border-color: var(--accent);
-  background: var(--accent-light);
-  color: var(--accent);
 }
 
 .title-left .app-title {
