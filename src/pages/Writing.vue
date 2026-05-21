@@ -505,6 +505,26 @@
         </div>
       </div>
     </div>
+
+    <!-- 创作顾问悬浮按钮 -->
+    <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="5"></circle>
+        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+      </svg>
+    </button>
+
+    <AdvisorPanel
+      :isOpen="advisorOpen"
+      :messages="advisorMessages"
+      :loading="advisorLoading"
+      :backend="backend"
+      :quickQuestions="['分析当前节奏', '人物塑造建议', '情节发展方向', '续写灵感']"
+      :emptyText="'创作顾问可帮助你分析当前章节，提供情节、人物与叙事节奏方面的专业建议。'"
+      @close="closeAdvisor"
+      @ask="handleAskAdvisor"
+      @update:backend="(v) => backend = v"
+    />
   </div>
 </template>
 
@@ -514,11 +534,14 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
+import { useAdvisor } from '../composables/useAdvisor'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 
@@ -639,6 +662,37 @@ const statusText = computed(() => {
 function goBack() {
   saveCurrentChapter()
   router.push('/')
+}
+
+function collectWritingContext() {
+  const selectedBook = books.value.find(b => b.id === selectedBookId.value)
+  const currentChapter = selectedBook?.chapters?.find(c => c.id === selectedChapterId.value)
+  return {
+    bookId: selectedBookId.value,
+    bookTitle: selectedBook?.title || '',
+    chapterId: selectedChapterId.value,
+    chapterTitle: currentChapterTitle.value || currentChapter?.title || '',
+    wordCount: editorContent.value.replace(/\s/g, '').length,
+    selectedText: selectedText.value || '',
+    editorMode: editorMode.value,
+    totalBooks: books.value.length,
+    totalChapters: selectedBook?.chapters?.length || 0
+  }
+}
+
+async function handleAskAdvisor(question) {
+  await askAdvisor(question, collectWritingContext)
+}
+
+async function openclawAdvice(question, context) {
+  const response = await fetch('/api/openclaw/advice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context, question })
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const data = await response.json()
+  return data.advice || '未获取到有效建议'
 }
 
 function loadQuickNoteDraft() {
@@ -1563,6 +1617,30 @@ function stopResize() {
 }
 
 /* 标题栏 */
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 200;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
 .title-bar {
   height: 48px;
   display: flex;

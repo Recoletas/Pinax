@@ -348,6 +348,26 @@
         </div>
       </div>
     </div>
+
+    <!-- 创作顾问悬浮按钮 -->
+    <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="5"></circle>
+        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+      </svg>
+    </button>
+
+    <AdvisorPanel
+      :isOpen="advisorOpen"
+      :messages="advisorMessages"
+      :loading="advisorLoading"
+      :backend="backend"
+      :quickQuestions="['素材整理建议', '关联发现', '扩展写作方向', '分类体系优化']"
+      :emptyText="'创作顾问可帮你梳理灵感、组织素材，发现笔记间的关联与创作方向。'"
+      @close="closeAdvisor"
+      @ask="handleAskAdvisor"
+      @update:backend="(v) => backend = v"
+    />
   </div>
 </template>
 
@@ -357,9 +377,12 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
+import { useAdvisor } from '../composables/useAdvisor'
+import AdvisorPanel from '../components/AdvisorPanel.vue'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
+const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('notes')
 
 const chapters = ref([])
 const selectedChapterId = ref(null)
@@ -455,6 +478,32 @@ const statusText = computed(() => {
 function goBack() {
   saveCurrentChapter()
   router.push('/')
+}
+
+function collectNotesContext() {
+  return {
+    totalNotes: chapters.value.length,
+    selectedNoteId: selectedChapterId.value,
+    noteTitle: currentChapterTitle.value || '',
+    noteContent: editorContent.value || '',
+    selectedText: '',
+    wordCount: editorContent.value.replace(/\s/g, '').length
+  }
+}
+
+async function handleAskAdvisor(question) {
+  await askAdvisor(question, collectNotesContext)
+}
+
+async function openclawAdvice(question, context) {
+  const response = await fetch('/api/openclaw/advice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context, question })
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const data = await response.json()
+  return data.advice || '未获取到有效建议'
 }
 
 function loadNotes() {
@@ -1147,6 +1196,30 @@ function stopResizeRight() {
 }
 
 /* 标题栏 */
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 200;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
 .title-bar {
   height: 48px;
   display: flex;

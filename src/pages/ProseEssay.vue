@@ -658,9 +658,14 @@
 
       <AdvisorPanel
         :isOpen="advisorOpen"
-        :onGetAdvice="handleGetAdviceAI"
-        :contextProvider="collectProseContext"
+        :messages="advisorMessages"
+        :loading="advisorLoading"
+        :backend="backend"
+        :quickQuestions="['分析当前节奏', '情绪分布如何', '结构建议', '续写灵感']"
+        :emptyText="'创作顾问可帮你分析散文随笔的状态，提供结构、情绪与推进方向的专业建议。'"
         @close="closeAdvisor"
+        @ask="handleAskAdvisor"
+        @update:backend="(v) => backend = v"
       />
     </div>
 </template>
@@ -672,12 +677,12 @@ import { useTheme } from '../composables/useTheme'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getApiSettings, recordPreference, sendChat } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
+import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const advisorOpen = ref(false)
-const advisorPanelRef = ref(null)
+const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('prose')
 
 // Mode switching
 const currentMode = ref('writing') // 'writing' | 'directing'
@@ -1202,25 +1207,8 @@ function collectProseContext() {
   }
 }
 
-async function handleGetAdviceAI(question) {
-  if (!apiSettings.value?.baseUrl || !apiSettings.value?.apiKey || !apiSettings.value?.model) {
-    throw new Error('未配置 AI，请先在设置中填写 API 信息')
-  }
-  const context = collectProseContext()
-  const messages = [
-    { role: 'system', content: '你是一位资深的文学创作顾问，擅长为作者提供精准、实用的叙事建议。\n\n【核心原则】\n1. 简洁直接：每个建议聚焦一点，优先针对用户当前困境，不冗言铺陈\n2. 专业精准：运用叙事学专业术语（节奏、视角、张力、弧光等），分析到位不模糊\n3. 可操作：建议须具体可执行，避免空泛的"要加油"类表达\n4. 克制废话：不多次重复已知信息，不以"当然"/"其实"/"总的来说"等词堆砌开场\n\n【回复规范】\n- 优先分析当前创作状态的核心问题，再给出具体建议\n- 如涉及情绪、节奏、结构等维度，需指出具体位置或问题所在\n- 用 *动作* 格式描述角色动作，用"对话"格式描述对话，段落分明\n- 单次建议不超过 150 字，除非用户明确要求展开\n- 不重复上下文已提供的信息\n\n【用户问题类型】\n- 分析节奏/情绪分布：直接指出当前节奏或情绪的问题，给出调整方向\n- 结构建议：指出当前结构的核心问题，给出优化路径\n- 续写灵感：给出 1-2 个具体推进方向，避免发散过多\n- 自定义问题：针对问题直接作答，不答非所问' },
-    { role: 'user', content: `当前创作上下文：\n${JSON.stringify(context, null, 2)}\n\n用户的问题：${question}` }
-  ]
-  const result = await sendChat(messages, null, null, apiSettings.value, { max_tokens: 1500 })
-  return result?.content || result?.message?.content || '未获取到有效回复'
-}
-
-function openAdvisor() {
-  advisorOpen.value = true
-}
-
-function closeAdvisor() {
-  advisorOpen.value = false
+function handleAskAdvisor(question) {
+  askAdvisor(question, collectProseContext)
 }
 
 // Data operations

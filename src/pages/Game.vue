@@ -127,6 +127,26 @@
         selected-prompt-label="当前输入"
         :selected-text="gameStore.inputText || ''"
       />
+
+      <!-- 创作顾问悬浮按钮 -->
+      <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
+        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="8" r="5"></circle>
+          <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+        </svg>
+      </button>
+
+      <AdvisorPanel
+        :isOpen="advisorOpen"
+        :messages="advisorMessages"
+        :loading="advisorLoading"
+        :backend="backend"
+        :quickQuestions="['分析当前节奏', '人物塑造建议', '剧情发展方向', '续写灵感']"
+        :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
+        @close="closeAdvisor"
+        @ask="handleAskAdvisor"
+        @update:backend="(v) => backend = v"
+      />
     </div>
   </div>
 </template>
@@ -137,6 +157,8 @@ import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import { useTheme } from '../composables/useTheme'
+import { useAdvisor } from '../composables/useAdvisor'
+import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
@@ -151,6 +173,36 @@ import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } 
 const router = useRouter()
 const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
+const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
+
+function collectGameContext() {
+  const msgs = gameStore.messages || []
+  return {
+    isPlaying: gameStore.isPlaying,
+    worldName: gameStore.worldName || '',
+    playerName: gameStore.playerName || '',
+    characterName: gameStore.characterName || '',
+    messages: msgs.slice(-20).map(m => ({ role: m.role, content: m.content })),
+    storyProgress: gameStore.storyProgress || 0,
+    inventoryCount: (gameStore.inventory || []).length,
+    questCount: (gameStore.quests || []).length
+  }
+}
+
+async function handleAskAdvisor(question) {
+  await askAdvisor(question, collectGameContext)
+}
+
+async function openclawAdvice(question, context) {
+  const response = await fetch('/api/openclaw/advice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context, question })
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const data = await response.json()
+  return data.advice || '未获取到有效建议'
+}
 const showCharacter = ref(false)
 const showSettings = ref(false)
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
@@ -628,6 +680,30 @@ function jumpToWriting() {
 .quick-note-import-empty {
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 200;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .quick-note-tip {

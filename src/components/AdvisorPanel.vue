@@ -15,7 +15,7 @@
             <button
               class="backend-btn"
               :class="{ active: backend === 'openai' }"
-              @click="backend = 'openai'"
+              @click="$emit('update:backend', 'openai')"
               title="使用 AI API"
             >
               AI
@@ -23,14 +23,14 @@
             <button
               class="backend-btn"
               :class="{ active: backend === 'openclaw' }"
-              @click="backend = 'openclaw'"
+              @click="$emit('update:backend', 'openclaw')"
               title="使用 OpenClaw Gateway"
             >
               OpenClaw
             </button>
             <button class="close-btn" @click="$emit('close')" title="关闭">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 3L13 13M13 3L3 13" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
@@ -39,7 +39,7 @@
         <!-- Messages -->
         <div class="advisor-messages" ref="messagesRef">
           <div v-if="messages.length === 0" class="advisor-empty">
-            <p>创作顾问可帮助你分析当前创作状态，提供建议和灵感。</p>
+            <p>{{ emptyText }}</p>
           </div>
           <div
             v-for="(msg, idx) in messages"
@@ -48,7 +48,7 @@
             :class="msg.role"
           >
             <div class="message-label">{{ msg.role === 'user' ? '你' : '顾问' }}</div>
-            <div class="message-bubble">{{ msg.content }}</div>
+            <div class="message-bubble" :class="{ 'is-markdown': msg.role === 'advisor' }" v-html="msg.role === 'advisor' ? marked(msg.content) : msg.content"></div>
           </div>
           <div v-if="loading" class="message advisor">
             <div class="message-label">顾问</div>
@@ -61,12 +61,12 @@
         </div>
 
         <!-- Quick questions -->
-        <div class="advisor-quick" v-if="messages.length === 0">
+        <div class="advisor-quick" v-if="messages.length === 0 && quickQuestions.length">
           <button
             v-for="q in quickQuestions"
             :key="q"
             class="quick-btn"
-            @click="askQuestion(q)"
+            @click="$emit('ask', q)"
           >
             {{ q }}
           </button>
@@ -75,16 +75,16 @@
         <!-- Input -->
         <div class="advisor-input-row">
           <textarea
-            v-model="inputText"
+            v-model="localInput"
             class="advisor-input"
-            placeholder="输入你的问题... (Ctrl+Enter 发送)"
+            :placeholder="placeholder"
             rows="1"
             @keydown="handleInputKeydown"
             ref="inputRef"
           ></textarea>
           <button
             class="send-btn"
-            :disabled="!inputText.trim() || loading"
+            :disabled="!localInput.trim() || loading"
             @click="sendInput"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -98,29 +98,29 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
+import { marked } from 'marked'
 
 const props = defineProps({
   isOpen: Boolean,
-  onGetAdvice: Function,       // AI mode: use sendChat
-  contextProvider: Function    // OpenClaw mode: provide context
+  messages: { type: Array, default: () => [] },
+  loading: Boolean,
+  backend: { type: String, default: 'openai' },
+  quickQuestions: { type: Array, default: () => [] },
+  placeholder: { type: String, default: '输入你的问题... (Ctrl+Enter 发送)' },
+  emptyText: { type: String, default: '创作顾问可帮助你分析当前创作状态，提供建议和灵感。' }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'ask', 'update:backend'])
 
-const backend = ref('openai')
-const messages = ref([])
-const inputText = ref('')
-const loading = ref(false)
+const localInput = ref('')
 const messagesRef = ref(null)
 const inputRef = ref(null)
 
-const quickQuestions = [
-  '分析当前节奏',
-  '情绪分布如何',
-  '结构建议',
-  '续写灵感'
-]
+const inputText = computed({
+  get: () => localInput.value,
+  set: (v) => { localInput.value = v }
+})
 
 watch(() => props.isOpen, (open) => {
   if (open) {
@@ -128,7 +128,7 @@ watch(() => props.isOpen, (open) => {
   }
 })
 
-watch(messages, () => {
+watch(() => props.messages, () => {
   nextTick(() => {
     if (messagesRef.value) {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight
@@ -143,55 +143,12 @@ function handleInputKeydown(e) {
   }
 }
 
-async function sendInput() {
-  const text = inputText.value.trim()
-  if (!text || loading.value) return
-  askQuestion(text)
+function sendInput() {
+  const text = localInput.value.trim()
+  if (!text || props.loading) return
+  emit('ask', text)
+  localInput.value = ''
 }
-
-async function askQuestion(question) {
-  if (loading.value) return
-  loading.value = true
-  inputText.value = ''
-
-  messages.value.push({ role: 'user', content: question })
-
-  try {
-    let advice = ''
-    if (backend.value === 'openai') {
-      if (!props.onGetAdvice) {
-        advice = 'AI 模式未配置 onGetAdvice 函数'
-      } else {
-        advice = await props.onGetAdvice(question)
-      }
-    } else {
-      if (!props.contextProvider) {
-        advice = 'OpenClaw 模式未配置 contextProvider 函数'
-      } else {
-        const context = await props.contextProvider()
-        advice = await props.openclawAdvice(question, context)
-      }
-    }
-    messages.value.push({ role: 'advisor', content: advice })
-  } catch (e) {
-    messages.value.push({ role: 'advisor', content: `获取建议失败：${e.message || e}` })
-  } finally {
-    loading.value = false
-  }
-}
-
-async function openclawAdvice(question, context) {
-  const response = await fetch('/api/openclaw/advice', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, question })
-  })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const data = await response.json()
-  return data.advice || '未获取到有效建议'
-}
-
-defineExpose({ askQuestion })
 </script>
 
 <style scoped>
@@ -347,6 +304,53 @@ defineExpose({ askQuestion })
   background: var(--bg-tertiary, #2a2a2a);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
+}
+
+.message-bubble.is-markdown {
+  padding: 0;
+  background: transparent;
+}
+
+.message-bubble.is-markdown :deep(p) {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg-tertiary, #2a2a2a);
+  border-bottom-left-radius: 4px;
+}
+
+.message-bubble.is-markdown :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.message-bubble.is-markdown :deep(ul),
+.message-bubble.is-markdown :deep(ol) {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.message-bubble.is-markdown :deep(li) {
+  margin: 2px 0;
+}
+
+.message-bubble.is-markdown :deep(code) {
+  background: rgba(0,0,0,0.2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.message-bubble.is-markdown :deep(pre) {
+  background: rgba(0,0,0,0.15);
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.message-bubble.is-markdown :deep(pre code) {
+  background: none;
+  padding: 0;
 }
 
 .message-bubble.loading {
