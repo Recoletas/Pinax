@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
-import { sendChat, getApiSettings } from '../services/api'
+import { getApiSettings } from '../services/api'
+import { runGenerationRetryPlan } from '../services/generationRetry'
 import { getItem, STORAGE_KEYS } from './useStorage'
 
 const ADVISOR_PROMPTS = {
@@ -137,8 +138,18 @@ export function useAdvisor(mode = 'prose') {
             { role: 'system', content: promptConfig.value.system },
             { role: 'user', content: `当前创作上下文：\n${JSON.stringify(context, null, 2)}\n\n用户的问题：${question}` }
           ]
-          const result = await sendChat(messages, null, null, apiSettings, { max_tokens: 1500 })
-          advice = result?.content || result?.message?.content || '未获取到有效回复'
+          const result = await runGenerationRetryPlan({
+            baseMessages: messages,
+            settings: apiSettings,
+            generationOptions: { max_tokens: 1500 },
+            attempts: [
+              { name: 'advisor-first' },
+              { name: 'advisor-retry' }
+            ]
+          })
+
+          const content = String(result?.content || result?.response?.content || '').trim()
+          advice = content || '未获取到有效回复'
         }
       } else {
         if (!openclawAdvice) {

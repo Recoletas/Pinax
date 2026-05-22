@@ -46,6 +46,9 @@ export const STORAGE_KEYS = {
   GAME_SETTINGS: 'gameSettings',
   API_SETTINGS: 'apiSettings',
 
+  // 角色卡
+  CHARACTERS: 'characters',
+
   // 偏好记忆
   PREFERENCE_USER_ID: 'preference_user_id'
 }

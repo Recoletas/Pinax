@@ -23,7 +23,7 @@ const workbenchChildren = [
     component: Game,
     meta: {
       activityKey: 'experience',
-      title: '体验'
+      title: '小说体验'
     }
   },
   {

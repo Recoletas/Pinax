@@ -14,7 +14,12 @@
       "Bash(awk '/<div/{o++} /<\\\\/div>/{c++} END{print \"opens:\",o,\"closes:\",c}' /home/recoletas/jiuguan/text-game-framework/src/pages/ProseEssay.vue)",
       "Bash(curl -s \"http://localhost:5173/src/pages/ProseEssay.vue\")",
       "Bash(node -e \"const fs = require\\('fs'\\); const content = fs.readFileSync\\('src/pages/ProseEssay.vue', 'utf8'\\); console.log\\('File size:', content.length\\);\")",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "WebSearch",
+      "WebFetch(domain:docs.agora.world)",
+      "Bash(find /home/recoletas -name \"*.json\" 2>/dev/null | xargs grep -l \"worldbook\\\\|世界书\\\\|character_first\\\\|scenario_first\" 2>/dev/null | head -5)",
+      "Read(//home/recoletas/**)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

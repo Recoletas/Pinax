@@ -3,7 +3,7 @@ export const DEFAULT_ACTIVITY_KEY = 'experience'
 export const ACTIVITY_ITEMS = [
   {
     key: 'experience',
-    label: '体验',
+    label: '小说体验',
     icon: 'compass',
     defaultRouteName: 'game'
   },
@@ -29,7 +29,7 @@ export const ACTIVITY_ITEMS = [
 
 export const SIDE_PANELS = {
   experience: {
-    title: '体验',
+    title: '小说体验',
     items: [
       {
         routeName: 'game',

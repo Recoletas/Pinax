@@ -14,8 +14,15 @@ const providers = [
   { id: 'custom', name: '自定义', baseUrl: '' }
 ]
 
+const DEFAULT_API_SETTINGS = {
+  provider: 'deepseek',
+  baseUrl: '',
+  apiKey: '',
+  model: ''
+}
+
 export function useApiSettings() {
-  const apiSettings = ref(null)
+  const apiSettings = ref({ ...DEFAULT_API_SETTINGS })
   const isLoading = ref(false)
   const detectedModels = ref([])
   const testResult = ref(null)
@@ -28,7 +35,17 @@ export function useApiSettings() {
   async function loadSettings() {
     isLoading.value = true
     try {
-      apiSettings.value = await getResolvedApiSettings()
+      const resolved = await getResolvedApiSettings()
+      apiSettings.value = {
+        ...DEFAULT_API_SETTINGS,
+        ...(resolved || {})
+      }
+    } catch (e) {
+      console.warn('[useApiSettings] loadSettings failed:', e)
+      apiSettings.value = {
+        ...DEFAULT_API_SETTINGS,
+        ...(apiSettings.value || {})
+      }
     } finally {
       isLoading.value = false
     }

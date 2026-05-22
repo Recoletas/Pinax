@@ -246,8 +246,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const gameStore = useGameStore()
+const CHARACTER_KEY = STORAGE_KEYS.WRITING_CHARACTER
+const TIME_KEY = STORAGE_KEYS.WRITING_TIME
 const showDetail = ref(false)
 const showTimeDetail = ref(false)
 const activeTab = ref('info')
@@ -356,9 +359,8 @@ onMounted(() => {
 })
 
 function loadCharacterData() {
-  const saved = localStorage.getItem('writing_character')
-  if (saved) {
-    const data = JSON.parse(saved)
+  const data = getItem(CHARACTER_KEY)
+  if (data && typeof data === 'object') {
     characterTraits.value = data.traits || []
     moodIntensity.value = data.mood ?? 50
     characterDescription.value = data.description || ''
@@ -370,9 +372,8 @@ function loadCharacterData() {
 }
 
 function loadTimeData() {
-  const saved = localStorage.getItem('writing_time')
-  if (saved) {
-    const data = JSON.parse(saved)
+  const data = getItem(TIME_KEY)
+  if (data && typeof data === 'object') {
     currentEraId.value = data.eraId || 'custom'
     currentEraName.value = data.eraName || ''
     currentYear.value = data.year || ''
@@ -391,13 +392,13 @@ function saveTime() {
   currentMonth.value = editMonth.value || '1'
   currentDay.value = editDay.value || '1'
 
-  localStorage.setItem('writing_time', JSON.stringify({
+  setItem(TIME_KEY, {
     eraId: currentEraId.value,
     eraName: currentEraName.value,
     year: currentYear.value,
     month: currentMonth.value,
     day: currentDay.value
-  }))
+  })
   showTimeDetail.value = false
 }
 
@@ -462,7 +463,7 @@ function saveCharacter() {
     description: characterDescription.value,
     goal: characterGoal.value
   }
-  localStorage.setItem('writing_character', JSON.stringify(data))
+  setItem(CHARACTER_KEY, data)
 
   if (gameStore.playerCharacter) {
     gameStore.playerCharacter.name = editingName.value

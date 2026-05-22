@@ -478,7 +478,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getApiSettings, sendChat } from '../services/api'
+import { getApiSettings } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
