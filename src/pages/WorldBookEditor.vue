@@ -3,9 +3,10 @@
     <header class="editor-header">
       <div class="header-left">
         <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <h1>世界书编辑器</h1>
+        <h1>世界书高级设置</h1>
       </div>
       <div class="header-right">
+        <button class="ghost-btn" @click="openQuickImport">快速导入入口</button>
         <input
           v-model.trim="worldbookSearch"
           class="search-input"
@@ -850,6 +851,10 @@ function selectFirstEntry() {
 
 function openExperience() {
   router.push({ name: 'experience' })
+}
+
+function openQuickImport() {
+  router.push({ name: 'experience-worldbook' })
 }
 
 async function selectWorldbook(worldbookId) {

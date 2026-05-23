@@ -26,7 +26,7 @@
         <button class="action-btn" :class="{ active: gameStore.useAI }" @click="gameStore.toggleAI">
           AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
         </button>
-        <button class="action-btn" @click="openWorldbookEditor">世界书</button>
+        <button class="action-btn" @click="openWorldbookEditor">世界书导入</button>
         <button class="action-btn" @click="showCharacter = true">角色</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
       </div>

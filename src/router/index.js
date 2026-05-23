@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
 import Experience from '../pages/Experience.vue'
+import WorldBookQuickImport from '../pages/WorldBookQuickImport.vue'
 import WorldBookEditor from '../pages/WorldBookEditor.vue'
 import Writing from '../pages/Writing.vue'
 import Notes from '../pages/Notes.vue'
@@ -30,6 +31,15 @@ const workbenchChildren = [
   {
     path: 'experience/worldbook',
     name: 'experience-worldbook',
+    component: WorldBookQuickImport,
+    meta: {
+      activityKey: 'experience',
+      title: '世界书快速导入'
+    }
+  },
+  {
+    path: 'experience/worldbook/advanced',
+    name: 'experience-worldbook-advanced',
     component: WorldBookEditor,
     meta: {
       activityKey: 'experience',

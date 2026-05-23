@@ -38,8 +38,13 @@ export const SIDE_PANELS = {
       },
       {
         routeName: 'experience-worldbook',
-        label: '世界书',
-        description: '条目与设定编辑'
+        label: '世界书导入',
+        description: '预设、AI提炼、随机生成'
+      },
+      {
+        routeName: 'experience-worldbook-advanced',
+        label: '高级设置',
+        description: '条目与注入参数细调'
       }
     ]
   },
