@@ -246,11 +246,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const gameStore = useGameStore()
-const CHARACTER_KEY = STORAGE_KEYS.WRITING_CHARACTER
-const TIME_KEY = STORAGE_KEYS.WRITING_TIME
 const showDetail = ref(false)
 const showTimeDetail = ref(false)
 const activeTab = ref('info')
@@ -359,27 +356,29 @@ onMounted(() => {
 })
 
 function loadCharacterData() {
-  const data = getItem(CHARACTER_KEY)
-  if (data && typeof data === 'object') {
-    characterTraits.value = data.traits || []
-    moodIntensity.value = data.mood ?? 50
-    characterDescription.value = data.description || ''
-    characterGoal.value = data.goal || ''
-    editingName.value = data.name || ''
-    editingGender.value = data.gender || ''
-    editingAge.value = data.age || ''
+  if (typeof gameStore.loadWritingCharacter === 'function') {
+    gameStore.loadWritingCharacter()
   }
+  const data = gameStore.writingCharacter || {}
+  characterTraits.value = Array.isArray(data.traits) ? data.traits : []
+  moodIntensity.value = data.mood ?? 50
+  characterDescription.value = data.description || ''
+  characterGoal.value = data.goal || ''
+  editingName.value = data.name || ''
+  editingGender.value = data.gender || ''
+  editingAge.value = data.age || ''
 }
 
 function loadTimeData() {
-  const data = getItem(TIME_KEY)
-  if (data && typeof data === 'object') {
-    currentEraId.value = data.eraId || 'custom'
-    currentEraName.value = data.eraName || ''
-    currentYear.value = data.year || ''
-    currentMonth.value = data.month || ''
-    currentDay.value = data.day || ''
+  if (typeof gameStore.loadWritingTime === 'function') {
+    gameStore.loadWritingTime()
   }
+  const data = gameStore.writingTime || {}
+  currentEraId.value = data.eraId || 'custom'
+  currentEraName.value = data.eraName || ''
+  currentYear.value = data.year || ''
+  currentMonth.value = data.month || ''
+  currentDay.value = data.day || ''
   editEraName.value = currentEraName.value
   editYear.value = currentYear.value
   editMonth.value = currentMonth.value
@@ -392,13 +391,18 @@ function saveTime() {
   currentMonth.value = editMonth.value || '1'
   currentDay.value = editDay.value || '1'
 
-  setItem(TIME_KEY, {
+  const nextTime = {
     eraId: currentEraId.value,
     eraName: currentEraName.value,
     year: currentYear.value,
     month: currentMonth.value,
     day: currentDay.value
-  })
+  }
+  if (typeof gameStore.saveWritingTime === 'function') {
+    gameStore.saveWritingTime(nextTime)
+  } else {
+    gameStore.writingTime = nextTime
+  }
   showTimeDetail.value = false
 }
 
@@ -454,7 +458,7 @@ function importFromJSON() {
 }
 
 function saveCharacter() {
-  const data = {
+  const nextCharacter = {
     name: editingName.value,
     gender: editingGender.value,
     age: editingAge.value,
@@ -463,12 +467,15 @@ function saveCharacter() {
     description: characterDescription.value,
     goal: characterGoal.value
   }
-  setItem(CHARACTER_KEY, data)
-
-  if (gameStore.playerCharacter) {
-    gameStore.playerCharacter.name = editingName.value
-    gameStore.playerCharacter.gender = editingGender.value
-    gameStore.playerCharacter.age = editingAge.value
+  if (typeof gameStore.saveWritingCharacter === 'function') {
+    gameStore.saveWritingCharacter(nextCharacter)
+  } else {
+    gameStore.writingCharacter = nextCharacter
+    if (gameStore.playerCharacter) {
+      gameStore.playerCharacter.name = editingName.value
+      gameStore.playerCharacter.gender = editingGender.value
+      gameStore.playerCharacter.age = editingAge.value
+    }
   }
 
   showDetail.value = false

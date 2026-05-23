@@ -86,7 +86,7 @@ async function enterExperience(genre) {
 
   gameStore.genre = genre
   await gameStore.initGame()
-  router.push('/game')
+  router.push('/experience')
 }
 </script>
 

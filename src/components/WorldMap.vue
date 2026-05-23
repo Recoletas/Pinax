@@ -152,6 +152,9 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useGameStore } from '../stores/gameStore'
+
+const gameStore = useGameStore()
 
 const showDetail = ref(false)
 const showAddModal = ref(false)
@@ -163,13 +166,26 @@ const showAddScene = ref(false)
 
 const editingCountry = ref(null)
 const editingCity = ref(null)
-const currentCountry = ref('')
-const currentCity = ref('')
-const currentScene = ref('')
-
-const mapData = ref({
-  countries: []
+const currentCountry = computed({
+  get: () => gameStore.worldMapState?.currentCountry || '',
+  set: (value) => {
+    gameStore.worldMapState.currentCountry = value || ''
+  }
 })
+const currentCity = computed({
+  get: () => gameStore.worldMapState?.currentCity || '',
+  set: (value) => {
+    gameStore.worldMapState.currentCity = value || ''
+  }
+})
+const currentScene = computed({
+  get: () => gameStore.worldMapState?.currentScene || '',
+  set: (value) => {
+    gameStore.worldMapState.currentScene = value || ''
+  }
+})
+
+const mapData = computed(() => gameStore.worldMapState?.map || { countries: [] })
 
 const presetCountries = ['中国', '日本', '美国']
 const presetCities = ['北京', '上海', '东京', '纽约']
@@ -197,23 +213,38 @@ onMounted(() => {
 })
 
 function loadMapData() {
-  const saved = localStorage.getItem('writing_worldmap')
-  if (saved) {
-    const data = JSON.parse(saved)
-    mapData.value = data.map || { countries: [] }
-    currentCountry.value = data.currentCountry || ''
-    currentCity.value = data.currentCity || ''
-    currentScene.value = data.currentScene || ''
+  if (typeof gameStore.loadWorldMapState === 'function') {
+    gameStore.loadWorldMapState()
   }
+  syncEditingSelection()
 }
 
 function saveMapData() {
-  localStorage.setItem('writing_worldmap', JSON.stringify({
+  if (typeof gameStore.saveWorldMapState !== 'function') return
+  gameStore.saveWorldMapState({
     map: mapData.value,
     currentCountry: currentCountry.value,
     currentCity: currentCity.value,
     currentScene: currentScene.value
-  }))
+  })
+  syncEditingSelection()
+}
+
+function syncEditingSelection() {
+  if (editingCountry.value) {
+    const nextCountry = mapData.value.countries.find(c => c.id === editingCountry.value.id)
+    editingCountry.value = nextCountry || null
+  }
+
+  if (!editingCountry.value) {
+    editingCity.value = null
+    return
+  }
+
+  if (editingCity.value) {
+    const nextCity = (editingCountry.value.cities || []).find(c => c.id === editingCity.value.id)
+    editingCity.value = nextCity || null
+  }
 }
 
 function selectCountry(country) {
@@ -345,6 +376,10 @@ watch(showAddScene, (val) => {
     showAddScene.value = false
   }
 })
+
+watch(() => gameStore.worldMapState, () => {
+  syncEditingSelection()
+}, { deep: true })
 </script>
 
 <style scoped>

@@ -5,7 +5,7 @@ export const ACTIVITY_ITEMS = [
     key: 'experience',
     label: '小说体验',
     icon: 'compass',
-    defaultRouteName: 'game'
+    defaultRouteName: 'experience'
   },
   {
     key: 'writing',
@@ -32,9 +32,14 @@ export const SIDE_PANELS = {
     title: '小说体验',
     items: [
       {
-        routeName: 'game',
+        routeName: 'experience',
         label: '进入体验',
         description: '直接进入当前冒险'
+      },
+      {
+        routeName: 'experience-worldbook',
+        label: '世界书',
+        description: '条目与设定编辑'
       }
     ]
   },

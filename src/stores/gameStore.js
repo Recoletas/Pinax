@@ -1,6 +1,60 @@
 import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, buildContextMessage } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+
+const DEFAULT_WORLD_MAP_STATE = {
+  map: { countries: [] },
+  currentCountry: '',
+  currentCity: '',
+  currentScene: ''
+}
+
+const DEFAULT_WRITING_CHARACTER = {
+  name: 'User',
+  gender: '',
+  age: '',
+  traits: [],
+  mood: 50,
+  description: '',
+  goal: ''
+}
+
+const DEFAULT_WRITING_TIME = {
+  eraId: 'custom',
+  eraName: '',
+  year: '',
+  month: '',
+  day: ''
+}
+
+function normalizeWorldMapState(raw = {}) {
+  const map = raw && typeof raw.map === 'object' ? raw.map : { countries: [] }
+  return {
+    map: {
+      ...map,
+      countries: Array.isArray(map.countries) ? map.countries : []
+    },
+    currentCountry: raw?.currentCountry || '',
+    currentCity: raw?.currentCity || '',
+    currentScene: raw?.currentScene || ''
+  }
+}
+
+function normalizeWritingCharacter(raw = {}) {
+  return {
+    ...DEFAULT_WRITING_CHARACTER,
+    ...(raw && typeof raw === 'object' ? raw : {}),
+    traits: Array.isArray(raw?.traits) ? raw.traits : []
+  }
+}
+
+function normalizeWritingTime(raw = {}) {
+  return {
+    ...DEFAULT_WRITING_TIME,
+    ...(raw && typeof raw === 'object' ? raw : {})
+  }
+}
 
 export const useGameStore = defineStore('game', {
   state: () => ({
@@ -15,6 +69,10 @@ export const useGameStore = defineStore('game', {
     quests: [],
     flags: {},
     worldState: {},
+    worldMapState: normalizeWorldMapState(DEFAULT_WORLD_MAP_STATE),
+    writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
+    writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
+    activities: [],
     npcRelations: {},
     discoveredPlaces: [],
     completedQuests: [],
@@ -48,6 +106,63 @@ export const useGameStore = defineStore('game', {
   }),
 
   actions: {
+    loadWorldMapState() {
+      const raw = getItem(STORAGE_KEYS.WRITING_WORLDMAP)
+      this.worldMapState = normalizeWorldMapState(raw || {})
+    },
+
+    saveWorldMapState(nextState) {
+      const normalized = normalizeWorldMapState(nextState || this.worldMapState)
+      this.worldMapState = normalized
+      setItem(STORAGE_KEYS.WRITING_WORLDMAP, normalized)
+    },
+
+    loadWritingCharacter() {
+      const raw = getItem(STORAGE_KEYS.WRITING_CHARACTER)
+      const normalized = normalizeWritingCharacter(raw || {})
+      this.writingCharacter = normalized
+      this.playerCharacter = {
+        ...this.playerCharacter,
+        name: normalized.name || this.playerCharacter.name,
+        gender: normalized.gender || this.playerCharacter.gender,
+        age: normalized.age || this.playerCharacter.age
+      }
+    },
+
+    saveWritingCharacter(nextCharacter) {
+      const normalized = normalizeWritingCharacter(nextCharacter || this.writingCharacter)
+      this.writingCharacter = normalized
+      this.playerCharacter = {
+        ...this.playerCharacter,
+        name: normalized.name || this.playerCharacter.name,
+        gender: normalized.gender || this.playerCharacter.gender,
+        age: normalized.age || this.playerCharacter.age
+      }
+      setItem(STORAGE_KEYS.WRITING_CHARACTER, normalized)
+    },
+
+    loadWritingTime() {
+      const raw = getItem(STORAGE_KEYS.WRITING_TIME)
+      this.writingTime = normalizeWritingTime(raw || {})
+    },
+
+    saveWritingTime(nextTime) {
+      const normalized = normalizeWritingTime(nextTime || this.writingTime)
+      this.writingTime = normalized
+      setItem(STORAGE_KEYS.WRITING_TIME, normalized)
+    },
+
+    loadWritingActivities() {
+      const raw = getItem(STORAGE_KEYS.WRITING_ACTIVITIES)
+      this.activities = Array.isArray(raw) ? raw : []
+    },
+
+    saveWritingActivities(nextActivities) {
+      const normalized = Array.isArray(nextActivities) ? nextActivities : this.activities
+      this.activities = normalized
+      setItem(STORAGE_KEYS.WRITING_ACTIVITIES, normalized)
+    },
+
     setQuickNoteImportMode(enabled) {
       this.quickNoteImportMode = !!enabled
       if (!enabled) this.quickNoteSelectedMessageIndexes = []
@@ -306,6 +421,10 @@ export const useGameStore = defineStore('game', {
     },
 
     async initGame() {
+      this.loadWritingCharacter()
+      this.loadWritingTime()
+      this.loadWorldMapState()
+      this.loadWritingActivities()
       this.isPlaying = true
       this.messages = [{
         type: 'system',

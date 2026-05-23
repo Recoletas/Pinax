@@ -26,6 +26,7 @@
         <button class="action-btn" :class="{ active: gameStore.useAI }" @click="gameStore.toggleAI">
           AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
         </button>
+        <button class="action-btn" @click="openWorldbookEditor">世界书</button>
         <button class="action-btn" @click="showCharacter = true">角色</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
       </div>
@@ -168,8 +169,6 @@ import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
-import ContextSelector from '../components/ContextSelector.vue'
-import Inventory from '../components/Inventory.vue'
 import QuestLog from '../components/QuestLog.vue'
 import WorldMap from '../components/WorldMap.vue'
 import Settings from '../components/Settings.vue'
@@ -188,6 +187,14 @@ const sidebarCollapsed = ref(false)
 
 onMounted(async () => {
   await worldStore.loadWorldbooksIndex()
+  if (typeof worldStore.ensureActiveWorldbook === 'function') {
+    const active = await worldStore.ensureActiveWorldbook()
+    selectedWorldbookId.value = active?.id || ''
+  } else if (worldbooksIndex.value.length > 0) {
+    selectedWorldbookId.value = worldbooksIndex.value[0].id
+    await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+  }
+
   if (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0) {
     await gameStore.initGame()
   }
@@ -196,10 +203,19 @@ onMounted(async () => {
   }
 })
 
-function onWorldbookChange() {
-  if (selectedWorldbookId.value) {
-    worldStore.setActiveWorldbook(selectedWorldbookId.value)
+watch(() => worldStore.activeWorldbookId, (nextId) => {
+  const normalized = nextId || ''
+  if (selectedWorldbookId.value !== normalized) {
+    selectedWorldbookId.value = normalized
   }
+})
+
+async function onWorldbookChange() {
+  await worldStore.setActiveWorldbook(selectedWorldbookId.value || null)
+}
+
+function openWorldbookEditor() {
+  router.push({ name: 'experience-worldbook' })
 }
 
 function collectGameContext() {

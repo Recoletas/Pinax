@@ -1,8 +1,51 @@
 import { defineStore } from 'pinia'
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
+const ACTIVE_WORLDBOOK_ID_KEY = 'active_worldbook_id'
+
+function decodeStored(raw, fallback) {
+  if (raw == null) return fallback
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return fallback
+    }
+  }
+  return raw
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
+function normalizeWorldbook(raw = {}) {
+  const source = decodeStored(raw, {})
+  const entries = ensureArray(decodeStored(source.entries, []))
+  const entriesMapRaw = decodeStored(source.entriesMap, null)
+  const entriesMap = (entriesMapRaw && typeof entriesMapRaw === 'object' && !Array.isArray(entriesMapRaw))
+    ? { ...entriesMapRaw }
+    : {}
+
+  for (const entry of entries) {
+    if (entry?.id) entriesMap[entry.id] = entry
+  }
+
+  return {
+    ...source,
+    settings: {
+      scanDepth: 2,
+      tokenBudget: 4096,
+      recursiveScanning: true,
+      ...(source.settings && typeof source.settings === 'object' ? source.settings : {})
+    },
+    entries,
+    entriesMap,
+    groups: ensureArray(decodeStored(source.groups, []))
+  }
+}
 
 function createWorldBookId() {
   return `wb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -48,8 +91,8 @@ export const useWorldStore = defineStore('world', {
 
     async loadWorldbooksIndex() {
       try {
-        const raw = getItem(WORLDBOOKS_INDEX_KEY)
-        this.worldbooksIndex = raw ? JSON.parse(raw) : []
+        const raw = decodeStored(getItem(WORLDBOOKS_INDEX_KEY), [])
+        this.worldbooksIndex = ensureArray(raw)
       } catch (e) {
         this.lastError = e.message
         this.worldbooksIndex = []
@@ -57,15 +100,15 @@ export const useWorldStore = defineStore('world', {
     },
 
     async saveWorldbooksIndex() {
-      setItem(WORLDBOOKS_INDEX_KEY, JSON.stringify(this.worldbooksIndex))
+      setItem(WORLDBOOKS_INDEX_KEY, this.worldbooksIndex)
     },
 
     async loadWorldbook(worldbookId) {
       this.isLoading = true
       try {
-        const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
-        this.activeWorldbook = JSON.parse(raw)
+        this.activeWorldbook = normalizeWorldbook(raw)
         return this.activeWorldbook
       } catch (e) {
         this.lastError = e.message
@@ -96,7 +139,7 @@ export const useWorldStore = defineStore('world', {
         groups: []
       }
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, JSON.stringify(worldbook))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
 
       this.worldbooksIndex.push({
         id: worldbook.id,
@@ -108,6 +151,8 @@ export const useWorldStore = defineStore('world', {
         updatedAt: worldbook.updatedAt
       })
       await this.saveWorldbooksIndex()
+      this.activeWorldbook = worldbook
+      setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id)
 
       return worldbook
     },
@@ -116,23 +161,23 @@ export const useWorldStore = defineStore('world', {
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
       if (idx < 0) throw new Error('世界书不存在')
 
-      const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+      const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
       if (!raw) throw new Error('世界书数据不存在')
 
-      const worldbook = JSON.parse(raw)
-      const updated = {
+      const worldbook = normalizeWorldbook(raw)
+      const updated = normalizeWorldbook({
         ...worldbook,
         ...updates,
         updatedAt: Date.now()
-      }
+      })
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.stringify(updated))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, updated)
 
       // 更新索引
       const indexEntry = this.worldbooksIndex[idx]
-      if (updates.name) indexEntry.name = updates.name
-      if (updates.description) indexEntry.description = updates.description
-      if (updates.author) indexEntry.author = updates.author
+      if (Object.prototype.hasOwnProperty.call(updates, 'name')) indexEntry.name = updates.name
+      if (Object.prototype.hasOwnProperty.call(updates, 'description')) indexEntry.description = updates.description
+      if (Object.prototype.hasOwnProperty.call(updates, 'author')) indexEntry.author = updates.author
       indexEntry.updatedAt = updated.updatedAt
       await this.saveWorldbooksIndex()
 
@@ -147,11 +192,7 @@ export const useWorldStore = defineStore('world', {
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
       if (idx < 0) return
 
-      // 从localStorage删除
-      const keysToRemove = [WORLDBOOK_KEY_PREFIX + worldbookId]
-      // 注意：这里需要用Storage的removeItem，但当前只导入了getItem/setItem
-      // 暂时通过设置空值来"删除"
-      localStorage.removeItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+      removeItem(WORLDBOOK_KEY_PREFIX + worldbookId)
 
       // 从索引删除
       this.worldbooksIndex.splice(idx, 1)
@@ -159,12 +200,42 @@ export const useWorldStore = defineStore('world', {
 
       if (this.activeWorldbook?.id === worldbookId) {
         this.activeWorldbook = null
+        removeItem(ACTIVE_WORLDBOOK_ID_KEY)
+      }
+
+      const persistedActiveId = decodeStored(getItem(ACTIVE_WORLDBOOK_ID_KEY), null)
+      if (persistedActiveId === worldbookId) {
+        removeItem(ACTIVE_WORLDBOOK_ID_KEY)
       }
     },
 
     async setActiveWorldbook(worldbookId) {
-      if (this.activeWorldbook?.id === worldbookId) return
-      await this.loadWorldbook(worldbookId)
+      if (!worldbookId) {
+        this.activeWorldbook = null
+        removeItem(ACTIVE_WORLDBOOK_ID_KEY)
+        return null
+      }
+      if (this.activeWorldbook?.id === worldbookId) return this.activeWorldbook
+
+      const loaded = await this.loadWorldbook(worldbookId)
+      if (loaded) setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbookId)
+      return loaded
+    },
+
+    async ensureActiveWorldbook() {
+      if (!this.worldbooksIndex.length) {
+        return this.createWorldbook({
+          name: '默认世界书',
+          description: '自动创建的默认世界书'
+        })
+      }
+
+      const persistedActiveId = decodeStored(getItem(ACTIVE_WORLDBOOK_ID_KEY), null)
+      const targetId = (typeof persistedActiveId === 'string' && this.worldbooksIndex.some(w => w.id === persistedActiveId))
+        ? persistedActiveId
+        : this.worldbooksIndex[0].id
+
+      return this.setActiveWorldbook(targetId)
     },
 
     // ---------- 条目 CRUD ----------
@@ -172,9 +243,9 @@ export const useWorldStore = defineStore('world', {
     async addEntry(worldbookId, entryData) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
-        const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
-        worldbook = JSON.parse(raw)
+        worldbook = normalizeWorldbook(raw)
       }
 
       const entry = {
@@ -209,7 +280,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.entriesMap[entry.id] = entry
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.stringify(worldbook))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -226,9 +297,9 @@ export const useWorldStore = defineStore('world', {
     async updateEntry(worldbookId, entryId, updates) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
-        const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
-        worldbook = JSON.parse(raw)
+        worldbook = normalizeWorldbook(raw)
       }
 
       const entryIdx = worldbook.entries.findIndex(e => e.id === entryId)
@@ -249,7 +320,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.entriesMap[entryId] = updated
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.stringify(worldbook))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
       this.activeWorldbook = worldbook
 
       return updated
@@ -258,9 +329,9 @@ export const useWorldStore = defineStore('world', {
     async deleteEntry(worldbookId, entryId) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
-        const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
-        worldbook = JSON.parse(raw)
+        worldbook = normalizeWorldbook(raw)
       }
 
       const entryIdx = worldbook.entries.findIndex(e => e.id === entryId)
@@ -270,7 +341,7 @@ export const useWorldStore = defineStore('world', {
       delete worldbook.entriesMap[entryId]
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.stringify(worldbook))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -308,15 +379,15 @@ export const useWorldStore = defineStore('world', {
 
     loadCharacters() {
       try {
-        const raw = getItem(STORAGE_KEYS.CHARACTERS || 'characters')
-        this.characters = raw ? JSON.parse(raw) : []
+        const raw = decodeStored(getItem(STORAGE_KEYS.CHARACTERS || 'characters'), [])
+        this.characters = ensureArray(raw)
       } catch (e) {
         this.characters = []
       }
     },
 
     saveCharacters() {
-      setItem(STORAGE_KEYS.CHARACTERS || 'characters', JSON.stringify(this.characters))
+      setItem(STORAGE_KEYS.CHARACTERS || 'characters', this.characters)
     },
 
     addCharacter(character) {
@@ -345,8 +416,8 @@ export const useWorldStore = defineStore('world', {
 
     loadActivities() {
       try {
-        const raw = getItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities')
-        this.activities = raw ? JSON.parse(raw) : []
+        const raw = decodeStored(getItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities'), [])
+        this.activities = ensureArray(raw)
       } catch (e) {
         this.activities = []
       }
@@ -358,13 +429,13 @@ export const useWorldStore = defineStore('world', {
       }
       activity.createdAt = Date.now()
       this.activities.push(activity)
-      setItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities', JSON.stringify(this.activities))
+      setItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities', this.activities)
       return activity
     },
 
     clearActivities() {
       this.activities = []
-      setItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities', JSON.stringify(this.activities))
+      setItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities', this.activities)
     },
 
     // ---------- SillyTavern 导入 ----------
@@ -433,7 +504,7 @@ export const useWorldStore = defineStore('world', {
         worldbook.groups = worldbookData.groups
       }
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, JSON.stringify(worldbook))
+      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
 
       this.worldbooksIndex.push({
         id: worldbook.id,
@@ -445,6 +516,8 @@ export const useWorldStore = defineStore('world', {
         updatedAt: worldbook.updatedAt
       })
       await this.saveWorldbooksIndex()
+      this.activeWorldbook = worldbook
+      setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id)
 
       return worldbook
     },
@@ -452,10 +525,11 @@ export const useWorldStore = defineStore('world', {
     // ---------- SillyTavern 导出 ----------
 
     async exportToSillyTavern(worldbookId) {
-      const worldbook = this.activeWorldbook
+      let worldbook = this.activeWorldbook
       if (!worldbook || worldbook.id !== worldbookId) {
-        const raw = getItem(WORLDBOOK_KEY_PREFIX + worldbookId)
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
+        worldbook = normalizeWorldbook(raw)
       }
 
       const entries = {}

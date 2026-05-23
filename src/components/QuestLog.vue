@@ -147,6 +147,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useGameStore } from '../stores/gameStore'
+
+const gameStore = useGameStore()
 
 const showDetail = ref(false)
 const showAddModal = ref(false)
@@ -157,7 +160,7 @@ const editDate = ref('')
 const editTime = ref('')
 const editRelations = ref([])
 
-const activities = ref([])
+const activities = computed(() => gameStore.activities || [])
 
 const activityTypes = [
   { value: 'event', label: '事件', color: '#60a5fa' },
@@ -246,14 +249,19 @@ onMounted(() => {
 })
 
 function loadActivities() {
-  const saved = localStorage.getItem('writing_activities')
-  if (saved) {
-    activities.value = JSON.parse(saved)
+  if (typeof gameStore.loadWritingActivities === 'function') {
+    gameStore.loadWritingActivities()
+    return
   }
+  gameStore.activities = []
 }
 
-function saveActivities() {
-  localStorage.setItem('writing_activities', JSON.stringify(activities.value))
+function saveActivities(nextActivities = activities.value) {
+  if (typeof gameStore.saveWritingActivities === 'function') {
+    gameStore.saveWritingActivities(nextActivities)
+    return
+  }
+  gameStore.activities = Array.isArray(nextActivities) ? nextActivities : []
 }
 
 function openAddModal() {
@@ -312,32 +320,40 @@ function saveActivity() {
   if (!editTitle.value.trim()) return
 
   const timeValue = `${editDate.value} ${editTime.value}`
-
-  if (editingActivity.value) {
-    editingActivity.value.title = editTitle.value
-    editingActivity.value.type = editType.value
-    editingActivity.value.date = editDate.value
-    editingActivity.value.time = timeValue
-    editingActivity.value.relations = [...editRelations.value]
-  } else {
-    activities.value.push({
-      id: 'a_' + Date.now(),
-      title: editTitle.value,
-      type: editType.value,
-      date: editDate.value,
-      time: timeValue,
-      relations: [...editRelations.value]
-    })
+  const payload = {
+    title: editTitle.value,
+    type: editType.value,
+    date: editDate.value,
+    time: timeValue,
+    relations: [...editRelations.value]
   }
 
-  saveActivities()
+  if (editingActivity.value) {
+    const nextActivities = activities.value.map(a => {
+      if (a.id !== editingActivity.value.id) return a
+      return {
+        ...a,
+        ...payload
+      }
+    })
+    saveActivities(nextActivities)
+  } else {
+    saveActivities([
+      ...activities.value,
+      {
+          id: 'a_' + Date.now(),
+          ...payload
+      }
+    ])
+  }
+
   closeModal()
 }
 
 function deleteActivity() {
   if (!editingActivity.value) return
-  activities.value = activities.value.filter(a => a.id !== editingActivity.value.id)
-  saveActivities()
+  const nextActivities = activities.value.filter(a => a.id !== editingActivity.value.id)
+  saveActivities(nextActivities)
   closeModal()
 }
 </script>

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
-import Game from '../pages/Game.vue'
+import Experience from '../pages/Experience.vue'
+import WorldBookEditor from '../pages/WorldBookEditor.vue'
 import Writing from '../pages/Writing.vue'
 import Notes from '../pages/Notes.vue'
 import PoetryLab from '../pages/PoetryLab.vue'
@@ -15,12 +16,30 @@ const workbenchChildren = [
   },
   {
     path: 'fit',
-    redirect: { name: 'game' }
+    redirect: { name: 'experience' }
+  },
+  {
+    path: 'experience',
+    name: 'experience',
+    component: Experience,
+    meta: {
+      activityKey: 'experience',
+      title: '小说体验'
+    }
+  },
+  {
+    path: 'experience/worldbook',
+    name: 'experience-worldbook',
+    component: WorldBookEditor,
+    meta: {
+      activityKey: 'experience',
+      title: '世界书编辑器'
+    }
   },
   {
     path: 'game',
     name: 'game',
-    component: Game,
+    redirect: { name: 'experience' },
     meta: {
       activityKey: 'experience',
       title: '小说体验'
@@ -70,8 +89,8 @@ const routes = [
     component: AppShell,
     children: workbenchChildren
   },
-  { path: '/fit', redirect: { name: 'game' } },
-  { path: '/game', redirect: { name: 'game' } },
+  { path: '/fit', redirect: { name: 'experience' } },
+  { path: '/game', redirect: { name: 'experience' } },
   { path: '/writing', redirect: { name: 'writing' } },
   { path: '/notes', redirect: { name: 'notes' } },
   { path: '/poetry-lab', redirect: { name: 'poetry-lab' } },
