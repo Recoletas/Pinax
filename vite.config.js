@@ -17,5 +17,25 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vue 核心
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          // Markdown 处理
+          'markdown': ['marked', 'turndown'],
+          // AI 服务
+          'ai-services': [
+            './src/services/textExpander.js',
+            './src/services/textRewriter.js',
+            './src/services/shotExporter.js'
+          ]
+        }
+      }
+    },
+    // 提高 chunk 大小警告阈值
+    chunkSizeWarningLimit: 600
   }
 })

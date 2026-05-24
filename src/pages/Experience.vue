@@ -51,7 +51,7 @@
       </aside>
 
       <div class="game-main">
-        <GamePanel />
+        <GamePanel @show-inline-detail="handleInlineDetail" />
         <InputArea @send="handleSend" />
       </div>
     </div>
@@ -123,6 +123,51 @@
     <Character v-if="showCharacter" @close="showCharacter = false" />
     <Settings v-if="showSettings" @close="showSettings = false" />
 
+    <!-- 机制面板 -->
+    <MechanismPanel
+      :visible="showMechanismPanel"
+      :mechanismType="gameStore.activeMechanism"
+      :context="gameStore.mechanismContext"
+      :playerCharacter="gameStore.playerCharacter"
+      :gold="gameStore.player?.money || 100"
+      @close="handleMechanismClose"
+      @action="handleMechanismAction"
+    />
+
+    <!-- 里程碑事件弹窗 -->
+    <MilestoneModal
+      :visible="showMilestoneModal"
+      :event="gameStore.milestoneEvent"
+      @close="handleMilestoneClose"
+    />
+
+    <!-- 内联事件详情弹窗 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="inlineDetail" class="inline-detail-overlay" @click.self="closeInlineDetail">
+          <div class="inline-detail-card">
+            <header class="inline-detail-header">
+              <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
+              <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
+              <button class="inline-detail-close" @click="closeInlineDetail">×</button>
+            </header>
+            <div class="inline-detail-body">
+              <template v-if="inlineDetail.type === 'dialogue'">
+                <p class="inline-detail-content">"{{ inlineDetail.content }}"</p>
+                <div class="inline-detail-hint">点击其他区域关闭</div>
+              </template>
+              <template v-else-if="inlineDetail.type === 'item'">
+                <p class="inline-detail-content">{{ inlineDetail.content }}</p>
+                <div class="inline-detail-actions">
+                  <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <div class="game-image-gen-rail">
       <ImageGenRail
         storage-key="game_image_library_v1"
@@ -173,6 +218,8 @@ import QuestLog from '../components/QuestLog.vue'
 import WorldMap from '../components/WorldMap.vue'
 import Settings from '../components/Settings.vue'
 import Character from '../components/Character.vue'
+import MechanismPanel from '../components/MechanismPanel.vue'
+import MilestoneModal from '../components/MilestoneModal.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const router = useRouter()
@@ -249,6 +296,97 @@ async function openclawAdvice(question, context) {
 
 const showCharacter = ref(false)
 const showSettings = ref(false)
+
+// 机制面板与里程碑事件
+const showMechanismPanel = computed(() => !!gameStore.activeMechanism)
+const showMilestoneModal = computed(() => !!gameStore.milestoneEvent)
+
+function handleMechanismClose() {
+  gameStore.deactivateMechanism()
+}
+
+async function handleMechanismAction(action) {
+  console.log('Mechanism action:', action)
+
+  const actionDescriptions = {
+    combat: {
+      attack: '发起攻击',
+      defend: '进行防御',
+      skill: '释放技能',
+      flee: '选择撤退'
+    },
+    trade: {
+      buy: `购买了物品`
+    },
+    quest: {
+      accept: '接受了任务',
+      decline: '暂时忽略了任务'
+    },
+    dialogue: {
+      respond: '做出了回应'
+    }
+  }
+
+  const actionType = action.type
+  const actionName = action.action
+  const description = actionDescriptions[actionType]?.[actionName] || actionName
+
+  // 构建行动描述
+  let actionText = ''
+  if (actionType === 'combat') {
+    actionText = `【战斗行动】我选择${description}。`
+  } else if (actionType === 'trade' && action.item) {
+    actionText = `【交易】我决定购买${action.item.name}。`
+  } else if (actionType === 'quest') {
+    actionText = `【任务】我${description}。`
+  } else if (actionType === 'dialogue') {
+    actionText = `【对话】我选择："${action.option}"`
+  }
+
+  gameStore.deactivateMechanism()
+
+  // 将行动注入回叙事
+  if (actionText && gameStore.useAI) {
+    // 添加用户行动消息
+    gameStore.messages.push({
+      role: 'user',
+      content: actionText,
+      timestamp: Date.now()
+    })
+    gameStore.chatHistory.push({ role: 'user', content: actionText })
+
+    // 触发 AI 生成结果
+    await gameStore.generateAIResponse()
+  }
+}
+
+function handleMilestoneClose() {
+  gameStore.clearMilestoneEvent()
+}
+
+// 内联事件详情
+const inlineDetail = ref(null)
+
+function handleInlineDetail(event) {
+  inlineDetail.value = event
+}
+
+function closeInlineDetail() {
+  inlineDetail.value = null
+}
+
+function collectItem(itemName) {
+  // 简单记录到活动日志
+  const activity = {
+    id: Date.now().toString(),
+    title: `获得物品：${itemName}`,
+    type: 'item',
+    timestamp: new Date().toISOString()
+  }
+  gameStore.saveWritingActivities([activity, ...(gameStore.activities || [])])
+  closeInlineDetail()
+}
+
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 const quickNoteOpen = ref(false)
@@ -814,5 +952,112 @@ function jumpToWriting() {
   .quick-notes-drawer {
     width: min(280px, calc(100vw - 24px));
   }
+}
+
+/* 内联详情弹窗 */
+.inline-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3500;
+  backdrop-filter: blur(2px);
+}
+
+.inline-detail-card {
+  width: min(320px, 90vw);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.inline-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.inline-detail-icon {
+  font-size: 18px;
+}
+
+.inline-detail-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.inline-detail-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inline-detail-close:hover {
+  background: var(--bg-hover);
+}
+
+.inline-detail-body {
+  padding: 16px;
+}
+
+.inline-detail-content {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.inline-detail-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.inline-detail-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.inline-detail-actions .action-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.inline-detail-actions .action-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -35,6 +35,13 @@ function normalizeWorldbook(raw = {}) {
 
   return {
     ...source,
+    // 结构化基础设定
+    worldDescription: String(source.worldDescription || source.description || ''),
+    writingStyle: String(source.writingStyle || ''),
+    examples: String(source.examples || ''),
+    forbidden: String(source.forbidden || ''),
+    // 兼容旧版 description 字段
+    description: String(source.description || ''),
     settings: {
       scanDepth: 2,
       tokenBudget: 4096,
@@ -123,6 +130,12 @@ export const useWorldStore = defineStore('world', {
       const worldbook = {
         id: createWorldBookId(),
         name: data.name || '新世界书',
+        // 结构化基础设定
+        worldDescription: data.worldDescription || data.description || '',
+        writingStyle: data.writingStyle || '',
+        examples: data.examples || '',
+        forbidden: data.forbidden || '',
+        // 兼容旧字段
         description: data.description || '',
         author: data.author || '',
         version: '1.0',

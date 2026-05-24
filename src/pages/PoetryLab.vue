@@ -478,7 +478,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getApiSettings } from '../services/api'
+import { getResolvedApiSettings } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
@@ -1067,57 +1067,7 @@ watch(selectedNode, (node) => {
   }
 })
 
-function normalizeApiSettingsShape(raw) {
-  const src = raw && typeof raw === 'object' ? raw : {}
-  return {
-    provider: src.provider || src.providerId || 'openai',
-    baseUrl: src.baseUrl || src.base_url || '',
-    apiKey: src.apiKey || src.api_key || src.api_key_openai || '',
-    model: src.model || src.openai_model || ''
-  }
-}
-
-function maskKey(key) {
-  const s = String(key || '')
-  if (!s) return 'missing'
-  if (s.length <= 8) return `${s.slice(0, 2)}***`
-  return `${s.slice(0, 3)}***${s.slice(-3)}`
-}
-
-async function resolveApiSettings() {
-  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
-  const local = normalizeApiSettingsShape(localRaw)
-
-  let merged = { ...local }
-  let source = 'localStorage(apiSettings)'
-
-  if (!merged.baseUrl || !merged.apiKey || !merged.model) {
-    try {
-      const remoteRaw = await getApiSettings()
-      const remote = normalizeApiSettingsShape(remoteRaw)
-      merged = {
-        provider: local.provider || remote.provider || 'openai',
-        baseUrl: local.baseUrl || remote.baseUrl || '',
-        apiKey: local.apiKey || remote.apiKey || '',
-        model: local.model || remote.model || ''
-      }
-      source = 'localStorage + backend secrets'
-    } catch (e) {
-      console.warn(`${LLM_DEBUG_PREFIX} 拉取后端密钥失败，将只使用本地配置`, e)
-    }
-  }
-
-  console.info(`${LLM_DEBUG_PREFIX} 配置摘要`, {
-    source,
-    provider: merged.provider || 'openai',
-    baseUrl: merged.baseUrl,
-    model: merged.model,
-    apiKeyMasked: maskKey(merged.apiKey),
-    hasApiKey: Boolean(merged.apiKey)
-  })
-
-  return merged
-}
+// 使用 services/api.js 中的 getResolvedApiSettings 统一获取 API 配置
 
 function collectPoetryContext() {
   return {
@@ -1756,7 +1706,7 @@ function reindexTree(node, depth = 0, parentId = null, seen = new Set()) {
 }
 
 async function generateByLLM(promptText, count, depth) {
-  const apiSettings = await resolveApiSettings()
+  const apiSettings = await getResolvedApiSettings()
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('未配置可用模型，请先在设置里填写 baseUrl / apiKey / model')
   }
@@ -2050,7 +2000,7 @@ function applyFeedback(mode, text = '', options = {}) {
 }
 
 async function generateContinueByLLM(node, count, mode = 'neutral', feedback = '') {
-  const apiSettings = await resolveApiSettings()
+  const apiSettings = await getResolvedApiSettings()
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('未配置可用模型，无法继续生成')
   }
@@ -2233,7 +2183,7 @@ async function generateTree() {
 }
 
 async function generateDirectingTree(promptText, count, depth) {
-  const apiSettings = await resolveApiSettings()
+  const apiSettings = await getResolvedApiSettings()
   if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
     throw new Error('未配置可用模型，请先在设置里填写 baseUrl / apiKey / model')
   }

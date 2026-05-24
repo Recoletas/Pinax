@@ -156,6 +156,17 @@
         </template>
 
         <template v-else>
+          <!-- Copilot 状态指示器 -->
+          <div v-if="copilotGenerating || copilotVisible" class="copilot-indicator" :style="copilotIndicatorStyle">
+            <span v-if="copilotGenerating" class="copilot-loading">
+              <span class="copilot-spinner"></span>
+              AI 续写中...
+            </span>
+            <span v-else-if="copilotVisible" class="copilot-ready">
+              <kbd>Tab</kbd> 采纳 · <kbd>Esc</kbd> 忽略
+            </span>
+          </div>
+
           <div class="editor-header">
             <!-- 编辑工具栏 -->
             <div class="editor-toolbar">
@@ -277,6 +288,93 @@
                 </button>
               </div>
 
+              <div class="toolbar-sep"></div>
+
+              <div class="toolbar-group">
+                <button class="tool-btn ai-btn" :class="{ active: showAiPanel }" @click.stop="toggleAiPanel" title="AI 扩展/改写">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm1.5 10.5l-3-2 .5-.75 2.25 1.5 2.25-3 .75.5-2.75 3.75z"/>
+                  </svg>
+                  AI
+                </button>
+
+                <!-- AI 扩展/改写面板 -->
+                <div class="ai-panel" v-if="showAiPanel" @click.stop>
+                  <div class="ai-panel-tabs">
+                    <button :class="['ai-tab', { active: aiPanelMode === 'expand' }]" @click="aiPanelMode = 'expand'">扩展</button>
+                    <button :class="['ai-tab', { active: aiPanelMode === 'rewrite' }]" @click="aiPanelMode = 'rewrite'">改写</button>
+                  </div>
+
+                  <div class="ai-panel-body">
+                    <!-- 扩展模式 -->
+                    <div v-if="aiPanelMode === 'expand'" class="ai-options">
+                      <div class="ai-row">
+                        <span class="ai-label">扩展模式</span>
+                        <select class="ai-select" v-model="expandMode">
+                          <option v-for="m in expansionModes" :key="m.value" :value="m.value">{{ m.label }}</option>
+                        </select>
+                      </div>
+                      <div class="ai-row">
+                        <span class="ai-label">叙事风格</span>
+                        <select class="ai-select" v-model="narrativeStyle">
+                          <option value="literary">文学性</option>
+                          <option value="webnovel">网文风</option>
+                          <option value="concise">简洁白描</option>
+                          <option value="dramatic">戏剧性</option>
+                        </select>
+                      </div>
+                      <button class="tool-btn ai-action-btn" @click="doExpand" :disabled="aiProcessing || !selectedText">
+                        {{ aiProcessing ? '处理中...' : '扩展选中文字' }}
+                      </button>
+                    </div>
+
+                    <!-- 改写模式 -->
+                    <div v-if="aiPanelMode === 'rewrite'" class="ai-options">
+                      <div class="ai-row">
+                        <span class="ai-label">改写模式</span>
+                        <select class="ai-select" v-model="rewriteMode">
+                          <option v-for="m in rewriteModes" :key="m.value" :value="m.value">{{ m.label }}</option>
+                        </select>
+                      </div>
+                      <div class="ai-row" v-if="rewriteMode === 'style'">
+                        <span class="ai-label">叙事风格</span>
+                        <select class="ai-select" v-model="narrativeStyle">
+                          <option value="literary">文学性</option>
+                          <option value="webnovel">网文风</option>
+                          <option value="concise">简洁白描</option>
+                          <option value="dramatic">戏剧性</option>
+                        </select>
+                      </div>
+                      <div class="ai-row" v-if="rewriteMode === 'tone'">
+                        <span class="ai-label">语气</span>
+                        <select class="ai-select" v-model="rewriteTone">
+                          <option v-for="t in tonePresets" :key="t.value" :value="t.value">{{ t.label }}</option>
+                        </select>
+                      </div>
+                      <button class="tool-btn ai-action-btn" @click="doRewrite" :disabled="aiProcessing || !selectedText">
+                        {{ aiProcessing ? '处理中...' : '改写选中文字' }}
+                      </button>
+                    </div>
+
+                    <!-- 结果预览 -->
+                    <div v-if="aiResult" class="ai-result">
+                      <div class="ai-result-header">
+                        <span>结果预览</span>
+                        <div class="ai-result-actions">
+                          <button class="ai-result-btn" @click="applyAiResult">应用</button>
+                          <button class="ai-result-btn secondary" @click="aiResult = ''">取消</button>
+                        </div>
+                      </div>
+                      <div class="ai-result-content">{{ aiResult }}</div>
+                    </div>
+
+                    <div v-if="!selectedText" class="ai-hint">
+                      请先在编辑器中选择要处理的文字
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="toolbar-spacer"></div>
 
               <div class="mode-switch">
@@ -331,22 +429,27 @@
             </div>
           </div>
 
-          <textarea
-            v-if="editorMode === 'wysiwyg'"
-            v-model="markdownContent"
-            class="editor-textarea prose-textarea"
-            placeholder="开始写作..."
-            ref="editorRef"
-            :style="{
-              fontFamily: editorFont,
-              fontSize: editorFontSize,
-              fontWeight: editorBold ? 'bold' : 'normal',
-              fontStyle: editorItalic ? 'italic' : 'normal',
-              textDecoration: editorUnderline ? 'underline' : 'none'
-            }"
-            @input="onMarkdownInput"
-            @keydown="onTextAreaKeydown"
-          ></textarea>
+          <!-- 编辑器容器（含 Ghost Text） -->
+          <div class="editor-container" v-if="editorMode === 'wysiwyg'">
+            <div class="editor-ghost-layer" v-if="copilotVisible && copilotSuggestion">
+              <span class="ghost-text">{{ copilotSuggestion }}</span>
+            </div>
+            <textarea
+              v-model="markdownContent"
+              class="editor-textarea prose-textarea"
+              placeholder="开始写作..."
+              ref="editorRef"
+              :style="{
+                fontFamily: editorFont,
+                fontSize: editorFontSize,
+                fontWeight: editorBold ? 'bold' : 'normal',
+                fontStyle: editorItalic ? 'italic' : 'normal',
+                textDecoration: editorUnderline ? 'underline' : 'none'
+              }"
+              @input="onMarkdownInput"
+              @keydown="onTextAreaKeydown"
+            ></textarea>
+          </div>
           <textarea
             v-if="editorMode === 'markdown'"
             v-model="markdownContent"
@@ -535,6 +638,9 @@ import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
+import { useCopilot } from '../composables/useCopilot'
+import { expandText, getExpansionModes } from '../services/textExpander'
+import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -542,6 +648,21 @@ import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
+
+// AI Copilot 续写
+const {
+  isGenerating: copilotGenerating,
+  suggestion: copilotSuggestion,
+  isVisible: copilotVisible,
+  triggerGeneration: copilotTrigger,
+  acceptSuggestion: copilotAccept,
+  rejectSuggestion: copilotReject,
+  cancelSuggestion: copilotCancel
+} = useCopilot({ debounceMs: 500, autoTrigger: true })
+
+const copilotEnabled = ref(true)
+const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
+
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 
@@ -595,6 +716,19 @@ const quickNoteInputRef = ref(null)
 const quickNoteStatus = ref('')
 const quickNoteImportOpen = ref(false)
 const selectedDialogueImportIds = ref([])
+
+// AI 扩展/改写状态
+const showAiPanel = ref(false)
+const aiPanelMode = ref('expand') // 'expand' or 'rewrite'
+const aiProcessing = ref(false)
+const aiResult = ref('')
+const expandMode = ref('balanced')
+const rewriteMode = ref('style')
+const rewriteTone = ref('neutral')
+const narrativeStyle = ref('literary')
+const expansionModes = getExpansionModes()
+const rewriteModes = getRewriteModes()
+const tonePresets = getTonePresets()
 
 const saveStatus = ref('saved')
 let saveTimeout = null
@@ -732,7 +866,7 @@ function extractDialogueSegments(text) {
     .filter(Boolean)
 
   return source
-    .filter((item) => /["“”「」『』]/.test(item) || /^[—-]/.test(item) || /[:：]\s*["“「『]/.test(item))
+    .filter((item) => /["""「」『』]/.test(item) || /^[—-]/.test(item) || /[:：]\s*[""「『]/.test(item))
     .map((item, index) => ({
       id: `seg_${index}`,
       text: item,
@@ -1338,6 +1472,105 @@ function replaceAll() {
   onContentChange()
 }
 
+// AI 扩展/改写面板
+function toggleAiPanel() {
+  showAiPanel.value = !showAiPanel.value
+  if (showAiPanel.value) {
+    // 获取当前选中的文字
+    const editor = editorRef.value
+    if (editor) {
+      const start = editor.selectionStart
+      const end = editor.selectionEnd
+      if (start !== end) {
+        selectedText.value = markdownContent.value.slice(start, end)
+      }
+    }
+  }
+}
+
+// 执行扩展
+async function doExpand() {
+  if (!selectedText.value || aiProcessing.value) return
+
+  aiProcessing.value = true
+  aiResult.value = ''
+
+  try {
+    const result = await expandText(selectedText.value, {
+      mode: expandMode.value,
+      style: narrativeStyle.value,
+      targetLength: 3
+    })
+
+    if (result.success) {
+      aiResult.value = result.content
+    } else {
+      aiResult.value = `扩展失败: ${result.error}`
+    }
+  } catch (err) {
+    aiResult.value = `扩展出错: ${err.message}`
+  } finally {
+    aiProcessing.value = false
+  }
+}
+
+// 执行改写
+async function doRewrite() {
+  if (!selectedText.value || aiProcessing.value) return
+
+  aiProcessing.value = true
+  aiResult.value = ''
+
+  try {
+    const options = {
+      mode: rewriteMode.value,
+      style: narrativeStyle.value,
+      tone: rewriteTone.value
+    }
+
+    const result = await rewriteText(selectedText.value, options)
+
+    if (result.success) {
+      aiResult.value = result.content
+    } else {
+      aiResult.value = `改写失败: ${result.error}`
+    }
+  } catch (err) {
+    aiResult.value = `改写出错: ${err.message}`
+  } finally {
+    aiProcessing.value = false
+  }
+}
+
+// 应用 AI 结果
+function applyAiResult() {
+  if (!aiResult.value) return
+
+  const editor = editorRef.value
+  if (!editor) return
+
+  const start = editor.selectionStart
+  const end = editor.selectionEnd
+
+  // 替换选中文字为 AI 结果
+  markdownContent.value = markdownContent.value.slice(0, start) + aiResult.value + markdownContent.value.slice(end)
+
+  // 更新编辑器
+  syncMarkdownToEditor()
+  onContentChange()
+
+  // 移动光标到插入文本之后
+  nextTick(() => {
+    const newPos = start + aiResult.value.length
+    editor.setSelectionRange(newPos, newPos)
+    editor.focus()
+  })
+
+  // 清空结果
+  aiResult.value = ''
+  showAiPanel.value = false
+}
+
 function onContentChange() {
   syncFromCurrentEditor()
   saveStatus.value = 'unsaved'
@@ -1359,9 +1592,38 @@ function onMarkdownInput() {
   }
   syncMarkdownToEditor()
   onContentChange()
+
+  // 触发 Copilot 续写
+  if (copilotEnabled.value && editorRef.value) {
+    const cursorPos = editorRef.value.selectionStart
+    copilotTrigger(markdownContent.value, cursorPos, { chapterTitle: currentChapterTitle.value })
+  }
 }
 
 function onTextAreaKeydown(e) {
+  // Tab 采纳 Copilot 建议
+  if (e.key === 'Tab' && copilotVisible.value && copilotSuggestion.value) {
+    e.preventDefault()
+    const result = copilotAccept(markdownContent.value, editorRef.value?.selectionStart || 0)
+    markdownContent.value = result.content
+    syncMarkdownToEditor()
+    onContentChange()
+    nextTick(() => {
+      if (editorRef.value) {
+        editorRef.value.setSelectionRange(result.newCursorPos, result.newCursorPos)
+      }
+    })
+    return
+  }
+
+  // Esc 拒绝建议
+  if (e.key === 'Escape' && copilotVisible.value) {
+    e.preventDefault()
+    copilotReject()
+    return
+  }
+
+  // 原有 Tab 逻辑
   if (e.key === 'Tab') {
     e.preventDefault()
     const ta = e.target
@@ -1549,6 +1811,7 @@ function onGlobalClick() {
   showFindReplace.value = false
   hasSelection.value = false
   quickNoteOpen.value = false
+  showAiPanel.value = false
 }
 
 function syncSelectionCommandState() {
@@ -1783,220 +2046,6 @@ function stopResize() {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-
-.quick-notes-rail {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translate(34px, -50%);
-  z-index: 80;
-  transition: transform 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.quick-notes-rail:hover,
-.quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.quick-notes-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-import-panel {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-}
-
-.quick-note-import-body {
-  display: grid;
-  grid-template-columns: 1fr 96px;
-  gap: 8px;
-}
-
-.quick-note-import-left {
-  min-width: 0;
-}
-
-.quick-note-import-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.quick-note-import-title {
-  flex: 1;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-mini-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.quick-note-mini-btn:hover,
-.quick-note-mini-btn.primary {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.quick-note-import-list {
-  max-height: 168px;
-  overflow-y: auto;
-  display: grid;
-  gap: 5px;
-}
-
-.quick-note-import-side {
-  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding-left: 8px;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.quick-note-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-stat strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.quick-note-import-item {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 6px;
-  align-items: start;
-  padding: 1px 0;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-import-check {
-  width: 13px;
-  height: 13px;
-  margin: 1px 0 0;
-  accent-color: var(--accent);
-  justify-self: center;
-}
-
-.quick-note-import-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.quick-note-import-meta {
-  color: var(--text-primary);
-}
-
-.quick-note-import-text,
-.quick-note-import-empty {
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
-.quick-notes-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* 侧边栏 */
@@ -2818,6 +2867,185 @@ function stopResize() {
   pointer-events: none;
 }
 
+/* AI 扩展/改写面板 */
+.ai-btn {
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #6366f1));
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ai-btn:hover {
+  background: linear-gradient(135deg, var(--accent-hover), color-mix(in srgb, var(--accent-hover) 80%, #4f46e5));
+  color: #fff;
+}
+
+.ai-btn.active {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.ai-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 260px;
+  z-index: 100;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+
+.ai-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.ai-tab.active {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+
+.ai-panel-body {
+  padding: 12px;
+}
+
+.ai-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 56px;
+}
+
+.ai-select {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.ai-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ai-action-btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ai-action-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.ai-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px 0;
+}
+
+.ai-result {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ai-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ai-result-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-result-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-result-btn:hover {
+  background: var(--accent-hover);
+}
+
+.ai-result-btn.secondary {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.ai-result-btn.secondary:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.ai-result-content {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  padding: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
@@ -2967,6 +3195,94 @@ function stopResize() {
   height: 1px;
   background: var(--border);
   margin: 6px 0;
+}
+
+/* Copilot 状态指示器 */
+.copilot-indicator {
+  position: fixed;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.copilot-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
+
+.copilot-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.copilot-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.copilot-ready kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+/* 编辑器容器与 Ghost Text */
+.editor-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-container .editor-textarea {
+  flex: 1;
+  margin: 0;
+}
+
+.editor-ghost-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 24px;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  font-size: 15px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: transparent;
+}
+
+.ghost-text {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 2px;
+  opacity: 0.7;
 }
 
 @media (max-width: 980px) {

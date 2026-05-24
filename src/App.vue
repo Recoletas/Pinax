@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTheme } from './composables/useTheme'
+import MemoryIndicator from './components/MemoryIndicator.vue'
 
 const { initTheme } = useTheme()
 const generationMetaNotice = ref('')
@@ -59,6 +60,7 @@ onBeforeUnmount(() => {
         {{ generationMetaNotice }}
       </div>
     </transition>
+    <MemoryIndicator />
   </div>
 </template>
 

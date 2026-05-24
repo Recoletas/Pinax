@@ -675,7 +675,7 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getApiSettings, recordPreference } from '../services/api'
+import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { runGenerationRetryPlan } from '../services/generationRetry'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
@@ -1163,29 +1163,13 @@ function handleInlineKeydown(e) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadData()
-  resolveApiSettings()
+  apiSettings.value = await getResolvedApiSettings()
   document.addEventListener('keydown', handleKeydown)
   loadImageConfigs()
   loadImageLibrary()
 })
-
-async function resolveApiSettings() {
-  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
-  if (localRaw.baseUrl && localRaw.apiKey && localRaw.model) {
-    apiSettings.value = localRaw
-    return
-  }
-  try {
-    const remoteRaw = await getApiSettings()
-    if (remoteRaw.baseUrl && remoteRaw.apiKey && remoteRaw.model) {
-      apiSettings.value = remoteRaw
-    }
-  } catch {
-    // ignore
-  }
-}
 
 // Advisor functions
 function collectProseContext() {

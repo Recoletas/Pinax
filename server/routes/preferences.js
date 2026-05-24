@@ -1,5 +1,24 @@
 import express from 'express'
 import { memoryService } from '../services/memoryService.js'
+import { readFileSync, existsSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const DATA_DIR = join(__dirname, '../../data')
+
+function loadSecrets() {
+  const secretsPath = join(DATA_DIR, 'secrets.json')
+  try {
+    if (existsSync(secretsPath)) {
+      return JSON.parse(readFileSync(secretsPath, 'utf-8'))
+    }
+  } catch (e) {
+    console.error('[preferences] Error loading secrets:', e)
+  }
+  return {}
+}
 
 const router = express.Router()
 
@@ -36,8 +55,13 @@ router.post('/record', async (req, res) => {
     })
   }
 
-  const apiKey = process.env.MEM0_API_KEY
-  const host = process.env.MEM0_HOST || ''
+  const secrets = loadSecrets()
+  const apiKey = process.env.MEM0_API_KEY || secrets.mem0_api_key
+  const host = process.env.MEM0_HOST || secrets.mem0_host
+
+  if (!apiKey) {
+    return res.json({ success: false, recorded: false, reason: 'mem0 not configured' })
+  }
 
   const normalizedCard = normalizeCard(card)
   if (!normalizedCard || !normalizedCard.content) {
@@ -56,6 +80,39 @@ router.post('/record', async (req, res) => {
       action,
       cardId: normalizedCard.id,
       emotion: normalizedCard.emotion
+    }
+  })
+
+  return res.json({
+    success: true,
+    recorded: Boolean(result)
+  })
+})
+
+// 通用记忆记录端点
+router.post('/memory', async (req, res) => {
+  const { userId, text, type, metadata } = req.body || {}
+
+  if (!userId || !text) {
+    return res.status(400).json({ error: 'userId and text are required' })
+  }
+
+  const secrets = loadSecrets()
+  const apiKey = process.env.MEM0_API_KEY || secrets.mem0_api_key
+  const host = process.env.MEM0_HOST || secrets.mem0_host
+
+  if (!apiKey) {
+    return res.json({ success: false, recorded: false, reason: 'mem0 not configured' })
+  }
+
+  const result = await memoryService.add({
+    apiKey,
+    host,
+    userId,
+    text,
+    metadata: {
+      source: type || 'general',
+      ...(metadata || {})
     }
   })
 

@@ -627,6 +627,259 @@ export async function handleGenerateRequest(req, res) {
 
 router.post('/chat', handleGenerateRequest)
 
+// Streaming endpoint for real-time text generation
+router.post('/stream', async (req, res) => {
+  const {
+    messages,
+    character,
+    worldId,
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    max_tokens,
+    temperature,
+    userId,
+    mem0ApiKey,
+    mem0Host,
+    max_input_chars,
+    request_id
+  } = req.body || {}
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'messages array is required' })
+  }
+
+  const maxInputChars = Math.max(
+    1200,
+    Math.floor(toFiniteNumber(max_input_chars, process.env.GENERATE_MAX_INPUT_CHARS || DEFAULT_MAX_INPUT_CHARS))
+  )
+  const budgetedInput = applyInputBudget(messages, maxInputChars)
+  const budgetWarnings = [...budgetedInput.warnings]
+  const requestId = typeof request_id === 'string' && request_id.trim()
+    ? request_id.trim()
+    : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
+  const secrets = loadSecrets()
+  const effectiveProvider = provider || secrets.provider || 'openai'
+  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, secrets.base_url)
+  const effectiveApiKey = apiKey || secrets.api_key_openai || process.env.OPENAI_API_KEY
+  const effectiveModel = model || secrets.openai_model || 'gpt-4o-mini'
+  const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
+  const chatPath = providerDefaults.chatPath || '/chat/completions'
+  const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
+  const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
+
+  if (!effectiveApiKey || !chatUrl) {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.write(`data: ${JSON.stringify({ error: 'no_api_key', code: 'NO_API_KEY' })}\n\n`)
+    return res.end()
+  }
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+
+  try {
+    // 记忆注入
+    let memoryPrompt = ''
+    const memoryQuery = extractLatestUserQuery(budgetedInput.messages)
+    const effectiveMem0ApiKey = mem0ApiKey || secrets.mem0_api_key
+    const effectiveMem0Host = mem0Host || secrets.mem0_host
+
+    if (userId && memoryQuery && effectiveMem0ApiKey) {
+      try {
+        const memoryResults = await memoryService.search({
+          userId,
+          query: memoryQuery,
+          topK: 5,
+          apiKey: effectiveMem0ApiKey,
+          host: effectiveMem0Host
+        })
+        memoryPrompt = buildMemoryPrompt(memoryService.formatResults(memoryResults, 5))
+      } catch (e) {
+        console.warn('[stream] Memory search failed:', e.message)
+      }
+    }
+
+    let systemPrompt = `你是一个文字冒险游戏的Narrator（旁白/主持人）。请根据用户的行动生成生动、有趣的剧情描述。
+
+规则：
+- 用中文回复
+- 回复应该简洁但有画面感（50-150字）
+- 描述环境、动作、对话和情感
+- 适当的悬念和情节推进
+- 遇到模糊的行动请求，请发挥想象力推进剧情
+
+`
+
+    if (character) {
+      systemPrompt += `
+角色信息：
+- 名字：${character.name || '未知'}
+- 描述：${character.description || '无'}
+- 性格：${character.personality || '无'}
+- 招呼语：${character.greeting || '无'}
+`
+    }
+
+    if (worldId) {
+      systemPrompt += `
+世界设定：${worldId}
+`
+    }
+
+    const hasClientSystemPrompt = budgetedInput.messages.some((m) => m?.role === 'system')
+    const systemPromptBlocks = []
+
+    if (!hasClientSystemPrompt) {
+      systemPromptBlocks.push(systemPrompt)
+    }
+
+    // 添加记忆上下文
+    if (memoryPrompt) {
+      systemPromptBlocks.push(memoryPrompt)
+    }
+
+    const headers = {
+      'Content-Type': 'application/json'
+    }
+
+    if (effectiveApiKey) {
+      headers['Authorization'] = `Bearer ${effectiveApiKey}`
+    }
+
+    const normalizedMessages = budgetedInput.messages.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+
+    let mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
+    const maxSystemPromptChars = Math.max(120, Math.floor(maxInputChars * 0.2))
+
+    if (mergedSystemPrompt.length > maxSystemPromptChars) {
+      mergedSystemPrompt = mergedSystemPrompt.slice(0, maxSystemPromptChars)
+      budgetWarnings.push(`系统提示词过长，已截断到 ${maxSystemPromptChars} 字符`)
+    }
+
+    const messageChars = collectInputStats(normalizedMessages).totalChars
+    const allowedSystemChars = Math.max(0, maxInputChars - messageChars)
+    if (mergedSystemPrompt && mergedSystemPrompt.length > allowedSystemChars) {
+      if (allowedSystemChars >= MIN_CLIP_CHARS) {
+        mergedSystemPrompt = mergedSystemPrompt.slice(0, allowedSystemChars)
+        budgetWarnings.push('系统提示词已进一步压缩，以满足输入预算')
+      } else {
+        mergedSystemPrompt = ''
+        budgetWarnings.push('输入预算紧张，已跳过附加系统提示词')
+      }
+    }
+
+    const composedMessages = mergedSystemPrompt
+      ? [{ role: 'system', content: mergedSystemPrompt }, ...normalizedMessages]
+      : normalizedMessages
+
+    const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
+    const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
+
+    let requestBody = {
+      model: effectiveModel,
+      messages: composedMessages,
+      max_tokens: effectiveMaxTokens,
+      temperature: effectiveTemperature,
+      stream: true
+    }
+
+    // 禁用推理/思考过程，避免占用 token
+    // DeepSeek 等模型支持 reasoning_effort 参数
+    if (effectiveProvider === 'deepseek' || String(effectiveModel).toLowerCase().includes('reasoning')) {
+      // 对于推理模型，设置最小推理 effort
+      requestBody.reasoning_effort = 'low'
+    }
+
+    // Claude API uses different format
+    if (effectiveProvider === 'claude') {
+      delete headers['Authorization']
+      headers['x-api-key'] = effectiveApiKey
+      headers['anthropic-version'] = '2023-06-01'
+      requestBody = {
+        model: effectiveModel,
+        max_tokens: effectiveMaxTokens,
+        messages: normalizedMessages.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : m.role,
+          content: m.content
+        })),
+        ...(mergedSystemPrompt ? { system: mergedSystemPrompt } : {}),
+        stream: true
+      }
+    }
+
+    const response = await fetch(chatUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      res.write(`data: ${JSON.stringify({ error: `API 请求失败 (${response.status})`, details: error.slice(0, 200) })}\n\n`)
+      return res.end()
+    }
+
+    // Handle streaming response
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
+
+        const data = trimmed.slice(6)
+        if (data === '[DONE]') {
+          res.write(`data: [DONE]\n\n`)
+          continue
+        }
+
+        try {
+          const parsed = JSON.parse(data)
+
+          // Handle OpenAI format - 只发送正文内容
+          if (parsed.choices?.[0]?.delta?.content) {
+            const content = parsed.choices[0].delta.content
+            res.write(`data: ${JSON.stringify({ content })}\n\n`)
+          }
+          // Handle Claude format
+          else if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+            res.write(`data: ${JSON.stringify({ content: parsed.delta.text })}\n\n`)
+          }
+          // 忽略 reasoning_content，不发送到前端
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    res.write(`data: [DONE]\n\n`)
+    res.end()
+  } catch (e) {
+    console.error('Stream error:', e)
+    res.write(`data: ${JSON.stringify({ error: e.message || '内部错误' })}\n\n`)
+    res.end()
+  }
+})
+
 // Fetch available models from API URL
 router.post('/models', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body

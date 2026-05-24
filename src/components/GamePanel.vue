@@ -93,7 +93,7 @@
               <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
-          <div v-else class="text-main" v-html="formatRPText(msg.content, msg.dialogueMode)"></div>
+          <div v-else class="text-main" v-html="formatRPText(msg.content, msg.dialogueMode, index)"></div>
         </div>
       </div>
     </div>
@@ -112,6 +112,8 @@ const editingIndex = ref(-1)
 const editText = ref('')
 const editTextarea = ref(null)
 
+const emit = defineEmits(['show-inline-detail'])
+
 const startEdit = (index, text) => {
   editingIndex.value = index
   editText.value = text
@@ -127,10 +129,10 @@ const saveEdit = (index) => {
   editingIndex.value = -1
 }
 
-const formatRPText = (text, dialogueMode = false) => {
+const formatRPText = (text, dialogueMode = false, messageIndex = -1) => {
   if (!text) return ''
 
-  // 步骤1：HTML 转义原始文本（& < > 先转，" 后转因为要用单引号属性）
+  // 步骤1：HTML 转义原始文本
   let result = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -142,20 +144,27 @@ const formatRPText = (text, dialogueMode = false) => {
 
   // 步骤3：动作格式 - 对话模式用（...），普通模式用 *...*
   if (dialogueMode) {
-    // 对话模式：括号格式（...）
     result = result.replace(/[（]([^）]+)[）]/g, (match) => {
       return "<em class='rp-action'>" + match + "</em>"
     })
   } else {
-    // 普通模式：星号格式 *...*
     result = result.replace(/\*([^*]+)\*/g, (match) => {
       return "<em class='rp-action'>" + match + "</em>"
     })
   }
 
-  // 步骤4：引号格式 "..."
-  result = result.replace(/"([^"]+)"/g, (match) => {
-    return '<span class="rp-dialogue">' + match + '</span>'
+  // 步骤4：引号格式 - 添加可点击标记
+  result = result.replace(/"([^"]{3,})"/g, (match, dialogue) => {
+    return `<span class="rp-dialogue clickable" data-type="dialogue" data-content="${encodeURIComponent(dialogue)}" onclick="window.__inlineEventClick?.('dialogue', '${encodeURIComponent(dialogue)}')">${match}</span>`
+  })
+
+  result = result.replace(/「([^」]{3,})」/g, (match, dialogue) => {
+    return `<span class="rp-dialogue clickable" data-type="dialogue" data-content="${encodeURIComponent(dialogue)}" onclick="window.__inlineEventClick?.('dialogue', '${encodeURIComponent(dialogue)}')">${match}</span>`
+  })
+
+  // 步骤5：重要物品标记
+  result = result.replace(/(获得[了]?|发现[了]?)([^，。！？\n]{2,10}(?:道具|武器|装备|物品|宝物))/g, (match, prefix, item) => {
+    return `<span class="rp-item clickable" data-type="item" data-content="${encodeURIComponent(item)}" onclick="window.__inlineEventClick?.('item', '${encodeURIComponent(item)}')">${match}</span>`
   })
 
   return result
@@ -178,12 +187,20 @@ const onTextWrapperClick = (index, msg, event) => {
   if (!gameStore.quickNoteImportMode) return
   const role = msg.role || msg.type
   if (role === 'system') return
-  if (event?.target?.closest('textarea,button,input,.icon-btn,.edit-area')) return
+  if (event?.target?.closest('textarea,button,input,.icon-btn,.edit-area,.clickable')) return
   gameStore.toggleQuickNoteMessageSelection(index)
 }
 
+// 设置全局点击处理
+onMounted(() => {
+  window.__inlineEventClick = (type, content) => {
+    const decoded = decodeURIComponent(content)
+    emit('show-inline-detail', { type, content: decoded })
+  }
+  scroll()
+})
+
 watch(() => gameStore.messages.length, scroll)
-onMounted(scroll)
 </script>
 
 <style scoped>
@@ -375,6 +392,28 @@ summary .arrow {
 :deep(.rp-action) {
   font-style: italic;
   opacity: 0.8;
+}
+
+:deep(.rp-dialogue.clickable) {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--accent);
+  transition: all 0.15s;
+}
+
+:deep(.rp-dialogue.clickable:hover) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+:deep(.rp-item.clickable) {
+  cursor: pointer;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  border-bottom: 1px dashed #f59e0b;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+:deep(.rp-item.clickable:hover) {
+  background: color-mix(in srgb, #f59e0b 25%, transparent);
 }
 
 .edit-area {

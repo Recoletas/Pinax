@@ -106,6 +106,114 @@
         </button>
       </article>
 
+      <section class="card segment-preview-card" v-if="novelSegments.length > 0">
+        <div class="card-head split">
+          <div>
+            <h2>章节分段预览</h2>
+            <span>共 {{ novelSegments.length }} 段，{{ totalSegmentEntries }} 条目</span>
+          </div>
+          <div class="segment-actions">
+            <button class="ghost-btn small" :disabled="creating" @click="regenerateSegments">
+              重新分段
+            </button>
+            <button class="ghost-btn small" :disabled="creating" @click="clearSegments">
+              清除分段
+            </button>
+          </div>
+        </div>
+
+        <div class="segment-list">
+          <div
+            v-for="(segment, sIdx) in novelSegments"
+            :key="sIdx"
+            class="segment-block"
+            :class="{ expanded: expandedSegmentIndex === sIdx }"
+          >
+            <div class="segment-header" @click="toggleSegment(sIdx)">
+              <div class="segment-info">
+                <span class="segment-index">{{ sIdx + 1 }}</span>
+                <strong class="segment-title">{{ segment.title }}</strong>
+                <span class="segment-meta">{{ segment.charCount }} 字 · {{ segment.entries?.length || 0 }} 条目</span>
+              </div>
+              <div class="segment-toggle">
+                <span v-if="expandedSegmentIndex === sIdx">收起</span>
+                <span v-else>展开</span>
+              </div>
+            </div>
+
+            <div class="segment-content" v-if="expandedSegmentIndex === sIdx">
+              <div class="segment-text-preview">{{ segment.content?.slice(0, 300) }}{{ segment.content?.length > 300 ? '...' : '' }}</div>
+
+              <div class="segment-entries">
+                <div class="segment-entries-header">
+                  <span>提取条目</span>
+                  <button class="ghost-btn small" @click.stop="addEntryToSegment(sIdx)">+ 添加条目</button>
+                </div>
+                <div class="segment-entry-list">
+                  <div
+                    v-for="(entry, eIdx) in segment.entries"
+                    :key="eIdx"
+                    class="segment-entry-item"
+                    :class="{ editing: editingSegmentIndex === sIdx && editingEntryIndex === eIdx }"
+                  >
+                    <template v-if="editingSegmentIndex === sIdx && editingEntryIndex === eIdx">
+                      <div class="entry-edit-form">
+                        <input
+                          v-model="segment.entries[eIdx].name"
+                          class="text-input small"
+                          placeholder="条目名称"
+                        />
+                        <select v-model="segment.entries[eIdx].type" class="select-input small">
+                          <option v-for="opt in entryTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                        <input
+                          v-model="segment.entries[eIdx].keysInput"
+                          class="text-input small"
+                          placeholder="触发词（逗号分隔）"
+                          @input="updateEntryKeys(segment.entries[eIdx])"
+                        />
+                        <textarea
+                          v-model="segment.entries[eIdx].content"
+                          class="text-area small"
+                          rows="3"
+                          placeholder="条目内容"
+                        ></textarea>
+                        <div class="entry-edit-actions">
+                          <button class="ghost-btn small" @click="saveEntryEdit(sIdx, eIdx)">保存</button>
+                          <button class="ghost-btn small" @click="cancelEntryEdit">取消</button>
+                          <button class="ghost-btn small danger" @click="deleteEntryFromSegment(sIdx, eIdx)">删除</button>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="entry-quick-view">
+                        <div class="entry-main">
+                          <strong>{{ entry.name }}</strong>
+                          <span class="entry-type-tag">{{ entryTypeLabel(entry.type) }}</span>
+                        </div>
+                        <div class="entry-keys">触发词：{{ (entry.keys || []).join('、') }}</div>
+                        <div class="entry-content-preview">{{ entry.content?.slice(0, 60) }}{{ entry.content?.length > 60 ? '...' : '' }}</div>
+                        <div class="entry-quick-actions">
+                          <button class="ghost-btn small" @click="startEditEntry(sIdx, eIdx)">编辑</button>
+                          <button class="ghost-btn small danger" @click="deleteEntryFromSegment(sIdx, eIdx)">删除</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="primary-btn" :disabled="creating" @click="importFromSegments">
+            {{ creating ? '导入中...' : `确认导入（${totalSegmentEntries} 条目）` }}
+          </button>
+          <button class="ghost-btn" :disabled="creating" @click="clearSegments">取消</button>
+        </div>
+      </section>
+
       <article class="card">
         <div class="card-head">
           <h2>说明随机生成</h2>
@@ -192,6 +300,60 @@
             条目变化：{{ pendingConflictMetrics.delta >= 0 ? '+' : '' }}{{ pendingConflictMetrics.delta }}
           </span>
         </div>
+
+        <div class="diff-preview" v-if="conflictMode === 'overwrite' && pendingEntryDiffs && pendingEntryDiffs.length > 0">
+          <div class="diff-summary-header">
+            <span>条目变更预览</span>
+            <span class="diff-stats">
+              <span class="stat-add">新增 {{ pendingEntryDiffs.filter(d => d.type === 'add').length }}</span>
+              <span class="stat-update">更新 {{ pendingEntryDiffs.filter(d => d.type === 'update').length }}</span>
+              <span class="stat-remove">移除 {{ pendingEntryDiffs.filter(d => d.type === 'remove').length }}</span>
+            </span>
+          </div>
+          <div class="diff-list">
+            <div v-for="(diff, idx) in pendingEntryDiffs.slice(0, 10)" :key="idx" :class="['diff-item', diff.type]">
+              <div class="diff-item-header">
+                <span class="diff-type-badge">{{ diff.type === 'add' ? '新增' : diff.type === 'update' ? '更新' : '移除' }}</span>
+                <strong>{{ diff.incomingEntry?.name || diff.existingEntry?.name }}</strong>
+              </div>
+              <div class="diff-field-changes" v-if="diff.fieldChanges && diff.fieldChanges.length > 0">
+                <div v-for="(change, cIdx) in diff.fieldChanges.slice(0, 3)" :key="cIdx" class="field-change">
+                  <span class="field-name">{{ entryFieldLabel(change.field) }}</span>
+                  <span class="field-arrow">→</span>
+                  <span class="field-new">{{ formatFieldValue(change.field, change.to) }}</span>
+                </div>
+                <span v-if="diff.fieldChanges.length > 3" class="more-fields">+{{ diff.fieldChanges.length - 3 }} 项变更</span>
+              </div>
+            </div>
+            <div v-if="pendingEntryDiffs.length > 10" class="diff-more">
+              还有 {{ pendingEntryDiffs.length - 10 }} 条变更未显示
+            </div>
+          </div>
+        </div>
+
+        <div class="group-migration" v-if="conflictMode === 'overwrite' && pendingGroupMigration">
+          <div class="group-migration-header">分组迁移预览</div>
+          <div class="group-migration-content">
+            <div class="group-column" v-if="pendingGroupMigration.addedCount > 0">
+              <span class="group-label add">新增分组</span>
+              <div class="group-tags">
+                <span v-for="g in pendingGroupMigration.added" :key="g" class="group-tag add">{{ g }}</span>
+              </div>
+            </div>
+            <div class="group-column" v-if="pendingGroupMigration.unchangedCount > 0">
+              <span class="group-label keep">保留分组</span>
+              <div class="group-tags">
+                <span v-for="g in pendingGroupMigration.unchanged" :key="g" class="group-tag keep">{{ g }}</span>
+              </div>
+            </div>
+            <div class="group-column" v-if="pendingGroupMigration.removedCount > 0">
+              <span class="group-label remove">移除分组</span>
+              <div class="group-tags">
+                <span v-for="g in pendingGroupMigration.removed" :key="g" class="group-tag remove">{{ g }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="preview-groups" v-if="pendingImport.groups.length">
@@ -240,6 +402,9 @@ const pendingImport = ref(null)
 const novelFileInputRef = ref(null)
 const novelSourceFileName = ref('')
 const conflictMode = ref('rename')
+const novelSegments = ref([])
+const editingSegmentIndex = ref(-1)
+const editingEntryIndex = ref(-1)
 
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -260,6 +425,140 @@ const pendingConflictMetrics = computed(() => {
     incomingCount,
     delta: incomingCount - currentCount
   }
+})
+
+const pendingEntryDiffs = computed(() => {
+  if (!pendingConflictWorldbook.value || !pendingImport.value || conflictMode.value !== 'overwrite') return null
+
+  const existingEntries = worldStore.activeWorldbook?.entries || []
+  const incomingEntries = pendingImport.value.entries || []
+
+  if (!existingEntries.length || !incomingEntries.length) return null
+
+  const diffs = []
+  const matchedExisting = new Set()
+
+  for (const incoming of incomingEntries) {
+    const incomingName = normalizeText(incoming?.name).toLowerCase()
+    const incomingKeys = (incoming?.keys || []).map(k => normalizeText(k).toLowerCase())
+
+    let bestMatch = null
+    let bestScore = 0
+
+    for (const existing of existingEntries) {
+      const existingName = normalizeText(existing?.name).toLowerCase()
+      const existingKeys = (existing?.keys || []).map(k => normalizeText(k).toLowerCase())
+
+      let score = 0
+      if (existingName === incomingName) {
+        score += 10
+      }
+      const commonKeys = incomingKeys.filter(k => existingKeys.includes(k))
+      score += commonKeys.length * 2
+
+      if (score > bestScore && score >= 2) {
+        bestScore = score
+        bestMatch = existing
+      }
+    }
+
+    if (bestMatch) {
+      matchedExisting.add(bestMatch.id)
+
+      const fieldChanges = []
+      if (normalizeText(incoming.name) !== normalizeText(bestMatch.name)) {
+        fieldChanges.push({ field: 'name', from: bestMatch.name, to: incoming.name })
+      }
+      if (normalizeEntryType(incoming.type) !== normalizeEntryType(bestMatch.type)) {
+        fieldChanges.push({ field: 'type', from: entryTypeLabel(bestMatch.type), to: entryTypeLabel(incoming.type) })
+      }
+      const existingKeysStr = (bestMatch.keys || []).sort().join(',')
+      const incomingKeysStr = (incoming.keys || []).sort().join(',')
+      if (existingKeysStr !== incomingKeysStr) {
+        fieldChanges.push({ field: 'keys', from: bestMatch.keys || [], to: incoming.keys || [] })
+      }
+      if (normalizeText(incoming.content) !== normalizeText(bestMatch.content)) {
+        fieldChanges.push({ field: 'content', from: bestMatch.content?.slice(0, 50), to: incoming.content?.slice(0, 50) })
+      }
+      const existingGroup = bestMatch.injection?.group || ''
+      const incomingGroup = incoming.injection?.group || ''
+      if (normalizeText(existingGroup) !== normalizeText(incomingGroup)) {
+        fieldChanges.push({ field: 'group', from: existingGroup || '未分组', to: incomingGroup || '未分组' })
+      }
+
+      if (fieldChanges.length > 0) {
+        diffs.push({
+          type: 'update',
+          incomingEntry: incoming,
+          existingEntry: bestMatch,
+          fieldChanges,
+          matchScore: bestScore
+        })
+      }
+    } else {
+      diffs.push({
+        type: 'add',
+        incomingEntry: incoming,
+        existingEntry: null,
+        fieldChanges: []
+      })
+    }
+  }
+
+  for (const existing of existingEntries) {
+    if (!matchedExisting.has(existing.id)) {
+      diffs.push({
+        type: 'remove',
+        incomingEntry: null,
+        existingEntry: existing,
+        fieldChanges: []
+      })
+    }
+  }
+
+  return diffs
+})
+
+const pendingGroupMigration = computed(() => {
+  if (!pendingConflictWorldbook.value || !pendingImport.value || conflictMode.value !== 'overwrite') return null
+
+  const existingGroups = new Set((worldStore.activeWorldbook?.groups || []).map(g => normalizeText(g)).filter(Boolean))
+  const incomingGroups = new Set((pendingImport.value.groups || []).map(g => normalizeText(g)).filter(Boolean))
+
+  const added = []
+  const removed = []
+  const unchanged = []
+
+  for (const group of incomingGroups) {
+    if (!existingGroups.has(group)) {
+      added.push(group)
+    } else {
+      unchanged.push(group)
+    }
+  }
+
+  for (const group of existingGroups) {
+    if (!incomingGroups.has(group)) {
+      removed.push(group)
+    }
+  }
+
+  if (added.length === 0 && removed.length === 0 && unchanged.length === 0) return null
+
+  return {
+    added: added.sort(),
+    removed: removed.sort(),
+    unchanged: unchanged.sort(),
+    addedCount: added.length,
+    removedCount: removed.length,
+    unchangedCount: unchanged.length
+  }
+})
+
+const expandedSegmentIndex = ref(-1)
+
+const totalSegmentEntries = computed(() => {
+  return novelSegments.value.reduce((sum, seg) => sum + (seg.entries?.length || 0), 0)
 })
 
 const genreOptions = [
@@ -477,6 +776,32 @@ function normalizeKeywords(value, fallback = '') {
   return Array.from(new Set(tokens)).slice(0, 6)
 }
 
+function entryFieldLabel(field) {
+  const labels = {
+    name: '名称',
+    type: '类型',
+    keys: '触发词',
+    content: '内容',
+    group: '分组',
+    mode: '注入模式',
+    probability: '触发概率',
+    depth: '注入深度',
+    cooldown: '冷却'
+  }
+  return labels[field] || field
+}
+
+function formatFieldValue(field, value) {
+  if (field === 'keys' && Array.isArray(value)) {
+    return value.slice(0, 3).join('、') + (value.length > 3 ? ` +${value.length - 3}` : '')
+  }
+  if (field === 'content') {
+    const str = String(value || '')
+    return str.length > 30 ? str.slice(0, 30) + '...' : str
+  }
+  return String(value || '-')
+}
+
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return fallback
@@ -577,6 +902,86 @@ function splitIntoParagraphs(input) {
     .split(/(?<=[。！？!?])/)
     .map(part => part.trim())
     .filter(part => part.length >= 10)
+}
+
+function detectChapters(input) {
+  const text = String(input || '').trim()
+  if (!text) return []
+
+  const chapterPatterns = [
+    /^[第卷][一二三四五六七八九十百千万零\d]+[章节回集篇部][\s\S]{0,30}$/gm,
+    /^[第卷][一二三四五六七八九十百千万零\d]+[章节回集篇部]/gm,
+    /^Chapter\s*\d+/gim,
+    /^PART\s*\d+/gim,
+    /^[【\[][\s\S]+[】\]]$/gm
+  ]
+
+  const chapters = []
+  let foundChapters = false
+
+  for (const pattern of chapterPatterns) {
+    const matches = [...text.matchAll(pattern)]
+    if (matches.length >= 2) {
+      foundChapters = true
+      for (let i = 0; i < matches.length; i++) {
+        const start = matches[i].index
+        const end = i < matches.length - 1 ? matches[i + 1].index : text.length
+        const title = text.slice(start, start + 50).split('\n')[0].trim()
+        const content = text.slice(start, end).trim()
+        chapters.push({
+          index: i,
+          title: title.slice(0, 40),
+          content,
+          charCount: content.length
+        })
+      }
+      break
+    }
+  }
+
+  if (!foundChapters) {
+    const paragraphs = splitIntoParagraphs(text)
+    const segmentSize = Math.ceil(paragraphs.length / Math.min(5, Math.max(1, Math.ceil(paragraphs.length / 8))))
+
+    for (let i = 0; i < paragraphs.length; i += segmentSize) {
+      const segmentParagraphs = paragraphs.slice(i, i + segmentSize)
+      const content = segmentParagraphs.join('\n\n')
+      chapters.push({
+        index: Math.floor(i / segmentSize),
+        title: `段落 ${Math.floor(i / segmentSize) + 1}`,
+        content,
+        charCount: content.length
+      })
+    }
+  }
+
+  return chapters
+}
+
+function buildSegmentedEntries(segments) {
+  if (!Array.isArray(segments) || segments.length === 0) return []
+
+  return segments.map((segment, segmentIndex) => {
+    const paragraphs = splitIntoParagraphs(segment.content)
+    const entries = []
+
+    for (let i = 0; i < Math.min(paragraphs.length, 5); i++) {
+      const paragraph = paragraphs[i]
+      const type = inferTypeFromText(paragraph)
+      const keys = extractKeywordsFromText(paragraph, `${segment.title}-${i + 1}`)
+      const name = keys[0] || `${entryTypeLabel(type)}${segmentIndex + 1}-${i + 1}`
+      const content = paragraph.slice(0, 180)
+      const group = defaultGroupByType(type)
+
+      entries.push(createSeedEntry(type, name, keys, content, group))
+    }
+
+    return {
+      ...segment,
+      entries,
+      entryCount: entries.length
+    }
+  })
 }
 
 function inferTypeFromText(paragraph) {
@@ -740,9 +1145,15 @@ async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
 
   const safeTargetCount = clampNumber(targetCount, 10, 3, 30)
   const prompt = [
-    `请从下面的小说片段或设定文本中提取世界书条目。`,
-    `必须返回 JSON 对象，字段为 { name, description, groups, entries }。`,
-    `entries 每项字段：name, type, keys, content, group, mode。`,
+    `请从下面的小说片段或设定文本中提取完整世界书。`,
+    `必须返回 JSON 对象，包含以下字段：`,
+    `- name: 世界书名称`,
+    `- worldDescription: 世界设定描述（从文本提取世界观、背景故事，不少于100字）`,
+    `- writingStyle: 写作风格（分析原文的叙事视角、语言特点等）`,
+    `- examples: 示例文本（选取原文中体现风格的精彩片段）`,
+    `- forbidden: 禁止内容（根据文本推断应避免的内容类型）`,
+    `- groups: 分组名称数组`,
+    `- entries: 条目数组，每项包含 name, type, keys, content, group, mode`,
     `type 仅允许：character/location/item/event/lore/quest/general。`,
     `keys 必须是字符串数组。`,
     `mode 仅允许 selective 或 constant。`,
@@ -757,7 +1168,7 @@ async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
   const baseMessages = [
     {
       role: 'system',
-      content: '你是世界书构建助手。只输出 JSON，不要输出解释。'
+      content: '你是世界书构建助手。只输出 JSON，不要输出解释。worldDescription、writingStyle、examples、forbidden 是必填字段。'
     },
     {
       role: 'user',
@@ -769,7 +1180,7 @@ async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
     baseMessages,
     settings: apiSettings,
     generationOptions: {
-      max_tokens: 2400,
+      max_tokens: 3400,
       temperature: 0.35,
       max_input_chars: 16000,
       response_format: { type: 'json_object' }
@@ -781,7 +1192,7 @@ async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
         appendMessages: [
           {
             role: 'user',
-            content: '请仅返回 JSON 对象，不要使用 markdown 代码块，不要附加说明。'
+            content: '请仅返回 JSON 对象，不要使用 markdown 代码块，不要附加说明。确保包含 worldDescription、writingStyle、examples、forbidden 字段。'
           }
         ]
       }
@@ -823,7 +1234,11 @@ async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
     ok: true,
     payload: {
       name: normalizeText(parsed?.name || nameHint || createAutoWorldbookName('小说导入世界书')),
-      description: normalizeText(parsed?.description || '由小说段落 AI 提炼生成'),
+      worldDescription: normalizeText(parsed?.worldDescription || parsed?.description || ''),
+      writingStyle: normalizeText(parsed?.writingStyle || ''),
+      examples: normalizeText(parsed?.examples || ''),
+      forbidden: normalizeText(parsed?.forbidden || ''),
+      description: normalizeText(parsed?.description || parsed?.worldDescription || '由小说段落 AI 提炼生成'),
       sourceLabel: '小说段落 AI 提炼',
       entries: normalizedEntries,
       groups
@@ -844,9 +1259,15 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
   const genreLabel = genreOptions.find(item => item.value === genre)?.label || '通用风格'
 
   const prompt = [
-    '请根据输入说明生成一个世界书草案。',
-    '仅返回 JSON 对象，字段必须是 { name, description, groups, entries }。',
-    'entries 每项字段：name, type, keys, content, group, mode。',
+    '请根据输入说明生成一个完整的世界书。',
+    '仅返回 JSON 对象，必须包含以下字段：',
+    '- name: 世界书名称',
+    '- worldDescription: 世界设定描述（世界观、背景故事、核心概念，不少于100字）',
+    '- writingStyle: 写作风格（叙事视角、语言特点、情感基调等）',
+    '- examples: 示例文本（展示预期写作风格的片段）',
+    '- forbidden: 禁止内容（AI 不应生成的内容类型或元素）',
+    '- groups: 分组名称数组',
+    '- entries: 条目数组，每项包含 name, type, keys, content, group, mode',
     'type 仅允许：character/location/item/event/lore/quest/general。',
     'keys 必须是字符串数组，至少 1 个关键词。',
     'mode 仅允许 selective 或 constant。',
@@ -861,7 +1282,7 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
   const baseMessages = [
     {
       role: 'system',
-      content: '你是世界书生成助手。输出必须是可直接解析的 JSON 对象。'
+      content: '你是世界书生成助手。输出必须是可直接解析的 JSON 对象。worldDescription、writingStyle、examples、forbidden 是必填字段。'
     },
     {
       role: 'user',
@@ -873,7 +1294,7 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
     baseMessages,
     settings: apiSettings,
     generationOptions: {
-      max_tokens: 2200,
+      max_tokens: 3200,
       temperature: 0.55,
       max_input_chars: 12000,
       response_format: { type: 'json_object' }
@@ -885,7 +1306,7 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
         appendMessages: [
           {
             role: 'user',
-            content: '请仅返回 JSON 对象，不要包含 markdown 或额外说明。'
+            content: '请仅返回 JSON 对象，不要包含 markdown 或额外说明。确保包含 worldDescription、writingStyle、examples、forbidden 字段。'
           }
         ]
       }
@@ -926,7 +1347,11 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
     ok: true,
     payload: {
       name: normalizeText(parsed?.name || nameHint || createAutoWorldbookName('AI随机世界书')),
-      description: normalizeText(parsed?.description || brief || '由 AI 根据说明生成。'),
+      worldDescription: normalizeText(parsed?.worldDescription || parsed?.description || brief.slice(0, 500) || '暂无世界设定描述'),
+      writingStyle: normalizeText(parsed?.writingStyle || ''),
+      examples: normalizeText(parsed?.examples || ''),
+      forbidden: normalizeText(parsed?.forbidden || ''),
+      description: normalizeText(parsed?.description || parsed?.worldDescription || brief || '由 AI 根据说明生成。'),
       sourceLabel: `AI 随机生成（${genreLabel}）`,
       entries: normalizedEntries,
       groups
@@ -995,32 +1420,160 @@ async function generateFromNovelText() {
   generatingNovel.value = true
 
   try {
-    const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
-    const fallbackEntries = buildEntriesFromParagraphs(sourceText, targetCount)
-    let payload = buildPendingPayload({
-      name: novelInput.name || createAutoWorldbookName('小说提炼世界书'),
-      description: '由小说段落快速提炼生成，可在高级设置继续精修。',
-      sourceLabel: '本地智能提炼（回退）',
-      entries: fallbackEntries
-    })
-
-    if (novelInput.useAiFirst) {
-      const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
-      if (aiResult.ok && aiResult.payload) {
-        payload = aiResult.payload
-        infoMessage.value = '已完成 AI 提炼，可直接导入或继续调整。'
-      } else if (aiResult.reason) {
-        infoMessage.value = aiResult.reason
-      }
+    const chapters = detectChapters(sourceText)
+    if (chapters.length > 1) {
+      const segments = buildSegmentedEntries(chapters)
+      novelSegments.value = segments
+      expandedSegmentIndex.value = 0
+      infoMessage.value = `检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`
     } else {
-      infoMessage.value = '已使用本地智能提炼生成预览。'
-    }
+      const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
+      const fallbackEntries = buildEntriesFromParagraphs(sourceText, targetCount)
+      let payload = buildPendingPayload({
+        name: novelInput.name || createAutoWorldbookName('小说提炼世界书'),
+        description: '由小说段落快速提炼生成，可在高级设置继续精修。',
+        sourceLabel: '本地智能提炼（回退）',
+        entries: fallbackEntries
+      })
 
-    pendingImport.value = payload
+      if (novelInput.useAiFirst) {
+        const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
+        if (aiResult.ok && aiResult.payload) {
+          payload = aiResult.payload
+          infoMessage.value = '已完成 AI 提炼，可直接导入或继续调整。'
+        } else if (aiResult.reason) {
+          infoMessage.value = aiResult.reason
+        }
+      } else {
+        infoMessage.value = '已使用本地智能提炼生成预览。'
+      }
+
+      pendingImport.value = payload
+    }
   } catch (error) {
     errorMessage.value = `生成预览失败：${error?.message || '未知错误'}`
   } finally {
     generatingNovel.value = false
+  }
+}
+
+function toggleSegment(index) {
+  expandedSegmentIndex.value = expandedSegmentIndex.value === index ? -1 : index
+}
+
+function regenerateSegments() {
+  const sourceText = normalizeText(novelInput.sourceText)
+  if (!sourceText) return
+
+  const chapters = detectChapters(sourceText)
+  novelSegments.value = buildSegmentedEntries(chapters)
+  expandedSegmentIndex.value = 0
+  infoMessage.value = `已重新生成分段预览（${chapters.length} 段）。`
+}
+
+function clearSegments() {
+  novelSegments.value = []
+  expandedSegmentIndex.value = -1
+  editingSegmentIndex.value = -1
+  editingEntryIndex.value = -1
+  clearFeedback()
+}
+
+function startEditEntry(segmentIndex, entryIndex) {
+  editingSegmentIndex.value = segmentIndex
+  editingEntryIndex.value = entryIndex
+  const entry = novelSegments.value[segmentIndex]?.entries?.[entryIndex]
+  if (entry) {
+    entry.keysInput = (entry.keys || []).join('、')
+  }
+}
+
+function cancelEntryEdit() {
+  editingSegmentIndex.value = -1
+  editingEntryIndex.value = -1
+}
+
+function saveEntryEdit(segmentIndex, entryIndex) {
+  const entry = novelSegments.value[segmentIndex]?.entries?.[entryIndex]
+  if (entry && entry.keysInput !== undefined) {
+    entry.keys = normalizeKeywords(entry.keysInput, entry.name)
+    delete entry.keysInput
+  }
+  editingSegmentIndex.value = -1
+  editingEntryIndex.value = -1
+}
+
+function updateEntryKeys(entry) {
+  if (entry.keysInput !== undefined) {
+    entry.keys = normalizeKeywords(entry.keysInput, entry.name)
+  }
+}
+
+function addEntryToSegment(segmentIndex) {
+  const segment = novelSegments.value[segmentIndex]
+  if (!segment) return
+
+  if (!segment.entries) {
+    segment.entries = []
+  }
+
+  const newEntry = createSeedEntry(
+    'general',
+    `新条目${segment.entries.length + 1}`,
+    [],
+    '请编辑条目内容',
+    '通用'
+  )
+  newEntry.keysInput = ''
+  segment.entries.push(newEntry)
+
+  editingSegmentIndex.value = segmentIndex
+  editingEntryIndex.value = segment.entries.length - 1
+}
+
+function deleteEntryFromSegment(segmentIndex, entryIndex) {
+  const segment = novelSegments.value[segmentIndex]
+  if (!segment?.entries) return
+
+  segment.entries.splice(entryIndex, 1)
+  if (editingSegmentIndex.value === segmentIndex && editingEntryIndex.value === entryIndex) {
+    editingSegmentIndex.value = -1
+    editingEntryIndex.value = -1
+  }
+}
+
+async function importFromSegments() {
+  if (creating.value || novelSegments.value.length === 0) return
+
+  creating.value = true
+  clearFeedback()
+
+  try {
+    const allEntries = novelSegments.value.flatMap(seg => seg.entries || [])
+    if (!allEntries.length) {
+      errorMessage.value = '没有可导入的条目'
+      return
+    }
+
+    const groups = collectGroupsFromEntries(allEntries)
+    const payload = {
+      name: novelInput.name || createAutoWorldbookName('小说导入世界书'),
+      description: '由小说分段导入生成',
+      sourceLabel: '小说分段导入',
+      entries: allEntries,
+      groups
+    }
+
+    const created = await createWorldbookFromPayload(payload)
+    successMessage.value = `已创建世界书：${created?.name || '新世界书'}（${allEntries.length} 条目）`
+
+    novelSegments.value = []
+    expandedSegmentIndex.value = -1
+    pendingImport.value = null
+  } catch (error) {
+    errorMessage.value = `导入失败：${error?.message || '未知错误'}`
+  } finally {
+    creating.value = false
   }
 }
 
@@ -1069,7 +1622,11 @@ async function createWorldbookFromPayload(payload) {
 
   const created = await worldStore.createWorldbook({
     name: payload.name,
-    description: payload.description
+    worldDescription: payload.worldDescription || payload.description || '',
+    writingStyle: payload.writingStyle || '',
+    examples: payload.examples || '',
+    forbidden: payload.forbidden || '',
+    description: payload.description || payload.worldDescription || ''
   })
 
   for (const entry of payload.entries) {
@@ -1103,7 +1660,11 @@ async function overwriteWorldbookFromPayload(targetWorldbook, payload) {
 
   await worldStore.updateWorldbook(worldbookId, {
     name: payload.name,
-    description: payload.description
+    worldDescription: payload.worldDescription || payload.description || '',
+    writingStyle: payload.writingStyle || '',
+    examples: payload.examples || '',
+    forbidden: payload.forbidden || '',
+    description: payload.description || payload.worldDescription || ''
   })
 
   await worldStore.setActiveWorldbook(worldbookId)
@@ -1503,6 +2064,226 @@ label {
   color: #b91c1c;
 }
 
+.diff-preview {
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, #f59e0b 30%, var(--border));
+  padding-top: 10px;
+}
+
+.diff-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.diff-summary-header span:first-child {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.diff-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.diff-stats span {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.stat-add {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #047857;
+}
+
+.stat-update {
+  background: color-mix(in srgb, #0ea5e9 15%, transparent);
+  color: #0284c7;
+}
+
+.stat-remove {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #b91c1c;
+}
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.diff-item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg-primary);
+}
+
+.diff-item.add {
+  border-left: 3px solid #10b981;
+}
+
+.diff-item.update {
+  border-left: 3px solid #0ea5e9;
+}
+
+.diff-item.remove {
+  border-left: 3px solid #ef4444;
+  opacity: 0.7;
+}
+
+.diff-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.diff-type-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.diff-item.add .diff-type-badge {
+  background: color-mix(in srgb, #10b981 20%, transparent);
+  color: #047857;
+}
+
+.diff-item.update .diff-type-badge {
+  background: color-mix(in srgb, #0ea5e9 20%, transparent);
+  color: #0284c7;
+}
+
+.diff-item.remove .diff-type-badge {
+  background: color-mix(in srgb, #ef4444 20%, transparent);
+  color: #b91c1c;
+}
+
+.diff-item-header strong {
+  font-size: 12px;
+}
+
+.diff-field-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 4px;
+}
+
+.field-change {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.field-name {
+  color: var(--text-muted);
+}
+
+.field-arrow {
+  color: var(--text-muted);
+}
+
+.field-new {
+  color: var(--text-primary);
+}
+
+.more-fields {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding-left: 4px;
+}
+
+.diff-more {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px;
+}
+
+.group-migration {
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, #f59e0b 30%, var(--border));
+  padding-top: 10px;
+}
+
+.group-migration-header {
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.group-migration-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.group-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.group-label.add {
+  color: #047857;
+}
+
+.group-label.keep {
+  color: var(--text-secondary);
+}
+
+.group-label.remove {
+  color: #b91c1c;
+}
+
+.group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.group-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.group-tag.add {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  border-color: color-mix(in srgb, #10b981 40%, var(--border));
+  color: #047857;
+}
+
+.group-tag.keep {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+  color: var(--text-secondary);
+}
+
+.group-tag.remove {
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  border-color: color-mix(in srgb, #ef4444 40%, var(--border));
+  color: #b91c1c;
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
 .preview-groups {
   display: flex;
   gap: 6px;
@@ -1595,6 +2376,209 @@ label {
 .ghost-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.ghost-btn.small {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.ghost-btn.danger {
+  color: #ef4444;
+  border-color: color-mix(in srgb, #ef4444 50%, var(--border));
+}
+
+.ghost-btn.danger:hover {
+  background: color-mix(in srgb, #ef4444 10%, var(--bg-primary));
+}
+
+.segment-preview-card {
+  grid-column: 1 / -1;
+}
+
+.segment-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.segment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segment-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment-block.expanded {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.segment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  cursor: pointer;
+  user-select: none;
+}
+
+.segment-header:hover {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, #ffffff 20%);
+}
+
+.segment-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segment-index {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.segment-title {
+  font-size: 13px;
+}
+
+.segment-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.segment-toggle {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.segment-content {
+  padding: 12px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.segment-text-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.segment-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segment-entries-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.segment-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.segment-entry-item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg-primary);
+}
+
+.segment-entry-item.editing {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-primary));
+}
+
+.entry-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.text-input.small,
+.select-input.small {
+  height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.text-area.small {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.entry-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.entry-quick-view {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.entry-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.entry-main strong {
+  font-size: 12px;
+}
+
+.entry-type-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.entry-keys {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.entry-content-preview {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.entry-quick-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 @media (max-width: 1200px) {

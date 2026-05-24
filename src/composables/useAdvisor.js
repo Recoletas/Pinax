@@ -1,6 +1,5 @@
 import { ref, computed } from 'vue'
-import { getApiSettings } from '../services/api'
-import { runGenerationRetryPlan } from '../services/generationRetry'
+import { getApiSettings, sendChatStream } from '../services/api'
 import { getItem, STORAGE_KEYS } from './useStorage'
 
 const ADVISOR_PROMPTS = {
@@ -128,6 +127,7 @@ export function useAdvisor(mode = 'prose') {
       if (backend.value === 'openai') {
         if (!contextProvider) {
           advice = 'AI 模式未配置 contextProvider 函数'
+          advisorMessages.value.push({ role: 'advisor', content: advice })
         } else {
           const context = await contextProvider()
           const apiSettings = await resolveApiSettings()
@@ -138,18 +138,44 @@ export function useAdvisor(mode = 'prose') {
             { role: 'system', content: promptConfig.value.system },
             { role: 'user', content: `当前创作上下文：\n${JSON.stringify(context, null, 2)}\n\n用户的问题：${question}` }
           ]
-          const result = await runGenerationRetryPlan({
-            baseMessages: messages,
-            settings: apiSettings,
-            generationOptions: { max_tokens: 1500 },
-            attempts: [
-              { name: 'advisor-first' },
-              { name: 'advisor-retry' }
-            ]
-          })
 
-          const content = String(result?.content || result?.response?.content || '').trim()
-          advice = content || '未获取到有效回复'
+          // 添加一个空的顾问消息占位符
+          const messageIndex = advisorMessages.value.length
+          advisorMessages.value.push({ role: 'advisor', content: '' })
+
+          // 使用流式 API
+          let fullContent = ''
+
+          await sendChatStream(
+            messages,
+            null,
+            null,
+            apiSettings,
+            { max_tokens: 1500 },
+            {
+              onChunk: (chunk) => {
+                if (chunk.content) {
+                  fullContent += chunk.content
+                  // 实时更新消息内容
+                  if (advisorMessages.value[messageIndex]) {
+                    advisorMessages.value[messageIndex].content = fullContent
+                  }
+                }
+              },
+              onComplete: (result) => {
+                // 流式完成
+                if (advisorMessages.value[messageIndex]) {
+                  advisorMessages.value[messageIndex].content = result.content || fullContent || '未获取到有效回复'
+                }
+              },
+              onError: (error) => {
+                console.error('Advisor stream error:', error)
+                if (advisorMessages.value[messageIndex]) {
+                  advisorMessages.value[messageIndex].content = `获取建议失败：${error.message}`
+                }
+              }
+            }
+          )
         }
       } else {
         if (!openclawAdvice) {
@@ -158,8 +184,8 @@ export function useAdvisor(mode = 'prose') {
           const context = await contextProvider()
           advice = await openclawAdvice(question, context)
         }
+        advisorMessages.value.push({ role: 'advisor', content: advice })
       }
-      advisorMessages.value.push({ role: 'advisor', content: advice })
     } catch (e) {
       advisorMessages.value.push({ role: 'advisor', content: `获取建议失败：${e.message || e}` })
     } finally {

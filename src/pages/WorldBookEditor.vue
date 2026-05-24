@@ -37,7 +37,7 @@
       <section class="editor-main" v-if="activeWorldbook">
         <section class="card">
           <div class="card-head">
-            <h2>世界书信息</h2>
+            <h2>世界书基础设定</h2>
           </div>
           <div class="worldbook-form">
             <label>
@@ -49,12 +49,39 @@
               <input v-model.trim="worldbookForm.author" class="text-input" type="text" placeholder="作者（可选）" />
             </label>
             <label class="full-width">
-              描述
+              世界设定描述
               <textarea
-                v-model.trim="worldbookForm.description"
+                v-model.trim="worldbookForm.worldDescription"
+                class="text-area"
+                rows="4"
+                placeholder="描述世界观的基本设定、背景故事、核心概念等。这是 AI 生成内容时必须遵循的基础设定。"
+              ></textarea>
+            </label>
+            <label class="full-width">
+              写作风格
+              <textarea
+                v-model.trim="worldbookForm.writingStyle"
                 class="text-area"
                 rows="3"
-                placeholder="世界书描述（可选）"
+                placeholder="定义叙事风格、语言风格、情感基调等。例如：采用第三人称叙事，语言简洁有力，注重心理描写..."
+              ></textarea>
+            </label>
+            <label class="full-width">
+              示例文本
+              <textarea
+                v-model.trim="worldbookForm.examples"
+                class="text-area"
+                rows="4"
+                placeholder="提供示例供 AI 参考，帮助理解预期的输出风格和格式。可以是优秀的叙事片段示例。"
+              ></textarea>
+            </label>
+            <label class="full-width">
+              禁止内容
+              <textarea
+                v-model.trim="worldbookForm.forbidden"
+                class="text-area"
+                rows="3"
+                placeholder="定义 AI 不应该生成的内容类型、风格或元素。例如：避免过于现代的口语、不出现某些敏感话题..."
               ></textarea>
             </label>
           </div>
@@ -484,6 +511,10 @@ const savingEntry = ref(false)
 const worldbookForm = reactive({
   name: '',
   author: '',
+  worldDescription: '',
+  writingStyle: '',
+  examples: '',
+  forbidden: '',
   description: ''
 })
 
@@ -812,6 +843,10 @@ function entryModeLabel(modeValue) {
 function syncWorldbookForm(worldbook) {
   worldbookForm.name = worldbook?.name || ''
   worldbookForm.author = worldbook?.author || ''
+  worldbookForm.worldDescription = worldbook?.worldDescription || worldbook?.description || ''
+  worldbookForm.writingStyle = worldbook?.writingStyle || ''
+  worldbookForm.examples = worldbook?.examples || ''
+  worldbookForm.forbidden = worldbook?.forbidden || ''
   worldbookForm.description = worldbook?.description || ''
 }
 
@@ -877,7 +912,11 @@ async function saveWorldbook() {
     await worldStore.updateWorldbook(activeWorldbook.value.id, {
       name: worldbookForm.name.trim(),
       author: worldbookForm.author.trim(),
-      description: worldbookForm.description.trim()
+      worldDescription: worldbookForm.worldDescription.trim(),
+      writingStyle: worldbookForm.writingStyle.trim(),
+      examples: worldbookForm.examples.trim(),
+      forbidden: worldbookForm.forbidden.trim(),
+      description: worldbookForm.worldDescription.trim() // 兼容旧字段
     })
     await worldStore.loadWorldbooksIndex()
   } finally {

@@ -1,13 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import AppShell from '../layouts/AppShell.vue'
-import Experience from '../pages/Experience.vue'
-import WorldBookQuickImport from '../pages/WorldBookQuickImport.vue'
-import WorldBookEditor from '../pages/WorldBookEditor.vue'
-import Writing from '../pages/Writing.vue'
-import Notes from '../pages/Notes.vue'
-import PoetryLab from '../pages/PoetryLab.vue'
-import ProseEssay from '../pages/ProseEssay.vue'
-import WelcomeView from '../views/WelcomeView.vue'
+
+// 懒加载页面组件
+const AppShell = () => import('../layouts/AppShell.vue')
+const WelcomeView = () => import('../views/WelcomeView.vue')
+const Experience = () => import('../pages/Experience.vue')
+const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
+const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
+const Writing = () => import('../pages/Writing.vue')
+const Notes = () => import('../pages/Notes.vue')
+const PoetryLab = () => import('../pages/PoetryLab.vue')
+const ProseEssay = () => import('../pages/ProseEssay.vue')
 
 const workbenchChildren = [
   {
