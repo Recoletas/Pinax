@@ -27,13 +27,13 @@
           AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
         </button>
         <button class="action-btn" @click="openWorldbookEditor">世界书导入</button>
-        <button class="action-btn" @click="showCharacter = true">角色</button>
+        <button class="action-btn" @click="showSessionPicker = true">会话</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
       </div>
     </header>
 
     <div class="game-layout">
-      <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+      <aside v-if="!showSessionPicker" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
           <span>{{ sidebarCollapsed ? '»' : '«' }}</span>
         </div>
@@ -50,10 +50,16 @@
         </template>
       </aside>
 
-      <div class="game-main">
+      <div class="game-main" v-if="!showSessionPicker">
         <GamePanel @show-inline-detail="handleInlineDetail" />
         <InputArea @send="handleSend" />
       </div>
+      <SessionPicker
+        v-else
+        @select="handleSessionSelect"
+        @create="handleSessionCreate"
+        @delete="handleSessionDelete"
+      />
     </div>
 
     <aside class="quick-notes-rail" aria-label="快捷入口">
@@ -72,30 +78,33 @@
                 <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
+            <button class="quick-note-icon-btn" type="button" @click="saveQuickNoteAsAsset" title="存为素材" aria-label="存为素材">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6.5 6.5h11v11h-11z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
+                <path d="M9 10h6M9 14h4" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+              </svg>
+            </button>
             <button class="quick-note-icon-btn" type="button" @click="toggleQuickNoteImport" title="导入" aria-label="导入">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 6.5v7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
                 <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
-                <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6.5 7h4.8c1.2 0 2.2.9 2.2 2v8H9c-1 0-1.9.4-2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-                <path d="M17.5 7h-4.8c-1.2 0-2.2.9-2.2 2v8H15c1 0 1.9.4 2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-              </svg>
-            </button>
           </div>
+        </div>
+        <div class="quick-note-kind-row">
+          <span>素材类型</span>
+          <select v-model="narrativeAssetKind" class="quick-note-kind-select">
+            <option v-for="kind in narrativeAssetKinds" :key="kind.value" :value="kind.value">
+              {{ kind.label }}
+            </option>
+          </select>
         </div>
         <div v-if="quickNoteImportOpen" class="quick-note-import-panel">
           <div class="quick-note-import-toolbar">
             <span class="quick-note-import-title">导入对话段</span>
             <button class="quick-note-mini-btn primary" type="button" @click="importSelectedDialogueSegments">导入</button>
+            <button class="quick-note-mini-btn primary" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存素材</button>
             <button class="quick-note-mini-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空</button>
           </div>
           <div class="quick-note-import-body">
@@ -220,7 +229,9 @@ import Settings from '../components/Settings.vue'
 import Character from '../components/Character.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
+import SessionPicker from '../components/SessionPicker.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -231,20 +242,30 @@ const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openA
 const selectedWorldbookId = ref('')
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const sidebarCollapsed = ref(false)
+const showSessionPicker = ref(false)
 
 onMounted(async () => {
   await worldStore.loadWorldbooksIndex()
-  if (typeof worldStore.ensureActiveWorldbook === 'function') {
-    const active = await worldStore.ensureActiveWorldbook()
-    selectedWorldbookId.value = active?.id || ''
-  } else if (worldbooksIndex.value.length > 0) {
-    selectedWorldbookId.value = worldbooksIndex.value[0].id
-    await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+  gameStore.loadSessions()
+
+  const currentSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+  if (currentSession) {
+    gameStore.loadSession(currentSession.id)
+    selectedWorldbookId.value = currentSession.worldbookId || currentSession.worldId || ''
+    if (selectedWorldbookId.value) {
+      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+    }
+  } else {
+    selectedWorldbookId.value = ''
+    await worldStore.setActiveWorldbook(null)
+    gameStore.resetRuntimeState()
+    showSessionPicker.value = true
   }
 
-  if (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0) {
+  if (currentSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
     await gameStore.initGame()
   }
+
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
   }
@@ -258,7 +279,10 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
 })
 
 async function onWorldbookChange() {
-  await worldStore.setActiveWorldbook(selectedWorldbookId.value || null)
+  const worldbookId = selectedWorldbookId.value
+  if (!worldbookId) return
+
+  await worldStore.setActiveWorldbook(worldbookId)
 }
 
 function openWorldbookEditor() {
@@ -354,6 +378,7 @@ async function handleMechanismAction(action) {
       timestamp: Date.now()
     })
     gameStore.chatHistory.push({ role: 'user', content: actionText })
+    gameStore.saveCurrentSession()
 
     // 触发 AI 生成结果
     await gameStore.generateAIResponse()
@@ -362,6 +387,60 @@ async function handleMechanismAction(action) {
 
 function handleMilestoneClose() {
   gameStore.clearMilestoneEvent()
+}
+
+// 会话选择处理
+async function handleSessionSelect(session) {
+  gameStore.loadSession(session.id)
+  // 设置世界书选择
+  selectedWorldbookId.value = session.worldbookId || session.worldId || ''
+  if (selectedWorldbookId.value) {
+    await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+  }
+  showSessionPicker.value = false
+  if (!gameStore.messages || gameStore.messages.length === 0) {
+    await gameStore.initGame()
+  }
+}
+
+async function handleSessionCreate() {
+  const worldbookId = selectedWorldbookId.value || ''
+  if (!worldbookId) {
+    window.alert('请先选择世界书')
+    return
+  }
+  gameStore.createSession({
+    worldbookId,
+    inheritRuntimeState: false
+  })
+  if (worldbookId) {
+    await worldStore.setActiveWorldbook(worldbookId)
+  }
+  selectedWorldbookId.value = worldbookId
+  showSessionPicker.value = false
+  await gameStore.initGame()
+}
+
+async function handleSessionDelete(session) {
+  gameStore.deleteSession(session.id)
+  // 如果删除后没有会话了，自动创建一个新会话
+  if (gameStore.sessions.length === 0) {
+    const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
+    gameStore.createSession({
+      worldbookId,
+      inheritRuntimeState: false
+    })
+    if (worldbookId) {
+      await worldStore.setActiveWorldbook(worldbookId)
+    }
+    selectedWorldbookId.value = worldbookId
+    showSessionPicker.value = false
+    await gameStore.initGame()
+    return
+  }
+  if (gameStore.currentSessionId === null) {
+    showSessionPicker.value = true
+  }
 }
 
 // 内联事件详情
@@ -394,6 +473,8 @@ const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
 const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
+const narrativeAssetKind = ref('draft-prose')
+const narrativeAssetKinds = ASSET_KINDS
 
 const dialogueImportStats = computed(() => {
   const list = (gameStore.messages || []).filter((message) => {
@@ -408,8 +489,8 @@ const dialogueImportStats = computed(() => {
   return { totalCount, selectedCount, totalWords, selectedWords }
 })
 
-function handleSend(text) {
-  gameStore.sendAction(text)
+function handleSend(text, options = {}) {
+  gameStore.sendAction(text, options)
 }
 
 function loadQuickNoteDraft() {
@@ -457,6 +538,64 @@ function importSelectedDialogueSegments() {
   gameStore.setQuickNoteImportMode(false)
   quickNoteStatus.value = `已导入 ${picked.length} 段对话`
   nextTick(() => resizeQuickNoteInput())
+}
+
+function getSelectedDialogueMessageRefs() {
+  const pickedIndexes = new Set(gameStore.quickNoteSelectedMessageIndexes || [])
+  return (gameStore.messages || [])
+    .map((message, index) => ({ message, index }))
+    .filter(({ message, index }) => {
+      const role = message.role || message.type || 'assistant'
+      return pickedIndexes.has(index) && role !== 'system' && String(message.content || '').trim()
+    })
+}
+
+function saveQuickNoteAsAsset() {
+  const content = quickNoteDraft.value.trim()
+  if (!content) {
+    quickNoteStatus.value = '先写点内容再存素材'
+    return false
+  }
+
+  const asset = addNarrativeAsset({
+    content,
+    kind: narrativeAssetKind.value,
+    projectId: gameStore.worldId || null,
+    source: {
+      type: 'experience-session',
+      id: gameStore.currentSessionId || '',
+      messageIds: []
+    }
+  })
+
+  clearQuickNoteDraft()
+  quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
+  return true
+}
+
+function saveSelectedDialogueSegmentsAsAsset() {
+  const refs = getSelectedDialogueMessageRefs()
+  if (!refs.length) {
+    quickNoteStatus.value = '先选对话段再存素材'
+    return false
+  }
+
+  const content = refs.map(({ message }) => String(message.content || '').trim()).join('\n\n')
+  const asset = addNarrativeAsset({
+    content,
+    kind: narrativeAssetKind.value,
+    projectId: gameStore.worldId || null,
+    source: {
+      type: 'experience-session',
+      id: gameStore.currentSessionId || '',
+      messageIds: refs.map(({ message, index }) => message.id || `message_${index}`)
+    }
+  })
+
+  quickNoteImportOpen.value = false
+  gameStore.setQuickNoteImportMode(false)
+  quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
+  return true
 }
 
 function clearQuickNoteDraft() {
@@ -525,15 +664,6 @@ function saveQuickNote() {
   return true
 }
 
-function jumpToNotes() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/notes')
-}
-
-function jumpToWriting() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/writing')
-}
 </script>
 
 <style scoped>
@@ -804,6 +934,35 @@ function jumpToWriting() {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.quick-note-kind-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.quick-note-kind-row span {
+  flex: 1;
+}
+
+.quick-note-kind-select {
+  width: 112px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 10px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.quick-note-kind-select:focus {
+  border-color: var(--accent);
 }
 
 .quick-note-icon-btn {

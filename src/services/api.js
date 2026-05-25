@@ -209,6 +209,12 @@ export async function sendChatStream(messages, character = null, worldId = null,
     throw error
   }
 
+  const timeoutMs = Number.isFinite(Number(generationOptions?.timeout_ms))
+    ? Math.max(1000, Math.floor(Number(generationOptions.timeout_ms)))
+    : 30000
+  const abortController = new AbortController()
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs)
+
   try {
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -225,7 +231,8 @@ export async function sendChatStream(messages, character = null, worldId = null,
         apiKey: apiSettings.apiKey,
         model: apiSettings.model,
         ...generation
-      })
+      }),
+      signal: abortController.signal
     })
 
     if (!response.ok) {
@@ -285,17 +292,19 @@ export async function sendChatStream(messages, character = null, worldId = null,
       }
     }
 
-    if (onComplete) {
-      onComplete({
-        content: fullContent,
-        reasoning_content: fullReasoning || null
-      })
-    }
+    if (onComplete) onComplete({ content: fullContent })
 
-    return { content: fullContent, reasoning_content: fullReasoning || null }
+    return { content: fullContent }
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('请求超时，请稍后重试')
+      if (onError) onError(timeoutError)
+      throw timeoutError
+    }
     if (onError) onError(error)
     throw error
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
@@ -429,7 +438,7 @@ const SYSTEM_PROMPT_TEMPLATE = `【身份】你是一位资深的文学创作助
 /**
  * 获取写作上下文详情
  */
-export function getWritingContextDetail() {
+export function getWritingContextDetail(override = {}) {
   const context = {
     character: null,
     time: null,
@@ -438,11 +447,16 @@ export function getWritingContextDetail() {
     activities: []
   }
 
+  const hasOverride = (key) => Object.prototype.hasOwnProperty.call(override || {}, key)
+
   // 角色信息
-  const character = getItem(STORAGE_KEYS.WRITING_CHARACTER) || {}
-  if (character.name) {
+  const character = hasOverride('character')
+    ? (override.character || {})
+    : (getItem(STORAGE_KEYS.WRITING_CHARACTER) || {})
+  const characterName = String(character.name || '').trim()
+  if (characterName && characterName !== 'User' && characterName !== '未命名') {
     context.character = {
-      name: character.name,
+      name: characterName,
       gender: character.gender || null,
       age: character.age || null,
       traits: character.traits || [],
@@ -453,7 +467,9 @@ export function getWritingContextDetail() {
   }
 
   // 时间信息
-  const time = getItem(STORAGE_KEYS.WRITING_TIME) || {}
+  const time = hasOverride('time')
+    ? (override.time || {})
+    : (getItem(STORAGE_KEYS.WRITING_TIME) || {})
   if (time.year) {
     context.time = {
       era: time.eraId === 'gregorian' ? '公元' : (time.eraName || ''),
@@ -464,7 +480,9 @@ export function getWritingContextDetail() {
   }
 
   // 当前位置
-  const worldmap = getItem(STORAGE_KEYS.WRITING_WORLDMAP) || {}
+  const worldmap = hasOverride('location')
+    ? (override.location || {})
+    : (getItem(STORAGE_KEYS.WRITING_WORLDMAP) || {})
   if (worldmap.currentCountry || worldmap.currentCity || worldmap.currentScene) {
     context.location = {
       country: worldmap.currentCountry || null,
@@ -474,21 +492,35 @@ export function getWritingContextDetail() {
   }
 
   // 当前场景
-  const scenes = getItem(STORAGE_KEYS.WRITING_SCENES) || {}
-  if (scenes.currentId) {
-    const current = scenes.scenes?.find(s => s.id === scenes.currentId)
-    if (current) {
+  if (hasOverride('scene')) {
+    const scene = override.scene || {}
+    if (scene && (scene.name || scene.position || scene.action || scene.description)) {
       context.scene = {
-        name: current.name,
-        position: current.position || null,
-        action: current.action || null,
-        description: current.description || null
+        name: scene.name || null,
+        position: scene.position || null,
+        action: scene.action || null,
+        description: scene.description || null
+      }
+    }
+  } else {
+    const scenes = getItem(STORAGE_KEYS.WRITING_SCENES) || {}
+    if (scenes.currentId) {
+      const current = scenes.scenes?.find(s => s.id === scenes.currentId)
+      if (current) {
+        context.scene = {
+          name: current.name,
+          position: current.position || null,
+          action: current.action || null,
+          description: current.description || null
+        }
       }
     }
   }
 
   // 最近活动
-  const activities = getItem(STORAGE_KEYS.WRITING_ACTIVITIES) || []
+  const activities = hasOverride('activities')
+    ? (Array.isArray(override.activities) ? override.activities : [])
+    : (getItem(STORAGE_KEYS.WRITING_ACTIVITIES) || [])
   if (activities.length > 0) {
     context.activities = activities.slice(-5).reverse().map(a => ({
       title: a.title,
@@ -667,8 +699,8 @@ const DIALOGUE_SYSTEM_TEMPLATE = `【角色扮演】你正在以特定角色的�
  * @param {boolean} options.excludeTime - 是否排除时间信息
  */
 export function buildContextMessage(dialogueCharacter = null, options = {}) {
-  const { excludeTime = false } = options
-  const context = getWritingContextDetail()
+  const { excludeTime = false, contextDetail = null } = options
+  const context = getWritingContextDetail(contextDetail || {})
 
   // 如果需要排除时间，临时清除时间信息
   const originalTime = context.time

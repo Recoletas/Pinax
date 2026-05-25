@@ -592,6 +592,20 @@ export const useWorldStore = defineStore('world', {
       const characterKws = ['人物', '角色', 'npc', '主角', '配角', '人名', 'character']
       if (keyLower.some(k => characterKws.some(ck => k.includes(ck)))) return 'character'
 
+      // 规则 / 禁忌 / 风格
+      const ruleKws = ['规则', '约束', '必须', '原则', 'rule']
+      if (keyLower.some(k => ruleKws.some(rk => k.includes(rk)))) return 'rule'
+
+      const forbiddenKws = ['禁忌', '禁止', '不得', '不能', 'forbidden']
+      if (keyLower.some(k => forbiddenKws.some(fk => k.includes(fk)))) return 'forbidden'
+
+      const styleKws = ['风格', '文风', '语气', '叙事', 'style']
+      if (keyLower.some(k => styleKws.some(sk => k.includes(sk)))) return 'style'
+
+      // 组织关键词
+      const organizationKws = ['组织', '门派', '势力', '公司', '协会', '家族', 'organization', 'faction']
+      if (keyLower.some(k => organizationKws.some(ok => k.includes(ok)))) return 'organization'
+
       // 物品关键词
       const itemKws = ['物品', '道具', '武器', '装备', 'item', 'weapon', 'armor']
       if (keyLower.some(k => itemKws.some(ik => k.includes(ik)))) return 'item'

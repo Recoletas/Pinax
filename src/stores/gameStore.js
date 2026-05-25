@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, buildContextMessage, sendChatStream, recordMemory } from '../services/api'
+import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useWorldStore } from './worldStore'
 
@@ -56,12 +57,61 @@ function normalizeWritingTime(raw = {}) {
   }
 }
 
+function createEmptySessionRuntime() {
+  return {
+    messages: [],
+    chatHistory: [],
+    time: { day: 1, period: '早晨' },
+    player: { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 },
+    inventory: [],
+    quests: [],
+    flags: {},
+    activities: [],
+    npcRelations: {},
+    discoveredPlaces: [],
+    completedQuests: [],
+    writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
+    writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
+    worldMapState: normalizeWorldMapState(DEFAULT_WORLD_MAP_STATE),
+    playerCharacter: { name: 'User', avatar: '', gender: '', age: '' },
+    aiCharacter: { name: 'Assistant', avatar: '' },
+    dialogueMode: false,
+    dialogueCharacter: null,
+    activeMechanism: null,
+    mechanismContext: null,
+    milestoneEvent: null
+  }
+}
+
+function cloneState(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? fallback))
+  } catch {
+    return JSON.parse(JSON.stringify(fallback))
+  }
+}
+
+function resolveActiveWorldbookId() {
+  try {
+    const worldStore = useWorldStore()
+    return worldStore.activeWorldbook?.id || null
+  } catch {
+    return null
+  }
+}
+
+function findSession(sessions, id) {
+  if (!id || !Array.isArray(sessions)) return null
+  return sessions.find((session) => session.id === id) || null
+}
+
 export const useGameStore = defineStore('game', {
   state: () => ({
     gameId: null,
     worldId: null,
     genre: 'novel', // 'novel' | 'poetry'
     isPlaying: false,
+    _isRegenerating: false, // 标记是否为重写后续
     messages: [], // UI 显示
     time: { day: 1, period: '早晨' },
     player: { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 },
@@ -79,7 +129,7 @@ export const useGameStore = defineStore('game', {
     isLoading: false,
     lastError: null,
     chatHistory: [], // AI 记忆
-    useAI: false,
+    useAI: true, // 默认开启 AI
     apiSettings: {
       provider: 'openai',
       apiKey: '',
@@ -110,11 +160,22 @@ export const useGameStore = defineStore('game', {
     milestoneEvent: null,      // 里程碑事件：{ type: 'location-unlock' | 'time-skip' | 'character-appearance', data: {...} }
 
     // 内联标记事件（不自动弹窗，点击查看）
-    inlineEvents: []           // [{ type, text, data, messageId }]
+    inlineEvents: [],           // [{ type, text, data, messageId }]
+    lastWorldbookContext: null,
+
+    // 会话管理
+    sessions: [],               // 保存的会话列表
+    currentSessionId: null       // 当前会话 ID
   }),
 
   actions: {
     loadWorldMapState() {
+      const session = findSession(this.sessions, this.currentSessionId)
+      const sessionState = session?.worldState?.worldMap || session?.runtimeState?.worldMapState
+      if (sessionState) {
+        this.worldMapState = normalizeWorldMapState(sessionState)
+        return
+      }
       const raw = getItem(STORAGE_KEYS.WRITING_WORLDMAP)
       this.worldMapState = normalizeWorldMapState(raw || {})
     },
@@ -123,9 +184,23 @@ export const useGameStore = defineStore('game', {
       const normalized = normalizeWorldMapState(nextState || this.worldMapState)
       this.worldMapState = normalized
       setItem(STORAGE_KEYS.WRITING_WORLDMAP, normalized)
+      this.saveCurrentSession()
     },
 
     loadWritingCharacter() {
+      const session = findSession(this.sessions, this.currentSessionId)
+      const sessionState = session?.worldState?.character || session?.runtimeState?.writingCharacter
+      if (sessionState) {
+        const normalized = normalizeWritingCharacter(sessionState)
+        this.writingCharacter = normalized
+        this.playerCharacter = {
+          ...this.playerCharacter,
+          name: normalized.name || 'User',
+          gender: normalized.gender || '',
+          age: normalized.age || ''
+        }
+        return
+      }
       const raw = getItem(STORAGE_KEYS.WRITING_CHARACTER)
       const normalized = normalizeWritingCharacter(raw || {})
       this.writingCharacter = normalized
@@ -147,9 +222,16 @@ export const useGameStore = defineStore('game', {
         age: normalized.age || this.playerCharacter.age
       }
       setItem(STORAGE_KEYS.WRITING_CHARACTER, normalized)
+      this.saveCurrentSession()
     },
 
     loadWritingTime() {
+      const session = findSession(this.sessions, this.currentSessionId)
+      const sessionState = session?.worldState?.time || session?.runtimeState?.writingTime
+      if (sessionState) {
+        this.writingTime = normalizeWritingTime(sessionState)
+        return
+      }
       const raw = getItem(STORAGE_KEYS.WRITING_TIME)
       this.writingTime = normalizeWritingTime(raw || {})
     },
@@ -158,9 +240,16 @@ export const useGameStore = defineStore('game', {
       const normalized = normalizeWritingTime(nextTime || this.writingTime)
       this.writingTime = normalized
       setItem(STORAGE_KEYS.WRITING_TIME, normalized)
+      this.saveCurrentSession()
     },
 
     loadWritingActivities() {
+      const session = findSession(this.sessions, this.currentSessionId)
+      const sessionState = session?.worldState?.activities || session?.runtimeState?.activities
+      if (Array.isArray(sessionState)) {
+        this.activities = cloneState(sessionState, [])
+        return
+      }
       const raw = getItem(STORAGE_KEYS.WRITING_ACTIVITIES)
       this.activities = Array.isArray(raw) ? raw : []
     },
@@ -169,6 +258,127 @@ export const useGameStore = defineStore('game', {
       const normalized = Array.isArray(nextActivities) ? nextActivities : this.activities
       this.activities = normalized
       setItem(STORAGE_KEYS.WRITING_ACTIVITIES, normalized)
+      this.saveCurrentSession()
+    },
+
+    // --- 会话管理 ---
+    loadSessions() {
+      const raw = getItem(STORAGE_KEYS.WRITING_SESSIONS)
+      this.sessions = Array.isArray(raw) ? raw : []
+    },
+
+    saveSessions() {
+      setItem(STORAGE_KEYS.WRITING_SESSIONS, this.sessions)
+    },
+
+    createSession(options = {}) {
+      const { title = '新会话', worldbookId = null, inheritRuntimeState = false } = options || {}
+      const currentWorldbookId = worldbookId || resolveActiveWorldbookId() || this.worldId || ''
+      const runtimeState = inheritRuntimeState
+        ? this.getRuntimeSnapshot()
+        : createEmptySessionRuntime()
+
+      const session = {
+        id: 'sess_' + Date.now(),
+        schemaVersion: 1,
+        title,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        worldId: currentWorldbookId,
+        worldbookId: currentWorldbookId,
+        runtimeState,
+        messages: cloneState(runtimeState.messages, []),
+        chatHistory: cloneState(runtimeState.chatHistory, []),
+        worldState: {
+          character: cloneState(runtimeState.writingCharacter, DEFAULT_WRITING_CHARACTER),
+          time: cloneState(runtimeState.writingTime, DEFAULT_WRITING_TIME),
+          worldMap: cloneState(runtimeState.worldMapState, DEFAULT_WORLD_MAP_STATE),
+          activities: cloneState(runtimeState.activities, [])
+        }
+      }
+      this.sessions.push(session)
+      this.currentSessionId = session.id
+      if (!inheritRuntimeState) {
+        this.resetRuntimeState()
+        this.worldId = currentWorldbookId
+      }
+      this.saveSessions()
+      return session
+    },
+
+    saveCurrentSession() {
+      if (!this.currentSessionId) return
+      const idx = this.sessions.findIndex(s => s.id === this.currentSessionId)
+      if (idx === -1) return
+      const runtimeState = this.getRuntimeSnapshot()
+      const worldbookId = this.worldId || this.sessions[idx].worldbookId || this.sessions[idx].worldId || resolveActiveWorldbookId() || ''
+      this.sessions[idx].schemaVersion = this.sessions[idx].schemaVersion || 1
+      this.sessions[idx].messages = cloneState(this.messages, [])
+      this.sessions[idx].chatHistory = cloneState(this.chatHistory, [])
+      this.sessions[idx].runtimeState = runtimeState
+      this.sessions[idx].worldState = {
+        character: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
+        time: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
+        worldMap: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
+        activities: cloneState(this.activities, [])
+      }
+      this.sessions[idx].worldId = worldbookId
+      this.sessions[idx].worldbookId = worldbookId
+      this.sessions[idx].updatedAt = Date.now()
+      // 更新标题为第一条消息的前30字
+      if (this.messages.length > 1) {
+        const firstMsg = this.messages.find(m => m.role === 'assistant' && m.content)
+        if (firstMsg) {
+          this.sessions[idx].title = firstMsg.content.slice(0, 30) + (firstMsg.content.length > 30 ? '...' : '')
+        }
+      }
+      this.saveSessions()
+    },
+
+    loadSession(id) {
+      const session = this.sessions.find(s => s.id === id)
+      if (!session) return null
+      this.currentSessionId = session.id
+      const runtimeState = session.runtimeState || {}
+      this.messages = cloneState(session.messages || runtimeState.messages || [], [])
+      this.chatHistory = cloneState(session.chatHistory || runtimeState.chatHistory || [], [])
+      const character = cloneState(session.worldState?.character || runtimeState.writingCharacter || DEFAULT_WRITING_CHARACTER, DEFAULT_WRITING_CHARACTER)
+      this.writingCharacter = normalizeWritingCharacter(character)
+      this.writingTime = normalizeWritingTime(session.worldState?.time || runtimeState.writingTime || DEFAULT_WRITING_TIME)
+      this.worldMapState = normalizeWorldMapState(session.worldState?.worldMap || runtimeState.worldMapState || DEFAULT_WORLD_MAP_STATE)
+      this.activities = cloneState(session.worldState?.activities || runtimeState.activities || [], [])
+      // 同时恢复 playerCharacter
+      this.playerCharacter = {
+        name: runtimeState.playerCharacter?.name || this.writingCharacter?.name || 'User',
+        avatar: runtimeState.playerCharacter?.avatar || this.playerCharacter?.avatar || '',
+        gender: runtimeState.playerCharacter?.gender || this.writingCharacter?.gender || '',
+        age: runtimeState.playerCharacter?.age || this.writingCharacter?.age || ''
+      }
+      this.player = cloneState(runtimeState.player || this.player, { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 })
+      this.inventory = cloneState(runtimeState.inventory || this.inventory, [])
+      this.quests = cloneState(runtimeState.quests || this.quests, [])
+      this.flags = cloneState(runtimeState.flags || this.flags, {})
+      this.npcRelations = cloneState(runtimeState.npcRelations || this.npcRelations, {})
+      this.discoveredPlaces = cloneState(runtimeState.discoveredPlaces || this.discoveredPlaces, [])
+      this.completedQuests = cloneState(runtimeState.completedQuests || this.completedQuests, [])
+      this.activeMechanism = runtimeState.activeMechanism ?? session.activeMechanism ?? null
+      this.mechanismContext = cloneState(runtimeState.mechanismContext || session.mechanismContext || null, null)
+      this.milestoneEvent = cloneState(runtimeState.milestoneEvent || session.milestoneEvent || null, null)
+      this.dialogueMode = !!runtimeState.dialogueMode
+      this.dialogueCharacter = cloneState(runtimeState.dialogueCharacter || null, null)
+      this.aiCharacter = cloneState(runtimeState.aiCharacter || this.aiCharacter, { name: 'Assistant', avatar: '' })
+      this.worldId = session.worldbookId || session.worldId || this.worldId || ''
+      this.isPlaying = true
+      this.saveSessions()
+      return session
+    },
+
+    deleteSession(id) {
+      this.sessions = this.sessions.filter(s => s.id !== id)
+      if (this.currentSessionId === id) {
+        this.currentSessionId = null
+      }
+      this.saveSessions()
     },
 
     setQuickNoteImportMode(enabled) {
@@ -199,6 +409,32 @@ export const useGameStore = defineStore('game', {
           return picked.has(index) && role !== 'system' && String(message.content || '').trim()
         })
         .map(({ message }) => String(message.content || '').trim())
+    },
+
+    getRuntimeSnapshot() {
+      return {
+        messages: cloneState(this.messages, []),
+        chatHistory: cloneState(this.chatHistory, []),
+        time: cloneState(this.time, { day: 1, period: '早晨' }),
+        player: cloneState(this.player, { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 }),
+        inventory: cloneState(this.inventory, []),
+        quests: cloneState(this.quests, []),
+        flags: cloneState(this.flags, {}),
+        activities: cloneState(this.activities, []),
+        npcRelations: cloneState(this.npcRelations, {}),
+        discoveredPlaces: cloneState(this.discoveredPlaces, []),
+        completedQuests: cloneState(this.completedQuests, []),
+        writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
+        writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
+        worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
+        activeMechanism: this.activeMechanism,
+        mechanismContext: cloneState(this.mechanismContext, null),
+        milestoneEvent: cloneState(this.milestoneEvent, null),
+        playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '' }),
+        aiCharacter: cloneState(this.aiCharacter, { name: 'Assistant', avatar: '' }),
+        dialogueMode: this.dialogueMode,
+        dialogueCharacter: cloneState(this.dialogueCharacter, null)
+      }
     },
 
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
@@ -253,11 +489,19 @@ export const useGameStore = defineStore('game', {
       if (!this.dialogueMode) {
         this.dialogueCharacter = null
       }
+      this.saveCurrentSession()
     },
 
     selectDialogueCharacter(character) {
       this.dialogueCharacter = character
       this.dialogueMode = false
+      this.saveCurrentSession()
+    },
+
+    clearDialogueCharacter() {
+      this.dialogueCharacter = null
+      this.dialogueMode = false
+      this.saveCurrentSession()
     },
 
     loadDialogueCharacters() {
@@ -295,7 +539,13 @@ export const useGameStore = defineStore('game', {
             /拔[出剑].*迎战/,
             /敌人.*攻击/,
             /挥剑.*冲向/,
-            /陷入.*苦战/
+            /陷入.*苦战/,
+            /抽[出枪].*射击/,
+            /扣下扳机/,
+            /火[光焰].*喷[射出]/,
+            /冲入.*房间/,
+            /闪避.*攻击/,
+            /举起.*武器/
           ],
           excludePatterns: [
             /想起.*战斗/,
@@ -472,146 +722,21 @@ export const useGameStore = defineStore('game', {
       this.milestoneEvent = null
     },
 
-    // --- 世界书注入系统 ---
-    matchWorldBookEntries(recentMessages, scanDepth = 3) {
-      const worldStore = useWorldStore()
-      const worldbook = worldStore.activeWorldbook
-      if (!worldbook || !worldbook.entries || worldbook.entries.length === 0) {
-        return []
-      }
-
-      // 合并最近的消息作为扫描文本
-      const messagesToScan = recentMessages.slice(-scanDepth)
-      const scanText = messagesToScan.map(m => m.content || '').join('\n').toLowerCase()
-
-      const matchedEntries = []
-
-      for (const entry of worldbook.entries) {
-        if (!entry || !entry.keys || entry.keys.length === 0) continue
-
-        // 检查注入模式
-        const mode = entry.injection?.mode || 'selective'
-        if (mode === 'constant') {
-          // 常驻条目始终注入
-          matchedEntries.push(entry)
-          continue
-        }
-
-        // 检查触发概率
-        const probability = entry.injection?.probability ?? 100
-        if (probability < 100 && Math.random() * 100 > probability) {
-          continue
-        }
-
-        // 关键词匹配
-        const keys = Array.isArray(entry.keys) ? entry.keys : [entry.keys]
-        for (const key of keys) {
-          const normalizedKey = String(key || '').toLowerCase().trim()
-          if (normalizedKey && scanText.includes(normalizedKey)) {
-            matchedEntries.push(entry)
-            break
-          }
-        }
-
-        // 检查次要关键词
-        const secondaryKeys = entry.keysSecondary || []
-        for (const key of secondaryKeys) {
-          const normalizedKey = String(key || '').toLowerCase().trim()
-          if (normalizedKey && scanText.includes(normalizedKey)) {
-            if (!matchedEntries.includes(entry)) {
-              matchedEntries.push(entry)
-            }
-            break
-          }
-        }
-      }
-
-      return matchedEntries
-    },
-
-    buildWorldBookContextMessage(entries, tokenBudget = 2000) {
-      const worldStore = useWorldStore()
-      const worldbook = worldStore.activeWorldbook
-
-      if (!worldbook) return null
-      if (!entries || entries.length === 0) return null
-
-      const parts = []
-      let currentLength = 0
-      const maxChars = tokenBudget * 2
-
-      // 添加世界书整体描述
-      parts.push(`【世界书：${worldbook.name || '未命名世界书'}】`)
-
-      // 世界设定描述（必须字段）
-      const worldDesc = worldbook.worldDescription || worldbook.description || ''
-      if (worldDesc.trim()) {
-        const descText = `\n\n【世界设定】\n${worldDesc.trim()}`
-        parts.push(descText)
-        currentLength += descText.length
-      }
-
-      // 写作风格
-      if (worldbook.writingStyle && worldbook.writingStyle.trim()) {
-        const styleText = `\n\n【写作风格】\n${worldbook.writingStyle.trim()}`
-        parts.push(styleText)
-        currentLength += styleText.length
-      }
-
-      // 禁止内容
-      if (worldbook.forbidden && worldbook.forbidden.trim()) {
-        const forbiddenText = `\n\n【禁止内容】\n${worldbook.forbidden.trim()}`
-        parts.push(forbiddenText)
-        currentLength += forbiddenText.length
-      }
-
-      // 示例
-      if (worldbook.examples && worldbook.examples.trim()) {
-        const examplesText = `\n\n【示例文本】\n${worldbook.examples.trim()}`
-        parts.push(examplesText)
-        currentLength += examplesText.length
-      }
-
-      parts.push('\n\n--- 以下是世界书中的关键设定条目，必须在叙事中严格遵循 ---')
-
-      for (const entry of entries) {
-        const name = entry.name || '未命名条目'
-        const content = entry.content || ''
-        const type = entry.type || 'general'
-        const entryText = `\n\n◆ 【${name}】(${type})\n${content}`
-
-        if (currentLength + entryText.length > maxChars) {
-          break
-        }
-
-        parts.push(entryText)
-        currentLength += entryText.length
-      }
-
-      parts.push('\n\n⚠️ 重要约束：')
-      parts.push('1. 上述设定中的名称、特征、关系必须保持一致，不得擅自更改')
-      parts.push('2. 不得创造与设定矛盾的情节或角色')
-      parts.push('3. 如果用户行为影响设定中的状态，合理反映变化')
-      parts.push('4. 对话中涉及设定内容时，确保符合设定描述')
-      if (worldbook.forbidden && worldbook.forbidden.trim()) {
-        parts.push('5. 严格遵守禁止内容限制，不得出现相关内容')
-      }
-
-      return {
-        role: 'system',
-        content: parts.join('')
-      }
-    },
-
-     async sendAction(text) {
+    async sendAction(text, options = {}) {
       if (!text.trim()) return
 
-      this.messages.push({
-        role: 'user',
-        content: text,
-        timestamp: Date.now()
-      })
+      const { hidden = false } = options
+
+      // 隐藏命令不显示在 UI 中，但加入 AI 上下文
+      if (!hidden) {
+        this.messages.push({
+          role: 'user',
+          content: text,
+          timestamp: Date.now()
+        })
+      }
       this.chatHistory.push({ role: 'user', content: text })
+      this.saveCurrentSession()
 
       if (this.useAI) {
         await this.generateAIResponse()
@@ -638,6 +763,7 @@ export const useGameStore = defineStore('game', {
               timestamp: Date.now()
             })
           }
+          this.saveCurrentSession()
         } catch (e) {
           this.lastError = e.message
           this.messages.push({ role: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
@@ -652,6 +778,7 @@ export const useGameStore = defineStore('game', {
       if (this.messages[index]) {
         this.messages[index].content = newContent;
         this.rebuildChatHistory(); // 同步 AI 记忆
+        this.saveCurrentSession()
       }
     },
 
@@ -660,39 +787,55 @@ export const useGameStore = defineStore('game', {
       if (this.messages[index]) {
         this.messages.splice(index, 1);
         this.rebuildChatHistory(); // 同步 AI 记忆
+        this.saveCurrentSession()
       }
     },
 
     // --- 新增：核心”执行”功能 ---
     // 点击某条消息的”执行”按钮时调用
     async regenerateFrom(index) {
-      // 1. 截断消息列表，只保留到当前点击的这一条
+      console.log('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
+      // 1. 确保游戏在播放状态
+      this.isPlaying = true
+
+      // 2. 截断消息列表，只保留到当前点击的这一条
       this.messages = this.messages.slice(0, index + 1);
+      console.log('[regenerateFrom] messages count after slice:', this.messages.length)
 
-      // 2. 重新构建 AI 记忆
+      // 3. 重新构建 AI 记忆
       this.rebuildChatHistory();
+      console.log('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
 
-      // 3. 如果开启了 AI，立即触发重新生成
+      // 4. 如果开启了 AI，立即触发重新生成
       if (this.useAI) {
-        await this.generateAIResponse();
+        // 标记为重写后续，避免触发初始化逻辑
+        this._isRegenerating = true
+        console.log('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
+        await this.generateAIResponse()
+        this._isRegenerating = false
+        console.log('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
     },
 
     // --- 新增：辅助方法，确保界面和 AI 记忆完全一致 ---
     rebuildChatHistory() {
-      // 保持最开始的系统提示词（如果有的话）
-      const systemPrompt = this.chatHistory[0] || {
-        role: 'system',
-        content: '你是一个文字冒险游戏的叙述者，请用生动的语言描述场景并与玩家互动。'
-      };
-
-      // 将当前的 messages 转换为 chatHistory
+      // 从当前的 messages 完整重建 chatHistory
+      // 保留 user 和 assistant 消息（不包括 system）
       const history = this.messages
-        .filter(m => m.type === 'user' || m.type === 'narrator')
-        .map(m => ({
-          role: m.type === 'user' ? 'user' : 'assistant',
-          content: m.content
-        }));
+        .map(m => {
+          if (m.role === 'system' || m.type === 'system') return null
+          return {
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content
+          }
+        })
+        .filter(Boolean)
+
+      // 添加默认系统提示词
+      const systemPrompt = {
+        role: 'system',
+        content: '你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。'
+      };
 
       this.chatHistory = [systemPrompt, ...history];
     },
@@ -703,14 +846,37 @@ export const useGameStore = defineStore('game', {
       try {
         this.loadApiSettings();
 
-        // 匹配世界书条目
-        const matchedEntries = this.matchWorldBookEntries(this.chatHistory, 3)
-        const worldBookMsg = this.buildWorldBookContextMessage(matchedEntries, 2000)
-        console.log('Matched world book entries:', matchedEntries.length, worldBookMsg?.content?.slice(0, 100))
+        const worldStore = useWorldStore()
+        const worldbook = worldStore.activeWorldbook
+        const worldbookContext = buildWorldbookContext({
+          worldbook,
+          chatHistory: this.chatHistory,
+          runtimeState: {
+            writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
+            writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
+            worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
+            activities: cloneState(this.activities, []),
+            playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '', gender: '', age: '' }),
+            dialogueCharacter: cloneState(this.dialogueCharacter, null)
+          },
+          tokenBudget: 2000,
+          scanDepth: 3
+        })
+        this.lastWorldbookContext = worldbookContext
+        const worldBookMsg = worldbookContext.messages[0] || null
+        console.log('Matched world book entries:', worldbookContext.matchedEntries.length, worldBookMsg?.content?.slice(0, 100))
+
+        const contextDetail = {
+          character: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
+          time: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
+          location: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
+          scene: null,
+          activities: cloneState(this.activities, [])
+        }
 
         // 注入写作上下文（对话模式时传入对话角色）
         // 小说体验模式下排除时间信息，避免 AI 每次都强调时间
-        const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true })
+        const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true, contextDetail })
 
         // 构建消息序列：世界书 + 写作上下文 + 聊天历史
         let messagesToSend = [...this.chatHistory]
@@ -737,12 +903,18 @@ export const useGameStore = defineStore('game', {
         // 使用流式 API
         let fullContent = ''
 
+        // 判断是否为初始化生成（只有当 chatHistory 完全没有 user/assistant 消息时才初始化）
+        const hasExistingHistory = this.chatHistory.some(m => m.role === 'user' || m.role === 'assistant')
+        // 强制：如果 _isRegenerating 为 true，绝对不触发初始化
+        const isInitGeneration = this._isRegenerating ? false : !hasExistingHistory
+        const maxTokens = isInitGeneration ? 1500 : 800
+
         await sendChatStream(
           messagesToSend,
           null,
           this.worldId,
           this.apiSettings,
-          { max_tokens: 500 },
+          { max_tokens: maxTokens },
           {
             onChunk: (chunk) => {
               if (chunk.content) {
@@ -772,6 +944,11 @@ export const useGameStore = defineStore('game', {
         // 更新 chatHistory
         this.chatHistory.push({ role: 'assistant', content: fullContent });
 
+        // 保存当前会话
+        if (this.currentSessionId) {
+          this.saveCurrentSession()
+        }
+
         // 记录重要的叙事事件到记忆系统
         if (fullContent && fullContent.length > 20) {
           // 检测是否有重要事件（对话、物品获得、地点发现等）
@@ -794,6 +971,15 @@ export const useGameStore = defineStore('game', {
         if (inlineEvents.length > 0) {
           this.addInlineEvents(inlineEvents)
         }
+
+        // 从 AI 回复中提取状态更新
+        this.extractAndUpdateState(fullContent)
+
+        // 检测机制触发（战斗、交易、任务、对话）
+        const mechanism = this.detectMechanismTriggers(fullContent)
+        if (mechanism) {
+          this.activeMechanism = mechanism.type
+        }
       } catch (e) {
         console.error('AI Error:', e)
         this.lastError = e.message;
@@ -801,6 +987,367 @@ export const useGameStore = defineStore('game', {
       } finally {
         this.isLoading = false;
       }
+    },
+
+    // 从 AI 回复中提取并更新状态
+    extractAndUpdateState(content) {
+      if (!content || typeof content !== 'string') return
+
+      console.log('[extractAndUpdateState] 开始提取状态更新')
+
+      // 提取时间变化
+      this.extractTimeChanges(content)
+
+      // 提取地点变化
+      this.extractLocationChanges(content)
+
+      // 提取角色状态变化
+      this.extractCharacterChanges(content)
+
+      // 提取活动事件
+      this.extractActivityEvents(content)
+    },
+
+    // 提取时间变化
+    extractTimeChanges(content) {
+      const currentTime = { ...this.writingTime }
+      let updated = false
+
+      // 检测"次日"、"第二天"等日期推进
+      if (/次日|第二天|翌日|隔天/.test(content)) {
+        const currentDay = parseInt(currentTime.day) || 1
+        currentTime.day = String(currentDay + 1)
+        updated = true
+        console.log('[extractTimeChanges] 检测到日期推进，新日期:', currentTime.day)
+      }
+
+      // 检测完整日期格式：X年X月X日（最优先）
+      const fullDateMatch = content.match(/(\d{1,4})年(\d{1,2})月(\d{1,2})日/)
+      if (fullDateMatch) {
+        const year = fullDateMatch[1]
+        const month = fullDateMatch[2]
+        const day = fullDateMatch[3]
+
+        if (parseInt(year) > 0 && parseInt(year) < 10000) {
+          currentTime.year = year
+          updated = true
+        }
+        if (parseInt(month) >= 1 && parseInt(month) <= 12) {
+          currentTime.month = month
+          updated = true
+        }
+        if (parseInt(day) >= 1 && parseInt(day) <= 31) {
+          currentTime.day = day
+          updated = true
+        }
+        console.log('[extractTimeChanges] 检测到完整日期:', year, month, day)
+      } else {
+        // 单独检测年份（避免匹配年龄）
+        const yearMatch = content.match(/(\d{2,4})年(?!纪|代|龄)/)
+        if (yearMatch && yearMatch[1]) {
+          const year = yearMatch[1]
+          if (year !== currentTime.year && parseInt(year) > 0 && parseInt(year) < 10000) {
+            currentTime.year = year
+            updated = true
+            console.log('[extractTimeChanges] 检测到年份:', year)
+          }
+        }
+
+        // 单独检测月份
+        const monthMatch = content.match(/(\d{1,2})月/)
+        if (monthMatch && monthMatch[1]) {
+          const month = parseInt(monthMatch[1])
+          if (month >= 1 && month <= 12 && String(month) !== currentTime.month) {
+            currentTime.month = String(month)
+            updated = true
+            console.log('[extractTimeChanges] 检测到月份:', month)
+          }
+        }
+
+        // 单独检测日期
+        const dayMatch = content.match(/(\d{1,2})日/)
+        if (dayMatch && dayMatch[1]) {
+          const day = parseInt(dayMatch[1])
+          if (day >= 1 && day <= 31 && String(day) !== currentTime.day) {
+            currentTime.day = String(day)
+            updated = true
+            console.log('[extractTimeChanges] 检测到日期:', day)
+          }
+        }
+      }
+
+      // 检测纪年/年号
+      const eraMatch = content.match(/([^\s，。！？\d]{2,6})(元年|二年|三年|\d+年)/)
+      if (eraMatch && eraMatch[1]) {
+        currentTime.eraName = eraMatch[1]
+        currentTime.eraId = 'chinese'
+        updated = true
+        console.log('[extractTimeChanges] 检测到纪年:', eraMatch[1])
+      }
+
+      if (updated) {
+        this.saveWritingTime(currentTime)
+      }
+    },
+
+    // 提取地点变化
+    extractLocationChanges(content) {
+      // 匹配地点变化的模式
+      const locationPatterns = [
+        /来到[了]?([^\s，。！？]{2,20})/,
+        /到达[了]?([^\s，。！？]{2,20})/,
+        /进入[了]?([^\s，。！？]{2,20})/,
+        /抵达[了]?([^\s，。！？]{2,20})/,
+        /身处([^\s，。！？]{2,20})/,
+        /位于([^\s，。！？]{2,20})/,
+        /站在([^\s，。！？]{2,20})/,
+        /位于([^\s，。！？]{2,20})/
+      ]
+
+      for (const pattern of locationPatterns) {
+        const match = content.match(pattern)
+        if (match && match[1]) {
+          let location = match[1].trim()
+          // 清理常见的后缀词
+          location = location.replace(/[的地得]$/, '')
+          if (location.length >= 2 && location.length <= 15) {
+            console.log('[extractLocationChanges] 检测到地点变化:', location)
+            this.saveWorldMapState({
+              ...this.worldMapState,
+              currentScene: location
+            })
+            return // 只更新第一个匹配的
+          }
+        }
+      }
+    },
+
+    // 提取角色状态变化
+    extractCharacterChanges(content) {
+      const char = { ...this.writingCharacter }
+      let updated = false
+
+      // 提取角色名字（如果未设置或为默认值）
+      if (!char.name || char.name === 'User') {
+        const namePatterns = [
+          // 直接称呼（最常见）
+          /你叫([^\s，。！？]{2,8})/,
+          /你的名字[叫是]([^\s，。！？]{2,8})/,
+          /名叫([^\s，。！？]{2,8})/,
+          /名为([^\s，。！？]{2,8})/,
+          // 自我介绍
+          /我是([^\s，。！？]{2,8})[，。！？]/,
+          /我叫([^\s，。！？]{2,8})[，。！？]/,
+          // 身份描述
+          /你是([^\s，。！？]{2,8})[，。！？，一个]/,
+          /作为一个叫([^\s，。！？]{2,8})的/,
+          // 第三人称叙事开头
+          /^([^\s，。！？]{2,8})[说想看走站坐躺醒]/m,
+          // 常见句式
+          /一个叫([^\s，。！？]{2,8})的/,
+          /名叫([^\s，。！？]{2,8})的[男女]/,
+          // 名字后面跟描述
+          /^([^\s，。！？]{2,8})，.{0,30}(醒来|睁眼|起身)/m
+        ]
+        for (const pattern of namePatterns) {
+          const match = content.match(pattern)
+          if (match && match[1]) {
+            const name = match[1].trim()
+            // 过滤掉常见的非名字词
+            const excludeWords = ['你', '我', '他', '她', '它', '这', '那', '一个', '一位', '自己', '年轻', '少年', '少女', '男子', '女子', '男人', '女人', '老人', '青年', '中年']
+            if (!excludeWords.includes(name) && !/\d/.test(name) && name.length >= 2 && name.length <= 8) {
+              char.name = name
+              updated = true
+              console.log('[extractCharacterChanges] 检测到角色名:', char.name)
+              break
+            }
+          }
+        }
+      }
+
+      // 提取性别
+      if (!char.gender) {
+        const genderPatterns = [
+          /你是一个(\d{1,3})岁的(男|女)/,
+          /你是个(\d{1,3})岁的(男|女)/,
+          /你是(男|女)的/,
+          /一个(男|女)[性孩人]/,
+          /(男|女)主人公/,
+          /作为(男|女)/,
+          /性别[是为](男|女)/,
+          /(男|女)士/,
+          /(男|女)孩/
+        ]
+        for (const pattern of genderPatterns) {
+          const match = content.match(pattern)
+          if (match) {
+            // 有些模式性别在第二个捕获组
+            char.gender = match[2] || match[1]
+            if (char.gender === '男' || char.gender === '女') {
+              updated = true
+              console.log('[extractCharacterChanges] 检测到性别:', char.gender)
+              break
+            }
+          }
+        }
+      }
+
+      // 提取年龄
+      if (!char.age) {
+        const agePatterns = [
+          /(\d{1,3})岁的[男女]/,
+          /一个(\d{1,3})岁的/,
+          /年龄[是为](\d{1,3})/,
+          /今年(\d{1,3})岁/
+        ]
+        for (const pattern of agePatterns) {
+          const match = content.match(pattern)
+          if (match && match[1]) {
+            const age = parseInt(match[1])
+            if (age > 0 && age < 200) {
+              char.age = age + '岁'
+              updated = true
+              console.log('[extractCharacterChanges] 检测到年龄:', char.age)
+              break
+            }
+          }
+        }
+      }
+
+      // 检测情绪变化关键词
+      const moodKeywords = {
+        happy: ['开心', '高兴', '兴奋', '喜悦', '欣慰', '满足', '快乐', '愉快'],
+        sad: ['悲伤', '难过', '伤心', '沮丧', '失落', '忧郁', '悲痛'],
+        angry: ['愤怒', '生气', '恼火', '恼怒', '气恼', '愤慨'],
+        afraid: ['害怕', '恐惧', '惊恐', '惶恐', '不安', '担忧'],
+        surprised: ['惊讶', '吃惊', '意外', '震惊', '惊奇']
+      }
+
+      let moodDelta = 0
+      for (const [mood, keywords] of Object.entries(moodKeywords)) {
+        for (const keyword of keywords) {
+          if (content.includes(keyword)) {
+            if (mood === 'happy') moodDelta += 5
+            else if (mood === 'sad') moodDelta -= 5
+            else if (mood === 'angry') moodDelta -= 3
+            else if (mood === 'afraid') moodDelta -= 4
+            else if (mood === 'surprised') moodDelta += 1
+          }
+        }
+      }
+
+      if (moodDelta !== 0) {
+        const currentMood = char.mood || 50
+        char.mood = Math.max(0, Math.min(100, currentMood + moodDelta))
+        updated = true
+        console.log('[extractCharacterChanges] 情绪变化:', moodDelta, '新情绪值:', char.mood)
+      }
+
+      // 如果有变化，保存
+      if (updated) {
+        this.saveWritingCharacter(char)
+      }
+    },
+
+    // 提取活动事件
+    extractActivityEvents(content) {
+      const eventPatterns = [
+        // 获得物品 - 需要完整的物品名
+        { pattern: /获得了?(.+?)(?:。|，|\s)/, type: 'event' },
+        // 完成决定 - 需要完整的决定内容
+        { pattern: /做出了?(?:一个|项)?(.+?)(?:决定|选择)(?:。|，)/, type: 'decision' },
+        // 遇到 NPC - 需要完整描述
+        { pattern: /遇到了?(.+?)(?:，|。)/, type: 'encounter' },
+        // 完成里程碑
+        { pattern: /完成了?(.+?)(?:任务|委托|目标)(?:。|，)/, type: 'milestone' }
+      ]
+
+      for (const { pattern, type } of eventPatterns) {
+        const match = content.match(pattern)
+        if (match && match[0]) {
+          const title = match[0].trim()
+          if (title.length >= 4 && title.length <= 50) {
+            this.addActivity({
+              title,
+              type,
+              date: this.formatCurrentTime()
+            })
+          }
+        }
+      }
+    },
+
+    // 格式化当前时间
+    formatCurrentTime() {
+      const time = this.writingTime
+      if (!time) return ''
+      const era = time.eraName || ''
+      const year = time.year || ''
+      const month = time.month || ''
+      const day = time.day || ''
+      return `${era}${year}年${month}月${day}日`.replace(/年年/, '年')
+    },
+
+    // 添加活动
+    addActivity(activity) {
+      const activities = this.activities || []
+      activities.push({
+        id: `act_${Date.now()}`,
+        title: activity.title,
+        type: activity.type || 'event',
+        date: activity.date || '',
+        createdAt: Date.now()
+      })
+      // 保留最近 20 条
+      this.saveWritingActivities(activities.slice(-20))
+    },
+
+    resetGameState() {
+      this.resetRuntimeState()
+    },
+
+    resetRuntimeState() {
+      const runtime = createEmptySessionRuntime()
+      this.gameId = null
+      this.messages = runtime.messages
+      this.chatHistory = runtime.chatHistory
+      this.time = runtime.time
+      this.player = runtime.player
+      this.inventory = runtime.inventory
+      this.quests = runtime.quests
+      this.flags = runtime.flags
+      this.activities = runtime.activities
+      this.npcRelations = runtime.npcRelations
+      this.discoveredPlaces = runtime.discoveredPlaces
+      this.completedQuests = runtime.completedQuests
+      this.writingCharacter = runtime.writingCharacter
+      this.writingTime = runtime.writingTime
+      this.worldMapState = runtime.worldMapState
+      this.isPlaying = false
+      this.activeMechanism = runtime.activeMechanism
+      this.mechanismContext = runtime.mechanismContext
+      this.milestoneEvent = runtime.milestoneEvent
+      this.playerCharacter = runtime.playerCharacter
+      this.aiCharacter = runtime.aiCharacter
+      this.dialogueMode = runtime.dialogueMode
+      this.dialogueCharacter = runtime.dialogueCharacter
+      this.inlineEvents = []
+      this.lastWorldbookContext = null
+      this.isLoading = false
+      this.lastError = null
+      this.quickNoteImportMode = false
+      this.quickNoteSelectedMessageIndexes = []
+    },
+
+    resetGlobalWritingAssets() {
+      setItem(STORAGE_KEYS.WRITING_CHARACTER, DEFAULT_WRITING_CHARACTER)
+      setItem(STORAGE_KEYS.WRITING_TIME, DEFAULT_WRITING_TIME)
+      setItem(STORAGE_KEYS.WRITING_WORLDMAP, DEFAULT_WORLD_MAP_STATE)
+      setItem(STORAGE_KEYS.WRITING_ACTIVITIES, [])
+      this.loadWritingCharacter()
+      this.loadWritingTime()
+      this.loadWorldMapState()
+      this.loadWritingActivities()
     },
 
     async initGame() {
@@ -813,6 +1360,20 @@ export const useGameStore = defineStore('game', {
       // 获取世界书结构化设定
       const worldStore = useWorldStore()
       const worldbook = worldStore.activeWorldbook
+
+      // 更新 worldId
+      if (worldbook?.id) {
+        this.worldId = worldbook.id
+        // 更新当前 session 的 worldId
+        if (this.currentSessionId) {
+          const idx = this.sessions.findIndex(s => s.id === this.currentSessionId)
+          if (idx !== -1) {
+            this.sessions[idx].worldId = worldbook.id
+            this.sessions[idx].updatedAt = Date.now()
+            this.saveSessions()
+          }
+        }
+      }
 
       // 构建系统提示词
       const systemParts = ['你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。']
@@ -841,17 +1402,54 @@ export const useGameStore = defineStore('game', {
       // 添加约束
       systemParts.push('\n\n请在叙事中严格遵循上述设定。')
 
+      // 检查是否需要初始化角色/时间/地点
+      const isFreshSession = !Array.isArray(this.messages) || this.messages.length === 0
+      const needInitCharacter = !this.writingCharacter?.name || this.writingCharacter.name === 'User'
+      const needInitTime = !this.writingTime?.year
+      const needInitLocation = !this.worldMapState?.currentScene
+
+      // 添加初始化指令
+      systemParts.push(`\n\n【初始化要求】
+这是故事的开始，你的回复需要包含以下两个部分：
+
+第一部分——世界观旁白（用斜体 *包裹*）：
+以旁白视角介绍故事发生的时代背景、世界特点、社会风貌或重要设定。让读者对即将展开的故事有一个宏观的认知。文字应富有文学性，营造氛围。
+
+第二部分——故事开篇：
+自然地引出主角，在叙述中明确交代：
+${needInitCharacter ? '- 角色姓名（用"你叫XXX"句式）\n- 角色性别与年龄（如"25岁的年轻男子"）' : ''}
+${needInitTime ? '- 故事时间（"XXXX年X月X日"格式）' : ''}
+${needInitLocation ? '- 当前地点（"来到/身处XXX"）' : ''}
+- 开篇场景，渲染氛围，埋下悬念
+
+示例：
+
+*大历三百二十七年，天下三分，北有强秦虎视眈眈，南有楚国偏安一隅，西凉铁骑时常犯境。这是一个英雄辈出的时代，也是一个命如草芥的乱世。朝廷腐败，民不聊生，江湖上却流传着无数关于绝世武功与神秘宝藏的传说。*
+
+你叫【全新姓名】，一个【年龄】岁的【身份】。本次是全新会话，不要复用之前任何会话里出现过的名字，优先生成一个自然、独立、没有重复感的姓名。故事从这里开始，你背着简单的行囊，来到一座陌生的城镇。天色渐晚，青石板铺就的街道两旁，茶幡在微风中轻轻摇曳。远处传来小贩的吆喝声，空气中弥漫着炊烟的气息。你站在城门口，望着这座陌生的小城，心中盘算着接下来的路该如何走...`)
+
+      if (isFreshSession) {
+        systemParts.push('\n\n【新会话约束】这是首次开局，请强制生成与旧会话不同的主角名字；如果需要命名，请不要沿用示例中的占位内容。')
+      }
+
       const systemContent = systemParts.join('')
 
-      this.messages = [{
-        type: 'system',
-        content: '游戏开始！你醒来发现自己身处陌生的地方...',
-        timestamp: Date.now()
-      }]
+      // 设置系统提示词
       this.chatHistory = [{
         role: 'system',
         content: systemContent
       }]
+
+      // 清空消息，等待 AI 生成初始内容
+      this.messages = []
+      this.saveCurrentSession()
+
+      // 如果 AI 开启，自动生成初始内容
+      if (this.useAI) {
+        // 添加一个空的用户消息触发 AI 响应
+        this.chatHistory.push({ role: 'user', content: '开始故事' })
+        await this.generateAIResponse()
+      }
     },
 
     async startGame(worldId) {

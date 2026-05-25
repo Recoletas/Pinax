@@ -534,8 +534,12 @@ const entryForm = reactive({
 
 const entryTypes = [
   { value: 'general', label: '通用' },
+  { value: 'rule', label: '规则' },
+  { value: 'style', label: '风格' },
+  { value: 'forbidden', label: '禁忌' },
   { value: 'location', label: '地点' },
   { value: 'character', label: '角色' },
+  { value: 'organization', label: '组织' },
   { value: 'item', label: '物品' },
   { value: 'lore', label: '设定' },
   { value: 'quest', label: '任务' },

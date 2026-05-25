@@ -172,7 +172,15 @@ export const useExperienceStore = defineStore('experience', {
       try {
         this.loadApiSettings()
 
-        const contextMsg = buildContextMessage(this.dialogueCharacter)
+        const contextMsg = buildContextMessage(this.dialogueCharacter, {
+          contextDetail: {
+            character: this.writingCharacter,
+            time: this.writingTime,
+            location: this.worldMapState,
+            scene: null,
+            activities: this.activities
+          }
+        })
         const messagesToSend = contextMsg
           ? [contextMsg, ...this.chatHistory]
           : this.chatHistory

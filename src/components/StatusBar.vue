@@ -244,7 +244,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
@@ -321,8 +321,15 @@ const moodGradient = computed(() => {
 })
 
 const currentTimeDisplay = computed(() => {
+  // 如果没有时间信息，显示占位符
+  if (!currentYear.value && !currentMonth.value && !currentDay.value) {
+    return '点击设置时间'
+  }
   const eraStr = currentEraName.value ? `${currentEraName.value} ` : ''
-  return `${eraStr}${currentYear.value}年${currentMonth.value}月${currentDay.value}日`
+  const year = currentYear.value || '?'
+  const month = currentMonth.value || '?'
+  const day = currentDay.value || '?'
+  return `${eraStr}${year}年${month}月${day}日`
 })
 
 function interpolateColor(color1, color2, ratio) {
@@ -351,14 +358,18 @@ const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.
 const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')
 
 onMounted(() => {
-  loadCharacterData()
-  loadTimeData()
+  syncCharacterData()
+  syncTimeData()
 })
 
 function loadCharacterData() {
   if (typeof gameStore.loadWritingCharacter === 'function') {
     gameStore.loadWritingCharacter()
   }
+  syncCharacterData()
+}
+
+function syncCharacterData() {
   const data = gameStore.writingCharacter || {}
   characterTraits.value = Array.isArray(data.traits) ? data.traits : []
   moodIntensity.value = data.mood ?? 50
@@ -373,6 +384,10 @@ function loadTimeData() {
   if (typeof gameStore.loadWritingTime === 'function') {
     gameStore.loadWritingTime()
   }
+  syncTimeData()
+}
+
+function syncTimeData() {
   const data = gameStore.writingTime || {}
   currentEraId.value = data.eraId || 'custom'
   currentEraName.value = data.eraName || ''
@@ -384,6 +399,10 @@ function loadTimeData() {
   editMonth.value = currentMonth.value
   editDay.value = currentDay.value
 }
+
+// Watch for store changes to update UI reactively
+watch(() => gameStore.writingCharacter, syncCharacterData, { deep: true })
+watch(() => gameStore.writingTime, syncTimeData, { deep: true })
 
 function saveTime() {
   currentEraName.value = editEraName.value
@@ -514,7 +533,7 @@ function saveCharacter() {
   font-size: 12px; color: var(--text-primary); display: block;
 }
 
-/* 角色卡片 - 紧凑版 */
+/* 角色卡片 */
 .compact-profile {
   display: flex; align-items: center; gap: 10px;
   padding: 10px; background: var(--bg-tertiary); border-radius: 8px;

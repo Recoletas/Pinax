@@ -747,9 +747,11 @@ function normalizeText(value) {
 
 function normalizeEntryType(typeValue) {
   const normalized = normalizeText(typeValue).toLowerCase()
-  if (['location', 'character', 'item', 'event', 'lore', 'quest', 'general'].includes(normalized)) {
+  if (['location', 'character', 'item', 'event', 'lore', 'quest', 'general', 'rule', 'style', 'forbidden', 'organization'].includes(normalized)) {
     return normalized
   }
+  if (normalized === 'org' || normalized === 'faction') return 'organization'
+  if (normalized === 'setting') return 'lore'
   return 'general'
 }
 

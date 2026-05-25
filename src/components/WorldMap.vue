@@ -6,7 +6,7 @@
           <path d="M7 1L1 4v6l6 3 6-3V4L7 1zm0 1.5l4.5 2.5v5L7 12.5 2.5 10v-5L7 2.5z"/>
         </svg>
       </span>
-      <span>地图</span>
+      <span>场景</span>
     </div>
 
     <!-- 当前位置 -->
@@ -169,19 +169,25 @@ const editingCity = ref(null)
 const currentCountry = computed({
   get: () => gameStore.worldMapState?.currentCountry || '',
   set: (value) => {
-    gameStore.worldMapState.currentCountry = value || ''
+    if (gameStore.worldMapState) {
+      gameStore.worldMapState.currentCountry = value || ''
+    }
   }
 })
 const currentCity = computed({
   get: () => gameStore.worldMapState?.currentCity || '',
   set: (value) => {
-    gameStore.worldMapState.currentCity = value || ''
+    if (gameStore.worldMapState) {
+      gameStore.worldMapState.currentCity = value || ''
+    }
   }
 })
 const currentScene = computed({
   get: () => gameStore.worldMapState?.currentScene || '',
   set: (value) => {
-    gameStore.worldMapState.currentScene = value || ''
+    if (gameStore.worldMapState) {
+      gameStore.worldMapState.currentScene = value || ''
+    }
   }
 })
 
@@ -202,15 +208,21 @@ const addModalTitle = computed(() => {
 
 const currentLocationPath = computed(() => {
   const parts = []
-  if (currentCountry.value) parts.push(currentCountry.value)
-  if (currentCity.value) parts.push(currentCity.value)
   if (currentScene.value) parts.push(currentScene.value)
-  return parts.join(' - ')
+  if (currentCity.value) parts.push(currentCity.value)
+  if (currentCountry.value) parts.push(currentCountry.value)
+  return parts.reverse().join(' - ') || '点击设置'
 })
 
 onMounted(() => {
   loadMapData()
 })
+
+// Watch for store changes to update location path reactively
+watch(() => gameStore.worldMapState, (newVal) => {
+  // Force re-computation of currentLocationPath
+  syncEditingSelection()
+}, { deep: true })
 
 function loadMapData() {
   if (typeof gameStore.loadWorldMapState === 'function') {
@@ -417,10 +429,7 @@ watch(() => gameStore.worldMapState, () => {
   transition: all 0.15s;
   margin-bottom: 8px;
 }
-
-.current-loc:hover {
-  background: var(--bg-hover);
-}
+.current-loc:hover { background: var(--bg-hover); }
 
 .loc-marker {
   width: 8px;

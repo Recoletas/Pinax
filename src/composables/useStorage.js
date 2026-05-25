@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   WRITING_TIMELINES: 'writing_timelines',
   WRITING_WORLD_SETTINGS: 'writing_world_settings',
   WRITING_NOTES: 'writing_notes',
+  WRITING_SESSIONS: 'writing_sessions',
+  NARRATIVE_ASSETS: 'narrative_assets_v1',
 
   // 散文随笔
   PROSE_CARDS_V1: 'prose_cards_v1',

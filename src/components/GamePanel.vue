@@ -132,40 +132,43 @@ const saveEdit = (index) => {
 const formatRPText = (text, dialogueMode = false, messageIndex = -1) => {
   if (!text) return ''
 
-  // 步骤1：HTML 转义原始文本
   let result = text
+
+  // 第一步：把所有需要转换的格式用占位符保护起来
+  // 世界观旁白（必须是文本最开头的 *...*，后面跟换行）
+  result = result.replace(/^\*([^*]+)\*\n/m, '[[WRL[$1]]]\n')
+  // 动作 *...*
+  result = result.replace(/\*([^*]+?)\*/g, '[[ACT[$1]]]')
+  // 对话 中文弯引号 "..."
+  result = result.replace(/“([^”]+)”/g, '[[DLG[$1]]]')
+  // 对话 「...」
+  result = result.replace(/「([^」]+)」/g, '[[DLG[$1]]]')
+  // 心理活动 （...）
+  result = result.replace(/（([^）]+)）/g, '[[THO[$1]]]')
+  // 物品
+  result = result.replace(/(获得[了]?|发现[了]?)([^，。！？\n]{2,10}(?:道具|武器|装备|物品|宝物))/g, '[[ITM[$1$2]]]')
+  // 地点名
+  result = result.replace(/(来到|身处|抵达|进入)([^，。！？\n]{2,15})/g, '[[LOC[$1$2]]]')
+  // 时间
+  result = result.replace(/(\d{1,4}年\d{1,2}月\d{1,2}日)/g, '[[TMS[$1]]]')
+
+  // 第二步：HTML 转义
+  result = result
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/'/g, '&apos;')
 
-  // 步骤2：换行
+  // 第三步：换行
   result = result.replace(/\n/g, '<br>')
 
-  // 步骤3：动作格式 - 对话模式用（...），普通模式用 *...*
-  if (dialogueMode) {
-    result = result.replace(/[（]([^）]+)[）]/g, (match) => {
-      return "<em class='rp-action'>" + match + "</em>"
-    })
-  } else {
-    result = result.replace(/\*([^*]+)\*/g, (match) => {
-      return "<em class='rp-action'>" + match + "</em>"
-    })
-  }
-
-  // 步骤4：引号格式 - 添加可点击标记
-  result = result.replace(/"([^"]{3,})"/g, (match, dialogue) => {
-    return `<span class="rp-dialogue clickable" data-type="dialogue" data-content="${encodeURIComponent(dialogue)}" onclick="window.__inlineEventClick?.('dialogue', '${encodeURIComponent(dialogue)}')">${match}</span>`
-  })
-
-  result = result.replace(/「([^」]{3,})」/g, (match, dialogue) => {
-    return `<span class="rp-dialogue clickable" data-type="dialogue" data-content="${encodeURIComponent(dialogue)}" onclick="window.__inlineEventClick?.('dialogue', '${encodeURIComponent(dialogue)}')">${match}</span>`
-  })
-
-  // 步骤5：重要物品标记
-  result = result.replace(/(获得[了]?|发现[了]?)([^，。！？\n]{2,10}(?:道具|武器|装备|物品|宝物))/g, (match, prefix, item) => {
-    return `<span class="rp-item clickable" data-type="item" data-content="${encodeURIComponent(item)}" onclick="window.__inlineEventClick?.('item', '${encodeURIComponent(item)}')">${match}</span>`
-  })
+  // 第四步：把占位符替换成 HTML 标签
+  result = result.replace(/\[\[WRL\[([^\]]+)\]\]\]/g, '<em class="rp-world-intro">$1</em>')
+  result = result.replace(/\[\[ACT\[([^\]]+)\]\]\]/g, '<em class="rp-action">$1</em>')
+  result = result.replace(/\[\[DLG\[([^\]]+)\]\]\]/g, '<span class="rp-dialogue">$1</span>')
+  result = result.replace(/\[\[THO\[([^\]]+)\]\]\]/g, '<span class="rp-thought">$1</span>')
+  result = result.replace(/\[\[ITM\[([^\]]+)\]\]\]/g, '<span class="rp-item">$1</span>')
+  result = result.replace(/\[\[LOC\[([^\]]+)\]\]\]/g, '<span class="rp-location">$1</span>')
+  result = result.replace(/\[\[TMS\[([^\]]+)\]\]\]/g, '<span class="rp-time">$1</span>')
 
   return result
 }
@@ -380,40 +383,9 @@ summary .arrow {
 .text-main {
   font-size: 15px;
   line-height: 1.7;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-:deep(.rp-dialogue) {
-  color: var(--accent);
-}
-
-:deep(.rp-action) {
-  font-style: italic;
-  opacity: 0.8;
-}
-
-:deep(.rp-dialogue.clickable) {
-  cursor: pointer;
-  border-bottom: 1px dashed var(--accent);
-  transition: all 0.15s;
-}
-
-:deep(.rp-dialogue.clickable:hover) {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-}
-
-:deep(.rp-item.clickable) {
-  cursor: pointer;
-  background: color-mix(in srgb, #f59e0b 15%, transparent);
-  border-bottom: 1px dashed #f59e0b;
-  padding: 0 2px;
-  border-radius: 2px;
-}
-
-:deep(.rp-item.clickable:hover) {
-  background: color-mix(in srgb, #f59e0b 25%, transparent);
 }
 
 .edit-area {

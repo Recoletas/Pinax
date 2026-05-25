@@ -2,6 +2,337 @@
 
 > 说明：本日志以当前代码状态为准。若某项曾尝试但已回退，会显式标注“回退/暂缓”，避免记录与代码不一致。
 
+## 2026-05-25
+
+### 会话稳定第一批：运行态 / 全局资料分层 + 会话快照 ✅
+
+目标：
+- 把小说体验的“会话运行态”和“全局写作资料”拆开，避免新建/切换会话误删用户已有内容。
+
+变更：
+- 修改 `src/stores/gameStore.js`
+  - 新增 `getRuntimeSnapshot()`，统一生成会话运行态快照
+  - `createSession()` 改为接收配置对象，支持 `title/worldbookId/inheritRuntimeState`
+  - 会话结构新增 `schemaVersion/worldbookId/runtimeState`
+  - `saveCurrentSession()` 同步保存 `messages/chatHistory/runtimeState/worldbookId`
+  - 新增 `resetRuntimeState()` 与 `resetGlobalWritingAssets()`
+  - `saveWritingCharacter()/saveWritingTime()/saveWorldMapState()/saveWritingActivities()` 改为自动同步当前会话
+  - `sendAction()/updateMessage()/deleteMessage()/initGame()` 补齐会话保存点
+  - `loadSession()` 恢复运行态、对话角色、地图、活动、世界书
+- 修改 `src/pages/Experience.vue`
+  - 会话创建/删除/切换统一走新的 runtime/session 边界
+  - 世界书切换增加确认流程，避免静默重置当前会话
+  - 新建会话后直接初始化当前世界书上下文
+  - 机制行动注入后补保存当前会话
+- 新增测试 `src/__tests__/gameStoreSession.test.js`
+  - 覆盖会话创建、保存/恢复、运行态同步、重置边界
+
+结果：
+- 会话现在能稳定保存和恢复运行态。
+- 新建会话不会误删全局写作资料。
+- 世界书切换不再静默覆盖当前会话。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 会话稳定补丁：新会话 worldbook 选择后恢复初始化 ✅
+
+背景：
+- 之前新会话流程里，worldbook 选择和会话创建被拆散后，出现了“选了世界书但没有真正启动初始化”的感受。
+- 根因是新建会话路径里 `currentSessionId` 没有被显式重置，世界书切换/新建会话两个动作混在了一起。
+
+修复动作：
+- 修改 `src/pages/Experience.vue`
+  - 抽出 `startSessionWithWorldbook()`
+  - 新建会话路径显式清空 `currentSessionId`
+  - worldbook 选择后会自动创建新会话并触发初始化
+  - 保留空 worldbook 的新会话启动路径，避免把原来的空白开局堵死
+
+结果：
+- 新会话选择世界书后会重新进入初始化流程。
+- worldbook 切换不会误拿旧会话当成新会话。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 流式生成卡死补丁：超时兜底 + 中止归一化 ✅
+
+背景：
+- 新建会话后偶发“卡着，按钮都按不了”，刷新后有时恢复，有时继续卡。
+- 这类现象更像是流式生成请求没有正常结束，导致 `isLoading` 一直挂着。
+
+修复动作：
+- 修改 `src/services/api.js`
+  - 为 `sendChatStream()` 增加 `AbortController` 和超时兜底
+  - 默认 30000ms 超时，到点自动中止请求
+  - 中止错误统一转成“请求超时，请稍后重试”
+  - 去掉流式结束分支里未定义的 `fullReasoning` 引用，避免边缘结束态再抛异常
+
+结果：
+- 流式生成不再可能无限挂起。
+- 失败会尽快回到可操作状态，而不是把整页锁死。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 启动链路回收：恢复更接近旧版的会话/世界书顺序 ✅
+
+背景：
+- 现在的新会话入口把“会话选择、世界书切换、初始化”绑得太紧，导致启动时更容易进入半初始化状态。
+- 用户反馈“之前的逻辑这里没问题”，说明这段不该继续堆自动分支。
+
+调整：
+- 修改 `src/pages/Experience.vue`
+  - 启动时优先恢复当前会话或最近一次会话
+  - 去掉世界书切换里的自动新建/自动初始化分支
+  - 新建会话保持显式动作：创建后再初始化
+  - 会话选择器不再在启动时强制接管主界面
+
+结果：
+- 启动顺序回到更朴素的路径，减少互相触发和状态竞争。
+- 新会话/切换会话的行为更可预测。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 会话空态修正：启动先选世界书，状态栏跟随当前会话 ✅
+
+背景：
+- 当前启动时会自动带入默认世界书，失去了原来“先提示选择世界书”的空态。
+- 新建/切换会话后，状态栏和对话角色仍可能读到旧的全局写作资料。
+
+调整：
+- 修改 `src/pages/Experience.vue`
+  - 启动时如果没有会话，不再自动选第一个世界书
+  - 空态下显示会话选择器并保留世界书选择框的占位提示
+  - 新建会话前要求先选世界书
+- 修改 `src/stores/gameStore.js`
+  - `loadWritingCharacter/loadWritingTime/loadWorldMapState/loadWritingActivities` 优先读取当前会话快照
+  - `createSession()` 的空会话会立即回收为干净运行态
+  - 对话角色切换会同步保存当前会话
+- 修改 `src/components/StatusBar.vue` 和 `src/components/InputArea.vue`
+  - 状态栏不再自己从全局存储反向覆盖当前会话
+  - 对话角色清除/选择会同步到会话快照
+
+结果：
+- 启动重新回到“先选世界书”的空态。
+- 新建会话后状态栏会清空并按当前会话刷新。
+- 切换对话角色会跟着当前会话保存和恢复。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 启动自动选书回收：不再回放最近会话 ✅
+
+背景：
+- 启动阶段仍会在没有显式 currentSession 时自动加载最近会话，间接把第一个世界书带出来。
+- 这和“先提示世界书选择”的空态目标冲突。
+
+调整：
+- 修改 `src/pages/Experience.vue`
+  - 去掉 `fallbackSession` 自动加载
+  - 只有显式 currentSession 才会恢复
+  - 无 currentSession 时保持空态和会话选择器
+
+结果：
+- 启动不再自动挑第一个世界书。
+- 只有用户主动选择或恢复已有 currentSession 时才进入叙事。
+
+验证：
+- `npm run test:run src/__tests__/gameStoreSession.test.js` 通过
+- `npm run test:run` 通过，48/48 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### Prompt 上下文改造：新会话优先使用会话快照，避免读旧 localStorage ✅
+
+背景：
+- 新会话初始化时，LLM 仍会偶发沿用上一局的角色名。
+- 根因不是消息没清空，而是 `buildContextMessage()` 还默认从 `localStorage` 读取 `writing_character` 等全局数据。
+
+调整：
+- 修改 `src/services/api.js`
+  - `getWritingContextDetail()` 支持显式传入 `contextDetail`
+  - `buildContextMessage()` 支持 `contextDetail` 覆盖
+  - 覆盖值优先于全局存储
+- 修改 `src/stores/gameStore.js`
+  - 生成 prompt 时直接传入当前会话的写作快照
+- 修改 `src/stores/experienceStore.js`
+  - 同步接入当前会话快照
+- 修改 `src/components/InputArea.vue`
+  - 提示词预览改为读取当前会话上下文
+- 新增测试 `src/__tests__/contextMessage.test.js`
+  - 保障 session 快照优先于旧 localStorage
+
+结果：
+- 新会话 prompt 不再偷读上一局角色名。
+- LLM 看到的是当前会话的角色/时间/地点，而不是旧全局状态。
+
+验证：
+- `npm run test:run src/__tests__/contextMessage.test.js` 通过
+- `npm run test:run` 通过，49/49 tests pass
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 初始化示例去固定名：避免每次都诱导出同一个开场姓名 ✅
+
+背景：
+- 即便新会话上下文已切到当前 session，初始化 prompt 里仍带有固定示例名 `沈墨`。
+- 这会让模型在开局阶段重复选同一个名字，表现得像“没真正新开一局”。
+
+调整：
+- 修改 `src/stores/gameStore.js`
+  - 将初始化示例中的固定人名改成占位式写法，不再提供可直接复用的具体名字
+- 修改 `src/services/api.js`
+  - 将默认占位名 `User` / `未命名` 从 prompt 角色上下文中过滤掉
+
+结果：
+- 初始化时 LLM 不再被单一示例名强烈带偏。
+- 新会话更容易生成真正独立的开场角色名。
+
+验证：
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 新会话开局再收紧：强制要求独立新名字 ✅
+
+背景：
+- 即使前面已经去掉了旧 `localStorage` 角色名，新会话仍可能稳定产出同一个开场姓名。
+- 这更像是初始化 prompt 过于固定，模型每次都会沿着同一条开局路径走。
+
+调整：
+- 修改 `src/stores/gameStore.js`
+  - 新会话开局明确要求生成“全新姓名”
+  - 强调不要复用任何旧会话里的名字
+  - 去掉示例中的固定姓名，改成占位式写法
+
+结果：
+- 新会话开局的姓名约束更强，不再默认复用上一次的名字。
+
+验证：
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 世界书上下文抽取：从 gameStore 拆出纯构建服务 ✅
+
+背景：
+- 世界书注入逻辑仍然直接写在 `gameStore` 里，后续很难做预览、测试和优先级整理。
+
+调整：
+- 新增 `src/services/worldbookContextBuilder.js`
+  - 抽出 `buildWorldbookContext()` / `matchWorldbookEntries()`
+  - 输出 `messages / matchedEntries / budgetReport / warnings`
+  - 允许把当前会话快照作为上下文输入
+- 修改 `src/stores/gameStore.js`
+  - 生成时改为调用纯 service
+  - 保存 `lastWorldbookContext` 供后续预览使用
+- 新增 `src/__tests__/worldbookContextBuilder.test.js`
+
+结果：
+- 世界书注入从 store 里剥离成独立服务。
+- 后续可以直接基于构建结果做 UI 预览，不需要再拆一次逻辑。
+
+验证：
+- `npm run test:run src/__tests__/worldbookContextBuilder.test.js` 通过
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 世界书注入预览：提示词详情里可直接看到命中结果 ✅
+
+背景：
+- 世界书构建已经从 `gameStore` 抽成纯服务，但用户仍看不到“这次到底注入了什么”。
+
+调整：
+- 修改 `src/components/InputArea.vue`
+  - 在“提示词详情”里新增“世界书”页签
+  - 展示世界书名称、命中条目数、预算占用、截断数量
+  - 逐条显示本次命中的条目和警告
+
+用户可感知的变化：
+- 打开小说体验页后，点击输入区上方的“提示词详情”，再切到“世界书”页签。
+- 你能直接看到这次生成为什么会命中这些条目。
+
+验证：
+- `npm run build` 通过
+
+回退：无。
+
+---
+
+### 世界书条目层级：规则 / 禁忌 / 风格优先于普通条目 ✅
+
+背景：
+- 世界书条目已有类型字段，但类型层级不完整，用户也不能明确标记“规则、风格、禁忌、组织”。
+
+调整：
+- 修改 `src/services/worldbookContextBuilder.js`
+  - 标准化 entry type
+  - 常驻条目优先
+  - 规则、禁忌、风格优先于角色、地点、普通条目
+  - 命中结果记录 `matchReason`
+- 修改 `src/pages/WorldBookEditor.vue`
+  - 条目类型新增：规则、风格、禁忌、组织
+- 修改 `src/pages/WorldBookQuickImport.vue`
+  - 导入时兼容新增类型
+- 修改 `src/stores/worldStore.js`
+  - 自动猜测条目类型时支持规则、风格、禁忌、组织
+- 更新 `src/__tests__/worldbookContextBuilder.test.js`
+
+用户可感知的变化：
+- 到“世界书导入 / 高级编辑”里编辑条目，类型下拉会看到“规则、风格、禁忌、组织”。
+- 回到小说体验页生成一次内容后，打开“提示词详情 -> 世界书”，这些高优先级条目会排在普通条目前面，并显示“常驻/命中”。
+
+验证：
+- `npm run test:run src/__tests__/worldbookContextBuilder.test.js` 通过
+- `npm run build` 通过
+
+回退：无。
+
 ## 2026-05-21
 
 ### M1-1 WorldStore 创建 ✅
@@ -1273,3 +1604,77 @@
 
 **测试统计：** 45 个测试全部通过
 **构建状态：** 代码分割正常，chunk 体积合理
+## 2026-05-25 - 体验素材闭环第一步：素材存储与写作消费（进行中）
+
+目标：
+- 按当前计划推进第三批“体验到写作素材闭环”。
+- 先建立统一素材存储层，让体验页选段/速记可以进入素材收件箱。
+- 让写作页能读取素材并插入当前章节。
+
+约束：
+- 不打断现有速记和笔记流程。
+- UI 入口复用现有速记抽屉样式，避免新增突兀区域。
+- 完成后做针对性测试和构建验证。
+
+回退：
+- 删除本次新增素材服务与页面入口，恢复 `STORAGE_KEYS` 新增项即可。
+
+---
+
+结果：
+- 新增统一素材服务 `src/services/narrativeAssets.js`，素材有统一 schema、类型、状态和更新接口。
+- 体验页速记抽屉新增“存为素材”按钮，并可把选中的对话段直接存成素材。
+- 写作页新增“素材收件箱”，可查看待处理素材，并将素材插入当前章节，或归档/拒绝。
+- `STORAGE_KEYS` 新增 `NARRATIVE_ASSETS`，素材数据独立保存。
+
+你现在可以这样感受到变化：
+- 在小说体验页，写一段速记，点“存为素材”，然后去写作页打开“素材收件箱”。
+- 或者在体验页勾选几段对话，点“存素材”，再到写作页把它插入章节正文。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 速记入口减负：收掉冗余按钮，保留主操作
+
+调整：
+- 体验页速记抽屉删掉了“去笔记 / 去小说”两个跳转按钮，只保留“保存到笔记”“存为素材”“导入”。
+- 写作页速记抽屉删掉了独立的“素材收件箱”按钮和额外跳转按钮，把“对话段 / 素材”合并进同一个导入面板，用页内切换处理。
+- 写作页现在只保留“保存到笔记”和“导入”两个主按钮，面板内再按任务切换。
+
+你现在可以这样感受到变化：
+- 打开体验页或写作页右侧速记抽屉，按钮明显少了。
+- 写作页点“导入”后，再在面板里切到“素材”就能看收件箱，不需要再找第二个入口。
+
+验证：
+- `npm run build`
+
+---
+
+## 2026-05-25 - 统一 AI 任务入口：generationService 抽出
+
+调整：
+- 新增 `src/services/generationService.js`，把任务类型、重试、解析、成功判定统一到一个执行器里。
+- `src/services/generationRetry.js` 改为复用新执行器，保持现有重试 API 不变。
+- 为新执行器补了专门测试，确认 `taskType` 和重试元数据都会传递下去。
+
+你现在不会直接看到新按钮，但后续所有扩展、改写、提取类任务都会走同一条底层路径，后面统一行为会更稳。
+
+验证：
+- `npm run test:run -- src/__tests__/generationService.test.js src/__tests__/generationRetry.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - `.gitignore` 整理
+
+调整：
+- 补了常见本地缓存和临时产物规则：`out/`、`.eslintcache`、`.parcel-cache/`、`.turbo/`、`.npm/`、`.pnpm-store/`、`.yarn/`、`*.tsbuildinfo`、`*.tmp`、`*.temp`。
+- 补了更多本地环境变量文件：`.env.local`、`.env.development.local`、`.env.test.local`、`.env.production.local`。
+- 补了常见临时补丁文件：`*.orig`、`*.rej`。
+
+这一步不会直接改变 UI，但能减少本地开发时的脏文件噪音。
+
+---

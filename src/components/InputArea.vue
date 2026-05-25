@@ -40,12 +40,37 @@
         </div>
         <div class="modal-tabs">
           <button :class="['tab', { active: detailTab === 'context' }]" @click="detailTab = 'context'">上下文</button>
+          <button :class="['tab', { active: detailTab === 'worldbook' }]" @click="detailTab = 'worldbook'">世界书</button>
           <button :class="['tab', { active: detailTab === 'history' }]" @click="detailTab = 'history'">历史</button>
           <button :class="['tab', { active: detailTab === 'system' }]" @click="detailTab = 'system'">系统</button>
         </div>
         <div class="modal-body">
           <div v-if="detailTab === 'context'" class="content-preview">
             <div class="text-content">{{ contextMsg ? contextMsg.content : '无上下文' }}</div>
+          </div>
+          <div v-if="detailTab === 'worldbook'" class="content-preview">
+            <div v-if="worldbookContext" class="worldbook-preview">
+              <div class="worldbook-summary">
+                <div class="worldbook-line"><span>世界书</span><strong>{{ worldbookContextName }}</strong></div>
+                <div class="worldbook-line"><span>命中条目</span><strong>{{ worldbookContext.matchedEntries.length }}</strong></div>
+                <div class="worldbook-line"><span>预算</span><strong>{{ worldbookContext.budgetReport.usedChars }} / {{ worldbookContext.budgetReport.maxChars }}</strong></div>
+                <div class="worldbook-line"><span>截断</span><strong>{{ worldbookContext.budgetReport.truncatedEntries }}</strong></div>
+              </div>
+              <div v-if="worldbookContext.matchedEntries.length > 0" class="worldbook-entry-list">
+                <div v-for="entry in worldbookContext.matchedEntries" :key="entry.id" class="worldbook-entry">
+                  <div class="worldbook-entry-head">
+                    <span class="entry-name">{{ entry.name }}</span>
+                    <span class="entry-type">{{ entry.type }} · {{ entry.matchReason === 'constant' ? '常驻' : '命中' }}</span>
+                  </div>
+                  <div class="entry-content">{{ entry.content }}</div>
+                </div>
+              </div>
+              <div v-else class="empty">当前没有命中的世界书条目</div>
+              <div v-if="worldbookContext.warnings.length > 0" class="worldbook-warnings">
+                <div v-for="warning in worldbookContext.warnings" :key="warning" class="warning-item">{{ warning }}</div>
+              </div>
+            </div>
+            <div v-else class="empty">当前没有可预览的世界书注入结果</div>
           </div>
           <div v-if="detailTab === 'history'" class="content-preview">
             <div v-if="gameStore.chatHistory.length === 0" class="empty">无历史记录</div>
@@ -66,9 +91,9 @@
     <div class="quick-actions">
       <button
         v-for="action in quickActions"
-        :key="action.text"
+        :key="action.command"
         class="quick-btn"
-        @click="handleQuickAction(action.text)"
+        @click="handleQuickAction(action.command)"
         :disabled="gameStore.isLoading"
       >
         {{ action.icon }} {{ action.label }}
@@ -193,11 +218,18 @@ const systemPromptContent = `【身份】你是一位资深的文学创作助手
 - 长度适中，一般 50-200 字`
 
 const quickActions = [
-  { label: '继续', icon: '▶', text: '继续' },
-  { label: '场景', icon: '🌿', text: '描写场景' },
-  { label: '对话', icon: '💬', text: '描写对话' },
-  { label: '心理', icon: '💭', text: '描写心理' }
+  { label: '继续', icon: '▶', command: 'continue' },
+  { label: '场景', icon: '🌿', command: 'scene' },
+  { label: '对话', icon: '💬', command: 'dialogue' },
+  { label: '心理', icon: '💭', command: 'inner' }
 ]
+
+const quickActionPrompts = {
+  continue: '请继续推进剧情，保持叙事风格一致。',
+  scene: '请详细描写当前场景的环境氛围和细节。',
+  dialogue: '请描写一段对话交互。',
+  inner: '请描写角色的内心活动和情感变化。'
+}
 
 function handleSend() {
   if (inputText.value.trim()) {
@@ -206,8 +238,10 @@ function handleSend() {
   }
 }
 
-function handleQuickAction(text) {
-  emit('send', text)
+function handleQuickAction(command) {
+  // 发送隐藏命令，不在聊天中显示
+  const prompt = quickActionPrompts[command] || command
+  emit('send', prompt, { hidden: true })
 }
 
 async function handleCompress() {
@@ -252,7 +286,7 @@ function selectDialogueCharacter(char) {
 }
 
 function clearDialogueCharacter() {
-  gameStore.dialogueCharacter = null
+  gameStore.clearDialogueCharacter()
 }
 
 function addNewDialogueCharacter() {
@@ -281,7 +315,20 @@ function estimateTokens(text) {
   return Math.ceil(chinese * 1.5 + english / 1.3)
 }
 
-const contextMsg = computed(() => buildContextMessage())
+const contextMsg = computed(() => buildContextMessage(gameStore.dialogueCharacter, {
+  contextDetail: {
+    character: gameStore.writingCharacter,
+    time: gameStore.writingTime,
+    location: gameStore.worldMapState,
+    scene: null,
+    activities: gameStore.activities
+  }
+}))
+const worldbookContext = computed(() => gameStore.lastWorldbookContext)
+const worldbookContextName = computed(() => {
+  return worldbookContext.value?.messages?.[0]?.content?.match(/【世界书：([^】]+)】/)?.[1]
+    || '未命名世界书'
+})
 const contextTokens = computed(() => contextMsg.value ? estimateTokens(contextMsg.value.content) : 0)
 const historyTokens = computed(() => {
   let tokens = 0
@@ -581,6 +628,83 @@ function updatePromptInfo() {
   padding: 12px;
   max-height: 400px;
   overflow-y: auto;
+}
+
+.worldbook-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.worldbook-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.worldbook-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.worldbook-line span {
+  color: var(--text-muted);
+}
+
+.worldbook-line strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.worldbook-entry-list,
+.worldbook-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.worldbook-entry,
+.warning-item {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.worldbook-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.entry-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.entry-type {
+  color: var(--accent);
+}
+
+.entry-content {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.warning-item {
+  color: var(--warning, #fbbf24);
+  background: color-mix(in srgb, var(--warning, #fbbf24) 10%, var(--bg-secondary));
 }
 
 .text-content {
