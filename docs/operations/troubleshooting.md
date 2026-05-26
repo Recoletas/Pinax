@@ -10,7 +10,7 @@
 ### 1.2 架构守卫失败（直接调用 sendChat）
 - 现象：`npm run verify` 失败，报业务层直接调用 `sendChat`。
 - 优先检查：`pages/stores/composables` 是否存在直接导入。
-- 处理建议：改用 `runGenerationRetryPlan`，补齐重试与解析逻辑。
+- 处理建议：改用对应的专用 `services/*`，再由 `runGenerationTask` / `runGenerationStreamTask` 发起生成，补齐重试与解析逻辑放在 service 层。
 
 ### 1.3 文件上传在自动化环境下 ENOENT
 - 现象：浏览器自动化上传本地文件时报路径不存在。

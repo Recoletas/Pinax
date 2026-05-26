@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { buildContextMessage } from '../services/api'
-import { runGenerationRetryPlan } from '../services/generationRetry'
+import { runGenerationTask } from '../services/generationService'
 
 export const useExperienceStore = defineStore('experience', {
   state: () => ({
@@ -185,7 +185,8 @@ export const useExperienceStore = defineStore('experience', {
           ? [contextMsg, ...this.chatHistory]
           : this.chatHistory
 
-        const generationResult = await runGenerationRetryPlan({
+        const generationResult = await runGenerationTask({
+          taskType: 'experience.response',
           baseMessages: messagesToSend,
           settings: this.apiSettings,
           worldId: this.worldbookId,

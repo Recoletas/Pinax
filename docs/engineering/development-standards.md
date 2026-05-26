@@ -9,8 +9,10 @@
 
 ## 2. AI 调用约束
 
-- 业务侧禁止直接调用或导入 `sendChat`。
-- 统一使用 `runGenerationRetryPlan`，并明确：
+- 业务侧禁止直接调用或导入 `sendChat` / `sendChatStream`。
+- 页面层不直接调用 `runGenerationRetryPlan`；优先抽专用 `services/*`，再通过 `runGenerationTask` / `runGenerationStreamTask` 执行生成。
+- 每个生成任务必须明确：
+  - `taskType`。
   - 尝试顺序（first/retry）。
   - 结构化解析策略。
   - 失败提示与兜底策略。

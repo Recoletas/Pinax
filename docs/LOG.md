@@ -6,14 +6,31 @@
 
 | 模块 | 状态 | 关键结果 |
 |------|------|----------|
-| 会话稳定 | 完成 | 会话运行态和全局资料拆分，新建/切换/保存/恢复已收口 |
+| 会话与运行态 | 完成 | 会话运行态和全局资料拆分，新建/切换/保存/恢复已收口 |
 | 世界书上下文 | 完成 | 上下文构建器、命中预览、常驻/高优先级条目、草稿入库已接入 |
-| 体验素材闭环 | 完成 | 素材存储、整理体验、写作消费、入纲要、续写参考、转笔记、入世界书已完成 |
-| 统一生成服务 | 进行中 | 写作、Copilot、顾问、体验主生成已接入；剩余诗歌/散文/世界书导入 |
-| 记忆系统 | 基本完成 | 候选确认、scope 隔离、mem0 同步/读取、本地记忆注入已接入 |
-| 编导模式 | 待做 | storyboard schema、版本、导出校验尚未统一 |
+| 素材中台 | 完成 | 素材存储、整理体验、写作消费、入纲要、续写参考、转笔记、入世界书已完成 |
+| 统一生成任务层 | 完成 | 写作、Copilot、顾问、体验、诗歌、散文、世界书导入已接入；业务层已无 `runGenerationRetryPlan` 直连 |
+| 编辑器与统一智能顾问 | 当前主线 | 计划保留 textarea，统一到 OpenClaw 顾问，弱化高频补全 |
+| 记忆系统 | 收尾中 | 候选确认、scope 隔离、mem0 同步/读取、本地记忆注入已接入 |
+| 统一分镜输出层 | 待启动 | storyboard schema、版本、导出校验尚未统一 |
 
 ## 最新里程碑
+
+### 2026-05-26 - 工具链规划重构
+
+状态：完成
+
+变更：
+- 将规划主语言从“诗歌页 / 散文页 / 体验页”改为“叙事创作工具链”。
+- 新增编辑器与统一智能顾问专题。
+- 明确后续主线为编辑器顾问、记忆收尾、统一分镜和信息架构收口。
+- 补充 OpenClaw 前置边界、顾问结构化返回协议、记忆同步字段和 storyboard 缺失类型。
+
+用户可感知：
+- 短期界面不变；后续开发入口和优先级会按工具链阶段推进。
+
+验证：
+- 文档变更，未执行代码验证。
 
 ### 2026-05-26 - 文档精简
 
@@ -32,27 +49,30 @@
 
 ### 2026-05-26 - 生成服务收口
 
-状态：进行中
+状态：完成
 
 已完成：
 - `sendChat()` 只允许 `api.js` 和 `generationRetry.js` 调用。
 - `sendChatStream()` 只允许 `api.js` 和 `generationService.js` 调用。
 - `runGenerationTask()` 已接入写作扩展、改写、Copilot、体验整理。
 - `runGenerationStreamTask()` 已接入创作顾问和小说体验主生成。
+- 诗歌工坊、散文随笔、世界书快速导入已改为通过专用 service 调用 `runGenerationTask()`。
+- `experienceStore` 也已收口到 `runGenerationTask()`。
 - 任务元数据 `taskType`、`promptVersion`、`attemptName` 已透传 API 层。
 
 用户可感知：
 - 界面操作基本不变。
 - 生成日志能区分 `writing.copilot`、`advisor.review`、`narrative.init`、`narrative.continue` 等任务。
+- 诗歌、散文和世界书导入的生成请求现在也会带上独立任务标签，方便排查和分析。
+- 体验页和游戏对话链路也统一走任务化生成入口。
 
 最近验证：
-- `generationService.test.js`、`apiGeneration.test.js` 通过。
-- `gameStoreSession.test.js`、`generationService.test.js` 通过。
-- `architectureGuard.test.js` 通过。
+- `src/__tests__/generationFeatureServices.test.js` 通过。
+- `src/__tests__/architectureGuard.test.js` 通过。
 - `npm run build` 通过。
 
 剩余：
-- 迁移诗歌、散文、世界书快速导入中的旧生成调用。
+- 无。
 
 ### 2026-05-26 - 体验素材闭环完成
 
@@ -115,9 +135,9 @@
 ## 已知风险
 
 - 新会话初始化曾出现角色名复用，疑似缓存或旧上下文污染；后续碰初始化逻辑时优先复查 prompt、运行态快照和请求传参。
-- `experienceStore` 仍有旧生成调用，需要确认是否实际使用；若不用，应标 legacy 或清理。
-- 诗歌、散文、世界书快速导入仍有直接 `runGenerationRetryPlan()` 调用，属于统一生成服务剩余工作。
-- 编导模式尚未统一 schema，暂不要在旧结构上继续扩导出能力。
+- OpenClaw 统一顾问依赖 Gateway 可用性；实现时必须给出明确错误和降级说明。
+- 业务层已无直接 `runGenerationRetryPlan()` 调用，后续新任务不要绕开任务层。
+- 统一分镜输出层尚未建立 schema，暂不要在旧结构上继续扩导出能力。
 
 ## 以后追加格式
 
