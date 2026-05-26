@@ -94,6 +94,7 @@ export async function runGenerationRetryPlan({
           ...generationOptions,
           retryCount: index,
           request_id: `${requestIdBase}_a${index}`,
+          attemptName: attempt?.name || `attempt-${index + 1}`,
           taskType
         }
       )

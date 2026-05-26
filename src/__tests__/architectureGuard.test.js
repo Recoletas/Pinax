@@ -103,4 +103,44 @@ describe('architecture guard', () => {
 
     expect(offenders).toHaveLength(0)
   })
+
+  it('only API layer and generation service can call sendChatStream', () => {
+    const allowedCallers = new Set([
+      'services/api.js',
+      'services/generationService.js'
+    ])
+
+    const offenders = []
+    const files = walkFiles(srcDir)
+    const sendChatStreamCallRegex = /\bsendChatStream\s*\(/
+
+    for (const file of files) {
+      const rel = toPosixPath(relative(srcDir, file))
+      if (rel.startsWith('__tests__/')) continue
+
+      const content = readFileSync(file, 'utf-8')
+      if (!sendChatStreamCallRegex.test(content)) continue
+      if (allowedCallers.has(rel)) continue
+
+      offenders.push({
+        file: rel,
+        line: findFirstLineNumber(content, sendChatStreamCallRegex)
+      })
+    }
+
+    if (offenders.length > 0) {
+      const detail = offenders
+        .map(({ file, line }) => {
+          const lineInfo = line > 0 ? `:${line}` : ''
+          return `- ${file}${lineInfo} -> 请改为通过 generationService 的 runGenerationStreamTask() 发起流式请求，不要直接调用 sendChatStream().`
+        })
+        .join('\n')
+
+      throw new Error(
+        `检测到未授权的 sendChatStream() 直接调用：\n${detail}\n允许调用方仅有：services/api.js, services/generationService.js`
+      )
+    }
+
+    expect(offenders).toHaveLength(0)
+  })
 })

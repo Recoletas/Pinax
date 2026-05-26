@@ -95,7 +95,6 @@
               </select>
             </div>
             <textarea
-              ref="quickNoteInputRef"
               v-model="quickNoteDraft"
               class="quick-note-workspace-input"
               placeholder="随手记一段体验片段、设定、人物变化或正文候选..."
@@ -234,7 +233,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
@@ -252,9 +251,10 @@ import Character from '../components/Character.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
-import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
+import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -490,11 +490,9 @@ function collectItem(itemName) {
 }
 
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
-const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
 const quickNoteOpen = ref(false)
 const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteStatus = ref('')
-const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
 const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
@@ -541,19 +539,8 @@ function persistQuickNoteDraft() {
   setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
 }
 
-function resizeQuickNoteInput(el = quickNoteInputRef.value) {
-  if (!el) return
-  const minHeight = 30
-  const maxHeight = 104
-  el.style.height = `${minHeight}px`
-  const nextHeight = Math.min(el.scrollHeight, maxHeight)
-  el.style.height = `${Math.max(minHeight, nextHeight)}px`
-  el.style.borderRadius = nextHeight > 44 ? '12px' : '999px'
-}
-
-function handleQuickNoteInput(event) {
+function handleQuickNoteInput() {
   persistQuickNoteDraft()
-  resizeQuickNoteInput(event?.target)
 }
 
 function toggleQuickNoteImport() {
@@ -577,7 +564,6 @@ function importSelectedDialogueSegments() {
   quickNoteImportOpen.value = false
   gameStore.setQuickNoteImportMode(false)
   quickNoteStatus.value = `已导入 ${picked.length} 段对话`
-  nextTick(() => resizeQuickNoteInput())
 }
 
 function getSelectedDialogueMessageRefs() {
@@ -691,16 +677,13 @@ async function organizeExperienceAssets() {
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
   removeItem(QUICK_NOTE_DRAFT_KEY)
-  nextTick(() => resizeQuickNoteInput())
 }
 
 watch(quickNoteOpen, (open) => {
   if (!open) {
     quickNoteImportOpen.value = false
     gameStore.setQuickNoteImportMode(false)
-    return
   }
-  nextTick(() => resizeQuickNoteInput())
 })
 
 function quickNoteWordCount(text) {
@@ -711,22 +694,6 @@ function quickNoteWordCount(text) {
   return chineseChars + englishWords
 }
 
-function buildQuickNoteTitle(text) {
-  const firstLine = String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean)
-
-  if (firstLine) return firstLine.slice(0, 18)
-
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mi = String(now.getMinutes()).padStart(2, '0')
-  return `速记 ${mm}-${dd} ${hh}:${mi}`
-}
-
 function saveQuickNote() {
   const content = quickNoteDraft.value.trim()
   if (!content) {
@@ -734,21 +701,12 @@ function saveQuickNote() {
     return false
   }
 
-  let notes = []
-  notes = getItem(QUICK_NOTE_STORE_KEY) || []
-  if (!Array.isArray(notes)) notes = []
-
-  notes.unshift({
-    id: Date.now().toString(),
-    title: buildQuickNoteTitle(content),
+  prependWritingNote({
+    title: buildWritingNoteTitle(content, '速记'),
     content,
     contentFormat: 'md',
-    wordCount: quickNoteWordCount(content),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    wordCount: quickNoteWordCount(content)
   })
-
-  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true
@@ -983,62 +941,6 @@ function saveQuickNote() {
   transition: transform 0.16s ease, border-color 0.16s ease;
 }
 
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, #ffffff 6%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-kind-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-kind-row span {
-  flex: 1;
-}
-
 .quick-note-kind-select {
   width: 112px;
   min-width: 0;
@@ -1055,79 +957,6 @@ function saveQuickNote() {
   border-color: var(--accent);
 }
 
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-import-panel {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-}
-
-.quick-note-import-body {
-  display: grid;
-  grid-template-columns: 1fr 96px;
-  gap: 8px;
-}
-
-.quick-note-import-left {
-  min-width: 0;
-}
-
-.quick-note-import-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.quick-note-import-title {
-  flex: 1;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-mini-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.quick-note-mini-btn:hover,
-.quick-note-mini-btn.primary {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.quick-note-import-side {
-  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding-left: 8px;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
 .quick-note-stat {
   display: flex;
   justify-content: space-between;
@@ -1139,11 +968,6 @@ function saveQuickNote() {
 .quick-note-stat strong {
   color: var(--text-primary);
   font-weight: 600;
-}
-
-.quick-note-import-empty {
-  color: var(--text-secondary);
-  line-height: 1.4;
 }
 
 .advisor-fab {
@@ -1168,12 +992,6 @@ function saveQuickNote() {
 .advisor-fab:hover {
   transform: scale(1.06);
   box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
 }
 
 .quick-note-workspace-overlay {
@@ -1333,6 +1151,11 @@ function saveQuickNote() {
   color: var(--text-secondary);
 }
 
+.quick-note-import-empty {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 .quick-note-panel-btn {
   min-height: 30px;
   padding: 0 10px;
@@ -1393,10 +1216,6 @@ function saveQuickNote() {
     width: 46px;
     height: 46px;
     border-radius: 999px;
-  }
-
-  .quick-notes-drawer {
-    width: min(280px, calc(100vw - 24px));
   }
 
   .quick-note-workspace-overlay {

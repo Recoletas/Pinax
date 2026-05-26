@@ -379,6 +379,7 @@ import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import { createWritingNote, listWritingNotes, replaceWritingNotes } from '../services/writingNotes'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -507,12 +508,7 @@ async function openclawAdvice(question, context) {
 }
 
 function loadNotes() {
-  try {
-    const stored = localStorage.getItem('writing_notes')
-    chapters.value = stored ? JSON.parse(stored) : []
-  } catch (e) {
-    chapters.value = []
-  }
+  chapters.value = listWritingNotes()
 
   if (chapters.value.length > 0) {
     selectChapter(chapters.value[0].id)
@@ -525,7 +521,7 @@ function loadNotes() {
 }
 
 function saveNotes() {
-  localStorage.setItem('writing_notes', JSON.stringify(chapters.value))
+  replaceWritingNotes(chapters.value)
 }
 
 function selectChapter(chapterId) {
@@ -555,14 +551,12 @@ function createNewNote() {
 function confirmCreateNote() {
   if (!newNoteTitle.value.trim()) return
 
-  const newNote = {
-    id: Date.now().toString(),
+  const newNote = createWritingNote({
     title: newNoteTitle.value.trim(),
     content: '',
     contentFormat: 'md',
-    wordCount: 0,
-    createdAt: new Date().toISOString(),
-  }
+    wordCount: 0
+  })
 
   chapters.value.push(newNote)
   saveNotes()

@@ -8,7 +8,7 @@
  * - 本地缓存
  */
 
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, getCurrentInstance } from 'vue'
 import { getItem, setItem, STORAGE_KEYS } from './useStorage'
 
 // 配置常量
@@ -19,6 +19,7 @@ const MAX_CONCURRENT = 3
 const MAX_PER_MINUTE = 20
 const CACHE_KEY = 'mem0_cache'
 const SYNC_STATE_KEY = 'mem0_sync_state'
+const MEMORY_SCOPE_VALUES = new Set(['global-author', 'project', 'session'])
 
 // 记忆类型
 export const MEMORY_TYPES = {
@@ -35,6 +36,53 @@ const syncQueue = new Map()
 let processing = false
 let requestCount = 0
 let lastMinuteReset = Date.now()
+
+function normalizeMemoryScope(scope) {
+  const value = String(scope || '').trim()
+  return MEMORY_SCOPE_VALUES.has(value) ? value : ''
+}
+
+function normalizeSearchMetadataFilter(metadataFilter = {}) {
+  if (!metadataFilter || typeof metadataFilter !== 'object') return null
+
+  const entries = Object.entries(metadataFilter)
+    .map(([key, value]) => [String(key).trim(), value])
+    .filter(([key, value]) => key && value !== undefined && value !== null && String(value).trim() !== '')
+    .sort(([a], [b]) => a.localeCompare(b))
+
+  if (!entries.length) return null
+
+  return Object.fromEntries(entries.map(([key, value]) => [key, String(value)]))
+}
+
+function buildSearchMetadataFilter({ type = '', scope = '', scopeId = '', metadataFilter = {} } = {}) {
+  const filter = normalizeSearchMetadataFilter(metadataFilter) || {}
+
+  if (type) {
+    filter.type = String(type)
+  }
+
+  if (scope) {
+    filter.scope = String(scope)
+  }
+
+  if (scopeId) {
+    filter.scopeId = String(scopeId)
+  }
+
+  return normalizeSearchMetadataFilter(filter)
+}
+
+function buildSearchCacheKey(query, options = {}) {
+  return JSON.stringify({
+    query: String(query || ''),
+    limit: Number(options.limit) || 10,
+    type: options.type || null,
+    scope: options.scope || null,
+    scopeId: options.scopeId || null,
+    metadataFilter: normalizeSearchMetadataFilter(options.metadataFilter)
+  })
+}
 
 /**
  * 创建 mem0 客户端
@@ -71,6 +119,8 @@ export function useMem0(config = {}) {
       return { success: false, error: 'mem0 未配置' }
     }
 
+    const memoryMetadata = memory?.metadata && typeof memory.metadata === 'object' ? memory.metadata : {}
+
     try {
       const response = await fetch(`${apiUrl}/memories`, {
         method: 'POST',
@@ -82,10 +132,12 @@ export function useMem0(config = {}) {
           messages: [{ role: 'user', content: memory.content }],
           user_id: userId,
           metadata: {
-            type: memory.type || MEMORY_TYPES.EVENT,
-            entityId: memory.entityId,
-            importance: memory.importance || 5,
-            ...memory.metadata
+            ...memoryMetadata,
+            type: memory.type || memoryMetadata.type || MEMORY_TYPES.EVENT,
+            entityId: memory.entityId || memoryMetadata.entityId,
+            scope: memory.scope || memoryMetadata.scope || '',
+            scopeId: memory.scopeId || memoryMetadata.scopeId || '',
+            importance: memory.importance || memoryMetadata.importance || 5
           }
         })
       })
@@ -117,10 +169,30 @@ export function useMem0(config = {}) {
       return []
     }
 
-    const { limit = 10, type } = options
+    const {
+      limit = 10,
+      type,
+      scope,
+      scopeId,
+      metadataFilter = {}
+    } = options
+    const normalizedScope = normalizeMemoryScope(scope)
+    const normalizedScopeId = String(scopeId || '').trim()
+    const mergedMetadataFilter = buildSearchMetadataFilter({
+      type,
+      scope: normalizedScope,
+      scopeId: normalizedScopeId,
+      metadataFilter
+    })
 
     // 检查缓存
-    const cacheKey = `${query}_${type || 'all'}`
+    const cacheKey = buildSearchCacheKey(query, {
+      limit,
+      type,
+      scope: normalizedScope,
+      scopeId: normalizedScopeId,
+      metadataFilter: mergedMetadataFilter
+    })
     const cached = getCachedSearch(cacheKey)
     if (cached && Date.now() - cached.timestamp < 60000) {
       return cached.results
@@ -133,8 +205,8 @@ export function useMem0(config = {}) {
         limit: String(limit)
       })
 
-      if (type) {
-        params.append('metadata_filter', JSON.stringify({ type }))
+      if (mergedMetadataFilter) {
+        params.append('metadata_filter', JSON.stringify(mergedMetadataFilter))
       }
 
       const response = await fetch(`${apiUrl}/memories?${params}`, {
@@ -197,8 +269,12 @@ export function useMem0(config = {}) {
    * @param {string} type - 记忆类型
    * @returns {Promise<Array>} 记忆列表
    */
-  async function getMemoriesByType(type) {
-    return searchMemories('', { type, limit: 50 })
+  async function getMemoriesByType(type, options = {}) {
+    return searchMemories('', {
+      ...options,
+      type,
+      limit: options.limit || 50
+    })
   }
 
   /**
@@ -284,8 +360,14 @@ export function useMem0(config = {}) {
    * @param {string} currentSituation - 当前情境
    * @returns {Promise<string>} 记忆上下文
    */
-  async function buildMemoryContext(currentSituation) {
-    const memories = await searchMemories(currentSituation, { limit: 10 })
+  async function buildMemoryContext(currentSituation, options = {}) {
+    const memories = await searchMemories(currentSituation, {
+      limit: options.limit || 10,
+      type: options.type,
+      scope: options.scope,
+      scopeId: options.scopeId,
+      metadataFilter: options.metadataFilter
+    })
 
     if (memories.length === 0) return ''
 
@@ -299,15 +381,17 @@ export function useMem0(config = {}) {
   }
 
   // 清理
-  onUnmounted(() => {
-    // 保存未同步的数据
-    if (syncQueue.size > 0) {
-      setItem(SYNC_STATE_KEY, {
-        pending: Array.from(syncQueue.entries()),
-        timestamp: Date.now()
-      })
-    }
-  })
+  if (getCurrentInstance()) {
+    onUnmounted(() => {
+      // 保存未同步的数据
+      if (syncQueue.size > 0) {
+        setItem(SYNC_STATE_KEY, {
+          pending: Array.from(syncQueue.entries()),
+          timestamp: Date.now()
+        })
+      }
+    })
+  }
 
   return {
     // 状态

@@ -1,0 +1,144 @@
+import api, { getOrCreatePreferenceUserId } from './api'
+import useMem0 from '../composables/useMem0'
+
+const DEFAULT_MEM0_API_URL = 'https://api.mem0.ai/v1'
+
+function normalizeMem0ApiUrl(host) {
+  const raw = String(host || '').trim()
+  if (!raw) return DEFAULT_MEM0_API_URL
+  if (/\/v1\/?$/.test(raw)) return raw.replace(/\/?$/, '')
+  return `${raw.replace(/\/$/, '')}/v1`
+}
+
+async function readMem0Secrets() {
+  try {
+    const response = await api.post('/chat/secrets/read')
+    const secrets = response?.data || {}
+    const apiKey = String(secrets.mem0_api_key || '').trim()
+    const host = String(secrets.mem0_host || '').trim()
+
+    if (!apiKey) return null
+
+    return {
+      apiKey,
+      apiUrl: normalizeMem0ApiUrl(host)
+    }
+  } catch (error) {
+    console.warn('[memorySync] failed to load mem0 secrets:', error)
+    return null
+  }
+}
+
+function getMem0Importance(scope) {
+  if (scope === 'global-author') return 9
+  if (scope === 'project') return 8
+  return 6
+}
+
+export async function syncConfirmedMemoryCandidateToMem0(candidate) {
+  if (!candidate || candidate.status !== 'active' || !String(candidate.content || '').trim()) {
+    return { success: false, skipped: true, reason: 'invalid-candidate' }
+  }
+
+  const secrets = await readMem0Secrets()
+  if (!secrets) {
+    return { success: false, skipped: true, reason: 'mem0-not-configured' }
+  }
+
+  const client = useMem0({
+    apiUrl: secrets.apiUrl,
+    userId: getOrCreatePreferenceUserId(),
+    apiKey: secrets.apiKey
+  })
+
+  const result = await client.storeMemory({
+    content: candidate.content,
+    type: candidate.kind,
+    entityId: candidate.id,
+    scope: candidate.scope,
+    scopeId: candidate.scopeId,
+    importance: getMem0Importance(candidate.scope),
+    metadata: {
+      kind: candidate.kind,
+      scope: candidate.scope,
+      scopeId: candidate.scopeId,
+      sourceRef: candidate.sourceRef,
+      candidateId: candidate.id,
+      status: candidate.status,
+      ...candidate.metadata
+    }
+  })
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error || 'mem0 sync failed',
+      candidate
+    }
+  }
+
+  return {
+    success: true,
+    synced: true,
+    candidate,
+    data: result.data
+  }
+}
+
+export async function buildMem0MemoryContext({
+  currentSituation = '',
+  authorId = '',
+  projectId = '',
+  sessionId = '',
+  limitPerScope = 4,
+  maxItemChars = 180
+} = {}) {
+  const secrets = await readMem0Secrets()
+  if (!secrets) {
+    return ''
+  }
+
+  const client = useMem0({
+    apiUrl: secrets.apiUrl,
+    userId: getOrCreatePreferenceUserId(),
+    apiKey: secrets.apiKey
+  })
+
+  const globalAuthorId = authorId || getOrCreatePreferenceUserId()
+
+  const scopes = [
+    { scope: 'session', scopeId: sessionId, label: '远端当前会话记忆' },
+    { scope: 'project', scopeId: projectId, label: '远端当前作品记忆' },
+    { scope: 'global-author', scopeId: globalAuthorId, label: '远端全局作者记忆' }
+  ]
+
+  const sections = []
+
+  for (const item of scopes) {
+    if (!item.scopeId) continue
+
+    try {
+      const context = await client.buildMemoryContext(currentSituation, {
+        scope: item.scope,
+        scopeId: item.scopeId,
+        limit: Math.max(1, Math.floor(Number(limitPerScope) || 4)),
+        maxItemChars
+      })
+
+      if (context) {
+        sections.push(`【${item.label}】\n${context}`)
+      }
+    } catch (error) {
+      console.warn('[memorySync] failed to build mem0 memory context:', error)
+    }
+  }
+
+  return sections.join('\n\n')
+}
+
+export function describeMem0SyncResult(result) {
+  if (!result) return ''
+  if (result.success) return '已同步到 mem0'
+  if (result.skipped) return 'mem0 未配置'
+  return 'mem0 同步失败'
+}

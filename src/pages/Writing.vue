@@ -400,6 +400,33 @@
               </div>
             </div>
 
+            <div v-if="copilotReferenceAsset" class="copilot-reference-bar">
+              <span class="copilot-reference-kicker">续写参考</span>
+              <span class="copilot-reference-title">{{ copilotReferenceLabel }}</span>
+              <span class="copilot-reference-preview">{{ copilotReferencePreview }}</span>
+              <button class="copilot-reference-clear" type="button" @click="clearCopilotReference">清除</button>
+            </div>
+
+            <section v-if="chapterOutlineItems.length" class="chapter-outline-bar">
+              <div class="chapter-outline-head">
+                <span class="chapter-outline-title">章节纲要</span>
+                <span class="chapter-outline-count">{{ chapterOutlineItems.length }} 条参与续写</span>
+              </div>
+              <div class="chapter-outline-list">
+                <article v-for="item in chapterOutlineItems" :key="item.id" class="chapter-outline-card">
+                  <div class="chapter-outline-card-main">
+                    <span class="chapter-outline-kind">{{ getAssetKindLabel(item.assetKind) }}</span>
+                    <strong>{{ item.title || '未命名纲要' }}</strong>
+                    <span>{{ getChapterOutlinePreview(item) }}</span>
+                  </div>
+                  <div class="chapter-outline-actions">
+                    <button type="button" @click="insertChapterOutlineItem(item)">插入</button>
+                    <button type="button" @click="removeChapterOutlineItemFromChapter(item.id)">移除</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
             <!-- 查找替换栏 -->
             <div class="find-replace-bar" v-if="showFindReplace" @click.stop>
               <input
@@ -620,6 +647,7 @@
             <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
             <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
             <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
+            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">入纲要</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
@@ -665,6 +693,9 @@
               <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
               <div class="asset-inbox-detail-actions">
                 <button class="quick-note-mini-btn primary" type="button" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
+                <button class="quick-note-mini-btn" type="button" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
+                <button class="quick-note-mini-btn" type="button" @click="addAssetToChapterOutline(activeInboxAsset)">入纲要</button>
+                <button class="quick-note-mini-btn" type="button" @click="saveAssetAsNote(activeInboxAsset)">转成笔记</button>
                 <button
                   v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
                   class="quick-note-mini-btn"
@@ -752,7 +783,7 @@ import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
   getAssetKindLabel,
@@ -765,6 +796,17 @@ import {
   buildWorldbookEntryFromAsset,
   canConvertAssetToWorldbookEntry
 } from '../services/worldbookDraftAssets'
+import {
+  buildWritingNoteTitle,
+  createWritingNoteFromAsset,
+  prependWritingNote
+} from '../services/writingNotes'
+import {
+  addAssetsToChapterOutline,
+  buildChapterOutlineContext,
+  normalizeChapterOutlineItems,
+  removeChapterOutlineItem
+} from '../services/chapterOutline'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -792,8 +834,6 @@ const copilotScrollTop = ref(0)
 const copilotScrollLeft = ref(0)
 
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
-const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
-
 const books = ref([])
 const selectedBookId = ref('')
 const chapters = ref([])
@@ -863,6 +903,8 @@ const assetInboxScope = ref('all')
 const assetInboxKind = ref('')
 const selectedInboxAssetIds = ref([])
 const assetKindOptions = ASSET_KINDS
+const copilotReferenceAsset = ref(null)
+const chapterOutlineItems = ref([])
 
 // AI 扩展/改写状态
 const showAiPanel = ref(false)
@@ -887,6 +929,15 @@ onMounted(() => {
 })
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
+const copilotReferenceLabel = computed(() => {
+  if (!copilotReferenceAsset.value) return ''
+  const title = String(copilotReferenceAsset.value.title || '').trim() || '未命名素材'
+  return `${getAssetKindLabel(copilotReferenceAsset.value.kind)} · ${title}`
+})
+const copilotReferencePreview = computed(() => {
+  const content = String(copilotReferenceAsset.value?.content || '').replace(/\s+/g, ' ').trim()
+  return content.length > 64 ? `${content.slice(0, 64)}...` : content
+})
 const dialogueImportCandidates = computed(() => extractDialogueSegments(markdownContent.value))
 const dialogueImportStats = computed(() => {
   const pickedSet = new Set(selectedDialogueImportIds.value)
@@ -1128,6 +1179,133 @@ const activeInboxAsset = computed(() => {
   return inboxAssets.value.find((asset) => asset.id === assetInboxActiveId.value) || inboxAssets.value[0] || null
 })
 
+function buildCopilotAssetContext(asset) {
+  const content = String(asset?.content || '').trim()
+  if (!content) return ''
+
+  const parts = [
+    asset.title ? `标题：${asset.title}` : '',
+    `类型：${getAssetKindLabel(asset.kind)}`,
+    asset.source ? `来源：${getAssetSourceDetail(asset.source)}` : '',
+    '',
+    content
+  ]
+
+  return parts.filter((part) => part !== '').join('\n')
+}
+
+function getCopilotContext() {
+  const outlineContext = buildChapterOutlineContext(chapterOutlineItems.value)
+  const assetContext = buildCopilotAssetContext(copilotReferenceAsset.value)
+
+  return {
+    chapterTitle: currentChapterTitle.value,
+    extraContext: [outlineContext, assetContext].filter(Boolean).join('\n\n')
+  }
+}
+
+function clearCopilotReference(options = {}) {
+  const { silent = false } = options
+  if (!copilotReferenceAsset.value) return
+  copilotReferenceAsset.value = null
+  copilotCancel()
+  if (!silent) {
+    quickNoteStatus.value = '已清除续写参考'
+  }
+}
+
+function useAssetAsCopilotContext(asset) {
+  const content = String(asset?.content || '').trim()
+  if (!content) {
+    quickNoteStatus.value = '素材内容为空'
+    return
+  }
+
+  copilotReferenceAsset.value = {
+    id: asset.id,
+    title: asset.title || '',
+    kind: asset.kind,
+    source: asset.source,
+    content
+  }
+  assetInboxOpen.value = false
+  quickNoteStatus.value = `已设为续写参考：${asset.title || '未命名素材'}`
+
+  nextTick(() => {
+    editorRef.value?.focus()
+    syncCopilotCursorFromEditor()
+    if (copilotEnabled.value) {
+      copilotManualTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
+    }
+  })
+}
+
+function syncChapterOutlineToCurrentChapter() {
+  const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
+  if (!chapter) return
+  chapter.outlineItems = normalizeChapterOutlineItems(chapterOutlineItems.value)
+  saveChapters()
+}
+
+function addInboxAssetsToChapterOutline(assets = []) {
+  if (!selectedChapterId.value) {
+    quickNoteStatus.value = '先选择章节'
+    return null
+  }
+
+  const result = addAssetsToChapterOutline(chapterOutlineItems.value, assets)
+  if (!result.addedItems.length) {
+    quickNoteStatus.value = result.skippedCount ? '所选素材已在纲要中或内容为空' : '先选择素材'
+    return result
+  }
+
+  chapterOutlineItems.value = result.items
+  syncChapterOutlineToCurrentChapter()
+  return result
+}
+
+function addAssetToChapterOutline(asset) {
+  const result = addInboxAssetsToChapterOutline([asset])
+  if (!result?.addedItems.length) return
+
+  setNarrativeAssetStatus(asset.id, 'accepted')
+  refreshAssetInbox()
+  quickNoteStatus.value = `已加入章节纲要：${result.addedItems[0].title}`
+}
+
+function addSelectedAssetsToChapterOutline() {
+  const selectedAssets = getSelectedInboxAssets()
+  if (!selectedAssets.length) {
+    quickNoteStatus.value = '先选择素材'
+    return
+  }
+
+  const result = addInboxAssetsToChapterOutline(selectedAssets)
+  if (!result?.addedItems.length) return
+
+  const acceptedIds = result.addedItems.map((item) => item.assetId).filter(Boolean)
+  setNarrativeAssetsStatus(acceptedIds, 'accepted')
+  selectedInboxAssetIds.value = []
+  refreshAssetInbox()
+  quickNoteStatus.value = `已加入 ${result.addedItems.length} 条章节纲要`
+}
+
+function removeChapterOutlineItemFromChapter(itemId) {
+  chapterOutlineItems.value = removeChapterOutlineItem(chapterOutlineItems.value, itemId)
+  syncChapterOutlineToCurrentChapter()
+  quickNoteStatus.value = '已移出章节纲要'
+}
+
+function insertChapterOutlineItem(item) {
+  if (!insertAssetsIntoChapter([{ content: item?.content }])) return
+  quickNoteStatus.value = '已插入纲要内容'
+}
+
+function getChapterOutlinePreview(item) {
+  const content = String(item?.content || '').replace(/\s+/g, ' ').trim()
+  return content.length > 54 ? `${content.slice(0, 54)}...` : content
+}
+
 function insertAssetsIntoChapter(assets = []) {
   const usable = assets.filter((asset) => String(asset?.content || '').trim())
   if (!usable.length) {
@@ -1149,6 +1327,28 @@ function insertAssetIntoChapter(asset) {
   setNarrativeAssetStatus(asset.id, 'accepted')
   refreshAssetInbox()
   quickNoteStatus.value = '已插入章节'
+}
+
+function saveAssetAsNote(asset) {
+  const content = String(asset?.content || '').trim()
+  if (!content) {
+    quickNoteStatus.value = '素材内容为空'
+    return false
+  }
+
+  try {
+    const note = prependWritingNote({
+      ...createWritingNoteFromAsset(asset, { fallbackLabel: '素材' }),
+      wordCount: quickNoteWordCount(content)
+    })
+    setNarrativeAssetStatus(asset.id, 'accepted')
+    refreshAssetInbox()
+    quickNoteStatus.value = `已转成笔记：${note.title}`
+    return true
+  } catch (error) {
+    quickNoteStatus.value = error?.message || '转成笔记失败'
+    return false
+  }
 }
 
 async function ensureWorldbookTarget() {
@@ -1305,22 +1505,6 @@ function quickNoteWordCount(text) {
   return chineseChars + englishWords
 }
 
-function buildQuickNoteTitle(text) {
-  const firstLine = String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean)
-
-  if (firstLine) return firstLine.slice(0, 18)
-
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mi = String(now.getMinutes()).padStart(2, '0')
-  return `速记 ${mm}-${dd} ${hh}:${mi}`
-}
-
 function saveQuickNote() {
   const content = quickNoteDraft.value.trim()
   if (!content) {
@@ -1328,21 +1512,12 @@ function saveQuickNote() {
     return false
   }
 
-  let notes = []
-  notes = getItem(QUICK_NOTE_STORE_KEY) || []
-  if (!Array.isArray(notes)) notes = []
-
-  notes.unshift({
-    id: Date.now().toString(),
-    title: buildQuickNoteTitle(content),
+  prependWritingNote({
+    title: buildWritingNoteTitle(content, '速记'),
     content,
     contentFormat: 'md',
-    wordCount: quickNoteWordCount(content),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    wordCount: quickNoteWordCount(content)
   })
-
-  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true
@@ -1383,6 +1558,8 @@ function openBook(bookId, options = {}) {
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
+      chapterOutlineItems.value = []
+      clearCopilotReference({ silent: true })
     }
     return
   }
@@ -1395,6 +1572,8 @@ function openBook(bookId, options = {}) {
     currentChapterTitle.value = ''
     editorContent.value = ''
     markdownContent.value = ''
+    chapterOutlineItems.value = []
+    clearCopilotReference({ silent: true })
   }
   saveStatus.value = 'saved'
 }
@@ -1408,6 +1587,7 @@ function selectChapter(chapterId) {
     saveCurrentChapter()
   }
   copilotCancel()
+  clearCopilotReference({ silent: true })
   selectedChapterId.value = chapterId
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
@@ -1416,9 +1596,12 @@ function selectChapter(chapterId) {
     const format = chapter.contentFormat || (looksLikeHtml(raw) ? 'html' : 'md')
     markdownContent.value = format === 'md' ? raw : htmlToMarkdown(raw)
     editorContent.value = markdownToHtml(markdownContent.value)
+    chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
     nextTick(() => {
       if (editorRef.value) editorRef.value.value = markdownContent.value
     })
+  } else {
+    chapterOutlineItems.value = []
   }
 }
 
@@ -1454,6 +1637,7 @@ function createNewChapter() {
     title: '',
     content: '',
     contentFormat: 'md',
+    outlineItems: [],
     wordCount: 0,
     createdAt: new Date().toISOString()
   }
@@ -1473,6 +1657,7 @@ function deleteChapter(chapterId) {
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
+      chapterOutlineItems.value = []
     }
   }
   saveChapters()
@@ -1491,6 +1676,7 @@ function deleteBook(bookId) {
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
+      chapterOutlineItems.value = []
     }
   }
 }
@@ -1513,6 +1699,7 @@ function saveCurrentChapter() {
     syncFromCurrentEditor()
     chapter.content = markdownContent.value
     chapter.contentFormat = 'md'
+    chapter.outlineItems = normalizeChapterOutlineItems(chapterOutlineItems.value)
     chapter.wordCount = wordCount.value
     chapter.updatedAt = new Date().toISOString()
     saveChapters()
@@ -1974,7 +2161,7 @@ function onMarkdownInput() {
 
   // 触发 Copilot 续写
   if (copilotEnabled.value && editorRef.value) {
-    copilotTrigger(markdownContent.value, copilotCursorPos.value, { chapterTitle: currentChapterTitle.value })
+    copilotTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
   }
 }
 
@@ -2016,7 +2203,7 @@ function acceptCopilotSuggestion() {
 
 function retryCopilotSuggestion() {
   syncCopilotCursorFromEditor()
-  copilotManualTrigger(markdownContent.value, copilotCursorPos.value, { chapterTitle: currentChapterTitle.value })
+  copilotManualTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
   nextTick(() => editorRef.value?.focus())
 }
 
@@ -3329,6 +3516,161 @@ function stopResizeRight() {
   width: 100%;
 }
 
+.copilot-reference-bar {
+  max-width: 940px;
+  width: 100%;
+  margin: 10px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
+  color: var(--text-secondary);
+}
+
+.copilot-reference-kicker {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.copilot-reference-title {
+  min-width: 0;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.copilot-reference-preview {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.copilot-reference-clear {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.copilot-reference-clear:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.chapter-outline-bar {
+  max-width: 940px;
+  width: 100%;
+  margin: 10px auto 0;
+  display: grid;
+  gap: 8px;
+}
+
+.chapter-outline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.chapter-outline-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.chapter-outline-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chapter-outline-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.chapter-outline-card {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
+}
+
+.chapter-outline-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.chapter-outline-card-main strong,
+.chapter-outline-card-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-outline-card-main strong {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.chapter-outline-card-main span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chapter-outline-kind {
+  color: var(--accent) !important;
+  font-size: 10px !important;
+}
+
+.chapter-outline-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chapter-outline-actions button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 2px 5px;
+}
+
+.chapter-outline-actions button:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .toolbar-group {
   display: flex;
   align-items: center;
@@ -4288,6 +4630,28 @@ function stopResizeRight() {
 
   .asset-inbox-modal-body {
     grid-template-columns: 1fr;
+  }
+
+  .copilot-reference-bar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .copilot-reference-preview {
+    flex-basis: 100%;
+  }
+
+  .chapter-outline-list {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-outline-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chapter-outline-actions {
+    justify-content: flex-end;
   }
 }
 </style>

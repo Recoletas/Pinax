@@ -23,6 +23,44 @@ export function getOrCreatePreferenceUserId() {
   return nextId
 }
 
+const MEMORY_SCOPE_VALUES = new Set(['global-author', 'project', 'session'])
+
+function normalizeMemoryScope(scope) {
+  const value = String(scope || '').trim()
+  return MEMORY_SCOPE_VALUES.has(value) ? value : ''
+}
+
+function resolveMemoryScope(type, metadata = {}) {
+  const explicitScope = normalizeMemoryScope(metadata.scope)
+  if (explicitScope) return explicitScope
+
+  const normalizedType = String(type || '').trim().toLowerCase()
+  if (normalizedType === 'preference' || normalizedType === 'style') {
+    return 'global-author'
+  }
+
+  if (metadata.projectId || metadata.worldId) {
+    return 'project'
+  }
+
+  return 'session'
+}
+
+function resolveMemoryScopeId(scope, metadata = {}) {
+  const explicitScopeId = String(metadata.scopeId || '').trim()
+  if (explicitScopeId) return explicitScopeId
+
+  if (scope === 'global-author') {
+    return String(metadata.userId || metadata.authorId || getOrCreatePreferenceUserId()).trim()
+  }
+
+  if (scope === 'project') {
+    return String(metadata.projectId || metadata.worldId || metadata.gameId || '').trim()
+  }
+
+  return String(metadata.sessionId || metadata.currentSessionId || metadata.projectId || metadata.worldId || '').trim()
+}
+
 // ---------------- 游戏配置与状态 ----------------
 
 export async function getWorlds() {
@@ -125,6 +163,18 @@ function normalizeGenerationOptions(options = {}) {
 
   if (typeof options.request_id === 'string' && options.request_id.trim()) {
     normalized.request_id = options.request_id.trim()
+  }
+
+  if (typeof options.taskType === 'string' && options.taskType.trim()) {
+    normalized.taskType = options.taskType.trim()
+  }
+
+  if (typeof options.promptVersion === 'string' && options.promptVersion.trim()) {
+    normalized.promptVersion = options.promptVersion.trim()
+  }
+
+  if (typeof options.attemptName === 'string' && options.attemptName.trim()) {
+    normalized.attemptName = options.attemptName.trim()
   }
 
   return normalized
@@ -350,10 +400,11 @@ export async function recordMemory(text, type = 'general', metadata = {}) {
     general: 'project-fact'
   }
 
+  const scope = resolveMemoryScope(type, metadata)
   const candidate = queueMemoryCandidate({
     content: text.trim(),
-    scope: metadata.scope || 'session',
-    scopeId: metadata.scopeId || metadata.sessionId || metadata.projectId || metadata.worldId || '',
+    scope,
+    scopeId: resolveMemoryScopeId(scope, metadata),
     kind: metadata.kind || kindMap[type] || 'project-fact',
     confidence: metadata.confidence ?? 0.6,
     sourceRef: metadata.sourceRef || type,

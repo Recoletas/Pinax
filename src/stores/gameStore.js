@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
-import { sendAction as apiSendAction, getState, buildContextMessage, sendChatStream, recordMemory } from '../services/api'
+import { sendAction as apiSendAction, getState, buildContextMessage, recordMemory } from '../services/api'
+import { runGenerationStreamTask } from '../services/generationService'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
+import { buildScopedMemoryContext } from '../services/memoryCandidates'
+import { buildMem0MemoryContext } from '../services/memorySync'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useWorldStore } from './worldStore'
 
@@ -168,6 +171,7 @@ export const useGameStore = defineStore('game', {
     // 内联标记事件（不自动弹窗，点击查看）
     inlineEvents: [],           // [{ type, text, data, messageId }]
     lastWorldbookContext: null,
+    lastMemoryContext: '',
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -883,11 +887,39 @@ export const useGameStore = defineStore('game', {
         // 注入写作上下文（对话模式时传入对话角色）
         // 小说体验模式下排除时间信息，避免 AI 每次都强调时间
         const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true, contextDetail })
+        const localMemoryContext = buildScopedMemoryContext({
+          projectId: this.worldId || worldbook?.id || '',
+          sessionId: this.currentSessionId || '',
+          limitPerScope: 4,
+          maxItemChars: 180
+        })
+        const memoryQuery = [
+          worldBookMsg?.content || '',
+          contextMsg?.content || '',
+          ...this.chatHistory.slice(-6).map((message) => String(message?.content || '').trim())
+        ].filter(Boolean).join('\n')
+
+        let memoryContext = localMemoryContext
+        if (!memoryContext) {
+          memoryContext = await buildMem0MemoryContext({
+            currentSituation: memoryQuery,
+            projectId: this.worldId || worldbook?.id || '',
+            sessionId: this.currentSessionId || '',
+            limitPerScope: 4,
+            maxItemChars: 180
+          })
+        }
+
+        this.lastMemoryContext = memoryContext
+        const memoryMsg = memoryContext ? { role: 'system', content: memoryContext } : null
 
         // 构建消息序列：世界书 + 写作上下文 + 聊天历史
         let messagesToSend = [...this.chatHistory]
         if (worldBookMsg) {
           messagesToSend = [worldBookMsg, ...messagesToSend]
+        }
+        if (memoryMsg) {
+          messagesToSend = [memoryMsg, ...messagesToSend]
         }
         if (contextMsg) {
           messagesToSend = [contextMsg, ...messagesToSend]
@@ -915,13 +947,16 @@ export const useGameStore = defineStore('game', {
         const isInitGeneration = this._isRegenerating ? false : !hasExistingHistory
         const maxTokens = isInitGeneration ? 1500 : 800
 
-        await sendChatStream(
-          messagesToSend,
-          null,
-          this.worldId,
-          this.apiSettings,
-          { max_tokens: maxTokens },
-          {
+        await runGenerationStreamTask({
+          taskType: isInitGeneration ? 'narrative.init' : 'narrative.continue',
+          baseMessages: messagesToSend,
+          worldId: this.worldId,
+          settings: this.apiSettings,
+          generationOptions: {
+            max_tokens: maxTokens,
+            attemptName: isInitGeneration ? 'narrative-init' : 'narrative-continue'
+          },
+          callbacks: {
             onChunk: (chunk) => {
               if (chunk.content) {
                 fullContent += chunk.content
@@ -945,7 +980,7 @@ export const useGameStore = defineStore('game', {
               }
             }
           }
-        )
+        })
 
         // 更新 chatHistory
         this.chatHistory.push({ role: 'assistant', content: fullContent });

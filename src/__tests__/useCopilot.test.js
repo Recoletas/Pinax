@@ -3,6 +3,7 @@ import {
   buildCopilotMessages,
   extractCopilotWindow,
   insertCopilotSuggestion,
+  normalizeCopilotExtraContext,
   normalizeCopilotSuggestion
 } from '../composables/useCopilot'
 
@@ -48,6 +49,12 @@ describe('useCopilot helpers', () => {
     expect(result.newCursorPos).toBe(10)
   })
 
+  it('clips extra reference context before sending it to the model', () => {
+    const result = normalizeCopilotExtraContext('第一段第一句足够长。\n\n第二段会很长很长很长。第三句。', 16)
+
+    expect(result).toBe('第一段第一句足够长。')
+  })
+
   it('builds copilot messages with matched worldbook context', () => {
     const result = buildCopilotMessages({
       content: '林舟站在城门下，握紧了手里的信。她抬头看向远处。',
@@ -74,5 +81,18 @@ describe('useCopilot helpers', () => {
     expect(result.messages.at(-1).content).toContain('当前章节：城门')
     expect(result.messages.at(-1).content).toContain('【光标前】')
     expect(result.messages.at(-1).content).toContain('【光标后】')
+  })
+
+  it('includes selected asset context in copilot messages', () => {
+    const result = buildCopilotMessages({
+      content: '林舟站在城门下，握紧了手里的信。她抬头看向远处。',
+      cursorPos: 19,
+      chapterTitle: '城门',
+      extraContext: '标题：旧案线索\n类型：剧情事件\n林舟必须在入城前发现信上的暗号。'
+    })
+
+    expect(result.messages[0].content).toContain('参考素材')
+    expect(result.messages.at(-1).content).toContain('【参考素材】')
+    expect(result.messages.at(-1).content).toContain('林舟必须在入城前发现信上的暗号')
   })
 })

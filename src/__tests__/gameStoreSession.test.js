@@ -1,21 +1,36 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
+import { createMemoryCandidate } from '../services/memoryCandidates'
+import { runGenerationStreamTask } from '../services/generationService'
 
 vi.mock('../services/api', () => ({
+  default: {
+    post: vi.fn(() => Promise.resolve({ data: {} }))
+  },
   sendAction: vi.fn(),
   getState: vi.fn(),
   buildContextMessage: vi.fn(() => null),
-  sendChatStream: vi.fn(),
-  recordMemory: vi.fn()
+  recordMemory: vi.fn(),
+  getOrCreatePreferenceUserId: vi.fn(() => 'user-test')
+}))
+
+vi.mock('../services/generationService', () => ({
+  runGenerationStreamTask: vi.fn()
 }))
 
 describe('gameStore sessions', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('creates a session with the active worldbook and empty runtime snapshot', () => {
@@ -135,5 +150,67 @@ describe('gameStore sessions', () => {
     expect(gameStore.isLoading).toBe(false)
     expect(getItem(STORAGE_KEYS.WRITING_CHARACTER).name).toBe('林舟')
     expect(getItem(STORAGE_KEYS.WRITING_TIME).eraName).toBe('新纪元')
+  })
+
+  it('injects scoped active memories into generation context', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '第一章', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'user', content: '继续。' }
+    ]
+
+    const records = [
+      createMemoryCandidate({
+        content: '旧书店在西街。',
+        scope: 'project',
+        scopeId: 'project-1',
+        kind: 'project-fact',
+        status: 'active'
+      }),
+      createMemoryCandidate({
+        content: '玩家刚拿到铜钥匙。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active'
+      }),
+      createMemoryCandidate({
+        content: '其他作品记忆。',
+        scope: 'project',
+        scopeId: 'project-2',
+        kind: 'project-fact',
+        status: 'active'
+      }),
+      createMemoryCandidate({
+        content: '待确认记忆。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'pending'
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
+
+    expect(streamTask.taskType).toBe('narrative.continue')
+    expect(memoryMessage?.content).toContain('旧书店在西街。')
+    expect(memoryMessage?.content).toContain('玩家刚拿到铜钥匙。')
+    expect(memoryMessage?.content).not.toContain('其他作品记忆')
+    expect(memoryMessage?.content).not.toContain('待确认记忆')
+    expect(gameStore.lastMemoryContext).toBe(memoryMessage?.content)
   })
 })

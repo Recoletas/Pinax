@@ -484,6 +484,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const TREE_KEY = STORAGE_KEYS.POETRY_IDEA_TREE_V2
@@ -539,8 +540,6 @@ const cameraMovements = [
 ]
 
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
-const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
-
 const prompt = ref('')
 const branchCount = ref(5)
 const depthLimit = ref(3)
@@ -777,22 +776,6 @@ function quickNoteWordCount(text) {
   return chineseChars + englishWords
 }
 
-function buildQuickNoteTitle(text) {
-  const firstLine = String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean)
-
-  if (firstLine) return firstLine.slice(0, 18)
-
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mi = String(now.getMinutes()).padStart(2, '0')
-  return `速记 ${mm}-${dd} ${hh}:${mi}`
-}
-
 function saveQuickNote() {
   const content = quickNoteDraft.value.trim()
   if (!content) {
@@ -800,21 +783,12 @@ function saveQuickNote() {
     return false
   }
 
-  let notes = []
-  notes = getItem(QUICK_NOTE_STORE_KEY) || []
-  if (!Array.isArray(notes)) notes = []
-
-  notes.unshift({
-    id: Date.now().toString(),
-    title: buildQuickNoteTitle(content),
+  prependWritingNote({
+    title: buildWritingNoteTitle(content, '速记'),
     content,
     contentFormat: 'md',
-    wordCount: quickNoteWordCount(content),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    wordCount: quickNoteWordCount(content)
   })
-
-  setItem(QUICK_NOTE_STORE_KEY, notes)
   clearQuickNoteDraft()
   quickNoteStatus.value = '已保存到笔记'
   return true

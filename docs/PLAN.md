@@ -1,38 +1,28 @@
-# 开发计划
+# 开发计划入口
 
-> 当前唯一的执行级规划入口是 [plan/current-execution-plan.md](./plan/current-execution-plan.md)。
+> 后续推进默认只看本文件和 [plan/current-execution-plan.md](./plan/current-execution-plan.md)。专题文件只在需要细节或验收口径时打开。
 
-## 你现在应该先看什么
+## 当前主线
 
-1. [plan/current-execution-plan.md](./plan/current-execution-plan.md) - 总索引页
-2. [plan/session-stability.md](./plan/session-stability.md) - 会话稳定
-3. [plan/worldbook-context.md](./plan/worldbook-context.md) - 世界书上下文
-4. [plan/asset-loop.md](./plan/asset-loop.md) - 体验素材闭环
-5. [plan/generation-service.md](./plan/generation-service.md) - 统一生成服务
-6. [plan/memory-system.md](./plan/memory-system.md) - 记忆系统
-7. [plan/storyboard-system.md](./plan/storyboard-system.md) - 编导模式
-8. [plan/implementation-order.md](./plan/implementation-order.md) - 实施顺序和验收
-9. [LOG.md](./LOG.md) - 已完成迭代记录
-10. [guides/worldbook-workflow.md](./guides/worldbook-workflow.md) - 世界书操作流程
-11. [engineering/development-standards.md](./engineering/development-standards.md) - 开发规范
-12. [operations/troubleshooting.md](./operations/troubleshooting.md) - 排障指南
+| 模块 | 状态 | 当前判断 |
+|------|------|----------|
+| 会话稳定 | 完成 | 新建、切换、保存、恢复和世界书绑定已收口 |
+| 世界书上下文 | 完成 | 已抽上下文构建器，并接入命中/常驻/预览链路 |
+| 体验素材闭环 | 完成 | 素材可沉淀、整理、入正文、入纲要、做续写参考、转笔记、入世界书 |
+| 统一生成服务 | 进行中 | 写作、顾问、体验主生成已接入；剩余诗歌/散文/世界书导入等旧调用 |
+| 记忆系统 | 基本完成 | 候选、scope、确认、mem0 同步/读取已接入；剩余整理和冲突策略 |
+| 编导模式 | 待做 | 需要统一 storyboard schema、版本和导出校验 |
 
-## 当前摘要
+## 下一步只看
 
-项目现在的重点不是继续扩功能，而是把已有能力收束成稳定闭环：
-
-- 稳定小说体验会话
-- 让世界书上下文可解释
-- 把体验内容沉淀成素材
-- 让写作页消费这些素材
-- 让记忆写入变成可确认流程
-- 统一 AI 生成入口
-- 编导模式收束为统一分镜 schema
+1. [plan/current-execution-plan.md](./plan/current-execution-plan.md) - 当前执行面板。
+2. 当前正在推进的专题文件，例如 [plan/generation-service.md](./plan/generation-service.md)。
+3. [LOG.md](./LOG.md) - 精简里程碑和已知风险。
 
 ## 当前开发原则
 
-1. 不再新增直接读写 localStorage 的业务代码。
-2. 不再让页面直接拼复杂 prompt。
-3. 不再自动写入世界书和长期记忆。
-4. 不再扩写第二套体验 store。
-5. 所有会话、世界书、生成链路改动都要补测试。
+- 不新增页面级复杂 prompt 拼接。
+- 不新增业务代码直接调用 `sendChat()` / `sendChatStream()`。
+- 不新增直接读写 `localStorage` 的页面逻辑，优先走 service。
+- 自动写入世界书、长期记忆前必须经过候选或显式确认。
+- 用户可感知的更新要说明“用户做什么能看到”。

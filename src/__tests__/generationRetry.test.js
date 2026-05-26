@@ -45,7 +45,8 @@ describe('runGenerationRetryPlan', () => {
       settings,
       expect.objectContaining({
         retryCount: 0,
-        request_id: 'req_abc_a0'
+        request_id: 'req_abc_a0',
+        attemptName: 'retry-plan'
       })
     )
   })
@@ -80,7 +81,8 @@ describe('runGenerationRetryPlan', () => {
     expect(sendChatMock.mock.calls[1][4]).toEqual(
       expect.objectContaining({
         retryCount: 1,
-        request_id: 'req_retry_a1'
+        request_id: 'req_retry_a1',
+        attemptName: 'retry'
       })
     )
   })

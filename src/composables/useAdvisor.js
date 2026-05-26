@@ -1,7 +1,8 @@
 import { ref, computed } from 'vue'
-import { getApiSettings, sendChatStream } from '../services/api'
+import { getApiSettings } from '../services/api'
 import { getItem, STORAGE_KEYS } from './useStorage'
 import { getAdvisorPrompt } from '../services/promptRegistry'
+import { runGenerationStreamTask } from '../services/generationService'
 
 async function resolveApiSettings() {
   const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
@@ -58,13 +59,15 @@ export function useAdvisor(mode = 'prose') {
           // 使用流式 API
           let fullContent = ''
 
-          await sendChatStream(
-            messages,
-            null,
-            null,
-            apiSettings,
-            { max_tokens: 1500 },
-            {
+          await runGenerationStreamTask({
+            taskType: 'advisor.review',
+            baseMessages: messages,
+            settings: apiSettings,
+            generationOptions: {
+              max_tokens: 1500,
+              attemptName: `advisor-${mode}`
+            },
+            callbacks: {
               onChunk: (chunk) => {
                 if (chunk.content) {
                   fullContent += chunk.content
@@ -87,7 +90,7 @@ export function useAdvisor(mode = 'prose') {
                 }
               }
             }
-          )
+          })
         }
       } else {
         if (!openclawAdvice) {

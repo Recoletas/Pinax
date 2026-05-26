@@ -8,7 +8,7 @@
  */
 
 import { ref, onUnmounted } from 'vue'
-import { runGenerationRetryPlan } from '../services/generationRetry'
+import { runGenerationTask } from '../services/generationService'
 import { getResolvedApiSettings } from '../services/api'
 import { useWorldStore } from '../stores/worldStore'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
@@ -19,6 +19,7 @@ const DEFAULT_DOWNSTREAM = 180
 const DEFAULT_DEBOUNCE_MS = 220
 const MAX_SUGGESTION_LENGTH = 180
 const DEFAULT_WORLDBOOK_TOKEN_BUDGET = 520
+const DEFAULT_EXTRA_CONTEXT_LIMIT = 1200
 const META_LINE_PATTERN = /^(?:思考|分析|解释|说明|备注|建议|推理|结论|总结|提示|补充|进一步|下面|以下|我认为|我建议|可以考虑|我们可以|建议如下|分析如下|这段|这一段|这里|可改为|可以写成|可以这样|你可以|应该|因为|为了|如果|注意)[:：，,\-\s]*/i
 const META_PHRASE_PATTERN = /(?:作为(?:AI|人工智能|写作助手)|我(?:无法|不能|可以|建议|认为)|这(?:不是|应该|可以|属于)|需要根据|建议你|可以这样写|以下是|下面是|续写如下|补全如下|可参考|没有足够|无法判断)/
 const PROSE_SIGNAL_PATTERN = /[。！？!?」』”"）)]$|^["“「『*]|^[他她它我你他们她们我们]/u
@@ -182,19 +183,45 @@ export function insertCopilotSuggestion(content, cursorPos, rawSuggestion) {
   }
 }
 
+export function normalizeCopilotExtraContext(extraContext = '', limit = DEFAULT_EXTRA_CONTEXT_LIMIT) {
+  const text = String(extraContext || '')
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+
+  if (!text) return ''
+  if (text.length <= limit) return text
+
+  const clipped = text.slice(0, limit)
+  const boundaries = ['\n\n', '。', '！', '？', '\n']
+  const cutAt = boundaries.reduce((best, boundary) => {
+    const index = clipped.lastIndexOf(boundary)
+    return index > best ? index : best
+  }, -1)
+
+  return cutAt > Math.floor(limit * 0.55)
+    ? clipped.slice(0, cutAt + 1).trim()
+    : clipped.trim()
+}
+
 export function buildCopilotMessages({
   content = '',
   cursorPos = 0,
   chapterTitle = '',
+  extraContext = '',
   worldbook = null,
   maxSuggestionLength = MAX_SUGGESTION_LENGTH,
   worldbookTokenBudget = DEFAULT_WORLDBOOK_TOKEN_BUDGET
 } = {}) {
   const contextWindow = extractCopilotWindow(content, cursorPos)
+  const referenceContext = normalizeCopilotExtraContext(extraContext)
   const template = getSystemTemplate('copilot')
   const worldbookResult = buildWorldbookContext({
     worldbook,
-    chatHistory: [{ role: 'user', content: contextWindow.contextText }],
+    chatHistory: [{
+      role: 'user',
+      content: [referenceContext, contextWindow.contextText].filter(Boolean).join('\n\n')
+    }],
     runtimeState: buildRuntimeState({ chapterTitle }),
     tokenBudget: worldbookTokenBudget,
     scanDepth: 1
@@ -209,13 +236,15 @@ ${template.instruction}
 3. 如果光标后还有文本，续写必须能自然衔接后文，不要改写后文。
 4. 保持角色称谓、叙事视角、时态、标点和分段习惯一致。
 5. 输出长度控制在 20-${Math.max(70, Math.min(180, maxSuggestionLength))} 字，优先给出最直接、最有信息量的后续一句。
-6. 如果不能直接续写，输出空字符串，不要解释原因。`
+6. 如果给出参考素材，只吸收可用信息，不要复述素材标签，不要把素材当成要解释的用户问题。
+7. 如果不能直接续写，输出空字符串，不要解释原因。`
 
   const userPrompt = [
     chapterTitle ? `当前章节：${chapterTitle}` : '',
     '只返回要插入「光标」处的正文，不要说“可以这样写/以下是/建议”。',
     '请补全：',
     '',
+    referenceContext ? `【参考素材】\n${referenceContext}` : '',
     '【光标前】',
     contextWindow.before || '（空）',
     '',
@@ -318,6 +347,7 @@ export function useCopilot(options = {}) {
         content,
         cursorPos,
         chapterTitle: context.chapterTitle,
+        extraContext: context.extraContext,
         worldbook: worldStore.activeWorldbook,
         maxSuggestionLength
       })
@@ -326,7 +356,8 @@ export function useCopilot(options = {}) {
 
       abortController = new AbortController()
 
-      const result = await runGenerationRetryPlan({
+      const result = await runGenerationTask({
+        taskType: 'writing.copilot',
         baseMessages: prompt.messages,
         settings: apiSettings,
         generationOptions: {
