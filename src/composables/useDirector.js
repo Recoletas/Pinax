@@ -9,6 +9,13 @@
 
 import { ref, computed } from 'vue'
 import {
+  getLatestStoryboardSnapshot,
+  listStoryboardSnapshots,
+  restoreStoryboardSnapshot,
+  saveStoryboardSnapshot,
+  validateStoryboardShots
+} from '../services/storyboardStore'
+import {
   extractShotsFromPoetryLab,
   extractShotsFromProseEssay,
   toJianyingDraft,
@@ -40,6 +47,19 @@ export function useDirector(options = {}) {
   // 当前分镜列表
   const shots = ref([])
 
+  // 分镜来源与历史
+  const storyboardSource = ref({
+    sourceType: initialMode === 'poetry' ? 'poetry' : 'prose',
+    sourceLabel: initialMode === 'poetry' ? '诗歌工坊' : '散文随笔',
+    sourceId: ''
+  })
+  const snapshotHistory = ref([])
+  const lastValidation = ref({
+    valid: true,
+    errors: [],
+    warnings: []
+  })
+
   // 选中的分镜
   const selectedShotIndex = ref(-1)
 
@@ -50,6 +70,37 @@ export function useDirector(options = {}) {
   const shotTypeOptions = getShotTypes()
   const cameraOptions = getCameraMovements()
   const transitionOptions = getTransitionTypes()
+
+  function refreshSnapshotHistory() {
+    snapshotHistory.value = listStoryboardSnapshots({
+      sourceType: storyboardSource.value.sourceType,
+      sourceId: storyboardSource.value.sourceId
+    })
+  }
+
+  function captureSnapshot(reason = 'update') {
+    if (shots.value.length === 0) return null
+
+    const snapshot = saveStoryboardSnapshot({
+      sourceType: storyboardSource.value.sourceType,
+      sourceLabel: storyboardSource.value.sourceLabel,
+      sourceId: storyboardSource.value.sourceId,
+      shots: shots.value,
+      metadata: {
+        mode: mode.value,
+        reason
+      }
+    })
+
+    lastValidation.value = snapshot.validation || lastValidation.value
+    refreshSnapshotHistory()
+    return snapshot
+  }
+
+  function syncValidation() {
+    lastValidation.value = validateStoryboardShots(shots.value)
+    return lastValidation.value
+  }
 
   // 当前选中的分镜
   const selectedShot = computed(() => {
@@ -84,6 +135,12 @@ export function useDirector(options = {}) {
   function loadFromPoetryLab(nodes, edges = [], groups = []) {
     shots.value = extractShotsFromPoetryLab({ nodes, edges, groups })
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
+    storyboardSource.value = {
+      sourceType: 'poetry',
+      sourceLabel: '诗歌工坊',
+      sourceId: ''
+    }
+    captureSnapshot('load')
   }
 
   /**
@@ -94,6 +151,12 @@ export function useDirector(options = {}) {
   function loadFromProseEssay(cards, timeline = []) {
     shots.value = extractShotsFromProseEssay({ cards, timeline })
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
+    storyboardSource.value = {
+      sourceType: 'prose',
+      sourceLabel: '散文随笔',
+      sourceId: ''
+    }
+    captureSnapshot('load')
   }
 
   /**
@@ -104,6 +167,7 @@ export function useDirector(options = {}) {
   function updateShot(index, updates) {
     if (index < 0 || index >= shots.value.length) return
     shots.value[index] = { ...shots.value[index], ...updates }
+    captureSnapshot('update')
   }
 
   /**
@@ -121,6 +185,7 @@ export function useDirector(options = {}) {
     if (selectedShotIndex.value >= shots.value.length) {
       selectedShotIndex.value = shots.value.length - 1
     }
+    captureSnapshot('remove')
   }
 
   /**
@@ -143,6 +208,7 @@ export function useDirector(options = {}) {
     }
     shots.value.push(newShot)
     selectedShotIndex.value = shots.value.length - 1
+    captureSnapshot('add')
   }
 
   /**
@@ -161,6 +227,7 @@ export function useDirector(options = {}) {
     shots.value.forEach((s, i) => {
       s.sequence = i + 1
     })
+    captureSnapshot('move')
   }
 
   /**
@@ -179,6 +246,7 @@ export function useDirector(options = {}) {
   function clearShots() {
     shots.value = []
     selectedShotIndex.value = -1
+    captureSnapshot('clear')
   }
 
   /**
@@ -188,6 +256,11 @@ export function useDirector(options = {}) {
    */
   function exportShots(format = exportFormat.value) {
     if (shots.value.length === 0) {
+      return null
+    }
+
+    const report = syncValidation()
+    if (!report.valid) {
       return null
     }
 
@@ -247,6 +320,16 @@ export function useDirector(options = {}) {
     URL.revokeObjectURL(url)
   }
 
+  function restoreSnapshot(snapshotId) {
+    const snapshot = restoreStoryboardSnapshot(snapshotId)
+    if (!snapshot) return false
+    shots.value = Array.isArray(snapshot.shots) ? snapshot.shots.map((shot) => ({ ...shot })) : []
+    selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
+    lastValidation.value = snapshot.validation || lastValidation.value
+    refreshSnapshotHistory()
+    return true
+  }
+
   return {
     // 状态
     mode,
@@ -258,6 +341,8 @@ export function useDirector(options = {}) {
     // 计算属性
     totalDuration,
     shotCount,
+    snapshotHistory,
+    lastValidation,
 
     // 选项
     shotTypeOptions,
@@ -275,7 +360,15 @@ export function useDirector(options = {}) {
     selectShot,
     clearShots,
     exportShots,
-    downloadExport
+    downloadExport,
+    captureSnapshot,
+    restoreSnapshot,
+    refreshSnapshotHistory,
+    getLatestSnapshot: () => getLatestStoryboardSnapshot({
+      sourceType: storyboardSource.value.sourceType,
+      sourceId: storyboardSource.value.sourceId
+    }),
+    validateCurrent: () => validateStoryboardShots(shots.value)
   }
 }
 

@@ -8,57 +8,13 @@
  * - 支持多种叙事风格
  */
 
-import { runGenerationRetryPlan } from './generationRetry'
+import { runGenerationTask } from './generationService'
 import { getResolvedApiSettings } from './api'
-
-// 扩展模式预设
-const EXPANSION_MODES = {
-  descriptive: {
-    name: '描写丰富',
-    instruction: '增加环境描写和感官细节，让场景更加生动立体。',
-    focus: '环境描写、感官细节'
-  },
-  psychological: {
-    name: '心理深化',
-    instruction: '深入挖掘人物内心活动，展现情感变化和心理层次。',
-    focus: '心理描写、情感层次'
-  },
-  action: {
-    name: '动作细化',
-    instruction: '细化动作过程，增加动作描写和动态感。',
-    focus: '动作描写、动态细节'
-  },
-  dialogue: {
-    name: '对话丰富',
-    instruction: '扩展对话内容，增加对话细节和言语间的互动。',
-    focus: '对话描写、言语互动'
-  },
-  balanced: {
-    name: '综合扩展',
-    instruction: '平衡增加环境、动作、心理描写，使文本更加丰满。',
-    focus: '综合描写'
-  }
-}
-
-// 叙事风格预设（复用 promptBuilder 中的定义）
-const NARRATIVE_STYLES = {
-  literary: {
-    name: '文学性',
-    instruction: '注重文字美感，描写细腻，意象丰富。'
-  },
-  webnovel: {
-    name: '网文风',
-    instruction: '节奏明快，语言简洁，悬念感强。'
-  },
-  concise: {
-    name: '简洁白描',
-    instruction: '文字简练，点到为止，留白多。'
-  },
-  dramatic: {
-    name: '戏剧性',
-    instruction: '冲突强烈，情绪张力大，转折多。'
-  }
-}
+import {
+  EXPANSION_MODES,
+  NARRATIVE_STYLES,
+  getNarrativeStyle
+} from './promptRegistry'
 
 /**
  * 构建扩展提示词
@@ -75,7 +31,7 @@ function buildExpansionPrompt(text, options = {}) {
   } = options
 
   const modeConfig = EXPANSION_MODES[mode] || EXPANSION_MODES.balanced
-  const styleConfig = NARRATIVE_STYLES[style] || NARRATIVE_STYLES.literary
+  const styleConfig = getNarrativeStyle(style)
 
   const systemPrompt = `你是一位专业的文学写作助手，擅长扩展和丰富文本内容。
 
@@ -134,7 +90,8 @@ export async function expandText(text, options = {}) {
   const messages = buildExpansionPrompt(text, options)
 
   try {
-    const result = await runGenerationRetryPlan({
+    const result = await runGenerationTask({
+      taskType: 'writing.expand',
       baseMessages: messages,
       settings,
       generationOptions: {

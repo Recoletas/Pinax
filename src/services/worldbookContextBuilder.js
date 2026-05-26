@@ -23,6 +23,11 @@ const ENTRY_TYPE_ALIASES = {
   quest: 'quest'
 }
 
+export const WORLDBOOK_WARNING_LABELS = {
+  'no-worldbook': '当前没有激活世界书',
+  'no-matched-entries': '本次没有命中任何条目'
+}
+
 function normalizeEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const id = String(entry.id || '').trim()
@@ -38,7 +43,8 @@ function normalizeEntry(entry) {
     content,
     name: String(entry.name || entry.keys?.[0] || '未命名条目').trim() || '未命名条目',
     type,
-    keys: Array.isArray(entry.keys) ? entry.keys : []
+    keys: Array.isArray(entry.keys) ? entry.keys : [],
+    keysSecondary: Array.isArray(entry.keysSecondary) ? entry.keysSecondary : []
   }
 }
 
@@ -93,7 +99,12 @@ export function matchWorldbookEntries({
     const mode = String(entry.injection?.mode || 'selective')
     if (mode === 'constant') {
       if (!seenIds.has(entry.id)) {
-        matchedEntries.push({ ...entry, matchReason: 'constant' })
+        matchedEntries.push({
+          ...entry,
+          matchReason: 'constant',
+          matchedKeys: [],
+          matchedKeysLabel: '常驻'
+        })
         seenIds.add(entry.id)
       }
       continue
@@ -104,17 +115,25 @@ export function matchWorldbookEntries({
       continue
     }
 
-    const keys = Array.isArray(entry.keys) ? entry.keys : []
-    const secondaryKeys = Array.isArray(entry.keysSecondary) ? entry.keysSecondary : []
-    const allKeys = [...keys, ...secondaryKeys]
+    const allKeys = [...entry.keys, ...entry.keysSecondary]
+    const matchedKeys = []
 
-    const matched = allKeys.some((key) => {
+    for (const key of allKeys) {
       const normalizedKey = String(key || '').toLowerCase().trim()
-      return normalizedKey && scanText.includes(normalizedKey)
-    })
+      if (normalizedKey && scanText.includes(normalizedKey) && !matchedKeys.includes(String(key).trim())) {
+        matchedKeys.push(String(key).trim())
+      }
+    }
+
+    const matched = matchedKeys.length > 0
 
     if (matched && !seenIds.has(entry.id)) {
-      matchedEntries.push({ ...entry, matchReason: 'keyword' })
+      matchedEntries.push({
+        ...entry,
+        matchReason: 'keyword',
+        matchedKeys,
+        matchedKeysLabel: matchedKeys.join('、')
+      })
       seenIds.add(entry.id)
     }
   }
@@ -250,4 +269,8 @@ export function buildWorldbookContext({
 export function buildWorldbookContextMessage(options = {}) {
   const result = buildWorldbookContext(options)
   return result.messages[0] || null
+}
+
+export function describeWorldbookWarning(code) {
+  return WORLDBOOK_WARNING_LABELS[code] || code
 }

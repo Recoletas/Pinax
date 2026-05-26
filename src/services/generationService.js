@@ -1,56 +1,4 @@
-import { sendChat } from './api'
-
-function createTaskRequestId() {
-  return `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-function resolveAttemptMessages(attempt, baseMessages, history) {
-  if (Array.isArray(attempt?.messages) && attempt.messages.length > 0) {
-    return attempt.messages
-  }
-
-  if (typeof attempt?.buildMessages === 'function') {
-    const built = attempt.buildMessages({ baseMessages, history })
-    if (Array.isArray(built) && built.length > 0) {
-      return built
-    }
-  }
-
-  if (Array.isArray(attempt?.appendMessages) && attempt.appendMessages.length > 0) {
-    return [...baseMessages, ...attempt.appendMessages]
-  }
-
-  return [...baseMessages]
-}
-
-function evaluateAttemptSuccess({
-  parseContent,
-  isValidParsed,
-  parsed,
-  content,
-  parseError,
-  response,
-  index,
-  attempt,
-  history
-}) {
-  if (typeof isValidParsed === 'function') {
-    return Boolean(isValidParsed(parsed, {
-      content,
-      parseError,
-      response,
-      index,
-      attempt,
-      history
-    }))
-  }
-
-  if (typeof parseContent === 'function') {
-    return parsed != null
-  }
-
-  return Boolean(String(content || '').trim())
-}
+import { runGenerationRetryPlan } from './generationRetry'
 
 export async function runGenerationTask({
   taskType = 'generation',
@@ -66,103 +14,15 @@ export async function runGenerationTask({
   if (!Array.isArray(baseMessages) || baseMessages.length === 0) {
     throw new Error('runGenerationTask requires non-empty baseMessages')
   }
-
-  const normalizedAttempts = Array.isArray(attempts) && attempts.length > 0
-    ? attempts
-    : [{ name: taskType }]
-
-  const requestIdBase = generationOptions.request_id || createTaskRequestId()
-  const history = []
-
-  for (let index = 0; index < normalizedAttempts.length; index += 1) {
-    const attempt = normalizedAttempts[index] || {}
-    const messages = resolveAttemptMessages(attempt, baseMessages, history)
-
-    let response = null
-    let content = ''
-    let parsed = null
-    let parseError = null
-    let requestError = null
-
-    try {
-      response = await sendChat(
-        messages,
-        character,
-        worldId,
-        settings,
-        {
-          ...generationOptions,
-          retryCount: index,
-          request_id: `${requestIdBase}_a${index}`,
-          taskType
-        }
-      )
-      content = String(response?.content || '')
-    } catch (error) {
-      requestError = error
-    }
-
-    if (!requestError && typeof parseContent === 'function') {
-      try {
-        parsed = parseContent(content)
-      } catch (error) {
-        parseError = error
-      }
-    }
-
-    const success = requestError
-      ? false
-      : evaluateAttemptSuccess({
-        parseContent,
-        isValidParsed,
-        parsed,
-        content,
-        parseError,
-        response,
-        index,
-        attempt,
-        history
-      })
-
-    const item = {
-      index,
-      name: attempt?.name || `attempt-${index + 1}`,
-      messages,
-      response,
-      content,
-      parsed,
-      parseError,
-      requestError,
-      success
-    }
-
-    history.push(item)
-
-    if (success) {
-      return {
-        success: true,
-        taskType,
-        attemptIndex: index,
-        content,
-        parsed,
-        response,
-        attempts: history
-      }
-    }
-
-    if (requestError && index === normalizedAttempts.length - 1) {
-      throw requestError
-    }
-  }
-
-  const last = history[history.length - 1] || null
-  return {
-    success: false,
-    taskType,
-    attemptIndex: last?.index ?? -1,
-    content: last?.content || '',
-    parsed: last?.parsed ?? null,
-    response: last?.response || null,
-    attempts: history
-  }
+  return runGenerationRetryPlan({
+    baseMessages,
+    settings,
+    generationOptions,
+    attempts,
+    parseContent,
+    isValidParsed,
+    character,
+    worldId,
+    taskType
+  })
 }

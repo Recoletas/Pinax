@@ -62,12 +62,18 @@
                     <span class="entry-name">{{ entry.name }}</span>
                     <span class="entry-type">{{ entry.type }} · {{ entry.matchReason === 'constant' ? '常驻' : '命中' }}</span>
                   </div>
+                  <div v-if="entry.matchedKeysLabel" class="entry-hits">
+                    <span class="entry-hits-label">命中依据</span>
+                    <span class="entry-hits-value">{{ entry.matchedKeysLabel }}</span>
+                  </div>
                   <div class="entry-content">{{ entry.content }}</div>
                 </div>
               </div>
               <div v-else class="empty">当前没有命中的世界书条目</div>
               <div v-if="worldbookContext.warnings.length > 0" class="worldbook-warnings">
-                <div v-for="warning in worldbookContext.warnings" :key="warning" class="warning-item">{{ warning }}</div>
+                <div v-for="warning in worldbookWarnings" :key="warning.code" class="warning-item">
+                  <span class="warning-label">{{ warning.label }}</span>
+                </div>
               </div>
             </div>
             <div v-else class="empty">当前没有可预览的世界书注入结果</div>
@@ -193,6 +199,7 @@
 import { ref, computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { buildContextMessage } from '../services/api'
+import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
 
 const emit = defineEmits(['send'])
 const gameStore = useGameStore()
@@ -328,6 +335,12 @@ const worldbookContext = computed(() => gameStore.lastWorldbookContext)
 const worldbookContextName = computed(() => {
   return worldbookContext.value?.messages?.[0]?.content?.match(/【世界书：([^】]+)】/)?.[1]
     || '未命名世界书'
+})
+const worldbookWarnings = computed(() => {
+  return (worldbookContext.value?.warnings || []).map((code) => ({
+    code,
+    label: describeWorldbookWarning(code)
+  }))
 })
 const contextTokens = computed(() => contextMsg.value ? estimateTokens(contextMsg.value.content) : 0)
 const historyTokens = computed(() => {
@@ -694,6 +707,25 @@ function updatePromptInfo() {
   color: var(--accent);
 }
 
+.entry-hits {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.entry-hits-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.entry-hits-value {
+  color: var(--accent);
+  word-break: break-word;
+}
+
 .entry-content {
   font-size: 12px;
   line-height: 1.6;
@@ -705,6 +737,10 @@ function updatePromptInfo() {
 .warning-item {
   color: var(--warning, #fbbf24);
   background: color-mix(in srgb, var(--warning, #fbbf24) 10%, var(--bg-secondary));
+}
+
+.warning-label {
+  color: inherit;
 }
 
 .text-content {

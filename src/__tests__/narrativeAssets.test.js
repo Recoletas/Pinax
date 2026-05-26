@@ -4,7 +4,10 @@ import {
   addNarrativeAsset,
   createNarrativeAsset,
   getAssetKindLabel,
+  getAssetSourceDetail,
+  getAssetSourceLabel,
   listNarrativeAssets,
+  setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '@/services/narrativeAssets'
@@ -33,6 +36,12 @@ describe('narrativeAssets', () => {
     expect(asset.source.messageIds).toEqual(['m1'])
   })
 
+  it('describes asset sources', () => {
+    expect(getAssetSourceLabel({ type: 'experience-session' })).toBe('体验会话')
+    expect(getAssetSourceDetail({ type: 'experience-session', id: 'session-a', messageIds: ['m1', 'm2'] }))
+      .toBe('体验会话 · session-a · 2 段')
+  })
+
   it('stores, filters, and updates assets', () => {
     const first = addNarrativeAsset({
       content: '角色得知了新的秘密。',
@@ -44,8 +53,16 @@ describe('narrativeAssets', () => {
       kind: 'inspiration',
       projectId: 'book-b'
     })
+    addNarrativeAsset({
+      content: '未绑定素材。',
+      kind: 'inspiration',
+      projectId: null
+    })
 
     expect(listNarrativeAssets({ status: 'inbox', projectId: 'book-a' })).toHaveLength(1)
+    expect(listNarrativeAssets({ status: 'inbox', projectId: null })).toHaveLength(1)
+    expect(listNarrativeAssets({ status: 'inbox', kind: 'event' })).toHaveLength(1)
+    expect(listNarrativeAssets({ status: 'inbox', kind: 'inspiration' })).toHaveLength(2)
 
     const updated = updateNarrativeAsset(first.id, {
       title: '新的秘密',
@@ -57,6 +74,17 @@ describe('narrativeAssets', () => {
     setNarrativeAssetStatus(first.id, 'accepted')
     expect(listNarrativeAssets({ status: 'inbox', projectId: 'book-a' })).toHaveLength(0)
     expect(listNarrativeAssets({ status: 'accepted', projectId: 'book-a' })).toHaveLength(1)
+  })
+
+  it('updates multiple asset statuses at once', () => {
+    const first = addNarrativeAsset({ content: '素材一', kind: 'draft-prose' })
+    const second = addNarrativeAsset({ content: '素材二', kind: 'draft-prose' })
+
+    const updated = setNarrativeAssetsStatus([first.id, second.id], 'archived')
+
+    expect(updated).toHaveLength(2)
+    expect(listNarrativeAssets({ status: 'inbox' })).toHaveLength(0)
+    expect(listNarrativeAssets({ status: 'archived' })).toHaveLength(2)
   })
 
   it('falls back invalid kind and exposes labels', () => {

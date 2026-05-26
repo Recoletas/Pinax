@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorldbookContext } from '../services/worldbookContextBuilder'
+import { buildWorldbookContext, describeWorldbookWarning } from '../services/worldbookContextBuilder'
 
 describe('worldbookContextBuilder', () => {
   it('builds worldbook context with matched entries and budget report', () => {
@@ -47,6 +47,7 @@ describe('worldbookContextBuilder', () => {
     expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['e1', 'e2'])
     expect(result.matchedEntries[0].matchReason).toBe('constant')
     expect(result.matchedEntries[1].matchReason).toBe('keyword')
+    expect(result.matchedEntries[1].matchedKeysLabel).toBe('林舟')
     expect(result.budgetReport.tokenBudget).toBe(1200)
     expect(result.budgetReport.usedChars).toBeGreaterThan(0)
     expect(result.warnings).toEqual([])
@@ -95,5 +96,10 @@ describe('worldbookContextBuilder', () => {
     expect(result.messages).toHaveLength(0)
     expect(result.matchedEntries).toHaveLength(0)
     expect(result.warnings).toContain('no-matched-entries')
+  })
+
+  it('describes warning codes for preview', () => {
+    expect(describeWorldbookWarning('no-worldbook')).toContain('世界书')
+    expect(describeWorldbookWarning('no-matched-entries')).toContain('命中')
   })
 })

@@ -37,7 +37,7 @@
     </header>
 
     <div class="content-area">
-      <!-- 右侧边栏：笔记 -->
+      <!-- 左侧边栏：笔记 -->
       <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
           <span class="sidebar-title">笔记</span>
@@ -77,7 +77,7 @@
         </div>
       </aside>
 
-      <!-- 右侧分隔栏 -->
+      <!-- 左侧分隔栏 -->
       <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
@@ -1172,7 +1172,7 @@ function startResizeRight(e) {
 
 function onResizeRight(e) {
   if (resizing.value !== 'right') return
-  const newWidth = Math.max(minWidth, window.innerWidth - e.clientX)
+  const newWidth = Math.max(190, Math.min(420, e.clientX))
   rightWidth.value = newWidth
 }
 
@@ -1362,6 +1362,7 @@ function stopResizeRight() {
   flex: 1;
   display: flex;
   overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
 }
 
 /* 侧边栏 */
@@ -1372,16 +1373,10 @@ function stopResizeRight() {
   flex-shrink: 0;
 }
 
-.chapters-sidebar {
-  border-right: none;
-  min-width: 150px;
-}
-
 .books-sidebar {
-  width: 240px;
-  min-width: 150px;
-  border-left: 1px solid var(--border);
-  border-right: none;
+  width: 260px;
+  min-width: 190px;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
@@ -1389,9 +1384,9 @@ function stopResizeRight() {
 
 /* 可拉伸分隔栏 */
 .resize-handle {
-  width: 4px;
+  width: 5px;
   cursor: col-resize;
-  background: transparent;
+  background: color-mix(in srgb, var(--border) 45%, transparent);
   transition: background 0.15s;
   flex-shrink: 0;
 }
@@ -1499,7 +1494,6 @@ function stopResizeRight() {
   padding: 8px;
 }
 
-.chapters-sidebar[style*='44px'] .sidebar-title,
 .books-sidebar[style*='44px'] .sidebar-title {
   display: none;
 }
@@ -1508,10 +1502,11 @@ function stopResizeRight() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 9px;
-  border-radius: 4px;
+  padding: 8px 9px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s;
+  border: 1px solid transparent;
 }
 
 .book-item:hover {
@@ -1520,6 +1515,7 @@ function stopResizeRight() {
 
 .book-item.active {
   background: var(--accent-light);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .book-icon {
@@ -1647,6 +1643,7 @@ function stopResizeRight() {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);
+  min-width: 0;
 }
 
 .empty-state {
@@ -1696,23 +1693,27 @@ function stopResizeRight() {
 }
 
 .editor-header {
-  padding: 16px 24px;
+  padding: 14px 24px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
 }
 
 .title-row {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-top: 12px;
+  margin-top: 14px;
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 .chapter-title-input {
   flex: 1;
   background: transparent;
   border: none;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
   outline: none;
@@ -1743,12 +1744,15 @@ function stopResizeRight() {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--bg-primary));
   border: 1px solid var(--border);
   border-radius: 8px;
   flex-shrink: 0;
   position: relative;
   box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  max-width: 940px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .toolbar-group {
@@ -2136,14 +2140,18 @@ function stopResizeRight() {
 .editor-textarea {
   flex: 1;
   padding: 24px;
-  background: var(--bg-primary);
-  border: none;
+  width: min(940px, calc(100% - 48px));
+  margin: 20px auto 28px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 8px;
   font-size: 15px;
   line-height: 1.8;
   color: var(--text-primary);
   resize: none;
   outline: none;
   overflow-y: auto;
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
 }
 
 .prose-textarea {
@@ -2154,11 +2162,10 @@ function stopResizeRight() {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   line-height: 1.7;
   white-space: pre-wrap;
-  border-top: 1px solid var(--border);
 }
 
 .editor-preview {
-  border-top: 1px solid var(--border);
+  overflow-y: auto;
 }
 
 .editor-preview :deep(h1),

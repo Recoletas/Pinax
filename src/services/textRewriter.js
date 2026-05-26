@@ -8,101 +8,15 @@
  * - 支持多种改写模式
  */
 
-import { runGenerationRetryPlan } from './generationRetry'
+import { runGenerationTask } from './generationService'
 import { getResolvedApiSettings } from './api'
-
-// 改写模式预设
-const REWRITE_MODES = {
-  style: {
-    name: '风格转换',
-    description: '改变文本的叙事风格',
-    instruction: '将文本改写为指定的叙事风格。'
-  },
-  tone: {
-    name: '语气调整',
-    description: '改变文本的语气和情感色彩',
-    instruction: '调整文本的语气，使其符合指定的情感色彩。'
-  },
-  perspective: {
-    name: '视角转换',
-    description: '改变叙事视角（第一/第三人称等）',
-    instruction: '转换文本的叙事视角，保持内容不变。'
-  },
-  simplify: {
-    name: '简化精炼',
-    description: '精简文字，去除冗余',
-    instruction: '简化文本，去除冗余表达，保留核心内容。'
-  },
-  elaborate: {
-    name: '润色提升',
-    description: '提升文字品质和文学性',
-    instruction: '润色文本，提升文字的品质感和文学性。'
-  }
-}
-
-// 语气预设
-const TONE_PRESETS = {
-  formal: {
-    name: '正式',
-    instruction: '使用正式、庄重的语言风格。'
-  },
-  casual: {
-    name: '轻松',
-    instruction: '使用轻松、口语化的语言风格。'
-  },
-  poetic: {
-    name: '诗意',
-    instruction: '使用优美、富有诗意的语言风格。'
-  },
-  dramatic: {
-    name: '戏剧',
-    instruction: '使用富有戏剧张力和情绪感染力的语言风格。'
-  },
-  neutral: {
-    name: '中性',
-    instruction: '使用客观、中性的语言风格。'
-  }
-}
-
-// 叙事风格预设
-const NARRATIVE_STYLES = {
-  literary: {
-    name: '文学性',
-    instruction: '注重文字美感，描写细腻，意象丰富，节奏舒缓。'
-  },
-  webnovel: {
-    name: '网文风',
-    instruction: '节奏明快，语言简洁，多用对话推进情节，悬念感强。'
-  },
-  concise: {
-    name: '简洁白描',
-    instruction: '文字简练，点到为止，避免过多修饰，留白多。'
-  },
-  dramatic: {
-    name: '戏剧性',
-    instruction: '冲突强烈，情绪张力大，转折多，悬念感足。'
-  }
-}
-
-// 视角预设
-const PERSPECTIVE_PRESETS = {
-  first: {
-    name: '第一人称',
-    instruction: '使用"我"作为叙事视角，增强代入感。'
-  },
-  third: {
-    name: '第三人称',
-    instruction: '使用"他/她"作为叙事视角，保持客观距离。'
-  },
-  thirdLimited: {
-    name: '第三人称限制',
-    instruction: '使用第三人称，但仅展现单一人物的视角和认知。'
-  },
-  omniscient: {
-    name: '全知视角',
-    instruction: '使用全知全能的叙事视角，可以展现所有人物的想法和事件。'
-  }
-}
+import {
+  NARRATIVE_STYLES,
+  REWRITE_MODES,
+  TONE_PRESETS,
+  PERSPECTIVE_PRESETS,
+  getNarrativeStyle
+} from './promptRegistry'
 
 /**
  * 构建改写提示词
@@ -120,7 +34,7 @@ function buildRewritePrompt(text, options = {}) {
   } = options
 
   const modeConfig = REWRITE_MODES[mode] || REWRITE_MODES.style
-  const styleConfig = NARRATIVE_STYLES[style] || NARRATIVE_STYLES.literary
+  const styleConfig = getNarrativeStyle(style)
   const toneConfig = TONE_PRESETS[tone] || TONE_PRESETS.neutral
 
   let specificInstruction = ''
@@ -199,7 +113,8 @@ export async function rewriteText(text, options = {}) {
   const messages = buildRewritePrompt(text, options)
 
   try {
-    const result = await runGenerationRetryPlan({
+    const result = await runGenerationTask({
+      taskType: 'writing.rewrite',
       baseMessages: messages,
       settings,
       generationOptions: {

@@ -13,12 +13,13 @@ export const ASSET_KINDS = [
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
 
-export function listNarrativeAssets({ status = null, projectId = undefined } = {}) {
+export function listNarrativeAssets({ status = null, projectId = undefined, kind = null } = {}) {
   const stored = getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
   const list = Array.isArray(stored) ? stored : []
 
   return list
     .filter((asset) => !status || asset.status === status)
+    .filter((asset) => !kind || asset.kind === kind)
     .filter((asset) => projectId === undefined || asset.projectId === projectId)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
 }
@@ -82,8 +83,57 @@ export function setNarrativeAssetStatus(assetId, status) {
   return updateNarrativeAsset(assetId, { status })
 }
 
+export function setNarrativeAssetsStatus(assetIds = [], status) {
+  const ids = new Set(Array.isArray(assetIds) ? assetIds : [])
+  if (ids.size === 0) return []
+
+  const current = listNarrativeAssets({ status: null })
+  const now = Date.now()
+  const updated = []
+  const next = current.map((asset) => {
+    if (!ids.has(asset.id)) return asset
+    const item = {
+      ...asset,
+      status: normalizeStatus(status),
+      updatedAt: now
+    }
+    updated.push(item)
+    return item
+  })
+
+  if (updated.length > 0) {
+    setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
+  }
+  return updated
+}
+
 export function getAssetKindLabel(kind) {
   return ASSET_KINDS.find((item) => item.value === kind)?.label || '素材'
+}
+
+export function getAssetSourceLabel(source = {}) {
+  const type = String(source?.type || 'manual')
+  switch (type) {
+    case 'experience-session':
+      return '体验会话'
+    case 'note':
+      return '笔记'
+    case 'chapter':
+      return '章节'
+    case 'manual':
+    default:
+      return '手动录入'
+  }
+}
+
+export function getAssetSourceDetail(source = {}) {
+  const label = getAssetSourceLabel(source)
+  const sourceId = String(source?.id || '').trim()
+  const messageCount = Array.isArray(source?.messageIds) ? source.messageIds.length : 0
+  const parts = [label]
+  if (sourceId) parts.push(sourceId)
+  if (messageCount > 0) parts.push(`${messageCount} 段`)
+  return parts.join(' · ')
 }
 
 function normalizeKind(kind) {

@@ -30,6 +30,9 @@
             <path d="M8 2v12M2 8h12"/>
           </svg>
         </button>
+        <button class="toolbar-text-btn" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
+          素材
+        </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -45,53 +48,10 @@
     </header>
 
     <div class="content-area">
-      <!-- 左侧边栏：目录 -->
-      <aside class="sidebar chapters-sidebar" :style="{ width: leftSidebarWidth + 'px' }" v-if="selectedBookId">
-        <div class="sidebar-header">
-          <span class="sidebar-title">目录</span>
-          <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleLeftSidebar" :title="isLeftCollapsed ? '展开目录' : '收起目录'">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path v-if="isLeftCollapsed" d="M4 2l4 4-4 4V2z"/>
-                <path v-else d="M8 2L4 6l4 4V2z"/>
-              </svg>
-            </button>
-            <button class="add-btn" @click="createNewChapter" title="新建章节" :disabled="isLeftCollapsed">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 0v14M0 7h14"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="chapter-list" v-show="!isLeftCollapsed">
-          <div
-            v-for="(chapter, index) in chapters"
-            :key="chapter.id"
-            :class="['chapter-item', { active: selectedChapterId === chapter.id }]"
-            @click="selectChapter(chapter.id)"
-          >
-            <span class="chapter-num">{{ index + 1 }}</span>
-            <span class="chapter-title">{{ chapter.title || '无标题章节' }}</span>
-            <span class="chapter-words">{{ chapter.wordCount || 0 }}</span>
-            <button class="delete-btn" @click.stop="deleteChapter(chapter.id)" title="删除章节">×</button>
-          </div>
-          <div v-if="chapters.length === 0" class="empty-hint">
-            暂无章节，点击 + 添加
-          </div>
-        </div>
-      </aside>
-
-      <!-- 可拉伸分隔栏 -->
-      <div
-        class="resize-handle"
-        v-if="selectedBookId && !isLeftCollapsed"
-        @mousedown="startResize($event, 'left')"
-      ></div>
-
-      <!-- 右侧边栏：书籍 -->
+      <!-- 左侧边栏：作品导航 -->
       <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
-          <span class="sidebar-title">书籍</span>
+          <span class="sidebar-title">作品</span>
           <div class="sidebar-actions">
             <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开书籍' : '收起书籍'">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -126,9 +86,35 @@
             暂无书籍，点击上方 + 新建
           </div>
         </div>
+        <template v-if="selectedBookId">
+          <div class="sidebar-header chapter-header">
+            <span class="sidebar-title">章节</span>
+            <button class="add-btn" @click="createNewChapter" title="新建章节" :disabled="isRightCollapsed">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 0v14M0 7h14"/>
+              </svg>
+            </button>
+          </div>
+          <div class="chapter-list" v-show="!isRightCollapsed">
+            <div
+              v-for="(chapter, index) in chapters"
+              :key="chapter.id"
+              :class="['chapter-item', { active: selectedChapterId === chapter.id }]"
+              @click="selectChapter(chapter.id)"
+            >
+              <span class="chapter-num">{{ index + 1 }}</span>
+              <span class="chapter-title">{{ chapter.title || '无标题章节' }}</span>
+              <span class="chapter-words">{{ chapter.wordCount || 0 }}</span>
+              <button class="delete-btn" @click.stop="deleteChapter(chapter.id)" title="删除章节">×</button>
+            </div>
+            <div v-if="chapters.length === 0" class="empty-hint">
+              暂无章节，点击 + 添加
+            </div>
+          </div>
+        </template>
       </aside>
 
-      <!-- 右侧分隔栏 -->
+      <!-- 左侧分隔栏 -->
       <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
@@ -163,8 +149,32 @@
               AI 续写中...
             </span>
             <span v-else-if="copilotVisible" class="copilot-ready">
+              <span class="copilot-ready-label">内联建议</span>
+              <span v-if="copilotMatchedEntries.length" class="copilot-meta">命中 {{ copilotMatchedEntries.length }} 条设定</span>
               <kbd>Tab</kbd> 采纳 · <kbd>Esc</kbd> 忽略
             </span>
+            <div class="copilot-actions">
+              <button
+                v-if="copilotVisible"
+                type="button"
+                class="copilot-action"
+                @mousedown.prevent
+                @click.stop="acceptCopilotSuggestion"
+              >采纳</button>
+              <button
+                v-if="copilotVisible"
+                type="button"
+                class="copilot-action"
+                @mousedown.prevent
+                @click.stop="retryCopilotSuggestion"
+              >重试</button>
+              <button
+                type="button"
+                class="copilot-action secondary"
+                @mousedown.prevent
+                @click.stop="copilotCancel"
+              >{{ copilotGenerating ? '停止' : '忽略' }}</button>
+            </div>
           </div>
 
           <div class="editor-header">
@@ -431,23 +441,28 @@
 
           <!-- 编辑器容器（含 Ghost Text） -->
           <div class="editor-container" v-if="editorMode === 'wysiwyg'">
-            <div class="editor-ghost-layer" v-if="copilotVisible && copilotSuggestion">
-              <span class="ghost-text">{{ copilotSuggestion }}</span>
+            <div
+              class="editor-ghost-layer"
+              v-if="copilotVisible && copilotSuggestion"
+              :style="editorTypographyStyle"
+              aria-hidden="true"
+            >
+              <div class="editor-ghost-scroll" :style="copilotGhostScrollStyle">
+                <span>{{ copilotGhostBefore }}</span><span class="ghost-text">{{ copilotSuggestion }}</span><span>{{ copilotGhostAfter }}</span>
+              </div>
             </div>
             <textarea
               v-model="markdownContent"
               class="editor-textarea prose-textarea"
+              :class="{ 'with-copilot-ghost': copilotVisible && copilotSuggestion }"
               placeholder="开始写作..."
               ref="editorRef"
-              :style="{
-                fontFamily: editorFont,
-                fontSize: editorFontSize,
-                fontWeight: editorBold ? 'bold' : 'normal',
-                fontStyle: editorItalic ? 'italic' : 'normal',
-                textDecoration: editorUnderline ? 'underline' : 'none'
-              }"
+              :style="editorTypographyStyle"
               @input="onMarkdownInput"
               @keydown="onTextAreaKeydown"
+              @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+              @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+              @scroll="onEditorScroll"
             ></textarea>
           </div>
           <textarea
@@ -490,7 +505,7 @@
       storage-key="writing_image_library_v1"
       side="right"
       :vertical-offset="0"
-      :horizontal-offset="rightSidebarWidth"
+      :horizontal-offset="0"
       drawer-title="小说生图"
       selected-prompt-label="选中文本"
       :selected-text="selectedText"
@@ -498,9 +513,9 @@
 
     <aside class="quick-notes-rail" aria-label="快捷入口">
       <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-        <div class="quick-note-row">
-          <textarea
-            ref="quickNoteInputRef"
+          <div class="quick-note-row">
+            <textarea
+              ref="quickNoteInputRef"
             v-model="quickNoteDraft"
             class="quick-note-input"
             placeholder="随手记一段..."
@@ -524,7 +539,6 @@
           <div class="quick-note-import-toolbar">
             <span class="quick-note-import-title">快捷处理</span>
             <button class="quick-note-mini-btn" :class="{ primary: quickNotePanelTab === 'dialogue' }" type="button" @click="quickNotePanelTab = 'dialogue'">对话段</button>
-            <button class="quick-note-mini-btn" :class="{ primary: quickNotePanelTab === 'assets' }" type="button" @click="quickNotePanelTab = 'assets'; refreshAssetInbox()">素材</button>
           </div>
           <template v-if="quickNotePanelTab === 'dialogue'">
             <div class="quick-note-import-toolbar quick-note-subtoolbar">
@@ -558,27 +572,6 @@
               </aside>
             </div>
           </template>
-          <template v-else>
-            <div class="quick-note-import-toolbar quick-note-subtoolbar">
-              <span class="quick-note-import-title">素材收件箱 · {{ inboxAssets.length }}</span>
-              <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
-            </div>
-            <div v-if="inboxAssets.length" class="asset-inbox-list">
-              <article v-for="asset in inboxAssets" :key="asset.id" class="asset-inbox-item">
-                <div class="asset-inbox-head">
-                  <span class="asset-inbox-title">{{ asset.title || '未命名素材' }}</span>
-                  <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
-                </div>
-                <p class="asset-inbox-preview">{{ asset.content }}</p>
-                <div class="asset-inbox-actions">
-                  <button class="quick-note-mini-btn primary" type="button" @click="insertAssetIntoChapter(asset)">插入</button>
-                  <button class="quick-note-mini-btn" type="button" @click="archiveAsset(asset)">归档</button>
-                  <button class="quick-note-mini-btn" type="button" @click="rejectAsset(asset)">拒绝</button>
-                </div>
-              </article>
-            </div>
-            <div v-else class="quick-note-import-empty">暂无待处理素材</div>
-          </template>
         </div>
         <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
       </div>
@@ -589,6 +582,106 @@
         </svg>
       </button>
     </aside>
+
+    <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
+      <section class="asset-inbox-modal">
+        <header class="asset-inbox-modal-header">
+          <div>
+            <div class="asset-inbox-modal-kicker">写作素材</div>
+            <h3 class="asset-inbox-modal-title">素材收件箱</h3>
+          </div>
+          <button class="modal-close asset-inbox-close" type="button" @click="closeAssetInbox" aria-label="关闭素材面板">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </header>
+
+        <div class="asset-inbox-modal-toolbar">
+          <div class="asset-inbox-toolbar-group">
+            <span class="asset-inbox-modal-stat">{{ inboxAssets.length }} 条待处理</span>
+            <span class="asset-inbox-modal-stat">已选 {{ selectedInboxAssetIds.length }} 条</span>
+          </div>
+          <div class="asset-inbox-toolbar-group">
+            <select v-model="assetInboxScope" class="asset-inbox-filter" @change="refreshAssetInbox">
+              <option value="all">全部素材</option>
+              <option value="current-book" :disabled="!selectedBookId">当前书</option>
+              <option value="unbound">未绑定</option>
+            </select>
+            <select v-model="assetInboxKind" class="asset-inbox-filter" @change="refreshAssetInbox">
+              <option value="">全部类型</option>
+              <option v-for="kind in assetKindOptions" :key="kind.value" :value="kind.value">
+                {{ kind.label }}
+              </option>
+            </select>
+            <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
+          </div>
+          <div class="asset-inbox-toolbar-group">
+            <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
+            <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
+            <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
+            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
+            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
+            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
+          </div>
+        </div>
+
+        <div class="asset-inbox-modal-body">
+          <div class="asset-inbox-list-panel">
+            <button
+              v-for="asset in inboxAssets"
+              :key="asset.id"
+              type="button"
+              class="asset-inbox-row"
+              :class="{ active: assetInboxActiveId === asset.id }"
+              @click="focusInboxAsset(asset.id)"
+            >
+              <input
+                class="quick-note-import-check"
+                type="checkbox"
+                :checked="selectedInboxAssetIds.includes(asset.id)"
+                @click.stop
+                @change="toggleInboxAssetSelection(asset.id)"
+              />
+              <div class="asset-inbox-row-copy">
+                <div class="asset-inbox-row-head">
+                  <span class="asset-inbox-title">{{ asset.title || '未命名素材' }}</span>
+                  <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
+                </div>
+                <div class="asset-inbox-source">{{ getAssetSourceDetail(asset.source) }}</div>
+                <p class="asset-inbox-preview">{{ asset.content }}</p>
+              </div>
+            </button>
+            <div v-if="!inboxAssets.length" class="asset-inbox-empty-state">
+              当前没有待处理素材
+            </div>
+          </div>
+
+          <aside class="asset-inbox-detail-panel">
+            <template v-if="activeInboxAsset">
+              <div class="asset-inbox-detail-kicker">{{ getAssetKindLabel(activeInboxAsset.kind) }}</div>
+              <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || '未命名素材' }}</h4>
+              <div class="asset-inbox-detail-meta">{{ getAssetSourceDetail(activeInboxAsset.source) }}</div>
+              <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
+              <div class="asset-inbox-detail-actions">
+                <button class="quick-note-mini-btn primary" type="button" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
+                <button
+                  v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
+                  class="quick-note-mini-btn"
+                  type="button"
+                  @click="acceptWorldbookDraftAsset(activeInboxAsset)"
+                >入世界书</button>
+                <button class="quick-note-mini-btn" type="button" @click="archiveAsset(activeInboxAsset)">归档</button>
+                <button class="quick-note-mini-btn" type="button" @click="rejectAsset(activeInboxAsset)">拒绝</button>
+              </div>
+            </template>
+            <div v-else class="asset-inbox-empty-state">
+              选择一条素材查看详情
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
 
     <!-- 新建书籍弹窗 -->
     <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
@@ -654,30 +747,49 @@ import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import { useCopilot } from '../composables/useCopilot'
+import { useWorldStore } from '../stores/worldStore'
 import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getAssetKindLabel, listNarrativeAssets, setNarrativeAssetStatus } from '../services/narrativeAssets'
+import {
+  ASSET_KINDS,
+  getAssetKindLabel,
+  getAssetSourceDetail,
+  listNarrativeAssets,
+  setNarrativeAssetsStatus,
+  setNarrativeAssetStatus
+} from '../services/narrativeAssets'
+import {
+  buildWorldbookEntryFromAsset,
+  canConvertAssetToWorldbookEntry
+} from '../services/worldbookDraftAssets'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
+const worldStore = useWorldStore()
 
 // AI Copilot 续写
 const {
   isGenerating: copilotGenerating,
   suggestion: copilotSuggestion,
   isVisible: copilotVisible,
+  error: copilotError,
+  matchedEntries: copilotMatchedEntries,
   triggerGeneration: copilotTrigger,
+  manualTrigger: copilotManualTrigger,
   acceptSuggestion: copilotAccept,
   rejectSuggestion: copilotReject,
   cancelSuggestion: copilotCancel
-} = useCopilot({ debounceMs: 500, autoTrigger: true })
+} = useCopilot({ debounceMs: 220, autoTrigger: true, maxSuggestionLength: 160 })
 
 const copilotEnabled = ref(true)
 const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
+const copilotCursorPos = ref(0)
+const copilotScrollTop = ref(0)
+const copilotScrollLeft = ref(0)
 
 const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const QUICK_NOTE_STORE_KEY = STORAGE_KEYS.WRITING_NOTES
@@ -696,12 +808,23 @@ const editorRef = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
 
-const leftWidth = ref(190)
+const editorTypographyStyle = computed(() => ({
+  fontFamily: editorFont.value,
+  fontSize: editorFontSize.value,
+  fontWeight: editorBold.value ? 'bold' : 'normal',
+  fontStyle: editorItalic.value ? 'italic' : 'normal',
+  textDecoration: editorUnderline.value ? 'underline' : 'none'
+}))
+
+const copilotGhostBefore = computed(() => markdownContent.value.slice(0, copilotCursorPos.value))
+const copilotGhostAfter = computed(() => markdownContent.value.slice(copilotCursorPos.value))
+const copilotGhostScrollStyle = computed(() => ({
+  transform: `translate(${-copilotScrollLeft.value}px, ${-copilotScrollTop.value}px)`
+}))
+
 const rightWidth = ref(210)
-const isLeftCollapsed = ref(false)
 const isRightCollapsed = ref(false)
 const resizing = ref(null)
-const minWidth = 150
 const selectedText = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
@@ -731,9 +854,15 @@ const quickNoteDraft = ref(loadQuickNoteDraft())
 const quickNoteInputRef = ref(null)
 const quickNoteStatus = ref('')
 const quickNoteImportOpen = ref(false)
+const assetInboxOpen = ref(false)
+const assetInboxActiveId = ref('')
 const selectedDialogueImportIds = ref([])
 const inboxAssets = ref([])
 const quickNotePanelTab = ref('dialogue')
+const assetInboxScope = ref('all')
+const assetInboxKind = ref('')
+const selectedInboxAssetIds = ref([])
+const assetKindOptions = ASSET_KINDS
 
 // AI 扩展/改写状态
 const showAiPanel = ref(false)
@@ -770,7 +899,6 @@ const dialogueImportStats = computed(() => {
   return { totalCount, selectedCount, totalWords, selectedWords }
 })
 const collapsedSidebarWidth = 44
-const leftSidebarWidth = computed(() => (isLeftCollapsed.value ? collapsedSidebarWidth : leftWidth.value))
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 
 const turndownService = new TurndownService({
@@ -895,14 +1023,25 @@ function extractDialogueSegments(text) {
 }
 
 function toggleQuickNoteImport() {
-  if (!dialogueImportCandidates.value.length) {
-    quickNotePanelTab.value = 'assets'
-    quickNoteImportOpen.value = true
-    refreshAssetInbox()
-    return
-  }
   quickNotePanelTab.value = 'dialogue'
   quickNoteImportOpen.value = !quickNoteImportOpen.value
+}
+
+function openAssetInbox() {
+  quickNoteOpen.value = false
+  quickNoteImportOpen.value = false
+  quickNotePanelTab.value = 'dialogue'
+  assetInboxOpen.value = true
+  refreshAssetInbox()
+  nextTick(() => {
+    if (!assetInboxActiveId.value && inboxAssets.value.length) {
+      assetInboxActiveId.value = inboxAssets.value[0].id
+    }
+  })
+}
+
+function closeAssetInbox() {
+  assetInboxOpen.value = false
 }
 
 function toggleDialogueImportSelection(id) {
@@ -938,23 +1077,158 @@ function importSelectedDialogueSegments() {
 }
 
 function refreshAssetInbox() {
-  inboxAssets.value = listNarrativeAssets({ status: 'inbox' })
+  const filters = { status: 'inbox' }
+  if (assetInboxScope.value === 'current-book') {
+    filters.projectId = selectedBookId.value || '__no_current_book__'
+  } else if (assetInboxScope.value === 'unbound') {
+    filters.projectId = null
+  }
+  if (assetInboxKind.value) {
+    filters.kind = assetInboxKind.value
+  }
+  inboxAssets.value = listNarrativeAssets(filters)
+  const visibleIds = new Set(inboxAssets.value.map((asset) => asset.id))
+  selectedInboxAssetIds.value = selectedInboxAssetIds.value.filter((id) => visibleIds.has(id))
+  if (!visibleIds.has(assetInboxActiveId.value)) {
+    assetInboxActiveId.value = inboxAssets.value[0]?.id || ''
+  }
+}
+
+function toggleInboxAssetSelection(assetId) {
+  const nextIds = [...selectedInboxAssetIds.value]
+  const idx = nextIds.indexOf(assetId)
+  if (idx >= 0) nextIds.splice(idx, 1)
+  else nextIds.push(assetId)
+  selectedInboxAssetIds.value = nextIds
+}
+
+function selectAllInboxAssets() {
+  selectedInboxAssetIds.value = inboxAssets.value.map((asset) => asset.id)
+}
+
+function clearInboxAssetSelection() {
+  selectedInboxAssetIds.value = []
+}
+
+function focusInboxAsset(assetId) {
+  assetInboxActiveId.value = assetId
+}
+
+function getSelectedInboxAssets() {
+  const picked = new Set(selectedInboxAssetIds.value)
+  return inboxAssets.value.filter((asset) => picked.has(asset.id))
+}
+
+function getSelectedWorldbookDraftAssets() {
+  return getSelectedInboxAssets().filter((asset) => canConvertAssetToWorldbookEntry(asset))
+}
+
+const activeInboxAsset = computed(() => {
+  if (!inboxAssets.value.length) return null
+  return inboxAssets.value.find((asset) => asset.id === assetInboxActiveId.value) || inboxAssets.value[0] || null
+})
+
+function insertAssetsIntoChapter(assets = []) {
+  const usable = assets.filter((asset) => String(asset?.content || '').trim())
+  if (!usable.length) {
+    quickNoteStatus.value = '素材内容为空'
+    return false
+  }
+
+  const snippet = usable.map((asset) => asset.content.trim()).join('\n\n')
+  markdownContent.value = markdownContent.value
+    ? `${markdownContent.value.trimEnd()}\n\n${snippet}\n`
+    : snippet
+  syncMarkdownToEditor()
+  onContentChange()
+  return true
 }
 
 function insertAssetIntoChapter(asset) {
-  if (!asset?.content) {
-    quickNoteStatus.value = '素材内容为空'
-    return
-  }
-  const snippet = `\n\n${asset.content.trim()}\n`
-  markdownContent.value = markdownContent.value
-    ? `${markdownContent.value.trimEnd()}${snippet}`
-    : asset.content.trim()
-  syncMarkdownToEditor()
-  onContentChange()
+  if (!insertAssetsIntoChapter([asset])) return
   setNarrativeAssetStatus(asset.id, 'accepted')
   refreshAssetInbox()
   quickNoteStatus.value = '已插入章节'
+}
+
+async function ensureWorldbookTarget() {
+  if (worldStore.activeWorldbook?.id) return worldStore.activeWorldbook
+
+  await worldStore.loadWorldbooksIndex()
+  if (worldStore.worldbooksIndex.length === 0) {
+    return worldStore.createWorldbook({
+      name: '写作素材世界书',
+      description: '从写作素材收件箱创建的世界书'
+    })
+  }
+
+  return worldStore.ensureActiveWorldbook()
+}
+
+async function acceptWorldbookDraftAsset(asset) {
+  if (!canConvertAssetToWorldbookEntry(asset)) {
+    quickNoteStatus.value = '只有世界书草稿可以入库'
+    return
+  }
+
+  try {
+    const worldbook = await ensureWorldbookTarget()
+    if (!worldbook?.id) {
+      quickNoteStatus.value = '没有可写入的世界书'
+      return
+    }
+
+    const entry = buildWorldbookEntryFromAsset(asset)
+    await worldStore.addEntry(worldbook.id, entry)
+    setNarrativeAssetStatus(asset.id, 'accepted')
+    refreshAssetInbox()
+    quickNoteStatus.value = `已写入世界书：${entry.name}`
+  } catch (error) {
+    quickNoteStatus.value = error?.message || '写入世界书失败'
+  }
+}
+
+async function acceptSelectedWorldbookDraftAssets() {
+  const selectedAssets = getSelectedWorldbookDraftAssets()
+  if (!selectedAssets.length) {
+    quickNoteStatus.value = '先选择世界书草稿'
+    return
+  }
+
+  try {
+    const worldbook = await ensureWorldbookTarget()
+    if (!worldbook?.id) {
+      quickNoteStatus.value = '没有可写入的世界书'
+      return
+    }
+
+    const acceptedIds = []
+    for (const asset of selectedAssets) {
+      const entry = buildWorldbookEntryFromAsset(asset)
+      await worldStore.addEntry(worldbook.id, entry)
+      acceptedIds.push(asset.id)
+    }
+
+    setNarrativeAssetsStatus(acceptedIds, 'accepted')
+    selectedInboxAssetIds.value = selectedInboxAssetIds.value.filter((id) => !acceptedIds.includes(id))
+    refreshAssetInbox()
+    quickNoteStatus.value = `已写入 ${acceptedIds.length} 条世界书条目`
+  } catch (error) {
+    quickNoteStatus.value = error?.message || '批量写入世界书失败'
+  }
+}
+
+function insertSelectedAssetsIntoChapter() {
+  const selectedAssets = getSelectedInboxAssets()
+  if (!selectedAssets.length) {
+    quickNoteStatus.value = '先选择素材'
+    return
+  }
+  if (!insertAssetsIntoChapter(selectedAssets)) return
+  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'accepted')
+  selectedInboxAssetIds.value = []
+  refreshAssetInbox()
+  quickNoteStatus.value = `已插入 ${selectedAssets.length} 条素材`
 }
 
 function archiveAsset(asset) {
@@ -963,10 +1237,34 @@ function archiveAsset(asset) {
   quickNoteStatus.value = '已归档素材'
 }
 
+function archiveSelectedAssets() {
+  const selectedAssets = getSelectedInboxAssets()
+  if (!selectedAssets.length) {
+    quickNoteStatus.value = '先选择素材'
+    return
+  }
+  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'archived')
+  selectedInboxAssetIds.value = []
+  refreshAssetInbox()
+  quickNoteStatus.value = `已归档 ${selectedAssets.length} 条素材`
+}
+
 function rejectAsset(asset) {
   setNarrativeAssetStatus(asset.id, 'rejected')
   refreshAssetInbox()
   quickNoteStatus.value = '已拒绝素材'
+}
+
+function rejectSelectedAssets() {
+  const selectedAssets = getSelectedInboxAssets()
+  if (!selectedAssets.length) {
+    quickNoteStatus.value = '先选择素材'
+    return
+  }
+  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'rejected')
+  selectedInboxAssetIds.value = []
+  refreshAssetInbox()
+  quickNoteStatus.value = `已拒绝 ${selectedAssets.length} 条素材`
 }
 
 function clearQuickNoteDraft() {
@@ -979,10 +1277,24 @@ watch(quickNoteOpen, (open) => {
   if (!open) {
     quickNoteImportOpen.value = false
     selectedDialogueImportIds.value = []
+    selectedInboxAssetIds.value = []
     quickNotePanelTab.value = 'dialogue'
     return
   }
   nextTick(() => resizeQuickNoteInput())
+})
+
+watch(assetInboxOpen, (open) => {
+  if (open) {
+    refreshAssetInbox()
+    nextTick(() => {
+      if (!assetInboxActiveId.value && inboxAssets.value.length) {
+        assetInboxActiveId.value = inboxAssets.value[0].id
+      }
+    })
+    return
+  }
+  selectedInboxAssetIds.value = []
 })
 
 function quickNoteWordCount(text) {
@@ -1043,34 +1355,59 @@ function loadBooks() {
   } catch (e) {
     books.value = []
   }
+
+  ensureInitialBookSelection()
 }
 
 function saveBooks() {
   localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books.value))
 }
 
-function selectBook(bookId) {
+function ensureInitialBookSelection() {
+  if (selectedBookId.value || books.value.length === 0) return
+  openBook(books.value[0].id, { fromInitialLoad: true })
+}
+
+function openBook(bookId, options = {}) {
+  const { fromInitialLoad = false } = options
   saveCurrentChapter()
   selectedBookId.value = bookId
-  const book = books.value.find(b => b.id === bookId)
-  if (book) {
-    chapters.value = book.chapters || []
-    if (chapters.value.length > 0) {
-      selectChapter(chapters.value[0].id)
-    } else {
+  if (assetInboxScope.value === 'current-book') {
+    refreshAssetInbox()
+  }
+
+  const book = books.value.find((item) => item.id === bookId)
+  if (!book) {
+    if (fromInitialLoad) {
       selectedChapterId.value = null
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
     }
+    return
+  }
+
+  chapters.value = book.chapters || []
+  if (chapters.value.length > 0) {
+    selectChapter(chapters.value[0].id)
+  } else {
+    selectedChapterId.value = null
+    currentChapterTitle.value = ''
+    editorContent.value = ''
+    markdownContent.value = ''
   }
   saveStatus.value = 'saved'
+}
+
+function selectBook(bookId) {
+  openBook(bookId)
 }
 
 function selectChapter(chapterId) {
   if (selectedChapterId.value && selectedChapterId.value !== chapterId) {
     saveCurrentChapter()
   }
+  copilotCancel()
   selectedChapterId.value = chapterId
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
@@ -1429,10 +1766,6 @@ function clearSelectionStyle() {
   onContentChange()
 }
 
-function toggleLeftSidebar() {
-  isLeftCollapsed.value = !isLeftCollapsed.value
-}
-
 function toggleRightSidebar() {
   isRightCollapsed.value = !isRightCollapsed.value
 }
@@ -1635,34 +1968,68 @@ function onMarkdownInput() {
   if (editorMode.value === 'wysiwyg' && editorRef.value) {
     markdownContent.value = editorRef.value.value
   }
+  syncCopilotCursorFromEditor()
   syncMarkdownToEditor()
   onContentChange()
 
   // 触发 Copilot 续写
   if (copilotEnabled.value && editorRef.value) {
-    const cursorPos = editorRef.value.selectionStart
-    copilotTrigger(markdownContent.value, cursorPos, { chapterTitle: currentChapterTitle.value })
+    copilotTrigger(markdownContent.value, copilotCursorPos.value, { chapterTitle: currentChapterTitle.value })
   }
+}
+
+function syncCopilotCursorFromEditor(options = {}) {
+  const { cancelOnMove = false } = options
+  const editor = editorRef.value
+  if (!editor || typeof editor.selectionStart !== 'number') return
+  const nextCursor = editor.selectionStart
+  if (cancelOnMove && copilotVisible.value && nextCursor !== copilotCursorPos.value) {
+    copilotCancel()
+  }
+  copilotCursorPos.value = nextCursor
+  copilotScrollTop.value = editor.scrollTop || 0
+  copilotScrollLeft.value = editor.scrollLeft || 0
+}
+
+function onEditorScroll(event) {
+  copilotScrollTop.value = event.target?.scrollTop || 0
+  copilotScrollLeft.value = event.target?.scrollLeft || 0
+}
+
+function acceptCopilotSuggestion() {
+  const editor = editorRef.value
+  if (editor) {
+    syncCopilotCursorFromEditor()
+  }
+  const result = copilotAccept(markdownContent.value, copilotCursorPos.value)
+  markdownContent.value = result.content
+  syncMarkdownToEditor()
+  onContentChange()
+  nextTick(() => {
+    if (editorRef.value) {
+      editorRef.value.setSelectionRange(result.newCursorPos, result.newCursorPos)
+      editorRef.value.focus()
+      syncCopilotCursorFromEditor()
+    }
+  })
+}
+
+function retryCopilotSuggestion() {
+  syncCopilotCursorFromEditor()
+  copilotManualTrigger(markdownContent.value, copilotCursorPos.value, { chapterTitle: currentChapterTitle.value })
+  nextTick(() => editorRef.value?.focus())
 }
 
 function onTextAreaKeydown(e) {
   // Tab 采纳 Copilot 建议
   if (e.key === 'Tab' && copilotVisible.value && copilotSuggestion.value) {
     e.preventDefault()
-    const result = copilotAccept(markdownContent.value, editorRef.value?.selectionStart || 0)
-    markdownContent.value = result.content
-    syncMarkdownToEditor()
-    onContentChange()
-    nextTick(() => {
-      if (editorRef.value) {
-        editorRef.value.setSelectionRange(result.newCursorPos, result.newCursorPos)
-      }
-    })
+    acceptCopilotSuggestion()
     return
   }
 
   // Esc 拒绝建议
-  if (e.key === 'Escape' && copilotVisible.value) {
+  if (e.key === 'Escape' && (copilotVisible.value || copilotGenerating.value)) {
     e.preventDefault()
     copilotReject()
     return
@@ -1764,6 +2131,7 @@ function setEditorPlainText(text) {
 
 function switchEditorMode(mode) {
   if (editorMode.value === mode) return
+  copilotCancel()
   syncFromCurrentEditor()
   editorMode.value = mode
   if (mode !== 'wysiwyg') {
@@ -1869,14 +2237,6 @@ function syncSelectionCommandState() {
   }
 }
 
-function startResize(e, side) {
-  if (isLeftCollapsed.value) return
-  resizing.value = side
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-  e.preventDefault()
-}
-
 function startResizeRight(e) {
   if (isRightCollapsed.value) return
   resizing.value = 'right'
@@ -1885,18 +2245,9 @@ function startResizeRight(e) {
   e.preventDefault()
 }
 
-function onResize(e) {
-  if (!resizing.value) return
-  if (resizing.value === 'left') {
-    const newWidth = Math.max(minWidth, e.clientX)
-    leftWidth.value = newWidth
-  }
-}
-
 function onResizeRight(e) {
   if (resizing.value !== 'right') return
-  // 向右拖 = 书籍栏变宽（e.clientX 增大，rightWidth 增大）
-  const newWidth = Math.max(minWidth, e.clientX - leftSidebarWidth.value - 8)
+  const newWidth = Math.max(190, Math.min(420, e.clientX))
   rightWidth.value = newWidth
 }
 
@@ -1906,11 +2257,6 @@ function stopResizeRight() {
   document.removeEventListener('mouseup', stopResizeRight)
 }
 
-function stopResize() {
-  resizing.value = null
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
-}
 </script>
 
 <style scoped>
@@ -2134,6 +2480,17 @@ function stopResize() {
   gap: 8px;
 }
 
+.asset-inbox-filter {
+  min-width: 78px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 0 6px;
+}
+
 .asset-inbox-item {
   padding: 8px;
   border: 1px solid var(--border);
@@ -2156,10 +2513,23 @@ function stopResize() {
   color: var(--text-primary);
 }
 
+.asset-inbox-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .asset-inbox-kind {
   flex: 0 0 auto;
   font-size: 9px;
   color: var(--text-secondary);
+}
+
+.asset-inbox-source {
+  margin-bottom: 4px;
+  font-size: 9px;
+  color: var(--text-muted);
 }
 
 .asset-inbox-preview {
@@ -2182,6 +2552,189 @@ function stopResize() {
   margin-top: 4px;
   font-size: 9px;
   color: var(--text-secondary);
+}
+
+.asset-inbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: color-mix(in srgb, #000 22%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.asset-inbox-modal {
+  width: min(1180px, calc(100vw - 36px));
+  height: min(82vh, 820px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 90%, var(--bg-secondary));
+  box-shadow: 0 22px 54px color-mix(in srgb, #000 26%, transparent);
+  padding: 18px;
+}
+
+.asset-inbox-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.asset-inbox-modal-kicker {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+.asset-inbox-modal-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.asset-inbox-close {
+  margin-top: 2px;
+}
+
+.asset-inbox-modal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+}
+
+.asset-inbox-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.asset-inbox-modal-stat {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.asset-inbox-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+  gap: 14px;
+}
+
+.asset-inbox-list-panel,
+.asset-inbox-detail-panel {
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
+}
+
+.asset-inbox-list-panel {
+  overflow: auto;
+  padding: 10px;
+}
+
+.asset-inbox-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.asset-inbox-row:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.asset-inbox-row.active {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.asset-inbox-row-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.asset-inbox-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.asset-inbox-detail-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.asset-inbox-detail-kicker {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.asset-inbox-detail-title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.asset-inbox-detail-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.asset-inbox-detail-content {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  color: var(--text-primary);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.asset-inbox-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.asset-inbox-empty-state {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .advisor-fab {
@@ -2241,6 +2794,24 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.toolbar-text-btn {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-text-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-hover);
 }
 
 .icon-btn {
@@ -2350,6 +2921,7 @@ function stopResize() {
   flex: 1;
   display: flex;
   overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
 }
 
 /* 侧边栏 */
@@ -2360,16 +2932,10 @@ function stopResize() {
   flex-shrink: 0;
 }
 
-.chapters-sidebar {
-  border-right: none;
-  min-width: 150px;
-}
-
 .books-sidebar {
-  width: 240px;
-  min-width: 150px;
-  border-left: 1px solid var(--border);
-  border-right: none;
+  width: 260px;
+  min-width: 190px;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
@@ -2377,9 +2943,9 @@ function stopResize() {
 
 /* 可拉伸分隔栏 */
 .resize-handle {
-  width: 4px;
+  width: 5px;
   cursor: col-resize;
-  background: transparent;
+  background: color-mix(in srgb, var(--border) 45%, transparent);
   transition: background 0.15s;
   flex-shrink: 0;
 }
@@ -2389,7 +2955,7 @@ function stopResize() {
 }
 
 .sidebar-header {
-  height: 40px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2397,6 +2963,10 @@ function stopResize() {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+}
+
+.chapter-header {
+  border-top: 1px solid var(--border);
 }
 
 .sidebar-actions {
@@ -2482,12 +3052,20 @@ function stopResize() {
 
 .book-list,
 .chapter-list {
-  flex: 1;
+  flex: 0 1 auto;
   overflow-y: auto;
   padding: 8px;
 }
 
-.chapters-sidebar[style*='44px'] .sidebar-title,
+.book-list {
+  max-height: 34%;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.chapter-list {
+  flex: 1;
+}
+
 .books-sidebar[style*='44px'] .sidebar-title {
   display: none;
 }
@@ -2496,10 +3074,11 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 9px;
-  border-radius: 4px;
+  padding: 8px 9px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s;
+  border: 1px solid transparent;
 }
 
 .book-item:hover {
@@ -2508,6 +3087,7 @@ function stopResize() {
 
 .book-item.active {
   background: var(--accent-light);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .book-icon {
@@ -2546,10 +3126,11 @@ function stopResize() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 7px;
-  border-radius: 4px;
+  padding: 7px 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s;
+  border: 1px solid transparent;
 }
 
 .chapter-item:hover {
@@ -2558,6 +3139,7 @@ function stopResize() {
 
 .chapter-item.active {
   background: var(--accent-light);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .chapter-num {
@@ -2635,6 +3217,7 @@ function stopResize() {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);
+  min-width: 0;
 }
 
 .empty-state {
@@ -2684,23 +3267,27 @@ function stopResize() {
 }
 
 .editor-header {
-  padding: 16px 24px;
+  padding: 14px 24px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
 }
 
 .title-row {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-top: 12px;
+  margin-top: 14px;
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 .chapter-title-input {
   flex: 1;
   background: transparent;
   border: none;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
   outline: none;
@@ -2731,12 +3318,15 @@ function stopResize() {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--bg-primary));
   border: 1px solid var(--border);
   border-radius: 8px;
   flex-shrink: 0;
   position: relative;
   box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  max-width: 940px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .toolbar-group {
@@ -3124,14 +3714,16 @@ function stopResize() {
 .editor-textarea {
   flex: 1;
   padding: 24px;
-  background: var(--bg-primary);
-  border: none;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 8px;
   font-size: 15px;
   line-height: 1.8;
   color: var(--text-primary);
   resize: none;
   outline: none;
   overflow-y: auto;
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
 }
 
 .prose-textarea {
@@ -3142,11 +3734,13 @@ function stopResize() {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   line-height: 1.7;
   white-space: pre-wrap;
-  border-top: 1px solid var(--border);
+  width: min(940px, calc(100% - 48px));
+  margin: 20px auto 28px;
 }
 
 .editor-preview {
-  border-top: 1px solid var(--border);
+  width: min(940px, calc(100% - 48px));
+  margin: 20px auto 28px;
 }
 
 .editor-preview :deep(h1),
@@ -3506,12 +4100,15 @@ function stopResize() {
   position: fixed;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 12px;
+  border-radius: 8px;
+  padding: 7px 8px 7px 12px;
   font-size: 12px;
   color: var(--text-secondary);
   z-index: 100;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .copilot-loading {
@@ -3541,6 +4138,16 @@ function stopResize() {
   color: var(--text-muted);
 }
 
+.copilot-ready-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.copilot-meta {
+  color: var(--text-muted);
+  padding-right: 2px;
+}
+
 .copilot-ready kbd {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -3551,27 +4158,81 @@ function stopResize() {
   color: var(--text-primary);
 }
 
+.copilot-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.copilot-action {
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  color: var(--text-primary);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copilot-action:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-hover));
+}
+
+.copilot-action.secondary {
+  border-color: var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
 /* 编辑器容器与 Ghost Text */
 .editor-container {
   position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
+  padding: 20px 24px 28px;
 }
 
 .editor-container .editor-textarea {
   flex: 1;
-  margin: 0;
+  width: min(940px, 100%);
+  margin: 0 auto;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
+  position: relative;
+  z-index: 2;
+}
+
+.editor-container .editor-textarea.with-copilot-ghost {
+  color: transparent !important;
+  background: transparent !important;
+  border-color: transparent;
+  box-shadow: none;
+  caret-color: var(--text-primary);
+}
+
+.editor-container .editor-textarea.with-copilot-ghost::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: transparent;
 }
 
 .editor-ghost-layer {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 20px;
+  left: 24px;
+  right: 24px;
+  bottom: 28px;
+  width: min(940px, calc(100% - 48px));
+  margin: 0 auto;
   padding: 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
+  box-sizing: border-box;
   pointer-events: none;
   overflow: hidden;
   z-index: 1;
@@ -3579,14 +4240,19 @@ function stopResize() {
   line-height: 1.9;
   white-space: pre-wrap;
   word-wrap: break-word;
-  color: transparent;
+  color: var(--text-primary);
+}
+
+.editor-ghost-scroll {
+  min-height: 100%;
+  transition: transform 0.02s linear;
 }
 
 .ghost-text {
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border-radius: 2px;
-  opacity: 0.7;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-radius: 3px;
+  opacity: 0.92;
 }
 
 @media (max-width: 980px) {
@@ -3608,6 +4274,20 @@ function stopResize() {
 
   .quick-notes-drawer {
     width: min(280px, calc(100vw - 24px));
+  }
+
+  .asset-inbox-overlay {
+    padding: 10px;
+  }
+
+  .asset-inbox-modal {
+    width: min(100vw - 20px, 100%);
+    height: calc(100vh - 20px);
+    padding: 14px;
+  }
+
+  .asset-inbox-modal-body {
+    grid-template-columns: 1fr;
   }
 }
 </style>

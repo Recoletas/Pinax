@@ -26,6 +26,9 @@
         <button class="action-btn" :class="{ active: gameStore.useAI }" @click="gameStore.toggleAI">
           AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
         </button>
+        <button class="action-btn" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
+          {{ assetSummaryLoading ? '整理中' : '整理体验' }}
+        </button>
         <button class="action-btn" @click="openWorldbookEditor">世界书导入</button>
         <button class="action-btn" @click="showSessionPicker = true">会话</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
@@ -63,64 +66,6 @@
     </div>
 
     <aside class="quick-notes-rail" aria-label="快捷入口">
-      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-        <div class="quick-note-row">
-          <textarea
-            ref="quickNoteInputRef"
-            v-model="quickNoteDraft"
-            class="quick-note-input"
-            placeholder="随手记一段..."
-            @input="handleQuickNoteInput"
-          ></textarea>
-          <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="saveQuickNoteAsAsset" title="存为素材" aria-label="存为素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6.5 6.5h11v11h-11z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-                <path d="M9 10h6M9 14h4" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="toggleQuickNoteImport" title="导入" aria-label="导入">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 6.5v7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-                <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="quick-note-kind-row">
-          <span>素材类型</span>
-          <select v-model="narrativeAssetKind" class="quick-note-kind-select">
-            <option v-for="kind in narrativeAssetKinds" :key="kind.value" :value="kind.value">
-              {{ kind.label }}
-            </option>
-          </select>
-        </div>
-        <div v-if="quickNoteImportOpen" class="quick-note-import-panel">
-          <div class="quick-note-import-toolbar">
-            <span class="quick-note-import-title">导入对话段</span>
-            <button class="quick-note-mini-btn primary" type="button" @click="importSelectedDialogueSegments">导入</button>
-            <button class="quick-note-mini-btn primary" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存素材</button>
-            <button class="quick-note-mini-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空</button>
-          </div>
-          <div class="quick-note-import-body">
-            <div class="quick-note-import-left">
-              <div class="quick-note-import-empty">请直接在左侧对话区域勾选要导入的段落。</div>
-            </div>
-            <aside class="quick-note-import-side">
-              <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
-              <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
-              <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
-              <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
-            </aside>
-          </div>
-        </div>
-        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
-      </div>
       <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -128,6 +73,83 @@
         </svg>
       </button>
     </aside>
+
+    <div v-if="quickNoteOpen" class="quick-note-workspace-overlay" @click.self="quickNoteOpen = false">
+      <section class="quick-note-workspace">
+        <header class="quick-note-workspace-header">
+          <div>
+            <div class="quick-note-workspace-kicker">体验素材</div>
+            <h3 class="quick-note-workspace-title">速记与对话导入</h3>
+          </div>
+          <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
+        </header>
+
+        <div class="quick-note-workspace-body">
+          <section class="quick-note-editor-panel">
+            <div class="quick-note-panel-head">
+              <span>速记</span>
+              <select v-model="narrativeAssetKind" class="quick-note-kind-select">
+                <option v-for="kind in narrativeAssetKinds" :key="kind.value" :value="kind.value">
+                  {{ kind.label }}
+                </option>
+              </select>
+            </div>
+            <textarea
+              ref="quickNoteInputRef"
+              v-model="quickNoteDraft"
+              class="quick-note-workspace-input"
+              placeholder="随手记一段体验片段、设定、人物变化或正文候选..."
+              @input="handleQuickNoteInput"
+            ></textarea>
+            <div class="quick-note-workspace-actions">
+              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNote">保存到笔记</button>
+              <button class="quick-note-panel-btn" type="button" @click="saveQuickNoteAsAsset">存为素材</button>
+              <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
+            </div>
+          </section>
+
+          <aside class="quick-note-dialogue-panel">
+            <div class="quick-note-panel-head">
+              <span>对话段</span>
+              <button class="quick-note-panel-btn compact" type="button" @click="toggleQuickNoteImport">
+                {{ quickNoteImportOpen ? '关闭选择' : '选择模式' }}
+              </button>
+            </div>
+            <div v-if="dialoguePanelMessages.length" class="quick-note-message-list">
+              <label
+                v-for="item in dialoguePanelMessages"
+                :key="item.index"
+                class="quick-note-message-item"
+                :class="{ active: gameStore.quickNoteSelectedMessageIndexes.includes(item.index) }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="gameStore.quickNoteSelectedMessageIndexes.includes(item.index)"
+                  @change="gameStore.toggleQuickNoteMessageSelection(item.index)"
+                />
+                <span class="quick-note-message-copy">
+                  <span class="quick-note-message-meta">{{ item.label }}</span>
+                  <span class="quick-note-message-preview">{{ item.preview }}</span>
+                </span>
+              </label>
+            </div>
+            <div v-else class="quick-note-import-empty">当前还没有可导入的对话段。</div>
+            <div class="quick-note-stat-grid">
+              <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
+              <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
+              <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
+              <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
+            </div>
+            <div class="quick-note-workspace-actions">
+              <button class="quick-note-panel-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
+              <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
+              <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
+            </div>
+            <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
+          </aside>
+        </div>
+      </section>
+    </div>
 
     <Character v-if="showCharacter" @close="showCharacter = false" />
     <Settings v-if="showSettings" @close="showSettings = false" />
@@ -232,6 +254,7 @@ import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
+import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -475,6 +498,7 @@ const quickNoteInputRef = ref(null)
 const quickNoteImportOpen = ref(false)
 const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
+const assetSummaryLoading = ref(false)
 
 const dialogueImportStats = computed(() => {
   const list = (gameStore.messages || []).filter((message) => {
@@ -487,6 +511,22 @@ const dialogueImportStats = computed(() => {
   const totalWords = list.reduce((sum, item) => sum + quickNoteWordCount(item.content), 0)
   const selectedWords = selected.reduce((sum, item) => sum + quickNoteWordCount(item), 0)
   return { totalCount, selectedCount, totalWords, selectedWords }
+})
+
+const dialoguePanelMessages = computed(() => {
+  return (gameStore.messages || [])
+    .map((message, index) => {
+      const role = message.role || message.type || 'assistant'
+      const content = String(message.content || '').trim()
+      return {
+        index,
+        role,
+        content,
+        label: role === 'user' ? '玩家' : '叙事',
+        preview: content.replace(/\s+/g, ' ').slice(0, 90)
+      }
+    })
+    .filter((item) => item.role !== 'system' && item.content)
 })
 
 function handleSend(text, options = {}) {
@@ -596,6 +636,56 @@ function saveSelectedDialogueSegmentsAsAsset() {
   gameStore.setQuickNoteImportMode(false)
   quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
   return true
+}
+
+async function organizeExperienceAssets() {
+  const messages = (gameStore.messages || []).filter((message) => {
+    const role = message.role || message.type || 'assistant'
+    return role !== 'system' && String(message.content || '').trim()
+  })
+
+  if (messages.length < 2) {
+    quickNoteStatus.value = '当前体验内容太少，先推进几轮剧情'
+    quickNoteOpen.value = true
+    return
+  }
+
+  assetSummaryLoading.value = true
+  quickNoteOpen.value = true
+  quickNoteStatus.value = '正在整理体验素材...'
+
+  const currentSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+  const result = await summarizeExperienceAssets({
+    messages,
+    worldName: worldStore.activeWorldbookName || gameStore.worldName || '',
+    sessionTitle: currentSession?.title || ''
+  })
+
+  assetSummaryLoading.value = false
+
+  if (!result.success) {
+    quickNoteStatus.value = result.error || '整理体验失败'
+    return
+  }
+
+  if (!result.assets.length) {
+    quickNoteStatus.value = '没有整理出可用素材'
+    return
+  }
+
+  for (const asset of result.assets) {
+    addNarrativeAsset({
+      ...asset,
+      projectId: gameStore.worldId || null,
+      source: {
+        type: 'experience-session',
+        id: gameStore.currentSessionId || '',
+        messageIds: messages.map((message, index) => message.id || `message_${index}`).slice(-24)
+      }
+    })
+  }
+
+  quickNoteStatus.value = `已整理 ${result.assets.length} 条素材`
 }
 
 function clearQuickNoteDraft() {
@@ -1086,6 +1176,203 @@ function saveQuickNote() {
   color: var(--text-secondary);
 }
 
+.quick-note-workspace-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: color-mix(in srgb, #000 22%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.quick-note-workspace {
+  width: min(980px, calc(100vw - 36px));
+  height: min(76vh, 680px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 90%, var(--bg-secondary));
+  box-shadow: 0 22px 54px color-mix(in srgb, #000 26%, transparent);
+}
+
+.quick-note-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.quick-note-workspace-kicker {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.quick-note-workspace-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.quick-note-close {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.quick-note-workspace-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 14px;
+}
+
+.quick-note-editor-panel,
+.quick-note-dialogue-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
+}
+
+.quick-note-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quick-note-workspace-input {
+  flex: 1;
+  min-height: 240px;
+  resize: none;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  color: var(--text-primary);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  outline: none;
+}
+
+.quick-note-workspace-input:focus {
+  border-color: var(--accent);
+}
+
+.quick-note-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-note-message-list {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.quick-note-message-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.quick-note-message-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-primary));
+}
+
+.quick-note-message-item.active {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+}
+
+.quick-note-message-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.quick-note-message-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.quick-note-message-preview {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.quick-note-panel-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quick-note-panel-btn:hover,
+.quick-note-panel-btn.primary {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+}
+
+.quick-note-panel-btn.compact {
+  min-height: 26px;
+  font-size: 11px;
+}
+
+.quick-note-stat-grid {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+}
+
+.quick-note-workspace-tip {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .quick-notes-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
@@ -1110,6 +1397,20 @@ function saveQuickNote() {
 
   .quick-notes-drawer {
     width: min(280px, calc(100vw - 24px));
+  }
+
+  .quick-note-workspace-overlay {
+    padding: 10px;
+  }
+
+  .quick-note-workspace {
+    width: min(100vw - 20px, 100%);
+    height: calc(100vh - 20px);
+    padding: 14px;
+  }
+
+  .quick-note-workspace-body {
+    grid-template-columns: 1fr;
   }
 }
 

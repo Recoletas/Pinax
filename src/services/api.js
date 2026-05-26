@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getItem, getTextItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getMemoryKindLabel, queueMemoryCandidate } from './memoryCandidates'
 
 const api = axios.create({
   baseURL: '/api',
@@ -337,25 +338,50 @@ export async function recordMemory(text, type = 'general', metadata = {}) {
     return { success: false, skipped: true }
   }
 
-  try {
-    const response = await api.post('/preferences/memory', {
+  const kindMap = {
+    preference: 'author-preference',
+    character: 'character-state',
+    location: 'project-fact',
+    decision: 'plot-event',
+    event: 'plot-event',
+    dialogue: 'plot-event',
+    style: 'style-sample',
+    constraint: 'constraint',
+    general: 'project-fact'
+  }
+
+  const candidate = queueMemoryCandidate({
+    content: text.trim(),
+    scope: metadata.scope || 'session',
+    scopeId: metadata.scopeId || metadata.sessionId || metadata.projectId || metadata.worldId || '',
+    kind: metadata.kind || kindMap[type] || 'project-fact',
+    confidence: metadata.confidence ?? 0.6,
+    sourceRef: metadata.sourceRef || type,
+    metadata: {
+      ...metadata,
       userId: getOrCreatePreferenceUserId(),
-      text: text.trim(),
-      type,
-      metadata
-    })
-
-    // 触发记忆记录事件，用于 UI 反馈
-    if (response.data?.recorded) {
-      window.dispatchEvent(new CustomEvent('memory-recorded', {
-        detail: { text: text.slice(0, 50), type }
-      }))
+      sourceType: type
     }
+  })
 
-    return response.data
-  } catch (error) {
-    console.warn('[API] recordMemory failed:', error.response?.data || error.message)
-    return { success: false, recorded: false }
+  if (candidate.success && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('memory-recorded', {
+      detail: {
+        text: text.slice(0, 50),
+        type,
+        kind: candidate.candidate?.kind,
+        scope: candidate.candidate?.scope,
+        scopeId: candidate.candidate?.scopeId,
+        kindLabel: candidate.candidate ? getMemoryKindLabel(candidate.candidate.kind) : ''
+      }
+    }))
+  }
+
+  return {
+    success: Boolean(candidate.success),
+    recorded: Boolean(candidate.success),
+    candidate: candidate.candidate || null,
+    kindLabel: candidate.candidate ? getMemoryKindLabel(candidate.candidate.kind) : ''
   }
 }
 

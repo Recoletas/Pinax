@@ -9,6 +9,11 @@
  * - 支持叙事约束和 Few-shot 示例
  */
 
+import {
+  NARRATIVE_STYLES,
+  SYSTEM_TEMPLATES
+} from './promptRegistry'
+
 // 提示词层定义
 const LAYERS = {
   CONSTRAINT: 0,  // 硬性约束（Layer 0）
@@ -16,54 +21,6 @@ const LAYERS = {
   WORLD: 2,       // 世界观/设定（Layer 2）
   CONTEXT: 3,     // 上下文/历史（Layer 3）
   TASK: 4         // 具体任务/指令（Layer 4）
-}
-
-// 叙事风格预设
-const NARRATIVE_STYLES = {
-  literary: {
-    name: '文学性',
-    description: '注重文字美感，描写细腻，节奏舒缓',
-    instruction: '请使用文学性语言，注重意象和氛围营造，句子可以稍长，节奏舒缓。'
-  },
-  webnovel: {
-    name: '网文风',
-    description: '节奏明快，对话多，情节紧凑',
-    instruction: '请使用网文风格，节奏明快，多用对话推进情节，段落简短，悬念感强。'
-  },
-  concise: {
-    name: '简洁白描',
-    description: '文字简练，点到为止，留白多',
-    instruction: '请使用简洁的白描手法，文字简练，避免过多修饰，点到为止。'
-  },
-  dramatic: {
-    name: '戏剧性',
-    description: '冲突强烈，情绪张力大，转折多',
-    instruction: '请增强戏剧性，制造冲突和转折，情绪张力要强，悬念感要足。'
-  }
-}
-
-// 系统角色模板
-const SYSTEM_TEMPLATES = {
-  narrator: {
-    role: '你是一个小说叙述者',
-    instruction: '请用生动的语言描述场景并与读者互动。使用第三人称叙事，混合适当的对话。用 *动作* 格式描述动作，用 "对话" 格式描述对话。'
-  },
-  copilot: {
-    role: '你是一个小说续写助手',
-    instruction: '根据用户提供的上下文续写接下来的内容，保持风格一致。用 *动作* 格式描述动作，用 "对话" 格式描述对话。'
-  },
-  worldbookBuilder: {
-    role: '你是一个世界书构建助手',
-    instruction: '从文本中提取角色、地点、物品、事件等设定，输出结构化JSON。'
-  },
-  analyzer: {
-    role: '你是一个小说分析师',
-    instruction: '分析文本中的情节、人物、主题等元素，提供专业建议。'
-  },
-  roleplay: {
-    role: '你正在扮演指定角色',
-    instruction: '以第一人称视角直接与用户对话。用 *动作* 格式描述动作，用 "对话" 格式描述对话，用 （心理） 格式描述心理活动。不要以旁白身份说话。'
-  }
 }
 
 // 场景类型

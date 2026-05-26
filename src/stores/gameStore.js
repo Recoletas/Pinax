@@ -91,6 +91,12 @@ function cloneState(value, fallback) {
   }
 }
 
+function debugLog(...args) {
+  if (import.meta.env.DEV) {
+    console.debug(...args)
+  }
+}
+
 function resolveActiveWorldbookId() {
   try {
     const worldStore = useWorldStore()
@@ -794,26 +800,26 @@ export const useGameStore = defineStore('game', {
     // --- 新增：核心”执行”功能 ---
     // 点击某条消息的”执行”按钮时调用
     async regenerateFrom(index) {
-      console.log('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
+      debugLog('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
       // 1. 确保游戏在播放状态
       this.isPlaying = true
 
       // 2. 截断消息列表，只保留到当前点击的这一条
       this.messages = this.messages.slice(0, index + 1);
-      console.log('[regenerateFrom] messages count after slice:', this.messages.length)
+      debugLog('[regenerateFrom] messages count after slice:', this.messages.length)
 
       // 3. 重新构建 AI 记忆
       this.rebuildChatHistory();
-      console.log('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
+      debugLog('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
 
       // 4. 如果开启了 AI，立即触发重新生成
       if (this.useAI) {
         // 标记为重写后续，避免触发初始化逻辑
         this._isRegenerating = true
-        console.log('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
+        debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
         await this.generateAIResponse()
         this._isRegenerating = false
-        console.log('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
+        debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
     },
 
@@ -864,7 +870,7 @@ export const useGameStore = defineStore('game', {
         })
         this.lastWorldbookContext = worldbookContext
         const worldBookMsg = worldbookContext.messages[0] || null
-        console.log('Matched world book entries:', worldbookContext.matchedEntries.length, worldBookMsg?.content?.slice(0, 100))
+        debugLog('Matched world book entries:', worldbookContext.matchedEntries.length, worldBookMsg?.content?.slice(0, 100))
 
         const contextDetail = {
           character: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
@@ -887,7 +893,7 @@ export const useGameStore = defineStore('game', {
           messagesToSend = [contextMsg, ...messagesToSend]
         }
 
-        console.log('Messages to send:', messagesToSend.length, 'entries')
+        debugLog('Messages to send:', messagesToSend.length, 'entries')
 
         // 先添加一个空的 AI 消息占位符
         const messageIndex = this.messages.length
@@ -961,7 +967,12 @@ export const useGameStore = defineStore('game', {
             recordMemory(
               `小说体验事件：${fullContent.slice(0, 150)}...`,
               eventType,
-              { character: this.playerCharacter?.name || '主角' }
+              {
+                character: this.playerCharacter?.name || '主角',
+                scope: 'session',
+                scopeId: this.currentSessionId || '',
+                sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`
+              }
             ).catch(() => {}) // 静默失败
           }
         }
@@ -993,7 +1004,7 @@ export const useGameStore = defineStore('game', {
     extractAndUpdateState(content) {
       if (!content || typeof content !== 'string') return
 
-      console.log('[extractAndUpdateState] 开始提取状态更新')
+      debugLog('[extractAndUpdateState] 开始提取状态更新')
 
       // 提取时间变化
       this.extractTimeChanges(content)
@@ -1018,7 +1029,7 @@ export const useGameStore = defineStore('game', {
         const currentDay = parseInt(currentTime.day) || 1
         currentTime.day = String(currentDay + 1)
         updated = true
-        console.log('[extractTimeChanges] 检测到日期推进，新日期:', currentTime.day)
+        debugLog('[extractTimeChanges] 检测到日期推进，新日期:', currentTime.day)
       }
 
       // 检测完整日期格式：X年X月X日（最优先）
@@ -1040,7 +1051,7 @@ export const useGameStore = defineStore('game', {
           currentTime.day = day
           updated = true
         }
-        console.log('[extractTimeChanges] 检测到完整日期:', year, month, day)
+        debugLog('[extractTimeChanges] 检测到完整日期:', year, month, day)
       } else {
         // 单独检测年份（避免匹配年龄）
         const yearMatch = content.match(/(\d{2,4})年(?!纪|代|龄)/)
@@ -1049,7 +1060,7 @@ export const useGameStore = defineStore('game', {
           if (year !== currentTime.year && parseInt(year) > 0 && parseInt(year) < 10000) {
             currentTime.year = year
             updated = true
-            console.log('[extractTimeChanges] 检测到年份:', year)
+            debugLog('[extractTimeChanges] 检测到年份:', year)
           }
         }
 
@@ -1060,7 +1071,7 @@ export const useGameStore = defineStore('game', {
           if (month >= 1 && month <= 12 && String(month) !== currentTime.month) {
             currentTime.month = String(month)
             updated = true
-            console.log('[extractTimeChanges] 检测到月份:', month)
+            debugLog('[extractTimeChanges] 检测到月份:', month)
           }
         }
 
@@ -1071,7 +1082,7 @@ export const useGameStore = defineStore('game', {
           if (day >= 1 && day <= 31 && String(day) !== currentTime.day) {
             currentTime.day = String(day)
             updated = true
-            console.log('[extractTimeChanges] 检测到日期:', day)
+            debugLog('[extractTimeChanges] 检测到日期:', day)
           }
         }
       }
@@ -1082,7 +1093,7 @@ export const useGameStore = defineStore('game', {
         currentTime.eraName = eraMatch[1]
         currentTime.eraId = 'chinese'
         updated = true
-        console.log('[extractTimeChanges] 检测到纪年:', eraMatch[1])
+        debugLog('[extractTimeChanges] 检测到纪年:', eraMatch[1])
       }
 
       if (updated) {
@@ -1111,7 +1122,7 @@ export const useGameStore = defineStore('game', {
           // 清理常见的后缀词
           location = location.replace(/[的地得]$/, '')
           if (location.length >= 2 && location.length <= 15) {
-            console.log('[extractLocationChanges] 检测到地点变化:', location)
+            debugLog('[extractLocationChanges] 检测到地点变化:', location)
             this.saveWorldMapState({
               ...this.worldMapState,
               currentScene: location
@@ -1158,7 +1169,7 @@ export const useGameStore = defineStore('game', {
             if (!excludeWords.includes(name) && !/\d/.test(name) && name.length >= 2 && name.length <= 8) {
               char.name = name
               updated = true
-              console.log('[extractCharacterChanges] 检测到角色名:', char.name)
+              debugLog('[extractCharacterChanges] 检测到角色名:', char.name)
               break
             }
           }
@@ -1185,7 +1196,7 @@ export const useGameStore = defineStore('game', {
             char.gender = match[2] || match[1]
             if (char.gender === '男' || char.gender === '女') {
               updated = true
-              console.log('[extractCharacterChanges] 检测到性别:', char.gender)
+              debugLog('[extractCharacterChanges] 检测到性别:', char.gender)
               break
             }
           }
@@ -1207,7 +1218,7 @@ export const useGameStore = defineStore('game', {
             if (age > 0 && age < 200) {
               char.age = age + '岁'
               updated = true
-              console.log('[extractCharacterChanges] 检测到年龄:', char.age)
+              debugLog('[extractCharacterChanges] 检测到年龄:', char.age)
               break
             }
           }
@@ -1240,7 +1251,7 @@ export const useGameStore = defineStore('game', {
         const currentMood = char.mood || 50
         char.mood = Math.max(0, Math.min(100, currentMood + moodDelta))
         updated = true
-        console.log('[extractCharacterChanges] 情绪变化:', moodDelta, '新情绪值:', char.mood)
+        debugLog('[extractCharacterChanges] 情绪变化:', moodDelta, '新情绪值:', char.mood)
       }
 
       // 如果有变化，保存

@@ -46,7 +46,7 @@ function handleSelectPanel(routeName) {
 <style scoped>
 .app-shell {
   --activity-width: 56px;
-  --panel-width: 220px;
+  --panel-width: 176px;
   height: 100vh;
   min-height: 100vh;
   display: grid;

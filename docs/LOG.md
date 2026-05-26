@@ -41,6 +41,193 @@
 
 ---
 
+## 2026-05-26 - 体验页顶部动作区视觉尝试（已回退）
+
+背景：
+- “整理体验”功能可用，但直接塞进顶部按钮堆后，视觉上像临时工具按钮，整体不够美观。
+- 顶部同时有 AI、世界书、会话、设置等入口，需要区分主动作和辅助入口。
+
+调整：
+- 修改 `src/pages/Experience.vue`
+  - 顶部动作区分组
+  - AI 改成带状态点的轻量开关
+  - “整理体验”改成带图标和副说明的主动作按钮
+  - 世界书、会话、设置降为同组轻量入口
+  - 标题栏背景、边框、按钮圆角和间距统一收敛
+
+用户可感知：
+- 打开小说体验页，看顶部右侧动作区。
+- “整理体验”会比普通工具按钮更清楚，但不会像大广告按钮一样抢正文区域。
+
+验证：
+- `npm run build`
+- `npm run test:run -- src/__tests__/experienceAssetSummarizer.test.js`
+
+后续：
+- 该方向不是用户真实诉求，已在后续步骤回退。
+- 真正需要处理的是右侧速记/导入抽屉太狭小。
+
+---
+
+## 2026-05-26 - 体验页速记抽屉改为宽工作面板
+
+背景：
+- 用户反馈的“不美观”不是顶部按钮，而是右侧速记/导入抽屉太窄，不方便处理素材和对话段。
+- 写作页素材收件箱改成独立面板后更适合这种管理型操作，体验页也应采用类似结构。
+
+调整：
+- 修改 `src/pages/Experience.vue`
+  - 回退上一小步顶部动作区改动，恢复普通标题栏按钮
+  - 右侧速记按钮不再展开窄抽屉
+  - 改为打开居中的宽工作面板
+  - 面板左侧是速记编辑与“保存到笔记 / 存为素材 / 清空”
+  - 面板右侧是对话段导入统计与“导入速记 / 存为素材 / 清空选择”
+
+用户可感知：
+- 在小说体验页点右侧速记按钮。
+- 出现的是宽面板，不再是狭窄抽屉；速记、素材类型和对话段处理分区更清楚。
+
+验证：
+- `npm run build`
+- `npm run test:run -- src/__tests__/experienceAssetSummarizer.test.js src/__tests__/narrativeAssets.test.js`
+
+---
+
+## 2026-05-26 - 体验整理为素材候选
+
+背景：
+- 素材闭环已经支持手动速记、选段存素材、写作页处理素材。
+- 计划里的“整理本次体验”还缺一条自动化路径：把一局体验的最近对话整理成摘要、事件、正文候选、世界书草稿等素材。
+
+调整：
+- 新增 `src/services/experienceAssetSummarizer.js`
+  - 构建体验整理 prompt
+  - 要求模型只输出 JSON
+  - 解析并规范化素材类型、标题、正文
+- 新增 `src/__tests__/experienceAssetSummarizer.test.js`
+  - 覆盖 prompt 构建、JSON fence 清理、素材类型回退
+- 修改 `src/pages/Experience.vue`
+  - 顶部新增“整理体验”按钮
+  - 点击后整理最近体验消息，并批量写入素材收件箱
+  - 整理结果保持为 inbox 状态，由写作页继续确认、插入、入世界书、归档或拒绝
+
+用户可感知：
+- 在小说体验页推进几轮剧情后，点顶部“整理体验”。
+- 等提示变成“已整理 N 条素材”后，去写作页点“素材”，能看到新生成的素材候选。
+
+验证：
+- `npm run test:run -- src/__tests__/experienceAssetSummarizer.test.js src/__tests__/narrativeAssets.test.js`
+- `npm run build`
+- `npm run test:run`
+
+---
+
+## 2026-05-25 - Copilot 内联收紧：去元话术、减上下文、降延迟
+
+背景：
+- 内联建议里偶尔会冒出“思考/分析/说明”之类的元话术，没有插入价值。
+- 之前的 Copilot 上下文和输出预算偏大，体感上会慢，不像真正的内联补全。
+- 二次反馈：仍然会出现解释式回答，说明仅靠提示词和行首过滤不够。
+
+调整：
+- 修改 `src/services/promptRegistry.js`
+  - 把 Copilot 提示词收紧成“只输出正文”的明确约束，禁止思考、分析、解释、标题、分点和代码块
+- 修改 `src/composables/useCopilot.js`
+  - 将默认上下文窗口收短
+  - 将默认建议长度收短到更适合内联的范围
+  - 将输出温度和 `max_tokens` 一起压低
+  - 在后处理里过滤元话术行，避免把“思考”类文本塞进正文
+  - 新增解释式回答门禁：明显是解释/建议/回答用户的结果直接丢弃，不再显示
+  - 如果回答里夹了一行干净正文，只提取那一行；否则宁可不显示
+- 修改 `src/pages/Writing.vue`
+  - Copilot 自动触发延迟更短，建议长度也更短
+- 更新 `src/__tests__/useCopilot.test.js`
+  - 补充元话术、纯解释、回答式文本提取的覆盖
+
+用户可感知：
+- 内联建议会更短、更像补全正文；如果模型只返回解释，会直接不显示。
+- 停顿后出现建议的时间会更快一些。
+
+验证：
+- `npm run test:run -- src/__tests__/useCopilot.test.js`
+- `npm run build`
+- `npm run test:run`
+
+---
+
+## 2026-05-25 - 素材世界书草稿入库
+
+背景：
+- 素材收件箱已经能沉淀“世界书草稿”，但目前只能插入正文、归档或拒绝。
+- 这会让设定候选卡在素材箱里，无法进入正式世界书；如果直接自动写入又会污染世界书。
+
+调整：
+- 新增世界书草稿转条目的纯函数，支持标题、关键词、类型、正文的保守解析。
+- 写作页素材收件箱对 `世界书草稿` 显示“入世界书”操作。
+- 用户显式点击后才写入当前活跃世界书，并将素材标记为已接受。
+
+用户可感知：
+- 在写作页打开“素材收件箱”，凡是类型为“世界书草稿”的卡片，会多出一个“入世界书”按钮。
+- 点这个按钮后，草稿会进入当前世界书，并从收件箱里消失。
+
+验证：
+- `npm run test:run -- src/__tests__/worldbookDraftAssets.test.js src/__tests__/narrativeAssets.test.js`
+- `npm run test:run`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 素材收件箱改成独立工作面板
+
+背景：
+- 之前的素材入口沿用了速记/导入抽屉的窄面板，视觉上会显得挤，也不符合“素材收件箱”这种管理型场景。
+- 这里更适合用一个更稳的工作面板，给列表、详情、批量操作留出完整宽度。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - 素材收件箱改成独立弹窗式工作面板，不再复用速记抽屉骨架
+  - 左侧改成可扫视的素材列表，右侧改成详情与单条操作区
+  - 批量操作、筛选和详情操作保留，但层级更清楚
+  - 点顶部“素材”时会直接进入素材面板，不会再弹出原来那种窄抽屉
+
+用户可感知：
+- 在写作页点“素材”，会打开一个更宽、更清楚的素材工作面板。
+- 左边看列表，右边看详情和操作，不需要在窄抽屉里挤着找按钮。
+
+验证：
+- `npm run test:run`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 写作页 Copilot 内联体验完善
+
+背景：
+- 当前 Copilot 的 ghost text 只是把建议放在编辑区叠层里，不能稳定对齐到真实光标位置。
+- Copilot 自己又维护了一份世界书关键词匹配逻辑，和正式的世界书上下文构建器存在分叉风险。
+
+调整：
+- 把 Copilot 世界书上下文接入 `worldbookContextBuilder`。
+- 增加可测试的 Copilot prompt / 输出清洗 / 插入拼接逻辑：
+  - `extractCopilotWindow()` 区分光标前后文
+  - `buildCopilotMessages()` 统一拼装系统 prompt、世界书上下文和光标前后文本
+  - `normalizeCopilotSuggestion()` 清理“续写：”、代码块等模型前缀
+  - `insertCopilotSuggestion()` 统一处理插入位置和英文空格
+- 写作页改为 textarea 镜像层渲染当前文本和建议，使建议跟随光标、滚动同步。
+- Copilot 浮层新增“采纳 / 重试 / 忽略或停止”，并显示命中的世界书设定数量。
+- 切换章节、切换编辑模式、移动光标时会清掉过期建议，避免插入到错误位置。
+
+用户可感知：
+- 在写作页正文中输入一段超过几十字的内容，停顿后如果 AI 配置可用，会在光标位置后面出现淡色续写。
+- 按 `Tab` 或点“采纳”会把建议插入正文；按 `Esc` 或点“忽略”会清掉；点“重试”会重新生成。
+
+验证：
+- `npm run test:run -- src/__tests__/useCopilot.test.js src/__tests__/worldbookContextBuilder.test.js`
+- `npm run test:run`
+- `npm run build`
+
+---
+
 ### 会话稳定补丁：新会话 worldbook 选择后恢复初始化 ✅
 
 背景：
@@ -1637,6 +1824,180 @@
 
 ---
 
+## 2026-05-25 - 工作台左侧收敛：只压缩二级选择，不动一级导航
+
+背景：
+- 你反馈最左侧一级导航不必改，之前加的立体感会让它显得堵。
+- 真正需要缩的是“小说 / 笔记”那一列，也就是工作台的二级选择栏。
+
+调整：
+- 修改 `src/components/workbench/ActivityBar.vue`
+  - 回退最左侧一级导航到更轻的原始风格
+- 修改 `src/layouts/AppShell.vue`
+  - 将二级侧栏宽度从 `220px` 收窄到 `176px`
+- 修改 `src/components/workbench/SidePanel.vue`
+  - 二级选择栏进一步压缩标题、间距和条目内边距
+
+结果：
+- 一级导航保持原先轻量，不再有堵塞感。
+- 真正变窄的是“小说 / 笔记”那一列，正文空间更宽。
+
+验证：
+- `npm run test:run -- src/__tests__/storage.test.js src/__tests__/narrativeAssets.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 写作页默认打开逻辑收口
+
+背景：
+- 小说页默认打开第一本书第一章的需求是对的，但之前把这段逻辑直接塞在 `loadBooks()` 里，语义有点乱。
+- 这样会让“加载书籍列表”和“决定默认打开哪本书”混在一起，不利于后续维护。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - 把默认选中逻辑抽到 `ensureInitialBookSelection()`
+  - 把“打开书籍并进入章节”的过程抽到 `openBook()`
+  - `loadBooks()` 只负责读取书籍数据并触发初始化选择
+
+结果：
+- 默认打开第一本书第一章的行为不变。
+- 代码边界更清楚，后续如果要记住上次书籍或切换默认策略更好改。
+
+验证：
+- `npm run test:run -- src/__tests__/storage.test.js src/__tests__/narrativeAssets.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 小说页默认打开第一本书第一章
+
+背景：
+- 写作页初始空态会让小说工作流显得断开，尤其在本地已经有书和章节时。
+- 你希望默认直接落到第一本书、第一章，减少进入后的额外点击。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - `loadBooks()` 在首次加载且还没有选中书籍时，自动选择第一本书
+  - 选中书后会继续打开它的第一章
+
+结果：
+- 小说页打开后，如果本地已有书籍与章节，会直接进入第一本书的第一章。
+- 只有没有书时才保留空态。
+
+验证：
+- `npm run test:run -- src/__tests__/storage.test.js src/__tests__/narrativeAssets.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 写作页素材入口显性化
+
+背景：
+- 素材收件箱能力已经接入写作页，但入口藏在右侧悬浮速记条里，不容易被发现。
+- 笔记页当前没有素材收件箱，之前表述成“笔记和小说页都有”是不准确的。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - 顶部工具区新增“素材”按钮
+  - 点击后直接打开速记抽屉，并切到素材收件箱页签
+  - 保留原右侧悬浮速记入口
+
+结果：
+- 用户在小说写作页可以从右上角直接进入素材收件箱。
+- 素材入口不再依赖隐藏侧边悬浮条。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 小说写作页 UI 收敛：素材入口修复与左右栏重排
+
+背景：
+- 顶部“素材”按钮出现后点击无明显反应，原因是写作页根节点的全局点击处理会立刻关闭刚打开的速记/素材抽屉。
+- 小说写作页原布局同时有左侧章节栏和右侧书籍栏，正文区域被两边挤压，视觉也显得割裂。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - 顶部“素材”按钮改为阻止事件冒泡，点击后直接打开素材收件箱页签
+  - 将“书籍”和“章节”合并为左侧统一的“作品”导航栏
+  - 移除右侧书籍栏，让正文区域获得更宽空间
+  - 调整作品/章节列表、分隔拖拽、编辑器标题区、工具栏和正文编辑器的视觉样式
+  - 生图入口不再按旧右侧书籍栏宽度偏移
+
+结果：
+- 用户在写作页右上角点击“素材”能直接打开素材收件箱。
+- 小说写作页不再左右两侧同时挤压正文，作品和章节集中在左侧管理。
+- 正文编辑区更宽，编辑器视觉更像一个统一工作台。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/storage.test.js`
+- `npm run build`
+- `npm run dev -- --host 127.0.0.1` 可启动，端口自动落到 `5174`
+
+---
+
+## 2026-05-25 - 工作台 UI 一致性：小说 / 笔记 / 左侧导航收敛
+
+背景：
+- 小说写作页和笔记页虽然功能类似，但视觉节奏不一致，切换时有割裂感。
+- 外层“小说 / 笔记”等工作台导航按钮过于突兀，和正文工作区的安静风格不一致。
+
+调整：
+- 修改 `src/components/workbench/ActivityBar.vue`
+  - 收窄按钮视觉重量
+  - active 状态改为更克制的色块和左侧强调线
+- 修改 `src/components/workbench/SidePanel.vue`
+  - 二级导航改为更轻的工作台列表样式
+  - 标题、间距、active 状态与内层侧栏更接近
+- 修改 `src/pages/Notes.vue`
+  - 笔记页侧栏、列表项、拖拽栏、编辑器标题区向小说写作页对齐
+  - 笔记编辑器也改为居中的纸面式编辑区
+  - 修正笔记侧栏拖拽逻辑，按左侧导航宽度计算
+- 修改 `src/pages/Writing.vue`
+  - Markdown / 预览模式也采用同样的居中纸面式编辑区
+
+结果：
+- 小说和笔记现在更像同一个写作工作台的两个视图。
+- 左侧全局切换不再像突兀的大按钮栏。
+- 正文编辑区在小说和笔记之间保持一致的阅读宽度与视觉层级。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 素材收件箱批量处理与类型筛选
+
+背景：
+- 素材收件箱已经能显示来源和范围筛选，但处理多条体验素材时仍需要逐条插入/归档/拒绝。
+- 不同类型素材混在一起时，正文候选、世界书草稿、分镜种子不容易分开处理。
+
+调整：
+- 修改 `src/services/narrativeAssets.js`
+  - `listNarrativeAssets()` 支持按 `kind` 过滤
+  - 新增 `setNarrativeAssetsStatus()`，支持批量更新素材状态
+- 修改 `src/pages/Writing.vue`
+  - 素材收件箱新增类型筛选
+  - 素材卡片新增勾选框
+  - 新增全选、清空、批量插入、批量归档、批量拒绝
+  - 批量插入会把选中素材依次追加到当前章节，并把素材标记为已接受
+- 更新 `src/__tests__/narrativeAssets.test.js`
+  - 覆盖类型过滤和批量状态更新
+
+结果：
+- 用户在写作页处理一批体验素材时，不再需要逐条点击。
+- 世界书草稿、正文候选、分镜种子等可以先按类型分开看。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
 ## 2026-05-25 - 速记入口减负：收掉冗余按钮，保留主操作
 
 调整：
@@ -1676,5 +2037,220 @@
 - 补了常见临时补丁文件：`*.orig`、`*.rej`。
 
 这一步不会直接改变 UI，但能减少本地开发时的脏文件噪音。
+
+---
+
+## 2026-05-25 - 写作 AI 入口收口：扩展/改写改走 generationService
+
+调整：
+- `src/services/textExpander.js` 改为调用 `runGenerationTask`，任务类型标记为 `writing.expand`。
+- `src/services/textRewriter.js` 改为调用 `runGenerationTask`，任务类型标记为 `writing.rewrite`。
+- 新增 `src/__tests__/textGenerationServices.test.js`，确认扩展和改写都会进入统一任务入口。
+
+你现在不会直接看到新 UI，但写作页里的“扩展”和“改写”会走同一条底层生成链，后面统一错误处理和 meta 记录会更容易。
+
+验证：
+- `npm run test:run -- src/__tests__/textGenerationServices.test.js src/__tests__/generationService.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 记忆改为候选流：不再静默直写
+
+调整：
+- 新增 `src/services/memoryCandidates.js`，把记忆统一成待确认候选，支持 `pending / active / rejected / stale`。
+- `recordMemory` 现在不再直接写后端，而是生成本地候选并触发 `memory-candidate-created` 事件。
+- 体验页生成重要事件时，补上了 `scope=session` 和 `scopeId`，候选可追溯到当前会话。
+- `MemoryIndicator` 现在会提示“待确认记忆”，让你知道这条内容只是候选，还没写死。
+
+你现在可以这样感受到变化：
+- 在小说体验页推进一段剧情，触发对话、物品或地点变化时，底部记忆提示会出现“待确认记忆”字样。
+- 这表示系统先收件，不会直接污染长期记忆。
+
+验证：
+- `npm run test:run -- src/__tests__/memoryCandidates.test.js src/__tests__/apiMemory.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 记忆候选确认面板
+
+调整：
+- `MemoryIndicator` 现在不只是提示条，点击后可以打开全局记忆候选面板。
+- 面板里可以直接看到待确认记忆，按条确认或拒绝，不再只是被动提示。
+- 保持在全局底部浮层，不占用主工作区。
+
+你现在可以这样感受到变化：
+- 在小说体验页触发记忆候选后，点左下角的提示条，就能直接看到待确认列表。
+- 你可以当场点“确认”或“拒绝”，不用去别的页面找入口。
+
+验证：
+- `npm run build`
+
+---
+
+## 2026-05-25 - 编导模式收口：统一 storyboard schema 与版本保存
+
+目标：
+- 把编导模式的分镜结构统一成可版本化的 storyboard 记录。
+- 导出前先做字段和顺序校验。
+- 让诗歌 / 散文 / 体验片段共用同一套保存逻辑。
+
+---
+
+结果：
+- 新增 `src/services/storyboardStore.js`，统一 storyboard shot 结构、版本保存、恢复和校验。
+- `useDirector` 现在会在加载、增删改、移动分镜时自动保存版本快照。
+- 导出前会先校验分镜序号、时长、景别、运镜和转场。
+
+你现在暂时不会看到新按钮，但编导模式在后台已经能保留历史版本，后面接 UI 时可以直接复用。
+
+验证：
+- `npm run test:run -- src/__tests__/storyboardStore.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 修正 generationService 架构约束
+
+问题：
+- `generationService` 之前直接调用了 `sendChat`，触发 architecture guard。
+
+修正：
+- 把真正发请求的逻辑收回 `generationRetry.js`。
+- `generationService` 现在只做任务封装，统一传 `taskType`、重试参数和解析逻辑。
+- 通过架构检测后，生成链路仍保持统一入口。
+
+验证：
+- `npm run test:run -- src/__tests__/architectureGuard.test.js src/__tests__/generationService.test.js src/__tests__/storyboardStore.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - Prompt 注册表拆分：统一管理叙事风格 / 改写 / 扩写 / 顾问提示词
+
+背景：
+- 之前各处服务里都散落着风格、改写模式、顾问文案等提示词定义，后续继续加功能时容易重复和漂移。
+- 这次把它们抽到一个稳定注册表里，避免 prompt 逻辑继续在多个文件里各自长大。
+
+调整：
+- 新增 `src/services/promptRegistry.js`
+  - 统一承载叙事风格、系统模板、扩写模式、改写模式、语气预设、视角预设、顾问 prompt
+  - 提供按键读取的兼容接口
+- 修改 `src/services/promptBuilder.js`
+  - 改为从注册表读取风格和系统模板
+- 修改 `src/services/textExpander.js`
+  - 改为从注册表读取扩写模式和叙事风格
+- 修改 `src/services/textRewriter.js`
+  - 改为从注册表读取改写模式、语气、视角和叙事风格
+- 修改 `src/composables/useAdvisor.js`
+  - 改为从注册表读取顾问 prompt，不再内联一大段重复文案
+
+结果：
+- prompt 定义现在集中在一个位置，后续补模式或调文案更好回收。
+- 扩写、改写、顾问三条链路的 prompt 来源统一了。
+
+验证：
+- `npm run test:run -- src/__tests__/textGenerationServices.test.js src/__tests__/storyboardStore.test.js src/__tests__/memoryCandidates.test.js src/__tests__/apiMemory.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 世界书预览增强：显示命中依据与中文警告
+
+背景：
+- 目前输入区能看到世界书命中条目，但还不够解释型。
+- 用户只能看到“命中了什么”，看不到“为什么命中、命中依据是什么”。
+
+调整：
+- 修改 `src/services/worldbookContextBuilder.js`
+  - 为命中条目补充 `matchedKeys` / `matchedKeysLabel`
+  - 为常驻条目标记明确的 `matchReason`
+  - 新增 `describeWorldbookWarning()`，把预览提示改成可读中文
+- 修改 `src/components/InputArea.vue`
+  - 在世界书预览里展示“命中依据”
+  - 将原始 warning code 渲染为中文提示
+- 新增/更新测试 `src/__tests__/worldbookContextBuilder.test.js`
+  - 覆盖命中依据和 warning 文案
+
+结果：
+- 用户打开“提示词详情 -> 世界书”时，能直接看见本次注入命中了哪些关键词。
+- 没有命中或没有世界书时，不再只显示原始 code。
+
+验证：
+- `npm run test:run -- src/__tests__/worldbookContextBuilder.test.js src/__tests__/contextMessage.test.js src/__tests__/gameStoreSession.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 收口 gameStore 调试日志：仅开发态保留
+
+背景：
+- `gameStore` 里有一批用于排障的 `console.log`，覆盖重生成、世界书命中、状态抽取等路径。
+- 这些日志对调试有用，但在正常使用时会让控制台过于嘈杂。
+
+调整：
+- 修改 `src/stores/gameStore.js`
+  - 新增 `debugLog()` 包装器
+  - 将重生成、世界书上下文、时间/地点/角色状态抽取日志切到开发态输出
+  - 保留错误级日志不变
+
+结果：
+- 正常运行时控制台更干净。
+- 真要排查叙事状态时，开发环境仍能看到同样的调试信息。
+
+验证：
+- `npm run test:run -- src/__tests__/gameStoreSession.test.js src/__tests__/contextMessage.test.js src/__tests__/storage.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 素材收件箱补充来源信息
+
+背景：
+- 素材收件箱已经能接收体验片段，但只看得到内容和类型，不容易判断它来自哪一局、哪一段。
+- 这会让“插入章节 / 归档 / 拒绝”的判断成本偏高。
+
+调整：
+- 修改 `src/services/narrativeAssets.js`
+  - 新增 `getAssetSourceLabel()` 与 `getAssetSourceDetail()`
+  - 统一把来源显示成“体验会话 / 笔记 / 章节 / 手动录入”
+- 修改 `src/pages/Writing.vue`
+  - 素材收件箱卡片新增来源行
+- 更新 `src/__tests__/narrativeAssets.test.js`
+  - 锁定来源标签和来源详情格式
+
+结果：
+- 写作页的素材收件箱现在能直接看见来源。
+- 处理素材时更容易判断它是否值得直接插入正文。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/worldbookContextBuilder.test.js src/__tests__/gameStoreSession.test.js`
+- `npm run build`
+
+---
+
+## 2026-05-25 - 素材收件箱增加范围筛选
+
+背景：
+- 写作页素材收件箱默认混合显示所有待处理素材。
+- 体验页素材、当前书素材、未绑定素材混在一起时，处理成本会变高。
+- 由于体验页现在用 `worldId` 作为 `projectId`，写作页用 `bookId`，不能贸然把默认过滤改成当前书，否则会让体验素材看起来“消失”。
+
+调整：
+- 修改 `src/pages/Writing.vue`
+  - 素材收件箱新增范围筛选：全部素材 / 当前书 / 未绑定
+  - 默认仍为全部素材，保持现有可见性
+  - 当前处于“当前书”筛选时，切换书籍会自动刷新列表
+- 更新 `src/__tests__/narrativeAssets.test.js`
+  - 补充 `projectId: null` 的未绑定素材过滤覆盖
+
+结果：
+- 用户可以在写作页素材收件箱里快速缩小处理范围。
+- 体验页沉淀来的素材不会因为默认筛选被隐藏。
+
+验证：
+- `npm run test:run -- src/__tests__/narrativeAssets.test.js src/__tests__/storage.test.js`
+- `npm run build`
 
 ---

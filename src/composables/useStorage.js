@@ -21,6 +21,8 @@ export const STORAGE_KEYS = {
   WRITING_NOTES: 'writing_notes',
   WRITING_SESSIONS: 'writing_sessions',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
+  MEMORY_CANDIDATES: 'memory_candidates_v1',
+  STORYBOARD_SNAPSHOTS: 'storyboard_snapshots_v1',
 
   // 散文随笔
   PROSE_CARDS_V1: 'prose_cards_v1',

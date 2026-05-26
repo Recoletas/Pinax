@@ -44,64 +44,66 @@ defineEmits(['select'])
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
   border-right: 1px solid var(--border);
 }
 
 .side-panel-head {
-  height: 48px;
+  height: 50px;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .side-panel-title {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .side-panel-list {
-  padding: 8px;
+  padding: 8px 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .side-link {
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
-  padding: 8px 10px;
+  padding: 8px 8px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .side-link:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--bg-hover) 76%, transparent);
   color: var(--text-primary);
 }
 
 .side-link.active {
-  background: var(--accent-light);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-light) 72%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
   color: var(--accent);
 }
 
 .side-link-label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
 }
 
 .side-link-desc {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.3;
   opacity: 0.8;
   margin-top: 2px;
