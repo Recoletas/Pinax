@@ -16,9 +16,10 @@
           {{ assetSummaryLoading ? '整理中' : '整理素材' }}
         </button>
         <button class="action-btn" :disabled="storyboardDraftLoading" @click="exportExperienceStoryboardDraft">
-          {{ storyboardDraftLoading ? '生成中' : '分镜' }}
+          {{ storyboardDraftLoading ? '生成中' : '生成分镜' }}
         </button>
         <button class="action-btn" @click="showSessionPicker = true">会话</button>
+        <button class="action-btn" @click="openAdvisorFromAction">顾问</button>
         <button class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -65,7 +66,7 @@
     </div>
 
     <aside class="quick-notes-rail" aria-label="快捷入口">
-      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
+      <button class="quick-notes-btn" type="button" @click.stop="toggleQuickNoteWorkspace" title="打开速记">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -142,6 +143,13 @@
               <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
               <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
             </div>
+            <div v-if="storyboardDraftExport" class="quick-note-export-card">
+              <div class="quick-note-export-copy">
+                <strong>分镜草稿已生成</strong>
+                <span>{{ storyboardDraftExport.shotCount }} 镜 · 版本 {{ storyboardDraftExport.versionId }}</span>
+              </div>
+              <button class="quick-note-panel-btn primary" type="button" @click="downloadExperienceStoryboardDraft">下载 Markdown</button>
+            </div>
             <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
           </aside>
         </div>
@@ -200,20 +208,13 @@
       <ImageGenRail
         storage-key="game_image_library_v1"
         side="right"
-        :vertical-offset="0"
-        :horizontal-offset="0"
+        :vertical-offset="62"
+        :horizontal-offset="12"
+        :mobile-bottom-offset="82"
         drawer-title="体验生图"
         selected-prompt-label="当前输入"
         :selected-text="gameStore.inputText || ''"
       />
-
-      <!-- 创作顾问悬浮按钮 -->
-      <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
-        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="8" cy="8" r="5"></circle>
-          <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-        </svg>
-      </button>
 
       <AdvisorPanel
         :isOpen="advisorOpen"
@@ -251,11 +252,12 @@ import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel, listNarrativeAssets 
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromNarrativeAssets, toMarkdown } from '../services/shotExporter'
+import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
+const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
@@ -319,6 +321,13 @@ function collectGameContext() {
 
 async function handleAskAdvisor(question) {
   await askAdvisor(question, collectGameContext)
+}
+
+function openAdvisorFromAction() {
+  quickNoteOpen.value = false
+  quickNoteImportOpen.value = false
+  gameStore.setQuickNoteImportMode(false)
+  openAdvisorPanel()
 }
 
 const showCharacter = ref(false)
@@ -478,6 +487,13 @@ const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
 const assetSummaryLoading = ref(false)
 const storyboardDraftLoading = ref(false)
+const storyboardDraftExport = ref(null)
+
+const shouldLockPageScroll = computed(() => {
+  return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value)
+})
+
+useBodyScrollLock(shouldLockPageScroll)
 
 const dialogueImportStats = computed(() => {
   const list = (gameStore.messages || []).filter((message) => {
@@ -531,6 +547,14 @@ function toggleQuickNoteImport() {
   }
   quickNoteImportOpen.value = !quickNoteImportOpen.value
   gameStore.setQuickNoteImportMode(quickNoteImportOpen.value)
+}
+
+function toggleQuickNoteWorkspace() {
+  const nextOpen = !quickNoteOpen.value
+  if (nextOpen && advisorOpen.value) {
+    closeAdvisor()
+  }
+  quickNoteOpen.value = nextOpen
 }
 
 function importSelectedDialogueSegments() {
@@ -671,6 +695,20 @@ function downloadTextFile(content, filename, mimeType) {
   URL.revokeObjectURL(url)
 }
 
+function downloadExperienceStoryboardDraft() {
+  if (!storyboardDraftExport.value?.markdown) {
+    quickNoteStatus.value = '先生成分镜草稿'
+    return
+  }
+
+  downloadTextFile(
+    storyboardDraftExport.value.markdown,
+    storyboardDraftExport.value.filename,
+    'text/markdown;charset=utf-8'
+  )
+  quickNoteStatus.value = '已下载分镜 Markdown'
+}
+
 function exportExperienceStoryboardDraft() {
   const messages = getUsableExperienceMessages()
   const assets = getExperienceStoryboardAssets(messages)
@@ -717,8 +755,13 @@ function exportExperienceStoryboardDraft() {
       title: '体验分镜草稿',
       topic: title
     })
-    downloadTextFile(markdown, `experience-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
-    quickNoteStatus.value = `已生成分镜草稿，版本 ${result.version.versionId.slice(-6)}`
+    storyboardDraftExport.value = {
+      markdown,
+      filename: `experience-storyboard-${Date.now()}.md`,
+      versionId: result.version.versionId.slice(-6),
+      shotCount: result.shots.length
+    }
+    quickNoteStatus.value = `已生成分镜草稿，确认后可下载 Markdown`
   } catch (error) {
     quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
   } finally {
@@ -783,6 +826,13 @@ watch(quickNoteOpen, (open) => {
     quickNoteImportOpen.value = false
     gameStore.setQuickNoteImportMode(false)
   }
+})
+
+watch(advisorOpen, (open) => {
+  if (!open) return
+  quickNoteOpen.value = false
+  quickNoteImportOpen.value = false
+  gameStore.setQuickNoteImportMode(false)
 })
 
 function quickNoteWordCount(text) {
@@ -980,11 +1030,11 @@ function quickNoteWordCount(text) {
 }
 
 .quick-notes-rail {
-  position: fixed !important;
-  right: 0 !important;
-  top: calc(var(--app-viewport-half-height, 50vh) - 60px) !important; /* 向上移动 60px */
-  z-index: 2000 !important; /* 确保层级足够高 */
-  transform: translate(34px, -50%);
+  position: fixed;
+  right: 12px;
+  top: calc(var(--app-viewport-half-height, 50vh) - 62px);
+  z-index: var(--z-floating-dock, 240);
+  transform: translateX(34px) translateY(-50%);
   transition: transform 0.2s ease;
   display: flex;
   align-items: center;
@@ -999,28 +1049,7 @@ function quickNoteWordCount(text) {
 
 .quick-notes-rail:hover,
 .quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.game-image-gen-rail :deep(.image-gen-rail) {
-  position: fixed !important;
-  right: 0 !important;
-  top: calc(var(--app-viewport-half-height, 50vh) + 60px) !important; /* 向下移动 60px，彻底避开素材 */
-  z-index: 2001 !important; /* 比素材更高，防止遮挡 */
-  transform: translate(34px, -50%) !important;
-  display: flex !important;
-  visibility: visible !important;
-}
-
-.game-image-gen-rail :deep(.image-gen-rail:hover),
-.game-image-gen-rail :deep(.image-gen-rail:has(.image-gen-drawer)) {
-  transform: translate(0, -50%) !important;
-}
-
-/* 4. 辅助：修正按钮样式，确保它在 wrapper 中可见 */
-.game-image-gen-rail :deep(.image-gen-btn) {
-  display: flex !important;
-  opacity: 1 !important;
+  transform: translateX(0) translateY(-50%);
 }
 
 .quick-notes-btn {
@@ -1066,30 +1095,6 @@ function quickNoteWordCount(text) {
 .quick-note-stat strong {
   color: var(--text-primary);
   font-weight: 600;
-}
-
-.advisor-fab {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 200;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .quick-note-workspace-overlay {
@@ -1198,6 +1203,30 @@ function quickNoteWordCount(text) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.quick-note-export-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+}
+
+.quick-note-export-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.quick-note-export-copy strong {
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 .quick-note-message-list {
@@ -1310,21 +1339,9 @@ function quickNoteWordCount(text) {
     align-items: flex-end;
   }
 
-  .game-image-gen-rail :deep(.image-gen-rail) {
-    top: auto !important;
-    right: 12px !important;
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
-    transform: none !important;
-  }
-
-  .game-image-gen-rail :deep(.image-gen-rail:hover),
-  .game-image-gen-rail :deep(.image-gen-rail:has(.image-gen-drawer)) {
-    transform: none !important;
-  }
-
-  .advisor-fab {
-    right: 12px;
-    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  .quick-notes-rail:hover,
+  .quick-notes-rail:focus-within {
+    transform: none;
   }
 
   .quick-notes-btn {

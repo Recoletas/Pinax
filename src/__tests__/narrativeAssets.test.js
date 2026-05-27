@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
   createNarrativeAsset,
+  getAssetKindExplanation,
   getAssetKindLabel,
   getAssetSourceDetail,
   getAssetSourceLabel,
@@ -101,5 +102,7 @@ describe('narrativeAssets', () => {
 
     expect(asset.kind).toBe('inspiration')
     expect(getAssetKindLabel('worldbook-draft')).toBe('世界书草稿')
+    expect(getAssetKindExplanation('worldbook-draft')).toContain('世界书')
+    expect(getAssetKindExplanation('unknown-kind')).toBe('可复用的写作素材条目。')
   })
 })

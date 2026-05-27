@@ -18,6 +18,11 @@
           <path d="M3 2.5H7A2 2 0 0 1 9 4.5V13.5H4A1 1 0 0 0 3 14.5V2.5Z"></path>
           <path d="M13 2.5H9A2 2 0 0 0 7 4.5V13.5H12A1 1 0 0 1 13 14.5V2.5Z"></path>
         </svg>
+        <svg v-else-if="item.icon === 'archive'" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 4.2h10l-.8 8.3A1.2 1.2 0 0 1 11 13.6H5a1.2 1.2 0 0 1-1.2-1.1L3 4.2Z"></path>
+          <path d="M2.5 2.4h11v1.8h-11z"></path>
+          <path d="M6.2 7h3.6"></path>
+        </svg>
         <svg v-else-if="item.icon === 'music'" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
           <path d="M10 3V10"></path>
           <path d="M10 3L13.5 2V9"></path>

@@ -18,18 +18,18 @@
           @keydown.enter="generateCards"
         />
         <button class="btn-primary generate-btn" @click="generateCards" :disabled="isGenerating || !currentTopic.trim()">
-          {{ isGenerating ? generationMessage : '生成卡片' }}
+          {{ isGenerating ? generationMessage : (currentMode === 'directing' ? '生成分镜卡片' : '生成卡片') }}
         </button>
       </div>
       <div class="pe-header-right">
-        <div class="mode-switch">
-          <span class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">写作</span>
-          <button class="mode-toggle" @click="currentMode = currentMode === 'writing' ? 'directing' : 'writing'" :class="{ 'is-directing': currentMode === 'directing' }">
-            <span class="mode-toggle-dot"></span>
-          </button>
-          <span class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">编导</span>
+        <div class="mode-switch" role="group" aria-label="散文工作流">
+          <button type="button" class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">卡片</button>
+          <button type="button" class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">分镜</button>
         </div>
-        <span class="card-count">{{ cards.length }} 张卡片</span>
+        <span class="mode-caption">
+          {{ currentMode === 'directing' ? '从卡片生成分镜草稿' : '生成和整理写作卡片' }}
+        </span>
+        <span class="card-count">{{ cards.length }} 张{{ currentMode === 'directing' ? '分镜卡片' : '卡片' }}</span>
         <button class="icon-btn" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -110,6 +110,34 @@
             </svg>
           </div>
           <p>点击卡片查看详情</p>
+        </div>
+
+        <div v-if="currentMode === 'directing'" class="storyboard-version-panel">
+          <div class="storyboard-version-head">
+            <span class="storyboard-version-title">分镜版本</span>
+            <span v-if="lastDirectorExportContext" class="storyboard-version-badge" :class="{ stale: !directorStoryboardIsCurrent }">
+              {{ directorStoryboardIsCurrent ? '已同步' : '需更新' }}
+            </span>
+          </div>
+          <p v-if="!lastDirectorExportContext" class="storyboard-version-copy">
+            当前还没有分镜版本。先从卡片或时间轴生成统一分镜版本。
+          </p>
+          <template v-else>
+            <div class="storyboard-version-stats">
+              <span>{{ directorStoryboardShotCount }} 镜头</span>
+              <span>版本 {{ directorStoryboardVersionLabel }}</span>
+              <span>{{ directorStoryboardValidationText }}</span>
+            </div>
+          </template>
+          <div class="storyboard-version-actions">
+            <button class="btn-primary" type="button" @click="prepareDirectorStoryboardVersion" :disabled="cards.length === 0">
+              生成/更新分镜版本
+            </button>
+            <button v-if="lastDirectorExportContext" class="btn-secondary" type="button" @click="downloadDirectorMarkdown">
+              下载 Markdown
+            </button>
+          </div>
+          <p v-if="directorStoryboardStatus" class="storyboard-version-status">{{ directorStoryboardStatus }}</p>
         </div>
 
         <div class="outline-section">
@@ -249,9 +277,13 @@
               <path d="M8 8h14v32H8V8zm18 0h14v32H26V8zM12 14h6v4h-6v-4zm0 10h10v4H12v-4zm0 10h8v4h-8v-4z"/>
             </svg>
           </div>
-          <p class="empty-title">开始你的自由写作</p>
-          <p class="empty-desc">输入主题或草稿，AI 将生成一组联想卡片</p>
-          <p class="empty-hint">输入主题或草稿，AI 将生成联想卡片</p>
+          <p class="empty-title">{{ currentMode === 'directing' ? '还没有分镜卡片' : '开始卡片构思' }}</p>
+          <p class="empty-desc">
+            {{ currentMode === 'directing' ? '输入主题或草稿，生成可落入分镜草稿的卡片' : '输入主题或草稿，AI 将生成一组联想卡片' }}
+          </p>
+          <p class="empty-hint">
+            {{ currentMode === 'directing' ? '生成后可加入时间轴并导出统一分镜' : '输入主题或草稿，AI 将生成联想卡片' }}
+          </p>
         </div>
 
         <!-- Absolute positioned cards -->
@@ -366,53 +398,13 @@
         </svg>
       </button>
       <div v-if="showExportMenu" class="export-menu">
-        <button @click="exportToMarkdown">导出为 Markdown</button>
+        <button @click="exportToMarkdown">{{ currentMode === 'directing' ? '生成/更新分镜版本' : '导出为 Markdown' }}</button>
+        <button v-if="currentMode === 'directing' && lastDirectorExportContext" @click="downloadDirectorMarkdown">下载分镜 Markdown</button>
         <button @click="exportToTxt">导出为 TXT</button>
         <button @click="exportToJson">导出完整关系网 JSON</button>
         <button v-if="currentMode === 'directing'" @click="exportToPremiereFormat">剪映/Premiere 格式</button>
       </div>
     </div>
-
-    <!-- 快捷素材侧边栏 -->
-    <aside class="quick-notes-rail" aria-label="快捷入口">
-      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-        <div class="quick-note-row">
-          <textarea
-            ref="quickNoteInputRef"
-            v-model="quickNoteDraft"
-            class="quick-note-input"
-            placeholder="随手记一段..."
-            @input="handleQuickNoteInput"
-          ></textarea>
-          <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToMaterials" title="去素材" aria-label="去素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
-                <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6.5 7h4.8c1.2 0 2.2.9 2.2 2v8H9c-1 0-1.9.4-2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-                <path d="M17.5 7h-4.8c-1.2 0-2.2.9-2.2 2v8H15c1 0 1.9.4 2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
-      </div>
-      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </aside>
 
     <!-- 生图悬浮按钮 -->
     <aside class="image-gen-rail" aria-label="生图功能">
@@ -606,7 +598,7 @@
       </div>
     </div>
 
-    <!-- 卡片详情对话框（编导模式） -->
+    <!-- 卡片详情对话框（分镜模式） -->
     <div v-if="showCardDetailDialog && selectedCard" class="dialog-overlay" @click="showCardDetailDialog = false">
       <div class="dialog" @click.stop>
         <div class="dialog-header">卡片详情</div>
@@ -669,14 +661,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
-import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 import {
   saveValidatedStoryboardVersion
 } from '../services/storyboardStore'
@@ -738,14 +729,6 @@ const cameraMovements = [
   { value: 'tilt_up', label: '仰拍' },
   { value: 'tilt_down', label: '俯拍' }
 ]
-
-// Quick note
-const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.PROSE_QUICK_NOTE_DRAFT
-const quickNoteOpen = ref(false)
-const quickNoteDraft = ref(loadQuickNoteDraft())
-const quickNoteStatus = ref('')
-const quickNoteInputRef = ref(null)
-const quickNoteImportOpen = ref(false)
 
 // Image generation
 const IMG_LIBRARY_KEY = STORAGE_KEYS.PROSE_IMAGE_LIBRARY
@@ -1873,8 +1856,30 @@ function addEdge() {
   saveData()
 }
 
-let lastDirectorExportFingerprint = ''
-let lastDirectorExportContext = null
+const lastDirectorExportFingerprint = ref('')
+const lastDirectorExportContext = ref(null)
+const directorStoryboardStatus = ref('')
+const directorStoryboardIsCurrent = computed(() => {
+  if (!lastDirectorExportContext.value) return false
+  try {
+    return lastDirectorExportFingerprint.value === createDirectorExportFingerprint(buildDirectorRawShots(), currentTopic.value)
+  } catch {
+    return false
+  }
+})
+const directorStoryboardShotCount = computed(() => getDirectorStoryboardShots(lastDirectorExportContext.value).length)
+const directorStoryboardVersionLabel = computed(() => {
+  const versionId = lastDirectorExportContext.value?.version?.versionId || ''
+  return versionId ? versionId.slice(-6) : '-'
+})
+const directorStoryboardValidationText = computed(() => {
+  const validation = getDirectorStoryboardValidation(lastDirectorExportContext.value)
+  const errorCount = validation?.errors?.length || 0
+  const warningCount = validation?.warnings?.length || 0
+  if (errorCount) return `${errorCount} 错误`
+  if (warningCount) return `${warningCount} 提醒`
+  return '校验通过'
+})
 
 function buildDirectorExportTimeline() {
   return outline.value
@@ -1918,14 +1923,28 @@ function createDirectorExportFingerprint(shots, topic) {
   })
 }
 
-function getDirectorExportContext() {
-  const rawShots = extractShotsFromProseEssay({
+function buildDirectorRawShots() {
+  return extractShotsFromProseEssay({
     cards: cards.value,
     timeline: buildDirectorExportTimeline()
   })
+}
+
+function getDirectorStoryboardShots(result) {
+  if (!result) return []
+  return result.shots || result.version?.shots || []
+}
+
+function getDirectorStoryboardValidation(result) {
+  if (!result) return null
+  return result.validation || result.version?.validation || null
+}
+
+function getDirectorExportContext() {
+  const rawShots = buildDirectorRawShots()
   const fingerprint = createDirectorExportFingerprint(rawShots, currentTopic.value)
-  if (lastDirectorExportContext && lastDirectorExportFingerprint === fingerprint) {
-    return lastDirectorExportContext
+  if (lastDirectorExportContext.value && lastDirectorExportFingerprint.value === fingerprint) {
+    return lastDirectorExportContext.value
   }
 
   const sourceId = String(currentTopic.value || '').trim() || 'untitled-prose'
@@ -1947,15 +1966,46 @@ function getDirectorExportContext() {
     }
   })
 
-  lastDirectorExportFingerprint = fingerprint
-  lastDirectorExportContext = {
+  lastDirectorExportFingerprint.value = fingerprint
+  lastDirectorExportContext.value = {
     fingerprint,
     shots: result.shots,
     document: result.document,
     version: result.version,
     validation: result.validation
   }
-  return lastDirectorExportContext
+  return lastDirectorExportContext.value
+}
+
+function prepareDirectorStoryboardVersion() {
+  showExportMenu.value = false
+  try {
+    const directorExport = getDirectorExportContext()
+    directorStoryboardStatus.value = `已生成分镜版本 ${directorExport.version.versionId.slice(-6)}，确认后可下载 Markdown`
+    addTimeline('生成统一分镜版本')
+    return directorExport
+  } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+    return null
+  }
+}
+
+function downloadDirectorMarkdown() {
+  showExportMenu.value = false
+  try {
+    const directorExport = directorStoryboardIsCurrent.value
+      ? lastDirectorExportContext.value
+      : getDirectorExportContext()
+    const md = toMarkdown(getDirectorStoryboardShots(directorExport), {
+      title: '分镜脚本',
+      topic: currentTopic.value || '未命名'
+    })
+    downloadFile(md, '分镜脚本.md', 'text/markdown')
+    directorStoryboardStatus.value = `已下载分镜 Markdown，版本 ${directorExport.version.versionId.slice(-6)}`
+    addTimeline('下载统一分镜脚本 Markdown')
+  } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+  }
 }
 
 // Export operations
@@ -1963,27 +2013,22 @@ function exportToMarkdown() {
   showExportMenu.value = false
   try {
     if (currentMode.value === 'directing') {
-      const directorExport = getDirectorExportContext()
-      const md = toMarkdown(directorExport.shots, {
-        title: '分镜脚本',
-        topic: currentTopic.value || '未命名'
-      })
-      downloadFile(md, '分镜脚本.md', 'text/markdown')
-      addTimeline('导出统一分镜脚本 Markdown')
-    } else {
-      // Writing mode: existing markdown export
-      let md = `# ${currentTopic.value || '散文随笔'}\n\n`
-      for (let i = 0; i < outline.value.length; i++) {
-        const item = outline.value[i]
-        const card = cards.value.find(c => c.id === item.cardId)
-        if (card) {
-          md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
-        }
-      }
-      md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
-      downloadFile(md, '散文随笔.md', 'text/markdown')
-      addTimeline('导出为 Markdown')
+      prepareDirectorStoryboardVersion()
+      return
     }
+
+    // Writing mode: existing markdown export
+    let md = `# ${currentTopic.value || '散文随笔'}\n\n`
+    for (let i = 0; i < outline.value.length; i++) {
+      const item = outline.value[i]
+      const card = cards.value.find(c => c.id === item.cardId)
+      if (card) {
+        md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
+      }
+    }
+    md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
+    downloadFile(md, '散文随笔.md', 'text/markdown')
+    addTimeline('导出为 Markdown')
   } catch (error) {
     alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
@@ -2082,32 +2127,6 @@ function downloadFile(content, filename, mimeType) {
   URL.revokeObjectURL(url)
 }
 
-// Quick note functions
-function loadQuickNoteDraft() {
-  return getTextItem(QUICK_NOTE_DRAFT_KEY)
-}
-
-function persistQuickNoteDraft() {
-  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-}
-
-function resizeQuickNoteInput(el = quickNoteInputRef.value) {
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = Math.min(el.scrollHeight, 104) + 'px'
-}
-
-function handleQuickNoteInput(event) {
-  persistQuickNoteDraft()
-  resizeQuickNoteInput(event?.target)
-}
-
-function clearQuickNoteDraft() {
-  quickNoteDraft.value = ''
-  removeItem(QUICK_NOTE_DRAFT_KEY)
-  nextTick(() => resizeQuickNoteInput())
-}
-
 function exportToPremiereFormat() {
   showExportMenu.value = false
   try {
@@ -2118,50 +2137,6 @@ function exportToPremiereFormat() {
   } catch (error) {
     alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
-}
-
-watch(quickNoteOpen, (open) => {
-  if (!open) {
-    quickNoteImportOpen.value = false
-    return
-  }
-  nextTick(() => resizeQuickNoteInput())
-})
-
-function quickNoteWordCount(text) {
-  const normalized = String(text || '').trim()
-  if (!normalized) return 0
-  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
-  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-}
-
-function saveQuickNote() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再保存'
-    return false
-  }
-
-  prependWritingNote({
-    title: buildWritingNoteTitle(content, '速记'),
-    content,
-    contentFormat: 'md',
-    wordCount: quickNoteWordCount(content)
-  })
-  clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到素材'
-  return true
-}
-
-function jumpToMaterials() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-    router.push('/materials')
-}
-
-function jumpToWriting() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/writing')
 }
 
 // Image generation functions
@@ -2614,7 +2589,7 @@ function goToMaterialsImageGen() {
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   border-bottom: 1px solid var(--border);
   gap: 16px;
 }
@@ -2644,7 +2619,7 @@ function goToMaterialsImageGen() {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-primary);
+  background: var(--surface-soft);
   color: var(--text-primary);
   font-size: 14px;
 }
@@ -2667,8 +2642,8 @@ function goToMaterialsImageGen() {
 .pe-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 180px;
+  gap: 10px;
+  min-width: 260px;
   justify-content: flex-end;
 }
 
@@ -2676,54 +2651,48 @@ function goToMaterialsImageGen() {
 .mode-switch {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+  flex: none;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.mode-caption {
+  max-width: 160px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .mode-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: color 0.2s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .mode-label.active {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.mode-toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--border);
-  border: none;
-  cursor: pointer;
-  position: relative;
-  transition: background 0.2s;
-}
-
-.mode-toggle.is-directing {
   background: var(--accent);
-}
-
-.mode-toggle-dot {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: white;
-  transition: transform 0.2s;
-}
-
-.mode-toggle.is-directing .mode-toggle-dot {
-  transform: translateX(16px);
+  color: #f7fbff;
+  font-weight: 600;
 }
 
 .card-count {
   font-size: 13px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* Main */
@@ -3045,7 +3014,7 @@ function goToMaterialsImageGen() {
 /* Left Panel */
 .left-panel {
   width: 320px;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -3057,7 +3026,7 @@ function goToMaterialsImageGen() {
   margin: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%);
+  background: var(--surface-soft);
   padding: 10px;
 }
 
@@ -3551,6 +3520,69 @@ function goToMaterialsImageGen() {
   border-radius: 4px;
 }
 
+.prose-essay-page .storyboard-version-panel {
+  margin: 0 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 92%, #ffffff 8%);
+  padding: 10px;
+}
+
+.prose-essay-page .storyboard-version-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prose-essay-page .storyboard-version-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.prose-essay-page .storyboard-version-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.prose-essay-page .storyboard-version-badge.stale {
+  background: color-mix(in srgb, #f39c6b 18%, transparent);
+  color: #f39c6b;
+}
+
+.prose-essay-page .storyboard-version-copy,
+.prose-essay-page .storyboard-version-status {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prose-essay-page .storyboard-version-stats {
+  margin-top: 8px;
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.prose-essay-page .storyboard-version-actions {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.prose-essay-page .storyboard-version-actions .btn-primary,
+.prose-essay-page .storyboard-version-actions .btn-secondary {
+  width: 100%;
+  justify-content: center;
+}
+
 /* Card badges for director mode */
 .card-shot-badge {
   font-size: 10px;
@@ -3822,7 +3854,7 @@ function goToMaterialsImageGen() {
   height: 32px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3849,13 +3881,14 @@ function goToMaterialsImageGen() {
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
   cursor: pointer;
   color: var(--text-secondary);
   transition: all 0.15s;
 }
 
 .theme-toggle:hover {
+  background: var(--surface-raised);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -3941,115 +3974,6 @@ function goToMaterialsImageGen() {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-/* Quick Notes Rail */
-.quick-notes-rail {
-  position: fixed;
-  right: 0;
-  top: var(--app-viewport-half-height, 50vh);
-  transform: translate(34px, -50%);
-  z-index: 80;
-  transition: transform 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.quick-notes-rail:hover,
-.quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.quick-notes-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
-.quick-notes-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* Image Generation Rail */
@@ -4478,24 +4402,32 @@ function goToMaterialsImageGen() {
 }
 
 @media (max-width: 760px) {
-  .quick-notes-rail {
-    top: auto;
-    right: 12px;
-    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
-    transform: none;
-    transition: none;
-    flex-direction: column-reverse;
-    align-items: flex-end;
+  .pe-header {
+    flex-wrap: wrap;
   }
 
-  .quick-notes-btn,
+  .pe-header-center {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .pe-header-right {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .mode-caption,
+  .card-count {
+    display: none;
+  }
+
   .image-gen-btn {
     width: 46px;
     height: 46px;
     border-radius: 999px;
   }
 
-  .quick-notes-drawer,
   .image-gen-drawer {
     width: min(320px, calc(100vw - 24px));
   }

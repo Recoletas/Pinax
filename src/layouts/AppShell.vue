@@ -83,7 +83,7 @@ function handleSelectPanel(routeName) {
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) 56px;
+    grid-template-rows: minmax(0, 1fr) calc(56px + env(safe-area-inset-bottom, 0px));
     height: var(--app-viewport-height, 100vh);
     min-height: var(--app-viewport-height, 100vh);
   }
@@ -102,8 +102,8 @@ function handleSelectPanel(routeName) {
   .shell-activity {
     grid-column: 1;
     grid-row: 2;
-    height: 56px;
-    min-height: 56px;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(56px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

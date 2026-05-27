@@ -1,3 +1,18 @@
+:root {
+  --app-viewport-height: 100vh;
+  --app-viewport-half-height: 50vh;
+  --z-floating-rail: 220;
+  --z-floating-dock: 240;
+  --z-floating-action: 260;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+    --app-viewport-half-height: 50dvh;
+  }
+}
+
 /* Light Theme (default) */
 :root {
   --bg-primary: #f3f3f3;
@@ -36,6 +51,12 @@
   --border-strong: #c8c8c8;
   --shadow: rgba(0, 0, 0, 0.08);
   --shadow-md: rgba(0, 0, 0, 0.12);
+  --surface-raised: color-mix(in srgb, var(--bg-secondary) 88%, #ffffff 12%);
+  --surface-soft: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+  --surface-panel: color-mix(in srgb, var(--bg-primary) 90%, var(--bg-secondary));
+  --surface-overlay: color-mix(in srgb, #000 22%, transparent);
+  --shadow-floating: 0 10px 24px color-mix(in srgb, #000 14%, transparent);
+  --shadow-elevated: 0 22px 54px color-mix(in srgb, #000 26%, transparent);
 
   /* Gradient accents */
   --gradient-primary: linear-gradient(135deg, #0078d4 0%, #8b5cf6 100%);
@@ -80,6 +101,12 @@
   --border-strong: #4a4a4a;
   --shadow: rgba(0, 0, 0, 0.3);
   --shadow-md: rgba(0, 0, 0, 0.4);
+  --surface-raised: color-mix(in srgb, var(--bg-secondary) 84%, #101010 16%);
+  --surface-soft: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
+  --surface-panel: color-mix(in srgb, var(--bg-primary) 86%, var(--bg-secondary));
+  --surface-overlay: color-mix(in srgb, #000 46%, transparent);
+  --shadow-floating: 0 12px 30px color-mix(in srgb, #000 42%, transparent);
+  --shadow-elevated: 0 24px 56px color-mix(in srgb, #000 56%, transparent);
 
   /* Gradient accents */
   --gradient-primary: linear-gradient(135deg, #4fc3f7 0%, #a78bfa 100%);

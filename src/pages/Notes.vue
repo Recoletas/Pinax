@@ -69,6 +69,9 @@
             <div class="book-info">
               <span class="book-title">{{ note.title || '无标题素材' }}</span>
               <span class="book-meta">{{ getAssetKindLabel(note.kind) }} · {{ getAssetWordCount(note) }} 字</span>
+              <span class="book-kind-explanation" :title="getAssetKindExplanation(note.kind)">
+                {{ getAssetKindExplanation(note.kind) }}
+              </span>
             </div>
             <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
           </div>
@@ -380,6 +383,7 @@ import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import {
   addNarrativeAsset,
+  getAssetKindExplanation,
   getAssetKindLabel,
   listNarrativeAssets,
   setNarrativeAssetStatus,
@@ -1325,7 +1329,7 @@ function stopResizeRight() {
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  background: var(--bg-tertiary);
+  background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 14px;
   color: var(--text-secondary);
@@ -1335,7 +1339,7 @@ function stopResizeRight() {
 }
 
 .theme-toggle:hover {
-  background: var(--bg-hover);
+  background: var(--surface-raised);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1351,7 +1355,7 @@ function stopResizeRight() {
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: transparent;
+  background: var(--surface-soft);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -1359,7 +1363,7 @@ function stopResizeRight() {
 }
 
 .toolbar-text-btn:hover {
-  background: var(--bg-hover);
+  background: var(--surface-raised);
   color: var(--text-primary);
 }
 
@@ -1373,7 +1377,7 @@ function stopResizeRight() {
 
 /* 侧边栏 */
 .sidebar {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -1385,7 +1389,7 @@ function stopResizeRight() {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+  background: var(--surface-panel);
 }
 
 /* 可拉伸分隔栏 */
@@ -1409,7 +1413,7 @@ function stopResizeRight() {
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+  background: var(--surface-raised);
 }
 
 .sidebar-actions {
@@ -1423,7 +1427,7 @@ function stopResizeRight() {
   height: 24px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--bg-primary);
+  background: var(--surface-soft);
 }
 
 .side-toggle:hover {
@@ -1516,11 +1520,11 @@ function stopResizeRight() {
 }
 
 .book-item:hover {
-  background: var(--bg-hover);
+  background: var(--surface-raised);
 }
 
 .book-item.active {
-  background: var(--accent-light);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-panel));
   border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
@@ -1554,6 +1558,16 @@ function stopResizeRight() {
 .book-meta {
   font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-kind-explanation {
+  margin-top: 2px;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--text-secondary) 78%, transparent);
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

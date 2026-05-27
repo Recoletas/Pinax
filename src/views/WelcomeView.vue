@@ -3,7 +3,7 @@
     <div class="welcome-inner">
       <div class="welcome-header">
         <h1 class="welcome-title">欢迎使用 WriterHelper</h1>
-        <p class="welcome-subtitle">选择体验、设定、写作或分镜工作区</p>
+        <p class="welcome-subtitle">选择体验、世界书、写作、素材或分镜工作区</p>
       </div>
 
       <div class="welcome-grid">
@@ -22,6 +22,11 @@
             <svg v-else-if="item.icon === 'book'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 2.5H7A2 2 0 0 1 9 4.5V13.5H4A1 1 0 0 0 3 14.5V2.5Z"></path>
               <path d="M13 2.5H9A2 2 0 0 0 7 4.5V13.5H12A1 1 0 0 1 13 14.5V2.5Z"></path>
+            </svg>
+            <svg v-else-if="item.icon === 'archive'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 4.2h10l-.8 8.3A1.2 1.2 0 0 1 11 13.6H5a1.2 1.2 0 0 1-1.2-1.1L3 4.2Z"></path>
+              <path d="M2.5 2.4h11v1.8h-11z"></path>
+              <path d="M6.2 7h3.6"></path>
             </svg>
             <svg v-else-if="item.icon === 'settings'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="8" cy="8" r="2"></circle>
@@ -66,7 +71,7 @@ function handleEnter(item) {
 }
 
 .welcome-inner {
-  width: min(520px, 100%);
+  width: min(620px, 100%);
   padding: 24px;
 }
 
@@ -90,7 +95,7 @@ function handleEnter(item) {
 
 .welcome-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
 }
 

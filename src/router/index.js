@@ -36,7 +36,7 @@ const workbenchChildren = [
     component: WorldBookQuickImport,
     meta: {
       activityKey: 'worldbook',
-      title: '设定导入'
+      title: '世界书导入'
     }
   },
   {
@@ -45,7 +45,7 @@ const workbenchChildren = [
     component: WorldBookEditor,
     meta: {
       activityKey: 'worldbook',
-      title: '设定编辑'
+      title: '世界书编辑'
     }
   },
   {
@@ -71,7 +71,7 @@ const workbenchChildren = [
     name: 'materials',
     component: Notes,
     meta: {
-      activityKey: 'writing',
+      activityKey: 'materials',
       title: '素材'
     }
   },

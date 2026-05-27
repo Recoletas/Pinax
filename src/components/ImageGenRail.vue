@@ -204,6 +204,10 @@ const props = defineProps({
   horizontalOffset: {
     type: Number,
     default: 0
+  },
+  mobileBottomOffset: {
+    type: Number,
+    default: 20
   }
 })
 
@@ -246,6 +250,7 @@ const railStyle = computed(() => {
   return {
     [side]: offset,
     '--rail-shift-y': `${props.verticalOffset}px`,
+    '--rail-mobile-bottom-offset': `${Math.max(0, props.mobileBottomOffset)}px`,
     '--rail-right-offset': props.side === 'right' ? offset : undefined,
     '--rail-left-offset': props.side === 'left' ? offset : undefined
   }
@@ -627,7 +632,7 @@ async function urlToDataUrl(url) {
   display: flex;
   align-items: center;
   gap: 10px;
-  z-index: 200;
+  z-index: var(--z-floating-rail, 220);
   transition: transform 0.2s ease;
 }
 
@@ -1004,9 +1009,12 @@ async function urlToDataUrl(url) {
 }
 
 @media (max-width: 900px) {
-  .image-gen-rail {
+  .image-gen-rail,
+  .image-gen-rail:hover,
+  .image-gen-rail:focus-within,
+  .image-gen-rail:has(.image-gen-drawer) {
     top: auto;
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--rail-mobile-bottom-offset, 20px) + env(safe-area-inset-bottom, 0px));
     transform: none;
   }
 

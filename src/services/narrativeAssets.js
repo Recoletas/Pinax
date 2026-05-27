@@ -3,12 +3,36 @@ import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 export const ASSET_SCHEMA_VERSION = 1
 
 export const ASSET_KINDS = [
-  { value: 'draft-prose', label: '正文候选' },
-  { value: 'event', label: '剧情事件' },
-  { value: 'character-fact', label: '人物事实' },
-  { value: 'worldbook-draft', label: '世界书草稿' },
-  { value: 'inspiration', label: '灵感' },
-  { value: 'storyboard-seed', label: '分镜种子' }
+  {
+    value: 'draft-prose',
+    label: '正文候选',
+    explanation: '可直接插入章节或作为续写底稿的段落素材。'
+  },
+  {
+    value: 'event',
+    label: '剧情事件',
+    explanation: '用于推动剧情进展、冲突与转折的事件记录。'
+  },
+  {
+    value: 'character-fact',
+    label: '人物事实',
+    explanation: '角色设定、关系和行为动机等稳定信息。'
+  },
+  {
+    value: 'worldbook-draft',
+    label: '世界书草稿',
+    explanation: '可转换为世界书条目的设定草稿。'
+  },
+  {
+    value: 'inspiration',
+    label: '灵感',
+    explanation: '待整理的意象、句子或片段灵感。'
+  },
+  {
+    value: 'storyboard-seed',
+    label: '分镜种子',
+    explanation: '用于生成章节分镜的镜头线索或场面描述。'
+  }
 ]
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
@@ -111,6 +135,10 @@ export function setNarrativeAssetsStatus(assetIds = [], status) {
 
 export function getAssetKindLabel(kind) {
   return ASSET_KINDS.find((item) => item.value === kind)?.label || '素材'
+}
+
+export function getAssetKindExplanation(kind) {
+  return ASSET_KINDS.find((item) => item.value === kind)?.explanation || '可复用的写作素材条目。'
 }
 
 export function getAssetSourceLabel(source = {}) {

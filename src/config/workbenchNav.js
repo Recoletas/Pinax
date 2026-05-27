@@ -9,7 +9,7 @@ export const ACTIVITY_ITEMS = [
   },
   {
     key: 'worldbook',
-    label: '设定',
+    label: '世界书',
     icon: 'settings',
     defaultRouteName: 'experience-worldbook'
   },
@@ -18,6 +18,12 @@ export const ACTIVITY_ITEMS = [
     label: '写作',
     icon: 'book',
     defaultRouteName: 'writing'
+  },
+  {
+    key: 'materials',
+    label: '素材',
+    icon: 'archive',
+    defaultRouteName: 'materials'
   },
   {
     key: 'storyboard',
@@ -49,17 +55,27 @@ export const SIDE_PANELS = {
     ]
   },
   worldbook: {
-    title: '设定',
+    title: '世界书',
     items: [
       {
         routeName: 'experience-worldbook',
-        label: '世界书导入',
+        label: '导入',
         description: '预设、AI 提炼、随机生成'
       },
       {
         routeName: 'experience-worldbook-advanced',
-        label: '设定编辑',
+        label: '编辑',
         description: '条目与注入参数细调'
+      }
+    ]
+  },
+  materials: {
+    title: '素材',
+    items: [
+      {
+        routeName: 'materials',
+        label: '素材库',
+        description: '灵感、速记与素材整理'
       }
     ]
   },

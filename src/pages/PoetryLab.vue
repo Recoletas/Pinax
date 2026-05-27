@@ -21,13 +21,13 @@
           </span>
           <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
         </button>
-        <div class="mode-toggle-group">
-          <span class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">写作</span>
-          <button class="mode-toggle" @click="currentMode = currentMode === 'writing' ? 'directing' : 'writing'" :class="{ 'is-directing': currentMode === 'directing' }">
-            <span class="mode-toggle-dot"></span>
-          </button>
-          <span class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">编导</span>
+        <div class="mode-segment" role="group" aria-label="诗歌工作流">
+          <button type="button" class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">意象</button>
+          <button type="button" class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">分镜</button>
         </div>
+        <span class="mode-caption">
+          {{ currentMode === 'directing' ? '从意象树生成分镜草稿' : '生成和整理意象树' }}
+        </span>
       </div>
     </header>
 
@@ -58,16 +58,38 @@
 
         <div class="btn-row">
           <button class="btn-primary" :disabled="isGenerating || isSnapshotReadonly" @click="generateTree">
-            {{ isGenerating ? '生成中...' : (currentMode === 'directing' ? '生成分镜图' : '生成灵感树') }}
+            {{ isGenerating ? '生成中...' : (currentMode === 'directing' ? '生成分镜草稿' : '生成意象树') }}
           </button>
           <button class="btn-secondary" :disabled="isSnapshotReadonly" @click="clearTree">清空</button>
         </div>
 
         <div class="btn-row">
-          <button class="btn-secondary" @click="exportMarkdown" :title="currentMode === 'directing' ? '导出统一分镜 Markdown' : '导出灵感树 Markdown'" :disabled="flatNodes.length === 0 || isSnapshotReadonly">
-            {{ currentMode === 'directing' ? '导出分镜 Markdown' : '导出 Markdown' }}
+          <button class="btn-secondary" @click="exportMarkdown" :title="currentMode === 'directing' ? '生成统一分镜版本' : '导出意象树 Markdown'" :disabled="flatNodes.length === 0 || isSnapshotReadonly">
+            {{ currentMode === 'directing' ? '生成分镜版本' : '导出意象 Markdown' }}
           </button>
           <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 TXT</button>
+        </div>
+
+        <div v-if="currentMode === 'directing'" class="storyboard-version-panel">
+          <div class="storyboard-version-head">
+            <h3>分镜版本</h3>
+            <span v-if="lastPoetryStoryboardExportResult" class="storyboard-version-badge" :class="{ stale: !poetryStoryboardIsCurrent }">
+              {{ poetryStoryboardIsCurrent ? '已同步' : '需更新' }}
+            </span>
+          </div>
+          <p v-if="!lastPoetryStoryboardExportResult" class="storyboard-version-copy">
+            当前还没有分镜版本。先用上方按钮把意象树保存为统一分镜版本。
+          </p>
+          <template v-else>
+            <div class="storyboard-version-stats">
+              <span>{{ poetryStoryboardShotCount }} 镜头</span>
+              <span>版本 {{ poetryStoryboardVersionLabel }}</span>
+              <span>{{ poetryStoryboardValidationText }}</span>
+            </div>
+            <button class="btn-secondary storyboard-download-btn" type="button" @click="downloadPoetryStoryboardMarkdown">
+              下载 Markdown
+            </button>
+          </template>
         </div>
 
         <div class="export-panel" v-if="flatNodes.length">
@@ -245,8 +267,10 @@
           </div>
         </div>
         <div v-if="flatNodes.length === 0" class="empty-state">
-          <div class="empty-title">还没有灵感树</div>
-          <div class="empty-desc">输入提示词后点击“生成灵感树”。</div>
+          <div class="empty-title">{{ currentMode === 'directing' ? '还没有分镜草稿' : '还没有意象树' }}</div>
+          <div class="empty-desc">
+            {{ currentMode === 'directing' ? '输入提示词后点击“生成分镜草稿”。' : '输入提示词后点击“生成意象树”。' }}
+          </div>
         </div>
 
         <div v-else class="mind-canvas" ref="canvasRef" @pointerdown="onCanvasPointerDown">
@@ -298,7 +322,6 @@
               {
                 active: displayedSelectedNode && displayedSelectedNode.id === node.id,
                 muted: exportScope === 'custom' && !isNodeExportSelected(node.id),
-                'import-picked': quickNoteImportOpen && isNodeExportSelected(node.id),
                 grouped: isNodeInGroup(node.id),
                 readonly: isSnapshotReadonly,
                 'scissor-pending': scissorDeletePendingNodeId === node.id
@@ -322,7 +345,6 @@
             </label>
             <div class="node-main">{{ node.text }}</div>
             <div v-if="node.examples && node.examples[0]" class="node-sub">{{ node.examples[0] }}</div>
-            <div v-if="quickNoteImportOpen && !node.children?.length && isNodeExportSelected(node.id)" class="import-mark">选中</div>
           </div>
         </div>
       </main>
@@ -391,70 +413,6 @@
       :selected-text="selectedNodePrompt"
     />
 
-    <aside class="quick-notes-rail" aria-label="快捷入口">
-      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-        <div class="quick-note-row">
-          <textarea
-            ref="quickNoteInputRef"
-            v-model="quickNoteDraft"
-            class="quick-note-input"
-            placeholder="随手记一段..."
-            @input="handleQuickNoteInput"
-          ></textarea>
-          <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="toggleQuickNoteImport" title="导入" aria-label="导入">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 6.5v7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-                <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToMaterials" title="去素材" aria-label="去素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
-                <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToWriting" title="去小说" aria-label="去小说">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6.5 7h4.8c1.2 0 2.2.9 2.2 2v8H9c-1 0-1.9.4-2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-                <path d="M17.5 7h-4.8c-1.2 0-2.2.9-2.2 2v8H15c1 0 1.9.4 2.5 1V7z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div v-if="quickNoteImportOpen" class="quick-note-import-panel">
-          <div class="quick-note-import-toolbar">
-            <span class="quick-note-import-title">导入叶节点</span>
-            <button class="quick-note-mini-btn primary" type="button" @click="importSelectedLeafNodes">导入</button>
-            <button class="quick-note-mini-btn" type="button" @click="clearLeafImports">清空</button>
-          </div>
-          <div class="quick-note-import-body">
-            <div class="quick-note-import-left">
-              <div class="quick-note-import-empty">请直接在树节点区域点击叶节点进行选择。</div>
-            </div>
-            <aside class="quick-note-import-side">
-              <div class="quick-note-stat"><span>总叶数</span><strong>{{ leafImportStats.totalCount }}</strong></div>
-              <div class="quick-note-stat"><span>已选</span><strong>{{ leafImportStats.selectedCount }}</strong></div>
-              <div class="quick-note-stat"><span>总字数</span><strong>{{ leafImportStats.totalWords }}</strong></div>
-              <div class="quick-note-stat"><span>已选字</span><strong>{{ leafImportStats.selectedWords }}</strong></div>
-            </aside>
-          </div>
-        </div>
-        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
-      </div>
-      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </aside>
-
     <!-- 创作顾问悬浮按钮 -->
     <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
       <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
@@ -468,7 +426,7 @@
       :messages="advisorMessages"
       :loading="advisorLoading"
       :quickQuestions="['分析当前节奏', '情绪分布如何', '结构建议', '续写灵感']"
-      :emptyText="'创作顾问可帮你分析灵感树状态，提供意象、节奏与结构方面的专业建议。'"
+      :emptyText="'创作顾问可帮你分析意象树状态，提供意象、节奏与结构方面的专业建议。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
     />
@@ -482,8 +440,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
-import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, removeItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromPoetryLab, toMarkdown } from '../services/shotExporter'
 import {
@@ -526,6 +483,27 @@ const { isDark, toggleTheme } = useTheme()
 const currentMode = ref('writing') // 'writing' | 'directing'
 const lastPoetryStoryboardExportFingerprint = ref('')
 const lastPoetryStoryboardExportResult = ref(null)
+const poetryStoryboardIsCurrent = computed(() => {
+  if (!lastPoetryStoryboardExportResult.value) return false
+  try {
+    return lastPoetryStoryboardExportFingerprint.value === createPoetryStoryboardExportContext().fingerprint
+  } catch {
+    return false
+  }
+})
+const poetryStoryboardShotCount = computed(() => getPoetryStoryboardShots(lastPoetryStoryboardExportResult.value).length)
+const poetryStoryboardVersionLabel = computed(() => {
+  const versionId = lastPoetryStoryboardExportResult.value?.version?.versionId || ''
+  return versionId ? versionId.slice(-6) : '-'
+})
+const poetryStoryboardValidationText = computed(() => {
+  const validation = getPoetryStoryboardValidation(lastPoetryStoryboardExportResult.value)
+  const errorCount = validation?.errors?.length || 0
+  const warningCount = validation?.warnings?.length || 0
+  if (errorCount) return `${errorCount} 错误`
+  if (warningCount) return `${warningCount} 提醒`
+  return '校验通过'
+})
 
 // Director mode shot types
 const shotTypes = [
@@ -545,7 +523,6 @@ const cameraMovements = [
   { value: 'fixed', label: '固定' }
 ]
 
-const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const prompt = ref('')
 const branchCount = ref(5)
 const depthLimit = ref(3)
@@ -564,12 +541,6 @@ const editingCameraMovement = ref('')
 const editingDuration = ref(3)
 const editingToneDescription = ref('')
 const editingSoundDescription = ref('')
-const quickNoteOpen = ref(false)
-const quickNoteDraft = ref(loadQuickNoteDraft())
-const quickNoteStatus = ref('')
-const quickNoteInputRef = ref(null)
-const quickNoteImportOpen = ref(false)
-const exportScopeBeforeImport = ref('all')
 const graphEdges = ref(loadGraphEdges())
 const imageryGroups = ref(loadImageryGroups())
 const snapshots = ref(loadSnapshots())
@@ -698,118 +669,6 @@ function goBack() {
   router.push('/')
 }
 
-function loadQuickNoteDraft() {
-  return getTextItem(QUICK_NOTE_DRAFT_KEY)
-}
-
-function persistQuickNoteDraft() {
-  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-}
-
-function resizeQuickNoteInput(el = quickNoteInputRef.value) {
-  if (!el) return
-  const minHeight = 30
-  const maxHeight = 104
-  el.style.height = `${minHeight}px`
-  const nextHeight = Math.min(el.scrollHeight, maxHeight)
-  el.style.height = `${Math.max(minHeight, nextHeight)}px`
-  el.style.borderRadius = nextHeight > 44 ? '12px' : '999px'
-}
-
-function handleQuickNoteInput(event) {
-  persistQuickNoteDraft()
-  resizeQuickNoteInput(event?.target)
-}
-
-function toggleQuickNoteImport() {
-  if (!ensureEditable()) return
-  if (!leafImportCandidates.value.length) {
-    quickNoteStatus.value = '当前没有可导入的叶节点'
-    return
-  }
-  quickNoteImportOpen.value = !quickNoteImportOpen.value
-  if (quickNoteImportOpen.value) {
-    exportScopeBeforeImport.value = exportScope.value
-    exportScope.value = 'custom'
-  } else {
-    exportPickedNodeIds.value = []
-    exportScope.value = exportScopeBeforeImport.value || 'all'
-  }
-}
-
-function clearLeafImports() {
-  if (!ensureEditable()) return
-  exportPickedNodeIds.value = []
-}
-
-function importSelectedLeafNodes() {
-  const picked = leafImportCandidates.value.filter((item) => isNodeExportSelected(item.id))
-  if (!picked.length) {
-    quickNoteStatus.value = '先选叶节点再导入'
-    return
-  }
-  const text = picked.map((item) => item.text).join('\n\n')
-  quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n\n${text}` : text
-  persistQuickNoteDraft()
-  quickNoteImportOpen.value = false
-  exportPickedNodeIds.value = []
-  exportScope.value = exportScopeBeforeImport.value || 'all'
-  quickNoteStatus.value = `已导入 ${picked.length} 个叶节点`
-  nextTick(() => resizeQuickNoteInput())
-}
-
-function clearQuickNoteDraft() {
-  quickNoteDraft.value = ''
-  removeItem(QUICK_NOTE_DRAFT_KEY)
-  nextTick(() => resizeQuickNoteInput())
-}
-
-watch(quickNoteOpen, (open) => {
-  if (!open) {
-    quickNoteImportOpen.value = false
-    exportPickedNodeIds.value = []
-    exportScope.value = exportScopeBeforeImport.value || 'all'
-    return
-  }
-  nextTick(() => resizeQuickNoteInput())
-})
-
-function quickNoteWordCount(text) {
-  const normalized = String(text || '').trim()
-  if (!normalized) return 0
-  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
-  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-}
-
-function saveQuickNote() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再保存'
-    return false
-  }
-
-  prependWritingNote({
-    title: buildWritingNoteTitle(content, '速记'),
-    content,
-    contentFormat: 'md',
-    wordCount: quickNoteWordCount(content)
-  })
-  clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到素材'
-  return true
-}
-
-function jumpToMaterials() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-    router.push('/materials')
-}
-
-function jumpToWriting() {
-  if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/writing')
-}
-
 function nodeTitle(node) {
   const sample = node.examples?.[0] || ''
   return sample ? `${node.text}\n${sample}` : node.text
@@ -823,7 +682,7 @@ function clearTree() {
   manualPositions.value = {}
   graphEdges.value = []
   imageryGroups.value = []
-  statusText.value = '已清空灵感树'
+  statusText.value = '已清空意象树'
   lastSourceLabel.value = ''
 }
 
@@ -929,7 +788,6 @@ function previewSnapshot(snapshotId) {
   if (!snapshot) return
   snapshotViewId.value = snapshot.id
   snapshotSelectedNodeId.value = snapshot.selectedNodeId || snapshot.tree?.id || ''
-  quickNoteImportOpen.value = false
   statusText.value = `正在查看快照：${snapshot.label}`
 }
 
@@ -1248,14 +1106,6 @@ function onNodeClick(node) {
   if (interactionMode.value === 'link' || interactionMode.value === 'group') {
     return
   }
-  if (quickNoteImportOpen.value) {
-    if (node.children?.length) {
-      quickNoteStatus.value = '导入模式下仅可选择叶节点'
-      return
-    }
-    toggleExportNodeSelection(node.id)
-    return
-  }
   if (exportScope.value === 'custom') {
     toggleExportNodeSelection(node.id)
   }
@@ -1450,7 +1300,7 @@ async function generateTree() {
   }
 
   isGenerating.value = true
-  statusText.value = currentMode.value === 'directing' ? '正在生成分镜图...' : '正在生成灵感树（分步行格式）...'
+  statusText.value = currentMode.value === 'directing' ? '正在生成分镜草稿...' : '正在生成意象树（分步行格式）...'
 
   try {
     if (currentMode.value === 'directing') {
@@ -1460,7 +1310,7 @@ async function generateTree() {
       const nodeCount = flattenTree(rootTree.value).length
       if (nodeCount < 2) throw new Error('模型仅返回根节点，未生成有效分支，请重试')
       selectedNode.value = rootTree.value
-      statusText.value = `分镜图生成成功，共 ${nodeCount} 个节点`
+      statusText.value = `分镜草稿生成成功，共 ${nodeCount} 个节点`
     } else {
       const llmResult = await generatePoetryTreeByLLM(promptText, branchCount.value, depthLimit.value)
       const normalized = normalizeNode(llmResult)
@@ -1468,7 +1318,7 @@ async function generateTree() {
       const nodeCount = flattenTree(rootTree.value).length
       if (nodeCount < 2) throw new Error('模型仅返回根节点，未生成有效分支，请重试')
       selectedNode.value = rootTree.value
-      statusText.value = `大模型生成成功，共 ${nodeCount} 个节点（分步行格式）`
+      statusText.value = `意象树生成成功，共 ${nodeCount} 个节点（分步行格式）`
     }
     lastSourceLabel.value = '大模型'
   } catch (e) {
@@ -1528,27 +1378,6 @@ const flatNodes = computed(() => {
     if (!manual) return node
     return { ...node, x: manual.x, y: manual.y }
   })
-})
-
-const leafImportCandidates = computed(() => {
-  return flatNodes.value
-    .filter((node) => !node.children?.length)
-    .map((node) => ({
-      id: node.id,
-      depth: node.depth,
-      text: node.examples?.[0] ? `${node.text}\n${node.examples[0]}` : node.text,
-      preview: (node.examples?.[0] ? `${node.text} / ${node.examples[0]}` : node.text).replace(/\s+/g, ' ').slice(0, 42)
-    }))
-})
-
-const leafImportStats = computed(() => {
-  const totalCount = leafImportCandidates.value.length
-  const selectedCount = leafImportCandidates.value.filter((item) => isNodeExportSelected(item.id)).length
-  const totalWords = leafImportCandidates.value.reduce((sum, item) => sum + quickNoteWordCount(item.text), 0)
-  const selectedWords = leafImportCandidates.value
-    .filter((item) => isNodeExportSelected(item.id))
-    .reduce((sum, item) => sum + quickNoteWordCount(item.text), 0)
-  return { totalCount, selectedCount, totalWords, selectedWords }
 })
 
 const selectedNodeGroups = computed(() => {
@@ -1809,6 +1638,16 @@ function downloadTextFile(content, filename, mimeType) {
   URL.revokeObjectURL(url)
 }
 
+function getPoetryStoryboardShots(result) {
+  if (!result) return []
+  return result.shots || result.version?.shots || []
+}
+
+function getPoetryStoryboardValidation(result) {
+  if (!result) return null
+  return result.validation || result.version?.validation || null
+}
+
 function buildPoetryStoryboardSourceExcerpt() {
   const lines = []
   const promptText = prompt.value.trim()
@@ -1862,7 +1701,7 @@ function createPoetryStoryboardExportContext() {
   }
 }
 
-function exportPoetryStoryboardMarkdown() {
+function savePoetryStoryboardVersion() {
   const exportContext = createPoetryStoryboardExportContext()
   const cachedResult = lastPoetryStoryboardExportFingerprint.value === exportContext.fingerprint
     ? lastPoetryStoryboardExportResult.value
@@ -1885,23 +1724,34 @@ function exportPoetryStoryboardMarkdown() {
     lastPoetryStoryboardExportFingerprint.value = exportContext.fingerprint
     lastPoetryStoryboardExportResult.value = result
 
-    const readyShots = result.shots || exportContext.shots
-    const markdown = toMarkdown(readyShots, {
-      title: '诗歌分镜脚本',
-      topic: exportContext.promptText || exportContext.title
-    })
-    downloadTextFile(markdown, `poetry-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
-
-    statusText.value = `已导出分镜 Markdown，版本 ${result.version.versionId.slice(-6)}`
+    statusText.value = `已生成分镜版本 ${result.version.versionId.slice(-6)}，确认后可下载 Markdown`
     lastSourceLabel.value = '统一分镜'
+    return result
   } catch (error) {
     statusText.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+    return null
   }
+}
+
+function downloadPoetryStoryboardMarkdown() {
+  const result = poetryStoryboardIsCurrent.value
+    ? lastPoetryStoryboardExportResult.value
+    : savePoetryStoryboardVersion()
+  if (!result) return
+
+  const exportContext = createPoetryStoryboardExportContext()
+  const readyShots = getPoetryStoryboardShots(result)
+  const markdown = toMarkdown(readyShots, {
+    title: '诗歌分镜脚本',
+    topic: exportContext.promptText || exportContext.title
+  })
+  downloadTextFile(markdown, `poetry-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
+  statusText.value = `已下载分镜 Markdown，版本 ${result.version.versionId.slice(-6)}`
 }
 
 function exportMarkdown() {
   if (currentMode.value === 'directing') {
-    exportPoetryStoryboardMarkdown()
+    savePoetryStoryboardVersion()
     return
   }
 
@@ -2084,7 +1934,7 @@ function exportTxt() {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -2122,6 +1972,7 @@ function exportTxt() {
 .title-right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .theme-toggle {
@@ -2130,7 +1981,7 @@ function exportTxt() {
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  background: var(--bg-tertiary);
+  background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 14px;
   color: var(--text-secondary);
@@ -2140,60 +1991,49 @@ function exportTxt() {
 }
 
 .theme-toggle:hover {
-  background: var(--bg-hover);
+  background: var(--surface-raised);
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.mode-toggle-group {
+.mode-segment {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 12px;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.mode-caption {
+  max-width: 180px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .mode-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .mode-label.active {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.mode-toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  position: relative;
-  transition: all 0.2s;
-}
-
-.mode-toggle.is-directing {
   background: var(--accent);
-  border-color: var(--accent);
-}
-
-.mode-toggle-dot {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: all 0.2s;
-}
-
-.mode-toggle.is-directing .mode-toggle-dot {
-  left: calc(100% - 16px);
-  background: white;
+  color: #f7fbff;
+  font-weight: 600;
 }
 
 .layout {
@@ -2201,48 +2041,6 @@ function exportTxt() {
   min-height: 0;
   display: grid;
   grid-template-columns: 340px 1fr;
-}
-
-.quick-notes-rail {
-  position: fixed;
-  right: 0;
-  top: var(--app-viewport-half-height, 50vh);
-  transform: translate(34px, -50%);
-  z-index: 80;
-  transition: transform 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.quick-notes-rail:hover,
-.quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.quick-notes-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .advisor-fab {
@@ -2269,157 +2067,9 @@ function exportTxt() {
   box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-import-panel {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-}
-
-.quick-note-import-body {
-  display: grid;
-  grid-template-columns: 1fr 96px;
-  gap: 8px;
-}
-
-.quick-note-import-left {
-  min-width: 0;
-}
-
-.quick-note-import-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.quick-note-import-title {
-  flex: 1;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-mini-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.quick-note-mini-btn:hover,
-.quick-note-mini-btn.primary {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.quick-note-import-side {
-  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding-left: 8px;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.quick-note-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-stat strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.quick-note-import-empty {
-  color: var(--text-secondary);
-  font-size: 9px;
-  line-height: 1.4;
-}
-
-.idea-node.import-picked {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
-.import-mark {
-  margin-top: 5px;
-  font-size: 10px;
-  color: var(--accent);
-}
-
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
-.quick-notes-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .control-panel {
   border-right: 1px solid var(--border);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   padding: 14px;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -2437,7 +2087,7 @@ function exportTxt() {
   min-height: 96px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-primary);
+  background: var(--surface-soft);
   color: var(--text-primary);
   padding: 10px;
   font-size: 13px;
@@ -2589,12 +2239,63 @@ function exportTxt() {
 }
 
 .tool-panel,
-.history-panel {
+.history-panel,
+.poetry-lab-page .storyboard-version-panel {
   margin-top: 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg-primary) 94%, #ffffff 6%);
   padding: 12px;
+}
+
+.poetry-lab-page .storyboard-version-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.poetry-lab-page .storyboard-version-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.poetry-lab-page .storyboard-version-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.poetry-lab-page .storyboard-version-badge.stale {
+  background: color-mix(in srgb, #f39c6b 18%, transparent);
+  color: #f39c6b;
+}
+
+.poetry-lab-page .storyboard-version-copy {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.poetry-lab-page .storyboard-version-stats {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.poetry-lab-page .storyboard-download-btn {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 .mode-switch-row {
@@ -3232,6 +2933,10 @@ function exportTxt() {
 }
 
 @media (max-width: 760px) {
+  .mode-caption {
+    display: none;
+  }
+
   .layout {
     grid-template-columns: 1fr;
   }
@@ -3250,29 +2955,9 @@ function exportTxt() {
     grid-template-columns: auto 72px;
   }
 
-  .quick-notes-rail {
-    top: auto;
-    right: 12px;
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
-    transform: none;
-    transition: none;
-    flex-direction: column-reverse;
-    align-items: flex-end;
-  }
-
   .advisor-fab {
     right: 12px;
     bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .quick-notes-btn {
-    width: 46px;
-    height: 46px;
-    border-radius: 999px;
-  }
-
-  .quick-notes-drawer {
-    width: min(280px, calc(100vw - 24px));
   }
 }
 </style>

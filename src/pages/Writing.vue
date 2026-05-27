@@ -25,11 +25,18 @@
           <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
           <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
         </div>
+        <div v-if="quickNoteStatus" class="action-status-chip" :title="quickNoteStatus">{{ quickNoteStatus }}</div>
         <button class="toolbar-text-btn" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
           收件箱
         </button>
+        <button class="toolbar-text-btn prominent" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">
+          素材库
+        </button>
         <button class="toolbar-text-btn" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
           章节分镜
+        </button>
+        <button class="toolbar-text-btn" type="button" @click.stop="openAdvisorFromAction" title="打开创作顾问">
+          顾问
         </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
@@ -408,7 +415,7 @@
             <section v-if="chapterOutlineItems.length" class="chapter-outline-bar">
               <div class="chapter-outline-head">
                 <span class="chapter-outline-title">章节纲要</span>
-                <span class="chapter-outline-count">{{ chapterOutlineItems.length }} 条参与续写</span>
+                <span class="chapter-outline-count">{{ chapterOutlineItems.length }} 条参与续写与章节分镜</span>
               </div>
               <div class="chapter-outline-list">
                 <article v-for="item in chapterOutlineItems" :key="item.id" class="chapter-outline-card">
@@ -529,84 +536,13 @@
     <ImageGenRail
       storage-key="writing_image_library_v1"
       side="right"
-      :vertical-offset="0"
-      :horizontal-offset="0"
+      :vertical-offset="62"
+      :horizontal-offset="12"
+      :mobile-bottom-offset="82"
       drawer-title="小说生图"
       selected-prompt-label="选中文本"
       :selected-text="selectedText"
     />
-
-    <aside class="quick-notes-rail" aria-label="快捷入口">
-      <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
-          <div class="quick-note-row">
-            <textarea
-              ref="quickNoteInputRef"
-            v-model="quickNoteDraft"
-            class="quick-note-input"
-            placeholder="随手记一段..."
-            @input="handleQuickNoteInput"
-          ></textarea>
-          <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button class="quick-note-icon-btn" type="button" @click="toggleQuickNoteImport" title="导入" aria-label="导入">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 6.5v7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-                <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div v-if="quickNoteImportOpen" class="quick-note-import-panel">
-          <div class="quick-note-import-toolbar">
-            <span class="quick-note-import-title">快捷处理</span>
-            <button class="quick-note-mini-btn" :class="{ primary: quickNotePanelTab === 'dialogue' }" type="button" @click="quickNotePanelTab = 'dialogue'">对话段</button>
-          </div>
-          <template v-if="quickNotePanelTab === 'dialogue'">
-            <div class="quick-note-import-toolbar quick-note-subtoolbar">
-              <button class="quick-note-mini-btn" type="button" @click="selectAllDialogueImports">全选</button>
-              <button class="quick-note-mini-btn" type="button" @click="clearDialogueImports">清空</button>
-              <button class="quick-note-mini-btn primary" type="button" @click="importSelectedDialogueSegments">导入</button>
-            </div>
-            <div class="quick-note-import-body">
-              <div class="quick-note-import-left">
-                <div v-if="dialogueImportCandidates.length" class="quick-note-import-list">
-                  <label v-for="item in dialogueImportCandidates" :key="item.id" class="quick-note-import-item">
-                    <input
-                      class="quick-note-import-check"
-                      type="checkbox"
-                      :checked="selectedDialogueImportIds.includes(item.id)"
-                      @change="toggleDialogueImportSelection(item.id)"
-                    />
-                    <div class="quick-note-import-copy">
-                      <span class="quick-note-import-meta">{{ item.label }}</span>
-                      <span class="quick-note-import-text">{{ item.preview }}</span>
-                    </div>
-                  </label>
-                </div>
-                <div v-else class="quick-note-import-empty">当前章节没有可导入的对话段</div>
-              </div>
-              <aside class="quick-note-import-side">
-                <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
-                <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
-                <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
-                <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
-              </aside>
-            </div>
-          </template>
-        </div>
-        <div v-if="quickNoteStatus" class="quick-note-tip">{{ quickNoteStatus }}</div>
-      </div>
-      <button class="quick-notes-btn" type="button" @click.stop="quickNoteOpen = !quickNoteOpen" title="打开速记">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </aside>
 
     <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
       <section class="asset-inbox-modal">
@@ -636,7 +572,7 @@
             <select v-model="assetInboxKind" class="asset-inbox-filter" @change="refreshAssetInbox">
               <option value="">全部类型</option>
               <option v-for="kind in assetKindOptions" :key="kind.value" :value="kind.value">
-                {{ kind.label }}
+                {{ kind.label }} · {{ kind.explanation }}
               </option>
             </select>
             <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
@@ -645,12 +581,13 @@
             <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
             <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
             <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
-            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">入纲要</button>
+            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">加入纲要</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
             <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
           </div>
         </div>
+        <div v-if="quickNoteStatus" class="asset-inbox-status">{{ quickNoteStatus }}</div>
 
         <div class="asset-inbox-modal-body">
           <div class="asset-inbox-list-panel">
@@ -675,6 +612,7 @@
                   <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
                 </div>
                 <div class="asset-inbox-source">{{ getAssetSourceDetail(asset.source) }}</div>
+                <div class="asset-inbox-kind-explanation">{{ getAssetKindExplanation(asset.kind) }}</div>
                 <p class="asset-inbox-preview">{{ asset.content }}</p>
               </div>
             </button>
@@ -686,22 +624,30 @@
           <aside class="asset-inbox-detail-panel">
             <template v-if="activeInboxAsset">
               <div class="asset-inbox-detail-kicker">{{ getAssetKindLabel(activeInboxAsset.kind) }}</div>
+              <div class="asset-inbox-detail-explanation">{{ getAssetKindExplanation(activeInboxAsset.kind) }}</div>
               <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || '未命名素材' }}</h4>
               <div class="asset-inbox-detail-meta">{{ getAssetSourceDetail(activeInboxAsset.source) }}</div>
               <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
               <div class="asset-inbox-detail-actions">
-                <button class="quick-note-mini-btn primary" type="button" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
-                <button class="quick-note-mini-btn" type="button" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
-                <button class="quick-note-mini-btn" type="button" @click="addAssetToChapterOutline(activeInboxAsset)">入纲要</button>
-                <button class="quick-note-mini-btn" type="button" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
+                <button class="quick-note-mini-btn primary" type="button" :title="assetActionHelpMap.insert" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
+                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reference" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
+                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.outline" @click="addAssetToChapterOutline(activeInboxAsset)">加入纲要</button>
+                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.material" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
                 <button
                   v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
                   class="quick-note-mini-btn"
                   type="button"
+                  :title="assetActionHelpMap.worldbook"
                   @click="acceptWorldbookDraftAsset(activeInboxAsset)"
                 >入世界书</button>
-                <button class="quick-note-mini-btn" type="button" @click="archiveAsset(activeInboxAsset)">归档</button>
-                <button class="quick-note-mini-btn" type="button" @click="rejectAsset(activeInboxAsset)">拒绝</button>
+                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.archive" @click="archiveAsset(activeInboxAsset)">归档</button>
+                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reject" @click="rejectAsset(activeInboxAsset)">拒绝</button>
+              </div>
+              <div class="asset-action-help-grid">
+                <div v-for="item in assetActionHelpEntries" :key="item.key" class="asset-action-help-item">
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.description }}</span>
+                </div>
               </div>
             </template>
             <div v-else class="asset-inbox-empty-state">
@@ -746,14 +692,6 @@
       </div>
     </div>
 
-    <!-- 创作顾问悬浮按钮 -->
-    <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="5"></circle>
-        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-      </svg>
-    </button>
-
     <AdvisorPanel
       :isOpen="advisorOpen"
       :messages="advisorMessages"
@@ -782,9 +720,10 @@ import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
+  getAssetKindExplanation,
   getAssetKindLabel,
   getAssetSourceDetail,
   listNarrativeAssets,
@@ -796,7 +735,6 @@ import {
   canConvertAssetToWorldbookEntry
 } from '../services/worldbookDraftAssets'
 import {
-  buildWritingNoteTitle,
   createWritingNoteFromAsset,
   prependWritingNote
 } from '../services/writingNotes'
@@ -809,6 +747,7 @@ import {
 import { applyAdvisorReplacement } from '../services/advisorResultApplier'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
+import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -818,7 +757,7 @@ const {
   advisorResults,
   advisorLoading,
   askAdvisor,
-  openAdvisor,
+  openAdvisor: openAdvisorPanel,
   closeAdvisor,
   updateAdvisorResultStatus
 } = useAdvisor()
@@ -844,7 +783,6 @@ const copilotCursorPos = ref(0)
 const copilotScrollTop = ref(0)
 const copilotScrollLeft = ref(0)
 
-const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
 const books = ref([])
 const selectedBookId = ref('')
 const chapters = ref([])
@@ -900,20 +838,24 @@ const editorUnderline = ref(false)
 const hasSelection = ref(false)
 const selectionFontSize = ref('16px')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
-const quickNoteOpen = ref(false)
-const quickNoteDraft = ref(loadQuickNoteDraft())
-const quickNoteInputRef = ref(null)
 const quickNoteStatus = ref('')
-const quickNoteImportOpen = ref(false)
 const assetInboxOpen = ref(false)
 const assetInboxActiveId = ref('')
-const selectedDialogueImportIds = ref([])
 const inboxAssets = ref([])
-const quickNotePanelTab = ref('dialogue')
 const assetInboxScope = ref('all')
 const assetInboxKind = ref('')
 const selectedInboxAssetIds = ref([])
 const assetKindOptions = ASSET_KINDS
+const assetActionHelpEntries = [
+  { key: 'insert', label: '插入正文', description: '把素材内容追加到当前章节末尾。' },
+  { key: 'reference', label: '续写参考', description: '将素材设为续写上下文，辅助内联建议。' },
+  { key: 'outline', label: '加入纲要', description: '把素材转为章节纲要条目，参与分镜和续写。' },
+  { key: 'material', label: '转成素材', description: '把收件箱素材同步到素材库便于后续复用。' },
+  { key: 'worldbook', label: '入世界书', description: '将世界书草稿写入当前世界书条目。' },
+  { key: 'archive', label: '归档', description: '将素材移出收件箱并保留记录。' },
+  { key: 'reject', label: '拒绝', description: '将素材标记为拒绝，不再参与当前流程。' }
+]
+const assetActionHelpMap = Object.fromEntries(assetActionHelpEntries.map((item) => [item.key, item.description]))
 const copilotReferenceAsset = ref(null)
 const chapterOutlineItems = ref([])
 
@@ -934,6 +876,12 @@ const saveStatus = ref('saved')
 let saveTimeout = null
 let titleTimeout = null
 
+const shouldLockPageScroll = computed(() => {
+  return assetInboxOpen.value || showNewBookModal.value || advisorOpen.value
+})
+
+useBodyScrollLock(shouldLockPageScroll)
+
 onMounted(() => {
   loadBooks()
   refreshAssetInbox()
@@ -948,17 +896,6 @@ const copilotReferenceLabel = computed(() => {
 const copilotReferencePreview = computed(() => {
   const content = String(copilotReferenceAsset.value?.content || '').replace(/\s+/g, ' ').trim()
   return content.length > 64 ? `${content.slice(0, 64)}...` : content
-})
-const dialogueImportCandidates = computed(() => extractDialogueSegments(markdownContent.value))
-const dialogueImportStats = computed(() => {
-  const pickedSet = new Set(selectedDialogueImportIds.value)
-  const totalCount = dialogueImportCandidates.value.length
-  const selectedCount = dialogueImportCandidates.value.filter((item) => pickedSet.has(item.id)).length
-  const totalWords = dialogueImportCandidates.value.reduce((sum, item) => sum + quickNoteWordCount(item.text), 0)
-  const selectedWords = dialogueImportCandidates.value
-    .filter((item) => pickedSet.has(item.id))
-    .reduce((sum, item) => sum + quickNoteWordCount(item.text), 0)
-  return { totalCount, selectedCount, totalWords, selectedWords }
 })
 const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
@@ -1253,61 +1190,13 @@ function dismissAdvisorResult(result) {
   updateAdvisorResultStatus(result.id, 'dismissed')
 }
 
-function loadQuickNoteDraft() {
-  return getTextItem(QUICK_NOTE_DRAFT_KEY)
-}
-
-function persistQuickNoteDraft() {
-  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-}
-
-function resizeQuickNoteInput(el = quickNoteInputRef.value) {
-  if (!el) return
-  const minHeight = 30
-  const maxHeight = 104
-  el.style.height = `${minHeight}px`
-  const nextHeight = Math.min(el.scrollHeight, maxHeight)
-  el.style.height = `${Math.max(minHeight, nextHeight)}px`
-  el.style.borderRadius = nextHeight > 44 ? '12px' : '999px'
-}
-
-function handleQuickNoteInput(event) {
-  persistQuickNoteDraft()
-  resizeQuickNoteInput(event?.target)
-}
-
-function extractDialogueSegments(text) {
-  const normalized = String(text || '').replace(/\r/g, '').trim()
-  if (!normalized) return []
-
-  const blocks = normalized
-    .split(/\n{2,}/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-
-  const source = (blocks.length ? blocks : normalized.split(/\n+/))
-    .map((item) => item.trim())
-    .filter(Boolean)
-
-  return source
-    .filter((item) => /["""「」『』]/.test(item) || /^[—-]/.test(item) || /[:：]\s*[""「『]/.test(item))
-    .map((item, index) => ({
-      id: `seg_${index}`,
-      text: item,
-      label: currentChapterTitle.value || '当前章节',
-      preview: item.replace(/\s+/g, ' ').slice(0, 36)
-    }))
-}
-
-function toggleQuickNoteImport() {
-  quickNotePanelTab.value = 'dialogue'
-  quickNoteImportOpen.value = !quickNoteImportOpen.value
+function openAdvisorFromAction() {
+  assetInboxOpen.value = false
+  openAdvisorPanel()
 }
 
 function openAssetInbox() {
-  quickNoteOpen.value = false
-  quickNoteImportOpen.value = false
-  quickNotePanelTab.value = 'dialogue'
+  closeAdvisor()
   assetInboxOpen.value = true
   refreshAssetInbox()
   nextTick(() => {
@@ -1317,40 +1206,13 @@ function openAssetInbox() {
   })
 }
 
+function openMaterialsPage() {
+  saveCurrentChapter()
+  router.push({ name: 'materials' })
+}
+
 function closeAssetInbox() {
   assetInboxOpen.value = false
-}
-
-function toggleDialogueImportSelection(id) {
-  const nextIds = [...selectedDialogueImportIds.value]
-  const idx = nextIds.indexOf(id)
-  if (idx >= 0) nextIds.splice(idx, 1)
-  else nextIds.push(id)
-  selectedDialogueImportIds.value = nextIds
-}
-
-function selectAllDialogueImports() {
-  selectedDialogueImportIds.value = dialogueImportCandidates.value.map((item) => item.id)
-}
-
-function clearDialogueImports() {
-  selectedDialogueImportIds.value = []
-}
-
-function importSelectedDialogueSegments() {
-  const pickedSet = new Set(selectedDialogueImportIds.value)
-  const picked = dialogueImportCandidates.value.filter((item) => pickedSet.has(item.id))
-  if (!picked.length) {
-    quickNoteStatus.value = '先选对话段再导入'
-    return
-  }
-  const text = picked.map((item) => item.text).join('\n\n')
-  quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n\n${text}` : text
-  persistQuickNoteDraft()
-  quickNoteImportOpen.value = false
-  selectedDialogueImportIds.value = []
-  quickNoteStatus.value = `已导入 ${picked.length} 段对话`
-  nextTick(() => resizeQuickNoteInput())
 }
 
 function refreshAssetInbox() {
@@ -1496,7 +1358,7 @@ function addAssetToChapterOutline(asset) {
 
   setNarrativeAssetStatus(asset.id, 'accepted')
   refreshAssetInbox()
-  quickNoteStatus.value = `已加入章节纲要：${result.addedItems[0].title}`
+  quickNoteStatus.value = `已加入章节纲要：${result.addedItems[0].title}，会参与续写和章节分镜`
 }
 
 function addSelectedAssetsToChapterOutline() {
@@ -1513,7 +1375,7 @@ function addSelectedAssetsToChapterOutline() {
   setNarrativeAssetsStatus(acceptedIds, 'accepted')
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
-  quickNoteStatus.value = `已加入 ${result.addedItems.length} 条章节纲要`
+  quickNoteStatus.value = `已加入 ${result.addedItems.length} 条章节纲要，会参与续写和章节分镜`
 }
 
 function removeChapterOutlineItemFromChapter(itemId) {
@@ -1692,7 +1554,6 @@ function exportChapterStoryboardDraft() {
   })
 
   if (!shots.length) {
-    quickNoteOpen.value = true
     quickNoteStatus.value = '当前章节没有可生成分镜的内容'
     return
   }
@@ -1721,10 +1582,8 @@ function exportChapterStoryboardDraft() {
       topic: chapterTitle
     })
     downloadTextFile(markdown, `chapter-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
-    quickNoteOpen.value = true
     quickNoteStatus.value = `已生成章节分镜，版本 ${result.version.versionId.slice(-6)}`
   } catch (error) {
-    quickNoteOpen.value = true
     quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
   }
 }
@@ -1765,25 +1624,9 @@ function rejectSelectedAssets() {
   quickNoteStatus.value = `已拒绝 ${selectedAssets.length} 条素材`
 }
 
-function clearQuickNoteDraft() {
-  quickNoteDraft.value = ''
-  removeItem(QUICK_NOTE_DRAFT_KEY)
-  nextTick(() => resizeQuickNoteInput())
-}
-
-watch(quickNoteOpen, (open) => {
-  if (!open) {
-    quickNoteImportOpen.value = false
-    selectedDialogueImportIds.value = []
-    selectedInboxAssetIds.value = []
-    quickNotePanelTab.value = 'dialogue'
-    return
-  }
-  nextTick(() => resizeQuickNoteInput())
-})
-
 watch(assetInboxOpen, (open) => {
   if (open) {
+    closeAdvisor()
     refreshAssetInbox()
     nextTick(() => {
       if (!assetInboxActiveId.value && inboxAssets.value.length) {
@@ -1795,30 +1638,18 @@ watch(assetInboxOpen, (open) => {
   selectedInboxAssetIds.value = []
 })
 
+watch(advisorOpen, (open) => {
+  if (!open) return
+  assetInboxOpen.value = false
+  selectedInboxAssetIds.value = []
+})
+
 function quickNoteWordCount(text) {
   const normalized = String(text || '').trim()
   if (!normalized) return 0
   const chineseChars = (normalized.match(/[一-龥]/g) || []).length
   const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
   return chineseChars + englishWords
-}
-
-function saveQuickNote() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再保存'
-    return false
-  }
-
-  prependWritingNote({
-    title: buildWritingNoteTitle(content, '速记'),
-    content,
-    contentFormat: 'md',
-    wordCount: quickNoteWordCount(content)
-  })
-  clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到素材'
-  return true
 }
 
 function loadBooks() {
@@ -2714,7 +2545,6 @@ function onGlobalClick() {
   showNameGen.value = false
   showFindReplace.value = false
   hasSelection.value = false
-  quickNoteOpen.value = false
   showAiPanel.value = false
 }
 
@@ -2762,169 +2592,6 @@ function stopResizeRight() {
   overflow: hidden;
 }
 
-/* 标题栏 */
-.quick-notes-rail {
-  position: fixed !important;
-  right: 0 !important;
-  top: calc(var(--app-viewport-half-height, 50vh) - 60px) !important;
-  z-index: 2000 !important;
-  transform: translate(34px, -50%);
-  transition: transform 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.quick-notes-rail > * {
-  pointer-events: auto;
-}
-
-.quick-notes-rail:hover,
-.quick-notes-rail:focus-within {
-  transform: translate(0, -50%);
-}
-
-.quick-notes-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.quick-notes-drawer {
-  width: 262px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, #ffffff 6%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.quick-note-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.quick-note-input {
-  flex: 1;
-  width: auto;
-  min-height: 30px;
-  height: 30px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 5px 11px;
-  font-size: 11px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.quick-note-input:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-note-icon-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 0;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-note-icon-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.quick-note-kind-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-kind-row span {
-  flex: 1;
-}
-
-.quick-note-kind-select {
-  width: 112px;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 10px;
-  padding: 3px 6px;
-  outline: none;
-}
-
-.quick-note-kind-select:focus {
-  border-color: var(--accent);
-}
-
-.quick-note-import-panel {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-}
-
-.quick-note-import-body {
-  display: grid;
-  grid-template-columns: 1fr 96px;
-  gap: 8px;
-}
-
-.quick-note-import-left {
-  min-width: 0;
-}
-
-.quick-note-import-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.quick-note-subtoolbar {
-  margin-bottom: 4px;
-}
-
-.quick-note-import-title {
-  flex: 1;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
 .quick-note-mini-btn {
   border: none;
   background: transparent;
@@ -2939,32 +2606,6 @@ function stopResizeRight() {
 .quick-note-mini-btn.primary {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.quick-note-import-side {
-  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding-left: 8px;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.quick-note-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.quick-note-stat strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.quick-note-import-empty {
-  color: var(--text-secondary);
-  line-height: 1.4;
 }
 
 .asset-inbox-list {
@@ -3018,6 +2659,13 @@ function stopResizeRight() {
   color: var(--text-secondary);
 }
 
+.asset-inbox-kind-explanation {
+  margin-bottom: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
 .asset-inbox-source {
   margin-bottom: 4px;
   font-size: 9px;
@@ -3040,12 +2688,6 @@ function stopResizeRight() {
   flex-wrap: wrap;
 }
 
-.quick-note-tip {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
 .asset-inbox-overlay {
   position: fixed;
   inset: 0;
@@ -3054,7 +2696,7 @@ function stopResizeRight() {
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: color-mix(in srgb, #000 22%, transparent);
+  background: var(--surface-overlay);
   backdrop-filter: blur(8px);
 }
 
@@ -3066,8 +2708,8 @@ function stopResizeRight() {
   gap: 14px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-primary) 90%, var(--bg-secondary));
-  box-shadow: 0 22px 54px color-mix(in srgb, #000 26%, transparent);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-elevated);
   padding: 18px;
 }
 
@@ -3104,7 +2746,7 @@ function stopResizeRight() {
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+  background: var(--surface-soft);
 }
 
 .asset-inbox-toolbar-group {
@@ -3117,6 +2759,16 @@ function stopResizeRight() {
 .asset-inbox-modal-stat {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.asset-inbox-status {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .asset-inbox-modal-body {
@@ -3132,7 +2784,7 @@ function stopResizeRight() {
   min-height: 0;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
+  background: var(--surface-soft);
 }
 
 .asset-inbox-list-panel {
@@ -3188,6 +2840,12 @@ function stopResizeRight() {
   color: var(--text-muted);
 }
 
+.asset-inbox-detail-explanation {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .asset-inbox-detail-title {
   margin: 0;
   font-size: 17px;
@@ -3204,7 +2862,7 @@ function stopResizeRight() {
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  background: var(--surface-raised);
   color: var(--text-primary);
   line-height: 1.65;
   white-space: pre-wrap;
@@ -3219,6 +2877,32 @@ function stopResizeRight() {
   gap: 8px;
 }
 
+.asset-action-help-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.asset-action-help-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--surface-raised);
+}
+
+.asset-action-help-item strong {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.asset-action-help-item span {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .asset-inbox-empty-state {
   min-height: 220px;
   display: flex;
@@ -3229,36 +2913,12 @@ function stopResizeRight() {
   text-align: center;
 }
 
-.advisor-fab {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 200;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
 .title-bar {
   height: 48px;
   display: flex;
   align-items: center;
   padding: 0 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
   border-bottom: 1px solid var(--border);
   gap: 12px;
   flex-shrink: 0;
@@ -3288,12 +2948,27 @@ function stopResizeRight() {
   gap: 4px;
 }
 
+.action-status-chip {
+  max-width: 280px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .toolbar-text-btn {
   height: 32px;
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-tertiary);
+  background: var(--surface-soft);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -3303,7 +2978,19 @@ function stopResizeRight() {
 .toolbar-text-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background: var(--bg-hover);
+  background: var(--surface-raised);
+}
+
+.toolbar-text-btn.prominent {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.toolbar-text-btn.prominent:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-hover));
 }
 
 .icon-btn {
@@ -3387,7 +3074,7 @@ function stopResizeRight() {
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  background: var(--bg-tertiary);
+  background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 14px;
   color: var(--text-secondary);
@@ -3397,7 +3084,7 @@ function stopResizeRight() {
 }
 
 .theme-toggle:hover {
-  background: var(--bg-hover);
+  background: var(--surface-raised);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -3418,7 +3105,7 @@ function stopResizeRight() {
 
 /* 侧边栏 */
 .sidebar {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -3430,7 +3117,7 @@ function stopResizeRight() {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+  background: var(--surface-panel);
 }
 
 /* 可拉伸分隔栏 */
@@ -3454,7 +3141,7 @@ function stopResizeRight() {
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+  background: var(--surface-raised);
 }
 
 .chapter-header {
@@ -4903,31 +4590,6 @@ function stopResizeRight() {
 }
 
 @media (max-width: 980px) {
-  .quick-notes-rail {
-    top: auto;
-    right: 12px;
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
-    transform: none;
-    transition: none;
-    flex-direction: column-reverse;
-    align-items: flex-end;
-  }
-
-  .advisor-fab {
-    right: 12px;
-    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .quick-notes-btn {
-    width: 46px;
-    height: 46px;
-    border-radius: 999px;
-  }
-
-  .quick-notes-drawer {
-    width: min(280px, calc(100vw - 24px));
-  }
-
   .asset-inbox-overlay {
     padding: 10px;
   }
@@ -4962,6 +4624,10 @@ function stopResizeRight() {
 
   .chapter-outline-actions {
     justify-content: flex-end;
+  }
+
+  .asset-action-help-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
