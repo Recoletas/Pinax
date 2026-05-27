@@ -40,15 +40,15 @@
             <p>以叙事之线，织就人情与世事的纹理</p>
           </div>
 
-          <div class="genre-card" @click="enterExperience('poetry')">
+          <div class="genre-card" @click="router.push('/materials')">
             <div class="genre-icon accent">
               <svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.8">
                 <path d="M18 6c-2 4-6 7-6 12a6 6 0 1012 0c0-5-4-8-6-12z"/>
                 <path d="M14 26c1 2 3 3 4 3s3-1 4-3" stroke-linecap="round"/>
               </svg>
             </div>
-            <h3>诗歌</h3>
-            <p>以凝练之词，写尽悲欢与美的瞬间</p>
+            <h3>素材</h3>
+            <p>收集内容与参考图，再进入关系编排</p>
           </div>
 
           <div class="genre-card" @click="router.push('/prose-essay')">
@@ -60,8 +60,8 @@
                 <line x1="11" y1="22" x2="19" y2="22"/>
               </svg>
             </div>
-            <h3>散文随笔</h3>
-            <p>自由联想，卡片拼贴与大纲组织</p>
+            <h3>卡片画布</h3>
+            <p>关联素材，安排镜头和输出分镜</p>
           </div>
         </div>
       </div>
@@ -79,11 +79,6 @@ const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
 
 async function enterExperience(genre) {
-  if (genre === 'poetry') {
-    router.push('/poetry-lab')
-    return
-  }
-
   gameStore.genre = genre
   await gameStore.initGame()
   router.push('/experience')

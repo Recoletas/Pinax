@@ -140,11 +140,11 @@ export async function generateProseCardExtensions({ cardContent, settings }) {
   }
 
   const systemPrompt = [
-    '你是散文随笔写作助手。基于给定的卡片内容，生成 2-3 张相关的延伸卡片。',
+    '你是散文分镜与素材整理助手。基于给定的卡片内容，生成 2-3 张可继续进入素材池的延伸卡片。',
     '要求：',
     '1. 每张卡片是一段完整的文字（80-150字），与原卡片有逻辑关联',
     '2. 为每张卡片选择一个情绪标签：喜悦、忧伤、平静、焦虑、愤怒、惊艳、怀旧、希望',
-    '3. 新卡片与原卡片之间是阐释或平行关系',
+    '3. 新卡片与原卡片之间优先使用阐释、并置或延续关系',
     '4. 必须用 JSON 数组格式输出，每项包含 content 和 emotion',
     '5. 只输出 JSON，不要任何解释',
     '6. 用 BEGIN_CARDS 和 END_CARDS 包裹数组'
@@ -184,8 +184,9 @@ export async function generateProseEmotionExtensions({ content, emotionLabel, se
   }
 
   const systemPrompt = [
-    'You are a prose essay writing assistant. Generate 2-3 extended cards.',
+    'You are a prose storyboard and material assistant. Generate 2-3 extended cards that can return to the material pool.',
     'Requirements: Each card 80-150 chars, JSON output with content and emotion.',
+    'Prefer clear relation to the source card and avoid abstract repetition.',
     'Wrap array with BEGIN_CARDS and END_CARDS.'
   ].join('\n')
 
@@ -225,10 +226,10 @@ export async function generateProseCardsFromTopic({ topic, mode = 'writing', set
   let systemPrompt
   if (mode === 'directing') {
     systemPrompt = [
-      '你是影视分镜助手。根据给定的主题，生成一组分镜描述卡片。',
+      '你是关系画布的镜头节点助手。根据给定的场景线索，生成一组可直接进入统一分镜的素材节点。',
       '要求：',
       '1. 每张卡片是一段分镜描述（60-120字），描述画面构图和场景氛围',
-      '2. 必须用 JSON 数组格式输出，每项包含 content, emotion, shotType, cameraMovement, duration',
+      '2. 必须用 JSON 数组格式输出，每项包含 content, shotType, cameraMovement, duration',
       '3. shotType 可选值：extreme_wide/wide/full/medium_wide/medium/medium_close/close_up/extreme_close_up/two_shot/over_shoulder/pov/aerial',
       '4. cameraMovement 可选值：static/pan/tilt/dolly/track/crane/zoom/handheld/steadicam/spin/tilt_up/tilt_down',
       '5. duration 为建议时长（秒），填数字',
@@ -236,12 +237,12 @@ export async function generateProseCardsFromTopic({ topic, mode = 'writing', set
       '7. 用 BEGIN_CARDS 和 END_CARDS 包裹数组',
       '示例：',
       'BEGIN_CARDS',
-      '[{"content":"...","emotion":"平静","shotType":"wide","cameraMovement":"static","duration":5}]',
+      '[{"content":"...","shotType":"wide","cameraMovement":"static","duration":5}]',
       'END_CARDS'
     ].join('\n')
   } else {
     systemPrompt = [
-      '你是散文随笔写作助手。根据给定的主题，生成一组自由联想的写作卡片。',
+      '你是散文素材助手。根据给定的主题，生成一组自由联想、可进入素材池的写作卡片。',
       '要求：',
       '1. 每张卡片是一段完整的文字（80-200字），文笔优美有意境',
       '2. 为每张卡片选择一个情绪标签：喜悦、忧伤、平静、焦虑、愤怒、惊艳、怀旧、希望',

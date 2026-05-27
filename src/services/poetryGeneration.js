@@ -185,10 +185,10 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
   }
 
   const systemPrompt = [
-    '你是诗歌灵感树结构生成器。',
+    '你是诗歌意象树结构生成器。',
     '请严格使用分步行格式输出，不要输出 JSON。',
     '每一行格式必须是：L<层级>|N<编号>|P<父编号>|<标题>',
-    '约束：层级从1开始；根节点唯一；标题不超过18字；只能输出行，不要解释。',
+    '约束：层级从1开始；根节点唯一；标题不超过18字；节点要具体，能作为后续分镜种子和素材入口；只能输出行，不要解释。',
     '必须用 BEGIN_LINES 和 END_LINES 包裹所有行。',
     '示例：',
     'BEGIN_LINES',
@@ -202,7 +202,7 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
     `主题：${promptText}`,
     `一级分支数量：${count}`,
     `最大层数：${depth}`,
-    '请覆盖不同意象方向，避免同义重复。'
+    '请覆盖不同意象方向，避免同义重复，并让每个节点都便于后续送入素材池。'
   ].join('\n')
 
   const strictRetryPrompt = [
@@ -686,10 +686,10 @@ export async function generatePoetryDirectingTreeByLLM(promptText, count, depth)
   }
 
   const systemPrompt = [
-    '你是分镜图生成器。',
+    '你是诗歌分镜草稿生成器。',
     '请严格使用分步行格式输出，不要输出 JSON。',
     '每一行格式必须是：L<层级>|N<编号>|P<父编号>|<镜头描述>',
-    '约束：层级从1开始；根节点唯一；每个节点描述一个分镜画面；需包含景别、运镜、色调、声音建议；只能输出行，不要解释。',
+    '约束：层级从1开始；根节点唯一；每个节点描述一个可直接落入统一分镜的画面；需包含景别、运镜、色调、声音建议，并尽量保留可提炼为素材的视觉细节；只能输出行，不要解释。',
     '必须用 BEGIN_LINES 和 END_LINES 包裹所有行。',
     '示例：',
     'BEGIN_LINES',
@@ -702,7 +702,7 @@ export async function generatePoetryDirectingTreeByLLM(promptText, count, depth)
     `场景主题：${promptText}`,
     `一级分镜数量：${count}`,
     `最大层数：${depth}`,
-    '请按叙事逻辑生成分镜序列，每节点包含画面描述、建议景别和运镜、色调情绪。'
+    '请按叙事逻辑生成分镜序列，每节点包含画面描述、建议景别和运镜、色调情绪，并便于后续提取为分镜种子或素材。'
   ].join('\n')
 
   const generationResult = await runGenerationTask({

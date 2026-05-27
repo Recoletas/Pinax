@@ -39,6 +39,9 @@ describe('narrativeAssets', () => {
 
   it('describes asset sources', () => {
     expect(getAssetSourceLabel({ type: 'experience-session' })).toBe('体验会话')
+    expect(getAssetSourceLabel({ type: 'poetry-node' })).toBe('诗歌节点')
+    expect(getAssetSourceLabel({ type: 'prose-card' })).toBe('散文卡片')
+    expect(getAssetSourceLabel({ type: 'relation-canvas' })).toBe('卡片画布')
     expect(getAssetSourceLabel({ type: 'note' })).toBe('素材')
     expect(getAssetSourceDetail({ type: 'experience-session', id: 'session-a', messageIds: ['m1', 'm2'] }))
       .toBe('体验会话 · session-a · 2 段')
@@ -104,5 +107,25 @@ describe('narrativeAssets', () => {
     expect(getAssetKindLabel('worldbook-draft')).toBe('世界书草稿')
     expect(getAssetKindExplanation('worldbook-draft')).toContain('世界书')
     expect(getAssetKindExplanation('unknown-kind')).toBe('可复用的写作素材条目。')
+  })
+
+  it('stores reference image metadata', () => {
+    const asset = addNarrativeAsset({
+      title: '雨夜街角',
+      content: '雨夜街角，冷色调',
+      kind: 'reference-image',
+      image: {
+        id: 'img-a',
+        prompt: '雨夜街角',
+        data: 'data:image/png;base64,abc',
+        width: 1024,
+        height: 768
+      }
+    })
+
+    expect(asset.kind).toBe('reference-image')
+    expect(asset.image.prompt).toBe('雨夜街角')
+    expect(asset.image.data).toContain('data:image/png')
+    expect(getAssetKindLabel('reference-image')).toBe('参考图')
   })
 })

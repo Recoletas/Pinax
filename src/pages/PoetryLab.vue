@@ -22,8 +22,15 @@
           <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
         </button>
         <div class="mode-segment" role="group" aria-label="诗歌工作流">
-          <button type="button" class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">意象</button>
-          <button type="button" class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">分镜</button>
+          <button type="button" class="mode-label" :class="{ active: currentMode === 'writing' }" @click="setPoetryMode('writing')">意象</button>
+          <button
+            type="button"
+            class="mode-label"
+            :class="{ active: currentMode === 'directing' }"
+            :disabled="!poetryCanEnterDirecting && currentMode !== 'directing'"
+            :title="poetryCanEnterDirecting ? '进入分镜视图' : '请先生成分镜版本'"
+            @click="setPoetryMode('directing')"
+          >分镜</button>
         </div>
         <span class="mode-caption">
           {{ currentMode === 'directing' ? '从意象树生成分镜草稿' : '生成和整理意象树' }}
@@ -70,7 +77,7 @@
           <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 TXT</button>
         </div>
 
-        <div v-if="currentMode === 'directing'" class="storyboard-version-panel">
+        <div v-if="flatNodes.length" class="storyboard-version-panel">
           <div class="storyboard-version-head">
             <h3>分镜版本</h3>
             <span v-if="lastPoetryStoryboardExportResult" class="storyboard-version-badge" :class="{ stale: !poetryStoryboardIsCurrent }">
@@ -78,7 +85,7 @@
             </span>
           </div>
           <p v-if="!lastPoetryStoryboardExportResult" class="storyboard-version-copy">
-            当前还没有分镜版本。先用上方按钮把意象树保存为统一分镜版本。
+            当前还没有分镜版本。先生成版本，再切到分镜视图。
           </p>
           <template v-else>
             <div class="storyboard-version-stats">
@@ -86,10 +93,21 @@
               <span>版本 {{ poetryStoryboardVersionLabel }}</span>
               <span>{{ poetryStoryboardValidationText }}</span>
             </div>
-            <button class="btn-secondary storyboard-download-btn" type="button" @click="downloadPoetryStoryboardMarkdown">
+          </template>
+          <div class="storyboard-version-actions">
+            <button class="btn-primary" type="button" @click="savePoetryStoryboardVersion" :disabled="isSnapshotReadonly">
+              {{ lastPoetryStoryboardExportResult ? '生成/更新分镜版本' : '生成分镜版本' }}
+            </button>
+            <button class="btn-secondary" type="button" @click="setPoetryMode('directing')" :disabled="!poetryCanEnterDirecting || isSnapshotReadonly">
+              进入分镜视图
+            </button>
+            <button v-if="lastPoetryStoryboardExportResult" class="btn-secondary storyboard-download-btn" type="button" @click="downloadPoetryStoryboardMarkdown">
               下载 Markdown
             </button>
-          </template>
+          </div>
+          <p v-if="poetryStoryboardHint" class="storyboard-version-copy">
+            {{ poetryStoryboardHint }}
+          </p>
         </div>
 
         <div class="export-panel" v-if="flatNodes.length">
@@ -188,6 +206,7 @@
           <p class="meta">层级：{{ displayedSelectedNode.depth + 1 }} · 子节点：{{ displayedSelectedNode.children.length }} · 反馈分：{{ displayedSelectedNode.feedbackScore || 0 }}</p>
 
           <button class="btn-secondary detail-btn" @click="showNodeDetailDialog = true">详情</button>
+          <button class="btn-secondary detail-btn" @click="sendSelectedNodeToMaterials">送入素材</button>
 
           <div v-if="selectedNodeGroups.length" class="group-panel">
             <h4>{{ currentMode === 'directing' ? '所属场景组' : '所属意象群' }}</h4>
@@ -273,7 +292,26 @@
           </div>
         </div>
 
-        <div v-else class="mind-canvas" ref="canvasRef" @pointerdown="onCanvasPointerDown">
+        <div v-else class="mind-canvas" :class="{ 'storyboard-mode': currentMode === 'directing' }" ref="canvasRef" @pointerdown="onCanvasPointerDown">
+          <div v-if="currentMode === 'directing'" class="storyboard-rail">
+            <div class="storyboard-rail-head">
+              <span>分镜顺序</span>
+              <span>{{ flatNodes.length }} 镜头</span>
+            </div>
+            <div class="storyboard-rail-strip">
+              <button
+                v-for="(node, index) in storyboardRailItems"
+                :key="node.id"
+                class="storyboard-rail-item"
+                type="button"
+                @click.stop="selectedNode = flatNodes.find((item) => item.id === node.id) || selectedNode"
+              >
+                <span class="storyboard-rail-index">镜头 {{ index + 1 }}</span>
+                <span class="storyboard-rail-shot">{{ node.shotTypeLabel }}</span>
+                <span class="storyboard-rail-text">{{ node.text }}</span>
+              </button>
+            </div>
+          </div>
           <svg class="edge-layer" :class="{ interactive: interactionMode === 'scissor' }" :width="canvasWidth" :height="canvasHeight">
             <defs>
               <marker id="edge-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
@@ -324,7 +362,8 @@
                 muted: exportScope === 'custom' && !isNodeExportSelected(node.id),
                 grouped: isNodeInGroup(node.id),
                 readonly: isSnapshotReadonly,
-                'scissor-pending': scissorDeletePendingNodeId === node.id
+                'scissor-pending': scissorDeletePendingNodeId === node.id,
+                'storyboard-node': currentMode === 'directing'
               }
             ]"
             :data-node-id="node.id"
@@ -344,6 +383,11 @@
               />
             </label>
             <div class="node-main">{{ node.text }}</div>
+            <div v-if="currentMode === 'directing'" class="node-storyboard-meta">
+              <span>镜头 {{ node.storyboardIndex }}</span>
+              <span>{{ node.storyboardShotType }}</span>
+              <span>{{ node.storyboardDuration }}s</span>
+            </div>
             <div v-if="node.examples && node.examples[0]" class="node-sub">{{ node.examples[0] }}</div>
           </div>
         </div>
@@ -409,7 +453,7 @@
       :vertical-offset="0"
       :horizontal-offset="340"
       drawer-title="诗歌生图"
-      selected-prompt-label="节点及例句"
+      selected-prompt-label="分镜种子"
       :selected-text="selectedNodePrompt"
     />
 
@@ -441,6 +485,7 @@ import { useAdvisor } from '../composables/useAdvisor'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { getItem, removeItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromPoetryLab, toMarkdown } from '../services/shotExporter'
 import {
@@ -483,6 +528,19 @@ const { isDark, toggleTheme } = useTheme()
 const currentMode = ref('writing') // 'writing' | 'directing'
 const lastPoetryStoryboardExportFingerprint = ref('')
 const lastPoetryStoryboardExportResult = ref(null)
+const poetryStoryboardHint = computed(() => {
+  if (!flatNodes.value.length) return ''
+  if (!lastPoetryStoryboardExportResult.value) {
+    return '先生成版本，再切换到分镜视图。'
+  }
+  return poetryStoryboardIsCurrent.value
+    ? '当前版本可直接进入分镜视图。'
+    : '当前内容已变化，请先更新分镜版本。'
+})
+const poetryCanEnterDirecting = computed(() => {
+  if (!flatNodes.value.length) return true
+  return poetryStoryboardIsCurrent.value
+})
 const poetryStoryboardIsCurrent = computed(() => {
   if (!lastPoetryStoryboardExportResult.value) return false
   try {
@@ -667,6 +725,15 @@ function randomId() {
 
 function goBack() {
   router.push('/')
+}
+
+function setPoetryMode(mode) {
+  if (mode === currentMode.value) return
+  if (mode === 'directing' && !poetryCanEnterDirecting.value) {
+    statusText.value = '请先生成分镜版本，再切换到分镜视图'
+    return
+  }
+  currentMode.value = mode
 }
 
 function nodeTitle(node) {
@@ -1350,6 +1417,40 @@ function getCameraMovementLabel(value) {
   return cameraMovements.find(m => m.value === value)?.label || value
 }
 
+function sendSelectedNodeToMaterials() {
+  const node = displayedSelectedNode.value
+  if (!node) return
+
+  const lines = []
+  const promptText = prompt.value.trim()
+  if (promptText) {
+    lines.push(`主题：${promptText}`)
+  }
+  lines.push(`节点：${node.text}`)
+  if (Array.isArray(node.examples) && node.examples.length) {
+    lines.push(`例句：${node.examples.filter(Boolean).join(' / ')}`)
+  }
+  if (currentMode.value === 'directing') {
+    const shotType = getShotTypeLabel(node.extraFields?.shotType || node.emotion || '')
+    const camera = getCameraMovementLabel(node.extraFields?.cameraMovement || '')
+    if (shotType) lines.push(`景别：${shotType}`)
+    if (camera) lines.push(`运镜：${camera}`)
+  }
+
+  const asset = addNarrativeAsset({
+    title: node.text.slice(0, 24),
+    content: lines.join('；'),
+    kind: 'storyboard-seed',
+    status: 'accepted',
+    source: {
+      type: 'poetry-node',
+      id: node.id
+    }
+  })
+  statusText.value = `已送入素材：${asset.title}`
+  lastSourceLabel.value = '素材池'
+}
+
 function deleteSelectedNode() {
   if (!ensureEditable()) return
   if (!rootTree.value || !selectedNode.value) return
@@ -1375,8 +1476,14 @@ const flatNodes = computed(() => {
 
   return laidOut.map((node) => {
     const manual = manualPositions.value[node.id]
-    if (!manual) return node
-    return { ...node, x: manual.x, y: manual.y }
+    const resolved = !manual ? node : { ...node, x: manual.x, y: manual.y }
+    if (currentMode.value !== 'directing') return resolved
+    return {
+      ...resolved,
+      storyboardIndex: resolved.depth + 1,
+      storyboardShotType: getShotTypeLabel(resolved.extraFields?.shotType || resolved.emotion || ''),
+      storyboardDuration: resolved.extraFields?.duration || 3
+    }
   })
 })
 
@@ -1384,6 +1491,12 @@ const selectedNodeGroups = computed(() => {
   if (!displayedSelectedNode.value) return []
   return displayedImageryGroups.value.filter((group) => (group.nodeIds || []).includes(displayedSelectedNode.value.id))
 })
+
+const storyboardRailItems = computed(() => flatNodes.value.map((node, index) => ({
+  ...node,
+  shotTypeLabel: currentMode.value === 'directing' ? node.storyboardShotType || getShotTypeLabel(node.emotion || '') : '',
+  storyboardIndex: index + 1
+})))
 
 function layoutMap(nodes) {
   const depthRows = new Map()
@@ -2036,6 +2149,11 @@ function exportTxt() {
   font-weight: 600;
 }
 
+.mode-label:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .layout {
   flex: 1;
   min-height: 0;
@@ -2288,6 +2406,19 @@ function exportTxt() {
   gap: 5px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.poetry-lab-page .storyboard-version-actions {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.poetry-lab-page .storyboard-version-actions .btn-primary,
+.poetry-lab-page .storyboard-version-actions .btn-secondary {
+  width: 100%;
+  justify-content: center;
 }
 
 .poetry-lab-page .storyboard-download-btn {
@@ -2655,6 +2786,69 @@ function exportTxt() {
   height: 1040px;
 }
 
+.mind-canvas.storyboard-mode {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 160px), var(--bg-primary);
+}
+
+.storyboard-rail {
+  position: sticky;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 4;
+  margin: 10px 12px 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.storyboard-rail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.storyboard-rail-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.storyboard-rail-item {
+  min-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  color: var(--text-primary);
+}
+
+.storyboard-rail-index,
+.storyboard-rail-shot {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.storyboard-rail-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .canvas-legend {
   position: fixed;
   top: 72px;
@@ -2917,6 +3111,20 @@ function exportTxt() {
 
 .idea-node.depth-3 {
   background: color-mix(in srgb, #8da7ff 14%, var(--bg-secondary));
+}
+
+.idea-node.storyboard-node {
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.node-storyboard-meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 10px;
+  color: var(--text-secondary);
 }
 
 .node-main {

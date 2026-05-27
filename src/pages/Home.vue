@@ -75,15 +75,15 @@
             <p>记录想法、整理素材与导入速记</p>
           </router-link>
 
-          <router-link to="/poetry-lab" class="entry-card">
+          <router-link to="/prose-essay" class="entry-card">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="4" y="5" width="16" height="14" rx="2"></rect>
                 <path d="M8 5v14M16 5v14M4 9h16M4 15h16"></path>
               </svg>
             </div>
-            <h3>分镜工作台</h3>
-            <p>诗歌入口、散文入口与统一分镜导出</p>
+            <h3>卡片画布</h3>
+            <p>素材关系、镜头顺序与分镜导出</p>
           </router-link>
         </div>
       </section>

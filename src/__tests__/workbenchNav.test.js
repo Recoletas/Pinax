@@ -15,7 +15,8 @@ describe('workbenchNav', () => {
     expect(SIDE_PANELS.writing.items).toHaveLength(1)
     expect(SIDE_PANELS.materials.items).toHaveLength(1)
     expect(SIDE_PANELS.worldbook.items).toHaveLength(2)
-    expect(SIDE_PANELS.storyboard.items).toHaveLength(2)
+    expect(SIDE_PANELS.storyboard.items).toHaveLength(1)
+    expect(ACTIVITY_ITEMS.find((item) => item.key === 'storyboard')?.defaultRouteName).toBe('prose-essay')
   })
 
   it('resolves workbench routes to the new activity groups', () => {

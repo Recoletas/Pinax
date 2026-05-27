@@ -27,9 +27,9 @@ export const ACTIVITY_ITEMS = [
   },
   {
     key: 'storyboard',
-    label: '分镜',
+    label: '画布',
     icon: 'film',
-    defaultRouteName: 'poetry-lab'
+    defaultRouteName: 'prose-essay'
   }
 ]
 
@@ -80,17 +80,12 @@ export const SIDE_PANELS = {
     ]
   },
   storyboard: {
-    title: '分镜',
+    title: '卡片画布',
     items: [
       {
-        routeName: 'poetry-lab',
-        label: '诗歌入口',
-        description: '灵感树与分镜导出'
-      },
-      {
         routeName: 'prose-essay',
-        label: '散文入口',
-        description: '卡片、大纲与分镜'
+        label: '关系画布',
+        description: '素材关系与分镜编排'
       }
     ]
   }

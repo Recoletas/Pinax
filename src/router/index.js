@@ -81,7 +81,7 @@ const workbenchChildren = [
     component: PoetryLab,
     meta: {
       activityKey: 'storyboard',
-      title: '分镜 - 诗歌入口'
+      title: '旧诗歌画布'
     }
   },
   {
@@ -90,7 +90,7 @@ const workbenchChildren = [
     component: ProseEssay,
     meta: {
       activityKey: 'storyboard',
-      title: '分镜 - 散文入口'
+      title: '卡片画布'
     }
   }
 ]

@@ -57,26 +57,49 @@
           </div>
         </div>
         <div class="book-list" v-show="!isRightCollapsed">
-          <div
-            v-for="note in chapters"
-            :key="note.id"
-            :class="['book-item', { active: selectedChapterId === note.id }]"
-            @click="selectChapter(note.id)"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" class="book-icon">
-              <path d="M3 2h10v12H3V2zm2 3h6v1.5H5V5zm0 3h6v1.5H5V8zm0 3h4v1.5H5V11z"/>
-            </svg>
-            <div class="book-info">
-              <span class="book-title">{{ note.title || '无标题素材' }}</span>
-              <span class="book-meta">{{ getAssetKindLabel(note.kind) }} · {{ getAssetWordCount(note) }} 字</span>
-              <span class="book-kind-explanation" :title="getAssetKindExplanation(note.kind)">
-                {{ getAssetKindExplanation(note.kind) }}
-              </span>
-            </div>
-            <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
+          <div class="material-transfer-bar">
+            <button class="transfer-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
+            <button class="transfer-btn" type="button" :disabled="checkedAssetIds.length === 0" @click="importCheckedToCanvas">导勾选</button>
+            <button class="transfer-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
           </div>
-          <div v-if="chapters.length === 0" class="empty-hint">
+          <div v-if="groupedChapters.length === 0" class="empty-hint">
             暂无素材，点击上方 + 新建
+          </div>
+          <div v-for="group in groupedChapters" :key="group.kind" class="material-group">
+            <button class="material-group-header" type="button" @click="toggleAssetKindGroup(group.kind)">
+              <span class="material-group-header-left">
+                <span class="material-group-color" :style="{ background: group.color }" :title="group.label"></span>
+                <span class="material-group-title">{{ group.label }}</span>
+                <span class="material-group-count">{{ group.items.length }}</span>
+              </span>
+              <span class="material-group-toggle">{{ isAssetKindCollapsed(group.kind) ? '›' : '⌄' }}</span>
+            </button>
+            <div v-show="!isAssetKindCollapsed(group.kind)" class="material-group-list">
+              <div
+                v-for="note in group.items"
+                :key="note.id"
+                :class="['book-item', { active: selectedChapterId === note.id }]"
+                @click="selectChapter(note.id)"
+              >
+                <input
+                  class="book-check"
+                  type="checkbox"
+                  :checked="checkedAssetIds.includes(note.id)"
+                  :aria-label="`选择 ${note.title || '无标题素材'}`"
+                  @click.stop
+                  @change="toggleCheckedAsset(note.id)"
+                />
+                <span class="book-kind-dot" :style="{ background: getAssetKindColor(note.kind) }"></span>
+                <div class="book-info">
+                  <span class="book-title">{{ note.title || '无标题素材' }}</span>
+                  <span class="book-meta">
+                    {{ getAssetStatusLabel(note.status) }}
+                  </span>
+                </div>
+                <span v-if="isAssetOnCanvas(note.id)" class="canvas-linked" title="已入画布">✓</span>
+                <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -99,128 +122,28 @@
 
         <template v-else>
           <div class="editor-header">
-            <!-- 编辑工具栏 -->
-            <div class="editor-toolbar">
-              <div class="toolbar-group">
-                <button class="tool-btn" @click="autoFormat" title="一键排版">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M1 2h12v1.5H1V2zm0 4h12v1.5H1V6zm0 4h8v1.5H1v-1.5z"/>
-                  </svg>
-                  排版
-                </button>
-                <button class="tool-btn" @click="insertSeparator" title="插入分隔线">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M1 7h12" stroke="currentColor" stroke-width="1.5"/>
-                    <circle cx="7" cy="7" r="2" fill="currentColor"/>
-                  </svg>
-                  分隔
-                </button>
+            <div class="asset-toolbar">
+              <label class="asset-control">
+                <span>类型</span>
+                <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
+                  <option value="inspiration">灵感</option>
+                  <option value="draft-prose">正文候选</option>
+                  <option value="event">剧情事件</option>
+                  <option value="character-fact">人物事实</option>
+                  <option value="worldbook-draft">世界书草稿</option>
+                  <option value="storyboard-seed">分镜种子</option>
+                  <option value="reference-image">参考图</option>
+                </select>
+              </label>
+              <div class="asset-status-control" role="group" aria-label="素材状态">
+                <button :class="{ active: selectedAsset?.status === 'inbox' }" type="button" @click="setSelectedAssetState('inbox')">待处理</button>
+                <button :class="{ active: selectedAsset?.status === 'accepted' }" type="button" @click="setSelectedAssetState('accepted')">采纳</button>
+                <button :class="{ active: selectedAsset?.status === 'archived' }" type="button" @click="setSelectedAssetState('archived')">归档</button>
               </div>
-
-              <div class="toolbar-sep"></div>
-
-              <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M2 2h10v2H2V2zm1 3h8v7H3V5zm0 0l2 6h4l2-6"/>
-                  </svg>
-                  字体
-                </button>
-
-                <!-- 字体面板 -->
-                <div class="font-panel" v-if="showFontPanel" @click.stop>
-                  <div class="fp-row">
-                    <span class="fp-label">字体</span>
-                    <select class="fp-select" v-model="editorFont">
-                      <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
-                      <option value="'SimSun', serif">宋体</option>
-                      <option value="'KaiTi', serif">楷体</option>
-                      <option value="'STHeiti', sans-serif">黑体</option>
-                      <option value="'MingLiU', serif">细明体</option>
-                      <option value="system-ui, sans-serif">系统默认</option>
-                    </select>
-                  </div>
-                  <div class="fp-row">
-                    <span class="fp-label">大小</span>
-                    <div class="fp-size-btns">
-                      <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小">A-</button>
-                      <span class="fp-size-val">{{ editorFontSize }}</span>
-                      <button class="fp-btn" @click="adjustFontSize(1)" title="放大">A+</button>
-                    </div>
-                  </div>
-                  <div class="fp-row">
-                    <span class="fp-label">样式</span>
-                    <div class="fp-btns">
-                      <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold" title="加粗">
-                        <strong>B</strong>
-                      </button>
-                      <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic" title="斜体">
-                        <em>I</em>
-                      </button>
-                      <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline" title="下划线">
-                        <u>U</u>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M7 1a3 3 0 100 6 3 3 0 000-6zm-5 12l1-4h8l1 4H2z"/>
-                  </svg>
-                  取名
-                </button>
-
-                <!-- 取名面板 -->
-                <div class="name-gen-panel" v-if="showNameGen" @click.stop>
-                  <div class="ng-row">
-                    <span class="ng-label">类型</span>
-                    <div class="ng-btns">
-                      <button :class="['ng-btn', { active: nameType === 'character' }]" @click="nameType = 'character'">人物</button>
-                      <button :class="['ng-btn', { active: nameType === 'place' }]" @click="nameType = 'place'">地点</button>
-                    </div>
-                  </div>
-                  <div class="ng-row">
-                    <span class="ng-label">风格</span>
-                    <div class="ng-btns">
-                      <button :class="['ng-btn', { active: nameStyle === 'western' }]" @click="nameStyle = 'western'">西方</button>
-                      <button :class="['ng-btn', { active: nameStyle === 'ancient' }]" @click="nameStyle = 'ancient'">古风</button>
-                      <button :class="['ng-btn', { active: nameStyle === 'modern' }]" @click="nameStyle = 'modern'">现代</button>
-                    </div>
-                  </div>
-                  <div class="ng-row" v-if="nameType === 'character'">
-                    <span class="ng-label">姓氏</span>
-                    <input v-model="fixedSurname" class="ng-input ng-sm" placeholder="可留空" />
-                  </div>
-                  <div class="ng-row" v-if="nameType === 'character'">
-                    <span class="ng-label">名字</span>
-                    <input v-model="fixedGivenName" class="ng-input ng-sm" placeholder="可留空" />
-                  </div>
-                  <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">
-                    生成
-                  </button>
-                  <div class="ng-results" v-if="generatedNames.length > 0">
-                    <div class="ng-result-item" v-for="(item, idx) in generatedNames" :key="idx" @click="selectName(item)">
-                      <span v-if="typeof item === 'string'">{{ item }}</span>
-                      <span v-else class="ng-name-pair">{{ item.en }}<span class="ng-cn">{{ item.cn }}</span></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="toolbar-sep"></div>
-
-              <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M5 1a4 4 0 014 4c0 1.5-.8 2.8-2 3.5l3 3-1.5 1.5-3-3A4 4 0 115 1zm0 1.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
-                  </svg>
-                  查找
-                </button>
-              </div>
-
+              <button class="asset-canvas-primary" type="button" @click="importCurrentToCanvas">
+                {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
+              </button>
               <div class="toolbar-spacer"></div>
-
               <div class="mode-switch">
                 <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">
                   编辑
@@ -232,29 +155,6 @@
                   预览
                 </button>
               </div>
-            </div>
-
-            <!-- 查找替换栏 -->
-            <div class="find-replace-bar" v-if="showFindReplace" @click.stop>
-              <input
-                v-model="findText"
-                class="find-input"
-                placeholder="查找..."
-                @keydown.enter="findNext"
-              />
-              <button class="tool-btn sm" @click="findPrev">↑</button>
-              <button class="tool-btn sm" @click="findNext">↓</button>
-              <span class="find-count" v-if="findResults.length > 0">{{ findCurrent + 1 }}/{{ findResults.length }}</span>
-              <span class="find-count" v-else-if="findText">无匹配</span>
-              <div class="fr-divider"></div>
-              <input
-                v-model="replaceText"
-                class="find-input"
-                placeholder="替换为..."
-              />
-              <button class="tool-btn sm" @click="replaceOne">单处</button>
-              <button class="tool-btn sm" @click="replaceAll">全部</button>
-              <button class="tool-btn sm close" @click="showFindReplace = false">×</button>
             </div>
 
             <div class="title-row">
@@ -269,6 +169,14 @@
                 <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
                 <span class="stat-divider">|</span>
                 <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
+              </div>
+            </div>
+
+            <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
+              <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
+              <div class="image-asset-meta">
+                <span>参考图</span>
+                <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
               </div>
             </div>
           </div>
@@ -370,6 +278,17 @@
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
     />
+
+    <ImageGenRail
+      :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
+      :selectedText="selectedAsset?.content || currentChapterTitle"
+      selectedPromptLabel="当前素材"
+      drawerTitle="素材生图"
+      side="left"
+      :allowInsertImageToEditor="true"
+      @insert-image="insertImageMarkdown"
+      @save-to-material="saveGeneratedImageAsset"
+    />
   </div>
 </template>
 
@@ -377,20 +296,23 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import ImageGenRail from '../components/ImageGenRail.vue'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   addNarrativeAsset,
-  getAssetKindExplanation,
   getAssetKindLabel,
   listNarrativeAssets,
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
+import { ensureAssetCanvasCard, findAssetCanvasCard } from '../services/relationCanvas'
 
 const router = useRouter()
+const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 
@@ -404,6 +326,9 @@ const newNoteInput = ref(null)
 const editorRef = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
+const checkedAssetIds = ref([])
+const canvasImportRevision = ref(0)
+const collapsedAssetKinds = ref({})
 
 const rightWidth = ref(210)
 const isRightCollapsed = ref(false)
@@ -439,10 +364,28 @@ let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
-  loadNotes()
+  loadNotes(String(route.query.assetId || ''))
 })
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
+const selectedAsset = computed(() => chapters.value.find((asset) => asset.id === selectedChapterId.value) || null)
+const assetKindOrder = [
+  'storyboard-seed',
+  'reference-image',
+  'draft-prose',
+  'event',
+  'character-fact',
+  'worldbook-draft',
+  'inspiration'
+]
+const groupedChapters = computed(() => assetKindOrder
+  .map((kind) => ({
+    kind,
+    label: getAssetKindLabel(kind),
+    color: getAssetKindColor(kind),
+    items: chapters.value.filter((asset) => asset.kind === kind)
+  }))
+  .filter((group) => group.items.length > 0))
 const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 
@@ -520,7 +463,12 @@ async function handleAskAdvisor(question) {
 
 function loadNotes(preferredChapterId = '') {
   chapters.value = listNarrativeAssets({ status: null })
-    .filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
+    .sort((a, b) => {
+      const rank = { accepted: 0, inbox: 1, archived: 2, rejected: 3 }
+      const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
+      if (diff !== 0) return diff
+      return Number(b.createdAt || 0) - Number(a.createdAt || 0)
+    })
 
   const nextChapterId = preferredChapterId && chapters.value.some((asset) => asset.id === preferredChapterId)
     ? preferredChapterId
@@ -575,6 +523,148 @@ function confirmCreateNote() {
 
   loadNotes(newNote.id)
   showNewNoteModal.value = false
+}
+
+function getAssetStatusLabel(status) {
+  switch (status) {
+    case 'accepted':
+      return '已采纳'
+    case 'archived':
+      return '归档'
+    case 'rejected':
+      return '拒绝'
+    default:
+      return '待处理'
+  }
+}
+
+function isAssetKindCollapsed(kind) {
+  return Boolean(collapsedAssetKinds.value[kind])
+}
+
+function toggleAssetKindGroup(kind) {
+  collapsedAssetKinds.value = {
+    ...collapsedAssetKinds.value,
+    [kind]: !collapsedAssetKinds.value[kind]
+  }
+}
+
+function openSelectedAssetInCanvas() {
+  if (!selectedAsset.value) return
+  saveCurrentChapter()
+  ensureAssetCanvasCard(selectedAsset.value)
+  canvasImportRevision.value += 1
+  router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
+}
+
+function isAssetOnCanvas(assetId) {
+  canvasImportRevision.value
+  return Boolean(findAssetCanvasCard(assetId))
+}
+
+function toggleCheckedAsset(assetId) {
+  checkedAssetIds.value = checkedAssetIds.value.includes(assetId)
+    ? checkedAssetIds.value.filter((id) => id !== assetId)
+    : [...checkedAssetIds.value, assetId]
+}
+
+function importCurrentToCanvas() {
+  openSelectedAssetInCanvas()
+}
+
+function importCheckedToCanvas() {
+  chapters.value
+    .filter((asset) => checkedAssetIds.value.includes(asset.id))
+    .forEach((asset) => ensureAssetCanvasCard(asset))
+  canvasImportRevision.value += 1
+  checkedAssetIds.value = []
+}
+
+function importAllToCanvas() {
+  chapters.value
+    .forEach((asset) => ensureAssetCanvasCard(asset))
+  canvasImportRevision.value += 1
+}
+
+function setSelectedAssetKind(kind) {
+  if (!selectedAsset.value) return
+  saveCurrentChapter()
+  updateNarrativeAsset(selectedAsset.value.id, { kind })
+  loadNotes(selectedAsset.value.id)
+}
+
+function setSelectedAssetState(status) {
+  if (!selectedAsset.value) return
+  saveCurrentChapter()
+  setNarrativeAssetStatus(selectedAsset.value.id, status)
+  loadNotes(selectedAsset.value.id)
+}
+
+function getAssetKindColor(kind) {
+  switch (kind) {
+    case 'draft-prose':
+      return '#5b8def'
+    case 'event':
+      return '#ef5350'
+    case 'character-fact':
+      return '#f59e0b'
+    case 'worldbook-draft':
+      return '#66bb6a'
+    case 'inspiration':
+      return '#ab47bc'
+    case 'storyboard-seed':
+      return '#26c6da'
+    case 'reference-image':
+      return '#ff7043'
+    default:
+      return '#7c92ff'
+  }
+}
+
+function saveGeneratedImageAsset(imgEntry) {
+  if (!imgEntry?.data) return
+  const asset = addNarrativeAsset({
+    title: (imgEntry.prompt || '素材参考图').slice(0, 24),
+    content: imgEntry.prompt || '素材参考图',
+    kind: 'reference-image',
+    status: 'accepted',
+    source: {
+      type: 'note-image',
+      id: imgEntry.id
+    },
+    image: {
+      id: imgEntry.id,
+      prompt: imgEntry.prompt,
+      data: imgEntry.data,
+      negativePrompt: imgEntry.negativePrompt,
+      modelName: imgEntry.modelName,
+      modelType: imgEntry.modelType,
+      width: imgEntry.width,
+      height: imgEntry.height
+    }
+  })
+  loadNotes(asset.id)
+}
+
+function insertImageMarkdown(imgEntry) {
+  if (!imgEntry?.data) return
+  const alt = String(imgEntry.prompt || selectedAsset.value?.title || '图片').trim() || '图片'
+  const imageMarkdown = `\n\n![${alt}](${imgEntry.data})\n`
+  const editor = editorRef.value
+  if (editor && typeof editor.selectionStart === 'number' && typeof editor.selectionEnd === 'number') {
+    const start = editor.selectionStart
+    const end = editor.selectionEnd
+    markdownContent.value = `${markdownContent.value.slice(0, start)}${imageMarkdown}${markdownContent.value.slice(end)}`
+    nextTick(() => {
+      const pos = start + imageMarkdown.length
+      editor.focus()
+      editor.setSelectionRange(pos, pos)
+    })
+  } else {
+    markdownContent.value = `${markdownContent.value}${imageMarkdown}`
+  }
+  syncMarkdownToEditor()
+  onContentChange()
 }
 
 function deleteChapter(chapterId) {
@@ -1504,6 +1594,89 @@ function stopResizeRight() {
   padding: 8px;
 }
 
+.material-transfer-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.transfer-btn {
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.transfer-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.transfer-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.material-group {
+  margin-bottom: 5px;
+}
+
+.material-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.material-group-header:hover {
+  background: var(--surface-soft);
+}
+
+.material-group-header-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.material-group-color {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.material-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.material-group-count,
+.material-group-toggle {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.material-group-list {
+  margin-top: 2px;
+  display: grid;
+  gap: 2px;
+}
+
 .books-sidebar[style*='44px'] .sidebar-title {
   display: none;
 }
@@ -1511,12 +1684,20 @@ function stopResizeRight() {
 .book-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 9px;
+  gap: 6px;
+  padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s;
   border: 1px solid transparent;
+}
+
+.book-check {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
 }
 
 .book-item:hover {
@@ -1528,23 +1709,18 @@ function stopResizeRight() {
   border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
-.book-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.book-item.active .book-icon {
-  color: var(--accent);
-}
-
 .book-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .book-title {
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1555,22 +1731,51 @@ function stopResizeRight() {
   color: var(--accent);
 }
 
-.book-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.book-kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.book-kind-explanation {
+.book-meta {
+  display: flex;
+  align-items: center;
   margin-top: 2px;
   font-size: 10px;
-  color: color-mix(in srgb, var(--text-secondary) 78%, transparent);
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.canvas-linked {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 9px;
+}
+
+.book-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.book-status-dot.status-accepted {
+  background: #34a853;
+}
+
+.book-status-dot.status-inbox {
+  background: #7c92ff;
+}
+
+.book-status-dot.status-archived {
+  background: #9ca3af;
+}
+
+.book-status-dot.status-rejected {
+  background: #ef4444;
 }
 
 .chapter-item {
@@ -1752,6 +1957,39 @@ function stopResizeRight() {
   flex-shrink: 0;
 }
 
+.image-asset-preview {
+  max-width: 940px;
+  margin: 12px auto 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.image-asset-preview img {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-asset-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.editor-preview :deep(img) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 8px 0;
+  border-radius: 6px;
+}
+
 .stat {
   font-size: 12px;
   color: var(--text-muted);
@@ -1761,11 +1999,11 @@ function stopResizeRight() {
   color: var(--border);
 }
 
-/* 编辑工具栏 */
-.editor-toolbar {
+/* 素材操作栏 */
+.asset-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 6px 10px;
   background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--bg-primary));
   border: 1px solid var(--border);
@@ -1776,6 +2014,63 @@ function stopResizeRight() {
   max-width: 940px;
   margin: 0 auto;
   width: 100%;
+}
+
+.asset-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.asset-control select {
+  height: 27px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.asset-status-control {
+  display: inline-flex;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-primary);
+}
+
+.asset-status-control button {
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.asset-status-control button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.asset-canvas-primary {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.asset-canvas-primary:hover {
+  background: var(--accent-hover);
 }
 
 .toolbar-group {

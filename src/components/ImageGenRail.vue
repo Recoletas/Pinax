@@ -119,6 +119,7 @@
           <img :src="imageLibrary[imagePreviewIndex]?.data" alt="preview" />
         </div>
         <div class="image-preview-actions">
+          <button v-if="allowInsertImageToEditor" class="image-preview-action-btn" @click="emitInsertImage(imageLibrary[imagePreviewIndex])">插入正文</button>
           <button class="image-preview-action-btn" @click="copyImagePrompt(imageLibrary[imagePreviewIndex])">复制提示词</button>
           <button class="image-preview-action-btn" @click="saveToMaterialLib(imageLibrary[imagePreviewIndex])">保存</button>
         </div>
@@ -208,8 +209,14 @@ const props = defineProps({
   mobileBottomOffset: {
     type: Number,
     default: 20
+  },
+  allowInsertImageToEditor: {
+    type: Boolean,
+    default: false
   }
 })
+
+const emit = defineEmits(['insert-image', 'save-to-material'])
 
 const sharedModelKey = STORAGE_KEYS.IMAGE_MODEL_CONFIGS
 const imageDrawerOpen = ref(false)
@@ -605,6 +612,16 @@ function copyImagePrompt(imgEntry) {
 }
 
 function saveToMaterialLib() {
+  const imgEntry = imageLibrary.value[imagePreviewIndex.value]
+  if (imgEntry) {
+    emit('save-to-material', imgEntry)
+  }
+  imagePreviewIndex.value = -1
+}
+
+function emitInsertImage(imgEntry) {
+  if (!imgEntry) return
+  emit('insert-image', imgEntry)
   imagePreviewIndex.value = -1
 }
 

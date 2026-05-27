@@ -8,28 +8,22 @@
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="pe-title">散文随笔</span>
+        <span class="pe-title">卡片画布</span>
       </div>
       <div class="pe-header-center">
         <input
           v-model="currentTopic"
           class="topic-input"
-          placeholder="输入主题或草稿，生成联想卡片..."
+          placeholder="输入场景线索，生成素材节点..."
           @keydown.enter="generateCards"
         />
         <button class="btn-primary generate-btn" @click="generateCards" :disabled="isGenerating || !currentTopic.trim()">
-          {{ isGenerating ? generationMessage : (currentMode === 'directing' ? '生成分镜卡片' : '生成卡片') }}
+          {{ isGenerating ? generationMessage : '生成节点' }}
         </button>
       </div>
       <div class="pe-header-right">
-        <div class="mode-switch" role="group" aria-label="散文工作流">
-          <button type="button" class="mode-label" :class="{ active: currentMode === 'writing' }" @click="currentMode = 'writing'">卡片</button>
-          <button type="button" class="mode-label" :class="{ active: currentMode === 'directing' }" @click="currentMode = 'directing'">分镜</button>
-        </div>
-        <span class="mode-caption">
-          {{ currentMode === 'directing' ? '从卡片生成分镜草稿' : '生成和整理写作卡片' }}
-        </span>
-        <span class="card-count">{{ cards.length }} 张{{ currentMode === 'directing' ? '分镜卡片' : '卡片' }}</span>
+        <span class="mode-caption">关系与分镜</span>
+        <span class="card-count">{{ cards.length }} 个节点</span>
         <button class="icon-btn" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -48,57 +42,19 @@
         <!-- 选中卡片详情面板 -->
         <div v-if="selectedCard" class="card-detail-panel">
           <div class="detail-panel-header">
-            <span class="detail-panel-title">卡片详情</span>
-            <span class="detail-panel-badge" :style="{ background: emotionColors[selectedCard.emotion]?.badge }">
-              {{ emotionLabels[selectedCard.emotion] }}
-            </span>
+            <span class="detail-panel-title">镜头节点</span>
+            <span class="node-index">#{{ getStoryCardSequence(selectedCard.id) }}</span>
           </div>
 
-          <div class="detail-panel-section">
-            <label class="section-label">情绪</label>
-            <div class="emotion-buttons">
-              <button
-                v-for="(label, key) in emotionLabels"
-                :key="key"
-                class="emotion-btn"
-                :class="{ active: editingEmotion === key }"
-                :style="{ '--emotion-color': emotionColors[key]?.badge || '#888' }"
-                @click="editingEmotion = key"
-              >
-                {{ label }}
-              </button>
-            </div>
-          </div>
-
-          <button
-            v-if="currentMode === 'directing'"
-            class="btn-secondary detail-btn"
-            @click="showCardDetailDialog = true"
-          >
-            详情
-          </button>
-
-          <div class="detail-panel-actions">
-            <button class="btn-accent expand-btn" @click="expandByEmotion" :disabled="isGenerating">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              基于「{{ emotionLabels[editingEmotion] }}」扩展
+          <div class="node-operations">
+            <button v-if="selectedCard.assetId" class="btn-secondary detail-btn" @click="openCardMaterial(selectedCard)">
+              查看素材
             </button>
-            <div class="action-row">
-              <button class="btn-secondary" @click="undoCard" :disabled="!canUndo()" title="撤销 (Ctrl+Z)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M3 10h10a5 5 0 015 5v2M3 10l5-5M3 10l5 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              <button class="btn-secondary" @click="redoCard" :disabled="!canRedo()" title="重做 (Ctrl+Y)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M21 10H11a5 5 0 00-5 5v2M21 10l-5-5M21 10l-5 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              <button class="btn-primary save-btn" @click="saveCardDetail">保存</button>
-              <button class="btn-danger" @click="deleteCard(selectedCard.id)">删除</button>
-            </div>
+            <button v-else class="btn-secondary detail-btn" @click="sendSelectedCardToMaterials">
+              转为素材节点
+            </button>
+            <button class="btn-secondary detail-btn" @click="showCardDetailDialog = true">镜头参数</button>
+            <button class="btn-danger node-delete-btn" @click="deleteCard(selectedCard.id)">删除节点</button>
           </div>
         </div>
         <div v-else class="no-selection">
@@ -109,49 +65,20 @@
               <line x1="16" y1="28" x2="28" y2="28" stroke="currentColor" stroke-width="1.5"/>
             </svg>
           </div>
-          <p>点击卡片查看详情</p>
-        </div>
-
-        <div v-if="currentMode === 'directing'" class="storyboard-version-panel">
-          <div class="storyboard-version-head">
-            <span class="storyboard-version-title">分镜版本</span>
-            <span v-if="lastDirectorExportContext" class="storyboard-version-badge" :class="{ stale: !directorStoryboardIsCurrent }">
-              {{ directorStoryboardIsCurrent ? '已同步' : '需更新' }}
-            </span>
-          </div>
-          <p v-if="!lastDirectorExportContext" class="storyboard-version-copy">
-            当前还没有分镜版本。先从卡片或时间轴生成统一分镜版本。
-          </p>
-          <template v-else>
-            <div class="storyboard-version-stats">
-              <span>{{ directorStoryboardShotCount }} 镜头</span>
-              <span>版本 {{ directorStoryboardVersionLabel }}</span>
-              <span>{{ directorStoryboardValidationText }}</span>
-            </div>
-          </template>
-          <div class="storyboard-version-actions">
-            <button class="btn-primary" type="button" @click="prepareDirectorStoryboardVersion" :disabled="cards.length === 0">
-              生成/更新分镜版本
-            </button>
-            <button v-if="lastDirectorExportContext" class="btn-secondary" type="button" @click="downloadDirectorMarkdown">
-              下载 Markdown
-            </button>
-          </div>
-          <p v-if="directorStoryboardStatus" class="storyboard-version-status">{{ directorStoryboardStatus }}</p>
+          <p>选择节点编辑镜头参数</p>
         </div>
 
         <div class="outline-section">
           <div class="outline-header">
-            <span class="outline-title">{{ currentMode === 'directing' ? '时间轴' : '大纲序列' }}</span>
-            <button class="add-btn" @click="addToOutline" :disabled="!selectedCard" :title="currentMode === 'directing' ? '将选中卡片加入时间轴' : '将选中卡片加入大纲'">
+            <span class="outline-title">时间轴</span>
+            <button class="add-btn" @click="addToOutline" :disabled="!selectedCard" title="将选中卡片加入时间轴">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
 
-          <!-- Director mode timeline view -->
-          <div v-if="currentMode === 'directing'" class="timeline-view">
+          <div class="timeline-view">
             <div class="timeline-track">
               <div
                 v-for="(item, index) in outline"
@@ -187,102 +114,86 @@
               </div>
             </div>
           </div>
-
-          <!-- Writing mode outline list -->
-          <div v-else class="outline-list" ref="outlineListRef">
-            <div
-              v-for="(item, index) in outline"
-              :key="item.pileId || item.cardId"
-              class="outline-item"
-              :class="{ active: selectedCard?.id === item.cardId, 'outline-dragging': draggingOutlineIndex === index, 'is-pile-item': !!item.pileId }"
-              :draggable="true"
-              @click="jumpToCard(item.pileId ? piles.find(p => p.pileId === item.pileId)?.cardIds[0] : item.cardId)"
-              @dragstart="onOutlineDragStart(index, $event)"
-              @dragover.prevent="onOutlineDragOver(index)"
-              @drop="onOutlineDrop(index)"
-              @dragend="onOutlineDragEnd"
-              @dblclick="item.pileId ? startPileInlineEdit(piles.find(p => p.pileId === item.pileId), $event) : null"
-            >
-              <div class="outline-node-col">
-                <div class="outline-node-line" :class="{ 'is-last': index === outline.length - 1 }"></div>
-                <div class="outline-node-dot"></div>
-              </div>
-              <span class="drag-handle" title="拖拽排序">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <circle cx="3" cy="3" r="1"/><circle cx="9" cy="3" r="1"/>
-                  <circle cx="3" cy="9" r="1"/><circle cx="9" cy="9" r="1"/>
-                </svg>
-              </span>
-              <span class="outline-emotion" :style="{ background: emotionColors[item.emotion]?.dot || '#888' }"></span>
-              <template v-if="inlineEditingPile?.pileId === item.pileId">
-                <input
-                  v-model="inlineEditingPileName"
-                  class="inline-pile-input"
-                  type="text"
-                  placeholder="给牌堆添加说明..."
-                  @keydown.enter="savePileInlineEdit(); $event.target.blur()"
-                  @keydown.escape="cancelPileInlineEdit"
-                  @blur="savePileInlineEdit"
-                  @click.stop
-                />
-              </template>
-              <span v-else class="outline-text">{{ item.preview }}</span>
-              <div class="outline-item-actions">
-                <button class="outline-action-btn" @click.stop="moveOutlineUp(index)" :disabled="index === 0" title="上移">
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M2 8l4-4 4 4"/>
-                  </svg>
-                </button>
-                <button class="outline-action-btn" @click.stop="moveOutlineDown(index)" :disabled="index === outline.length - 1" title="下移">
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M2 4l4 4 4-4"/>
-                  </svg>
-                </button>
-                <button class="outline-action-btn outline-delete-btn" @click.stop="removeCardFromOutline(item.pileId || item.cardId)" title="移除">
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M2 2l8 8M10 2l-8 8"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div v-if="outline.length === 0" class="outline-empty">
-              点击卡片旁的 + 加入大纲
-            </div>
-          </div>
         </div>
       </aside>
 
       <!-- Canvas area with absolute positioned cards -->
-      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
-        <!-- Edge SVG layer - absolutely positioned to overlay cards -->
-        <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight">
+      <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length, 'storyboard-mode': currentMode === 'directing' }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
+        <div class="storyboard-ruler">
+          <div class="storyboard-ruler-head">
+            <span>分镜顺序</span>
+            <span>{{ storyboardTimelinePreview.length }} 段</span>
+          </div>
+          <div class="storyboard-ruler-strip">
+            <button
+              v-for="item in storyboardTimelinePreview"
+              :key="item.cardId"
+              class="storyboard-ruler-item"
+              type="button"
+              @click.stop="jumpToCard(item.cardId)"
+            >
+              <span class="storyboard-ruler-index">{{ item.order + 1 }}</span>
+              <span class="storyboard-ruler-text">{{ item.preview }}</span>
+              <span class="storyboard-ruler-duration">{{ item.duration }}s</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="cards.length" class="canvas-edge-legend">
+          <div class="canvas-edge-legend-head">
+            <span>关系线</span>
+            <button class="legend-toggle-btn" :class="{ active: linkingActive }" type="button" @click="toggleLinking">
+              {{ linkingActive ? '连线中' : '连线' }}
+            </button>
+          </div>
+          <button
+            v-for="edgeType in edgeTypes"
+            :key="edgeType.value"
+            class="legend-edge-item"
+            :class="{ active: newEdgeType === edgeType.value }"
+            type="button"
+            @click="activateLinkType(edgeType.value)"
+          >
+            <span class="legend-line-preview" :style="getEdgePreviewStyle(edgeType.value)"></span>
+            <span>{{ edgeType.label }}</span>
+          </button>
+          <p class="legend-edge-hint">
+            {{ linkingActive ? '拖动节点到目标节点' : '选线型后开启连线' }}
+          </p>
+        </div>
+        <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
           <defs>
-            <marker id="prose-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+            <marker id="prose-edge-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
             </marker>
           </defs>
           <path
             v-for="edge in renderedEdges"
             :key="edge.id"
+            class="edge-path"
+            :class="`edge-${edge.type}`"
             :d="edge.d"
-            :class="['edge', `edge-${edge.type}`, getEdgeClass(edge.type)]"
             :style="getEdgeStyle(edge)"
-            marker-end="url(#prose-arrow)"
+            marker-end="url(#prose-edge-arrow)"
+          />
+          <path
+            v-if="edgeLinkDraft"
+            class="edge-path edge-draft"
+            :d="edgeLinkDraftPath"
+            :style="getEdgeStyle({ type: newEdgeType })"
           />
         </svg>
-
         <div v-if="cards.length === 0" class="empty-cards">
           <div class="empty-icon">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor">
               <path d="M8 8h14v32H8V8zm18 0h14v32H26V8zM12 14h6v4h-6v-4zm0 10h10v4H12v-4zm0 10h8v4h-8v-4z"/>
             </svg>
           </div>
-          <p class="empty-title">{{ currentMode === 'directing' ? '还没有分镜卡片' : '开始卡片构思' }}</p>
+          <p class="empty-title">还没有素材节点</p>
           <p class="empty-desc">
-            {{ currentMode === 'directing' ? '输入主题或草稿，生成可落入分镜草稿的卡片' : '输入主题或草稿，AI 将生成一组联想卡片' }}
+            从素材页加入节点，或输入线索创建新的节点
           </p>
           <p class="empty-hint">
-            {{ currentMode === 'directing' ? '生成后可加入时间轴并导出统一分镜' : '输入主题或草稿，AI 将生成联想卡片' }}
+            连线与时间轴用于形成分镜版本
           </p>
         </div>
 
@@ -291,12 +202,12 @@
           v-for="card in flatCards"
           :key="card.id"
           class="writing-card"
-          :class="[`emotion-${card.emotion}`, { selected: selectedCard?.id === card.id, 'inline-editing': inlineEditingCard?.id === card.id, 'continuation-child': isInSameGroup(card.id) }]"
+          :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': true }"
           :style="{
             position: 'absolute',
             left: card.x + 'px',
             top: card.y + 'px',
-            '--card-accent': emotionColors[card.emotion]?.bg || '#888',
+            '--card-accent': 'var(--bg-secondary)',
             zIndex: card.zIndex || 1,
             transform: card.rotate ? `rotate(${card.rotate}deg)` : undefined
           }"
@@ -304,22 +215,23 @@
           @mouseleave="card.pileId && (hoveredPileId = null)"
           @click.stop="card.pileId && (expandedPileId = expandedPileId === card.pileId ? null : card.pileId)"
           :data-card-id="card.id"
-          draggable="true"
-          @click="selectCard(card)"
-          @dblclick="startInlineEdit(card, $event)"
+          :draggable="!linkingActive"
+          @pointerdown.stop="onCardPointerDown($event, card)"
+          @click="handleCardClick(card)"
+          @dblclick="card.assetId && openCardMaterial(card)"
           @dragstart="onCardDragStart(card, $event)"
           @dragover.prevent="onCardDragOver(card, $event)"
           @drop="onCardDrop(card, $event)"
           @dragend="onCardDragEnd"
         >
+          <div class="card-storyboard-badge">
+            <span>#{{ getStoryCardSequence(card.id) }}</span>
+          </div>
           <div class="card-header">
-            <span class="card-emotion-badge" :style="{ background: emotionColors[card.emotion]?.badge || '#888' }">
-              {{ emotionLabels[card.emotion] || card.emotion }}
-            </span>
-            <span v-if="currentMode === 'directing' && card.extraFields?.shotType" class="card-shot-badge" :title="'景别: ' + getShotTypeLabel(card.extraFields.shotType)">
+            <span v-if="card.extraFields?.shotType" class="card-shot-badge" :title="'景别: ' + getShotTypeLabel(card.extraFields.shotType)">
               {{ getShotTypeLabel(card.extraFields.shotType) }}
             </span>
-            <span v-if="currentMode === 'directing' && card.extraFields?.duration" class="card-duration-badge">
+            <span v-if="card.extraFields?.duration" class="card-duration-badge">
               {{ card.extraFields.duration }}s
             </span>
             <span v-if="getContinuationGroup(card.id)?.size" class="continuation-indicator" title="已生成延伸卡片">
@@ -330,36 +242,17 @@
             <span v-else-if="isInSameGroup(card.id)" class="continuation-badge">衍生</span>
             <span class="card-time">{{ formatTime(card.createdAt) }}</span>
           </div>
-          <div v-if="inlineEditingCard?.id === card.id" class="card-inline-edit">
-            <textarea
-              v-model="inlineEditingContent"
-              class="inline-textarea"
-              @click.stop
-              @keydown="handleInlineKeydown"
-              autofocus
-            ></textarea>
-            <div class="inline-emotion-row">
-              <select v-model="inlineEditingEmotion" class="inline-emotion-select">
-                <option v-for="(label, key) in emotionLabels" :key="key" :value="key">{{ label }}</option>
-              </select>
-              <button class="inline-save-btn" @click.stop="saveInlineEdit" title="保存 (Ctrl+Enter)">保存</button>
-              <button class="inline-cancel-btn" @click.stop="cancelInlineEdit" title="取消 (Esc)">取消</button>
-            </div>
-          </div>
-          <div v-else class="card-content">{{ card.content }}</div>
-          <div v-if="card.attachedImages?.length" class="card-images" @click.stop>
-            <div v-for="(img, idx) in card.attachedImages" :key="img.id" class="card-image-item" @click="openImagePreview(card, idx)">
-              <img :src="img.data" :alt="'图片' + (idx + 1)" />
-            </div>
-          </div>
+          <img
+            v-if="getCardPreviewImage(card)"
+            class="card-preview-thumb"
+            :src="getCardPreviewImage(card)"
+            :alt="getCardTitle(card)"
+          />
+          <div class="card-title">{{ getCardTitle(card) }}</div>
+          <div class="card-content card-preview-copy">{{ getCardPreview(card) }}</div>
           <div class="card-footer">
             <span class="card-words">{{ card.wordCount }} 字</span>
             <div class="card-actions" @click.stop>
-              <button class="card-action-btn" @click.stop="expandFromCard(card)" :disabled="isGenerating" title="基于此卡片生成更多">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M12 6.5v7M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
               <button class="card-action-btn" @click.stop="deleteCard(card.id)" title="删除">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
@@ -515,6 +408,38 @@
           </div>
         </div>
 
+        <div v-if="storyboardSeedAssets.length > 0" class="image-gen-results material-image-results">
+          <div class="image-gen-results-title">分镜种子</div>
+          <div class="image-gen-seed-list">
+            <button
+              v-for="asset in storyboardSeedAssets"
+              :key="asset.id"
+              class="image-gen-seed-item"
+              type="button"
+              @click="useStoryboardSeed(asset)"
+            >
+              <span class="image-gen-seed-title">{{ asset.title || '未命名种子' }}</span>
+              <span class="image-gen-seed-preview">{{ asset.content }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="materialImageAssets.length > 0" class="image-gen-results material-image-results">
+          <div class="image-gen-results-title">素材参考图</div>
+          <div class="image-gen-grid">
+            <button
+              v-for="asset in materialImageAssets"
+              :key="asset.id"
+              class="image-gen-thumb material-image-thumb"
+              type="button"
+              :title="asset.title || asset.image?.prompt || '参考图'"
+              @click="attachMaterialImageToSelectedCard(asset)"
+            >
+              <img :src="asset.image.data" :alt="asset.title || '素材参考图'" />
+            </button>
+          </div>
+        </div>
+
         <div class="image-gen-footer">
           <button class="image-gen-link-btn" type="button" @click="goToMaterialsImageGen">去素材内生图 →</button>
         </div>
@@ -601,7 +526,7 @@
     <!-- 卡片详情对话框（分镜模式） -->
     <div v-if="showCardDetailDialog && selectedCard" class="dialog-overlay" @click="showCardDetailDialog = false">
       <div class="dialog" @click.stop>
-        <div class="dialog-header">卡片详情</div>
+        <div class="dialog-header">镜头参数</div>
         <div class="dialog-body">
           <div class="form-group">
             <label>景别</label>
@@ -636,6 +561,7 @@
         </div>
         <div class="dialog-footer">
           <button class="btn" @click="showCardDetailDialog = false">关闭</button>
+          <button class="btn-primary" @click="saveCardDetail(); showCardDetailDialog = false">保存</button>
         </div>
       </div>
     </div>
@@ -652,8 +578,8 @@
         :isOpen="advisorOpen"
         :messages="advisorMessages"
         :loading="advisorLoading"
-        :quickQuestions="['分析当前节奏', '情绪分布如何', '结构建议', '续写灵感']"
-        :emptyText="'创作顾问可帮你分析散文随笔的状态，提供结构、情绪与推进方向的专业建议。'"
+        :quickQuestions="['检查镜头顺序', '分析关系结构', '转场建议', '遗漏镜头']"
+        :emptyText="'创作顾问可帮你分析素材关系、镜头节奏和分镜推进方向。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
       />
@@ -662,7 +588,7 @@
 
 <script setup>
 import { computed, ref, onMounted, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
@@ -672,22 +598,25 @@ import {
   saveValidatedStoryboardVersion
 } from '../services/storyboardStore'
 import {
-  generateProseCardExtensions,
-  generateProseCardsFromTopic,
-  generateProseEmotionExtensions
+  generateProseCardsFromTopic
 } from '../services/proseGeneration'
 import {
   extractShotsFromProseEssay,
   toMarkdown,
   toPremiereCSV
 } from '../services/shotExporter'
+import {
+  addNarrativeAsset,
+  listNarrativeAssets
+} from '../services/narrativeAssets'
 
 const router = useRouter()
+const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 
 // Mode switching
-const currentMode = ref('writing') // 'writing' | 'directing'
+const currentMode = ref('directing')
 
 // Director mode edge types
 const directorEdgeTypes = [
@@ -744,6 +673,9 @@ const imageGenerating = ref(false)
 const imageLibrary = ref([])
 const imagePreviewIndex = ref(-1)
 const previewingCard = ref(null)
+const storyboardSeedAssets = ref([])
+const materialImageAssets = ref([])
+const canvasAssets = ref([])
 const showImageConfigDialog = ref(false)
 const showCardDetailDialog = ref(false)
 const editingModelConfig = ref(null)
@@ -809,11 +741,11 @@ const edgeColors = {
 
 // Edge types
 const edgeTypes = [
-  { value: 'consciousness', label: '意识流', desc: '随心联想，跳跃连接' },
-  { value: 'contrast', label: '对比', desc: '相互映衬或冲突' },
-  { value: 'elaboration', label: '阐释', desc: '观点到事例的深化' },
-  { value: 'parallel', label: '平行', desc: '不同时空的并置' },
-  { value: 'continuation', label: '延续', desc: '基于某卡片的衍生扩展' }
+  { value: 'continuation', label: '前后镜', desc: '镜头顺序推进' },
+  { value: 'elaboration', label: '因果', desc: '动作与结果' },
+  { value: 'contrast', label: '对照', desc: '对立或反差' },
+  { value: 'parallel', label: '同场', desc: '同一空间并置' },
+  { value: 'consciousness', label: '视觉呼应', desc: '构图或意象呼应' }
 ]
 
 // Cycling messages during generation
@@ -841,9 +773,10 @@ const editingContent = ref('')
 const editingEmotion = ref('calm')
 const isGenerating = ref(false)
 const generationMessage = ref('正在捕捉灵感…')
-const showEdgeDialog = ref(false)
-const newEdgeType = ref('consciousness')
-const newEdgeTarget = ref('')
+const newEdgeType = ref('continuation')
+const linkingActive = ref(false)
+const linkSourceCardId = ref('')
+const edgeLinkDraft = ref(null)
 const showExportMenu = ref(false)
 const cardWallRef = ref(null)
 const edgesSvgRef = ref(null)
@@ -870,11 +803,24 @@ const proseBranches = ref({ current: 'main', list: [{ name: 'main', headCommitId
 
 // Flat positioned nodes for rendering
 const flatCards = ref([])
+const storyboardTimelinePreview = computed(() => outline.value
+  .map((item, index) => {
+    const card = cards.value.find((c) => c.id === item.cardId)
+    if (!card) return null
+    const extra = card.extraFields || {}
+    return {
+      cardId: card.id,
+      order: index,
+      preview: item.preview || card.content || '',
+      duration: extra.duration || 3
+    }
+  })
+  .filter(Boolean))
 
 function layoutCards(cardsToLayout) {
   if (!cardWallRef.value) return
-  const xGap = 320
-  const yGap = 200
+  const xGap = 252
+  const yGap = 174
   const topBase = 60
   const leftBase = 60
   const maxPerRow = Math.floor((cardWallRef.value.scrollWidth - leftBase * 2) / xGap) || 3
@@ -950,19 +896,32 @@ function computeEdgePaths() {
     const sourceEl = wall.querySelector(`[data-card-id="${edge.sourceId}"]`)
     const targetEl = wall.querySelector(`[data-card-id="${edge.targetId}"]`)
     if (!sourceEl || !targetEl) return null
-    const sx = sourceEl.offsetLeft + sourceEl.offsetWidth
-    const sy = sourceEl.offsetTop + sourceEl.offsetHeight / 2
-    const tx = targetEl.offsetLeft
-    const ty = targetEl.offsetTop + targetEl.offsetHeight / 2
+    const sourceRect = sourceEl.getBoundingClientRect()
+    const targetRect = targetEl.getBoundingClientRect()
+    const wallRect = wall.getBoundingClientRect()
+    const sourcePoint = getConnectorPoint(
+      rectToLocalRect(sourceRect, wallRect, wall),
+      rectToLocalRect(targetRect, wallRect, wall).centerX,
+      rectToLocalRect(targetRect, wallRect, wall).centerY
+    )
+    const targetPoint = getConnectorPoint(
+      rectToLocalRect(targetRect, wallRect, wall),
+      rectToLocalRect(sourceRect, wallRect, wall).centerX,
+      rectToLocalRect(sourceRect, wallRect, wall).centerY
+    )
     return {
       ...edge,
-      d: makeEdgePath(sx, sy, tx, ty),
-      x1: sx, y1: sy, x2: tx, y2: ty
+      d: makeEdgePath(sourcePoint.x, sourcePoint.y, targetPoint.x, targetPoint.y),
+      x1: sourcePoint.x, y1: sourcePoint.y, x2: targetPoint.x, y2: targetPoint.y
     }
   }).filter(Boolean)
 }
 
 const renderedEdges = ref([])
+const edgeLinkDraftPath = computed(() => {
+  if (!edgeLinkDraft.value) return ''
+  return makeEdgePath(edgeLinkDraft.value.x1, edgeLinkDraft.value.y1, edgeLinkDraft.value.x2, edgeLinkDraft.value.y2)
+})
 
 function updateLayout() {
   flatCards.value = layoutCards(cards.value)
@@ -1012,18 +971,9 @@ function isInSameGroup(cardId) {
 function computeEdgePositions() {
   const wall = cardWallRef.value
   if (!wall) return
-  const newEdges = []
-  edges.value.forEach(edge => {
-    const sourceEl = wall.querySelector(`[data-card-id="${edge.sourceId}"]`)
-    const targetEl = wall.querySelector(`[data-card-id="${edge.targetId}"]`)
-    if (!sourceEl || !targetEl) return
-    const sx = sourceEl.offsetLeft + sourceEl.offsetWidth / 2
-    const sy = sourceEl.offsetTop + sourceEl.offsetHeight
-    const tx = targetEl.offsetLeft + targetEl.offsetWidth / 2
-    const ty = targetEl.offsetTop
-    newEdges.push({ ...edge, x1: sx, y1: sy, x2: tx, y2: ty })
-  })
-  renderedEdges.value = newEdges
+  renderedEdges.value = computeEdgePaths()
+  canvasWidth.value = Math.max(wall.scrollWidth, wall.clientWidth) + 100
+  canvasHeight.value = Math.max(wall.scrollHeight, wall.clientHeight) + 100
 }
 
 function getRelatedCards(cardId) {
@@ -1038,6 +988,23 @@ function getRelatedCards(cardId) {
     }
   })
   return related
+}
+
+function getRelatedCardLinks(cardId) {
+  if (!cardId) return []
+  return edges.value
+    .filter((edge) => edge.sourceId === cardId || edge.targetId === cardId)
+    .map((edge) => {
+      const relatedId = edge.sourceId === cardId ? edge.targetId : edge.sourceId
+      const card = cards.value.find((item) => item.id === relatedId)
+      if (!card) return null
+      return {
+        edge,
+        card,
+        label: edgeTypes.find((type) => type.value === edge.type)?.label || '关联'
+      }
+    })
+    .filter(Boolean)
 }
 
 function pushHistory(cardId, content, emotion) {
@@ -1157,11 +1124,21 @@ function handleInlineKeydown(e) {
 }
 
 onMounted(async () => {
+  loadCanvasAssets()
   loadData()
   apiSettings.value = await getResolvedApiSettings()
   document.addEventListener('keydown', handleKeydown)
   loadImageConfigs()
   loadImageLibrary()
+  loadStoryboardSeedAssets()
+  loadMaterialImageAssets()
+  await nextTick()
+  focusAssetCardFromRoute()
+})
+
+watch(() => route.query.assetId, () => {
+  loadCanvasAssets()
+  focusAssetCardFromRoute()
 })
 
 // Advisor functions
@@ -1171,7 +1148,6 @@ function collectProseContext() {
     cards: flatCards.value.map(c => ({
       id: c.id,
       content: c.content,
-      emotion: c.emotion,
       extraFields: c.extraFields || null
     })),
     edges: edges.value.map(e => ({
@@ -1204,8 +1180,8 @@ function loadData() {
       ...card,
       pileId: card.pileId || null,
       zone: card.zone || inferZone(card.id),
-      x: card.x ?? (60 + (idx % 3) * 320),
-      y: card.y ?? (60 + Math.floor(idx / 3) * 200),
+      x: card.x ?? (60 + (idx % 3) * 252),
+      y: card.y ?? (60 + Math.floor(idx / 3) * 174),
       extraFields: card.extraFields || null
     }))
 
@@ -1254,6 +1230,81 @@ function countWords(text) {
   return String(text).replace(/\s/g, '').length
 }
 
+function loadCanvasAssets() {
+  canvasAssets.value = listNarrativeAssets({ status: null })
+}
+
+function getCardAsset(card) {
+  if (!card?.assetId) return null
+  return canvasAssets.value.find((asset) => asset.id === card.assetId) || null
+}
+
+function getCardFullContent(card) {
+  return String(getCardAsset(card)?.content || card?.content || '').trim() || '暂无内容'
+}
+
+function getCardTitle(card) {
+  const title = String(getCardAsset(card)?.title || card?.content || '未命名节点').trim()
+  return title.length > 30 ? `${title.slice(0, 30)}...` : title
+}
+
+function getCardPreview(card) {
+  const content = getCardFullContent(card).replace(/\s+/g, ' ')
+  return content.length > 44 ? `${content.slice(0, 44)}...` : content
+}
+
+function getCardPreviewImage(card) {
+  return getCardAsset(card)?.image?.data || ''
+}
+
+function openCardMaterial(card) {
+  if (!card?.assetId) return
+  router.push({ name: 'materials', query: { assetId: card.assetId } })
+}
+
+function focusAssetCardFromRoute() {
+  const assetId = String(route.query.assetId || '')
+  if (!assetId) return
+  const card = cards.value.find((item) => item.assetId === assetId)
+  if (!card) return
+  selectCard(card)
+  nextTick(() => jumpToCard(card.id))
+}
+
+function createCardFromAsset(asset, emotion = 'calm', extraFields = null) {
+  return {
+    id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    assetId: asset.id,
+    content: asset.content,
+    emotion,
+    wordCount: countWords(asset.content),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    pileId: null,
+    zone: 'material',
+    x: null,
+    y: null,
+    extraFields
+  }
+}
+
+function createMaterialCard(content, emotion = 'calm', extraFields = null, sourceId = '') {
+  const normalizedContent = String(content || '').trim()
+  if (!normalizedContent) return null
+  const asset = addNarrativeAsset({
+    title: normalizedContent.slice(0, 24),
+    content: normalizedContent,
+    kind: 'storyboard-seed',
+    status: 'accepted',
+    source: {
+      type: 'relation-canvas',
+      id: sourceId
+    }
+  })
+  canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
+  return createCardFromAsset(asset, emotion, extraFields)
+}
+
 function trackPreference(action, card) {
   if (!card) return
 
@@ -1273,7 +1324,9 @@ function trackPreference(action, card) {
 
 // Card operations
 function handleKeydown(e) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+  if (e.key === 'Escape' && linkingActive.value) {
+    cancelLinking()
+  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault()
     undoCard()
   } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
@@ -1298,6 +1351,12 @@ function getTimelineDuration(item) {
   return extra?.duration || 3
 }
 
+function getStoryCardSequence(cardId) {
+  const index = outline.value.findIndex((item) => item.cardId === cardId)
+  const fallback = cards.value.findIndex((card) => card.id === cardId)
+  return index >= 0 ? index + 1 : Math.max(1, fallback + 1)
+}
+
 function getCardExtraFields(cardId) {
   if (!cardId) return null
   const card = cards.value.find(c => c.id === cardId)
@@ -1306,7 +1365,7 @@ function getCardExtraFields(cardId) {
 
 function selectCard(card) {
   selectedCard.value = card
-  editingContent.value = card.content;
+  editingContent.value = getCardFullContent(card)
   editingEmotion.value = card.emotion;
   if (!cardHistory.value[card.id]) {
     cardHistory.value[card.id] = { past: [], future: [] }
@@ -1333,9 +1392,11 @@ function saveCardDetail() {
   if (!card) return
   const previousEmotion = card.emotion
   pushHistory(selectedCard.value.id, card.content, card.emotion)
-  card.content = editingContent.value
+  if (!card.assetId) {
+    card.content = editingContent.value
+    card.wordCount = countWords(editingContent.value)
+  }
   card.emotion = editingEmotion.value
-  card.wordCount = countWords(editingContent.value)
   card.updatedAt = new Date().toISOString()
   // Save director mode extra fields
   if (currentMode.value === 'directing') {
@@ -1353,6 +1414,49 @@ function saveCardDetail() {
   if (card.emotion !== previousEmotion) {
     trackPreference('emotion_changed', card)
   }
+}
+
+function sendSelectedCardToMaterials() {
+  if (!selectedCard.value) return
+  const card = selectedCard.value
+  const firstImage = Array.isArray(card.attachedImages) ? card.attachedImages[0] : null
+  const assetKind = firstImage?.data ? 'reference-image' : 'storyboard-seed'
+  const lines = []
+  if (currentTopic.value.trim()) {
+    lines.push(`主题：${currentTopic.value.trim()}`)
+  }
+  lines.push(`卡片：${card.content || '未命名卡片'}`)
+  if (card.extraFields?.shotType) {
+    lines.push(`景别：${getShotTypeLabel(card.extraFields.shotType)}`)
+  }
+  if (card.extraFields?.cameraMovement) {
+    lines.push(`运镜：${getCameraMovementLabel(card.extraFields.cameraMovement)}`)
+  }
+  if (card.extraFields?.duration) {
+    lines.push(`时长：${card.extraFields.duration}s`)
+  }
+
+  const asset = addNarrativeAsset({
+    title: String(card.content || currentTopic.value || '画布节点').slice(0, 24),
+    content: lines.join('；'),
+    kind: assetKind,
+    status: 'accepted',
+    source: {
+      type: 'prose-card',
+      id: card.id
+    },
+    image: firstImage?.data ? {
+      id: firstImage.id,
+      prompt: firstImage.prompt,
+      data: firstImage.data
+    } : null
+  })
+
+  card.assetId = asset.id
+  card.wordCount = countWords(asset.content)
+  canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
+  addTimeline(`转为素材节点：${asset.title}`)
+  saveData()
 }
 
 function insertCard() {
@@ -1395,150 +1499,6 @@ function confirmClearAll() {
   addTimeline('清空所有卡片')
 }
 
-// 基于已有卡片生成更多相关卡片
-async function expandFromCard(card) {
-  if (!card || isGenerating.value) return
-
-  if (!apiSettings.value?.baseUrl || !apiSettings.value?.apiKey || !apiSettings.value?.model) {
-    alert('请先在设置中配置 API')
-    return
-  }
-
-  isGenerating.value = true
-  generationMsgIndex = 0
-  generationMessage.value = generationMessages[0]
-  generationMsgTimer = setInterval(() => {
-    generationMsgIndex = (generationMsgIndex + 1) % generationMessages.length
-    generationMessage.value = generationMessages[generationMsgIndex]
-  }, 1500)
-  try {
-    const generationResult = await generateProseCardExtensions({
-      cardContent: card.content,
-      settings: apiSettings.value
-    })
-
-    if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
-      const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
-
-      const newCards = generationResult.parsed.map(item => {
-        let emotion = item.emotion || editingEmotion.value
-        if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
-        return {
-          id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          content: item.content || '',
-          emotion,
-          wordCount: countWords(item.content || ''),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          pileId: null,
-          zone: 'material',
-          x: null,
-          y: null
-        }
-      }).filter(c => c.content.length > 0)
-
-      if (newCards.length === 0) return
-
-      // 与原卡片建立"延续"边
-      const newEdges = newCards.map(newCard => ({
-        id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        sourceId: card.id,
-        targetId: newCard.id,
-        type: 'continuation'
-      }))
-
-      if (!continuationGroups.value[card.id]) {
-        continuationGroups.value[card.id] = new Set()
-      }
-      newCards.forEach(n => continuationGroups.value[card.id].add(n.id))
-
-      cards.value.push(...newCards)
-      edges.value.push(...newEdges)
-      addTimeline(`基于「${card.content.slice(0, 15)}...」生成了 ${newCards.length} 张延伸卡片`)
-      saveData()
-    }
-  } catch (e) {
-    console.error('生成失败:', e)
-  } finally {
-    clearInterval(generationMsgTimer)
-    generationMsgTimer = null
-    isGenerating.value = false
-  }
-}
-
-// 基于情绪标签扩展内容
-async function expandByEmotion() {
-  if (!selectedCard.value || isGenerating.value) return
-
-  if (!apiSettings.value?.baseUrl || !apiSettings.value?.apiKey || !apiSettings.value?.model) {
-    alert('请先在设置中配置 API')
-    return
-  }
-
-  const emotionLabel = emotionLabels[editingEmotion.value] || editingEmotion.value
-
-  isGenerating.value = true
-  generationMsgIndex = 0
-  generationMessage.value = generationMessages[0]
-  generationMsgTimer = setInterval(() => {
-    generationMsgIndex = (generationMsgIndex + 1) % generationMessages.length
-    generationMessage.value = generationMessages[generationMsgIndex]
-  }, 1500)
-  try {
-    const generationResult = await generateProseEmotionExtensions({
-      content: editingContent.value,
-      emotionLabel,
-      settings: apiSettings.value
-    })
-
-    if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
-      const validEmotions = ['joy', 'sorrow', 'calm', 'anxiety', 'anger', 'surprise', 'nostalgia', 'hope']
-
-      const newCards = generationResult.parsed.map(item => {
-        let emotion = item.emotion || editingEmotion.value
-        if (!validEmotions.includes(emotion)) emotion = editingEmotion.value
-        return {
-          id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          content: item.content || '',
-          emotion,
-          wordCount: countWords(item.content || ''),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          pileId: null,
-          zone: 'material',
-          x: null,
-          y: null
-        }
-      }).filter(c => c.content.length > 0)
-
-      if (newCards.length === 0) return
-
-      const newEdges = newCards.map(newCard => ({
-        id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        sourceId: selectedCard.value.id,
-        targetId: newCard.id,
-        type: 'continuation'
-      }))
-
-      if (!continuationGroups.value[selectedCard.value.id]) {
-        continuationGroups.value[selectedCard.value.id] = new Set()
-      }
-      newCards.forEach(n => continuationGroups.value[selectedCard.value.id].add(n.id))
-
-      cards.value.push(...newCards)
-      edges.value.push(...newEdges)
-      addTimeline(`基于「${emotionLabel}」情绪扩展了 ${newCards.length} 张卡片`)
-      saveData()
-    }
-  } catch (e) {
-    console.error('生成失败:', e)
-  } finally {
-    clearInterval(generationMsgTimer)
-    generationMsgTimer = null
-    isGenerating.value = false
-  }
-}
-
 // Generate cards from topic
 async function generateCards() {
   const topic = currentTopic.value.trim()
@@ -1570,7 +1530,7 @@ async function generateCards() {
 
     console.error('卡片生成失败，未能解析有效内容')
   } catch (e) {
-    console.error('生成卡片失败:', e)
+    console.error('生成分镜卡片失败:', e)
   } finally {
     clearInterval(generationMsgTimer)
     generationMsgTimer = null
@@ -1614,30 +1574,15 @@ function normalizeEmotionKey(emotion) {
 function createNewCards(generated, topic) {
   const newCards = generated.map(item => {
     const emotion = normalizeEmotionKey(item.emotion)
-    const card = {
-      id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      content: item.content || '',
-      emotion,
-      wordCount: countWords(item.content || ''),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      pileId: null,
-      zone: 'material',
-      x: null,
-      y: null
+    const extraFields = {
+      shotType: item.shotType || '',
+      cameraMovement: item.cameraMovement || '',
+      duration: item.duration || 3,
+      dialogue: item.dialogue || '',
+      soundEffects: item.soundEffects || ''
     }
-    // Add director mode extra fields
-    if (currentMode.value === 'directing') {
-      card.extraFields = {
-        shotType: item.shotType || '',
-        cameraMovement: item.cameraMovement || '',
-        duration: item.duration || 3,
-        dialogue: item.dialogue || '',
-        soundEffects: item.soundEffects || ''
-      }
-    }
-    return card
-  }).filter(c => c.content.length > 0)
+    return createMaterialCard(item.content, emotion, extraFields, topic)
+  }).filter(Boolean)
 
   if (newCards.length === 0) return
 
@@ -1839,20 +1784,172 @@ function jumpToCard(cardId) {
 }
 
 // Edge operations
-function addEdge() {
-  if (!selectedCard.value || !newEdgeTarget.value) return
+function activateLinkType(edgeType) {
+  newEdgeType.value = edgeType
+  linkingActive.value = true
+  linkSourceCardId.value = ''
+  edgeLinkDraft.value = null
+}
 
+function cancelLinking() {
+  linkingActive.value = false
+  linkSourceCardId.value = ''
+  edgeLinkDraft.value = null
+}
+
+function toggleLinking() {
+  if (linkingActive.value) {
+    cancelLinking()
+  } else {
+    linkingActive.value = true
+    linkSourceCardId.value = ''
+    edgeLinkDraft.value = null
+  }
+}
+
+function handleCardClick(card) {
+  selectCard(card)
+}
+
+function connectCards(sourceId, targetId, edgeType) {
+  if (!sourceId || !targetId || sourceId === targetId) return
+  const existing = edges.value.find((edge) => (
+    (edge.sourceId === sourceId && edge.targetId === targetId)
+    || (edge.sourceId === targetId && edge.targetId === sourceId)
+  ))
+  if (existing) {
+    changeEdgeType(existing.id, edgeType)
+    return
+  }
   edges.value.push({
     id: `edge_${Date.now()}`,
-    sourceId: selectedCard.value.id,
-    targetId: newEdgeTarget.value,
-    type: newEdgeType.value
+    sourceId,
+    targetId,
+    type: edgeType
   })
+  addTimeline(`添加「${edgeTypes.find((type) => type.value === edgeType)?.label}」关联`)
+  saveData()
+}
 
-  addTimeline(`添加「${edgeTypes.find(t => t.value === newEdgeType.value)?.label}」关联`)
-  showEdgeDialog.value = false
-  newEdgeTarget.value = ''
-  newEdgeType.value = 'consciousness'
+function rectToLocalRect(rect, wallRect, wall) {
+  return {
+    left: rect.left - wallRect.left + wall.scrollLeft,
+    top: rect.top - wallRect.top + wall.scrollTop,
+    width: rect.width,
+    height: rect.height,
+    centerX: rect.left - wallRect.left + wall.scrollLeft + rect.width / 2,
+    centerY: rect.top - wallRect.top + wall.scrollTop + rect.height / 2,
+    right: rect.right - wallRect.left + wall.scrollLeft,
+    bottom: rect.bottom - wallRect.top + wall.scrollTop
+  }
+}
+
+function getConnectorPoint(rect, targetX, targetY) {
+  const dx = targetX - rect.centerX
+  const dy = targetY - rect.centerY
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return {
+      x: dx >= 0 ? rect.right : rect.left,
+      y: rect.centerY
+    }
+  }
+  return {
+    x: rect.centerX,
+    y: dy >= 0 ? rect.bottom : rect.top
+  }
+}
+
+function getCardWallPoint(event) {
+  if (!cardWallRef.value) return { x: 0, y: 0 }
+  const rect = cardWallRef.value.getBoundingClientRect()
+  return {
+    x: event.clientX - rect.left + cardWallRef.value.scrollLeft,
+    y: event.clientY - rect.top + cardWallRef.value.scrollTop
+  }
+}
+
+function onCardPointerDown(event, card) {
+  if (!linkingActive.value || event.button !== 0) return
+  if (event.target instanceof Element && event.target.closest('.card-actions')) return
+  event.preventDefault()
+  event.stopPropagation()
+
+  const wall = cardWallRef.value
+  if (!wall) return
+  const sourceEl = wall.querySelector(`[data-card-id="${card.id}"]`)
+  if (!sourceEl) return
+  const wallRect = wall.getBoundingClientRect()
+  const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, wall)
+  const localPoint = {
+    x: event.clientX - wallRect.left + wall.scrollLeft,
+    y: event.clientY - wallRect.top + wall.scrollTop
+  }
+  const anchor = getConnectorPoint(sourceRect, localPoint.x, localPoint.y)
+
+  linkSourceCardId.value = card.id
+  edgeLinkDraft.value = {
+    sourceId: card.id,
+    x1: anchor.x,
+    y1: anchor.y,
+    x2: anchor.x,
+    y2: anchor.y
+  }
+  window.addEventListener('pointermove', onEdgeDraftMove)
+  window.addEventListener('pointerup', onEdgeDraftEnd)
+}
+
+function onEdgeDraftMove(event) {
+  if (!edgeLinkDraft.value) return
+  const point = getCardWallPoint(event)
+  const sourceCard = cards.value.find((item) => item.id === edgeLinkDraft.value.sourceId)
+  const wall = cardWallRef.value
+  if (!sourceCard || !wall) return
+  const sourceEl = wall.querySelector(`[data-card-id="${sourceCard.id}"]`)
+  if (!sourceEl) return
+  const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wall.getBoundingClientRect(), wall)
+  const anchor = getConnectorPoint(sourceRect, point.x, point.y)
+  edgeLinkDraft.value = {
+    ...edgeLinkDraft.value,
+    x1: anchor.x,
+    y1: anchor.y,
+    x2: point.x,
+    y2: point.y
+  }
+}
+
+function stopEdgeDraft() {
+  window.removeEventListener('pointermove', onEdgeDraftMove)
+  window.removeEventListener('pointerup', onEdgeDraftEnd)
+}
+
+function onEdgeDraftEnd(event) {
+  if (!edgeLinkDraft.value) return
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-card-id]')
+  const sourceId = edgeLinkDraft.value.sourceId
+  const targetId = target?.dataset?.cardId
+  if (targetId && targetId !== sourceId) {
+    connectCards(sourceId, targetId, newEdgeType.value)
+    const targetCard = cards.value.find((item) => item.id === targetId)
+    if (targetCard) selectCard(targetCard)
+  }
+  edgeLinkDraft.value = null
+  linkSourceCardId.value = ''
+  stopEdgeDraft()
+}
+
+function changeEdgeType(edgeId, edgeType) {
+  const edge = edges.value.find((item) => item.id === edgeId)
+  if (!edge || !edgeTypes.some((item) => item.value === edgeType)) return
+  edge.type = edgeType
+  addTimeline(`更新为「${edgeTypes.find((item) => item.value === edgeType)?.label}」关联`)
+  saveData()
+}
+
+function removeEdge(edgeId) {
+  const edge = edges.value.find((item) => item.id === edgeId)
+  if (!edge) return
+  edges.value = edges.value.filter((item) => item.id !== edgeId)
+  addTimeline('断开卡片关联')
   saveData()
 }
 
@@ -1866,19 +1963,6 @@ const directorStoryboardIsCurrent = computed(() => {
   } catch {
     return false
   }
-})
-const directorStoryboardShotCount = computed(() => getDirectorStoryboardShots(lastDirectorExportContext.value).length)
-const directorStoryboardVersionLabel = computed(() => {
-  const versionId = lastDirectorExportContext.value?.version?.versionId || ''
-  return versionId ? versionId.slice(-6) : '-'
-})
-const directorStoryboardValidationText = computed(() => {
-  const validation = getDirectorStoryboardValidation(lastDirectorExportContext.value)
-  const errorCount = validation?.errors?.length || 0
-  const warningCount = validation?.warnings?.length || 0
-  if (errorCount) return `${errorCount} 错误`
-  if (warningCount) return `${warningCount} 提醒`
-  return '校验通过'
 })
 
 function buildDirectorExportTimeline() {
@@ -1948,7 +2032,7 @@ function getDirectorExportContext() {
   }
 
   const sourceId = String(currentTopic.value || '').trim() || 'untitled-prose'
-  const sourceTitle = String(currentTopic.value || '').trim() || '散文随笔'
+  const sourceTitle = String(currentTopic.value || '').trim() || '卡片画布'
   const result = saveValidatedStoryboardVersion({
     source: {
       sourceType: 'prose-card',
@@ -2018,7 +2102,7 @@ function exportToMarkdown() {
     }
 
     // Writing mode: existing markdown export
-    let md = `# ${currentTopic.value || '散文随笔'}\n\n`
+    let md = `# ${currentTopic.value || '卡片画布'}\n\n`
     for (let i = 0; i < outline.value.length; i++) {
       const item = outline.value[i]
       const card = cards.value.find(c => c.id === item.cardId)
@@ -2027,7 +2111,7 @@ function exportToMarkdown() {
       }
     }
     md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
-    downloadFile(md, '散文随笔.md', 'text/markdown')
+    downloadFile(md, '卡片画布.md', 'text/markdown')
     addTimeline('导出为 Markdown')
   } catch (error) {
     alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
@@ -2047,19 +2131,36 @@ function getEdgeClass(edgeType) {
 }
 
 function getEdgeStyle(edge) {
+  const visuals = {
+    consciousness: { stroke: '#7f8ea3', strokeWidth: 1.6, strokeDasharray: '8 5', opacity: 0.65 },
+    contrast: { stroke: '#ef5350', strokeWidth: 2.3, strokeDasharray: '3 5', opacity: 0.82 },
+    elaboration: { stroke: '#66bb6a', strokeWidth: 2.2, strokeDasharray: 'none', opacity: 0.8 },
+    parallel: { stroke: '#ab47bc', strokeWidth: 1.9, strokeDasharray: '5 4', opacity: 0.72 },
+    continuation: { stroke: 'var(--accent)', strokeWidth: 2.5, strokeDasharray: '10 4', opacity: 0.9 }
+  }
+  const visual = visuals[edge.type] || visuals.continuation
+
   if (currentMode.value === 'directing') {
     const edgeTypeConfig = directorEdgeTypes.find(e => e.value === edge.type)
-    if (edgeTypeConfig) {
-      return { stroke: edgeTypeConfig.color }
+    return {
+      ...visual,
+      stroke: edgeTypeConfig?.color || visual.stroke
     }
-    return { stroke: 'var(--accent)' }
   }
-  return { stroke: edgeColors[edge.type] || 'var(--accent)' }
+  return visual
+}
+
+function getEdgePreviewStyle(edgeType) {
+  const style = getEdgeStyle({ type: edgeType })
+  return {
+    opacity: style.opacity,
+    borderTop: `${Math.max(style.strokeWidth, 2)}px ${style.strokeDasharray && style.strokeDasharray !== 'none' ? 'dashed' : 'solid'} ${style.stroke}`
+  }
 }
 
 function exportToTxt() {
   showExportMenu.value = false
-  let txt = `${currentTopic.value || '散文随笔'}\n${'='.repeat(30)}\n\n`
+  let txt = `${currentTopic.value || '卡片画布'}\n${'='.repeat(30)}\n\n`
 
   for (let i = 0; i < outline.value.length; i++) {
     const item = outline.value[i]
@@ -2070,7 +2171,7 @@ function exportToTxt() {
   }
 
   txt += '\n【衔接提示】请在留空处补充过渡句，使文章更流畅。\n'
-  downloadFile(txt, '散文随笔.txt', 'text/plain')
+  downloadFile(txt, '卡片画布.txt', 'text/plain')
   addTimeline('导出为 TXT')
 }
 
@@ -2109,7 +2210,7 @@ function exportToJson() {
         outline: outline.value,
         timeline: timeline.value
       }
-      downloadFile(JSON.stringify(data, null, 2), '散文随笔_关系网.json', 'application/json')
+      downloadFile(JSON.stringify(data, null, 2), '卡片画布_关系网.json', 'application/json')
       addTimeline('导出完整关系网 JSON')
     }
   } catch (error) {
@@ -2153,6 +2254,20 @@ function loadImageLibrary() {
   imageLibrary.value = Array.isArray(loaded) ? loaded : []
 }
 
+function loadMaterialImageAssets() {
+  materialImageAssets.value = listNarrativeAssets({ status: null })
+    .filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
+    .filter((asset) => asset.kind === 'reference-image' && asset.image?.data)
+    .slice(0, 12)
+}
+
+function loadStoryboardSeedAssets() {
+  storyboardSeedAssets.value = listNarrativeAssets({ status: null })
+    .filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
+    .filter((asset) => asset.kind === 'storyboard-seed')
+    .slice(0, 10)
+}
+
 function saveImageLibrary() {
   const trimmed = imageLibrary.value.slice(0, 20)
   setItem(IMG_LIBRARY_KEY, trimmed)
@@ -2162,6 +2277,12 @@ function useCardContentAsPrompt() {
   if (selectedCard.value) {
     imagePrompt.value = selectedCard.value.content
   }
+}
+
+function useStoryboardSeed(asset) {
+  if (!asset) return
+  imagePrompt.value = String(asset.content || asset.title || '').trim()
+  imageDrawerOpen.value = true
 }
 
 function openImageConfig() {
@@ -2511,7 +2632,12 @@ async function callImageAPI(cfg, prompt, negativePrompt) {
 
 function attachImageToCard(imgEntry) {
   if (!selectedCard.value) return
-  const card = cards.value.find(c => c.id === selectedCard.value.id)
+  attachImageEntryToCard(selectedCard.value.id, imgEntry)
+}
+
+function attachImageEntryToCard(cardId, imgEntry) {
+  if (!cardId || !imgEntry?.data) return
+  const card = cards.value.find(c => c.id === cardId)
   if (!card) return
   if (!card.attachedImages) card.attachedImages = []
   if (card.attachedImages.length >= 3) {
@@ -2527,6 +2653,18 @@ function attachImageToCard(imgEntry) {
   imagePreviewIndex.value = -1
 }
 
+function attachMaterialImageToSelectedCard(asset) {
+  if (!selectedCard.value) {
+    alert('请先选择一张卡片')
+    return
+  }
+  attachImageEntryToCard(selectedCard.value.id, {
+    id: asset.image?.id || asset.id,
+    prompt: asset.image?.prompt || asset.content || asset.title || '',
+    data: asset.image?.data
+  })
+}
+
 function openImagePreview(card, imageIndex) {
   previewingCard.value = card
   const img = card.attachedImages[imageIndex]
@@ -2537,20 +2675,21 @@ function openImagePreview(card, imageIndex) {
 }
 
 function saveAsNewCard(imgEntry) {
-  const newCard = {
-    id: `card_${Date.now()}`,
-    content: `[图片素材] ${imgEntry.prompt}`,
-    emotion: 'calm',
-    wordCount: imgEntry.prompt.length,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    attachedImages: [{
+  if (!imgEntry?.data) return
+  const asset = addNarrativeAsset({
+    title: String(imgEntry.prompt || '参考图').slice(0, 24),
+    content: imgEntry.prompt || '参考图',
+    kind: 'reference-image',
+    status: 'accepted',
+    source: { type: 'relation-canvas', id: imgEntry.id },
+    image: {
       id: imgEntry.id,
       prompt: imgEntry.prompt,
       data: imgEntry.data
-    }]
-  }
-  cards.value.push(newCard)
+    }
+  })
+  canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
+  cards.value.push(createCardFromAsset(asset))
   saveData()
   imagePreviewIndex.value = -1
 }
@@ -2560,7 +2699,28 @@ function copyImagePrompt(imgEntry) {
 }
 
 function saveToMaterialLib(imgEntry) {
-  // Already in library, just close
+  if (!imgEntry?.data) return
+  addNarrativeAsset({
+    title: (imgEntry.prompt || '参考图').slice(0, 24),
+    content: imgEntry.prompt || '参考图',
+    kind: 'reference-image',
+    status: 'inbox',
+    source: {
+      type: 'prose-image',
+      id: imgEntry.id
+    },
+    image: {
+      id: imgEntry.id,
+      prompt: imgEntry.prompt,
+      data: imgEntry.data,
+      negativePrompt: imgEntry.negativePrompt,
+      modelName: imgEntry.modelName,
+      modelType: imgEntry.modelType,
+      width: imgEntry.width,
+      height: imgEntry.height
+    }
+  })
+  loadMaterialImageAssets()
   imagePreviewIndex.value = -1
 }
 
@@ -2689,6 +2849,11 @@ function goToMaterialsImageGen() {
   font-weight: 600;
 }
 
+.mode-label:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .card-count {
   font-size: 13px;
   color: var(--text-secondary);
@@ -2710,49 +2875,67 @@ function goToMaterialsImageGen() {
   background: var(--bg-primary);
 }
 
+.card-wall.storyboard-mode {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 180px), var(--bg-primary);
+}
+
 .card-wall.has-cards {
   overflow: auto;
 }
 
-.edge-layer {
-  position: absolute;
+.storyboard-ruler {
+  position: sticky;
   top: 0;
-  left: 0;
-  pointer-events: none;
-  z-index: 1;
-  overflow: visible;
+  z-index: 4;
+  margin: 0 0 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, #ffffff 6%);
 }
 
-.edge {
-  fill: none;
-  stroke: #7f8ea3;
-  stroke-width: 1.2;
-  stroke-opacity: 0.6;
+.storyboard-ruler-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
-.edge-consciousness {
-  stroke: #7f8ea3;
-  stroke-dasharray: 6 4;
+.storyboard-ruler-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
-.edge-contrast {
-  stroke: #ef5350;
-  stroke-dasharray: 2 4;
+.storyboard-ruler-item {
+  min-width: 200px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  color: var(--text-primary);
 }
 
-.edge-elaboration {
-  stroke: #66bb6a;
-  stroke-dasharray: none;
+.storyboard-ruler-index,
+.storyboard-ruler-duration {
+  font-size: 11px;
+  color: var(--accent);
 }
 
-.edge-parallel {
-  stroke: #ab47bc;
-  stroke-dasharray: 3 3;
-}
-
-.edge-continuation {
-  stroke: var(--accent);
-  stroke-dasharray: 5 3;
+.storyboard-ruler-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .empty-cards {
@@ -2785,17 +2968,23 @@ function goToMaterialsImageGen() {
 
 /* Writing Card - PoetryLab-style idea node */
 .writing-card {
-  width: 280px;
-  min-height: 180px;
+  width: 224px;
+  min-height: 122px;
   background: var(--card-accent, var(--bg-secondary));
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 7px;
+  padding: 10px;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   box-shadow: 0 4px 16px var(--shadow);
   z-index: 2;
   color: var(--text-primary);
+}
+
+.writing-card.storyboard-card {
+  border-left: 3px solid var(--accent);
+  min-height: 124px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .writing-card:hover {
@@ -2807,6 +2996,11 @@ function goToMaterialsImageGen() {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-light);
   z-index: 3;
+}
+
+.writing-card.link-source {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .writing-card.inline-editing {
@@ -2832,11 +3026,30 @@ function goToMaterialsImageGen() {
 
 .card-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  margin-bottom: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.card-storyboard-badge {
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.card-storyboard-badge span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .continuation-indicator {
@@ -2864,42 +3077,43 @@ function goToMaterialsImageGen() {
 }
 
 .card-time {
-  font-size: 11px;
+  margin-left: auto;
+  font-size: 10px;
   color: var(--text-muted);
 }
 
 .card-content {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-primary);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
-.card-images {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.card-image-item {
-  width: 60px;
-  height: 60px;
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  transition: transform 0.15s;
-}
-
-.card-image-item:hover {
-  transform: scale(1.05);
-}
-
-.card-image-item img {
+.card-preview-thumb {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: 54px;
   object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.card-title {
+  margin-bottom: 3px;
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-preview-copy {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .card-footer {
@@ -3044,12 +3258,46 @@ function goToMaterialsImageGen() {
   color: var(--text-primary);
 }
 
+.node-index {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.node-operations {
+  display: grid;
+  gap: 7px;
+}
+
+.node-operations .detail-btn {
+  margin-bottom: 0;
+}
+
+.node-delete-btn {
+  width: 100%;
+}
+
 .detail-panel-badge {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.selected-card-preview {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .detail-panel-meta {
@@ -3070,6 +3318,12 @@ function goToMaterialsImageGen() {
 .detail-panel-section {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.detail-btn {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 8px;
 }
 
 .section-label {
@@ -3122,6 +3376,176 @@ function goToMaterialsImageGen() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.related-card-links {
+  margin-top: 6px;
+}
+
+.related-card-link {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  text-align: left;
+}
+
+.related-card-jump {
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+
+.related-edge-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+  color: var(--accent);
+}
+
+.related-edge-controls {
+  display: flex;
+  gap: 5px;
+  padding: 0 6px 6px;
+}
+
+.related-edge-select {
+  flex: 1;
+  min-width: 0;
+  height: 27px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.related-edge-remove {
+  width: 27px;
+  height: 27px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.related-edge-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.edge-type-sample {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-bottom: 6px;
+}
+
+.canvas-edge-legend {
+  position: sticky;
+  top: 86px;
+  float: right;
+  z-index: 6;
+  width: 156px;
+  margin: 10px 12px 0 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-panel) 92%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--shadow-md) 45%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.canvas-edge-legend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.legend-toggle-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.legend-toggle-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.legend-edge-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legend-edge-item:hover,
+.legend-edge-item.active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.legend-line-preview {
+  display: block;
+  width: 32px;
+  height: 0;
+}
+
+.legend-edge-hint {
+  margin: 5px 0 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.edge-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.edge-path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.78;
+}
+
+.edge-path.edge-draft {
+  opacity: 0.9;
+}
+
+.relation-add-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .detail-panel-actions {
@@ -3180,6 +3604,12 @@ function goToMaterialsImageGen() {
 
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-secondary.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
   color: var(--accent);
 }
 
@@ -3518,69 +3948,6 @@ function goToMaterialsImageGen() {
   height: 16px;
   background: var(--border);
   border-radius: 4px;
-}
-
-.prose-essay-page .storyboard-version-panel {
-  margin: 0 12px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-soft) 92%, #ffffff 8%);
-  padding: 10px;
-}
-
-.prose-essay-page .storyboard-version-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.prose-essay-page .storyboard-version-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.prose-essay-page .storyboard-version-badge {
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
-  font-size: 11px;
-}
-
-.prose-essay-page .storyboard-version-badge.stale {
-  background: color-mix(in srgb, #f39c6b 18%, transparent);
-  color: #f39c6b;
-}
-
-.prose-essay-page .storyboard-version-copy,
-.prose-essay-page .storyboard-version-status {
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.prose-essay-page .storyboard-version-stats {
-  margin-top: 8px;
-  display: grid;
-  gap: 5px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.prose-essay-page .storyboard-version-actions {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-.prose-essay-page .storyboard-version-actions .btn-primary,
-.prose-essay-page .storyboard-version-actions .btn-secondary {
-  width: 100%;
-  justify-content: center;
 }
 
 /* Card badges for director mode */
@@ -4277,11 +4644,55 @@ function goToMaterialsImageGen() {
 
 .image-gen-thumb {
   aspect-ratio: 1;
+  padding: 0;
+  background: var(--bg-primary);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
   border: 2px solid transparent;
   transition: border-color 0.15s;
+}
+
+.material-image-results {
+  max-height: 150px;
+  overflow: auto;
+}
+
+.image-gen-seed-list {
+  display: grid;
+  gap: 6px;
+}
+
+.image-gen-seed-item {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.image-gen-seed-item:hover {
+  border-color: var(--accent);
+}
+
+.image-gen-seed-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-gen-seed-preview {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .image-gen-thumb:hover {

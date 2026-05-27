@@ -32,6 +32,11 @@ export const ASSET_KINDS = [
     value: 'storyboard-seed',
     label: '分镜种子',
     explanation: '用于生成章节分镜的镜头线索或场面描述。'
+  },
+  {
+    value: 'reference-image',
+    label: '参考图',
+    explanation: '可挂到分镜镜头卡的视觉参考图片。'
   }
 ]
 
@@ -64,6 +69,7 @@ export function createNarrativeAsset(input = {}) {
     title,
     content,
     status: normalizeStatus(input.status),
+    image: normalizeImage(input.image),
     createdAt: input.createdAt || now,
     updatedAt: input.updatedAt || now
   }
@@ -146,6 +152,14 @@ export function getAssetSourceLabel(source = {}) {
   switch (type) {
     case 'experience-session':
       return '体验会话'
+    case 'poetry-node':
+      return '诗歌节点'
+    case 'prose-card':
+      return '散文卡片'
+    case 'relation-canvas':
+      return '卡片画布'
+    case 'note-image':
+      return '素材生图'
     case 'note':
       return '素材'
     case 'chapter':
@@ -179,6 +193,20 @@ function normalizeSource(source = {}) {
     type: source.type || 'manual',
     id: source.id || '',
     messageIds: Array.isArray(source.messageIds) ? source.messageIds : []
+  }
+}
+
+function normalizeImage(image = null) {
+  if (!image || !image.data) return null
+  return {
+    id: image.id || '',
+    prompt: normalizeText(image.prompt),
+    data: image.data,
+    negativePrompt: normalizeText(image.negativePrompt),
+    modelName: normalizeText(image.modelName),
+    modelType: normalizeText(image.modelType),
+    width: Number(image.width) || null,
+    height: Number(image.height) || null
   }
 }
 
