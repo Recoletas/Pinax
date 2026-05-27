@@ -105,13 +105,21 @@ describe('ShotExporter', () => {
         }
       ],
       timeline: [
-        { cardId: 'card-1', order: 0, duration: 5 }
+        {
+          cardId: 'card-1',
+          assetId: 'asset-1',
+          order: 0,
+          duration: 5,
+          imageReferences: [{ id: 'img-1', assetId: 'asset-img-1', source: 'asset' }]
+        }
       ]
     })
 
     const csv = toPremiereCSV(shots)
 
     expect(shots[0].sound).toBe('雨声')
+    expect(shots[0].assetId).toBe('asset-1')
+    expect(shots[0].imageReferences).toEqual([{ id: 'img-1', assetId: 'asset-img-1', source: 'asset' }])
     expect(csv).toContain('序号,景别,运镜,时长(秒),画面描述,台词,音效')
     expect(csv).toContain('街灯亮起')
     expect(csv).toContain('雨声')

@@ -3,10 +3,10 @@
     <header class="editor-header">
       <div class="header-left">
         <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <h1>世界书高级设置</h1>
+        <h1>世界书 · 高级设置</h1>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" @click="openQuickImport">快速导入入口</button>
+        <button class="ghost-btn" @click="openQuickImport">返回快速导入</button>
         <input
           v-model.trim="worldbookSearch"
           class="search-input"
@@ -476,6 +476,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
+import { formatWorldbookStatus } from '../services/worldbookFeedback'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -811,13 +812,23 @@ function clearGroupMessages() {
 }
 
 function setGroupError(message) {
-  groupError.value = message
+  groupError.value = formatWorldbookStatus(message)
   groupSuccess.value = ''
 }
 
 function setGroupSuccess(message) {
-  groupSuccess.value = message
+  groupSuccess.value = formatWorldbookStatus(message)
   groupError.value = ''
+}
+
+function setTransferError(message) {
+  importError.value = formatWorldbookStatus(message)
+  transferMessage.value = ''
+}
+
+function setTransferSuccess(message) {
+  transferMessage.value = formatWorldbookStatus(message)
+  importError.value = ''
 }
 
 function getCurrentWorldbookGroups() {
@@ -1392,7 +1403,7 @@ async function handleImportFileChange(event) {
     importPreview.value = normalizePreview(parsed, file.name)
   } catch (error) {
     importPreview.value = null
-    importError.value = `导入预览失败：${error?.message || '未知错误'}`
+    setTransferError(`导入预览失败：${error?.message || '未知错误'}`)
   } finally {
     importing.value = false
   }
@@ -1417,9 +1428,9 @@ async function confirmImportFromPreview() {
       await worldStore.setActiveWorldbook(created.id)
     }
     importPreview.value = null
-    transferMessage.value = `导入完成：${created?.name || '新世界书'}`
+    setTransferSuccess(`导入完成：${created?.name || '新世界书'}`)
   } catch (error) {
-    importError.value = `导入失败：${error?.message || '未知错误'}`
+    setTransferError(`导入失败：${error?.message || '未知错误'}`)
   } finally {
     importing.value = false
   }
@@ -1451,9 +1462,9 @@ async function exportActiveWorldbook() {
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(objectUrl)
-    transferMessage.value = `导出完成：${filename}`
+    setTransferSuccess(`导出完成：${filename}`)
   } catch (error) {
-    importError.value = `导出失败：${error?.message || '未知错误'}`
+    setTransferError(`导出失败：${error?.message || '未知错误'}`)
   } finally {
     exporting.value = false
   }

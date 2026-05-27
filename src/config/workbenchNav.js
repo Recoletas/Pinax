@@ -59,13 +59,13 @@ export const SIDE_PANELS = {
     items: [
       {
         routeName: 'experience-worldbook',
-        label: '导入',
-        description: '预设、AI 提炼、随机生成'
+        label: '快速导入',
+        description: '预设、AI 提炼、随机生成入口'
       },
       {
         routeName: 'experience-worldbook-advanced',
-        label: '编辑',
-        description: '条目与注入参数细调'
+        label: '高级设置',
+        description: '条目、分组与注入参数细调'
       }
     ]
   },

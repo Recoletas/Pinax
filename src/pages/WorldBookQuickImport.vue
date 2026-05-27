@@ -2,7 +2,7 @@
   <div class="quick-page">
     <header class="quick-hero">
       <div class="hero-left">
-        <h1>世界书快速导入</h1>
+        <h1>世界书 · 快速导入</h1>
         <p>
           这是面向新手的普通入口：用预设、小说段落或一句说明，快速生成可用世界书。
           条目细调、注入参数和批量改动放在高级设置中处理。
@@ -390,6 +390,7 @@ import {
   tryAiExtractWorldbookJson,
   tryAiGenerateWorldbookJsonFromBrief
 } from '../services/worldbookImportGeneration'
+import { formatWorldbookStatus } from '../services/worldbookFeedback'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -709,7 +710,7 @@ async function handleNovelFileChange(event) {
     const text = await file.text()
     const normalized = normalizeText(text)
     if (normalized.length < 20) {
-      errorMessage.value = '文件内容过短，至少需要 20 字。'
+      setWorldbookError('文件内容过短，至少需要 20 字。')
       return
     }
 
@@ -720,9 +721,9 @@ async function handleNovelFileChange(event) {
       novelInput.name = normalizeText(file.name.replace(/\.[^/.]+$/, ''))
     }
 
-    infoMessage.value = `已加载文件：${file.name}（${normalized.length} 字）`
+    setWorldbookInfo(`已加载文件：${file.name}（${normalized.length} 字）`)
   } catch (error) {
-    errorMessage.value = `读取文件失败：${error?.message || '未知错误'}`
+    setWorldbookError(`读取文件失败：${error?.message || '未知错误'}`)
   }
 }
 
@@ -736,6 +737,24 @@ function clearFeedback() {
   errorMessage.value = ''
   successMessage.value = ''
   infoMessage.value = ''
+}
+
+function setWorldbookError(message) {
+  errorMessage.value = formatWorldbookStatus(message)
+  successMessage.value = ''
+  infoMessage.value = ''
+}
+
+function setWorldbookSuccess(message) {
+  successMessage.value = formatWorldbookStatus(message)
+  errorMessage.value = ''
+  infoMessage.value = ''
+}
+
+function setWorldbookInfo(message) {
+  infoMessage.value = formatWorldbookStatus(message)
+  errorMessage.value = ''
+  successMessage.value = ''
 }
 
 function entryTypeLabel(typeValue) {
@@ -1252,7 +1271,7 @@ async function generateFromNovelText() {
   clearFeedback()
   const sourceText = normalizeText(novelInput.sourceText)
   if (sourceText.length < 20) {
-    errorMessage.value = '请至少粘贴一段有效文本（不少于 20 字）。'
+    setWorldbookError('请至少粘贴一段有效文本（不少于 20 字）。')
     return
   }
 
@@ -1264,7 +1283,7 @@ async function generateFromNovelText() {
       const segments = buildSegmentedEntries(chapters)
       novelSegments.value = segments
       expandedSegmentIndex.value = 0
-      infoMessage.value = `检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`
+      setWorldbookInfo(`检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`)
     } else {
       const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
       const fallbackEntries = buildEntriesFromParagraphs(sourceText, targetCount)
@@ -1279,18 +1298,18 @@ async function generateFromNovelText() {
         const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
         if (aiResult.ok && aiResult.payload) {
           payload = aiResult.payload
-          infoMessage.value = '已完成 AI 提炼，可直接导入或继续调整。'
+          setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
         } else if (aiResult.reason) {
-          infoMessage.value = aiResult.reason
+          setWorldbookInfo(aiResult.reason)
         }
       } else {
-        infoMessage.value = '已使用本地智能提炼生成预览。'
+        setWorldbookInfo('已使用本地智能提炼生成预览。')
       }
 
       pendingImport.value = payload
     }
   } catch (error) {
-    errorMessage.value = `生成预览失败：${error?.message || '未知错误'}`
+    setWorldbookError(`生成预览失败：${error?.message || '未知错误'}`)
   } finally {
     generatingNovel.value = false
   }
@@ -1307,7 +1326,7 @@ function regenerateSegments() {
   const chapters = detectChapters(sourceText)
   novelSegments.value = buildSegmentedEntries(chapters)
   expandedSegmentIndex.value = 0
-  infoMessage.value = `已重新生成分段预览（${chapters.length} 段）。`
+  setWorldbookInfo(`已重新生成分段预览（${chapters.length} 段）。`)
 }
 
 function clearSegments() {
@@ -1390,7 +1409,7 @@ async function importFromSegments() {
   try {
     const allEntries = novelSegments.value.flatMap(seg => seg.entries || [])
     if (!allEntries.length) {
-      errorMessage.value = '没有可导入的条目'
+      setWorldbookError('没有可导入的条目。')
       return
     }
 
@@ -1404,13 +1423,13 @@ async function importFromSegments() {
     }
 
     const created = await createWorldbookFromPayload(payload)
-    successMessage.value = `已创建世界书：${created?.name || '新世界书'}（${allEntries.length} 条目）`
+    setWorldbookSuccess(`已创建：${created?.name || '新世界书'}（${allEntries.length} 条目）。`)
 
     novelSegments.value = []
     expandedSegmentIndex.value = -1
     pendingImport.value = null
   } catch (error) {
-    errorMessage.value = `导入失败：${error?.message || '未知错误'}`
+    setWorldbookError(`导入失败：${error?.message || '未知错误'}`)
   } finally {
     creating.value = false
   }
@@ -1425,7 +1444,7 @@ async function generateFromBrief() {
   try {
     const brief = normalizeText(randomInput.brief)
     if (brief.length < 8) {
-      errorMessage.value = '请先输入至少 8 字说明，AI 会基于说明生成。'
+      setWorldbookError('请先输入至少 8 字说明，AI 会基于说明生成。')
       pendingImport.value = null
       return
     }
@@ -1439,15 +1458,15 @@ async function generateFromBrief() {
     })
 
     if (!aiResult.ok || !aiResult.payload) {
-      errorMessage.value = aiResult.reason || 'AI 随机生成失败，请稍后重试。'
+      setWorldbookError(aiResult.reason || 'AI 随机生成失败，请稍后重试。')
       pendingImport.value = null
       return
     }
 
     pendingImport.value = buildPendingPayload(aiResult.payload)
-    infoMessage.value = '已完成 AI 生成预览，可直接导入。'
+    setWorldbookInfo('已完成 AI 生成预览，可直接导入。')
   } catch (error) {
-    errorMessage.value = `随机生成失败：${error?.message || '未知错误'}`
+    setWorldbookError(`随机生成失败：${error?.message || '未知错误'}`)
     pendingImport.value = null
   } finally {
     generatingRandom.value = false
@@ -1557,9 +1576,9 @@ async function importPending() {
     const modeLabel = resolved.mode === 'overwrite'
       ? '覆盖导入完成'
       : (resolved.mode === 'rename' ? '重命名导入完成' : '导入完成')
-    successMessage.value = `${modeLabel}：${created?.name || '新世界书'}（${resolved.payload.entries.length} 条目）`
+    setWorldbookSuccess(`${modeLabel}：${created?.name || '新世界书'}（${resolved.payload.entries.length} 条目）。`)
   } catch (error) {
-    errorMessage.value = `导入失败：${error?.message || '未知错误'}`
+    setWorldbookError(`导入失败：${error?.message || '未知错误'}`)
   } finally {
     creating.value = false
   }
@@ -1580,9 +1599,9 @@ async function importPreset(preset) {
 
     const created = await createWorldbookFromPayload(payload)
     pendingImport.value = payload
-    successMessage.value = `已创建预设世界书：${created?.name || '新世界书'}`
+    setWorldbookSuccess(`已创建预设世界书：${created?.name || '新世界书'}。`)
   } catch (error) {
-    errorMessage.value = `预设导入失败：${error?.message || '未知错误'}`
+    setWorldbookError(`预设导入失败：${error?.message || '未知错误'}`)
   } finally {
     creating.value = false
   }

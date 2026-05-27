@@ -145,6 +145,7 @@ export function extractShotsFromProseEssay({ cards, timeline = [] }) {
     shots.push({
       sequence: i + 1,
       nodeId: card.id,
+      assetId: entry.assetId || card.assetId || '',
       content: card.content || '',
       shotType: extra.shotType || inferShotTypeFromEmotion(emotion),
       camera: extra.cameraMovement || 'fixed',
@@ -153,7 +154,8 @@ export function extractShotsFromProseEssay({ cards, timeline = [] }) {
       sound: extra.soundDescription || extra.soundEffects || '',
       emotion: emotion,
       transition: i > 0 ? 'cut' : 'none',
-      dialogue: extra.dialogue || ''
+      dialogue: extra.dialogue || '',
+      imageReferences: Array.isArray(entry.imageReferences) ? entry.imageReferences : []
     })
   }
 

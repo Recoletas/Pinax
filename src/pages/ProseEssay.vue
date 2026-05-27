@@ -42,8 +42,9 @@
         <!-- 选中卡片详情面板 -->
         <div v-if="selectedCard" class="card-detail-panel">
           <div class="detail-panel-header">
-            <span class="detail-panel-title">镜头节点</span>
-            <span class="node-index">#{{ getStoryCardSequence(selectedCard.id) }}</span>
+            <span class="detail-panel-title">画布节点</span>
+            <span v-if="selectedCardTimelineSequence" class="node-index">镜头 #{{ selectedCardTimelineSequence }}</span>
+            <span v-else class="node-index muted">未排入时间轴</span>
           </div>
 
           <div class="node-operations">
@@ -52,6 +53,9 @@
             </button>
             <button v-else class="btn-secondary detail-btn" @click="sendSelectedCardToMaterials">
               转为素材节点
+            </button>
+            <button class="btn-secondary detail-btn timeline-detail-btn" :class="{ active: selectedCardInTimeline }" @click="toggleSelectedCardTimeline">
+              {{ selectedCardInTimeline ? '移出时间轴' : '加入时间轴' }}
             </button>
             <button class="btn-secondary detail-btn" @click="showCardDetailDialog = true">镜头参数</button>
             <button class="btn-danger node-delete-btn" @click="deleteCard(selectedCard.id)">删除节点</button>
@@ -70,47 +74,45 @@
 
         <div class="outline-section">
           <div class="outline-header">
-            <span class="outline-title">时间轴</span>
-            <button class="add-btn" @click="addToOutline" :disabled="!selectedCard" title="将选中卡片加入时间轴">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
-              </svg>
-            </button>
+            <div class="outline-title-stack">
+              <span class="outline-title">时间轴</span>
+              <span class="timeline-summary">{{ timelineItems.length }} 镜 / {{ timelineTotalDuration }}s</span>
+            </div>
+            <div class="timeline-header-actions">
+              <button class="timeline-clear-btn" type="button" :disabled="outline.length === 0" @click="clearTimeline" title="清空时间轴">清空</button>
+            </div>
           </div>
 
           <div class="timeline-view">
             <div class="timeline-track">
               <div
-                v-for="(item, index) in outline"
-                :key="item.pileId || item.cardId"
+                v-for="item in timelineItems"
+                :key="item.key"
                 class="timeline-card"
-                :class="{ active: selectedCard?.id === item.cardId }"
-                :style="{ width: getTimelineCardWidth(item) + 'px' }"
-                @click="jumpToCard(item.pileId ? piles.find(p => p.pileId === item.pileId)?.cardIds[0] : item.cardId)"
+                :class="{ active: selectedCard?.id === item.cardId, dragging: draggingOutlineIndex === item.index, 'drop-target': outlineDragOverIndex === item.index }"
+                @click="jumpToTimelineItem(item)"
                 draggable="true"
-                @dragstart="onOutlineDragStart(index, $event)"
-                @dragover.prevent="onOutlineDragOver(index)"
-                @drop="onOutlineDrop(index)"
+                @dragstart="onOutlineDragStart(item.index, $event)"
+                @dragover.prevent="onOutlineDragOver(item.index)"
+                @drop="onOutlineDrop(item.index)"
                 @dragend="onOutlineDragEnd"
               >
                 <div class="timeline-card-header">
-                  <span class="timeline-index">{{ index + 1 }}</span>
-                  <span class="timeline-duration">{{ getTimelineDuration(item) }}s</span>
+                  <span class="timeline-index">{{ item.index + 1 }}</span>
+                  <span class="timeline-card-title">{{ item.title }}</span>
+                  <span class="timeline-duration">{{ item.duration }}s</span>
                 </div>
-                <div class="timeline-card-content">{{ item.preview }}</div>
-                <div class="timeline-card-meta" v-if="getCardExtraFields(item.cardId)">
-                  <span v-if="getCardExtraFields(item.cardId).shotType">{{ getShotTypeLabel(getCardExtraFields(item.cardId).shotType) }}</span>
+                <div v-if="item.metaText" class="timeline-card-meta" :title="item.metaText">
+                  {{ item.metaText }}
+                </div>
+                <div class="timeline-card-actions" @click.stop>
+                  <button type="button" :disabled="item.index === 0" @click="moveOutlineUp(item.index)" title="上移">↑</button>
+                  <button type="button" :disabled="item.index === outline.length - 1" @click="moveOutlineDown(item.index)" title="下移">↓</button>
+                  <button type="button" class="danger" @click="removeFromOutline(item.index)" title="移除">×</button>
                 </div>
               </div>
               <div v-if="outline.length === 0" class="timeline-empty">
-                点击 + 将卡片加入时间轴
-              </div>
-            </div>
-            <!-- Audio track layer -->
-            <div class="audio-track">
-              <div class="audio-track-label">音轨</div>
-              <div class="audio-track-content">
-                <!-- Placeholder for audio markers -->
+                选择画布节点后，在详情中加入时间轴
               </div>
             </div>
           </div>
@@ -119,31 +121,22 @@
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length, 'storyboard-mode': currentMode === 'directing' }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
-        <div class="storyboard-ruler">
-          <div class="storyboard-ruler-head">
-            <span>分镜顺序</span>
-            <span>{{ storyboardTimelinePreview.length }} 段</span>
-          </div>
-          <div class="storyboard-ruler-strip">
-            <button
-              v-for="item in storyboardTimelinePreview"
-              :key="item.cardId"
-              class="storyboard-ruler-item"
-              type="button"
-              @click.stop="jumpToCard(item.cardId)"
-            >
-              <span class="storyboard-ruler-index">{{ item.order + 1 }}</span>
-              <span class="storyboard-ruler-text">{{ item.preview }}</span>
-              <span class="storyboard-ruler-duration">{{ item.duration }}s</span>
-            </button>
-          </div>
-        </div>
-        <div v-if="cards.length" class="canvas-edge-legend">
+        <div v-if="cards.length" class="canvas-edge-legend" :class="{ active: linkingActive || edgeDeleteActive }">
           <div class="canvas-edge-legend-head">
-            <span>关系线</span>
-            <button class="legend-toggle-btn" :class="{ active: linkingActive }" type="button" @click="toggleLinking">
-              {{ linkingActive ? '连线中' : '连线' }}
-            </button>
+            <span class="legend-edge-title">关系线</span>
+            <div class="legend-head-actions">
+              <button class="legend-toggle-btn" :class="{ active: linkingActive }" type="button" @click="toggleLinking" :title="linkingActive ? '退出连线模式' : '连线模式'">
+                <svg class="legend-action-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M8 12h8M5 12a3 3 0 116 0 3 3 0 01-6 0Zm8 0a3 3 0 116 0 3 3 0 01-6 0Z" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="legend-action-label">{{ linkingActive ? '连线中' : '连线' }}</span>
+              </button>
+              <button class="legend-delete-btn" :class="{ active: edgeDeleteActive }" type="button" @click="toggleEdgeDeleteMode" :title="edgeDeleteActive ? '退出删线模式' : '删线模式'">
+                <svg class="legend-action-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 6h18M9 6V4h6v2M6 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
           <button
             v-for="edgeType in edgeTypes"
@@ -157,7 +150,7 @@
             <span>{{ edgeType.label }}</span>
           </button>
           <p class="legend-edge-hint">
-            {{ linkingActive ? '拖动节点到目标节点' : '选线型后开启连线' }}
+            {{ edgeDeleteActive ? '点击关系线删除，Esc 退出' : linkingActive ? '拖动节点到目标节点' : '选线型后开启连线' }}
           </p>
         </div>
         <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
@@ -166,15 +159,26 @@
               <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
             </marker>
           </defs>
-          <path
+          <g
             v-for="edge in renderedEdges"
             :key="edge.id"
-            class="edge-path"
-            :class="`edge-${edge.type}`"
-            :d="edge.d"
-            :style="getEdgeStyle(edge)"
-            marker-end="url(#prose-edge-arrow)"
-          />
+            class="edge-group"
+            :class="{ deletable: edgeDeleteActive }"
+          >
+            <path
+              v-if="edgeDeleteActive"
+              class="edge-hit-path"
+              :d="edge.d"
+              @click.stop="removeEdge(edge.id)"
+            />
+            <path
+              class="edge-path"
+              :class="`edge-${edge.type}`"
+              :d="edge.d"
+              :style="getEdgeStyle(edge)"
+              marker-end="url(#prose-edge-arrow)"
+            />
+          </g>
           <path
             v-if="edgeLinkDraft"
             class="edge-path edge-draft"
@@ -202,7 +206,7 @@
           v-for="card in flatCards"
           :key="card.id"
           class="writing-card"
-          :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': true }"
+          :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': isCardInTimeline(card.id) }"
           :style="{
             position: 'absolute',
             left: card.x + 'px',
@@ -224,8 +228,8 @@
           @drop="onCardDrop(card, $event)"
           @dragend="onCardDragEnd"
         >
-          <div class="card-storyboard-badge">
-            <span>#{{ getStoryCardSequence(card.id) }}</span>
+          <div v-if="getCardTimelineSequence(card.id)" class="card-storyboard-badge">
+            <span>#{{ getCardTimelineSequence(card.id) }}</span>
           </div>
           <div class="card-header">
             <span v-if="card.extraFields?.shotType" class="card-shot-badge" :title="'景别: ' + getShotTypeLabel(card.extraFields.shotType)">
@@ -240,7 +244,6 @@
               </svg>
             </span>
             <span v-else-if="isInSameGroup(card.id)" class="continuation-badge">衍生</span>
-            <span class="card-time">{{ formatTime(card.createdAt) }}</span>
           </div>
           <img
             v-if="getCardPreviewImage(card)"
@@ -249,9 +252,11 @@
             :alt="getCardTitle(card)"
           />
           <div class="card-title">{{ getCardTitle(card) }}</div>
-          <div class="card-content card-preview-copy">{{ getCardPreview(card) }}</div>
+          <div v-if="!getCardPreviewImage(card)" class="card-preview-empty" :title="getCardPreview(card)">
+            <span class="card-preview-empty-dot"></span>
+            <span class="card-preview-empty-text">{{ getCardPreview(card) }}</span>
+          </div>
           <div class="card-footer">
-            <span class="card-words">{{ card.wordCount }} 字</span>
             <div class="card-actions" @click.stop>
               <button class="card-action-btn" @click.stop="deleteCard(card.id)" title="删除">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -775,6 +780,7 @@ const isGenerating = ref(false)
 const generationMessage = ref('正在捕捉灵感…')
 const newEdgeType = ref('continuation')
 const linkingActive = ref(false)
+const edgeDeleteActive = ref(false)
 const linkSourceCardId = ref('')
 const edgeLinkDraft = ref(null)
 const showExportMenu = ref(false)
@@ -796,6 +802,8 @@ const piles = ref([])
 const hoveredPileId = ref(null)
 const expandedPileId = ref(null)
 const draggingCardId = ref(null)
+const draggingOutlineIndex = ref(-1)
+const outlineDragOverIndex = ref(-1)
 
 // Git-style commits (renamed to avoid conflicts)
 const proseCommits = ref([])
@@ -803,19 +811,13 @@ const proseBranches = ref({ current: 'main', list: [{ name: 'main', headCommitId
 
 // Flat positioned nodes for rendering
 const flatCards = ref([])
-const storyboardTimelinePreview = computed(() => outline.value
-  .map((item, index) => {
-    const card = cards.value.find((c) => c.id === item.cardId)
-    if (!card) return null
-    const extra = card.extraFields || {}
-    return {
-      cardId: card.id,
-      order: index,
-      preview: item.preview || card.content || '',
-      duration: extra.duration || 3
-    }
-  })
+const timelineItems = computed(() => outline.value
+  .map((item, index) => makeTimelineItem(item, index))
   .filter(Boolean))
+const timelineTotalDuration = computed(() => timelineItems.value.reduce((sum, item) => sum + item.duration, 0))
+const selectedCardTimelineIndex = computed(() => getSelectedCardTimelineIndex())
+const selectedCardInTimeline = computed(() => selectedCardTimelineIndex.value >= 0)
+const selectedCardTimelineSequence = computed(() => selectedCard.value ? getCardTimelineSequence(selectedCard.value.id) : 0)
 
 function layoutCards(cardsToLayout) {
   if (!cardWallRef.value) return
@@ -988,23 +990,6 @@ function getRelatedCards(cardId) {
     }
   })
   return related
-}
-
-function getRelatedCardLinks(cardId) {
-  if (!cardId) return []
-  return edges.value
-    .filter((edge) => edge.sourceId === cardId || edge.targetId === cardId)
-    .map((edge) => {
-      const relatedId = edge.sourceId === cardId ? edge.targetId : edge.sourceId
-      const card = cards.value.find((item) => item.id === relatedId)
-      if (!card) return null
-      return {
-        edge,
-        card,
-        label: edgeTypes.find((type) => type.value === edge.type)?.label || '关联'
-      }
-    })
-    .filter(Boolean)
 }
 
 function pushHistory(cardId, content, emotion) {
@@ -1254,7 +1239,73 @@ function getCardPreview(card) {
 }
 
 function getCardPreviewImage(card) {
-  return getCardAsset(card)?.image?.data || ''
+  return getCardImageEntries(card).find((entry) => entry.data)?.data || ''
+}
+
+function getCardImageEntries(card) {
+  const entries = []
+  const asset = getCardAsset(card)
+  if (asset?.image) {
+    entries.push(normalizeCardImageEntry(asset.image, {
+      source: 'asset',
+      assetId: asset.id,
+      assetKind: asset.kind,
+      title: asset.title
+    }))
+  }
+
+  if (Array.isArray(card?.attachedImages)) {
+    card.attachedImages.forEach((image) => {
+      entries.push(normalizeCardImageEntry(image, {
+        source: image.source || 'card-attachment',
+        assetId: image.assetId || '',
+        assetKind: image.assetKind || '',
+        title: image.title || ''
+      }))
+    })
+  }
+
+  const seen = new Set()
+  return entries.filter((entry) => {
+    if (!entry?.data && !entry?.id) return false
+    const key = `${entry.source}:${entry.assetId}:${entry.id}:${entry.prompt}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function normalizeCardImageEntry(image = {}, context = {}) {
+  if (!image) return null
+  return {
+    id: String(image.id || context.assetId || '').trim(),
+    assetId: String(image.assetId || context.assetId || '').trim(),
+    assetKind: String(image.assetKind || context.assetKind || '').trim(),
+    source: String(image.source || context.source || '').trim(),
+    title: String(image.title || context.title || '').trim(),
+    prompt: String(image.prompt || '').trim(),
+    width: Number(image.width) || null,
+    height: Number(image.height) || null,
+    hasData: Boolean(image.data),
+    data: image.data || ''
+  }
+}
+
+function getCardImageReferences(card) {
+  return getCardImageEntries(card).map((entry) => {
+    const reference = {
+      id: entry.id,
+      assetId: entry.assetId,
+      assetKind: entry.assetKind,
+      source: entry.source,
+      title: entry.title,
+      prompt: entry.prompt,
+      width: entry.width,
+      height: entry.height,
+      hasData: entry.hasData
+    }
+    return Object.fromEntries(Object.entries(reference).filter(([, value]) => value !== '' && value !== null && value !== undefined))
+  })
 }
 
 function openCardMaterial(card) {
@@ -1324,8 +1375,9 @@ function trackPreference(action, card) {
 
 // Card operations
 function handleKeydown(e) {
-  if (e.key === 'Escape' && linkingActive.value) {
+  if (e.key === 'Escape' && (linkingActive.value || edgeDeleteActive.value)) {
     cancelLinking()
+    edgeDeleteActive.value = false
   } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault()
     undoCard()
@@ -1340,21 +1392,88 @@ function getShotTypeLabel(shotType) {
   return found ? found.label : shotType
 }
 
-function getTimelineCardWidth(item) {
-  const extra = getCardExtraFields(item.cardId)
-  const duration = extra?.duration || 3
-  return Math.max(80, duration * 20) // 20px per second, minimum 80px
-}
-
 function getTimelineDuration(item) {
   const extra = getCardExtraFields(item.cardId)
   return extra?.duration || 3
 }
 
-function getStoryCardSequence(cardId) {
-  const index = outline.value.findIndex((item) => item.cardId === cardId)
-  const fallback = cards.value.findIndex((card) => card.id === cardId)
-  return index >= 0 ? index + 1 : Math.max(1, fallback + 1)
+function getOutlineCard(item) {
+  if (!item) return null
+  if (item.cardId) return cards.value.find((card) => card.id === item.cardId) || null
+  if (item.pileId) {
+    const pile = piles.value.find((entry) => entry.pileId === item.pileId)
+    const firstCardId = pile?.cardIds?.[0]
+    return cards.value.find((card) => card.id === firstCardId) || null
+  }
+  return null
+}
+
+function makeTimelineItem(item, index) {
+  const card = getOutlineCard(item)
+  if (!card) return null
+  const extra = card.extraFields || {}
+  const duration = Math.max(1, Number(extra.duration || item.duration || 3))
+  const relationText = getTimelineRelationText(index, card)
+  const metaParts = [
+    relationText,
+    extra.shotType ? getShotTypeLabel(extra.shotType) : '',
+    extra.cameraMovement ? getCameraMovementLabel(extra.cameraMovement) : '',
+    item.pileId ? '组' : ''
+  ].filter(Boolean)
+  return {
+    raw: item,
+    key: item.pileId || item.cardId || `${index}`,
+    index,
+    cardId: card.id,
+    focusCardId: card.id,
+    isPile: Boolean(item.pileId),
+    title: getCardTitle(card),
+    preview: item.preview || getCardPreview(card),
+    duration,
+    shotTypeLabel: extra.shotType ? getShotTypeLabel(extra.shotType) : '',
+    cameraMovementLabel: extra.cameraMovement ? getCameraMovementLabel(extra.cameraMovement) : '',
+    relationText,
+    metaText: metaParts.join(' · ')
+  }
+}
+
+function findEdgeBetweenCards(sourceId, targetId) {
+  if (!sourceId || !targetId) return null
+  return edges.value.find((edge) => (
+    (edge.sourceId === sourceId && edge.targetId === targetId)
+    || (edge.sourceId === targetId && edge.targetId === sourceId)
+  )) || null
+}
+
+function getEdgeTypeLabel(edgeType) {
+  return edgeTypes.find((item) => item.value === edgeType)?.label || edgeType
+}
+
+function getTimelineRelationText(index, card) {
+  if (index <= 0 || !card?.id) return ''
+  const previousCard = getOutlineCard(outline.value[index - 1])
+  if (!previousCard?.id) return ''
+  const relation = findEdgeBetweenCards(previousCard.id, card.id)
+  return relation ? `接 ${getEdgeTypeLabel(relation.type)}` : ''
+}
+
+function jumpToTimelineItem(item) {
+  if (!item?.focusCardId) return
+  jumpToCard(item.focusCardId)
+}
+
+function getCardTimelineSequence(cardId) {
+  if (!cardId) return 0
+  const card = cards.value.find((item) => item.id === cardId)
+  const index = outline.value.findIndex((item) => {
+    if (item.cardId === cardId) return true
+    return Boolean(card?.pileId && item.pileId === card.pileId)
+  })
+  return index >= 0 ? index + 1 : 0
+}
+
+function isCardInTimeline(cardId) {
+  return getCardTimelineSequence(cardId) > 0
 }
 
 function getCardExtraFields(cardId) {
@@ -1614,12 +1733,29 @@ function addToOutline() {
     outline.value.push({
       cardId: selectedCard.value.id,
       emotion: selectedCard.value.emotion,
-      preview: selectedCard.value.content.slice(0, 20) + '...'
+      preview: getCardPreview(selectedCard.value)
     })
   }
   createSnapshot('加入大纲')
   saveData()
   trackPreference('adopt_card', selectedCard.value)
+}
+
+function getSelectedCardTimelineIndex() {
+  if (!selectedCard.value) return -1
+  if (selectedCard.value.pileId) {
+    return outline.value.findIndex((item) => item.pileId === selectedCard.value.pileId)
+  }
+  return outline.value.findIndex((item) => item.cardId === selectedCard.value.id)
+}
+
+function toggleSelectedCardTimeline() {
+  const index = getSelectedCardTimelineIndex()
+  if (index >= 0) {
+    removeFromOutline(index)
+    return
+  }
+  addToOutline()
 }
 
 function moveOutlineUp(index) {
@@ -1765,6 +1901,13 @@ function removeFromOutline(index) {
   saveData()
 }
 
+function clearTimeline() {
+  if (outline.value.length === 0) return
+  outline.value = []
+  addTimeline('清空时间轴')
+  saveData()
+}
+
 function removeCardFromOutline(cardIdOrPileId) {
   const idx = outline.value.findIndex(o => o.cardId === cardIdOrPileId || o.pileId === cardIdOrPileId)
   if (idx !== -1) {
@@ -1786,6 +1929,7 @@ function jumpToCard(cardId) {
 // Edge operations
 function activateLinkType(edgeType) {
   newEdgeType.value = edgeType
+  edgeDeleteActive.value = false
   linkingActive.value = true
   linkSourceCardId.value = ''
   edgeLinkDraft.value = null
@@ -1797,10 +1941,20 @@ function cancelLinking() {
   edgeLinkDraft.value = null
 }
 
+function toggleEdgeDeleteMode() {
+  if (edgeDeleteActive.value) {
+    edgeDeleteActive.value = false
+    return
+  }
+  cancelLinking()
+  edgeDeleteActive.value = true
+}
+
 function toggleLinking() {
   if (linkingActive.value) {
     cancelLinking()
   } else {
+    edgeDeleteActive.value = false
     linkingActive.value = true
     linkSourceCardId.value = ''
     edgeLinkDraft.value = null
@@ -1968,22 +2122,40 @@ const directorStoryboardIsCurrent = computed(() => {
 function buildDirectorExportTimeline() {
   return outline.value
     .map((item, index) => {
-      const card = cards.value.find((c) => c.id === item.cardId)
+      const card = getOutlineCard(item)
       if (!card) return null
       const ef = card.extraFields || {}
+      const previousCard = index > 0 ? getOutlineCard(outline.value[index - 1]) : null
+      const relation = previousCard ? findEdgeBetweenCards(previousCard.id, card.id) : null
+      const imageReferences = getCardImageReferences(card)
       return {
         cardId: card.id,
+        assetId: card.assetId || '',
         order: index,
         emotion: card.emotion || '',
-        duration: ef.duration || 3
+        duration: ef.duration || item.duration || 3,
+        relationType: relation?.type || '',
+        relationLabel: relation ? getEdgeTypeLabel(relation.type) : '',
+        imageReferences
       }
     })
     .filter(Boolean)
 }
 
+function buildDirectorExportCards() {
+  return cards.value.map((card) => ({
+    ...card,
+    content: getCardFullContent(card),
+    attachedImages: getCardImageReferences(card)
+  }))
+}
+
 function buildDirectorSourceExcerpt() {
   return outline.value
-    .map((item) => cards.value.find((c) => c.id === item.cardId)?.content || '')
+    .map((item) => {
+      const card = getOutlineCard(item)
+      return card ? getCardFullContent(card) : ''
+    })
     .filter(Boolean)
     .join('\n')
     .slice(0, 240)
@@ -2009,7 +2181,7 @@ function createDirectorExportFingerprint(shots, topic) {
 
 function buildDirectorRawShots() {
   return extractShotsFromProseEssay({
-    cards: cards.value,
+    cards: buildDirectorExportCards(),
     timeline: buildDirectorExportTimeline()
   })
 }
@@ -2180,14 +2352,17 @@ function exportToJson() {
   try {
     if (currentMode.value === 'directing') {
       const directorExport = getDirectorExportContext()
+      const exportTimeline = buildDirectorExportTimeline()
       const prompts = directorExport.shots.map((shot) => ({
         index: shot.sequence,
+        assetId: shot.assetId || '',
         shotType: shot.shotType || 'medium',
         cameraMovement: shot.camera || 'fixed',
         duration: shot.duration || 3,
         description: shot.content || '',
         dialogue: shot.dialogue || '',
-        soundEffects: shot.sound || ''
+        soundEffects: shot.sound || '',
+        referenceImages: Array.isArray(shot.imageReferences) ? shot.imageReferences : []
       }))
       const data = {
         topic: currentTopic.value,
@@ -2196,6 +2371,7 @@ function exportToJson() {
         storyboardDocumentId: directorExport.document.id,
         storyboardVersionId: directorExport.version.versionId,
         validation: directorExport.version.validation,
+        timeline: exportTimeline,
         prompts
       }
       downloadFile(JSON.stringify(data, null, 2), 'AI视频提示词.json', 'application/json')
@@ -2646,8 +2822,14 @@ function attachImageEntryToCard(cardId, imgEntry) {
   }
   card.attachedImages.push({
     id: imgEntry.id,
+    assetId: imgEntry.assetId || '',
+    assetKind: imgEntry.assetKind || '',
+    source: imgEntry.source || 'card-attachment',
+    title: imgEntry.title || '',
     prompt: imgEntry.prompt,
-    data: imgEntry.data
+    data: imgEntry.data,
+    width: imgEntry.width || null,
+    height: imgEntry.height || null
   })
   saveData()
   imagePreviewIndex.value = -1
@@ -2660,8 +2842,14 @@ function attachMaterialImageToSelectedCard(asset) {
   }
   attachImageEntryToCard(selectedCard.value.id, {
     id: asset.image?.id || asset.id,
+    assetId: asset.id,
+    assetKind: asset.kind,
+    source: 'asset',
+    title: asset.title || '',
     prompt: asset.image?.prompt || asset.content || asset.title || '',
-    data: asset.image?.data
+    data: asset.image?.data,
+    width: asset.image?.width || null,
+    height: asset.image?.height || null
   })
 }
 
@@ -2883,61 +3071,6 @@ function goToMaterialsImageGen() {
   overflow: auto;
 }
 
-.storyboard-ruler {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  margin: 0 0 10px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-secondary) 94%, #ffffff 6%);
-}
-
-.storyboard-ruler-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.storyboard-ruler-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.storyboard-ruler-item {
-  min-width: 200px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-primary);
-  padding: 8px 10px;
-  text-align: left;
-  cursor: pointer;
-  display: grid;
-  gap: 4px;
-  color: var(--text-primary);
-}
-
-.storyboard-ruler-index,
-.storyboard-ruler-duration {
-  font-size: 11px;
-  color: var(--accent);
-}
-
-.storyboard-ruler-text {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .empty-cards {
   width: 100%;
   text-align: center;
@@ -3029,7 +3162,7 @@ function goToMaterialsImageGen() {
   justify-content: flex-start;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   gap: 6px;
   flex-shrink: 0;
 }
@@ -3076,19 +3209,6 @@ function goToMaterialsImageGen() {
   font-weight: 500;
 }
 
-.card-time {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.card-content {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-}
-
 .card-preview-thumb {
   display: block;
   width: 100%;
@@ -3109,19 +3229,42 @@ function goToMaterialsImageGen() {
   text-overflow: ellipsis;
 }
 
-.card-preview-copy {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.card-preview-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin: 2px 0 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-primary) 54%, transparent);
+  color: var(--text-muted);
+}
+
+.card-preview-empty-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 58%, var(--text-muted));
+  flex-shrink: 0;
+}
+
+.card-preview-empty-text {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
+  min-height: 22px;
 }
 
 .pile-badge {
@@ -3129,11 +3272,6 @@ function goToMaterialsImageGen() {
   align-items: center;
   color: var(--accent);
   opacity: 0.7;
-}
-
-.card-words {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .card-inline-edit {
@@ -3266,16 +3404,38 @@ function goToMaterialsImageGen() {
   font-size: 11px;
 }
 
+.node-index.muted {
+  background: transparent;
+  color: var(--text-muted);
+}
+
 .node-operations {
-  display: grid;
-  gap: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .node-operations .detail-btn {
+  flex: 1 1 calc(50% - 3px);
+  min-width: 0;
   margin-bottom: 0;
+  padding: 6px 8px;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.node-operations .timeline-detail-btn {
+  flex-basis: 100%;
+}
+
+.timeline-detail-btn.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+  color: var(--accent);
 }
 
 .node-delete-btn {
+  flex-basis: 100%;
   width: 100%;
 }
 
@@ -3315,127 +3475,10 @@ function goToMaterialsImageGen() {
   color: var(--text-secondary);
 }
 
-.detail-panel-section {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
 .detail-btn {
   width: 100%;
   justify-content: center;
   margin-bottom: 8px;
-}
-
-.section-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-}
-
-.related-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.related-empty {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 8px;
-}
-
-.related-card-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.related-card-item:hover {
-  background: var(--bg-hover);
-}
-
-.related-emotion-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.related-preview {
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.related-card-links {
-  margin-top: 6px;
-}
-
-.related-card-link {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  text-align: left;
-}
-
-.related-card-jump {
-  width: 100%;
-  border: none;
-  background: transparent;
-}
-
-.related-edge-tag {
-  flex-shrink: 0;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
-  color: var(--accent);
-}
-
-.related-edge-controls {
-  display: flex;
-  gap: 5px;
-  padding: 0 6px 6px;
-}
-
-.related-edge-select {
-  flex: 1;
-  min-width: 0;
-  height: 27px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 11px;
-}
-
-.related-edge-remove {
-  width: 27px;
-  height: 27px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.related-edge-remove:hover {
-  border-color: var(--danger);
-  color: var(--danger);
 }
 
 .edge-type-sample {
@@ -3450,47 +3493,158 @@ function goToMaterialsImageGen() {
   top: 86px;
   float: right;
   z-index: 6;
-  width: 156px;
+  width: 132px;
   margin: 10px 12px 0 0;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow-md) 22%, transparent);
+  backdrop-filter: blur(12px) saturate(1.05);
+  transition: width 0.16s ease, border-radius 0.16s ease, padding 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.canvas-edge-legend:hover,
+.canvas-edge-legend.active {
+  width: 164px;
   padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-panel) 92%, transparent);
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--shadow-md) 45%, transparent);
-  backdrop-filter: blur(10px);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow-md) 28%, transparent);
 }
 
 .canvas-edge-legend-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 7px;
+  margin-bottom: 0;
   color: var(--text-primary);
 }
 
-.legend-toggle-btn {
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-primary);
+.canvas-edge-legend:hover .canvas-edge-legend-head,
+.canvas-edge-legend.active .canvas-edge-legend-head {
+  margin-bottom: 6px;
+}
+
+.legend-edge-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: 0.25px;
   color: var(--text-secondary);
-  font-size: 11px;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.legend-edge-title::before {
+  content: '';
+  width: 10px;
+  height: 2px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 82%, transparent), color-mix(in srgb, var(--accent) 48%, var(--text-primary)));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.legend-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.12px;
   cursor: pointer;
+  box-shadow: none;
+  transition: width 0.15s ease, background 0.15s, border-color 0.15s, color 0.15s;
+  overflow: hidden;
+}
+
+.legend-action-icon {
+  flex-shrink: 0;
+}
+
+.legend-action-label {
+  display: none;
+  white-space: nowrap;
+}
+
+.legend-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.canvas-edge-legend:hover .legend-toggle-btn,
+.canvas-edge-legend.active .legend-toggle-btn {
+  width: auto;
+  min-width: 56px;
+  height: 24px;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.canvas-edge-legend:hover .legend-action-label,
+.canvas-edge-legend.active .legend-action-label {
+  display: inline;
+}
+
+.legend-toggle-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
+  color: var(--accent);
 }
 
 .legend-toggle-btn.active {
   border-color: var(--accent);
-  background: var(--accent-light);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
   color: var(--accent);
+}
+
+.legend-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.legend-delete-btn:hover {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.legend-delete-btn.active {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-primary));
+  color: var(--danger);
 }
 
 .legend-edge-item {
   width: 100%;
-  display: grid;
+  display: none;
   grid-template-columns: 32px 1fr;
   align-items: center;
   gap: 8px;
@@ -3502,6 +3656,11 @@ function goToMaterialsImageGen() {
   font-size: 11px;
   text-align: left;
   cursor: pointer;
+}
+
+.canvas-edge-legend:hover .legend-edge-item,
+.canvas-edge-legend.active .legend-edge-item {
+  display: grid;
 }
 
 .legend-edge-item:hover,
@@ -3517,10 +3676,16 @@ function goToMaterialsImageGen() {
 }
 
 .legend-edge-hint {
+  display: none;
   margin: 5px 0 0;
   font-size: 10px;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+.canvas-edge-legend:hover .legend-edge-hint,
+.canvas-edge-legend.active .legend-edge-hint {
+  display: block;
 }
 
 .edge-layer {
@@ -3537,10 +3702,26 @@ function goToMaterialsImageGen() {
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.78;
+  pointer-events: none;
 }
 
 .edge-path.edge-draft {
   opacity: 0.9;
+}
+
+.edge-hit-path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.001);
+  stroke-width: 16;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.edge-group.deletable:hover .edge-path {
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 4px rgba(239, 83, 80, 0.35));
 }
 
 .relation-add-btn {
@@ -3744,10 +3925,50 @@ function goToMaterialsImageGen() {
   flex-shrink: 0;
 }
 
+.outline-title-stack {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
 .outline-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.timeline-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.timeline-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-clear-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.timeline-clear-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.timeline-clear-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .outline-list {
@@ -3852,120 +4073,168 @@ function goToMaterialsImageGen() {
 
 /* Director mode timeline view */
 .timeline-view {
-  padding: 8px;
+  padding: 6px;
 }
 
 .timeline-track {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 8px 4px;
-  min-height: 100px;
+  display: grid;
+  gap: 1px;
+  overflow-y: auto;
+  padding: 2px;
+  max-height: 220px;
 }
 
 .timeline-card {
-  flex-shrink: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  min-width: 80px;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  position: relative;
+  min-width: 0;
 }
 
 .timeline-card:hover {
-  border-color: var(--accent);
+  background: var(--bg-hover);
+  border-color: transparent;
 }
 
 .timeline-card.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-light);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  box-shadow: none;
+}
+
+.timeline-card.dragging {
+  opacity: 0.55;
+}
+
+.timeline-card.drop-target {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .timeline-card-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  gap: 6px;
+  min-width: 0;
+  min-height: 22px;
 }
 
 .timeline-index {
-  font-size: 11px;
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .timeline-duration {
+  margin-left: auto;
   font-size: 10px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
-.timeline-card-content {
+.timeline-card-title {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-primary);
-  line-height: 1.4;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  min-width: 0;
 }
 
 .timeline-card-meta {
-  margin-top: 6px;
+  margin: 0 46px 0 24px;
   font-size: 10px;
   color: var(--text-muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-card-actions {
+  position: absolute;
+  right: 4px;
+  top: 5px;
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.timeline-card:hover .timeline-card-actions,
+.timeline-card.active .timeline-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.timeline-card-actions button {
+  width: 17px;
+  height: 17px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.timeline-card-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.timeline-card-actions button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.timeline-card-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .timeline-empty {
   text-align: center;
-  padding: 24px 16px;
+  padding: 14px 10px;
   font-size: 12px;
   color: var(--text-muted);
   width: 100%;
 }
 
-.audio-track {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  min-height: 32px;
-}
-
-.audio-track-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.audio-track-content {
-  flex: 1;
-  height: 16px;
-  background: var(--border);
-  border-radius: 4px;
-}
-
 /* Card badges for director mode */
 .card-shot-badge {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
+  line-height: 1.2;
   padding: 1px 6px;
-  background: var(--accent);
-  color: white;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
   border-radius: 4px;
+  font-weight: 500;
   margin-left: 4px;
 }
 
 .card-duration-badge {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
+  line-height: 1.2;
   padding: 1px 6px;
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text-secondary);
   border-radius: 4px;
+  font-weight: 500;
   margin-left: 4px;
 }
 

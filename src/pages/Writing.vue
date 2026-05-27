@@ -747,6 +747,7 @@ import {
 import { applyAdvisorReplacement } from '../services/advisorResultApplier'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
+import { formatWorldbookStatus } from '../services/worldbookFeedback'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const router = useRouter()
@@ -1455,14 +1456,14 @@ async function ensureWorldbookTarget() {
 
 async function acceptWorldbookDraftAsset(asset) {
   if (!canConvertAssetToWorldbookEntry(asset)) {
-    quickNoteStatus.value = '只有世界书草稿可以入库'
+    quickNoteStatus.value = formatWorldbookStatus('仅支持将世界书草稿写入世界书。')
     return
   }
 
   try {
     const worldbook = await ensureWorldbookTarget()
     if (!worldbook?.id) {
-      quickNoteStatus.value = '没有可写入的世界书'
+      quickNoteStatus.value = formatWorldbookStatus('没有可写入的目标世界书。')
       return
     }
 
@@ -1470,23 +1471,23 @@ async function acceptWorldbookDraftAsset(asset) {
     await worldStore.addEntry(worldbook.id, entry)
     setNarrativeAssetStatus(asset.id, 'accepted')
     refreshAssetInbox()
-    quickNoteStatus.value = `已写入世界书：${entry.name}`
+    quickNoteStatus.value = formatWorldbookStatus(`写入成功：${entry.name}`)
   } catch (error) {
-    quickNoteStatus.value = error?.message || '写入世界书失败'
+    quickNoteStatus.value = formatWorldbookStatus(`写入失败：${error?.message || '未知错误'}`)
   }
 }
 
 async function acceptSelectedWorldbookDraftAssets() {
   const selectedAssets = getSelectedWorldbookDraftAssets()
   if (!selectedAssets.length) {
-    quickNoteStatus.value = '先选择世界书草稿'
+    quickNoteStatus.value = formatWorldbookStatus('请先选择世界书草稿素材。')
     return
   }
 
   try {
     const worldbook = await ensureWorldbookTarget()
     if (!worldbook?.id) {
-      quickNoteStatus.value = '没有可写入的世界书'
+      quickNoteStatus.value = formatWorldbookStatus('没有可写入的目标世界书。')
       return
     }
 
@@ -1500,9 +1501,9 @@ async function acceptSelectedWorldbookDraftAssets() {
     setNarrativeAssetsStatus(acceptedIds, 'accepted')
     selectedInboxAssetIds.value = selectedInboxAssetIds.value.filter((id) => !acceptedIds.includes(id))
     refreshAssetInbox()
-    quickNoteStatus.value = `已写入 ${acceptedIds.length} 条世界书条目`
+    quickNoteStatus.value = formatWorldbookStatus(`批量写入成功：${acceptedIds.length} 条条目。`)
   } catch (error) {
-    quickNoteStatus.value = error?.message || '批量写入世界书失败'
+    quickNoteStatus.value = formatWorldbookStatus(`批量写入失败：${error?.message || '未知错误'}`)
   }
 }
 
