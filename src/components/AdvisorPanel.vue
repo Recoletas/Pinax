@@ -9,25 +9,9 @@
               <circle cx="8" cy="8" r="5"></circle>
               <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
             </svg>
-            <span>创作顾问</span>
+            <span>统一智能顾问</span>
           </div>
           <div class="advisor-actions">
-            <button
-              class="backend-btn"
-              :class="{ active: backend === 'openai' }"
-              @click="$emit('update:backend', 'openai')"
-              title="使用 AI API"
-            >
-              AI
-            </button>
-            <button
-              class="backend-btn"
-              :class="{ active: backend === 'openclaw' }"
-              @click="$emit('update:backend', 'openclaw')"
-              title="使用 OpenClaw Gateway"
-            >
-              OpenClaw
-            </button>
             <button class="close-btn" @click="$emit('close')" title="关闭">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M3 3L13 13M13 3L3 13" stroke-linecap="round"/>
@@ -50,6 +34,25 @@
             <div class="message-label">{{ msg.role === 'user' ? '你' : '顾问' }}</div>
             <div class="message-bubble" :class="{ 'is-markdown': msg.role === 'advisor' }" v-html="msg.role === 'advisor' ? marked(msg.content) : msg.content"></div>
           </div>
+          <div
+            v-for="result in visibleResults"
+            :key="result.id || `${result.task}-${result.summary}`"
+            class="advisor-result-card"
+            :class="result.status"
+          >
+            <div class="result-card-header">
+              <span class="result-card-title">{{ getResultTitle(result) }}</span>
+              <span v-if="result.status === 'applied'" class="result-status">已应用</span>
+              <span v-else-if="result.status === 'stale'" class="result-status error">已过期</span>
+            </div>
+            <p v-if="result.summary" class="result-summary">{{ result.summary }}</p>
+            <pre class="result-replacement">{{ result.replacement }}</pre>
+            <p v-if="result.statusDetail" class="result-detail">{{ result.statusDetail }}</p>
+            <div class="result-actions" v-if="result.status === 'pending'">
+              <button class="result-btn primary" type="button" @click="$emit('apply-result', result)">应用修改</button>
+              <button class="result-btn" type="button" @click="$emit('dismiss-result', result)">忽略</button>
+            </div>
+          </div>
           <div v-if="loading" class="message advisor">
             <div class="message-label">顾问</div>
             <div class="message-bubble loading">
@@ -61,14 +64,15 @@
         </div>
 
         <!-- Quick questions -->
-        <div class="advisor-quick" v-if="messages.length === 0 && quickQuestions.length">
+        <div class="advisor-quick" v-if="messages.length === 0 && normalizedQuickQuestions.length">
           <button
-            v-for="q in quickQuestions"
-            :key="q"
+            v-for="(q, idx) in normalizedQuickQuestions"
+            :key="`${q.label || idx}-${idx}`"
             class="quick-btn"
-            @click="$emit('ask', q)"
+            :disabled="q.disabled"
+            @click="$emit('ask', q.payload)"
           >
-            {{ q }}
+            {{ q.label }}
           </button>
         </div>
 
@@ -98,29 +102,56 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
 
 const props = defineProps({
   isOpen: Boolean,
   messages: { type: Array, default: () => [] },
+  results: { type: Array, default: () => [] },
   loading: Boolean,
-  backend: { type: String, default: 'openai' },
   quickQuestions: { type: Array, default: () => [] },
   placeholder: { type: String, default: '输入你的问题... (Ctrl+Enter 发送)' },
-  emptyText: { type: String, default: '创作顾问可帮助你分析当前创作状态，提供建议和灵感。' }
+  emptyText: { type: String, default: '统一智能顾问可帮助你分析当前创作状态，提供建议和灵感。' }
 })
 
-const emit = defineEmits(['close', 'ask', 'update:backend'])
+const emit = defineEmits(['close', 'ask', 'apply-result', 'dismiss-result'])
 
 const localInput = ref('')
 const messagesRef = ref(null)
 const inputRef = ref(null)
+const normalizedQuickQuestions = computed(() => (props.quickQuestions || []).map((item) => {
+  if (typeof item === 'string') {
+    return {
+      label: item,
+      payload: item,
+      disabled: false
+    }
+  }
 
-const inputText = computed({
-  get: () => localInput.value,
-  set: (v) => { localInput.value = v }
-})
+  if (!item || typeof item !== 'object') {
+    return {
+      label: '',
+      payload: '',
+      disabled: true
+    }
+  }
+
+  const label = String(item.label || item.question || '').trim()
+  return {
+    label,
+    payload: item,
+    disabled: Boolean(item.disabled) || !label
+  }
+}))
+
+const visibleResults = computed(() => (props.results || []).filter((result) => {
+  if (!result || typeof result !== 'object') return false
+  if (result.status === 'dismissed') return false
+  if (result.mode !== 'replace') return false
+  if (!String(result.replacement || '').trim()) return false
+  return Boolean(result.targetRange && Number.isFinite(Number(result.targetRange.start)) && Number.isFinite(Number(result.targetRange.end)))
+}))
 
 watch(() => props.isOpen, (open) => {
   if (open) {
@@ -135,6 +166,20 @@ watch(() => props.messages, () => {
     }
   })
 }, { deep: true })
+
+watch(() => props.results, () => {
+  nextTick(() => {
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
+  })
+}, { deep: true })
+
+function getResultTitle(result) {
+  if (result.task === 'advisor.fix.selection') return '选区修改'
+  if (result.task === 'advisor.fix.paragraph') return '段落修改'
+  return '可应用修改'
+}
 
 function handleInputKeydown(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -200,29 +245,6 @@ function sendInput() {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.backend-btn {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.backend-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.backend-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
 }
 
 .close-btn {
@@ -360,6 +382,97 @@ function sendInput() {
   padding: 10px 14px;
 }
 
+.advisor-result-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.advisor-result-card.applied {
+  opacity: 0.75;
+}
+
+.advisor-result-card.stale {
+  border-color: color-mix(in srgb, #d44 45%, var(--border));
+}
+
+.result-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.result-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.result-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.result-status.error {
+  color: #d44;
+}
+
+.result-summary,
+.result-detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.result-replacement {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.result-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.result-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.result-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 .loading-dot {
   width: 6px;
   height: 6px;
@@ -400,6 +513,11 @@ function sendInput() {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.quick-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .advisor-input-row {

@@ -37,12 +37,12 @@ function getMem0Importance(scope) {
 
 export async function syncConfirmedMemoryCandidateToMem0(candidate) {
   if (!candidate || candidate.status !== 'active' || !String(candidate.content || '').trim()) {
-    return { success: false, skipped: true, reason: 'invalid-candidate' }
+    return { success: false, skipped: true, reason: 'invalid-candidate', syncStatus: 'failed' }
   }
 
   const secrets = await readMem0Secrets()
   if (!secrets) {
-    return { success: false, skipped: true, reason: 'mem0-not-configured' }
+    return { success: false, skipped: true, reason: 'mem0-not-configured', syncStatus: 'local-only' }
   }
 
   const client = useMem0({
@@ -50,6 +50,20 @@ export async function syncConfirmedMemoryCandidateToMem0(candidate) {
     userId: getOrCreatePreferenceUserId(),
     apiKey: secrets.apiKey
   })
+
+  const remoteDuplicate = await findRemoteDuplicateMemory(client, candidate)
+  if (remoteDuplicate) {
+    return {
+      success: true,
+      synced: true,
+      deduped: true,
+      syncStatus: 'synced',
+      remoteId: extractRemoteId(remoteDuplicate),
+      syncedAt: Date.now(),
+      candidate,
+      data: remoteDuplicate
+    }
+  }
 
   const result = await client.storeMemory({
     content: candidate.content,
@@ -73,13 +87,19 @@ export async function syncConfirmedMemoryCandidateToMem0(candidate) {
     return {
       success: false,
       error: result.error || 'mem0 sync failed',
+      syncStatus: 'failed',
       candidate
     }
   }
 
+  const remoteId = extractRemoteId(result.data)
+
   return {
     success: true,
     synced: true,
+    syncStatus: 'synced',
+    remoteId,
+    syncedAt: Date.now(),
     candidate,
     data: result.data
   }
@@ -138,7 +158,49 @@ export async function buildMem0MemoryContext({
 
 export function describeMem0SyncResult(result) {
   if (!result) return ''
+  if (result.success && result.deduped) return '已匹配远端记忆'
   if (result.success) return '已同步到 mem0'
-  if (result.skipped) return 'mem0 未配置'
+  if (result.skipped && result.reason === 'mem0-not-configured') return '本地保留，未配置 mem0'
+  if (result.skipped) return '无需同步'
   return 'mem0 同步失败'
+}
+
+async function findRemoteDuplicateMemory(client, candidate) {
+  if (!client || typeof client.searchMemories !== 'function') return null
+
+  try {
+    const results = await client.searchMemories(candidate.content, {
+      limit: 5,
+      type: candidate.kind,
+      scope: candidate.scope,
+      scopeId: candidate.scopeId
+    })
+
+    const normalizedContent = normalizeMemoryContent(candidate.content)
+    if (!normalizedContent) return null
+
+    return (Array.isArray(results) ? results : [])
+      .find((item) => normalizeMemoryContent(extractRemoteContent(item)) === normalizedContent) || null
+  } catch (error) {
+    console.warn('[memorySync] failed to check remote duplicate:', error)
+    return null
+  }
+}
+
+function extractRemoteContent(item) {
+  if (!item || typeof item !== 'object') return ''
+  return String(item.memory || item.content || item.text || item.message || item.value || '').trim()
+}
+
+function normalizeMemoryContent(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：,.!?;:"'“”‘’（）()[\]{}<>《》]/g, '')
+}
+
+function extractRemoteId(data) {
+  if (!data || typeof data !== 'object') return ''
+  return String(data.id || data.memory_id || data.memoryId || '').trim()
 }

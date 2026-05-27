@@ -77,6 +77,7 @@ describe('useStorage', () => {
       expect(STORAGE_KEYS.WRITING_ACTIVITIES).toBeDefined()
       expect(STORAGE_KEYS.NARRATIVE_ASSETS).toBeDefined()
       expect(STORAGE_KEYS.MEMORY_CANDIDATES).toBeDefined()
+      expect(STORAGE_KEYS.STORYBOARD_DOCUMENTS).toBeDefined()
       expect(STORAGE_KEYS.STORYBOARD_SNAPSHOTS).toBeDefined()
       expect(STORAGE_KEYS.PROSE_CARDS_V1).toBeDefined()
       expect(STORAGE_KEYS.POETRY_IDEA_TREE_V2).toBeDefined()

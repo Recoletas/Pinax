@@ -33,6 +33,9 @@
         <button class="toolbar-text-btn" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
           素材
         </button>
+        <button class="toolbar-text-btn" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
+          分镜
+        </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -549,7 +552,7 @@
             @input="handleQuickNoteInput"
           ></textarea>
           <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
+            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
@@ -695,7 +698,7 @@
                 <button class="quick-note-mini-btn primary" type="button" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
                 <button class="quick-note-mini-btn" type="button" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
                 <button class="quick-note-mini-btn" type="button" @click="addAssetToChapterOutline(activeInboxAsset)">入纲要</button>
-                <button class="quick-note-mini-btn" type="button" @click="saveAssetAsNote(activeInboxAsset)">转成笔记</button>
+                <button class="quick-note-mini-btn" type="button" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
                 <button
                   v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
                   class="quick-note-mini-btn"
@@ -759,13 +762,14 @@
     <AdvisorPanel
       :isOpen="advisorOpen"
       :messages="advisorMessages"
+      :results="advisorResults"
       :loading="advisorLoading"
-      :backend="backend"
-      :quickQuestions="['分析当前节奏', '人物塑造建议', '情节发展方向', '续写灵感']"
-      :emptyText="'创作顾问可帮助你分析当前章节，提供情节、人物与叙事节奏方面的专业建议。'"
+      :quickQuestions="advisorQuickActions"
+      :emptyText="'统一智能顾问可帮助你修正选区、收束段落、体检章节，并给出轻量续写建议。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
-      @update:backend="(v) => backend = v"
+      @apply-result="applyAdvisorResult"
+      @dismiss-result="dismissAdvisorResult"
     />
   </div>
 </template>
@@ -777,7 +781,7 @@ import TurndownService from 'turndown'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
-import { useCopilot } from '../composables/useCopilot'
+import { extractCopilotWindow, useCopilot } from '../composables/useCopilot'
 import { useWorldStore } from '../stores/worldStore'
 import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
@@ -807,10 +811,22 @@ import {
   normalizeChapterOutlineItems,
   removeChapterOutlineItem
 } from '../services/chapterOutline'
+import { applyAdvisorReplacement } from '../services/advisorResultApplier'
+import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
+import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
+const {
+  advisorOpen,
+  advisorMessages,
+  advisorResults,
+  advisorLoading,
+  askAdvisor,
+  openAdvisor,
+  closeAdvisor,
+  updateAdvisorResultStatus
+} = useAdvisor()
 const worldStore = useWorldStore()
 
 // AI Copilot 续写
@@ -825,7 +841,7 @@ const {
   acceptSuggestion: copilotAccept,
   rejectSuggestion: copilotReject,
   cancelSuggestion: copilotCancel
-} = useCopilot({ debounceMs: 220, autoTrigger: true, maxSuggestionLength: 160 })
+} = useCopilot({ debounceMs: 220, autoTrigger: false, maxSuggestionLength: 160 })
 
 const copilotEnabled = ref(true)
 const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
@@ -996,35 +1012,250 @@ function goBack() {
   router.push('/')
 }
 
+function getWritingSelectionSnapshot() {
+  const editor = editorRef.value
+  const text = markdownContent.value || ''
+  const fallbackStart = Math.max(0, Math.min(text.length, copilotCursorPos.value || 0))
+  const rawStart = editor?.selectionStart ?? fallbackStart
+  const rawEnd = editor?.selectionEnd ?? rawStart
+  const start = Math.max(0, Math.min(text.length, Math.min(rawStart, rawEnd)))
+  const end = Math.max(0, Math.min(text.length, Math.max(rawStart, rawEnd)))
+  const selectionText = text.slice(start, end)
+
+  return {
+    start,
+    end,
+    text: selectionText,
+    hasSelection: end > start
+  }
+}
+
+function getWritingParagraphSnapshot(position = null) {
+  const text = markdownContent.value || ''
+  const fallbackPosition = Math.max(0, Math.min(text.length, copilotCursorPos.value || 0))
+  const anchor = Number.isFinite(Number(position)) ? Number(position) : fallbackPosition
+  const cursor = Math.max(0, Math.min(text.length, anchor))
+  const before = text.slice(0, cursor)
+  const after = text.slice(cursor)
+  const startBoundary = before.lastIndexOf('\n\n')
+  const start = startBoundary === -1 ? 0 : startBoundary + 2
+  const endBoundary = after.indexOf('\n\n')
+  const end = endBoundary === -1 ? text.length : cursor + endBoundary
+  const rawText = text.slice(start, end)
+  const paragraphText = rawText.trim()
+
+  return {
+    start,
+    end,
+    text: paragraphText,
+    rawText,
+    hasParagraph: Boolean(paragraphText)
+  }
+}
+
 function collectWritingContext() {
   const selectedBook = books.value.find(b => b.id === selectedBookId.value)
   const currentChapter = selectedBook?.chapters?.find(c => c.id === selectedChapterId.value)
+  const selection = getWritingSelectionSnapshot()
+  const paragraph = getWritingParagraphSnapshot(selection.start)
+  const contextWindow = extractCopilotWindow(markdownContent.value || '', selection.start, {
+    upstream: 520,
+    downstream: 240
+  })
   return {
     bookId: selectedBookId.value,
     bookTitle: selectedBook?.title || '',
     chapterId: selectedChapterId.value,
     chapterTitle: currentChapterTitle.value || currentChapter?.title || '',
     wordCount: editorContent.value.replace(/\s/g, '').length,
-    selectedText: selectedText.value || '',
+    selectedText: selection.text || selectedText.value || '',
+    selectionStart: selection.start,
+    selectionEnd: selection.end,
+    selectionHasText: selection.hasSelection,
+    paragraphRange: { start: paragraph.start, end: paragraph.end },
+    paragraphText: paragraph.text,
+    contextWindow,
     editorMode: editorMode.value,
     totalBooks: books.value.length,
     totalChapters: selectedBook?.chapters?.length || 0
   }
 }
 
-async function handleAskAdvisor(question) {
-  await askAdvisor(question, collectWritingContext)
+function buildAdvisorActionContext(action = {}) {
+  const selection = getWritingSelectionSnapshot()
+  const paragraph = getWritingParagraphSnapshot(selection.start)
+  const contextWindow = extractCopilotWindow(markdownContent.value || '', selection.start, {
+    upstream: 520,
+    downstream: 240
+  })
+
+  return {
+    ...collectWritingContext(),
+    advisorAction: {
+      scope: action.scope || 'chapter',
+      label: action.label || action.question || '',
+      question: action.question || ''
+    },
+    selection,
+    paragraph,
+    contextWindow,
+    chapterOutline: buildChapterOutlineContext(chapterOutlineItems.value),
+    referenceAsset: buildCopilotAssetContext(copilotReferenceAsset.value)
+  }
 }
 
-async function openclawAdvice(question, context) {
-  const response = await fetch('/api/openclaw/advice', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, question })
+const advisorQuickActions = computed(() => {
+  const hasSelection = Boolean(String(selectedText.value || '').trim())
+  const paragraph = getWritingParagraphSnapshot(copilotCursorPos.value)
+
+  return [
+    {
+      label: '修正选中内容',
+      question: '请修正我选中的内容，尽量保持原意和人物语气，不要扩写太多。',
+      scope: 'selection',
+      disabled: !hasSelection
+    },
+    {
+      label: '修正当前段落',
+      question: '请修正当前段落，重点处理语病、重复、节奏和衔接。',
+      scope: 'paragraph',
+      disabled: !paragraph.hasParagraph
+    },
+    {
+      label: '自动收线',
+      question: '请帮我收束当前线索，给出更自然的收线建议，优先考虑当前段落和上下文。',
+      scope: 'thread',
+      disabled: false
+    },
+    {
+      label: '章节体检',
+      question: '请对当前章节做一次简洁体检，指出节奏、人物和结构的主要问题。',
+      scope: 'chapter',
+      disabled: false
+    },
+    {
+      label: '轻续一句',
+      question: '请给出一句轻量续写建议，保持当前语气，尽量可直接接在光标后。',
+      scope: 'continue',
+      disabled: false
+    }
+  ]
+})
+
+function normalizeAdvisorAction(input) {
+  if (typeof input === 'string') {
+    return {
+      label: input,
+      question: input,
+      scope: 'chapter',
+      disabled: false
+    }
+  }
+
+  if (!input || typeof input !== 'object') {
+    return {
+      label: '',
+      question: '',
+      scope: 'chapter',
+      disabled: false
+    }
+  }
+
+  const label = String(input.label || input.question || '').trim()
+  const question = String(input.question || input.label || '').trim()
+
+  return {
+    label,
+    question,
+    scope: String(input.scope || 'chapter').trim() || 'chapter',
+    taskType: String(input.taskType || '').trim(),
+    disabled: Boolean(input.disabled)
+  }
+}
+
+function buildAdvisorActionTarget(action, context) {
+  const scope = action.scope || 'chapter'
+  if (scope === 'selection') {
+    return {
+      kind: 'selection',
+      range: { start: context.selection.start, end: context.selection.end },
+      text: context.selection.text
+    }
+  }
+
+  if (scope === 'paragraph') {
+    return {
+      kind: 'paragraph',
+      range: { start: context.paragraph.start, end: context.paragraph.end },
+      text: context.paragraph.text
+    }
+  }
+
+  if (scope === 'thread' || scope === 'continue') {
+    return {
+      kind: scope === 'thread' ? 'thread-window' : 'cursor-window',
+      paragraph: context.paragraph.text,
+      before: context.contextWindow.before,
+      after: context.contextWindow.after
+    }
+  }
+
+  return {
+    kind: 'chapter',
+    title: context.chapterTitle,
+    wordCount: context.wordCount,
+    paragraph: context.paragraph.text,
+    selectedText: context.selection.text,
+    outline: context.chapterOutline
+  }
+}
+
+async function handleAskAdvisor(input) {
+  const action = normalizeAdvisorAction(input)
+  if (!action.question || action.disabled) return
+
+  const context = buildAdvisorActionContext(action)
+  await askAdvisor({
+    label: action.label,
+    question: action.question,
+    scope: action.scope,
+    taskType: action.taskType,
+    target: buildAdvisorActionTarget(action, context),
+    options: {
+      editorMode: editorMode.value,
+      chapterId: selectedChapterId.value
+    }
+  }, () => context)
+}
+
+function applyAdvisorResult(result) {
+  const applied = applyAdvisorReplacement(markdownContent.value || '', result)
+  if (!applied.ok) {
+    updateAdvisorResultStatus(result?.id, 'stale', applied.message)
+    return
+  }
+
+  markdownContent.value = applied.content
+  if (editorRef.value) {
+    editorRef.value.value = applied.content
+  }
+  syncMarkdownToEditor()
+  onContentChange()
+
+  selectedText.value = ''
+  updateAdvisorResultStatus(result.id, 'applied', '修改已应用到正文。')
+
+  nextTick(() => {
+    if (!editorRef.value) return
+    editorRef.value.focus()
+    editorRef.value.setSelectionRange(applied.cursorPos, applied.cursorPos)
+    syncCopilotCursorFromEditor()
   })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const data = await response.json()
-  return data.advice || '未获取到有效建议'
+}
+
+function dismissAdvisorResult(result) {
+  if (!result?.id) return
+  updateAdvisorResultStatus(result.id, 'dismissed')
 }
 
 function loadQuickNoteDraft() {
@@ -1329,7 +1560,7 @@ function insertAssetIntoChapter(asset) {
   quickNoteStatus.value = '已插入章节'
 }
 
-function saveAssetAsNote(asset) {
+function saveAssetAsMaterial(asset) {
   const content = String(asset?.content || '').trim()
   if (!content) {
     quickNoteStatus.value = '素材内容为空'
@@ -1343,10 +1574,10 @@ function saveAssetAsNote(asset) {
     })
     setNarrativeAssetStatus(asset.id, 'accepted')
     refreshAssetInbox()
-    quickNoteStatus.value = `已转成笔记：${note.title}`
+    quickNoteStatus.value = `已转成素材：${note.title}`
     return true
   } catch (error) {
-    quickNoteStatus.value = error?.message || '转成笔记失败'
+    quickNoteStatus.value = error?.message || '转成素材失败'
     return false
   }
 }
@@ -1429,6 +1660,78 @@ function insertSelectedAssetsIntoChapter() {
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已插入 ${selectedAssets.length} 条素材`
+}
+
+function buildChapterStoryboardExcerpt(shots = []) {
+  return shots
+    .slice(0, 4)
+    .map((shot) => String(shot.content || shot.sourceText || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' / ')
+    .slice(0, 240)
+}
+
+function downloadTextFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportChapterStoryboardDraft() {
+  if (!selectedChapterId.value) {
+    quickNoteStatus.value = '先选择章节'
+    return
+  }
+
+  saveCurrentChapter()
+  const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
+  const chapterTitle = currentChapterTitle.value || chapter?.title || '当前章节'
+  const shots = extractShotsFromChapter({
+    chapterTitle,
+    chapterContent: markdownContent.value,
+    outlineItems: chapterOutlineItems.value
+  })
+
+  if (!shots.length) {
+    quickNoteOpen.value = true
+    quickNoteStatus.value = '当前章节没有可生成分镜的内容'
+    return
+  }
+
+  try {
+    const result = saveValidatedStoryboardVersion({
+      source: {
+        sourceType: 'chapter',
+        sourceId: selectedChapterId.value,
+        title: chapterTitle,
+        excerpt: buildChapterStoryboardExcerpt(shots)
+      },
+      projectId: selectedBookId.value || null,
+      shots,
+      taskType: 'chapter.storyboard-draft',
+      parameters: {
+        bookId: selectedBookId.value || '',
+        chapterId: selectedChapterId.value,
+        outlineCount: chapterOutlineItems.value.length,
+        wordCount: wordCount.value
+      }
+    })
+
+    const markdown = toMarkdown(result.shots, {
+      title: '章节分镜草稿',
+      topic: chapterTitle
+    })
+    downloadTextFile(markdown, `chapter-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
+    quickNoteOpen.value = true
+    quickNoteStatus.value = `已生成章节分镜，版本 ${result.version.versionId.slice(-6)}`
+  } catch (error) {
+    quickNoteOpen.value = true
+    quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+  }
 }
 
 function archiveAsset(asset) {
@@ -1519,7 +1822,7 @@ function saveQuickNote() {
     wordCount: quickNoteWordCount(content)
   })
   clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到笔记'
+  quickNoteStatus.value = '已保存到素材'
   return true
 }
 
@@ -2159,7 +2462,7 @@ function onMarkdownInput() {
   syncMarkdownToEditor()
   onContentChange()
 
-  // 触发 Copilot 续写
+  // 维持 Copilot 状态，默认不自动续写
   if (copilotEnabled.value && editorRef.value) {
     copilotTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
   }
@@ -2169,11 +2472,17 @@ function syncCopilotCursorFromEditor(options = {}) {
   const { cancelOnMove = false } = options
   const editor = editorRef.value
   if (!editor || typeof editor.selectionStart !== 'number') return
-  const nextCursor = editor.selectionStart
+  const text = markdownContent.value || ''
+  const selectionStart = Math.max(0, Math.min(text.length, Math.min(editor.selectionStart, editor.selectionEnd ?? editor.selectionStart)))
+  const selectionEnd = Math.max(0, Math.min(text.length, Math.max(editor.selectionStart, editor.selectionEnd ?? editor.selectionStart)))
+  const nextCursor = Math.max(0, Math.min(text.length, editor.selectionStart))
   if (cancelOnMove && copilotVisible.value && nextCursor !== copilotCursorPos.value) {
     copilotCancel()
   }
   copilotCursorPos.value = nextCursor
+  selectedText.value = selectionEnd > selectionStart
+    ? text.slice(selectionStart, selectionEnd)
+    : ''
   copilotScrollTop.value = editor.scrollTop || 0
   copilotScrollLeft.value = editor.scrollLeft || 0
 }

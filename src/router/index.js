@@ -27,7 +27,7 @@ const workbenchChildren = [
     component: Experience,
     meta: {
       activityKey: 'experience',
-      title: '小说体验'
+      title: '体验'
     }
   },
   {
@@ -35,8 +35,8 @@ const workbenchChildren = [
     name: 'experience-worldbook',
     component: WorldBookQuickImport,
     meta: {
-      activityKey: 'experience',
-      title: '世界书快速导入'
+      activityKey: 'worldbook',
+      title: '设定导入'
     }
   },
   {
@@ -44,8 +44,8 @@ const workbenchChildren = [
     name: 'experience-worldbook-advanced',
     component: WorldBookEditor,
     meta: {
-      activityKey: 'experience',
-      title: '世界书编辑器'
+      activityKey: 'worldbook',
+      title: '设定编辑'
     }
   },
   {
@@ -63,16 +63,16 @@ const workbenchChildren = [
     component: Writing,
     meta: {
       activityKey: 'writing',
-      title: '小说'
+      title: '写作'
     }
   },
   {
-    path: 'notes',
-    name: 'notes',
+    path: 'materials',
+    name: 'materials',
     component: Notes,
     meta: {
       activityKey: 'writing',
-      title: '笔记'
+      title: '素材'
     }
   },
   {
@@ -80,8 +80,8 @@ const workbenchChildren = [
     name: 'poetry-lab',
     component: PoetryLab,
     meta: {
-      activityKey: 'poetry',
-      title: '诗歌灵感工坊'
+      activityKey: 'storyboard',
+      title: '分镜 - 诗歌入口'
     }
   },
   {
@@ -89,8 +89,8 @@ const workbenchChildren = [
     name: 'prose-essay',
     component: ProseEssay,
     meta: {
-      activityKey: 'prose',
-      title: '散文随笔'
+      activityKey: 'storyboard',
+      title: '分镜 - 散文入口'
     }
   }
 ]
@@ -104,7 +104,8 @@ const routes = [
   { path: '/fit', redirect: { name: 'experience' } },
   { path: '/game', redirect: { name: 'experience' } },
   { path: '/writing', redirect: { name: 'writing' } },
-  { path: '/notes', redirect: { name: 'notes' } },
+  { path: '/materials', redirect: { name: 'materials' } },
+  { path: '/notes', redirect: { name: 'materials' } },
   { path: '/poetry-lab', redirect: { name: 'poetry-lab' } },
   { path: '/prose-essay', redirect: { name: 'prose-essay' } }
 ]

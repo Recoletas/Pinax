@@ -1,6 +1,6 @@
 # 06 - 统一分镜输出层
 
-状态：下一主线
+状态：进行中
 
 ## 1. 在工具链中的位置
 
@@ -105,10 +105,10 @@ type StoryboardValidationIssue = {
 
 | 来源 | 适配策略 | 当前阶段 |
 |------|----------|----------|
-| 散文分镜卡片 | 读取 directing cards，映射到 shots | 待做 |
-| 诗歌分镜树 | 读取诗歌 directing 输出，映射到 shots | 待做 |
-| 体验素材 | 以 `storyboard-seed` 或片段摘要为输入生成 shots | 待做 |
-| 写作章节片段 | 以正文节选或章节纲要生成 shots | 待做 |
+| 散文分镜卡片 | 读取 directing cards，映射到 shots | 已接入 |
+| 诗歌分镜树 | 读取诗歌 directing 输出，映射到 shots | 已接入 |
+| 体验素材 | 以 `storyboard-seed` 或片段摘要为输入生成 shots | 已接入 |
+| 写作章节片段 | 以正文节选或章节纲要生成 shots | 已接入 |
 
 ## 5. 执行方案
 
@@ -118,15 +118,24 @@ type StoryboardValidationIssue = {
 
 建议交付：
 
-- `storyboard` 统一 schema。
-- `storyboardService` 或等价 service。
-- 基础增删改查。
-- 版本对象和版本切换接口。
+- `storyboard` 统一 schema。（已启动）
+- `storyboardService` 或等价 service。（已启动，当前落在 `storyboardStore`）
+- 基础增删改查。（已支持文档创建、列表、读取）
+- 版本对象和版本切换接口。（已支持追加版本和恢复当前版本）
 
 验收：
 
-- 任一来源的分镜结果都能落到 `StoryboardDocument`。
-- 页面不需要自己维护一套导出前结构。
+- 任一来源的分镜结果都能落到 `StoryboardDocument`。（旧 snapshot 保存已同步写入统一文档）
+- 页面不需要自己维护一套导出前结构。（后续迁移旧页面适配）
+
+当前进展：
+
+- 新增 `STORYBOARD_DOCUMENTS` 存储键。
+- `storyboardStore` 已支持 `StoryboardDocument`、`StoryboardVersion`、结构化 `StoryboardValidationResult`。
+- 旧 `saveStoryboardSnapshot()` 仍保留兼容，但保存时会同步写入统一文档和版本。
+- `useDirector` 已开始直接消费 `saveStoryboardVersion()` / `restoreStoryboardVersion()`，历史列表现在对应统一版本历史。
+- `ProseEssay` 的直接导出现在会写入统一文档并先做结构校验，`PoetryLab` 编导模式的 Markdown 导出也已接入统一文档，体验和写作导出则统一走校验保存入口。
+- 后续优先补导出校验和更细的规则收口，细节复杂的导出规则先写进计划，暂不在这一步展开。
 
 ### 5.2 S2 - 版本化与恢复
 
@@ -134,9 +143,9 @@ type StoryboardValidationIssue = {
 
 建议交付：
 
-- 新生成结果自动形成新版本。
-- 能切换当前版本。
-- 能恢复旧版本为当前版本。
+- 新生成结果自动形成新版本。（已支持）
+- 能切换当前版本。（已支持恢复指定版本为当前版本）
+- 能恢复旧版本为当前版本。（已支持）
 - 记录生成时间、来源、参数、任务类型。
 
 验收：
@@ -166,9 +175,9 @@ type StoryboardValidationIssue = {
 
 迁移顺序建议：
 
-1. 先接散文 directing cards。
-2. 再接诗歌 directing tree。
-3. 再接体验素材和章节片段。
+1. 散文 directing cards 已接入。
+2. 诗歌 directing tree 已接入。
+3. 体验素材和章节片段已接入草稿导出，后续继续补更细的校验和导出规则。
 
 原因：
 
@@ -178,7 +187,7 @@ type StoryboardValidationIssue = {
 
 ### 5.5 S5 - 导航与产品叙事收口
 
-等底层统一后，再把“编导模式”从页面专属能力提升为工作台主能力。
+当前已经在一级导航和首页入口里体现为分镜工作台，后续继续把“编导模式”从页面专属能力收口成工作台主能力。
 
 方向：
 

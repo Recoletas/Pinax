@@ -31,7 +31,7 @@ export function listWritingNotes() {
   return Array.isArray(stored) ? stored : []
 }
 
-export function buildWritingNoteTitle(content, fallbackLabel = '笔记') {
+export function buildWritingNoteTitle(content, fallbackLabel = '素材') {
   const firstLine = normalizeText(content)
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -52,7 +52,7 @@ export function buildWritingNoteTitle(content, fallbackLabel = '笔记') {
 export function createWritingNote(input = {}) {
   const now = new Date().toISOString()
   const content = normalizeText(input.content)
-  const title = normalizeText(input.title) || buildWritingNoteTitle(content, input.fallbackLabel || '笔记')
+  const title = normalizeText(input.title) || buildWritingNoteTitle(content, input.fallbackLabel || '素材')
   const source = normalizeNoteSource(input.source)
 
   return {
@@ -93,7 +93,7 @@ export function createWritingNoteFromAsset(asset = {}, options = {}) {
 export function prependWritingNote(input = {}) {
   const note = createWritingNote(input)
   if (!note.content) {
-    throw new Error('笔记内容不能为空')
+    throw new Error('素材内容不能为空')
   }
 
   const current = listWritingNotes()

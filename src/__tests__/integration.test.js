@@ -9,7 +9,14 @@ import {
   buildNarrativeConstraints
 } from '../services/promptBuilder'
 import { getShotTypes, inferShotTypeFromEmotion } from '../types/director'
-import { extractShotsFromPoetryLab, toMarkdown } from '../services/shotExporter'
+import {
+  extractShotsFromChapter,
+  extractShotsFromNarrativeAssets,
+  extractShotsFromPoetryLab,
+  extractShotsFromProseEssay,
+  toMarkdown,
+  toPremiereCSV
+} from '../services/shotExporter'
 
 describe('PromptBuilder', () => {
   it('builds system prompt with style', () => {
@@ -44,17 +51,108 @@ describe('Director Types', () => {
 })
 
 describe('ShotExporter', () => {
-  it('extracts shots from nodes', () => {
+  it('extracts shots from poetry lab tree nodes', () => {
     const nodes = [
-      { id: '1', content: '夜色', extraFields: { shotType: 'wide' } }
+      {
+        id: '1',
+        text: '夜色',
+        emotion: 'calm',
+        extraFields: {
+          shotType: 'wide',
+          cameraMovement: 'pan',
+          duration: 4
+        },
+        parentId: null
+      },
+      {
+        id: '2',
+        text: '路灯',
+        examples: ['光线落在街角'],
+        parentId: '1'
+      }
     ]
-    const shots = extractShotsFromPoetryLab({ nodes, edges: [] })
-    expect(shots.length).toBe(1)
+    const shots = extractShotsFromPoetryLab({
+      nodes,
+      edges: [{ sourceId: '1', targetId: '2', type: 'JUMP_CUT' }]
+    })
+
+    expect(shots.length).toBe(2)
     expect(shots[0].content).toBe('夜色')
+    expect(shots[0].tone).toBe('淡蓝冷色调')
+    expect(shots[1].dialogue).toBe('光线落在街角')
+    expect(shots[1].transition).toBe('cut')
   })
 
   it('exports to markdown', () => {
     const md = toMarkdown([{ sequence: 1, content: '测试', shotType: 'wide', camera: 'fixed', duration: 3 }])
     expect(md).toContain('分镜脚本')
+  })
+
+  it('maps prose essay director fields into shared shots and premiere csv', () => {
+    const shots = extractShotsFromProseEssay({
+      cards: [
+        {
+          id: 'card-1',
+          content: '街灯亮起',
+          emotion: 'calm',
+          extraFields: {
+            shotType: 'wide',
+            cameraMovement: 'pan',
+            duration: 5,
+            dialogue: '今晚很安静',
+            soundEffects: '雨声'
+          }
+        }
+      ],
+      timeline: [
+        { cardId: 'card-1', order: 0, duration: 5 }
+      ]
+    })
+
+    const csv = toPremiereCSV(shots)
+
+    expect(shots[0].sound).toBe('雨声')
+    expect(csv).toContain('序号,景别,运镜,时长(秒),画面描述,台词,音效')
+    expect(csv).toContain('街灯亮起')
+    expect(csv).toContain('雨声')
+  })
+
+  it('extracts shots from narrative assets and chapter outline blocks', () => {
+    const assetShots = extractShotsFromNarrativeAssets({
+      sourceLabel: '体验会话',
+      assets: [
+        {
+          id: 'asset-1',
+          kind: 'event',
+          title: '雾港冲突',
+          content: '主角在雾港发现旧案线索。'
+        },
+        {
+          id: 'asset-2',
+          kind: 'character-fact',
+          title: '林舟的顾虑',
+          content: '林舟不信任守卫。'
+        }
+      ]
+    })
+
+    const chapterShots = extractShotsFromChapter({
+      chapterTitle: '第一章',
+      outlineItems: [
+        {
+          id: 'outline-1',
+          assetKind: 'draft-prose',
+          title: '开场',
+          content: '夜色压下来，街灯一盏盏亮起。'
+        }
+      ]
+    })
+
+    expect(assetShots).toHaveLength(2)
+    expect(assetShots[0].notes).toContain('体验会话')
+    expect(assetShots[0].shotType).toBe('wide')
+    expect(chapterShots).toHaveLength(1)
+    expect(chapterShots[0].notes).toContain('第一章')
+    expect(chapterShots[0].content).toBe('开场')
   })
 })

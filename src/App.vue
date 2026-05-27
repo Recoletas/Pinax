@@ -1,11 +1,19 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
 import MemoryIndicator from './components/MemoryIndicator.vue'
 
 const { initTheme } = useTheme()
+const route = useRoute()
 const generationMetaNotice = ref('')
 let noticeTimer = null
+
+function syncDocumentTitle() {
+  const fallbackTitle = route.name === 'welcome' ? '工作台' : String(route.name || 'WriterHelper')
+  const title = String(route.meta?.title || fallbackTitle || 'WriterHelper').trim()
+  document.title = title ? `${title} - WriterHelper` : 'WriterHelper'
+}
 
 function hideNotice() {
   if (noticeTimer) {
@@ -44,12 +52,20 @@ function handleGenerationMeta(event) {
 onMounted(() => {
   initTheme()
   window.addEventListener('ai-generation-meta', handleGenerationMeta)
+  syncDocumentTitle()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('ai-generation-meta', handleGenerationMeta)
   hideNotice()
 })
+
+watch(
+  () => [route.name, route.meta?.title],
+  () => {
+    syncDocumentTitle()
+  }
+)
 </script>
 
 <template>

@@ -917,13 +917,13 @@ export function getPromptInfo(chatHistory = []) {
 // ---------------- 创作顾问 ----------------
 
 /**
- * 获取创作建议（OpenClaw 模式）
+ * 获取统一创作建议
  * @param {object} context - 上下文数据对象
  * @param {string} question - 用户问题
  */
 export async function getCreativeAdvice(context, question) {
-  const response = await api.post('/openclaw/advice', { context, question })
-  return response.data.advice || ''
+  const response = await api.post('/advisor/advice', { context, question })
+  return response.data.advice || '未获取到有效建议'
 }
 
 // ---------------- 其他 ----------------

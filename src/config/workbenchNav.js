@@ -3,7 +3,7 @@ export const DEFAULT_ACTIVITY_KEY = 'experience'
 export const ACTIVITY_ITEMS = [
   {
     key: 'experience',
-    label: '小说体验',
+    label: '体验',
     icon: 'compass',
     defaultRouteName: 'experience'
   },
@@ -14,22 +14,22 @@ export const ACTIVITY_ITEMS = [
     defaultRouteName: 'writing'
   },
   {
-    key: 'poetry',
-    label: '诗歌',
-    icon: 'music',
-    defaultRouteName: 'poetry-lab'
+    key: 'worldbook',
+    label: '设定',
+    icon: 'settings',
+    defaultRouteName: 'experience-worldbook'
   },
   {
-    key: 'prose',
-    label: '散文',
-    icon: 'document',
-    defaultRouteName: 'prose-essay'
+    key: 'storyboard',
+    label: '分镜',
+    icon: 'film',
+    defaultRouteName: 'poetry-lab'
   }
 ]
 
 export const SIDE_PANELS = {
   experience: {
-    title: '小说体验',
+    title: '体验',
     items: [
       {
         routeName: 'experience',
@@ -39,11 +39,11 @@ export const SIDE_PANELS = {
       {
         routeName: 'experience-worldbook',
         label: '世界书导入',
-        description: '预设、AI提炼、随机生成'
+        description: '预设、AI 提炼、随机生成'
       },
       {
         routeName: 'experience-worldbook-advanced',
-        label: '高级设置',
+        label: '设定编辑',
         description: '条目与注入参数细调'
       }
     ]
@@ -54,32 +54,42 @@ export const SIDE_PANELS = {
       {
         routeName: 'writing',
         label: '小说',
-        description: '章节与书籍管理'
+        description: '章节与正文管理'
       },
       {
-        routeName: 'notes',
-        label: '笔记',
-        description: '灵感与速记整理'
+        routeName: 'materials',
+        label: '素材',
+        description: '灵感、速记与素材整理'
       }
     ]
   },
-  poetry: {
-    title: '诗歌工坊',
+  worldbook: {
+    title: '设定',
+    items: [
+      {
+        routeName: 'experience-worldbook',
+        label: '世界书导入',
+        description: '预设、AI 提炼、随机生成'
+      },
+      {
+        routeName: 'experience-worldbook-advanced',
+        label: '设定编辑',
+        description: '条目与注入参数细调'
+      }
+    ]
+  },
+  storyboard: {
+    title: '分镜',
     items: [
       {
         routeName: 'poetry-lab',
-        label: '灵感树',
-        description: '诗歌创作与分镜'
-      }
-    ]
-  },
-  prose: {
-    title: '散文工坊',
-    items: [
+        label: '诗歌入口',
+        description: '灵感树与分镜导出'
+      },
       {
         routeName: 'prose-essay',
-        label: '卡片台',
-        description: '卡片扩展与大纲'
+        label: '散文入口',
+        description: '卡片、大纲与分镜'
       }
     ]
   }

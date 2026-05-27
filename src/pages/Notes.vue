@@ -8,7 +8,7 @@
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">笔记</span>
+        <span class="app-title">素材</span>
       </div>
       <div class="title-right">
         <div class="status-indicator" :class="saveStatus">
@@ -17,7 +17,7 @@
           <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
           <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
         </div>
-        <button class="icon-btn" @click="createNewNote" title="新建笔记">
+        <button class="icon-btn" @click="createNewNote" title="新建素材">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 2v12M2 8h12"/>
           </svg>
@@ -37,18 +37,18 @@
     </header>
 
     <div class="content-area">
-      <!-- 左侧边栏：笔记 -->
+      <!-- 左侧边栏：素材 -->
       <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
-          <span class="sidebar-title">笔记</span>
+          <span class="sidebar-title">素材</span>
           <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开笔记' : '收起笔记'">
+            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开素材' : '收起素材'">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                 <path v-if="isRightCollapsed" d="M8 2L4 6l4 4V2z"/>
                 <path v-else d="M4 2l4 4-4 4V2z"/>
               </svg>
             </button>
-            <button class="add-btn btn-new" @click="createNewNote" title="新建笔记" :disabled="isRightCollapsed">
+            <button class="add-btn btn-new" @click="createNewNote" title="新建素材" :disabled="isRightCollapsed">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 0v14M0 7h14"/>
               </svg>
@@ -66,13 +66,13 @@
               <path d="M3 2h10v12H3V2zm2 3h6v1.5H5V5zm0 3h6v1.5H5V8zm0 3h4v1.5H5V11z"/>
             </svg>
             <div class="book-info">
-              <span class="book-title">{{ note.title || '无标题笔记' }}</span>
+              <span class="book-title">{{ note.title || '无标题素材' }}</span>
               <span class="book-meta">{{ note.wordCount || 0 }} 字</span>
             </div>
-            <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除笔记">×</button>
+            <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
           </div>
           <div v-if="chapters.length === 0" class="empty-hint">
-            暂无笔记，点击上方 + 新建
+            暂无素材，点击上方 + 新建
           </div>
         </div>
       </aside>
@@ -87,9 +87,9 @@
             <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
               <path d="M8 6h32v36H8V6zm6 8h20v2H14v-2zm0 7h20v2H14v-2zm0 7h14v2H14v-2z"/>
             </svg>
-            <p class="empty-title">选择或创建笔记</p>
-            <p class="empty-desc">从右侧选择一条笔记开始编辑</p>
-            <button class="btn-primary" @click="createNewNote">新建笔记</button>
+            <p class="empty-title">选择或创建素材</p>
+            <p class="empty-desc">从右侧选择一条素材开始编辑</p>
+            <button class="btn-primary" @click="createNewNote">新建素材</button>
           </div>
         </template>
 
@@ -258,7 +258,7 @@
                 v-model="currentChapterTitle"
                 type="text"
                 class="chapter-title-input"
-                placeholder="笔记标题"
+                placeholder="素材标题"
                 @input="onTitleChange"
               />
               <div class="editor-stats">
@@ -321,11 +321,11 @@
       </main>
     </div>
 
-    <!-- 新建笔记弹窗 -->
+    <!-- 新建素材弹窗 -->
     <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
       <div class="modal">
         <div class="modal-header">
-          <h3>新建笔记</h3>
+          <h3>新建素材</h3>
           <button class="modal-close" @click="showNewNoteModal = false">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
               <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
@@ -333,12 +333,12 @@
           </button>
         </div>
         <div class="modal-body">
-          <label class="input-label">笔记标题</label>
+          <label class="input-label">素材标题</label>
           <input
             v-model="newNoteTitle"
             type="text"
             class="input"
-            placeholder="输入笔记标题"
+            placeholder="输入素材标题"
             ref="newNoteInput"
           />
         </div>
@@ -361,12 +361,10 @@
       :isOpen="advisorOpen"
       :messages="advisorMessages"
       :loading="advisorLoading"
-      :backend="backend"
       :quickQuestions="['素材整理建议', '关联发现', '扩展写作方向', '分类体系优化']"
-      :emptyText="'创作顾问可帮你梳理灵感、组织素材，发现笔记间的关联与创作方向。'"
+      :emptyText="'创作顾问可帮你梳理灵感、组织素材，发现素材间的关联与创作方向。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
-      @update:backend="(v) => backend = v"
     />
   </div>
 </template>
@@ -383,7 +381,7 @@ import { createWritingNote, listWritingNotes, replaceWritingNotes } from '../ser
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('notes')
+const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 
 const chapters = ref([])
 const selectedChapterId = ref(null)
@@ -494,17 +492,6 @@ function collectNotesContext() {
 
 async function handleAskAdvisor(question) {
   await askAdvisor(question, collectNotesContext)
-}
-
-async function openclawAdvice(question, context) {
-  const response = await fetch('/api/openclaw/advice', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, question })
-  })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const data = await response.json()
-  return data.advice || '未获取到有效建议'
 }
 
 function loadNotes() {

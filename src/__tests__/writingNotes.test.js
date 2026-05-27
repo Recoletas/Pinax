@@ -82,6 +82,10 @@ describe('writingNotes', () => {
     expect(note.content).toBe('')
   })
 
+  it('rejects empty material content', () => {
+    expect(() => prependWritingNote({ content: '   ' })).toThrow('素材内容不能为空')
+  })
+
   it('replaces the full note list', () => {
     const next = replaceWritingNotes([
       {

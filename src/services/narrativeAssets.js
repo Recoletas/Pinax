@@ -13,7 +13,7 @@ export const ASSET_KINDS = [
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
 
-export function listNarrativeAssets({ status = null, projectId = undefined, kind = null } = {}) {
+export function listNarrativeAssets({ status = null, projectId = undefined, kind = null, sourceType = null, sourceId = null } = {}) {
   const stored = getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
   const list = Array.isArray(stored) ? stored : []
 
@@ -21,6 +21,8 @@ export function listNarrativeAssets({ status = null, projectId = undefined, kind
     .filter((asset) => !status || asset.status === status)
     .filter((asset) => !kind || asset.kind === kind)
     .filter((asset) => projectId === undefined || asset.projectId === projectId)
+    .filter((asset) => !sourceType || asset.source?.type === sourceType)
+    .filter((asset) => !sourceId || asset.source?.id === sourceId)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
 }
 
@@ -117,7 +119,7 @@ export function getAssetSourceLabel(source = {}) {
     case 'experience-session':
       return '体验会话'
     case 'note':
-      return '笔记'
+      return '素材'
     case 'chapter':
       return '章节'
     case 'manual':

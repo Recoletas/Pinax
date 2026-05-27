@@ -1,106 +1,82 @@
-import { ref, computed } from 'vue'
-import { getApiSettings } from '../services/api'
-import { getItem, STORAGE_KEYS } from './useStorage'
-import { getAdvisorPrompt } from '../services/promptRegistry'
-import { runGenerationStreamTask } from '../services/generationService'
+import { ref } from 'vue'
+import { requestAdvisorTask } from '../services/advisorTaskService'
 
-async function resolveApiSettings() {
-  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
-  if (localRaw.baseUrl && localRaw.apiKey && localRaw.model) return localRaw
-  try {
-    const remoteRaw = await getApiSettings()
+function createAdvisorResultId() {
+  return `advisor_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeAdvisorInput(input) {
+  if (typeof input === 'string') {
+    const question = input.trim()
     return {
-      provider: localRaw.provider || remoteRaw.provider || 'openai',
-      baseUrl: localRaw.baseUrl || remoteRaw.baseUrl || '',
-      apiKey: localRaw.apiKey || remoteRaw.apiKey || '',
-      model: localRaw.model || remoteRaw.model || ''
+      label: question,
+      question,
+      scope: '',
+      taskType: '',
+      target: null,
+      options: {}
     }
-  } catch {
-    return localRaw
+  }
+
+  if (!input || typeof input !== 'object') {
+    return {
+      label: '',
+      question: '',
+      scope: '',
+      taskType: '',
+      target: null,
+      options: {}
+    }
+  }
+
+  const question = String(input.question || input.label || '').trim()
+  const label = String(input.label || question).trim()
+
+  return {
+    label,
+    question,
+    scope: String(input.scope || '').trim(),
+    taskType: String(input.taskType || '').trim(),
+    target: input.target || null,
+    options: input.options || {}
   }
 }
 
-export function useAdvisor(mode = 'prose') {
+export function useAdvisor() {
   const advisorOpen = ref(false)
   const advisorLoading = ref(false)
   const advisorMessages = ref([])
-  const advisorInput = ref('')
-  const backend = ref('openai')
+  const advisorResults = ref([])
 
-  const promptConfig = computed(() => getAdvisorPrompt(mode))
-
-  async function askAdvisor(question, contextProvider, openclawAdvice) {
+  async function askAdvisor(input, contextProvider) {
     if (advisorLoading.value) return
+
+    const task = normalizeAdvisorInput(input)
+    if (!task.question) return
+
     advisorLoading.value = true
-    advisorInput.value = ''
-    advisorMessages.value.push({ role: 'user', content: question })
+    advisorMessages.value.push({ role: 'user', content: task.label || task.question })
 
     try {
-      let advice = ''
-      if (backend.value === 'openai') {
-        if (!contextProvider) {
-          advice = 'AI 模式未配置 contextProvider 函数'
-          advisorMessages.value.push({ role: 'advisor', content: advice })
-        } else {
-          const context = await contextProvider()
-          const apiSettings = await resolveApiSettings()
-          if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
-            throw new Error('未配置 AI，请先在设置中填写 API 信息')
-          }
-          const messages = [
-            { role: 'system', content: promptConfig.value.system },
-            { role: 'user', content: `当前创作上下文：\n${JSON.stringify(context, null, 2)}\n\n用户的问题：${question}` }
-          ]
-
-          // 添加一个空的顾问消息占位符
-          const messageIndex = advisorMessages.value.length
-          advisorMessages.value.push({ role: 'advisor', content: '' })
-
-          // 使用流式 API
-          let fullContent = ''
-
-          await runGenerationStreamTask({
-            taskType: 'advisor.review',
-            baseMessages: messages,
-            settings: apiSettings,
-            generationOptions: {
-              max_tokens: 1500,
-              attemptName: `advisor-${mode}`
-            },
-            callbacks: {
-              onChunk: (chunk) => {
-                if (chunk.content) {
-                  fullContent += chunk.content
-                  // 实时更新消息内容
-                  if (advisorMessages.value[messageIndex]) {
-                    advisorMessages.value[messageIndex].content = fullContent
-                  }
-                }
-              },
-              onComplete: (result) => {
-                // 流式完成
-                if (advisorMessages.value[messageIndex]) {
-                  advisorMessages.value[messageIndex].content = result.content || fullContent || '未获取到有效回复'
-                }
-              },
-              onError: (error) => {
-                console.error('Advisor stream error:', error)
-                if (advisorMessages.value[messageIndex]) {
-                  advisorMessages.value[messageIndex].content = `获取建议失败：${error.message}`
-                }
-              }
-            }
-          })
-        }
-      } else {
-        if (!openclawAdvice) {
-          advice = 'OpenClaw 模式未配置 openclawAdvice 函数'
-        } else {
-          const context = await contextProvider()
-          advice = await openclawAdvice(question, context)
-        }
-        advisorMessages.value.push({ role: 'advisor', content: advice })
+      if (typeof contextProvider !== 'function') {
+        throw new Error('未配置上下文函数')
       }
+
+      const context = await contextProvider()
+      const taskResult = await requestAdvisorTask({
+        context,
+        question: task.question,
+        scope: task.scope,
+        taskType: task.taskType,
+        target: task.target,
+        options: task.options
+      })
+      advisorResults.value.push({
+        id: taskResult.result?.id || createAdvisorResultId(),
+        status: 'pending',
+        ...(taskResult.result || {})
+      })
+      advisorMessages.value.push({ role: 'advisor', content: taskResult.advice })
     } catch (e) {
       advisorMessages.value.push({ role: 'advisor', content: `获取建议失败：${e.message || e}` })
     } finally {
@@ -118,18 +94,25 @@ export function useAdvisor(mode = 'prose') {
 
   function clearAdvisorMessages() {
     advisorMessages.value = []
+    advisorResults.value = []
+  }
+
+  function updateAdvisorResultStatus(resultId, status, detail = '') {
+    const result = advisorResults.value.find((item) => item.id === resultId)
+    if (!result) return
+    result.status = status
+    result.statusDetail = detail
   }
 
   return {
     advisorOpen,
     advisorLoading,
     advisorMessages,
-    advisorInput,
-    backend,
+    advisorResults,
     askAdvisor,
     openAdvisor,
     closeAdvisor,
     clearAdvisorMessages,
-    promptConfig
+    updateAdvisorResultStatus
   }
 }

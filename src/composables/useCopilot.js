@@ -2,7 +2,7 @@
  * useCopilot - AI 续写补全组合式函数
  *
  * 功能：
- * - 监听用户输入停顿，自动触发 AI 续写建议
+ * - 监听用户输入停顿，按需触发 AI 续写建议
  * - 管理建议状态（生成中/显示/采纳/拒绝）
  * - 上下文窗口截取与 Token 预算管理
  */
@@ -273,7 +273,7 @@ export function useCopilot(options = {}) {
   const {
     debounceMs = DEFAULT_DEBOUNCE_MS,
     maxSuggestionLength = MAX_SUGGESTION_LENGTH,
-    autoTrigger = true
+    autoTrigger = false
   } = options
 
   // 状态

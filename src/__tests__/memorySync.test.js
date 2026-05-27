@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   useMem0: vi.fn(),
   storeMemory: vi.fn(),
+  searchMemories: vi.fn(),
   getUserId: vi.fn(() => 'user-1')
 }))
 
@@ -27,6 +28,7 @@ describe('memorySync', () => {
     mocks.apiPost.mockReset()
     mocks.useMem0.mockReset()
     mocks.storeMemory.mockReset()
+    mocks.searchMemories.mockReset()
     mocks.getUserId.mockClear()
   })
 
@@ -49,7 +51,9 @@ describe('memorySync', () => {
 
     expect(result.skipped).toBe(true)
     expect(result.reason).toBe('mem0-not-configured')
+    expect(result.syncStatus).toBe('local-only')
     expect(mocks.useMem0).not.toHaveBeenCalled()
+    expect(describeMem0SyncResult(result)).toBe('本地保留，未配置 mem0')
   })
 
   it('syncs an active candidate into mem0', async () => {
@@ -63,7 +67,9 @@ describe('memorySync', () => {
       success: true,
       data: { id: 'remote-mem-1' }
     })
+    mocks.searchMemories.mockResolvedValue([])
     mocks.useMem0.mockReturnValue({
+      searchMemories: mocks.searchMemories,
       storeMemory: mocks.storeMemory
     })
 
@@ -79,6 +85,9 @@ describe('memorySync', () => {
     })
 
     expect(result.success).toBe(true)
+    expect(result.syncStatus).toBe('synced')
+    expect(result.remoteId).toBe('remote-mem-1')
+    expect(result.syncedAt).toEqual(expect.any(Number))
     expect(mocks.useMem0).toHaveBeenCalledWith({
       apiUrl: 'https://mem0.example/v1',
       userId: 'user-1',
@@ -104,6 +113,43 @@ describe('memorySync', () => {
     expect(describeMem0SyncResult(result)).toBe('已同步到 mem0')
   })
 
+  it('reuses an exact remote duplicate before storing', async () => {
+    mocks.apiPost.mockResolvedValue({
+      data: {
+        mem0_api_key: 'm0-key',
+        mem0_host: 'https://mem0.example'
+      }
+    })
+    mocks.searchMemories.mockResolvedValue([
+      { id: 'remote-existing-1', memory: '旧书店 在 西街。' }
+    ])
+    mocks.useMem0.mockReturnValue({
+      searchMemories: mocks.searchMemories,
+      storeMemory: mocks.storeMemory
+    })
+
+    const result = await syncConfirmedMemoryCandidateToMem0({
+      id: 'mem-remote-dup',
+      content: '旧书店在西街。',
+      kind: 'project-fact',
+      scope: 'project',
+      scopeId: 'project-1',
+      status: 'active'
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.deduped).toBe(true)
+    expect(result.remoteId).toBe('remote-existing-1')
+    expect(mocks.searchMemories).toHaveBeenCalledWith('旧书店在西街。', expect.objectContaining({
+      limit: 5,
+      type: 'project-fact',
+      scope: 'project',
+      scopeId: 'project-1'
+    }))
+    expect(mocks.storeMemory).not.toHaveBeenCalled()
+    expect(describeMem0SyncResult(result)).toBe('已匹配远端记忆')
+  })
+
   it('reports mem0 sync failures', async () => {
     mocks.apiPost.mockResolvedValue({
       data: {
@@ -115,7 +161,9 @@ describe('memorySync', () => {
       success: false,
       error: 'boom'
     })
+    mocks.searchMemories.mockResolvedValue([])
     mocks.useMem0.mockReturnValue({
+      searchMemories: mocks.searchMemories,
       storeMemory: mocks.storeMemory
     })
 
@@ -130,6 +178,7 @@ describe('memorySync', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toBe('boom')
+    expect(result.syncStatus).toBe('failed')
     expect(describeMem0SyncResult(result)).toBe('mem0 同步失败')
   })
 

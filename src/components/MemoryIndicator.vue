@@ -8,7 +8,7 @@
           type="button"
           @click="togglePanel"
           :aria-expanded="panelOpen"
-          title="打开记忆候选"
+          title="打开记忆面板"
         >
           <div class="memory-icon">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -24,10 +24,28 @@
         <section v-if="panelOpen" class="memory-panel">
           <header class="memory-panel-header">
             <div class="memory-panel-title">
-              <strong>记忆候选</strong>
-              <span>{{ visibleCandidates.length }} 条待确认</span>
+              <strong>{{ getPanelModeTitle(panelMode) }}</strong>
+              <span>{{ visibleCandidates.length }} 条{{ getPanelModeCountLabel(panelMode) }}</span>
             </div>
             <div class="memory-panel-actions">
+              <button
+                class="memory-panel-btn"
+                type="button"
+                :class="{ active: panelMode === 'pending' }"
+                @click="setPanelMode('pending')"
+              >待确认</button>
+              <button
+                class="memory-panel-btn"
+                type="button"
+                :class="{ active: panelMode === 'active' }"
+                @click="setPanelMode('active')"
+              >已确认</button>
+              <button
+                class="memory-panel-btn"
+                type="button"
+                :class="{ active: panelMode === 'stale' }"
+                @click="setPanelMode('stale')"
+              >已归档</button>
               <button class="memory-panel-btn" type="button" @click="refreshCandidates">刷新</button>
               <button class="memory-panel-btn" type="button" @click="closePanel">收起</button>
             </div>
@@ -39,17 +57,51 @@
               class="memory-panel-filter"
               :class="{ active: activeScopeFilter === scope.value }"
               type="button"
-              @click="activeScopeFilter = scope.value"
+              @click="setScopeFilter(scope.value)"
             >
               {{ scope.label }}
             </button>
+          </div>
+          <div v-if="panelMode === 'pending' && visibleCandidates.length" class="memory-batch-bar">
+            <span class="memory-batch-count">{{ selectedVisibleCandidates.length }} / {{ visibleCandidates.length }} 已选</span>
+            <div class="memory-batch-controls">
+              <label class="memory-batch-field">
+                <span>目标作用域</span>
+                <select v-model="batchScopeDraft.scope">
+                  <option v-for="scope in MEMORY_SCOPES" :key="scope.value" :value="scope.value">
+                    {{ scope.label }}
+                  </option>
+                </select>
+              </label>
+              <label v-if="batchScopeDraft.scope !== 'global-author'" class="memory-batch-field">
+                <span>Scope ID</span>
+                <input
+                  v-model="batchScopeDraft.scopeId"
+                  type="text"
+                  placeholder="请输入作品或会话 ID"
+                />
+              </label>
+              <button
+                class="memory-panel-btn primary"
+                type="button"
+                :disabled="batchBusy || !selectedVisibleCandidates.length || !canBatchChangeScope"
+                @click="changeSelectedCandidatesScope"
+              >批量改 scope</button>
+            </div>
+            <div class="memory-batch-actions">
+              <button class="memory-panel-btn" type="button" :disabled="batchBusy" @click="selectVisibleCandidates">全选可见</button>
+              <button class="memory-panel-btn" type="button" :disabled="batchBusy || !selectedVisibleCandidates.length" @click="clearSelection">清空选择</button>
+              <button class="memory-panel-btn primary" type="button" :disabled="batchBusy || !selectedVisibleCandidates.length" @click="confirmSelectedCandidates">批量确认</button>
+              <button class="memory-panel-btn" type="button" :disabled="batchBusy || !selectedVisibleCandidates.length" @click="archiveSelectedCandidates">批量归档</button>
+              <button class="memory-panel-btn" type="button" :disabled="batchBusy || !selectedVisibleCandidates.length" @click="rejectSelectedCandidates">批量拒绝</button>
+            </div>
           </div>
           <div v-if="visibleCandidates.length" class="memory-panel-list">
             <article
               v-for="candidate in visibleCandidates"
               :key="candidate.id"
               class="memory-panel-item"
-              :class="{ editing: editingCandidateId === candidate.id }"
+              :class="{ editing: editingCandidateId === candidate.id, selected: panelMode === 'pending' && isCandidateSelected(candidate.id) }"
             >
               <template v-if="editingCandidateId === candidate.id">
                 <div class="memory-edit-grid">
@@ -87,21 +139,94 @@
                 </div>
               </template>
               <template v-else>
-                <div class="memory-panel-meta">
-                  <span class="memory-panel-kind">{{ getMemoryKindLabel(candidate.kind) }}</span>
-                  <span class="memory-panel-scope">{{ getMemoryScopeLabel(candidate.scope) }}</span>
-                  <span v-if="candidate.scopeId" class="memory-panel-scope-id">{{ candidate.scopeId }}</span>
+                <div class="memory-panel-top">
+                  <label v-if="panelMode === 'pending'" class="memory-panel-check">
+                    <input
+                      type="checkbox"
+                      :checked="isCandidateSelected(candidate.id)"
+                      :disabled="batchBusy"
+                      @change="toggleCandidateSelection(candidate.id, $event.target.checked)"
+                    />
+                  </label>
+                  <div class="memory-panel-meta">
+                    <span class="memory-panel-kind">{{ getMemoryKindLabel(candidate.kind) }}</span>
+                    <span class="memory-panel-scope">{{ getMemoryScopeLabel(candidate.scope) }}</span>
+                    <span v-if="candidate.scopeId" class="memory-panel-scope-id">{{ candidate.scopeId }}</span>
+                    <span v-if="candidate.status === 'stale'" class="memory-archive-badge">已归档</span>
+                    <span v-else-if="candidate.duplicateOf" class="memory-duplicate-badge">疑似重复</span>
+                    <span v-else-if="candidate.similarTo" class="memory-similar-badge">相似重复</span>
+                    <span v-else-if="candidate.conflictsWith && candidate.conflictsWith.length" class="memory-conflict-badge">可能冲突</span>
+                  </div>
+                </div>
+                <p v-if="candidate.status === 'stale'" class="memory-panel-warning">
+                  已归档，可恢复后继续处理。
+                </p>
+                <p v-else-if="candidate.duplicateOf" class="memory-panel-warning">
+                  已存在相同 scope、类型和内容的记忆，可确认保留或拒绝此候选。
+                </p>
+                <p v-else-if="candidate.similarTo" class="memory-panel-warning">
+                  已存在同 scope、类型且内容高度相似的记忆，建议编辑后确认或拒绝此候选。
+                </p>
+                <p v-else-if="candidate.conflictsWith && candidate.conflictsWith.length" class="memory-panel-warning">
+                  已有 {{ candidate.conflictsWith.length }} 条同 scope、类型的已确认记忆内容不同，可合并旧记忆或替换旧记忆。
+                </p>
+                <div v-if="panelMode === 'active'" class="memory-panel-state">
+                  <span class="memory-sync-badge" :class="candidate.syncStatus || 'local-only'">
+                    {{ getMemorySyncStatusLabel(candidate.syncStatus || 'local-only') }}
+                  </span>
+                  <span v-if="candidate.lastSyncedAt" class="memory-sync-time">
+                    最近 {{ formatSyncTime(candidate.lastSyncedAt) }}
+                  </span>
                 </div>
                 <p class="memory-panel-text">{{ candidate.content }}</p>
+                <p v-if="panelMode === 'active' && candidate.lastSyncError && candidate.syncStatus === 'failed'" class="memory-panel-error">
+                  {{ candidate.lastSyncError }}
+                </p>
                 <div class="memory-panel-actions">
-                  <button class="memory-panel-btn primary" type="button" @click="confirmCandidate(candidate.id)">确认</button>
-                  <button class="memory-panel-btn" type="button" @click="startEdit(candidate)">编辑</button>
-                  <button class="memory-panel-btn" type="button" @click="rejectCandidate(candidate.id)">拒绝</button>
+                  <button v-if="panelMode === 'pending'" class="memory-panel-btn primary" type="button" @click="confirmCandidate(candidate.id)">确认</button>
+                  <button
+                    v-if="panelMode === 'pending' && candidate.conflictsWith && candidate.conflictsWith.length"
+                    class="memory-panel-btn primary"
+                    type="button"
+                    @click="mergeCandidateConflicts(candidate)"
+                  >合并旧记忆</button>
+                  <button
+                    v-if="panelMode === 'pending' && candidate.conflictsWith && candidate.conflictsWith.length"
+                    class="memory-panel-btn primary"
+                    type="button"
+                    @click="replaceCandidateConflicts(candidate)"
+                  >替换旧记忆</button>
+                  <button v-if="panelMode !== 'stale'" class="memory-panel-btn" type="button" @click="startEdit(candidate)">编辑</button>
+                  <button
+                    v-if="panelMode !== 'stale'"
+                    class="memory-panel-btn"
+                    type="button"
+                    @click="archiveCandidate(candidate.id)"
+                  >归档</button>
+                  <button
+                    v-if="panelMode === 'pending'"
+                    class="memory-panel-btn"
+                    type="button"
+                    @click="rejectCandidate(candidate.id)"
+                  >拒绝</button>
+                  <button
+                    v-else-if="panelMode === 'stale'"
+                    class="memory-panel-btn primary"
+                    type="button"
+                    @click="restoreCandidate(candidate.id)"
+                  >{{ getRestoreButtonLabel(candidate) }}</button>
+                  <button
+                    v-else
+                    class="memory-panel-btn primary"
+                    type="button"
+                    :disabled="candidate.syncStatus === 'syncing'"
+                    @click="retryCandidateSync(candidate.id)"
+                  >{{ getSyncActionLabel(candidate) }}</button>
                 </div>
               </template>
             </article>
           </div>
-          <div v-else class="memory-panel-empty">暂无待确认记忆</div>
+          <div v-else class="memory-panel-empty">{{ getPanelModeEmptyLabel(panelMode) }}</div>
         </section>
       </Transition>
     </div>
@@ -111,13 +236,20 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import {
+  archiveMemoryCandidate,
+  batchUpdateMemoryCandidateScope,
+  batchArchiveMemoryCandidates,
   confirmMemoryCandidate,
   getMemoryKindLabel,
+  getMemorySyncStatusLabel,
   getMemoryScopeLabel,
   MEMORY_KINDS,
   MEMORY_SCOPES,
   listMemoryCandidates,
   rejectMemoryCandidate,
+  mergeMemoryCandidateConflicts,
+  replaceMemoryCandidateConflicts,
+  restoreMemoryCandidate,
   updateMemoryCandidate
 } from '../services/memoryCandidates'
 import { describeMem0SyncResult, syncConfirmedMemoryCandidateToMem0 } from '../services/memorySync'
@@ -126,7 +258,16 @@ const showIndicator = ref(false)
 const message = ref('')
 const panelOpen = ref(false)
 const pendingCandidates = ref([])
+const activeCandidates = ref([])
+const staleCandidates = ref([])
 const activeScopeFilter = ref('all')
+const panelMode = ref('pending')
+const selectedCandidateIds = ref([])
+const batchScopeDraft = ref({
+  scope: 'session',
+  scopeId: ''
+})
+const batchBusy = ref(false)
 const editingCandidateId = ref('')
 const editDraft = ref({
   content: '',
@@ -134,6 +275,23 @@ const editDraft = ref({
   scope: 'session',
   scopeId: ''
 })
+const panelModeLabels = {
+  pending: {
+    title: '记忆候选',
+    countLabel: '待确认',
+    emptyLabel: '暂无待确认记忆'
+  },
+  active: {
+    title: '已确认记忆',
+    countLabel: '已确认',
+    emptyLabel: '暂无已确认记忆'
+  },
+  stale: {
+    title: '已归档记忆',
+    countLabel: '已归档',
+    emptyLabel: '暂无已归档记忆'
+  }
+}
 let hideTimer = null
 
 function handleMemoryRecorded(event) {
@@ -152,11 +310,8 @@ function handleMemoryRecorded(event) {
   message.value = `${prefix} · ${label}${kind ? ` · ${kind}` : ''}：${text || ''}`
   showIndicator.value = true
 
-  if (hideTimer) clearTimeout(hideTimer)
-  hideTimer = setTimeout(() => {
-    showIndicator.value = false
-  }, 2500)
   refreshCandidates()
+  scheduleIndicatorHide()
 }
 
 function handleMemoryCandidateCreated(event) {
@@ -166,38 +321,72 @@ function handleMemoryCandidateCreated(event) {
   message.value = `${prefix} · ${label}：${text || ''}`
   showIndicator.value = true
 
-  if (hideTimer) clearTimeout(hideTimer)
-  hideTimer = setTimeout(() => {
-    showIndicator.value = false
-  }, 2500)
   refreshCandidates()
+  scheduleIndicatorHide()
 }
 
 function refreshCandidates() {
   pendingCandidates.value = listMemoryCandidates({ status: 'pending' })
+  activeCandidates.value = listMemoryCandidates({ status: 'active' })
+  staleCandidates.value = listMemoryCandidates({ status: 'stale' })
+  pruneSelection()
+  if (hasMemoryCandidates()) {
+    showIndicator.value = true
+  }
 }
+
+const currentCandidates = computed(() => {
+  if (panelMode.value === 'active') return activeCandidates.value
+  if (panelMode.value === 'stale') return staleCandidates.value
+  return pendingCandidates.value
+})
 
 const visibleCandidates = computed(() => {
   if (activeScopeFilter.value === 'all') {
-    return pendingCandidates.value
+    return currentCandidates.value
   }
-  return pendingCandidates.value.filter((candidate) => candidate.scope === activeScopeFilter.value)
+  return currentCandidates.value.filter((candidate) => candidate.scope === activeScopeFilter.value)
+})
+
+const selectedVisibleCandidates = computed(() => (
+  visibleCandidates.value.filter((candidate) => selectedCandidateIds.value.includes(candidate.id))
+))
+
+const canBatchChangeScope = computed(() => {
+  const scope = String(batchScopeDraft.value.scope || '').trim()
+  if (!scope) return false
+  if (scope === 'global-author') return true
+  return Boolean(String(batchScopeDraft.value.scopeId || '').trim())
 })
 
 const scopeFilters = computed(() => {
-  const scopeCounts = pendingCandidates.value.reduce((acc, candidate) => {
+  const scopeCounts = currentCandidates.value.reduce((acc, candidate) => {
     acc[candidate.scope] = (acc[candidate.scope] || 0) + 1
     return acc
   }, {})
 
   return [
-    { value: 'all', label: `全部 (${pendingCandidates.value.length})` },
+    { value: 'all', label: `全部 (${currentCandidates.value.length})` },
     ...MEMORY_SCOPES.map((scope) => ({
       value: scope.value,
       label: `${scope.label} (${scopeCounts[scope.value] || 0})`
     }))
   ]
 })
+
+function setPanelMode(mode) {
+  if (panelMode.value === mode) return
+  panelMode.value = mode
+  activeScopeFilter.value = 'all'
+  clearSelection()
+  refreshCandidates()
+}
+
+function setScopeFilter(scope) {
+  if (activeScopeFilter.value === scope) return
+  activeScopeFilter.value = scope
+  clearSelection()
+}
 
 function togglePanel() {
   panelOpen.value = !panelOpen.value
@@ -209,6 +398,54 @@ function togglePanel() {
 function closePanel() {
   panelOpen.value = false
   cancelEdit()
+  clearSelection()
+}
+
+function buildSyncPatch(syncResult) {
+  if (syncResult?.success) {
+    return {
+      syncStatus: 'synced',
+      remoteId: extractRemoteId(syncResult),
+      lastSyncedAt: syncResult.syncedAt || Date.now(),
+      lastSyncError: ''
+    }
+  }
+
+  if (syncResult?.skipped) {
+    if (syncResult.reason === 'invalid-candidate') {
+      return {
+        syncStatus: 'failed',
+        lastSyncError: '无效记忆，无法同步'
+      }
+    }
+    return {
+      syncStatus: 'local-only',
+      lastSyncError: ''
+    }
+  }
+
+  return {
+    syncStatus: 'failed',
+    lastSyncError: syncResult?.error || 'mem0 同步失败'
+  }
+}
+
+async function syncCandidate(candidateId, candidate, options = {}) {
+  const { note = '', announce = true } = options
+  const syncingCandidate = updateMemoryCandidate(candidateId, {
+    syncStatus: 'syncing',
+    lastSyncError: ''
+  }) || candidate
+  refreshCandidates()
+
+  const syncResult = await syncConfirmedMemoryCandidateToMem0(syncingCandidate)
+  const patchedCandidate = updateMemoryCandidate(candidateId, buildSyncPatch(syncResult)) || syncingCandidate
+  refreshCandidates()
+
+  if (announce) {
+    showConfirmationNotice(patchedCandidate, syncResult, note)
+  }
+  return { candidate: patchedCandidate, syncResult }
 }
 
 function startEdit(candidate) {
@@ -256,9 +493,49 @@ async function confirmCandidate(candidateId) {
   if (editingCandidateId.value === candidateId) {
     cancelEdit()
   }
-  refreshCandidates()
-  const syncResult = await syncConfirmedMemoryCandidateToMem0(confirmed)
-  showConfirmationNotice(confirmed, syncResult)
+  await syncCandidate(candidateId, confirmed, { note: '已确认' })
+}
+
+async function mergeCandidateConflicts(candidate) {
+  if (!candidate) return
+
+  const result = mergeMemoryCandidateConflicts(candidate.id, {
+    note: '已合并到新记忆'
+  })
+
+  if (!result.success) {
+    refreshCandidates()
+    return
+  }
+
+  if (editingCandidateId.value === candidate.id) {
+    cancelEdit()
+  }
+
+  await syncCandidate(candidate.id, result.candidate, {
+    note: `合并旧记忆 ${result.mergedCount} 条`
+  })
+}
+
+async function replaceCandidateConflicts(candidate) {
+  if (!candidate) return
+
+  const result = replaceMemoryCandidateConflicts(candidate.id, {
+    note: '已被新记忆替换'
+  })
+
+  if (!result.success) {
+    refreshCandidates()
+    return
+  }
+
+  if (editingCandidateId.value === candidate.id) {
+    cancelEdit()
+  }
+
+  await syncCandidate(candidate.id, result.candidate, {
+    note: `替换旧记忆 ${result.replacedCount} 条`
+  })
 }
 
 async function confirmEditedCandidate(candidateId) {
@@ -266,17 +543,51 @@ async function confirmEditedCandidate(candidateId) {
   await confirmCandidate(candidateId)
 }
 
-function showConfirmationNotice(candidate, syncResult) {
+async function retryCandidateSync(candidateId) {
+  const candidate = activeCandidates.value.find((item) => item.id === candidateId) || null
+  if (!candidate) return
+  await syncCandidate(candidateId, candidate, { note: '重试同步' })
+}
+
+function archiveCandidate(candidateId) {
+  const archived = archiveMemoryCandidate(candidateId, { note: '已归档' })
+  if (!archived.success) {
+    refreshCandidates()
+    return
+  }
+
+  if (editingCandidateId.value === candidateId) {
+    cancelEdit()
+  }
+
+  refreshCandidates()
+  showStatusNotice(buildArchiveNotice(1))
+}
+
+function restoreCandidate(candidateId) {
+  const restored = restoreMemoryCandidate(candidateId)
+  if (!restored.success) {
+    refreshCandidates()
+    return
+  }
+
+  if (editingCandidateId.value === candidateId) {
+    cancelEdit()
+  }
+
+  refreshCandidates()
+  showStatusNotice(buildRestoreNotice(restored.candidate))
+}
+
+function showConfirmationNotice(candidate, syncResult, prefix = '') {
   const suffix = describeMem0SyncResult(syncResult)
   const preview = String(candidate?.content || '').trim().slice(0, 60)
   const scopeLabel = candidate ? getMemoryScopeLabel(candidate.scope) : '记忆'
-  message.value = `${scopeLabel} · ${preview}${suffix ? ` · ${suffix}` : ''}`
+  const head = prefix ? `${prefix} · ` : ''
+  message.value = `${head}${scopeLabel} · ${preview}${suffix ? ` · ${suffix}` : ''}`
   showIndicator.value = true
 
-  if (hideTimer) clearTimeout(hideTimer)
-  hideTimer = setTimeout(() => {
-    showIndicator.value = false
-  }, 2500)
+  scheduleIndicatorHide()
 }
 
 function rejectCandidate(candidateId) {
@@ -285,6 +596,241 @@ function rejectCandidate(candidateId) {
     cancelEdit()
   }
   refreshCandidates()
+}
+
+async function confirmSelectedCandidates() {
+  if (batchBusy.value || !selectedVisibleCandidates.value.length) return
+  const targets = selectedVisibleCandidates.value
+  if (!targets.length) return
+
+  batchBusy.value = true
+  let syncedCount = 0
+  let localOnlyCount = 0
+  let failedCount = 0
+
+  try {
+    for (const candidate of targets) {
+      const confirmed = confirmMemoryCandidate(candidate.id)
+      if (!confirmed) {
+        failedCount++
+        continue
+      }
+
+      const result = await syncCandidate(candidate.id, confirmed, { announce: false })
+      if (result.syncResult?.success) {
+        syncedCount++
+      } else if (result.syncResult?.skipped) {
+        localOnlyCount++
+      } else {
+        failedCount++
+      }
+    }
+
+    refreshCandidates()
+    clearSelection()
+    showStatusNotice(buildBatchNotice('批量确认', targets.length, syncedCount, localOnlyCount, failedCount))
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function rejectSelectedCandidates() {
+  if (batchBusy.value || !selectedVisibleCandidates.value.length) return
+  const targets = selectedVisibleCandidates.value
+  if (!targets.length) return
+
+  batchBusy.value = true
+  try {
+    for (const candidate of targets) {
+      rejectMemoryCandidate(candidate.id)
+    }
+
+    refreshCandidates()
+    clearSelection()
+    showStatusNotice(`批量拒绝 ${targets.length} 条记忆`)
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function isCandidateSelected(candidateId) {
+  return selectedCandidateIds.value.includes(candidateId)
+}
+
+function toggleCandidateSelection(candidateId, checked) {
+  const next = new Set(selectedCandidateIds.value)
+  if (checked) {
+    next.add(candidateId)
+  } else {
+    next.delete(candidateId)
+  }
+  selectedCandidateIds.value = Array.from(next)
+}
+
+function selectVisibleCandidates() {
+  selectedCandidateIds.value = visibleCandidates.value.map((candidate) => candidate.id)
+  if (visibleCandidates.value.length) {
+    resetBatchScopeDraft(visibleCandidates.value[0])
+  }
+}
+
+function clearSelection() {
+  selectedCandidateIds.value = []
+  resetBatchScopeDraft()
+}
+
+function pruneSelection() {
+  if (!selectedCandidateIds.value.length) return
+  const allowedIds = new Set(currentCandidates.value.map((candidate) => candidate.id))
+  selectedCandidateIds.value = selectedCandidateIds.value.filter((id) => allowedIds.has(id))
+}
+
+function getSyncActionLabel(candidate) {
+  if (!candidate) return '同步'
+  if (candidate.syncStatus === 'syncing') return '同步中...'
+  if (candidate.syncStatus === 'synced') return '重新同步'
+  if (candidate.syncStatus === 'failed') return '重试同步'
+  if (candidate.syncStatus === 'local-only') return '同步到 mem0'
+  return '同步到 mem0'
+}
+
+function formatSyncTime(value) {
+  const time = Number(value)
+  if (!Number.isFinite(time) || time <= 0) return ''
+  return new Date(time).toLocaleString('zh-CN')
+}
+
+function extractRemoteId(syncResult) {
+  if (!syncResult) return ''
+  if (syncResult.remoteId) return String(syncResult.remoteId).trim()
+  const data = syncResult.data || {}
+  return String(data.id || data.memory_id || data.memoryId || '').trim()
+}
+
+function hasMemoryCandidates() {
+  return pendingCandidates.value.length > 0 || activeCandidates.value.length > 0 || staleCandidates.value.length > 0
+}
+
+function showStatusNotice(text) {
+  message.value = String(text || '').trim()
+  if (!message.value) return
+  showIndicator.value = true
+  scheduleIndicatorHide()
+}
+
+function buildBatchNotice(actionLabel, total, synced, localOnly, failed) {
+  const parts = [`${actionLabel} ${total} 条记忆`]
+  if (synced) parts.push(`${synced} 条已同步`)
+  if (localOnly) parts.push(`${localOnly} 条仅本地`)
+  if (failed) parts.push(`${failed} 条失败`)
+  return parts.join(' · ')
+}
+
+function buildArchiveNotice(total) {
+  return `归档 ${total} 条记忆`
+}
+
+function buildRestoreNotice(candidate) {
+  const statusLabel = candidate?.status === 'active' ? '已确认' : '待确认'
+  return `已恢复为${statusLabel}记忆`
+}
+
+function buildScopeBatchNotice(total, scope, scopeId) {
+  const parts = [`批量改 scope ${total} 条记忆`, getMemoryScopeLabel(scope)]
+  if (scope !== 'global-author' && scopeId) {
+    parts.push(scopeId)
+  }
+  return parts.join(' · ')
+}
+
+function resetBatchScopeDraft(candidate = null) {
+  batchScopeDraft.value = {
+    scope: candidate?.scope || 'session',
+    scopeId: candidate?.scope === 'global-author' ? '' : candidate?.scopeId || ''
+  }
+}
+
+async function changeSelectedCandidatesScope() {
+  if (batchBusy.value || !selectedVisibleCandidates.value.length) return
+
+  const scope = String(batchScopeDraft.value.scope || 'session').trim() || 'session'
+  const scopeId = scope === 'global-author' ? '' : String(batchScopeDraft.value.scopeId || '').trim()
+  if (scope !== 'global-author' && !scopeId) {
+    showStatusNotice('批量改 scope 需要填写 Scope ID')
+    return
+  }
+
+  batchBusy.value = true
+  try {
+    const result = batchUpdateMemoryCandidateScope(
+      selectedVisibleCandidates.value.map((candidate) => candidate.id),
+      {
+        scope,
+        scopeId
+      }
+    )
+
+    if (!result.success) {
+      showStatusNotice(result.reason === 'missing-scope-id'
+        ? '批量改 scope 需要填写 Scope ID'
+        : '批量改 scope 失败')
+      return
+    }
+
+    cancelEdit()
+    refreshCandidates()
+    clearSelection()
+    showStatusNotice(buildScopeBatchNotice(result.updatedCount, result.scope, result.scopeId))
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function archiveSelectedCandidates() {
+  if (batchBusy.value || !selectedVisibleCandidates.value.length) return
+
+  batchBusy.value = true
+  try {
+    const result = batchArchiveMemoryCandidates(
+      selectedVisibleCandidates.value.map((candidate) => candidate.id),
+      { note: '批量归档' }
+    )
+
+    if (!result.success) {
+      showStatusNotice('批量归档失败')
+      return
+    }
+
+    cancelEdit()
+    refreshCandidates()
+    clearSelection()
+    showStatusNotice(buildArchiveNotice(result.archivedCount))
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function getPanelModeTitle(mode = panelMode.value) {
+  return panelModeLabels[mode]?.title || panelModeLabels.pending.title
+}
+
+function getPanelModeCountLabel(mode = panelMode.value) {
+  return panelModeLabels[mode]?.countLabel || panelModeLabels.pending.countLabel
+}
+
+function getPanelModeEmptyLabel(mode = panelMode.value) {
+  return panelModeLabels[mode]?.emptyLabel || panelModeLabels.pending.emptyLabel
+}
+
+function getRestoreButtonLabel(candidate) {
+  return candidate?.metadata?.previousStatus === 'active' ? '恢复为已确认' : '恢复为待确认'
+}
+
+function scheduleIndicatorHide() {
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => {
+    showIndicator.value = hasMemoryCandidates()
+  }, 2500)
 }
 
 onMounted(() => {
@@ -385,6 +931,59 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+.memory-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px 0;
+}
+
+.memory-batch-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.memory-batch-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.memory-batch-field {
+  display: grid;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.memory-batch-field select,
+.memory-batch-field input {
+  min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.memory-batch-field select:focus,
+.memory-batch-field input:focus {
+  border-color: var(--accent);
+}
+
+.memory-batch-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .memory-panel-filters {
   display: flex;
   flex-wrap: wrap;
@@ -419,6 +1018,12 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.memory-panel-btn.active {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+  color: var(--accent);
+}
+
 .memory-panel-btn.primary {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
@@ -443,11 +1048,48 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent) 5%, var(--bg-primary));
 }
 
+.memory-panel-item.selected {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-primary));
+}
+
+.memory-panel-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.memory-panel-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.memory-panel-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .memory-panel-meta {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  min-width: 0;
+}
+
+.memory-panel-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 
 .memory-panel-kind,
@@ -465,6 +1107,84 @@ onUnmounted(() => {
   border-radius: 999px;
   background: color-mix(in srgb, var(--border) 20%, transparent);
   color: var(--text-secondary);
+}
+
+.memory-duplicate-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #d8a300 18%, transparent);
+  color: #b88300;
+}
+
+.memory-similar-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #4a7cc9 16%, transparent);
+  color: #4a7cc9;
+}
+
+.memory-archive-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 18%, transparent);
+  color: var(--text-secondary);
+}
+
+.memory-conflict-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #c94a4a 16%, transparent);
+  color: #c94a4a;
+}
+
+.memory-sync-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.memory-sync-badge.pending,
+.memory-sync-badge.local-only {
+  background: color-mix(in srgb, var(--border) 20%, transparent);
+  color: var(--text-secondary);
+}
+
+.memory-sync-badge.syncing {
+  background: color-mix(in srgb, #d8a300 16%, transparent);
+  color: #b88300;
+}
+
+.memory-sync-badge.synced {
+  background: color-mix(in srgb, #1a8f5c 16%, transparent);
+  color: #1a8f5c;
+}
+
+.memory-sync-badge.failed {
+  background: color-mix(in srgb, #c94a4a 16%, transparent);
+  color: #c94a4a;
+}
+
+.memory-sync-time,
+.memory-panel-error,
+.memory-panel-warning {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.memory-panel-error {
+  margin: 4px 0 0;
+  color: #c94a4a;
+}
+
+.memory-panel-warning {
+  margin: 4px 0;
+  color: #b88300;
 }
 
 .memory-panel-text {

@@ -3,7 +3,7 @@
     <div class="welcome-inner">
       <div class="welcome-header">
         <h1 class="welcome-title">欢迎使用 WriterHelper</h1>
-        <p class="welcome-subtitle">选择你要进入的工作区</p>
+        <p class="welcome-subtitle">选择体验、写作、设定或分镜工作区</p>
       </div>
 
       <div class="welcome-grid">
@@ -23,11 +23,13 @@
               <path d="M3 2.5H7A2 2 0 0 1 9 4.5V13.5H4A1 1 0 0 0 3 14.5V2.5Z"></path>
               <path d="M13 2.5H9A2 2 0 0 0 7 4.5V13.5H12A1 1 0 0 1 13 14.5V2.5Z"></path>
             </svg>
-            <svg v-else-if="item.icon === 'music'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10 3V10"></path>
-              <path d="M10 3L13.5 2V9"></path>
-              <circle cx="6.2" cy="11.2" r="1.8"></circle>
-              <circle cx="12.2" cy="10.2" r="1.8"></circle>
+            <svg v-else-if="item.icon === 'settings'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="2"></circle>
+              <path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1"></path>
+            </svg>
+            <svg v-else-if="item.icon === 'film'" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.2" y="3" width="11.6" height="10" rx="1.2"></rect>
+              <path d="M5.2 3v10M10.8 3v10M2.2 6h11.6M2.2 10h11.6"></path>
             </svg>
             <svg v-else width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 2.5H9L12 5.5V13A1 1 0 0 1 11 14H4A1 1 0 0 1 3 13V3.5A1 1 0 0 1 4 2.5Z"></path>

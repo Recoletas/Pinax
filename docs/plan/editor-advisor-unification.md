@@ -1,6 +1,8 @@
 # 08 - 编辑器与统一智能顾问
 
-状态：当前主线
+状态：已落地
+
+> 该专题记录的第一阶段方案已按当前代码落地，实际实现以 `/api/advisor/task`、`/api/advisor/advice`、`AdvisorPanel` 结果卡片和写作页结果应用为准。
 
 ## 1. 问题判断
 
@@ -10,7 +12,7 @@
 
 1. 写作页编辑器本体是原生 `textarea`，只是在上面叠了一层 ghost text 视觉层来显示建议。
 2. 当前补全在用户输入停顿后高频触发，目标是“直接生成下一段正文”。
-3. 当前顾问组件仍保留 AI / OpenClaw 双模式，但实际页面调用没有把 OpenClaw 回调真正接通，说明顾问架构本身也需要收口。
+3. 顾问组件曾保留 AI / OpenClaw 双模式，后续已收口为统一 OpenClaw 顾问；当时页面调用没有真正接通，也说明顾问架构本身需要收口。
 
 因此当前核心问题有两层：
 
@@ -110,8 +112,8 @@
 ### 4.2 顾问现状
 
 - 顾问 UI 是全项目复用的浮层面板。
-- `useAdvisor` 仍保留 `openai` / `openclaw` 两种 backend。
-- 页面调用目前只传了 `askAdvisor(question, contextProvider)`，没有真正把 `openclawAdvice` 回调接进去。
+- `useAdvisor` 已去掉 `openai` / `openclaw` 两种 backend，统一走 `/api/advisor/task`。
+- 页面调用已改成动作对象 + 结构化结果，不再各自手写 `fetch('/api/openclaw/advice')`。
 
 这说明：
 
@@ -358,6 +360,8 @@
 3. 选区替换与段落替换测试。
 4. 顾问面板单后端状态测试。
 5. `useCopilot` 关闭自动触发后的回归测试。
+
+上述测试已补齐并通过，对应文件见 `serverAdvisorTaskService.test.js`、`advisorTaskService.test.js`、`useAdvisor.test.js`、`advisorResultApplier.test.js`、`openclawService.test.js` 和 `useCopilot.test.js`。
 
 ## 13. 验收标准
 

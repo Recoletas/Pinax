@@ -38,6 +38,7 @@ describe('narrativeAssets', () => {
 
   it('describes asset sources', () => {
     expect(getAssetSourceLabel({ type: 'experience-session' })).toBe('体验会话')
+    expect(getAssetSourceLabel({ type: 'note' })).toBe('素材')
     expect(getAssetSourceDetail({ type: 'experience-session', id: 'session-a', messageIds: ['m1', 'm2'] }))
       .toBe('体验会话 · session-a · 2 段')
   })
@@ -46,7 +47,11 @@ describe('narrativeAssets', () => {
     const first = addNarrativeAsset({
       content: '角色得知了新的秘密。',
       kind: 'event',
-      projectId: 'book-a'
+      projectId: 'book-a',
+      source: {
+        type: 'experience-session',
+        id: 'session-a'
+      }
     })
     addNarrativeAsset({
       content: '另一本书的素材。',
@@ -63,6 +68,7 @@ describe('narrativeAssets', () => {
     expect(listNarrativeAssets({ status: 'inbox', projectId: null })).toHaveLength(1)
     expect(listNarrativeAssets({ status: 'inbox', kind: 'event' })).toHaveLength(1)
     expect(listNarrativeAssets({ status: 'inbox', kind: 'inspiration' })).toHaveLength(2)
+    expect(listNarrativeAssets({ status: 'inbox', sourceType: 'experience-session', sourceId: 'session-a' })).toHaveLength(1)
 
     const updated = updateNarrativeAsset(first.id, {
       title: '新的秘密',

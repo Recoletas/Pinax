@@ -19,9 +19,9 @@
 | [plan/worldbook-context.md](./plan/worldbook-context.md) | 世界书上下文构建、预览和回写边界 | 基础已完成 |
 | [plan/asset-loop.md](./plan/asset-loop.md) | 素材中台和体验到写作闭环 | 基础已完成 |
 | [plan/generation-service.md](./plan/generation-service.md) | 统一生成任务层和任务命名 | 基础已完成 |
-| [plan/editor-advisor-unification.md](./plan/editor-advisor-unification.md) | 编辑器栈选择、统一智能顾问、补全弱化与 OpenClaw 收口 | 当前主线 |
-| [plan/memory-system.md](./plan/memory-system.md) | 记忆候选、作用域、同步和收尾任务 | 下一优先级 |
-| [plan/storyboard-system.md](./plan/storyboard-system.md) | 统一分镜输出层和版本化方案 | 下一主线 |
+| [plan/editor-advisor-unification.md](./plan/editor-advisor-unification.md) | 编辑器栈选择、统一智能顾问、补全弱化与 OpenClaw 收口 | 已完成 |
+| [plan/memory-system.md](./plan/memory-system.md) | 记忆候选、作用域、同步和收尾任务 | 基本完成，细节暂缓 |
+| [plan/storyboard-system.md](./plan/storyboard-system.md) | 统一分镜输出层和版本化方案 | 当前主线，散文/诗歌/体验/章节草稿已接入，一级导航已开始向分镜工作台收口 |
 | [plan/implementation-order.md](./plan/implementation-order.md) | 总体阶段顺序、依赖和验收口径 | 配套执行表 |
 
 ## 其他文档

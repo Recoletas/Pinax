@@ -324,7 +324,7 @@ export const useExperienceStore = defineStore('experience', {
       localStorage.setItem('dialogue_characters', JSON.stringify(this.dialogueCharacters))
     },
 
-    // ---------- 快速笔记导入模式 ----------
+    // ---------- 快速素材导入模式 ----------
 
     setQuickNoteImportMode(enabled) {
       this.quickNoteImportMode = !!enabled

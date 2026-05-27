@@ -29,6 +29,9 @@
         <button class="action-btn" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
           {{ assetSummaryLoading ? '整理中' : '整理体验' }}
         </button>
+        <button class="action-btn" :disabled="storyboardDraftLoading" @click="exportExperienceStoryboardDraft">
+          {{ storyboardDraftLoading ? '生成中' : '分镜草稿' }}
+        </button>
         <button class="action-btn" @click="openWorldbookEditor">世界书导入</button>
         <button class="action-btn" @click="showSessionPicker = true">会话</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
@@ -101,7 +104,7 @@
               @input="handleQuickNoteInput"
             ></textarea>
             <div class="quick-note-workspace-actions">
-              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNote">保存到笔记</button>
+              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNote">保存到素材</button>
               <button class="quick-note-panel-btn" type="button" @click="saveQuickNoteAsAsset">存为素材</button>
               <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
             </div>
@@ -221,12 +224,10 @@
         :isOpen="advisorOpen"
         :messages="advisorMessages"
         :loading="advisorLoading"
-        :backend="backend"
         :quickQuestions="['分析当前节奏', '人物塑造建议', '剧情发展方向', '续写灵感']"
         :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
-        @update:backend="(v) => backend = v"
       />
     </div>
   </div>
@@ -252,15 +253,17 @@ import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
+import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel, listNarrativeAssets } from '../services/narrativeAssets'
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
 import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
+import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
+import { extractShotsFromNarrativeAssets, toMarkdown } from '../services/shotExporter'
 
 const router = useRouter()
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('novel')
+const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
@@ -328,17 +331,6 @@ function collectGameContext() {
 
 async function handleAskAdvisor(question) {
   await askAdvisor(question, collectGameContext)
-}
-
-async function openclawAdvice(question, context) {
-  const response = await fetch('/api/openclaw/advice', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, question })
-  })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const data = await response.json()
-  return data.advice || '未获取到有效建议'
 }
 
 const showCharacter = ref(false)
@@ -497,6 +489,7 @@ const quickNoteImportOpen = ref(false)
 const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
 const assetSummaryLoading = ref(false)
+const storyboardDraftLoading = ref(false)
 
 const dialogueImportStats = computed(() => {
   const list = (gameStore.messages || []).filter((message) => {
@@ -624,11 +617,129 @@ function saveSelectedDialogueSegmentsAsAsset() {
   return true
 }
 
-async function organizeExperienceAssets() {
-  const messages = (gameStore.messages || []).filter((message) => {
+function getUsableExperienceMessages() {
+  return (gameStore.messages || []).filter((message) => {
     const role = message.role || message.type || 'assistant'
     return role !== 'system' && String(message.content || '').trim()
   })
+}
+
+function getCurrentExperienceSession() {
+  return gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+}
+
+function buildMessageStoryboardAsset(message, index) {
+  const role = message.role || message.type || 'assistant'
+  const content = String(message.content || '').trim()
+  const label = role === 'user' ? '玩家行动' : '叙事片段'
+  const title = content.replace(/\s+/g, ' ').slice(0, 24) || label
+
+  return {
+    id: message.id || `message_${index}`,
+    kind: role === 'user' ? 'event' : 'storyboard-seed',
+    title,
+    content,
+    createdAt: Number(message.timestamp || Date.now() + index),
+    source: {
+      type: 'experience-session',
+      id: gameStore.currentSessionId || '',
+      messageIds: [message.id || `message_${index}`]
+    }
+  }
+}
+
+function getExperienceStoryboardAssets(messages = getUsableExperienceMessages()) {
+  const sessionId = gameStore.currentSessionId || ''
+  const storedAssets = sessionId
+    ? listNarrativeAssets({
+      status: null,
+      projectId: gameStore.worldId || undefined,
+      sourceType: 'experience-session',
+      sourceId: sessionId
+    })
+    : []
+
+  const usableAssets = storedAssets.filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
+  if (usableAssets.length > 0) return usableAssets
+  return messages.slice(-12).map((message, index) => buildMessageStoryboardAsset(message, index))
+}
+
+function buildExperienceStoryboardExcerpt(assets = []) {
+  return assets
+    .slice(0, 4)
+    .map((asset) => String(asset.title || asset.content || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' / ')
+    .slice(0, 240)
+}
+
+function downloadTextFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportExperienceStoryboardDraft() {
+  const messages = getUsableExperienceMessages()
+  const assets = getExperienceStoryboardAssets(messages)
+
+  if (!assets.length) {
+    quickNoteOpen.value = true
+    quickNoteStatus.value = '先推进几轮剧情或整理体验素材'
+    return
+  }
+
+  storyboardDraftLoading.value = true
+  quickNoteOpen.value = true
+
+  try {
+    const currentSession = getCurrentExperienceSession()
+    const title = currentSession?.title || worldStore.activeWorldbookName || gameStore.worldName || '体验分镜草稿'
+    const shots = extractShotsFromNarrativeAssets({
+      assets,
+      sourceLabel: title
+    })
+
+    if (!shots.length) {
+      quickNoteStatus.value = '没有可生成分镜的素材'
+      return
+    }
+
+    const result = saveValidatedStoryboardVersion({
+      source: {
+        sourceType: 'narrative-asset',
+        sourceId: gameStore.currentSessionId || '',
+        title,
+        excerpt: buildExperienceStoryboardExcerpt(assets)
+      },
+      shots,
+      taskType: 'experience.storyboard-draft',
+      parameters: {
+        messageCount: messages.length,
+        assetCount: assets.length,
+        worldbookId: selectedWorldbookId.value || ''
+      }
+    })
+
+    const markdown = toMarkdown(result.shots, {
+      title: '体验分镜草稿',
+      topic: title
+    })
+    downloadTextFile(markdown, `experience-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
+    quickNoteStatus.value = `已生成分镜草稿，版本 ${result.version.versionId.slice(-6)}`
+  } catch (error) {
+    quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+  } finally {
+    storyboardDraftLoading.value = false
+  }
+}
+
+async function organizeExperienceAssets() {
+  const messages = getUsableExperienceMessages()
 
   if (messages.length < 2) {
     quickNoteStatus.value = '当前体验内容太少，先推进几轮剧情'
@@ -640,7 +751,7 @@ async function organizeExperienceAssets() {
   quickNoteOpen.value = true
   quickNoteStatus.value = '正在整理体验素材...'
 
-  const currentSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+  const currentSession = getCurrentExperienceSession()
   const result = await summarizeExperienceAssets({
     messages,
     worldName: worldStore.activeWorldbookName || gameStore.worldName || '',
@@ -708,7 +819,7 @@ function saveQuickNote() {
     wordCount: quickNoteWordCount(content)
   })
   clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到笔记'
+  quickNoteStatus.value = '已保存到素材'
   return true
 }
 
@@ -907,8 +1018,8 @@ function saveQuickNote() {
 .game-image-gen-rail :deep(.image-gen-rail) {
   position: fixed !important;
   right: 0 !important;
-  top: calc(50% + 60px) !important; /* 向下移动 60px，彻底避开笔记 */
-  z-index: 2001 !important; /* 比笔记更高，防止遮挡 */
+  top: calc(50% + 60px) !important; /* 向下移动 60px，彻底避开素材 */
+  z-index: 2001 !important; /* 比素材更高，防止遮挡 */
   transform: translate(34px, -50%) !important;
   display: flex !important;
   visibility: visible !important;

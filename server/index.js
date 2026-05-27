@@ -8,6 +8,7 @@ import configRouter from './routes/config.js'
 import chatRouter from './routes/chat.js'
 import generateRouter from './routes/generate.js'
 import preferencesRouter from './routes/preferences.js'
+import advisorRouter from './routes/advisor.js'
 import openclawRouter from './routes/openclaw.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -25,6 +26,7 @@ app.use('/api/config', configRouter)
 app.use('/api/chat', chatRouter)
 app.use('/api/generate', generateRouter)
 app.use('/api/preferences', preferencesRouter)
+app.use('/api/advisor', advisorRouter)
 app.use('/api/openclaw', openclawRouter)
 
 app.use(express.static(join(__dirname, '../public')))

@@ -14,6 +14,7 @@ import {
   inferShotTypeFromEmotion,
   inferToneFromEmotion
 } from '../types/director'
+import { getAssetKindLabel } from './narrativeAssets'
 
 /**
  * @typedef {Object} Shot
@@ -41,61 +42,64 @@ import {
 export function extractShotsFromPoetryLab({ nodes, edges, groups = [] }) {
   if (!nodes || nodes.length === 0) return []
 
-  // 1. 构建边类型查找表：source → transition type
+  const normalizedNodes = normalizePoetryLabNodes(nodes)
+  const nodeMap = new Map(normalizedNodes.map((node) => [node.id, node]))
   const edgeTransitionMap = new Map()
-  if (edges) {
-    for (const edge of edges) {
-      edgeTransitionMap.set(edge.source, edge.type)
+
+  for (const edge of edges || []) {
+    const sourceId = resolvePoetryLabEdgeEndpoint(edge, 'source')
+    const targetId = resolvePoetryLabEdgeEndpoint(edge, 'target')
+    if (!sourceId || !targetId) continue
+    const normalizedType = String(edge.type || '').toLowerCase()
+    edgeTransitionMap.set(`${sourceId}->${targetId}`, normalizedType)
+    if (!edgeTransitionMap.has(sourceId)) {
+      edgeTransitionMap.set(sourceId, normalizedType)
     }
   }
 
-  // 2. 构建节点 ID → 节点的 Map
-  const nodeMap = new Map(nodes.map(n => [n.id, n]))
-
-  // 3. 确定节点顺序
   let orderedNodes
-
   if (groups && groups.length > 0) {
-    // 按意象群顺序展开节点
     orderedNodes = []
+    const groupedIds = new Set()
+
     for (const group of groups) {
-      if (group.nodeIds) {
-        const groupNodes = group.nodeIds.map(id => nodeMap.get(id)).filter(Boolean)
-        orderedNodes.push(...groupNodes)
-      }
+      if (!Array.isArray(group.nodeIds)) continue
+      const groupNodes = group.nodeIds.map((id) => nodeMap.get(id)).filter(Boolean)
+      orderedNodes.push(...groupNodes)
+      for (const id of group.nodeIds) groupedIds.add(id)
     }
-    // 添加未分组的节点
-    const groupedIds = new Set(groups.flatMap(g => g.nodeIds || []))
-    for (const node of nodes) {
+
+    for (const node of normalizedNodes) {
       if (!groupedIds.has(node.id)) {
         orderedNodes.push(node)
       }
     }
   } else {
-    // 深度优先遍历
-    orderedNodes = dfsOrder(nodes)
+    orderedNodes = dfsOrder(normalizedNodes)
   }
 
-  // 4. 映射为 Shot 对象
   const shots = []
   for (let i = 0; i < orderedNodes.length; i++) {
     const node = orderedNodes[i]
     const extra = node.extraFields || {}
+    const emotion = node.emotion || extra.emotion || ''
+    const examples = Array.isArray(node.examples) ? node.examples.filter(Boolean) : []
     const transition = i > 0
-      ? (edgeTransitionMap.get(orderedNodes[i - 1].id) || 'jump_cut')
+      ? edgeTransitionMap.get(`${orderedNodes[i - 1].id}->${node.id}`) || edgeTransitionMap.get(orderedNodes[i - 1].id) || 'jump_cut'
       : 'none'
 
     shots.push({
       sequence: i + 1,
       nodeId: node.id,
-      content: node.content || '',
-      shotType: extra.shotType || 'medium',
+      content: node.content || node.text || node.title || '',
+      shotType: extra.shotType || inferShotTypeFromEmotion(emotion),
       camera: extra.cameraMovement || 'fixed',
       duration: extra.duration || 3,
-      tone: extra.toneDescription || '',
-      sound: extra.soundDescription || '',
-      emotion: node.emotion || extra.emotion || '',
-      transition: TRANSITION_EXPORT_MAP[transition] || 'cut'
+      tone: extra.toneDescription || inferToneFromEmotion(emotion),
+      sound: extra.soundDescription || extra.soundEffects || '',
+      emotion,
+      transition: transition === 'none' ? 'none' : (TRANSITION_EXPORT_MAP[transition] || 'cut'),
+      dialogue: extra.dialogue || examples[0] || ''
     })
   }
 
@@ -146,7 +150,7 @@ export function extractShotsFromProseEssay({ cards, timeline = [] }) {
       camera: extra.cameraMovement || 'fixed',
       duration: extra.duration || entry.duration || 3,
       tone: extra.toneDescription || inferToneFromEmotion(emotion),
-      sound: extra.soundDescription || '',
+      sound: extra.soundDescription || extra.soundEffects || '',
       emotion: emotion,
       transition: i > 0 ? 'cut' : 'none',
       dialogue: extra.dialogue || ''
@@ -157,42 +161,278 @@ export function extractShotsFromProseEssay({ cards, timeline = [] }) {
 }
 
 /**
+ * 从体验素材提取分镜列表
+ * @param {object} options - 选项
+ * @param {Array} options.assets - 素材数组
+ * @param {string} [options.sourceLabel] - 来源标题
+ * @returns {Shot[]} 分镜列表
+ */
+export function extractShotsFromNarrativeAssets({ assets, sourceLabel = '' }) {
+  if (!Array.isArray(assets) || assets.length === 0) return []
+
+  const orderedAssets = [...assets]
+    .filter((asset) => String(asset?.content || '').trim())
+    .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
+    .slice(-12)
+
+  return orderedAssets.map((asset, index) => {
+    const kind = String(asset?.kind || 'inspiration')
+    const content = String(asset?.content || '').trim()
+    const title = String(asset?.title || '').trim() || summarizeShotTitle(content, getAssetKindLabel(kind))
+    const summary = summarizeShotTitle(content, title)
+    const shotType = inferShotTypeFromNarrativeAsset(kind, content)
+    const camera = inferCameraMovementFromNarrativeAsset(kind, content)
+
+    return {
+      sequence: index + 1,
+      nodeId: String(asset?.id || `asset_${index + 1}`),
+      content: title,
+      shotType,
+      camera,
+      duration: inferDurationFromNarrativeAsset(content),
+      tone: summary,
+      sound: '',
+      emotion: '',
+      transition: index === 0 ? 'none' : 'cut',
+      dialogue: '',
+      sourceText: content,
+      visual: summary,
+      notes: sourceLabel ? `${sourceLabel} · ${getAssetKindLabel(kind)}` : getAssetKindLabel(kind)
+    }
+  })
+}
+
+/**
+ * 从章节纲要或正文提取分镜列表
+ * @param {object} options - 选项
+ * @param {string} [options.chapterTitle] - 章节标题
+ * @param {string} [options.chapterContent] - 章节正文
+ * @param {Array} [options.outlineItems] - 章节纲要项
+ * @returns {Shot[]} 分镜列表
+ */
+export function extractShotsFromChapter({ chapterTitle = '', chapterContent = '', outlineItems = [] } = {}) {
+  const normalizedOutline = Array.isArray(outlineItems)
+    ? outlineItems.filter((item) => String(item?.content || '').trim()).slice(0, 12)
+    : []
+
+  const sourceItems = normalizedOutline.length > 0
+    ? normalizedOutline.map((item, index) => ({
+      id: item.id || `outline_${index + 1}`,
+      title: item.title || `章节纲要 ${index + 1}`,
+      content: item.content || '',
+      assetKind: item.assetKind || 'chapter'
+    }))
+    : splitChapterContentIntoBlocks(chapterContent).slice(0, 12).map((content, index) => ({
+      id: `chapter_${index + 1}`,
+      title: summarizeShotTitle(content, chapterTitle || `章节片段 ${index + 1}`),
+      content,
+      assetKind: 'chapter'
+    }))
+
+  return sourceItems.map((item, index) => {
+    const sourceText = String(item.content || '').trim()
+    const title = String(item.title || '').trim() || summarizeShotTitle(sourceText, chapterTitle || '章节片段')
+    const kind = String(item.assetKind || 'chapter')
+    const summary = summarizeShotTitle(sourceText, title)
+
+    return {
+      sequence: index + 1,
+      nodeId: String(item.id || `chapter_${index + 1}`),
+      content: title,
+      shotType: inferShotTypeFromChapterSource(kind, sourceText),
+      camera: inferCameraMovementFromChapterSource(kind, sourceText),
+      duration: inferDurationFromChapterAsset(sourceText),
+      tone: summary,
+      sound: '',
+      emotion: '',
+      transition: index === 0 ? 'none' : 'cut',
+      dialogue: '',
+      sourceText,
+      visual: summary,
+      notes: chapterTitle ? `章节：${chapterTitle}` : '章节片段'
+    }
+  })
+}
+
+/**
  * 深度优先遍历排序
  * @param {Array} nodes - 节点数组
  * @returns {Array} 排序后的节点数组
  */
 function dfsOrder(nodes) {
-  const nodeMap = new Map(nodes.map(n => [n.id, n]))
+  const nodeMap = new Map()
+  const childrenMap = new Map()
+
+  for (const node of nodes) {
+    if (!node?.id) continue
+    nodeMap.set(node.id, node)
+    if (!node.parentId) continue
+    if (!childrenMap.has(node.parentId)) {
+      childrenMap.set(node.parentId, [])
+    }
+    childrenMap.get(node.parentId).push(node.id)
+  }
+
   const visited = new Set()
   const result = []
 
-  function dfs(id) {
-    if (visited.has(id)) return
-    visited.add(id)
-    const node = nodeMap.get(id)
+  function dfs(nodeId) {
+    if (!nodeId || visited.has(nodeId)) return
+    visited.add(nodeId)
+    const node = nodeMap.get(nodeId)
     if (!node) return
     result.push(node)
-    for (const childId of (node.children || [])) {
+    for (const childId of childrenMap.get(nodeId) || []) {
       dfs(childId)
     }
   }
 
-  // 找根节点（无父节点）
-  const childIds = new Set(nodes.flatMap(n => n.children || []))
-  const roots = nodes.filter(n => !childIds.has(n.id))
-
+  const roots = nodes.filter((node) => node?.id && !node.parentId)
   for (const root of roots) {
     dfs(root.id)
   }
 
-  // 孤儿节点追加
   for (const node of nodes) {
-    if (!visited.has(node.id)) {
+    if (node?.id && !visited.has(node.id)) {
       result.push(node)
     }
   }
 
   return result
+}
+
+function summarizeShotTitle(text, fallback = '') {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return String(fallback || '').trim()
+  return normalized.length > 48 ? `${normalized.slice(0, 48)}...` : normalized
+}
+
+function inferShotTypeFromNarrativeAsset(kind, content) {
+  const normalizedKind = String(kind || '').trim()
+  const length = String(content || '').trim().length
+  const kindMap = {
+    'draft-prose': 'medium',
+    event: 'wide',
+    'character-fact': 'close_up',
+    'worldbook-draft': 'wide',
+    inspiration: 'wide',
+    'storyboard-seed': 'medium'
+  }
+  return kindMap[normalizedKind] || (length > 120 ? 'wide' : 'medium')
+}
+
+function inferCameraMovementFromNarrativeAsset(kind, content) {
+  const normalizedKind = String(kind || '').trim()
+  const kindMap = {
+    'draft-prose': 'fixed',
+    event: 'track',
+    'character-fact': 'push',
+    'worldbook-draft': 'pan',
+    inspiration: 'fixed',
+    'storyboard-seed': 'fixed'
+  }
+  return kindMap[normalizedKind] || (String(content || '').trim().length > 120 ? 'pan' : 'fixed')
+}
+
+function inferDurationFromNarrativeAsset(content) {
+  const length = String(content || '').trim().length
+  if (length > 220) return 5
+  if (length > 120) return 4
+  return 3
+}
+
+function splitChapterContentIntoBlocks(content = '') {
+  const blocks = String(content || '')
+    .replace(/\r/g, '')
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+
+  if (blocks.length > 0) return blocks
+
+  return String(content || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function inferShotTypeFromChapterSource(kind, content) {
+  const normalizedKind = String(kind || '').trim()
+  const kindMap = {
+    chapter: 'wide',
+    'draft-prose': 'medium',
+    event: 'wide',
+    'character-fact': 'close_up',
+    'worldbook-draft': 'wide',
+    inspiration: 'medium',
+    'storyboard-seed': 'medium'
+  }
+  return kindMap[normalizedKind] || (String(content || '').trim().length > 100 ? 'wide' : 'medium')
+}
+
+function inferCameraMovementFromChapterSource(kind, content) {
+  const normalizedKind = String(kind || '').trim()
+  const kindMap = {
+    chapter: 'fixed',
+    'draft-prose': 'fixed',
+    event: 'track',
+    'character-fact': 'push',
+    'worldbook-draft': 'pan',
+    inspiration: 'fixed',
+    'storyboard-seed': 'fixed'
+  }
+  return kindMap[normalizedKind] || (String(content || '').trim().length > 120 ? 'pan' : 'fixed')
+}
+
+function inferDurationFromChapterAsset(content) {
+  const length = String(content || '').trim().length
+  if (length > 260) return 5
+  if (length > 140) return 4
+  return 3
+}
+
+function normalizePoetryLabNodes(nodes = []) {
+  const normalized = []
+  const seen = new Set()
+
+  function visit(node, parentId = null) {
+    if (!node || typeof node !== 'object') return
+    const id = String(node.id || '').trim()
+    if (!id || seen.has(id)) return
+    seen.add(id)
+
+    const copy = {
+      ...node,
+      id,
+      parentId: node.parentId || parentId || null,
+      children: Array.isArray(node.children) ? node.children : []
+    }
+
+    normalized.push(copy)
+
+    for (const child of copy.children) {
+      if (child && typeof child === 'object') {
+        visit(child, copy.id)
+      }
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node)
+  }
+
+  return normalized
+}
+
+function resolvePoetryLabEdgeEndpoint(edge, endpoint) {
+  if (!edge || typeof edge !== 'object') return ''
+  const directKey = `${endpoint}Id`
+  const value = edge[directKey] ?? edge[endpoint]
+  if (typeof value === 'string') return value.trim()
+  if (value && typeof value === 'object') {
+    return String(value.id || value.nodeId || value[directKey] || '').trim()
+  }
+  return ''
 }
 
 /**
@@ -371,8 +611,17 @@ export function toFCPXML(shots, options = {}) {
  * @param {Shot[]} shots - 分镜列表
  * @returns {string} Markdown 字符串
  */
-export function toMarkdown(shots) {
-  const lines = ['# 分镜脚本\n']
+export function toMarkdown(shots, options = {}) {
+  const {
+    title = '分镜脚本',
+    topic = ''
+  } = options
+
+  const lines = [`# ${title}`, '']
+  if (topic) {
+    lines.push(`**主题：** ${topic}`)
+    lines.push('')
+  }
 
   for (const shot of shots) {
     lines.push(`## Shot ${shot.sequence}`)
@@ -392,6 +641,22 @@ export function toMarkdown(shots) {
   }
 
   return lines.join('\n')
+}
+
+/**
+ * 导出为 Premiere CSV 格式
+ * @param {Shot[]} shots - 分镜列表
+ * @returns {string} CSV 字符串
+ */
+export function toPremiereCSV(shots) {
+  let csv = '序号,景别,运镜,时长(秒),画面描述,台词,音效\n'
+  shots.forEach((shot, index) => {
+    const desc = csvEscape(shot.content || '')
+    const dialogue = csvEscape(shot.dialogue || '')
+    const sound = csvEscape(shot.sound || '')
+    csv += `${index + 1},"${SHOT_TYPES[shot.shotType]?.label || shot.shotType}","${CAMERA_MOVEMENTS[shot.camera]?.label || shot.camera}",${shot.duration || 3},"${desc}","${dialogue}","${sound}"\n`
+  })
+  return csv
 }
 
 // ========== 辅助函数 ==========
@@ -437,10 +702,17 @@ function buildFCPMetadata(shot) {
       </metadata>`
 }
 
+function csvEscape(value) {
+  return String(value || '').replace(/"/g, '""').replace(/\n/g, ' ')
+}
+
 export default {
   extractShotsFromPoetryLab,
   extractShotsFromProseEssay,
+  extractShotsFromNarrativeAssets,
+  extractShotsFromChapter,
   toJianyingDraft,
   toFCPXML,
-  toMarkdown
+  toMarkdown,
+  toPremiereCSV
 }

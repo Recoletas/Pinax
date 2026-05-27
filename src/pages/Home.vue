@@ -22,8 +22,8 @@
     <main class="content-area">
       <section class="hero-panel">
         <p class="hero-kicker">WELCOME</p>
-        <h1 class="hero-title">进入你的写作与冒险工作台</h1>
-        <p class="hero-subtitle">首页只负责欢迎与分发入口，体验模式改为直接进入，不再经过体裁选择页。</p>
+        <h1 class="hero-title">进入你的叙事工具链工作台</h1>
+        <p class="hero-subtitle">首页只负责欢迎与分发入口，体验、写作、设定、素材和分镜都从这里进入。</p>
       </section>
 
       <section class="entry-section">
@@ -51,7 +51,7 @@
             <p>书籍管理、章节编辑与内容创作</p>
           </router-link>
 
-          <router-link to="/notes" class="entry-card">
+          <router-link to="/materials" class="entry-card">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M6 3H14L18 7V19A2 2 0 0 1 16 21H6A2 2 0 0 1 4 19V5A2 2 0 0 1 6 3Z"></path>
@@ -60,41 +60,37 @@
                 <path d="M8 15H14"></path>
               </svg>
             </div>
-            <h3>灵感笔记</h3>
+            <h3>素材整理</h3>
             <p>记录想法、整理素材与导入速记</p>
+          </router-link>
+
+          <router-link to="/experience/worldbook" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="2.2"></circle>
+                <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path>
+              </svg>
+            </div>
+            <h3>世界书设定</h3>
+            <p>导入、编辑与注入参数细调</p>
           </router-link>
 
           <router-link to="/poetry-lab" class="entry-card">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14.5 4V14"></path>
-                <path d="M14.5 4L19 3V13"></path>
-                <circle cx="9" cy="15" r="3"></circle>
-                <circle cx="17" cy="14" r="3"></circle>
+                <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                <path d="M8 5v14M16 5v14M4 9h16M4 15h16"></path>
               </svg>
             </div>
-            <h3>诗歌工坊</h3>
-            <p>灵感树、续写与分镜创作</p>
-          </router-link>
-
-          <router-link to="/prose-essay" class="entry-card">
-            <div class="entry-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-                <path d="M8 9H16"></path>
-                <path d="M8 13H16"></path>
-                <path d="M8 17H13"></path>
-              </svg>
-            </div>
-            <h3>散文工坊</h3>
-            <p>卡片扩展、大纲组织与导出</p>
+            <h3>分镜工作台</h3>
+            <p>诗歌入口、散文入口与统一分镜导出</p>
           </router-link>
         </div>
       </section>
 
       <section class="tips-panel">
         <h2>今天怎么开始？</h2>
-        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入小说、笔记、诗歌或散文模块。</p>
+        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入写作、设定、素材或分镜工作区。</p>
       </section>
     </main>
 
@@ -283,7 +279,7 @@ const currentPath = computed(() => route.path || '/')
 
 .entry-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 

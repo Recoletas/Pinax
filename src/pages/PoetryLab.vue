@@ -64,7 +64,9 @@
         </div>
 
         <div class="btn-row">
-          <button class="btn-secondary" @click="exportMarkdown" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 Markdown</button>
+          <button class="btn-secondary" @click="exportMarkdown" :title="currentMode === 'directing' ? '导出统一分镜 Markdown' : '导出灵感树 Markdown'" :disabled="flatNodes.length === 0 || isSnapshotReadonly">
+            {{ currentMode === 'directing' ? '导出分镜 Markdown' : '导出 Markdown' }}
+          </button>
           <button class="btn-secondary" @click="exportTxt" :disabled="flatNodes.length === 0 || isSnapshotReadonly">导出 TXT</button>
         </div>
 
@@ -400,7 +402,7 @@
             @input="handleQuickNoteInput"
           ></textarea>
           <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
+            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
@@ -411,7 +413,7 @@
                 <path d="M9.5 11l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
+            <button class="quick-note-icon-btn" type="button" @click="jumpToMaterials" title="去素材" aria-label="去素材">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
                 <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
@@ -465,12 +467,10 @@
       :isOpen="advisorOpen"
       :messages="advisorMessages"
       :loading="advisorLoading"
-      :backend="backend"
       :quickQuestions="['分析当前节奏', '情绪分布如何', '结构建议', '续写灵感']"
       :emptyText="'创作顾问可帮你分析灵感树状态，提供意象、节奏与结构方面的专业建议。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
-      @update:backend="(v) => backend = v"
     />
   </div>
 </template>
@@ -484,6 +484,8 @@ import ImageGenRail from '../components/ImageGenRail.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 import { getItem, getTextItem, removeItem, setItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
+import { extractShotsFromPoetryLab, toMarkdown } from '../services/shotExporter'
 import {
   generatePoetryContinuationByLLM,
   generatePoetryDirectingTreeByLLM,
@@ -503,7 +505,7 @@ const EDGE_TYPE_LABELS = {
   RUPTURE: '断裂',
   ECHO: '回声'
 }
-const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('poetry')
+const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 const DIRECTING_EDGE_TYPES = {
   VISUAL_METAPHOR: { label: '视觉隐喻', color: '#9c27b0', dashArray: null },
   PARALLEL_SHOT: { label: '并列镜头', color: '#2196f3', dashArray: null },
@@ -522,6 +524,8 @@ const INTERACTION_MODES = [
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 const currentMode = ref('writing') // 'writing' | 'directing'
+const lastPoetryStoryboardExportFingerprint = ref('')
+const lastPoetryStoryboardExportResult = ref(null)
 
 // Director mode shot types
 const shotTypes = [
@@ -792,13 +796,13 @@ function saveQuickNote() {
     wordCount: quickNoteWordCount(content)
   })
   clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到笔记'
+  quickNoteStatus.value = '已保存到素材'
   return true
 }
 
-function jumpToNotes() {
+function jumpToMaterials() {
   if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/notes')
+    router.push('/materials')
 }
 
 function jumpToWriting() {
@@ -1795,7 +1799,112 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', onGroupDraftEnd)
 })
 
+function downloadTextFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function buildPoetryStoryboardSourceExcerpt() {
+  const lines = []
+  const promptText = prompt.value.trim()
+  if (promptText) {
+    lines.push(`提示词：${promptText}`)
+  }
+  if (rootTree.value?.text) {
+    lines.push(`根节点：${rootTree.value.text}`)
+  }
+
+  const previewNodes = flatNodes.value
+    .slice(0, 5)
+    .map((node) => node.text || node.content || '')
+    .filter(Boolean)
+
+  if (previewNodes.length) {
+    lines.push(`节点预览：${previewNodes.join(' / ')}`)
+  }
+
+  return lines.join('；')
+}
+
+function createPoetryStoryboardExportContext() {
+  const promptText = prompt.value.trim()
+  const title = promptText || rootTree.value?.text || '诗歌分镜'
+  const shots = extractShotsFromPoetryLab({
+    nodes: flatNodes.value,
+    edges: displayedGraphEdges.value,
+    groups: displayedImageryGroups.value
+  })
+
+  const source = {
+    sourceType: 'poetry-tree',
+    title,
+    excerpt: buildPoetryStoryboardSourceExcerpt()
+  }
+
+  const fingerprint = JSON.stringify({
+    title,
+    excerpt: source.excerpt,
+    prompt: promptText,
+    shots
+  })
+
+  return {
+    title,
+    promptText,
+    source,
+    shots,
+    fingerprint
+  }
+}
+
+function exportPoetryStoryboardMarkdown() {
+  const exportContext = createPoetryStoryboardExportContext()
+  const cachedResult = lastPoetryStoryboardExportFingerprint.value === exportContext.fingerprint
+    ? lastPoetryStoryboardExportResult.value
+    : null
+
+  try {
+    const result = cachedResult || saveValidatedStoryboardVersion({
+      source: exportContext.source,
+      shots: exportContext.shots,
+      taskType: 'poetry.directing.export',
+      parameters: {
+        mode: 'directing',
+        prompt: exportContext.promptText,
+        nodeCount: exportContext.shots.length,
+        groupCount: displayedImageryGroups.value.length,
+        edgeCount: displayedGraphEdges.value.length
+      }
+    })
+
+    lastPoetryStoryboardExportFingerprint.value = exportContext.fingerprint
+    lastPoetryStoryboardExportResult.value = result
+
+    const readyShots = result.shots || exportContext.shots
+    const markdown = toMarkdown(readyShots, {
+      title: '诗歌分镜脚本',
+      topic: exportContext.promptText || exportContext.title
+    })
+    downloadTextFile(markdown, `poetry-storyboard-${Date.now()}.md`, 'text/markdown;charset=utf-8')
+
+    statusText.value = `已导出分镜 Markdown，版本 ${result.version.versionId.slice(-6)}`
+    lastSourceLabel.value = '统一分镜'
+  } catch (error) {
+    statusText.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+  }
+}
+
 function exportMarkdown() {
+  if (currentMode.value === 'directing') {
+    exportPoetryStoryboardMarkdown()
+    return
+  }
+
   if (exportScope.value === 'custom') {
     const graph = buildCustomExportGraph()
     const orderedNodes = orderCustomExportNodes(graph, exportOrder.value)

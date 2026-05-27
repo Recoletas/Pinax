@@ -9,10 +9,13 @@
 
 import { ref, computed } from 'vue'
 import {
-  getLatestStoryboardSnapshot,
-  listStoryboardSnapshots,
+  getCurrentStoryboardVersion,
+  getStoryboardDocument,
+  getStoryboardVersion,
+  listStoryboardVersions,
   restoreStoryboardSnapshot,
-  saveStoryboardSnapshot,
+  restoreStoryboardVersion,
+  saveStoryboardVersion,
   validateStoryboardShots
 } from '../services/storyboardStore'
 import {
@@ -49,10 +52,12 @@ export function useDirector(options = {}) {
 
   // 分镜来源与历史
   const storyboardSource = ref({
-    sourceType: initialMode === 'poetry' ? 'poetry' : 'prose',
+    sourceType: initialMode === 'poetry' ? 'poetry-tree' : 'prose-card',
     sourceLabel: initialMode === 'poetry' ? '诗歌工坊' : '散文随笔',
     sourceId: ''
   })
+  const storyboardDocumentId = ref('')
+  const storyboardVersionId = ref('')
   const snapshotHistory = ref([])
   const lastValidation = ref({
     valid: true,
@@ -72,29 +77,51 @@ export function useDirector(options = {}) {
   const transitionOptions = getTransitionTypes()
 
   function refreshSnapshotHistory() {
-    snapshotHistory.value = listStoryboardSnapshots({
-      sourceType: storyboardSource.value.sourceType,
-      sourceId: storyboardSource.value.sourceId
-    })
+    if (!storyboardDocumentId.value) {
+      snapshotHistory.value = []
+      return
+    }
+
+    const versions = listStoryboardVersions(storyboardDocumentId.value)
+    snapshotHistory.value = versions
+    const currentDocument = getStoryboardDocument(storyboardDocumentId.value)
+    const currentVersion = currentDocument ? getCurrentStoryboardVersion(currentDocument) : null
+
+    if (currentVersion) {
+      storyboardVersionId.value = currentVersion.versionId
+      lastValidation.value = currentVersion.validation || lastValidation.value
+    }
   }
 
   function captureSnapshot(reason = 'update') {
     if (shots.value.length === 0) return null
 
-    const snapshot = saveStoryboardSnapshot({
-      sourceType: storyboardSource.value.sourceType,
-      sourceLabel: storyboardSource.value.sourceLabel,
-      sourceId: storyboardSource.value.sourceId,
+    const result = saveStoryboardVersion({
+      documentId: storyboardDocumentId.value,
+      source: {
+        sourceType: storyboardSource.value.sourceType,
+        sourceLabel: storyboardSource.value.sourceLabel,
+        sourceId: storyboardSource.value.sourceId
+      },
       shots: shots.value,
-      metadata: {
+      taskType: `director.${reason}`,
+      parameters: {
         mode: mode.value,
         reason
       }
     })
 
-    lastValidation.value = snapshot.validation || lastValidation.value
+    storyboardDocumentId.value = result.document.id
+    storyboardVersionId.value = result.version.versionId
+    lastValidation.value = result.version.validation || lastValidation.value
     refreshSnapshotHistory()
-    return snapshot
+    return {
+      ...result.version,
+      documentId: result.document.id,
+      sourceType: result.document.source.sourceType,
+      sourceId: result.document.source.sourceId,
+      sourceLabel: result.document.source.title
+    }
   }
 
   function syncValidation() {
@@ -136,7 +163,7 @@ export function useDirector(options = {}) {
     shots.value = extractShotsFromPoetryLab({ nodes, edges, groups })
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
     storyboardSource.value = {
-      sourceType: 'poetry',
+      sourceType: 'poetry-tree',
       sourceLabel: '诗歌工坊',
       sourceId: ''
     }
@@ -152,7 +179,7 @@ export function useDirector(options = {}) {
     shots.value = extractShotsFromProseEssay({ cards, timeline })
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
     storyboardSource.value = {
-      sourceType: 'prose',
+      sourceType: 'prose-card',
       sourceLabel: '散文随笔',
       sourceId: ''
     }
@@ -321,11 +348,22 @@ export function useDirector(options = {}) {
   }
 
   function restoreSnapshot(snapshotId) {
-    const snapshot = restoreStoryboardSnapshot(snapshotId)
-    if (!snapshot) return false
-    shots.value = Array.isArray(snapshot.shots) ? snapshot.shots.map((shot) => ({ ...shot })) : []
+    if (!storyboardDocumentId.value) return false
+
+    const restored = restoreStoryboardVersion(storyboardDocumentId.value, snapshotId)
+    if (!restored.success) {
+      const snapshot = restoreStoryboardSnapshot(snapshotId)
+      if (!snapshot) return false
+      shots.value = Array.isArray(snapshot.shots) ? snapshot.shots.map((shot) => ({ ...shot })) : []
+      selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
+      lastValidation.value = snapshot.validation || lastValidation.value
+      refreshSnapshotHistory()
+      return true
+    }
+
+    shots.value = Array.isArray(restored.version.shots) ? restored.version.shots.map((shot) => ({ ...shot })) : []
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
-    lastValidation.value = snapshot.validation || lastValidation.value
+    lastValidation.value = restored.version.validation || lastValidation.value
     refreshSnapshotHistory()
     return true
   }
@@ -343,6 +381,13 @@ export function useDirector(options = {}) {
     shotCount,
     snapshotHistory,
     lastValidation,
+    storyboardDocumentId,
+    storyboardVersionId,
+    storyboardDocument: computed(() => getStoryboardDocument(storyboardDocumentId.value)),
+    storyboardVersion: computed(() => {
+      if (!storyboardDocumentId.value || !storyboardVersionId.value) return null
+      return getStoryboardVersion(storyboardDocumentId.value, storyboardVersionId.value)
+    }),
 
     // 选项
     shotTypeOptions,
@@ -364,10 +409,7 @@ export function useDirector(options = {}) {
     captureSnapshot,
     restoreSnapshot,
     refreshSnapshotHistory,
-    getLatestSnapshot: () => getLatestStoryboardSnapshot({
-      sourceType: storyboardSource.value.sourceType,
-      sourceId: storyboardSource.value.sourceId
-    }),
+    getLatestSnapshot: () => getCurrentStoryboardVersion(getStoryboardDocument(storyboardDocumentId.value)),
     validateCurrent: () => validateStoryboardShots(shots.value)
   }
 }
@@ -381,9 +423,9 @@ export function useDirector(options = {}) {
 export function createDirectorFromData(sourceType, data) {
   const director = useDirector()
 
-  if (sourceType === 'poetry') {
+  if (sourceType === 'poetry' || sourceType === 'poetry-tree') {
     director.loadFromPoetryLab(data.nodes, data.edges, data.groups)
-  } else if (sourceType === 'prose') {
+  } else if (sourceType === 'prose' || sourceType === 'prose-card') {
     director.loadFromProseEssay(data.cards, data.timeline)
   }
 

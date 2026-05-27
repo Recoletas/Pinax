@@ -373,7 +373,7 @@
       </div>
     </div>
 
-    <!-- 快捷笔记侧边栏 -->
+    <!-- 快捷素材侧边栏 -->
     <aside class="quick-notes-rail" aria-label="快捷入口">
       <div class="quick-notes-drawer" v-if="quickNoteOpen" @click.stop>
         <div class="quick-note-row">
@@ -385,12 +385,12 @@
             @input="handleQuickNoteInput"
           ></textarea>
           <div class="quick-note-actions">
-            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到笔记" aria-label="保存到笔记">
+            <button class="quick-note-icon-btn quick-note-save" type="button" @click="saveQuickNote" title="保存到素材" aria-label="保存到素材">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M7.5 12.2l2.5 2.5 6-6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <button class="quick-note-icon-btn" type="button" @click="jumpToNotes" title="去笔记" aria-label="去笔记">
+            <button class="quick-note-icon-btn" type="button" @click="jumpToMaterials" title="去素材" aria-label="去素材">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M8 5.5h8a1 1 0 011 1v11a1 1 0 01-1 1H8a1 1 0 01-1-1v-11a1 1 0 011-1z" stroke="currentColor" stroke-width="1.25"/>
                 <path d="M10 9.5h4.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
@@ -524,7 +524,7 @@
         </div>
 
         <div class="image-gen-footer">
-          <button class="image-gen-link-btn" type="button" @click="goToNotesImageGen">去笔记内生图 →</button>
+          <button class="image-gen-link-btn" type="button" @click="goToMaterialsImageGen">去素材内生图 →</button>
         </div>
       </div>
 
@@ -660,12 +660,10 @@
         :isOpen="advisorOpen"
         :messages="advisorMessages"
         :loading="advisorLoading"
-        :backend="backend"
         :quickQuestions="['分析当前节奏', '情绪分布如何', '结构建议', '续写灵感']"
         :emptyText="'创作顾问可帮你分析散文随笔的状态，提供结构、情绪与推进方向的专业建议。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
-        @update:backend="(v) => backend = v"
       />
     </div>
 </template>
@@ -680,14 +678,22 @@ import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 import {
+  saveValidatedStoryboardVersion
+} from '../services/storyboardStore'
+import {
   generateProseCardExtensions,
   generateProseCardsFromTopic,
   generateProseEmotionExtensions
 } from '../services/proseGeneration'
+import {
+  extractShotsFromProseEssay,
+  toMarkdown,
+  toPremiereCSV
+} from '../services/shotExporter'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, backend, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor('prose')
+const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
 
 // Mode switching
 const currentMode = ref('writing') // 'writing' | 'directing'
@@ -1867,37 +1873,119 @@ function addEdge() {
   saveData()
 }
 
+let lastDirectorExportFingerprint = ''
+let lastDirectorExportContext = null
+
+function buildDirectorExportTimeline() {
+  return outline.value
+    .map((item, index) => {
+      const card = cards.value.find((c) => c.id === item.cardId)
+      if (!card) return null
+      const ef = card.extraFields || {}
+      return {
+        cardId: card.id,
+        order: index,
+        emotion: card.emotion || '',
+        duration: ef.duration || 3
+      }
+    })
+    .filter(Boolean)
+}
+
+function buildDirectorSourceExcerpt() {
+  return outline.value
+    .map((item) => cards.value.find((c) => c.id === item.cardId)?.content || '')
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 240)
+}
+
+function createDirectorExportFingerprint(shots, topic) {
+  return JSON.stringify({
+    topic: String(topic || '').trim(),
+    shots: (shots || []).map((shot) => [
+      shot.sequence,
+      shot.content,
+      shot.shotType,
+      shot.camera,
+      shot.duration,
+      shot.dialogue,
+      shot.sound,
+      shot.transition,
+      shot.tone,
+      shot.emotion
+    ])
+  })
+}
+
+function getDirectorExportContext() {
+  const rawShots = extractShotsFromProseEssay({
+    cards: cards.value,
+    timeline: buildDirectorExportTimeline()
+  })
+  const fingerprint = createDirectorExportFingerprint(rawShots, currentTopic.value)
+  if (lastDirectorExportContext && lastDirectorExportFingerprint === fingerprint) {
+    return lastDirectorExportContext
+  }
+
+  const sourceId = String(currentTopic.value || '').trim() || 'untitled-prose'
+  const sourceTitle = String(currentTopic.value || '').trim() || '散文随笔'
+  const result = saveValidatedStoryboardVersion({
+    source: {
+      sourceType: 'prose-card',
+      sourceId,
+      title: sourceTitle,
+      excerpt: buildDirectorSourceExcerpt()
+    },
+    shots: rawShots,
+    taskType: 'prose.directing.export',
+    parameters: {
+      mode: 'directing',
+      topic: currentTopic.value || '',
+      outlineCount: outline.value.length,
+      cardCount: cards.value.length
+    }
+  })
+
+  lastDirectorExportFingerprint = fingerprint
+  lastDirectorExportContext = {
+    fingerprint,
+    shots: result.shots,
+    document: result.document,
+    version: result.version,
+    validation: result.validation
+  }
+  return lastDirectorExportContext
+}
+
 // Export operations
 function exportToMarkdown() {
   showExportMenu.value = false
-  if (currentMode.value === 'directing') {
-    // Director mode: export as storyboard markdown
-    let md = `# 分镜脚本\n\n`
-    md += `**主题：** ${currentTopic.value || '未命名'}\n\n`
-    md += `| 序号 | 时长 | 景别 | 运镜 | 画面描述 | 台词 | 音效 |\n`
-    md += `|------|------|------|------|----------|------|------|\n`
-    outline.value.forEach((item, index) => {
-      const card = cards.value.find(c => c.id === item.cardId)
-      if (card) {
-        const ef = card.extraFields || {}
-        md += `| ${index + 1} | ${ef.duration || 3}s | ${getShotTypeLabel(ef.shotType) || '-'} | ${getCameraMovementLabel(ef.cameraMovement) || '-'} | ${card.content.slice(0, 50)}... | ${ef.dialogue || '-'} | ${ef.soundEffects || '-'} |\n`
+  try {
+    if (currentMode.value === 'directing') {
+      const directorExport = getDirectorExportContext()
+      const md = toMarkdown(directorExport.shots, {
+        title: '分镜脚本',
+        topic: currentTopic.value || '未命名'
+      })
+      downloadFile(md, '分镜脚本.md', 'text/markdown')
+      addTimeline('导出统一分镜脚本 Markdown')
+    } else {
+      // Writing mode: existing markdown export
+      let md = `# ${currentTopic.value || '散文随笔'}\n\n`
+      for (let i = 0; i < outline.value.length; i++) {
+        const item = outline.value[i]
+        const card = cards.value.find(c => c.id === item.cardId)
+        if (card) {
+          md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
+        }
       }
-    })
-    downloadFile(md, '分镜脚本.md', 'text/markdown')
-    addTimeline('导出分镜脚本 Markdown')
-  } else {
-    // Writing mode: existing markdown export
-    let md = `# ${currentTopic.value || '散文随笔'}\n\n`
-    for (let i = 0; i < outline.value.length; i++) {
-      const item = outline.value[i]
-      const card = cards.value.find(c => c.id === item.cardId)
-      if (card) {
-        md += `## ${i + 1}\n\n${card.content}\n\n---\n\n`
-      }
+      md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
+      downloadFile(md, '散文随笔.md', 'text/markdown')
+      addTimeline('导出为 Markdown')
     }
-    md += '\n**衔接提示**：请在以上留空处补充过渡句，使文章更流畅。\n'
-    downloadFile(md, '散文随笔.md', 'text/markdown')
-    addTimeline('导出为 Markdown')
+  } catch (error) {
+    alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
 }
 
@@ -1943,41 +2031,44 @@ function exportToTxt() {
 
 function exportToJson() {
   showExportMenu.value = false
-  if (currentMode.value === 'directing') {
-    // Director mode: export as AI video prompts JSON
-    const prompts = outline.value.map((item, index) => {
-      const card = cards.value.find(c => c.id === item.cardId)
-      const ef = card?.extraFields || {}
-      return {
-        index: index + 1,
-        shotType: ef.shotType || 'medium',
-        cameraMovement: ef.cameraMovement || 'static',
-        duration: ef.duration || 3,
-        description: card?.content || '',
-        dialogue: ef.dialogue || '',
-        soundEffects: ef.soundEffects || ''
+  try {
+    if (currentMode.value === 'directing') {
+      const directorExport = getDirectorExportContext()
+      const prompts = directorExport.shots.map((shot) => ({
+        index: shot.sequence,
+        shotType: shot.shotType || 'medium',
+        cameraMovement: shot.camera || 'fixed',
+        duration: shot.duration || 3,
+        description: shot.content || '',
+        dialogue: shot.dialogue || '',
+        soundEffects: shot.sound || ''
+      }))
+      const data = {
+        topic: currentTopic.value,
+        exportedAt: new Date().toISOString(),
+        mode: 'directing',
+        storyboardDocumentId: directorExport.document.id,
+        storyboardVersionId: directorExport.version.versionId,
+        validation: directorExport.version.validation,
+        prompts
       }
-    })
-    const data = {
-      topic: currentTopic.value,
-      exportedAt: new Date().toISOString(),
-      mode: 'directing',
-      prompts
+      downloadFile(JSON.stringify(data, null, 2), 'AI视频提示词.json', 'application/json')
+      addTimeline('导出统一分镜 JSON')
+    } else {
+      const data = {
+        topic: currentTopic.value,
+        exportedAt: new Date().toISOString(),
+        mode: 'writing',
+        cards: cards.value,
+        edges: edges.value,
+        outline: outline.value,
+        timeline: timeline.value
+      }
+      downloadFile(JSON.stringify(data, null, 2), '散文随笔_关系网.json', 'application/json')
+      addTimeline('导出完整关系网 JSON')
     }
-    downloadFile(JSON.stringify(data, null, 2), 'AI视频提示词.json', 'application/json')
-    addTimeline('导出 AI 视频提示词 JSON')
-  } else {
-    const data = {
-      topic: currentTopic.value,
-      exportedAt: new Date().toISOString(),
-      mode: 'writing',
-      cards: cards.value,
-      edges: edges.value,
-      outline: outline.value,
-      timeline: timeline.value
-    }
-    downloadFile(JSON.stringify(data, null, 2), '散文随笔_关系网.json', 'application/json')
-    addTimeline('导出完整关系网 JSON')
+  } catch (error) {
+    alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
 }
 
@@ -2019,17 +2110,14 @@ function clearQuickNoteDraft() {
 
 function exportToPremiereFormat() {
   showExportMenu.value = false
-  let csv = '序号,景别,运镜,时长(秒),画面描述,台词,音效\n'
-  outline.value.forEach((item, index) => {
-    const card = cards.value.find(c => c.id === item.cardId)
-    const ef = card?.extraFields || {}
-    const desc = (card?.content || '').replace(/"/g, '""').replace(/\n/g, ' ')
-    const dialogue = (ef.dialogue || '').replace(/"/g, '""').replace(/\n/g, ' ')
-    const soundFx = (ef.soundEffects || '').replace(/"/g, '""').replace(/\n/g, ' ')
-    csv += `${index + 1},"${getShotTypeLabel(ef.shotType) || ''}","${getCameraMovementLabel(ef.cameraMovement) || ''}",${ef.duration || 3},"${desc}","${dialogue}","${soundFx}"\n`
-  })
-  downloadFile(csv, '分镜导入_Premiere.csv', 'text/csv')
-  addTimeline('导出剪映/Premiere 格式')
+  try {
+    const directorExport = getDirectorExportContext()
+    const csv = toPremiereCSV(directorExport.shots)
+    downloadFile(csv, '分镜导入_Premiere.csv', 'text/csv')
+    addTimeline('导出统一分镜 Premiere 格式')
+  } catch (error) {
+    alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
+  }
 }
 
 watch(quickNoteOpen, (open) => {
@@ -2062,13 +2150,13 @@ function saveQuickNote() {
     wordCount: quickNoteWordCount(content)
   })
   clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到笔记'
+  quickNoteStatus.value = '已保存到素材'
   return true
 }
 
-function jumpToNotes() {
+function jumpToMaterials() {
   if (quickNoteDraft.value.trim()) saveQuickNote()
-  router.push('/notes')
+    router.push('/materials')
 }
 
 function jumpToWriting() {
@@ -2501,12 +2589,12 @@ function saveToMaterialLib(imgEntry) {
   imagePreviewIndex.value = -1
 }
 
-function goToNotesImageGen() {
+function goToMaterialsImageGen() {
   if (imagePrompt.value.trim()) {
     localStorage.setItem('notes_image_prompt', imagePrompt.value)
     localStorage.setItem('notes_image_negative', imageNegativePrompt.value)
   }
-  router.push('/notes')
+  router.push('/materials')
 }
 </script>
 
