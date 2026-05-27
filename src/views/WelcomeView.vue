@@ -3,7 +3,7 @@
     <div class="welcome-inner">
       <div class="welcome-header">
         <h1 class="welcome-title">欢迎使用 WriterHelper</h1>
-        <p class="welcome-subtitle">选择体验、写作、设定或分镜工作区</p>
+        <p class="welcome-subtitle">选择体验、设定、写作或分镜工作区</p>
       </div>
 
       <div class="welcome-grid">

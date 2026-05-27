@@ -47,8 +47,8 @@ function handleSelectPanel(routeName) {
 .app-shell {
   --activity-width: 56px;
   --panel-width: 176px;
-  height: 100vh;
-  min-height: 100vh;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: grid;
   grid-template-columns: var(--activity-width) var(--panel-width) minmax(0, 1fr);
   background: var(--bg-primary);
@@ -60,18 +60,18 @@ function handleSelectPanel(routeName) {
 
 .shell-activity {
   grid-column: 1;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
 }
 
 .shell-panel {
   grid-column: 2;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
 }
 
 .shell-content {
   grid-column: 3;
   min-width: 0;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
   overflow: auto;
   background: var(--bg-primary);
 }
@@ -84,8 +84,8 @@ function handleSelectPanel(routeName) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) 56px;
-    height: 100vh;
-    min-height: 100vh;
+    height: var(--app-viewport-height, 100vh);
+    min-height: var(--app-viewport-height, 100vh);
   }
 
   .shell-panel {

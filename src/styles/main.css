@@ -98,12 +98,12 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
   -webkit-font-smoothing: antialiased;
 }
 
 #app {
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
 }

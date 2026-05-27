@@ -1,31 +1,45 @@
-# 文档导航
+# 文档导航（UI 可用性重构阶段）
 
-> 当前文档体系以“叙事创作工具链”作为主轴阅读，不再把诗歌和散文理解成两个独立产品。
+> 当前阶段主目标：先解决用户可用性问题，再用兼容检查兜住移动端和低分辨率阻塞问题，之后再继续新增功能。
 
 ## 建议阅读顺序
 
-1. [PLAN.md](./PLAN.md) - 总判断、核心对象、当前边界。
-2. [plan/current-execution-plan.md](./plan/current-execution-plan.md) - 现在到底还剩什么、按什么顺序做。
-3. 按需要打开对应专题文档，不再从头遍历全部专题。
-4. [LOG.md](./LOG.md) - 最近已落地迭代、验证结果和已知风险。
+1. [PLAN.md](./PLAN.md)
+	- 当前目标、已完成归档摘要、UI 可用性优先原则。
+2. [plan/current-execution-plan.md](./plan/current-execution-plan.md)
+	- 当前迭代执行面板（按优先级和验收口径推进）。
+3. [engineering/development-standards.md](./engineering/development-standards.md)
+	- 开发约束，尤其是 UI 可用性和交互基线。
+4. [operations/troubleshooting.md](./operations/troubleshooting.md)
+	- 常见故障与 UI 可用性排障清单。
+5. [LOG.md](./LOG.md)
+	- 仅保留近期里程碑和风险，不再记录长流水。
 
-## 规划文档
+## 当前有效文档
 
-| 文档 | 角色 | 当前状态 |
-|------|------|----------|
-| [PLAN.md](./PLAN.md) | 总入口，定义项目主叙事、核心对象和硬约束 | 主入口 |
-| [plan/current-execution-plan.md](./plan/current-execution-plan.md) | 当前阶段执行面板 | 进行中 |
-| [plan/session-stability.md](./plan/session-stability.md) | 会话、运行态、全局资料边界 | 基础已完成 |
-| [plan/worldbook-context.md](./plan/worldbook-context.md) | 世界书上下文构建、预览和回写边界 | 基础已完成 |
-| [plan/asset-loop.md](./plan/asset-loop.md) | 素材中台和体验到写作闭环 | 基础已完成 |
-| [plan/generation-service.md](./plan/generation-service.md) | 统一生成任务层和任务命名 | 基础已完成 |
-| [plan/editor-advisor-unification.md](./plan/editor-advisor-unification.md) | 编辑器栈选择、统一智能顾问、补全弱化与 OpenClaw 收口 | 已完成 |
-| [plan/memory-system.md](./plan/memory-system.md) | 记忆候选、作用域、同步和收尾任务 | 基本完成，细节暂缓 |
-| [plan/storyboard-system.md](./plan/storyboard-system.md) | 统一分镜输出层和版本化方案 | 当前主线，散文/诗歌/体验/章节草稿已接入，一级导航已开始向分镜工作台收口 |
-| [plan/implementation-order.md](./plan/implementation-order.md) | 总体阶段顺序、依赖和验收口径 | 配套执行表 |
+| 文档 | 用途 | 状态 |
+| --- | --- | --- |
+| [PLAN.md](./PLAN.md) | 项目主线与边界 | 当前主入口 |
+| [plan/current-execution-plan.md](./plan/current-execution-plan.md) | UI 可用性重构执行顺序与验收 | 当前主入口 |
+| [engineering/development-standards.md](./engineering/development-standards.md) | 编码与 UI 基线 | 持续维护 |
+| [operations/troubleshooting.md](./operations/troubleshooting.md) | 故障定位和回归路径 | 持续维护 |
+| [LOG.md](./LOG.md) | 近期里程碑、验证、风险 | 精简维护 |
 
-## 其他文档
+## 归档专题（按需查看）
 
-- [guides/worldbook-workflow.md](./guides/worldbook-workflow.md)
-- [engineering/development-standards.md](./engineering/development-standards.md)
-- [operations/troubleshooting.md](./operations/troubleshooting.md)
+以下专题不再作为日常推进入口，仅在改动对应模块时查边界：
+
+- [plan/session-stability.md](./plan/session-stability.md)
+- [plan/worldbook-context.md](./plan/worldbook-context.md)
+- [plan/asset-loop.md](./plan/asset-loop.md)
+- [plan/generation-service.md](./plan/generation-service.md)
+- [plan/editor-advisor-unification.md](./plan/editor-advisor-unification.md)
+- [plan/memory-system.md](./plan/memory-system.md)
+- [plan/storyboard-system.md](./plan/storyboard-system.md)
+- [plan/implementation-order.md](./plan/implementation-order.md)
+
+## 维护规则（简化优先）
+
+- 已实现且稳定的能力，只保留一行“结果摘要”，删除过程性描述。
+- 同一主题只保留一个主入口文档，避免重复叙述。
+- 每次迭代只更新：目标、用户可感知变化、验证结果、风险。

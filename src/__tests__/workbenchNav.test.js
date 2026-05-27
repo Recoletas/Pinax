@@ -6,12 +6,12 @@ describe('workbenchNav', () => {
     expect(ACTIVITY_ITEMS).toHaveLength(4)
     expect(ACTIVITY_ITEMS.map((item) => item.key)).toEqual([
       'experience',
-      'writing',
       'worldbook',
+      'writing',
       'storyboard'
     ])
-    expect(SIDE_PANELS.writing.items[1].routeName).toBe('materials')
-    expect(SIDE_PANELS.writing.items[1].label).toBe('素材')
+    expect(SIDE_PANELS.experience.items).toHaveLength(1)
+    expect(SIDE_PANELS.writing.items).toHaveLength(1)
     expect(SIDE_PANELS.worldbook.items).toHaveLength(2)
     expect(SIDE_PANELS.storyboard.items).toHaveLength(2)
   })

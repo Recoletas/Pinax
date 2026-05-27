@@ -40,6 +40,17 @@
             <p>直接进入冒险，不再经过体裁选择界面</p>
           </router-link>
 
+          <router-link to="/experience/worldbook" class="entry-card">
+            <div class="entry-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="2.2"></circle>
+                <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path>
+              </svg>
+            </div>
+            <h3>世界书设定</h3>
+            <p>导入、编辑与注入参数细调</p>
+          </router-link>
+
           <router-link to="/writing" class="entry-card">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -64,17 +75,6 @@
             <p>记录想法、整理素材与导入速记</p>
           </router-link>
 
-          <router-link to="/experience/worldbook" class="entry-card">
-            <div class="entry-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="2.2"></circle>
-                <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path>
-              </svg>
-            </div>
-            <h3>世界书设定</h3>
-            <p>导入、编辑与注入参数细调</p>
-          </router-link>
-
           <router-link to="/poetry-lab" class="entry-card">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -90,7 +90,7 @@
 
       <section class="tips-panel">
         <h2>今天怎么开始？</h2>
-        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入写作、设定、素材或分镜工作区。</p>
+        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入设定、写作、素材或分镜工作区。</p>
       </section>
     </main>
 
@@ -127,7 +127,7 @@ const currentPath = computed(() => route.path || '/')
 
 <style scoped>
 .welcome-page {
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background:

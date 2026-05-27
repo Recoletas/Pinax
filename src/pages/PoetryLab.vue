@@ -2069,8 +2069,8 @@ function exportTxt() {
 
 <style scoped>
 .poetry-lab-page {
-  height: 100%;
-  min-height: 100%;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -2206,7 +2206,7 @@ function exportTxt() {
 .quick-notes-rail {
   position: fixed;
   right: 0;
-  top: 50%;
+  top: var(--app-viewport-half-height, 50vh);
   transform: translate(34px, -50%);
   z-index: 80;
   transition: transform 0.2s ease;
@@ -3253,11 +3253,16 @@ function exportTxt() {
   .quick-notes-rail {
     top: auto;
     right: 12px;
-    bottom: 14px;
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
     transform: none;
     transition: none;
     flex-direction: column-reverse;
     align-items: flex-end;
+  }
+
+  .advisor-fab {
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   }
 
   .quick-notes-btn {

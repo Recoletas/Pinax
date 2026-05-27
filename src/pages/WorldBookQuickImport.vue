@@ -1596,7 +1596,7 @@ function clearPendingImport() {
 
 <style scoped>
 .quick-page {
-  min-height: 100%;
+  min-height: var(--app-viewport-height, 100vh);
   padding: 16px;
   display: flex;
   flex-direction: column;

@@ -622,7 +622,7 @@ async function urlToDataUrl(url) {
 <style scoped>
 .image-gen-rail {
   position: fixed;
-  top: 50%;
+  top: var(--app-viewport-half-height, 50vh);
   transform: translateY(calc(-50% + var(--rail-shift-y, 0px)));
   display: flex;
   align-items: center;
@@ -1006,7 +1006,7 @@ async function urlToDataUrl(url) {
 @media (max-width: 900px) {
   .image-gen-rail {
     top: auto;
-    bottom: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     transform: none;
   }
 

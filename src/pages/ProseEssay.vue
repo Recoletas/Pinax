@@ -2600,8 +2600,8 @@ function goToMaterialsImageGen() {
 
 <style scoped>
 .prose-essay-page {
-  height: 100%;
-  min-height: 100%;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -3947,7 +3947,7 @@ function goToMaterialsImageGen() {
 .quick-notes-rail {
   position: fixed;
   right: 0;
-  top: 50%;
+  top: var(--app-viewport-half-height, 50vh);
   transform: translate(34px, -50%);
   z-index: 80;
   transition: transform 0.2s ease;
@@ -4056,7 +4056,7 @@ function goToMaterialsImageGen() {
 .image-gen-rail {
   position: fixed;
   right: 0;
-  top: calc(50% + 60px);
+  top: calc(var(--app-viewport-half-height, 50vh) + 60px);
   transform: translate(34px, -50%);
   z-index: 80;
   transition: transform 0.2s ease;
@@ -4475,6 +4475,43 @@ function goToMaterialsImageGen() {
 .image-preview-action-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .quick-notes-rail {
+    top: auto;
+    right: 12px;
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    transition: none;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+  }
+
+  .quick-notes-btn,
+  .image-gen-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+  }
+
+  .quick-notes-drawer,
+  .image-gen-drawer {
+    width: min(320px, calc(100vw - 24px));
+  }
+
+  .image-gen-rail {
+    top: auto;
+    right: 12px;
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    transition: none;
+  }
+
+  .advisor-fab {
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* Image Config Dialog */

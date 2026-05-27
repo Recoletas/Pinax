@@ -25,16 +25,11 @@
           <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
           <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
         </div>
-        <button class="icon-btn" @click="createNewBook" title="新建书籍">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 2v12M2 8h12"/>
-          </svg>
-        </button>
         <button class="toolbar-text-btn" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
-          素材
+          收件箱
         </button>
         <button class="toolbar-text-btn" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
-          分镜
+          章节分镜
         </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
@@ -2757,7 +2752,8 @@ function stopResizeRight() {
 
 <style scoped>
 .writing-page {
-  height: 100vh;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -2770,7 +2766,7 @@ function stopResizeRight() {
 .quick-notes-rail {
   position: fixed !important;
   right: 0 !important;
-  top: calc(50% - 60px) !important;
+  top: calc(var(--app-viewport-half-height, 50vh) - 60px) !important;
   z-index: 2000 !important;
   transform: translate(34px, -50%);
   transition: transform 0.2s ease;
@@ -4910,11 +4906,16 @@ function stopResizeRight() {
   .quick-notes-rail {
     top: auto;
     right: 12px;
-    bottom: 14px;
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
     transform: none;
     transition: none;
     flex-direction: column-reverse;
     align-items: flex-end;
+  }
+
+  .advisor-fab {
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   }
 
   .quick-notes-btn {
@@ -4933,7 +4934,7 @@ function stopResizeRight() {
 
   .asset-inbox-modal {
     width: min(100vw - 20px, 100%);
-    height: calc(100vh - 20px);
+    height: calc(var(--app-viewport-height, 100vh) - 20px);
     padding: 14px;
   }
 

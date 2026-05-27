@@ -2,12 +2,15 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
+import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
 
 const { initTheme } = useTheme()
 const route = useRoute()
 const generationMetaNotice = ref('')
 let noticeTimer = null
+
+useViewportHeight()
 
 function syncDocumentTitle() {
   const fallbackTitle = route.name === 'welcome' ? '工作台' : String(route.name || 'WriterHelper')
@@ -84,7 +87,7 @@ watch(
 /* Global app styles are in main.css */
 
 .app-root {
-  min-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
 }
 
 .generation-meta-toast {

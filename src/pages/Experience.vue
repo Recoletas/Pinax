@@ -12,7 +12,14 @@
         </select>
       </div>
       <div class="title-right">
-        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+        <button class="action-btn primary" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
+          {{ assetSummaryLoading ? '整理中' : '整理素材' }}
+        </button>
+        <button class="action-btn" :disabled="storyboardDraftLoading" @click="exportExperienceStoryboardDraft">
+          {{ storyboardDraftLoading ? '生成中' : '分镜' }}
+        </button>
+        <button class="action-btn" @click="showSessionPicker = true">会话</button>
+        <button class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
               <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -23,17 +30,6 @@
           </span>
           <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
         </button>
-        <button class="action-btn" :class="{ active: gameStore.useAI }" @click="gameStore.toggleAI">
-          AI {{ gameStore.useAI ? 'ON' : 'OFF' }}
-        </button>
-        <button class="action-btn" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
-          {{ assetSummaryLoading ? '整理中' : '整理体验' }}
-        </button>
-        <button class="action-btn" :disabled="storyboardDraftLoading" @click="exportExperienceStoryboardDraft">
-          {{ storyboardDraftLoading ? '生成中' : '分镜草稿' }}
-        </button>
-        <button class="action-btn" @click="openWorldbookEditor">世界书导入</button>
-        <button class="action-btn" @click="showSessionPicker = true">会话</button>
         <button class="action-btn" @click="showSettings = true">设置</button>
       </div>
     </header>
@@ -104,8 +100,7 @@
               @input="handleQuickNoteInput"
             ></textarea>
             <div class="quick-note-workspace-actions">
-              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNote">保存到素材</button>
-              <button class="quick-note-panel-btn" type="button" @click="saveQuickNoteAsAsset">存为素材</button>
+              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
               <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
             </div>
           </section>
@@ -235,7 +230,6 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -255,11 +249,9 @@ import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel, listNarrativeAssets } from '../services/narrativeAssets'
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
-import { buildWritingNoteTitle, prependWritingNote } from '../services/writingNotes'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromNarrativeAssets, toMarkdown } from '../services/shotExporter'
 
-const router = useRouter()
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const { isDark, toggleTheme } = useTheme()
@@ -309,10 +301,6 @@ async function onWorldbookChange() {
   if (!worldbookId) return
 
   await worldStore.setActiveWorldbook(worldbookId)
-}
-
-function openWorldbookEditor() {
-  router.push({ name: 'experience-worldbook' })
 }
 
 function collectGameContext() {
@@ -805,30 +793,12 @@ function quickNoteWordCount(text) {
   return chineseChars + englishWords
 }
 
-function saveQuickNote() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再保存'
-    return false
-  }
-
-  prependWritingNote({
-    title: buildWritingNoteTitle(content, '速记'),
-    content,
-    contentFormat: 'md',
-    wordCount: quickNoteWordCount(content)
-  })
-  clearQuickNoteDraft()
-  quickNoteStatus.value = '已保存到素材'
-  return true
-}
-
 </script>
 
 <style scoped>
 .game-page {
-  height: 100%;
-  min-height: 100%;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -903,9 +873,26 @@ function saveQuickNote() {
   transition: all 0.15s;
 }
 
+.action-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
 .action-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.action-btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .action-btn.active {
@@ -995,7 +982,7 @@ function saveQuickNote() {
 .quick-notes-rail {
   position: fixed !important;
   right: 0 !important;
-  top: calc(50% - 60px) !important; /* 向上移动 60px */
+  top: calc(var(--app-viewport-half-height, 50vh) - 60px) !important; /* 向上移动 60px */
   z-index: 2000 !important; /* 确保层级足够高 */
   transform: translate(34px, -50%);
   transition: transform 0.2s ease;
@@ -1018,7 +1005,7 @@ function saveQuickNote() {
 .game-image-gen-rail :deep(.image-gen-rail) {
   position: fixed !important;
   right: 0 !important;
-  top: calc(50% + 60px) !important; /* 向下移动 60px，彻底避开素材 */
+  top: calc(var(--app-viewport-half-height, 50vh) + 60px) !important; /* 向下移动 60px，彻底避开素材 */
   z-index: 2001 !important; /* 比素材更高，防止遮挡 */
   transform: translate(34px, -50%) !important;
   display: flex !important;
@@ -1316,11 +1303,28 @@ function saveQuickNote() {
   .quick-notes-rail {
     top: auto;
     right: 12px;
-    bottom: 14px;
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
     transform: none;
     transition: none;
     flex-direction: column-reverse;
     align-items: flex-end;
+  }
+
+  .game-image-gen-rail :deep(.image-gen-rail) {
+    top: auto !important;
+    right: 12px !important;
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+    transform: none !important;
+  }
+
+  .game-image-gen-rail :deep(.image-gen-rail:hover),
+  .game-image-gen-rail :deep(.image-gen-rail:has(.image-gen-drawer)) {
+    transform: none !important;
+  }
+
+  .advisor-fab {
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   }
 
   .quick-notes-btn {
@@ -1335,7 +1339,7 @@ function saveQuickNote() {
 
   .quick-note-workspace {
     width: min(100vw - 20px, 100%);
-    height: calc(100vh - 20px);
+    height: calc(var(--app-viewport-height, 100vh) - 20px);
     padding: 14px;
   }
 

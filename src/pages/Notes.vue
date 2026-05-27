@@ -17,10 +17,11 @@
           <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
           <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
         </div>
-        <button class="icon-btn" @click="createNewNote" title="新建素材">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 2v12M2 8h12"/>
-          </svg>
+        <button class="toolbar-text-btn" type="button" @click.stop="goToWriting" title="返回写作">
+          写作
+        </button>
+        <button class="toolbar-text-btn" type="button" @click="createNewNote" title="新建素材">
+          新素材
         </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
@@ -67,7 +68,7 @@
             </svg>
             <div class="book-info">
               <span class="book-title">{{ note.title || '无标题素材' }}</span>
-              <span class="book-meta">{{ note.wordCount || 0 }} 字</span>
+              <span class="book-meta">{{ getAssetKindLabel(note.kind) }} · {{ getAssetWordCount(note) }} 字</span>
             </div>
             <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
           </div>
@@ -377,7 +378,13 @@ import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import { createWritingNote, listWritingNotes, replaceWritingNotes } from '../services/writingNotes'
+import {
+  addNarrativeAsset,
+  getAssetKindLabel,
+  listNarrativeAssets,
+  setNarrativeAssetStatus,
+  updateNarrativeAsset
+} from '../services/narrativeAssets'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -479,6 +486,19 @@ function goBack() {
   router.push('/')
 }
 
+function goToWriting() {
+  saveCurrentChapter()
+  router.push({ name: 'writing' })
+}
+
+function getAssetWordCount(asset) {
+  const text = String(asset?.content || '').trim()
+  if (!text) return 0
+  const chineseChars = (text.match(/[一-龥]/g) || []).length
+  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
+  return chineseChars + englishWords
+}
+
 function collectNotesContext() {
   return {
     totalNotes: chapters.value.length,
@@ -494,21 +514,22 @@ async function handleAskAdvisor(question) {
   await askAdvisor(question, collectNotesContext)
 }
 
-function loadNotes() {
-  chapters.value = listWritingNotes()
+function loadNotes(preferredChapterId = '') {
+  chapters.value = listNarrativeAssets({ status: null })
+    .filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
 
-  if (chapters.value.length > 0) {
-    selectChapter(chapters.value[0].id)
+  const nextChapterId = preferredChapterId && chapters.value.some((asset) => asset.id === preferredChapterId)
+    ? preferredChapterId
+    : chapters.value[0]?.id || null
+
+  if (nextChapterId) {
+    selectChapter(nextChapterId)
   } else {
     selectedChapterId.value = null
     currentChapterTitle.value = ''
     editorContent.value = ''
     markdownContent.value = ''
   }
-}
-
-function saveNotes() {
-  replaceWritingNotes(chapters.value)
 }
 
 function selectChapter(chapterId) {
@@ -538,41 +559,27 @@ function createNewNote() {
 function confirmCreateNote() {
   if (!newNoteTitle.value.trim()) return
 
-  const newNote = createWritingNote({
+  const newNote = addNarrativeAsset({
     title: newNoteTitle.value.trim(),
-    content: '',
-    contentFormat: 'md',
-    wordCount: 0
+    content: newNoteTitle.value.trim(),
+    kind: 'inspiration',
+    status: 'inbox',
+    source: {
+      type: 'manual'
+    }
   })
 
-  chapters.value.push(newNote)
-  saveNotes()
-  selectChapter(newNote.id)
+  loadNotes(newNote.id)
   showNewNoteModal.value = false
 }
 
-function saveChapters() {
-  saveNotes()
-}
-
-function ensureCurrentNoteFallback() {
-  if (selectedChapterId.value) return
-  currentChapterTitle.value = ''
-  editorContent.value = ''
-  markdownContent.value = ''
-}
-
 function deleteChapter(chapterId) {
-  chapters.value = chapters.value.filter(c => c.id !== chapterId)
   if (selectedChapterId.value === chapterId) {
-    selectedChapterId.value = chapters.value.length > 0 ? chapters.value[0].id : null
-    if (selectedChapterId.value) {
-      selectChapter(selectedChapterId.value)
-    } else {
-      ensureCurrentNoteFallback()
-    }
+    saveCurrentChapter()
   }
-  saveChapters()
+  const nextId = chapters.value.find((item) => item.id !== chapterId)?.id || null
+  setNarrativeAssetStatus(chapterId, 'archived')
+  loadNotes(nextId)
 }
 
 function saveCurrentChapter() {
@@ -583,10 +590,10 @@ function saveCurrentChapter() {
     chapter.title = currentChapterTitle.value
     syncFromCurrentEditor()
     chapter.content = markdownContent.value
-    chapter.contentFormat = 'md'
-    chapter.wordCount = wordCount.value
-    chapter.updatedAt = new Date().toISOString()
-    saveChapters()
+    updateNarrativeAsset(chapter.id, {
+      title: chapter.title,
+      content: chapter.content
+    })
   }
 }
 
@@ -1167,7 +1174,8 @@ function stopResizeRight() {
 
 <style scoped>
 .writing-page {
-  height: 100vh;
+  height: var(--app-viewport-height, 100vh);
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -1179,7 +1187,7 @@ function stopResizeRight() {
 /* 标题栏 */
 .advisor-fab {
   position: fixed;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   right: 24px;
   width: 56px;
   height: 56px;
@@ -1233,7 +1241,7 @@ function stopResizeRight() {
 .title-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .icon-btn {
@@ -1336,6 +1344,23 @@ function stopResizeRight() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.toolbar-text-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-text-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* 内容区域 */
@@ -1529,6 +1554,9 @@ function stopResizeRight() {
 .book-meta {
   font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chapter-item {
