@@ -143,6 +143,14 @@
               <button class="asset-canvas-primary" type="button" @click="importCurrentToCanvas">
                 {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
               </button>
+              <button
+                v-if="selectedAsset"
+                class="asset-canvas-secondary"
+                type="button"
+                :disabled="isGeneratingProfessionalInfo"
+                @click="generateAndImportToCanvas">
+                {{ isGeneratingProfessionalInfo ? '生成中...' : '生成专业信息' }}
+              </button>
               <div class="toolbar-spacer"></div>
               <div class="mode-switch">
                 <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">
@@ -309,7 +317,8 @@ import {
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
-import { ensureAssetCanvasCard, findAssetCanvasCard } from '../services/relationCanvas'
+import { ensureAssetCanvasCard, ensureAssetCanvasCardWithExtra, findAssetCanvasCard } from '../services/relationCanvas'
+import { generateProfessionalInfoForAsset } from '../services/professionalInfoGenerator'
 
 const router = useRouter()
 const route = useRoute()
@@ -356,6 +365,7 @@ const editorBold = ref(false)
 const editorItalic = ref(false)
 const editorUnderline = ref(false)
 const hasSelection = ref(false)
+const isGeneratingProfessionalInfo = ref(false)
 const selectionFontSize = ref('16px')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
 
@@ -555,6 +565,30 @@ function openSelectedAssetInCanvas() {
   ensureAssetCanvasCard(selectedAsset.value)
   canvasImportRevision.value += 1
   router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
+}
+
+async function generateAndImportToCanvas() {
+  if (!selectedAsset.value) return
+  saveCurrentChapter()
+
+  isGeneratingProfessionalInfo.value = true
+  try {
+    const result = await generateProfessionalInfoForAsset({
+      asset: selectedAsset.value,
+      settings: null,
+      assetKind: selectedAsset.value.kind
+    })
+
+    const extraFields = result.success ? result.extraFields : null
+    ensureAssetCanvasCardWithExtra(selectedAsset.value, extraFields)
+  } catch (err) {
+    console.error('生成专业信息失败:', err)
+    ensureAssetCanvasCardWithExtra(selectedAsset.value, null)
+  } finally {
+    isGeneratingProfessionalInfo.value = false
+    canvasImportRevision.value += 1
+    router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
+  }
 }
 
 function isAssetOnCanvas(assetId) {
@@ -2071,6 +2105,27 @@ function stopResizeRight() {
 
 .asset-canvas-primary:hover {
   background: var(--accent-hover);
+}
+
+.asset-canvas-secondary {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.asset-canvas-secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.asset-canvas-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .toolbar-group {

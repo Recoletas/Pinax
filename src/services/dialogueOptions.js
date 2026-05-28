@@ -1,4 +1,4 @@
-import { sendChat } from './api'
+import { runGenerationTask } from './generationService'
 
 export const FALLBACK_DIALOGUE_OPTIONS = [
   '追问关键细节',
@@ -22,27 +22,30 @@ export async function generateDialogueOptions({
   worldId = '',
   settings = null
 } = {}) {
-  const messages = buildDialogueOptionMessages({
+  const baseMessages = buildDialogueOptionMessages({
     context,
     playerCharacter,
     recentMessages
   })
 
-  const response = await sendChat(
-    messages,
-    null,
-    worldId,
+  const result = await runGenerationTask({
+    baseMessages,
     settings,
-    {
-      max_tokens: 180,
-      temperature: 0.75,
-      response_format: { type: 'json_object' },
-      taskType: 'mechanism.dialogue-options',
-      attemptName: 'dialogue-options'
-    }
-  )
+    taskType: 'mechanism.dialogue-options',
+    parseContent: (text) => parseDialogueOptions(text || ''),
+    isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length > 0,
+    attempts: [
+      { name: 'dialogue-options' },
+      {
+        name: 'dialogue-options-retry',
+        appendMessages: [
+          { role: 'user', content: '请重新生成 3 个对话选项，严格输出 JSON 数组格式。' }
+        ]
+      }
+    ]
+  })
 
-  const options = parseDialogueOptions(response?.content || response?.text || '')
+  const options = result.success ? result.parsed : []
   return options.length ? options : buildFallbackOptions(context)
 }
 

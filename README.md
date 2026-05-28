@@ -39,35 +39,39 @@ npm run verify
 - `npm run test:run`
 - `npm run build`
 
-## 工作台与路由
+## 核心服务说明
 
-当前应用使用统一壳层（`AppShell`），核心路由如下：
+| 服务文件 | 职责 |
+|---------|------|
+| `api.js` | 核心 API 通信层，所有前后端通信经由此文件 |
+| `generationService.js` | 文本生成任务入口，封装 `runGenerationTask` |
+| `generationRetry.js` | 多轮生成重试策略执行器 |
+| `promptRegistry.js` | 所有 prompt 模板常量注册表 |
+| `promptBuilder.js` | 分层 prompt 构建器（Layer 0-4） |
+| `narrativeAssets.js` | 叙事素材 CRUD |
+| `relationCanvas.js` | 画布卡片管理 |
+| `textExpander.js` / `textRewriter.js` | 文本扩展与改写 |
+| `storyboardStore.js` / `shotExporter.js` | 分镜存储与导出 |
+| `worldbookImportGeneration.js` | 世界书 AI 生成 |
+| `experienceAssetSummarizer.js` | 体验素材总结 |
+
+## 工作台与路由
 
 | 路径 | 名称 | 用途 |
 | --- | --- | --- |
 | `/` | welcome | 工作台欢迎页 |
-| `/experience` | experience | 体验页 |
-| `/experience/worldbook` | experience-worldbook | 世界书导入 |
+| `/experience` | experience | 体验页（核心游戏界面） |
+| `/experience/worldbook` | experience-worldbook | 世界书快速导入 |
 | `/experience/worldbook/advanced` | experience-worldbook-advanced | 世界书编辑 |
 | `/writing` | writing | 小说写作 |
 | `/materials` | materials | 素材管理 |
 | `/prose-essay` | prose-essay | 卡片关系画布 |
 
-兼容重定向：`/fit`、`/game`、`/notes`、`/poetry-lab` 等旧入口仍可访问，会重定向到新路由。
+兼容重定向：`/notes`、`/poetry-lab` 等旧入口仍可访问，会重定向到对应新路由。
 
-## 世界书定位说明（协调版）
+## 世界书定位说明
 
-你提到的“世界书放在一级目录不够协调”是合理感受。当前实现里，它在**代码目录层面**和**业务入口层面**分别如下：
-
-- 代码层：页面组件位于 `src/pages/WorldBookQuickImport.vue` 与 `src/pages/WorldBookEditor.vue`
-- 路由层：世界书被约束在 `/experience/worldbook*` 子路径下，不是独立业务域
-- 导航层：在工作台活动栏中单列 `worldbook`，便于快速切换导入/编辑
-
-为了在“不大迁目录”的前提下保持协调，本项目采用“**路由归属优先于文件夹层级**”的约定：
-
-- 功能归属以路由段为准（worldbook 归属 experience 域）
-- 页面文件暂留在 `src/pages/`，但在文档中按域分组解释
-- 新增世界书能力优先落在现有两个页面或其子组件中，避免再扩散成平级入口
+世界书功能在工作台活动栏中单列 `worldbook`，支持快速切换导入/编辑两个入口。代码层页面组件位于 `src/pages/WorldBookQuickImport.vue` 与 `src/pages/WorldBookEditor.vue`，路由层归属 `/experience/worldbook*` 子路径下。
 
 ## 项目结构（当前）
 

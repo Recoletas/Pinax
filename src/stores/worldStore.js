@@ -62,6 +62,35 @@ function createEntryId() {
   return `entry_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+const CONSTRAINT_IMPORT_TYPES = new Set(['rule', 'style', 'forbidden'])
+
+function normalizeKeywordList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => String(item || '').trim())
+      .filter(Boolean)
+  }
+  const normalized = String(value || '').trim()
+  return normalized ? [normalized] : []
+}
+
+function clampImportNumber(value, fallback, min, max) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
+function resolveImportedEntryMode(entry, type) {
+  const modeText = String(entry?.mode || '').trim().toLowerCase()
+  const explicitMode = entry?.constant === true
+    ? 'constant'
+    : (modeText === 'constant' ? 'constant' : ((modeText === 'selective' || entry?.selective === true) ? 'selective' : ''))
+
+  if (CONSTRAINT_IMPORT_TYPES.has(type)) return 'constant'
+  if (explicitMode === 'constant') return 'constant'
+  return 'selective'
+}
+
 export const useWorldStore = defineStore('world', {
   state: () => ({
     // 世界书列表索引（轻量）
@@ -476,23 +505,31 @@ export const useWorldStore = defineStore('world', {
       // 解析entries
       const rawEntries = worldbookData.entries || worldbookData.entry || {}
       for (const [uid, entry] of Object.entries(rawEntries)) {
-        const keys = Array.isArray(entry.key) ? entry.key : entry.key ? [entry.key] : []
-        const keysSecondary = Array.isArray(entry.keysecondary) ? entry.keysecondary : entry.keysecondary ? [entry.keysecondary] : []
+        const keys = normalizeKeywordList(entry.key)
+        const keysSecondary = normalizeKeywordList(entry.keysecondary)
+        const name = String(entry.comment || keys[0] || uid || '未命名条目').trim() || '未命名条目'
+        const type = this.guessEntryType(keys, entry.content, name)
+        const mode = resolveImportedEntryMode(entry, type)
+        const depthFallback = mode === 'constant' ? 2 : 1
+        const depthValue = clampImportNumber(entry.depth, depthFallback, 1, 99)
+        const defaultGroup = type === 'rule'
+          ? '硬约束'
+          : (type === 'style' ? '文风约束' : (type === 'forbidden' ? '禁写边界' : ''))
 
         const mapped = {
           id: `entry_${Date.now().toString(36)}_${uid.slice(0, 8)}`,
           keys,
           keysSecondary,
           content: entry.content || '',
-          type: this.guessEntryType(keys, entry.content),
-          name: entry.comment || keys[0] || uid,
+          type,
+          name,
           injection: {
-            mode: entry.selective ? 'selective' : entry.constant ? 'constant' : 'selective',
-            probability: entry.probability ?? 100,
-            cooldown: entry.cooldown ?? 0,
-            depth: entry.depth ?? 1,
-            excludeRecursion: entry.excludeRecursion ?? false,
-            group: entry.group || null
+            mode,
+            probability: mode === 'constant' ? 100 : clampImportNumber(entry.probability, 100, 0, 100),
+            cooldown: clampImportNumber(entry.cooldown, 0, 0, 99999),
+            depth: mode === 'constant' ? Math.max(2, depthValue) : depthValue,
+            excludeRecursion: Boolean(entry.excludeRecursion),
+            group: String(entry.group || '').trim() || defaultGroup || null
           },
           relations: {
             tags: entry.tags || [],
@@ -580,43 +617,49 @@ export const useWorldStore = defineStore('world', {
 
     // ---------- 辅助方法 ----------
 
-    guessEntryType(keys, content) {
-      if (!keys || keys.length === 0) return 'general'
-      const keyLower = keys.map(k => k.toLowerCase())
+    guessEntryType(keys, content, name = '') {
+      const terms = [
+        ...(Array.isArray(keys) ? keys : []),
+        content,
+        name
+      ]
+        .map(item => String(item || '').toLowerCase())
+        .filter(Boolean)
 
-      // 地点关键词
-      const locationKws = ['城市', '城镇', '村庄', '山', '森林', '河流', '海洋', '宫殿', '房屋', '房间', '地点', '位置', 'city', 'town', 'village', 'mountain', 'forest', 'river']
-      if (keyLower.some(k => locationKws.some(lk => k.includes(lk)))) return 'location'
+      if (!terms.length) return 'general'
 
-      // 角色关键词
+      const corpus = terms.join(' ')
+      const containsAny = (keywords) => keywords.some(keyword => corpus.includes(keyword))
+
+      const forbiddenKws = ['禁忌', '禁止', '不得', '不能', '不可', '严禁', 'forbidden', 'ban', 'avoid']
+      if (containsAny(forbiddenKws)) return 'forbidden'
+
+      const styleKws = ['风格', '文风', '语气', '叙事', '视角', 'style', 'tone']
+      if (containsAny(styleKws)) return 'style'
+
+      const ruleKws = ['规则', '约束', '必须', '原则', '条例', 'rule', 'constraint']
+      if (containsAny(ruleKws)) return 'rule'
+
+      const locationKws = ['城市', '城镇', '村庄', '山', '森林', '河流', '海洋', '宫殿', '地点', '位置', 'city', 'town', 'village', 'mountain', 'forest', 'river']
+      if (containsAny(locationKws)) return 'location'
+
       const characterKws = ['人物', '角色', 'npc', '主角', '配角', '人名', 'character']
-      if (keyLower.some(k => characterKws.some(ck => k.includes(ck)))) return 'character'
+      if (containsAny(characterKws)) return 'character'
 
-      // 规则 / 禁忌 / 风格
-      const ruleKws = ['规则', '约束', '必须', '原则', 'rule']
-      if (keyLower.some(k => ruleKws.some(rk => k.includes(rk)))) return 'rule'
+      const organizationKws = ['组织', '门派', '势力', '公司', '协会', '家族', 'organization', 'faction', 'guild']
+      if (containsAny(organizationKws)) return 'organization'
 
-      const forbiddenKws = ['禁忌', '禁止', '不得', '不能', 'forbidden']
-      if (keyLower.some(k => forbiddenKws.some(fk => k.includes(fk)))) return 'forbidden'
+      const itemKws = ['物品', '道具', '武器', '装备', 'item', 'weapon', 'artifact', 'tool']
+      if (containsAny(itemKws)) return 'item'
 
-      const styleKws = ['风格', '文风', '语气', '叙事', 'style']
-      if (keyLower.some(k => styleKws.some(sk => k.includes(sk)))) return 'style'
+      const eventKws = ['事件', '危机', '袭击', '失联', '活动', 'event', 'incident']
+      if (containsAny(eventKws)) return 'event'
 
-      // 组织关键词
-      const organizationKws = ['组织', '门派', '势力', '公司', '协会', '家族', 'organization', 'faction']
-      if (keyLower.some(k => organizationKws.some(ok => k.includes(ok)))) return 'organization'
+      const questKws = ['任务', '委托', '目标', 'quest', 'mission']
+      if (containsAny(questKws)) return 'quest'
 
-      // 物品关键词
-      const itemKws = ['物品', '道具', '武器', '装备', 'item', 'weapon', 'armor']
-      if (keyLower.some(k => itemKws.some(ik => k.includes(ik)))) return 'item'
-
-      // 事件关键词
-      const eventKws = ['事件', '发生', '活动', '发生了', 'event']
-      if (keyLower.some(k => eventKws.some(ek => k.includes(ek)))) return 'event'
-
-      // 任务关键词
-      const questKws = ['任务', '委托', 'quest']
-      if (keyLower.some(k => questKws.some(qk => k.includes(qk)))) return 'quest'
+      const loreKws = ['设定', '背景', '历史', '传说', 'lore', 'setting']
+      if (containsAny(loreKws)) return 'lore'
 
       return 'general'
     }

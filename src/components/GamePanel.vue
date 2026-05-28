@@ -7,14 +7,23 @@
         'msg-item',
         msg.role,
         {
-          'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(index)
+          'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(index),
+          'compression-complete': isCompressionCompleteMessage(msg)
         }
       ]"
     >
 
       <!-- 头像列 -->
       <div class="avatar-column">
-        <template v-if="msg.role === 'assistant'">
+        <template v-if="isCompressionCompleteMessage(msg)">
+          <div class="tavern-avatar system-icon">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13 4.5L6.2 11.3 3 8.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </template>
+
+        <template v-else-if="msg.role === 'assistant'">
           <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
           <div v-else class="tavern-avatar ai-icon">
             {{ (msg.name || 'A')[0] }}
@@ -33,7 +42,7 @@
       <div class="msg-column">
         <div class="msg-header">
           <span class="display-name">
-            {{ msg.name || (msg.role === 'user' ? (gameStore.playerCharacter?.name || 'User') : (gameStore.aiCharacter?.name || 'Assistant')) }}
+            {{ displayName(msg) }}
           </span>
           <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
           <div
@@ -93,6 +102,10 @@
               <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
+          <div v-else-if="isCompressionCompleteMessage(msg)" class="context-compression-complete">
+            <span class="context-compression-pulse"></span>
+            <span class="context-compression-text">{{ msg.content }}</span>
+          </div>
           <div v-else class="text-main" v-html="renderMessageContent(msg, index)"></div>
         </div>
       </div>
@@ -128,6 +141,19 @@ const saveEdit = (index) => {
     gameStore.updateMessage(index, editText.value)
   }
   editingIndex.value = -1
+}
+
+const isCompressionCompleteMessage = (msg) => {
+  return (msg?.role || msg?.type) === 'system'
+    && String(msg?.content || '').trim() === '【压缩完成】上下文已压缩完成'
+}
+
+const displayName = (msg) => {
+  if (isCompressionCompleteMessage(msg)) return '系统'
+  if (msg.name) return msg.name
+  if (msg.role === 'user') return gameStore.playerCharacter?.name || 'User'
+  if (msg.role === 'system' || msg.type === 'system') return '系统'
+  return gameStore.aiCharacter?.name || 'Assistant'
 }
 
 const renderMessageContent = (msg, index) => {
@@ -222,9 +248,19 @@ watch(() => gameStore.messages.length, scroll)
   color: var(--text-muted);
 }
 
+.system-icon {
+  background: color-mix(in srgb, var(--accent-emerald) 14%, var(--bg-secondary));
+  color: var(--accent-emerald);
+  border-color: color-mix(in srgb, var(--accent-emerald) 28%, var(--border));
+}
+
 .msg-column {
   flex: 1;
   min-width: 0;
+}
+
+.msg-item.compression-complete {
+  align-items: center;
 }
 
 .msg-header {
@@ -353,6 +389,39 @@ summary .arrow {
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.context-compression-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent-emerald) 28%, var(--border));
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--accent-emerald) 12%, var(--bg-secondary)),
+      color-mix(in srgb, var(--accent-teal) 8%, var(--bg-secondary)));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent-emerald) 10%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 86%, var(--accent-emerald));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.context-compression-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-emerald) 14%, transparent);
+  flex-shrink: 0;
+}
+
+.context-compression-text {
+  min-width: 0;
 }
 
 .edit-area {

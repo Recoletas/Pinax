@@ -4,8 +4,8 @@
       <div class="hero-left">
         <h1>世界书 · 快速导入</h1>
         <p>
-          这是面向新手的普通入口：用预设、小说段落或一句说明，快速生成可用世界书。
-          条目细调、注入参数和批量改动放在高级设置中处理。
+          这是快速工作流入口：用预设、小说段落或一句说明，生成可执行的世界书草案。
+          条目精修、注入参数与批量改动请在高级设置中处理。
         </p>
       </div>
       <div class="hero-actions">
@@ -27,7 +27,7 @@
       <article class="card">
         <div class="card-head">
           <h2>一键预设</h2>
-          <span>零门槛，直接可玩</span>
+          <span>标准基线，开箱可用</span>
         </div>
 
         <div class="preset-list">
@@ -574,8 +574,12 @@ const genreOptions = [
 
 const entryTypeOptions = [
   { value: 'general', label: '通用' },
+  { value: 'rule', label: '规则' },
+  { value: 'style', label: '风格' },
+  { value: 'forbidden', label: '禁忌' },
   { value: 'location', label: '地点' },
   { value: 'character', label: '角色' },
+  { value: 'organization', label: '组织' },
   { value: 'item', label: '物品' },
   { value: 'lore', label: '设定' },
   { value: 'quest', label: '任务' },
@@ -585,9 +589,9 @@ const entryTypeOptions = [
 const presets = [
   {
     id: 'preset-fantasy',
-    name: '奇幻新手包',
+    name: '奇幻调查基线',
     genreLabel: '奇幻冒险',
-    description: '含主城、学院、队友、关键遗物与主线危机，适合直接开局。',
+    description: '覆盖主城、机构、关键角色、关键道具与主线危机，可作为首轮约束基线。',
     entries: [
       createSeedEntry('location', '暮湾主城', ['暮湾', '主城'], '港雾常年笼罩的贸易主城，夜晚会响起无来源的钟声。', '地理'),
       createSeedEntry('location', '银藤学院', ['银藤学院', '法师学院'], '培养探索者与记录官的学院，地下藏有古代观测仪。', '地理'),
@@ -599,9 +603,9 @@ const presets = [
   },
   {
     id: 'preset-urban',
-    name: '都市悬疑包',
+    name: '都市悬疑基线',
     genreLabel: '都市现实',
-    description: '适合推理和人物关系戏，带有组织线与案件线。',
+    description: '包含机构、人物网络、案件锚点与证据道具，适合推进推理和关系线。',
     entries: [
       createSeedEntry('location', '北岸传媒大厦', ['北岸传媒', '大厦'], '新闻与公关中心，内部流传一份不能公开的旧档案。', '地理'),
       createSeedEntry('character', '沈述记者', ['沈述', '记者'], '调查记者，擅长追踪资金流，嘴硬心软。', '角色'),
@@ -613,9 +617,9 @@ const presets = [
   },
   {
     id: 'preset-scifi',
-    name: '星际远征包',
+    name: '星际远征基线',
     genreLabel: '科幻星际',
-    description: '带舰队、殖民站、AI 风险和资源矛盾，适合硬科幻开局。',
+    description: '覆盖舰队、前哨站、协定约束与风险事件，适合硬科幻任务流开局。',
     entries: [
       createSeedEntry('location', '赫利俄斯前哨站', ['前哨站', '赫利俄斯'], '位于边境轨道的补给站，长期受微陨石风暴干扰。', '地理'),
       createSeedEntry('character', '林霁舰长', ['林霁', '舰长'], '远征舰指挥官，强调程序与纪律，但对平民保持克制。', '角色'),
@@ -776,6 +780,35 @@ function normalizeEntryType(typeValue) {
   return 'general'
 }
 
+const CONSTRAINT_TYPES = new Set(['rule', 'style', 'forbidden'])
+
+function isConstraintType(typeValue) {
+  return CONSTRAINT_TYPES.has(normalizeEntryType(typeValue))
+}
+
+function inferConstraintTypeFromSignals({ name = '', content = '', keys = [] } = {}) {
+  const keyList = Array.isArray(keys) ? keys : []
+  const corpus = [name, content, ...keyList]
+    .map(part => normalizeText(part).toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+
+  if (!corpus) return ''
+  if (/(禁止|禁忌|不得|不能|不可|严禁|forbidden|ban|avoid)/.test(corpus)) return 'forbidden'
+  if (/(风格|文风|语气|叙事|视角|style|tone)/.test(corpus)) return 'style'
+  if (/(规则|约束|必须|一致性|设定边界|rule|constraint)/.test(corpus)) return 'rule'
+  return ''
+}
+
+function inferEntryType(typeValue, name = '', content = '', keys = []) {
+  const normalizedType = normalizeEntryType(typeValue)
+  if (normalizedType !== 'general' && normalizedType !== 'lore') {
+    return normalizedType
+  }
+
+  return inferConstraintTypeFromSignals({ name, content, keys }) || normalizedType
+}
+
 function normalizeGroupName(groupValue) {
   return normalizeText(groupValue)
 }
@@ -797,6 +830,43 @@ function normalizeKeywords(value, fallback = '') {
   }
 
   return Array.from(new Set(tokens)).slice(0, 6)
+}
+
+function ensureEntryContent(type, name, content) {
+  const normalized = normalizeText(content)
+  if (normalized.length >= 24) return normalized
+
+  if (isConstraintType(type)) {
+    const defaults = {
+      rule: '涉及世界规则、身份关系和事件因果时必须保持一致，不得自相矛盾。',
+      style: '输出需持续保持既定叙事视角、语气强度与文风边界。',
+      forbidden: '严禁生成与设定冲突或被明确禁止的内容。'
+    }
+    const suffix = defaults[normalizeEntryType(type)] || defaults.rule
+    return normalized ? `${normalized} ${suffix}` : `${name}：${suffix}`
+  }
+
+  if (normalized) return normalized
+  return `${name}：补充该条目的背景、边界与影响范围。`
+}
+
+function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
+  const modeText = normalizeText(rawEntry?.mode || '').toLowerCase()
+  const explicitMode = rawEntry?.constant === true
+    ? 'constant'
+    : (modeText === 'constant' ? 'constant' : (modeText === 'selective' || rawEntry?.selective === true ? 'selective' : ''))
+
+  const inferredConstraint = isConstraintType(type) || Boolean(inferConstraintTypeFromSignals({ name, content, keys }))
+  const mode = inferredConstraint ? 'constant' : (explicitMode === 'constant' ? 'constant' : 'selective')
+  const depthFallback = mode === 'constant' ? 2 : 1
+
+  return {
+    mode,
+    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability, 100, 0, 100),
+    cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
+    depth: clampNumber(rawEntry?.depth, depthFallback, 1, 99),
+    excludeRecursion: Boolean(rawEntry?.excludeRecursion)
+  }
 }
 
 function entryFieldLabel(field) {
@@ -851,43 +921,49 @@ function uniqueGroups(groups = []) {
 
 function defaultGroupByType(typeValue) {
   const type = normalizeEntryType(typeValue)
+  if (type === 'rule') return '硬约束'
+  if (type === 'style') return '文风约束'
+  if (type === 'forbidden') return '禁写边界'
   if (type === 'character') return '角色'
   if (type === 'location') return '地理'
   if (type === 'item') return '道具'
+  if (type === 'organization') return '组织'
   if (type === 'event') return '事件'
   if (type === 'lore') return '设定'
   if (type === 'quest') return '任务'
   return '通用'
 }
 
-function createSeedEntry(type, name, keys, content, group, mode = 'selective') {
+function createSeedEntry(type, name, keys, content, group, mode = '') {
+  const normalizedKeys = normalizeKeywords(keys, name)
+  const normalizedType = inferEntryType(type, name, content, normalizedKeys)
+  const normalizedContent = ensureEntryContent(normalizedType, name, content)
+  const injection = resolveInjectionPolicy({ mode }, normalizedType, name, normalizedContent, normalizedKeys)
+
   return {
     id: `seed_${Math.random().toString(36).slice(2, 10)}`,
     name,
-    type: normalizeEntryType(type),
-    keys: normalizeKeywords(keys, name),
+    type: normalizedType,
+    keys: normalizedKeys,
     keysSecondary: [],
-    content,
+    content: normalizedContent,
     injection: {
-      mode: mode === 'constant' ? 'constant' : 'selective',
-      probability: 100,
-      cooldown: 0,
-      depth: 1,
-      excludeRecursion: false,
+      ...injection,
       group: normalizeGroupName(group) || null
     }
   }
 }
 
 function normalizeGeneratedEntry(rawEntry, index = 0) {
-  const type = normalizeEntryType(rawEntry?.type)
-  const fallbackName = `${entryTypeLabel(type)}条目${index + 1}`
+  const rawType = normalizeEntryType(rawEntry?.type)
+  const fallbackName = `${entryTypeLabel(rawType)}条目${index + 1}`
   const name = normalizeText(rawEntry?.name || rawEntry?.title || fallbackName) || fallbackName
-  const content = normalizeText(rawEntry?.content || rawEntry?.description || `${name}相关设定。`)
   const keys = normalizeKeywords(rawEntry?.keys || rawEntry?.keywords || rawEntry?.key, name)
+  const type = inferEntryType(rawType, name, rawEntry?.content || rawEntry?.description || '', keys)
+  const content = ensureEntryContent(type, name, rawEntry?.content || rawEntry?.description || `${name}相关设定。`)
   const keysSecondary = normalizeKeywords(rawEntry?.keysSecondary || rawEntry?.secondary || rawEntry?.keysecondary)
   const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || defaultGroupByType(type)) || null
-  const mode = rawEntry?.mode === 'constant' ? 'constant' : 'selective'
+  const injection = resolveInjectionPolicy(rawEntry, type, name, content, keys)
 
   return {
     id: `preview_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 7)}`,
@@ -897,11 +973,7 @@ function normalizeGeneratedEntry(rawEntry, index = 0) {
     keysSecondary,
     content,
     injection: {
-      mode,
-      probability: clampNumber(rawEntry?.probability, 100, 0, 100),
-      cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
-      depth: clampNumber(rawEntry?.depth, 1, 1, 99),
-      excludeRecursion: Boolean(rawEntry?.excludeRecursion),
+      ...injection,
       group
     }
   }
@@ -1009,11 +1081,15 @@ function buildSegmentedEntries(segments) {
 
 function inferTypeFromText(paragraph) {
   const text = String(paragraph || '')
+  if (/(禁止|禁忌|不得|不能|不可|严禁)/.test(text)) return 'forbidden'
+  if (/(风格|文风|语气|叙事|笔调)/.test(text)) return 'style'
+  if (/(规则|约束|必须|条例|制度|法律|协定|门规)/.test(text)) return 'rule'
   if (/(城|镇|村|街|港|山|河|海|森林|学院|基地|站|宫|殿|塔)/.test(text)) return 'location'
   if (/(先生|小姐|队长|博士|掌门|师兄|师姐|记者|警官|舰长|少年|少女)/.test(text)) return 'character'
+  if (/(组织|门派|势力|公司|协会|联盟|公会|军团)/.test(text)) return 'organization'
   if (/(剑|刀|枪|卷轴|芯片|装置|药剂|令牌|证件|钥匙|终端)/.test(text)) return 'item'
   if (/(事件|危机|战斗|袭击|爆炸|失联|任务|追查|仪式|失踪)/.test(text)) return 'event'
-  if (/(制度|法律|协定|传说|历史|门规|习俗|规则|设定)/.test(text)) return 'lore'
+  if (/(传说|历史|习俗|设定)/.test(text)) return 'lore'
   return 'general'
 }
 
@@ -1126,6 +1202,53 @@ function collectGroupsFromEntries(entries) {
   return uniqueGroups(entries.map(entry => entry?.injection?.group))
 }
 
+function buildConstraintEntries({ name, description, worldDescription, writingStyle, forbidden, entries = [] }) {
+  const normalizedEntries = Array.isArray(entries) ? entries : []
+  const shortName = normalizeText(name).slice(0, 18) || '当前世界'
+
+  const hasConstraintType = (targetType) => {
+    return normalizedEntries.some((entry) => {
+      const entryType = normalizeEntryType(entry?.type)
+      if (entryType === targetType) return true
+      if (entryType !== 'general' && entryType !== 'lore') return false
+      const inferred = inferConstraintTypeFromSignals({
+        name: entry?.name,
+        content: entry?.content,
+        keys: [...(entry?.keys || []), ...(entry?.keysSecondary || [])]
+      })
+      return inferred === targetType
+    })
+  }
+
+  const constraints = []
+  const worldContext = normalizeText(worldDescription || description)
+  const writingContext = normalizeText(writingStyle)
+  const forbiddenContext = normalizeText(forbidden)
+
+  if (!hasConstraintType('rule')) {
+    const ruleContent = worldContext
+      ? `核心世界观：${worldContext.slice(0, 200)}${worldContext.length > 200 ? '...' : ''}。涉及人物关系、地理事实与历史事件时必须保持一致。`
+      : '涉及人物关系、地理事实与历史事件时必须保持一致，不得无因改写既有设定。'
+    constraints.push(createSeedEntry('rule', `${shortName}一致性规则`, ['世界规则', '一致性', shortName], ruleContent, '硬约束', 'constant'))
+  }
+
+  if (!hasConstraintType('style')) {
+    const styleContent = writingContext
+      ? `写作风格基线：${writingContext}`
+      : '默认采用稳定叙事视角与一致语气；场景描写、人物对话和叙事节奏应保持同一文风基线。'
+    constraints.push(createSeedEntry('style', `${shortName}文风基线`, ['写作风格', '文风', shortName], styleContent, '文风约束', 'constant'))
+  }
+
+  if (!hasConstraintType('forbidden')) {
+    const forbiddenContent = forbiddenContext
+      ? `禁止内容清单：${forbiddenContext}`
+      : '禁止生成与设定冲突、角色动机断裂或无因果跳变的内容。'
+    constraints.push(createSeedEntry('forbidden', `${shortName}禁写边界`, ['禁止内容', '禁忌', shortName], forbiddenContent, '禁写边界', 'constant'))
+  }
+
+  return constraints
+}
+
 async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
   const safeTargetCount = clampNumber(targetCount, 10, 3, 30)
   const aiResult = await tryAiExtractWorldbookJson({
@@ -1217,14 +1340,45 @@ async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
   }
 }
 
-function buildPendingPayload({ name, description, sourceLabel, entries }) {
-  const normalizedEntries = entries.map((entry, idx) => normalizeGeneratedEntry(entry, idx))
+function buildPendingPayload({
+  name,
+  description,
+  worldDescription,
+  writingStyle,
+  examples,
+  forbidden,
+  sourceLabel,
+  entries,
+  groups
+}) {
+  const normalizedEntries = Array.isArray(entries)
+    ? entries.map((entry, idx) => normalizeGeneratedEntry(entry, idx))
+    : []
+  const normalizedDescription = normalizeText(description || worldDescription)
+  const normalizedWorldDescription = normalizeText(worldDescription || normalizedDescription)
+  const normalizedWritingStyle = normalizeText(writingStyle)
+  const normalizedExamples = normalizeText(examples)
+  const normalizedForbidden = normalizeText(forbidden)
+  const constraintEntries = buildConstraintEntries({
+    name,
+    description: normalizedDescription,
+    worldDescription: normalizedWorldDescription,
+    writingStyle: normalizedWritingStyle,
+    forbidden: normalizedForbidden,
+    entries: normalizedEntries
+  })
+  const mergedEntries = [...normalizedEntries, ...constraintEntries]
+
   return {
     name: normalizeText(name) || createAutoWorldbookName('快速世界书'),
-    description: normalizeText(description),
-    sourceLabel,
-    entries: normalizedEntries,
-    groups: collectGroupsFromEntries(normalizedEntries)
+    description: normalizedDescription,
+    worldDescription: normalizedWorldDescription,
+    writingStyle: normalizedWritingStyle,
+    examples: normalizedExamples,
+    forbidden: normalizedForbidden,
+    sourceLabel: normalizeText(sourceLabel) || '快速导入',
+    entries: mergedEntries,
+    groups: uniqueGroups([...(Array.isArray(groups) ? groups : []), ...collectGroupsFromEntries(mergedEntries)])
   }
 }
 
@@ -1297,7 +1451,7 @@ async function generateFromNovelText() {
       if (novelInput.useAiFirst) {
         const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
         if (aiResult.ok && aiResult.payload) {
-          payload = aiResult.payload
+          payload = buildPendingPayload(aiResult.payload)
           setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
         } else if (aiResult.reason) {
           setWorldbookInfo(aiResult.reason)
@@ -1413,17 +1567,17 @@ async function importFromSegments() {
       return
     }
 
-    const groups = collectGroupsFromEntries(allEntries)
-    const payload = {
+    const payload = buildPendingPayload({
       name: novelInput.name || createAutoWorldbookName('小说导入世界书'),
-      description: '由小说分段导入生成',
+      description: normalizeText(novelInput.sourceText).slice(0, 240) || '由小说分段导入生成',
+      worldDescription: '由小说章节/段落提炼生成，建议在高级设置中补充背景边界。',
       sourceLabel: '小说分段导入',
       entries: allEntries,
-      groups
-    }
+      groups: collectGroupsFromEntries(allEntries)
+    })
 
     const created = await createWorldbookFromPayload(payload)
-    setWorldbookSuccess(`已创建：${created?.name || '新世界书'}（${allEntries.length} 条目）。`)
+    setWorldbookSuccess(`已创建：${created?.name || '新世界书'}（${payload.entries.length} 条目，含约束项）。`)
 
     novelSegments.value = []
     expandedSegmentIndex.value = -1
@@ -1478,16 +1632,18 @@ async function createWorldbookFromPayload(payload) {
     throw new Error('没有可导入的条目')
   }
 
+  const normalizedPayload = buildPendingPayload(payload)
+
   const created = await worldStore.createWorldbook({
-    name: payload.name,
-    worldDescription: payload.worldDescription || payload.description || '',
-    writingStyle: payload.writingStyle || '',
-    examples: payload.examples || '',
-    forbidden: payload.forbidden || '',
-    description: payload.description || payload.worldDescription || ''
+    name: normalizedPayload.name,
+    worldDescription: normalizedPayload.worldDescription || normalizedPayload.description || '',
+    writingStyle: normalizedPayload.writingStyle || '',
+    examples: normalizedPayload.examples || '',
+    forbidden: normalizedPayload.forbidden || '',
+    description: normalizedPayload.description || normalizedPayload.worldDescription || ''
   })
 
-  for (const entry of payload.entries) {
+  for (const entry of normalizedPayload.entries) {
     await worldStore.addEntry(created.id, {
       name: entry.name,
       type: entry.type,
@@ -1498,7 +1654,7 @@ async function createWorldbookFromPayload(payload) {
     })
   }
 
-  const groups = uniqueGroups([...(payload.groups || []), ...collectGroupsFromEntries(payload.entries)])
+  const groups = uniqueGroups([...(normalizedPayload.groups || []), ...collectGroupsFromEntries(normalizedPayload.entries)])
   if (groups.length) {
     await worldStore.updateWorldbook(created.id, { groups })
   }
@@ -1515,14 +1671,15 @@ async function overwriteWorldbookFromPayload(targetWorldbook, payload) {
   }
 
   const worldbookId = targetWorldbook.id
+  const normalizedPayload = buildPendingPayload(payload)
 
   await worldStore.updateWorldbook(worldbookId, {
-    name: payload.name,
-    worldDescription: payload.worldDescription || payload.description || '',
-    writingStyle: payload.writingStyle || '',
-    examples: payload.examples || '',
-    forbidden: payload.forbidden || '',
-    description: payload.description || payload.worldDescription || ''
+    name: normalizedPayload.name,
+    worldDescription: normalizedPayload.worldDescription || normalizedPayload.description || '',
+    writingStyle: normalizedPayload.writingStyle || '',
+    examples: normalizedPayload.examples || '',
+    forbidden: normalizedPayload.forbidden || '',
+    description: normalizedPayload.description || normalizedPayload.worldDescription || ''
   })
 
   await worldStore.setActiveWorldbook(worldbookId)
@@ -1532,7 +1689,7 @@ async function overwriteWorldbookFromPayload(targetWorldbook, payload) {
     await worldStore.deleteEntry(worldbookId, entry.id)
   }
 
-  for (const entry of payload.entries) {
+  for (const entry of normalizedPayload.entries) {
     await worldStore.addEntry(worldbookId, {
       name: entry.name,
       type: entry.type,
@@ -1543,7 +1700,7 @@ async function overwriteWorldbookFromPayload(targetWorldbook, payload) {
     })
   }
 
-  const groups = uniqueGroups([...(payload.groups || []), ...collectGroupsFromEntries(payload.entries)])
+  const groups = uniqueGroups([...(normalizedPayload.groups || []), ...collectGroupsFromEntries(normalizedPayload.entries)])
   await worldStore.updateWorldbook(worldbookId, { groups })
 
   await worldStore.loadWorldbooksIndex()
@@ -1551,7 +1708,7 @@ async function overwriteWorldbookFromPayload(targetWorldbook, payload) {
 
   return {
     id: worldbookId,
-    name: payload.name
+    name: normalizedPayload.name
   }
 }
 

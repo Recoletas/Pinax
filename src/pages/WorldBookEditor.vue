@@ -698,11 +698,18 @@ function toStringArray(value) {
   return normalized ? [normalized] : []
 }
 
-function detectEntryType(keys, content) {
+function detectEntryType(keys, content, name = '') {
   if (typeof worldStore.guessEntryType === 'function') {
-    return worldStore.guessEntryType(keys, content)
+    return worldStore.guessEntryType(keys, content, name)
   }
   return 'general'
+}
+
+function inferPreviewInjectionMode(rawEntry, type) {
+  const modeText = String(rawEntry?.mode || '').trim().toLowerCase()
+  if (rawEntry?.constant === true || modeText === 'constant') return 'constant'
+  if (['rule', 'style', 'forbidden'].includes(type)) return 'constant'
+  return 'selective'
 }
 
 function normalizePreview(rawData, fileName) {
@@ -722,8 +729,8 @@ function normalizePreview(rawData, fileName) {
   const previewEntries = entryPairs.map(([uid, entry]) => {
     const keys = toStringArray(entry?.key)
     const keysSecondary = toStringArray(entry?.keysecondary)
-    const type = detectEntryType(keys, String(entry?.content || ''))
-    const mode = entry?.constant ? 'constant' : 'selective'
+    const type = detectEntryType(keys, String(entry?.content || ''), String(entry?.comment || uid || ''))
+    const mode = inferPreviewInjectionMode(entry, type)
     const group = String(entry?.group || '').trim() || null
 
     return {

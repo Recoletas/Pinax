@@ -17,10 +17,6 @@ const workbenchChildren = [
     component: WelcomeView
   },
   {
-    path: 'fit',
-    redirect: { name: 'experience' }
-  },
-  {
     path: 'experience',
     name: 'experience',
     component: Experience,
@@ -45,15 +41,6 @@ const workbenchChildren = [
     meta: {
       activityKey: 'worldbook',
       title: '世界书 · 高级设置'
-    }
-  },
-  {
-    path: 'game',
-    name: 'game',
-    redirect: { name: 'experience' },
-    meta: {
-      activityKey: 'experience',
-      title: '小说体验'
     }
   },
   {
@@ -91,8 +78,6 @@ const routes = [
     component: AppShell,
     children: workbenchChildren
   },
-  { path: '/fit', redirect: { name: 'experience' } },
-  { path: '/game', redirect: { name: 'experience' } },
   { path: '/writing', redirect: { name: 'writing' } },
   { path: '/materials', redirect: { name: 'materials' } },
   { path: '/notes', redirect: { name: 'materials' } },

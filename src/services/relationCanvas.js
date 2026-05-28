@@ -40,3 +40,21 @@ export function ensureAssetCanvasCard(asset) {
 function countWords(text) {
   return String(text || '').replace(/\s/g, '').length
 }
+
+export function ensureAssetCanvasCardWithExtra(asset, extraFields) {
+  if (!asset?.id) return null
+
+  const card = ensureAssetCanvasCard(asset)
+  if (!card) return null
+
+  if (extraFields) {
+    const cards = listRelationCanvasCards()
+    const idx = cards.findIndex((c) => c.id === card.id)
+    if (idx >= 0) {
+      cards[idx] = { ...cards[idx], extraFields }
+      setItem(STORAGE_KEYS.PROSE_CARDS_V1, cards)
+      return cards[idx]
+    }
+  }
+  return card
+}

@@ -740,7 +740,3 @@ export async function generateStoryboardDirectingTreeByLLM(promptText, count, de
 
   throw new Error('分镜图解析失败，请重试')
 }
-
-export const generatePoetryTreeByLLM = generateMaterialTreeByLLM
-export const generatePoetryContinuationByLLM = generateMaterialContinuationByLLM
-export const generatePoetryDirectingTreeByLLM = generateStoryboardDirectingTreeByLLM

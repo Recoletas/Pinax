@@ -110,8 +110,6 @@ export function extractShotsFromRelationCanvas({ nodes, edges, groups = [] }) {
   return shots
 }
 
-export const extractShotsFromPoetryLab = extractShotsFromRelationCanvas
-
 /**
  * 从 ProseEssay 数据提取分镜列表
  * @param {object} options - 选项
@@ -1021,7 +1019,6 @@ function escapeXml(value) {
 
 export default {
   extractShotsFromRelationCanvas,
-  extractShotsFromPoetryLab,
   extractShotsFromProseEssay,
   extractShotsFromNarrativeAssets,
   extractShotsFromChapter,
