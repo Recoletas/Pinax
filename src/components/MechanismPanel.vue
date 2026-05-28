@@ -35,7 +35,7 @@
                 <button class="action-btn skill" @click="handleCombatAction('skill')">技能</button>
                 <button class="action-btn flee" @click="handleCombatAction('flee')">逃跑</button>
               </div>
-              <p class="context-hint" v-if="context">触发词：{{ context }}</p>
+              <p class="context-hint" v-if="contextText">触发词：{{ contextText }}</p>
             </template>
 
             <!-- 交易面板 -->
@@ -53,14 +53,14 @@
                   <button class="buy-btn" @click="handleBuy(item)">购买</button>
                 </div>
               </div>
-              <p class="context-hint" v-if="context">触发词：{{ context }}</p>
+              <p class="context-hint" v-if="contextText">触发词：{{ contextText }}</p>
             </template>
 
             <!-- 任务面板 -->
             <template v-else-if="mechanismType === 'quest'">
               <div class="quest-info">
                 <h4 class="quest-title">{{ questData?.title || '新任务' }}</h4>
-                <p class="quest-desc">{{ questData?.description || context || '完成指定目标获得奖励' }}</p>
+                <p class="quest-desc">{{ questData?.description || contextText || '完成指定目标获得奖励' }}</p>
                 <div class="quest-rewards" v-if="questData?.rewards">
                   <span>奖励：</span>
                   <span class="reward" v-for="(r, idx) in questData.rewards" :key="idx">{{ r }}</span>
@@ -80,18 +80,30 @@
                 </div>
                 <div class="dialogue-content">
                   <span class="npc-name">{{ dialogueData?.name || 'NPC' }}</span>
-                  <p class="dialogue-text">{{ dialogueData?.dialogue || context || '...' }}</p>
+                  <p class="dialogue-text">{{ dialogueData?.dialogue || contextText || '...' }}</p>
                 </div>
               </div>
               <div class="dialogue-options">
                 <button
+                  v-if="dialogueOptionsLoading"
+                  class="dialogue-option loading"
+                  type="button"
+                  disabled
+                >
+                  正在生成回应选项...
+                </button>
+                <button
                   class="dialogue-option"
                   v-for="(opt, idx) in dialogueOptions"
                   :key="idx"
+                  type="button"
                   @click="handleDialogueOption(opt)"
                 >
                   {{ opt }}
                 </button>
+                <p v-if="dialogueOptionsError" class="dialogue-options-error">
+                  {{ dialogueOptionsError }}
+                </p>
               </div>
             </template>
           </div>
@@ -106,13 +118,16 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { buildFallbackOptions, generateDialogueOptions } from '../services/dialogueOptions'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   mechanismType: { type: String, default: null },
-  context: { type: String, default: null },
+  context: { type: [String, Object], default: null },
   playerCharacter: { type: Object, default: null },
+  recentMessages: { type: Array, default: () => [] },
+  worldId: { type: String, default: '' },
   gold: { type: Number, default: 100 }
 })
 
@@ -138,6 +153,24 @@ const mechanismTitle = computed(() => {
   return titles[props.mechanismType] || '机制'
 })
 
+const contextValue = computed(() => {
+  if (props.context && typeof props.context === 'object') return props.context
+  return {
+    text: String(props.context || '')
+  }
+})
+
+const contextText = computed(() => {
+  const raw = String(
+    contextValue.value.text
+    || contextValue.value.dialogue
+    || contextValue.value.trigger
+    || contextValue.value.preview
+    || ''
+  ).trim()
+  return raw
+})
+
 const tradeItems = computed(() => [
   { name: '治疗药水', price: 50 },
   { name: '铁剑', price: 120 },
@@ -146,20 +179,72 @@ const tradeItems = computed(() => [
 
 const questData = computed(() => ({
   title: '探索任务',
-  description: props.context || '完成指定目标获得奖励',
+  description: contextText.value || '完成指定目标获得奖励',
   rewards: ['100 经验', '50 金币']
 }))
 
-const dialogueData = computed(() => ({
-  name: '神秘旅者',
-  dialogue: props.context || '你好，旅行者...'
-}))
+const dialogueData = computed(() => {
+  const text = contextText.value || '你好，旅行者...'
+  const speaker = String(contextValue.value.speaker || contextValue.value.name || '').trim()
+  return {
+    name: speaker || inferDialogueSpeaker(text) || '对方',
+    dialogue: String(contextValue.value.dialogue || text).trim()
+  }
+})
 
-const dialogueOptions = computed(() => [
-  '询问附近的情况',
-  '交易物品',
-  '告别离开'
-])
+const dialogueOptions = ref([])
+const dialogueOptionsLoading = ref(false)
+const dialogueOptionsError = ref('')
+let dialogueOptionsRequestId = 0
+
+const dialogueOptionRequestKey = computed(() => {
+  if (!props.visible || props.mechanismType !== 'dialogue') return ''
+  return JSON.stringify({
+    speaker: dialogueData.value.name,
+    dialogue: dialogueData.value.dialogue,
+    recent: props.recentMessages
+      .slice(-6)
+      .map((message) => `${message?.role || ''}:${String(message?.content || '').slice(0, 160)}`)
+  })
+})
+
+watch(dialogueOptionRequestKey, async (key) => {
+  if (!key) return
+
+  const requestId = ++dialogueOptionsRequestId
+  dialogueOptions.value = []
+  dialogueOptionsError.value = ''
+  dialogueOptionsLoading.value = true
+
+  try {
+    const options = await generateDialogueOptions({
+      context: {
+        ...contextValue.value,
+        speaker: dialogueData.value.name,
+        dialogue: dialogueData.value.dialogue
+      },
+      playerCharacter: props.playerCharacter,
+      recentMessages: props.recentMessages,
+      worldId: props.worldId
+    })
+
+    if (requestId === dialogueOptionsRequestId) {
+      dialogueOptions.value = options
+    }
+  } catch {
+    if (requestId === dialogueOptionsRequestId) {
+      dialogueOptions.value = buildFallbackOptions({
+        ...contextValue.value,
+        speaker: dialogueData.value.name
+      })
+      dialogueOptionsError.value = '选项生成失败，已使用基础回应。'
+    }
+  } finally {
+    if (requestId === dialogueOptionsRequestId) {
+      dialogueOptionsLoading.value = false
+    }
+  }
+}, { immediate: true })
 
 function handleCombatAction(action) {
   emit('action', { type: 'combat', action })
@@ -178,6 +263,29 @@ function handleQuestAction(action) {
 function handleDialogueOption(option) {
   emit('action', { type: 'dialogue', action: 'respond', option })
   emit('close')
+}
+
+function inferDialogueSpeaker(text) {
+  const source = String(text || '').replace(/\s+/g, ' ')
+  const patterns = [
+    /([^\s，。！？、“”"'《》]{2,12}?)(?:低声说|轻声说|沉声说|喃喃道|回应道|开口道|说道|问道|答道|笑道|喊道|叹道|说|道)(?:[:：]?)\s*["“「]?$/,
+    /([^\s，。！？、“”"'《》]{2,12})[:：]\s*["“「]?$/,
+    /([^\s，。！？、“”"'《》]{2,12})(?:说|问|答|道)\s*["“「]?$/
+  ]
+
+  for (const segment of [source.slice(0, 80), source.slice(-80)]) {
+    for (const pattern of patterns) {
+      const match = segment.match(pattern)
+      if (match?.[1]) {
+        const candidate = match[1].trim()
+        if (!/^(我|你|他|她|它|这|那|一个|一位|对方|别人)$/.test(candidate)) {
+          return candidate
+        }
+      }
+    }
+  }
+
+  return ''
 }
 </script>
 
@@ -525,6 +633,21 @@ function handleDialogueOption(option) {
 .dialogue-option:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
+}
+
+.dialogue-option:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.dialogue-option.loading {
+  color: var(--text-secondary);
+}
+
+.dialogue-options-error {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .context-hint {

@@ -10,7 +10,7 @@ vi.mock('../services/generationService', () => ({
 
 import { getResolvedApiSettings } from '../services/api'
 import { runGenerationTask } from '../services/generationService'
-import { generatePoetryDirectingTreeByLLM, parseLineTree } from '../services/poetryGeneration'
+import { generateStoryboardDirectingTreeByLLM, parseLineTree } from '../services/poetryGeneration'
 import { generateProseCardExtensions, parseCardBlock } from '../services/proseGeneration'
 import { parseJsonFromAiContent, tryAiGenerateWorldbookJsonFromBrief } from '../services/worldbookImportGeneration'
 
@@ -28,7 +28,7 @@ describe('feature generation services', () => {
     })
   })
 
-  it('parses poetry line trees and tags directing generation tasks', async () => {
+  it('parses storyboard line trees and tags directing generation tasks', async () => {
     const parsedTree = parseLineTree([
       'BEGIN_LINES',
       'L1|N1|P0|雨夜',
@@ -45,12 +45,12 @@ describe('feature generation services', () => {
       attempts: []
     })
 
-    const result = await generatePoetryDirectingTreeByLLM('雨夜街道', 2, 2)
+    const result = await generateStoryboardDirectingTreeByLLM('雨夜街道', 2, 2)
 
     expect(result).toBe(parsedTree)
     expect(runGenerationTaskMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        taskType: 'poetry.directing-tree',
+        taskType: 'storyboard.directing-tree',
         baseMessages: expect.any(Array)
       })
     )

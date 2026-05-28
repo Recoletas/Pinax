@@ -55,7 +55,8 @@ export const STORAGE_KEYS = {
   CHARACTERS: 'characters',
 
   // 偏好记忆
-  PREFERENCE_USER_ID: 'preference_user_id'
+  PREFERENCE_USER_ID: 'preference_user_id',
+  MEM0_SETTINGS: 'mem0_settings'
 }
 
 export const SCHEMA = {

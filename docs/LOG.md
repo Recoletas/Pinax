@@ -2,6 +2,34 @@
 
 > 本文件只记录近期里程碑、用户可感知变化、验证结果和风险。旧的过程性细节不再保留在主日志中。
 
+## 2026-05-28 - 分镜版本状态前置
+
+状态：完成首轮
+
+结果摘要：
+- 时间轴头部前置分镜版本状态和主动作，用户可以直接生成、更新或下载当前分镜版本。
+- 分镜版本指纹纳入关系线类型和标签，调整连线后会提示版本需重建，不再误判为已同步。
+- 剪辑包构建下沉到导出服务，并直接下载 ZIP；包内包含 manifest 和可拆分文件清单，后续接外部脚本不用再改页面逻辑。
+
+验证：
+- `npm run test:run -- src/__tests__/integration.test.js src/__tests__/relationCanvas.test.js` 通过。
+- `npm run build` 通过。
+
+## 2026-05-27 - 分镜剪辑包导出链路
+
+状态：完成首轮，继续收口
+
+结果摘要：
+- 分镜导出服务现在把素材 ID、上一镜关系和参考图轻量引用同步写入 Markdown、Premiere CSV、剪映草稿和 FCP XML。
+- 卡片画布的“剪映/Premiere 格式”改为剪辑包导出，一次带出 shots、Premiere CSV、剪映草稿和 FCP XML。
+- CSV 和剪辑包不再只是画面文本导出，后续接剪辑工具或自动化脚本时能直接读取素材、关系和参考图元数据。
+- 诗歌独立页面实现已删除，旧 `/poetry-lab` 统一重定向到卡片画布；底层诗歌导出与加载能力暂留作迁移兼容。
+- 旧诗歌生成任务已迁到 `material.*` / `storyboard.*` 中性命名，兼容别名仅保留给历史调用点。
+
+验证：
+- `npm run test:run -- src/__tests__/workbenchNav.test.js src/__tests__/integration.test.js src/__tests__/storyboardStore.test.js src/__tests__/relationCanvas.test.js` 通过。
+- `npm run build` 通过。
+
 ## 2026-05-27 - 卡片图片引用与无图态统一
 
 状态：完成首轮，继续收口
@@ -10,6 +38,7 @@
 - 画布卡片的图片信息统一成一套轻量引用，导出时只保留素材/附件的轻量元数据，不再塞 base64。
 - 无图卡片改成更轻的单行占位信息，和有图卡片保持同一信息节奏，但不增加额外入口。
 - 分镜导出的时间轴和提示词现在都能带上图片引用元数据，并会抓取素材最新内容快照，后续接真实导出更直接。
+- 导出按钮补了版本角标，菜单里压成短状态词，长说明只留在 tooltip 里。
 
 验证：
 - `npm run test:run -- src/__tests__/integration.test.js src/__tests__/relationCanvas.test.js` 通过。

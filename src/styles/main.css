@@ -395,13 +395,49 @@ body {
 
 /* RP Text Styles - for v-html injected content */
 .rp-dialogue {
-  color: #1d4ed8 !important;
-  font-weight: 500;
+  color: color-mix(in srgb, var(--text-primary) 88%, #92400e);
+  font-style: italic;
+  font-weight: 600;
+}
+
+.rp-dialogue-quote {
+  font-style: inherit;
+  font-weight: 600;
+  color: inherit;
+}
+
+.rp-dialogue-quote-soft {
+  color: #0f766e;
+}
+
+.rp-dialogue-quote-warm {
+  color: #9a6a2f;
+}
+
+.rp-dialogue-quote-neutral {
+  color: #536274;
+}
+
+.theme-dark .rp-dialogue-quote {
+  color: inherit;
+}
+
+.theme-dark .rp-dialogue-quote-soft {
+  color: #5eead4;
+}
+
+.theme-dark .rp-dialogue-quote-warm {
+  color: #fbbf24;
+}
+
+.theme-dark .rp-dialogue-quote-neutral {
+  color: #93c5fd;
 }
 
 .rp-action {
   font-style: italic;
   color: #059669 !important;
+  font-weight: 500;
 }
 
 .rp-world-intro {
@@ -418,56 +454,82 @@ body {
 .rp-thought {
   color: #0891b2 !important;
   font-style: italic !important;
+  font-weight: 500;
 }
 
 .rp-location {
   color: #be123c !important;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .rp-time {
   color: #b45309 !important;
-  font-weight: 500;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .rp-item {
   color: #7c3aed !important;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .rp-dialogue.clickable {
   cursor: pointer;
-  border-bottom: 1px dashed currentColor;
-  transition: all 0.15s;
+  transition: color 0.15s, text-shadow 0.15s;
 }
 
 .rp-dialogue.clickable:hover {
-  background: rgba(37, 99, 235, 0.1);
+  color: #7c2d12 !important;
+  text-shadow: 0 0 10px color-mix(in srgb, #f59e0b 20%, transparent);
+}
+
+.rp-dialogue.mechanism-trigger {
+  color: #92400e !important;
+  font-weight: 800;
+  text-shadow: 0 0 12px color-mix(in srgb, #f59e0b 26%, transparent);
+}
+
+.rp-dialogue.mechanism-trigger::before {
+  content: '◆';
+  margin-right: 0.22em;
+  color: #d97706;
+  font-style: normal;
+}
+
+.rp-dialogue.mechanism-trigger::after {
+  content: ' 触发';
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 0.72em;
+  font-style: normal;
+  font-weight: 700;
+  color: #b45309;
+  white-space: nowrap;
+}
+
+.theme-dark .rp-dialogue.mechanism-trigger {
+  color: #fbbf24 !important;
 }
 
 .theme-dark .rp-dialogue.clickable:hover {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: #fbbf24 !important;
 }
 
 .rp-item.clickable {
   cursor: pointer;
-  background: rgba(180, 83, 9, 0.1);
-  border-bottom: 1px dashed #b45309;
-  padding: 0 2px;
-  border-radius: 2px;
+  transition: color 0.15s, text-shadow 0.15s;
 }
 
 .theme-dark .rp-item.clickable {
-  background: color-mix(in srgb, var(--accent-amber) 15%, transparent);
-  border-bottom-color: var(--accent-amber);
+  color: #a78bfa !important;
 }
 
 .rp-item.clickable:hover {
-  background: rgba(180, 83, 9, 0.2);
+  color: #6d28d9 !important;
+  text-shadow: 0 0 8px color-mix(in srgb, #7c3aed 18%, transparent);
 }
 
 .theme-dark .rp-item.clickable:hover {
-  background: color-mix(in srgb, var(--accent-amber) 25%, transparent);
+  color: #c4b5fd !important;
 }
 
 @media (max-width: 768px) {

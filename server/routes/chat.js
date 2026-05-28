@@ -63,6 +63,14 @@ function buildChatUrl(baseUrl, chatPath) {
 }
 
 const DATA_DIR = join(__dirname, '../../data')
+const DEFAULT_MEM0_HOST = 'https://api.mem0.ai'
+
+function normalizeMem0ApiUrl(host) {
+  const raw = String(host || DEFAULT_MEM0_HOST).trim()
+  if (!raw) return ''
+  if (/\/v1\/?$/.test(raw)) return raw.replace(/\/$/, '')
+  return `${raw.replace(/\/$/, '')}/v1`
+}
 
 function loadSecrets() {
   const secretsPath = join(DATA_DIR, 'secrets.json')
@@ -1032,6 +1040,48 @@ router.post('/test', async (req, res) => {
     return res.json({
       ok: false,
       message: '连接超时或地址无效'
+    })
+  }
+})
+
+router.post('/mem0/test', async (req, res) => {
+  const { apiKey, host, userId } = req.body || {}
+  const secrets = loadSecrets()
+  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
+  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+
+  if (!effectiveApiKey) {
+    return res.json({ ok: false, message: '请先输入 Mem0 API Key' })
+  }
+
+  const apiUrl = normalizeMem0ApiUrl(effectiveHost)
+  const testUserId = String(userId || 'connection_test').trim() || 'connection_test'
+
+  try {
+    const params = new URLSearchParams({
+      query: '连接测试',
+      user_id: testUserId,
+      limit: '1'
+    })
+    const response = await fetch(`${apiUrl}/memories?${params}`, {
+      headers: {
+        Authorization: `Token ${effectiveApiKey}`
+      }
+    })
+
+    if (response.ok) {
+      return res.json({ ok: true, message: '记忆连接成功' })
+    }
+
+    const detail = await response.text().catch(() => '')
+    return res.json({
+      ok: false,
+      message: `记忆连接失败 (${response.status})${detail ? `：${detail.slice(0, 120)}` : ''}`
+    })
+  } catch (e) {
+    return res.json({
+      ok: false,
+      message: e?.message ? `记忆连接失败：${e.message}` : '记忆连接失败'
     })
   }
 })

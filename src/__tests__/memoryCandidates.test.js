@@ -43,6 +43,42 @@ describe('memoryCandidates', () => {
     expect(listMemoryCandidates({ scope: 'session', scopeId: 'session-1' })).toHaveLength(1)
   })
 
+  it('compacts long queued memories before storage', () => {
+    const result = queueMemoryCandidate({
+      content: '林霁舰长沉声说：“所有人立刻撤离。”警报声在走廊里回荡，主角意识到舰桥即将失守，必须立刻选择路线。',
+      type: 'dialogue',
+      scope: 'session',
+      scopeId: 'session-1',
+      kind: 'plot-event'
+    })
+
+    expect(result.candidate.content).toBe('对话：林霁舰长：所有人立刻撤离。')
+    expect(listMemoryCandidates()[0].content).toBe('对话：林霁舰长：所有人立刻撤离。')
+  })
+
+  it('compacts existing pending candidates when listing', () => {
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify([{
+      id: 'mem-long',
+      schemaVersion: 1,
+      scope: 'session',
+      scopeId: 'session-1',
+      kind: 'plot-event',
+      content: '小说体验事件：警报声在舰桥响起，红色灯光铺满金属墙壁，林霁舰长要求所有人撤离，主角意识到旧航道已经被封锁，只能寻找备用通道。',
+      confidence: 0.6,
+      sourceRef: 'test',
+      status: 'pending',
+      syncStatus: 'pending',
+      metadata: { sourceType: 'event' },
+      createdAt: 1,
+      updatedAt: 1
+    }]))
+
+    const [candidate] = listMemoryCandidates()
+
+    expect(candidate.content.length).toBeLessThanOrEqual(75)
+    expect(candidate.content).not.toContain('小说体验事件')
+  })
+
   it('updates candidate status', () => {
     const candidate = createMemoryCandidate({
       content: '偏好：使用简洁对白。',

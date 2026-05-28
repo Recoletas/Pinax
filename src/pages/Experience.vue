@@ -15,11 +15,7 @@
         <button class="action-btn primary" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
           {{ assetSummaryLoading ? '整理中' : '整理素材' }}
         </button>
-        <button class="action-btn" :disabled="storyboardDraftLoading" @click="exportExperienceStoryboardDraft">
-          {{ storyboardDraftLoading ? '生成中' : '生成分镜' }}
-        </button>
         <button class="action-btn" @click="showSessionPicker = true">会话</button>
-        <button class="action-btn" @click="openAdvisorFromAction">顾问</button>
         <button class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -143,13 +139,6 @@
               <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
               <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
             </div>
-            <div v-if="storyboardDraftExport" class="quick-note-export-card">
-              <div class="quick-note-export-copy">
-                <strong>分镜草稿已生成</strong>
-                <span>{{ storyboardDraftExport.shotCount }} 镜 · 版本 {{ storyboardDraftExport.versionId }}</span>
-              </div>
-              <button class="quick-note-panel-btn primary" type="button" @click="downloadExperienceStoryboardDraft">下载 Markdown</button>
-            </div>
             <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
           </aside>
         </div>
@@ -165,6 +154,8 @@
       :mechanismType="gameStore.activeMechanism"
       :context="gameStore.mechanismContext"
       :playerCharacter="gameStore.playerCharacter"
+      :recentMessages="mechanismRecentMessages"
+      :worldId="gameStore.worldId"
       :gold="gameStore.player?.money || 100"
       @close="handleMechanismClose"
       @action="handleMechanismAction"
@@ -176,6 +167,29 @@
       :event="gameStore.milestoneEvent"
       @close="handleMilestoneClose"
     />
+
+    <Transition name="mechanism-notice-fade">
+      <button
+        v-if="pendingMechanismNotice"
+        class="mechanism-notice"
+        type="button"
+        @click="openMechanismFromNotice"
+      >
+        <span class="mechanism-notice-icon">⚡</span>
+        <span class="mechanism-notice-copy">
+          <strong>{{ pendingMechanismNotice.title }}</strong>
+          <span>{{ pendingMechanismNotice.preview }}</span>
+        </span>
+        <span class="mechanism-notice-action">点击查看</span>
+      </button>
+    </Transition>
+
+    <button class="advisor-fab" @click="openAdvisorFromAction" title="打开创作顾问">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="5"></circle>
+        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+      </svg>
+    </button>
 
     <!-- 内联事件详情弹窗 -->
     <Teleport to="body">
@@ -230,7 +244,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -248,10 +262,8 @@ import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel, listNarrativeAssets } from '../services/narrativeAssets'
+import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
-import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
-import { extractShotsFromNarrativeAssets, toMarkdown } from '../services/shotExporter'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const gameStore = useGameStore()
@@ -265,6 +277,7 @@ const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 
 onMounted(async () => {
+  window.addEventListener('story-mechanism-ready', handleMechanismReady)
   await worldStore.loadWorldbooksIndex()
   gameStore.loadSessions()
 
@@ -289,6 +302,11 @@ onMounted(async () => {
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('story-mechanism-ready', handleMechanismReady)
+  clearMechanismNotice()
 })
 
 watch(() => worldStore.activeWorldbookId, (nextId) => {
@@ -332,13 +350,65 @@ function openAdvisorFromAction() {
 
 const showCharacter = ref(false)
 const showSettings = ref(false)
+const pendingMechanismNotice = ref(null)
+let mechanismNoticeTimer = null
 
 // 机制面板与里程碑事件
 const showMechanismPanel = computed(() => !!gameStore.activeMechanism)
 const showMilestoneModal = computed(() => !!gameStore.milestoneEvent)
+const mechanismRecentMessages = computed(() => gameStore.messages.slice(-6))
+
+const mechanismNoticeLabels = {
+  combat: '战斗触发',
+  trade: '交易触发',
+  quest: '任务触发',
+  dialogue: '对话触发'
+}
+
+function buildMechanismNotice(detail = {}) {
+  const type = String(detail.type || '').trim()
+  const previewSource = String(detail.preview || detail.dialogue || detail.context || detail.match || '').replace(/\s+/g, ' ').trim()
+  const speaker = String(detail.speaker || detail.name || '').trim()
+  const title = `${mechanismNoticeLabels[type] || '机制触发'}${speaker ? ` · ${speaker}` : ''}`
+
+  return {
+    ...detail,
+    title,
+    preview: previewSource ? previewSource.slice(0, 90) : '有新的叙事触发，点击查看'
+  }
+}
+
+function clearMechanismNotice() {
+  if (mechanismNoticeTimer) {
+    clearTimeout(mechanismNoticeTimer)
+    mechanismNoticeTimer = null
+  }
+  pendingMechanismNotice.value = null
+}
+
+function scheduleMechanismNoticeHide() {
+  if (mechanismNoticeTimer) clearTimeout(mechanismNoticeTimer)
+  mechanismNoticeTimer = setTimeout(() => {
+    pendingMechanismNotice.value = null
+    mechanismNoticeTimer = null
+  }, 10000)
+}
+
+function handleMechanismReady(event) {
+  const detail = event?.detail || null
+  if (!detail?.type) return
+  pendingMechanismNotice.value = buildMechanismNotice(detail)
+  scheduleMechanismNoticeHide()
+}
 
 function handleMechanismClose() {
   gameStore.deactivateMechanism()
+}
+
+function openMechanismFromNotice() {
+  if (!pendingMechanismNotice.value) return
+  gameStore.activateMechanism(pendingMechanismNotice.value.type, pendingMechanismNotice.value)
+  clearMechanismNotice()
 }
 
 async function handleMechanismAction(action) {
@@ -486,8 +556,6 @@ const quickNoteImportOpen = ref(false)
 const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
 const assetSummaryLoading = ref(false)
-const storyboardDraftLoading = ref(false)
-const storyboardDraftExport = ref(null)
 
 const shouldLockPageScroll = computed(() => {
   return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value)
@@ -638,135 +706,6 @@ function getUsableExperienceMessages() {
 
 function getCurrentExperienceSession() {
   return gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-}
-
-function buildMessageStoryboardAsset(message, index) {
-  const role = message.role || message.type || 'assistant'
-  const content = String(message.content || '').trim()
-  const label = role === 'user' ? '玩家行动' : '叙事片段'
-  const title = content.replace(/\s+/g, ' ').slice(0, 24) || label
-
-  return {
-    id: message.id || `message_${index}`,
-    kind: role === 'user' ? 'event' : 'storyboard-seed',
-    title,
-    content,
-    createdAt: Number(message.timestamp || Date.now() + index),
-    source: {
-      type: 'experience-session',
-      id: gameStore.currentSessionId || '',
-      messageIds: [message.id || `message_${index}`]
-    }
-  }
-}
-
-function getExperienceStoryboardAssets(messages = getUsableExperienceMessages()) {
-  const sessionId = gameStore.currentSessionId || ''
-  const storedAssets = sessionId
-    ? listNarrativeAssets({
-      status: null,
-      projectId: gameStore.worldId || undefined,
-      sourceType: 'experience-session',
-      sourceId: sessionId
-    })
-    : []
-
-  const usableAssets = storedAssets.filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
-  if (usableAssets.length > 0) return usableAssets
-  return messages.slice(-12).map((message, index) => buildMessageStoryboardAsset(message, index))
-}
-
-function buildExperienceStoryboardExcerpt(assets = []) {
-  return assets
-    .slice(0, 4)
-    .map((asset) => String(asset.title || asset.content || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join(' / ')
-    .slice(0, 240)
-}
-
-function downloadTextFile(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function downloadExperienceStoryboardDraft() {
-  if (!storyboardDraftExport.value?.markdown) {
-    quickNoteStatus.value = '先生成分镜草稿'
-    return
-  }
-
-  downloadTextFile(
-    storyboardDraftExport.value.markdown,
-    storyboardDraftExport.value.filename,
-    'text/markdown;charset=utf-8'
-  )
-  quickNoteStatus.value = '已下载分镜 Markdown'
-}
-
-function exportExperienceStoryboardDraft() {
-  const messages = getUsableExperienceMessages()
-  const assets = getExperienceStoryboardAssets(messages)
-
-  if (!assets.length) {
-    quickNoteOpen.value = true
-    quickNoteStatus.value = '先推进几轮剧情或整理体验素材'
-    return
-  }
-
-  storyboardDraftLoading.value = true
-  quickNoteOpen.value = true
-
-  try {
-    const currentSession = getCurrentExperienceSession()
-    const title = currentSession?.title || worldStore.activeWorldbookName || gameStore.worldName || '体验分镜草稿'
-    const shots = extractShotsFromNarrativeAssets({
-      assets,
-      sourceLabel: title
-    })
-
-    if (!shots.length) {
-      quickNoteStatus.value = '没有可生成分镜的素材'
-      return
-    }
-
-    const result = saveValidatedStoryboardVersion({
-      source: {
-        sourceType: 'narrative-asset',
-        sourceId: gameStore.currentSessionId || '',
-        title,
-        excerpt: buildExperienceStoryboardExcerpt(assets)
-      },
-      shots,
-      taskType: 'experience.storyboard-draft',
-      parameters: {
-        messageCount: messages.length,
-        assetCount: assets.length,
-        worldbookId: selectedWorldbookId.value || ''
-      }
-    })
-
-    const markdown = toMarkdown(result.shots, {
-      title: '体验分镜草稿',
-      topic: title
-    })
-    storyboardDraftExport.value = {
-      markdown,
-      filename: `experience-storyboard-${Date.now()}.md`,
-      versionId: result.version.versionId.slice(-6),
-      shotCount: result.shots.length
-    }
-    quickNoteStatus.value = `已生成分镜草稿，确认后可下载 Markdown`
-  } catch (error) {
-    quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
-  } finally {
-    storyboardDraftLoading.value = false
-  }
 }
 
 async function organizeExperienceAssets() {
@@ -1205,30 +1144,6 @@ function quickNoteWordCount(text) {
   gap: 8px;
 }
 
-.quick-note-export-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
-}
-
-.quick-note-export-copy {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.quick-note-export-copy strong {
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
 .quick-note-message-list {
   flex: 1;
   min-height: 0;
@@ -1328,6 +1243,104 @@ function quickNoteWordCount(text) {
   color: var(--accent);
 }
 
+.mechanism-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 248;
+  width: min(560px, calc(100vw - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, #ffffff 4%);
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px color-mix(in srgb, #000 18%, transparent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mechanism-notice:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow: 0 16px 34px color-mix(in srgb, #000 22%, transparent);
+}
+
+.mechanism-notice-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary));
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.mechanism-notice-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.mechanism-notice-copy strong {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.mechanism-notice-copy span {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.mechanism-notice-action {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.advisor-fab {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 245;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.mechanism-notice-fade-enter-active,
+.mechanism-notice-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.mechanism-notice-fade-enter-from,
+.mechanism-notice-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
 @media (max-width: 980px) {
   .quick-notes-rail {
     top: auto;
@@ -1348,6 +1361,18 @@ function quickNoteWordCount(text) {
     width: 46px;
     height: 46px;
     border-radius: 999px;
+  }
+
+  .advisor-fab {
+    right: 16px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 52px;
+    height: 52px;
+  }
+
+  .mechanism-notice {
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+    width: min(100vw - 20px, 100%);
   }
 
   .quick-note-workspace-overlay {

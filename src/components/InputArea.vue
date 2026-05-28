@@ -256,7 +256,7 @@ async function handleCompress() {
   if (result.compressed) {
     gameStore.messages.push({
       role: 'system',
-      content: `【上下文已压缩】${result.oldCount} 条历史 → 摘要，精简至 ${result.newCount} 条`,
+      content: '【压缩完成】上下文已压缩完成',
       timestamp: Date.now()
     })
   } else {

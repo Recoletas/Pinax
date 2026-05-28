@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { buildContextMessage } from '../services/api'
 import { runGenerationTask } from '../services/generationService'
+import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 
 export const useExperienceStore = defineStore('experience', {
   state: () => ({
@@ -244,47 +245,21 @@ export const useExperienceStore = defineStore('experience', {
     // ---------- 上下文压缩 ----------
 
     async compressContext() {
-      if (this.chatHistory.length <= 4) {
-        return { compressed: false, reason: '历史过短，无需压缩' }
-      }
+      const result = await compressChatHistory(this.chatHistory, {
+        settings: this.apiSettings,
+        worldId: this.worldbookId,
+        keepRecentCount: 6,
+        maxSummaryChars: 1400
+      })
 
-      const systemPrompt = this.chatHistory[0]?.role === 'system' ? this.chatHistory[0] : null
-      const recentMessages = this.chatHistory.slice(-4)
-      const oldMessages = this.chatHistory.slice(systemPrompt ? 1 : 0, -4)
+      if (!result.compressed) return result
 
-      if (oldMessages.length === 0) {
-        return { compressed: false, reason: '无可压缩的历史' }
-      }
-
-      const summary = this.summarizeMessages(oldMessages)
-      const newHistory = systemPrompt
-        ? [systemPrompt, { role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
-        : [{ role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
-
-      this.chatHistory = newHistory
-
-      return {
-        compressed: true,
-        oldCount: oldMessages.length,
-        newCount: newHistory.length,
-        summary
-      }
+      this.chatHistory = result.newHistory
+      return result
     },
 
     summarizeMessages(messages) {
-      const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content)
-      const aiMsgs = messages.filter(m => m.role === 'assistant').map(m => m.content)
-
-      const summarize = (msgs, maxLen = 60) => {
-        if (msgs.length === 0) return '无'
-        const combined = msgs.join('；').replace(/\n/g, ' ')
-        return combined.length > maxLen ? combined.slice(0, maxLen) + '…' : combined
-      }
-
-      const userSummary = summarize(userMsgs)
-      const aiSummary = summarize(aiMsgs)
-
-      return `用户进行 ${userMsgs.length} 次行动，主要：${userSummary}；AI 描述了 ${aiMsgs.length} 次叙事，主要：${aiSummary}`
+      return buildHeuristicContextSummary(messages, { maxSummaryChars: 1400 })
     },
 
     // ---------- 对话模式 ----------

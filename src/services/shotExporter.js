@@ -2,7 +2,7 @@
  * shotExporter - 分镜导出服务
  *
  * 职责：
- * - 从 PoetryLab / ProseEssay 数据提取分镜列表
+ * - 从关系画布 / 卡片画布数据提取分镜列表
  * - 导出为剪映 JSON / Premiere FCP XML 格式
  */
 
@@ -29,17 +29,21 @@ import { getAssetKindLabel } from './narrativeAssets'
  * @property {string} emotion - 情绪标签
  * @property {string} transition - 转场类型
  * @property {string} [dialogue] - 台词
+ * @property {string} [assetId] - 来源素材 ID
+ * @property {string} [relationType] - 与上一镜的关系类型
+ * @property {string} [relationLabel] - 与上一镜的关系标签
+ * @property {Array} [imageReferences] - 参考图轻量引用
  */
 
 /**
- * 从 PoetryLab 数据提取分镜列表
+ * 从关系画布数据提取分镜列表
  * @param {object} options - 选项
  * @param {Array} options.nodes - 节点数组
  * @param {Array} options.edges - 边数组
  * @param {Array} [options.groups] - 意象群数组
  * @returns {Shot[]} 分镜列表
  */
-export function extractShotsFromPoetryLab({ nodes, edges, groups = [] }) {
+export function extractShotsFromRelationCanvas({ nodes, edges, groups = [] }) {
   if (!nodes || nodes.length === 0) return []
 
   const normalizedNodes = normalizePoetryLabNodes(nodes)
@@ -106,6 +110,8 @@ export function extractShotsFromPoetryLab({ nodes, edges, groups = [] }) {
   return shots
 }
 
+export const extractShotsFromPoetryLab = extractShotsFromRelationCanvas
+
 /**
  * 从 ProseEssay 数据提取分镜列表
  * @param {object} options - 选项
@@ -155,7 +161,9 @@ export function extractShotsFromProseEssay({ cards, timeline = [] }) {
       emotion: emotion,
       transition: i > 0 ? 'cut' : 'none',
       dialogue: extra.dialogue || '',
-      imageReferences: Array.isArray(entry.imageReferences) ? entry.imageReferences : []
+      relationType: entry.relationType || '',
+      relationLabel: entry.relationLabel || '',
+      imageReferences: normalizeImageReferences(entry.imageReferences)
     })
   }
 
@@ -465,6 +473,8 @@ export function toJianyingDraft(shots, options = {}) {
     videoTrack.clips.push({
       id: clipId,
       shotId: String(shot.sequence),
+      nodeId: shot.nodeId || '',
+      assetId: shot.assetId || '',
       content: shot.content || '',
       startFrame: currentFrame,
       endFrame: currentFrame + durationFrames,
@@ -473,6 +483,8 @@ export function toJianyingDraft(shots, options = {}) {
       shotType: shot.shotType,
       camera: shot.camera,
       tone: shot.tone || '',
+      relation: buildShotRelationMetadata(shot),
+      referenceImages: getShotImageReferences(shot),
       placeholder: true
     })
 
@@ -635,6 +647,10 @@ export function toMarkdown(shots, options = {}) {
     lines.push(`| 景别 | ${SHOT_TYPES[shot.shotType]?.label || shot.shotType} |`)
     lines.push(`| 运镜 | ${CAMERA_MOVEMENTS[shot.camera]?.label || shot.camera} |`)
     lines.push(`| 时长 | ${shot.duration}s |`)
+    if (shot.assetId) lines.push(`| 素材 | ${shot.assetId} |`)
+    if (shot.relationLabel || shot.relationType) lines.push(`| 承接 | ${shot.relationLabel || shot.relationType} |`)
+    const referenceText = formatImageReferences(getShotImageReferences(shot))
+    if (referenceText) lines.push(`| 参考图 | ${referenceText} |`)
     if (shot.tone) lines.push(`| 色调 | ${shot.tone} |`)
     if (shot.sound) lines.push(`| 声音 | ${shot.sound} |`)
     if (shot.emotion) lines.push(`| 情绪 | ${shot.emotion} |`)
@@ -651,17 +667,251 @@ export function toMarkdown(shots, options = {}) {
  * @returns {string} CSV 字符串
  */
 export function toPremiereCSV(shots) {
-  let csv = '序号,景别,运镜,时长(秒),画面描述,台词,音效\n'
+  let csv = '序号,素材ID,关系,景别,运镜,时长(秒),画面描述,台词,音效,参考图\n'
   shots.forEach((shot, index) => {
+    const assetId = csvEscape(shot.assetId || '')
+    const relation = csvEscape(shot.relationLabel || shot.relationType || '')
     const desc = csvEscape(shot.content || '')
     const dialogue = csvEscape(shot.dialogue || '')
     const sound = csvEscape(shot.sound || '')
-    csv += `${index + 1},"${SHOT_TYPES[shot.shotType]?.label || shot.shotType}","${CAMERA_MOVEMENTS[shot.camera]?.label || shot.camera}",${shot.duration || 3},"${desc}","${dialogue}","${sound}"\n`
+    const references = csvEscape(formatImageReferences(getShotImageReferences(shot)))
+    csv += `${index + 1},"${assetId}","${relation}","${SHOT_TYPES[shot.shotType]?.label || shot.shotType}","${CAMERA_MOVEMENTS[shot.camera]?.label || shot.camera}",${shot.duration || 3},"${desc}","${dialogue}","${sound}","${references}"\n`
   })
   return csv
 }
 
+/**
+ * 构建统一剪辑交付包。
+ * 页面层只负责下载，具体格式和文件清单在服务层保持稳定。
+ * @param {Shot[]} shots - 分镜列表
+ * @param {object} options - 选项
+ * @returns {object} 剪辑交付包
+ */
+export function buildEditingPackage(shots = [], options = {}) {
+  const {
+    topic = '未命名',
+    exportedAt = new Date().toISOString(),
+    storyboardDocumentId = '',
+    storyboardVersionId = '',
+    validation = null,
+    name = topic || '卡片画布'
+  } = options
+
+  const normalizedShots = Array.isArray(shots) ? shots : []
+  const markdown = toMarkdown(normalizedShots, {
+    title: '分镜脚本',
+    topic
+  })
+  const premiereCsv = toPremiereCSV(normalizedShots)
+  const jianyingDraft = toJianyingDraft(normalizedShots)
+  const fcpxml = toFCPXML(normalizedShots, { name })
+  const metadata = {
+    schemaVersion: 1,
+    topic,
+    exportedAt,
+    storyboardDocumentId,
+    storyboardVersionId,
+    validation,
+    shotCount: normalizedShots.length,
+    durationSeconds: normalizedShots.reduce((sum, shot) => sum + (Number(shot.duration) || 3), 0),
+    shots: normalizedShots
+  }
+
+  const files = [
+    createPackageFile('manifest.json', 'application/json', {
+      packageType: 'storyboard-editing-package',
+      schemaVersion: 2,
+      topic,
+      exportedAt,
+      storyboardDocumentId,
+      storyboardVersionId,
+      shotCount: metadata.shotCount,
+      durationSeconds: metadata.durationSeconds,
+      formats: ['markdown', 'premiere-csv', 'jianying-draft', 'fcpxml', 'metadata-json'],
+      recommendedUse: [
+        '先查看 storyboard.md 确认镜头顺序与关系。',
+        'Premiere 可从 premiere.csv 读取镜头表。',
+        'FCP XML 可作为剪辑时间线占位导入。',
+        'jianying-draft.json 保留剪映草稿结构和素材/参考图元数据。'
+      ]
+    }),
+    createPackageFile('storyboard.md', 'text/markdown', markdown),
+    createPackageFile('premiere.csv', 'text/csv', premiereCsv),
+    createPackageFile('jianying-draft.json', 'application/json', jianyingDraft),
+    createPackageFile('timeline.fcpxml', 'application/xml', fcpxml),
+    createPackageFile('metadata.json', 'application/json', metadata)
+  ]
+
+  return {
+    schemaVersion: 2,
+    packageType: 'storyboard-editing-package',
+    exportedAt,
+    topic,
+    storyboardDocumentId,
+    storyboardVersionId,
+    validation,
+    manifest: JSON.parse(files[0].content),
+    shots: normalizedShots,
+    files,
+    formats: {
+      markdown,
+      premiereCsv,
+      jianyingDraft,
+      fcpxml,
+      metadata
+    }
+  }
+}
+
+/**
+ * 将剪辑交付包打成无压缩 ZIP。
+ * @param {object} editingPackage - buildEditingPackage 返回值
+ * @returns {Uint8Array} ZIP 二进制
+ */
+export function buildEditingPackageZip(editingPackage = {}) {
+  const files = Array.isArray(editingPackage.files) ? editingPackage.files : []
+  return buildStoredZip(files.map((file) => ({
+    path: file.path,
+    content: file.content
+  })))
+}
+
 // ========== 辅助函数 ==========
+
+function createPackageFile(path, mimeType, content) {
+  const serialized = typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+  return {
+    path,
+    mimeType,
+    encoding: 'utf-8',
+    content: serialized
+  }
+}
+
+function buildStoredZip(files = []) {
+  const localParts = []
+  const centralParts = []
+  let offset = 0
+
+  for (const file of files) {
+    const nameBytes = encodeUtf8(normalizeZipPath(file.path))
+    const contentBytes = encodeUtf8(file.content)
+    const crc = crc32(contentBytes)
+    const localHeader = createZipLocalHeader(nameBytes, contentBytes.length, crc)
+    const centralHeader = createZipCentralHeader(nameBytes, contentBytes.length, crc, offset)
+
+    localParts.push(localHeader, nameBytes, contentBytes)
+    centralParts.push(centralHeader, nameBytes)
+    offset += localHeader.length + nameBytes.length + contentBytes.length
+  }
+
+  const centralDirectory = concatBytes(centralParts)
+  const localData = concatBytes(localParts)
+  const end = createZipEndRecord(files.length, centralDirectory.length, localData.length)
+  return concatBytes([localData, centralDirectory, end])
+}
+
+function createZipLocalHeader(nameBytes, size, crc) {
+  const bytes = new Uint8Array(30)
+  writeUint32(bytes, 0, 0x04034b50)
+  writeUint16(bytes, 4, 20)
+  writeUint16(bytes, 6, 0x0800)
+  writeUint16(bytes, 8, 0)
+  writeUint16(bytes, 10, 0)
+  writeUint16(bytes, 12, 0)
+  writeUint32(bytes, 14, crc)
+  writeUint32(bytes, 18, size)
+  writeUint32(bytes, 22, size)
+  writeUint16(bytes, 26, nameBytes.length)
+  writeUint16(bytes, 28, 0)
+  return bytes
+}
+
+function createZipCentralHeader(nameBytes, size, crc, offset) {
+  const bytes = new Uint8Array(46)
+  writeUint32(bytes, 0, 0x02014b50)
+  writeUint16(bytes, 4, 20)
+  writeUint16(bytes, 6, 20)
+  writeUint16(bytes, 8, 0x0800)
+  writeUint16(bytes, 10, 0)
+  writeUint16(bytes, 12, 0)
+  writeUint16(bytes, 14, 0)
+  writeUint32(bytes, 16, crc)
+  writeUint32(bytes, 20, size)
+  writeUint32(bytes, 24, size)
+  writeUint16(bytes, 28, nameBytes.length)
+  writeUint16(bytes, 30, 0)
+  writeUint16(bytes, 32, 0)
+  writeUint16(bytes, 34, 0)
+  writeUint16(bytes, 36, 0)
+  writeUint32(bytes, 38, 0)
+  writeUint32(bytes, 42, offset)
+  return bytes
+}
+
+function createZipEndRecord(fileCount, centralDirectorySize, centralDirectoryOffset) {
+  const bytes = new Uint8Array(22)
+  writeUint32(bytes, 0, 0x06054b50)
+  writeUint16(bytes, 4, 0)
+  writeUint16(bytes, 6, 0)
+  writeUint16(bytes, 8, fileCount)
+  writeUint16(bytes, 10, fileCount)
+  writeUint32(bytes, 12, centralDirectorySize)
+  writeUint32(bytes, 16, centralDirectoryOffset)
+  writeUint16(bytes, 20, 0)
+  return bytes
+}
+
+function encodeUtf8(value) {
+  return new TextEncoder().encode(String(value || ''))
+}
+
+function concatBytes(parts = []) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0)
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+function writeUint16(bytes, offset, value) {
+  bytes[offset] = value & 0xff
+  bytes[offset + 1] = (value >>> 8) & 0xff
+}
+
+function writeUint32(bytes, offset, value) {
+  const v = value >>> 0
+  bytes[offset] = v & 0xff
+  bytes[offset + 1] = (v >>> 8) & 0xff
+  bytes[offset + 2] = (v >>> 16) & 0xff
+  bytes[offset + 3] = (v >>> 24) & 0xff
+}
+
+function normalizeZipPath(path) {
+  return String(path || 'file.txt')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\.\.(\/|$)/g, '')
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff
+  for (const byte of bytes) {
+    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff]
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) {
+    c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
+  }
+  return c >>> 0
+})
 
 function mapTransitionForJianying(transition) {
   if (transition === 'dissolve') {
@@ -696,11 +946,16 @@ function buildTransitionEffect(transition, fps) {
 }
 
 function buildFCPMetadata(shot) {
+  const references = getShotImageReferences(shot)
   return `<metadata>
+        <asset_id>${escapeXml(shot.assetId || '')}</asset_id>
+        <relation_type>${escapeXml(shot.relationType || '')}</relation_type>
+        <relation_label>${escapeXml(shot.relationLabel || '')}</relation_label>
+        <reference_images>${escapeXml(formatImageReferences(references))}</reference_images>
         <shot_type>${shot.shotType}</shot_type>
         <camera_movement>${shot.camera}</camera_movement>
-        <tone>${shot.tone || ''}</tone>
-        <emotion>${shot.emotion || ''}</emotion>
+        <tone>${escapeXml(shot.tone || '')}</tone>
+        <emotion>${escapeXml(shot.emotion || '')}</emotion>
       </metadata>`
 }
 
@@ -708,11 +963,70 @@ function csvEscape(value) {
   return String(value || '').replace(/"/g, '""').replace(/\n/g, ' ')
 }
 
+function getShotImageReferences(shot = {}) {
+  return normalizeImageReferences(shot.imageReferences || shot.referenceImages || [])
+}
+
+function normalizeImageReferences(references = []) {
+  if (!Array.isArray(references)) return []
+  const seen = new Set()
+  return references
+    .map((reference) => ({
+      id: String(reference?.id || '').trim(),
+      assetId: String(reference?.assetId || '').trim(),
+      assetKind: String(reference?.assetKind || '').trim(),
+      source: String(reference?.source || '').trim(),
+      title: String(reference?.title || '').trim(),
+      prompt: String(reference?.prompt || '').trim(),
+      width: Number(reference?.width) || null,
+      height: Number(reference?.height) || null,
+      hasData: Boolean(reference?.hasData)
+    }))
+    .filter((reference) => reference.id || reference.assetId || reference.title || reference.prompt)
+    .filter((reference) => {
+      const key = `${reference.assetId}:${reference.id}:${reference.title}:${reference.prompt}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function formatImageReferences(references = []) {
+  return normalizeImageReferences(references)
+    .map((reference) => {
+      const name = reference.title || reference.assetId || reference.id || reference.prompt
+      const size = reference.width && reference.height ? ` ${reference.width}x${reference.height}` : ''
+      const source = reference.source ? `@${reference.source}` : ''
+      return `${name}${source}${size}`
+    })
+    .join('；')
+}
+
+function buildShotRelationMetadata(shot = {}) {
+  if (!shot.relationType && !shot.relationLabel) return null
+  return {
+    type: shot.relationType || '',
+    label: shot.relationLabel || shot.relationType || ''
+  }
+}
+
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 export default {
+  extractShotsFromRelationCanvas,
   extractShotsFromPoetryLab,
   extractShotsFromProseEssay,
   extractShotsFromNarrativeAssets,
   extractShotsFromChapter,
+  buildEditingPackage,
+  buildEditingPackageZip,
   toJianyingDraft,
   toFCPXML,
   toMarkdown,

@@ -10,6 +10,7 @@ const STORYBOARD_SOURCE_TYPE_ALIASES = {
 }
 const STORYBOARD_SOURCE_TYPES = new Set([
   'prose-card',
+  'relation-canvas',
   'poetry-tree',
   'narrative-asset',
   'chapter',
@@ -557,6 +558,7 @@ function normalizeSourceType(sourceType) {
 
 function getDefaultSourceTitle(sourceType) {
   if (sourceType === 'prose-card') return '散文分镜卡片'
+  if (sourceType === 'relation-canvas') return '关系画布'
   if (sourceType === 'poetry-tree') return '诗歌分镜树'
   if (sourceType === 'narrative-asset') return '素材分镜种子'
   if (sourceType === 'chapter') return '章节片段'

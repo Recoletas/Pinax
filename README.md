@@ -51,10 +51,9 @@ npm run verify
 | `/experience/worldbook/advanced` | experience-worldbook-advanced | 世界书编辑 |
 | `/writing` | writing | 小说写作 |
 | `/materials` | materials | 素材管理 |
-| `/poetry-lab` | poetry-lab | 诗歌灵感工坊 |
-| `/prose-essay` | prose-essay | 散文卡片工坊 |
+| `/prose-essay` | prose-essay | 卡片关系画布 |
 
-兼容重定向：`/fit`、`/game`、`/notes` 等旧入口仍可访问，会重定向到新路由。
+兼容重定向：`/fit`、`/game`、`/notes`、`/poetry-lab` 等旧入口仍可访问，会重定向到新路由。
 
 ## 世界书定位说明（协调版）
 

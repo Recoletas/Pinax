@@ -19,7 +19,7 @@ import {
   validateStoryboardShots
 } from '../services/storyboardStore'
 import {
-  extractShotsFromPoetryLab,
+  extractShotsFromRelationCanvas,
   extractShotsFromProseEssay,
   toJianyingDraft,
   toFCPXML,
@@ -52,8 +52,8 @@ export function useDirector(options = {}) {
 
   // 分镜来源与历史
   const storyboardSource = ref({
-    sourceType: initialMode === 'poetry' ? 'poetry-tree' : 'prose-card',
-    sourceLabel: initialMode === 'poetry' ? '诗歌工坊' : '散文随笔',
+    sourceType: initialMode === 'poetry' ? 'relation-canvas' : 'prose-card',
+    sourceLabel: initialMode === 'poetry' ? '关系画布' : '散文随笔',
     sourceId: ''
   })
   const storyboardDocumentId = ref('')
@@ -154,20 +154,24 @@ export function useDirector(options = {}) {
   }
 
   /**
-   * 从 PoetryLab 数据加载分镜
+   * 从关系画布数据加载分镜
    * @param {Array} nodes - 节点数组
    * @param {Array} edges - 边数组
-   * @param {Array} groups - 意象群数组
+   * @param {Array} groups - 分组数组
    */
-  function loadFromPoetryLab(nodes, edges = [], groups = []) {
-    shots.value = extractShotsFromPoetryLab({ nodes, edges, groups })
+  function loadFromRelationCanvas(nodes, edges = [], groups = []) {
+    shots.value = extractShotsFromRelationCanvas({ nodes, edges, groups })
     selectedShotIndex.value = shots.value.length > 0 ? 0 : -1
     storyboardSource.value = {
-      sourceType: 'poetry-tree',
-      sourceLabel: '诗歌工坊',
+      sourceType: 'relation-canvas',
+      sourceLabel: '关系画布',
       sourceId: ''
     }
     captureSnapshot('load')
+  }
+
+  function loadFromPoetryLab(nodes, edges = [], groups = []) {
+    loadFromRelationCanvas(nodes, edges, groups)
   }
 
   /**
@@ -396,6 +400,7 @@ export function useDirector(options = {}) {
 
     // 方法
     switchMode,
+    loadFromRelationCanvas,
     loadFromPoetryLab,
     loadFromProseEssay,
     updateShot,
@@ -423,7 +428,9 @@ export function useDirector(options = {}) {
 export function createDirectorFromData(sourceType, data) {
   const director = useDirector()
 
-  if (sourceType === 'poetry' || sourceType === 'poetry-tree') {
+  if (sourceType === 'relation-canvas') {
+    director.loadFromRelationCanvas(data.nodes, data.edges, data.groups)
+  } else if (sourceType === 'poetry' || sourceType === 'poetry-tree') {
     director.loadFromPoetryLab(data.nodes, data.edges, data.groups)
   } else if (sourceType === 'prose' || sourceType === 'prose-card') {
     director.loadFromProseEssay(data.cards, data.timeline)

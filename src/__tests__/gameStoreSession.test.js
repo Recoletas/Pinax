@@ -18,6 +18,7 @@ vi.mock('../services/api', () => ({
 }))
 
 vi.mock('../services/generationService', () => ({
+  runGenerationTask: vi.fn(),
   runGenerationStreamTask: vi.fn()
 }))
 

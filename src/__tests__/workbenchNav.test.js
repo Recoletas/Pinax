@@ -31,7 +31,7 @@ describe('workbenchNav', () => {
     })).toBe('materials')
 
     expect(resolveActivityKey({
-      name: 'poetry-lab',
+      name: 'prose-essay',
       meta: { activityKey: 'storyboard' }
     })).toBe('storyboard')
   })

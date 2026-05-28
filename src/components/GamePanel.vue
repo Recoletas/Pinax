@@ -93,7 +93,7 @@
               <button class="tavern-btn" @click="editingIndex = -1">取消</button>
             </div>
           </div>
-          <div v-else class="text-main" v-html="formatRPText(msg.content, msg.dialogueMode, index)"></div>
+          <div v-else class="text-main" v-html="renderMessageContent(msg, index)"></div>
         </div>
       </div>
     </div>
@@ -104,6 +104,7 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { renderRPText } from '../services/rpTextRenderer'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
@@ -129,48 +130,11 @@ const saveEdit = (index) => {
   editingIndex.value = -1
 }
 
-const formatRPText = (text, dialogueMode = false, messageIndex = -1) => {
-  if (!text) return ''
-
-  let result = text
-
-  // 第一步：把所有需要转换的格式用占位符保护起来
-  // 世界观旁白（必须是文本最开头的 *...*，后面跟换行）
-  result = result.replace(/^\*([^*]+)\*\n/m, '[[WRL[$1]]]\n')
-  // 动作 *...*
-  result = result.replace(/\*([^*]+?)\*/g, '[[ACT[$1]]]')
-  // 对话 中文弯引号 "..."
-  result = result.replace(/“([^”]+)”/g, '[[DLG[$1]]]')
-  // 对话 「...」
-  result = result.replace(/「([^」]+)」/g, '[[DLG[$1]]]')
-  // 心理活动 （...）
-  result = result.replace(/（([^）]+)）/g, '[[THO[$1]]]')
-  // 物品
-  result = result.replace(/(获得[了]?|发现[了]?)([^，。！？\n]{2,10}(?:道具|武器|装备|物品|宝物))/g, '[[ITM[$1$2]]]')
-  // 地点名
-  result = result.replace(/(来到|身处|抵达|进入)([^，。！？\n]{2,15})/g, '[[LOC[$1$2]]]')
-  // 时间
-  result = result.replace(/(\d{1,4}年\d{1,2}月\d{1,2}日)/g, '[[TMS[$1]]]')
-
-  // 第二步：HTML 转义
-  result = result
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-
-  // 第三步：换行
-  result = result.replace(/\n/g, '<br>')
-
-  // 第四步：把占位符替换成 HTML 标签
-  result = result.replace(/\[\[WRL\[([^\]]+)\]\]\]/g, '<em class="rp-world-intro">$1</em>')
-  result = result.replace(/\[\[ACT\[([^\]]+)\]\]\]/g, '<em class="rp-action">$1</em>')
-  result = result.replace(/\[\[DLG\[([^\]]+)\]\]\]/g, '<span class="rp-dialogue">$1</span>')
-  result = result.replace(/\[\[THO\[([^\]]+)\]\]\]/g, '<span class="rp-thought">$1</span>')
-  result = result.replace(/\[\[ITM\[([^\]]+)\]\]\]/g, '<span class="rp-item">$1</span>')
-  result = result.replace(/\[\[LOC\[([^\]]+)\]\]\]/g, '<span class="rp-location">$1</span>')
-  result = result.replace(/\[\[TMS\[([^\]]+)\]\]\]/g, '<span class="rp-time">$1</span>')
-
-  return result
+const renderMessageContent = (msg, index) => {
+  return renderRPText(msg.content, {
+    mechanismTrigger: msg.mechanismTrigger || null,
+    inlineEvents: gameStore.inlineEvents.filter((event) => event.messageId === index)
+  })
 }
 
 const formatTime = (ts) => {
@@ -187,6 +151,14 @@ const scroll = () => {
 }
 
 const onTextWrapperClick = (index, msg, event) => {
+  const inlineTarget = event?.target?.closest?.('[data-inline-type]')
+  if (inlineTarget) {
+    const type = inlineTarget.dataset.inlineType || ''
+    const content = inlineTarget.dataset.inlineContent || inlineTarget.textContent || ''
+    emit('show-inline-detail', { type, content })
+    return
+  }
+
   if (!gameStore.quickNoteImportMode) return
   const role = msg.role || msg.type
   if (role === 'system') return
@@ -194,12 +166,7 @@ const onTextWrapperClick = (index, msg, event) => {
   gameStore.toggleQuickNoteMessageSelection(index)
 }
 
-// 设置全局点击处理
 onMounted(() => {
-  window.__inlineEventClick = (type, content) => {
-    const decoded = decodeURIComponent(content)
-    emit('show-inline-detail', { type, content: decoded })
-  }
   scroll()
 })
 

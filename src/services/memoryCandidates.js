@@ -1,4 +1,5 @@
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { compactMemoryText, MEMORY_TEXT_LIMIT } from './memoryCompaction'
 
 export const MEMORY_SCHEMA_VERSION = 1
 
@@ -37,7 +38,7 @@ const MEMORY_CONTEXT_SECTIONS = [
 
 export function listMemoryCandidates({ scope = null, scopeId = null, status = null } = {}) {
   const stored = getItem(STORAGE_KEYS.MEMORY_CANDIDATES)
-  const list = Array.isArray(stored) ? stored : []
+  const list = compactStoredPendingCandidates(Array.isArray(stored) ? stored : [])
 
   return list
     .filter((item) => !scope || item.scope === scope)
@@ -48,7 +49,15 @@ export function listMemoryCandidates({ scope = null, scopeId = null, status = nu
 
 export function createMemoryCandidate(input = {}) {
   const now = Date.now()
-  const content = normalizeText(input.content)
+  const rawContent = normalizeText(input.content)
+  const hasExplicitMemoryType = Boolean(input.memoryType || input.type || input.metadata?.sourceType)
+  const content = input.skipCompaction || !shouldCompactCandidateInput(rawContent, hasExplicitMemoryType)
+    ? rawContent
+    : compactMemoryText(
+      rawContent,
+      input.memoryType || input.type || input.metadata?.sourceType || input.kind || 'general',
+      input.metadata || {}
+    )
   const status = normalizeStatus(input.status)
   const contentHash = input.contentHash || createMemoryContentHash(content)
 
@@ -74,6 +83,51 @@ export function createMemoryCandidate(input = {}) {
     createdAt: input.createdAt || now,
     updatedAt: input.updatedAt || now
   }
+}
+
+function compactStoredPendingCandidates(list = []) {
+  let changed = false
+  const next = list.map((item) => {
+    if (!item || item.status !== 'pending') return item
+
+    const content = normalizeText(item.content)
+    if (!shouldCompactStoredCandidate(content)) return item
+
+    const compacted = compactMemoryText(
+      content,
+      item.metadata?.sourceType || item.kind || 'general',
+      item.metadata || {}
+    )
+    if (!compacted || compacted === content) return item
+
+    changed = true
+    return {
+      ...item,
+      content: compacted,
+      contentHash: createMemoryContentHash(compacted),
+      metadata: {
+        ...item.metadata,
+        compactedAt: item.metadata?.compactedAt || Date.now(),
+        sourceLength: item.metadata?.sourceLength || content.length
+      },
+      updatedAt: Date.now()
+    }
+  })
+
+  if (changed) {
+    setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  }
+  return next
+}
+
+function shouldCompactStoredCandidate(content) {
+  if (!content) return false
+  return content.length > MEMORY_TEXT_LIMIT || /^小说体验事件[:：]/.test(content)
+}
+
+function shouldCompactCandidateInput(content, hasExplicitMemoryType = false) {
+  if (shouldCompactStoredCandidate(content)) return true
+  return hasExplicitMemoryType && content.length > 24
 }
 
 export function queueMemoryCandidate(input = {}) {

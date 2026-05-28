@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, buildContextMessage, recordMemory } from '../services/api'
 import { runGenerationStreamTask } from '../services/generationService'
+import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import { buildScopedMemoryContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
@@ -449,48 +450,24 @@ export const useGameStore = defineStore('game', {
 
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
     async compressContext() {
-      if (this.chatHistory.length <= 4) return { compressed: false, reason: '历史过短，无需压缩' }
+      this.loadApiSettings()
+      const result = await compressChatHistory(this.chatHistory, {
+        settings: this.apiSettings,
+        worldId: this.worldId,
+        sessionId: this.currentSessionId,
+        keepRecentCount: 6,
+        maxSummaryChars: 1400
+      })
 
-      // 保留：系统提示 + 最近 4 条消息
-      const systemPrompt = this.chatHistory[0]?.role === 'system' ? this.chatHistory[0] : null
-      const recentMessages = this.chatHistory.slice(-4)
-      const oldMessages = this.chatHistory.slice(systemPrompt ? 1 : 0, -4)
+      if (!result.compressed) return result
 
-      if (oldMessages.length === 0) return { compressed: false, reason: '无可压缩的历史' }
-
-      // 生成摘要
-      const summary = this.summarizeMessages(oldMessages)
-
-      // 构建精简后的历史
-      const newHistory = systemPrompt
-        ? [systemPrompt, { role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
-        : [{ role: 'system', content: `【上下文摘要】${summary}` }, ...recentMessages]
-
-      this.chatHistory = newHistory
-
-      return {
-        compressed: true,
-        oldCount: oldMessages.length,
-        newCount: newHistory.length,
-        summary
-      }
+      this.chatHistory = result.newHistory
+      this.saveCurrentSession()
+      return result
     },
 
-    // 简单摘要：提取各角色的主要行动/对话
     summarizeMessages(messages) {
-      const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content)
-      const aiMsgs = messages.filter(m => m.role === 'assistant').map(m => m.content)
-
-      const summarize = (msgs, maxLen = 60) => {
-        if (msgs.length === 0) return '无'
-        const combined = msgs.join('；').replace(/\n/g, ' ')
-        return combined.length > maxLen ? combined.slice(0, maxLen) + '…' : combined
-      }
-
-      const userSummary = summarize(userMsgs)
-      const aiSummary = summarize(aiMsgs)
-
-      return `用户进行 ${userMsgs.length} 次行动，主要：${userSummary}；AI 描述了 ${aiMsgs.length} 次叙事，主要：${aiSummary}`
+      return buildHeuristicContextSummary(messages, { maxSummaryChars: 1400 })
     },
 
     // --- 对话模式 ---
@@ -588,8 +565,9 @@ export const useGameStore = defineStore('game', {
         },
         dialogue: {
           patterns: [
-            /"[^"]{5,}"/,  // 引号内至少5个字
-            /「[^」]{5,}」/
+            /"([^"]{5,})"/,  // 引号内至少5个字
+            /“([^”]{5,})”/,
+            /「([^」]{5,})」/
           ],
           excludePatterns: []
         }
@@ -599,31 +577,83 @@ export const useGameStore = defineStore('game', {
         const { patterns, excludePatterns } = config
 
         // 先检查排除模式
-        for (const exclude of excludePatterns) {
-          if (exclude.test(content)) {
-            continue
-          }
+        if (excludePatterns.some((exclude) => exclude.test(content))) {
+          continue
         }
 
         // 再检查触发模式
         for (const pattern of patterns) {
           const match = content.match(pattern)
           if (match) {
+            const payload = {
+              type,
+              match: match[0],
+              context: match[1] || match[2] || match[0],
+              preview: String(content).replace(/\s+/g, ' ').trim().slice(0, 120)
+            }
+
             // 额外检查：确保不是叙述性提及
             const beforeText = content.slice(0, match.index)
-            const afterText = content.slice(match.index + match[0].length)
-
-            // 如果前后有"回忆"、"想起"等词，跳过
             if (/(回忆|想起|听说|关于|曾经)/.test(beforeText.slice(-20))) {
               continue
             }
 
-            return { type, match: match[0], context: match[1] || match[0] }
+            if (type === 'dialogue') {
+              return {
+                ...payload,
+                ...this.extractDialogueMechanism(content, match)
+              }
+            }
+
+            return payload
           }
         }
       }
 
       return null
+    },
+
+    extractDialogueMechanism(content, match) {
+      const fullText = String(content || '')
+      const quoteText = String(match?.[0] || '').trim()
+      const quoteBody = String(
+        match?.[1]
+        || match?.[2]
+        || quoteText.replace(/^["“「]|["”」]$/g, '')
+        || quoteText
+      ).trim()
+      const speaker = this.extractDialogueSpeaker(fullText, match)
+
+      return {
+        speaker,
+        dialogue: quoteBody,
+        preview: quoteText ? quoteText.slice(0, 120) : fullText.replace(/\s+/g, ' ').trim().slice(0, 120)
+      }
+    },
+
+    extractDialogueSpeaker(content, match) {
+      const fullText = String(content || '')
+      const matchIndex = Number.isInteger(match?.index) ? match.index : fullText.indexOf(match?.[0] || '')
+      if (matchIndex < 0) return ''
+
+      const prefix = fullText.slice(0, matchIndex).replace(/\s+/g, ' ').trim()
+      const tail = prefix.slice(-40)
+      const speakerPatterns = [
+        /([^\s，。！？、“”"'《》]{2,12}?)(?:低声说|轻声说|沉声说|喃喃道|回应道|开口道|说道|问道|答道|笑道|喊道|叹道|说|道)(?:[:：]?)$/,
+        /([^\s，。！？、“”"'《》]{2,12})[:：]?$/
+      ]
+
+      for (const pattern of speakerPatterns) {
+        const found = tail.match(pattern)
+        if (found?.[1]) {
+          const candidate = found[1].trim()
+          if (!/^(我|你|他|她|它|这|那|一个|一位|对方|别人)$/.test(candidate)) {
+            return candidate
+          }
+        }
+      }
+
+      return ''
     },
 
     activateMechanism(type, context = null) {
@@ -993,14 +1023,14 @@ export const useGameStore = defineStore('game', {
         // 记录重要的叙事事件到记忆系统
         if (fullContent && fullContent.length > 20) {
           // 检测是否有重要事件（对话、物品获得、地点发现等）
-          const hasDialogue = /"[^"]{5,}"|「[^」]{5,}」/.test(fullContent)
+          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(fullContent)
           const hasItem = /获得|发现.*物品|得到/.test(fullContent)
           const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(fullContent)
 
           if (hasDialogue || hasItem || hasLocation) {
             const eventType = hasLocation ? 'location_discovery' : hasItem ? 'item_acquisition' : 'dialogue'
             recordMemory(
-              `小说体验事件：${fullContent.slice(0, 150)}...`,
+              fullContent,
               eventType,
               {
                 character: this.playerCharacter?.name || '主角',
@@ -1024,7 +1054,17 @@ export const useGameStore = defineStore('game', {
         // 检测机制触发（战斗、交易、任务、对话）
         const mechanism = this.detectMechanismTriggers(fullContent)
         if (mechanism) {
-          this.activeMechanism = mechanism.type
+          if (this.messages[messageIndex]) {
+            this.messages[messageIndex].mechanismTrigger = mechanism
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('story-mechanism-ready', {
+              detail: mechanism
+            }))
+          }
+          if (this.currentSessionId) {
+            this.saveCurrentSession()
+          }
         }
       } catch (e) {
         console.error('AI Error:', e)

@@ -1,7 +1,7 @@
 import { getResolvedApiSettings } from './api'
 import { runGenerationTask } from './generationService'
 
-const LLM_DEBUG_PREFIX = '[PoetryLab LLM]'
+const LLM_DEBUG_PREFIX = '[Narrative LLM]'
 
 function ensureApiSettings(apiSettings) {
   if (!apiSettings?.baseUrl || !apiSettings?.apiKey || !apiSettings?.model) {
@@ -185,7 +185,7 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
   }
 
   const systemPrompt = [
-    '你是诗歌意象树结构生成器。',
+    '你是统一素材树结构生成器。',
     '请严格使用分步行格式输出，不要输出 JSON。',
     '每一行格式必须是：L<层级>|N<编号>|P<父编号>|<标题>',
     '约束：层级从1开始；根节点唯一；标题不超过18字；节点要具体，能作为后续分镜种子和素材入口；只能输出行，不要解释。',
@@ -202,7 +202,7 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
     `主题：${promptText}`,
     `一级分支数量：${count}`,
     `最大层数：${depth}`,
-    '请覆盖不同意象方向，避免同义重复，并让每个节点都便于后续送入素材池。'
+    '请覆盖不同方向的素材线索，避免同义重复，并让每个节点都便于后续送入素材池。'
   ].join('\n')
 
   const strictRetryPrompt = [
@@ -233,7 +233,7 @@ async function buildTitleTreeByLines(promptText, count, depth, apiSettings) {
   ].join('\n')
 
   const generationResult = await runGenerationTask({
-    taskType: 'poetry.tree',
+    taskType: 'material.tree',
     baseMessages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -319,7 +319,7 @@ async function repairExamplesBatchByLLM(titles, apiSettings) {
   }
 
   const systemPrompt = [
-    '你是诗句补全器。',
+    '你是统一示例句补全器。',
     '我会给你一组标题。',
     '请为每个标题写2句明显不同、具体有画面感的诗句。',
     '仅输出 JSON 对象，不要解释。',
@@ -351,7 +351,7 @@ async function repairExamplesBatchByLLM(titles, apiSettings) {
   }
 
   const generationResult = await runGenerationTask({
-    taskType: 'poetry.examples.json',
+    taskType: 'material.examples.json',
     baseMessages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -425,7 +425,7 @@ async function fillExamplesForMissingTitles(missingTitles, apiSettings) {
   }
 
   const systemPrompt = [
-    '你是诗句补全器。',
+    '你是统一示例句补全器。',
     '只输出行格式，不要输出 JSON，不要解释。',
     '必须输出：BEGIN_EXAMPLES 和 END_EXAMPLES 包裹内容。',
     '每行格式：T|标题|句子1|句子2',
@@ -439,7 +439,7 @@ async function fillExamplesForMissingTitles(missingTitles, apiSettings) {
   ].join('\n')
 
   const generationResult = await runGenerationTask({
-    taskType: 'poetry.examples.lines',
+    taskType: 'material.examples.lines',
     baseMessages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -489,7 +489,7 @@ async function fillExamplesForMissingTitles(missingTitles, apiSettings) {
   for (const title of finalMissing) {
     try {
       const singleResult = await runGenerationTask({
-        taskType: 'poetry.examples.single',
+        taskType: 'material.examples.single',
         baseMessages: [
           {
             role: 'system',
@@ -569,7 +569,7 @@ async function postProcessExamplesByLLM(rawTree, apiSettings) {
   applyExamplesByTitle(rawTree, fixed)
 }
 
-export async function generatePoetryTreeByLLM(promptText, count, depth) {
+export async function generateMaterialTreeByLLM(promptText, count, depth) {
   const apiSettings = await getResolvedApiSettings()
   ensureApiSettings(apiSettings)
 
@@ -579,7 +579,7 @@ export async function generatePoetryTreeByLLM(promptText, count, depth) {
   return titleTree
 }
 
-export async function generatePoetryContinuationByLLM(node, count, mode = 'neutral', feedback = '') {
+export async function generateMaterialContinuationByLLM(node, count, mode = 'neutral', feedback = '') {
   const apiSettings = await getResolvedApiSettings()
   ensureApiSettings(apiSettings)
 
@@ -591,7 +591,7 @@ export async function generatePoetryContinuationByLLM(node, count, mode = 'neutr
   }
 
   const systemPrompt = [
-    '你是诗歌分支扩展器。',
+    '你是统一分支扩展器。',
     '请输出分步行格式，不要输出 JSON。',
     '每行格式：L<层级>|N<编号>|P<父编号>|<标题>',
     '本次只输出子节点及其子树，根父编号统一写 P1。',
@@ -616,7 +616,7 @@ export async function generatePoetryContinuationByLLM(node, count, mode = 'neutr
   }
 
   const generationResult = await runGenerationTask({
-    taskType: 'poetry.continue',
+    taskType: 'material.continue',
     baseMessages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -634,7 +634,7 @@ export async function generatePoetryContinuationByLLM(node, count, mode = 'neutr
           {
             role: 'system',
             content: [
-              '你是诗歌分支扩展器。',
+              '你是统一分支扩展器。',
               '请只输出分步行格式，不要解释。',
               '每行必须是：L2|N<编号>|P1|<标题> 或 L3|N<编号>|P<父编号>|<标题>',
               '必须使用 BEGIN_LINES 和 END_LINES 包裹。'
@@ -674,7 +674,7 @@ export async function generatePoetryContinuationByLLM(node, count, mode = 'neutr
   return children
 }
 
-export async function generatePoetryDirectingTreeByLLM(promptText, count, depth) {
+export async function generateStoryboardDirectingTreeByLLM(promptText, count, depth) {
   const apiSettings = await getResolvedApiSettings()
   ensureApiSettings(apiSettings)
 
@@ -686,7 +686,7 @@ export async function generatePoetryDirectingTreeByLLM(promptText, count, depth)
   }
 
   const systemPrompt = [
-    '你是诗歌分镜草稿生成器。',
+    '你是统一分镜草稿生成器。',
     '请严格使用分步行格式输出，不要输出 JSON。',
     '每一行格式必须是：L<层级>|N<编号>|P<父编号>|<镜头描述>',
     '约束：层级从1开始；根节点唯一；每个节点描述一个可直接落入统一分镜的画面；需包含景别、运镜、色调、声音建议，并尽量保留可提炼为素材的视觉细节；只能输出行，不要解释。',
@@ -706,7 +706,7 @@ export async function generatePoetryDirectingTreeByLLM(promptText, count, depth)
   ].join('\n')
 
   const generationResult = await runGenerationTask({
-    taskType: 'poetry.directing-tree',
+    taskType: 'storyboard.directing-tree',
     baseMessages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -740,3 +740,7 @@ export async function generatePoetryDirectingTreeByLLM(promptText, count, depth)
 
   throw new Error('分镜图解析失败，请重试')
 }
+
+export const generatePoetryTreeByLLM = generateMaterialTreeByLLM
+export const generatePoetryContinuationByLLM = generateMaterialContinuationByLLM
+export const generatePoetryDirectingTreeByLLM = generateStoryboardDirectingTreeByLLM

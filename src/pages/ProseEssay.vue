@@ -79,6 +79,25 @@
               <span class="timeline-summary">{{ timelineItems.length }} 镜 / {{ timelineTotalDuration }}s</span>
             </div>
             <div class="timeline-header-actions">
+              <span
+                v-if="directorExportStatus"
+                class="timeline-version-chip"
+                :class="`is-${directorExportStatus.kind}`"
+                :title="directorExportButtonTitle"
+              >
+                <span class="timeline-version-dot"></span>
+                <span class="timeline-version-text">{{ directorExportStatus.title }}</span>
+              </span>
+              <button
+                v-if="currentMode === 'directing'"
+                class="timeline-version-action"
+                type="button"
+                :disabled="directorTimelineActionDisabled"
+                @click="handleDirectorTimelineAction"
+                :title="directorTimelineActionTitle"
+              >
+                {{ directorTimelineActionLabel }}
+              </button>
               <button class="timeline-clear-btn" type="button" :disabled="outline.length === 0" @click="clearTimeline" title="清空时间轴">清空</button>
             </div>
           </div>
@@ -288,19 +307,28 @@
         </svg>
       </button>
       <div class="toolbar-divider"></div>
-      <button class="toolbar-btn export-btn" @click="showExportMenu = !showExportMenu" title="导出">
+      <button class="toolbar-btn export-btn" :class="directorExportStatus ? `is-${directorExportStatus.kind}` : ''" @click="showExportMenu = !showExportMenu" :title="directorExportButtonTitle">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           <path d="M7 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
+        <span v-if="directorExportStatus" class="export-btn-badge" :class="`is-${directorExportStatus.kind}`">{{ directorExportStatus.badge }}</span>
       </button>
       <div v-if="showExportMenu" class="export-menu">
-        <button @click="exportToMarkdown">{{ currentMode === 'directing' ? '生成/更新分镜版本' : '导出为 Markdown' }}</button>
-        <button v-if="currentMode === 'directing' && lastDirectorExportContext" @click="downloadDirectorMarkdown">下载分镜 Markdown</button>
-        <button @click="exportToTxt">导出为 TXT</button>
-        <button @click="exportToJson">导出完整关系网 JSON</button>
-        <button v-if="currentMode === 'directing'" @click="exportToPremiereFormat">剪映/Premiere 格式</button>
+        <div v-if="directorExportStatus" class="export-status" :class="`is-${directorExportStatus.kind}`">
+          <span class="export-status-dot"></span>
+          <div class="export-status-copy">
+            <span class="export-status-title">{{ directorExportStatus.title }}</span>
+            <span class="export-status-detail">{{ directorExportStatus.detail }}</span>
+          </div>
+        </div>
+        <div v-if="directorExportStatus" class="export-menu-separator"></div>
+        <button type="button" @click="exportToMarkdown">{{ currentMode === 'directing' ? '生成/更新分镜版本' : '导出为 Markdown' }}</button>
+        <button v-if="currentMode === 'directing' && lastDirectorExportContext" type="button" @click="downloadDirectorMarkdown">下载分镜 Markdown</button>
+        <button type="button" @click="exportToTxt">导出为 TXT</button>
+        <button type="button" @click="exportToJson">导出完整关系网 JSON</button>
+        <button v-if="currentMode === 'directing'" type="button" @click="exportEditingPackage">导出剪辑包 ZIP</button>
       </div>
     </div>
 
@@ -606,9 +634,10 @@ import {
   generateProseCardsFromTopic
 } from '../services/proseGeneration'
 import {
+  buildEditingPackage,
+  buildEditingPackageZip,
   extractShotsFromProseEssay,
-  toMarkdown,
-  toPremiereCSV
+  toMarkdown
 } from '../services/shotExporter'
 import {
   addNarrativeAsset,
@@ -2118,6 +2147,78 @@ const directorStoryboardIsCurrent = computed(() => {
     return false
   }
 })
+const directorExportStatus = computed(() => {
+  if (currentMode.value !== 'directing') return null
+  const shotCount = timelineItems.value.length
+  const summary = shotCount > 0 ? `${shotCount} 镜 / ${timelineTotalDuration.value}s` : '时间轴为空'
+  const statusText = String(directorStoryboardStatus.value || '').trim()
+
+  if (!lastDirectorExportContext.value) {
+    const isError = Boolean(statusText && (statusText.includes('未通过') || statusText.includes('失败') || statusText.includes('缺少')))
+    return {
+      kind: isError ? 'error' : 'empty',
+      title: isError ? '分镜未通过' : '未生成版本',
+      detail: isError ? '校验失败' : summary,
+      tooltip: isError ? statusText : summary,
+      badge: isError ? '错' : '未'
+    }
+  }
+
+  const versionId = lastDirectorExportContext.value.version?.versionId?.slice(-6) || '最新'
+  if (!directorStoryboardIsCurrent.value) {
+    return {
+      kind: 'stale',
+      title: `版本 ${versionId}`,
+      detail: '需重建',
+      tooltip: '画布已更新，需重新生成',
+      badge: '更'
+    }
+  }
+
+  const validation = lastDirectorExportContext.value.validation || lastDirectorExportContext.value.version?.validation
+  const warningCount = Array.isArray(validation?.warnings) ? validation.warnings.length : 0
+  return {
+    kind: warningCount > 0 ? 'warning' : 'current',
+    title: `版本 ${versionId}`,
+    detail: warningCount > 0 ? `${warningCount} 提示` : '已同步',
+    tooltip: warningCount > 0 ? `${warningCount} 条提示，内容已同步` : '内容已同步',
+    badge: warningCount > 0 ? '警' : '已'
+  }
+})
+
+const directorExportButtonTitle = computed(() => {
+  if (!directorExportStatus.value) return '导出'
+  return `${directorExportStatus.value.title} · ${directorExportStatus.value.tooltip || directorExportStatus.value.detail}`
+})
+
+const directorTimelineActionDisabled = computed(() => {
+  return currentMode.value !== 'directing' || timelineItems.value.length === 0
+})
+
+const directorTimelineActionLabel = computed(() => {
+  const kind = directorExportStatus.value?.kind
+  if (kind === 'current' || kind === 'warning') return '下载'
+  if (kind === 'stale') return '更新'
+  return '生成'
+})
+
+const directorTimelineActionTitle = computed(() => {
+  if (timelineItems.value.length === 0) return '先把节点加入时间轴'
+  const kind = directorExportStatus.value?.kind
+  if (kind === 'current' || kind === 'warning') return '下载当前分镜 Markdown'
+  if (kind === 'stale') return '画布已变化，更新分镜版本'
+  return '根据当前时间轴生成分镜版本'
+})
+
+function handleDirectorTimelineAction() {
+  if (directorTimelineActionDisabled.value) return
+  const kind = directorExportStatus.value?.kind
+  if (kind === 'current' || kind === 'warning') {
+    downloadDirectorMarkdown()
+    return
+  }
+  prepareDirectorStoryboardVersion()
+}
 
 function buildDirectorExportTimeline() {
   return outline.value
@@ -2166,6 +2267,7 @@ function createDirectorExportFingerprint(shots, topic) {
     topic: String(topic || '').trim(),
     shots: (shots || []).map((shot) => [
       shot.sequence,
+      shot.assetId,
       shot.content,
       shot.shotType,
       shot.camera,
@@ -2173,8 +2275,11 @@ function createDirectorExportFingerprint(shots, topic) {
       shot.dialogue,
       shot.sound,
       shot.transition,
+      shot.relationType,
+      shot.relationLabel,
       shot.tone,
-      shot.emotion
+      shot.emotion,
+      JSON.stringify(shot.imageReferences || [])
     ])
   })
 }
@@ -2375,6 +2480,7 @@ function exportToJson() {
         prompts
       }
       downloadFile(JSON.stringify(data, null, 2), 'AI视频提示词.json', 'application/json')
+      directorStoryboardStatus.value = `已导出分镜 JSON，版本 ${directorExport.version.versionId.slice(-6)}`
       addTimeline('导出统一分镜 JSON')
     } else {
       const data = {
@@ -2390,6 +2496,7 @@ function exportToJson() {
       addTimeline('导出完整关系网 JSON')
     }
   } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '导出失败'
     alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
 }
@@ -2404,14 +2511,25 @@ function downloadFile(content, filename, mimeType) {
   URL.revokeObjectURL(url)
 }
 
-function exportToPremiereFormat() {
+function exportEditingPackage() {
   showExportMenu.value = false
   try {
     const directorExport = getDirectorExportContext()
-    const csv = toPremiereCSV(directorExport.shots)
-    downloadFile(csv, '分镜导入_Premiere.csv', 'text/csv')
-    addTimeline('导出统一分镜 Premiere 格式')
+    const shots = getDirectorStoryboardShots(directorExport)
+    const versionId = directorExport.version.versionId
+    const packageData = buildEditingPackage(shots, {
+      topic: currentTopic.value || '未命名',
+      storyboardDocumentId: directorExport.document.id,
+      storyboardVersionId: versionId,
+      validation: directorExport.version.validation,
+      name: currentTopic.value || '卡片画布'
+    })
+    const zipData = buildEditingPackageZip(packageData)
+    downloadFile(zipData, '分镜剪辑包.zip', 'application/zip')
+    directorStoryboardStatus.value = `已导出剪辑包 ZIP，版本 ${versionId.slice(-6)}`
+    addTimeline('导出统一分镜剪辑包')
   } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '导出失败'
     alert(`导出失败: ${error?.message || '请检查分镜内容'}`)
   }
 }
@@ -3919,7 +4037,8 @@ function goToMaterialsImageGen() {
 .outline-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -3947,11 +4066,76 @@ function goToMaterialsImageGen() {
 .timeline-header-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+}
+
+.timeline-version-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 108px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.timeline-version-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  flex: none;
+}
+
+.timeline-version-chip.is-current .timeline-version-dot {
+  background: var(--accent);
+}
+
+.timeline-version-chip.is-stale .timeline-version-dot,
+.timeline-version-chip.is-warning .timeline-version-dot {
+  background: #f59f00;
+}
+
+.timeline-version-chip.is-error .timeline-version-dot {
+  background: var(--danger);
+}
+
+.timeline-version-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.timeline-version-action {
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.timeline-version-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.timeline-version-action:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .timeline-clear-btn {
-  height: 24px;
+  height: 22px;
   padding: 0 8px;
   border: none;
   border-radius: 4px;
@@ -4336,6 +4520,7 @@ function goToMaterialsImageGen() {
 }
 
 .toolbar-btn.export-btn {
+  position: relative;
   background: var(--accent);
   color: #f7fbff;
 }
@@ -4343,6 +4528,47 @@ function goToMaterialsImageGen() {
 .toolbar-btn.export-btn:hover {
   filter: brightness(1.06);
   color: #f7fbff;
+}
+
+.export-btn-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  border: 2px solid var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--accent));
+  color: var(--text-primary);
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.export-btn-badge.is-current {
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--accent));
+}
+
+.export-btn-badge.is-stale {
+  background: color-mix(in srgb, var(--bg-secondary) 76%, #f59f00);
+}
+
+.export-btn-badge.is-warning {
+  background: color-mix(in srgb, var(--bg-secondary) 76%, #f59f00);
+}
+
+.export-btn-badge.is-empty {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, var(--text-muted));
+}
+
+.export-btn-badge.is-error {
+  background: color-mix(in srgb, var(--bg-secondary) 76%, var(--danger));
 }
 
 .toolbar-divider {
@@ -4361,6 +4587,67 @@ function goToMaterialsImageGen() {
   padding: 6px;
   box-shadow: 0 4px 16px var(--shadow-md);
   min-width: 160px;
+}
+
+.export-status {
+  display: grid;
+  grid-template-columns: 7px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 8px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+}
+
+.export-status-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.export-status.is-current .export-status-dot {
+  background: var(--accent);
+}
+
+.export-status.is-stale .export-status-dot,
+.export-status.is-warning .export-status-dot {
+  background: #f59f00;
+}
+
+.export-status.is-error .export-status-dot {
+  background: var(--danger);
+}
+
+.export-status-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.export-status-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.export-status-detail {
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.export-menu-separator {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--border);
 }
 
 .export-menu button {

@@ -8,7 +8,6 @@ const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const Writing = () => import('../pages/Writing.vue')
 const Notes = () => import('../pages/Notes.vue')
-const PoetryLab = () => import('../pages/PoetryLab.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
 
 const workbenchChildren = [
@@ -76,15 +75,6 @@ const workbenchChildren = [
     }
   },
   {
-    path: 'poetry-lab',
-    name: 'poetry-lab',
-    component: PoetryLab,
-    meta: {
-      activityKey: 'storyboard',
-      title: '旧诗歌画布'
-    }
-  },
-  {
     path: 'prose-essay',
     name: 'prose-essay',
     component: ProseEssay,
@@ -106,7 +96,7 @@ const routes = [
   { path: '/writing', redirect: { name: 'writing' } },
   { path: '/materials', redirect: { name: 'materials' } },
   { path: '/notes', redirect: { name: 'materials' } },
-  { path: '/poetry-lab', redirect: { name: 'poetry-lab' } },
+  { path: '/poetry-lab', redirect: { name: 'prose-essay' } },
   { path: '/prose-essay', redirect: { name: 'prose-essay' } }
 ]
 

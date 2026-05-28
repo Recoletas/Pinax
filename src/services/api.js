@@ -1,6 +1,12 @@
 import axios from 'axios'
 import { getItem, getTextItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getMemoryKindLabel, queueMemoryCandidate } from './memoryCandidates'
+import {
+  buildMemoryCompactionMessages,
+  compactMemoryText,
+  needsLlmMemoryCompaction,
+  parseMemoryCompactionResult
+} from './memoryCompaction'
 
 const api = axios.create({
   baseURL: '/api',
@@ -8,6 +14,7 @@ const api = axios.create({
 })
 
 export default api
+export { compactMemoryText } from './memoryCompaction'
 
 function createPreferenceUserId() {
   return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
@@ -377,6 +384,45 @@ export async function recordPreference({ userId, action, card }) {
   }
 }
 
+export async function compactMemoryTextForCandidate(text, type = 'general', metadata = {}) {
+  const heuristic = compactMemoryText(text, type, metadata)
+  if (!needsLlmMemoryCompaction(text, heuristic, type, metadata)) {
+    return heuristic
+  }
+
+  const llmMemory = await compactMemoryTextWithLlm({
+    source: text,
+    type,
+    metadata,
+    heuristic
+  })
+
+  return llmMemory || heuristic
+}
+
+async function compactMemoryTextWithLlm({ source, type, metadata, heuristic }) {
+  try {
+    const response = await sendChat(
+      buildMemoryCompactionMessages({ source, type, metadata, heuristic }),
+      null,
+      metadata?.worldId || metadata?.projectId || '',
+      null,
+      {
+        max_tokens: 120,
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        taskType: 'memory.compact',
+        attemptName: 'memory-compact',
+        max_input_chars: 2400
+      }
+    )
+    return parseMemoryCompactionResult(response?.content || response?.text || '')
+  } catch (error) {
+    console.warn('[Memory] LLM compaction failed, using heuristic:', error?.message || error)
+    return ''
+  }
+}
+
 /**
  * 记录通用记忆
  * @param {string} text - 记忆内容
@@ -384,7 +430,8 @@ export async function recordPreference({ userId, action, card }) {
  * @param {object} metadata - 额外元数据
  */
 export async function recordMemory(text, type = 'general', metadata = {}) {
-  if (!text || !text.trim()) {
+  const compactedText = await compactMemoryTextForCandidate(text, type, metadata)
+  if (!compactedText) {
     return { success: false, skipped: true }
   }
 
@@ -394,6 +441,8 @@ export async function recordMemory(text, type = 'general', metadata = {}) {
     location: 'project-fact',
     decision: 'plot-event',
     event: 'plot-event',
+    location_discovery: 'project-fact',
+    item_acquisition: 'plot-event',
     dialogue: 'plot-event',
     style: 'style-sample',
     constraint: 'constraint',
@@ -402,7 +451,7 @@ export async function recordMemory(text, type = 'general', metadata = {}) {
 
   const scope = resolveMemoryScope(type, metadata)
   const candidate = queueMemoryCandidate({
-    content: text.trim(),
+    content: compactedText,
     scope,
     scopeId: resolveMemoryScopeId(scope, metadata),
     kind: metadata.kind || kindMap[type] || 'project-fact',
@@ -411,14 +460,15 @@ export async function recordMemory(text, type = 'general', metadata = {}) {
     metadata: {
       ...metadata,
       userId: getOrCreatePreferenceUserId(),
-      sourceType: type
+      sourceType: type,
+      sourceLength: String(text || '').length
     }
   })
 
   if (candidate.success && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('memory-recorded', {
       detail: {
-        text: text.slice(0, 50),
+        text: compactedText.slice(0, 50),
         type,
         kind: candidate.candidate?.kind,
         scope: candidate.candidate?.scope,

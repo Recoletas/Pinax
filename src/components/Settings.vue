@@ -3,7 +3,11 @@
     <div class="settings-modal">
       <div class="panel-header">
         <span>设置</span>
-        <button class="close-btn" @click="$emit('close')">×</button>
+        <button class="close-btn" type="button" @click="$emit('close')" title="关闭" aria-label="关闭设置">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 3L13 13M13 3L3 13" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
 
       <div class="settings-tabs">
@@ -184,8 +188,11 @@
       </div>
 
       <div class="settings-actions">
-        <button class="btn" @click="testConn" :disabled="testing || !apiSettings.baseUrl">
+        <button v-if="activeTab === 'api'" class="btn" @click="testConn" :disabled="testing || !apiSettings.baseUrl">
           {{ testing ? '测试中...' : '测试连接' }}
+        </button>
+        <button v-else-if="activeTab === 'memory'" class="btn" @click="testMem0Connection" :disabled="mem0Testing">
+          {{ mem0Testing ? '测试中...' : '测试记忆连接' }}
         </button>
         <button class="btn btn-primary" @click="saveAllAndClose">保存并关闭</button>
         <button class="btn" @click="$emit('close')">取消</button>
@@ -197,7 +204,8 @@
 <script setup>
 import { ref, reactive, watch, onMounted, computed } from 'vue'
 import { useApiSettings } from '@/composables/useApiSettings'
-import api from '@/services/api'
+import { getItem, setItem, STORAGE_KEYS } from '@/composables/useStorage'
+import api, { getOrCreatePreferenceUserId } from '@/services/api'
 
 const emit = defineEmits(['close'])
 
@@ -206,9 +214,11 @@ const showApiKey = ref(false)
 const showMem0Key = ref(false)
 const isInitializing = ref(true)
 const mem0TestResult = ref(null)
+const mem0Testing = ref(false)
 
 const {
   apiSettings,
+  isLoading,
   detectedModels,
   testResult,
   testing,
@@ -234,7 +244,7 @@ const mem0Settings = reactive({
 
 const memoryStats = ref(null)
 
-const mem0Configured = computed(() => Boolean(mem0Settings.apiKey))
+const mem0Configured = computed(() => Boolean(String(mem0Settings.apiKey || '').trim()))
 
 onMounted(async () => {
   const saved = localStorage.getItem('gameSettings')
@@ -247,11 +257,21 @@ onMounted(async () => {
     if (p?.baseUrl) apiSettings.value.baseUrl = p.baseUrl
   }
 
+  const cachedMem0Settings = loadCachedMem0Settings()
+  applyMem0Settings(cachedMem0Settings)
+
   // Load mem0 settings
   try {
     const secrets = await api.post('/chat/secrets/read').then(r => r.data)
-    mem0Settings.apiKey = secrets.mem0_api_key || ''
-    mem0Settings.host = secrets.mem0_host || ''
+    const remoteMem0Settings = {
+      apiKey: secrets.mem0_api_key || '',
+      host: secrets.mem0_host || ''
+    }
+
+    if (remoteMem0Settings.apiKey || remoteMem0Settings.host || (!cachedMem0Settings.apiKey && !cachedMem0Settings.host)) {
+      applyMem0Settings(remoteMem0Settings)
+      cacheMem0Settings()
+    }
   } catch (e) {
     console.warn('Failed to load mem0 settings:', e)
   }
@@ -282,6 +302,55 @@ async function onUrlChange() {
   }
 }
 
+function loadCachedMem0Settings() {
+  const cached = getItem(STORAGE_KEYS.MEM0_SETTINGS) || {}
+  return {
+    apiKey: String(cached.apiKey || '').trim(),
+    host: String(cached.host || '').trim()
+  }
+}
+
+function applyMem0Settings(next = {}) {
+  mem0Settings.apiKey = String(next.apiKey || '').trim()
+  mem0Settings.host = String(next.host || '').trim()
+}
+
+function cacheMem0Settings() {
+  setItem(STORAGE_KEYS.MEM0_SETTINGS, {
+    apiKey: String(mem0Settings.apiKey || '').trim(),
+    host: String(mem0Settings.host || '').trim(),
+    updatedAt: Date.now()
+  })
+}
+
+async function testMem0Connection() {
+  const apiKey = String(mem0Settings.apiKey || '').trim()
+  if (!apiKey) {
+    mem0TestResult.value = { ok: false, message: '请先输入 Mem0 API Key' }
+    return
+  }
+
+  mem0Testing.value = true
+  mem0TestResult.value = null
+  cacheMem0Settings()
+
+  try {
+    const response = await api.post('/chat/mem0/test', {
+      apiKey,
+      host: String(mem0Settings.host || '').trim(),
+      userId: getOrCreatePreferenceUserId()
+    })
+    mem0TestResult.value = response.data || { ok: false, message: '记忆连接失败' }
+  } catch (e) {
+    mem0TestResult.value = {
+      ok: false,
+      message: e?.message ? `记忆连接失败：${e.message}` : '记忆连接失败'
+    }
+  } finally {
+    mem0Testing.value = false
+  }
+}
+
 function loadMemoryStats() {
   try {
     const syncState = JSON.parse(localStorage.getItem('mem0_sync_state') || '{}')
@@ -294,7 +363,7 @@ function loadMemoryStats() {
         ? new Date(syncState.lastSyncTime).toLocaleString('zh-CN')
         : null
     }
-  } catch (e) {
+  } catch {
     memoryStats.value = null
   }
 }
@@ -302,15 +371,12 @@ function loadMemoryStats() {
 async function saveAllAndClose() {
   localStorage.setItem('gameSettings', JSON.stringify(settings))
   await saveAll()
+  cacheMem0Settings()
 
   // Save mem0 settings
   try {
-    if (mem0Settings.apiKey) {
-      await api.post('/chat/secrets/write', { key: 'mem0_api_key', value: mem0Settings.apiKey })
-    }
-    if (mem0Settings.host) {
-      await api.post('/chat/secrets/write', { key: 'mem0_host', value: mem0Settings.host })
-    }
+    await api.post('/chat/secrets/write', { key: 'mem0_api_key', value: String(mem0Settings.apiKey || '').trim() })
+    await api.post('/chat/secrets/write', { key: 'mem0_host', value: String(mem0Settings.host || '').trim() })
   } catch (e) {
     console.warn('Failed to save mem0 settings:', e)
   }
@@ -347,9 +413,29 @@ async function saveAllAndClose() {
   padding: 15px;
   border-bottom: 1px solid var(--border);
   display: flex;
+  align-items: center;
   justify-content: space-between;
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .settings-tabs {

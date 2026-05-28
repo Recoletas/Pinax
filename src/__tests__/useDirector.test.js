@@ -25,11 +25,13 @@ describe('useDirector', () => {
   it('restores a previous storyboard version by version id', () => {
     const director = useDirector()
 
-    director.loadFromPoetryLab([
+    director.loadFromRelationCanvas([
       { id: 'node-1', content: '旧镜头' }
     ])
     const firstVersionId = director.storyboardVersionId.value
 
+    expect(listStoryboardDocuments({ sourceType: 'relation-canvas' })).toHaveLength(1)
+    expect(director.storyboardDocument.value.source.sourceType).toBe('relation-canvas')
     director.addShot({ content: '新镜头', shotType: 'wide', camera: 'fixed', duration: 3 })
     expect(director.storyboardVersionId.value).not.toBe(firstVersionId)
 

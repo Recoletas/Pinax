@@ -1,5 +1,6 @@
 import api, { getOrCreatePreferenceUserId } from './api'
 import useMem0 from '../composables/useMem0'
+import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 
 const DEFAULT_MEM0_API_URL = 'https://api.mem0.ai/v1'
 
@@ -11,11 +12,13 @@ function normalizeMem0ApiUrl(host) {
 }
 
 async function readMem0Secrets() {
+  const cached = getCachedMem0Settings()
+
   try {
     const response = await api.post('/chat/secrets/read')
     const secrets = response?.data || {}
-    const apiKey = String(secrets.mem0_api_key || '').trim()
-    const host = String(secrets.mem0_host || '').trim()
+    const apiKey = String(secrets.mem0_api_key || cached.apiKey || '').trim()
+    const host = String(secrets.mem0_host || cached.host || '').trim()
 
     if (!apiKey) return null
 
@@ -25,7 +28,19 @@ async function readMem0Secrets() {
     }
   } catch (error) {
     console.warn('[memorySync] failed to load mem0 secrets:', error)
-    return null
+    if (!cached.apiKey) return null
+    return {
+      apiKey: cached.apiKey,
+      apiUrl: normalizeMem0ApiUrl(cached.host)
+    }
+  }
+}
+
+function getCachedMem0Settings() {
+  const cached = getItem(STORAGE_KEYS.MEM0_SETTINGS) || {}
+  return {
+    apiKey: String(cached.apiKey || '').trim(),
+    host: String(cached.host || '').trim()
   }
 }
 

@@ -47,12 +47,12 @@
 
 | 任务 | taskType |
 |------|----------|
-| 诗歌灵感树 | `poetry.tree` |
-| 诗歌续写分支 | `poetry.continue` |
-| 诗歌分镜树 | `poetry.directing-tree` |
-| 诗歌例句 JSON 修复 | `poetry.examples.json` |
-| 诗歌例句行格式补齐 | `poetry.examples.lines` |
-| 诗歌单标题兜底 | `poetry.examples.single` |
+| 素材树 | `material.tree` |
+| 素材续写分支 | `material.continue` |
+| 分镜树 | `storyboard.directing-tree` |
+| 示例句 JSON 修复 | `material.examples.json` |
+| 示例句行格式补齐 | `material.examples.lines` |
+| 示例句单标题兜底 | `material.examples.single` |
 | 散文主题卡片 | `prose.topic-cards` |
 | 散文情绪扩展 | `prose.expand-emotion` |
 | 散文卡片延伸 | `prose.expand-card` |
@@ -61,7 +61,7 @@
 迁移方向：
 
 - 卡片画布需要生成新素材或镜头草稿时，应采用中性的 `material.*` / `storyboard.*` 任务命名，不继续扩大 `prose.*`。
-- `poetry.*` 仅在迁移可复用的“意象扩散”动作期间保留；若该动作未证明有价值，整组任务随页面删除。
+- 旧 `poetry.*` 任务已经收进兼容别名，后续只保留给历史数据和旧调用点，不再作为新入口文案。
 
 ### 3.4 设定导入链路
 
@@ -73,7 +73,7 @@
 ## 4. 这条线已经完成意味着什么
 
 1. 页面和 store 不再需要自己定义一套底层请求协议。
-2. 旧诗歌和散文任务已可被迁移或删除，不必为其保留页面级生成体系。
+2. 旧诗歌和散文任务已迁到中性任务名，不必为其保留页面级生成体系。
 3. 后续排查问题可以按 taskType 追踪，而不是按页面猜测。
 
 ## 5. 当前不再把它作为主施工线
