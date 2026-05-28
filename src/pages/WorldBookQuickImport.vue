@@ -564,6 +564,167 @@ const totalSegmentEntries = computed(() => {
   return novelSegments.value.reduce((sum, seg) => sum + (seg.entries?.length || 0), 0)
 })
 
+function entryTypeLabel(typeValue) {
+  const matched = entryTypeOptions.find(item => item.value === typeValue)
+  return matched?.label || typeValue || '通用'
+}
+
+function normalizeText(value) {
+  return String(value || '').trim()
+}
+
+function normalizeEntryType(typeValue) {
+  const normalized = normalizeText(typeValue).toLowerCase()
+  if (['location', 'character', 'item', 'event', 'lore', 'quest', 'general', 'rule', 'style', 'forbidden', 'organization'].includes(normalized)) {
+    return normalized
+  }
+  if (normalized === 'org' || normalized === 'faction') return 'organization'
+  if (normalized === 'setting') return 'lore'
+  return 'general'
+}
+
+const CONSTRAINT_TYPES = new Set(['rule', 'style', 'forbidden'])
+
+function isConstraintType(typeValue) {
+  return CONSTRAINT_TYPES.has(normalizeEntryType(typeValue))
+}
+
+function inferConstraintTypeFromSignals({ name = '', content = '', keys = [] } = {}) {
+  const keyList = Array.isArray(keys) ? keys : []
+  const corpus = [name, content, ...keyList]
+    .map(part => normalizeText(part).toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+
+  if (!corpus) return ''
+  if (/(禁止|禁忌|不得|不能|不可|严禁|forbidden|ban|avoid)/.test(corpus)) return 'forbidden'
+  if (/(风格|文风|语气|叙事|视角|style|tone)/.test(corpus)) return 'style'
+  if (/(规则|约束|必须|一致性|设定边界|rule|constraint)/.test(corpus)) return 'rule'
+  return ''
+}
+
+function inferEntryType(typeValue, name = '', content = '', keys = []) {
+  const normalizedType = normalizeEntryType(typeValue)
+  if (normalizedType !== 'general' && normalizedType !== 'lore') {
+    return normalizedType
+  }
+
+  return inferConstraintTypeFromSignals({ name, content, keys }) || normalizedType
+}
+
+function normalizeGroupName(groupValue) {
+  return normalizeText(groupValue)
+}
+
+function normalizeKeywords(value, fallback = '') {
+  const fromArray = Array.isArray(value) ? value : [value]
+  const tokens = []
+
+  for (const item of fromArray) {
+    const normalized = String(item || '')
+      .split(/[\n,，、|/]/)
+      .map(part => part.trim())
+      .filter(Boolean)
+    tokens.push(...normalized)
+  }
+
+  if (!tokens.length && fallback) {
+    tokens.push(fallback.slice(0, 16))
+  }
+
+  return Array.from(new Set(tokens)).slice(0, 6)
+}
+
+function ensureEntryContent(type, name, content) {
+  const normalized = normalizeText(content)
+  if (normalized.length >= 24) return normalized
+
+  if (isConstraintType(type)) {
+    const defaults = {
+      rule: '涉及世界规则、身份关系和事件因果时必须保持一致，不得自相矛盾。',
+      style: '输出需持续保持既定叙事视角、语气强度与文风边界。',
+      forbidden: '严禁生成与设定冲突或被明确禁止的内容。'
+    }
+    const suffix = defaults[normalizeEntryType(type)] || defaults.rule
+    return normalized ? `${normalized} ${suffix}` : `${name}：${suffix}`
+  }
+
+  if (normalized) return normalized
+  return `${name}：补充该条目的背景、边界与影响范围。`
+}
+
+function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
+  const modeText = normalizeText(rawEntry?.mode || '').toLowerCase()
+  const explicitMode = rawEntry?.constant === true
+    ? 'constant'
+    : (modeText === 'constant' ? 'constant' : (modeText === 'selective' || rawEntry?.selective === true ? 'selective' : ''))
+
+  const inferredConstraint = isConstraintType(type) || Boolean(inferConstraintTypeFromSignals({ name, content, keys }))
+  const mode = inferredConstraint ? 'constant' : (explicitMode === 'constant' ? 'constant' : 'selective')
+  const depthFallback = mode === 'constant' ? 2 : 1
+
+  return {
+    mode,
+    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability, 100, 0, 100),
+    cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
+    depth: clampNumber(rawEntry?.depth, depthFallback, 1, 99),
+    excludeRecursion: Boolean(rawEntry?.excludeRecursion)
+  }
+}
+
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
+function uniqueGroups(groups = []) {
+  const seen = new Set()
+  const result = []
+  for (const group of groups) {
+    const normalized = normalizeGroupName(group)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
+function defaultGroupByType(typeValue) {
+  const type = normalizeEntryType(typeValue)
+  if (type === 'rule') return '硬约束'
+  if (type === 'style') return '文风约束'
+  if (type === 'forbidden') return '禁写边界'
+  if (type === 'character') return '角色'
+  if (type === 'location') return '地理'
+  if (type === 'item') return '道具'
+  if (type === 'organization') return '组织'
+  if (type === 'event') return '事件'
+  if (type === 'lore') return '设定'
+  if (type === 'quest') return '任务'
+  return '通用'
+}
+
+function createSeedEntry(type, name, keys, content, group, mode = '') {
+  const normalizedKeys = normalizeKeywords(keys, name)
+  const normalizedType = inferEntryType(type, name, content, normalizedKeys)
+  const normalizedContent = ensureEntryContent(normalizedType, name, content)
+  const injection = resolveInjectionPolicy({ mode }, normalizedType, name, normalizedContent, normalizedKeys)
+
+  return {
+    id: `seed_${Math.random().toString(36).slice(2, 10)}`,
+    name,
+    type: normalizedType,
+    keys: normalizedKeys,
+    keysSecondary: [],
+    content: normalizedContent,
+    injection: {
+      ...injection,
+      group: normalizeGroupName(group) || null
+    }
+  }
+}
+
 const genreOptions = [
   { value: 'fantasy', label: '奇幻冒险' },
   { value: 'urban', label: '都市现实' },
@@ -684,9 +845,13 @@ const RANDOM_POOLS = {
 }
 
 onMounted(async () => {
-  await worldStore.loadWorldbooksIndex()
-  if (typeof worldStore.ensureActiveWorldbook === 'function') {
-    await worldStore.ensureActiveWorldbook()
+  try {
+    await worldStore.loadWorldbooksIndex()
+    if (typeof worldStore.ensureActiveWorldbook === 'function') {
+      await worldStore.ensureActiveWorldbook()
+    }
+  } catch (e) {
+    console.error('[世界书·快速导入] 初始化失败:', e)
   }
 })
 
@@ -759,199 +924,6 @@ function setWorldbookInfo(message) {
   infoMessage.value = formatWorldbookStatus(message)
   errorMessage.value = ''
   successMessage.value = ''
-}
-
-function entryTypeLabel(typeValue) {
-  const matched = entryTypeOptions.find(item => item.value === typeValue)
-  return matched?.label || typeValue || '通用'
-}
-
-function normalizeText(value) {
-  return String(value || '').trim()
-}
-
-function normalizeEntryType(typeValue) {
-  const normalized = normalizeText(typeValue).toLowerCase()
-  if (['location', 'character', 'item', 'event', 'lore', 'quest', 'general', 'rule', 'style', 'forbidden', 'organization'].includes(normalized)) {
-    return normalized
-  }
-  if (normalized === 'org' || normalized === 'faction') return 'organization'
-  if (normalized === 'setting') return 'lore'
-  return 'general'
-}
-
-const CONSTRAINT_TYPES = new Set(['rule', 'style', 'forbidden'])
-
-function isConstraintType(typeValue) {
-  return CONSTRAINT_TYPES.has(normalizeEntryType(typeValue))
-}
-
-function inferConstraintTypeFromSignals({ name = '', content = '', keys = [] } = {}) {
-  const keyList = Array.isArray(keys) ? keys : []
-  const corpus = [name, content, ...keyList]
-    .map(part => normalizeText(part).toLowerCase())
-    .filter(Boolean)
-    .join(' ')
-
-  if (!corpus) return ''
-  if (/(禁止|禁忌|不得|不能|不可|严禁|forbidden|ban|avoid)/.test(corpus)) return 'forbidden'
-  if (/(风格|文风|语气|叙事|视角|style|tone)/.test(corpus)) return 'style'
-  if (/(规则|约束|必须|一致性|设定边界|rule|constraint)/.test(corpus)) return 'rule'
-  return ''
-}
-
-function inferEntryType(typeValue, name = '', content = '', keys = []) {
-  const normalizedType = normalizeEntryType(typeValue)
-  if (normalizedType !== 'general' && normalizedType !== 'lore') {
-    return normalizedType
-  }
-
-  return inferConstraintTypeFromSignals({ name, content, keys }) || normalizedType
-}
-
-function normalizeGroupName(groupValue) {
-  return normalizeText(groupValue)
-}
-
-function normalizeKeywords(value, fallback = '') {
-  const fromArray = Array.isArray(value) ? value : [value]
-  const tokens = []
-
-  for (const item of fromArray) {
-    const normalized = String(item || '')
-      .split(/[\n,，、|/]/)
-      .map(part => part.trim())
-      .filter(Boolean)
-    tokens.push(...normalized)
-  }
-
-  if (!tokens.length && fallback) {
-    tokens.push(fallback.slice(0, 16))
-  }
-
-  return Array.from(new Set(tokens)).slice(0, 6)
-}
-
-function ensureEntryContent(type, name, content) {
-  const normalized = normalizeText(content)
-  if (normalized.length >= 24) return normalized
-
-  if (isConstraintType(type)) {
-    const defaults = {
-      rule: '涉及世界规则、身份关系和事件因果时必须保持一致，不得自相矛盾。',
-      style: '输出需持续保持既定叙事视角、语气强度与文风边界。',
-      forbidden: '严禁生成与设定冲突或被明确禁止的内容。'
-    }
-    const suffix = defaults[normalizeEntryType(type)] || defaults.rule
-    return normalized ? `${normalized} ${suffix}` : `${name}：${suffix}`
-  }
-
-  if (normalized) return normalized
-  return `${name}：补充该条目的背景、边界与影响范围。`
-}
-
-function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
-  const modeText = normalizeText(rawEntry?.mode || '').toLowerCase()
-  const explicitMode = rawEntry?.constant === true
-    ? 'constant'
-    : (modeText === 'constant' ? 'constant' : (modeText === 'selective' || rawEntry?.selective === true ? 'selective' : ''))
-
-  const inferredConstraint = isConstraintType(type) || Boolean(inferConstraintTypeFromSignals({ name, content, keys }))
-  const mode = inferredConstraint ? 'constant' : (explicitMode === 'constant' ? 'constant' : 'selective')
-  const depthFallback = mode === 'constant' ? 2 : 1
-
-  return {
-    mode,
-    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability, 100, 0, 100),
-    cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
-    depth: clampNumber(rawEntry?.depth, depthFallback, 1, 99),
-    excludeRecursion: Boolean(rawEntry?.excludeRecursion)
-  }
-}
-
-function entryFieldLabel(field) {
-  const labels = {
-    name: '名称',
-    type: '类型',
-    keys: '触发词',
-    content: '内容',
-    group: '分组',
-    mode: '注入模式',
-    probability: '触发概率',
-    depth: '注入深度',
-    cooldown: '冷却'
-  }
-  return labels[field] || field
-}
-
-function formatFieldValue(field, value) {
-  if (field === 'keys' && Array.isArray(value)) {
-    return value.slice(0, 3).join('、') + (value.length > 3 ? ` +${value.length - 3}` : '')
-  }
-  if (field === 'content') {
-    const str = String(value || '')
-    return str.length > 30 ? str.slice(0, 30) + '...' : str
-  }
-  return String(value || '-')
-}
-
-function clampNumber(value, fallback, min, max) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.max(min, Math.min(max, parsed))
-}
-
-function pickRandom(list) {
-  if (!Array.isArray(list) || list.length === 0) return ''
-  const idx = Math.floor(Math.random() * list.length)
-  return list[idx]
-}
-
-function uniqueGroups(groups = []) {
-  const seen = new Set()
-  const result = []
-  for (const group of groups) {
-    const normalized = normalizeGroupName(group)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    result.push(normalized)
-  }
-  return result
-}
-
-function defaultGroupByType(typeValue) {
-  const type = normalizeEntryType(typeValue)
-  if (type === 'rule') return '硬约束'
-  if (type === 'style') return '文风约束'
-  if (type === 'forbidden') return '禁写边界'
-  if (type === 'character') return '角色'
-  if (type === 'location') return '地理'
-  if (type === 'item') return '道具'
-  if (type === 'organization') return '组织'
-  if (type === 'event') return '事件'
-  if (type === 'lore') return '设定'
-  if (type === 'quest') return '任务'
-  return '通用'
-}
-
-function createSeedEntry(type, name, keys, content, group, mode = '') {
-  const normalizedKeys = normalizeKeywords(keys, name)
-  const normalizedType = inferEntryType(type, name, content, normalizedKeys)
-  const normalizedContent = ensureEntryContent(normalizedType, name, content)
-  const injection = resolveInjectionPolicy({ mode }, normalizedType, name, normalizedContent, normalizedKeys)
-
-  return {
-    id: `seed_${Math.random().toString(36).slice(2, 10)}`,
-    name,
-    type: normalizedType,
-    keys: normalizedKeys,
-    keysSecondary: [],
-    content: normalizedContent,
-    injection: {
-      ...injection,
-      group: normalizeGroupName(group) || null
-    }
-  }
 }
 
 function normalizeGeneratedEntry(rawEntry, index = 0) {

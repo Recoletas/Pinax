@@ -4,30 +4,35 @@ export const ACTIVITY_ITEMS = [
   {
     key: 'experience',
     label: '体验',
+    description: '沉浸式文字冒险',
     icon: 'compass',
     defaultRouteName: 'experience'
   },
   {
     key: 'worldbook',
     label: '世界书',
+    description: '构建你的世界观设定',
     icon: 'settings',
     defaultRouteName: 'experience-worldbook'
   },
   {
     key: 'writing',
     label: '写作',
+    description: '章节管理与正文创作',
     icon: 'book',
     defaultRouteName: 'writing'
   },
   {
     key: 'materials',
     label: '素材',
+    description: '灵感收集与素材整理',
     icon: 'archive',
     defaultRouteName: 'materials'
   },
   {
     key: 'storyboard',
     label: '画布',
+    description: '关系编排与分镜规划',
     icon: 'film',
     defaultRouteName: 'prose-essay'
   }

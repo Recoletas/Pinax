@@ -27,6 +27,7 @@
   --accent: #0078d4;
   --accent-hover: #106ebe;
   --accent-light: rgba(0, 120, 212, 0.1);
+  --accent-text: #ffffff;
 
   /* Secondary accents */
   --accent-purple: #8b5cf6;
@@ -78,6 +79,7 @@
   --accent: #4fc3f7;
   --accent-hover: #29b6f6;
   --accent-light: rgba(79, 195, 247, 0.15);
+  --accent-text: #0d1117;
 
   /* Secondary accents - brighter for dark mode */
   --accent-purple: #a78bfa;
@@ -195,13 +197,44 @@ body {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-text);
+}
+
+.btn-primary,
+.btn.primary,
+.action-btn.primary,
+.action-btn.active,
+.add-btn.prominent,
+.add-btn.btn-new,
+.asset-canvas-primary,
+.mode-label.active,
+.tool-btn.active,
+.fp-btn.active,
+.ng-btn.active,
+.ai-action-btn,
+.ai-result-btn,
+.era-preset-btn.active,
+.section-btn.active,
+.send-btn,
+.current-tag,
+.new-btn,
+.preset-btn.active,
+.tavern-btn.primary,
+.quick-btn.dialogue-btn.active,
+.quick-note-panel-btn.primary,
+.quick-note-mini-btn.primary,
+.image-gen-size-btn.active,
+.image-gen-count-btn.active,
+.image-gen-generate-btn,
+.advisor-fab,
+.char-item.active .char-avatar.small {
+  color: var(--accent-text) !important;
 }
 
 .btn:disabled {
@@ -268,6 +301,74 @@ body {
 
 .fade-in {
   animation: fadeIn 0.2s ease forwards;
+}
+
+/* Page route transitions */
+.page-route-enter-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.page-route-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.page-route-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-route-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-scale-enter-active,
+.modal-scale-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.modal-scale-enter-from,
+.modal-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-route-enter-active,
+  .page-route-leave-active {
+    transition: opacity 0.01s ease;
+  }
+
+  .page-route-enter-from {
+    opacity: 0;
+    transform: none;
+  }
+
+  .page-route-leave-to {
+    opacity: 0;
+  }
+
+  .modal-fade-enter-active,
+  .modal-fade-leave-active,
+  .modal-scale-enter-active,
+  .modal-scale-leave-active {
+    transition: opacity 0.01s ease;
+  }
+
+  .modal-scale-enter-from,
+  .modal-scale-leave-to {
+    opacity: 0;
+    transform: none;
+  }
 }
 
 /* Choice buttons */

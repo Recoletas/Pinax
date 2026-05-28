@@ -38,7 +38,8 @@ function normalizeAdvisorInput(input) {
     scope: String(input.scope || '').trim(),
     taskType: String(input.taskType || '').trim(),
     target: input.target || null,
-    options: input.options || {}
+    options: input.options || {},
+    mode: String(input.mode || '').trim() || undefined
   }
 }
 
@@ -69,7 +70,8 @@ export function useAdvisor() {
         scope: task.scope,
         taskType: task.taskType,
         target: task.target,
-        options: task.options
+        options: task.options,
+        mode: task.mode
       })
       advisorResults.value.push({
         id: taskResult.result?.id || createAdvisorResultId(),

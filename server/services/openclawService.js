@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getAdvisorPrompt } from '../../src/services/promptRegistry.js'
 
 const BASE_URL = process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789'
 const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || ''
@@ -82,31 +83,14 @@ export async function getAdvice(context, question, taskMeta = {}) {
   const taskType = normalizeTaskType(taskMeta.taskType)
   const targetText = serializeContext(taskMeta.target)
   const optionsText = serializeContext(taskMeta.options)
+  const mode = taskMeta.mode || 'prose'
 
   if (!contextText || !questionText) {
     throw new Error('缺少 context 或 question 参数')
   }
 
-  const systemPrompt = `你是一位资深的文学创作顾问，擅长为作者提供精准、实用的叙事建议。
-
-【核心原则】
-1. 简洁直接：每个建议聚焦一点，优先针对用户当前困境，不冗言铺陈
-2. 专业精准：运用叙事学专业术语（节奏、视角、张力、弧光等），分析到位不模糊
-3. 可操作：建议须具体可执行，避免空泛的"要加油"类表达
-4. 克制废话：不多次重复已知信息，不以"当然"/"其实"/"总的来说"等词堆砌开场
-
-【回复规范】
-- 优先分析当前创作状态的核心问题，再给出具体建议
-- 如涉及情绪、节奏、结构等维度，需指出具体位置或问题所在
-- 用 *动作* 格式描述角色动作，用"对话"格式描述对话，段落分明
-- 单次建议不超过 150 字，除非用户明确要求展开
-- 不重复上下文已提供的信息
-
-【用户问题类型】
-- 分析节奏/情绪分布：直接指出当前节奏或情绪的问题，给出调整方向
-- 结构建议：指出当前结构的核心问题，给出优化路径
-- 续写灵感：给出 1-2 个具体推进方向，避免发散过多
-- 自定义问题：针对问题直接作答，不答非所问`
+  const domainPrompt = getAdvisorPrompt(mode)
+  const systemPrompt = domainPrompt.system
 
   const payload = {
     model: `openclaw/${AGENT_ID}`,

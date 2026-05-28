@@ -65,7 +65,8 @@ export async function requestAdvisorTask({
   taskType,
   scope,
   target = null,
-  options = {}
+  options = {},
+  mode
 } = {}) {
   const normalizedQuestion = normalizeQuestion(question)
 
@@ -81,7 +82,8 @@ export async function requestAdvisorTask({
       question: normalizedQuestion,
       taskType: normalizedTaskType,
       target,
-      options
+      options,
+      mode
     })
 
     return normalizeAdvisorResult(response.data, normalizedTaskType)

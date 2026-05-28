@@ -38,7 +38,15 @@ function handleSelectPanel(routeName) {
     </div>
 
     <main class="shell-content">
-      <RouterView />
+      <RouterView v-slot="{ Component, route: routeInfo }">
+        <transition name="page-route" mode="out-in">
+          <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
+          <div v-else class="route-loading">
+            <span class="route-loading-spinner"></span>
+            <span>加载中…</span>
+          </div>
+        </transition>
+      </RouterView>
     </main>
   </div>
 </template>
@@ -78,6 +86,30 @@ function handleSelectPanel(routeName) {
 
 .app-shell.without-panel .shell-content {
   grid-column: 2;
+}
+
+.route-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 200px;
+  color: var(--text-muted, #999);
+  font-size: 13px;
+}
+
+.route-loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border, #e5e7eb);
+  border-top-color: var(--accent, #6366f1);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 760px) {

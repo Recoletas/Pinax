@@ -242,32 +242,36 @@
     </div>
 
     <!-- 新建素材弹窗 -->
-    <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>新建素材</h3>
-          <button class="modal-close" @click="showNewNoteModal = false">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <label class="input-label">素材标题</label>
-          <input
-            v-model="newNoteTitle"
-            type="text"
-            class="input"
-            placeholder="输入素材标题"
-            ref="newNoteInput"
-          />
-        </div>
-        <div class="modal-footer">
-          <button class="btn" @click="showNewNoteModal = false">取消</button>
-          <button class="btn-primary" @click="confirmCreateNote" :disabled="!newNoteTitle.trim()">创建</button>
-        </div>
+    <Transition name="modal-fade">
+      <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
+        <Transition name="modal-scale" appear>
+          <div class="modal">
+            <div class="modal-header">
+              <h3>新建素材</h3>
+              <button class="modal-close" @click="showNewNoteModal = false">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <label class="input-label">素材标题</label>
+              <input
+                v-model="newNoteTitle"
+                type="text"
+                class="input"
+                placeholder="输入素材标题"
+                ref="newNoteInput"
+              />
+            </div>
+            <div class="modal-footer">
+              <button class="btn" @click="showNewNoteModal = false">取消</button>
+              <button class="btn-primary" @click="confirmCreateNote" :disabled="!newNoteTitle.trim()">创建</button>
+            </div>
+          </div>
+        </Transition>
       </div>
-    </div>
+    </Transition>
 
     <!-- 创作顾问悬浮按钮 -->
     <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
@@ -281,7 +285,12 @@
       :isOpen="advisorOpen"
       :messages="advisorMessages"
       :loading="advisorLoading"
-      :quickQuestions="['素材整理建议', '关联发现', '扩展写作方向', '分类体系优化']"
+      :quickQuestions="[
+        { label: '素材整理建议', question: '分析当前素材的组织结构，给出整理和分类建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+        { label: '关联发现', question: '基于当前素材内容，发现并建议素材间的关联。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+        { label: '扩展写作方向', question: '从当前素材延伸出可写的创作方向。', scope: 'thread', taskType: 'advisor.close.thread' },
+        { label: '分类体系优化', question: '分析当前分类体系，建议优化方向。', scope: 'chapter', taskType: 'advisor.review.chapter' }
+      ]"
       :emptyText="'创作顾问可帮你梳理灵感、组织素材，发现素材间的关联与创作方向。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
@@ -467,8 +476,11 @@ function collectNotesContext() {
   }
 }
 
-async function handleAskAdvisor(question) {
-  await askAdvisor(question, collectNotesContext)
+async function handleAskAdvisor(input) {
+  const action = typeof input === 'string'
+    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
+    : input
+  await askAdvisor({ ...action, mode: 'notes' }, collectNotesContext)
 }
 
 function loadNotes(preferredChapterId = '') {
@@ -1322,7 +1334,7 @@ function stopResizeRight() {
   border-radius: 50%;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1588,7 +1600,7 @@ function stopResizeRight() {
 .add-btn.prominent {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .add-btn.prominent:hover {
@@ -1601,7 +1613,7 @@ function stopResizeRight() {
   height: 28px;
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border-radius: 6px;
   padding: 0;
   display: flex;
@@ -1612,7 +1624,7 @@ function stopResizeRight() {
 .add-btn.btn-new:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .add-btn.btn-new svg {
@@ -1938,7 +1950,7 @@ function stopResizeRight() {
   background: var(--accent);
   border: none;
   border-radius: 4px;
-  color: #fff;
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -2089,7 +2101,7 @@ function stopResizeRight() {
 
 .asset-status-control button.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .asset-canvas-primary {
@@ -2098,7 +2110,7 @@ function stopResizeRight() {
   border: 1px solid var(--accent);
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   font-size: 12px;
   cursor: pointer;
 }
@@ -2192,7 +2204,7 @@ function stopResizeRight() {
 .tool-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
@@ -2349,7 +2361,7 @@ function stopResizeRight() {
 .fp-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
@@ -2411,7 +2423,7 @@ function stopResizeRight() {
 .ng-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 

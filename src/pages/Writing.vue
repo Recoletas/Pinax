@@ -35,9 +35,6 @@
         <button class="toolbar-text-btn" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
           章节分镜
         </button>
-        <button class="toolbar-text-btn" type="button" @click.stop="openAdvisorFromAction" title="打开创作顾问">
-          顾问
-        </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -94,7 +91,7 @@
         <template v-if="selectedBookId">
           <div class="sidebar-header chapter-header">
             <span class="sidebar-title">章节</span>
-            <button class="add-btn" @click="createNewChapter" title="新建章节" :disabled="isRightCollapsed">
+            <button class="add-btn btn-new" @click="createNewChapter" title="新建章节" :disabled="isRightCollapsed">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 0v14M0 7h14"/>
               </svg>
@@ -544,153 +541,168 @@
       :selected-text="selectedText"
     />
 
-    <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
-      <section class="asset-inbox-modal">
-        <header class="asset-inbox-modal-header">
-          <div>
-            <div class="asset-inbox-modal-kicker">写作素材</div>
-            <h3 class="asset-inbox-modal-title">素材收件箱</h3>
-          </div>
-          <button class="modal-close asset-inbox-close" type="button" @click="closeAssetInbox" aria-label="关闭素材面板">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </button>
-        </header>
-
-        <div class="asset-inbox-modal-toolbar">
-          <div class="asset-inbox-toolbar-group">
-            <span class="asset-inbox-modal-stat">{{ inboxAssets.length }} 条待处理</span>
-            <span class="asset-inbox-modal-stat">已选 {{ selectedInboxAssetIds.length }} 条</span>
-          </div>
-          <div class="asset-inbox-toolbar-group">
-            <select v-model="assetInboxScope" class="asset-inbox-filter" @change="refreshAssetInbox">
-              <option value="all">全部素材</option>
-              <option value="current-book" :disabled="!selectedBookId">当前书</option>
-              <option value="unbound">未绑定</option>
-            </select>
-            <select v-model="assetInboxKind" class="asset-inbox-filter" @change="refreshAssetInbox">
-              <option value="">全部类型</option>
-              <option v-for="kind in assetKindOptions" :key="kind.value" :value="kind.value">
-                {{ kind.label }} · {{ kind.explanation }}
-              </option>
-            </select>
-            <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
-          </div>
-          <div class="asset-inbox-toolbar-group">
-            <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
-            <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
-            <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
-            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">加入纲要</button>
-            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
-            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
-            <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
-          </div>
-        </div>
-        <div v-if="quickNoteStatus" class="asset-inbox-status">{{ quickNoteStatus }}</div>
-
-        <div class="asset-inbox-modal-body">
-          <div class="asset-inbox-list-panel">
-            <button
-              v-for="asset in inboxAssets"
-              :key="asset.id"
-              type="button"
-              class="asset-inbox-row"
-              :class="{ active: assetInboxActiveId === asset.id }"
-              @click="focusInboxAsset(asset.id)"
-            >
-              <input
-                class="quick-note-import-check"
-                type="checkbox"
-                :checked="selectedInboxAssetIds.includes(asset.id)"
-                @click.stop
-                @change="toggleInboxAssetSelection(asset.id)"
-              />
-              <div class="asset-inbox-row-copy">
-                <div class="asset-inbox-row-head">
-                  <span class="asset-inbox-title">{{ asset.title || '未命名素材' }}</span>
-                  <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
-                </div>
-                <div class="asset-inbox-source">{{ getAssetSourceDetail(asset.source) }}</div>
-                <div class="asset-inbox-kind-explanation">{{ getAssetKindExplanation(asset.kind) }}</div>
-                <p class="asset-inbox-preview">{{ asset.content }}</p>
+    <Transition name="modal-fade">
+      <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
+        <Transition name="modal-scale" appear>
+          <section class="asset-inbox-modal">
+            <header class="asset-inbox-modal-header">
+              <div>
+                <div class="asset-inbox-modal-kicker">写作素材</div>
+                <h3 class="asset-inbox-modal-title">素材收件箱</h3>
               </div>
-            </button>
-            <div v-if="!inboxAssets.length" class="asset-inbox-empty-state">
-              当前没有待处理素材
-            </div>
-          </div>
+              <button class="modal-close asset-inbox-close" type="button" @click="closeAssetInbox" aria-label="关闭素材面板">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+              </button>
+            </header>
 
-          <aside class="asset-inbox-detail-panel">
-            <template v-if="activeInboxAsset">
-              <div class="asset-inbox-detail-kicker">{{ getAssetKindLabel(activeInboxAsset.kind) }}</div>
-              <div class="asset-inbox-detail-explanation">{{ getAssetKindExplanation(activeInboxAsset.kind) }}</div>
-              <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || '未命名素材' }}</h4>
-              <div class="asset-inbox-detail-meta">{{ getAssetSourceDetail(activeInboxAsset.source) }}</div>
-              <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
-              <div class="asset-inbox-detail-actions">
-                <button class="quick-note-mini-btn primary" type="button" :title="assetActionHelpMap.insert" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
-                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reference" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
-                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.outline" @click="addAssetToChapterOutline(activeInboxAsset)">加入纲要</button>
-                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.material" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
+            <div class="asset-inbox-modal-toolbar">
+              <div class="asset-inbox-toolbar-group">
+                <span class="asset-inbox-modal-stat">{{ inboxAssets.length }} 条待处理</span>
+                <span class="asset-inbox-modal-stat">已选 {{ selectedInboxAssetIds.length }} 条</span>
+              </div>
+              <div class="asset-inbox-toolbar-group">
+                <select v-model="assetInboxScope" class="asset-inbox-filter" @change="refreshAssetInbox">
+                  <option value="all">全部素材</option>
+                  <option value="current-book" :disabled="!selectedBookId">当前书</option>
+                  <option value="unbound">未绑定</option>
+                </select>
+                <select v-model="assetInboxKind" class="asset-inbox-filter" @change="refreshAssetInbox">
+                  <option value="">全部类型</option>
+                  <option v-for="kind in assetKindOptions" :key="kind.value" :value="kind.value">
+                    {{ kind.label }} · {{ kind.explanation }}
+                  </option>
+                </select>
+                <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
+              </div>
+              <div class="asset-inbox-toolbar-group">
+                <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
+                <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
+                <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">加入纲要</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
+              </div>
+            </div>
+            <div v-if="quickNoteStatus" class="asset-inbox-status">{{ quickNoteStatus }}</div>
+
+            <div class="asset-inbox-modal-body">
+              <div class="asset-inbox-list-panel">
                 <button
-                  v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
-                  class="quick-note-mini-btn"
+                  v-for="asset in inboxAssets"
+                  :key="asset.id"
                   type="button"
-                  :title="assetActionHelpMap.worldbook"
-                  @click="acceptWorldbookDraftAsset(activeInboxAsset)"
-                >入世界书</button>
-                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.archive" @click="archiveAsset(activeInboxAsset)">归档</button>
-                <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reject" @click="rejectAsset(activeInboxAsset)">拒绝</button>
-              </div>
-              <div class="asset-action-help-grid">
-                <div v-for="item in assetActionHelpEntries" :key="item.key" class="asset-action-help-item">
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.description }}</span>
+                  class="asset-inbox-row"
+                  :class="{ active: assetInboxActiveId === asset.id }"
+                  @click="focusInboxAsset(asset.id)"
+                >
+                  <input
+                    class="quick-note-import-check"
+                    type="checkbox"
+                    :checked="selectedInboxAssetIds.includes(asset.id)"
+                    @click.stop
+                    @change="toggleInboxAssetSelection(asset.id)"
+                  />
+                  <div class="asset-inbox-row-copy">
+                    <div class="asset-inbox-row-head">
+                      <span class="asset-inbox-title">{{ asset.title || '未命名素材' }}</span>
+                      <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
+                    </div>
+                    <div class="asset-inbox-source">{{ getAssetSourceDetail(asset.source) }}</div>
+                    <div class="asset-inbox-kind-explanation">{{ getAssetKindExplanation(asset.kind) }}</div>
+                    <p class="asset-inbox-preview">{{ asset.content }}</p>
+                  </div>
+                </button>
+                <div v-if="!inboxAssets.length" class="asset-inbox-empty-state">
+                  当前没有待处理素材
                 </div>
               </div>
-            </template>
-            <div v-else class="asset-inbox-empty-state">
-              选择一条素材查看详情
+
+              <aside class="asset-inbox-detail-panel">
+                <template v-if="activeInboxAsset">
+                  <div class="asset-inbox-detail-kicker">{{ getAssetKindLabel(activeInboxAsset.kind) }}</div>
+                  <div class="asset-inbox-detail-explanation">{{ getAssetKindExplanation(activeInboxAsset.kind) }}</div>
+                  <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || '未命名素材' }}</h4>
+                  <div class="asset-inbox-detail-meta">{{ getAssetSourceDetail(activeInboxAsset.source) }}</div>
+                  <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
+                  <div class="asset-inbox-detail-actions">
+                    <button class="quick-note-mini-btn primary" type="button" :title="assetActionHelpMap.insert" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reference" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.outline" @click="addAssetToChapterOutline(activeInboxAsset)">加入纲要</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.material" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
+                    <button
+                      v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
+                      class="quick-note-mini-btn"
+                      type="button"
+                      :title="assetActionHelpMap.worldbook"
+                      @click="acceptWorldbookDraftAsset(activeInboxAsset)"
+                    >入世界书</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.archive" @click="archiveAsset(activeInboxAsset)">归档</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reject" @click="rejectAsset(activeInboxAsset)">拒绝</button>
+                  </div>
+                  <div class="asset-action-help-grid">
+                    <div v-for="item in assetActionHelpEntries" :key="item.key" class="asset-action-help-item">
+                      <strong>{{ item.label }}</strong>
+                      <span>{{ item.description }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="asset-inbox-empty-state">
+                  选择一条素材查看详情
+                </div>
+              </aside>
             </div>
-          </aside>
-        </div>
-      </section>
-    </div>
+          </section>
+        </Transition>
+      </div>
+    </Transition>
 
     <!-- 新建书籍弹窗 -->
-    <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>新建书籍</h3>
-          <button class="modal-close" @click="showNewBookModal = false">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <label class="input-label">书名</label>
-          <input
-            v-model="newBookTitle"
-            type="text"
-            class="input"
-            placeholder="输入书籍名称"
-            ref="newBookInput"
-          />
-          <label class="input-label">简介（可选）</label>
-          <textarea
-            v-model="newBookDesc"
-            class="input textarea"
-            placeholder="输入书籍简介"
-          ></textarea>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" @click="showNewBookModal = false">取消</button>
-          <button class="btn-primary" @click="confirmCreateBook" :disabled="!newBookTitle.trim()">创建</button>
-        </div>
+    <Transition name="modal-fade">
+      <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
+        <Transition name="modal-scale" appear>
+          <div class="modal">
+            <div class="modal-header">
+              <h3>新建书籍</h3>
+              <button class="modal-close" @click="showNewBookModal = false">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <label class="input-label">书名</label>
+              <input
+                v-model="newBookTitle"
+                type="text"
+                class="input"
+                placeholder="输入书籍名称"
+                ref="newBookInput"
+              />
+              <label class="input-label">简介（可选）</label>
+              <textarea
+                v-model="newBookDesc"
+                class="input textarea"
+                placeholder="输入书籍简介"
+              ></textarea>
+            </div>
+            <div class="modal-footer">
+              <button class="btn" @click="showNewBookModal = false">取消</button>
+              <button class="btn-primary" @click="confirmCreateBook" :disabled="!newBookTitle.trim()">创建</button>
+            </div>
+          </div>
+        </Transition>
       </div>
-    </div>
+    </Transition>
+
+    <button class="advisor-fab" @click="openAdvisorFromAction" title="打开创作顾问">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="5"></circle>
+        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
+      </svg>
+    </button>
 
     <AdvisorPanel
       :isOpen="advisorOpen"
@@ -3197,7 +3209,7 @@ function stopResizeRight() {
 .add-btn.prominent {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .add-btn.prominent:hover {
@@ -3210,7 +3222,7 @@ function stopResizeRight() {
   height: 28px;
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border-radius: 6px;
   padding: 0;
   display: flex;
@@ -3221,7 +3233,7 @@ function stopResizeRight() {
 .add-btn.btn-new:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .add-btn.btn-new svg {
@@ -3430,7 +3442,7 @@ function stopResizeRight() {
   background: var(--accent);
   border: none;
   border-radius: 4px;
-  color: #fff;
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -3444,6 +3456,30 @@ function stopResizeRight() {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.advisor-fab {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  z-index: 245;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .editor-header {
@@ -3728,7 +3764,7 @@ function stopResizeRight() {
 .tool-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
@@ -3885,7 +3921,7 @@ function stopResizeRight() {
 .fp-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
@@ -3947,7 +3983,7 @@ function stopResizeRight() {
 .ng-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
@@ -4104,12 +4140,12 @@ function stopResizeRight() {
 .ai-btn {
   background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #6366f1));
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .ai-btn:hover {
   background: linear-gradient(135deg, var(--accent-hover), color-mix(in srgb, var(--accent-hover) 80%, #4f46e5));
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .ai-btn.active {
@@ -4200,13 +4236,13 @@ function stopResizeRight() {
   margin-top: 4px;
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .ai-action-btn:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .ai-action-btn:disabled {
@@ -4247,7 +4283,7 @@ function stopResizeRight() {
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 4px;
-  color: #fff;
+  color: var(--accent-text);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -4629,6 +4665,13 @@ function stopResizeRight() {
 
   .asset-action-help-grid {
     grid-template-columns: 1fr;
+  }
+
+  .advisor-fab {
+    right: 16px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 52px;
+    height: 52px;
   }
 }
 </style>

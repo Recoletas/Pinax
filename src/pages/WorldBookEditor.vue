@@ -1478,18 +1478,22 @@ async function exportActiveWorldbook() {
 }
 
 onMounted(async () => {
-  await worldStore.loadWorldbooksIndex()
-  if (typeof worldStore.ensureActiveWorldbook === 'function') {
-    await worldStore.ensureActiveWorldbook()
-  } else if (worldbooksIndex.value.length > 0) {
-    await worldStore.setActiveWorldbook(worldbooksIndex.value[0].id)
+  try {
+    await worldStore.loadWorldbooksIndex()
+    if (typeof worldStore.ensureActiveWorldbook === 'function') {
+      await worldStore.ensureActiveWorldbook()
+    } else if (worldbooksIndex.value.length > 0) {
+      await worldStore.setActiveWorldbook(worldbooksIndex.value[0].id)
+    }
+  } catch (e) {
+    console.error('[世界书·高级设置] 初始化失败:', e)
   }
 })
 </script>
 
 <style scoped>
 .worldbook-page {
-  min-height: 100%;
+  min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);

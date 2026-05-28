@@ -21,6 +21,7 @@
 | --- | --- | --- |
 | [PLAN.md](./PLAN.md) | 项目主线与边界 | 当前主入口 |
 | [plan/current-execution-plan.md](./plan/current-execution-plan.md) | UI 可用性重构执行顺序与验收 | 当前主入口 |
+| [plan/page-transition.md](./plan/page-transition.md) | 页面间动画衔接与反馈一致性 | 当前 P2 视觉 polish 执行文档 |
 | [engineering/development-standards.md](./engineering/development-standards.md) | 编码与 UI 基线 | 持续维护 |
 | [operations/troubleshooting.md](./operations/troubleshooting.md) | 故障定位和回归路径 | 持续维护 |
 | [LOG.md](./LOG.md) | 近期里程碑、验证、风险 | 精简维护 |
@@ -29,11 +30,6 @@
 
 以下专题不再作为日常推进入口，仅在改动对应模块时查边界：
 
-- [plan/session-stability.md](./plan/session-stability.md)
-- [plan/worldbook-context.md](./plan/worldbook-context.md)
-- [plan/asset-loop.md](./plan/asset-loop.md)
-- [plan/generation-service.md](./plan/generation-service.md)
-- [plan/editor-advisor-unification.md](./plan/editor-advisor-unification.md)
 - [plan/memory-system.md](./plan/memory-system.md)
 - [plan/storyboard-system.md](./plan/storyboard-system.md)
 - [plan/implementation-order.md](./plan/implementation-order.md)

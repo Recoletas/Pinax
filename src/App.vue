@@ -13,9 +13,9 @@ let noticeTimer = null
 useViewportHeight()
 
 function syncDocumentTitle() {
-  const fallbackTitle = route.name === 'welcome' ? '工作台' : String(route.name || 'WriterHelper')
-  const title = String(route.meta?.title || fallbackTitle || 'WriterHelper').trim()
-  document.title = title ? `${title} - WriterHelper` : 'WriterHelper'
+  const fallbackTitle = route.name === 'welcome' ? '工作台' : String(route.name || 'Pinax')
+  const title = String(route.meta?.title || fallbackTitle || 'Pinax').trim()
+  document.title = title ? `${title} - Pinax` : 'Pinax'
 }
 
 function hideNotice() {

@@ -13,7 +13,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     question,
     taskType = defaults.taskType,
     target = null,
-    options = {}
+    options = {},
+    mode = defaults.mode
   } = req.body || {}
 
   if (context == null || question == null) {
@@ -26,7 +27,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     const advice = await getAdvice(context, question, {
       taskType: normalizedTaskType,
       target,
-      options
+      options,
+      mode
     })
     res.json(createAdvisorTaskResponse({
       taskType: normalizedTaskType,

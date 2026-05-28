@@ -90,4 +90,20 @@ const router = createRouter({
   routes
 })
 
+// 捕获懒加载 chunk 失败，自动刷新重试一次
+router.onError((error, to) => {
+  const isChunkError = error?.message?.includes('Failed to fetch dynamically imported module')
+    || error?.message?.includes('Importing a module script failed')
+    || error?.message?.includes('Loading chunk')
+    || error?.name === 'ChunkLoadError'
+
+  if (isChunkError) {
+    const reloadKey = `chunk-reload-${to?.fullPath || 'unknown'}`
+    if (!sessionStorage.getItem(reloadKey)) {
+      sessionStorage.setItem(reloadKey, '1')
+      window.location.href = to?.fullPath || window.location.href
+    }
+  }
+})
+
 export default router

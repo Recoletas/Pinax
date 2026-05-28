@@ -70,80 +70,84 @@
       </button>
     </aside>
 
-    <div v-if="quickNoteOpen" class="quick-note-workspace-overlay" @click.self="quickNoteOpen = false">
-      <section class="quick-note-workspace">
-        <header class="quick-note-workspace-header">
-          <div>
-            <div class="quick-note-workspace-kicker">体验素材</div>
-            <h3 class="quick-note-workspace-title">速记与对话导入</h3>
-          </div>
-          <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
-        </header>
+    <Transition name="modal-fade">
+      <div v-if="quickNoteOpen" class="quick-note-workspace-overlay" @click.self="quickNoteOpen = false">
+        <Transition name="modal-scale" appear>
+          <section class="quick-note-workspace">
+            <header class="quick-note-workspace-header">
+              <div>
+                <div class="quick-note-workspace-kicker">体验素材</div>
+                <h3 class="quick-note-workspace-title">速记与对话导入</h3>
+              </div>
+              <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
+            </header>
 
-        <div class="quick-note-workspace-body">
-          <section class="quick-note-editor-panel">
-            <div class="quick-note-panel-head">
-              <span>速记</span>
-              <select v-model="narrativeAssetKind" class="quick-note-kind-select">
-                <option v-for="kind in narrativeAssetKinds" :key="kind.value" :value="kind.value">
-                  {{ kind.label }}
-                </option>
-              </select>
-            </div>
-            <textarea
-              v-model="quickNoteDraft"
-              class="quick-note-workspace-input"
-              placeholder="随手记一段体验片段、设定、人物变化或正文候选..."
-              @input="handleQuickNoteInput"
-            ></textarea>
-            <div class="quick-note-workspace-actions">
-              <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
-              <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
+            <div class="quick-note-workspace-body">
+              <section class="quick-note-editor-panel">
+                <div class="quick-note-panel-head">
+                  <span>速记</span>
+                  <select v-model="narrativeAssetKind" class="quick-note-kind-select">
+                    <option v-for="kind in narrativeAssetKinds" :key="kind.value" :value="kind.value">
+                      {{ kind.label }}
+                    </option>
+                  </select>
+                </div>
+                <textarea
+                  v-model="quickNoteDraft"
+                  class="quick-note-workspace-input"
+                  placeholder="随手记一段体验片段、设定、人物变化或正文候选..."
+                  @input="handleQuickNoteInput"
+                ></textarea>
+                <div class="quick-note-workspace-actions">
+                  <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
+                  <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
+                </div>
+              </section>
+
+              <aside class="quick-note-dialogue-panel">
+                <div class="quick-note-panel-head">
+                  <span>对话段</span>
+                  <button class="quick-note-panel-btn compact" type="button" @click="toggleQuickNoteImport">
+                    {{ quickNoteImportOpen ? '关闭选择' : '选择模式' }}
+                  </button>
+                </div>
+                <div v-if="dialoguePanelMessages.length" class="quick-note-message-list">
+                  <label
+                    v-for="item in dialoguePanelMessages"
+                    :key="item.index"
+                    class="quick-note-message-item"
+                    :class="{ active: gameStore.quickNoteSelectedMessageIndexes.includes(item.index) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="gameStore.quickNoteSelectedMessageIndexes.includes(item.index)"
+                      @change="gameStore.toggleQuickNoteMessageSelection(item.index)"
+                    />
+                    <span class="quick-note-message-copy">
+                      <span class="quick-note-message-meta">{{ item.label }}</span>
+                      <span class="quick-note-message-preview">{{ item.preview }}</span>
+                    </span>
+                  </label>
+                </div>
+                <div v-else class="quick-note-import-empty">当前还没有可导入的对话段。</div>
+                <div class="quick-note-stat-grid">
+                  <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
+                  <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
+                  <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
+                  <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
+                </div>
+                <div class="quick-note-workspace-actions">
+                  <button class="quick-note-panel-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
+                  <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
+                  <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
+                </div>
+                <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
+              </aside>
             </div>
           </section>
-
-          <aside class="quick-note-dialogue-panel">
-            <div class="quick-note-panel-head">
-              <span>对话段</span>
-              <button class="quick-note-panel-btn compact" type="button" @click="toggleQuickNoteImport">
-                {{ quickNoteImportOpen ? '关闭选择' : '选择模式' }}
-              </button>
-            </div>
-            <div v-if="dialoguePanelMessages.length" class="quick-note-message-list">
-              <label
-                v-for="item in dialoguePanelMessages"
-                :key="item.index"
-                class="quick-note-message-item"
-                :class="{ active: gameStore.quickNoteSelectedMessageIndexes.includes(item.index) }"
-              >
-                <input
-                  type="checkbox"
-                  :checked="gameStore.quickNoteSelectedMessageIndexes.includes(item.index)"
-                  @change="gameStore.toggleQuickNoteMessageSelection(item.index)"
-                />
-                <span class="quick-note-message-copy">
-                  <span class="quick-note-message-meta">{{ item.label }}</span>
-                  <span class="quick-note-message-preview">{{ item.preview }}</span>
-                </span>
-              </label>
-            </div>
-            <div v-else class="quick-note-import-empty">当前还没有可导入的对话段。</div>
-            <div class="quick-note-stat-grid">
-              <div class="quick-note-stat"><span>总段数</span><strong>{{ dialogueImportStats.totalCount }}</strong></div>
-              <div class="quick-note-stat"><span>已选</span><strong>{{ dialogueImportStats.selectedCount }}</strong></div>
-              <div class="quick-note-stat"><span>总字数</span><strong>{{ dialogueImportStats.totalWords }}</strong></div>
-              <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
-            </div>
-            <div class="quick-note-workspace-actions">
-              <button class="quick-note-panel-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
-              <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
-              <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
-            </div>
-            <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
-          </aside>
-        </div>
-      </section>
-    </div>
+        </Transition>
+      </div>
+    </Transition>
 
     <Character v-if="showCharacter" @close="showCharacter = false" />
     <Settings v-if="showSettings" @close="showSettings = false" />
@@ -193,27 +197,29 @@
 
     <!-- 内联事件详情弹窗 -->
     <Teleport to="body">
-      <Transition name="fade">
+      <Transition name="modal-fade">
         <div v-if="inlineDetail" class="inline-detail-overlay" @click.self="closeInlineDetail">
-          <div class="inline-detail-card">
-            <header class="inline-detail-header">
-              <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
-              <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
-              <button class="inline-detail-close" @click="closeInlineDetail">×</button>
-            </header>
-            <div class="inline-detail-body">
-              <template v-if="inlineDetail.type === 'dialogue'">
-                <p class="inline-detail-content">"{{ inlineDetail.content }}"</p>
-                <div class="inline-detail-hint">点击其他区域关闭</div>
-              </template>
-              <template v-else-if="inlineDetail.type === 'item'">
-                <p class="inline-detail-content">{{ inlineDetail.content }}</p>
-                <div class="inline-detail-actions">
-                  <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
-                </div>
-              </template>
+          <Transition name="modal-scale" appear>
+            <div class="inline-detail-card">
+              <header class="inline-detail-header">
+                <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
+                <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
+                <button class="inline-detail-close" @click="closeInlineDetail">×</button>
+              </header>
+              <div class="inline-detail-body">
+                <template v-if="inlineDetail.type === 'dialogue'">
+                  <p class="inline-detail-content">"{{ inlineDetail.content }}"</p>
+                  <div class="inline-detail-hint">点击其他区域关闭</div>
+                </template>
+                <template v-else-if="inlineDetail.type === 'item'">
+                  <p class="inline-detail-content">{{ inlineDetail.content }}</p>
+                  <div class="inline-detail-actions">
+                    <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
+                  </div>
+                </template>
+              </div>
             </div>
-          </div>
+          </Transition>
         </div>
       </Transition>
     </Teleport>
@@ -234,7 +240,12 @@
         :isOpen="advisorOpen"
         :messages="advisorMessages"
         :loading="advisorLoading"
-        :quickQuestions="['分析当前节奏', '人物塑造建议', '剧情发展方向', '续写灵感']"
+        :quickQuestions="[
+          { label: '分析当前节奏', question: '分析当前冒险的叙事节奏，指出快慢和转折点。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+          { label: '人物塑造建议', question: '分析当前出场人物的行为逻辑和性格表现，给出深化建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+          { label: '剧情发展方向', question: '基于当前剧情状态，给出1-2个合理的后续发展方向。', scope: 'thread', taskType: 'advisor.close.thread' },
+          { label: '续写灵感', question: '给出一句轻量续写建议，保持当前叙事语气。', scope: 'continue', taskType: 'advisor.continue.light' }
+        ]"
         :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
@@ -337,8 +348,11 @@ function collectGameContext() {
   }
 }
 
-async function handleAskAdvisor(question) {
-  await askAdvisor(question, collectGameContext)
+async function handleAskAdvisor(input) {
+  const action = typeof input === 'string'
+    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
+    : input
+  await askAdvisor({ ...action, mode: 'novel' }, collectGameContext)
 }
 
 function openAdvisorFromAction() {
@@ -865,7 +879,7 @@ function quickNoteWordCount(text) {
 .action-btn.primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .action-btn:hover {
@@ -876,7 +890,7 @@ function quickNoteWordCount(text) {
 .action-btn.primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .action-btn:disabled {
@@ -887,7 +901,7 @@ function quickNoteWordCount(text) {
 .action-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .worldbook-select {
@@ -1315,7 +1329,7 @@ function quickNoteWordCount(text) {
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1483,7 +1497,7 @@ function quickNoteWordCount(text) {
 
 .inline-detail-actions .action-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 /* Transition */

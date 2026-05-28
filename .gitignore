@@ -52,6 +52,11 @@ temp/
 .DS_Store
 Thumbs.db
 
+# Agent skills
+.agents/
+.claude/
+skills-lock.json
+
 # Editor
 .vscode/
 .idea/
@@ -64,3 +69,6 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *.pyo
+
+
+Marcia/

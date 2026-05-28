@@ -72,106 +72,40 @@
           <p>选择节点编辑镜头参数</p>
         </div>
 
-        <div class="outline-section">
-          <div class="outline-header">
-            <div class="outline-title-stack">
-              <span class="outline-title">时间轴</span>
-              <span class="timeline-summary">{{ timelineItems.length }} 镜 / {{ timelineTotalDuration }}s</span>
-            </div>
-            <div class="timeline-header-actions">
-              <span
-                v-if="directorExportStatus"
-                class="timeline-version-chip"
-                :class="`is-${directorExportStatus.kind}`"
-                :title="directorExportButtonTitle"
-              >
-                <span class="timeline-version-dot"></span>
-                <span class="timeline-version-text">{{ directorExportStatus.title }}</span>
-              </span>
-              <button
-                v-if="currentMode === 'directing'"
-                class="timeline-version-action"
-                type="button"
-                :disabled="directorTimelineActionDisabled"
-                @click="handleDirectorTimelineAction"
-                :title="directorTimelineActionTitle"
-              >
-                {{ directorTimelineActionLabel }}
-              </button>
-              <button class="timeline-clear-btn" type="button" :disabled="outline.length === 0" @click="clearTimeline" title="清空时间轴">清空</button>
-            </div>
-          </div>
-
-          <div class="timeline-view">
-            <div class="timeline-track">
-              <div
-                v-for="item in timelineItems"
-                :key="item.key"
-                class="timeline-card"
-                :class="{ active: selectedCard?.id === item.cardId, dragging: draggingOutlineIndex === item.index, 'drop-target': outlineDragOverIndex === item.index }"
-                @click="jumpToTimelineItem(item)"
-                draggable="true"
-                @dragstart="onOutlineDragStart(item.index, $event)"
-                @dragover.prevent="onOutlineDragOver(item.index)"
-                @drop="onOutlineDrop(item.index)"
-                @dragend="onOutlineDragEnd"
-              >
-                <div class="timeline-card-header">
-                  <span class="timeline-index">{{ item.index + 1 }}</span>
-                  <span class="timeline-card-title">{{ item.title }}</span>
-                  <span class="timeline-duration">{{ item.duration }}s</span>
-                </div>
-                <div v-if="item.metaText" class="timeline-card-meta" :title="item.metaText">
-                  {{ item.metaText }}
-                </div>
-                <div class="timeline-card-actions" @click.stop>
-                  <button type="button" :disabled="item.index === 0" @click="moveOutlineUp(item.index)" title="上移">↑</button>
-                  <button type="button" :disabled="item.index === outline.length - 1" @click="moveOutlineDown(item.index)" title="下移">↓</button>
-                  <button type="button" class="danger" @click="removeFromOutline(item.index)" title="移除">×</button>
-                </div>
-              </div>
-              <div v-if="outline.length === 0" class="timeline-empty">
-                选择画布节点后，在详情中加入时间轴
-              </div>
-            </div>
-          </div>
-        </div>
+        <CanvasTimeline
+          :timeline-items="timelineItems"
+          :outline-length="outline.length"
+          :selected-card-id="selectedCard?.id || ''"
+          :director-mode="currentMode === 'directing'"
+          :director-export-status="directorExportStatus"
+          :director-export-button-title="directorExportButtonTitle"
+          :director-action-disabled="directorTimelineActionDisabled"
+          :director-action-label="directorTimelineActionLabel"
+          :director-action-title="directorTimelineActionTitle"
+          @jump="jumpToTimelineItem"
+          @move-up="moveOutlineUp"
+          @move-down="moveOutlineDown"
+          @remove="removeFromOutline"
+          @reorder="onOutlineReorder"
+          @drop="onOutlineDrop"
+          @clear="clearTimeline"
+          @director-action="handleDirectorTimelineAction"
+        />
       </aside>
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length, 'storyboard-mode': currentMode === 'directing' }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
-        <div v-if="cards.length" class="canvas-edge-legend" :class="{ active: linkingActive || edgeDeleteActive }">
-          <div class="canvas-edge-legend-head">
-            <span class="legend-edge-title">关系线</span>
-            <div class="legend-head-actions">
-              <button class="legend-toggle-btn" :class="{ active: linkingActive }" type="button" @click="toggleLinking" :title="linkingActive ? '退出连线模式' : '连线模式'">
-                <svg class="legend-action-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M8 12h8M5 12a3 3 0 116 0 3 3 0 01-6 0Zm8 0a3 3 0 116 0 3 3 0 01-6 0Z" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span class="legend-action-label">{{ linkingActive ? '连线中' : '连线' }}</span>
-              </button>
-              <button class="legend-delete-btn" :class="{ active: edgeDeleteActive }" type="button" @click="toggleEdgeDeleteMode" :title="edgeDeleteActive ? '退出删线模式' : '删线模式'">
-                <svg class="legend-action-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M3 6h18M9 6V4h6v2M6 6v14a2 2 0 002 2h10a2 2 0 002-2V6" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-          <button
-            v-for="edgeType in edgeTypes"
-            :key="edgeType.value"
-            class="legend-edge-item"
-            :class="{ active: newEdgeType === edgeType.value }"
-            type="button"
-            @click="activateLinkType(edgeType.value)"
-          >
-            <span class="legend-line-preview" :style="getEdgePreviewStyle(edgeType.value)"></span>
-            <span>{{ edgeType.label }}</span>
-          </button>
-          <p class="legend-edge-hint">
-            {{ edgeDeleteActive ? '点击关系线删除，Esc 退出' : linkingActive ? '拖动节点到目标节点' : '选线型后开启连线' }}
-          </p>
-        </div>
+        <CanvasEdgeLegend
+          v-if="cards.length"
+          :edge-types="edgeTypes"
+          :linking-active="linkingActive"
+          :edge-delete-active="edgeDeleteActive"
+          :active-link-type="newEdgeType"
+          :get-preview-style="getEdgePreviewStyle"
+          @toggle-linking="toggleLinking"
+          @toggle-delete="toggleEdgeDeleteMode"
+          @activate-type="activateLinkType"
+        />
         <svg class="edge-layer" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
           <defs>
             <marker id="prose-edge-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
@@ -488,116 +422,128 @@
     </aside>
 
     <!-- 图片预览弹窗 -->
-    <div v-if="imagePreviewIndex >= 0" class="image-preview-overlay" @click="imagePreviewIndex = -1">
-      <div class="image-preview-modal" @click.stop>
-        <div class="image-preview-header">
-          <span>图片预览</span>
-          <button class="image-preview-close" @click="imagePreviewIndex = -1">×</button>
-        </div>
-        <div class="image-preview-body">
-          <img :src="imageLibrary[imagePreviewIndex]?.data" alt="preview" />
-        </div>
-        <div class="image-preview-actions">
-          <button v-if="selectedCard" class="image-preview-action-btn" @click="attachImageToCard(imageLibrary[imagePreviewIndex])">
-            插入当前卡片
-          </button>
-          <button class="image-preview-action-btn" @click="saveAsNewCard(imageLibrary[imagePreviewIndex])">
-            存为新素材卡片
-          </button>
-          <button class="image-preview-action-btn" @click="copyImagePrompt(imageLibrary[imagePreviewIndex])">
-            复制提示词
-          </button>
-          <button class="image-preview-action-btn" @click="saveToMaterialLib(imageLibrary[imagePreviewIndex])">
-            保存到素材库
-          </button>
-        </div>
+    <Transition name="modal-fade">
+      <div v-if="imagePreviewIndex >= 0" class="image-preview-overlay" @click="imagePreviewIndex = -1">
+        <Transition name="modal-scale" appear>
+          <div class="image-preview-modal" @click.stop>
+            <div class="image-preview-header">
+              <span>图片预览</span>
+              <button class="image-preview-close" @click="imagePreviewIndex = -1">×</button>
+            </div>
+            <div class="image-preview-body">
+              <img :src="imageLibrary[imagePreviewIndex]?.data" alt="preview" />
+            </div>
+            <div class="image-preview-actions">
+              <button v-if="selectedCard" class="image-preview-action-btn" @click="attachImageToCard(imageLibrary[imagePreviewIndex])">
+                插入当前卡片
+              </button>
+              <button class="image-preview-action-btn" @click="saveAsNewCard(imageLibrary[imagePreviewIndex])">
+                存为新素材卡片
+              </button>
+              <button class="image-preview-action-btn" @click="copyImagePrompt(imageLibrary[imagePreviewIndex])">
+                复制提示词
+              </button>
+              <button class="image-preview-action-btn" @click="saveToMaterialLib(imageLibrary[imagePreviewIndex])">
+                保存到素材库
+              </button>
+            </div>
+          </div>
+        </Transition>
       </div>
-    </div>
+    </Transition>
 
     <!-- 模型配置弹窗 -->
-    <div v-if="showImageConfigDialog && editingModelConfig" class="dialog-overlay" @click="showImageConfigDialog = false">
-      <div class="dialog image-config-dialog" @click.stop>
-        <div class="dialog-header">
-          {{ editingModelConfig.id ? '编辑模型' : '添加模型' }}
-        </div>
-        <div class="dialog-body">
-          <div class="form-group">
-            <label>名称</label>
-            <input v-model="editingModelConfig.name" class="input" placeholder="例如：我的SD" />
+    <Transition name="modal-fade">
+      <div v-if="showImageConfigDialog && editingModelConfig" class="dialog-overlay" @click="showImageConfigDialog = false">
+        <Transition name="modal-scale" appear>
+          <div class="dialog image-config-dialog" @click.stop>
+            <div class="dialog-header">
+              {{ editingModelConfig.id ? '编辑模型' : '添加模型' }}
+            </div>
+            <div class="dialog-body">
+              <div class="form-group">
+                <label>名称</label>
+                <input v-model="editingModelConfig.name" class="input" placeholder="例如：我的SD" />
+              </div>
+              <div class="form-group">
+                <label>类型</label>
+                <select v-model="editingModelConfig.type" class="input">
+                  <option v-for="t in modelTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>API 地址</label>
+                <input v-model="editingModelConfig.baseUrl" class="input" placeholder="http://127.0.0.1:7860" />
+              </div>
+              <div class="form-group">
+                <label>API Key（可选）</label>
+                <input v-model="editingModelConfig.apiKey" class="input" type="password" placeholder="sk-..." />
+              </div>
+              <div class="form-group">
+                <label>默认模型 ID</label>
+                <input v-model="editingModelConfig.defaultModel" class="input" placeholder="stable-diffusion-xl-base-1.0" />
+              </div>
+              <div v-if="editingModelConfig.type === 'http'" class="form-group">
+                <label>请求体模板（JSON）</label>
+                <textarea v-model="editingModelConfig.requestTemplate" class="input" rows="3" placeholder='{"prompt": "{{prompt}}"}'></textarea>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="btn" type="button" @click="testModelConnection">测试连通性</button>
+              <button class="btn" type="button" @click="showImageConfigDialog = false">取消</button>
+              <button class="btn-primary" type="button" @click="saveModelConfig">保存</button>
+            </div>
           </div>
-          <div class="form-group">
-            <label>类型</label>
-            <select v-model="editingModelConfig.type" class="input">
-              <option v-for="t in modelTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>API 地址</label>
-            <input v-model="editingModelConfig.baseUrl" class="input" placeholder="http://127.0.0.1:7860" />
-          </div>
-          <div class="form-group">
-            <label>API Key（可选）</label>
-            <input v-model="editingModelConfig.apiKey" class="input" type="password" placeholder="sk-..." />
-          </div>
-          <div class="form-group">
-            <label>默认模型 ID</label>
-            <input v-model="editingModelConfig.defaultModel" class="input" placeholder="stable-diffusion-xl-base-1.0" />
-          </div>
-          <div v-if="editingModelConfig.type === 'http'" class="form-group">
-            <label>请求体模板（JSON）</label>
-            <textarea v-model="editingModelConfig.requestTemplate" class="input" rows="3" placeholder='{"prompt": "{{prompt}}"}'></textarea>
-          </div>
-        </div>
-        <div class="dialog-footer">
-          <button class="btn" type="button" @click="testModelConnection">测试连通性</button>
-          <button class="btn" type="button" @click="showImageConfigDialog = false">取消</button>
-          <button class="btn-primary" type="button" @click="saveModelConfig">保存</button>
-        </div>
+        </Transition>
       </div>
-    </div>
+    </Transition>
 
     <!-- 卡片详情对话框（分镜模式） -->
-    <div v-if="showCardDetailDialog && selectedCard" class="dialog-overlay" @click="showCardDetailDialog = false">
-      <div class="dialog" @click.stop>
-        <div class="dialog-header">镜头参数</div>
-        <div class="dialog-body">
-          <div class="form-group">
-            <label>景别</label>
-            <select v-model="editingShotType" class="input">
-              <option value="">选择景别...</option>
-              <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
-            </select>
-          </div>
+    <Transition name="modal-fade">
+      <div v-if="showCardDetailDialog && selectedCard" class="dialog-overlay" @click="showCardDetailDialog = false">
+        <Transition name="modal-scale" appear>
+          <div class="dialog" @click.stop>
+            <div class="dialog-header">镜头参数</div>
+            <div class="dialog-body">
+              <div class="form-group">
+                <label>景别</label>
+                <select v-model="editingShotType" class="input">
+                  <option value="">选择景别...</option>
+                  <option v-for="s in shotTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
+                </select>
+              </div>
 
-          <div class="form-group">
-            <label>运镜</label>
-            <select v-model="editingCameraMovement" class="input">
-              <option value="">选择运镜...</option>
-              <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
-            </select>
-          </div>
+              <div class="form-group">
+                <label>运镜</label>
+                <select v-model="editingCameraMovement" class="input">
+                  <option value="">选择运镜...</option>
+                  <option v-for="m in cameraMovements" :key="m.value" :value="m.value">{{ m.label }}</option>
+                </select>
+              </div>
 
-          <div class="form-group">
-            <label>时长（秒）</label>
-            <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
-          </div>
+              <div class="form-group">
+                <label>时长（秒）</label>
+                <input v-model.number="editingDuration" type="number" min="1" max="300" class="input" placeholder="3" />
+              </div>
 
-          <div class="form-group">
-            <label>台词</label>
-            <textarea v-model="editingDialogue" class="input" rows="2" placeholder="角色台词..."></textarea>
-          </div>
+              <div class="form-group">
+                <label>台词</label>
+                <textarea v-model="editingDialogue" class="input" rows="2" placeholder="角色台词..."></textarea>
+              </div>
 
-          <div class="form-group">
-            <label>音效</label>
-            <textarea v-model="editingSoundEffects" class="input" rows="2" placeholder="环境音、音乐..."></textarea>
+              <div class="form-group">
+                <label>音效</label>
+                <textarea v-model="editingSoundEffects" class="input" rows="2" placeholder="环境音、音乐..."></textarea>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="btn" @click="showCardDetailDialog = false">关闭</button>
+              <button class="btn-primary" @click="saveCardDetail(); showCardDetailDialog = false">保存</button>
+            </div>
           </div>
-        </div>
-        <div class="dialog-footer">
-          <button class="btn" @click="showCardDetailDialog = false">关闭</button>
-          <button class="btn-primary" @click="saveCardDetail(); showCardDetailDialog = false">保存</button>
-        </div>
+        </Transition>
       </div>
-    </div>
+    </Transition>
 
       <!-- 创作顾问悬浮按钮 -->
       <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
@@ -611,7 +557,12 @@
         :isOpen="advisorOpen"
         :messages="advisorMessages"
         :loading="advisorLoading"
-        :quickQuestions="['检查镜头顺序', '分析关系结构', '转场建议', '遗漏镜头']"
+        :quickQuestions="[
+          { label: '检查镜头顺序', question: '检查当前镜头/卡片的排列顺序，指出不连贯之处。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+          { label: '分析关系结构', question: '分析素材卡片之间的逻辑关系和结构层次。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+          { label: '转场建议', question: '分析卡片之间的转场，给出衔接建议。', scope: 'thread', taskType: 'advisor.close.thread' },
+          { label: '遗漏镜头', question: '检查当前分镜，找出遗漏或缺失的镜头。', scope: 'chapter', taskType: 'advisor.review.chapter' }
+        ]"
         :emptyText="'创作顾问可帮你分析素材关系、镜头节奏和分镜推进方向。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
@@ -627,6 +578,8 @@ import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
+import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
 import {
   saveValidatedStoryboardVersion
 } from '../services/storyboardStore'
@@ -831,8 +784,6 @@ const piles = ref([])
 const hoveredPileId = ref(null)
 const expandedPileId = ref(null)
 const draggingCardId = ref(null)
-const draggingOutlineIndex = ref(-1)
-const outlineDragOverIndex = ref(-1)
 
 // Git-style commits (renamed to avoid conflicts)
 const proseCommits = ref([])
@@ -1174,8 +1125,11 @@ function collectProseContext() {
   }
 }
 
-function handleAskAdvisor(question) {
-  askAdvisor(question, collectProseContext)
+function handleAskAdvisor(input) {
+  const action = typeof input === 'string'
+    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
+    : input
+  askAdvisor({ ...action, mode: 'prose' }, collectProseContext)
 }
 
 // Data operations
@@ -1803,32 +1757,16 @@ function moveOutlineDown(index) {
   saveData()
 }
 
-function onOutlineDragStart(index, e) {
-  draggingOutlineIndex.value = index
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', String(index))
-}
-
-function onOutlineDragOver(index) {
-  if (draggingOutlineIndex.value === -1 || draggingOutlineIndex.value === index) return
-  outlineDragOverIndex.value = index
+function onOutlineReorder(fromIndex, toIndex) {
   const items = [...outline.value]
-  const dragItem = items.splice(draggingOutlineIndex.value, 1)[0]
-  items.splice(index, 0, dragItem)
+  const dragItem = items.splice(fromIndex, 1)[0]
+  items.splice(toIndex, 0, dragItem)
   outline.value = items
-  draggingOutlineIndex.value = index
 }
 
-function onOutlineDrop(index) {
-  draggingOutlineIndex.value = -1
-  outlineDragOverIndex.value = -1
+function onOutlineDrop() {
   addTimeline('大纲拖拽排序')
   saveData()
-}
-
-function onOutlineDragEnd() {
-  draggingOutlineIndex.value = -1
-  outlineDragOverIndex.value = -1
 }
 
 function onCardDragStart(card, e) {
@@ -3151,7 +3089,7 @@ function goToMaterialsImageGen() {
 
 .mode-label.active {
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -3178,11 +3116,17 @@ function goToMaterialsImageGen() {
   flex: 1;
   overflow: auto;
   position: relative;
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-secondary) 10%, transparent) 1px, transparent 0);
+  background-size: 18px 18px;
 }
 
 .card-wall.storyboard-mode {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 180px), var(--bg-primary);
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 180px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-secondary) 10%, transparent) 1px, transparent 0);
+  background-size: auto, 18px 18px;
 }
 
 .card-wall.has-cards {
@@ -3436,7 +3380,7 @@ function goToMaterialsImageGen() {
   border: none;
   border-radius: 4px;
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
   font-size: 12px;
   cursor: pointer;
 }
@@ -3606,206 +3550,6 @@ function goToMaterialsImageGen() {
   margin-bottom: 6px;
 }
 
-.canvas-edge-legend {
-  position: sticky;
-  top: 86px;
-  float: right;
-  z-index: 6;
-  width: 132px;
-  margin: 10px 12px 0 0;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow-md) 22%, transparent);
-  backdrop-filter: blur(12px) saturate(1.05);
-  transition: width 0.16s ease, border-radius 0.16s ease, padding 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-}
-
-.canvas-edge-legend:hover,
-.canvas-edge-legend.active {
-  width: 164px;
-  padding: 8px;
-  border-radius: 10px;
-  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow-md) 28%, transparent);
-}
-
-.canvas-edge-legend-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  margin-bottom: 0;
-  color: var(--text-primary);
-}
-
-.canvas-edge-legend:hover .canvas-edge-legend-head,
-.canvas-edge-legend.active .canvas-edge-legend-head {
-  margin-bottom: 6px;
-}
-
-.legend-edge-title {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  min-width: 0;
-  font-size: 10px;
-  line-height: 1.1;
-  font-weight: 600;
-  letter-spacing: 0.25px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  flex: 1;
-}
-
-.legend-edge-title::before {
-  content: '';
-  width: 10px;
-  height: 2px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 82%, transparent), color-mix(in srgb, var(--accent) 48%, var(--text-primary)));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.legend-toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.12px;
-  cursor: pointer;
-  box-shadow: none;
-  transition: width 0.15s ease, background 0.15s, border-color 0.15s, color 0.15s;
-  overflow: hidden;
-}
-
-.legend-action-icon {
-  flex-shrink: 0;
-}
-
-.legend-action-label {
-  display: none;
-  white-space: nowrap;
-}
-
-.legend-head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-}
-
-.canvas-edge-legend:hover .legend-toggle-btn,
-.canvas-edge-legend.active .legend-toggle-btn {
-  width: auto;
-  min-width: 56px;
-  height: 24px;
-  gap: 5px;
-  padding: 0 8px;
-  font-size: 10px;
-}
-
-.canvas-edge-legend:hover .legend-action-label,
-.canvas-edge-legend.active .legend-action-label {
-  display: inline;
-}
-
-.legend-toggle-btn:hover {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
-  color: var(--accent);
-}
-
-.legend-toggle-btn.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
-  color: var(--accent);
-}
-
-.legend-delete-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.legend-delete-btn:hover {
-  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
-  color: var(--danger);
-}
-
-.legend-delete-btn.active {
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, var(--bg-primary));
-  color: var(--danger);
-}
-
-.legend-edge-item {
-  width: 100%;
-  display: none;
-  grid-template-columns: 32px 1fr;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.canvas-edge-legend:hover .legend-edge-item,
-.canvas-edge-legend.active .legend-edge-item {
-  display: grid;
-}
-
-.legend-edge-item:hover,
-.legend-edge-item.active {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-}
-
-.legend-line-preview {
-  display: block;
-  width: 32px;
-  height: 0;
-}
-
-.legend-edge-hint {
-  display: none;
-  margin: 5px 0 0;
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-
-.canvas-edge-legend:hover .legend-edge-hint,
-.canvas-edge-legend.active .legend-edge-hint {
-  display: block;
-}
-
 .edge-layer {
   position: absolute;
   inset: 0;
@@ -3874,7 +3618,7 @@ function goToMaterialsImageGen() {
   flex: 1;
   padding: 8px 12px;
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -3919,7 +3663,7 @@ function goToMaterialsImageGen() {
 
 .btn-accent {
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -3980,7 +3724,7 @@ function goToMaterialsImageGen() {
 
 .timeline-count {
   background: var(--accent);
-  color: var(--text-primary);
+  color: var(--accent-text);
   border-radius: 999px;
   padding: 1px 7px;
   font-size: 11px;
@@ -4025,375 +3769,6 @@ function goToMaterialsImageGen() {
   line-height: 1.4;
 }
 
-/* Outline Section */
-.outline-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-top: 1px solid var(--border);
-}
-
-.outline-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.outline-title-stack {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.outline-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.timeline-summary {
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.timeline-header-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.timeline-version-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 108px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
-  color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1;
-}
-
-.timeline-version-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--text-muted);
-  flex: none;
-}
-
-.timeline-version-chip.is-current .timeline-version-dot {
-  background: var(--accent);
-}
-
-.timeline-version-chip.is-stale .timeline-version-dot,
-.timeline-version-chip.is-warning .timeline-version-dot {
-  background: #f59f00;
-}
-
-.timeline-version-chip.is-error .timeline-version-dot {
-  background: var(--danger);
-}
-
-.timeline-version-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.timeline-version-action {
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.timeline-version-action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-.timeline-version-action:disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-
-.timeline-clear-btn {
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.timeline-clear-btn:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.timeline-clear-btn:disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-
-.outline-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.outline-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  margin-bottom: 4px;
-}
-
-.outline-item:hover {
-  background: var(--bg-hover);
-}
-
-.outline-item.active {
-  background: var(--accent-light);
-}
-
-.outline-item.outline-dragging {
-  opacity: 0.5;
-  background: var(--bg-hover);
-}
-
-.drag-handle {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-  cursor: grab;
-  flex-shrink: 0;
-  padding: 2px;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
-
-.outline-emotion {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.outline-text {
-  flex: 1;
-  font-size: 13px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-
-.outline-item-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.outline-item:hover .outline-item-actions {
-  opacity: 1;
-}
-
-.outline-action-btn {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.outline-action-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--accent);
-}
-
-.outline-action-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.outline-delete-btn:hover:not(:disabled) {
-  color: var(--danger);
-}
-
-/* Director mode timeline view */
-.timeline-view {
-  padding: 6px;
-}
-
-.timeline-track {
-  display: grid;
-  gap: 1px;
-  overflow-y: auto;
-  padding: 2px;
-  max-height: 220px;
-}
-
-.timeline-card {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 6px;
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-  position: relative;
-  min-width: 0;
-}
-
-.timeline-card:hover {
-  background: var(--bg-hover);
-  border-color: transparent;
-}
-
-.timeline-card.active {
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
-  box-shadow: none;
-}
-
-.timeline-card.dragging {
-  opacity: 0.55;
-}
-
-.timeline-card.drop-target {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.timeline-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 22px;
-}
-
-.timeline-index {
-  width: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.timeline-duration {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.timeline-card-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.timeline-card-meta {
-  margin: 0 46px 0 24px;
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.timeline-card-actions {
-  position: absolute;
-  right: 4px;
-  top: 5px;
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-
-.timeline-card:hover .timeline-card-actions,
-.timeline-card.active .timeline-card-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.timeline-card-actions button {
-  width: 17px;
-  height: 17px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.timeline-card-actions button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.timeline-card-actions button.danger:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.timeline-card-actions button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.timeline-empty {
-  text-align: center;
-  padding: 14px 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-  width: 100%;
-}
 
 /* Card badges for director mode */
 .card-shot-badge {
@@ -4422,48 +3797,6 @@ function goToMaterialsImageGen() {
   margin-left: 4px;
 }
 
-.outline-empty {
-  text-align: center;
-  padding: 24px 16px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.outline-node-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 16px;
-  flex-shrink: 0;
-}
-
-.outline-node-line {
-  width: 1px;
-  flex: 1;
-  min-height: 16px;
-  background: var(--border);
-  margin-bottom: 2px;
-}
-
-.outline-node-line.is-last {
-  display: none;
-}
-
-.outline-node-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg-primary);
-  box-shadow: 0 0 0 1px var(--accent);
-  flex-shrink: 0;
-  z-index: 1;
-}
-
-.is-pile-item .outline-node-dot {
-  background: #ab47bc;
-  box-shadow: 0 0 0 1px #ab47bc;
-}
 
 .inline-pile-input {
   flex: 1;
@@ -4522,12 +3855,12 @@ function goToMaterialsImageGen() {
 .toolbar-btn.export-btn {
   position: relative;
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
 }
 
 .toolbar-btn.export-btn:hover {
   filter: brightness(1.06);
-  color: #f7fbff;
+  color: var(--accent-text);
 }
 
 .export-btn-badge {
@@ -4830,7 +4163,7 @@ function goToMaterialsImageGen() {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f7fbff;
+  color: var(--accent-text);
   transition: background 0.15s;
 }
 
@@ -4956,7 +4289,7 @@ function goToMaterialsImageGen() {
   border-radius: 50%;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -5117,7 +4450,7 @@ function goToMaterialsImageGen() {
 .image-gen-size-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
 }
 
 .image-gen-count-row {
@@ -5145,7 +4478,7 @@ function goToMaterialsImageGen() {
 .image-gen-count-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
 }
 
 .image-gen-actions {
@@ -5158,7 +4491,7 @@ function goToMaterialsImageGen() {
   border: none;
   border-radius: 8px;
   background: var(--accent);
-  color: #f7fbff;
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
