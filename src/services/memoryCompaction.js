@@ -17,14 +17,17 @@ export function needsLlmMemoryCompaction(sourceText, heuristicText, type = 'gene
 
   const source = cleanMemorySource(sourceText)
   const heuristic = cleanMemorySource(heuristicText)
-  if (!source || source.length <= MEMORY_TEXT_LIMIT) return false
+  if (!source) return false
   if (!heuristic) return true
   if (heuristic.endsWith('...')) return true
   if (heuristic.length > MEMORY_TEXT_LIMIT) return true
 
   const normalizedType = String(type || metadata?.sourceType || '').trim().toLowerCase()
   const hasFactPrefix = /^(对话|地点|物品|决策|剧情|偏好|约束|风格|角色)[:：]/.test(heuristic)
-  if (!hasFactPrefix && source.length > 120) return true
+
+  // 无前缀且文本有一定长度时，强制 LLM 提炼
+  if (!hasFactPrefix && source.length > 5) return true
+
   if ((normalizedType === 'general' || normalizedType === 'dialogue') && source.length > 180) return true
 
   return false
@@ -77,6 +80,17 @@ export function parseMemoryCompactionResult(content) {
     } catch {
       // Try plain text below.
     }
+  }
+
+  // JSON 解析失败时，用正则兜底提取 memory 值
+  const memoryMatch = text.match(/"memory"\s*:\s*"([\s\S]*)/)
+  if (memoryMatch) {
+    const extracted = memoryMatch[1]
+      .replace(/"\s*\}?\s*$/, '')
+      .replace(/[\s\S]*我们根据[\s\S]*提取关键信息[\s\S]*$/g, '')
+      .trim()
+    const normalized = normalizeLlmMemory(extracted)
+    if (normalized) return normalized
   }
 
   return normalizeLlmMemory(text)

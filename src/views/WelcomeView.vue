@@ -140,6 +140,9 @@ function handleEnter(item) {
   --welcome-panel-border: color-mix(in srgb, var(--border) 88%, var(--accent) 12%);
   --welcome-panel-top-sheen: color-mix(in srgb, #ffffff 42%, transparent);
   --welcome-panel-inner-shadow: color-mix(in srgb, #b7a06b 10%, transparent);
+  --welcome-panel-glow: color-mix(in srgb, var(--accent) 7%, transparent);
+  --welcome-card-edge: color-mix(in srgb, var(--border) 82%, #d7c595 18%);
+  --welcome-card-sheen: color-mix(in srgb, #ffffff 24%, transparent);
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
@@ -183,9 +186,12 @@ function handleEnter(item) {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 16%, transparent), transparent),
+    color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 26%, transparent);
   flex-shrink: 0;
 }
 
@@ -253,9 +259,12 @@ function handleEnter(item) {
   justify-content: space-between;
   gap: 8px;
   padding: 0 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent) 6%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 12%, transparent), transparent),
+    color-mix(in srgb, var(--bg-secondary) 94%, var(--accent) 6%);
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent);
   flex-shrink: 0;
 }
 
@@ -297,6 +306,8 @@ function handleEnter(item) {
     linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary)));
   box-shadow:
     0 14px 30px color-mix(in srgb, #000 9%, transparent),
+    0 0 0 1px color-mix(in srgb, #ffffff 18%, transparent),
+    0 18px 40px var(--welcome-panel-glow),
     inset 0 1px 0 var(--welcome-panel-top-sheen),
     inset 0 -1px 0 color-mix(in srgb, #000 5%, transparent),
     inset 34px 0 18px var(--welcome-panel-inner-shadow);
@@ -364,8 +375,9 @@ function handleEnter(item) {
   line-height: 1.05;
   font-weight: 750;
   margin: 0;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
+  text-wrap: balance;
 }
 
 .welcome-subtitle {
@@ -419,10 +431,14 @@ function handleEnter(item) {
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border: 1px solid var(--welcome-card-edge);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, transparent), color-mix(in srgb, var(--bg-primary) 82%, transparent));
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent), transparent 20%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 95%, transparent), color-mix(in srgb, var(--bg-primary) 84%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 20%, transparent),
+    0 8px 18px color-mix(in srgb, #000 5%, transparent);
 }
 
 .welcome-entry-group::before {
@@ -447,6 +463,9 @@ function handleEnter(item) {
   --welcome-panel-border: color-mix(in srgb, var(--border) 94%, #43515b 6%);
   --welcome-panel-top-sheen: color-mix(in srgb, #ffffff 8%, transparent);
   --welcome-panel-inner-shadow: color-mix(in srgb, #000 16%, transparent);
+  --welcome-panel-glow: color-mix(in srgb, var(--accent) 6%, transparent);
+  --welcome-card-edge: color-mix(in srgb, var(--border) 86%, #5a5a4d 14%);
+  --welcome-card-sheen: color-mix(in srgb, #ffffff 7%, transparent);
   background:
     radial-gradient(960px 520px at 16% 12%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
     radial-gradient(760px 420px at 88% 20%, color-mix(in srgb, var(--accent-teal) 7%, transparent), transparent 58%),
@@ -468,7 +487,12 @@ function handleEnter(item) {
 
 :global(.theme-dark) .welcome-brand-panel,
 :global(.theme-dark) .welcome-entry-panel {
-  box-shadow: 0 18px 36px color-mix(in srgb, #000 32%, transparent);
+  box-shadow:
+    0 18px 36px color-mix(in srgb, #000 32%, transparent),
+    0 0 0 1px color-mix(in srgb, #ffffff 4%, transparent),
+    0 18px 44px var(--welcome-panel-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent),
+    inset 34px 0 18px var(--welcome-panel-inner-shadow);
 }
 
 :global(.theme-dark) .welcome-brand-panel::after,
@@ -480,12 +504,14 @@ function handleEnter(item) {
 
 :global(.theme-dark) .welcome-entry-card {
   background:
+    linear-gradient(180deg, var(--welcome-card-sheen), transparent 42%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 11%, transparent) 0 4px, transparent 4px),
     color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary));
 }
 
 :global(.theme-dark) .welcome-entry-card:hover {
   background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 9%, transparent), transparent 42%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 24%, transparent) 0 4px, transparent 4px),
     color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
 }
@@ -542,23 +568,30 @@ function handleEnter(item) {
   width: 100%;
   min-height: 58px;
   padding: 11px 13px;
-  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--welcome-card-edge) 88%, transparent);
   border-radius: 7px;
   background:
+    linear-gradient(180deg, var(--welcome-card-sheen), transparent 42%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent) 0 4px, transparent 4px),
     color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
   cursor: pointer;
   text-align: left;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent),
+    0 6px 14px color-mix(in srgb, #000 5%, transparent);
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
 
 .welcome-entry-card:hover {
   border-color: var(--accent);
   background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 42%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent) 0 4px, transparent 4px),
     color-mix(in srgb, var(--accent) 5%, var(--bg-secondary));
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 10%, transparent);
-  transform: translateX(2px);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 26%, transparent),
+    0 14px 28px color-mix(in srgb, var(--accent) 10%, transparent);
+  transform: translate3d(3px, -1px, 0);
 }
 
 .welcome-entry-icon {

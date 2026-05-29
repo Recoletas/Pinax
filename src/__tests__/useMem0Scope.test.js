@@ -17,7 +17,8 @@ describe('useMem0 scope awareness', () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ id: 'mem-1' })
+      headers: { get: () => 'application/json' },
+      json: async () => ({ success: true, data: { id: 'mem-1' } })
     })
 
     const { storeMemory } = useMem0({
@@ -54,13 +55,17 @@ describe('useMem0 scope awareness', () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockResolvedValue({
       ok: true,
+      headers: { get: () => 'application/json' },
       json: async () => ({
-        results: [
-          {
-            content: '旧书店在西街。',
-            metadata: { type: 'project-fact' }
-          }
-        ]
+        success: true,
+        data: {
+          results: [
+            {
+              content: '旧书店在西街。',
+              metadata: { type: 'project-fact' }
+            }
+          ]
+        }
       })
     })
 
@@ -91,16 +96,16 @@ describe('useMem0 scope awareness', () => {
     expect(third).toHaveLength(1)
     expect(fetchMock).toHaveBeenCalledTimes(2)
 
-    const firstUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(firstUrl.searchParams.get('query')).toBe('旧书店')
-    expect(JSON.parse(firstUrl.searchParams.get('metadata_filter'))).toMatchObject({
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(firstBody.query).toBe('旧书店')
+    expect(firstBody.metadataFilter).toMatchObject({
       type: 'location',
       scope: 'project',
       scopeId: 'project-7'
     })
 
-    const secondUrl = new URL(fetchMock.mock.calls[1][0])
-    expect(JSON.parse(secondUrl.searchParams.get('metadata_filter'))).toMatchObject({
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(secondBody.metadataFilter).toMatchObject({
       type: 'location',
       scope: 'session',
       scopeId: 'session-1'
@@ -111,17 +116,21 @@ describe('useMem0 scope awareness', () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockResolvedValue({
       ok: true,
+      headers: { get: () => 'application/json' },
       json: async () => ({
-        results: [
-          {
-            content: '旧书店在西街。',
-            metadata: { type: 'project-fact' }
-          },
-          {
-            content: '玩家不喜欢冗长描述。',
-            metadata: { type: 'author-preference' }
-          }
-        ]
+        success: true,
+        data: {
+          results: [
+            {
+              content: '旧书店在西街。',
+              metadata: { type: 'project-fact' }
+            },
+            {
+              content: '玩家不喜欢冗长描述。',
+              metadata: { type: 'author-preference' }
+            }
+          ]
+        }
       })
     })
 
@@ -140,8 +149,8 @@ describe('useMem0 scope awareness', () => {
     expect(context).toContain('【project-fact】旧书店在西街。')
     expect(context).toContain('【author-preference】玩家不喜欢冗长描述。')
 
-    const url = new URL(fetchMock.mock.calls[0][0])
-    expect(JSON.parse(url.searchParams.get('metadata_filter'))).toMatchObject({
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.metadataFilter).toMatchObject({
       scope: 'project',
       scopeId: 'project-7'
     })

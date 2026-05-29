@@ -84,6 +84,17 @@ function buildSearchCacheKey(query, options = {}) {
   })
 }
 
+async function parseJsonResponse(response) {
+  if (!response.ok) {
+    throw new Error(`服务端返回错误 (${response.status})`)
+  }
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    throw new Error('服务端未响应 JSON，请检查后端是否运行')
+  }
+  return response.json()
+}
+
 /**
  * 创建 mem0 客户端
  * @param {object} config - 配置选项
@@ -122,15 +133,14 @@ export function useMem0(config = {}) {
     const memoryMetadata = memory?.metadata && typeof memory.metadata === 'object' ? memory.metadata : {}
 
     try {
-      const response = await fetch(`${apiUrl}/memories`, {
+      const response = await fetch('/api/chat/mem0/memories', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Token ${apiKey}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          apiKey,
+          host: apiUrl,
+          userId,
           messages: [{ role: 'user', content: memory.content }],
-          user_id: userId,
           metadata: {
             ...memoryMetadata,
             type: memory.type || memoryMetadata.type || MEMORY_TYPES.EVENT,
@@ -142,16 +152,16 @@ export function useMem0(config = {}) {
         })
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      const result = await parseJsonResponse(response)
+
+      if (!result.success) {
+        throw new Error(result.error || 'mem0 操作失败')
       }
 
-      const data = await response.json()
-
       // 更新缓存
-      updateCache(memory.entityId, data)
+      updateCache(memory.entityId, result.data)
 
-      return { success: true, data }
+      return { success: true, data: result.data }
     } catch (err) {
       console.error('mem0 storeMemory error:', err)
       return { success: false, error: err.message }
@@ -199,27 +209,26 @@ export function useMem0(config = {}) {
     }
 
     try {
-      const params = new URLSearchParams({
-        query,
-        user_id: userId,
-        limit: String(limit)
+      const response = await fetch('/api/chat/mem0/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          host: apiUrl,
+          userId,
+          query,
+          limit,
+          metadataFilter: mergedMetadataFilter
+        })
       })
 
-      if (mergedMetadataFilter) {
-        params.append('metadata_filter', JSON.stringify(mergedMetadataFilter))
+      const result = await parseJsonResponse(response)
+
+      if (!result.success) {
+        throw new Error(result.error || 'mem0 操作失败')
       }
 
-      const response = await fetch(`${apiUrl}/memories?${params}`, {
-        headers: {
-          'Authorization': `Token ${apiKey}`
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
+      const data = result.data || {}
       const results = data.results || data.memories || []
 
       // 更新缓存
@@ -243,15 +252,16 @@ export function useMem0(config = {}) {
     }
 
     try {
-      const response = await fetch(`${apiUrl}/memories/${memoryId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Token ${apiKey}`
-        }
+      const response = await fetch('/api/chat/mem0/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey, host: apiUrl, memoryId })
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      const result = await parseJsonResponse(response)
+
+      if (!result.success) {
+        throw new Error(result.error || 'mem0 操作失败')
       }
 
       // 清除缓存

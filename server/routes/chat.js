@@ -1058,15 +1058,17 @@ router.post('/mem0/test', async (req, res) => {
   const testUserId = String(userId || 'connection_test').trim() || 'connection_test'
 
   try {
-    const params = new URLSearchParams({
-      query: '连接测试',
-      user_id: testUserId,
-      limit: '1'
-    })
-    const response = await fetch(`${apiUrl}/memories?${params}`, {
+    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/search/`, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         Authorization: `Token ${effectiveApiKey}`
-      }
+      },
+      body: JSON.stringify({
+        query: '连接测试',
+        user_id: testUserId,
+        output_format: 'v1.1'
+      })
     })
 
     if (response.ok) {
@@ -1083,6 +1085,116 @@ router.post('/mem0/test', async (req, res) => {
       ok: false,
       message: e?.message ? `记忆连接失败：${e.message}` : '记忆连接失败'
     })
+  }
+})
+
+// Mem0 proxy: write memory
+router.post('/mem0/memories', async (req, res) => {
+  const { apiKey, host, userId, messages, metadata } = req.body || {}
+  const secrets = loadSecrets()
+  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
+  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveUserId = String(userId || '').trim() || 'default_user'
+
+  if (!effectiveApiKey) {
+    return res.json({ success: false, error: 'mem0 not configured' })
+  }
+
+  const apiUrl = normalizeMem0ApiUrl(effectiveHost)
+  try {
+    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/add/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Token ${effectiveApiKey}`
+      },
+      body: JSON.stringify({ messages, user_id: effectiveUserId, metadata })
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+    }
+    const data = await response.json()
+    return res.json({ success: true, data })
+  } catch (e) {
+    console.error('[chat] mem0 proxy store error:', e.message)
+    return res.json({ success: false, error: e.message })
+  }
+})
+
+// Mem0 proxy: search memories
+router.post('/mem0/search', async (req, res) => {
+  const { apiKey, host, userId, query, limit, metadataFilter } = req.body || {}
+  const secrets = loadSecrets()
+  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
+  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveUserId = String(userId || '').trim() || 'default_user'
+
+  if (!effectiveApiKey) {
+    return res.json({ success: false, error: 'mem0 not configured' })
+  }
+
+  const apiUrl = normalizeMem0ApiUrl(effectiveHost)
+  try {
+    const body = {
+      query: String(query || ''),
+      user_id: effectiveUserId,
+      output_format: 'v1.1'
+    }
+    if (limit) body.limit = Number(limit)
+    if (metadataFilter && typeof metadataFilter === 'object' && Object.keys(metadataFilter).length > 0) {
+      body.filters = metadataFilter
+    }
+
+    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/search/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Token ${effectiveApiKey}`
+      },
+      body: JSON.stringify(body)
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+    }
+    const data = await response.json()
+    return res.json({ success: true, data })
+  } catch (e) {
+    console.error('[chat] mem0 proxy search error:', e.message)
+    return res.json({ success: false, error: e.message })
+  }
+})
+
+// Mem0 proxy: delete memory
+router.post('/mem0/delete', async (req, res) => {
+  const { apiKey, host, memoryId } = req.body || {}
+  const secrets = loadSecrets()
+  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
+  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+
+  if (!effectiveApiKey) {
+    return res.json({ success: false, error: 'mem0 not configured' })
+  }
+
+  if (!memoryId) {
+    return res.json({ success: false, error: 'memoryId required' })
+  }
+
+  const apiUrl = normalizeMem0ApiUrl(effectiveHost)
+  try {
+    const response = await fetch(`${apiUrl}/memories/${encodeURIComponent(memoryId)}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Token ${effectiveApiKey}` }
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+    }
+    return res.json({ success: true })
+  } catch (e) {
+    console.error('[chat] mem0 proxy delete error:', e.message)
+    return res.json({ success: false, error: e.message })
   }
 })
 
