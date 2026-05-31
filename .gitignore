@@ -7,15 +7,6 @@ build/
 .vite/
 out/
 
-# Logs
-logs/
-*.log
-*.log.*
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
 # Environment files
 .env
 .env.*
@@ -25,9 +16,19 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 
-# Local secrets (API keys)
+# Local secrets
 data/
 *.local.json
+secrets.json
+
+# Logs
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Testing
 coverage/
@@ -45,17 +46,10 @@ temp/
 .pnpm-store/
 .yarn/
 *.tsbuildinfo
-*.tmp
-*.temp
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Agent skills
-.agents/
-.claude/
-skills-lock.json
 
 # Editor
 .vscode/
@@ -65,10 +59,11 @@ skills-lock.json
 *.orig
 *.rej
 
-# Python cache (repo contains game.py)
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyc
 
-
-Marcia/
+# PM2
+.pm2/
