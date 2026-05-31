@@ -6,6 +6,7 @@ const WelcomeView = () => import('../views/WelcomeView.vue')
 const Experience = () => import('../pages/Experience.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
+const StructuredSettings = () => import('../pages/StructuredSettings.vue')
 const Writing = () => import('../pages/Writing.vue')
 const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
@@ -41,6 +42,15 @@ const workbenchChildren = [
     meta: {
       activityKey: 'worldbook',
       title: '世界书 · 高级设置'
+    }
+  },
+  {
+    path: 'experience/settings/structured',
+    name: 'experience-settings-structured',
+    component: StructuredSettings,
+    meta: {
+      activityKey: 'worldbook',
+      title: '设定 · 结构化设定'
     }
   },
   {

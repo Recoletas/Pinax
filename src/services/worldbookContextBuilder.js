@@ -1,3 +1,5 @@
+import { summarizeStructuredSettings } from './settingPanelSchema'
+
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
 
@@ -25,7 +27,8 @@ const ENTRY_TYPE_ALIASES = {
 
 export const WORLDBOOK_WARNING_LABELS = {
   'no-worldbook': '当前没有激活世界书',
-  'no-matched-entries': '本次没有命中任何条目'
+  'no-matched-entries': '本次没有命中任何条目',
+  'structured-settings-truncated': '结构化设定因预算不足被截断'
 }
 
 function normalizeEntry(entry) {
@@ -226,6 +229,17 @@ export function buildWorldbookContext({
     const text = `\n\n【示例文本】\n${examples}`
     parts.push(text)
     usedChars += text.length
+  }
+
+  const structuredSummary = summarizeStructuredSettings(worldbook.structuredSettings)
+  if (structuredSummary) {
+    const text = `\n\n【结构化设定】\n${structuredSummary}`
+    if (usedChars + text.length <= maxChars) {
+      parts.push(text)
+      usedChars += text.length
+    } else {
+      warnings.push('structured-settings-truncated')
+    }
   }
 
   parts.push('\n\n--- 以下是世界书中的关键设定条目，必须在叙事中严格遵循 ---')

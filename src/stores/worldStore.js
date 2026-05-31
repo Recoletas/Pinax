@@ -1,5 +1,9 @@
 import { defineStore } from 'pinia'
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
+import {
+  getSettingField,
+  normalizeStructuredSettings
+} from '../services/settingPanelSchema'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -50,7 +54,8 @@ function normalizeWorldbook(raw = {}) {
     },
     entries,
     entriesMap,
-    groups: ensureArray(decodeStored(source.groups, []))
+    groups: ensureArray(decodeStored(source.groups, [])),
+    structuredSettings: normalizeStructuredSettings(source.structuredSettings)
   }
 }
 
@@ -178,7 +183,8 @@ export const useWorldStore = defineStore('world', {
         },
         entries: [],
         entriesMap: {}, // id -> entry 便于快速查找
-        groups: []
+        groups: [],
+        structuredSettings: normalizeStructuredSettings(data.structuredSettings)
       }
 
       setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
@@ -613,6 +619,68 @@ export const useWorldStore = defineStore('world', {
         groups: worldbook.groups,
         entries
       }
+    },
+
+    // ---------- 结构化设定 ----------
+
+    async updateStructuredSetting(worldbookId, sectionKey, fieldKey, value) {
+      let worldbook = this.activeWorldbook
+      if (worldbook?.id !== worldbookId) {
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (!raw) throw new Error('世界书不存在')
+        worldbook = normalizeWorldbook(raw)
+      }
+
+      const field = getSettingField(sectionKey, fieldKey)
+      if (!field) throw new Error('设定字段不存在')
+
+      const structuredSettings = normalizeStructuredSettings(worldbook.structuredSettings)
+      structuredSettings[sectionKey][fieldKey] = String(value || '')
+
+      return this.updateWorldbook(worldbookId, { structuredSettings })
+    },
+
+    async convertStructuredSettingToEntry(worldbookId, sectionKey, fieldKey) {
+      let worldbook = this.activeWorldbook
+      if (worldbook?.id !== worldbookId) {
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (!raw) throw new Error('世界书不存在')
+        worldbook = normalizeWorldbook(raw)
+      }
+
+      const field = getSettingField(sectionKey, fieldKey)
+      if (!field) throw new Error('设定字段不存在')
+
+      const structuredSettings = normalizeStructuredSettings(worldbook.structuredSettings)
+      const content = structuredSettings[sectionKey][fieldKey].trim()
+      if (!content) throw new Error('设定字段为空，不能转为世界书条目')
+
+      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
+      return this.addEntry(worldbookId, {
+        name: field.label,
+        type: field.entryType,
+        keys: [field.label],
+        content,
+        injection: {
+          mode: isConstant ? 'constant' : 'selective',
+          probability: 100,
+          cooldown: 0,
+          depth: isConstant ? 2 : 1,
+          excludeRecursion: false,
+          group: field.defaultGroup
+        },
+        relations: {
+          tags: ['结构化设定'],
+          locations: [],
+          characters: [],
+          events: []
+        },
+        metadata: {
+          importSource: 'structured-setting',
+          sourceSection: sectionKey,
+          sourceField: fieldKey
+        }
+      })
     },
 
     // ---------- 辅助方法 ----------

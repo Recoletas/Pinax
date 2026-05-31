@@ -2,7 +2,7 @@
   <div class="quick-page">
     <header class="quick-hero">
       <div class="hero-left">
-        <h1>世界书 · 快速导入</h1>
+        <h1>设定 · 快速导入</h1>
         <p>
           这是快速工作流入口：用预设、小说段落或一句说明，生成可执行的世界书草案。
           条目精修、注入参数与批量改动请在高级设置中处理。

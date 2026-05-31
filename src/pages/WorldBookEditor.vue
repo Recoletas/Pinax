@@ -3,7 +3,7 @@
     <header class="editor-header">
       <div class="header-left">
         <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <h1>世界书 · 高级设置</h1>
+        <h1>设定 · 高级设置</h1>
       </div>
       <div class="header-right">
         <button class="ghost-btn" @click="openQuickImport">返回快速导入</button>
@@ -19,7 +19,7 @@
 
     <div class="editor-layout">
       <aside class="worldbook-pane">
-        <div class="pane-title">世界书</div>
+        <div class="pane-title">设定</div>
         <div class="worldbook-list" v-if="filteredWorldbooks.length">
           <button
             v-for="wb in filteredWorldbooks"
@@ -35,7 +35,18 @@
       </aside>
 
       <section class="editor-main" v-if="activeWorldbook">
-        <section class="card">
+        <nav class="editor-tabs" aria-label="世界书编辑分区">
+          <button
+            v-for="tab in editorTabs"
+            :key="tab.key"
+            :class="['editor-tab', { active: editorTab === tab.key }]"
+            @click="editorTab = tab.key"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+
+        <section v-if="editorTab === 'base'" class="card">
           <div class="card-head">
             <h2>世界书基础设定</h2>
           </div>
@@ -93,7 +104,12 @@
           </div>
         </section>
 
-        <section class="card">
+        <StructuredSettingsPanel
+          v-if="editorTab === 'structured'"
+          :worldbook="activeWorldbook"
+        />
+
+        <section v-if="editorTab === 'transfer'" class="card">
           <div class="card-head split">
             <h2>导入导出</h2>
             <div class="entry-tools">
@@ -167,7 +183,7 @@
           </div>
         </section>
 
-        <section class="card">
+        <section v-if="editorTab === 'groups'" class="card">
           <div class="card-head split">
             <h2>分组管理</h2>
             <button class="ghost-btn small" :disabled="groupWorking" @click="pruneEmptyGroups">
@@ -274,7 +290,7 @@
           </datalist>
         </section>
 
-        <section class="card">
+        <section v-if="editorTab === 'entries'" class="card">
           <div class="card-head split">
             <h2>条目管理</h2>
             <div class="entry-tools">
@@ -477,6 +493,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import StructuredSettingsPanel from '../components/worldbook/StructuredSettingsPanel.vue'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -508,6 +525,15 @@ const groupError = ref('')
 const groupSuccess = ref('')
 const savingWorldbook = ref(false)
 const savingEntry = ref(false)
+
+const editorTab = ref('base')
+const editorTabs = [
+  { key: 'base', label: '基础设定' },
+  { key: 'structured', label: '结构化设定' },
+  { key: 'transfer', label: '导入导出' },
+  { key: 'groups', label: '分组管理' },
+  { key: 'entries', label: '条目管理' }
+]
 
 const worldbookForm = reactive({
   name: '',
@@ -2085,6 +2111,28 @@ label {
   color: var(--text-muted);
   font-size: 12px;
   padding: 8px;
+}
+
+.editor-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.editor-tab {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.editor-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
 }
 
 @media (max-width: 1080px) {

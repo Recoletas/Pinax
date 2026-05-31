@@ -10,10 +10,10 @@ export const ACTIVITY_ITEMS = [
   },
   {
     key: 'worldbook',
-    label: '世界书',
-    description: '构建你的世界观设定',
+    label: '设定',
+    description: '结构化设定与世界书管理',
     icon: 'settings',
-    defaultRouteName: 'experience-worldbook'
+    defaultRouteName: 'experience-settings-structured'
   },
   {
     key: 'writing',
@@ -60,8 +60,13 @@ export const SIDE_PANELS = {
     ]
   },
   worldbook: {
-    title: '世界书',
+    title: '设定',
     items: [
+      {
+        routeName: 'experience-settings-structured',
+        label: '结构化设定',
+        description: '世界观、故事、角色与创作规则'
+      },
       {
         routeName: 'experience-worldbook',
         label: '快速导入',

@@ -102,4 +102,34 @@ describe('worldbookContextBuilder', () => {
     expect(describeWorldbookWarning('no-worldbook')).toContain('世界书')
     expect(describeWorldbookWarning('no-matched-entries')).toContain('命中')
   })
+
+  it('includes concise structured settings before matched entries', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '雾港',
+        worldDescription: '雾港每夜失去一段记忆。',
+        structuredSettings: {
+          story: { logline: '书记官追查吞噬姓名的雾。' },
+          creativeRules: { consistency: '所有魔法都必须付出记忆代价。' }
+        },
+        entries: [
+          {
+            id: 'e1',
+            name: '常驻规则',
+            type: 'rule',
+            content: '必须遵守',
+            keys: [],
+            injection: { mode: 'constant' }
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '书记官走进雾港。' }],
+      runtimeState: {},
+      tokenBudget: 2000
+    })
+
+    expect(result.messages[0].content).toContain('【结构化设定】')
+    expect(result.messages[0].content).toContain('一句话故事：书记官追查吞噬姓名的雾。')
+    expect(result.messages[0].content).toContain('一致性规则：所有魔法都必须付出记忆代价。')
+  })
 })
