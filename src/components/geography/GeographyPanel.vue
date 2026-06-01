@@ -140,20 +140,8 @@ import { useGeographyStore } from '../../stores/geographyStore'
 import { buildConceptMapPrompt, buildImageMapPrompt } from '../../services/ai/geographyAdapter'
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
+import { LOCATION_TYPES } from '../../config/geography-types'
 import LocationTreeMap from './LocationTreeMap.vue'
-
-const LOCATION_TYPES = [
-  { value: 'continent', label: '大陆' },
-  { value: 'country', label: '国家' },
-  { value: 'city', label: '城市' },
-  { value: 'sect', label: '门派驻地' },
-  { value: 'secret', label: '秘境' },
-  { value: 'ruin', label: '遗迹' },
-  { value: 'battlefield', label: '战场' },
-  { value: 'nature', label: '自然景观' },
-  { value: 'building', label: '建筑' },
-  { value: 'other', label: '其他' },
-]
 
 const geoStore = useGeographyStore()
 const { overview, locations } = storeToRefs(geoStore)

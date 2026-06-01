@@ -3,14 +3,7 @@
  * AI 分析世界观设定 → 生成 MapGenConfig 参数（含地形模板 + 命名风格） → 引擎生成地图
  */
 
-/** 合法值白名单 */
-const VALID_TEMPLATES = [
-  'continents', 'pangea', 'archipelago', 'volcano', 'isthmus',
-  'peninsula', 'mediterranean', 'atoll', 'shattered', 'highland',
-]
-const VALID_NAMING = [
-  'chinese', 'japanese', 'european', 'arabic', 'highFantasy', 'darkFantasy',
-]
+import { VALID_TEMPLATES, VALID_NAMING } from '../../config/geography-types'
 
 /**
  * 构建 AI prompt，让 AI 根据世界观描述输出 MapGenConfig

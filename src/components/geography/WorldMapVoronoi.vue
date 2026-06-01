@@ -169,15 +169,10 @@
 
 <script setup>
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
-import { generateMapInWorker, renderMap, renderMapAsync, STYLE_PRESET_LABELS } from '../../services/world-map/engine'
+import { generateMapInWorker, renderMap, renderMapAsync, terminateWorker, STYLE_PRESET_LABELS } from '../../services/world-map/engine'
 import { drawMarkers, hitTestMarker } from '../../services/world-map/markers'
+import { LAYER_LABELS } from '../../config/geography-types'
 import MapMarkerEditor from './MapMarkerEditor.vue'
-
-const LAYER_LABELS = {
-  terrain: '地形', coastlines: '海岸线', continents: '大陆轮廓', rivers: '河流', borders: '国界',
-  provinces: '省界', roads: '道路', tectonics: '板块边界', oceanCurrents: '洋流', wind: '风场',
-  stateLabels: '国名', burgIcons: '城镇', burgLabels: '地名', scaleBar: '比例尺', vignette: '暗角',
-}
 
 const STYLE_LABELS = STYLE_PRESET_LABELS
 
@@ -193,30 +188,26 @@ const canvasRef = ref(null)
 let offscreen = null
 
 const mapData = shallowRef(null)
-let mapDataRef = null
 const generating = ref(false)
 const error = ref(null)
 
-let vp = { scale: 1, offsetX: 0, offsetY: 0 }
-const scalePercent = ref(100)
+const vp = shallowRef({ scale: 1, offsetX: 0, offsetY: 0 })
+const scalePercent = computed(() => Math.round(vp.value.scale * 100))
 
-const kmPerPixel = ref(1)
-let kmPerPixelRef = 1
+const kmPerPixel = shallowRef(1)
 
 const showLegend = ref(false)
 const showSettings = ref(false)
 
-const stylePreset = ref(props.config?.stylePreset || 'topographic')
-let stylePresetRef = stylePreset.value
+const stylePreset = shallowRef(props.config?.stylePreset || 'topographic')
 
-const layers = ref({
+const layers = shallowRef({
   terrain: true, coastlines: true, continents: true, rivers: true, borders: true,
   provinces: false, roads: true, tectonics: false, oceanCurrents: false, wind: false,
   stateLabels: true, burgIcons: true, burgLabels: true, scaleBar: true, vignette: true,
 })
 const plateCount = ref(6)
 const plateSpeed = ref(1.0)
-let layersRef = { ...layers.value }
 
 const exporting = ref(false)
 
@@ -260,7 +251,9 @@ async function doGenerate(cfg) {
   error.value = null
 
   try {
-    // 深拷贝 cfg 以剥离 Vue 响应式代理（Worker postMessage 要求纯数据）
+    // 深拷贝 cfg 以剥离 Vue 响应式代理（Worker postMessage 要求纯数据）。
+    // 用 JSON 走代理：toRaw 只剥一层，nested proxy 仍存在，structuredClone 无法克隆。
+    // JSON.stringify 会沿 proxy 走读路径并输出可序列化值，再 parse 回来即纯对象。
     const plainCfg = JSON.parse(JSON.stringify(cfg))
     const data = await generateMapInWorker(plainCfg)
 
@@ -276,12 +269,11 @@ async function doGenerate(cfg) {
     const canvas = document.createElement('canvas')
     await renderMapAsync(canvas, data, {
       scale: renderScale,
-      kmPerPixel: kmPerPixelRef,
-      stylePreset: stylePresetRef,
-      layers: layersRef,
+      kmPerPixel: kmPerPixel.value,
+      stylePreset: stylePreset.value,
+      layers: layers.value,
     })
     offscreen = canvas
-    mapDataRef = data
     mapData.value = data
     generating.value = false
     emit('map-generated', data)
@@ -293,7 +285,7 @@ async function doGenerate(cfg) {
 }
 
 async function rerender() {
-  if (!mapDataRef) return
+  if (!mapData.value) return
   // 释放旧 canvas 位图内存
   if (offscreen) {
     offscreen.width = 0
@@ -301,11 +293,11 @@ async function rerender() {
   }
   const dpr = window.devicePixelRatio || 1
   const canvas = document.createElement('canvas')
-  await renderMapAsync(canvas, mapDataRef, {
+  await renderMapAsync(canvas, mapData.value, {
     scale: Math.min(dpr, 3),
-    kmPerPixel: kmPerPixelRef,
-    stylePreset: stylePresetRef,
-    layers: layersRef,
+    kmPerPixel: kmPerPixel.value,
+    stylePreset: stylePreset.value,
+    layers: layers.value,
   })
   offscreen = canvas
   paint()
@@ -332,10 +324,10 @@ function paint() {
   ctx.fillStyle = canvasBgColor
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.scale(dpr, dpr)
-  ctx.scale(vp.scale, vp.scale)
-  ctx.translate(-vp.offsetX, -vp.offsetY)
+  ctx.scale(vp.value.scale, vp.value.scale)
+  ctx.translate(-vp.value.offsetX, -vp.value.offsetY)
 
-  const md = mapDataRef
+  const md = mapData.value
   const mapW = md?.width || offscreen.width
   const mapH = md?.height || offscreen.height
   ctx.drawImage(offscreen, 0, 0, offscreen.width, offscreen.height, 0, 0, mapW, mapH)
@@ -347,12 +339,15 @@ function paint() {
 }
 
 function fitToView() {
-  if (!mapDataRef || !containerRef.value) return
+  if (!mapData.value || !containerRef.value) return
   const cw = containerRef.value.clientWidth
   const ch = containerRef.value.clientHeight
-  const fitScale = Math.min(cw / mapDataRef.width, ch / mapDataRef.height, 1)
-  vp = { scale: fitScale, offsetX: -(cw / fitScale - mapDataRef.width) / 2, offsetY: -(ch / fitScale - mapDataRef.height) / 2 }
-  scalePercent.value = Math.round(fitScale * 100)
+  const fitScale = Math.min(cw / mapData.value.width, ch / mapData.value.height, 1)
+  vp.value = {
+    scale: fitScale,
+    offsetX: -(cw / fitScale - mapData.value.width) / 2,
+    offsetY: -(ch / fitScale - mapData.value.height) / 2,
+  }
 }
 
 function handleZoomBtn(delta) {
@@ -360,13 +355,14 @@ function handleZoomBtn(delta) {
   if (!container) return
   const cw = container.clientWidth
   const ch = container.clientHeight
-  const cx = vp.offsetX + cw / (2 * vp.scale)
-  const cy = vp.offsetY + ch / (2 * vp.scale)
-  const newScale = Math.max(0.2, Math.min(8, vp.scale * (delta > 0 ? 1.3 : 1 / 1.3)))
-  vp.scale = newScale
-  vp.offsetX = cx - cw / (2 * newScale)
-  vp.offsetY = cy - ch / (2 * newScale)
-  scalePercent.value = Math.round(newScale * 100)
+  const cx = vp.value.offsetX + cw / (2 * vp.value.scale)
+  const cy = vp.value.offsetY + ch / (2 * vp.value.scale)
+  const newScale = Math.max(0.2, Math.min(8, vp.value.scale * (delta > 0 ? 1.3 : 1 / 1.3)))
+  vp.value = {
+    scale: newScale,
+    offsetX: cx - cw / (2 * newScale),
+    offsetY: cy - ch / (2 * newScale),
+  }
   paint()
 }
 
@@ -376,41 +372,38 @@ function handleFitView() {
 }
 
 function handleKmPerPixelChange(val) {
-  kmPerPixelRef = val
   kmPerPixel.value = val
   rerender()
 }
 
 function toggleLayer(key) {
-  layersRef = { ...layersRef, [key]: !layersRef[key] }
-  layers.value = { ...layersRef }
+  layers.value = { ...layers.value, [key]: !layers.value[key] }
   requestAnimationFrame(() => rerender())
 }
 
 function handleStyleChange(preset) {
-  stylePresetRef = preset
   stylePreset.value = preset
   requestAnimationFrame(() => rerender())
 }
 
 function handleExportHD() {
-  if (!mapDataRef || exporting.value) return
+  if (!mapData.value || exporting.value) return
   exporting.value = true
   requestAnimationFrame(() => setTimeout(() => {
     try {
       const exportCanvas = document.createElement('canvas')
-      renderMap(exportCanvas, mapDataRef, {
+      renderMap(exportCanvas, mapData.value, {
         scale: 5,
-        kmPerPixel: kmPerPixelRef,
-        stylePreset: stylePresetRef,
-        layers: layersRef,
+        kmPerPixel: kmPerPixel.value,
+        stylePreset: stylePreset.value,
+        layers: layers.value,
       })
       exportCanvas.toBlob(blob => {
         if (!blob) { exporting.value = false; return }
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${mapDataRef.name || 'map'}_${mapDataRef.width * 5}x${mapDataRef.height * 5}.png`
+        a.download = `${mapData.value.name || 'map'}_${mapData.value.width * 5}x${mapData.value.height * 5}.png`
         a.click()
         URL.revokeObjectURL(url)
         exporting.value = false
@@ -431,8 +424,8 @@ function getRect() {
 function screenToWorld(clientX, clientY) {
   const rect = getRect()
   return {
-    x: vp.offsetX + (clientX - rect.left) / vp.scale,
-    y: vp.offsetY + (clientY - rect.top) / vp.scale,
+    x: vp.value.offsetX + (clientX - rect.left) / vp.value.scale,
+    y: vp.value.offsetY + (clientY - rect.top) / vp.value.scale,
   }
 }
 
@@ -447,20 +440,21 @@ function onWheel(e) {
   const rect = getRect()
   const mx = e.clientX - rect.left
   const my = e.clientY - rect.top
-  const wx = vp.offsetX + mx / vp.scale
-  const wy = vp.offsetY + my / vp.scale
-  const newScale = Math.max(0.2, Math.min(8, vp.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
-  vp.scale = newScale
-  vp.offsetX = wx - mx / newScale
-  vp.offsetY = wy - my / newScale
-  scalePercent.value = Math.round(newScale * 100)
+  const wx = vp.value.offsetX + mx / vp.value.scale
+  const wy = vp.value.offsetY + my / vp.value.scale
+  const newScale = Math.max(0.2, Math.min(8, vp.value.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
+  vp.value = {
+    scale: newScale,
+    offsetX: wx - mx / newScale,
+    offsetY: wy - my / newScale,
+  }
   paint()
 }
 
 function onPointerDown(e) {
   cachedRect = null
   const world = screenToWorld(e.clientX, e.clientY)
-  const hitRadius = 16 / vp.scale
+  const hitRadius = 16 / vp.value.scale
   const hit = hitTestMarker(props.markers, world.x, world.y, hitRadius)
 
   if (e.button === 0 && hit) {
@@ -490,8 +484,8 @@ function onPointerMove(e) {
 
   if (isDraggingMarker && draggedMarker) {
     dragMoved = true
-    const mapW = mapDataRef?.width || 1200
-    const mapH = mapDataRef?.height || 800
+    const mapW = mapData.value?.width || 1200
+    const mapH = mapData.value?.height || 800
     draggedMarker.x = Math.max(20, Math.min(mapW - 20, world.x))
     draggedMarker.y = Math.max(20, Math.min(mapH - 20, world.y))
     paint()
@@ -499,8 +493,11 @@ function onPointerMove(e) {
   }
 
   if (dragging) {
-    vp.offsetX -= (e.clientX - lastX) / vp.scale
-    vp.offsetY -= (e.clientY - lastY) / vp.scale
+    vp.value = {
+      scale: vp.value.scale,
+      offsetX: vp.value.offsetX - (e.clientX - lastX) / vp.value.scale,
+      offsetY: vp.value.offsetY - (e.clientY - lastY) / vp.value.scale,
+    }
     lastX = e.clientX
     lastY = e.clientY
     paint()
@@ -508,7 +505,7 @@ function onPointerMove(e) {
   }
 
   // hover 检测
-  const hitRadius = 16 / vp.scale
+  const hitRadius = 16 / vp.value.scale
   const hit = hitTestMarker(props.markers, world.x, world.y, hitRadius)
   const newHovered = hit?.id || null
   if (newHovered !== hoveredMarkerId.value) {
@@ -530,7 +527,7 @@ function onPointerUp() {
 
 function onDblClick(e) {
   const world = screenToWorld(e.clientX, e.clientY)
-  const hitRadius = 16 / vp.scale
+  const hitRadius = 16 / vp.value.scale
   const hit = hitTestMarker(props.markers, world.x, world.y, hitRadius)
 
   if (hit) {
@@ -608,6 +605,8 @@ onUnmounted(() => {
     canvas.removeEventListener('pointercancel', onPointerUp)
     canvas.removeEventListener('dblclick', onDblClick)
   }
+  // 终止可能仍在运行的 Worker，丢弃未完成的请求
+  terminateWorker()
 })
 </script>
 

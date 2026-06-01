@@ -43,22 +43,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { stratify, tree } from 'd3-hierarchy'
+import { LOCATION_TYPES } from '../../config/geography-types'
 
 const props = defineProps({
   locations: { type: Array, default: () => [] }
 })
 
-const NODE_COLORS = {
-  continent: '#f59e0b', country: '#6366f1', city: '#22c55e',
-  sect: '#ec4899', secret: '#a78bfa', ruin: '#94a3b8',
-  battlefield: '#ef4444', nature: '#14b8a6', building: '#60a5fa', other: '#94a3b8',
-}
-
-const TYPE_LABELS = {
-  continent: '大陆', country: '国家', city: '城市', sect: '门派',
-  secret: '秘境', ruin: '遗迹', battlefield: '战场', nature: '自然',
-  building: '建筑', other: '其他',
-}
+const NODE_COLORS = Object.fromEntries(LOCATION_TYPES.map(t => [t.value, t.color]))
+const TYPE_LABELS = Object.fromEntries(LOCATION_TYPES.map(t => [t.value, t.label]))
 
 const containerRef = ref(null)
 const svgSize = ref({ width: 700, height: 400 })

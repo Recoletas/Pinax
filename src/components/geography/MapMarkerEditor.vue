@@ -72,25 +72,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-
-const MARKER_TYPES = [
-  { value: 'capital', label: '首都/皇城' },
-  { value: 'city', label: '城市' },
-  { value: 'town', label: '城镇' },
-  { value: 'village', label: '村庄' },
-  { value: 'sect', label: '宗门/门派' },
-  { value: 'fortress', label: '要塞/城堡' },
-  { value: 'port', label: '港口' },
-  { value: 'academy', label: '学院' },
-  { value: 'ruin', label: '废墟' },
-  { value: 'dungeon', label: '地下城' },
-  { value: 'oasis', label: '绿洲' },
-  { value: 'bridge', label: '桥梁' },
-  { value: 'lighthouse', label: '灯塔' },
-  { value: 'mine', label: '矿山' },
-  { value: 'shrine', label: '神殿/祠堂' },
-  { value: 'custom', label: '自定义' },
-]
+import { MARKER_TYPES } from '../../config/geography-types'
 
 const props = defineProps({
   marker: { type: Object, required: true }
