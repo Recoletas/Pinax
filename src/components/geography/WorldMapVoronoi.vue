@@ -173,8 +173,10 @@ import { generateMapInWorker, renderMap, renderMapAsync, terminateWorker, STYLE_
 import { drawMarkers, hitTestMarker } from '../../services/world-map/markers'
 import { LAYER_LABELS } from '../../config/geography-types'
 import MapMarkerEditor from './MapMarkerEditor.vue'
+import { usePerf } from '../../composables/usePerf'
 
 const STYLE_LABELS = STYLE_PRESET_LABELS
+const perf = usePerf()
 
 const props = defineProps({
   config: { type: Object, default: undefined },
@@ -255,7 +257,8 @@ async function doGenerate(cfg) {
     // 用 JSON 走代理：toRaw 只剥一层，nested proxy 仍存在，structuredClone 无法克隆。
     // JSON.stringify 会沿 proxy 走读路径并输出可序列化值，再 parse 回来即纯对象。
     const plainCfg = JSON.parse(JSON.stringify(cfg))
-    const data = await generateMapInWorker(plainCfg)
+    const { data, meta } = await generateMapInWorker(plainCfg, { debugPerf: perf.enabled })
+    perf.record(meta)
 
     // 释放旧 canvas 位图内存
     if (offscreen) {

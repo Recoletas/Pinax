@@ -1,11 +1,13 @@
 <template>
   <div class="world-map-page">
     <WorldMapPanel />
+    <PerfOverlay />
   </div>
 </template>
 
 <script setup>
 import WorldMapPanel from '../components/geography/WorldMapPanel.vue'
+import PerfOverlay from '../components/debug/PerfOverlay.vue'
 </script>
 
 <style scoped>
