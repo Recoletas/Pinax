@@ -7,6 +7,7 @@ const Experience = () => import('../pages/Experience.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
+const WorldMapPage = () => import('../pages/WorldMapPage.vue')
 const Writing = () => import('../pages/Writing.vue')
 const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
@@ -51,6 +52,15 @@ const workbenchChildren = [
     meta: {
       activityKey: 'worldbook',
       title: '设定 · 结构化设定'
+    }
+  },
+  {
+    path: 'experience/world-map',
+    name: 'experience-world-map',
+    component: WorldMapPage,
+    meta: {
+      activityKey: 'worldbook',
+      title: '世界地图'
     }
   },
   {

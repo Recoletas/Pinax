@@ -68,6 +68,11 @@ export const SIDE_PANELS = {
         description: '世界观、故事、角色与创作规则'
       },
       {
+        routeName: 'experience-world-map',
+        label: '世界地图',
+        description: 'Voronoi 地图生成与编辑'
+      },
+      {
         routeName: 'experience-worldbook',
         label: '快速导入',
         description: '预设、AI 提炼、随机生成入口'

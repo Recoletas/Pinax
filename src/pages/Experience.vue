@@ -41,7 +41,7 @@
             <StatusBar />
           </div>
           <div class="sidebar-section">
-            <WorldMap />
+            <GeographyPanel />
           </div>
           <div class="sidebar-section">
             <QuestLog />
@@ -266,7 +266,7 @@ import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
-import WorldMap from '../components/WorldMap.vue'
+import GeographyPanel from '../components/geography/GeographyPanel.vue'
 import Settings from '../components/Settings.vue'
 import Character from '../components/Character.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'

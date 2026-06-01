@@ -56,7 +56,11 @@ export const STORAGE_KEYS = {
 
   // 偏好记忆
   PREFERENCE_USER_ID: 'preference_user_id',
-  MEM0_SETTINGS: 'mem0_settings'
+  MEM0_SETTINGS: 'mem0_settings',
+
+  // 地理与世界地图
+  GEOGRAPHY_DATA: 'geography_data',
+  WORLD_NODES: 'world_nodes'
 }
 
 export const SCHEMA = {

@@ -13,6 +13,25 @@
   }
 }
 
+/* Canvas overlay colors (always dark, theme-independent) */
+:root {
+  --canvas-bg: #1a1f2e;
+  --canvas-overlay: rgba(30, 34, 48, 0.9);
+  --canvas-overlay-strong: rgba(30, 34, 48, 0.95);
+  --canvas-surface: rgba(37, 42, 58, 0.8);
+  --canvas-border: rgba(255, 255, 255, 0.1);
+  --canvas-border-hover: rgba(255, 255, 255, 0.2);
+  --canvas-text: rgba(255, 255, 255, 0.7);
+  --canvas-text-secondary: rgba(255, 255, 255, 0.4);
+  --canvas-text-muted: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 1s linear infinite; }
+
 /* Light Theme (default) */
 :root {
   --bg-primary: #f3f3f3;
