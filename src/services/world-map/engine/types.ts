@@ -3,6 +3,16 @@
  * 基于 TypedArray 实现高性能网格数据
  */
 
+/** 性能分析元数据：随 worker 响应一起返回 */
+export interface GenerationMeta {
+  /** 各阶段耗时（毫秒） */
+  timings: Array<{ stage: string; durationMs: number }>
+  /** 整次生成的总耗时（毫秒） */
+  totalMs: number
+  /** 触发本次生成的 seed */
+  seed: string
+}
+
 /** 网格单元格数据（并行数组，按 cellId 索引） */
 export interface GridCells {
   /** 单元格数量 */

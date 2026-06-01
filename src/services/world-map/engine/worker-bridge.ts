@@ -3,13 +3,13 @@
  * 管理 Worker 生命周期，将 generateMap 移至独立线程执行
  */
 
-import type { MapGenConfig, VoronoiMapData } from './types'
+import type { MapGenConfig, GenerationMeta, VoronoiMapData } from './types'
 
 /** 单次生成请求的最大等待时间 */
 const REQUEST_TIMEOUT_MS = 60_000
 
 interface PendingRequest {
-  resolve: (data: VoronoiMapData) => void
+  resolve: (result: { data: VoronoiMapData; meta: GenerationMeta }) => void
   reject: (err: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
@@ -29,14 +29,14 @@ function rejectAllPending(err: Error) {
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = (e: MessageEvent<{ id: number; data?: VoronoiMapData; error?: string }>) => {
-      const { id, data, error } = e.data
+    worker.onmessage = (e: MessageEvent<{ id: number; data?: VoronoiMapData; meta?: GenerationMeta; error?: string }>) => {
+      const { id, data, meta, error } = e.data
       const p = pending.get(id)
       if (!p) return
       pending.delete(id)
       clearTimeout(p.timer)
       if (error) p.reject(new Error(error))
-      else if (data) p.resolve(data)
+      else if (data) p.resolve({ data, meta: meta ?? { timings: [], totalMs: 0, seed: '' } })
     }
     worker.onerror = (e) => {
       rejectAllPending(new Error(e.message || 'Worker error'))
@@ -50,7 +50,10 @@ function getWorker(): Worker {
  * 在 Web Worker 中生成地图 — 主线程完全不阻塞
  * 单次请求超过 REQUEST_TIMEOUT_MS 后会主动 reject，避免挂起
  */
-export function generateMapInWorker(config: MapGenConfig = {}): Promise<VoronoiMapData> {
+export function generateMapInWorker(
+  config: MapGenConfig = {},
+  options: { debugPerf?: boolean } = {},
+): Promise<{ data: VoronoiMapData; meta: GenerationMeta }> {
   return new Promise((resolve, reject) => {
     const id = ++requestId
     const timer = setTimeout(() => {
@@ -60,7 +63,7 @@ export function generateMapInWorker(config: MapGenConfig = {}): Promise<VoronoiM
     }, REQUEST_TIMEOUT_MS)
     pending.set(id, { resolve, reject, timer })
     try {
-      getWorker().postMessage({ id, config })
+      getWorker().postMessage({ id, config, debugPerf: options.debugPerf === true })
     } catch (err) {
       pending.delete(id)
       clearTimeout(timer)
