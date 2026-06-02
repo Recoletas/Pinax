@@ -18,6 +18,20 @@ const STATE_COLORS = [
   '#f1ce63', '#d37295', '#a0cbe8', '#fabfd2', '#d4a6c8',
 ]
 
+interface ExpandStatesDiagnostics {
+  pushCount: number
+  popCount: number
+  staleCount: number
+  edgeScanCount: number
+  updateCount: number
+  reassignmentCount: number
+  maxHeap: number
+  maxNeighborCount: number
+}
+
+let expandStatesDiagnosticsEnabled = false
+let lastExpandStatesDiagnostics: ExpandStatesDiagnostics | null = null
+
 /** 放置城镇 */
 export function generateBurgs(
   cells: GridCells,
@@ -169,13 +183,107 @@ export function generateStates(
   return states
 }
 
-/** Dijkstra 领土扩张 */
+/** 测试用 hook：暴露 expandStates。 */
+export const __test_expandStates = expandStates
+
+/** 测试用 hook：启用/关闭 expandStates 诊断计数。 */
+export function __test_setExpandStatesDiagnosticsEnabled(enabled: boolean): void {
+  expandStatesDiagnosticsEnabled = enabled
+  if (enabled) lastExpandStatesDiagnostics = null
+}
+
+/** 测试用 hook：读取最近一次 expandStates 的诊断数据。 */
+export function __test_getLastExpandStatesDiagnostics(): ExpandStatesDiagnostics | null {
+  return lastExpandStatesDiagnostics
+}
+
+/** Dijkstra 领土扩张（二叉堆 + 关闭集） */
 function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
   const n = cells.length
-  const cost = new Float32Array(n).fill(Infinity)
+  // 路径代价必须保留双精度，避免 `totalCost < cost` 成立但写回 Float32 后值未变，
+  // 从而把同一 cell 以等价代价重复入堆数亿次。
+  const cost = new Float64Array(n).fill(Infinity)
+  const diagnostics = expandStatesDiagnosticsEnabled
+    ? {
+        pushCount: 0,
+        popCount: 0,
+        staleCount: 0,
+        edgeScanCount: 0,
+        updateCount: 0,
+        reassignmentCount: 0,
+        maxHeap: 0,
+        maxNeighborCount: 0,
+      }
+    : null
 
-  // 优先队列（简单实现）
-  const queue: { cell: number; state: number; cost: number }[] = []
+  lastExpandStatesDiagnostics = null
+
+  // 二叉堆：cost / cell 两路平行 typed array
+  const heapCap = Math.max(n, 16)
+  let heapCost = new Float64Array(heapCap)
+  let heapCell = new Int32Array(heapCap)
+  let heapSize = 0
+
+  function heapPush(c: number, cell: number) {
+    if (heapSize >= heapCost.length) {
+      // 翻倍扩容
+      const newCap = heapCost.length * 2
+      const newCost = new Float64Array(newCap)
+      const newCell = new Int32Array(newCap)
+      newCost.set(heapCost)
+      newCell.set(heapCell)
+      heapCost = newCost
+      heapCell = newCell
+    }
+    let i = heapSize++
+    while (i > 0) {
+      const parent = (i - 1) >> 1
+      if (heapCost[parent] <= c) break
+      heapCost[i] = heapCost[parent]
+      heapCell[i] = heapCell[parent]
+      i = parent
+    }
+    heapCost[i] = c
+    heapCell[i] = cell
+    if (diagnostics) {
+      diagnostics.pushCount++
+      if (heapSize > diagnostics.maxHeap) diagnostics.maxHeap = heapSize
+    }
+  }
+
+  function heapPop() {
+    const c = heapCost[0]
+    const cell = heapCell[0]
+    if (diagnostics) diagnostics.popCount++
+    heapSize--
+    if (heapSize > 0) {
+      // 把"末尾"放到根，再下滤。
+      // 下滤用 SWAP 而不是 MOVE：MOVE 会让 heap[i] 在子位置上保留旧值，
+      // 而下滤的比较 `heapCost[l] < heapCost[smallest]` 误把旧值当作下滤基准，
+      // 导致堆腐坏、产生大量重复条目。
+      const lastC = heapCost[heapSize]
+      const lastCell = heapCell[heapSize]
+      heapCost[0] = lastC
+      heapCell[0] = lastCell
+      let i = 0
+      while (true) {
+        const l = 2 * i + 1
+        const r = 2 * i + 2
+        let smallest = i
+        if (l < heapSize && heapCost[l] < heapCost[smallest]) smallest = l
+        if (r < heapSize && heapCost[r] < heapCost[smallest]) smallest = r
+        if (smallest === i) break
+        const tmpC = heapCost[i]
+        const tmpCell = heapCell[i]
+        heapCost[i] = heapCost[smallest]
+        heapCell[i] = heapCell[smallest]
+        heapCost[smallest] = tmpC
+        heapCell[smallest] = tmpCell
+        i = smallest
+      }
+    }
+    return { c, cell }
+  }
 
   // 从每个首都开始
   for (const state of states) {
@@ -185,58 +293,62 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
 
     cost[burg.cell] = 0
     cells.state[burg.cell] = state.i
-    queue.push({ cell: burg.cell, state: state.i, cost: 0 })
+    heapPush(0, burg.cell)
   }
-
-  // 按 cost 排序
-  queue.sort((a, b) => a.cost - b.cost)
 
   const maxCost = n * 0.8
 
-  let head = 0
-  while (head < queue.length) {
-    const { cell, state: stateId, cost: currentCost } = queue[head++]
+  // Dijkstra 主循环
+  while (heapSize > 0) {
+    const { c: currentCost, cell } = heapPop()
 
-    if (currentCost > cost[cell]) continue
+    // stale entry 过滤（lazy decrease-key）
+    if (currentCost > cost[cell]) {
+      if (diagnostics) diagnostics.staleCount++
+      continue
+    }
 
-    const stateData = states[stateId]
+    // 关闭集：从 heap 中取出的第一个匹配的 cost 即最终处理
+    const stateData = states[cells.state[cell]]
     if (!stateData) continue
 
-    for (const neighbor of cells.c[cell]) {
+    const neighbors = cells.c[cell]
+    if (diagnostics && neighbors.length > diagnostics.maxNeighborCount) {
+      diagnostics.maxNeighborCount = neighbors.length
+    }
+
+    for (const neighbor of neighbors) {
+      if (diagnostics) diagnostics.edgeScanCount++
       if (cells.h[neighbor] < SEA_LEVEL) continue // 不越过海洋
 
-      // 计算移动成本
+      // 计算移动成本（与原实现一致）
       const biome = BIOMES[cells.biome[neighbor]]
       let moveCost = biome.moveCost / 10
 
-      // 文化差异惩罚
       if (cells.culture[neighbor] && cells.culture[cell] &&
           cells.culture[neighbor] !== cells.culture[cell]) {
         moveCost += 50
       }
-
-      // 无人区惩罚
       if (cells.s[neighbor] < 1) moveCost += 200
-
-      // 山地惩罚
       if (cells.h[neighbor] > 70) moveCost += (cells.h[neighbor] - 70) * 5
 
       const totalCost = currentCost + moveCost / stateData.expansionism
 
       if (totalCost < cost[neighbor] && totalCost < maxCost) {
+        if (diagnostics) {
+          diagnostics.updateCount++
+          if (cells.state[neighbor] > 0 && cells.state[neighbor] !== stateData.i) {
+            diagnostics.reassignmentCount++
+          }
+        }
         cost[neighbor] = totalCost
-        cells.state[neighbor] = stateId
-
-        // 插入排序
-        const entry = { cell: neighbor, state: stateId, cost: totalCost }
-        const idx = queue.findIndex(q => q.cost > totalCost)
-        if (idx === -1) queue.push(entry)
-        else queue.splice(idx, 0, entry)
+        cells.state[neighbor] = stateData.i
+        heapPush(totalCost, neighbor)
       }
     }
   }
 
-  // 平滑：去除孤立单元格
+  // 平滑：去除孤立单元格（与原实现一致，未变）
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 0; i < n; i++) {
       if (cells.h[i] < SEA_LEVEL || cells.state[i] === 0) continue
@@ -248,7 +360,6 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
         }
       }
 
-      // 如果被其他国家包围，切换到多数国家
       const myCount = neighborStates[cells.state[i]] || 0
       for (const [sid, count] of Object.entries(neighborStates)) {
         if (count > myCount + 1 && +sid !== cells.state[i]) {
@@ -258,6 +369,8 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
       }
     }
   }
+
+  if (diagnostics) lastExpandStatesDiagnostics = diagnostics
 }
 
 /** 简单文化生成（为国家扩张提供依据） */
@@ -508,67 +621,106 @@ export function generateRoads(
   return roads
 }
 
-/** A* 寻路（陆地，沿 Voronoi 邻居） */
+/** A* 寻路（陆地，沿 Voronoi 邻居） — 二叉堆 + 关闭集 */
 function findPath(cells: GridCells, start: number, end: number): number[] {
   if (start === end) return [start]
 
   const n = cells.length
-  const cost = new Float32Array(n).fill(Infinity)
-  const from = new Int32Array(n).fill(-1)
-  cost[start] = 0
+  const gScore = new Float64Array(n).fill(Infinity)
+  const parent = new Int32Array(n).fill(-1)
+  const closed = new Uint8Array(n)
+  gScore[start] = 0
 
-  // 简单优先队列
-  const queue: { cell: number; f: number }[] = [{ cell: start, f: 0 }]
+  // 二叉堆（f = g + h）
+  const heapCost = new Float64Array(n)
+  const heapCell = new Int32Array(n)
+  let heapSize = 0
+
+  function heapPush(c: number, cell: number) {
+    let i = heapSize++
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (heapCost[p] <= c) break
+      heapCost[i] = heapCost[p]
+      heapCell[i] = heapCell[p]
+      i = p
+    }
+    heapCost[i] = c
+    heapCell[i] = cell
+  }
+
+  function heapPop() {
+    const c = heapCost[0]
+    const cell = heapCell[0]
+    heapSize--
+    if (heapSize > 0) {
+      // 下滤用 SWAP 而不是 MOVE，原因同 expandStates
+      const lastC = heapCost[heapSize]
+      const lastCell = heapCell[heapSize]
+      heapCost[0] = lastC
+      heapCell[0] = lastCell
+      let i = 0
+      while (true) {
+        const l = 2 * i + 1
+        const r = 2 * i + 2
+        let smallest = i
+        if (l < heapSize && heapCost[l] < heapCost[smallest]) smallest = l
+        if (r < heapSize && heapCost[r] < heapCost[smallest]) smallest = r
+        if (smallest === i) break
+        const tmpC = heapCost[i]
+        const tmpCell = heapCell[i]
+        heapCost[i] = heapCost[smallest]
+        heapCell[i] = heapCell[smallest]
+        heapCost[smallest] = tmpC
+        heapCell[smallest] = tmpCell
+        i = smallest
+      }
+    }
+    return { c, cell }
+  }
 
   const endX = cells.p[end * 2]
   const endY = cells.p[end * 2 + 1]
 
-  let head = 0
-  let dirty = true
-  while (head < queue.length) {
-    if (dirty) {
-      // 只排序未处理的部分
-      const pending = queue.slice(head)
-      pending.sort((a, b) => a.f - b.f)
-      for (let i = 0; i < pending.length; i++) queue[head + i] = pending[i]
-      dirty = false
-    }
-    const { cell } = queue[head++]
+  // start 的 f = g(start) + h(start) = 0 + h(start)
+  const hStart = Math.hypot(cells.p[start * 2] - endX, cells.p[start * 2 + 1] - endY) * 0.01
+  heapPush(hStart, start)
 
+  while (heapSize > 0) {
+    const { cell } = heapPop()
+    if (closed[cell]) continue
     if (cell === end) break
+    closed[cell] = 1
 
     for (const neighbor of cells.c[cell]) {
       if (cells.h[neighbor] < SEA_LEVEL) continue // 不走水域
+      if (closed[neighbor]) continue
 
       const biome = BIOMES[cells.biome[neighbor]]
       let moveCost = (biome?.moveCost ?? 100) / 50
       if (cells.h[neighbor] > 70) moveCost += (cells.h[neighbor] - 70) * 0.5
-      // 河流有桥 → 降低成本
       if (cells.r[neighbor] > 0) moveCost *= 0.8
 
-      const g = cost[cell] + moveCost
-      if (g < cost[neighbor]) {
-        cost[neighbor] = g
-        from[neighbor] = cell
+      const tentativeG = gScore[cell] + moveCost
+      if (tentativeG < gScore[neighbor]) {
+        gScore[neighbor] = tentativeG
+        parent[neighbor] = cell
         const dx = cells.p[neighbor * 2] - endX
         const dy = cells.p[neighbor * 2 + 1] - endY
         const h = Math.sqrt(dx * dx + dy * dy) * 0.01
-        queue.push({ cell: neighbor, f: g + h })
-        dirty = true
+        heapPush(tentativeG + h, neighbor)
       }
     }
-
-    if (queue.length > 5000) break // 安全阀
   }
 
-  // 回溯路径
-  if (from[end] === -1) return []
+  if (parent[end] === -1) return []
   const path: number[] = []
   let c = end
-  while (c !== -1 && c !== start) {
-    path.unshift(c)
-    c = from[c]
+  while (c !== -1) {
+    path.push(c)
+    if (c === start) break
+    c = parent[c]
   }
-  path.unshift(start)
+  path.reverse()
   return path
 }
