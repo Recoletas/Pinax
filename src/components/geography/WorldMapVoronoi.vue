@@ -61,6 +61,20 @@
       <h4 class="panel-title">渲染设置</h4>
 
       <div class="panel-section">
+        <label class="section-label">现实化等级</label>
+        <div class="style-grid">
+          <button
+            v-for="(label, key) in REALISM_LABELS"
+            :key="key"
+            class="style-btn"
+            :class="{ active: realismLevel === key }"
+            :title="REALISM_HINTS[key]"
+            @click="handleRealismChange(key)"
+          >{{ label }}</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
         <label class="section-label">渲染风格</label>
         <div class="style-grid">
           <button
@@ -176,6 +190,12 @@ import MapMarkerEditor from './MapMarkerEditor.vue'
 import { usePerf } from '../../composables/usePerf'
 
 const STYLE_LABELS = STYLE_PRESET_LABELS
+const REALISM_LABELS = { classic: '经典', azgaar: '现实', geologic: '地质' }
+const REALISM_HINTS = {
+  classic: '原版行为：默认地形，无火山/扰动',
+  azgaar: '推荐：板块脊线成山、海岸扰动、河流弯曲、火山弧',
+  geologic: '进阶：azgaar + 地质细节（更尖锐山带、更深裂谷）',
+}
 const perf = usePerf()
 
 const props = defineProps({
@@ -202,6 +222,8 @@ const showLegend = ref(false)
 const showSettings = ref(false)
 
 const stylePreset = shallowRef(props.config?.stylePreset || 'topographic')
+
+const realismLevel = shallowRef(props.config?.realism?.level || 'classic')
 
 const layers = shallowRef({
   terrain: true, coastlines: true, continents: true, rivers: true, borders: true,
@@ -389,6 +411,15 @@ function handleStyleChange(preset) {
   requestAnimationFrame(() => rerender())
 }
 
+function handleRealismChange(level) {
+  if (realismLevel.value === level) return
+  realismLevel.value = level
+  // 现实化等级影响 Voronoi 生成（板块/海岸/水系），需要重新生成数据
+  const { realism: _drop, ...rest } = mergedConfig.value
+  void _drop
+  doGenerate({ ...rest, realism: { level } })
+}
+
 function handleExportHD() {
   if (!mapData.value || exporting.value) return
   exporting.value = true
@@ -554,6 +585,10 @@ function handleMarkerDelete(id) {
 // Watch for config changes
 watch(configKey, () => {
   if (props.config && Object.keys(props.config).length > 0) {
+    // 同步现实化等级到 props（如 AI 重新生成覆盖了 realism）
+    if (props.config.realism?.level) {
+      realismLevel.value = props.config.realism.level
+    }
     doGenerate(mergedConfig.value)
   }
 })

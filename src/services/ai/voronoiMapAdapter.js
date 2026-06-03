@@ -78,7 +78,26 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
 
   "stateNames": ["国家1", "国家2", ...],
   "burgNames":  ["首都1", "首都2", ..., "城镇1", "城镇2", ...],
-  "riverNames": ["河流1", "河流2", ...]
+  "riverNames": ["河流1", "河流2", ...],
+
+  "realism": { "level": "azgaar" },
+  // 现实化等级，控制引擎走老路径还是新渲染路径：
+  // "classic"  — 走老路径（保留兼容）
+  // "azgaar"  — 推荐，走新渲染（地形/水系/政治/火山的视觉强化）
+  // "geologic" — 未来用（最重的地质模拟）
+
+  "constraints": {
+    // 世界书强约束（可选）。不写就引擎随机。
+    "mountains": [
+      {"name": "北境之脊", "cells": [], "type": "range"}
+      // cells 留空数组，引擎会自动算位置
+      // type: "range"（山脉带）| "volcano"（火山）| "ridge"（洋中脊）
+    ],
+    "stateSeeds": [
+      {"name": "玄羽国", "centerCell": 0, "radius": 0, "color": "#4e79a7"}
+      // centerCell/radius 留 0，引擎根据国家名匹配并自动选 cell
+    ]
+  }
 }
 
 **设计指导**：
@@ -149,6 +168,40 @@ export function parseVoronoiMapConfig(raw) {
   }
   if (Array.isArray(parsed.riverNames) && parsed.riverNames.length > 0) {
     config.riverNames = parsed.riverNames.map(String)
+  }
+
+  // 解析 realism（容错：任何字段无效都 fallback 到 azgaar）
+  if (parsed.realism && typeof parsed.realism === 'object') {
+    const level = parsed.realism.level
+    if (['classic', 'azgaar', 'geologic'].includes(level)) {
+      config.realism = { level, ...parsed.realism }
+    } else {
+      config.realism = { level: 'azgaar' }
+    }
+  }
+
+  // 解析 constraints（仅做白名单过滤）
+  if (parsed.constraints && typeof parsed.constraints === 'object') {
+    config.constraints = {}
+    if (Array.isArray(parsed.constraints.mountains)) {
+      config.constraints.mountains = parsed.constraints.mountains
+        .filter(m => m && typeof m.name === 'string' && Array.isArray(m.cells))
+        .map(m => ({
+          name: String(m.name),
+          cells: m.cells.filter(c => Number.isInteger(c) && c >= 0).map(Number),
+          type: ['range', 'volcano', 'ridge'].includes(m.type) ? m.type : 'range',
+        }))
+    }
+    if (Array.isArray(parsed.constraints.stateSeeds)) {
+      config.constraints.stateSeeds = parsed.constraints.stateSeeds
+        .filter(s => s && typeof s.name === 'string')
+        .map(s => ({
+          name: String(s.name),
+          centerCell: Number(s.centerCell) || 0,
+          radius: Number(s.radius) || 0,
+          color: typeof s.color === 'string' ? s.color : undefined,
+        }))
+    }
   }
 
   return config

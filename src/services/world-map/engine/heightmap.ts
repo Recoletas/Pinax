@@ -31,31 +31,31 @@ export function generateHeightmap(
   // 根据模板选择生成策略
   switch (template) {
     case 'pangea':
-      templatePangea(cells, width, height, rng, blobPower)
+      templatePangea(cells, width, height, rng, blobPower, continentCount)
       break
     case 'archipelago':
-      templateArchipelago(cells, width, height, rng, blobPower)
+      templateArchipelago(cells, width, height, rng, blobPower, continentCount)
       break
     case 'volcano':
-      templateVolcano(cells, width, height, rng, blobPower)
+      templateVolcano(cells, width, height, rng, blobPower, continentCount)
       break
     case 'isthmus':
-      templateIsthmus(cells, width, height, rng, blobPower)
+      templateIsthmus(cells, width, height, rng, blobPower, continentCount)
       break
     case 'peninsula':
-      templatePeninsula(cells, width, height, rng, blobPower)
+      templatePeninsula(cells, width, height, rng, blobPower, continentCount)
       break
     case 'mediterranean':
-      templateMediterranean(cells, width, height, rng, blobPower)
+      templateMediterranean(cells, width, height, rng, blobPower, continentCount)
       break
     case 'atoll':
-      templateAtoll(cells, width, height, rng, blobPower)
+      templateAtoll(cells, width, height, rng, blobPower, continentCount)
       break
     case 'shattered':
-      templateShattered(cells, width, height, rng, blobPower)
+      templateShattered(cells, width, height, rng, blobPower, continentCount)
       break
     case 'highland':
-      templateHighland(cells, width, height, rng, blobPower)
+      templateHighland(cells, width, height, rng, blobPower, continentCount)
       break
     case 'continents':
     default:
@@ -68,19 +68,19 @@ export function generateHeightmap(
     cells.h[i] = Math.max(0, Math.min(100, Math.round(cells.h[i] * edgeMask[i])))
   }
 
-  // 平滑
-  smooth(cells, 2)
+  // 平滑（带阈值：低高度清零，避免向海洋渗色）
+  smooth(cells, 2, 2)
 
-  // 调整海陆比例
+  // 调整海陆比例（缺口感知：h=0 视作稳定的海洋）
   adjustSeaLevel(cells, landRatio)
 
   // 最终平滑
-  smooth(cells, 1)
+  smooth(cells, 1, 1)
 }
 
 // ── 模板函数 ────────────────────────────────────────
 
-/** 多大陆（默认） — 均匀分散放置 */
+/** 多大陆（默认） — 均匀分散放置，留明显海洋隔开 */
 function templateContinents(
   cells: GridCells, w: number, h: number, rng: () => number,
   bp: number, continentCount: number,
@@ -88,58 +88,61 @@ function templateContinents(
   // 将地图划分为 continentCount 个区域，每个区域放一个大陆
   const cols = Math.ceil(Math.sqrt(continentCount))
   const rows = Math.ceil(continentCount / cols)
-  const cellW = 0.7 / cols  // 每个区域占 70% 宽度（留边距）
+  const cellW = 0.7 / cols
   const cellH = 0.7 / rows
+  const offX = 0.15 + (0.7 - cellW * cols) / 2
+  const offY = 0.15 + (0.7 - cellH * rows) / 2
+
+  // 半径约束：center-to-center 间距 / 4 → 留出充足的海水
+  // Voronoi 平均每跳 ~14 px（点数越多越密，这里保守取 14）
+  const minSpacingPx = Math.min(cellW * w, cellH * h)
+  const maxRadius = Math.max(3, Math.floor(minSpacingPx / 4 / 14))
 
   let placed = 0
   for (let r = 0; r < rows && placed < continentCount; r++) {
     for (let c = 0; c < cols && placed < continentCount; c++) {
-      // 在区域中心附近随机偏移
-      const cx = 0.15 + (c + 0.2 + rng() * 0.6) * cellW
-      const cy = 0.15 + (r + 0.2 + rng() * 0.6) * cellH
-      const size = 45 + rng() * 20
-      addHill(cells, findNearestCell(cells, cx * w, cy * h), size, bp, rng)
+      // 在区域中心附近随机偏移（小范围，避免靠边界导致 BFS 跨区）
+      const cx = offX + (c + 0.4 + rng() * 0.2) * cellW
+      const cy = offY + (r + 0.4 + rng() * 0.2) * cellH
+      // 主丘陵：基高更高、半径受限，体积更可控
+      const size = 70 + rng() * 25
+      addHill(cells, findNearestCell(cells, cx * w, cy * h), size, bp, rng, maxRadius)
 
-      // 每个大陆周围加 1-2 个卫星丘陵
-      const satellites = 1 + Math.floor(rng() * 2)
-      for (let s = 0; s < satellites; s++) {
-        const sx = cx + (rng() - 0.5) * cellW * 0.6
-        const sy = cy + (rng() - 0.5) * cellH * 0.6
-        addHill(cells, findNearestCell(cells, sx * w, sy * h), 15 + rng() * 15, bp * 1.01, rng)
-      }
-
-      // 每个大陆加一条山脉
+      // 每个大陆加一条很短的山脉（横向不超过 maxRadius）
+      // 范围随大陆数收敛：大陆越多山脉越短，避免跨大陆拼接
+      const rangeScale = Math.max(0.3, 1 - continentCount / 12)
       const rangeAngle = rng() * Math.PI
-      const rangeLen = 0.15 + rng() * 0.1
+      const rangeLen = 0.03 * rangeScale + rng() * 0.03 * rangeScale
       addRange(cells,
         findNearestCell(cells, (cx - Math.cos(rangeAngle) * rangeLen) * w, (cy - Math.sin(rangeAngle) * rangeLen) * h),
         findNearestCell(cells, (cx + Math.cos(rangeAngle) * rangeLen) * w, (cy + Math.sin(rangeAngle) * rangeLen) * h),
-        40 + rng() * 25, rng)
+        30 + rng() * 15, rng, Math.max(2, Math.floor(maxRadius * 0.5)))
 
       placed++
     }
   }
 
-  // 散布一些小岛屿
+  // 散布一些小岛屿（独立，永远不与大陆相接）
   const islandCount = 2 + Math.floor(rng() * 4)
   for (let i = 0; i < islandCount; i++) {
-    addHill(cells, findNearestCell(cells, rng() * w, rng() * h), 8 + rng() * 12, bp * 1.02, rng)
+    addHill(cells, findNearestCell(cells, rng() * w, rng() * h), 12 + rng() * 10, bp * 1.02, rng, Math.max(3, Math.floor(maxRadius * 0.4)))
   }
 }
 
 /** 盘古大陆 — 中央一整块大陆 */
 function templatePangea(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 中心一个超大丘陵
-  addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 60 + rng() * 15, bp * 0.98, rng)
+  addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 80 + rng() * 15, bp * 0.98, rng)
   // 周围4个中等丘陵，让大陆不规则
   for (let i = 0; i < 4; i++) {
     const angle = (i / 4) * Math.PI * 2 + rng() * 0.5
     const dist = 0.15 + rng() * 0.15
     const cx = 0.5 + Math.cos(angle) * dist
     const cy = 0.5 + Math.sin(angle) * dist
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), 30 + rng() * 20, bp, rng)
+    addHill(cells, findNearestCell(cells, cx * w, cy * h), 40 + rng() * 20, bp, rng)
   }
   // 2-3条山脉穿过大陆
   for (let i = 0; i < 2 + Math.floor(rng() * 2); i++) {
@@ -151,6 +154,7 @@ function templatePangea(
 /** 群岛 — 大量小岛 */
 function templateArchipelago(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   const islandCount = 10 + Math.floor(rng() * 15)
   for (let i = 0; i < islandCount; i++) {
@@ -169,6 +173,7 @@ function templateArchipelago(
 /** 火山岛 — 中心高峰 */
 function templateVolcano(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 中心火山
   const center = findNearestCell(cells, w * 0.5 + (rng() - 0.5) * w * 0.15, h * 0.5 + (rng() - 0.5) * h * 0.15)
@@ -185,6 +190,7 @@ function templateVolcano(
 /** 地峡 — 两块陆地窄桥相连 */
 function templateIsthmus(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 左右两块大陆
   addHill(cells, findNearestCell(cells, w * 0.25, h * 0.5), 40 + rng() * 20, bp, rng)
@@ -203,6 +209,7 @@ function templateIsthmus(
 /** 半岛 — 大陆从一边延伸 */
 function templatePeninsula(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 主大陆在左侧
   addHill(cells, findNearestCell(cells, w * 0.2, h * 0.5), 50 + rng() * 20, bp * 0.99, rng)
@@ -219,6 +226,7 @@ function templatePeninsula(
 /** 内海/地中海 — 大陆环绕中心海域 */
 function templateMediterranean(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 环形大陆：上下两块弧形陆地
   // 上方弧
@@ -245,6 +253,7 @@ function templateMediterranean(
 /** 环礁 — 环状小岛 */
 function templateAtoll(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   const ringCount = 12 + Math.floor(rng() * 8)
   for (let i = 0; i < ringCount; i++) {
@@ -263,6 +272,7 @@ function templateAtoll(
 /** 碎裂大陆 — 原本一块，现在碎了 */
 function templateShattered(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 先做一块大陆
   addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 50 + rng() * 15, bp * 0.99, rng)
@@ -281,6 +291,7 @@ function templateShattered(
 /** 高原 — 中心大面积平坦高地 */
 function templateHighland(
   cells: GridCells, w: number, h: number, rng: () => number, bp: number,
+  _continentCount?: number,
 ) {
   // 大面积平缓高地
   addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 45, bp * 0.97, rng)
@@ -300,16 +311,18 @@ function templateHighland(
 /** BFS 添加山丘 */
 function addHill(
   cells: GridCells, start: number, baseHeight: number,
-  power: number, rng: () => number,
+  power: number, rng: () => number, maxRadius: number = Infinity,
 ): void {
   const change = new Float32Array(cells.length)
   change[start] = baseHeight
   const queue = [start]
   const visited = new Set<number>([start])
+  const dist = new Uint8Array(cells.length)
   let head = 0
 
   while (head < queue.length) {
     const cell = queue[head++]
+    if (dist[cell] > maxRadius) continue
     cells.h[cell] = Math.min(100, cells.h[cell] + Math.round(change[cell]))
 
     for (const neighbor of cells.c[cell]) {
@@ -317,6 +330,7 @@ function addHill(
       const newChange = change[cell] ** power * (0.9 + rng() * 0.2)
       if (newChange < 1) continue
       change[neighbor] = newChange
+      dist[neighbor] = dist[cell] + 1
       visited.add(neighbor)
       queue.push(neighbor)
     }
@@ -326,16 +340,18 @@ function addHill(
 /** BFS 挖坑（负高度） */
 function addPit(
   cells: GridCells, start: number, depth: number,
-  power: number, rng: () => number,
+  power: number, rng: () => number, maxRadius: number = Infinity,
 ): void {
   const change = new Float32Array(cells.length)
   change[start] = depth
   const queue = [start]
   const visited = new Set<number>([start])
+  const dist = new Uint8Array(cells.length)
   let head = 0
 
   while (head < queue.length) {
     const cell = queue[head++]
+    if (dist[cell] > maxRadius) continue
     cells.h[cell] = Math.max(0, cells.h[cell] - Math.round(change[cell]))
 
     for (const neighbor of cells.c[cell]) {
@@ -343,6 +359,7 @@ function addPit(
       const newChange = change[cell] ** power * (0.9 + rng() * 0.2)
       if (newChange < 1) continue
       change[neighbor] = newChange
+      dist[neighbor] = dist[cell] + 1
       visited.add(neighbor)
       queue.push(neighbor)
     }
@@ -352,7 +369,7 @@ function addPit(
 /** 在两点间添加山脉 */
 function addRange(
   cells: GridCells, start: number, end: number,
-  baseHeight: number, rng: () => number,
+  baseHeight: number, rng: () => number, maxRadius: number = Infinity,
 ): void {
   const ridge: number[] = [start]
   const ridgeSet = new Set<number>([start])
@@ -389,8 +406,9 @@ function addRange(
   const visited = new Set(ridge)
   let frontier = [...ridge]
   let layerH = baseHeight * 0.6
+  const maxLayer = Math.min(5, Math.max(1, maxRadius - Math.floor(ridge.length / 8)))
 
-  for (let layer = 0; layer < 5 && layerH > 2; layer++) {
+  for (let layer = 0; layer < maxLayer && layerH > 2; layer++) {
     const nextFrontier: number[] = []
     for (const cell of frontier) {
       for (const neighbor of cells.c[cell]) {
@@ -406,8 +424,8 @@ function addRange(
   }
 }
 
-/** 平滑处理 */
-function smooth(cells: GridCells, passes: number): void {
+/** 平滑处理。threshold：平均后低于此值的格子视为海洋（h=0），避免向海渗色。 */
+function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
   for (let pass = 0; pass < passes; pass++) {
     const newH = new Uint8Array(cells.length)
     for (let i = 0; i < cells.length; i++) {
@@ -415,17 +433,37 @@ function smooth(cells: GridCells, passes: number): void {
       if (neighbors.length === 0) { newH[i] = cells.h[i]; continue }
       let sum = cells.h[i] * 2
       for (const n of neighbors) sum += cells.h[n]
-      newH[i] = Math.round(sum / (neighbors.length + 2))
+      const avg = Math.round(sum / (neighbors.length + 2))
+      newH[i] = threshold > 0 && avg < threshold ? 0 : avg
     }
     cells.h.set(newH)
   }
 }
 
-/** 调整海平面以达到目标海陆比例 */
+/** 调整海平面以达到目标海陆比例
+ * 缺口感知：h=0 视作稳定海洋，不参与 shift 计算。
+ *  目标 land% 时，先在非零高度中找分位数；h=0 的格子不会因 shift 而抬到陆。
+ */
 function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
-  const heights = Array.from(cells.h).sort((a, b) => a - b)
-  const targetWaterCount = Math.floor(cells.length * (1 - targetLandRatio))
-  const seaLevel = heights[Math.min(targetWaterCount, heights.length - 1)]
+  const landH: number[] = []
+  let zeroCount = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] > 0) landH.push(cells.h[i])
+    else zeroCount++
+  }
+  if (landH.length === 0) return
+
+  landH.sort((a, b) => a - b)
+
+  // 我们希望总 cells.length * targetLandRatio 个为陆。
+  // zeroCount 个已确定为水；剩余靠 landH 顶上所需的部分。
+  const targetLand = Math.floor(cells.length * targetLandRatio)
+  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
+  // landH 中需要保留为陆的个数 = needFromLand；
+  // 需要被划分为水的是底部 (landH.length - needFromLand) 个
+  const waterInLand = landH.length - needFromLand
+  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
+  const seaLevel = landH[idx]
 
   const shift = 20 - seaLevel
   for (let i = 0; i < cells.length; i++) {

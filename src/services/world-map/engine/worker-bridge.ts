@@ -47,6 +47,20 @@ function getWorker(): Worker {
 }
 
 /**
+ * 把 cfg 序列化为可 postMessage 的纯对象
+ *
+ * Worker postMessage 内部走 structuredClone，Vue 响应式 proxy（嵌套数组等）
+ * 不能被 structuredClone 克隆。这里在边界处强制走 JSON 走一遍 proxy
+ * 读路径，输出纯对象/纯数组。
+ *
+ * cfg 体积小（<1KB），速度差异可忽略；用 JSON 是因为它会沿 proxy 的 get trap
+ * 拿到序列化值，而 structuredClone/toRaw 只能剥一层。
+ */
+export function serializeConfigForWorker<T>(config: T): T {
+  return JSON.parse(JSON.stringify(config)) as T
+}
+
+/**
  * 在 Web Worker 中生成地图 — 主线程完全不阻塞
  * 单次请求超过 REQUEST_TIMEOUT_MS 后会主动 reject，避免挂起
  */
@@ -63,7 +77,8 @@ export function generateMapInWorker(
     }, REQUEST_TIMEOUT_MS)
     pending.set(id, { resolve, reject, timer })
     try {
-      getWorker().postMessage({ id, config, debugPerf: options.debugPerf === true })
+      const plainConfig = serializeConfigForWorker(config)
+      getWorker().postMessage({ id, config: plainConfig, debugPerf: options.debugPerf === true })
     } catch (err) {
       pending.delete(id)
       clearTimeout(timer)

@@ -55,6 +55,12 @@ export interface GridCells {
   haven: Uint16Array
   /** 相邻水域单元格数量 */
   harbor: Uint8Array
+  /** 板块数据（plateId/boundaryDist/boundaryType/subduction/orogenyAge/volcanoArc 6 个并行数组） */
+  tectonic?: TectonicData
+  /** 火山类型（0=无 1=strato 2=shield） */
+  volcano?: Uint8Array
+  /** 河流 ID（0=无，>0=河流编号） */
+  riverId?: Uint16Array
 }
 
 /** 顶点数据 */
@@ -98,6 +104,8 @@ export interface River {
   source: number
   /** 父河流（汇入的河流 ID） */
   parent?: number
+  /** 河流长度（cells.length 派生；与 cells 数组保持同步） */
+  length?: number
 }
 
 /** 城镇 */
@@ -201,6 +209,8 @@ export interface PlateBoundary {
   plateB: number
   /** 边界经过的单元格 */
   cellIds: number[]
+  /** 俯冲侧 plate.i（仅 convergent + 洋-陆碰撞时有） */
+  subductionSide?: number
 }
 
 /** 洋流段 */
@@ -319,6 +329,73 @@ export interface BiomeOverride {
   moveCost?: number
 }
 
+/** 板块数据结构（cells 上的并行数组） */
+export interface TectonicData {
+  /** 板块编号（Voronoi 划分结果） */
+  plateId: Int16Array
+  /** 到最近板块边界的 cell 数（255 = 内陆） */
+  boundaryDist: Uint8Array
+  /** 边界类型：0=无 1=convergent 2=divergent 3=transform */
+  boundaryType: Uint8Array
+  /** 0=无 1=洋→陆俯冲带邻接 */
+  subduction: Uint8Array
+  /** 0=新 255=老（山影色调） */
+  orogenyAge: Uint8Array
+  /** 0=无 1=火山弧位置 */
+  volcanoArc: Uint8Array
+}
+
+/** 火山类型 */
+export const VOLCANO_NONE = 0
+export const VOLCANO_STRATO = 1
+export const VOLCANO_SHIELD = 2
+
+/** 现实化配置（控制板块/海岸/水系/渲染的视觉强度） */
+export interface MapRealism {
+  /** 总开关 */
+  level: 'classic' | 'azgaar' | 'geologic'
+  tectonics?: {
+    plateCount?: number
+    rangeWidth?: number      // 山带宽度 1-8
+    riftDepth?: number       // 裂谷深度
+    volcanoDensity?: number  // 0-1
+  }
+  rivers?: {
+    style?: 'straight' | 'meandering' | 'deltaic'
+    meanderAmplitude?: number  // 0-5
+  }
+  coast?: {
+    noiseScale?: number       // 默认 0.012
+    noiseAmplitude?: number   // 默认 6
+    headlandFreq?: number     // 0-1
+  }
+  political?: {
+    borderStyle?: 'simple' | 'azgaar'
+    borderlandWidth?: number  // 0-3
+    factionTexture?: boolean
+  }
+}
+
+/** 世界书强约束（可选） */
+export interface MapConstraints {
+  mountains?: Array<{
+    name: string
+    cells: number[]
+    type: 'range' | 'volcano' | 'ridge'
+  }>
+  rivers?: Array<{
+    name: string
+    sourceCell: number
+    mouthHint?: string
+  }>
+  stateSeeds?: Array<{
+    name: string
+    centerCell: number
+    radius?: number
+    color?: string
+  }>
+}
+
 /** 地图生成配置（可由 AI 控制） */
 export interface MapGenConfig {
   /** 画布宽度 */
@@ -372,4 +449,8 @@ export interface MapGenConfig {
   burgNames?: string[]
   /** 河流名称列表 */
   riverNames?: string[]
+  /** 现实化配置（默认 { level: 'azgaar' }） */
+  realism?: MapRealism
+  /** 世界书强约束（可选） */
+  constraints?: MapConstraints
 }

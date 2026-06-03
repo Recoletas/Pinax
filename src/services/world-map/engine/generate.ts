@@ -3,13 +3,14 @@
  * 按顺序执行所有生成步骤
  */
 
-import type { MapGenConfig, VoronoiMapData } from './types'
+import type { MapGenConfig, VoronoiMapData, MapConstraints } from './types'
 import { seedRandom } from './random'
 import { generatePoints, buildVoronoi } from './grid'
 import { generateHeightmap } from './heightmap'
 import { detectFeatures } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
+import { perturbCoast } from './coast'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
@@ -17,7 +18,11 @@ import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
 
 /** 生成完整地图 */
-export function generateMap(config: MapGenConfig = {}, collector?: PerfCollector): VoronoiMapData {
+export function generateMap(
+  config: MapGenConfig = {},
+  collector?: PerfCollector,
+  constraints?: MapConstraints,
+): VoronoiMapData {
   const {
     width = 1200,
     height = 800,
@@ -66,9 +71,22 @@ export function generateMap(config: MapGenConfig = {}, collector?: PerfCollector
   // 3. 板块构造（在高度图之后，叠加山脉/裂谷/火山）
   console.time('[MapEngine] Tectonics')
   collector?.start('tectonics')
-  const { plates, boundaries } = generateTectonics(cells, width, height, rng, plateCount, plateSpeedFactor)
+  const effectiveConstraints = constraints ?? config.constraints
+  const { plates, boundaries } = generateTectonics(
+    cells, width, height, rng, plateCount, plateSpeedFactor,
+    config.realism ?? { level: 'classic' },
+    effectiveConstraints,
+  )
   console.timeEnd('[MapEngine] Tectonics')
   collector?.end('tectonics')
+
+  // 3.5 海岸线扰动（仅 azgaar / geologic；经典模式跳过）
+  if (config.realism && config.realism.level !== 'classic' && config.realism.coast) {
+    perturbCoast(cells, {
+      noiseScale: config.realism.coast.noiseScale ?? 0.012,
+      noiseAmplitude: config.realism.coast.noiseAmplitude ?? 6,
+    })
+  }
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -95,7 +113,10 @@ export function generateMap(config: MapGenConfig = {}, collector?: PerfCollector
   // 7. 河流
   console.time('[MapEngine] Rivers')
   collector?.start('rivers')
-  const rivers = generateRivers(cells, rng)
+  const rivers = generateRivers(cells, rng, {
+    style: config.realism?.rivers?.style ?? 'straight',
+    meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
+  })
   if (riverNames) {
     for (let i = 0; i < Math.min(rivers.length, riverNames.length); i++) {
       rivers[i].name = riverNames[i]
@@ -139,6 +160,24 @@ export function generateMap(config: MapGenConfig = {}, collector?: PerfCollector
   // 13. 国家
   console.time('[MapEngine] States')
   collector?.start('states')
+
+  // 应用世界书 stateSeeds 约束：把指定 cell 强制设为对应国家的首都
+  if (effectiveConstraints?.stateSeeds && effectiveConstraints.stateSeeds.length > 0) {
+    const stateNameToCell = new Map<string, number>()
+    for (const seed of effectiveConstraints.stateSeeds) {
+      stateNameToCell.set(seed.name, seed.centerCell)
+    }
+    for (const burg of burgs) {
+      if (burg.capital && burg.name && stateNameToCell.has(burg.name)) {
+        const targetCell = stateNameToCell.get(burg.name)!
+        if (targetCell > 0 && targetCell < cells.length && cells.h[targetCell] >= 20) {
+          burg.cell = targetCell
+        }
+        stateNameToCell.delete(burg.name)
+      }
+    }
+  }
+
   const states = generateStates(cells, burgs, stateCount, rng, stateNames)
   console.timeEnd('[MapEngine] States')
   collector?.end('states')
@@ -194,6 +233,7 @@ export async function generateMapAsync(
   config: MapGenConfig = {},
   onProgress?: (step: string, percent: number) => void,
   collector?: PerfCollector,
+  constraints?: MapConstraints,
 ): Promise<VoronoiMapData> {
   const {
     width = 1200,
@@ -239,9 +279,22 @@ export async function generateMapAsync(
   // 3. Tectonics
   onProgress?.('板块构造', 14)
   collector?.start('tectonics')
-  const { plates, boundaries } = generateTectonics(cells, width, height, rng, plateCount, plateSpeedFactor)
+  const effectiveConstraints = constraints ?? config.constraints
+  const { plates, boundaries } = generateTectonics(
+    cells, width, height, rng, plateCount, plateSpeedFactor,
+    config.realism ?? { level: 'classic' },
+    effectiveConstraints,
+  )
   collector?.end('tectonics')
   await yieldToMain()
+
+  // 3.5 Coast perturbation (non-classic only)
+  if (config.realism && config.realism.level !== 'classic' && config.realism.coast) {
+    perturbCoast(cells, {
+      noiseScale: config.realism.coast.noiseScale ?? 0.012,
+      noiseAmplitude: config.realism.coast.noiseAmplitude ?? 6,
+    })
+  }
 
   // 4. Features
   onProgress?.('地理特征', 21)
@@ -268,7 +321,10 @@ export async function generateMapAsync(
   // 7. Rivers
   onProgress?.('河流', 42)
   collector?.start('rivers')
-  const rivers = generateRivers(cells, rng)
+  const rivers = generateRivers(cells, rng, {
+    style: config.realism?.rivers?.style ?? 'straight',
+    meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
+  })
   if (riverNames) {
     for (let i = 0; i < Math.min(rivers.length, riverNames.length); i++) {
       rivers[i].name = riverNames[i]
@@ -310,6 +366,24 @@ export async function generateMapAsync(
   // 12. States
   onProgress?.('国家', 70)
   collector?.start('states')
+
+  // 应用世界书 stateSeeds 约束
+  if (effectiveConstraints?.stateSeeds && effectiveConstraints.stateSeeds.length > 0) {
+    const stateNameToCell = new Map<string, number>()
+    for (const seed of effectiveConstraints.stateSeeds) {
+      stateNameToCell.set(seed.name, seed.centerCell)
+    }
+    for (const burg of burgs) {
+      if (burg.capital && burg.name && stateNameToCell.has(burg.name)) {
+        const targetCell = stateNameToCell.get(burg.name)!
+        if (targetCell > 0 && targetCell < cells.length && cells.h[targetCell] >= 20) {
+          burg.cell = targetCell
+        }
+        stateNameToCell.delete(burg.name)
+      }
+    }
+  }
+
   const states = generateStates(cells, burgs, stateCount, rng, stateNames)
   collector?.end('states')
   await yieldToMain()

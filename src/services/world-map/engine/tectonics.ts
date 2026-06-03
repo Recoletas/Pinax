@@ -5,7 +5,14 @@
  *       局部法线分类 → 渐进式地形修改
  */
 
-import type { GridCells, Plate, PlateBoundary } from './types'
+import type { GridCells, Plate, PlateBoundary, MapRealism, MapConstraints } from './types'
+import { computeTectonicData } from './tectonic-data'
+import {
+  applyConvergentRange,
+  applyDivergentRift,
+  applyTransformShear,
+  applyVolcanicArc,
+} from './boundary-terrain'
 
 interface BoundarySegment {
   plateA: number
@@ -14,6 +21,8 @@ interface BoundarySegment {
   cellsB: number[]
   normalX: number
   normalY: number
+  /** 俯冲侧 plate.i（仅洋-陆碰撞 convergent 有） */
+  subductionSide?: number
 }
 
 /**
@@ -26,6 +35,8 @@ export function generateTectonics(
   rng: () => number,
   plateCount = 6,
   plateSpeedFactor = 1,
+  realism: MapRealism = { level: 'classic' },
+  constraints?: MapConstraints,
 ): { plates: Plate[]; boundaries: PlateBoundary[] } {
   plateCount = Math.max(2, Math.min(12, plateCount))
 
@@ -68,8 +79,9 @@ export function generateTectonics(
   // Step 5: 双侧边界检测 + 局部法线
   const rawBoundaries = detectBoundaries(cells, plateId, plates)
 
-  // Step 6: 分类 + 地形修改
+  // Step 6a: 分类 + 识别俯冲侧 + 收集 boundaries（先于 tectonic data 与地形修改）
   const boundaries: PlateBoundary[] = []
+  const classified: Array<{ seg: BoundarySegment; type: PlateBoundary['type']; pa: Plate; pb: Plate }> = []
 
   for (const seg of rawBoundaries) {
     const pa = plates[seg.plateA]
@@ -87,12 +99,45 @@ export function generateTectonics(
     else if (dot < -0.3) type = 'divergent'
     else type = 'transform'
 
+    // 识别俯冲：洋-陆碰撞时，洋壳是俯冲侧
+    if (type === 'convergent' && pa.oceanic && !pb.oceanic) seg.subductionSide = pa.i
+    else if (type === 'convergent' && pb.oceanic && !pa.oceanic) seg.subductionSide = pb.i
+
     // 合并双侧单元格为 cellIds
     const cellIds = [...new Set([...seg.cellsA, ...seg.cellsB])]
-    boundaries.push({ type, plateA: seg.plateA, plateB: seg.plateB, cellIds })
+    boundaries.push({
+      type,
+      plateA: seg.plateA,
+      plateB: seg.plateB,
+      cellIds,
+      subductionSide: seg.subductionSide,
+    })
 
-    // 渐进式地形修改
-    applyBoundaryTerrain(cells, seg, type, pa, pb, rng)
+    classified.push({ seg, type, pa, pb })
+  }
+
+  // Step 7: 填 cells.tectonic（6 个并行数组，applyVolcanicArc 需要 plateId）
+  cells.tectonic = computeTectonicData(cells, plateId, boundaries)
+
+  // Step 8: 渐进式地形修改（dispatch by realism level）
+  for (const { seg, type, pa, pb } of classified) {
+    applyBoundaryTerrain(cells, seg, type, pa, pb, rng, realism)
+  }
+
+  // Step 7: 填 cells.tectonic（6 个并行数组，现实化数据基础）
+  cells.tectonic = computeTectonicData(cells, plateId, boundaries)
+
+  // 应用世界书 volcano 约束：仅 metadata 标记，渲染时读取
+  if (constraints?.mountains) {
+    if (!cells.volcano) cells.volcano = new Uint8Array(cells.length)
+    for (const m of constraints.mountains) {
+      if (m.type !== 'volcano') continue
+      for (const cellId of m.cells) {
+        if (cellId >= 0 && cellId < cells.length) {
+          cells.volcano[cellId] = 1 // VOLCANO_STRATO
+        }
+      }
+    }
   }
 
   return { plates, boundaries }
@@ -257,9 +302,13 @@ function detectBoundaries(
   return result
 }
 
-// ── Step 6: 渐进式地形修改 ────────────────────────────
+// ── Step 6/8: 渐进式地形修改（dispatch by realism level） ─────────────
 
-function applyBoundaryTerrain(
+/**
+ * 经典模式地形修改：保留原有 byte-for-byte 行为
+ *（测试套件 217 个测试期望此实现的输出）
+ */
+function applyBoundaryTerrainClassic(
   cells: GridCells,
   seg: BoundarySegment,
   type: PlateBoundary['type'],
@@ -267,7 +316,7 @@ function applyBoundaryTerrain(
   pb: Plate,
   rng: () => number,
 ): void {
-  const { cellsA, cellsB, normalX, normalY } = seg
+  const { cellsA, cellsB } = seg
   const allCells = cellsA.concat(cellsB)
   const setA = new Set(cellsA)
 
@@ -353,6 +402,47 @@ function applyBoundaryTerrain(
         }
       }
     }
+  }
+}
+
+/**
+ * Dispatcher：按 realism.level 选择地形修改实现
+ * - 'classic' → 经典实现（保留 byte-for-byte 行为）
+ * - 'azgaar' / 'geologic' → 4 个新 apply 函数（山带/裂谷/断层/火山弧）
+ */
+function applyBoundaryTerrain(
+  cells: GridCells,
+  seg: BoundarySegment,
+  type: PlateBoundary['type'],
+  pa: Plate,
+  pb: Plate,
+  rng: () => number,
+  realism: MapRealism,
+): void {
+  if (realism.level === 'classic') {
+    applyBoundaryTerrainClassic(cells, seg, type, pa, pb, rng)
+    return
+  }
+
+  // 新现实化路径：4 个 apply 函数
+  if (type === 'convergent') {
+    applyConvergentRange(cells, seg, {
+      peakHeight: 50 + Math.floor((realism.tectonics?.rangeWidth ?? 3) * 5),
+      rangeWidth: realism.tectonics?.rangeWidth ?? 3,
+      rng,
+    })
+    if (seg.subductionSide !== undefined) {
+      const overriding = seg.subductionSide === pa.i ? pb : pa
+      applyVolcanicArc(cells, seg, overriding.i, {
+        offsetCell: 4,
+        peakHeight: 35,
+        rng,
+      })
+    }
+  } else if (type === 'divergent') {
+    applyDivergentRift(cells, seg, { riftDepth: realism.tectonics?.riftDepth ?? 25 })
+  } else {
+    applyTransformShear(cells, seg, rng)
   }
 }
 

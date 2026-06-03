@@ -6,6 +6,7 @@
 import type { VoronoiMapData, LayerVisibility, BiomeOverride, MapStylePreset, Feature, PlateBoundary } from './types'
 import { BIOMES } from './climate'
 import { getStyleConfig, type StyleConfig } from './style-presets'
+import { getPipeline, type LayerSpec } from './renderer-pipeline'
 
 /** 渲染选项 */
 export interface RenderOptions {
@@ -74,27 +75,55 @@ export function renderMap(
 
   if (scale !== 1) ctx.scale(scale, scale)
 
-  // 按图层顺序绘制
-  if (layers.terrain) drawTerrain(ctx, data, style, biomeColors)
-  if (layers.coastlines) drawCoastlines(ctx, data, style)
+  // 按 pipeline 顺序绘制（preset 决定哪些层开启；opts.layers 可逐层覆盖）
+  const pipeline = getPipeline(opts.stylePreset || 'topographic')
+  for (const layer of pipeline) {
+    if (!layer.enabled) continue
+    if ((layers as unknown as Record<string, boolean | undefined>)[layer.name] === false) continue
+    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer)
+  }
+
+  // 老 layer 名（不在 pipeline 中）—— 保留向后兼容
   if (layers.continents) drawContinents(ctx, data, style)
-  if (layers.rivers) drawRivers(ctx, data, style)
-  if (layers.roads) drawRoads(ctx, data, style)
   if (layers.provinces) drawProvinceBorders(ctx, data, style)
-  if (layers.borders) drawBorders(ctx, data, style)
   if (layers.tectonics) drawTectonicBoundaries(ctx, data, style)
   if (layers.oceanCurrents) drawOceanCurrents(ctx, data, style)
   if (layers.wind) drawWindField(ctx, data, style)
-  if (layers.stateLabels) drawStateLabels(ctx, data, style)
-  if (layers.burgIcons) drawBurgs(ctx, data, style)
-  if (layers.burgLabels) drawBurgLabels(ctx, data, style)
-  if (layers.scaleBar) drawScaleBar(ctx, width, height, kmPerPixel, style)
-  if (layers.vignette) drawVignette(ctx, width, height, style)
 
   // 风格叠加滤镜
   if (style.overlayColor) {
     ctx.fillStyle = style.overlayColor
     ctx.fillRect(0, 0, width, height)
+  }
+}
+
+/** 渲染 pipeline 中单个 layer */
+function drawPipelineLayer(
+  ctx: CanvasRenderingContext2D,
+  data: VoronoiMapData,
+  style: StyleConfig,
+  biomeColors: string[],
+  width: number,
+  height: number,
+  kmPerPixel: number,
+  layer: LayerSpec,
+): void {
+  switch (layer.name) {
+    case 'hillshade': drawHillshade(ctx, data, style, layer.options); break
+    case 'terrain': drawTerrain(ctx, data, style, biomeColors); break
+    case 'coastlines': drawCoastlines(ctx, data, style); break
+    case 'coastGlow': drawCoastGlow(ctx, data, style); break
+    case 'volcanoes': drawVolcanoes(ctx, data, style); break
+    case 'rivers': drawRivers(ctx, data, style); break
+    case 'borders': drawBorders(ctx, data, style, layer.options); break
+    case 'borderlands': drawBorderlands(ctx, data, style, layer.options); break
+    case 'factionTexture': drawFactionTexture(ctx, data, style, layer.options); break
+    case 'roads': drawRoads(ctx, data, style); break
+    case 'stateLabels': drawStateLabels(ctx, data, style); break
+    case 'burgIcons': drawBurgs(ctx, data, style); break
+    case 'burgLabels': drawBurgLabels(ctx, data, style); break
+    case 'scaleBar': drawScaleBar(ctx, width, height, kmPerPixel, style); break
+    case 'vignette': drawVignette(ctx, width, height, style); break
   }
 }
 
@@ -133,25 +162,21 @@ export async function renderMapAsync(
   ctx.imageSmoothingEnabled = true
   if (scale !== 1) ctx.scale(scale, scale)
 
-  // 重层之后 yield
-  if (layers.terrain) { drawTerrain(ctx, data, style, biomeColors); await yieldToMain() }
-  if (layers.coastlines) { drawCoastlines(ctx, data, style); await yieldToMain() }
+  // 按 pipeline 顺序绘制（preset 决定哪些层开启；opts.layers 可逐层覆盖）
+  const pipeline = getPipeline(opts.stylePreset || 'topographic')
+  for (const layer of pipeline) {
+    if (!layer.enabled) continue
+    if ((layers as unknown as Record<string, boolean | undefined>)[layer.name] === false) continue
+    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer)
+    await yieldToMain()
+  }
+
+  // 老 layer 名（不在 pipeline 中）—— 保留向后兼容
   if (layers.continents) { drawContinents(ctx, data, style); await yieldToMain() }
-  if (layers.rivers) { drawRivers(ctx, data, style) }
-  if (layers.roads) { drawRoads(ctx, data, style) }
-  await yieldToMain()
-  if (layers.provinces) { drawProvinceBorders(ctx, data, style) }
-  if (layers.borders) { drawBorders(ctx, data, style) }
-  if (layers.tectonics) { drawTectonicBoundaries(ctx, data, style) }
-  await yieldToMain()
-  if (layers.oceanCurrents) { drawOceanCurrents(ctx, data, style) }
-  if (layers.wind) { drawWindField(ctx, data, style) }
-  if (layers.stateLabels) { drawStateLabels(ctx, data, style) }
-  if (layers.burgIcons) { drawBurgs(ctx, data, style) }
-  if (layers.burgLabels) { drawBurgLabels(ctx, data, style) }
-  await yieldToMain()
-  if (layers.scaleBar) { drawScaleBar(ctx, width, height, kmPerPixel, style) }
-  if (layers.vignette) { drawVignette(ctx, width, height, style) }
+  if (layers.provinces) { drawProvinceBorders(ctx, data, style); await yieldToMain() }
+  if (layers.tectonics) { drawTectonicBoundaries(ctx, data, style); await yieldToMain() }
+  if (layers.oceanCurrents) { drawOceanCurrents(ctx, data, style); await yieldToMain() }
+  if (layers.wind) { drawWindField(ctx, data, style); await yieldToMain() }
 
   if (style.overlayColor) {
     ctx.fillStyle = style.overlayColor
@@ -852,6 +877,48 @@ function drawSmoothPath(ctx: CanvasRenderingContext2D, pts: [number, number][]):
   }
   ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
   ctx.stroke()
+}
+
+// ── 新 layer 占位实现（pipeline 引入的 4 个新层；Task 9 后续可替换为真实渲染） ─
+
+/** 山影（NW 光源，沿板块脊线增强） */
+function drawHillshade(
+  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
+  _style: StyleConfig, _options?: Record<string, unknown>,
+): void {
+  // TODO: 实现 NW 光源山影，沿板块脊线增强
+}
+
+/** 火山（strato 黑红三角，shield 褐色盾形） */
+function drawVolcanoes(
+  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
+  _style: StyleConfig,
+): void {
+  // TODO: 读 cells.volcano，strato 用黑红三角，shield 用褐色盾形
+}
+
+/** 海岸光晕（海陆交外 1 cell 浅色描边） */
+function drawCoastGlow(
+  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
+  _style: StyleConfig,
+): void {
+  // TODO: 海陆交外 1 cell 浅色描边
+}
+
+/** 国界 buffer（用 computeBorderlands 算 buffer，渲染半透明沙色） */
+function drawBorderlands(
+  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
+  _style: StyleConfig, _options?: Record<string, unknown>,
+): void {
+  // TODO: 用 computeBorderlands 算 buffer，渲染半透明沙色
+}
+
+/** 国家底色 + per-state 噪点 */
+function drawFactionTexture(
+  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
+  _style: StyleConfig, _options?: Record<string, unknown>,
+): void {
+  // TODO: 国家底色 alpha + per-state 噪点
 }
 
 // ── 工具函数 ────────────────────────────────────────
