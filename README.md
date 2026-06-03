@@ -1,148 +1,116 @@
 # WriterHelper / Text Game Framework
 
-一个以中文创作为核心的前后端分离项目，整合了体验、世界书、写作、素材与卡片画布工作流。
+中文创作为核心的前后端分离项目。Vue 3 + Vite 前端，Express 后端，用户数据全部存在浏览器 localStorage。整合了体验（文字冒险）、世界书（设定数据库）、写作（小说章节）、素材（叙事片段）、散文画布（节点-边-时间轴）这一条完整工作流。
 
-前端基于 Vue 3 + Vite，后端基于 Express，本地持久化以 localStorage 和 JSON 数据为主。
+**想用这个框架写小说 / 做文字游戏？** 看 [说明书](docs/user-manual/README.md)。
+
+**想改源码 / 二次开发？** 直接看下面的快速开始 + 开发脚本表。
 
 ## 快速开始
 
-### 1. 安装依赖
-
 ```bash
+git clone <仓库地址>
+cd text-game-framework
 npm install
-```
 
-### 2. 启动后端
-
-```bash
+# 终端 1：起后端（端口 3001）
 npm run server
-```
 
-默认地址：`http://localhost:3001`
-
-### 3. 启动前端
-
-```bash
+# 终端 2：起前端（端口 5173）
 npm run dev
 ```
 
-默认地址：`http://localhost:5173`
+浏览器开 http://localhost:5173 。第一次进入会引导你配 LLM API key，详见说明书的 [快速开始](docs/user-manual/01-quickstart.md)。
 
-### 4. 回归验证（推荐）
+公网部署到自己的服务器？看 [说明书 → 部署到公网](docs/user-manual/05-deployment.md)。
 
-```bash
-npm run verify
-```
+## 它能做什么
 
-该命令会串行执行：
+- **体验** —— 文字冒险，AI 主持，状态栏、机制面板、里程碑
+- **世界书** —— 设定数据库，关键词触发注入 prompt。预设 / 文本 / AI 说明三种导入方式
+- **结构化设定** —— 朝代 / 角色 / 地点的字段化卡片
+- **世界地图** —— Voronoi 程序生成，地形、气候、生物群系、文化圈、势力范围
+- **小说写作** —— 书 / 章管理，AI 扩展 / 改写 / 续写，章节分镜导出
+- **素材** —— 写作中产生的金句和重要事件，带情绪标签
+- **散文画布** —— 节点-边-时间轴，把素材排成分镜版本
+- **图片生成** —— 侧栏 AI 生图，绑多个 provider
+- **顾问** —— OpenClaw 驱动的章节体检
 
-- `npm run test:run`
-- `npm run build`
+详细功能介绍 + 四个典型工作流：看 [说明书 → 功能与工作流](docs/user-manual/03-features.md)。
 
-## 核心服务说明
+## 关键技术点
 
-| 服务文件 | 职责 |
-|---------|------|
-| `api.js` | 核心 API 通信层，所有前后端通信经由此文件 |
-| `generationService.js` | 文本生成任务入口，封装 `runGenerationTask` |
-| `generationRetry.js` | 多轮生成重试策略执行器 |
-| `promptRegistry.js` | 所有 prompt 模板常量注册表 |
-| `promptBuilder.js` | 分层 prompt 构建器（Layer 0-4） |
-| `narrativeAssets.js` | 叙事素材 CRUD |
-| `relationCanvas.js` | 画布卡片管理 |
-| `textExpander.js` / `textRewriter.js` | 文本扩展与改写 |
-| `storyboardStore.js` / `shotExporter.js` | 分镜存储与导出 |
-| `worldbookImportGeneration.js` | 世界书 AI 生成 |
-| `experienceAssetSummarizer.js` | 体验素材总结 |
-
-## 工作台与路由
-
-| 路径 | 名称 | 用途 |
-| --- | --- | --- |
-| `/` | welcome | 工作台欢迎页 |
-| `/experience` | experience | 体验页（核心游戏界面） |
-| `/experience/worldbook` | experience-worldbook | 世界书快速导入 |
-| `/experience/worldbook/advanced` | experience-worldbook-advanced | 世界书编辑 |
-| `/writing` | writing | 小说写作 |
-| `/materials` | materials | 素材管理 |
-| `/prose-essay` | prose-essay | 卡片关系画布 |
-
-兼容重定向：`/notes`、`/poetry-lab` 等旧入口仍可访问，会重定向到对应新路由。
-
-## 世界书定位说明
-
-世界书功能在工作台活动栏中单列 `worldbook`，支持快速切换导入/编辑两个入口。代码层页面组件位于 `src/pages/WorldBookQuickImport.vue` 与 `src/pages/WorldBookEditor.vue`，路由层归属 `/experience/worldbook*` 子路径下。
-
-## 项目结构（当前）
-
-```text
-text-game-framework/
-├─ docs/                         # 计划、规范、日志
-├─ server/
-│  ├─ index.js                   # 后端入口
-│  ├─ routes/                    # chat / config / events / game
-│  ├─ services/                  # 状态与事件服务
-│  └─ data/                      # worlds / events 数据
-├─ src/
-│  ├─ components/                # 通用组件（含 ImageGenRail）
-│  ├─ composables/               # 组合式逻辑
-│  ├─ config/                    # 工作台导航配置
-│  ├─ layouts/                   # AppShell
-│  ├─ pages/                     # 业务页面（含 worldbook 页面）
-│  ├─ router/                    # 路由
-│  ├─ services/                  # 业务服务
-│  ├─ stores/                    # Pinia store
-│  ├─ styles/                    # 全局样式
-│  ├─ views/                     # 欢迎页等
-│  └─ __tests__/                 # Vitest 测试
-├─ index.html                    # Vite 入口 HTML（唯一）
-├─ package.json
-└─ vite.config.js
-```
+- **密钥模型** —— 用户的 LLM / Mem0 API key 只存在各自浏览器的 `localStorage`，服务器不落盘。详见 [说明书 → 部署到公网](docs/user-manual/05-deployment.md) 的"密钥模型"
+- **公网部署** —— 服务器**无鉴权**对所有人开放 `/api/*`。设计取舍详见上面那一节
+- **AI 安全** —— 所有 `v-html` 入口都过 DOMPurify（`src/utils/sanitize.js`）
 
 ## 开发脚本
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm run dev` | 启动前端开发服务器 |
-| `npm run server` | 启动 Express 后端 |
-| `npm run test:run` | 运行 Vitest（一次性） |
-| `npm run build` | 生产构建 |
-| `npm run verify` | 测试 + 构建回归 |
+| `npm run dev` | 启动前端开发服务器（Vite，5173） |
+| `npm run server` | 启动 Express 后端（3001） |
+| `npm run test` | Vitest 监听模式 |
+| `npm run test:run` | 一次性跑所有测试 |
+| `npm run test:arch` | 只跑架构守护测试 |
+| `npm run build` | 生产构建到 `dist/` |
+| `npm run preview` | 预览构建产物 |
+| `npm run lint` | ESLint（`src/` 下 `.js` 和 `.vue`） |
+| `npm run verify` | `test:run` + `build`，发布前跑一遍 |
+| `npm start` | PM2 启动（生产环境） |
+| `npm run stop` | PM2 停止 |
 
-## 数据与持久化
+## 项目结构
 
-- 运行态主存储：localStorage（例如世界书、写作、素材、画布状态）
-- 后端静态数据：`server/data/worlds` 与 `server/data/events`
-- 世界书写入链路：写作收件箱中的 `worldbook-draft` 可入库到当前活跃世界书
+```
+text-game-framework/
+├─ docs/                       # 计划、规范、日志
+│  ├─ user-manual/             # 用户向中文说明书
+│  ├─ guides/                  # 单点深入指南
+│  ├─ operations/              # 运维排障（维护者用）
+│  ├─ engineering/             # 开发者规约
+│  └─ superpowers/             # 设计稿与实施计划
+├─ server/                     # Express 后端
+│  ├─ index.js
+│  ├─ routes/                  # advisor / chat / config / events / game / generate / openclaw / preferences
+│  ├─ services/                # memoryService / openclawService / eventEngine / stateManager / timeSystem / advisorTaskService
+│  └─ data/                    # worlds / events / npcs 的 JSON
+├─ src/                        # Vue 3 前端
+│  ├─ components/              # 通用组件（含 ImageGenRail）
+│  ├─ composables/             # useStorage / useApiSettings / useMem0 / useAdvisor / ...
+│  ├─ pages/                   # 业务页面
+│  ├─ router/                  # 路由
+│  ├─ services/                # 业务服务（api / generation / promptRegistry / ...）
+│  ├─ stores/                  # Pinia store（gameStore / worldStore / geographyStore / ...）
+│  ├─ views/                   # 欢迎页
+│  └─ __tests__/               # Vitest
+├─ deploy/                     # nginx 配置 + 一键安装脚本
+├─ ecosystem.config.js         # PM2 配置
+├─ vite.config.js
+└─ package.json
+```
 
-## 安全与部署提示
+## 数据持久化
 
-- `.env`、`.env.*`（除 `.env.example`）已被 `.gitignore` 排除；请勿把真实 API key 提交到仓库
-- 任何 `marked` 渲染的 HTML 在进入 `v-html` 之前都会经过 `src/utils/sanitize.js`（DOMPurify）。SVG 由同一文件的 `sanitizeSvg` 处理
-- **公网部署模型（无鉴权）**：服务器在公网上对所有人开放 `/api/*`，**不**做鉴权（`server/index.js` 只挂 `cors()` 与 `express.json()`）。前端需要在 `Settings.vue` 里给每位用户自己配置自己的 API key。
-- **用户 API key 的隔离边界**：用户的 `apiKey` / Mem0 `apiKey` 等敏感字段**只**存在各自浏览器的 `localStorage` 中（key 见 `src/composables/useStorage.js` 里的 `STORAGE_KEYS`）。服务器**从不**落盘任何用户的 key，请求时由前端在请求体内注入，服务端做一次中转就把字段透传到上游 LLM/Mem0。
-- 历史背景：早期版本曾把 key 落到 `secrets.json`、或要求设置 `PINAX_TOKEN` 才能访问，这两条路径都已删除。详见 `## 本次清理记录`。
-- 公网部署前建议：① nginx / 反代层加 rate limit（防止 LLM 中转被刷爆）；② 任何 reverse proxy 都不要在 access log 里透传 `Authorization` / 请求体里的 `apiKey`；③ 定期轮换上游 LLM 的 key。
+- **用户数据**全在 `localStorage`。备份和键名清单：说明书 [04-configuration.md](docs/user-manual/04-configuration.md) 的"localStorage 键都在存什么"那一节
+- **后端静态数据**：`server/data/worlds`（五个预设世界）+ `server/data/events`（事件 JSON）
 
-## 文档入口
+## 公网部署
 
-- 总入口：`docs/README.md`
-- 主计划：`docs/PLAN.md`
-- 当前执行板：`docs/plan/current-execution-plan.md`
-- 开发规范：`docs/engineering/development-standards.md`
-- 故障排查：`docs/operations/troubleshooting.md`
-- 近期日志：`docs/LOG.md`
+最简版流程：
 
-## 本次清理记录
+1. 服务器装 Node.js 20 + nginx + PM2
+2. `npm ci && npm run build`
+3. `pm2 start ecosystem.config.js`
+4. 配 nginx（参考 `deploy/nginx-pinax.conf`），记得关 access log 里的请求体，加 rate limit
+5. HTTPS 用 Let's Encrypt
 
-- 删除重复入口文件：`public/index.html`
-  - 原因：项目真实入口是根目录 `index.html`，`public/index.html` 会造成入口认知重复。
-- **API key 隔离重构（user secrets 全部下放到客户端）**：
-  - 删除 `server/index.js` 里的 `PINAX_TOKEN` Bearer 鉴权中间件，服务器恢复"公网对所有人开放 `/api/*`"模型。
-  - 删除 `server/routes/chat.js` 里的 `/secrets/read` 与 `/secrets/write` 端点，以及 `server/services/memoryService.js` 里读 `secrets.json` 的 `loadMem0Secrets`。
-  - `server/routes/chat.js` 与 `server/routes/preferences.js` 不再回退去读 `process.env.MEM0_API_KEY` / 服务端 secrets；请求体里必须自带 `apiKey` / `mem0ApiKey`，否则直接 `400 API_KEY_REQUIRED`。
-  - 前端 `src/services/api.js`、`src/services/memorySync.js`、`src/components/Settings.vue`、`src/composables/useApiSettings.js` 改为只从 `localStorage` 读 key（key 见 `STORAGE_KEYS`），并在每个出站请求里把 key 注入请求体。
-  - `.env.example` 同步移除 `MEM0_API_KEY` / `PINAX_TOKEN` / `VITE_PINAX_TOKEN`（这三条是历史"服务端持久化用户 key"的入口，留着会误导）。
-  - 测试 `src/__tests__/memorySync.test.js` 改为通过 `localStorage` 播种 mem0 配置，而不是 mock `/chat/secrets/read`。
-  - 理由：用户希望公网直接访问，**关键不是鉴权**，而是**绝不让一个用户的 key 出现在另一台机器/另一个用户能读到的地方**。之前的 `secrets.json` 是单用户本地时遗留的产物，公网部署后会变成跨用户泄露点。
+完整版（含密钥模型、轮换、监控、nginx 坑）：[说明书 → 部署到公网](docs/user-manual/05-deployment.md)。
+
+## 文档导航
+
+- 用户向：[说明书](docs/user-manual/README.md)
+- 运维：[docs/operations/troubleshooting.md](docs/operations/troubleshooting.md)
+- 开发者规约：[docs/engineering/development-standards.md](docs/engineering/development-standards.md)
+- 内部计划：[docs/PLAN.md](docs/PLAN.md) / [docs/LOG.md](docs/LOG.md)
+- 设计稿：[docs/superpowers/](docs/superpowers/)（specs / plans / notes）
