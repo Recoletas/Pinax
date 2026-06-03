@@ -80,10 +80,11 @@ export function generateRivers(
   const assigned = new Uint16Array(n) // 每个单元格的河流 ID
   let riverId = 1
 
-  // 按流量降序找河流源头
+  // 按高度降序找河流源头（高处的源点 trace 下游是真正的河流；按 flux 排序
+  // 会选到山脚/入海口的 bottom-of-basin cell，那里的 drainage 几乎到水，
+  // 导致 path 只有 2-3 cell 看起来像点）
   const sources = sorted
     .filter(i => flux[i] >= MIN_FLUX && drainage[i] !== -1 && assigned[i] === 0)
-    .sort((a, b) => flux[b] - flux[a])
 
   for (const source of sources) {
     // 向上游追溯找真正的源头
@@ -164,6 +165,8 @@ export function generateRivers(
     // deltaic 模式：在入海口前 5 cell 处分叉 3 个分支
     if (realism.style === 'deltaic' && path.length > 5) {
       applyDelta(cells, river, riverId, path, rng)
+      // delta 给 cells 追加分支，同步 length 字段
+      river.length = river.cells.length
     }
 
     rivers.push(river)
