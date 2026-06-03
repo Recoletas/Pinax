@@ -51,9 +51,62 @@ function normalizeTargetRange(target) {
   }
 }
 
+function parseSectionedAdvice(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return null
+
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (!lines.length) return null
+
+  const sections = { summary: [], issues: [], action: [] }
+  let current = ''
+
+  const normalizeHeader = (line) => line
+    .replace(/^#+\s*/, '')
+    .replace(/^\*\*(.*?)\*\*$/, '$1')
+    .replace(/[:：]$/, '')
+    .trim()
+    .toLowerCase()
+
+  for (const line of lines) {
+    const normalized = normalizeHeader(line)
+    if (normalized === 'summary' || normalized === '摘要') {
+      current = 'summary'
+      continue
+    }
+    if (normalized === 'issues' || normalized === '问题') {
+      current = 'issues'
+      continue
+    }
+    if (normalized === 'action' || normalized === '动作' || normalized === '建议') {
+      current = 'action'
+      continue
+    }
+    if (!current) continue
+    sections[current].push(line.replace(/^[-*\d.\s]+/, ''))
+  }
+
+  if (!sections.summary.length && !sections.issues.length && !sections.action.length) {
+    return null
+  }
+
+  return {
+    summary: sections.summary.join(' ').slice(0, 80) || raw.slice(0, 80),
+    issues: sections.issues.slice(0, 3).map((message) => ({
+      type: 'review',
+      severity: 'medium',
+      message
+    })),
+    action: sections.action.slice(0, 3)
+  }
+}
+
 function buildAdvisorResult(taskType, advice) {
   const parsed = parseAdvisorJson(advice)
-  const base = parsed && typeof parsed === 'object' ? parsed : {}
+  const sectioned = parseSectionedAdvice(advice)
+  const base = parsed && typeof parsed === 'object'
+    ? parsed
+    : (sectioned || {})
 
   return {
     task: taskType,
@@ -61,6 +114,7 @@ function buildAdvisorResult(taskType, advice) {
     summary: base.summary || advice || '未获取到有效建议',
     replacement: typeof base.replacement === 'string' ? base.replacement : '',
     issues: Array.isArray(base.issues) ? base.issues : [],
+    action: Array.isArray(base.action) ? base.action : [],
     stalePolicy: base.stalePolicy || 'require-same-base-text'
   }
 }

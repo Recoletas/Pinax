@@ -696,8 +696,8 @@ router.post('/stream', async (req, res) => {
     // 记忆注入
     let memoryPrompt = ''
     const memoryQuery = extractLatestUserQuery(budgetedInput.messages)
-    const effectiveMem0ApiKey = mem0ApiKey || secrets.mem0_api_key
-    const effectiveMem0Host = mem0Host || secrets.mem0_host
+    const effectiveMem0ApiKey = mem0ApiKey
+    const effectiveMem0Host = mem0Host || DEFAULT_MEM0_HOST
 
     if (userId && memoryQuery && effectiveMem0ApiKey) {
       try {
@@ -1046,9 +1046,8 @@ router.post('/test', async (req, res) => {
 
 router.post('/mem0/test', async (req, res) => {
   const { apiKey, host, userId } = req.body || {}
-  const secrets = loadSecrets()
-  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
-  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveApiKey = String(apiKey || '').trim()
+  const effectiveHost = String(host || DEFAULT_MEM0_HOST).trim()
 
   if (!effectiveApiKey) {
     return res.json({ ok: false, message: '请先输入 Mem0 API Key' })
@@ -1058,17 +1057,15 @@ router.post('/mem0/test', async (req, res) => {
   const testUserId = String(userId || 'connection_test').trim() || 'connection_test'
 
   try {
-    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/search/`, {
-      method: 'POST',
+    const params = new URLSearchParams({
+      query: '连接测试',
+      user_id: testUserId,
+      limit: '1'
+    })
+    const response = await fetch(`${apiUrl}/memories?${params}`, {
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Token ${effectiveApiKey}`
-      },
-      body: JSON.stringify({
-        query: '连接测试',
-        user_id: testUserId,
-        output_format: 'v1.1'
-      })
+      }
     })
 
     if (response.ok) {
@@ -1091,9 +1088,8 @@ router.post('/mem0/test', async (req, res) => {
 // Mem0 proxy: write memory
 router.post('/mem0/memories', async (req, res) => {
   const { apiKey, host, userId, messages, metadata } = req.body || {}
-  const secrets = loadSecrets()
-  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
-  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveApiKey = String(apiKey || '').trim()
+  const effectiveHost = String(host || DEFAULT_MEM0_HOST).trim()
   const effectiveUserId = String(userId || '').trim() || 'default_user'
 
   if (!effectiveApiKey) {
@@ -1125,9 +1121,8 @@ router.post('/mem0/memories', async (req, res) => {
 // Mem0 proxy: search memories
 router.post('/mem0/search', async (req, res) => {
   const { apiKey, host, userId, query, limit, metadataFilter } = req.body || {}
-  const secrets = loadSecrets()
-  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
-  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveApiKey = String(apiKey || '').trim()
+  const effectiveHost = String(host || DEFAULT_MEM0_HOST).trim()
   const effectiveUserId = String(userId || '').trim() || 'default_user'
 
   if (!effectiveApiKey) {
@@ -1169,9 +1164,8 @@ router.post('/mem0/search', async (req, res) => {
 // Mem0 proxy: delete memory
 router.post('/mem0/delete', async (req, res) => {
   const { apiKey, host, memoryId } = req.body || {}
-  const secrets = loadSecrets()
-  const effectiveApiKey = String(apiKey || process.env.MEM0_API_KEY || secrets.mem0_api_key || '').trim()
-  const effectiveHost = String(host || process.env.MEM0_HOST || secrets.mem0_host || DEFAULT_MEM0_HOST).trim()
+  const effectiveApiKey = String(apiKey || '').trim()
+  const effectiveHost = String(host || DEFAULT_MEM0_HOST).trim()
 
   if (!effectiveApiKey) {
     return res.json({ success: false, error: 'mem0 not configured' })
