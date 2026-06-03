@@ -141,6 +141,7 @@ import { buildConceptMapPrompt, buildImageMapPrompt } from '../../services/ai/ge
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
 import { LOCATION_TYPES } from '../../config/geography-types'
+import { sanitizeSvg } from '../../utils/sanitize'
 import LocationTreeMap from './LocationTreeMap.vue'
 
 const geoStore = useGeographyStore()
@@ -208,10 +209,12 @@ async function generateConceptMap() {
       attempts: [{ name: 'concept-map' }],
     })
     const raw = result?.parsed || result?.content || ''
-    svgContent.value = raw
-      .replace(/^```(?:svg|xml)?\n?/i, '')
-      .replace(/\n?```$/i, '')
-      .trim()
+    svgContent.value = sanitizeSvg(
+      raw
+        .replace(/^```(?:svg|xml)?\n?/i, '')
+        .replace(/\n?```$/i, '')
+        .trim()
+    )
   } catch (e) {
     console.error('Concept map generation failed:', e)
   } finally {

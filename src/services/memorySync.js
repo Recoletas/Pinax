@@ -1,4 +1,4 @@
-import api, { getOrCreatePreferenceUserId } from './api'
+import { getOrCreatePreferenceUserId } from './api'
 import useMem0 from '../composables/useMem0'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 
@@ -11,36 +11,18 @@ function normalizeMem0ApiUrl(host) {
   return `${raw.replace(/\/$/, '')}/v1`
 }
 
-async function readMem0Secrets() {
-  const cached = getCachedMem0Settings()
-
-  try {
-    const response = await api.post('/chat/secrets/read')
-    const secrets = response?.data || {}
-    const apiKey = String(secrets.mem0_api_key || cached.apiKey || '').trim()
-    const host = String(secrets.mem0_host || cached.host || '').trim()
-
-    if (!apiKey) return null
-
-    return {
-      apiKey,
-      apiUrl: normalizeMem0ApiUrl(host)
-    }
-  } catch (error) {
-    console.warn('[memorySync] failed to load mem0 secrets:', error)
-    if (!cached.apiKey) return null
-    return {
-      apiKey: cached.apiKey,
-      apiUrl: normalizeMem0ApiUrl(cached.host)
-    }
-  }
-}
-
-function getCachedMem0Settings() {
+/**
+ * Read the user's mem0 config from localStorage. There is no server-side
+ * fallback — keys are not persisted by the server.
+ */
+function readMem0Settings() {
   const cached = getItem(STORAGE_KEYS.MEM0_SETTINGS) || {}
+  const apiKey = String(cached.apiKey || '').trim()
+  const host = String(cached.host || '').trim()
+  if (!apiKey) return null
   return {
-    apiKey: String(cached.apiKey || '').trim(),
-    host: String(cached.host || '').trim()
+    apiKey,
+    apiUrl: normalizeMem0ApiUrl(host)
   }
 }
 
@@ -55,7 +37,7 @@ export async function syncConfirmedMemoryCandidateToMem0(candidate) {
     return { success: false, skipped: true, reason: 'invalid-candidate', syncStatus: 'failed' }
   }
 
-  const secrets = await readMem0Secrets()
+  const secrets = readMem0Settings()
   if (!secrets) {
     return { success: false, skipped: true, reason: 'mem0-not-configured', syncStatus: 'local-only' }
   }
@@ -128,7 +110,7 @@ export async function buildMem0MemoryContext({
   limitPerScope = 4,
   maxItemChars = 180
 } = {}) {
-  const secrets = await readMem0Secrets()
+  const secrets = readMem0Settings()
   if (!secrets) {
     return ''
   }

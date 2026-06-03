@@ -32,7 +32,7 @@
             :class="msg.role"
           >
             <div class="message-label">{{ msg.role === 'user' ? '你' : '顾问' }}</div>
-            <div class="message-bubble" :class="{ 'is-markdown': msg.role === 'advisor' }" v-html="msg.role === 'advisor' ? marked(msg.content) : msg.content"></div>
+            <div class="message-bubble" :class="{ 'is-markdown': msg.role === 'advisor' }" v-html="msg.role === 'advisor' ? sanitizeHtml(marked(msg.content)) : sanitizeHtml(msg.content)"></div>
           </div>
           <div
             v-for="result in visibleResults"
@@ -104,6 +104,7 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
+import { sanitizeHtml } from '../utils/sanitize'
 
 const props = defineProps({
   isOpen: Boolean,

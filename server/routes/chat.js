@@ -1,7 +1,6 @@
 import express from 'express'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname } from 'path'
 import { memoryService } from '../services/memoryService.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -62,7 +61,6 @@ function buildChatUrl(baseUrl, chatPath) {
   return `${baseUrl}${chatPath}`
 }
 
-const DATA_DIR = join(__dirname, '../../data')
 const DEFAULT_MEM0_HOST = 'https://api.mem0.ai'
 
 function normalizeMem0ApiUrl(host) {
@@ -70,18 +68,6 @@ function normalizeMem0ApiUrl(host) {
   if (!raw) return ''
   if (/\/v1\/?$/.test(raw)) return raw.replace(/\/$/, '')
   return `${raw.replace(/\/$/, '')}/v1`
-}
-
-function loadSecrets() {
-  const secretsPath = join(DATA_DIR, 'secrets.json')
-  try {
-    if (existsSync(secretsPath)) {
-      return JSON.parse(readFileSync(secretsPath, 'utf-8'))
-    }
-  } catch (e) {
-    console.error('[chat] Error loading secrets:', e)
-  }
-  return {}
 }
 
 function extractTextContent(payload) {
@@ -340,24 +326,23 @@ export async function handleGenerateRequest(req, res) {
     ? request_id.trim()
     : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-  const secrets = loadSecrets()
-
-  const effectiveProvider = provider || secrets.provider || 'openai'
-  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, secrets.base_url)
-  const effectiveApiKey = apiKey || secrets.api_key_openai || process.env.OPENAI_API_KEY
-  const effectiveModel = model || secrets.openai_model || 'gpt-4o-mini'
+  const effectiveProvider = provider || 'openai'
+  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
+  const effectiveApiKey = apiKey
+  const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
   const chatPath = providerDefaults.chatPath || '/chat/completions'
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey && !chatUrl) {
-    const lastUserMessage = budgetedInput.messages.filter(m => m.role === 'user').pop()?.content || ''
-    return res.json({
-      content: `你说了"${lastUserMessage.slice(0, 20)}..."，但目前没有配置 AI API，无法生成智能回复。请在设置中添加 API Key。`,
-      error: 'no_api_key',
-      code: 'NO_API_KEY',
-      meta: {
+  if (!effectiveApiKey) {
+    return sendApiError(
+      res,
+      400,
+      'API_KEY_REQUIRED',
+      '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。',
+      null,
+      {
         requestId,
         retryCount: effectiveRetryCount,
         truncatedInput: budgetedInput.truncatedInput,
@@ -367,7 +352,7 @@ export async function handleGenerateRequest(req, res) {
         warnings: budgetWarnings,
         maxInputChars
       }
-    })
+    )
   }
 
   if (!chatUrl) {
@@ -668,21 +653,20 @@ router.post('/stream', async (req, res) => {
     ? request_id.trim()
     : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-  const secrets = loadSecrets()
-  const effectiveProvider = provider || secrets.provider || 'openai'
-  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, secrets.base_url)
-  const effectiveApiKey = apiKey || secrets.api_key_openai || process.env.OPENAI_API_KEY
-  const effectiveModel = model || secrets.openai_model || 'gpt-4o-mini'
+  const effectiveProvider = provider || 'openai'
+  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
+  const effectiveApiKey = apiKey
+  const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
   const chatPath = providerDefaults.chatPath || '/chat/completions'
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey || !chatUrl) {
+  if (!effectiveApiKey) {
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
-    res.write(`data: ${JSON.stringify({ error: 'no_api_key', code: 'NO_API_KEY' })}\n\n`)
+    res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
     return res.end()
   }
 
@@ -1190,34 +1174,6 @@ router.post('/mem0/delete', async (req, res) => {
     console.error('[chat] mem0 proxy delete error:', e.message)
     return res.json({ success: false, error: e.message })
   }
-})
-
-function saveSecrets(secrets) {
-  const secretsPath = join(DATA_DIR, 'secrets.json')
-  try {
-    writeFileSync(secretsPath, JSON.stringify(secrets, null, 2))
-    return true
-  } catch (e) {
-    console.error('[chat] Error saving secrets:', e)
-    return false
-  }
-}
-
-// Secrets management endpoints
-router.post('/secrets/write', async (req, res) => {
-  const { key, value } = req.body
-  const secrets = loadSecrets()
-  secrets[key] = value || ''
-
-  if (saveSecrets(secrets)) {
-    res.json({ success: true })
-  } else {
-    res.status(500).json({ error: 'Failed to save secrets' })
-  }
-})
-
-router.post('/secrets/read', async (req, res) => {
-  res.json(loadSecrets())
 })
 
 export default router

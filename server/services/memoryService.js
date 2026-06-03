@@ -1,35 +1,12 @@
 import MemoryClient from 'mem0ai'
-import { readFileSync, existsSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-const DATA_DIR = join(__dirname, '../../data')
 const DEFAULT_MEM0_HOST = 'https://api.mem0.ai'
 
 const clientCache = new Map()
 
-function loadMem0Secrets() {
-  const secretsPath = join(DATA_DIR, 'secrets.json')
-  try {
-    if (existsSync(secretsPath)) {
-      const secrets = JSON.parse(readFileSync(secretsPath, 'utf-8'))
-      return {
-        apiKey: secrets.mem0_api_key || '',
-        host: secrets.mem0_host || ''
-      }
-    }
-  } catch (e) {
-    console.error('[memory] Failed to load mem0 secrets:', e)
-  }
-  return { apiKey: '', host: '' }
-}
-
 function resolveMem0Config(overrides = {}) {
-  const secrets = loadMem0Secrets()
-  const apiKey = overrides.apiKey || process.env.MEM0_API_KEY || secrets.apiKey || ''
-  const host = overrides.host || process.env.MEM0_HOST || secrets.host || DEFAULT_MEM0_HOST
+  const apiKey = overrides.apiKey || ''
+  const host = overrides.host || DEFAULT_MEM0_HOST
   return { apiKey, host }
 }
 

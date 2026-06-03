@@ -257,24 +257,9 @@ onMounted(async () => {
     if (p?.baseUrl) apiSettings.value.baseUrl = p.baseUrl
   }
 
-  const cachedMem0Settings = loadCachedMem0Settings()
-  applyMem0Settings(cachedMem0Settings)
-
-  // Load mem0 settings
-  try {
-    const secrets = await api.post('/chat/secrets/read').then(r => r.data)
-    const remoteMem0Settings = {
-      apiKey: secrets.mem0_api_key || '',
-      host: secrets.mem0_host || ''
-    }
-
-    if (remoteMem0Settings.apiKey || remoteMem0Settings.host || (!cachedMem0Settings.apiKey && !cachedMem0Settings.host)) {
-      applyMem0Settings(remoteMem0Settings)
-      cacheMem0Settings()
-    }
-  } catch (e) {
-    console.warn('Failed to load mem0 settings:', e)
-  }
+  // mem0 config is per-browser; load from localStorage. There is no server
+  // fallback: keys are not persisted anywhere except the user's own browser.
+  applyMem0Settings(loadCachedMem0Settings())
 
   // Load memory stats
   loadMemoryStats()
@@ -371,15 +356,8 @@ function loadMemoryStats() {
 async function saveAllAndClose() {
   localStorage.setItem('gameSettings', JSON.stringify(settings))
   await saveAll()
+  // mem0 keys live in localStorage only — the server never sees them.
   cacheMem0Settings()
-
-  // Save mem0 settings
-  try {
-    await api.post('/chat/secrets/write', { key: 'mem0_api_key', value: String(mem0Settings.apiKey || '').trim() })
-    await api.post('/chat/secrets/write', { key: 'mem0_host', value: String(mem0Settings.host || '').trim() })
-  } catch (e) {
-    console.warn('Failed to save mem0 settings:', e)
-  }
 
   emit('close')
 }

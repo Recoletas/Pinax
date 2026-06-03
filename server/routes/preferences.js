@@ -1,24 +1,5 @@
 import express from 'express'
 import { memoryService } from '../services/memoryService.js'
-import { readFileSync, existsSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-const DATA_DIR = join(__dirname, '../../data')
-
-function loadSecrets() {
-  const secretsPath = join(DATA_DIR, 'secrets.json')
-  try {
-    if (existsSync(secretsPath)) {
-      return JSON.parse(readFileSync(secretsPath, 'utf-8'))
-    }
-  } catch (e) {
-    console.error('[preferences] Error loading secrets:', e)
-  }
-  return {}
-}
 
 const router = express.Router()
 
@@ -47,7 +28,7 @@ function buildPreferenceMemory(action, card) {
 }
 
 router.post('/record', async (req, res) => {
-  const { userId, action, card } = req.body || {}
+  const { userId, action, card, mem0ApiKey, mem0Host } = req.body || {}
 
   if (!userId || !action || !card) {
     return res.status(400).json({
@@ -55,11 +36,7 @@ router.post('/record', async (req, res) => {
     })
   }
 
-  const secrets = loadSecrets()
-  const apiKey = process.env.MEM0_API_KEY || secrets.mem0_api_key
-  const host = process.env.MEM0_HOST || secrets.mem0_host
-
-  if (!apiKey) {
+  if (!mem0ApiKey) {
     return res.json({ success: false, recorded: false, reason: 'mem0 not configured' })
   }
 
@@ -71,8 +48,8 @@ router.post('/record', async (req, res) => {
   const memoryText = buildPreferenceMemory(action, normalizedCard)
 
   const result = await memoryService.add({
-    apiKey,
-    host,
+    apiKey: mem0ApiKey,
+    host: mem0Host,
     userId,
     text: memoryText,
     metadata: {
@@ -91,23 +68,19 @@ router.post('/record', async (req, res) => {
 
 // 通用记忆记录端点
 router.post('/memory', async (req, res) => {
-  const { userId, text, type, metadata } = req.body || {}
+  const { userId, text, type, metadata, mem0ApiKey, mem0Host } = req.body || {}
 
   if (!userId || !text) {
     return res.status(400).json({ error: 'userId and text are required' })
   }
 
-  const secrets = loadSecrets()
-  const apiKey = process.env.MEM0_API_KEY || secrets.mem0_api_key
-  const host = process.env.MEM0_HOST || secrets.mem0_host
-
-  if (!apiKey) {
+  if (!mem0ApiKey) {
     return res.json({ success: false, recorded: false, reason: 'mem0 not configured' })
   }
 
   const result = await memoryService.add({
-    apiKey,
-    host,
+    apiKey: mem0ApiKey,
+    host: mem0Host,
     userId,
     text,
     metadata: {

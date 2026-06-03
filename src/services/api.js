@@ -102,40 +102,23 @@ export async function getState(gameId) {
 // ---------------- AI 与 聊天 (核心修改区) ----------------
 
 /**
- * 获取完整 API 配置（统一入口）
- * 优先从 localStorage 读取，回退到后端 secrets
+ * Read the per-browser API configuration.
+ *
+ * Settings live ONLY in the user's localStorage. The server never sees
+ * another user's API key, never persists them, and never has a global
+ * `secrets.json` to leak. The frontend injects `apiKey` (and mem0 keys) into
+ * the request body of every /api/* call that needs them.
  */
 export async function getResolvedApiSettings() {
   const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
-
-  const normalize = (raw) => ({
-    provider: raw.provider || null,
-    baseUrl: raw.baseUrl || null,
-    apiKey: raw.apiKey || null,
-    model: raw.model || null
-  })
-
-  const local = normalize(localRaw)
-  let merged = { ...local }
-  let source = 'localStorage'
-
-  if (!merged.baseUrl || !merged.apiKey || !merged.model) {
-    try {
-      const remote = await getApiSettings()
-      merged = {
-        provider: local.provider || remote.provider || null,
-        baseUrl: local.baseUrl || remote.base_url || remote.baseUrl || null,
-        apiKey: local.apiKey || remote.api_key_openai || remote.apiKey || null,
-        model: local.model || remote.openai_model || remote.model || null
-      }
-      source = 'localStorage + backend secrets'
-    } catch (e) {
-      console.warn('[API] Failed to load backend secrets, using localStorage only', e)
-    }
+  const merged = {
+    provider: localRaw.provider || null,
+    baseUrl: localRaw.baseUrl || null,
+    apiKey: localRaw.apiKey || null,
+    model: localRaw.model || null
   }
 
-  console.info('[API] Resolved settings:', {
-    source,
+  console.info('[API] Resolved settings (localStorage only):', {
     provider: merged.provider,
     baseUrl: merged.baseUrl,
     model: merged.model,
@@ -143,6 +126,18 @@ export async function getResolvedApiSettings() {
   })
 
   return merged
+}
+
+/**
+ * Read the per-browser mem0 configuration (apiKey + host).
+ * Returns `{}` when the user has not configured mem0.
+ */
+export function getResolvedMem0Settings() {
+  const cached = getItem(STORAGE_KEYS.MEM0_SETTINGS) || {}
+  return {
+    apiKey: String(cached.apiKey || '').trim(),
+    host: String(cached.host || '').trim()
+  }
 }
 
 function normalizeGenerationOptions(options = {}) {
@@ -371,11 +366,14 @@ export async function recordPreference({ userId, action, card }) {
     return { success: false, skipped: true }
   }
 
+  const mem0 = getResolvedMem0Settings()
   try {
     const response = await api.post('/preferences/record', {
       userId: userId || getOrCreatePreferenceUserId(),
       action,
-      card
+      card,
+      mem0ApiKey: mem0.apiKey,
+      mem0Host: mem0.host
     })
     return response.data
   } catch (error) {
@@ -520,20 +518,6 @@ export async function fetchAvailableModels(apiSettings) {
   } catch (error) {
     console.error('[API] fetchAvailableModels failed:', error)
     return []
-  }
-}
-
-// ---------------- 密钥管理 ----------------
-
-export async function getApiSettings() {
-  const response = await api.post('/chat/secrets/read')
-  return response.data
-}
-
-export async function saveApiSettings(settings) {
-  // 注意：这里建议后端支持一次性写入，如果不支持，则维持现状
-  for (const [key, value] of Object.entries(settings)) {
-    await api.post('/chat/secrets/write', { key, value })
   }
 }
 

@@ -723,6 +723,7 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
+import { sanitizeHtml } from '../utils/sanitize'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
@@ -2496,7 +2497,7 @@ function syncFromCurrentEditor() {
 
 function markdownToHtml(md) {
   if (!md) return ''
-  return marked.parse(md)
+  return sanitizeHtml(marked.parse(md))
 }
 
 function htmlToMarkdown(html) {

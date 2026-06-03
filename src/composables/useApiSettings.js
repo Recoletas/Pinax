@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { getResolvedApiSettings, testApiConnection, fetchAvailableModels, saveApiSettings } from '@/services/api'
+import { getResolvedApiSettings, testApiConnection, fetchAvailableModels } from '@/services/api'
 
 const SETTINGS_KEY = 'apiSettings'
 
@@ -51,32 +51,16 @@ export function useApiSettings() {
     }
   }
 
-  async function reloadFromBackend() {
-    try {
-      const remote = await getResolvedApiSettings()
-      apiSettings.value = { ...apiSettings.value, ...remote }
-    } catch (e) {
-      console.warn('[useApiSettings] reloadFromBackend failed:', e)
-    }
-  }
-
   function saveToLocal() {
     if (apiSettings.value) {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(apiSettings.value))
     }
   }
 
-  async function saveToBackend() {
-    try {
-      await saveApiSettings(apiSettings.value)
-    } catch (e) {
-      console.warn('[useApiSettings] saveToBackend failed:', e)
-    }
-  }
-
-  async function saveAll() {
+  function saveAll() {
+    // Settings are stored ONLY in the user's own browser localStorage.
+    // There is no backend persistence — that was the historical leak path.
     saveToLocal()
-    await saveToBackend()
   }
 
   function applyProvider(providerId) {
@@ -132,9 +116,7 @@ export function useApiSettings() {
     currentProvider,
     providers,
     loadSettings,
-    reloadFromBackend,
     saveToLocal,
-    saveToBackend,
     saveAll,
     applyProvider,
     loadModels,

@@ -55,6 +55,7 @@ Thumbs.db
 # Agent skills
 .agents/
 .claude/
+.superpowers/
 skills-lock.json
 
 # Editor

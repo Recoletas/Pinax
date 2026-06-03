@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { STORAGE_KEYS } from '@/composables/useStorage'
 
 const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
@@ -23,8 +24,14 @@ import {
   syncConfirmedMemoryCandidateToMem0
 } from '@/services/memorySync'
 
+function setMem0Local({ apiKey, host } = {}) {
+  // mem0 config is per-browser; memorySync reads it from localStorage.
+  localStorage.setItem(STORAGE_KEYS.MEM0_SETTINGS, JSON.stringify({ apiKey: apiKey || '', host: host || '' }))
+}
+
 describe('memorySync', () => {
   beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEYS.MEM0_SETTINGS)
     mocks.apiPost.mockReset()
     mocks.useMem0.mockReset()
     mocks.storeMemory.mockReset()
@@ -33,12 +40,7 @@ describe('memorySync', () => {
   })
 
   it('skips when mem0 is not configured', async () => {
-    mocks.apiPost.mockResolvedValue({
-      data: {
-        mem0_api_key: '',
-        mem0_host: 'https://api.mem0.ai'
-      }
-    })
+    setMem0Local({ apiKey: '', host: 'https://api.mem0.ai' })
 
     const result = await syncConfirmedMemoryCandidateToMem0({
       id: 'mem-1',
@@ -57,12 +59,7 @@ describe('memorySync', () => {
   })
 
   it('syncs an active candidate into mem0', async () => {
-    mocks.apiPost.mockResolvedValue({
-      data: {
-        mem0_api_key: 'm0-key',
-        mem0_host: 'https://mem0.example'
-      }
-    })
+    setMem0Local({ apiKey: 'm0-key', host: 'https://mem0.example' })
     mocks.storeMemory.mockResolvedValue({
       success: true,
       data: { id: 'remote-mem-1' }
@@ -114,12 +111,7 @@ describe('memorySync', () => {
   })
 
   it('reuses an exact remote duplicate before storing', async () => {
-    mocks.apiPost.mockResolvedValue({
-      data: {
-        mem0_api_key: 'm0-key',
-        mem0_host: 'https://mem0.example'
-      }
-    })
+    setMem0Local({ apiKey: 'm0-key', host: 'https://mem0.example' })
     mocks.searchMemories.mockResolvedValue([
       { id: 'remote-existing-1', memory: '旧书店 在 西街。' }
     ])
@@ -151,12 +143,7 @@ describe('memorySync', () => {
   })
 
   it('reports mem0 sync failures', async () => {
-    mocks.apiPost.mockResolvedValue({
-      data: {
-        mem0_api_key: 'm0-key',
-        mem0_host: 'https://mem0.example'
-      }
-    })
+    setMem0Local({ apiKey: 'm0-key', host: 'https://mem0.example' })
     mocks.storeMemory.mockResolvedValue({
       success: false,
       error: 'boom'
@@ -183,12 +170,7 @@ describe('memorySync', () => {
   })
 
   it('builds a remote memory context by combining scoped fallbacks', async () => {
-    mocks.apiPost.mockResolvedValue({
-      data: {
-        mem0_api_key: 'm0-key',
-        mem0_host: 'https://mem0.example'
-      }
-    })
+    setMem0Local({ apiKey: 'm0-key', host: 'https://mem0.example' })
     const buildMemoryContext = vi.fn()
       .mockResolvedValueOnce('')
       .mockResolvedValueOnce('【project-fact】旧书店在西街。')

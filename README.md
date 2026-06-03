@@ -116,6 +116,15 @@ text-game-framework/
 - 后端静态数据：`server/data/worlds` 与 `server/data/events`
 - 世界书写入链路：写作收件箱中的 `worldbook-draft` 可入库到当前活跃世界书
 
+## 安全与部署提示
+
+- `.env`、`.env.*`（除 `.env.example`）已被 `.gitignore` 排除；请勿把真实 API key 提交到仓库
+- 任何 `marked` 渲染的 HTML 在进入 `v-html` 之前都会经过 `src/utils/sanitize.js`（DOMPurify）。SVG 由同一文件的 `sanitizeSvg` 处理
+- **公网部署模型（无鉴权）**：服务器在公网上对所有人开放 `/api/*`，**不**做鉴权（`server/index.js` 只挂 `cors()` 与 `express.json()`）。前端需要在 `Settings.vue` 里给每位用户自己配置自己的 API key。
+- **用户 API key 的隔离边界**：用户的 `apiKey` / Mem0 `apiKey` 等敏感字段**只**存在各自浏览器的 `localStorage` 中（key 见 `src/composables/useStorage.js` 里的 `STORAGE_KEYS`）。服务器**从不**落盘任何用户的 key，请求时由前端在请求体内注入，服务端做一次中转就把字段透传到上游 LLM/Mem0。
+- 历史背景：早期版本曾把 key 落到 `secrets.json`、或要求设置 `PINAX_TOKEN` 才能访问，这两条路径都已删除。详见 `## 本次清理记录`。
+- 公网部署前建议：① nginx / 反代层加 rate limit（防止 LLM 中转被刷爆）；② 任何 reverse proxy 都不要在 access log 里透传 `Authorization` / 请求体里的 `apiKey`；③ 定期轮换上游 LLM 的 key。
+
 ## 文档入口
 
 - 总入口：`docs/README.md`
@@ -129,3 +138,11 @@ text-game-framework/
 
 - 删除重复入口文件：`public/index.html`
   - 原因：项目真实入口是根目录 `index.html`，`public/index.html` 会造成入口认知重复。
+- **API key 隔离重构（user secrets 全部下放到客户端）**：
+  - 删除 `server/index.js` 里的 `PINAX_TOKEN` Bearer 鉴权中间件，服务器恢复"公网对所有人开放 `/api/*`"模型。
+  - 删除 `server/routes/chat.js` 里的 `/secrets/read` 与 `/secrets/write` 端点，以及 `server/services/memoryService.js` 里读 `secrets.json` 的 `loadMem0Secrets`。
+  - `server/routes/chat.js` 与 `server/routes/preferences.js` 不再回退去读 `process.env.MEM0_API_KEY` / 服务端 secrets；请求体里必须自带 `apiKey` / `mem0ApiKey`，否则直接 `400 API_KEY_REQUIRED`。
+  - 前端 `src/services/api.js`、`src/services/memorySync.js`、`src/components/Settings.vue`、`src/composables/useApiSettings.js` 改为只从 `localStorage` 读 key（key 见 `STORAGE_KEYS`），并在每个出站请求里把 key 注入请求体。
+  - `.env.example` 同步移除 `MEM0_API_KEY` / `PINAX_TOKEN` / `VITE_PINAX_TOKEN`（这三条是历史"服务端持久化用户 key"的入口，留着会误导）。
+  - 测试 `src/__tests__/memorySync.test.js` 改为通过 `localStorage` 播种 mem0 配置，而不是 mock `/chat/secrets/read`。
+  - 理由：用户希望公网直接访问，**关键不是鉴权**，而是**绝不让一个用户的 key 出现在另一台机器/另一个用户能读到的地方**。之前的 `secrets.json` 是单用户本地时遗留的产物，公网部署后会变成跨用户泄露点。
