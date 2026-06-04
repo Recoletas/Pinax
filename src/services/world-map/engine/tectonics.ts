@@ -37,12 +37,14 @@ export function generateTectonics(
   rng: () => number,
   plateCount = 6,
   plateSpeedFactor = 1,
+  continentCount = Math.max(2, Math.round(plateCount * 0.5)),
   constraints?: MapConstraints,
 ): { plates: Plate[]; boundaries: PlateBoundary[]; plateId: Int16Array } {
   plateCount = Math.max(2, Math.min(12, plateCount))
+  continentCount = Math.max(1, Math.min(continentCount, plateCount))
 
-  // 步骤 1：选种子（纯空间分布，确保至少 2 块大陆）
-  const seeds = pickPlateSeeds(cells, width, height, plateCount, rng)
+  // 步骤 1：选种子（先放大陆种子，再补海洋种子）
+  const seeds = pickPlateSeeds(cells, width, height, plateCount, continentCount, rng)
 
   // 步骤 2：Voronoi 划 plateId
   const plateId = new Int16Array(cells.length)
@@ -69,7 +71,7 @@ export function generateTectonics(
       center: seeds[p],
       direction: rng() * Math.PI * 2,
       speed: (0.3 + rng() * 0.7) * plateSpeedFactor,
-      oceanic: plateIsOceanic(p, seeds.length, rng),
+      oceanic: p >= continentCount,
       cells: cellCounts[p],
     })
   }
@@ -121,58 +123,81 @@ export function generateTectonics(
 // ── 步骤 1：选种子（纯空间分布） ─────────────────────────
 
 /**
- * 选 N 个空间上分散的种子。**不**读 cells.h。
- * 海洋/大陆类型在 `plateIsOceanic` 中按比例随机分配。
+ * 选 N 个空间上分散的种子。先放大陆种子，再补海洋种子。
  */
 function pickPlateSeeds(
   cells: GridCells,
   width: number,
   height: number,
   plateCount: number,
+  continentCount: number,
   rng: () => number,
 ): number[] {
-  // 最小间距 = 画布对角线 / sqrt(plateCount) / 2
-  const minDist = Math.hypot(width, height) / Math.sqrt(plateCount) / 2
-  const minDistSq = minDist * minDist
   const seeds: number[] = []
-  const indices = new Uint32Array(cells.length)
-  for (let i = 0; i < cells.length; i++) indices[i] = i
-  // 洗牌后按洗牌顺序取，命中最小距离的保留
-  shuffleIndices(indices, rng)
+  const used = new Uint8Array(cells.length)
 
-  for (let i = 0; i < indices.length && seeds.length < plateCount; i++) {
-    const candidate = indices[i]
-    const cx = cells.p[candidate * 2]
-    const cy = cells.p[candidate * 2 + 1]
-    let tooClose = false
-    for (const s of seeds) {
-      const dx = cells.p[s * 2] - cx
-      const dy = cells.p[s * 2 + 1] - cy
-      if (dx * dx + dy * dy < minDistSq) { tooClose = true; break }
-    }
-    if (!tooClose) seeds.push(candidate)
+  for (let i = 0; i < continentCount; i++) {
+    const seed = selectSeed(cells, width, height, seeds, used, rng, 'interior')
+    if (seed === -1) break
+    seeds.push(seed)
+    used[seed] = 1
   }
 
-  // 不够时放宽距离限制（只在前一轮没凑齐 plateCount 的极端稀疏场景发生）
+  while (seeds.length < plateCount) {
+    const seed = selectSeed(cells, width, height, seeds, used, rng, 'edge')
+    if (seed === -1) break
+    seeds.push(seed)
+    used[seed] = 1
+  }
+
   if (seeds.length < plateCount) {
-    for (let i = 0; i < indices.length && seeds.length < plateCount; i++) {
-      const candidate = indices[i]
-      if (!seeds.includes(candidate)) seeds.push(candidate)
+    for (let i = 0; i < cells.length && seeds.length < plateCount; i++) {
+      if (used[i]) continue
+      seeds.push(i)
+      used[i] = 1
     }
   }
 
   return seeds
 }
 
-/**
- * 决定第 p 个板块是洋还是陆。
- * 概率 ~ 1/3 海洋 + 2/3 大陆；保证至少 2 块大陆（≥ 1 块海洋也有概率）。
- */
-function plateIsOceanic(p: number, total: number, rng: () => number): boolean {
-  if (total <= 2) return p === total - 1 // 2 板块：1 大陆 1 海洋
-  if (total <= 4) return p >= total - 1
-  // 5+ 板块：1/3 海洋概率
-  return rng() < 0.33
+function selectSeed(
+  cells: GridCells,
+  width: number,
+  height: number,
+  seeds: number[],
+  used: Uint8Array,
+  rng: () => number,
+  mode: 'interior' | 'edge',
+): number {
+  const diagSq = width * width + height * height
+  let best = -1
+  let bestScore = -Infinity
+
+  for (let i = 0; i < cells.length; i++) {
+    if (used[i]) continue
+    const x = cells.p[i * 2] / width
+    const y = cells.p[i * 2 + 1] / height
+    const interior = (1 - Math.abs(x * 2 - 1)) * (1 - Math.abs(y * 2 - 1))
+    const edge = 1 - interior
+    let nearest = diagSq
+    for (const seed of seeds) {
+      const dx = cells.p[seed * 2] - cells.p[i * 2]
+      const dy = cells.p[seed * 2 + 1] - cells.p[i * 2 + 1]
+      const distSq = dx * dx + dy * dy
+      if (distSq < nearest) nearest = distSq
+    }
+    const bias = mode === 'interior'
+      ? interior * diagSq * 0.22
+      : edge * diagSq * 0.18
+    const score = nearest + bias + rng() * diagSq * 0.002
+    if (score > bestScore) {
+      best = i
+      bestScore = score
+    }
+  }
+
+  return best
 }
 
 // ── 步骤 4：边界检测 ──────────────────────────────────

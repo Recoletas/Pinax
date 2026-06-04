@@ -21,6 +21,11 @@ import {
   applyTransformShear,
   applyVolcanicArc,
 } from './boundary-terrain'
+import { HEIGHTMAP_TEMPLATES, pickTemplate, applyTemplate } from './heightmap-templates'
+
+function lim(v: number): number {
+  return Math.max(0, Math.min(100, v))
+}
 
 const SEA_LEVEL = 20
 const FBM_SCALE = 0.015
@@ -39,6 +44,7 @@ export function generateHeightmap(
   landRatio = 0.45,
   plates: Plate[] = [],
   boundaries: PlateBoundary[] = [],
+  continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
 ): void {
   const n = cells.length
@@ -47,20 +53,15 @@ export function generateHeightmap(
     throw new Error('generateHeightmap: cells.tectonic.plateId not initialized. Call generateTectonics first.')
   }
 
-  // 步骤 1：板块 base 高度
-  if (plates.length === 0) {
-    // 没有 plate 数据：退化为纯噪声（fallback；理论上前置 generateTectonics 总会有 plate）
-    for (let i = 0; i < n; i++) cells.h[i] = 30
+  // 步骤 1：Azgaar 模板（faithful port）—— 从 0 起步，按 14 模板之一叠 hills / ranges / straits / mask。
+  // 模板的设计前提是 cells.h 初始为 0（Azgaar 原版如此），plate 仅影响 boundary effects，不决定 base 高度。
+  const templateName = pickTemplate(continentCount, landRatio, rng)
+  const template = HEIGHTMAP_TEMPLATES[templateName]
+  if (template) {
+    applyTemplate(cells, width, height, template.template, rng)
   } else {
-    for (let i = 0; i < n; i++) {
-      const pid = plateId[i]
-      const plate = plates[pid] ?? plates[0]
-      if (plate.oceanic) {
-        cells.h[i] = 5 + Math.floor(rng() * 10)   // 洋 5-14
-      } else {
-        cells.h[i] = 25 + Math.floor(rng() * 25)  // 陆 25-49
-      }
-    }
+    // 没匹配到模板：fallback 到 30 等高（不读 plate，与 spec §4a 的 per-cell 简化路径不同）
+    for (let i = 0; i < n; i++) cells.h[i] = 30
   }
 
   // 步骤 2：FBM 噪声叠加
@@ -196,17 +197,21 @@ function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
   }
 }
 
-/** 平滑处理。threshold：平均后低于此值的格子视为海洋（h=0），避免向海渗色。 */
+/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3，保留峰值。
+ *  threshold：newH 低于此值的格子视为海洋（h=0），避免向海渗色。 */
 function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
+  const fr = 3
   for (let pass = 0; pass < passes; pass++) {
     const newH = new Uint8Array(cells.length)
     for (let i = 0; i < cells.length; i++) {
       const neighbors = cells.c[i]
       if (neighbors.length === 0) { newH[i] = cells.h[i]; continue }
-      let sum = cells.h[i] * 2
-      for (const n of neighbors) sum += cells.h[n]
-      const avg = Math.round(sum / (neighbors.length + 2))
-      newH[i] = threshold > 0 && avg < threshold ? 0 : avg
+      let sum = cells.h[i]
+      let count = 1
+      for (const n of neighbors) { sum += cells.h[n]; count++ }
+      const mean = sum / count
+      const newV = lim(Math.round((cells.h[i] * (fr - 1) + mean) / fr))
+      newH[i] = threshold > 0 && newV < threshold ? 0 : newV
     }
     cells.h.set(newH)
   }

@@ -1,6 +1,32 @@
 import { describe, it, expect } from 'vitest'
 import { generateMap } from '../services/world-map/engine/generate'
 
+function countMajorLandmasses(cells, minSize = 120) {
+  const seen = new Uint8Array(cells.length)
+  let count = 0
+
+  for (let start = 0; start < cells.length; start++) {
+    if (seen[start] || cells.h[start] < 20) continue
+    const queue = [start]
+    let size = 0
+    seen[start] = 1
+
+    for (let head = 0; head < queue.length; head++) {
+      const cell = queue[head]
+      size++
+      for (const neighbor of cells.c[cell]) {
+        if (seen[neighbor] || cells.h[neighbor] < 20) continue
+        seen[neighbor] = 1
+        queue.push(neighbor)
+      }
+    }
+
+    if (size >= minSize) count++
+  }
+
+  return count
+}
+
 /**
  * azgaar 管线 smoke test
  *
@@ -73,5 +99,18 @@ describe('azgaar 管线 smoke', () => {
     }
     expect(water + land).toBe(data.cells.length)
     expect(water).toBeGreaterThan(0)
+  })
+
+  it('continentCount=4 时不会退化成单块梯形超级大陆', () => {
+    const data = generateMap({
+      seed: 'az-continents-4',
+      pointCount: 3000,
+      plateCount: 6,
+      continentCount: 4,
+      generateProvinces: false,
+      generateRoads: false,
+    })
+
+    expect(countMajorLandmasses(data.cells)).toBeGreaterThanOrEqual(3)
   })
 })

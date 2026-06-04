@@ -47,6 +47,13 @@ export function generateMap(
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
+  const effectiveContinentCount = Math.max(
+    1,
+    Math.min(
+      config.continentCount ?? Math.max(2, Math.round(effectivePlateCount * 0.5)),
+      effectivePlateCount,
+    ),
+  )
 
   const rng = seedRandom(seed)
 
@@ -67,8 +74,8 @@ export function generateMap(
   console.time('[MapEngine] Tectonics')
   collector?.start('tectonics')
   const effectiveConstraints = constraints ?? config.constraints
-  const { plates, boundaries, plateId } = generateTectonics(
-    cells, width, height, rng, effectivePlateCount, plateSpeedFactor,
+    const { plates, boundaries, plateId } = generateTectonics(
+      cells, width, height, rng, effectivePlateCount, plateSpeedFactor, effectiveContinentCount,
     effectiveConstraints,
   )
   // 填 cells.tectonic.*（6 个并行数组）。必须在 generateHeightmap 之前
@@ -82,7 +89,7 @@ export function generateMap(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, config.realism,
+    plates, boundaries, effectiveContinentCount, config.realism,
   )
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
@@ -263,6 +270,13 @@ export async function generateMapAsync(
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
+  const effectiveContinentCount = Math.max(
+    1,
+    Math.min(
+      config.continentCount ?? Math.max(2, Math.round(effectivePlateCount * 0.5)),
+      effectivePlateCount,
+    ),
+  )
 
   const rng = seedRandom(seed)
   setNamingStyle(namingStyle)
@@ -279,8 +293,8 @@ export async function generateMapAsync(
   onProgress?.('板块构造', 7)
   collector?.start('tectonics')
   const effectiveConstraints = constraints ?? config.constraints
-  const { plates, boundaries, plateId } = generateTectonics(
-    cells, width, height, rng, effectivePlateCount, plateSpeedFactor,
+    const { plates, boundaries, plateId } = generateTectonics(
+      cells, width, height, rng, effectivePlateCount, plateSpeedFactor, effectiveContinentCount,
     effectiveConstraints,
   )
   cells.tectonic = computeTectonicData(cells, plateId, boundaries)
@@ -292,7 +306,7 @@ export async function generateMapAsync(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, config.realism,
+    plates, boundaries, effectiveContinentCount, config.realism,
   )
   collector?.end('heightmap')
   await yieldToMain()

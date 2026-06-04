@@ -167,8 +167,10 @@ describe('nations', () => {
       const stateMs = meta.timings.find(t => t.stage === 'states')?.durationMs
 
       expect(diagnostics).not.toBeNull()
-      expect(diagnostics.pushCount).toBeLessThan(50000)
-      expect(diagnostics.maxHeap).toBeLessThan(5000)
+      // pushCount 语义变了：原来是 heap 入堆次数，现在是 getEdgeWeight 调用次数（边被考虑的次数）
+      // graphology 内部用堆但堆大小对外不暴露，maxHeap 固定为 0
+      expect(diagnostics.pushCount).toBeLessThan(200000)
+      expect(diagnostics.maxHeap).toBe(0)
       expect(stateMs).toBeTypeOf('number')
       expect(stateMs).toBeLessThan(5000)
     }, 180000)
