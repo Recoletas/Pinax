@@ -59,11 +59,10 @@ export const LAYER_LABELS = {
   tectonics: '板块边界',
 }
 
-/** 高度图模板（对应 HeightmapTemplate 联合类型） */
-export const VALID_TEMPLATES = [
-  'continents', 'pangea', 'archipelago', 'volcano', 'isthmus',
-  'peninsula', 'mediterranean', 'atoll', 'shattered', 'highland',
-]
+/** 高度图模板（已废弃：azgaar 重写后不再使用高度图模板） */
+// VALID_TEMPLATES removed in 2026-06 azgaar pipeline rewrite.
+// Old template names: continents, pangea, archipelago, volcano, isthmus,
+// peninsula, mediterranean, atoll, shattered, highland.
 
 /** 命名风格（对应 NamingStyle 联合类型） */
 export const VALID_NAMING = [

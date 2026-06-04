@@ -3,6 +3,11 @@
 日期: 2026-06-03
 状态: 待批准
 
+> **SUPERSEDED 2026-06-04** — 本 spec 中关于 `realism.level` 三档 (`classic`/`azgaar`/`geologic`) 和 10 个 `heightmapTemplate` 的设计已被取消。
+> 取代设计见 [`2026-06-04-azgaar-pipeline-design.md`](./2026-06-04-azgaar-pipeline-design.md)：
+> 管线统一为 azgaar 风格（plate-driven），不再有 3-level realism 开关。
+> 保留本 spec 以供考古（"我们当年为什么取消 3-level realism"）。
+
 ## 目标
 
 让 Voronoi 地图的板块行为、山脉/火山/裂谷、海岸线、河流、国界、底色 7 个方面

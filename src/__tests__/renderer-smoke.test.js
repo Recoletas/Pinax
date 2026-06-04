@@ -24,11 +24,11 @@ describe('renderMap 冒烟', () => {
     })
   }
 
-  it('azgaar realism + parchment preset 渲染不抛错', () => {
+  it('meandering realism + parchment preset 渲染不抛错', () => {
     const data = generateMap({
-      seed: 'render-azgaar',
+      seed: 'render-meander',
       pointCount: 500,
-      realism: { level: 'azgaar' },
+      realism: { rivers: { style: 'meandering', meanderAmplitude: 4 } },
     })
     const canvas = createCanvas(800, 600)
     expect(() => renderMap(canvas, data, { stylePreset: 'parchment' })).not.toThrow()

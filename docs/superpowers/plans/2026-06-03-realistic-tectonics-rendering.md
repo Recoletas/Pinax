@@ -1,5 +1,8 @@
 # 现实化板块 / 海岸 / 水系 / 渲染实现计划
 
+> **SUPERSEDED 2026-06-04** — 本 plan 中实现的 `realism.level` 三档机制已被取消。取代实现见 [`2026-06-04-azgaar-pipeline-design.md`](../../specs/2026-06-04-azgaar-pipeline-design.md) 和 [`2026-06-04-azgaar-pipeline-impl.md`](../../plans/2026-06-04-azgaar-pipeline-impl.md)（如存在）。
+> 保留本 plan 以供考古（任务分解、tectonic 模块结构、boundary-terrain 4 个 apply 函数仍然被新管线复用）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 Voronoi 地图的山脉/火山/裂谷、海岸、河流、国界、底色按 Azgaar 风格生成，并通过世界书的结构化设定（structured settings）由 AI 驱动；老 `MapGenConfig` 完全兼容（默认走 classic 路径，行为不变）。

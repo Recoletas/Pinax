@@ -24,21 +24,22 @@ function reactive(target) {
 }
 
 describe('serializeConfigForWorker', () => {
-  it('嵌套 reactive proxy → 纯对象', () => {
+  it('嵌套 reactive proxy → 纯对象（新 realism 形态）', () => {
     const proxy = reactive({
       width: 1200,
       height: 800,
       seed: 'test',
-      realism: { level: 'azgaar' },
+      plateCount: 6,
+      realism: { rivers: { style: 'meandering' } },
     })
     const plain = serializeConfigForWorker(proxy)
     expect(plain).toEqual({
       width: 1200,
       height: 800,
       seed: 'test',
-      realism: { level: 'azgaar' },
+      plateCount: 6,
+      realism: { rivers: { style: 'meandering' } },
     })
-    // 关键：result 必须可被 structuredClone 克隆（即不再是 proxy）
     expect(() => structuredClone(plain)).not.toThrow()
   })
 
@@ -61,9 +62,8 @@ describe('serializeConfigForWorker', () => {
   })
 
   it('结果可被 structuredClone 克隆（防御 sanity check）', () => {
-    const proxy = reactive({ realism: { level: 'azgaar' } })
+    const proxy = reactive({ realism: { rivers: { style: 'meandering' } } })
     const plain = serializeConfigForWorker(proxy)
-    // structuredClone 在 vitest Node 环境能跑（Node 17+）
     expect(() => structuredClone(plain)).not.toThrow()
   })
 })

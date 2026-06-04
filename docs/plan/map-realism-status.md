@@ -4,6 +4,10 @@
 > 目标：记录目前"地图真实感"路线图的真实进展、暴露出的问题、根本原因，
 > 以及推荐的解决顺序，让后续接手的人不用再读 git log 复盘。
 
+> **SUPERSEDED 2026-06-04** — 本文档已被 [`docs/superpowers/specs/2026-06-04-azgaar-pipeline-design.md`](../superpowers/specs/2026-06-04-azgaar-pipeline-design.md) 取代。
+> 新管线重写了 heightmap（不再有 10 个模板 + `addHill`/`addPit`），转而采用 azgaar 风格的板块驱动方式。
+> 保留本文档以供考古（"我们当年为什么走 azgaar 这条路"）。
+
 ---
 
 ## TL;DR

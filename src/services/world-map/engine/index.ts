@@ -7,7 +7,7 @@ export { renderMap, renderMapAsync } from './renderer'
 export type { RenderOptions } from './renderer'
 export type {
   MapGenConfig, VoronoiMapData,
-  HeightmapTemplate, NamingStyle, MapStylePreset,
+  NamingStyle, MapStylePreset,
   LayerVisibility, BiomeOverride,
 } from './types'
 export { STYLE_PRESET_LABELS } from './style-presets'

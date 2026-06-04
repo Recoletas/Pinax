@@ -10,6 +10,7 @@ import { generateHeightmap } from './heightmap'
 import { detectFeatures } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
+import { computeTectonicData } from './tectonic-data'
 import { perturbCoast } from './coast'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
@@ -29,13 +30,12 @@ export function generateMap(
     seed = String(Math.floor(Math.random() * 1e10)),
     pointCount = 6000,
     landRatio = 0.45,
-    continentCount = 2,
+    continentCount,  // legacy alias for plateCount（保留兼容）
     stateCount = 8,
     burgDensity = 0.5,
     temperatureShift = 0,
     precipitationFactor = 1.0,
     mapName = 'Fantasy World',
-    heightmapTemplate = 'continents',
     namingStyle = 'chinese',
     generateProvinces: doProvinces = true,
     generateRoads: doRoads = true,
@@ -45,6 +45,8 @@ export function generateMap(
     burgNames,
     riverNames,
   } = config
+  // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
+  const effectivePlateCount = config.plateCount ?? continentCount ?? 6
 
   const rng = seedRandom(seed)
 
@@ -61,32 +63,35 @@ export function generateMap(
   console.timeEnd('[MapEngine] Grid')
   collector?.end('grid')
 
-  // 2. 生成高度图（支持模板）
-  console.time('[MapEngine] Heightmap')
-  collector?.start('heightmap')
-  generateHeightmap(cells, width, height, rng, landRatio, continentCount, heightmapTemplate)
-  console.timeEnd('[MapEngine] Heightmap')
-  collector?.end('heightmap')
-
-  // 3. 板块构造（在高度图之后，叠加山脉/裂谷/火山）
+  // 2. 板块构造（azgaar 风格：板块是源头，不依赖 cells.h）
   console.time('[MapEngine] Tectonics')
   collector?.start('tectonics')
   const effectiveConstraints = constraints ?? config.constraints
-  const { plates, boundaries } = generateTectonics(
-    cells, width, height, rng, plateCount, plateSpeedFactor,
-    config.realism ?? { level: 'classic' },
+  const { plates, boundaries, plateId } = generateTectonics(
+    cells, width, height, rng, effectivePlateCount, plateSpeedFactor,
     effectiveConstraints,
   )
+  // 填 cells.tectonic.*（6 个并行数组）。必须在 generateHeightmap 之前
+  // 调用，因为 applyVolcanicArc 需要 cells.tectonic.plateId 走方向。
+  cells.tectonic = computeTectonicData(cells, plateId, boundaries)
   console.timeEnd('[MapEngine] Tectonics')
   collector?.end('tectonics')
 
-  // 3.5 海岸线扰动（仅 azgaar / geologic；经典模式跳过）
-  if (config.realism && config.realism.level !== 'classic' && config.realism.coast) {
-    perturbCoast(cells, {
-      noiseScale: config.realism.coast.noiseScale ?? 0.012,
-      noiseAmplitude: config.realism.coast.noiseAmplitude ?? 6,
-    })
-  }
+  // 3. 高度图（azgaar 风格：由板块 + 边界效果驱动）
+  console.time('[MapEngine] Heightmap')
+  collector?.start('heightmap')
+  generateHeightmap(
+    cells, width, height, rng, landRatio,
+    plates, boundaries, config.realism,
+  )
+  console.timeEnd('[MapEngine] Heightmap')
+  collector?.end('heightmap')
+
+  // 3.5 海岸线扰动（azgaar 默认参数；用户显式传 coast 仍生效）
+  perturbCoast(cells, {
+    noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
+    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
+  })
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -114,7 +119,7 @@ export function generateMap(
   console.time('[MapEngine] Rivers')
   collector?.start('rivers')
   const rivers = generateRivers(cells, rng, {
-    style: config.realism?.rivers?.style ?? 'straight',
+    style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
   })
   if (riverNames) {
@@ -241,13 +246,12 @@ export async function generateMapAsync(
     seed = String(Math.floor(Math.random() * 1e10)),
     pointCount = 6000,
     landRatio = 0.45,
-    continentCount = 2,
+    continentCount,  // legacy alias for plateCount（保留兼容）
     stateCount = 8,
     burgDensity = 0.5,
     temperatureShift = 0,
     precipitationFactor = 1.0,
     mapName = 'Fantasy World',
-    heightmapTemplate = 'continents',
     namingStyle = 'chinese',
     generateProvinces: doProvinces = true,
     generateRoads: doRoads = true,
@@ -257,6 +261,8 @@ export async function generateMapAsync(
     burgNames,
     riverNames,
   } = config
+  // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
+  const effectivePlateCount = config.plateCount ?? continentCount ?? 6
 
   const rng = seedRandom(seed)
   setNamingStyle(namingStyle)
@@ -269,32 +275,33 @@ export async function generateMapAsync(
   collector?.end('grid')
   await yieldToMain()
 
-  // 2. Heightmap
-  onProgress?.('高度图', 7)
-  collector?.start('heightmap')
-  generateHeightmap(cells, width, height, rng, landRatio, continentCount, heightmapTemplate)
-  collector?.end('heightmap')
-  await yieldToMain()
-
-  // 3. Tectonics
-  onProgress?.('板块构造', 14)
+  // 2. Tectonics (azgaar-style: plates first)
+  onProgress?.('板块构造', 7)
   collector?.start('tectonics')
   const effectiveConstraints = constraints ?? config.constraints
-  const { plates, boundaries } = generateTectonics(
-    cells, width, height, rng, plateCount, plateSpeedFactor,
-    config.realism ?? { level: 'classic' },
+  const { plates, boundaries, plateId } = generateTectonics(
+    cells, width, height, rng, effectivePlateCount, plateSpeedFactor,
     effectiveConstraints,
   )
+  cells.tectonic = computeTectonicData(cells, plateId, boundaries)
   collector?.end('tectonics')
   await yieldToMain()
 
-  // 3.5 Coast perturbation (non-classic only)
-  if (config.realism && config.realism.level !== 'classic' && config.realism.coast) {
-    perturbCoast(cells, {
-      noiseScale: config.realism.coast.noiseScale ?? 0.012,
-      noiseAmplitude: config.realism.coast.noiseAmplitude ?? 6,
-    })
-  }
+  // 3. Heightmap (azgaar-style: plate-driven)
+  onProgress?.('高度图', 14)
+  collector?.start('heightmap')
+  generateHeightmap(
+    cells, width, height, rng, landRatio,
+    plates, boundaries, config.realism,
+  )
+  collector?.end('heightmap')
+  await yieldToMain()
+
+  // 3.5 Coast perturbation (azgaar default; user override via realism.coast)
+  perturbCoast(cells, {
+    noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
+    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
+  })
 
   // 4. Features
   onProgress?.('地理特征', 21)
@@ -322,7 +329,7 @@ export async function generateMapAsync(
   onProgress?.('河流', 42)
   collector?.start('rivers')
   const rivers = generateRivers(cells, rng, {
-    style: config.realism?.rivers?.style ?? 'straight',
+    style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
   })
   if (riverNames) {

@@ -271,19 +271,6 @@ export interface VoronoiMapData {
   name: string
 }
 
-/** 高度图模板 */
-export type HeightmapTemplate =
-  | 'continents'    // 多大陆（默认）
-  | 'pangea'        // 盘古大陆（单块大陆）
-  | 'archipelago'   // 群岛
-  | 'volcano'       // 火山岛
-  | 'isthmus'       // 地峡（两块陆地窄桥相连）
-  | 'peninsula'     // 半岛
-  | 'mediterranean' // 内海（大陆包围海域）
-  | 'atoll'         // 环礁
-  | 'shattered'     // 碎裂大陆
-  | 'highland'      // 高原
-
 /** 文化命名风格 */
 export type NamingStyle =
   | 'chinese'       // 中文古风（默认）
@@ -350,15 +337,17 @@ export const VOLCANO_NONE = 0
 export const VOLCANO_STRATO = 1
 export const VOLCANO_SHIELD = 2
 
-/** 现实化配置（控制板块/海岸/水系/渲染的视觉强度） */
+/**
+ * 现实化配置（azgaar 风格管线已统一为 azgaar 行为；这里只保留可独立调节的数值参数）
+ *
+ * 任何 `level` / `political` / `volcanoDensity` / `headlandFreq` 字段会被解析器静默忽略（兼容旧存档）。
+ */
 export interface MapRealism {
-  /** 总开关 */
-  level: 'classic' | 'azgaar' | 'geologic'
   tectonics?: {
-    plateCount?: number
-    rangeWidth?: number      // 山带宽度 1-8
-    riftDepth?: number       // 裂谷深度
-    volcanoDensity?: number  // 0-1
+    /** 山带宽度 1-8（applyConvergentRange 的 rangeWidth） */
+    rangeWidth?: number
+    /** 裂谷深度（applyDivergentRift 的 riftDepth） */
+    riftDepth?: number
   }
   rivers?: {
     style?: 'straight' | 'meandering' | 'deltaic'
@@ -367,12 +356,6 @@ export interface MapRealism {
   coast?: {
     noiseScale?: number       // 默认 0.012
     noiseAmplitude?: number   // 默认 6
-    headlandFreq?: number     // 0-1
-  }
-  political?: {
-    borderStyle?: 'simple' | 'azgaar'
-    borderlandWidth?: number  // 0-3
-    factionTexture?: boolean
   }
 }
 
@@ -408,7 +391,7 @@ export interface MapGenConfig {
   pointCount?: number
   /** 海陆比例 0-1（默认 0.5） */
   landRatio?: number
-  /** 大陆数量 1-5 */
+  /** 板块数量 2-12（默认 6；旧名 `continentCount` 保留为 alias） */
   continentCount?: number
   /** 国家数量 */
   stateCount?: number
@@ -421,8 +404,6 @@ export interface MapGenConfig {
 
   // ── 新增配置项 ──
 
-  /** 高度图模板（默认 continents） */
-  heightmapTemplate?: HeightmapTemplate
   /** 文化命名风格（默认 chinese） */
   namingStyle?: NamingStyle
   /** 渲染风格预设（默认 topographic） */
@@ -449,7 +430,7 @@ export interface MapGenConfig {
   burgNames?: string[]
   /** 河流名称列表 */
   riverNames?: string[]
-  /** 现实化配置（默认 { level: 'azgaar' }） */
+  /** 现实化配置（azgaar 风格管线下的可选数值参数） */
   realism?: MapRealism
   /** 世界书强约束（可选） */
   constraints?: MapConstraints

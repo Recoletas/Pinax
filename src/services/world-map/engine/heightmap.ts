@@ -1,12 +1,35 @@
 /**
- * 高度图生成
- * 支持 10 种地形模板，通过 Hill/Range 等工具组合生成自然地形
+ * 高度图生成（azgaar 风格：板块驱动）
+ *
+ * 算法（在 `generateTectonics` 之后调用）：
+ *  1. 板块 base 高度：洋 5-15，陆 25-50
+ *  2. FBM 噪声叠加（4 octaves, scale 0.015, amplitude 5）打破板块几何
+ *  3. 边界效果：
+ *     - 汇聚 → 沿 spine 拉山脊（applyConvergentRange）
+ *     - 离散 → 沿 spine 挖裂谷（applyDivergentRift）
+ *     - 转换 → 小起伏（applyTransformShear）
+ *     - 俯冲带 → 内陆侧火山弧（applyVolcanicArc）
+ *  4. 边缘遮罩
+ *  5. 调整海陆比（gap-aware threshold）
+ *  6. 平滑
  */
 
-import type { GridCells, HeightmapTemplate } from './types'
+import type { GridCells, Plate, PlateBoundary, MapRealism } from './types'
+import {
+  applyConvergentRange,
+  applyDivergentRift,
+  applyTransformShear,
+  applyVolcanicArc,
+} from './boundary-terrain'
+
+const SEA_LEVEL = 20
+const FBM_SCALE = 0.015
+const FBM_AMP = 5
 
 /**
- * 生成高度图
+ * 生成高度图（azgaar 风格：板块驱动）
+ *
+ * 假定 `generateTectonics` 已先调用，且 `cells.tectonic.plateId` 已被填充。
  */
 export function generateHeightmap(
   cells: GridCells,
@@ -14,413 +37,162 @@ export function generateHeightmap(
   height: number,
   rng: () => number,
   landRatio = 0.45,
-  continentCount = 2,
-  template: HeightmapTemplate = 'continents',
+  plates: Plate[] = [],
+  boundaries: PlateBoundary[] = [],
+  realism?: MapRealism,
 ): void {
   const n = cells.length
-  const blobPower = n < 5000 ? 0.94 : n < 10000 ? 0.95 : 0.96
+  const plateId = cells.tectonic?.plateId
+  if (!plateId) {
+    throw new Error('generateHeightmap: cells.tectonic.plateId not initialized. Call generateTectonics first.')
+  }
 
-  // 边缘遮罩
-  const edgeMask = new Float32Array(n)
+  // 步骤 1：板块 base 高度
+  if (plates.length === 0) {
+    // 没有 plate 数据：退化为纯噪声（fallback；理论上前置 generateTectonics 总会有 plate）
+    for (let i = 0; i < n; i++) cells.h[i] = 30
+  } else {
+    for (let i = 0; i < n; i++) {
+      const pid = plateId[i]
+      const plate = plates[pid] ?? plates[0]
+      if (plate.oceanic) {
+        cells.h[i] = 5 + Math.floor(rng() * 10)   // 洋 5-14
+      } else {
+        cells.h[i] = 25 + Math.floor(rng() * 25)  // 陆 25-49
+      }
+    }
+  }
+
+  // 步骤 2：FBM 噪声叠加
+  for (let i = 0; i < n; i++) {
+    const x = cells.p[i * 2]
+    const y = cells.p[i * 2 + 1]
+    cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
+  }
+
+  // 步骤 3：边界效果
+  const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
+  const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
+  for (const boundary of boundaries) {
+    const seg = {
+      cellsA: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateA),
+      cellsB: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateB),
+      normalX: 0,
+      normalY: 0,
+    }
+    computeBoundaryNormal(cells, boundary, seg)
+    if (boundary.type === 'convergent') {
+      const peakHeight = 50 + rangeWidth * 5
+      applyConvergentRange(cells, seg, { peakHeight, rangeWidth, rng })
+      if (boundary.subductionSide !== undefined) {
+        const overriding = boundary.subductionSide === boundary.plateA
+          ? plates[boundary.plateB]
+          : plates[boundary.plateA]
+        applyVolcanicArc(cells, seg, overriding.i, { offsetCell: 4, peakHeight: 35, rng })
+      }
+    } else if (boundary.type === 'divergent') {
+      applyDivergentRift(cells, seg, { riftDepth })
+    } else {
+      applyTransformShear(cells, seg, rng)
+    }
+  }
+
+  // 步骤 4：边缘遮罩
   for (let i = 0; i < n; i++) {
     const x = cells.p[i * 2] / width
     const y = cells.p[i * 2 + 1] / height
-    edgeMask[i] = (1 - (2 * x - 1) ** 6) * (1 - (2 * y - 1) ** 6)
+    const edgeMask = (1 - (2 * x - 1) ** 6) * (1 - (2 * y - 1) ** 6)
+    cells.h[i] = Math.max(0, Math.min(100, Math.round(cells.h[i] * edgeMask)))
   }
 
-  // 根据模板选择生成策略
-  switch (template) {
-    case 'pangea':
-      templatePangea(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'archipelago':
-      templateArchipelago(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'volcano':
-      templateVolcano(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'isthmus':
-      templateIsthmus(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'peninsula':
-      templatePeninsula(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'mediterranean':
-      templateMediterranean(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'atoll':
-      templateAtoll(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'shattered':
-      templateShattered(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'highland':
-      templateHighland(cells, width, height, rng, blobPower, continentCount)
-      break
-    case 'continents':
-    default:
-      templateContinents(cells, width, height, rng, blobPower, continentCount)
-      break
-  }
-
-  // 应用边缘遮罩
-  for (let i = 0; i < n; i++) {
-    cells.h[i] = Math.max(0, Math.min(100, Math.round(cells.h[i] * edgeMask[i])))
-  }
-
-  // 平滑（带阈值：低高度清零，避免向海洋渗色）
-  smooth(cells, 2, 2)
-
-  // 调整海陆比例（缺口感知：h=0 视作稳定的海洋）
+  // 步骤 5：调整海陆比
   adjustSeaLevel(cells, landRatio)
 
-  // 最终平滑
+  // 步骤 6：平滑
+  smooth(cells, 2, 2)
   smooth(cells, 1, 1)
 }
 
-// ── 模板函数 ────────────────────────────────────────
+// ── 工具 ────────────────────────────────────────────
 
-/** 多大陆（默认） — 均匀分散放置，留明显海洋隔开 */
-function templateContinents(
-  cells: GridCells, w: number, h: number, rng: () => number,
-  bp: number, continentCount: number,
-) {
-  // 将地图划分为 continentCount 个区域，每个区域放一个大陆
-  const cols = Math.ceil(Math.sqrt(continentCount))
-  const rows = Math.ceil(continentCount / cols)
-  const cellW = 0.7 / cols
-  const cellH = 0.7 / rows
-  const offX = 0.15 + (0.7 - cellW * cols) / 2
-  const offY = 0.15 + (0.7 - cellH * rows) / 2
-
-  // 半径约束：center-to-center 间距 / 4 → 留出充足的海水
-  // Voronoi 平均每跳 ~14 px（点数越多越密，这里保守取 14）
-  const minSpacingPx = Math.min(cellW * w, cellH * h)
-  const maxRadius = Math.max(3, Math.floor(minSpacingPx / 4 / 14))
-
-  let placed = 0
-  for (let r = 0; r < rows && placed < continentCount; r++) {
-    for (let c = 0; c < cols && placed < continentCount; c++) {
-      // 在区域中心附近随机偏移（小范围，避免靠边界导致 BFS 跨区）
-      const cx = offX + (c + 0.4 + rng() * 0.2) * cellW
-      const cy = offY + (r + 0.4 + rng() * 0.2) * cellH
-      // 主丘陵：基高更高、半径受限，体积更可控
-      const size = 70 + rng() * 25
-      addHill(cells, findNearestCell(cells, cx * w, cy * h), size, bp, rng, maxRadius)
-
-      // 每个大陆加一条很短的山脉（横向不超过 maxRadius）
-      // 范围随大陆数收敛：大陆越多山脉越短，避免跨大陆拼接
-      const rangeScale = Math.max(0.3, 1 - continentCount / 12)
-      const rangeAngle = rng() * Math.PI
-      const rangeLen = 0.03 * rangeScale + rng() * 0.03 * rangeScale
-      addRange(cells,
-        findNearestCell(cells, (cx - Math.cos(rangeAngle) * rangeLen) * w, (cy - Math.sin(rangeAngle) * rangeLen) * h),
-        findNearestCell(cells, (cx + Math.cos(rangeAngle) * rangeLen) * w, (cy + Math.sin(rangeAngle) * rangeLen) * h),
-        30 + rng() * 15, rng, Math.max(2, Math.floor(maxRadius * 0.5)))
-
-      placed++
-    }
-  }
-
-  // 散布一些小岛屿（独立，永远不与大陆相接）
-  const islandCount = 2 + Math.floor(rng() * 4)
-  for (let i = 0; i < islandCount; i++) {
-    addHill(cells, findNearestCell(cells, rng() * w, rng() * h), 12 + rng() * 10, bp * 1.02, rng, Math.max(3, Math.floor(maxRadius * 0.4)))
-  }
+/** 简单确定性 hash（per-call 时用 cell 坐标） */
+function hash2D(x: number, y: number): number {
+  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
+  return s - Math.floor(s)
 }
 
-/** 盘古大陆 — 中央一整块大陆 */
-function templatePangea(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 中心一个超大丘陵
-  addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 80 + rng() * 15, bp * 0.98, rng)
-  // 周围4个中等丘陵，让大陆不规则
-  for (let i = 0; i < 4; i++) {
-    const angle = (i / 4) * Math.PI * 2 + rng() * 0.5
-    const dist = 0.15 + rng() * 0.15
-    const cx = 0.5 + Math.cos(angle) * dist
-    const cy = 0.5 + Math.sin(angle) * dist
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), 40 + rng() * 20, bp, rng)
+/** 分形布朗运动：多层 hash 噪声叠加 */
+function fbm2D(x: number, y: number, octaves: number): number {
+  let v = 0
+  let amp = 1
+  let freq = 1
+  let max = 0
+  for (let i = 0; i < octaves; i++) {
+    v += amp * (hash2D(x * freq, y * freq) * 2 - 1)
+    max += amp
+    amp *= 0.5
+    freq *= 2
   }
-  // 2-3条山脉穿过大陆
-  for (let i = 0; i < 2 + Math.floor(rng() * 2); i++) {
-    addRange(cells, findNearestCell(cells, (0.25 + rng() * 0.5) * w, (0.25 + rng() * 0.5) * h),
-      findNearestCell(cells, (0.25 + rng() * 0.5) * w, (0.25 + rng() * 0.5) * h), 55 + rng() * 30, rng)
-  }
+  return v / max
 }
 
-/** 群岛 — 大量小岛 */
-function templateArchipelago(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  const islandCount = 10 + Math.floor(rng() * 15)
-  for (let i = 0; i < islandCount; i++) {
-    const cx = 0.1 + rng() * 0.8
-    const cy = 0.1 + rng() * 0.8
-    const size = 8 + rng() * 20
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), size, bp * 1.02, rng)
+/** 把 boundary.cellIds 按 plateId 拆成 cellsA / cellsB（按 apply* 期望的格式） */
+function splitCellsByPlate(
+  cellIds: number[],
+  plateId: Int16Array,
+  plateA: number,
+): number[] {
+  const out: number[] = []
+  for (const id of cellIds) {
+    if (plateId[id] === plateA) out.push(id)
   }
-  // 少量小山脉
-  for (let i = 0; i < 2; i++) {
-    addRange(cells, findNearestCell(cells, rng() * w, rng() * h),
-      findNearestCell(cells, rng() * w, rng() * h), 30 + rng() * 20, rng)
-  }
+  return out
 }
 
-/** 火山岛 — 中心高峰 */
-function templateVolcano(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 中心火山
-  const center = findNearestCell(cells, w * 0.5 + (rng() - 0.5) * w * 0.15, h * 0.5 + (rng() - 0.5) * h * 0.15)
-  addHill(cells, center, 80, bp * 0.97, rng)
-  // 几个卫星丘陵
-  for (let i = 0; i < 3; i++) {
-    const angle = rng() * Math.PI * 2
-    const dist = 0.1 + rng() * 0.15
-    addHill(cells, findNearestCell(cells, (0.5 + Math.cos(angle) * dist) * w,
-      (0.5 + Math.sin(angle) * dist) * h), 15 + rng() * 15, bp * 1.01, rng)
-  }
-}
-
-/** 地峡 — 两块陆地窄桥相连 */
-function templateIsthmus(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 左右两块大陆
-  addHill(cells, findNearestCell(cells, w * 0.25, h * 0.5), 40 + rng() * 20, bp, rng)
-  addHill(cells, findNearestCell(cells, w * 0.75, h * 0.5), 40 + rng() * 20, bp, rng)
-  // 连接桥（山脉）
-  addRange(cells, findNearestCell(cells, w * 0.35, h * 0.5),
-    findNearestCell(cells, w * 0.65, h * 0.5), 25 + rng() * 10, rng)
-  // 各自的小丘陵
-  for (let i = 0; i < 4; i++) {
-    const side = i < 2 ? 0.25 : 0.75
-    addHill(cells, findNearestCell(cells, (side + (rng() - 0.5) * 0.2) * w,
-      (0.3 + rng() * 0.4) * h), 15 + rng() * 15, bp * 1.01, rng)
-  }
-}
-
-/** 半岛 — 大陆从一边延伸 */
-function templatePeninsula(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 主大陆在左侧
-  addHill(cells, findNearestCell(cells, w * 0.2, h * 0.5), 50 + rng() * 20, bp * 0.99, rng)
-  // 半岛向右延伸
-  addRange(cells, findNearestCell(cells, w * 0.2, h * 0.5),
-    findNearestCell(cells, w * 0.75, h * (0.3 + rng() * 0.4)), 35 + rng() * 20, rng)
-  // 额外丘陵
-  for (let i = 0; i < 3; i++) {
-    addHill(cells, findNearestCell(cells, (0.1 + rng() * 0.3) * w,
-      (0.2 + rng() * 0.6) * h), 20 + rng() * 15, bp * 1.01, rng)
-  }
-}
-
-/** 内海/地中海 — 大陆环绕中心海域 */
-function templateMediterranean(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 环形大陆：上下两块弧形陆地
-  // 上方弧
-  for (let i = 0; i < 5; i++) {
-    const angle = Math.PI * 0.2 + (i / 4) * Math.PI * 0.6
-    const cx = 0.5 + Math.cos(angle) * 0.3
-    const cy = 0.5 + Math.sin(angle) * 0.3
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), 25 + rng() * 15, bp, rng)
-  }
-  // 下方弧
-  for (let i = 0; i < 5; i++) {
-    const angle = Math.PI * 1.2 + (i / 4) * Math.PI * 0.6
-    const cx = 0.5 + Math.cos(angle) * 0.3
-    const cy = 0.5 + Math.sin(angle) * 0.3
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), 25 + rng() * 15, bp, rng)
-  }
-  // 山脉
-  addRange(cells, findNearestCell(cells, w * 0.2, h * 0.3),
-    findNearestCell(cells, w * 0.8, h * 0.3), 40 + rng() * 20, rng)
-  addRange(cells, findNearestCell(cells, w * 0.2, h * 0.7),
-    findNearestCell(cells, w * 0.8, h * 0.7), 40 + rng() * 20, rng)
-}
-
-/** 环礁 — 环状小岛 */
-function templateAtoll(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  const ringCount = 12 + Math.floor(rng() * 8)
-  for (let i = 0; i < ringCount; i++) {
-    const angle = (i / ringCount) * Math.PI * 2 + rng() * 0.3
-    const dist = 0.22 + rng() * 0.08
-    const cx = 0.5 + Math.cos(angle) * dist
-    const cy = 0.5 + Math.sin(angle) * dist
-    addHill(cells, findNearestCell(cells, cx * w, cy * h), 10 + rng() * 12, bp * 1.03, rng)
-  }
-  // 中心可能有小岛
-  if (rng() > 0.4) {
-    addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 15 + rng() * 10, bp * 1.02, rng)
-  }
-}
-
-/** 碎裂大陆 — 原本一块，现在碎了 */
-function templateShattered(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 先做一块大陆
-  addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 50 + rng() * 15, bp * 0.99, rng)
-  // 然后用多个低洼区"切割"
-  for (let i = 0; i < 6 + Math.floor(rng() * 5); i++) {
-    const cx = 0.2 + rng() * 0.6
-    const cy = 0.2 + rng() * 0.6
-    addPit(cells, findNearestCell(cells, cx * w, cy * h), 25 + rng() * 15, bp * 1.01, rng)
-  }
-  // 碎片间加点丘陵
-  for (let i = 0; i < 5; i++) {
-    addHill(cells, findNearestCell(cells, rng() * w, rng() * h), 10 + rng() * 15, bp * 1.02, rng)
-  }
-}
-
-/** 高原 — 中心大面积平坦高地 */
-function templateHighland(
-  cells: GridCells, w: number, h: number, rng: () => number, bp: number,
-  _continentCount?: number,
-) {
-  // 大面积平缓高地
-  addHill(cells, findNearestCell(cells, w * 0.5, h * 0.5), 45, bp * 0.97, rng)
-  addHill(cells, findNearestCell(cells, w * 0.4, h * 0.4), 40, bp * 0.97, rng)
-  addHill(cells, findNearestCell(cells, w * 0.6, h * 0.6), 40, bp * 0.97, rng)
-  // 边缘山脉
-  addRange(cells, findNearestCell(cells, w * 0.2, h * 0.3),
-    findNearestCell(cells, w * 0.8, h * 0.3), 60 + rng() * 20, rng)
-  addRange(cells, findNearestCell(cells, w * 0.3, h * 0.7),
-    findNearestCell(cells, w * 0.7, h * 0.7), 55 + rng() * 20, rng)
-  // 高原上的平滑处理更多
-  smooth(cells, 3)
-}
-
-// ── 工具函数 ────────────────────────────────────────
-
-/** BFS 添加山丘 */
-function addHill(
-  cells: GridCells, start: number, baseHeight: number,
-  power: number, rng: () => number, maxRadius: number = Infinity,
+/** 计算 boundary 的法线（与旧 tectonics.ts::detectBoundaries 同款：质心差） */
+function computeBoundaryNormal(
+  cells: GridCells,
+  boundary: PlateBoundary,
+  seg: { cellsA: number[]; cellsB: number[]; normalX: number; normalY: number },
 ): void {
-  const change = new Float32Array(cells.length)
-  change[start] = baseHeight
-  const queue = [start]
-  const visited = new Set<number>([start])
-  const dist = new Uint8Array(cells.length)
-  let head = 0
-
-  while (head < queue.length) {
-    const cell = queue[head++]
-    if (dist[cell] > maxRadius) continue
-    cells.h[cell] = Math.min(100, cells.h[cell] + Math.round(change[cell]))
-
-    for (const neighbor of cells.c[cell]) {
-      if (visited.has(neighbor)) continue
-      const newChange = change[cell] ** power * (0.9 + rng() * 0.2)
-      if (newChange < 1) continue
-      change[neighbor] = newChange
-      dist[neighbor] = dist[cell] + 1
-      visited.add(neighbor)
-      queue.push(neighbor)
-    }
-  }
+  let avgAx = 0, avgAy = 0, avgBx = 0, avgBy = 0
+  for (const c of seg.cellsA) { avgAx += cells.p[c * 2]; avgAy += cells.p[c * 2 + 1] }
+  for (const c of seg.cellsB) { avgBx += cells.p[c * 2]; avgBy += cells.p[c * 2 + 1] }
+  const nA = Math.max(1, seg.cellsA.length)
+  const nB = Math.max(1, seg.cellsB.length)
+  avgAx /= nA; avgAy /= nA
+  avgBx /= nB; avgBy /= nB
+  let nx = avgBx - avgAx
+  let ny = avgBy - avgAy
+  const len = Math.sqrt(nx * nx + ny * ny) || 1
+  seg.normalX = nx / len
+  seg.normalY = ny / len
 }
 
-/** BFS 挖坑（负高度） */
-function addPit(
-  cells: GridCells, start: number, depth: number,
-  power: number, rng: () => number, maxRadius: number = Infinity,
-): void {
-  const change = new Float32Array(cells.length)
-  change[start] = depth
-  const queue = [start]
-  const visited = new Set<number>([start])
-  const dist = new Uint8Array(cells.length)
-  let head = 0
-
-  while (head < queue.length) {
-    const cell = queue[head++]
-    if (dist[cell] > maxRadius) continue
-    cells.h[cell] = Math.max(0, cells.h[cell] - Math.round(change[cell]))
-
-    for (const neighbor of cells.c[cell]) {
-      if (visited.has(neighbor)) continue
-      const newChange = change[cell] ** power * (0.9 + rng() * 0.2)
-      if (newChange < 1) continue
-      change[neighbor] = newChange
-      dist[neighbor] = dist[cell] + 1
-      visited.add(neighbor)
-      queue.push(neighbor)
-    }
-  }
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v))
 }
 
-/** 在两点间添加山脉 */
-function addRange(
-  cells: GridCells, start: number, end: number,
-  baseHeight: number, rng: () => number, maxRadius: number = Infinity,
-): void {
-  const ridge: number[] = [start]
-  const ridgeSet = new Set<number>([start])
-  let current = start
-  const endX = cells.p[end * 2]
-  const endY = cells.p[end * 2 + 1]
-
-  for (let step = 0; step < 500 && current !== end; step++) {
-    let best = -1
-    let bestDist = Infinity
-
-    for (const neighbor of cells.c[current]) {
-      if (ridgeSet.has(neighbor)) continue
-      const dx = cells.p[neighbor * 2] - endX
-      const dy = cells.p[neighbor * 2 + 1] - endY
-      let dist = dx * dx + dy * dy
-      if (rng() < 0.15) dist *= 0.5
-      if (dist < bestDist) {
-        bestDist = dist
-        best = neighbor
-      }
-    }
-
-    if (best === -1) break
-    ridge.push(best)
-    ridgeSet.add(best)
-    current = best
+/** 调整海平面以达到目标海陆比例（gap-aware） */
+function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
+  const landH: number[] = []
+  let zeroCount = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] > 0) landH.push(cells.h[i])
+    else zeroCount++
   }
+  if (landH.length === 0) return
 
-  for (const cell of ridge) {
-    cells.h[cell] = Math.min(100, cells.h[cell] + Math.round(baseHeight * (0.8 + rng() * 0.4)))
-  }
+  landH.sort((a, b) => a - b)
+  const targetLand = Math.floor(cells.length * targetLandRatio)
+  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
+  const waterInLand = landH.length - needFromLand
+  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
+  const seaLevel = landH[idx]
 
-  const visited = new Set(ridge)
-  let frontier = [...ridge]
-  let layerH = baseHeight * 0.6
-  const maxLayer = Math.min(5, Math.max(1, maxRadius - Math.floor(ridge.length / 8)))
-
-  for (let layer = 0; layer < maxLayer && layerH > 2; layer++) {
-    const nextFrontier: number[] = []
-    for (const cell of frontier) {
-      for (const neighbor of cells.c[cell]) {
-        if (visited.has(neighbor)) continue
-        visited.add(neighbor)
-        const h = layerH * (0.7 + rng() * 0.6)
-        cells.h[neighbor] = Math.min(100, cells.h[neighbor] + Math.round(h))
-        nextFrontier.push(neighbor)
-      }
-    }
-    frontier = nextFrontier
-    layerH *= 0.5
+  const shift = SEA_LEVEL - seaLevel
+  for (let i = 0; i < cells.length; i++) {
+    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + shift))
   }
 }
 
@@ -438,51 +210,4 @@ function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
     }
     cells.h.set(newH)
   }
-}
-
-/** 调整海平面以达到目标海陆比例
- * 缺口感知：h=0 视作稳定海洋，不参与 shift 计算。
- *  目标 land% 时，先在非零高度中找分位数；h=0 的格子不会因 shift 而抬到陆。
- */
-function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
-  const landH: number[] = []
-  let zeroCount = 0
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] > 0) landH.push(cells.h[i])
-    else zeroCount++
-  }
-  if (landH.length === 0) return
-
-  landH.sort((a, b) => a - b)
-
-  // 我们希望总 cells.length * targetLandRatio 个为陆。
-  // zeroCount 个已确定为水；剩余靠 landH 顶上所需的部分。
-  const targetLand = Math.floor(cells.length * targetLandRatio)
-  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
-  // landH 中需要保留为陆的个数 = needFromLand；
-  // 需要被划分为水的是底部 (landH.length - needFromLand) 个
-  const waterInLand = landH.length - needFromLand
-  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
-  const seaLevel = landH[idx]
-
-  const shift = 20 - seaLevel
-  for (let i = 0; i < cells.length; i++) {
-    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + shift))
-  }
-}
-
-/** 找到最近的单元格 */
-function findNearestCell(cells: GridCells, x: number, y: number): number {
-  let best = 0
-  let bestDist = Infinity
-  for (let i = 0; i < cells.length; i++) {
-    const dx = cells.p[i * 2] - x
-    const dy = cells.p[i * 2 + 1] - y
-    const d = dx * dx + dy * dy
-    if (d < bestDist) {
-      bestDist = d
-      best = i
-    }
-  }
-  return best
 }

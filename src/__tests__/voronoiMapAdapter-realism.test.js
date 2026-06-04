@@ -1,23 +1,38 @@
 import { describe, it, expect } from 'vitest'
 import { parseVoronoiMapConfig } from '../services/ai/voronoiMapAdapter'
 
-describe('parseVoronoiMapConfig - realism', () => {
-  it('合法 level 解析', () => {
+describe('parseVoronoiMapConfig - realism（新管线）', () => {
+  it('合法 plateCount 解析', () => {
     const cfg = parseVoronoiMapConfig(JSON.stringify({
-      seed: 'x', realism: { level: 'azgaar' }
+      seed: 'x', plateCount: 8,
     }))
-    expect(cfg.realism.level).toBe('azgaar')
+    expect(cfg.plateCount).toBe(8)
   })
 
-  it('非法 level fallback 到 azgaar', () => {
+  it('plateCount 缺失时取 continentCount alias', () => {
     const cfg = parseVoronoiMapConfig(JSON.stringify({
-      seed: 'x', realism: { level: 'invalid' }
+      seed: 'x', continentCount: 4,
     }))
-    expect(cfg.realism.level).toBe('azgaar')
+    expect(cfg.plateCount).toBe(4)
+  })
+
+  it('plateCount 越界时 clamp 到 [2, 12]', () => {
+    const lo = parseVoronoiMapConfig(JSON.stringify({ seed: 'x', plateCount: -5 }))
+    const hi = parseVoronoiMapConfig(JSON.stringify({ seed: 'x', plateCount: 99 }))
+    expect(lo.plateCount).toBe(2)
+    expect(hi.plateCount).toBe(12)
   })
 
   it('realism 缺失时不写入字段', () => {
     const cfg = parseVoronoiMapConfig(JSON.stringify({ seed: 'x' }))
+    expect(cfg.realism).toBeUndefined()
+  })
+
+  it('旧 level 字段被静默忽略（向后兼容）', () => {
+    const cfg = parseVoronoiMapConfig(JSON.stringify({
+      seed: 'x', realism: { level: 'azgaar' },
+    }))
+    // 旧存档兼容：只剩 level，无任何子字段 → 整个 realism 被丢弃
     expect(cfg.realism).toBeUndefined()
   })
 })

@@ -146,9 +146,8 @@ describe('nations', () => {
       const cfg = {
         seed: '42',
         pointCount: 20000,
-        continentCount: 1,
+        plateCount: 2,
         stateCount: 8,
-        heightmapTemplate: 'pangea',
         generateProvinces: false,
         generateRoads: false,
       }
