@@ -15,7 +15,9 @@ const SEA_LEVEL = 20
 /** 计算 cell 间的移动成本（biome + culture + 适宜度 + 高程）。expansionism 由调用方除。 */
 function moveCostForEdge(cells: GridCells, sourceId: number, targetId: number): number {
   const biome = BIOMES[cells.biome[targetId]]
-  let mc = biome.moveCost / 10
+  // biome 缺省兜底：与 findPath 同款防护（graphology 在边被考虑时也会调 weightFn，
+  // 即使原 heap 版只在已 pop 的 cell 上查 biome，安全起见一律兜底）
+  let mc = (biome?.moveCost ?? 100) / 10
   if (cells.culture[targetId] && cells.culture[sourceId] &&
       cells.culture[targetId] !== cells.culture[sourceId]) {
     mc += 50
