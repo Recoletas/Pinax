@@ -1,49 +1,31 @@
 /**
  * Worker 桥接 — 主线程调用入口
- * 管理 Worker 生命周期，将 generateMap 移至独立线程执行
+ * 通过 comlink.wrap 把 Worker 暴露为可远程调用的 proxy，60s 超时由 Promise.race 包装。
+ * 公共 API（generateMapInWorker / terminateWorker / serializeConfigForWorker）保持不变。
  */
 
+import { wrap, type Remote } from 'comlink'
 import type { MapGenConfig, GenerationMeta, VoronoiMapData } from './types'
 
 /** 单次生成请求的最大等待时间 */
 const REQUEST_TIMEOUT_MS = 60_000
 
-interface PendingRequest {
-  resolve: (result: { data: VoronoiMapData; meta: GenerationMeta }) => void
-  reject: (err: Error) => void
-  timer: ReturnType<typeof setTimeout>
+interface WorkerApi {
+  generateMap(
+    config: MapGenConfig,
+    options: { debugPerf?: boolean },
+  ): Promise<{ data: VoronoiMapData; meta: GenerationMeta }>
 }
 
 let worker: Worker | null = null
-let requestId = 0
-const pending = new Map<number, PendingRequest>()
+let api: Remote<WorkerApi> | null = null
 
-function rejectAllPending(err: Error) {
-  for (const [, p] of pending) {
-    clearTimeout(p.timer)
-    p.reject(err)
-  }
-  pending.clear()
-}
-
-function getWorker(): Worker {
-  if (!worker) {
+function getApi(): Remote<WorkerApi> {
+  if (!worker || !api) {
     worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = (e: MessageEvent<{ id: number; data?: VoronoiMapData; meta?: GenerationMeta; error?: string }>) => {
-      const { id, data, meta, error } = e.data
-      const p = pending.get(id)
-      if (!p) return
-      pending.delete(id)
-      clearTimeout(p.timer)
-      if (error) p.reject(new Error(error))
-      else if (data) p.resolve({ data, meta: meta ?? { timings: [], totalMs: 0, seed: '' } })
-    }
-    worker.onerror = (e) => {
-      rejectAllPending(new Error(e.message || 'Worker error'))
-      worker = null
-    }
+    api = wrap(worker)
   }
-  return worker
+  return api
 }
 
 /**
@@ -60,6 +42,15 @@ export function serializeConfigForWorker<T>(config: T): T {
   return JSON.parse(JSON.stringify(config)) as T
 }
 
+function timeoutAfter<T>(ms: number): Promise<T> {
+  return new Promise((_, reject) => {
+    setTimeout(
+      () => reject(new Error(`地图生成超时（${ms / 1000}s）`)),
+      ms,
+    )
+  })
+}
+
 /**
  * 在 Web Worker 中生成地图 — 主线程完全不阻塞
  * 单次请求超过 REQUEST_TIMEOUT_MS 后会主动 reject，避免挂起
@@ -68,23 +59,9 @@ export function generateMapInWorker(
   config: MapGenConfig = {},
   options: { debugPerf?: boolean } = {},
 ): Promise<{ data: VoronoiMapData; meta: GenerationMeta }> {
-  return new Promise((resolve, reject) => {
-    const id = ++requestId
-    const timer = setTimeout(() => {
-      if (pending.delete(id)) {
-        reject(new Error(`地图生成超时（${REQUEST_TIMEOUT_MS / 1000}s）`))
-      }
-    }, REQUEST_TIMEOUT_MS)
-    pending.set(id, { resolve, reject, timer })
-    try {
-      const plainConfig = serializeConfigForWorker(config)
-      getWorker().postMessage({ id, config: plainConfig, debugPerf: options.debugPerf === true })
-    } catch (err) {
-      pending.delete(id)
-      clearTimeout(timer)
-      reject(err instanceof Error ? err : new Error(String(err)))
-    }
-  })
+  const plainConfig = serializeConfigForWorker(config)
+  const call = getApi().generateMap(plainConfig, options)
+  return Promise.race([call, timeoutAfter(REQUEST_TIMEOUT_MS)])
 }
 
 /**
@@ -95,6 +72,6 @@ export function terminateWorker() {
   if (worker) {
     worker.terminate()
     worker = null
+    api = null
   }
-  rejectAllPending(new Error('Worker terminated'))
 }
