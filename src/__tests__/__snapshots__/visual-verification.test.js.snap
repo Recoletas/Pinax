@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`视觉/性能验收 > 视觉基线：cc=1（单大陆） > visual-cc1 1`] = `
+{
+  "boundaries": 4,
+  "boundaryByType": {
+    "convergent": 83,
+    "divergent": 73,
+    "total": 2000,
+    "transform": 52,
+  },
+  "coastlineVertCounts": [
+    10,
+    14,
+    317,
+  ],
+  "coastlines": 3,
+  "land": 943,
+  "landRatio": 0.472,
+  "plates": 4,
+  "total": 2000,
+  "water": 1057,
+}
+`;
+
+exports[`视觉/性能验收 > 视觉基线：cc=4（多大陆） > visual-cc4 1`] = `
+{
+  "boundaries": 10,
+  "boundaryByType": {
+    "convergent": 205,
+    "divergent": 37,
+    "total": 3000,
+    "transform": 100,
+  },
+  "coastlineVertCounts": [
+    11,
+    162,
+    218,
+    323,
+  ],
+  "coastlines": 4,
+  "land": 1380,
+  "landRatio": 0.46,
+  "plates": 6,
+  "total": 3000,
+  "water": 1620,
+}
+`;
+
+exports[`视觉/性能验收 > 视觉基线：cc=6（多大陆 + 多板块） > visual-cc6 1`] = `
+{
+  "boundaries": 15,
+  "boundaryByType": {
+    "convergent": 72,
+    "divergent": 168,
+    "total": 3000,
+    "transform": 235,
+  },
+  "coastlineVertCounts": [
+    18,
+    229,
+    465,
+  ],
+  "coastlines": 3,
+  "land": 1365,
+  "landRatio": 0.455,
+  "plates": 8,
+  "total": 3000,
+  "water": 1635,
+}
+`;

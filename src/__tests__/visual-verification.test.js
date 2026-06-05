@@ -160,4 +160,61 @@ describe('视觉/性能验收', () => {
     const n = countVolcano(data.cells)
     expect(n).toBeGreaterThan(0)
   })
+
+  /**
+   * 结构化视觉基线（PNG 快照替代）
+   *
+   * 原计划用 Playwright 拍 3 张 PNG（cc=1, cc=4, cc=6）做视觉回归。
+   * 现实：renderer 跑的是 jsdom stub canvas（无真实像素），PNG 快照
+   * 抓不到内容。所以改成 *结构化签名* 快照：每个 cc 配置下的
+   *   - 陆/海 cell 数
+   *   - coastline 数量 + 每个环的顶点数
+   *   - boundary 类型分布
+   * 写算法改了就该挂。改 FBM 系数 / 阈值需要同步更新 snapshot。
+   */
+  function visualSignature(data) {
+    let land = 0, water = 0
+    for (let i = 0; i < data.cells.length; i++) {
+      if (data.cells.h[i] >= 20) land++
+      else water++
+    }
+    return {
+      total: data.cells.length,
+      land,
+      water,
+      landRatio: Math.round((land / data.cells.length) * 1000) / 1000,
+      plates: data.plates.length,
+      boundaries: data.boundaries.length,
+      boundaryByType: stats(data.cells.tectonic),
+      coastlines: data.coastlines.length,
+      coastlineVertCounts: data.coastlines.map(c => c.length).sort((a, b) => a - b),
+    }
+  }
+
+  it('视觉基线：cc=1（单大陆）', () => {
+    const data = generateMap({
+      seed: 'visual-cc1', pointCount: 2000, stateCount: 4,
+      continentCount: 1, plateCount: 4,
+    })
+    const sig = visualSignature(data)
+    expect(sig).toMatchSnapshot('visual-cc1')
+  })
+
+  it('视觉基线：cc=4（多大陆）', () => {
+    const data = generateMap({
+      seed: 'visual-cc4', pointCount: 3000, stateCount: 6,
+      continentCount: 4, plateCount: 6,
+    })
+    const sig = visualSignature(data)
+    expect(sig).toMatchSnapshot('visual-cc4')
+  })
+
+  it('视觉基线：cc=6（多大陆 + 多板块）', () => {
+    const data = generateMap({
+      seed: 'visual-cc6', pointCount: 3000, stateCount: 8,
+      continentCount: 6, plateCount: 8,
+    })
+    const sig = visualSignature(data)
+    expect(sig).toMatchSnapshot('visual-cc6')
+  })
 })
