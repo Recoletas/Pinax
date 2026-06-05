@@ -12,6 +12,7 @@ import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells }
 import { generateTectonics } from './tectonics'
 import { computeTectonicData } from './tectonic-data'
 import { perturbCoast } from './coast'
+import { extractCoastlines } from './coastline'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
@@ -99,6 +100,9 @@ export function generateMap(
     noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
   })
+
+  // 3.6 海岸线多边形提取（每块主要陆块 1 个闭合 Point[] 环）
+  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -233,6 +237,7 @@ export function generateMap(
     boundaries,
     oceanCurrents,
     wind,
+    coastlines,
     name: mapName,
   }
 }
@@ -316,6 +321,9 @@ export async function generateMapAsync(
     noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
   })
+
+  // 3.6 Coastline polygons (Voronoi boundary walk, one closed ring per major landmass)
+  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 4. Features
   onProgress?.('地理特征', 21)
@@ -448,6 +456,7 @@ export async function generateMapAsync(
     boundaries,
     oceanCurrents,
     wind,
+    coastlines,
     name: mapName,
   }
 }

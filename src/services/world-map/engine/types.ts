@@ -234,6 +234,9 @@ export interface WindData {
   ws: Float32Array
 }
 
+/** 归一化坐标点 [0, 1] */
+export type NormPoint = [number, number]
+
 /** 完整的地图数据 */
 export interface VoronoiMapData {
   /** 画布宽高 */
@@ -267,6 +270,8 @@ export interface VoronoiMapData {
   oceanCurrents: OceanCurrent[]
   /** 风场数据 */
   wind: WindData
+  /** 主要陆块海岸线(每块陆块 1 个闭合多边形,归一化坐标) */
+  coastlines: NormPoint[][]
   /** 地图名称 */
   name: string
 }
