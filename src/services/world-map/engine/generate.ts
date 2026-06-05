@@ -6,8 +6,8 @@
 import type { MapGenConfig, VoronoiMapData, MapConstraints } from './types'
 import { seedRandom } from './random'
 import { generatePoints, buildVoronoi } from './grid'
-import { generateHeightmap } from './heightmap'
-import { detectFeatures } from './features'
+import { generateHeightmap, applyMacroLandmassShape } from './heightmap'
+import { detectFeatures, updatePortQuality } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
 import { computeTectonicData } from './tectonic-data'
@@ -45,6 +45,7 @@ export function generateMap(
     stateNames,
     burgNames,
     riverNames,
+    heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
@@ -90,16 +91,23 @@ export function generateMap(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism,
+    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate,
   )
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
 
   // 3.5 海岸线扰动（azgaar 默认参数；用户显式传 coast 仍生效）
+  // 阶段 1：先做大尺度大陆形变，再两级 perturbCoast(low→high)
+  applyMacroLandmassShape(cells, width, height, rng, landRatio)
   perturbCoast(cells, {
     noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
-  })
+  }, 'low')
+  perturbCoast(cells, {
+    noiseScale: 0.04,
+    noiseAmplitude: 3,
+    latitudeScale: 0.7,
+  }, 'high')
 
   // 3.6 海岸线多边形提取（每块主要陆块 1 个闭合 Point[] 环）
   const coastlines = extractCoastlines(cells, vertices, width, height)
@@ -140,6 +148,9 @@ export function generateMap(
   }
   console.timeEnd('[MapEngine] Rivers')
   collector?.end('rivers')
+
+  // 河流生成后重算一次港口质量，让河口信号参与 settlement scoring。
+  updatePortQuality(cells, features)
 
   // 8. 生态群落
   console.time('[MapEngine] Biomes')
@@ -272,6 +283,7 @@ export async function generateMapAsync(
     stateNames,
     burgNames,
     riverNames,
+    heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
@@ -311,16 +323,23 @@ export async function generateMapAsync(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism,
+    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate,
   )
   collector?.end('heightmap')
   await yieldToMain()
 
   // 3.5 Coast perturbation (azgaar default; user override via realism.coast)
+  // 阶段 1:先做大尺度大陆形变,再两级 perturbCoast(low→high)
+  applyMacroLandmassShape(cells, width, height, rng, landRatio)
   perturbCoast(cells, {
     noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
-  })
+  }, 'low')
+  perturbCoast(cells, {
+    noiseScale: 0.04,
+    noiseAmplitude: 3,
+    latitudeScale: 0.7,
+  }, 'high')
 
   // 3.6 Coastline polygons (Voronoi boundary walk, one closed ring per major landmass)
   const coastlines = extractCoastlines(cells, vertices, width, height)
@@ -360,6 +379,7 @@ export async function generateMapAsync(
     }
   }
   collector?.end('rivers')
+  updatePortQuality(cells, features)
   await yieldToMain()
 
   // 8. Biomes

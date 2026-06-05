@@ -2,6 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { parseVoronoiMapConfig } from '../services/ai/voronoiMapAdapter'
 
 describe('parseVoronoiMapConfig - realism（新管线）', () => {
+  it('合法 heightmapTemplate 解析', () => {
+    const cfg = parseVoronoiMapConfig(JSON.stringify({
+      seed: 'x', heightmapTemplate: 'pangea',
+    }))
+    expect(cfg.heightmapTemplate).toBe('pangea')
+  })
+
   it('合法 plateCount 解析', () => {
     const cfg = parseVoronoiMapConfig(JSON.stringify({
       seed: 'x', plateCount: 8,

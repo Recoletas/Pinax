@@ -17,6 +17,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   topographic: [
     { name: 'hillshade', enabled: true, options: { strength: 1.0 } },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastlines', enabled: true },
     { name: 'coastGlow', enabled: false },
     { name: 'volcanoes', enabled: true },
@@ -34,6 +35,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   parchment: [
     { name: 'hillshade', enabled: true, options: { strength: 0.8 } },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastlines', enabled: true },
     { name: 'coastGlow', enabled: true },
     { name: 'volcanoes', enabled: true },
@@ -51,6 +53,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   watercolor: [
     { name: 'hillshade', enabled: true, options: { strength: 0.5 } },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastGlow', enabled: true },
     { name: 'volcanoes', enabled: false },
     { name: 'rivers', enabled: true },
@@ -67,6 +70,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   dark: [
     { name: 'hillshade', enabled: true, options: { strength: 0.6 } },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastlines', enabled: true },
     { name: 'volcanoes', enabled: true },
     { name: 'rivers', enabled: true },
@@ -83,6 +87,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   clean: [
     { name: 'hillshade', enabled: false },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastlines', enabled: true },
     { name: 'borders', enabled: true, options: { style: 'azgaar' } },
     { name: 'borderlands', enabled: true, options: { width: 1.0 } },
@@ -97,6 +102,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
   atlas: [
     { name: 'hillshade', enabled: true, options: { strength: 0.9 } },
     { name: 'terrain', enabled: true },
+    { name: 'ice', enabled: true },
     { name: 'coastlines', enabled: true },
     { name: 'coastGlow', enabled: true },
     { name: 'volcanoes', enabled: true },
@@ -114,7 +120,7 @@ const PIPELINES: Record<MapStylePreset, LayerSpec[]> = {
 }
 
 const ALL_LAYERS = [
-  'hillshade', 'terrain', 'coastlines', 'coastGlow', 'volcanoes',
+  'hillshade', 'terrain', 'ice', 'coastlines', 'coastGlow', 'volcanoes',
   'rivers', 'borders', 'borderlands', 'factionTexture',
   'roads', 'stateLabels', 'burgIcons', 'burgLabels',
   'scaleBar', 'vignette',

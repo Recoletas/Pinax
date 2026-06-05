@@ -97,25 +97,27 @@ describe('Coastline 提取', () => {
   it('手动单陆块：1 个 coastline, 闭合, 非空', () => {
     // 验证 extractCoastlines 在受控输入下也稳定
     const data = generateMap({ seed: 'c-handmade-host', pointCount: 800, continentCount: 1, plateCount: 4 })
-    // 用生成的 cells 拼一个 1-cell "陆块" — 找到最大 Voronoi 区域
-    // 取第一个 landmass 的所有 cell
+    // 模板路径下 landmass 的枚举顺序不稳定，取最大陆块做断言。
     const cells = data.cells
     const seen = new Uint8Array(cells.length)
-    const start = cells.h.findIndex(h => h >= 20)
-    if (start < 0) return
-    const queue = [start]
-    seen[start] = 1
-    const landmass = [start]
-    for (let head = 0; head < queue.length; head++) {
-      const c = queue[head]
-      for (const n of cells.c[c]) {
-        if (seen[n] || cells.h[n] < 20) continue
-        seen[n] = 1
-        queue.push(n)
-        landmass.push(n)
+    let maxLandmass = 0
+    for (let start = 0; start < cells.length; start++) {
+      if (seen[start] || cells.h[start] < 20) continue
+      const queue = [start]
+      let size = 0
+      seen[start] = 1
+      for (let head = 0; head < queue.length; head++) {
+        const c = queue[head]
+        size++
+        for (const n of cells.c[c]) {
+          if (seen[n] || cells.h[n] < 20) continue
+          seen[n] = 1
+          queue.push(n)
+        }
       }
+      if (size > maxLandmass) maxLandmass = size
     }
-    expect(landmass.length).toBeGreaterThan(30)
+    expect(maxLandmass).toBeGreaterThan(30)
     const polys = extractCoastlines(cells, data.vertices, data.width, data.height)
     expect(polys.length).toBeGreaterThanOrEqual(1)
     expect(isClosed(polys[0])).toBe(true)

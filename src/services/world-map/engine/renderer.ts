@@ -25,6 +25,7 @@ export interface RenderOptions {
 /** 默认图层全部显示 */
 const DEFAULT_LAYERS: Required<LayerVisibility> = {
   terrain: true,
+  ice: true,
   coastlines: true,
   continents: true,
   rivers: true,
@@ -111,6 +112,7 @@ function drawPipelineLayer(
   switch (layer.name) {
     case 'hillshade': drawHillshade(ctx, data, style, layer.options); break
     case 'terrain': drawTerrain(ctx, data, style, biomeColors); break
+    case 'ice': drawIceOverlay(ctx, data); break
     case 'coastlines': drawCoastlines(ctx, data, style); break
     case 'coastGlow': drawCoastGlow(ctx, data, style); break
     case 'volcanoes': drawVolcanoes(ctx, data, style); break
@@ -206,6 +208,7 @@ function drawTerrain(
     } else {
       const h = cells.h[i]
       const color = biomeColors[cells.biome[i]] || '#888'
+      const polarBlend = getPolarBlend(cells, i, height)
 
       if (h > 70) {
         const t = Math.min(1, (h - 70) / 30)
@@ -213,7 +216,7 @@ function drawTerrain(
         const r = Math.round(ml[0] + t * (mh[0] - ml[0]))
         const g = Math.round(ml[1] + t * (mh[1] - ml[1]))
         const b = Math.round(ml[2] + t * (mh[2] - ml[2]))
-        ctx.fillStyle = `rgb(${r},${g},${b})`
+        ctx.fillStyle = mixColor(`rgb(${r},${g},${b})`, '#f3f7fb', polarBlend * 0.35)
       } else if (h > 55) {
         const t = (h - 55) / 15
         const base = hexToRGB(color)
@@ -221,10 +224,10 @@ function drawTerrain(
         const r = Math.round(base.r + t * (ml[0] - base.r))
         const g = Math.round(base.g + t * (ml[1] - base.g))
         const b = Math.round(base.b + t * (ml[2] - base.b))
-        ctx.fillStyle = `rgb(${r},${g},${b})`
+        ctx.fillStyle = mixColor(`rgb(${r},${g},${b})`, '#eef5fb', polarBlend * 0.28)
       } else {
         const heightAdj = (h - 30) * 0.2
-        ctx.fillStyle = adjustBrightness(color, heightAdj)
+        ctx.fillStyle = mixColor(adjustBrightness(color, heightAdj), '#edf4fa', polarBlend * 0.18)
       }
     }
 
@@ -244,41 +247,59 @@ function drawTerrain(
 // ── 海岸线 ──────────────────────────────────────────
 
 function drawCoastlines(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
-  const { cells, vertices } = data
-  const segs = collectCoastSegments(cells, vertices)
-
   ctx.strokeStyle = style.coastGlow
   ctx.lineWidth = 4
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-  for (const [x1, y1, x2, y2] of segs) {
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
-  }
+  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
 
   ctx.strokeStyle = style.coastline
   ctx.lineWidth = 1.5
-  for (const [x1, y1, x2, y2] of segs) {
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
-  }
+  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
 }
 
-function collectCoastSegments(cells: VoronoiMapData['cells'], vertices: VoronoiMapData['vertices']): [number, number, number, number][] {
-  const segs: [number, number, number, number][] = []
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.t[i] !== 1) continue
-    const cv = cells.v[i]
-    if (!cv || cv.length < 3) continue
-    for (let j = 0; j < cv.length; j++) {
-      const vi = cv[j], viN = cv[(j + 1) % cv.length]
-      const ac = vertices.c[vi], acN = vertices.c[viN]
-      if (!ac || !acN) continue
-      const shared = sharedCellIds(ac, acN)
-      if (shared.some(c => cells.h[c] < 20) && shared.some(c => cells.h[c] >= 20)) {
-        segs.push([vertices.p[vi * 2], vertices.p[vi * 2 + 1], vertices.p[viN * 2], vertices.p[viN * 2 + 1]])
-      }
+function drawCoastPath(
+  ctx: CanvasRenderingContext2D,
+  coast: VoronoiMapData['coastlines'][number],
+  width: number,
+  height: number,
+): void {
+  if (!coast || coast.length < 2) return
+  ctx.beginPath()
+  // 阶段 1:点数 ≥ 10 时用 quadraticCurveTo 平滑(每 2 个点取中点作控制点),
+  //          < 10 时保持直线段以避免越界 / 短环折叠
+  // **不修改 coastlines 原数据**,仅在绘制时做视觉平滑
+  if (coast.length < 10) {
+    ctx.moveTo(coast[0][0] * width, coast[0][1] * height)
+    for (let i = 1; i < coast.length; i++) {
+      ctx.lineTo(coast[i][0] * width, coast[i][1] * height)
     }
+    ctx.closePath()
+    ctx.stroke()
+    return
   }
-  return segs
+  // 平滑路径:从点 0 出发,对每对相邻点 (P_i, P_{i+1}) 取中点 M_i 作锚,
+  //          P_{i+1} 作控制点,绘制到下一个中点 M_{i+1}
+  //          (经典 quadratic 平滑)
+  const n = coast.length
+  // 计算第 0 个中点 (P_0 + P_1) / 2 作起点
+  const mx0 = (coast[0][0] + coast[1][0]) * 0.5 * width
+  const my0 = (coast[0][1] + coast[1][1]) * 0.5 * height
+  ctx.moveTo(mx0, my0)
+  for (let i = 0; i < n; i++) {
+    const cur = coast[i]
+    const nxt = coast[(i + 1) % n]
+    // P_{i+1} 作控制点
+    const cx = cur[0] * width
+    const cy = cur[1] * height
+    // 终点 = (P_{i+1} + P_{i+2}) / 2
+    const after = coast[(i + 2) % n]
+    const ex = (nxt[0] + after[0]) * 0.5 * width
+    const ey = (nxt[1] + after[1]) * 0.5 * height
+    ctx.quadraticCurveTo(cx, cy, ex, ey)
+  }
+  ctx.closePath()
+  ctx.stroke()
 }
 
 // ── 大陆轮廓 ──────────────────────────────────────────
@@ -440,37 +461,11 @@ function drawRoads(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: S
 // ── 省份边界 ────────────────────────────────────────
 
 function drawProvinceBorders(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
-  // 省份边界需要 province 分配到 cells 上
-  // 由于我们没有在 cells 上存省份 ID，这里用城镇最近归属来画
+  // 阶段 4:直接读 cells.province,不再每帧重算 Voronoi
   if (!data.provinces || data.provinces.length <= 1) return
-
-  const { cells, vertices, burgs } = data
-
-  // 预计算 state → burgs 映射
-  const cellProv = new Uint16Array(cells.length)
-  const activeBurgs = burgs.filter(b => b.i > 0)
-  const burgsByState = new Map<number, typeof activeBurgs>()
-  for (const b of activeBurgs) {
-    let arr = burgsByState.get(b.state)
-    if (!arr) { arr = []; burgsByState.set(b.state, arr) }
-    arr.push(b)
-  }
-
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] < 20 || cells.state[i] === 0) continue
-    const stateBurgs = burgsByState.get(cells.state[i])
-    if (!stateBurgs || stateBurgs.length === 0) continue
-
-    let bestBurg = stateBurgs[0]
-    let bestDist = Infinity
-    for (const b of stateBurgs) {
-      const dx = cells.p[i * 2] - b.x
-      const dy = cells.p[i * 2 + 1] - b.y
-      const d = dx * dx + dy * dy
-      if (d < bestDist) { bestDist = d; bestBurg = b }
-    }
-    cellProv[i] = bestBurg.i
-  }
+  const { cells, vertices } = data
+  const cellProv = cells.province
+  if (!cellProv) return
 
   // 画省界
   ctx.strokeStyle = style.provinceBorder
@@ -899,10 +894,14 @@ function drawVolcanoes(
 
 /** 海岸光晕（海陆交外 1 cell 浅色描边） */
 function drawCoastGlow(
-  _ctx: CanvasRenderingContext2D, _data: VoronoiMapData,
-  _style: StyleConfig,
+  ctx: CanvasRenderingContext2D, data: VoronoiMapData,
+  style: StyleConfig,
 ): void {
-  // TODO: 海陆交外 1 cell 浅色描边
+  ctx.strokeStyle = style.coastGlow
+  ctx.lineWidth = 8
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
 }
 
 /** 国界 buffer（用 computeBorderlands 算 buffer，渲染半透明沙色） */
@@ -919,6 +918,40 @@ function drawFactionTexture(
   _style: StyleConfig, _options?: Record<string, unknown>,
 ): void {
   // TODO: 国家底色 alpha + per-state 噪点
+}
+
+function drawIceOverlay(ctx: CanvasRenderingContext2D, data: VoronoiMapData): void {
+  const { cells, vertices, height } = data
+
+  for (let i = 0; i < cells.length; i++) {
+    const verts = cells.v[i]
+    if (!verts || verts.length < 3) continue
+
+    const isLandIce = cells.h[i] >= 20 && cells.temp[i] <= -8
+    const isSeaIce = cells.h[i] < 20 && cells.temp[i] <= 0 && data.features[cells.f[i]]?.type !== 'lake'
+    if (!isLandIce && !isSeaIce) continue
+
+    const yNorm = cells.p[i * 2 + 1] / height
+    const polarStrength = 1 - Math.min(0.5, Math.abs(yNorm - 0.5)) / 0.5
+    const alpha = isLandIce
+      ? 0.24 + polarStrength * 0.16
+      : 0.12 + polarStrength * 0.12
+
+    ctx.fillStyle = isLandIce ? `rgba(245,250,253,${alpha})` : `rgba(232,242,250,${alpha})`
+    ctx.strokeStyle = isLandIce ? `rgba(255,255,255,${alpha * 1.2})` : `rgba(240,248,255,${alpha})`
+    ctx.lineWidth = isLandIce ? 0.8 : 0.5
+    ctx.beginPath()
+    for (let j = 0; j < verts.length; j++) {
+      const vi = verts[j]
+      const vx = vertices.p[vi * 2]
+      const vy = vertices.p[vi * 2 + 1]
+      if (j === 0) ctx.moveTo(vx, vy)
+      else ctx.lineTo(vx, vy)
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  }
 }
 
 // ── 工具函数 ────────────────────────────────────────
@@ -946,4 +979,31 @@ function hexToRGB(hex: string): { r: number; g: number; b: number } {
 function hexToRgba(hex: string, alpha: number): string {
   const num = parseInt(hex.slice(1), 16)
   return `rgba(${(num >> 16) & 0xFF},${(num >> 8) & 0xFF},${num & 0xFF},${alpha})`
+}
+
+function mixColor(colorA: string, colorB: string, amount: number): string {
+  const t = Math.max(0, Math.min(1, amount))
+  if (t <= 0) return colorA
+  if (t >= 1) return colorB
+  const a = parseColor(colorA)
+  const b = parseColor(colorB)
+  const r = Math.round(a.r + (b.r - a.r) * t)
+  const g = Math.round(a.g + (b.g - a.g) * t)
+  const bl = Math.round(a.b + (b.b - a.b) * t)
+  return `rgb(${r},${g},${bl})`
+}
+
+function parseColor(color: string): { r: number; g: number; b: number } {
+  if (color.startsWith('#')) return hexToRGB(color)
+  const parts = color.match(/\d+/g)
+  if (!parts || parts.length < 3) return { r: 128, g: 128, b: 128 }
+  return { r: +parts[0], g: +parts[1], b: +parts[2] }
+}
+
+function getPolarBlend(cells: VoronoiMapData['cells'], i: number, height: number): number {
+  if (cells.biome[i] === 11) return 0.55
+  if (cells.biome[i] === 10) return 0.28
+  const yNorm = cells.p[i * 2 + 1] / height
+  const dist = Math.abs(yNorm - 0.5) / 0.5
+  return Math.max(0, (dist - 0.62) / 0.38)
 }

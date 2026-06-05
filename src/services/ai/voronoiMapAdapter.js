@@ -1,9 +1,9 @@
 /**
  * Voronoi 地图 AI 适配器
- * AI 分析世界观设定 → 生成 MapGenConfig 参数（板块数 + 命名风格） → 引擎生成地图
+ * AI 分析世界观设定 → 生成 MapGenConfig 参数（Azgaar 模板 + 板块数 + 命名风格） → 引擎生成地图
  */
 
-import { VALID_NAMING } from '../../config/geography-types'
+import { VALID_NAMING, VALID_HEIGHTMAP_TEMPLATES } from '../../config/geography-types'
 
 /**
  * 构建 AI prompt，让 AI 根据世界观描述输出 MapGenConfig
@@ -33,7 +33,7 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
     ? contextParts.join('\n')
     : '（用户未填写世界观描述，请生成一个中文古风奇幻世界）'
 
-  const systemPrompt = `你是一位奇幻世界地图参数设计师。你需要根据用户的世界观文字描述，输出一组地图生成引擎的配置参数（JSON），引擎会用 Voronoi 细分 + 板块构造算法自动生成完整的地形、河流、生态群落和城市。
+  const systemPrompt = `你是一位奇幻世界地图参数设计师。你需要根据用户的世界观文字描述，输出一组地图生成引擎的配置参数（JSON），引擎会用 Voronoi 细分、Azgaar heightmap 模板和后续地理算法自动生成完整的地形、河流、生态群落和城市。
 
 **你的任务**：
 分析用户的世界设定文字，将其转化为以下参数。你不需要指定具体的坐标或多边形——引擎会自动生成地形。你只需要控制宏观参数和命名。
@@ -48,13 +48,21 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
   "mapName": "世界名称",
   "pointCount": 10000,
   "landRatio": 0.45,
+  "heightmapTemplate": "continents",
   "plateCount": 6,
   "stateCount": 8,
   "burgDensity": 0.5,
   "temperatureShift": 0,
   "precipitationFactor": 1.0,
 
-  // 板块数（azgaar 风格管线）：控制大陆破碎程度
+  // 高度图模板（Azgaar 官方风格入口）
+  // 可选：
+  // "continents" | "pangea" | "archipelago" | "mediterranean" | "peninsula"
+  // "isthmus" | "shattered" | "oldWorld" | "volcano" | "atoll"
+  // "highIsland" | "lowIsland" | "taklamakan" | "fractious"
+  "heightmapTemplate": "continents",
+
+  // 板块数：主要影响 tectonic metadata、边界分布与后续国家/构造信息
   // 范围 2-12，默认 6
   // 2-3: 1 块超级大陆（盘古）
   // 4-6: 多大陆（推荐）
@@ -102,11 +110,17 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
 }
 
 **设计指导**：
-- 根据世界观选 plateCount：单一大陆 → 2-3；多大陆 → 4-6；群岛/破碎 → 7-12
+- 优先根据世界观选 heightmapTemplate：
+  单一超级大陆 → pangea
+  多大陆 → continents
+  群岛/碎裂海岸 → archipelago 或 shattered
+  中央内海 → mediterranean
+  狭长半岛 → peninsula
+- 再用 plateCount 微调构造复杂度：单一大陆 → 2-3；多大陆 → 4-6；群岛/破碎 → 7-12
 - 根据世界观文化氛围选择 namingStyle：中式修仙/武侠 → chinese；和风 → japanese；西方奇幻 → european 或 highFantasy
 - 如果世界观提到"北方寒冷"，设 temperatureShift 为负值
 - 如果世界观提到"干旱沙漠"，设 precipitationFactor < 0.6
-- 如果提到"群岛"，设 landRatio=0.25-0.35 + plateCount=8-12
+- 如果提到"群岛"，优先设 heightmapTemplate="archipelago"，再配 landRatio=0.25-0.35 + plateCount=8-12
 - 国家名和城市名必须完全匹配所选的 namingStyle 风格
 - 如果用户已设定地点名/势力名，优先使用它们，补充的名字风格一致
 - burgNames 的前 stateCount 个会作为首都名，之后的作为普通城镇名
@@ -161,6 +175,9 @@ export function parseVoronoiMapConfig(raw) {
 
   if (parsed.namingStyle && VALID_NAMING.includes(parsed.namingStyle)) {
     config.namingStyle = parsed.namingStyle
+  }
+  if (parsed.heightmapTemplate && VALID_HEIGHTMAP_TEMPLATES.includes(parsed.heightmapTemplate)) {
+    config.heightmapTemplate = parsed.heightmapTemplate
   }
 
   if (Array.isArray(parsed.stateNames) && parsed.stateNames.length > 0) {

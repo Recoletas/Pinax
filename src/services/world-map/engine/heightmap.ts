@@ -1,35 +1,31 @@
 /**
- * 高度图生成 — Voronoi 种子 + FBM 扰动
+ * 高度图生成（Azgaar template-driven）
  *
  * 算法（在 `generateTectonics` 之后调用）：
- *  1. 泊松盘取 N 个大陆种子（continentCount 决定 N）
- *  2. 每个 cell 分配到最近种子的 Voronoi 区域（per-cell 硬归属，杜绝合并）
- *  3. 每个 cell 基础值 = 1 - dist(cell, itsSeed) / maxRadius, 叠 FBM 噪声
- *  4. **per-Voronoi-cell 阈值切分**：每个种子区域独立按 landRatio 切陆/海，
- *     这样 N 个种子在边缘的 FBM 噪声再大也不会把多个大陆焊成一块
- *  5. 板块边界效果
- *  6. 边缘遮罩
- *  7. 一次平滑（threshold=0，杜绝 rim）
+ *  1. 从 Azgaar 14 个模板中选择一个，执行 Hill / Range / Strait / Mask 操作链
+ *  2. 追加轻量 FBM 噪声，缓解 Voronoi 采样后的几何感
+ *  3. 按 landRatio 调整海平面
+ *  4. 平滑稳定海岸与内陆过渡
+ *
+ * `plates / boundaries` 仍保留给 tectonic metadata、渲染和后续模块使用，
+ * 但不再直接主导主高度图形状。
  */
 
-import type { GridCells, Plate, PlateBoundary, MapRealism } from './types'
-import {
-  applyConvergentRange,
-  applyDivergentRift,
-  applyTransformShear,
-  applyVolcanicArc,
-} from './boundary-terrain'
+import type { GridCells, Plate, PlateBoundary, MapRealism, HeightmapTemplate } from './types'
+import { HEIGHTMAP_TEMPLATES, pickTemplate, applyTemplate } from './heightmap-templates'
+
+function lim(v: number): number {
+  return Math.max(0, Math.min(100, v))
+}
 
 const SEA_LEVEL = 20
-const FBM_LOW_SCALE = 0.012
-const FBM_HIGH_SCALE = 0.04
-const NOISE_LOW_AMP = 0.20
-const NOISE_HIGH_AMP = 0.12
+const FBM_SCALE = 0.015
+const FBM_AMP = 5
 
 /**
- * 生成高度图（Voronoi 种子 + FBM 噪声 + per-Voronoi 阈值）
+ * 生成高度图（Azgaar template-driven）
  *
- * 假定 `generateTectonics` 已先调用,且 `cells.tectonic.plateId` 已被填充。
+ * 假定 `generateTectonics` 已先调用，且 `cells.tectonic.plateId` 已被填充。
  */
 export function generateHeightmap(
   cells: GridCells,
@@ -38,215 +34,63 @@ export function generateHeightmap(
   rng: () => number,
   landRatio = 0.45,
   plates: Plate[] = [],
-  boundaries: PlateBoundary[] = [],
-  continentCount = 4,
+  _boundaries: PlateBoundary[] = [],
+  continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
+  templateOverride?: HeightmapTemplate,
 ): void {
   const n = cells.length
-  const plateId = cells.tectonic?.plateId
-  if (!plateId) {
+  if (!cells.tectonic?.plateId) {
     throw new Error('generateHeightmap: cells.tectonic.plateId not initialized. Call generateTectonics first.')
   }
 
-  // 步骤 1:取大陆种子
-  const seeds = pickContinentSeeds(cells, width, height, continentCount, rng)
-
-  // 步骤 2 + 3:Voronoi 归属 + 基础值 + FBM 扰动 → 写入 cells.h
-  const cellSeed = assignVoronoiAndHeights(cells, width, height, seeds)
-
-  // 步骤 4:per-Voronoi-cell 阈值切分（保证 N 块独立）
-  thresholdPerVoronoiCell(cells, cellSeed, landRatio)
-
-  // 步骤 5:板块边界效果
-  const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
-  const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
-  for (const boundary of boundaries) {
-    const seg = {
-      cellsA: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateA),
-      cellsB: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateB),
-      normalX: 0,
-      normalY: 0,
-    }
-    computeBoundaryNormal(cells, boundary, seg)
-    if (boundary.type === 'convergent') {
-      const peakHeight = 50 + rangeWidth * 5
-      applyConvergentRange(cells, seg, { peakHeight, rangeWidth, rng })
-      if (boundary.subductionSide !== undefined) {
-        const overriding = boundary.subductionSide === boundary.plateA
-          ? plates[boundary.plateB]
-          : plates[boundary.plateA]
-        applyVolcanicArc(cells, seg, overriding.i, { offsetCell: 4, peakHeight: 35, rng })
-      }
-    } else if (boundary.type === 'divergent') {
-      applyDivergentRift(cells, seg, { riftDepth })
-    } else {
-      applyTransformShear(cells, seg, rng)
-    }
+  // 步骤 1：Azgaar 模板（faithful port）
+  const templateName = templateOverride ?? pickTemplate(continentCount, landRatio, rng)
+  const template = HEIGHTMAP_TEMPLATES[templateName]
+  if (template) {
+    applyTemplate(cells, width, height, template.template, rng)
+  } else {
+    // 没匹配到模板：fallback 到 30 等高（不读 plate，与 spec §4a 的 per-cell 简化路径不同）
+    for (let i = 0; i < n; i++) cells.h[i] = 30
   }
 
-  // 步骤 6:边缘遮罩
+  // 步骤 2：FBM 噪声叠加
   for (let i = 0; i < n; i++) {
-    const x = cells.p[i * 2] / width
-    const y = cells.p[i * 2 + 1] / height
-    const edgeMask = (1 - (2 * x - 1) ** 6) * (1 - (2 * y - 1) ** 6)
-    cells.h[i] = Math.max(0, Math.min(100, Math.round(cells.h[i] * edgeMask)))
-  }
-
-  // 步骤 7:一次平滑（无 threshold,杜绝 rim）
-  smooth(cells, 1)
-}
-
-// ── 步骤 1:分层网格取大陆种子 ──────────────────────
-
-interface Seed {
-  x: number
-  y: number
-}
-
-function pickContinentSeeds(
-  _cells: GridCells,
-  width: number,
-  height: number,
-  continentCount: number,
-  rng: () => number,
-): Seed[] {
-  const N = Math.max(1, continentCount)
-  // 分层网格:cols × rows ≈ N,根据画布宽高比调整 cols
-  // 例如 1200x800 + N=4 → cols=2,rows=2 → 2x2 网格
-  // 1200x800 + N=6 → cols=3,rows=2 → 3x2 网格
-  // 这么取种子能保证均匀铺开(避免 Poisson 在边界扎堆)
-  const cols = Math.max(1, Math.round(Math.sqrt((N * width) / height)))
-  const rows = Math.max(1, Math.ceil(N / cols))
-  const total = cols * rows
-  const skip = total - N  // 多余的格子跳过(从末尾开始)
-
-  const cellW = width / cols
-  const cellH = height / rows
-  const seeds: Seed[] = []
-  let i = 0
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++, i++) {
-      if (i >= total - skip) continue
-      // 格子中心 + ±25% jitter(避免完全规则排列看起来像棋盘)
-      const jx = (rng() - 0.5) * cellW * 0.5
-      const jy = (rng() - 0.5) * cellH * 0.5
-      seeds.push({ x: (c + 0.5) * cellW + jx, y: (r + 0.5) * cellH + jy })
-    }
-  }
-  return seeds
-}
-
-// ── 步骤 2+3:Voronoi 归属 + 基础值 + FBM 扰动 ──────────────────────
-
-/**
- * 对每个 cell:找到最近种子(Voronoi 归属),并按到该种子的距离 + FBM 写入 cells.h。
- * 返回 cellSeed: 每个 cell 所属的种子索引。
- */
-function assignVoronoiAndHeights(
-  cells: GridCells,
-  width: number,
-  height: number,
-  seeds: Seed[],
-): Int32Array {
-  const N = Math.max(1, seeds.length)
-  // 控制半径:每个 Voronoi 区域"陆地核心区"的半径。
-  // 取 sqrt(W*H/N) 约一半,保证多块 Voronoi 区域在边缘有重叠
-  // (FBM 噪声主要在重叠区发挥作用,让大陆形状不规则)
-  const maxRadius = Math.sqrt((width * height) / N) * 0.5
-  const invMaxRadius = 1 / maxRadius
-
-  const cellSeed = new Int32Array(cells.length)
-  for (let i = 0; i < cells.length; i++) {
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
-
-    // 找最近种子
-    let minD2 = Infinity
-    let minS = 0
-    for (let s = 0; s < seeds.length; s++) {
-      const dx = x - seeds[s].x
-      const dy = y - seeds[s].y
-      const d2 = dx * dx + dy * dy
-      if (d2 < minD2) { minD2 = d2; minS = s }
-    }
-    cellSeed[i] = minS
-    const d = Math.sqrt(minD2) * invMaxRadius  // 归一化距离 0~?
-
-    // 基础值:0(远处) → 1(种子处), 平方衰减(平顶)
-    const base = Math.max(0, 1 - d * d)
-
-    // FBM 扰动
-    const lowNoise = fbm2D(x * FBM_LOW_SCALE, y * FBM_LOW_SCALE, 3) * NOISE_LOW_AMP
-    const highNoise = fbm2D(x * FBM_HIGH_SCALE, y * FBM_HIGH_SCALE, 2) * NOISE_HIGH_AMP
-
-    // 合并 value ∈ [-0.32, 1.32] (基底 0~1, 噪声 ±0.32)
-    const value = base + lowNoise + highNoise
-
-    // 归一到 0-100(不直接做陆/海切分,留给步骤 4 per-Voronoi 阈值)
-    cells.h[i] = Math.max(0, Math.min(100, Math.round(value * 70 + 30)))
-  }
-  return cellSeed
-}
-
-// ── 步骤 4:per-Voronoi-cell 阈值切分 ──────────────────────
-
-/**
- * 对每个 Voronoi 区域,独立做"高值=陆,低值=海"的切分。
- * 每个区域的陆地比例统一按 landRatio,从而全局 landRatio ≈ landRatio。
- * 关键:N 个 Voronoi 区域的阈值是独立的,FBM 噪声再大也不会把两个区域焊起来。
- */
-function thresholdPerVoronoiCell(
-  cells: GridCells,
-  cellSeed: Int32Array,
-  landRatio: number,
-): void {
-  // 按种子分组
-  const seedBuckets: number[][] = []
-  for (let i = 0; i < cells.length; i++) {
-    const s = cellSeed[i]
-    while (seedBuckets.length <= s) seedBuckets.push([])
-    seedBuckets[s].push(i)
+    cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
   }
 
-  for (const bucket of seedBuckets) {
-    if (bucket.length === 0) continue
-
-    // 收集该 Voronoi 区域的 h 值,排序,取分位
-    const values: number[] = []
-    for (const i of bucket) values.push(cells.h[i])
-    values.sort((a, b) => a - b)
-
-    // 让 landRatio 比例的 cell 升为陆
-    const targetLand = Math.max(1, Math.floor(bucket.length * landRatio))
-    const idx = Math.max(0, bucket.length - targetLand)
-    const threshold = values[idx]
-
-    // 应用:land 30-100(按 value 归一), sea 0-15
-    const maxAbove = Math.max(1, 100 - threshold)
-    for (const i of bucket) {
-      const v = cells.h[i]
-      if (v >= threshold) {
-        const t = (v - threshold) / maxAbove
-        cells.h[i] = Math.round(30 + t * 70)
-      } else if (v > 0) {
-        const t = v / threshold
-        cells.h[i] = Math.round(5 + t * 10)
-      } else {
-        cells.h[i] = 0
-      }
+  // 保留 realism.tectonics 参数兼容旧配置，但只做轻量幅度偏移。
+  const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
+  const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
+  const tectonicBias = ((rangeWidth - 3) * 0.4) - ((riftDepth - 25) * 0.03)
+  if (tectonicBias !== 0) {
+    for (let i = 0; i < n; i++) {
+      cells.h[i] = lim(cells.h[i] + tectonicBias)
     }
   }
+
+  // 保证画布边缘以海洋为主，避免 coastline 提取在边界处分裂成开放折线。
+  softenMapEdges(cells, width, height)
+
+  // 步骤 3：调整海陆比
+  adjustSeaLevel(cells, landRatio)
+
+  // 步骤 4：平滑
+  smooth(cells, 2, 2)
+  smooth(cells, 1, 1)
 }
 
 // ── 工具 ────────────────────────────────────────────
 
-/** 简单确定性 hash */
+/** 简单确定性 hash（per-call 时用 cell 坐标） */
 function hash2D(x: number, y: number): number {
   const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
   return s - Math.floor(s)
 }
 
-/** 分形布朗运动 */
+/** 分形布朗运动：多层 hash 噪声叠加 */
 function fbm2D(x: number, y: number, octaves: number): number {
   let v = 0
   let amp = 1
@@ -261,45 +105,55 @@ function fbm2D(x: number, y: number, octaves: number): number {
   return v / max
 }
 
-/** 把 boundary.cellIds 按 plateId 拆成 cellsA / cellsB(供 apply* 函数) */
-function splitCellsByPlate(
-  cellIds: number[],
-  plateId: Int16Array,
-  plateA: number,
-): number[] {
-  const out: number[] = []
-  for (const id of cellIds) {
-    if (plateId[id] === plateA) out.push(id)
-  }
-  return out
-}
-
-/** 计算 boundary 的法线(质心差) */
-function computeBoundaryNormal(
-  cells: GridCells,
-  boundary: PlateBoundary,
-  seg: { cellsA: number[]; cellsB: number[]; normalX: number; normalY: number },
-): void {
-  let avgAx = 0, avgAy = 0, avgBx = 0, avgBy = 0
-  for (const c of seg.cellsA) { avgAx += cells.p[c * 2]; avgAy += cells.p[c * 2 + 1] }
-  for (const c of seg.cellsB) { avgBx += cells.p[c * 2]; avgBy += cells.p[c * 2 + 1] }
-  const nA = Math.max(1, seg.cellsA.length)
-  const nB = Math.max(1, seg.cellsB.length)
-  avgAx /= nA; avgAy /= nA
-  avgBx /= nB; avgBy /= nB
-  let nx = avgBx - avgAx
-  let ny = avgBy - avgAy
-  const len = Math.sqrt(nx * nx + ny * ny) || 1
-  seg.normalX = nx / len
-  seg.normalY = ny / len
-}
-
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 
-/** 平滑:Azgaar 公式,fr=3 保留峰值。threshold=0(已移除,杜绝 rim)。 */
-function smooth(cells: GridCells, passes: number): void {
+function softenMapEdges(cells: GridCells, width: number, height: number): void {
+  for (let i = 0; i < cells.length; i++) {
+    const x = cells.p[i * 2] / width
+    const y = cells.p[i * 2 + 1] / height
+    const edgeDist = Math.min(x, y, 1 - x, 1 - y)
+    if (edgeDist < 0.08) {
+      const factor = edgeDist / 0.08
+      cells.h[i] = lim(Math.round(cells.h[i] * factor))
+    }
+
+    const poleDist = Math.min(y, 1 - y)
+    if (poleDist >= 0.14) continue
+    const polarFactor = clamp(poleDist / 0.14, 0, 1)
+    const shaped = polarFactor * polarFactor
+    const coastSafe = cells.h[i] > SEA_LEVEL ? SEA_LEVEL + (cells.h[i] - SEA_LEVEL) * shaped : cells.h[i] * shaped
+    cells.h[i] = lim(Math.round(coastSafe))
+  }
+}
+
+/** 调整海平面以达到目标海陆比例（gap-aware） */
+function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
+  const landH: number[] = []
+  let zeroCount = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] > 0) landH.push(cells.h[i])
+    else zeroCount++
+  }
+  if (landH.length === 0) return
+
+  landH.sort((a, b) => a - b)
+  const targetLand = Math.floor(cells.length * targetLandRatio)
+  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
+  const waterInLand = landH.length - needFromLand
+  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
+  const seaLevel = landH[idx]
+
+  const shift = SEA_LEVEL - seaLevel
+  for (let i = 0; i < cells.length; i++) {
+    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + shift))
+  }
+}
+
+/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3，保留峰值。
+ *  threshold：newH 低于此值的格子视为海洋（h=0），避免向海渗色。 */
+function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
   const fr = 3
   for (let pass = 0; pass < passes; pass++) {
     const newH = new Uint8Array(cells.length)
@@ -310,8 +164,342 @@ function smooth(cells: GridCells, passes: number): void {
       let count = 1
       for (const n of neighbors) { sum += cells.h[n]; count++ }
       const mean = sum / count
-      newH[i] = Math.max(0, Math.min(100, Math.round((cells.h[i] * (fr - 1) + mean) / fr)))
+      const newV = lim(Math.round((cells.h[i] * (fr - 1) + mean) / fr))
+      newH[i] = threshold > 0 && newV < threshold ? 0 : newV
     }
     cells.h.set(newH)
+  }
+}
+
+// ── 阶段 1:大尺度大陆形变 ──────────────────────────
+
+/**
+ * 在模板生成 + 边缘遮罩 + 海平面调整之后，对最大陆块做一次"宏观形变"：
+ *  - 沿主轴线再放 1~2 个 Hill（拉长大陆）
+ *  - 在陆块边缘的远端随机 1~3 个 Pit（海湾）
+ *  - 15% 概率在陆块腰部加 1 条 Strait（陆地被切割）
+ *  - 极地区域（|y/h - 0.5| > 0.38）整体高度乘 0.85，模拟冰盖平缓感
+ *
+ * 不修改 14 个原模板字符串；只复用 templates 提供的 Hill / Pit / Strait
+ * 内部 helper（addHill / addPit / addStrait）通过专用参数调用。
+ */
+export function applyMacroLandmassShape(
+  cells: GridCells,
+  width: number,
+  height: number,
+  rng: () => number,
+  targetLandRatio: number = 0.45,
+): void {
+  const n = cells.length
+  if (n === 0) return
+
+  // 1) 找最大连通陆块（>100 cells 才有意义）
+  const seen = new Uint8Array(n)
+  let best: number[] = []
+  for (let start = 0; start < n; start++) {
+    if (seen[start] || cells.h[start] < SEA_LEVEL) continue
+    const queue: number[] = [start]
+    seen[start] = 1
+    const landmass: number[] = [start]
+    for (let head = 0; head < queue.length; head++) {
+      const c = queue[head]
+      const nbs = cells.c[c]
+      for (let k = 0; k < nbs.length; k++) {
+        const nb = nbs[k]
+        if (seen[nb] || cells.h[nb] < SEA_LEVEL) continue
+        seen[nb] = 1
+        queue.push(nb)
+        landmass.push(nb)
+      }
+    }
+    if (landmass.length > best.length) best = landmass
+  }
+  if (best.length < 100) return
+
+  // 2) 陆块重心 + 远端点（主轴起点 & 终点）
+  let cx = 0
+  let cy = 0
+  for (let k = 0; k < best.length; k++) {
+    const id = best[k]
+    cx += cells.p[id * 2]
+    cy += cells.p[id * 2 + 1]
+  }
+  cx /= best.length
+  cy /= best.length
+
+  let farId = best[0]
+  let farDist = -1
+  for (let k = 0; k < best.length; k++) {
+    const id = best[k]
+    const dx = cells.p[id * 2] - cx
+    const dy = cells.p[id * 2 + 1] - cy
+    const d = dx * dx + dy * dy
+    if (d > farDist) { farDist = d; farId = id }
+  }
+  const fx = cells.p[farId * 2]
+  const fy = cells.p[farId * 2 + 1]
+  const maxDist = Math.sqrt(farDist)
+  if (maxDist < 1) return
+
+  // 3) 沿主轴再放 1~2 个 Hill（拉长大陆）
+  //   - 选 1~2 个等分点，x/y 范围缩到 ±15% (cover 那个点附近的细长条)
+  //   - 使用模板的 addHill（通过模板字符串调用或直接 addHill）
+  //   - 高度 20~35, blobPower 0.95
+  const segments = 1 + Math.floor(rng() * 2)  // 1 or 2
+  for (let s = 0; s < segments; s++) {
+    const t = (s + 1) / (segments + 1)  // 等分 [0,1]
+    const ax = cx + (fx - cx) * t
+    const ay = cy + (fy - cy) * t
+    // 拉一个细长矩形 (centered at ax,ay) — x/y 范围 ±15%
+    const halfW = width * 0.15
+    const halfH = height * 0.15
+    const minX = Math.max(0, ax - halfW)
+    const maxX = Math.min(width, ax + halfW)
+    const minY = Math.max(0, ay - halfH)
+    const maxY = Math.min(height, ay + halfH)
+    const rangeX = `${Math.round((minX / width) * 100)}-${Math.round((maxX / width) * 100)}`
+    const rangeY = `${Math.round((minY / height) * 100)}-${Math.round((maxY / height) * 100)}`
+    const hStr = `20-35`
+    addHillIsland(cells, width, height, '1', hStr, rangeX, rangeY, 0.95, rng)
+  }
+
+  // 4) 在陆块边缘(到陆块中心 > 0.7*maxDist) 随机 1~3 个 Pit
+  //   - 收集候选 edge cells
+  const edgePool: number[] = []
+  for (let k = 0; k < best.length; k++) {
+    const id = best[k]
+    const dx = cells.p[id * 2] - cx
+    const dy = cells.p[id * 2 + 1] - cy
+    const d = Math.sqrt(dx * dx + dy * dy)
+    if (d > 0.7 * maxDist) {
+      // 也要求是边界 cell（至少有一个非陆邻居）
+      const nbs = cells.c[id]
+      let isEdge = false
+      for (let m = 0; m < nbs.length; m++) {
+        if (cells.h[nbs[m]] < SEA_LEVEL) { isEdge = true; break }
+      }
+      if (isEdge) edgePool.push(id)
+    }
+  }
+  if (edgePool.length > 0) {
+    const pitCount = 1 + Math.floor(rng() * 3)  // 1..3
+    for (let p = 0; p < pitCount; p++) {
+      const target = edgePool[Math.floor(rng() * edgePool.length)]
+      const tx = cells.p[target * 2]
+      const ty = cells.p[target * 2 + 1]
+      const halfW = width * 0.1
+      const halfH = height * 0.1
+      const minX = Math.max(0, tx - halfW)
+      const maxX = Math.min(width, tx + halfW)
+      const minY = Math.max(0, ty - halfH)
+      const maxY = Math.min(height, ty + halfH)
+      const rangeX = `${Math.round((minX / width) * 100)}-${Math.round((maxX / width) * 100)}`
+      const rangeY = `${Math.round((minY / height) * 100)}-${Math.round((maxY / height) * 100)}`
+      addPitIsland(cells, width, height, '1', '10-20', rangeX, rangeY, 0.95, rng)
+    }
+  }
+
+  // 5) 15% 概率在陆块腰部加 1 条 Strait（窄水带，宽度 1~2 cell）
+  if (rng() < 0.15) {
+    // 腰部：选主轴的 0.5 等分点；strat 方向：垂直主轴
+    const mx = (cx + fx) * 0.5
+    const my = (cy + fy) * 0.5
+    // 把主轴方向归一化
+    const axisX = (fx - cx) / maxDist
+    const axisY = (fy - cy) / maxDist
+    // 找腰部附近的一个 cell（最接近 (mx,my) 的 cell）
+    const waistId = findNearestCell(cells, mx, my, n)
+    addStraitIsland(cells, width, height, waistId, axisX, axisY, rng)
+  }
+
+  // 6) 极地：poleDist < 0.12 的 cell 整体高度乘 0.85
+  for (let i = 0; i < n; i++) {
+    if (cells.h[i] <= 0) continue
+    const yNorm = cells.p[i * 2 + 1] / height
+    const poleDist = Math.min(yNorm, 1 - yNorm)
+    if (poleDist < 0.12) {
+      cells.h[i] = lim(Math.round(cells.h[i] * 0.85))
+    }
+  }
+
+  // 7) 重新调整海平面以维持目标 landRatio（Hills 拉升、Pits 切割综合下来
+  //    会改变陆块净面积，调用 adjustSeaLevel 把 landRatio 拉回 target）
+  //    等价于 spec 里"在 generateHeightmap 后、adjustSeaLevel 前"调用的位置
+  adjustSeaLevel(cells, targetLandRatio)
+}
+
+// ── 私有 helper：借用 templates 的 addHill / addPit / addStrait 行为 ──
+
+/** 简化版 addHill：单 count 字符串，整数 h，"minX-maxX" 范围。 */
+function addHillIsland(
+  cells: GridCells,
+  width: number,
+  height: number,
+  count: string,
+  h: string,
+  rangeX: string,
+  rangeY: string,
+  blobPower: number,
+  rng: () => number,
+): void {
+  addBlobIsland(cells, width, height, count, h, rangeX, rangeY, blobPower, rng, +1)
+}
+
+/** 简化版 addPit：单 count 字符串，整数 h，"minX-maxX" 范围。 */
+function addPitIsland(
+  cells: GridCells,
+  width: number,
+  height: number,
+  count: string,
+  h: string,
+  rangeX: string,
+  rangeY: string,
+  blobPower: number,
+  rng: () => number,
+): void {
+  addBlobIsland(cells, width, height, count, h, rangeX, rangeY, blobPower, rng, -1)
+}
+
+/** 内部 blob worker：sign=+1=Hill, sign=-1=Pit。 */
+function addBlobIsland(
+  cells: GridCells,
+  width: number,
+  height: number,
+  count: string,
+  h: string,
+  rangeX: string,
+  rangeY: string,
+  blobPower: number,
+  rng: () => number,
+  sign: 1 | -1,
+): void {
+  const n = cells.length
+  const desiredCount = parseCount(count, rng)
+  const heightVal = parseH(h, rng)
+  const [x0pct, x1pct] = parseRange(rangeX)
+  const [y0pct, y1pct] = parseRange(rangeY)
+
+  for (let i = 0; i < desiredCount; i++) {
+    let cx = 0
+    let cy = 0
+    let start = 0
+    let limit = 0
+    do {
+      cx = (x0pct + rng() * (x1pct - x0pct)) * width
+      cy = (y0pct + rng() * (y1pct - y0pct)) * height
+      start = findNearestCell(cells, cx, cy, n)
+      limit++
+    } while (limit < 50 && sign > 0 && cells.h[start] + heightVal > 90)
+    if (limit >= 50 && sign > 0) continue
+
+    const change = new Float32Array(n)
+    change[start] = heightVal
+    const queue: number[] = [start]
+    while (queue.length) {
+      const q = queue.shift()!
+      for (let k = 0; k < cells.c[q].length; k++) {
+        const c = cells.c[q][k]
+        if (change[c] !== 0) continue
+        change[c] = change[q] ** blobPower * (rng() * 0.2 + 0.9)
+        if (change[c] > 1) queue.push(c)
+      }
+    }
+    for (let j = 0; j < n; j++) {
+      if (change[j] === 0) continue
+      const newH = sign > 0
+        ? cells.h[j] + change[j]
+        : cells.h[j] - change[j]
+      cells.h[j] = lim(Math.round(newH))
+    }
+  }
+}
+
+function parseCount(s: string, rng: () => number): number {
+  const v = +s
+  if (Number.isFinite(v) && s.indexOf('-') < 0) return Math.max(0, Math.floor(v))
+  const parts = s.split('-').map(Number)
+  if (parts.length === 2) {
+    return Math.floor(parts[0] + rng() * (parts[1] - parts[0]))
+  }
+  return 0
+}
+
+function parseH(s: string, rng: () => number): number {
+  const v = +s
+  if (Number.isFinite(v) && s.indexOf('-') < 0) return v
+  const parts = s.split('-').map(Number)
+  if (parts.length === 2) return parts[0] + rng() * (parts[1] - parts[0])
+  return 0
+}
+
+function parseRange(s: string): [number, number] {
+  const parts = s.split('-').map(Number)
+  if (parts.length === 2) return [parts[0] / 100, parts[1] / 100]
+  if (parts.length === 1) return [parts[0] / 100, parts[0] / 100]
+  return [0, 1]
+}
+
+function findNearestCell(cells: GridCells, x: number, y: number, n: number): number {
+  let best = 0
+  let bestD = Infinity
+  for (let i = 0; i < n; i++) {
+    const dx = cells.p[i * 2] - x
+    const dy = cells.p[i * 2 + 1] - y
+    const d = dx * dx + dy * dy
+    if (d < bestD) { bestD = d; best = i }
+  }
+  return best
+}
+
+/** 简化版 addStrait：从 start cell 出发沿垂直主轴方向 BFS 找路径（1~2 cell 宽）。 */
+function addStraitIsland(
+  cells: GridCells,
+  width: number,
+  height: number,
+  waistId: number,
+  axisX: number,
+  axisY: number,
+  rng: () => number,
+): void {
+  const n = cells.length
+  // 垂直主轴方向（沿此方向画窄水带）
+  const perpX = -axisY
+  const perpY = axisX
+  // 选方向（+perp 或 -perp）
+  const dir = rng() < 0.5 ? -1 : 1
+  // 沿 perp 方向上找一段连续 cell，长度 = maxDist * 0.4
+  const startX = cells.p[waistId * 2]
+  const startY = cells.p[waistId * 2 + 1]
+  const length = Math.max(3, Math.min(20, Math.floor(cells.c[waistId].length * 0.5)))
+  const cellsToLower: number[] = [waistId]
+  let cur = waistId
+  for (let step = 0; step < length; step++) {
+    // 找最接近 (cur + dir * perp * stepSize) 的邻居
+    const targetX = startX + dir * perpX * (step + 1) * 5
+    const targetY = startY + dir * perpY * (step + 1) * 5
+    let best = -1
+    let bestD = Infinity
+    for (const nb of cells.c[cur]) {
+      const dx = cells.p[nb * 2] - targetX
+      const dy = cells.p[nb * 2 + 1] - targetY
+      const d = dx * dx + dy * dy
+      if (d < bestD) { bestD = d; best = nb }
+    }
+    if (best < 0 || cells.h[best] < SEA_LEVEL) break
+    cellsToLower.push(best)
+    cur = best
+  }
+  // 把这些 cell 高度压到 ~3（海平面以下）
+  for (const id of cellsToLower) {
+    cells.h[id] = 3
+  }
+  // 邻接 cell 的 h 适度压低（软化边缘）
+  for (const id of cellsToLower) {
+    for (const nb of cells.c[id]) {
+      if (cells.h[nb] < SEA_LEVEL) continue
+      if (rng() < 0.4) {
+        cells.h[nb] = lim(Math.round(cells.h[nb] * 0.85))
+      }
+    }
   }
 }

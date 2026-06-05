@@ -6,6 +6,15 @@
 
 import type { GridCells, BiomeDef, WindData, OceanCurrent } from './types'
 
+const SEA_LEVEL = 20
+const TROPIC_NORTH = 16
+const TROPIC_SOUTH = -20
+const TROPICAL_GRADIENT = 0.15
+const TEMPERATURE_EQUATOR = 27
+const TEMPERATURE_NORTH_POLE = -30
+const TEMPERATURE_SOUTH_POLE = -15
+const HEIGHT_EXPONENT = 2
+
 /** 生态群落定义 — 标准等高线地形图配色 */
 export const BIOMES: BiomeDef[] = [
   { id: 0, name: '海洋',       color: '#6baed6', habitability: 0,   moveCost: 10 },
@@ -138,13 +147,17 @@ export function calculateTemperature(
 
   // 基础温度
   const baseTemp = new Float32Array(n)
+  const tempNorthTropic = TEMPERATURE_EQUATOR - TROPIC_NORTH * TROPICAL_GRADIENT
+  const northernGradient = (tempNorthTropic - TEMPERATURE_NORTH_POLE) / (90 - TROPIC_NORTH)
+  const tempSouthTropic = TEMPERATURE_EQUATOR + TROPIC_SOUTH * TROPICAL_GRADIENT
+  const southernGradient = (tempSouthTropic - TEMPERATURE_SOUTH_POLE) / (90 + TROPIC_SOUTH)
   for (let i = 0; i < n; i++) {
     const y = cells.p[i * 2 + 1]
-    const lat = Math.abs(y / height - 0.5) * 2
-    let temp = 30 - lat * 55
+    const latitude = 90 - (y / height) * 180
+    let temp = calculateSeaLevelTemperature(latitude)
 
     const h = cells.h[i]
-    if (h >= 20) temp -= (h - 20) * 0.4
+    if (h >= SEA_LEVEL) temp -= getAltitudeTemperatureDrop(h)
 
     if (Math.abs(cells.t[i]) <= 2 && cells.t[i] > 0) {
       temp = temp * 0.9 + 15 * 0.1
@@ -195,6 +208,21 @@ export function calculateTemperature(
   // 写入
   for (let i = 0; i < n; i++) {
     cells.temp[i] = Math.round(baseTemp[i] + temperatureShift)
+  }
+
+  function calculateSeaLevelTemperature(latitude: number): number {
+    const isTropical = latitude <= TROPIC_NORTH && latitude >= TROPIC_SOUTH
+    if (isTropical) return TEMPERATURE_EQUATOR - Math.abs(latitude) * TROPICAL_GRADIENT
+
+    return latitude > 0
+      ? tempNorthTropic - (latitude - TROPIC_NORTH) * northernGradient
+      : tempSouthTropic + (latitude - TROPIC_SOUTH) * southernGradient
+  }
+
+  function getAltitudeTemperatureDrop(h: number): number {
+    if (h < SEA_LEVEL) return 0
+    const relativeHeight = Math.pow(h - 18, HEIGHT_EXPONENT)
+    return (relativeHeight / 1000) * 6.5
   }
 }
 
@@ -294,17 +322,34 @@ export function assignBiomes(cells: GridCells): void {
     const h = cells.h[i]
     const temp = cells.temp[i]
     const prec = cells.prec[i]
+    const coastalLand = cells.t[i] > 0 && cells.t[i] <= 2
 
-    if (h < 20) { cells.biome[i] = 0; continue }
-    if (temp < -5) { cells.biome[i] = 11; continue }
+    if (h < SEA_LEVEL) { cells.biome[i] = 0; continue }
+    if (isGlacierCell(i)) { cells.biome[i] = 11; continue }
     if (temp >= 25 && prec < 20 && cells.r[i] === 0) { cells.biome[i] = 1; continue }
 
     const moisture = prec + (cells.fl[i] > 0 ? Math.min(cells.fl[i] / 10, 20) : 0)
-    if (moisture > 80 && h < 30) { cells.biome[i] = 12; continue }
+    if (temp > -2 && moisture > 80 && h < 30) { cells.biome[i] = 12; continue }
 
     const moistureIdx = Math.min(Math.floor(moisture / 25), 4)
     const tempIdx = Math.min(Math.max(Math.floor((25 - temp)), 0), 25)
     cells.biome[i] = BIOME_MATRIX[moistureIdx][tempIdx]
+
+    if (coastalLand && cells.biome[i] === 11 && temp > -10) {
+      cells.biome[i] = 10
+    }
+  }
+
+  function isGlacierCell(i: number): boolean {
+    const h = cells.h[i]
+    const temp = cells.temp[i]
+    const dist = cells.t[i]
+    if (h < SEA_LEVEL) return false
+    if (temp <= -8) return true
+    if (temp > -5) return false
+    if (h >= 70 && temp <= -4) return true
+    if (dist >= 4 && temp <= -6) return true
+    return false
   }
 }
 

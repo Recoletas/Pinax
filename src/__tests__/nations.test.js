@@ -169,7 +169,9 @@ describe('nations', () => {
       expect(diagnostics).not.toBeNull()
       // pushCount 语义变了：原来是 heap 入堆次数，现在是 getEdgeWeight 调用次数（边被考虑的次数）
       // graphology 内部用堆但堆大小对外不暴露，maxHeap 固定为 0
-      expect(diagnostics.pushCount).toBeLessThan(200000)
+      // 注：template 路径下 pangea (seed=42) 产生更多 land/edges，
+      // pushCount 比 FBM 路径高（实测 ~430k）。阈值放宽到 600k。
+      expect(diagnostics.pushCount).toBeLessThan(600000)
       expect(diagnostics.maxHeap).toBe(0)
       expect(stateMs).toBeTypeOf('number')
       expect(stateMs).toBeLessThan(5000)
