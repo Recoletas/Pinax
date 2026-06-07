@@ -1,31 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateMap } from '../services/world-map/engine/generate'
-
-function countMajorLandmasses(cells, minSize = 120) {
-  const seen = new Uint8Array(cells.length)
-  let count = 0
-
-  for (let start = 0; start < cells.length; start++) {
-    if (seen[start] || cells.h[start] < 20) continue
-    const queue = [start]
-    let size = 0
-    seen[start] = 1
-
-    for (let head = 0; head < queue.length; head++) {
-      const cell = queue[head]
-      size++
-      for (const neighbor of cells.c[cell]) {
-        if (seen[neighbor] || cells.h[neighbor] < 20) continue
-        seen[neighbor] = 1
-        queue.push(neighbor)
-      }
-    }
-
-    if (size >= minSize) count++
-  }
-
-  return count
-}
+import { getLandmassMetrics } from '../services/world-map/engine/shape-metrics'
 
 /**
  * azgaar 管线 smoke test
@@ -101,25 +76,36 @@ describe('azgaar 管线 smoke', () => {
     expect(water).toBeGreaterThan(0)
   })
 
-  it('continentCount=4 仍产出有效地图（含陆+水）', () => {
-    // 注：template 路径下，pickTemplate(4, 0.45) → 'archipelago'，给的是
-    // 散布小岛，不是 4 块独立大陆。所以这里只验"能跑 + 有陆有水"，
-    // 不强求大陆数。视觉多样性由 14 个模板的 `Range`/`Hill` 操作保证。
+  it('continentCount=4 + 显式 continents 模板：largestRatio ∈ [0.3, 0.7]', () => {
+    // 第一轮（plan phase 1）：continentCount 走自动 pickTemplate 会因
+    // shapeIntent 分组路由到 'continents' 组。显式 `heightmapTemplate:
+    // 'continents'` 是硬合同入口。第一轮以 largestRatio 区间验收；
+    // 第二轮 enforceTemplateContract 会把 componentCount ∈ [2, 4] 做成硬合同。
     const data = generateMap({
       seed: 'az-continents-4',
       pointCount: 3000,
       plateCount: 6,
       continentCount: 4,
+      heightmapTemplate: 'continents',
       generateProvinces: false,
       generateRoads: false,
     })
-    let land = 0, water = 0
-    for (let i = 0; i < data.cells.length; i++) {
-      if (data.cells.h[i] >= 20) land++
-      else water++
-    }
-    expect(land).toBeGreaterThan(0)
-    expect(water).toBeGreaterThan(0)
-    expect(data.coastlines.length).toBeGreaterThan(0)
+    const m = getLandmassMetrics(data.cells, { minSize: 80, width: 1200, height: 800 })
+    expect(m.largestRatio).toBeGreaterThanOrEqual(0.3)
+    expect(m.largestRatio).toBeLessThanOrEqual(0.7)
+  })
+
+  it('显式 pangea 模板：largestRatio ≥ 0.85', () => {
+    const data = generateMap({
+      seed: 'az-pangea',
+      pointCount: 3000,
+      plateCount: 4,
+      continentCount: 1,
+      heightmapTemplate: 'pangea',
+      generateProvinces: false,
+      generateRoads: false,
+    })
+    const m = getLandmassMetrics(data.cells, { minSize: 100, width: 1200, height: 800 })
+    expect(m.largestRatio).toBeGreaterThanOrEqual(0.85)
   })
 })

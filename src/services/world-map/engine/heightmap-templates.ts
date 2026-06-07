@@ -86,14 +86,14 @@ Mask 4 0 0 0`,
     probability: 16,
     template: `Hill 1 80-85 60-80 40-60
 Hill 1 80-85 20-30 40-60
-	Hill 6-7 15-30 25-75 15-85
-	Multiply 0.6 land 0 0
-	Hill 8-10 5-10 15-85 20-80
-	Range 3-4 38-68 10-38 22-78
-	Range 3-4 38-68 56-90 22-78
-	Range 2-3 34-62 28-78 22-78
-	Strait 2 vertical 0 0
-	Strait 1 vertical 0 0
+    Hill 6-7 15-30 25-75 15-85
+    Multiply 0.6 land 0 0
+    Hill 8-10 5-10 15-85 20-80
+    Range 1-2 30-60 5-15 25-75
+    Range 1-2 30-60 80-95 25-75
+    Range 0-3 30-60 80-90 20-80
+    Strait 2 vertical 0 0
+    Strait 1 vertical 0 0
 Smooth 3 0 0 0
 Trough 3-4 15-20 15-85 20-80
 Trough 3-4 5-10 45-55 45-55
@@ -235,91 +235,127 @@ Range 6-8 40-50 5-95 10-90`,
   },
 }
 
+/** 模板的几何语义分组（只描述「产生什么形状」，不约束概率） */
+export type TemplateShapeIntent =
+  | 'single'      // 单一主陆块
+  | 'continents'  // 多大陆
+  | 'archipelago' // 多岛链
+  | 'peninsula'   // 半岛 / 地峡
+  | 'special'     // 极特殊（火山、沙漠化、破碎）
+
 /**
- * 根据 continentCount 与 landRatio 选一个模板：
- *   continentCount=1   → pangea
- *   continentCount=2-3 → continents
- *   continentCount>=4  → archipelago（多岛）或 pangea（低海陆比）
+ * 按 shape intent 聚合的模板集合（round 1 静态分组）
+ *  - `single`      仅 `pangea`（oldWorld 暂未验证稳定产生单主陆块，留待第二轮）
+ *  - `special`     第一轮不在自动分支暴露，仅 landRatio>0.85 触发或显式选择
+ *  - 其它组别权重取自各模板 entry 的 `probability` 字段
+ */
+export const TEMPLATE_GROUPS: Record<TemplateShapeIntent, readonly HeightmapTemplate[]> = {
+  single:      ['pangea'],
+  continents:  ['continents', 'oldWorld', 'mediterranean'],
+  archipelago: ['archipelago', 'shattered', 'highIsland', 'lowIsland', 'atoll'],
+  peninsula:   ['peninsula', 'isthmus'],
+  special:     ['volcano', 'taklamakan', 'fractious'],
+} as const
+
+/** 模板名 → 所属 shape intent（反向映射，供显式模板用） */
+export const TEMPLATE_TO_INTENT: Record<HeightmapTemplate, TemplateShapeIntent> = {
+  pangea:        'single',
+  oldWorld:      'continents',
+  continents:    'continents',
+  mediterranean: 'continents',
+  archipelago:   'archipelago',
+  shattered:     'archipelago',
+  highIsland:    'archipelago',
+  lowIsland:     'archipelago',
+  atoll:         'archipelago',
+  peninsula:     'peninsula',
+  isthmus:       'peninsula',
+  volcano:       'special',
+  taklamakan:    'special',
+  fractious:     'special',
+}
+
+/**
+ * 仅自动路径使用：根据 continentCount + landRatio 决定 shape intent。
+ * 显式模板不走这里（避免 `continentCount=1 + 显式 peninsula` 被误归到 `single`）。
+ */
+export function resolveShapeIntent(
+  continentCount: number,
+  landRatio: number,
+): TemplateShapeIntent {
+  if (continentCount <= 1) return 'single'
+  if (landRatio > 0.85)    return 'special'
+  if (landRatio < 0.15)    return 'archipelago'
+  if (continentCount <= 4) {
+    return landRatio <= 0.45 ? 'continents' : 'archipelago'
+  }
+  return 'continents'
+}
+
+/** 在指定 shape intent 组内按各模板的 `probability` 字段加权抽，不跨组 */
+export function pickTemplateInGroup(
+  intent: TemplateShapeIntent,
+  _landRatio: number,
+  rng: () => number,
+): HeightmapTemplate {
+  const group = TEMPLATE_GROUPS[intent]
+  const weights: Array<[HeightmapTemplate, number]> = group.map(name => [
+    name,
+    HEIGHTMAP_TEMPLATES[name].probability,
+  ])
+  const total = weights.reduce((sum, [, w]) => sum + w, 0)
+  let r = rng() * total
+  for (const [name, w] of weights) {
+    r -= w
+    if (r <= 0) return name
+  }
+  return weights[0][0]
+}
+
+/**
+ * 统一入口：显式模板直接返回（不消费 RNG）；自动路径走 shape intent 同组内加权。
+ * 显式模板的 `shapeIntent` 来自反向映射，避免被自动 intent 错误归类。
+ */
+export function resolveHeightmapTemplate(config: {
+  continentCount: number
+  landRatio: number
+  rng: () => number
+  explicitTemplate?: HeightmapTemplate
+}): { templateName: HeightmapTemplate; shapeIntent: TemplateShapeIntent } {
+  if (config.explicitTemplate) {
+    return {
+      templateName: config.explicitTemplate,
+      shapeIntent: TEMPLATE_TO_INTENT[config.explicitTemplate],
+    }
+  }
+  const shapeIntent = resolveShapeIntent(config.continentCount, config.landRatio)
+  const templateName = pickTemplateInGroup(shapeIntent, config.landRatio, config.rng)
+  return { templateName, shapeIntent }
+}
+
+/**
+ * @deprecated 请改用 `resolveHeightmapTemplate`，它同时返回 `templateName` 与 `shapeIntent`，
+ *             显式模板也请通过 `config.explicitTemplate` 传入，避免被自动 intent 错误归类。
  *
- * 其它模板（volcano / mediterranean / peninsula / isthmus / atoll / oldWorld / fractious /
- * taklamakan / highIsland / lowIsland / shattered）按 probability 随机抽。
+ *             本函数仅作为旧 API 兼容壳：内部走 `resolveHeightmapTemplate` 自动路径。
+ *             行为差异（与 plan 第一轮同步）：
+ *               - 旧版 `landRatio<0.15` 永远返回 'atoll'；新版按 archipelago 组内概率加权
+ *               - 旧版 `landRatio>0.85` 永远返回 'volcano'；新版按 special 组内概率加权
+ *               - 旧版 `continentCount<=1` 含 pangea/oldWorld/peninsula/continents 跨组混合；
+ *                 新版 `single` 组只含 pangea
  */
 export function pickTemplate(
   continentCount: number,
   landRatio: number,
   rng: () => number,
 ): string {
-  // 极端 landRatio 选特定模板
-  if (landRatio < 0.15) return 'atoll'
-  if (landRatio > 0.85) return 'volcano'
-
-  const weightedPick = (weights: Array<[string, number]>): string => {
-    const total = weights.reduce((sum, [, weight]) => sum + weight, 0)
-    let r = rng() * total
-    for (const [name, weight] of weights) {
-      r -= weight
-      if (r <= 0) return name
-    }
-    return weights[0][0]
-  }
-
-  // 不再把中高 continentCount 硬锁成碎岛模板，保留更接近 Azgaar 的多模板分流。
-  if (continentCount <= 1) {
-    return weightedPick([
-      ['pangea', 6],
-      ['oldWorld', 2],
-      ['peninsula', 1],
-      ['continents', 1],
-    ])
-  }
-  if (continentCount === 2) {
-    return weightedPick([
-      ['continents', 5],
-      ['oldWorld', 2],
-      ['pangea', 2],
-      ['mediterranean', 1],
-    ])
-  }
-  if (continentCount === 3) {
-    return weightedPick([
-      ['continents', 5],
-      ['oldWorld', 3],
-      ['archipelago', 1],
-      ['fractious', 1],
-    ])
-  }
-  if (continentCount <= 5) {
-    return weightedPick([
-      ['continents', 4],
-      ['oldWorld', 3],
-      ['archipelago', 2],
-      ['fractious', 1],
-      ['shattered', 1],
-    ])
-  }
-
-  if (landRatio > 0.45) {
-    return weightedPick([
-      ['oldWorld', 2],
-      ['continents', 2],
-      ['archipelago', 2],
-      ['shattered', 1],
-      ['fractious', 1],
-    ])
-  }
-
-  return weightedPick([
-    ['archipelago', 3],
-    ['shattered', 2],
-    ['oldWorld', 2],
-    ['fractious', 1],
-  ])
+  return resolveHeightmapTemplate({ continentCount, landRatio, rng }).templateName
 }
 
 // ── 模板执行（faithful port from
 //     azgaar/Fantasy-Map-Generator/src/modules/heightmap-generator.ts） ──
 
-import type { GridCells } from './types'
+import type { GridCells, HeightmapTemplate } from './types'
 
 /** 解析 "1-2" → rand(1, 2) 或 "5" → 5。Azgaar 模板里的所有数字参数都走这个 */
 function getNumberInRange(r: string, rng: () => number): number {

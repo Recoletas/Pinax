@@ -3,7 +3,7 @@
  * 按顺序执行所有生成步骤
  */
 
-import type { MapGenConfig, VoronoiMapData, MapConstraints } from './types'
+import type { MapGenConfig, VoronoiMapData, MapConstraints, HeightmapTemplate } from './types'
 import { seedRandom } from './random'
 import { generatePoints, buildVoronoi } from './grid'
 import { generateHeightmap } from './heightmap'
@@ -19,6 +19,35 @@ import { computeHillshade } from './hillshade'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
 import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
+
+interface ResolvedMapShapeConfig {
+  plateCount: number
+  continentCount: number
+  explicitTemplate: HeightmapTemplate | undefined
+  effectiveContinentCount: number
+  effectivePlateCount: number
+}
+
+function resolveMapShapeConfig(config: MapGenConfig): ResolvedMapShapeConfig {
+  const continentCount = config.continentCount
+  const effectivePlateCount = config.plateCount ?? continentCount ?? 6
+  const effectiveContinentCount = Math.max(
+    1,
+    Math.min(
+      config.continentCount ?? Math.max(2, Math.round(effectivePlateCount * 0.5)),
+      effectivePlateCount,
+    ),
+  )
+  // Use config.continentCount as the "continentCount" passed to generateTectonics;
+  // effectiveContinentCount is the same value capped to plateCount.
+  return {
+    plateCount: effectivePlateCount,
+    continentCount: effectiveContinentCount,
+    explicitTemplate: config.heightmapTemplate,
+    effectiveContinentCount,
+    effectivePlateCount,
+  }
+}
 
 /** 生成完整地图 */
 export function generateMap(
@@ -49,14 +78,9 @@ export function generateMap(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  const effectivePlateCount = config.plateCount ?? continentCount ?? 6
-  const effectiveContinentCount = Math.max(
-    1,
-    Math.min(
-      config.continentCount ?? Math.max(2, Math.round(effectivePlateCount * 0.5)),
-      effectivePlateCount,
-    ),
-  )
+  const shapeConfig = resolveMapShapeConfig(config)
+  const effectivePlateCount = shapeConfig.effectivePlateCount
+  const effectiveContinentCount = shapeConfig.effectiveContinentCount
 
   const rng = seedRandom(seed)
 
@@ -285,14 +309,9 @@ export async function generateMapAsync(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  const effectivePlateCount = config.plateCount ?? continentCount ?? 6
-  const effectiveContinentCount = Math.max(
-    1,
-    Math.min(
-      config.continentCount ?? Math.max(2, Math.round(effectivePlateCount * 0.5)),
-      effectivePlateCount,
-    ),
-  )
+  const shapeConfig = resolveMapShapeConfig(config)
+  const effectivePlateCount = shapeConfig.effectivePlateCount
+  const effectiveContinentCount = shapeConfig.effectiveContinentCount
 
   const rng = seedRandom(seed)
   setNamingStyle(namingStyle)
