@@ -244,14 +244,20 @@ export type TemplateShapeIntent =
   | 'special'     // 极特殊（火山、沙漠化、破碎）
 
 /**
- * 按 shape intent 聚合的模板集合（round 1 静态分组）
+ * 按 shape intent 聚合的模板集合（round 1.5 静态分组）
  *  - `single`      仅 `pangea`（oldWorld 暂未验证稳定产生单主陆块，留待第二轮）
- *  - `special`     第一轮不在自动分支暴露，仅 landRatio>0.85 触发或显式选择
+ *  - `special`     不在自动分支暴露，仅 landRatio>0.85 触发或显式选择
+ *  - `continents`  Round 1.5 临时去掉 `mediterranean`：mediterranean 模板的
+ *                  Mask -2 + 上下 Hills 组合在部分 seed 下覆盖几乎全图，
+ *                  在自动路径里会显著拉高 landRatio（snapshot cc=6: 0.613）。
+ *                  Round 2 完成「中心水域 + 上下陆地带 + 中心水域不填死」
+ *                  完整合同后再放回。显式选择仍可触发（reverse-map 走
+ *                  `TEMPLATE_TO_INTENT.mediterranean = 'continents'`）。
  *  - 其它组别权重取自各模板 entry 的 `probability` 字段
  */
 export const TEMPLATE_GROUPS: Record<TemplateShapeIntent, readonly HeightmapTemplate[]> = {
   single:      ['pangea'],
-  continents:  ['continents', 'oldWorld', 'mediterranean'],
+  continents:  ['continents', 'oldWorld'],
   archipelago: ['archipelago', 'shattered', 'highIsland', 'lowIsland', 'atoll'],
   peninsula:   ['peninsula', 'isthmus'],
   special:     ['volcano', 'taklamakan', 'fractious'],
@@ -278,6 +284,12 @@ export const TEMPLATE_TO_INTENT: Record<HeightmapTemplate, TemplateShapeIntent> 
 /**
  * 仅自动路径使用：根据 continentCount + landRatio 决定 shape intent。
  * 显式模板不走这里（避免 `continentCount=1 + 显式 peninsula` 被误归到 `single`）。
+ *
+ * Round 1.5 规则修正：
+ *  - 删掉 `landRatio > 0.45 → archipelago` 的反直觉分支（陆地更多却去岛链
+ *    组，与用户预期相反）
+ *  - peninsula 组加自动入口：`cc === 2 && landRatio ∈ [0.4, 0.5]` → peninsula
+ *    （保守窗口：仅"2 个板块 + 中等陆地"走半岛，其他 cc 走 continents）
  */
 export function resolveShapeIntent(
   continentCount: number,
@@ -286,9 +298,7 @@ export function resolveShapeIntent(
   if (continentCount <= 1) return 'single'
   if (landRatio > 0.85)    return 'special'
   if (landRatio < 0.15)    return 'archipelago'
-  if (continentCount <= 4) {
-    return landRatio <= 0.45 ? 'continents' : 'archipelago'
-  }
+  if (continentCount === 2 && landRatio >= 0.4 && landRatio <= 0.5) return 'peninsula'
   return 'continents'
 }
 

@@ -4,43 +4,45 @@ exports[`视觉/性能验收 > 视觉基线：cc=1（单大陆） > visual-cc1 1
 {
   "boundaries": 4,
   "boundaryByType": {
-    "convergent": 83,
-    "divergent": 73,
+    "convergent": 0,
+    "divergent": 108,
     "total": 2000,
-    "transform": 52,
+    "transform": 107,
   },
   "coastlineVertCounts": [
-    11,
-    674,
+    8,
+    437,
   ],
   "coastlines": 2,
-  "land": 1315,
-  "landRatio": 0.658,
+  "land": 891,
+  "landRatio": 0.446,
   "plates": 4,
   "total": 2000,
-  "water": 685,
+  "water": 1109,
 }
 `;
 
 exports[`视觉/性能验收 > 视觉基线：cc=4（多大陆） > visual-cc4 1`] = `
 {
-  "boundaries": 10,
+  "boundaries": 9,
   "boundaryByType": {
-    "convergent": 205,
-    "divergent": 37,
+    "convergent": 191,
+    "divergent": 144,
     "total": 3000,
-    "transform": 100,
+    "transform": 28,
   },
   "coastlineVertCounts": [
-    241,
-    391,
+    18,
+    19,
+    258,
+    317,
   ],
-  "coastlines": 2,
-  "land": 1377,
-  "landRatio": 0.459,
+  "coastlines": 4,
+  "land": 1391,
+  "landRatio": 0.464,
   "plates": 6,
   "total": 3000,
-  "water": 1623,
+  "water": 1609,
 }
 `;
 
@@ -48,21 +50,21 @@ exports[`视觉/性能验收 > 视觉基线：cc=6（多大陆 + 多板块） > 
 {
   "boundaries": 15,
   "boundaryByType": {
-    "convergent": 72,
-    "divergent": 168,
+    "convergent": 108,
+    "divergent": 228,
     "total": 3000,
-    "transform": 235,
+    "transform": 139,
   },
   "coastlineVertCounts": [
-    45,
-    259,
-    273,
+    19,
+    223,
+    320,
   ],
   "coastlines": 3,
-  "land": 1838,
-  "landRatio": 0.613,
+  "land": 1364,
+  "landRatio": 0.455,
   "plates": 8,
   "total": 3000,
-  "water": 1162,
+  "water": 1636,
 }
 `;

@@ -19,6 +19,10 @@ import { computeHillshade } from './hillshade'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
 import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
+import {
+  resolveHeightmapTemplate,
+  type TemplateShapeIntent,
+} from './heightmap-templates'
 
 interface ResolvedMapShapeConfig {
   plateCount: number
@@ -26,9 +30,26 @@ interface ResolvedMapShapeConfig {
   explicitTemplate: HeightmapTemplate | undefined
   effectiveContinentCount: number
   effectivePlateCount: number
+  /**
+   * 形状语义（Round 1.5 贯穿）。rng 未传时为 undefined，调用方需在
+   * seedRandom 之后再次调用以消费 RNG 并把形状语义传到 generateHeightmap。
+   */
+  shapeIntent: TemplateShapeIntent | undefined
+  /** 形状解析后选中的具体模板名（透传给 generateHeightmap 作 templateOverride） */
+  templateName: HeightmapTemplate | undefined
 }
 
-function resolveMapShapeConfig(config: MapGenConfig): ResolvedMapShapeConfig {
+/**
+ * 统一解析地图形状配置。rng 可选：
+ *  - 不传：只解析 plate / continent 派生，shapeIntent + templateName 留空
+ *  - 传入：自动路径走 `resolveHeightmapTemplate`（消费 1 次 RNG），
+ *          显式路径 reverse-map 形状意图；templateName 一律填好供
+ *          `generateHeightmap` 作 `templateOverride` 使用
+ */
+function resolveMapShapeConfig(
+  config: MapGenConfig,
+  rng?: () => number,
+): ResolvedMapShapeConfig {
   const continentCount = config.continentCount
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
   const effectiveContinentCount = Math.max(
@@ -38,14 +59,28 @@ function resolveMapShapeConfig(config: MapGenConfig): ResolvedMapShapeConfig {
       effectivePlateCount,
     ),
   )
-  // Use config.continentCount as the "continentCount" passed to generateTectonics;
-  // effectiveContinentCount is the same value capped to plateCount.
+
+  let shapeIntent: TemplateShapeIntent | undefined
+  let templateName: HeightmapTemplate | undefined
+  if (rng) {
+    const resolved = resolveHeightmapTemplate({
+      continentCount: effectiveContinentCount,
+      landRatio: config.landRatio ?? 0.45,
+      rng,
+      explicitTemplate: config.heightmapTemplate,
+    })
+    shapeIntent = resolved.shapeIntent
+    templateName = resolved.templateName
+  }
+
   return {
     plateCount: effectivePlateCount,
     continentCount: effectiveContinentCount,
     explicitTemplate: config.heightmapTemplate,
     effectiveContinentCount,
     effectivePlateCount,
+    shapeIntent,
+    templateName,
   }
 }
 
@@ -78,11 +113,11 @@ export function generateMap(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  const shapeConfig = resolveMapShapeConfig(config)
+  // 形状语义解析放在 seedRandom 之后以便消费 RNG；templateName 透传给 generateHeightmap
+  const rng = seedRandom(seed)
+  const shapeConfig = resolveMapShapeConfig(config, rng)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
-
-  const rng = seedRandom(seed)
 
   // 设置命名风格
   setNamingStyle(namingStyle)
@@ -116,7 +151,7 @@ export function generateMap(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate,
+    plates, boundaries, effectiveContinentCount, config.realism, shapeConfig.templateName,
   )
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
@@ -309,11 +344,12 @@ export async function generateMapAsync(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  const shapeConfig = resolveMapShapeConfig(config)
+  // 形状语义解析放在 seedRandom 之后以便消费 RNG；templateName 透传给 generateHeightmap
+  const rng = seedRandom(seed)
+  const shapeConfig = resolveMapShapeConfig(config, rng)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
 
-  const rng = seedRandom(seed)
   setNamingStyle(namingStyle)
 
   // 1. Grid
@@ -341,7 +377,7 @@ export async function generateMapAsync(
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate,
+    plates, boundaries, effectiveContinentCount, config.realism, shapeConfig.templateName,
   )
   collector?.end('heightmap')
   await yieldToMain()

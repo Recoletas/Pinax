@@ -26,7 +26,7 @@ export interface LandmassMetrics {
   sizes: number[]
   largestRatio: number
   secondRatio: number
-  /** largest.size / largest.bbox.area — 越低越破碎 */
+  /** largest.size / bbox 内总 cell 数 ∈ [0, 1]。越大越 compact（bbox 内几乎全陆） */
   bboxFillRatio: number
   /** largest bbox 短长比 = max/max-min / min */
   bboxAspectRatio: number
@@ -127,14 +127,24 @@ export function getLandmassMetrics(
   const largestSize = major[0] ?? 0
   const secondSize = major[1] ?? 0
 
-  // bboxFillRatio / bboxAspectRatio
+  // bboxFillRatio: largest 陆块 cell 数 / bbox 内总 cell 数（cells 数 / cells 数，单位一致）
+  // 物理意义：bbox 内陆地填充密度 ∈ [0, 1]。1 = bbox 全部是陆地（最 compact），
+  //          0 = largest 散在 bbox 边缘，bbox 内多数 cell 是水。Round 1.5 修正
+  //          旧版的 `largest.size / boxArea`（cells / pixel²）单位不一致问题。
   let bboxFillRatio = 0, bboxAspectRatio = 1
   if (largest) {
-    const w = largest.bbox.maxX - largest.bbox.minX, h = largest.bbox.maxY - largest.bbox.minY
-    const boxArea = w * h
-    bboxFillRatio = boxArea > 0 ? largest.size / boxArea : 1
+    const minX = largest.bbox.minX, maxX = largest.bbox.maxX
+    const minY = largest.bbox.minY, maxY = largest.bbox.maxY
+    const w = maxX - minX, h = maxY - minY
     const minDim = Math.min(w, h), maxDim = Math.max(w, h)
     bboxAspectRatio = minDim > 0 ? maxDim / minDim : 1
+
+    let cellsInBbox = 0
+    for (let i = 0; i < cells.length; i++) {
+      const x = cells.p[i * 2], y = cells.p[i * 2 + 1]
+      if (x >= minX && x <= maxX && y >= minY && y <= maxY) cellsInBbox++
+    }
+    bboxFillRatio = cellsInBbox > 0 ? largest.size / cellsInBbox : 0
   }
 
   // coastRoughness:陆-水边界 cell 数(去重) / sqrt(largest.size)

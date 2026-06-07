@@ -127,11 +127,20 @@ function softenMapEdges(cells: GridCells, width: number, height: number): void {
 
 /**
  * 调整海平面以达到目标海陆比例（gap-aware）。
- * 每轮迭代最多平移 ±6 高度（plan 阶段 6 起初为 ±3，但在 4 attempts 内
- * 无法把 continents 模板的高基线降回目标 0.45 landRatio — 实测需要 ~25
- * 单位 shift，±3 × 4 = 12 远不够。±6 × 4 = 24 是旧版 ±12 × 4 = 48 的
- * 一半，仍保留"不大幅冲掉模板细节"的意图）。
- * 落入容差（±0.025）即提前返回；不再做末尾 ±6 强制截断。
+ *
+ * 历史步幅：
+ *   原版：       step ±12 × 4 attempts = 48 max shift
+ *   Round 1：    step ±3 → ±6 × 4 attempts = 24 max shift（plan 阶段 6 要求限幅）
+ *   Round 1.5：  step ±10 × 6 attempts = 60 max shift
+ *
+ * Round 1 退到 ±6 × 4 = 24 在 pangea / mediterranean 类高基线模板下
+ * 完全拉不到目标 0.45 landRatio（实测 cc=1 pangea 0.658, cc=6
+ * mediterranean 0.613）。Round 1.5 给到 60 max shift，2.4× 余量
+ * 应对最坏基线。步幅仍保持小（±10 < 原版 ±12），分多轮逼近以减少
+ * 单步模板细节扭曲。真正的「保形」remap（海岸带侵蚀/扩张 + 低频噪声）
+ * 放 Round 2 的 `adjustSeaLevelTemplateAware`。
+ *
+ * 落入容差（±0.025）即提前返回；末尾不再做 ±N 强制截断。
  */
 function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
   const heights = Array.from(cells.h)
@@ -142,10 +151,9 @@ function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
   let shift = SEA_LEVEL - seaLevel
   if (shift === 0) return
 
-  // 大偏移会抹掉模板细节，分多轮小步逼近目标海陆比。
   let attempts = 0
-  while (shift !== 0 && attempts++ < 4) {
-    const step = clamp(shift, -6, 6)
+  while (shift !== 0 && attempts++ < 6) {
+    const step = clamp(shift, -10, 10)
     for (let i = 0; i < cells.length; i++) {
       cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + step))
     }

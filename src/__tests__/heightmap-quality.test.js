@@ -8,12 +8,22 @@ import { getLandmassMetrics } from '../services/world-map/engine/shape-metrics'
  * 这些不是性能/烟雾测试 — 测的是 *geometric invariants* 和 *distributional
  * sanity*。改 heightmap 算法或模板应该挂。改 FBM 系数 / 阈值需要更新阈值。
  *
- * 第一轮（plan phase 1, 2026-06-07）：
- * - `landRatio 准确：±5%` 改成 `±30%` 容差 + 通过 `getLandmassMetrics` 记录
- *   实际值。第一轮 `adjustSeaLevel` 步幅限制为 ±3（删除末尾 ±6 强制截断），
- *   实际 landRatio 可与目标偏离；测试只断"非全陆/非全水"两个极端。
- *   第二轮 `adjustSeaLevelTemplateAware` 完成后才收紧容差。
+ * Round 1.5（2026-06-07）：
+ * - 把"landRatio 在合理区间"测试从 largestRatio 换成真 landRatio。
+ *   旧测试名字叫 landRatio，实际断 largestRatio，导致 snapshot 出现
+ *   cc=1: 0.658 / cc=6: 0.613 这种严重偏离仍能绿。Round 1.5 强制
+ *   `adjustSeaLevel` 实际命中目标 0.45（容差 ±0.07 即 0.40-0.52）。
+ * - 阈值收紧到 [0.40, 0.52] 是因为 adjustSeaLevel 现在 ±10 × 6 attempts
+ *   给了 60 max shift，绝大多数模板应能命中。
  */
+
+function computeLandRatio(cells) {
+  let land = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] >= 20) land++
+  }
+  return land / cells.length
+}
 
 describe('Heightmap 质量', () => {
   it('deterministic：同 seed 两次 h 完全相同', () => {
@@ -24,14 +34,38 @@ describe('Heightmap 质量', () => {
     }
   })
 
-  it('landRatio 在合理区间（第一轮 ±30%，记录基线）', () => {
-    const data = generateMap({ seed: 'q-ratio', pointCount: 3000, landRatio: 0.45 })
-    const m = getLandmassMetrics(data.cells, { minSize: 100, width: 1200, height: 800 })
-    // 基线记录（test log）：largestRatio + componentCount
-    // eslint-disable-next-line no-console
-    console.log('  baseline[default]:', { largestRatio: m.largestRatio.toFixed(3), componentCount: m.componentCount, polarLandRatio: m.polarLandRatio.toFixed(3) })
-    expect(m.largestRatio).toBeGreaterThan(0.20)  // 至少有 20% 陆地（不全水）
-    expect(m.largestRatio).toBeLessThan(0.95)     // 最多 95% 陆地（不全陆）
+  it('landRatio 命中目标 0.45 ±0.05（真 landRatio，不是 largestRatio）', () => {
+    // 5 个 seed 跑默认 landRatio=0.45，全部应在 [0.40, 0.52] 之间
+    // 这才是用户在视觉层能接受的"地图"。
+    const seeds = ['q-ratio-1', 'q-ratio-2', 'q-ratio-3', 'q-ratio-4', 'q-ratio-5']
+    const results = []
+    for (const seed of seeds) {
+      const data = generateMap({ seed, pointCount: 3000, landRatio: 0.45 })
+      const actual = computeLandRatio(data.cells)
+      const m = getLandmassMetrics(data.cells, { minSize: 100, width: 1200, height: 800 })
+      results.push({ seed, actual, largestRatio: m.largestRatio, componentCount: m.componentCount })
+      // eslint-disable-next-line no-console
+      console.log(`  baseline[default ${seed}]:`, { actual: actual.toFixed(3), largestRatio: m.largestRatio.toFixed(3), componentCount: m.componentCount })
+      expect(actual).toBeGreaterThanOrEqual(0.40)
+      expect(actual).toBeLessThanOrEqual(0.52)
+    }
+  })
+
+  it('landRatio 极端值 0.15 / 0.85 也能大致命中（容差放宽，记录基线）', () => {
+    // Round 1.5 验证：adjustSeaLevel 在两端也能"大致"命中。
+    // 极端目标（0.15 自动走 archipelago / 0.85 自动走 special）的模板基线
+    // 本身就偏离目标，adjustSeaLevel 只能"大致"拉回，不强求精确。
+    for (const target of [0.15, 0.85]) {
+      const data = generateMap({ seed: `q-extreme-${target}`, pointCount: 3000, landRatio: target })
+      const actual = computeLandRatio(data.cells)
+      // eslint-disable-next-line no-console
+      console.log(`  baseline[extreme ${target}]:`, { actual: actual.toFixed(3) })
+      // 极端值容差放宽到 ±0.15：archipelago 模板的"大量水域"基线 + FBM
+      // 噪声可能导致 ±10 个百分点偏差；fractious（special）等高基线
+      // 模板可能无法拉到 0.85。这是软断言，目的是防止回归到 0% 或 100%。
+      expect(actual).toBeGreaterThan(0.05)
+      expect(actual).toBeLessThan(0.95)
+    }
   })
 
   it('显式 pangea 模板：largestRatio ≥ 0.85（单主陆块）', () => {
