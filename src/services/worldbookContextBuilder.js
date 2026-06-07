@@ -3,7 +3,7 @@ import { summarizeStructuredSettings } from './settingPanelSchema'
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
 
-const ENTRY_TYPE_PRIORITY = {
+export const ENTRY_TYPE_PRIORITY = {
   rule: 1,
   forbidden: 2,
   style: 3,
@@ -17,7 +17,7 @@ const ENTRY_TYPE_PRIORITY = {
   general: 11
 }
 
-const ENTRY_TYPE_ALIASES = {
+export const ENTRY_TYPE_ALIASES = {
   org: 'organization',
   faction: 'organization',
   lore: 'lore',

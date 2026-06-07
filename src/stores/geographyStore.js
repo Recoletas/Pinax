@@ -31,6 +31,7 @@ export const useGeographyStore = defineStore('geography', {
     // ── 地图配置 ──
     voronoiConfig: null,
     markers: [],
+    lastGenerationMeta: null,
   }),
 
   getters: {
@@ -108,18 +109,22 @@ export const useGeographyStore = defineStore('geography', {
           if (parsed && typeof parsed === 'object' && parsed.voronoiConfig !== undefined) {
             this.voronoiConfig = parsed.voronoiConfig
             this.markers = Array.isArray(parsed.markers) ? parsed.markers : []
+            this.lastGenerationMeta = parsed.lastGenerationMeta || null
           } else {
             // 旧格式：整个 parsed 就是 voronoiConfig
             this.voronoiConfig = parsed
             this.markers = []
+            this.lastGenerationMeta = null
           }
         } catch {
           this.voronoiConfig = null
           this.markers = []
+          this.lastGenerationMeta = null
         }
       } else {
         this.voronoiConfig = null
         this.markers = []
+        this.lastGenerationMeta = null
       }
     },
 
@@ -176,12 +181,18 @@ export const useGeographyStore = defineStore('geography', {
       this.persistMapData()
     },
 
+    setLastGenerationMeta(meta) {
+      this.lastGenerationMeta = meta || null
+      this.persistMapData()
+    },
+
     persistMapData() {
       if (this.activeWorldId) {
         this.updateNode(this.activeWorldId, {
           mapConfigJSON: JSON.stringify({
             voronoiConfig: this.voronoiConfig,
             markers: this.markers,
+            lastGenerationMeta: this.lastGenerationMeta,
           })
         })
       }

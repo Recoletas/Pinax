@@ -86,14 +86,14 @@ Mask 4 0 0 0`,
     probability: 16,
     template: `Hill 1 80-85 60-80 40-60
 Hill 1 80-85 20-30 40-60
-Hill 6-7 15-30 25-75 15-85
-Multiply 0.6 land 0 0
-Hill 8-10 5-10 15-85 20-80
-Range 1-2 30-60 5-15 25-75
-Range 1-2 30-60 80-95 25-75
-Range 0-3 30-60 80-90 20-80
-Strait 2 vertical 0 0
-Strait 1 vertical 0 0
+	Hill 6-7 15-30 25-75 15-85
+	Multiply 0.6 land 0 0
+	Hill 8-10 5-10 15-85 20-80
+	Range 3-4 38-68 10-38 22-78
+	Range 3-4 38-68 56-90 22-78
+	Range 2-3 34-62 28-78 22-78
+	Strait 2 vertical 0 0
+	Strait 1 vertical 0 0
 Smooth 3 0 0 0
 Trough 3-4 15-20 15-85 20-80
 Trough 3-4 5-10 45-55 45-55
@@ -253,21 +253,67 @@ export function pickTemplate(
   if (landRatio < 0.15) return 'atoll'
   if (landRatio > 0.85) return 'volcano'
 
-  // 板块数派模板
-  if (continentCount <= 1) return 'pangea'
-  if (continentCount <= 3) return 'continents'
-  if (continentCount >= 6) return 'shattered'
-  if (continentCount >= 4) return landRatio < 0.3 ? 'archipelago' : 'archipelago'
-
-  // 默认：按 probability 加权随机（Azgaar 原版选模板的逻辑）
-  const entries = Object.values(HEIGHTMAP_TEMPLATES)
-  const total = entries.reduce((s, e) => s + e.probability, 0)
-  let r = rng() * total
-  for (const [key, e] of Object.entries(HEIGHTMAP_TEMPLATES)) {
-    r -= e.probability
-    if (r <= 0) return key
+  const weightedPick = (weights: Array<[string, number]>): string => {
+    const total = weights.reduce((sum, [, weight]) => sum + weight, 0)
+    let r = rng() * total
+    for (const [name, weight] of weights) {
+      r -= weight
+      if (r <= 0) return name
+    }
+    return weights[0][0]
   }
-  return 'continents'
+
+  // 不再把中高 continentCount 硬锁成碎岛模板，保留更接近 Azgaar 的多模板分流。
+  if (continentCount <= 1) {
+    return weightedPick([
+      ['pangea', 6],
+      ['oldWorld', 2],
+      ['peninsula', 1],
+      ['continents', 1],
+    ])
+  }
+  if (continentCount === 2) {
+    return weightedPick([
+      ['continents', 5],
+      ['oldWorld', 2],
+      ['pangea', 2],
+      ['mediterranean', 1],
+    ])
+  }
+  if (continentCount === 3) {
+    return weightedPick([
+      ['continents', 5],
+      ['oldWorld', 3],
+      ['archipelago', 1],
+      ['fractious', 1],
+    ])
+  }
+  if (continentCount <= 5) {
+    return weightedPick([
+      ['continents', 4],
+      ['oldWorld', 3],
+      ['archipelago', 2],
+      ['fractious', 1],
+      ['shattered', 1],
+    ])
+  }
+
+  if (landRatio > 0.45) {
+    return weightedPick([
+      ['oldWorld', 2],
+      ['continents', 2],
+      ['archipelago', 2],
+      ['shattered', 1],
+      ['fractious', 1],
+    ])
+  }
+
+  return weightedPick([
+    ['archipelago', 3],
+    ['shattered', 2],
+    ['oldWorld', 2],
+    ['fractious', 1],
+  ])
 }
 
 // ── 模板执行（faithful port from
@@ -522,6 +568,25 @@ function addRange(
         }
       }
     }
+
+    // Add side prominences to avoid overly straight mountain ribbons.
+    for (let d = 0; d < range.length; d++) {
+      if (d % 6 !== 0) continue
+      let cur = range[d]
+      for (let step = 0; step < i; step++) {
+        let minNeighbor = -1
+        let minHeight = Infinity
+        for (const nb of cells.c[cur]) {
+          if (cells.h[nb] < minHeight) {
+            minHeight = cells.h[nb]
+            minNeighbor = nb
+          }
+        }
+        if (minNeighbor === -1) break
+        cells.h[minNeighbor] = lim(Math.round((cells.h[cur] * 2 + cells.h[minNeighbor]) / 3))
+        cur = minNeighbor
+      }
+    }
   }
 
   const desired = getNumberInRange(count, rng)
@@ -609,6 +674,24 @@ function addTrough(
             used[n] = 1
           }
         }
+      }
+    }
+
+    for (let d = 0; d < range.length; d++) {
+      if (d % 6 !== 0) continue
+      let cur = range[d]
+      for (let step = 0; step < i; step++) {
+        let minNeighbor = -1
+        let minHeight = Infinity
+        for (const nb of cells.c[cur]) {
+          if (cells.h[nb] < minHeight) {
+            minHeight = cells.h[nb]
+            minNeighbor = nb
+          }
+        }
+        if (minNeighbor === -1) break
+        cells.h[minNeighbor] = lim(Math.round((cells.h[cur] * 2 + cells.h[minNeighbor]) / 3))
+        cur = minNeighbor
       }
     }
   }

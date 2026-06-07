@@ -13,12 +13,16 @@ function makeCells(neighbors) {
   for (let i = 0; i < length; i++) { p[i * 2] = i * 10; p[i * 2 + 1] = 0 }
   const c = neighbors
   const h = new Int8Array(length).fill(50)         // 全陆地（>= SEA_LEVEL 20）
+  const t = new Int8Array(length).fill(5)          // 内陆距离，避免 coast/naval 分支读 undefined
   const r = new Int32Array(length)                  // 无河流
+  const fl = new Float32Array(length)               // 无水流量
   const biome = new Uint8Array(length)              // biome 0
   const culture = new Int8Array(length)              // culture 0
   const s = new Int8Array(length).fill(10)          // 全部有人居住（>= 1）
+  const pop = new Float32Array(length).fill(10)     // 有基础人口，避免无人区惩罚影响手算断言
+  const harbor = new Uint8Array(length)
   const state = new Int16Array(length)              // 全 0（无主）
-  return { length, p, c, h, r, biome, culture, s, state }
+  return { length, p, c, h, t, r, fl, biome, culture, s, pop, harbor, state }
 }
 
 /** 一个 3x3 矩形网格，每 cell 与其直接邻居（上下左右）相连。 */

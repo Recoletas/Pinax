@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateMap } from '../services/world-map/engine/generate'
-import { renderMap } from '../services/world-map/engine/renderer'
+import { renderMap, renderScaleBarLayer } from '../services/world-map/engine/renderer'
 import { createCanvas } from './helpers/canvas'
 
 /**
@@ -41,5 +41,29 @@ describe('renderMap 冒烟', () => {
       stylePreset: 'topographic',
       layers: { hillshade: false },
     })).not.toThrow()
+  })
+
+  it('scaleBar overlay 单层渲染不抛错，并按 scale 设置尺寸', () => {
+    const data = generateMap({ seed: 'render-scale-bar', pointCount: 400 })
+    const canvas = createCanvas(1, 1)
+    expect(() => renderScaleBarLayer(canvas, data, {
+      scale: 2,
+      kmPerPixel: 5,
+      stylePreset: 'topographic',
+    })).not.toThrow()
+    expect(canvas.width).toBe(data.width * 2)
+    expect(canvas.height).toBe(data.height * 2)
+  })
+
+  it('scaleBar overlay 遵守 layers.scaleBar: false', () => {
+    const data = generateMap({ seed: 'render-scale-bar-off', pointCount: 400 })
+    const canvas = createCanvas(1, 1)
+    expect(() => renderScaleBarLayer(canvas, data, {
+      scale: 2,
+      stylePreset: 'topographic',
+      layers: { scaleBar: false },
+    })).not.toThrow()
+    expect(canvas.width).toBe(data.width * 2)
+    expect(canvas.height).toBe(data.height * 2)
   })
 })

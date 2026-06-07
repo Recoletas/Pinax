@@ -12,14 +12,14 @@ const TROPIC_SOUTH = -20
 const TROPICAL_GRADIENT = 0.15
 const TEMPERATURE_EQUATOR = 27
 const TEMPERATURE_NORTH_POLE = -30
-const TEMPERATURE_SOUTH_POLE = -15
+const TEMPERATURE_SOUTH_POLE = -30
 const HEIGHT_EXPONENT = 2
 
 /** 生态群落定义 — 标准等高线地形图配色 */
 export const BIOMES: BiomeDef[] = [
   { id: 0, name: '海洋',       color: '#6baed6', habitability: 0,   moveCost: 10 },
   { id: 1, name: '热带沙漠',   color: '#e8d5a3', habitability: 4,   moveCost: 200 },
-  { id: 2, name: '寒带荒漠',   color: '#c9b98a', habitability: 10,  moveCost: 150 },
+  { id: 2, name: '寒带荒漠',   color: '#aab3a8', habitability: 10,  moveCost: 150 },
   { id: 3, name: '热带草原',   color: '#c6e2a0', habitability: 22,  moveCost: 60 },
   { id: 4, name: '温带草原',   color: '#a8d86e', habitability: 30,  moveCost: 50 },
   { id: 5, name: '热带季风林', color: '#6abf5b', habitability: 50,  moveCost: 70 },
@@ -27,8 +27,8 @@ export const BIOMES: BiomeDef[] = [
   { id: 7, name: '热带雨林',   color: '#1e8a1e', habitability: 80,  moveCost: 80 },
   { id: 8, name: '温带雨林',   color: '#2d8c2d', habitability: 90,  moveCost: 90 },
   { id: 9, name: '针叶林',     color: '#4a7a3b', habitability: 12,  moveCost: 200 },
-  { id: 10, name: '苔原',      color: '#b8c9a0', habitability: 4,   moveCost: 1000 },
-  { id: 11, name: '冰川',      color: '#eaf0f6', habitability: 0,   moveCost: 5000 },
+  { id: 10, name: '苔原',      color: '#aebbad', habitability: 4,   moveCost: 1000 },
+  { id: 11, name: '冰川',      color: '#f0f5f6', habitability: 0,   moveCost: 5000 },
   { id: 12, name: '湿地',      color: '#7fb5a0', habitability: 12,  moveCost: 150 },
 ]
 
@@ -160,7 +160,8 @@ export function calculateTemperature(
     if (h >= SEA_LEVEL) temp -= getAltitudeTemperatureDrop(h)
 
     if (Math.abs(cells.t[i]) <= 2 && cells.t[i] > 0) {
-      temp = temp * 0.9 + 15 * 0.1
+      const coastalTarget = getCoastalModerationTarget(latitude)
+      temp = temp * 0.9 + coastalTarget * 0.1
     }
 
     baseTemp[i] = temp
@@ -217,6 +218,12 @@ export function calculateTemperature(
     return latitude > 0
       ? tempNorthTropic - (latitude - TROPIC_NORTH) * northernGradient
       : tempSouthTropic + (latitude - TROPIC_SOUTH) * southernGradient
+  }
+
+  function getCoastalModerationTarget(latitude: number): number {
+    const absLat = Math.abs(latitude)
+    if (absLat <= 35) return 15
+    return Math.max(-8, 15 - (absLat - 35) * 0.65)
   }
 
   function getAltitudeTemperatureDrop(h: number): number {
@@ -317,39 +324,108 @@ export function calculatePrecipitation(
 // ── 生态群落 ────────────────────────────────────────
 
 /** 指定生态群落 */
-export function assignBiomes(cells: GridCells): void {
+export function assignBiomes(cells: GridCells, height: number): void {
+  if (!Number.isFinite(height) || height <= 0) {
+    throw new Error('assignBiomes: height is required for latitude-aware biome classification')
+  }
+
   for (let i = 0; i < cells.length; i++) {
     const h = cells.h[i]
     const temp = cells.temp[i]
     const prec = cells.prec[i]
     const coastalLand = cells.t[i] > 0 && cells.t[i] <= 2
+    const absLat = Math.abs(90 - (cells.p[i * 2 + 1] / height) * 180)
 
     if (h < SEA_LEVEL) { cells.biome[i] = 0; continue }
-    if (isGlacierCell(i)) { cells.biome[i] = 11; continue }
+    if (isGlacierCell(i, absLat)) { cells.biome[i] = 11; continue }
+    if (isPolarTundraCell(temp, absLat)) { cells.biome[i] = 10; continue }
+    if (isPolarDesertCell(prec, absLat)) { cells.biome[i] = 2; continue }
     if (temp >= 25 && prec < 20 && cells.r[i] === 0) { cells.biome[i] = 1; continue }
 
     const moisture = prec + (cells.fl[i] > 0 ? Math.min(cells.fl[i] / 10, 20) : 0)
-    if (temp > -2 && moisture > 80 && h < 30) { cells.biome[i] = 12; continue }
+    if (temp > -2 && moisture > 80 && h < 30) {
+      cells.biome[i] = sanitizePolarBiome(absLat >= 64 ? coldOpenBiome(prec) : 12, temp, prec, absLat)
+      continue
+    }
 
     const moistureIdx = Math.min(Math.floor(moisture / 25), 4)
     const tempIdx = Math.min(Math.max(Math.floor((25 - temp)), 0), 25)
-    cells.biome[i] = BIOME_MATRIX[moistureIdx][tempIdx]
+    const matrixBiome = BIOME_MATRIX[moistureIdx][tempIdx]
+    cells.biome[i] = sanitizeMatrixBiome(matrixBiome, temp, prec, absLat)
+    cells.biome[i] = sanitizePolarBiome(cells.biome[i], temp, prec, absLat)
 
     if (coastalLand && cells.biome[i] === 11 && temp > -10) {
       cells.biome[i] = 10
     }
   }
 
-  function isGlacierCell(i: number): boolean {
+  function isGlacierCell(i: number, absLat: number): boolean {
     const h = cells.h[i]
     const temp = cells.temp[i]
     const dist = cells.t[i]
     if (h < SEA_LEVEL) return false
-    if (temp <= -8) return true
-    if (temp > -5) return false
-    if (h >= 70 && temp <= -4) return true
-    if (dist >= 4 && temp <= -6) return true
+    if (absLat >= 84 && temp <= -1) return true
+    if (absLat >= 78 && temp <= -7) return true
+    if (absLat >= 68 && temp <= -13) return true
+    if (absLat >= 64 && temp <= -18) return true
+    if (temp > -7) return false
+    if (h >= 92 && temp <= -10) return true
+    if (dist >= 6 && temp <= -12 && absLat >= 62) return true
     return false
+  }
+
+  function isPolarTundraCell(temp: number, absLat: number): boolean {
+    if (absLat >= 76 && temp <= 5) return true
+    if (absLat >= 68 && temp <= 2) return true
+    if (absLat >= 62 && temp <= -2) return true
+    return absLat >= 56 && temp <= -6
+  }
+
+  function isPolarDesertCell(prec: number, absLat: number): boolean {
+    return absLat >= 68 && prec < 18
+  }
+
+  function clampPolarVegetation(biome: number, temp: number, prec: number, absLat: number): number {
+    if (!isGreenBiome(biome)) return biome
+    if (absLat >= 68) return coldOpenBiome(prec)
+    if (absLat >= 62 && temp <= 4) return coldOpenBiome(prec)
+    if (absLat >= 56 && temp <= -2) return coldOpenBiome(prec)
+    if (absLat >= 48 && temp <= -6) return coldOpenBiome(prec)
+    return biome
+  }
+
+  function sanitizePolarBiome(biome: number, temp: number, prec: number, absLat: number): number {
+    if (biome === 11 || biome === 10 || biome === 2) return biome
+    if (absLat >= 84) return temp <= -1 ? 11 : 10
+    if (absLat >= 76) return temp <= -7 ? 11 : coldOpenBiome(prec)
+    if (absLat >= 68 && temp <= 2) return coldOpenBiome(prec)
+    if (absLat >= 62 && temp <= -2) return coldOpenBiome(prec)
+    return clampPolarVegetation(biome, temp, prec, absLat)
+  }
+
+  function sanitizeMatrixBiome(biome: number, temp: number, prec: number, absLat: number): number {
+    if (biome === 11) {
+      if (absLat < 62 && temp > -10) return prec < 32 ? 9 : 6
+      return coldOpenBiome(prec)
+    }
+    if (biome === 10 && absLat < 60) {
+      if (prec < 24) return 4
+      if (temp < 4) return 9
+      if (prec < 56) return 9
+      return 6
+    }
+    if (biome === 2 && absLat < 62 && temp > -4) {
+      return prec < 24 ? 4 : 9
+    }
+    return biome
+  }
+
+  function isGreenBiome(biome: number): boolean {
+    return (biome >= 3 && biome <= 9) || biome === 12
+  }
+
+  function coldOpenBiome(prec: number): number {
+    return prec < 24 ? 2 : 10
   }
 }
 

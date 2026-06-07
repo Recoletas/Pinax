@@ -37,6 +37,9 @@
 
     <!-- AI error -->
     <div v-if="aiError" class="ai-error">{{ aiError }}</div>
+    <div v-else-if="aiWarnings.length > 0" class="ai-error ai-warning">
+      {{ aiWarnings.join('；') }}
+    </div>
 
     <!-- AI streaming progress -->
     <div v-if="streaming" class="ai-progress">
@@ -55,6 +58,7 @@
           :config="voronoiConfig"
           :markers="markers"
           @map-generated="onMapGenerated"
+          @config-change="handleConfigChange"
           @add-marker="handleAddMarker"
           @update-marker="handleUpdateMarker"
           @delete-marker="handleDeleteMarker"
@@ -69,7 +73,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
-import { buildVoronoiMapPrompt, parseVoronoiMapConfig } from '../../services/ai/voronoiMapAdapter'
+import { useWorldStore } from '../../stores/worldStore'
+import { buildVoronoiMapPrompt, mergeNameSeeds, parseVoronoiMapConfig } from '../../services/ai/voronoiMapAdapter'
+import { extractMapSeedsFromWorldbook } from '../../services/ai/worldbookMapBridge'
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
 import WorldTreeSidebar from './WorldTreeSidebar.vue'
@@ -82,14 +88,20 @@ const viewMode = ref('voronoi')
 const streaming = ref(false)
 const streamOutput = ref('')
 const aiError = ref(null)
+const aiWarnings = ref([])
 
 async function handleGenerate() {
   streaming.value = true
   aiError.value = null
+  aiWarnings.value = []
   streamOutput.value = ''
 
   try {
-    const messages = buildVoronoiMapPrompt(null, overview.value, locations.value)
+    const worldStore = useWorldStore()
+    await worldStore.loadWorldbooksIndex()
+    const activeWorldbook = await worldStore.ensureActiveWorldbook()
+    const worldbookBridge = extractMapSeedsFromWorldbook(activeWorldbook)
+    const messages = buildVoronoiMapPrompt(null, overview.value, locations.value, worldbookBridge)
 
     const settings = await getResolvedApiSettings()
     if (!settings?.baseUrl || !settings?.apiKey || !settings?.model) {
@@ -112,7 +124,19 @@ async function handleGenerate() {
       return
     }
 
-    const config = parseVoronoiMapConfig(raw)
+    const parsed = parseVoronoiMapConfig(raw)
+    if (!parsed.ok) {
+      aiError.value = `AI 返回无效 JSON：${parsed.message}`
+      aiWarnings.value = []
+      return
+    }
+    aiWarnings.value = parsed.warnings
+    const config = parsed.config
+    const stateCount = config.stateCount || 8
+    config.stateNames = mergeNameSeeds(worldbookBridge.stateNames, config.stateNames, Math.ceil(stateCount * 1.5))
+    config.burgNames = mergeNameSeeds(worldbookBridge.burgNames, config.burgNames, stateCount * 4)
+    config.riverNames = mergeNameSeeds(worldbookBridge.riverNames, config.riverNames, stateCount)
+    config.constraints = mergeMapConstraints(worldbookBridge.constraints, config.constraints)
     if (activeNode.value) {
       config.mapName = activeNode.value.name
     }
@@ -125,20 +149,55 @@ async function handleGenerate() {
   }
 }
 
-function onMapGenerated(data) {
-  // No-op: the child component owns the rendered output.
-  // Kept as a hook for future telemetry.
-  void data
+function mergeMapConstraints(primary = {}, secondary = {}) {
+  const constraints = {}
+  const mountains = mergeNamedConstraintList(primary?.mountains, secondary?.mountains)
+  const stateSeeds = mergeNamedConstraintList(primary?.stateSeeds, secondary?.stateSeeds)
+  if (mountains.length) constraints.mountains = mountains
+  if (stateSeeds.length) constraints.stateSeeds = stateSeeds
+  return Object.keys(constraints).length ? constraints : undefined
 }
 
-function handleAddMarker(x, y) {
+function mergeNamedConstraintList(primary = [], secondary = []) {
+  const result = []
+  const seen = new Set()
+  for (const item of [...(primary || []), ...(secondary || [])]) {
+    const name = String(item?.name || '').trim()
+    if (!name) continue
+    const key = name.toLocaleLowerCase('zh-Hans-CN')
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({ ...item, name })
+  }
+  return result
+}
+
+function onMapGenerated(payload) {
+  if (payload?.meta) {
+    if (typeof geoStore.setLastGenerationMeta === 'function') {
+      geoStore.setLastGenerationMeta(payload.meta)
+    } else {
+      geoStore.lastGenerationMeta = payload.meta
+      if (typeof geoStore.persistMapData === 'function') {
+        geoStore.persistMapData()
+      }
+    }
+  }
+}
+
+function handleConfigChange(config) {
+  geoStore.saveVoronoiConfig(config)
+}
+
+function handleAddMarker(x, y, patch = {}) {
   geoStore.addMarker({
-    id: 'mk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-    name: '新标记',
+    id: patch.id || 'mk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    name: patch.name || `新标记 ${markers.value.length + 1}`,
     x, y,
-    type: 'custom',
-    importance: 2,
+    type: patch.type || 'custom',
+    importance: patch.importance || 2,
     userAdded: true,
+    ...patch,
   })
 }
 
@@ -253,6 +312,12 @@ onMounted(() => {
   color: var(--danger);
 }
 
+.ai-warning {
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 20%, transparent);
+  color: #b45309;
+}
+
 .ai-progress {
   margin-bottom: 12px;
   padding: 12px;
@@ -282,13 +347,18 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   display: flex;
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  background: var(--surface-soft);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--shadow) 58%, transparent);
 }
 
 .map-area {
   flex: 1;
   min-width: 0;
+  padding: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 92%, var(--bg-secondary)), var(--surface-panel));
 }
 </style>

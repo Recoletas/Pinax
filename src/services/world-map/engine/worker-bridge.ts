@@ -9,6 +9,7 @@ import type { MapGenConfig, GenerationMeta, VoronoiMapData } from './types'
 
 /** 单次生成请求的最大等待时间 */
 const REQUEST_TIMEOUT_MS = 60_000
+type WorkerErrorCode = 'TIMEOUT' | 'ENGINE'
 
 interface WorkerApi {
   generateMap(
@@ -19,6 +20,18 @@ interface WorkerApi {
 
 let worker: Worker | null = null
 let api: Remote<WorkerApi> | null = null
+
+class WorkerBridgeError extends Error {
+  code: WorkerErrorCode
+  override cause?: unknown
+
+  constructor(code: WorkerErrorCode, message: string, cause?: unknown) {
+    super(message)
+    this.name = 'WorkerBridgeError'
+    this.code = code
+    if (cause !== undefined) this.cause = cause
+  }
+}
 
 function getApi(): Remote<WorkerApi> {
   if (!worker || !api) {
@@ -42,11 +55,31 @@ export function serializeConfigForWorker<T>(config: T): T {
   return JSON.parse(JSON.stringify(config)) as T
 }
 
-function timeoutAfter<T>(ms: number): Promise<T> {
-  return new Promise((_, reject) => {
-    setTimeout(
-      () => reject(new Error(`地图生成超时（${ms / 1000}s）`)),
-      ms,
+function isWorkerBridgeError(error: unknown): error is WorkerBridgeError {
+  return error instanceof WorkerBridgeError
+}
+
+function toEngineError(error: unknown): WorkerBridgeError {
+  if (isWorkerBridgeError(error)) return error
+  const message = error instanceof Error ? error.message : String(error ?? '未知错误')
+  return new WorkerBridgeError('ENGINE', `地图生成失败：${message}`, error)
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new WorkerBridgeError('TIMEOUT', `地图生成超时（${ms / 1000}s）`))
+    }, ms)
+
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(toEngineError(error))
+      },
     )
   })
 }
@@ -61,7 +94,7 @@ export function generateMapInWorker(
 ): Promise<{ data: VoronoiMapData; meta: GenerationMeta }> {
   const plainConfig = serializeConfigForWorker(config)
   const call = getApi().generateMap(plainConfig, options)
-  return Promise.race([call, timeoutAfter(REQUEST_TIMEOUT_MS)])
+  return withTimeout(call, REQUEST_TIMEOUT_MS)
 }
 
 /**

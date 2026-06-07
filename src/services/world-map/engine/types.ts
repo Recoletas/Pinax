@@ -63,6 +63,8 @@ export interface GridCells {
   tectonic?: TectonicData
   /** 火山类型（0=无 1=strato 2=shield） */
   volcano?: Uint8Array
+  /** 山影预计算值（正=亮面，负=暗面，0=无山影） */
+  hillshade?: Float32Array
   /** 河流 ID（0=无，>0=河流编号） */
   riverId?: Uint16Array
 }
@@ -138,6 +140,10 @@ export interface State {
   color: string
   /** 首都 burg ID */
   capital: number
+  /** 核心文化 ID */
+  culture?: number
+  /** 国家核心生境 */
+  nativeBiome?: number
   /** 扩张系数 */
   expansionism: number
   /** 包含的单元格数 */
@@ -324,12 +330,18 @@ export type MapStylePreset =
 
 /** 图层显隐配置 */
 export interface LayerVisibility {
+  hillshade?: boolean   // 山影
   terrain?: boolean    // 地形着色
   ice?: boolean        // 冰盖 / 海冰覆盖
   coastlines?: boolean // 海岸线
+  coastGlow?: boolean   // 海岸光晕
+  volcanoes?: boolean   // 火山 / 高峰强调
   continents?: boolean // 大陆轮廓
   rivers?: boolean     // 河流
+  landDividers?: boolean // 陆地内部划分线
   borders?: boolean    // 国界线
+  borderlands?: boolean // 国界缓冲
+  factionTexture?: boolean // 国家纹理底色
   provinces?: boolean  // 省界线
   roads?: boolean      // 道路
   stateLabels?: boolean // 国家标签

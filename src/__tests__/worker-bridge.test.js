@@ -1,5 +1,18 @@
-import { describe, it, expect } from 'vitest'
-import { serializeConfigForWorker } from '../services/world-map/engine/worker-bridge'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+
+let remoteApi = {
+  generateMap: vi.fn(),
+}
+
+vi.mock('comlink', () => ({
+  wrap: vi.fn(() => remoteApi),
+}))
+
+import {
+  generateMapInWorker,
+  serializeConfigForWorker,
+  terminateWorker,
+} from '../services/world-map/engine/worker-bridge'
 
 /**
  * 防御 structuredClone 错误
@@ -22,6 +35,28 @@ function reactive(target) {
     set(t, p, v) { t[p] = v; return true },
   })
 }
+
+class FakeWorker {
+  constructor() {
+    this.terminate = vi.fn()
+  }
+}
+
+beforeAll(() => {
+  vi.stubGlobal('Worker', FakeWorker)
+})
+
+afterEach(() => {
+  terminateWorker()
+  remoteApi = {
+    generateMap: vi.fn(),
+  }
+  vi.useRealTimers()
+})
+
+afterAll(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('serializeConfigForWorker', () => {
   it('嵌套 reactive proxy → 纯对象（新 realism 形态）', () => {
@@ -65,5 +100,43 @@ describe('serializeConfigForWorker', () => {
     const proxy = reactive({ realism: { rivers: { style: 'meandering' } } })
     const plain = serializeConfigForWorker(proxy)
     expect(() => structuredClone(plain)).not.toThrow()
+  })
+})
+
+describe('generateMapInWorker', () => {
+  it('成功时保持原有返回结构', async () => {
+    const result = {
+      data: { name: 'test-world' },
+      meta: { totalMs: 12, timings: [], seed: 'seed-1' },
+    }
+    remoteApi.generateMap.mockResolvedValue(result)
+
+    await expect(generateMapInWorker({ seed: 'seed-1' })).resolves.toEqual(result)
+    expect(remoteApi.generateMap).toHaveBeenCalledWith({ seed: 'seed-1' }, {})
+  })
+
+  it('worker / engine 抛错时包装为 ENGINE typed error', async () => {
+    remoteApi.generateMap.mockRejectedValue(new Error('boom'))
+
+    await expect(generateMapInWorker({ seed: 'seed-2' })).rejects.toMatchObject({
+      name: 'WorkerBridgeError',
+      code: 'ENGINE',
+      message: '地图生成失败：boom',
+    })
+  })
+
+  it('超时时返回 TIMEOUT typed error', async () => {
+    vi.useFakeTimers()
+    remoteApi.generateMap.mockImplementation(() => new Promise(() => {}))
+
+    const pending = generateMapInWorker({ seed: 'seed-3' })
+    const captured = pending.catch(error => error)
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    await expect(captured).resolves.toMatchObject({
+      name: 'WorkerBridgeError',
+      code: 'TIMEOUT',
+      message: '地图生成超时（60s）',
+    })
   })
 })

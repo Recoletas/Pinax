@@ -3,16 +3,25 @@
  * AI 分析世界观设定 → 生成 MapGenConfig 参数（Azgaar 模板 + 板块数 + 命名风格） → 引擎生成地图
  */
 
-import { VALID_NAMING, VALID_HEIGHTMAP_TEMPLATES } from '../../config/geography-types'
+import {
+  VALID_BIOME_IDS,
+  VALID_HEIGHTMAP_TEMPLATES,
+  VALID_LAYER_KEYS,
+  VALID_NAMING,
+  VALID_STYLE_PRESETS,
+} from '../../config/geography-types'
+import { useGeographyStore } from '../../stores/geographyStore'
+import { validateMapConfig } from './mapConfigSchema'
 
 /**
  * 构建 AI prompt，让 AI 根据世界观描述输出 MapGenConfig
  * @param {object|null} worldview - 结构化世界观设定
  * @param {string} overview - 地理总述
  * @param {Array} locations - 地点列表
+ * @param {object|null} worldbookBridge - extractMapSeedsFromWorldbook 的结果
  * @returns {Array} ChatMessage[]
  */
-export function buildVoronoiMapPrompt(worldview, overview, locations) {
+export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookBridge = null) {
   const contextParts = []
 
   if (worldview?.worldStructure) contextParts.push(`【世界结构】${worldview.worldStructure}`)
@@ -24,6 +33,20 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
   if (worldview?.races) contextParts.push(`【种族设定】${worldview.races}`)
   if (worldview?.politicsEconomyCulture) contextParts.push(`【政治经济文化】${worldview.politicsEconomyCulture}`)
   if (overview) contextParts.push(`【地理总述】${overview}`)
+  if (worldbookBridge?.loreContextBlock) contextParts.push(worldbookBridge.loreContextBlock.trim())
+  if (Array.isArray(worldbookBridge?.stateNames) && worldbookBridge.stateNames.length > 0) {
+    contextParts.push(`【世界书势力/国家名候选】${worldbookBridge.stateNames.slice(0, 20).join('、')}`)
+  }
+  if (Array.isArray(worldbookBridge?.burgNames) && worldbookBridge.burgNames.length > 0) {
+    contextParts.push(`【世界书地点名候选】${worldbookBridge.burgNames.slice(0, 30).join('、')}`)
+  }
+  if (Array.isArray(worldbookBridge?.riverNames) && worldbookBridge.riverNames.length > 0) {
+    contextParts.push(`【世界书河流名候选】${worldbookBridge.riverNames.slice(0, 12).join('、')}`)
+  }
+  const mountainSeeds = worldbookBridge?.constraints?.mountains
+  if (Array.isArray(mountainSeeds) && mountainSeeds.length > 0) {
+    contextParts.push(`【世界书山脉/火山约束】${mountainSeeds.slice(0, 12).map(m => `${m.name}(${m.type || 'range'})`).join('、')}`)
+  }
 
   const locationList = locations.length > 0
     ? locations.map(l => `- ${l.name}（${l.type}）：${l.description || '无描述'}`).join('\n')
@@ -32,6 +55,8 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
   const worldContext = contextParts.length > 0
     ? contextParts.join('\n')
     : '（用户未填写世界观描述，请生成一个中文古风奇幻世界）'
+
+  const timingHint = getGenerationTimingHint()
 
   const systemPrompt = `你是一位奇幻世界地图参数设计师。你需要根据用户的世界观文字描述，输出一组地图生成引擎的配置参数（JSON），引擎会用 Voronoi 细分、Azgaar heightmap 模板和后续地理算法自动生成完整的地形、河流、生态群落和城市。
 
@@ -46,14 +71,20 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
 {
   "seed": "随机种子字符串",
   "mapName": "世界名称",
-  "pointCount": 10000,
+  "width": 1200,
+  "height": 800,
+  "pointCount": 6000,
   "landRatio": 0.45,
   "heightmapTemplate": "continents",
   "plateCount": 6,
+  "plateSpeedFactor": 1.0,
   "stateCount": 8,
   "burgDensity": 0.5,
   "temperatureShift": 0,
   "precipitationFactor": 1.0,
+  "stylePreset": "topographic",
+  "generateProvinces": true,
+  "generateRoads": true,
 
   // 高度图模板（Azgaar 官方风格入口）
   // 可选：
@@ -69,6 +100,13 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
   // 7-12: 群岛 / 碎裂大陆
   "plateCount": 6,
 
+  // 画布尺寸 400-4096，默认 1200 x 800
+  "width": 1200,
+  "height": 800,
+
+  // 网格点数量 2000-20000，默认 6000
+  "pointCount": 6000,
+
   "namingStyle": "chinese",
   // 命名风格，从以下选一个：
   // "chinese"     — 中文古风（修仙/武侠/东方奇幻）
@@ -78,9 +116,45 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
   // "highFantasy" — 高魔奇幻（精灵/矮人/龙）
   // "darkFantasy" — 暗黑奇幻（末世/亡灵/恐怖）
 
-  "stateNames": ["国家1", "国家2", ...],
-  "burgNames":  ["首都1", "首都2", ..., "城镇1", "城镇2", ...],
-  "riverNames": ["河流1", "河流2", ...],
+  // 渲染风格 preset
+  // "topographic" | "parchment" | "watercolor" | "dark" | "clean" | "atlas"
+  "stylePreset": "topographic",
+
+  // 图层显隐。只写需要覆盖默认值的子集即可
+  "layers": {
+    "terrain": true,
+    "ice": true,
+    "coastlines": true,
+    "continents": true,
+    "rivers": true,
+    "borders": true,
+    "provinces": false,
+    "roads": true,
+    "stateLabels": true,
+    "burgIcons": true,
+    "burgLabels": true,
+    "scaleBar": true,
+    "vignette": true,
+    "oceanCurrents": false,
+    "wind": false,
+    "tectonics": false
+  },
+
+  // 板块运动速率 0.1-3.0，默认 1.0
+  "plateSpeedFactor": 1.0,
+
+  // 是否生成省份和道路
+  "generateProvinces": true,
+  "generateRoads": true,
+
+  "stateNames": ["国家1", "国家2", "..."],
+  "burgNames":  ["首都1", "首都2", "...", "城镇1", "城镇2", "..."],
+  "riverNames": ["河流1", "河流2", "..."],
+
+  // 可选 biome 覆盖
+  "biomeOverrides": [
+    { "id": 6, "color": "#3da33d" }
+  ],
 
   "realism": {
     "tectonics": { "rangeWidth": 3 },
@@ -121,6 +195,7 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
 - 如果世界观提到"北方寒冷"，设 temperatureShift 为负值
 - 如果世界观提到"干旱沙漠"，设 precipitationFactor < 0.6
 - 如果提到"群岛"，优先设 heightmapTemplate="archipelago"，再配 landRatio=0.25-0.35 + plateCount=8-12
+- 如果更重视性能或快速迭代，可把 pointCount 控制在 4000-8000
 - 国家名和城市名必须完全匹配所选的 namingStyle 风格
 - 如果用户已设定地点名/势力名，优先使用它们，补充的名字风格一致
 - burgNames 的前 stateCount 个会作为首都名，之后的作为普通城镇名
@@ -129,7 +204,7 @@ export function buildVoronoiMapPrompt(worldview, overview, locations) {
 
   const userPrompt = `请根据以下世界观描述，设计地图生成参数 JSON：
 
-${worldContext}
+${timingHint ? `${timingHint}\n` : ''}${worldContext}
 ${locationList ? `\n已设定的地点：\n${locationList}` : ''}
 
 请输出纯 JSON 格式的地图参数。`
@@ -143,34 +218,64 @@ ${locationList ? `\n已设定的地点：\n${locationList}` : ''}
 /**
  * 解析 AI 返回的 JSON 为 MapGenConfig
  * @param {string} raw - AI 返回的原始文本
- * @returns {object} MapGenConfig
+ * @returns {{ok: true, config: object, warnings: string[]} | {ok: false, reason: string, message: string, raw: string, warnings: string[]}}
  */
 export function parseVoronoiMapConfig(raw) {
+  const warnings = []
   const cleaned = raw
     .replace(/^```(?:json)?\s*\n?/i, '')
     .replace(/\n?\s*```\s*$/i, '')
     .trim()
 
-  const parsed = JSON.parse(cleaned)
+  let parsed
+  try {
+    parsed = JSON.parse(cleaned)
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'PARSE',
+      message: error instanceof Error ? error.message : 'Invalid JSON',
+      raw,
+      warnings,
+    }
+  }
 
-  // plateCount：优先 plateCount 字段，fallback 到 continentCount alias
+  const validation = validateMapConfig(parsed)
+  if (!validation.ok) {
+    return {
+      ok: false,
+      reason: 'VALIDATION',
+      message: validation.reason || 'Invalid config payload',
+      raw,
+      warnings,
+    }
+  }
+  warnings.push(...validation.warnings)
+  if (validation.unknownFields.length > 0) {
+    warnings.push(`unknown fields ignored: ${validation.unknownFields.join(', ')}`)
+  }
+
   const plateCount = clamp(
     parsed.plateCount ?? parsed.continentCount ?? 6,
     2, 12,
   )
 
+  const stateCount = clamp(parsed.stateCount || 8, 2, 15)
   const config = {
-    width: 1200,
-    height: 800,
+    width: clamp(parsed.width || 1200, 400, 4096),
+    height: clamp(parsed.height || 800, 400, 4096),
     seed: String(parsed.seed || Math.floor(Math.random() * 1e10)),
     mapName: parsed.mapName || 'Fantasy World',
-    pointCount: clamp(parsed.pointCount || 10000, 5000, 20000),
+    pointCount: clamp(parsed.pointCount || 6000, 2000, 20000),
     landRatio: clamp(parsed.landRatio || 0.45, 0.15, 0.8),
     plateCount,
-    stateCount: clamp(parsed.stateCount || 8, 2, 15),
+    stateCount,
     burgDensity: clamp(parsed.burgDensity || 0.5, 0.1, 1.5),
     temperatureShift: clamp(parsed.temperatureShift || 0, -20, 20),
     precipitationFactor: clamp(parsed.precipitationFactor || 1.0, 0.2, 3.0),
+    plateSpeedFactor: clamp(parsed.plateSpeedFactor || 1, 0.1, 3.0),
+    generateProvinces: parsed.generateProvinces !== false,
+    generateRoads: parsed.generateRoads !== false,
   }
 
   if (parsed.namingStyle && VALID_NAMING.includes(parsed.namingStyle)) {
@@ -179,18 +284,45 @@ export function parseVoronoiMapConfig(raw) {
   if (parsed.heightmapTemplate && VALID_HEIGHTMAP_TEMPLATES.includes(parsed.heightmapTemplate)) {
     config.heightmapTemplate = parsed.heightmapTemplate
   }
+  if (parsed.stylePreset && VALID_STYLE_PRESETS.includes(parsed.stylePreset)) {
+    config.stylePreset = parsed.stylePreset
+  }
+  if (parsed.layers && typeof parsed.layers === 'object' && !Array.isArray(parsed.layers)) {
+    const layers = Object.fromEntries(
+      Object.entries(parsed.layers)
+        .filter(([key, value]) => VALID_LAYER_KEYS.includes(key) && typeof value === 'boolean')
+    )
+    if (Object.keys(layers).length > 0) config.layers = layers
+  }
 
   if (Array.isArray(parsed.stateNames) && parsed.stateNames.length > 0) {
-    config.stateNames = parsed.stateNames.map(String)
+    config.stateNames = cleanNameList(parsed.stateNames)
+    if (config.stateNames.length < stateCount) {
+      warnings.push(`stateNames will be auto-filled for missing entries (${config.stateNames.length}/${stateCount})`)
+    }
   }
   if (Array.isArray(parsed.burgNames) && parsed.burgNames.length > 0) {
-    config.burgNames = parsed.burgNames.map(String)
+    config.burgNames = cleanNameList(parsed.burgNames)
+    if (config.burgNames.length < stateCount * 2) {
+      warnings.push(`burgNames may be auto-filled for missing entries (${config.burgNames.length}/${stateCount * 2})`)
+    }
   }
   if (Array.isArray(parsed.riverNames) && parsed.riverNames.length > 0) {
-    config.riverNames = parsed.riverNames.map(String)
+    config.riverNames = cleanNameList(parsed.riverNames)
+  }
+  if (Array.isArray(parsed.biomeOverrides)) {
+    const biomeOverrides = parsed.biomeOverrides
+      .filter(override => override && typeof override === 'object' && VALID_BIOME_IDS.includes(override.id))
+      .map(override => {
+        const next = { id: Number(override.id) }
+        if (typeof override.color === 'string') next.color = override.color
+        if (Number.isFinite(override.habitability)) next.habitability = override.habitability
+        if (Number.isFinite(override.moveCost)) next.moveCost = override.moveCost
+        return next
+      })
+    if (biomeOverrides.length > 0) config.biomeOverrides = biomeOverrides
   }
 
-  // 解析 realism：白名单过滤；旧 level 字段被静默忽略（向后兼容）
   if (parsed.realism && typeof parsed.realism === 'object') {
     const r = parsed.realism
     const realism = {}
@@ -224,7 +356,6 @@ export function parseVoronoiMapConfig(raw) {
     }
   }
 
-  // 解析 constraints（仅做白名单过滤）
   if (parsed.constraints && typeof parsed.constraints === 'object') {
     config.constraints = {}
     if (Array.isArray(parsed.constraints.mountains)) {
@@ -246,11 +377,48 @@ export function parseVoronoiMapConfig(raw) {
           color: typeof s.color === 'string' ? s.color : undefined,
         }))
     }
+    if (Object.keys(config.constraints).length === 0) delete config.constraints
   }
 
-  return config
+  return { ok: true, config, warnings }
+}
+
+export function getGenerationTimingHint() {
+  try {
+    const store = useGeographyStore()
+    const meta = store?.lastGenerationMeta || (typeof window !== 'undefined' ? window.__VORONOI_LAST_GENERATION_META__ : null)
+    if (!meta || !Array.isArray(meta.timings)) return ''
+    const detail = meta.timings.map(t => `${t.stage} ${t.durationMs}ms`).join(' / ')
+    return `【上次生成耗时】 totalMs=${meta.totalMs}${detail ? ` (${detail})` : ''}`
+  } catch {
+    if (typeof window === 'undefined') return ''
+    const meta = window.__VORONOI_LAST_GENERATION_META__
+    if (!meta || !Array.isArray(meta.timings)) return ''
+    const detail = meta.timings.map(t => `${t.stage} ${t.durationMs}ms`).join(' / ')
+    return `【上次生成耗时】 totalMs=${meta.totalMs}${detail ? ` (${detail})` : ''}`
+  }
 }
 
 function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v))
+  return Math.max(min, Math.min(max, Number(v)))
+}
+
+export function mergeNameSeeds(primary = [], secondary = [], limit = Infinity) {
+  return cleanNameList([...(primary || []), ...(secondary || [])], limit)
+}
+
+function cleanNameList(values, limit = Infinity) {
+  if (!Array.isArray(values)) return []
+  const result = []
+  const seen = new Set()
+  for (const value of values) {
+    const name = String(value || '').trim()
+    if (!name) continue
+    const key = name.toLocaleLowerCase('zh-Hans-CN')
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(name)
+    if (result.length >= limit) break
+  }
+  return result
 }

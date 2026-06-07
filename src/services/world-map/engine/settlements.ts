@@ -65,6 +65,13 @@ export function portQualityValue(cells: GridCells, i: number): number {
   return cells.portQuality[i] / 100
 }
 
+/** 更接近真实港址：需要临海且港口质量达到基本阈值。 */
+export function isGoodPortSite(cells: GridCells, i: number): boolean {
+  if (cells.harbor[i] === 0) return false
+  const pq = cells.portQuality?.[i] ?? 0
+  return pq >= 70
+}
+
 /** 是否靠近海峡(细长水道):harbor 计数 ≥ 3 近似为"被水域包围" */
 export function isNearStrait(cells: GridCells, i: number): boolean {
   return cells.harbor[i] >= 3
@@ -119,8 +126,8 @@ export function settlementScoreRaw(
   const s = (cells.s[i] ?? 0) / 100
   const river = riverConfluence ? 1.0 : (cells.r[i] > 0 ? 0.4 : 0)
   const harbor = port ? portQualityValue(cells, i) : 0
-  const coastPlain = port && cells.h[i] < 35 ? 0.6 : 0
-  const transport = (cells.harbor[i] >= 2 ? 0.5 : 0) + (isNearStrait(cells, i) ? 0.4 : 0)
+  const coastPlain = port && cells.h[i] < 35 ? 0.35 : 0
+  const transport = (cells.harbor[i] >= 2 ? 0.25 : 0) + (isNearStrait(cells, i) ? 0.2 : 0)
   const agriculture = habitabilityOfBiome(cells.biome[i])
   const penalty = extremePenalty(cells, i, height)
   return (
@@ -162,9 +169,9 @@ export function capitalScore(
 ): number {
   void stateCount
   void placedCapitals
-  const port = cells.harbor[i] > 0
+  const port = isGoodPortSite(cells, i)
   const base = settlementScoreRaw(cells, i, port, isRiverConfluence(cells, i), height)
-  return base * 0.7 + centrality(cells, i) * 0.3
+  return base * 0.82 + centrality(cells, i) * 0.18
 }
 
 // ── 自适应 spacing ────────────────────────────────────

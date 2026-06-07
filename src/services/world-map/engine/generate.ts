@@ -6,7 +6,7 @@
 import type { MapGenConfig, VoronoiMapData, MapConstraints } from './types'
 import { seedRandom } from './random'
 import { generatePoints, buildVoronoi } from './grid'
-import { generateHeightmap, applyMacroLandmassShape } from './heightmap'
+import { generateHeightmap } from './heightmap'
 import { detectFeatures, updatePortQuality } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
@@ -15,6 +15,7 @@ import { perturbCoast } from './coast'
 import { extractCoastlines } from './coastline'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
+import { computeHillshade } from './hillshade'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
 import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
@@ -96,21 +97,12 @@ export function generateMap(
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
 
-  // 3.5 海岸线扰动（azgaar 默认参数；用户显式传 coast 仍生效）
-  // 阶段 1：先做大尺度大陆形变，再两级 perturbCoast(low→high)
-  applyMacroLandmassShape(cells, width, height, rng, landRatio)
+  // 3.5 海岸线扰动：只对真近岸做轻低频扰动，避免回头重塑大陆骨架。
   perturbCoast(cells, {
-    noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
-    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
+    noiseScale: config.realism?.coast?.noiseScale ?? 0.008,
+    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 2,
+    latitudeScale: 0.35,
   }, 'low')
-  perturbCoast(cells, {
-    noiseScale: 0.04,
-    noiseAmplitude: 3,
-    latitudeScale: 0.7,
-  }, 'high')
-
-  // 3.6 海岸线多边形提取（每块主要陆块 1 个闭合 Point[] 环）
-  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -118,6 +110,9 @@ export function generateMap(
   const features = detectFeatures(cells)
   console.timeEnd('[MapEngine] Features')
   collector?.end('features')
+
+  // 4.5 海岸线多边形提取（每块主要陆块 1 个闭合 Point[] 环）
+  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 5. 风场与洋流（需要 features 来识别海洋）
   console.time('[MapEngine] Wind & Currents')
@@ -149,13 +144,17 @@ export function generateMap(
   console.timeEnd('[MapEngine] Rivers')
   collector?.end('rivers')
 
+  collector?.start('hillshade')
+  cells.hillshade = computeHillshade(cells)
+  collector?.end('hillshade')
+
   // 河流生成后重算一次港口质量，让河口信号参与 settlement scoring。
   updatePortQuality(cells, features)
 
   // 8. 生态群落
   console.time('[MapEngine] Biomes')
   collector?.start('biomes')
-  assignBiomes(cells)
+  assignBiomes(cells, height)
   console.timeEnd('[MapEngine] Biomes')
   collector?.end('biomes')
 
@@ -180,7 +179,7 @@ export function generateMap(
   // 12. 城镇
   console.time('[MapEngine] Burgs')
   collector?.start('burgs')
-  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames)
+  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
   console.timeEnd('[MapEngine] Burgs')
   collector?.end('burgs')
 
@@ -328,21 +327,12 @@ export async function generateMapAsync(
   collector?.end('heightmap')
   await yieldToMain()
 
-  // 3.5 Coast perturbation (azgaar default; user override via realism.coast)
-  // 阶段 1:先做大尺度大陆形变,再两级 perturbCoast(low→high)
-  applyMacroLandmassShape(cells, width, height, rng, landRatio)
+  // 3.5 Coast perturbation: only nudge true nearshore cells, do not re-sculpt continents.
   perturbCoast(cells, {
-    noiseScale: config.realism?.coast?.noiseScale ?? 0.012,
-    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 6,
+    noiseScale: config.realism?.coast?.noiseScale ?? 0.008,
+    noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 2,
+    latitudeScale: 0.35,
   }, 'low')
-  perturbCoast(cells, {
-    noiseScale: 0.04,
-    noiseAmplitude: 3,
-    latitudeScale: 0.7,
-  }, 'high')
-
-  // 3.6 Coastline polygons (Voronoi boundary walk, one closed ring per major landmass)
-  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 4. Features
   onProgress?.('地理特征', 21)
@@ -350,6 +340,8 @@ export async function generateMapAsync(
   const features = detectFeatures(cells)
   collector?.end('features')
   await yieldToMain()
+
+  const coastlines = extractCoastlines(cells, vertices, width, height)
 
   // 5. Wind & Currents
   onProgress?.('风场洋流', 28)
@@ -379,13 +371,16 @@ export async function generateMapAsync(
     }
   }
   collector?.end('rivers')
+  collector?.start('hillshade')
+  cells.hillshade = computeHillshade(cells)
+  collector?.end('hillshade')
   updatePortQuality(cells, features)
   await yieldToMain()
 
   // 8. Biomes
   onProgress?.('生态群落', 49)
   collector?.start('biomes')
-  assignBiomes(cells)
+  assignBiomes(cells, height)
   collector?.end('biomes')
   rankCells(cells)
   await yieldToMain()
@@ -408,7 +403,7 @@ export async function generateMapAsync(
   // 11. Burgs
   onProgress?.('城镇', 63)
   collector?.start('burgs')
-  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames)
+  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
   collector?.end('burgs')
   await yieldToMain()
 

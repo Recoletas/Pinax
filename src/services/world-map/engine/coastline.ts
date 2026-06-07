@@ -153,7 +153,8 @@ function stitchArcs(
     while (lastV !== firstV && iter++ < arcs.length + 5) {
       const candidates = byStart.get(lastV)
       if (!candidates) break
-      const next = candidates.find(a => !used.has(a))
+      const prevV = vertexIds.length >= 2 ? vertexIds[vertexIds.length - 2] : -1
+      const next = pickBestNextArc(candidates, used, vertices, prevV, lastV)
       if (!next) break
       used.add(next)
       // 追加 next.verts[1..] (skip verts[0] = lastV)
@@ -163,7 +164,7 @@ function stitchArcs(
       lastV = next.v1
     }
 
-    if (vertexIds.length >= MIN_POLYGON_POINTS) {
+    if (lastV === firstV && vertexIds.length >= MIN_POLYGON_POINTS) {
       const poly: Point[] = vertexIds.map(v => vertexToPoint(vertices, v, width, height))
       polygons.push(poly)
     }
@@ -172,11 +173,55 @@ function stitchArcs(
   return polygons
 }
 
+function pickBestNextArc(
+  candidates: Arc[],
+  used: Set<Arc>,
+  vertices: GridVertices,
+  prevV: number,
+  lastV: number,
+): Arc | undefined {
+  let best: Arc | undefined
+  let bestScore = Infinity
+
+  for (const arc of candidates) {
+    if (used.has(arc)) continue
+    if (prevV < 0 || arc.verts.length < 2) return arc
+    const score = turnPenalty(vertices, prevV, lastV, arc.verts[1])
+    if (score < bestScore) {
+      bestScore = score
+      best = arc
+    }
+  }
+
+  return best
+}
+
+function turnPenalty(
+  vertices: GridVertices,
+  a: number,
+  b: number,
+  c: number,
+): number {
+  const bax = vertices.p[b * 2] - vertices.p[a * 2]
+  const bay = vertices.p[b * 2 + 1] - vertices.p[a * 2 + 1]
+  const bcx = vertices.p[c * 2] - vertices.p[b * 2]
+  const bcy = vertices.p[c * 2 + 1] - vertices.p[b * 2 + 1]
+  const len1 = Math.hypot(bax, bay) || 1
+  const len2 = Math.hypot(bcx, bcy) || 1
+  const dot = (bax * bcx + bay * bcy) / (len1 * len2)
+  return 1 - dot
+}
+
 function vertexToPoint(
   vertices: GridVertices,
   v: number,
   width: number,
   height: number,
 ): Point {
-  return [vertices.p[v * 2] / width, vertices.p[v * 2 + 1] / height]
+  const x = vertices.p[v * 2] / width
+  const y = vertices.p[v * 2 + 1] / height
+  return [
+    Math.max(0, Math.min(1, x)),
+    Math.max(0, Math.min(1, y)),
+  ]
 }

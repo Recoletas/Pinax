@@ -42,11 +42,18 @@ export const LOCATION_TYPES = [
 
 /** 地图图层显隐（对应 LayerVisibility 接口） */
 export const LAYER_LABELS = {
+  hillshade: '山影',
   terrain: '地形',
+  ice: '冰盖',
   coastlines: '海岸线',
+  coastGlow: '海岸光晕',
+  volcanoes: '火山/高峰',
   continents: '大陆轮廓',
   rivers: '河流',
+  landDividers: '陆地划分',
   borders: '国界',
+  borderlands: '国界缓冲',
+  factionTexture: '势力纹理',
   provinces: '省界',
   roads: '道路',
   stateLabels: '国名',
@@ -81,3 +88,14 @@ export const VALID_HEIGHTMAP_TEMPLATES = [
 export const VALID_NAMING = [
   'chinese', 'japanese', 'european', 'arabic', 'highFantasy', 'darkFantasy',
 ]
+
+/** 渲染风格 preset（与 engine/style-presets.ts 保持同步） */
+export const VALID_STYLE_PRESETS = [
+  'topographic', 'parchment', 'watercolor', 'dark', 'clean', 'atlas',
+]
+
+/** 可由 AI 设置的图层键（与 engine/types.ts::LayerVisibility 保持同步） */
+export const VALID_LAYER_KEYS = Object.keys(LAYER_LABELS)
+
+/** 可覆盖的 biome id（与 engine/climate.ts::BIOMES 保持同步） */
+export const VALID_BIOME_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]

@@ -11,12 +11,11 @@ import { getStateName, getCapitalName, getTownName, getCultureName, getProvinceN
 import {
   adaptiveSpacing,
   capitalScore,
+  isGoodPortSite,
   isArchipelagic,
   precomputeRiverConfluence,
   settlementScoreRaw,
 } from './settlements'
-import Graph from 'graphology'
-import { astar } from 'graphology-shortest-path'
 
 const SEA_LEVEL = 20
 
@@ -107,17 +106,44 @@ function flowsDownhill(cells: GridCells, src: number, tgt: number): boolean {
 
 /** 简化版"近海"判定:h<35 → 海洋/海岸(供 naval 偏置用) */
 function isOceanic(cells: GridCells, tgt: number): boolean {
-  return cells.h[tgt] < 35
+  return cells.harbor[tgt] > 0 || cells.t[tgt] <= 2
+}
+
+function deriveMapExtent(cells: GridCells): { width: number; height: number } {
+  let maxX = 1
+  let maxY = 1
+  for (let i = 0; i < cells.length; i++) {
+    const x = cells.p[i * 2]
+    const y = cells.p[i * 2 + 1]
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+  return { width: maxX, height: maxY }
+}
+
+function findCultureCoreCell(cells: GridCells, cultureId: number | undefined, fallback: number): number {
+  if (!cultureId) return fallback
+  let bestCell = fallback
+  let bestScore = -Infinity
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < SEA_LEVEL || cells.culture[i] !== cultureId) continue
+    let score = cells.pop[i] * 1.4 + cells.s[i] * 8
+    for (const nb of cells.c[i]) {
+      if (cells.culture[nb] === cultureId) score += cells.pop[nb] * 0.2
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestCell = i
+    }
+  }
+  return bestCell
 }
 
 /** 单元格的"可占据性"分数:<0.3 视为自然屏障,不向外扩张 */
 function frontierScore(cells: GridCells, i: number, mainRiverSet: Uint8Array): number {
-  // 沙漠屏障
-  if (cells.biome[i] === 1 || cells.biome[i] === 2) return 0.1
-  // 主流河道屏障
-  if (mainRiverSet[i] === 1) return 0.2
-  // 高山(降低偏好但仍可占据)
-  if (cells.h[i] > 70) return 0.5
+  if (cells.biome[i] === 1 || cells.biome[i] === 2) return 0.45
+  if (mainRiverSet[i] === 1) return 0.4
+  if (cells.h[i] > 70) return 0.55
   return 1.0
 }
 
@@ -135,30 +161,35 @@ function moveCostForEdge(
   const biome = BIOMES[cells.biome[tgt]]
   // biome 缺省兜底：与 findPath 同款防护
   let mc = (biome?.moveCost ?? 100) / 10
+  if (state.nativeBiome !== undefined && cells.biome[tgt] !== state.nativeBiome) mc += 12
+  if (cells.t[tgt] === 1 && state.government !== 'naval') mc += 8
+  if (cells.t[tgt] > 3 && state.government === 'naval') mc += 14
   if (cells.h[tgt] > 70) mc += (cells.h[tgt] - 70) * 5
   if (cells.s[tgt] < 1) mc += 200
-  // 文化边界(源/目标文化不同 且目标非 0)
+  else if (cells.s[tgt] < 5) mc += (5 - cells.s[tgt]) * 20
+  if (cells.biome[tgt] === 1 || cells.biome[tgt] === 2) mc += 60
+  if (cells.pop[tgt] < 1) mc += 18
+  // 文化边界：用国家核心文化，而不是前线 cell 的当前文化。
   if (
-    cells.culture[tgt] !== cells.culture[src] &&
+    state.culture !== undefined &&
     cells.culture[tgt] !== 0
+    && cells.culture[tgt] !== state.culture
   ) mc += 30
   // 跨主河道:目标在主河上,且 src 不在目标上游
   if (mainRiverSet[tgt] === 1 && !flowsDownhill(cells, src, tgt)) mc += 25
   // 政体偏置
   const gov: Government = state.government ?? 'generic'
   const oceanic = isOceanic(cells, tgt)
-  if (gov === 'naval' && oceanic) mc *= 0.6
+  if (gov === 'naval' && oceanic) mc *= 0.72
   if (gov === 'highland' && cells.h[tgt] > 60) mc *= 0.7
   if (gov === 'nomadic' && (cells.biome[tgt] === 3 || cells.biome[tgt] === 4)) mc *= 0.65
   if (gov === 'river' && cells.r && cells.r[tgt] > 0) mc *= 0.7
-  // 跨海(非 naval)= 强惩罚
-  if (oceanic && gov !== 'naval') mc += 100
   return mc / state.expansionism
 }
 
 /** 单元格的"政体"权重表(根据地形/海港/河流/草原给出倾向) */
 function pickGovernmentByTerrain(cells: GridCells, capitalCell: number, rng: () => number): Government {
-  const isCoast = (cells.harbor?.[capitalCell] ?? 0) > 0 || cells.h[capitalCell] < 35
+  const isCoast = (cells.harbor?.[capitalCell] ?? 0) > 0 || cells.t[capitalCell] <= 2
   const isMountain = cells.h[capitalCell] > 60
   const isGrass = cells.biome[capitalCell] === 3 || cells.biome[capitalCell] === 4
   const isRiver = (cells.r?.[capitalCell] ?? 0) > 0
@@ -218,6 +249,7 @@ export function generateBurgs(
   height: number,
   rng: () => number,
   burgNames?: string[],
+  cultures?: Culture[],
 ): Burg[] {
   const burgs: Burg[] = [{ i: 0, name: '', cell: 0, x: 0, y: 0, state: 0, capital: false, port: false, population: 0 }]
 
@@ -230,6 +262,18 @@ export function generateBurgs(
 
   const archipelagic = isArchipelagic(cells)
   const confMask = precomputeRiverConfluence(cells)
+  const cultureCenters = new Map<number, number>()
+  for (const culture of cultures ?? []) {
+    if (culture.i > 0) cultureCenters.set(culture.i, culture.center)
+  }
+  const neighborhoodPop = new Float32Array(cells.length)
+  let maxNeighborhoodPop = 1
+  for (let i = 0; i < cells.length; i++) {
+    let total = cells.pop[i]
+    for (const nb of cells.c[i]) total += cells.pop[nb] * 0.35
+    neighborhoodPop[i] = total
+    if (total > maxNeighborhoodPop) maxNeighborhoodPop = total
+  }
 
   // 间距常量(用 climate 为常驻值,根据 biome 单独再算)
   // 给 town 一个统一下限(避免太密)
@@ -252,11 +296,39 @@ export function generateBurgs(
   // ── 工具:在剩余 candidates 中选最优 cell,跳过太近 ──
   const placedCells: number[] = []
   const isBurg = (i: number) => cells.burg[i] > 0
+  const totalBurgTarget = Math.max(
+    stateCount + 2,
+    Math.min(
+      Math.floor(candidates.length * Math.max(0.008, burgDensity * 0.016)),
+      Math.max(stateCount + 6, Math.floor(candidates.length * 0.03)),
+    ),
+  )
+  const capitalSiteScore = (i: number): number => {
+    const base = capitalScore(cells, i, stateCount, placedCells, height)
+    const popBoost = (neighborhoodPop[i] / maxNeighborhoodPop) * 0.35
+    const cultureId = cells.culture[i]
+    const center = cultureCenters.get(cultureId)
+    let cultureBoost = 0
+    let borderPenalty = 0
+    if (center !== undefined) {
+      const dx = cells.p[i * 2] - cells.p[center * 2]
+      const dy = cells.p[i * 2 + 1] - cells.p[center * 2 + 1]
+      const dist = Math.hypot(dx, dy)
+      cultureBoost = Math.max(0, 1 - dist / Math.max(globalSpacing * 2.4, 1)) * 0.28
+      for (const nb of cells.c[i]) {
+        if (cells.culture[nb] !== 0 && cells.culture[nb] !== cultureId) {
+          borderPenalty = 0.18
+          break
+        }
+      }
+    }
+    return base + popBoost + cultureBoost - borderPenalty
+  }
   const placeOne = (
     cell: number,
     opts: { name: string; capital: boolean; snapPort: number },
   ): void => {
-    const isPort = cells.harbor[cell] > 0
+    const isPort = isGoodPortSite(cells, cell)
     // state 字段会在 generateStates 阶段被覆盖(以 State.i 重写) — 此处用 0 占位
     const burg: Burg = {
       i: burgs.length,
@@ -286,29 +358,60 @@ export function generateBurgs(
   // ── 轮 1:首都 ──
   // 按 capitalScore 降序,自适应 spacing
   const capitalCandidates = candidates
-    .map(i => ({ i, score: capitalScore(cells, i, stateCount, placedCells, height) }))
+    .map(i => ({ i, score: capitalSiteScore(i) }))
     .sort((a, b) => b.score - a.score)
 
-  for (const { i } of capitalCandidates) {
-    if (placedCells.length >= stateCount) break
-    if (isBurg(i)) continue
-    const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic)
-    if (isTooClose(cells, i, placedCells, spacing)) continue
-    placeOne(i, {
-      name: burgNames?.[burgs.length - 1] || getCapitalName(burgs.length - 1),
-      capital: true,
-      snapPort: 0.3,
-    })
+  const cultureCapTarget = Math.min(
+    stateCount,
+    (cultures ?? []).filter(c => c.i > 0).length,
+  )
+  if (cultureCapTarget > 0) {
+    for (const culture of (cultures ?? []).filter(c => c.i > 0)) {
+      if (placedCells.length >= cultureCapTarget) break
+      const ranked = capitalCandidates.filter(({ i }) => cells.culture[i] === culture.i)
+      for (const { i } of ranked) {
+        const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic)
+        if (isBurg(i) || isTooClose(cells, i, placedCells, spacing)) continue
+        placeOne(i, {
+          name: burgNames?.[burgs.length - 1] || getCapitalName(burgs.length - 1),
+          capital: true,
+          snapPort: 0.26,
+        })
+        break
+      }
+    }
+  }
+
+  let capitalSpacingFactor = 1
+  while (placedCells.length < stateCount && capitalSpacingFactor >= 0.45) {
+    let placedThisPass = false
+    for (const { i } of capitalCandidates) {
+      if (placedCells.length >= stateCount) break
+      if (isBurg(i)) continue
+      const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic) * capitalSpacingFactor
+      if (isTooClose(cells, i, placedCells, spacing)) continue
+      placeOne(i, {
+        name: burgNames?.[burgs.length - 1] || getCapitalName(burgs.length - 1),
+        capital: true,
+        snapPort: 0.26,
+      })
+      placedThisPass = true
+    }
+    if (placedThisPass || placedCells.length >= stateCount) break
+    capitalSpacingFactor *= 0.82
   }
 
   // ── 轮 2:大港 ──
   // settlementScore > 0.7 && port + 大 spacing(>= globalSpacing * 1.5)
   const portSpacing = globalSpacing * 1.5
+  const majorPortCap = Math.max(1, Math.min(Math.ceil(stateCount * 0.8), totalBurgTarget - burgs.length + 1))
+  let majorPortPlaced = 0
   const majorPortCandidates = rankCandidates(
-    i => cells.harbor[i] > 0,
+    i => isGoodPortSite(cells, i),
     i => settlementScoreRaw(cells, i, true, confMask[i] === 1, height),
   )
   for (const { i, score } of majorPortCandidates) {
+    if (majorPortPlaced >= majorPortCap) break
     if (score <= 0.7) break
     if (isTooClose(cells, i, placedCells, portSpacing)) continue
     placeOne(i, {
@@ -316,16 +419,23 @@ export function generateBurgs(
       capital: false,
       snapPort: 0.2,
     })
+    majorPortPlaced++
   }
 
   // ── 轮 3:区域中心 ──
   // settlementScore > 0.55 + min-distance to existing
   const regionSpacing = globalSpacing * 0.9
+  const regionalCap = Math.max(
+    1,
+    Math.min(totalBurgTarget - (burgs.length - 1), Math.max(stateCount, Math.ceil(totalBurgTarget * 0.35))),
+  )
+  let regionalPlaced = 0
   const regionalCandidates = rankCandidates(
     () => true,
-    i => settlementScoreRaw(cells, i, cells.harbor[i] > 0, confMask[i] === 1, height),
+    i => settlementScoreRaw(cells, i, isGoodPortSite(cells, i), confMask[i] === 1, height),
   )
   for (const { i, score } of regionalCandidates) {
+    if (regionalPlaced >= regionalCap) break
     if (score <= 0.55) break
     if (isTooClose(cells, i, placedCells, regionSpacing)) continue
     placeOne(i, {
@@ -333,16 +443,17 @@ export function generateBurgs(
       capital: false,
       snapPort: 0.2,
     })
+    regionalPlaced++
   }
 
   // ── 轮 4:一般城镇 ──
   // 剩余 settlementScore > 0.3 + 更小间距
   const townSpacing = globalSpacing * 0.4
-  const townCap = Math.floor(candidates.length * burgDensity * 0.02)
+  const townCap = Math.max(0, totalBurgTarget - (burgs.length - 1))
   let townPlaced = 0
   const townCandidates = rankCandidates(
     () => true,
-    i => settlementScoreRaw(cells, i, cells.harbor[i] > 0, confMask[i] === 1, height),
+    i => settlementScoreRaw(cells, i, isGoodPortSite(cells, i), confMask[i] === 1, height),
   )
   for (const { i, score } of townCandidates) {
     if (townPlaced >= townCap) break
@@ -380,13 +491,17 @@ export function generateStates(
   const capitals = burgs.filter(b => b.capital)
   for (let i = 0; i < capitals.length; i++) {
     const burg = capitals[i]
-    // 阶段 3：根据首都地形预分配政体(供 moveCostForEdge 用)
-    const government = pickGovernmentByTerrain(cells, burg.cell, rng)
+    const cultureId = cells.culture[burg.cell]
+    const cultureCore = findCultureCoreCell(cells, cultureId, burg.cell)
+    // 阶段 3：根据文化核心地形预分配政体(供 moveCostForEdge 用)
+    const government = pickGovernmentByTerrain(cells, cultureCore, rng)
     const state: State = {
       i: states.length,
       name: stateNames?.[i] || getStateName(i),
       color: STATE_COLORS[i % STATE_COLORS.length],
       capital: burg.i,
+      culture: cultureId,
+      nativeBiome: cells.biome[cultureCore],
       expansionism: 0.8 + rng() * 1.5,
       cells: 0,
       area: 0,
@@ -444,6 +559,7 @@ export function __test_getLastExpandStatesDiagnostics(): ExpandStatesDiagnostics
 function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
   const n = cells.length
   const bestCost = new Float64Array(n).fill(Infinity)
+  const maxStateId = states.reduce((max, state) => Math.max(max, state.i), 0)
 
   // 预计算主流河道
   const mainRiverSet = computeMainRiverCells(cells)
@@ -518,19 +634,22 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
   }
 
   // 平滑:3 轮去孤立(少数邻居多数派胜出)
+  const neighborStates = new Int32Array(maxStateId + 1)
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 0; i < n; i++) {
       if (cells.h[i] < SEA_LEVEL || cells.state[i] === 0) continue
-      const neighborStates: Record<number, number> = {}
+      neighborStates.fill(0)
       for (const neighbor of cells.c[i]) {
-        if (cells.state[neighbor] > 0) {
-          neighborStates[cells.state[neighbor]] = (neighborStates[cells.state[neighbor]] || 0) + 1
+        const sid = cells.state[neighbor]
+        if (sid > 0 && sid <= maxStateId) {
+          neighborStates[sid]++
         }
       }
       const myCount = neighborStates[cells.state[i]] || 0
-      for (const [sid, count] of Object.entries(neighborStates)) {
-        if (count > myCount + 1 && +sid !== cells.state[i]) {
-          cells.state[i] = +sid
+      for (let sid = 1; sid <= maxStateId; sid++) {
+        const count = neighborStates[sid]
+        if (count > myCount + 1 && sid !== cells.state[i]) {
+          cells.state[i] = sid
           break
         }
       }
@@ -539,14 +658,15 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
 
   // 去飞地:3 轮 BFS-from-capital,不可达 cell 改归邻居多数派
   for (let pass = 0; pass < 3; pass++) {
-    deExclaveStates(cells, states, burgs)
+    deExclaveStates(cells, states, burgs, maxStateId)
   }
 
   if (diagnostics) lastExpandStatesDiagnostics = diagnostics
 }
 
 /** 去飞地:对每个 state 做 BFS-from-capital,标记可达;不可达 cell 改归多数邻居 */
-function deExclaveStates(cells: GridCells, states: State[], burgs: Burg[]): void {
+function deExclaveStates(cells: GridCells, states: State[], burgs: Burg[], maxStateId: number): void {
+  const counts = new Int32Array(maxStateId + 1)
   for (const state of states) {
     if (state.i === 0) continue
     const burg = burgs[state.capital]
@@ -570,17 +690,16 @@ function deExclaveStates(cells: GridCells, states: State[], burgs: Burg[]): void
     // 不可达且属本 state 的 cell:改归多数邻居
     for (let i = 0; i < cells.length; i++) {
       if (cells.state[i] !== state.i || visited[i]) continue
-      const counts: Record<number, number> = {}
+      counts.fill(0)
       for (const nb of cells.c[i]) {
         const ns = cells.state[nb]
-        if (ns > 0 && ns !== state.i) {
-          counts[ns] = (counts[ns] || 0) + 1
+        if (ns > 0 && ns <= maxStateId && ns !== state.i) {
+          counts[ns]++
         }
       }
       let best = 0
       let bestC = 0
-      for (const sidStr in counts) {
-        const sid = +sidStr
+      for (let sid = 1; sid <= maxStateId; sid++) {
         if (counts[sid] > bestC) { bestC = counts[sid]; best = sid }
       }
       if (best > 0) cells.state[i] = best
@@ -605,10 +724,11 @@ export function generateCultures(
 
   // 找到高适宜度的陆地单元格作为文化中心
   const candidates = Array.from({ length: cells.length }, (_, i) => i)
-    .filter(i => cells.h[i] >= SEA_LEVEL && cells.s[i] > 10)
-    .sort((a, b) => cells.s[b] - cells.s[a])
+    .filter(i => cells.h[i] >= SEA_LEVEL && (cells.pop[i] > 0 || cells.s[i] > 10))
+    .sort((a, b) => (cells.pop[b] - cells.pop[a]) || (cells.s[b] - cells.s[a]))
 
-  const spacing = Math.sqrt((cells.p[0] || 1000) * 2 / count) * 3
+  const { width, height } = deriveMapExtent(cells)
+  const spacing = Math.sqrt((width * height) / Math.max(1, count)) * 0.42
   const placed: number[] = []
 
   for (const cell of candidates) {
@@ -638,6 +758,34 @@ export function generateCultures(
 
     cultures.push(culture)
     placed.push(cell)
+  }
+
+  if (placed.length < count) {
+    for (const cell of candidates) {
+      if (placed.length >= count) break
+      if (placed.includes(cell)) continue
+
+      const type: Culture['type'] =
+        cells.harbor[cell] > 0 ? 'naval'
+        : cells.h[cell] > 60 ? 'highland'
+        : (cells.r && cells.r[cell] > 0) ? 'river'
+        : 'generic'
+
+      cultures.push({
+        i: cultures.length,
+        name: getCultureName(cultures.length - 1),
+        color: STATE_COLORS[(cultures.length - 1) % STATE_COLORS.length],
+        center: cell,
+        type,
+        expansionism: 0.5 + rng() * 1.5,
+        government: type === 'naval' ? 'naval'
+          : type === 'highland' ? 'highland'
+          : type === 'river' ? 'river'
+          : type === 'nomadic' ? 'nomadic'
+          : 'generic',
+      })
+      placed.push(cell)
+    }
   }
 
   // 阶段 3:成本扩散 Dijkstra
@@ -1048,22 +1196,28 @@ export function generateRoads(
   return roads
 }
 
-/** 陆地无向图缓存 — 同一 cells 对象在一次 generateRoads 调用中只构建一次。 */
-const landGraphCache = new WeakMap<GridCells, Graph>()
+interface LandGraph {
+  neighbors: Int32Array[]
+}
 
-function buildLandGraph(cells: GridCells): Graph {
+/** 陆地数值邻接缓存 — 同一 cells 对象在一次 generateRoads 调用中只构建一次。 */
+const landGraphCache = new WeakMap<GridCells, LandGraph>()
+
+function buildLandGraph(cells: GridCells): LandGraph {
   const cached = landGraphCache.get(cells)
   if (cached) return cached
-  const graph = new Graph({ type: 'undirected', multi: false, allowSelfLoops: false })
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] >= SEA_LEVEL) graph.addNode(String(i))
-  }
+  const edgeLists = Array.from({ length: cells.length }, () => [] as number[])
   for (let i = 0; i < cells.length; i++) {
     if (cells.h[i] < SEA_LEVEL) continue
     for (const j of cells.c[i]) {
+      if (j <= i || j < 0 || j >= cells.length) continue
       if (cells.h[j] < SEA_LEVEL) continue
-      if (i < j) graph.addEdge(String(i), String(j))
+      edgeLists[i].push(j)
+      edgeLists[j].push(i)
     }
+  }
+  const graph: LandGraph = {
+    neighbors: edgeLists.map(edges => Int32Array.from(edges.sort((a, b) => a - b))),
   }
   landGraphCache.set(cells, graph)
   return graph
@@ -1079,36 +1233,61 @@ function findPath(
   burgA?: Burg,
   burgB?: Burg,
 ): number[] {
+  if (start < 0 || end < 0 || start >= cells.length || end >= cells.length) return []
   if (start === end) return [start]
   if (cells.h[start] < SEA_LEVEL || cells.h[end] < SEA_LEVEL) return []
 
   const graph = buildLandGraph(cells)
   const endX = cells.p[end * 2]
   const endY = cells.p[end * 2 + 1]
+  const gScore = new Float64Array(cells.length).fill(Infinity)
+  const previous = new Int32Array(cells.length).fill(-1)
+  const open = new MinHeap<{ cell: number; g: number; f: number }>((a, b) => (
+    (a.f - b.f) || (a.g - b.g) || (a.cell - b.cell)
+  ))
 
-  const path = astar.bidirectional(
-    graph,
-    String(start),
-    String(end),
-    (_edge, _attrs, _source, target) => {
-      const tId = +target
-      if (burgA && burgB) {
-        return roadCostForEdge(cells, 0, tId, burgA, burgB)
-      }
-      const biome = BIOMES[cells.biome[tId]]
-      let mc = (biome?.moveCost ?? 100) / 50
-      if (cells.h[tId] > 70) mc += (cells.h[tId] - 70) * 0.5
-      if (cells.r[tId] > 0) mc *= 0.8
-      return mc
-    },
-    (node) => {
-      const t = +node
-      const dx = cells.p[t * 2] - endX
-      const dy = cells.p[t * 2 + 1] - endY
-      return Math.sqrt(dx * dx + dy * dy) * 0.01
-    },
-  )
+  const heuristic = (cell: number): number => {
+    const dx = cells.p[cell * 2] - endX
+    const dy = cells.p[cell * 2 + 1] - endY
+    return Math.sqrt(dx * dx + dy * dy) * 0.01
+  }
 
-  if (!path) return []
-  return path.map(s => +s)
+  gScore[start] = 0
+  open.push({ cell: start, g: 0, f: heuristic(start) })
+
+  while (!open.empty()) {
+    const current = open.pop()!
+    if (current.g > gScore[current.cell]) continue
+    if (current.cell === end) return reconstructPath(previous, start, end)
+
+    for (const neighbor of graph.neighbors[current.cell]) {
+      const edgeCost = (() => {
+        if (burgA && burgB) {
+          return roadCostForEdge(cells, current.cell, neighbor, burgA, burgB)
+        }
+        return baseBiomeCost(cells, neighbor)
+      })()
+      if (!isFinite(edgeCost)) continue
+      const nextG = current.g + edgeCost
+      if (nextG >= gScore[neighbor]) continue
+      gScore[neighbor] = nextG
+      previous[neighbor] = current.cell
+      open.push({ cell: neighbor, g: nextG, f: nextG + heuristic(neighbor) })
+    }
+  }
+
+  return []
+}
+
+function reconstructPath(previous: Int32Array, start: number, end: number): number[] {
+  const path: number[] = []
+  let cell = end
+  while (cell !== -1) {
+    path.push(cell)
+    if (cell === start) break
+    cell = previous[cell]
+  }
+  if (path[path.length - 1] !== start) return []
+  path.reverse()
+  return path
 }

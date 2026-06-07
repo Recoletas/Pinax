@@ -20,7 +20,7 @@ function lim(v: number): number {
 
 const SEA_LEVEL = 20
 const FBM_SCALE = 0.015
-const FBM_AMP = 5
+const FBM_AMP = 1
 
 /**
  * 生成高度图（Azgaar template-driven）
@@ -34,7 +34,7 @@ export function generateHeightmap(
   rng: () => number,
   landRatio = 0.45,
   plates: Plate[] = [],
-  _boundaries: PlateBoundary[] = [],
+  boundaries: PlateBoundary[] = [],
   continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
   templateOverride?: HeightmapTemplate,
@@ -56,20 +56,15 @@ export function generateHeightmap(
 
   // 步骤 2：FBM 噪声叠加
   for (let i = 0; i < n; i++) {
+    if (cells.h[i] <= SEA_LEVEL + 4) continue
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
   }
 
-  // 保留 realism.tectonics 参数兼容旧配置，但只做轻量幅度偏移。
+  // 保留 realism.tectonics 参数兼容旧配置，并用于实际板块边界地形。
   const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
   const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
-  const tectonicBias = ((rangeWidth - 3) * 0.4) - ((riftDepth - 25) * 0.03)
-  if (tectonicBias !== 0) {
-    for (let i = 0; i < n; i++) {
-      cells.h[i] = lim(cells.h[i] + tectonicBias)
-    }
-  }
 
   // 保证画布边缘以海洋为主，避免 coastline 提取在边界处分裂成开放折线。
   softenMapEdges(cells, width, height)
@@ -77,8 +72,10 @@ export function generateHeightmap(
   // 步骤 3：调整海陆比
   adjustSeaLevel(cells, landRatio)
 
-  // 步骤 4：平滑
-  smooth(cells, 2, 2)
+  // 步骤 3.5：板块边界地形。汇聚边界形成山带，张裂边界形成浅裂谷。
+  applyPlateBoundaryRelief(cells, width, height, boundaries, plates, { rangeWidth, riftDepth })
+
+  // 步骤 4：轻平滑，保留模板骨架与海岸大形。
   smooth(cells, 1, 1)
 }
 
@@ -114,40 +111,170 @@ function softenMapEdges(cells: GridCells, width: number, height: number): void {
     const x = cells.p[i * 2] / width
     const y = cells.p[i * 2 + 1] / height
     const edgeDist = Math.min(x, y, 1 - x, 1 - y)
-    if (edgeDist < 0.08) {
-      const factor = edgeDist / 0.08
-      cells.h[i] = lim(Math.round(cells.h[i] * factor))
+    if (edgeDist < 0.05) {
+      const factor = clamp(edgeDist / 0.05, 0, 1)
+      const shaped = factor * factor
+      cells.h[i] = lim(Math.round(cells.h[i] * shaped))
     }
 
     const poleDist = Math.min(y, 1 - y)
-    if (poleDist >= 0.14) continue
-    const polarFactor = clamp(poleDist / 0.14, 0, 1)
-    const shaped = polarFactor * polarFactor
-    const coastSafe = cells.h[i] > SEA_LEVEL ? SEA_LEVEL + (cells.h[i] - SEA_LEVEL) * shaped : cells.h[i] * shaped
-    cells.h[i] = lim(Math.round(coastSafe))
+    if (poleDist >= 0.12) continue
+    const polarFactor = clamp(poleDist / 0.12, 0, 1)
+    const shaped = 0.28 + polarFactor * polarFactor * 0.72
+    cells.h[i] = lim(Math.round(cells.h[i] * shaped))
   }
 }
 
 /** 调整海平面以达到目标海陆比例（gap-aware） */
 function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
-  const landH: number[] = []
-  let zeroCount = 0
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] > 0) landH.push(cells.h[i])
-    else zeroCount++
+  const heights = Array.from(cells.h)
+  if (heights.length === 0) return
+  heights.sort((a, b) => a - b)
+  const targetWater = clamp(Math.floor(cells.length * (1 - targetLandRatio)), 0, heights.length - 1)
+  const seaLevel = heights[targetWater]
+  let shift = SEA_LEVEL - seaLevel
+  if (shift === 0) return
+
+  // 大偏移会抹掉模板细节，分多轮小步逼近目标海陆比。
+  let attempts = 0
+  while (shift !== 0 && attempts++ < 4) {
+    const step = clamp(shift, -12, 12)
+    for (let i = 0; i < cells.length; i++) {
+      cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + step))
+    }
+
+    let land = 0
+    for (let i = 0; i < cells.length; i++) {
+      if (cells.h[i] >= SEA_LEVEL) land++
+    }
+    const landRatio = land / cells.length
+    if (Math.abs(landRatio - targetLandRatio) <= 0.025) return
+
+    const nextHeights = Array.from(cells.h).sort((a, b) => a - b)
+    const nextSeaLevel = nextHeights[targetWater]
+    shift = SEA_LEVEL - nextSeaLevel
   }
-  if (landH.length === 0) return
 
-  landH.sort((a, b) => a - b)
-  const targetLand = Math.floor(cells.length * targetLandRatio)
-  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
-  const waterInLand = landH.length - needFromLand
-  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
-  const seaLevel = landH[idx]
-
-  const shift = SEA_LEVEL - seaLevel
+  if (shift === 0) return
   for (let i = 0; i < cells.length; i++) {
-    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + shift))
+    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + clamp(shift, -6, 6)))
+  }
+}
+
+function applyPlateBoundaryRelief(
+  cells: GridCells,
+  width: number,
+  height: number,
+  boundaries: PlateBoundary[],
+  plates: Plate[],
+  options: { rangeWidth: number; riftDepth: number },
+): void {
+  if (boundaries.length === 0) return
+
+  const uplift = new Uint8Array(cells.length)
+  const rift = new Uint8Array(cells.length)
+
+  for (const boundary of boundaries) {
+    if (boundary.cellIds.length === 0) continue
+    if (boundary.type === 'convergent') {
+      const peak = getConvergentPeak(boundary, plates)
+      const effectiveWidth = getConvergentWidth(boundary, plates, options.rangeWidth)
+      spreadBoundaryEffect(cells, boundary.cellIds, effectiveWidth, (cellId, layer) => {
+        if (cells.h[cellId] < SEA_LEVEL) return
+        if (!isUpliftSide(cells, boundary, cellId)) return
+        const attenuation = getReliefAttenuation(cells, cellId, width, height)
+        if (attenuation <= 0.06) return
+        const sigma = Math.max(0.85, effectiveWidth / 3)
+      const localRelief = 0.82 + hash2D(cellId * 0.73, layer * 13.17) * 0.36
+      const lift = Math.round(peak * localRelief * attenuation * Math.exp(-(layer * layer) / (2 * sigma * sigma)))
+        if (lift > uplift[cellId]) uplift[cellId] = lift
+      })
+    } else if (boundary.type === 'divergent') {
+      const width = Math.max(1, Math.floor(options.rangeWidth * 0.45))
+      const depth = Math.max(2, Math.round(options.riftDepth * 0.22))
+      spreadBoundaryEffect(cells, boundary.cellIds, width, (cellId, layer) => {
+        const cut = Math.round(depth * Math.max(0, 1 - layer / (width + 1)))
+        if (cut > rift[cellId]) rift[cellId] = cut
+      })
+    }
+  }
+
+  for (let i = 0; i < cells.length; i++) {
+    let h = cells.h[i]
+    if (uplift[i] > 0) h = lim(h + uplift[i])
+    if (rift[i] > 0) {
+      h = h >= SEA_LEVEL ? Math.max(SEA_LEVEL, h - rift[i]) : Math.max(0, h - rift[i])
+    }
+    cells.h[i] = h
+  }
+}
+
+function getConvergentPeak(boundary: PlateBoundary, plates: Plate[]): number {
+  const plateA = plates[boundary.plateA]
+  const plateB = plates[boundary.plateB]
+  if (!plateA || !plateB) return boundary.subductionSide === undefined ? 28 : 22
+
+  if (!plateA.oceanic && !plateB.oceanic) return 36
+  if (plateA.oceanic !== plateB.oceanic) return 26
+  return 16
+}
+
+function getConvergentWidth(boundary: PlateBoundary, plates: Plate[], configuredWidth: number): number {
+  const plateA = plates[boundary.plateA]
+  const plateB = plates[boundary.plateB]
+  const baseWidth = Math.max(1, configuredWidth)
+  if (!plateA || !plateB) return baseWidth + 2
+  if (!plateA.oceanic && !plateB.oceanic) return baseWidth + 2
+  if (plateA.oceanic !== plateB.oceanic) return baseWidth + 1
+  return Math.max(1, Math.floor(baseWidth * 0.6))
+}
+
+function isUpliftSide(cells: GridCells, boundary: PlateBoundary, cellId: number): boolean {
+  if (boundary.subductionSide === undefined) return true
+  return cells.tectonic?.plateId[cellId] !== boundary.subductionSide
+}
+
+function getReliefAttenuation(cells: GridCells, cellId: number, width: number, height: number): number {
+  const x = cells.p[cellId * 2] / width
+  const y = cells.p[cellId * 2 + 1] / height
+  const edgeDist = Math.min(x, y, 1 - x, 1 - y)
+  const poleDist = Math.min(y, 1 - y)
+  const edgeFactor = smoothstep(0.04, 0.1, edgeDist)
+  const polarFactor = smoothstep(0.1, 0.24, poleDist)
+  return Math.min(edgeFactor, polarFactor)
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
+function spreadBoundaryEffect(
+  cells: GridCells,
+  seeds: number[],
+  width: number,
+  visit: (cellId: number, layer: number) => void,
+): void {
+  const visited = new Uint8Array(cells.length)
+  let frontier: number[] = []
+  for (const seed of seeds) {
+    if (seed < 0 || seed >= cells.length || visited[seed]) continue
+    visited[seed] = 1
+    frontier.push(seed)
+  }
+
+  for (let layer = 0; layer <= width && frontier.length > 0; layer++) {
+    const next: number[] = []
+    for (const cellId of frontier) {
+      visit(cellId, layer)
+      if (layer === width) continue
+      for (const nb of cells.c[cellId]) {
+        if (visited[nb]) continue
+        visited[nb] = 1
+        next.push(nb)
+      }
+    }
+    frontier = next
   }
 }
 

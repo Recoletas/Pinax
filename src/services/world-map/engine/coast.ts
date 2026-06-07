@@ -96,6 +96,12 @@ function perturbOnce(
 ): void {
   for (let k = 0; k < boundary.length; k++) {
     const id = boundary[k]
+    if (h[id] > SEA_LEVEL + 6) continue
+    let waterNeighbors = 0
+    for (const nb of cells.c[id]) {
+      if (h[nb] < SEA_LEVEL) waterNeighbors++
+    }
+    if (waterNeighbors < 2) continue
     const x = cells.p[id * 2]
     const y = cells.p[id * 2 + 1]
     const noise = fbm(x * noiseScale, y * noiseScale, 4)
