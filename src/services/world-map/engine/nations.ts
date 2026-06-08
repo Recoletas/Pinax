@@ -324,32 +324,46 @@ export function generateBurgs(
     }
     return base + popBoost + cultureBoost - borderPenalty
   }
+  const isTransportSite = (i: number): boolean => isGoodPortSite(cells, i) || cells.r[i] > 0
+  const transportSiteScore = (i: number): number => {
+    const portQuality = (cells.portQuality?.[i] ?? 0) / 100
+    const portScore = isGoodPortSite(cells, i) ? 1.2 + portQuality * 0.6 : 0
+    const riverScore = cells.r[i] > 0 ? 1.0 + (confMask[i] === 1 ? 0.35 : 0) : 0
+    return portScore + riverScore
+  }
+  const applyBurgSite = (burg: Burg, cell: number, snapPort: number): void => {
+    const isPort = isGoodPortSite(cells, cell)
+    burg.cell = cell
+    burg.x = cells.p[cell * 2]
+    burg.y = cells.p[cell * 2 + 1]
+    burg.port = isPort
+
+    // 港口城市向水域靠拢(保持原行为)
+    if (isPort && cells.haven[cell]) {
+      const haven = cells.haven[cell]
+      burg.x = burg.x * (1 - snapPort) + cells.p[haven * 2] * snapPort
+      burg.y = burg.y * (1 - snapPort) + cells.p[haven * 2 + 1] * snapPort
+    }
+  }
   const placeOne = (
     cell: number,
     opts: { name: string; capital: boolean; snapPort: number },
   ): void => {
-    const isPort = isGoodPortSite(cells, cell)
     // state 字段会在 generateStates 阶段被覆盖(以 State.i 重写) — 此处用 0 占位
     const burg: Burg = {
       i: burgs.length,
       name: opts.name,
       cell,
-      x: cells.p[cell * 2],
-      y: cells.p[cell * 2 + 1],
+      x: 0,
+      y: 0,
       state: 0,
       capital: opts.capital,
-      port: isPort,
+      port: false,
       population: opts.capital
         ? Math.round(cells.s[cell] * (1 + rng()) * 2)
         : Math.round(cells.s[cell] * (0.5 + rng())),
     }
-    // 港口城市向水域靠拢(保持原行为)
-    if (isPort && cells.haven[cell]) {
-      const haven = cells.haven[cell]
-      const w = opts.snapPort
-      burg.x = burg.x * (1 - w) + cells.p[haven * 2] * w
-      burg.y = burg.y * (1 - w) + cells.p[haven * 2 + 1] * w
-    }
+    applyBurgSite(burg, cell, opts.snapPort)
     burgs.push(burg)
     cells.burg[cell] = burg.i
     placedCells.push(cell)
@@ -397,9 +411,60 @@ export function generateBurgs(
       })
       placedThisPass = true
     }
-    if (placedThisPass || placedCells.length >= stateCount) break
-    capitalSpacingFactor *= 0.82
+    if (placedCells.length >= stateCount) break
+    // Continue relaxing spacing until the requested capital count is reached.
+    // The previous early break could leave sparse maps with only 4-5 capitals,
+    // making the transport-site ratio unstable for the fixed seed baseline.
+    capitalSpacingFactor *= placedThisPass ? 0.9 : 0.82
   }
+
+  const enforceCapitalTransportCoverage = (): void => {
+    const capitals = burgs.filter(b => b.i > 0 && b.capital)
+    if (capitals.length === 0) return
+    const minTransportCount = Math.min(capitals.length, Math.ceil(capitals.length * 0.6))
+    let transportCount = capitals.filter(b => isTransportSite(b.cell)).length
+    if (transportCount >= minTransportCount) return
+
+    const transportCandidates = capitalCandidates
+      .filter(({ i }) => !isBurg(i) && isTransportSite(i))
+      .map(({ i, score }) => ({ i, score: score + transportSiteScore(i) }))
+      .sort((a, b) => b.score - a.score)
+    if (transportCandidates.length === 0) return
+
+    const nonTransportCapitals = capitals
+      .filter(b => !isTransportSite(b.cell))
+      .sort((a, b) => capitalSiteScore(a.cell) - capitalSiteScore(b.cell))
+    const used = new Set<number>()
+
+    for (const capital of nonTransportCapitals) {
+      if (transportCount >= minTransportCount) break
+      const targetCulture = cells.culture[capital.cell]
+      const otherCapitalCells = capitals
+        .filter(b => b.i !== capital.i)
+        .map(b => b.cell)
+      let replacement = -1
+      for (const { i } of transportCandidates) {
+        if (used.has(i) || isBurg(i)) continue
+        const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic) * 0.45
+        if (isTooClose(cells, i, otherCapitalCells, spacing)) continue
+        if (replacement === -1 || cells.culture[i] === targetCulture) replacement = i
+        if (cells.culture[i] === targetCulture) break
+      }
+      if (replacement === -1) continue
+
+      const oldCell = capital.cell
+      cells.burg[oldCell] = 0
+      const placedIdx = placedCells.indexOf(oldCell)
+      if (placedIdx >= 0) placedCells[placedIdx] = replacement
+      applyBurgSite(capital, replacement, 0.26)
+      capital.population = Math.max(capital.population, Math.round(cells.s[replacement] * 2))
+      cells.burg[replacement] = capital.i
+      used.add(replacement)
+      transportCount++
+    }
+  }
+
+  enforceCapitalTransportCoverage()
 
   // ── 轮 2:大港 ──
   // settlementScore > 0.7 && port + 大 spacing(>= globalSpacing * 1.5)
