@@ -291,6 +291,15 @@ export interface VoronoiMapData {
   coastlines: NormPoint[][]
   /** 地图名称 */
   name: string
+  /**
+   * 实际选中的 heightmap 模板(显式 / 自动 / reroll 后)。`undefined`
+   * 只发生在极早期版本;Round 2 起 generateMap 总会写回。
+   * Round 2 修复:之前 generateMap 没保存 generateHeightmap 返回值,
+   * 调用方拿不到实际选中的模板。
+   */
+  heightmapTemplate?: HeightmapTemplate
+  /** 形状 intent(对应 `TemplateShapeIntent`) */
+  shapeIntent?: import('./heightmap-templates').TemplateShapeIntent
 }
 
 /** 文化命名风格 */

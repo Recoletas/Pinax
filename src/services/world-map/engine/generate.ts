@@ -11,7 +11,7 @@ import { detectFeatures, updatePortQuality } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
 import { computeTectonicData } from './tectonic-data'
-import { perturbCoast, reshapeCoasts } from './coast'
+import { perturbCoast } from './coast'
 import { extractCoastlines } from './coastline'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
@@ -106,6 +106,11 @@ export function generateMap(
   const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
+  // Round 2 修复:把 `generateHeightmap` 返回的 templateName / shapeIntent
+  // 捕获下来,挂到 generateMap 返回值上,让调用方(测试 / UI)能验证
+  // 实际选到的模板。显式 / 自动 / reroll 走同一条捕获路径。
+  let resolvedShapeIntent: TemplateShapeIntent | undefined
+  let resolvedTemplateName: HeightmapTemplate | undefined
 
   // 设置命名风格
   setNamingStyle(namingStyle)
@@ -139,23 +144,28 @@ export function generateMap(
   // heightmapSeed。模板层（选 + 执行）走独立 sub-RNG，**不**消费主 rng。
   console.time('[MapEngine] Heightmap')
   collector?.start('heightmap')
-  generateHeightmap(
+  // Round 2 修复: 捕获 `generateHeightmap` 实际选中的 templateName /
+  // shapeIntent,挂到返回值上,让测试能验证 auto path + reroll 后
+  // 选到的模板满足它自己的合同。Round 1.5 之前没保存返回值,这里把
+  // result 重新接上。
+  const heightmapResult = generateHeightmap(
     cells, width, height, rng, landRatio,
     plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate, seed,
   )
+  resolvedShapeIntent = heightmapResult.shapeIntent
+  resolvedTemplateName = heightmapResult.templateName
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
 
   // 3.5 海岸线扰动：只对真近岸做轻低频扰动，避免回头重塑大陆骨架。
+  // Round 2 修复:宏观海岸重塑已合并进 `adjustSeaLevelTemplateAware` 的
+  // 阶段 B-2(`macroReshape`),这里不再调 `reshapeCoasts`(旧实现只对
+  // 陆地 cell ±1 高度,无法改 coastline 形状,已被 macroReshape 替代)。
   perturbCoast(cells, {
     noiseScale: config.realism?.coast?.noiseScale ?? 0.008,
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 2,
     latitudeScale: 0.35,
   }, 'low')
-
-  // 3.6 Round 2 Stage 3：宏观尺度海岸低频重塑（打破 axis-aligned 感）。
-  // 必须在 perturbCoast 之后、smooth 之前。
-  reshapeCoasts(cells, { latitudeScale: 0.35, passes: 2 })
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -302,6 +312,10 @@ export function generateMap(
     wind,
     coastlines,
     name: mapName,
+    // Round 2 修复:`generateHeightmap` 实际选中的 template,显式 /
+    // 自动 / reroll 后都一样能被读到。
+    heightmapTemplate: resolvedTemplateName ?? config.heightmapTemplate,
+    shapeIntent: resolvedShapeIntent,
   }
 }
 
@@ -345,6 +359,11 @@ export async function generateMapAsync(
   const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
+  // Round 2 修复:把 `generateHeightmap` 返回的 templateName / shapeIntent
+  // 捕获下来,挂到 generateMap 返回值上,让调用方(测试 / UI)能验证
+  // 实际选到的模板。显式 / 自动 / reroll 走同一条捕获路径。
+  let resolvedShapeIntent: TemplateShapeIntent | undefined
+  let resolvedTemplateName: HeightmapTemplate | undefined
 
   setNamingStyle(namingStyle)
 
@@ -387,9 +406,9 @@ export async function generateMapAsync(
     latitudeScale: 0.35,
   }, 'low')
 
-  // 3.6 Round 2 Stage 3：宏观尺度海岸低频重塑（打破 axis-aligned 感）。
-  // 必须在 perturbCoast 之后、smooth 之前。
-  reshapeCoasts(cells, { latitudeScale: 0.35, passes: 2 })
+  // Round 2 修复:宏观海岸重塑已合并进 `adjustSeaLevelTemplateAware` 的
+  // 阶段 B-2(`macroReshape`)。原 `reshapeCoasts` 只能对陆地 cell ±1
+  // 高度、无法改 coastline 形状,被 macroReshape 替代。
 
   // 4. Features
   onProgress?.('地理特征', 21)
@@ -530,5 +549,7 @@ export async function generateMapAsync(
     wind,
     coastlines,
     name: mapName,
+    heightmapTemplate: resolvedTemplateName ?? config.heightmapTemplate,
+    shapeIntent: resolvedShapeIntent,
   }
 }

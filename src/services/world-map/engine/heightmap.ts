@@ -61,7 +61,7 @@ export function generateHeightmap(
   continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
   templateOverride?: HeightmapTemplate,
-  heightmapSeed?: string,
+  heightmapSeed: string,
 ): { shapeIntent: TemplateShapeIntent | undefined; templateName: HeightmapTemplate | undefined } {
   const n = cells.length
   if (!cells.tectonic?.plateId) {
@@ -74,13 +74,17 @@ export function generateHeightmap(
   // 中供后续 FBM 噪声叠加 / 板块边界地形使用。
   //
   // Stage 5：合同评估 + reroll。snapshot 记录 applyTemplate 前的 cells.h
-  // (此时全 0),reroll 时回滚 + 重新跑 applyTemplate + FBM + seaLevel
-  // + smooth。sub-RNG 的 attempt 计数器 +1,主世界 determinism 不变。
-  const seedKey = heightmapSeed ?? 'heightmap-default'
+  // (此时全 0),reroll 时回滚 + 重新跑 applyTemplate + FBM + seaLevel。
+  // sub-RNG 的 attempt 计数器 +1,主世界 determinism 不变。
+  //
+  // Round 2 修复: 原本 reroll 循环结束后会**再次**跑 FBM + softenMapEdges,
+  // 导致合同评估的高度场和最终输出不是同一个状态(soften 后又被 FBM
+  // 叠加、plateRelief 前被两次 soften 弱化)。现在把 post-template 跑
+  // 在每次 reroll 之后,合同通过即停止,不再二次叠加。
   const heightmapSnapshot = new Uint8Array(cells.h)  // applyTemplate 前的高度场
 
   const pickAndApply = (attempt: number): { templateName: HeightmapTemplate; shapeIntent: TemplateShapeIntent | undefined; tplRng: () => number } => {
-    const tplRng = templateRngFor(seedKey, attempt)
+    const tplRng = templateRngFor(heightmapSeed, attempt)
     const resolved = resolveHeightmapTemplate({
       continentCount,
       landRatio,
@@ -101,10 +105,11 @@ export function generateHeightmap(
   }
 
   // 第一次选 + 跑
-  let { templateName, shapeIntent, tplRng: _ } = pickAndApply(0)
+  let { templateName, shapeIntent } = pickAndApply(0)
 
-  // 跑剩余管线（FBM + seaLevel + smooth）— 必须在 contract 评估之前完成，
-  // 因为 landmass 形状需要 sea level 调整过的高度场。
+  // 单阶段 post-template:FBM 噪声 + 边缘软化 + 模板保形海陆比 remap。
+  // 跑在合同评估之前(landmass 形状需要 sea level 调整过的高度场)。
+  // 每次 reroll 都会**完整**重跑这一段,合同通过后不再叠加。
   const runPostTemplate = () => {
     for (let i = 0; i < n; i++) {
       if (cells.h[i] <= SEA_LEVEL + 4) continue
@@ -135,20 +140,15 @@ export function generateHeightmap(
     console.warn(`[generateHeightmap] template contract NOT met after ${contractAttempt} rerolls: ${contract.reason}`)
   }
 
-  // 步骤 2：FBM 噪声叠加（在合同评估后,避免对 reroll 状态重叠加）
-  for (let i = 0; i < n; i++) {
-    if (cells.h[i] <= SEA_LEVEL + 4) continue
-    const x = cells.p[i * 2]
-    const y = cells.p[i * 2 + 1]
-    cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
-  }
+  // 合同通过(或放弃 reroll)后,直接进入板块边界地形 + 平滑。
+  // **不**再叠加 FBM / 软化边缘:这两步已包含在 runPostTemplate 里,
+  // 合同评估和最终输出的应是同一个高度场。Round 2 修复:之前在合同
+  // 循环结束后又跑了一次 FBM + softenMapEdges,导致最终图与合同评估
+  // 看到的状态不一致,且额外 soften 弱化了大陆骨架。
 
-  // 保留 realism.tectonics 参数兼容旧配置，并用于实际板块边界地形。
+  // 保留 realism.tectonics 参数兼容旧配置,并用于实际板块边界地形。
   const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
   const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
-
-  // 保证画布边缘以海洋为主，避免 coastline 提取在边界处分裂成开放折线。
-  softenMapEdges(cells, width, height)
 
   // 步骤 3.5：板块边界地形。汇聚边界形成山带，张裂边界形成浅裂谷。
   applyPlateBoundaryRelief(cells, width, height, boundaries, plates, { rangeWidth, riftDepth })

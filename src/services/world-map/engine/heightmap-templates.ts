@@ -406,11 +406,18 @@ function getRangeSpan(range: string): number {
   return Math.max(0, max - min)
 }
 
-/** 折回到 [0, length) 区间（toroidal 假设） */
+/**
+ * Round 2 修复:原 `wrapCoord` 是 toroidal 折回([0, length) 区间),
+ * 会把画布一侧的偏移绕到另一侧,造出不自然跨边界陆块。改为
+ * clamp 边界,边缘形状被截断而非扭曲。
+ */
 function wrapCoord(v: number, length: number): number {
-  let x = v % length
-  if (x < 0) x += length
-  return x
+  return clampCoord(v, 0, length)
+}
+
+/** clamp [lo, hi] 区间。供反轴向偏移的端点修正。 */
+function clampCoord(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v))
 }
 
 /** Voronoi 网格下找离 (x, y) 最近的 cellId（Azgaar 原版是规则格 → 直接 floor） */
@@ -609,6 +616,10 @@ function addRange(
     let hVal = lim(getNumberInRange(h, rng))
     const used = new Uint8Array(cells.length)
 
+    // Round 2 修复:start / end 用同一 (dx, dy) 平移并 clamp(start 内
+    // [0,1] 子区间作锚,end 选 [0.1W, 0.9W] / [0.15H, 0.85H] 作锚后整
+    // 段平移)。这样 Range / Trough 整条山带/沟槽作为整体偏移,不会
+    // 出现"起点在画布左、终点在画布右"的轴向锚定伪影。
     const startX = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
     const startY = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
     let dist = 0
@@ -616,11 +627,21 @@ function addRange(
     let endX = 0
     let endY = 0
     do {
-      endX = rng() * width * 0.8 + width * 0.1
-      endY = rng() * height * 0.7 + height * 0.15
-      dist = Math.abs(endY - startY) + Math.abs(endX - startX)
+      endX = rng() * width * 0.8 + width * 0.1 + dx
+      endY = rng() * height * 0.7 + height * 0.15 + dy
+      // 距离在平移 + clamp 前算(unclamped 空间),保持 Azgaar 原版
+      // distance 约束语义;clamp 后可能 start/end 更近,但那是不可避免
+      // 的边界截断。
+      const cx0 = clampCoord(startX, 0, width)
+      const cy0 = clampCoord(startY, 0, height)
+      const cx1 = clampCoord(endX, 0, width)
+      const cy1 = clampCoord(endY, 0, height)
+      dist = Math.abs(cy1 - cy0) + Math.abs(cx1 - cx0)
       limit++
     } while ((dist < width / 8 || dist > width / 3) && limit < 50)
+    // 边界 clamp(不再 toroidal wrap,避免不自然跨边界陆块)
+    endX = clampCoord(endX, 0, width)
+    endY = clampCoord(endY, 0, height)
 
     const startCellId = findGridCell(startX, startY, cells)
     const endCellId = findGridCell(endX, endY, cells)
@@ -1003,11 +1024,15 @@ export function applyTemplate(
       case 'Pit':
       case 'Range':
       case 'Trough': {
-        // 反轴向偏移(dx, dy) ∈ [0, rangeSpan],由 rng 决定
+        // Round 2 修复:反轴向偏移改为**居中** [-span/2, span/2](原
+        // [0, span] + toroidal wrap 会让画布一侧偏移绕到另一侧)。
+        // Range / Trough 的 end 端点在 addRange/addTrough 内部用**同
+        // 一 (dx, dy)** 平移,这样整条山带/沟槽作为整体偏移,不会出现
+        // 起点在左、终点在右的轴向锚定伪影。
         const xSpan = getRangeSpan(a4) * width
         const ySpan = getRangeSpan(a5) * height
-        const dx = rng() * xSpan
-        const dy = rng() * ySpan
+        const dx = (rng() - 0.5) * xSpan
+        const dy = (rng() - 0.5) * ySpan
         if (tool === 'Hill') addHill(cells, width, height, a2, a3, a4, a5, blobPower, dx, dy, rng)
         else if (tool === 'Pit') addPit(cells, width, height, a2, a3, a4, a5, blobPower, dx, dy, rng)
         else if (tool === 'Range') addRange(cells, width, height, a2, a3, a4, a5, linePower, dx, dy, rng)
