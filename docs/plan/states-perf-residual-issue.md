@@ -3,8 +3,8 @@
 日期：2026-06-02
 模块：`src/services/world-map/engine/nations.ts` 中的 `expandStates`（Dijkstra 领土扩张）
 
-> **SUPERSEDED 2026-06-04** — `heightmapTemplate: 'pangea'` + `seed=42` 的慢路径触发器已随 10 个 heightmap 模板的删除而消失。
-> 新测试触发器改为 `plateCount: 2` + `seed=42`（见 `src/__tests__/nations.test.js`）。
+> **SUPERSEDED 2026-06-04 / amended 2026-06-08** — 06-04 的板驱方案曾让 `heightmapTemplate: 'pangea'` 慢路径触发器消失；06-08 Round 1 / Round 2 已恢复 14 个 Azgaar 模板语义入口。
+> 当前性能事实以 [`docs/src/known-issues.md`](../src/known-issues.md) 和 [`docs/src/test-status.md`](../src/test-status.md) 为准；本文档仅保留 Dijkstra 边界场景与历史诊断材料。
 > 本文档其余结论（Dijkstra 边界场景、heap 退化路径）仍然相关，保留以供参考。
 
 ## TL;DR

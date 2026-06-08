@@ -1,3 +1,16 @@
+<!-- canonical-source -->
+
+- **状态**: accepted
+- **负责人**: @Recoletas
+- **最后更新**: 2026-06-08
+- **领域**: world-map
+- **开放问题**: 无（已落地）
+- **下一步**: 已落地；维护阶段不主动推进
+
+> 当前实现注记：文中“`heightmap-templates.ts` 整体删除”反映 2026-06-05 当时对 ADR-0003 的理解。2026-06-08 Round 1 / Round 2 后该文件已恢复为当前高程图模板语义的一部分。
+
+---
+
 # 世界地图引擎 5 个 OSS 替换
 
 日期: 2026-06-05
@@ -22,7 +35,7 @@
 - BFS 洪泛（`borderlands.ts` / `boundary-terrain.ts` / `features.ts` / `tectonic-data.ts` / `heightmap-templates.ts` / `wind.ts`） —— 分层遍历，层数是 BFS 本身的意义
 - `rivers.ts` 排水 —— 陡降法，不是最短路径
 - `climate.ts::SpatialGrid` —— 均匀格桶哈希，对此访问模式比 `d3-quadtree`/`rbush` 更快
-- `heightmap-templates.ts` 整体删除 —— 已被 `2026-06-04-azgaar-pipeline-design.md` 接管
+- `heightmap-templates.ts` 整体删除 —— 这是 2026-06-05 原始方案外的判断；06-08 后当前实现已恢复模板语义，删除不再适用
 - `LICENSE` 文件 —— 与本次工作无关
 
 ## 5 个 Swap 概览

@@ -1,3 +1,16 @@
+<!-- canonical-source -->
+
+- **状态**: accepted (supersedes `2026-06-03-realistic-tectonics-rendering-design`)
+- **负责人**: @Recoletas
+- **最后更新**: 2026-06-08
+- **领域**: world-map
+- **开放问题**: 无（已落地）；旧 06-03 spec 与 plan 保留在 `docs/superpowers/` 作考古
+- **下一步**: 原始方案已落地并在 2026-06-08 Round 1 / Round 2 被修订；当前事实见 [`../../code-map.md`](../../code-map.md) 和 [`../../known-issues.md`](../../known-issues.md)
+
+> 当前实现注记：本 RFC 中“删除 10/14 个模板、移除 `heightmapTemplate`”是 2026-06-04 原始方案。2026-06-08 后当前实现已恢复 14 个 Azgaar 模板语义入口，并通过 `heightmap-templates.ts`、`parseTemplate.ts`、`heightmap-template-aware.ts`、`enforceTemplateContract.ts` 维护模板选择、保形海陆比和合同评估。
+
+---
+
 # Azgaar 风格地图管线重写
 
 日期: 2026-06-04

@@ -3,12 +3,13 @@ import { perturbCoast } from '../services/world-map/engine/coast'
 import { makeCells } from './helpers/cells'
 
 /**
- * 构造 1 块陆地在 cell 5，其余为水域（10 cells 链式邻居）
+ * 构造 1 块近岸低地在 cell 5，其余为水域（10 cells 链式邻居）。
+ * 当前 perturbCoast 只扰动接近 SEA_LEVEL 的海岸 cell，高内陆山地不动。
  */
 function makeIsland() {
   const cells = makeCells(10)
   cells.h.fill(0)
-  cells.h[5] = 50
+  cells.h[5] = 24
   return cells
 }
 
@@ -37,7 +38,7 @@ describe('perturbCoast', () => {
   it('纯海陆交界 cell 数量 = 1（cell 5 是唯一的陆地）', () => {
     const cells = makeIsland()
     perturbCoast(cells, { noiseScale: 0.012, noiseAmplitude: 6 })
-    // cell 5 高度应被噪声扰动（不再恰好为 50），但其它 cell 保持 0
+    // cell 5 高度应被噪声扰动（不再恰好为 24），但其它 cell 保持 0
     expect(cells.h[5]).not.toBe(0)
     expect(cells.h[5]).toBeGreaterThanOrEqual(0)
     expect(cells.h[5]).toBeLessThanOrEqual(100)

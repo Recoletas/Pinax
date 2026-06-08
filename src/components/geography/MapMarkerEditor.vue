@@ -1,7 +1,10 @@
 <template>
   <div class="marker-editor">
     <div class="editor-header">
-      <h3 class="editor-title">标记属性</h3>
+      <div>
+        <h3 class="editor-title">编辑标记</h3>
+        <p class="editor-subtitle">{{ marker.name }}</p>
+      </div>
       <button class="icon-btn-xs" @click="$emit('close')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -37,26 +40,27 @@
         </div>
       </div>
 
-      <div class="field">
-        <label class="field-label">所属势力</label>
-        <input class="text-input" v-model="faction" @blur="commitFaction" placeholder="如：天龙帝国、无主之地" />
-      </div>
-
-      <div class="field">
-        <label class="field-label">备注</label>
-        <textarea class="text-area" v-model="note" @blur="commitNote" placeholder="关于这个地点的补充说明..." rows="4"></textarea>
-      </div>
-
-      <div class="coord-grid">
+      <details class="extra-fields">
+        <summary>更多信息</summary>
         <div class="field">
-          <label class="field-label">X</label>
-          <input class="text-input readonly" :value="Math.round(marker.x)" readonly />
+          <label class="field-label">所属势力</label>
+          <input class="text-input" v-model="faction" @blur="commitFaction" placeholder="如：天龙帝国、无主之地" />
         </div>
         <div class="field">
-          <label class="field-label">Y</label>
-          <input class="text-input readonly" :value="Math.round(marker.y)" readonly />
+          <label class="field-label">备注</label>
+          <textarea class="text-area" v-model="note" @blur="commitNote" placeholder="关于这个地点的补充说明..." rows="3"></textarea>
         </div>
-      </div>
+        <div class="coord-grid">
+          <div class="field">
+            <label class="field-label">X</label>
+            <input class="text-input readonly" :value="Math.round(marker.x)" readonly />
+          </div>
+          <div class="field">
+            <label class="field-label">Y</label>
+            <input class="text-input readonly" :value="Math.round(marker.y)" readonly />
+          </div>
+        </div>
+      </details>
 
       <div v-if="marker.userAdded" class="user-badge">用户手动添加</div>
     </div>
@@ -118,20 +122,21 @@ function updateType(e) {
 
 <style scoped>
 .marker-editor {
-  width: 280px;
-  background: var(--canvas-overlay-strong);
-  border: 1px solid var(--canvas-border);
-  border-radius: 10px;
+  width: 236px;
+  background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 14px;
   display: flex;
   flex-direction: column;
   height: auto;
-  max-height: 75vh;
+  max-height: min(520px, 70vh);
   overflow-y: auto;
   position: absolute;
-  top: 48px;
-  right: 12px;
+  top: 52px;
+  right: 14px;
   z-index: 20;
   box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(12px);
 }
 
 .editor-header {
@@ -139,21 +144,32 @@ function updateType(e) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--canvas-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  gap: 10px;
 }
 
 .editor-title {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--canvas-text);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.editor-subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-body {
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
 }
 
@@ -165,7 +181,7 @@ function updateType(e) {
 
 .field-label {
   font-size: 12px;
-  color: var(--canvas-text-secondary);
+  color: var(--text-secondary);
 }
 
 .accent {
@@ -174,42 +190,44 @@ function updateType(e) {
 
 .text-input {
   width: 100%;
-  padding: 8px 10px;
-  background: var(--canvas-surface);
-  border: 1px solid var(--canvas-border);
+  padding: 7px 9px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: 8px;
-  color: var(--canvas-text);
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 12px;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .text-input:focus {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .text-input.readonly {
-  color: var(--canvas-text-muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .text-area {
   width: 100%;
-  padding: 8px 10px;
-  background: var(--canvas-surface);
-  border: 1px solid var(--canvas-border);
+  padding: 7px 9px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: 8px;
-  color: var(--canvas-text);
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 12px;
   resize: vertical;
-  min-height: 80px;
+  min-height: 64px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .text-area:focus {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .range-input {
@@ -221,7 +239,7 @@ function updateType(e) {
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: var(--canvas-text-muted);
+  color: var(--text-muted);
   margin-top: 2px;
 }
 
@@ -229,6 +247,44 @@ function updateType(e) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.extra-fields {
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 9px;
+  padding: 7px 8px;
+  background: color-mix(in srgb, var(--bg-primary) 62%, transparent);
+}
+
+.extra-fields summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  list-style: none;
+}
+
+.extra-fields summary::-webkit-details-marker {
+  display: none;
+}
+
+.extra-fields summary::after {
+  content: '展开';
+  float: right;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.extra-fields[open] summary {
+  margin-bottom: 10px;
+}
+
+.extra-fields[open] summary::after {
+  content: '收起';
+}
+
+.extra-fields .field + .field,
+.extra-fields .field + .coord-grid {
+  margin-top: 9px;
 }
 
 .user-badge {
@@ -242,7 +298,7 @@ function updateType(e) {
 
 .editor-footer {
   padding: 10px 12px;
-  border-top: 1px solid var(--canvas-border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
 .danger-btn {
@@ -274,14 +330,14 @@ function updateType(e) {
   justify-content: center;
   border: none;
   background: transparent;
-  color: var(--canvas-text-muted);
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s ease;
 }
 
 .icon-btn-xs:hover {
-  background: var(--canvas-border);
-  color: var(--canvas-text);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 </style>

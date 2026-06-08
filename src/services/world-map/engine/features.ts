@@ -69,9 +69,40 @@ export function detectFeatures(cells: GridCells): Feature[] {
 
   // 计算海岸距离和港口数据
   computeCoastDistance(cells, features)
-  computeHarbors(cells)
+  computeHarbors(cells, features)
 
   return features
+}
+
+/** 在河流生成前后都可重算；河流完成后再次调用才能让河口加分生效。 */
+export function updatePortQuality(cells: GridCells, features: Feature[]): void {
+  const n = cells.length
+  if (!cells.portQuality || cells.portQuality.length < n) {
+    cells.portQuality = new Uint8Array(n)
+  }
+
+  const pq = cells.portQuality
+  for (let i = 0; i < n; i++) {
+    if (cells.h[i] < SEA_LEVEL) {
+      pq[i] = 0
+      continue
+    }
+
+    let q = 0
+    q += Math.min(cells.harbor[i] * 0.15, 1.0)
+    const nearestWater = cells.haven[i]
+    if (nearestWater > 0) {
+      const fId = cells.f[nearestWater]
+      const feat = features[fId]
+      if (feat && (feat.type === 'ocean' || feat.type === 'sea')) {
+        q += 0.3
+      }
+    }
+    if (cells.r[i] > 0 && cells.harbor[i] > 0) {
+      q += 0.4
+    }
+    pq[i] = Math.round(Math.min(q, 1.0) * 100)
+  }
 }
 
 /** 计算每个单元格到海岸的距离 */
@@ -123,9 +154,16 @@ function computeCoastDistance(cells: GridCells, features: Feature[]): void {
   }
 }
 
-/** 计算港口数据 */
-function computeHarbors(cells: GridCells): void {
-  for (let i = 0; i < cells.length; i++) {
+/** 计算港口数据 + 端口质量(0-100, 写入 cells.portQuality)
+ *  端口质量 = harbor count 贡献 + haven feature 类型贡献 + 河口贡献,封顶 1.0
+ *  - harbor 数:每个相邻水域 +0.15,封顶 1.0
+ *  - haven 是 ocean/sea +0.3(查 features[type])
+ *  - 河口(r>0 && harbor>0) +0.4
+ */
+function computeHarbors(cells: GridCells, features: Feature[]): void {
+  const n = cells.length
+
+  for (let i = 0; i < n; i++) {
     if (cells.h[i] < SEA_LEVEL) continue // 水域无港口
 
     let waterCount = 0
@@ -148,4 +186,6 @@ function computeHarbors(cells: GridCells): void {
     cells.harbor[i] = waterCount
     cells.haven[i] = nearestWater
   }
+
+  updatePortQuality(cells, features)
 }

@@ -21,5 +21,9 @@
       "Read(//home/recoletas/**)",
       "WebFetch(domain:github.com)"
     ]
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
   }
 }

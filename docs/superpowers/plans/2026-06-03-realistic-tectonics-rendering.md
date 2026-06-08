@@ -1,6 +1,6 @@
 # 现实化板块 / 海岸 / 水系 / 渲染实现计划
 
-> **SUPERSEDED 2026-06-04** — 本 plan 中实现的 `realism.level` 三档机制已被取消。取代实现见 [`2026-06-04-azgaar-pipeline-design.md`](../../specs/2026-06-04-azgaar-pipeline-design.md) 和 [`2026-06-04-azgaar-pipeline-impl.md`](../../plans/2026-06-04-azgaar-pipeline-impl.md)（如存在）。
+> **SUPERSEDED 2026-06-04** — 本 plan 中实现的 `realism.level` 三档机制已被取消。取代实现见 [`docs/src/decisions/ADR-0003-azgaar-pipeline.md`](../../src/decisions/ADR-0003-azgaar-pipeline.md) 和 [`docs/src/rfcs/azgaar-pipeline/`](../../src/rfcs/azgaar-pipeline/)。
 > 保留本 plan 以供考古（任务分解、tectonic 模块结构、boundary-terrain 4 个 apply 函数仍然被新管线复用）。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

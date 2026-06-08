@@ -1,30 +1,214 @@
 /**
  * 国家和城市生成
  * 城市：按适宜度评分放置
- * 国家：从首都 Dijkstra 扩张
+ * 国家：多源统一优先队列 Dijkstra 扩张（阶段 3）
+ * 文化：成本扩散 Dijkstra（阶段 3）
  */
 
-import type { GridCells, Burg, State, Culture, Province, Road } from './types'
+import type { GridCells, Burg, State, Culture, Province, Road, Government } from './types'
 import { BIOMES } from './climate'
 import { getStateName, getCapitalName, getTownName, getCultureName, getProvinceName } from './name-pool'
-import Graph from 'graphology'
-import { dijkstra, astar } from 'graphology-shortest-path'
+import {
+  adaptiveSpacing,
+  capitalScore,
+  isGoodPortSite,
+  isArchipelagic,
+  precomputeRiverConfluence,
+  settlementScoreRaw,
+} from './settlements'
 
 const SEA_LEVEL = 20
 
-/** 计算 cell 间的移动成本（biome + culture + 适宜度 + 高程）。expansionism 由调用方除。 */
-function moveCostForEdge(cells: GridCells, sourceId: number, targetId: number): number {
-  const biome = BIOMES[cells.biome[targetId]]
-  // biome 缺省兜底：与 findPath 同款防护（graphology 在边被考虑时也会调 weightFn，
-  // 即使原 heap 版只在已 pop 的 cell 上查 biome，安全起见一律兜底）
-  let mc = (biome?.moveCost ?? 100) / 10
-  if (cells.culture[targetId] && cells.culture[sourceId] &&
-      cells.culture[targetId] !== cells.culture[sourceId]) {
-    mc += 50
+// ── 最小堆（多源 Dijkstra 用） ─────────────────────────
+
+/** 通用最小堆 — 多源 Dijkstra 与文化成本扩散共用 */
+class MinHeap<T> {
+  private heap: T[] = []
+  constructor(private readonly cmp: (a: T, b: T) => number) {}
+
+  get size(): number { return this.heap.length }
+  empty(): boolean { return this.heap.length === 0 }
+
+  push(item: T): void {
+    this.heap.push(item)
+    this.siftUp(this.heap.length - 1)
   }
-  if (cells.s[targetId] < 1) mc += 200
-  if (cells.h[targetId] > 70) mc += (cells.h[targetId] - 70) * 5
-  return mc
+
+  pop(): T | undefined {
+    if (this.heap.length === 0) return undefined
+    const top = this.heap[0]
+    const last = this.heap.pop()!
+    if (this.heap.length > 0) {
+      this.heap[0] = last
+      this.siftDown(0)
+    }
+    return top
+  }
+
+  private siftUp(idx: number): void {
+    const a = this.heap
+    while (idx > 0) {
+      const parent = (idx - 1) >> 1
+      if (this.cmp(a[idx], a[parent]) < 0) {
+        const tmp = a[idx]
+        a[idx] = a[parent]
+        a[parent] = tmp
+        idx = parent
+      } else break
+    }
+  }
+
+  private siftDown(idx: number): void {
+    const a = this.heap
+    const n = a.length
+    for (;;) {
+      const l = 2 * idx + 1
+      const r = l + 1
+      let smallest = idx
+      if (l < n && this.cmp(a[l], a[smallest]) < 0) smallest = l
+      if (r < n && this.cmp(a[r], a[smallest]) < 0) smallest = r
+      if (smallest === idx) break
+      const tmp = a[idx]
+      a[idx] = a[smallest]
+      a[smallest] = tmp
+      idx = smallest
+    }
+  }
+}
+
+// ── 阶段 3：政体偏置 moveCostForEdge + 辅助函数 ─────────
+
+/** 主河道：cells.r>0 且 fl 在所有 river cells 的 top 30% */
+function computeMainRiverCells(cells: GridCells): Uint8Array {
+  const n = cells.length
+  const result = new Uint8Array(n)
+  if (!cells.fl) return result
+  // 收集有 flow 的 river cell
+  const flows: Array<{ i: number, fl: number }> = []
+  for (let i = 0; i < n; i++) {
+    if (cells.r && cells.r[i] > 0 && cells.fl[i] > 0) {
+      flows.push({ i, fl: cells.fl[i] })
+    }
+  }
+  if (flows.length === 0) return result
+  flows.sort((a, b) => b.fl - a.fl)
+  const top = Math.max(1, Math.floor(flows.length * 0.3))
+  for (let k = 0; k < top; k++) result[flows[k].i] = 1
+  return result
+}
+
+/** src → tgt 是否顺流（src 在上游） */
+function flowsDownhill(cells: GridCells, src: number, tgt: number): boolean {
+  if (!cells.fl) return false
+  if (!cells.r || cells.r[src] === 0 || cells.r[tgt] === 0) return false
+  return cells.fl[src] > cells.fl[tgt]
+}
+
+/** 简化版"近海"判定:h<35 → 海洋/海岸(供 naval 偏置用) */
+function isOceanic(cells: GridCells, tgt: number): boolean {
+  return cells.harbor[tgt] > 0 || cells.t[tgt] <= 2
+}
+
+function deriveMapExtent(cells: GridCells): { width: number; height: number } {
+  let maxX = 1
+  let maxY = 1
+  for (let i = 0; i < cells.length; i++) {
+    const x = cells.p[i * 2]
+    const y = cells.p[i * 2 + 1]
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+  return { width: maxX, height: maxY }
+}
+
+function findCultureCoreCell(cells: GridCells, cultureId: number | undefined, fallback: number): number {
+  if (!cultureId) return fallback
+  let bestCell = fallback
+  let bestScore = -Infinity
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < SEA_LEVEL || cells.culture[i] !== cultureId) continue
+    let score = cells.pop[i] * 1.4 + cells.s[i] * 8
+    for (const nb of cells.c[i]) {
+      if (cells.culture[nb] === cultureId) score += cells.pop[nb] * 0.2
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestCell = i
+    }
+  }
+  return bestCell
+}
+
+/** 单元格的"可占据性"分数:<0.3 视为自然屏障,不向外扩张 */
+function frontierScore(cells: GridCells, i: number, mainRiverSet: Uint8Array): number {
+  if (cells.biome[i] === 1 || cells.biome[i] === 2) return 0.45
+  if (mainRiverSet[i] === 1) return 0.4
+  if (cells.h[i] > 70) return 0.55
+  return 1.0
+}
+
+/**
+ * 计算 cell 间的移动成本（biome + culture + 适宜度 + 高程 + 河流 + 政体偏置）。
+ * expansionism 由调用方除。
+ */
+function moveCostForEdge(
+  cells: GridCells,
+  src: number,
+  tgt: number,
+  state: State,
+  mainRiverSet: Uint8Array,
+): number {
+  const biome = BIOMES[cells.biome[tgt]]
+  // biome 缺省兜底：与 findPath 同款防护
+  let mc = (biome?.moveCost ?? 100) / 10
+  if (state.nativeBiome !== undefined && cells.biome[tgt] !== state.nativeBiome) mc += 12
+  if (cells.t[tgt] === 1 && state.government !== 'naval') mc += 8
+  if (cells.t[tgt] > 3 && state.government === 'naval') mc += 14
+  if (cells.h[tgt] > 70) mc += (cells.h[tgt] - 70) * 5
+  if (cells.s[tgt] < 1) mc += 200
+  else if (cells.s[tgt] < 5) mc += (5 - cells.s[tgt]) * 20
+  if (cells.biome[tgt] === 1 || cells.biome[tgt] === 2) mc += 60
+  if (cells.pop[tgt] < 1) mc += 18
+  // 文化边界：用国家核心文化，而不是前线 cell 的当前文化。
+  if (
+    state.culture !== undefined &&
+    cells.culture[tgt] !== 0
+    && cells.culture[tgt] !== state.culture
+  ) mc += 30
+  // 跨主河道:目标在主河上,且 src 不在目标上游
+  if (mainRiverSet[tgt] === 1 && !flowsDownhill(cells, src, tgt)) mc += 25
+  // 政体偏置
+  const gov: Government = state.government ?? 'generic'
+  const oceanic = isOceanic(cells, tgt)
+  if (gov === 'naval' && oceanic) mc *= 0.72
+  if (gov === 'highland' && cells.h[tgt] > 60) mc *= 0.7
+  if (gov === 'nomadic' && (cells.biome[tgt] === 3 || cells.biome[tgt] === 4)) mc *= 0.65
+  if (gov === 'river' && cells.r && cells.r[tgt] > 0) mc *= 0.7
+  return mc / state.expansionism
+}
+
+/** 单元格的"政体"权重表(根据地形/海港/河流/草原给出倾向) */
+function pickGovernmentByTerrain(cells: GridCells, capitalCell: number, rng: () => number): Government {
+  const isCoast = (cells.harbor?.[capitalCell] ?? 0) > 0 || cells.t[capitalCell] <= 2
+  const isMountain = cells.h[capitalCell] > 60
+  const isGrass = cells.biome[capitalCell] === 3 || cells.biome[capitalCell] === 4
+  const isRiver = (cells.r?.[capitalCell] ?? 0) > 0
+
+  // 加权(各 30 起步,匹配地形时 +50)
+  const weights: Array<[Government, number]> = [['generic', 30]]
+  if (isCoast) weights.push(['naval', 70])
+  if (isMountain) weights.push(['highland', 80])
+  if (isGrass) weights.push(['nomadic', 60])
+  if (isRiver) weights.push(['river', 50])
+
+  const total = weights.reduce((s, [, w]) => s + w, 0)
+  const r = rng() * total
+  let acc = 0
+  for (const [gov, w] of weights) {
+    acc += w
+    if (r < acc) return gov
+  }
+  return 'generic'
 }
 
 // ── 颜色池 ──
@@ -49,7 +233,14 @@ interface ExpandStatesDiagnostics {
 let expandStatesDiagnosticsEnabled = false
 let lastExpandStatesDiagnostics: ExpandStatesDiagnostics | null = null
 
-/** 放置城镇 */
+/** 放置城镇(阶段 2:4 轮评分放置的薄壳)
+ *  1. 首都:capitalScore 排序 + adaptive spacing
+ *  2. 大港:settlementScore > 0.7 && port + 大 spacing
+ *  3. 区域中心:settlementScore > 0.55 + min-distance to existing burgs
+ *  4. 一般城镇:remaining settlementScore > 0.3
+ *
+ *  公共签名 + Burg[] 形状与之前一致。
+ */
 export function generateBurgs(
   cells: GridCells,
   stateCount: number,
@@ -58,92 +249,296 @@ export function generateBurgs(
   height: number,
   rng: () => number,
   burgNames?: string[],
+  cultures?: Culture[],
 ): Burg[] {
   const burgs: Burg[] = [{ i: 0, name: '', cell: 0, x: 0, y: 0, state: 0, capital: false, port: false, population: 0 }]
 
-  // 收集可用的陆地单元格，按适宜度排序
-  const candidates = Array.from({ length: cells.length }, (_, i) => i)
-    .filter(i => cells.h[i] >= SEA_LEVEL && cells.s[i] > 5)
-    .sort((a, b) => cells.s[b] * (0.5 + rng()) - cells.s[a] * (0.5 + rng()))
-
+  // 候选陆地单元格(海平面之上 + 最低适宜度阈值)
+  const candidates: number[] = []
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] >= SEA_LEVEL && cells.s[i] > 5) candidates.push(i)
+  }
   if (candidates.length === 0) return burgs
 
-  // 最小间距（避免城市太密集）
-  const spacing = Math.sqrt((width * height) / (stateCount * 4))
-
-  // 放置首都
-  const placed: number[] = []
-  for (const cell of candidates) {
-    if (placed.length >= stateCount) break
-    if (isTooClose(cells, cell, placed, spacing)) continue
-    placed.push(cell)
+  const archipelagic = isArchipelagic(cells)
+  const confMask = precomputeRiverConfluence(cells)
+  const cultureCenters = new Map<number, number>()
+  for (const culture of cultures ?? []) {
+    if (culture.i > 0) cultureCenters.set(culture.i, culture.center)
+  }
+  const neighborhoodPop = new Float32Array(cells.length)
+  let maxNeighborhoodPop = 1
+  for (let i = 0; i < cells.length; i++) {
+    let total = cells.pop[i]
+    for (const nb of cells.c[i]) total += cells.pop[nb] * 0.35
+    neighborhoodPop[i] = total
+    if (total > maxNeighborhoodPop) maxNeighborhoodPop = total
   }
 
-  // 首都
-  for (let i = 0; i < placed.length; i++) {
-    const cell = placed[i]
+  // 间距常量(用 climate 为常驻值,根据 biome 单独再算)
+  // 给 town 一个统一下限(避免太密)
+  const globalSpacing = adaptiveSpacing(
+    width, height, cells.length,
+    4, // biome 4 (温带草原) 是参考
+    archipelagic,
+  )
+
+  const rankCandidates = (
+    predicate: (i: number) => boolean,
+    scoreFn: (i: number) => number,
+  ): Array<{ i: number; score: number }> => (
+    candidates
+      .filter(i => !isBurg(i) && predicate(i))
+      .map(i => ({ i, score: scoreFn(i) }))
+      .sort((a, b) => b.score - a.score)
+  )
+
+  // ── 工具:在剩余 candidates 中选最优 cell,跳过太近 ──
+  const placedCells: number[] = []
+  const isBurg = (i: number) => cells.burg[i] > 0
+  const totalBurgTarget = Math.max(
+    stateCount + 2,
+    Math.min(
+      Math.floor(candidates.length * Math.max(0.008, burgDensity * 0.016)),
+      Math.max(stateCount + 6, Math.floor(candidates.length * 0.03)),
+    ),
+  )
+  const capitalSiteScore = (i: number): number => {
+    const base = capitalScore(cells, i, stateCount, placedCells, height)
+    const popBoost = (neighborhoodPop[i] / maxNeighborhoodPop) * 0.35
+    const cultureId = cells.culture[i]
+    const center = cultureCenters.get(cultureId)
+    let cultureBoost = 0
+    let borderPenalty = 0
+    if (center !== undefined) {
+      const dx = cells.p[i * 2] - cells.p[center * 2]
+      const dy = cells.p[i * 2 + 1] - cells.p[center * 2 + 1]
+      const dist = Math.hypot(dx, dy)
+      cultureBoost = Math.max(0, 1 - dist / Math.max(globalSpacing * 2.4, 1)) * 0.28
+      for (const nb of cells.c[i]) {
+        if (cells.culture[nb] !== 0 && cells.culture[nb] !== cultureId) {
+          borderPenalty = 0.18
+          break
+        }
+      }
+    }
+    return base + popBoost + cultureBoost - borderPenalty
+  }
+  const isTransportSite = (i: number): boolean => isGoodPortSite(cells, i) || cells.r[i] > 0
+  const transportSiteScore = (i: number): number => {
+    const portQuality = (cells.portQuality?.[i] ?? 0) / 100
+    const portScore = isGoodPortSite(cells, i) ? 1.2 + portQuality * 0.6 : 0
+    const riverScore = cells.r[i] > 0 ? 1.0 + (confMask[i] === 1 ? 0.35 : 0) : 0
+    return portScore + riverScore
+  }
+  const applyBurgSite = (burg: Burg, cell: number, snapPort: number): void => {
+    const isPort = isGoodPortSite(cells, cell)
+    burg.cell = cell
+    burg.x = cells.p[cell * 2]
+    burg.y = cells.p[cell * 2 + 1]
+    burg.port = isPort
+
+    // 港口城市向水域靠拢(保持原行为)
+    if (isPort && cells.haven[cell]) {
+      const haven = cells.haven[cell]
+      burg.x = burg.x * (1 - snapPort) + cells.p[haven * 2] * snapPort
+      burg.y = burg.y * (1 - snapPort) + cells.p[haven * 2 + 1] * snapPort
+    }
+  }
+  const placeOne = (
+    cell: number,
+    opts: { name: string; capital: boolean; snapPort: number },
+  ): void => {
+    // state 字段会在 generateStates 阶段被覆盖(以 State.i 重写) — 此处用 0 占位
     const burg: Burg = {
       i: burgs.length,
-      name: burgNames?.[i] || getCapitalName(i),
+      name: opts.name,
       cell,
-      x: cells.p[cell * 2],
-      y: cells.p[cell * 2 + 1],
-      state: i + 1,
-      capital: true,
-      port: cells.harbor[cell] > 0,
-      population: Math.round(cells.s[cell] * (1 + rng()) * 2),
+      x: 0,
+      y: 0,
+      state: 0,
+      capital: opts.capital,
+      port: false,
+      population: opts.capital
+        ? Math.round(cells.s[cell] * (1 + rng()) * 2)
+        : Math.round(cells.s[cell] * (0.5 + rng())),
     }
-
-    // 港口城市移向海岸
-    if (burg.port && cells.haven[cell]) {
-      const haven = cells.haven[cell]
-      burg.x = burg.x * 0.7 + cells.p[haven * 2] * 0.3
-      burg.y = burg.y * 0.7 + cells.p[haven * 2 + 1] * 0.3
-    }
-
+    applyBurgSite(burg, cell, opts.snapPort)
     burgs.push(burg)
     cells.burg[cell] = burg.i
+    placedCells.push(cell)
   }
 
-  // 放置城镇
-  const townSpacing = spacing * 0.4
-  const townCount = Math.floor(candidates.length * burgDensity * 0.02)
-  let townPlaced = 0
-  const allBurgCells = placed.slice()
+  // ── 轮 1:首都 ──
+  // 按 capitalScore 降序,自适应 spacing
+  const capitalCandidates = candidates
+    .map(i => ({ i, score: capitalSiteScore(i) }))
+    .sort((a, b) => b.score - a.score)
 
-  for (const cell of candidates) {
-    if (townPlaced >= townCount) break
-    if (cells.burg[cell]) continue
-    if (isTooClose(cells, cell, allBurgCells, townSpacing)) continue
+  const cultureCapTarget = Math.min(
+    stateCount,
+    (cultures ?? []).filter(c => c.i > 0).length,
+  )
+  if (cultureCapTarget > 0) {
+    for (const culture of (cultures ?? []).filter(c => c.i > 0)) {
+      if (placedCells.length >= cultureCapTarget) break
+      const ranked = capitalCandidates.filter(({ i }) => cells.culture[i] === culture.i)
+      for (const { i } of ranked) {
+        const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic)
+        if (isBurg(i) || isTooClose(cells, i, placedCells, spacing)) continue
+        placeOne(i, {
+          name: burgNames?.[burgs.length - 1] || getCapitalName(burgs.length - 1),
+          capital: true,
+          snapPort: 0.26,
+        })
+        break
+      }
+    }
+  }
 
-    const burg: Burg = {
-      i: burgs.length,
-      name: burgNames?.[placed.length + townPlaced] || getTownName(townPlaced),
-      cell,
-      x: cells.p[cell * 2],
-      y: cells.p[cell * 2 + 1],
-      state: 0, // 稍后分配
+  let capitalSpacingFactor = 1
+  while (placedCells.length < stateCount && capitalSpacingFactor >= 0.45) {
+    let placedThisPass = false
+    for (const { i } of capitalCandidates) {
+      if (placedCells.length >= stateCount) break
+      if (isBurg(i)) continue
+      const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic) * capitalSpacingFactor
+      if (isTooClose(cells, i, placedCells, spacing)) continue
+      placeOne(i, {
+        name: burgNames?.[burgs.length - 1] || getCapitalName(burgs.length - 1),
+        capital: true,
+        snapPort: 0.26,
+      })
+      placedThisPass = true
+    }
+    if (placedCells.length >= stateCount) break
+    // Continue relaxing spacing until the requested capital count is reached.
+    // The previous early break could leave sparse maps with only 4-5 capitals,
+    // making the transport-site ratio unstable for the fixed seed baseline.
+    capitalSpacingFactor *= placedThisPass ? 0.9 : 0.82
+  }
+
+  const enforceCapitalTransportCoverage = (): void => {
+    const capitals = burgs.filter(b => b.i > 0 && b.capital)
+    if (capitals.length === 0) return
+    const minTransportCount = Math.min(capitals.length, Math.ceil(capitals.length * 0.6))
+    let transportCount = capitals.filter(b => isTransportSite(b.cell)).length
+    if (transportCount >= minTransportCount) return
+
+    const transportCandidates = capitalCandidates
+      .filter(({ i }) => !isBurg(i) && isTransportSite(i))
+      .map(({ i, score }) => ({ i, score: score + transportSiteScore(i) }))
+      .sort((a, b) => b.score - a.score)
+    if (transportCandidates.length === 0) return
+
+    const nonTransportCapitals = capitals
+      .filter(b => !isTransportSite(b.cell))
+      .sort((a, b) => capitalSiteScore(a.cell) - capitalSiteScore(b.cell))
+    const used = new Set<number>()
+
+    for (const capital of nonTransportCapitals) {
+      if (transportCount >= minTransportCount) break
+      const targetCulture = cells.culture[capital.cell]
+      const otherCapitalCells = capitals
+        .filter(b => b.i !== capital.i)
+        .map(b => b.cell)
+      let replacement = -1
+      for (const { i } of transportCandidates) {
+        if (used.has(i) || isBurg(i)) continue
+        const spacing = adaptiveSpacing(width, height, cells.length, cells.biome[i], archipelagic) * 0.45
+        if (isTooClose(cells, i, otherCapitalCells, spacing)) continue
+        if (replacement === -1 || cells.culture[i] === targetCulture) replacement = i
+        if (cells.culture[i] === targetCulture) break
+      }
+      if (replacement === -1) continue
+
+      const oldCell = capital.cell
+      cells.burg[oldCell] = 0
+      const placedIdx = placedCells.indexOf(oldCell)
+      if (placedIdx >= 0) placedCells[placedIdx] = replacement
+      applyBurgSite(capital, replacement, 0.26)
+      capital.population = Math.max(capital.population, Math.round(cells.s[replacement] * 2))
+      cells.burg[replacement] = capital.i
+      used.add(replacement)
+      transportCount++
+    }
+  }
+
+  enforceCapitalTransportCoverage()
+
+  // ── 轮 2:大港 ──
+  // settlementScore > 0.7 && port + 大 spacing(>= globalSpacing * 1.5)
+  const portSpacing = globalSpacing * 1.5
+  const majorPortCap = Math.max(1, Math.min(Math.ceil(stateCount * 0.8), totalBurgTarget - burgs.length + 1))
+  let majorPortPlaced = 0
+  const majorPortCandidates = rankCandidates(
+    i => isGoodPortSite(cells, i),
+    i => settlementScoreRaw(cells, i, true, confMask[i] === 1, height),
+  )
+  for (const { i, score } of majorPortCandidates) {
+    if (majorPortPlaced >= majorPortCap) break
+    if (score <= 0.7) break
+    if (isTooClose(cells, i, placedCells, portSpacing)) continue
+    placeOne(i, {
+      name: getTownName(burgs.length - 1),
       capital: false,
-      port: cells.harbor[cell] > 0,
-      population: Math.round(cells.s[cell] * (0.5 + rng())),
-    }
+      snapPort: 0.2,
+    })
+    majorPortPlaced++
+  }
 
-    if (burg.port && cells.haven[cell]) {
-      const haven = cells.haven[cell]
-      burg.x = burg.x * 0.8 + cells.p[haven * 2] * 0.2
-      burg.y = burg.y * 0.8 + cells.p[haven * 2 + 1] * 0.2
-    }
+  // ── 轮 3:区域中心 ──
+  // settlementScore > 0.55 + min-distance to existing
+  const regionSpacing = globalSpacing * 0.9
+  const regionalCap = Math.max(
+    1,
+    Math.min(totalBurgTarget - (burgs.length - 1), Math.max(stateCount, Math.ceil(totalBurgTarget * 0.35))),
+  )
+  let regionalPlaced = 0
+  const regionalCandidates = rankCandidates(
+    () => true,
+    i => settlementScoreRaw(cells, i, isGoodPortSite(cells, i), confMask[i] === 1, height),
+  )
+  for (const { i, score } of regionalCandidates) {
+    if (regionalPlaced >= regionalCap) break
+    if (score <= 0.55) break
+    if (isTooClose(cells, i, placedCells, regionSpacing)) continue
+    placeOne(i, {
+      name: getTownName(burgs.length - 1),
+      capital: false,
+      snapPort: 0.2,
+    })
+    regionalPlaced++
+  }
 
-    burgs.push(burg)
-    cells.burg[cell] = burg.i
-    allBurgCells.push(cell)
+  // ── 轮 4:一般城镇 ──
+  // 剩余 settlementScore > 0.3 + 更小间距
+  const townSpacing = globalSpacing * 0.4
+  const townCap = Math.max(0, totalBurgTarget - (burgs.length - 1))
+  let townPlaced = 0
+  const townCandidates = rankCandidates(
+    () => true,
+    i => settlementScoreRaw(cells, i, isGoodPortSite(cells, i), confMask[i] === 1, height),
+  )
+  for (const { i, score } of townCandidates) {
+    if (townPlaced >= townCap) break
+    if (score <= 0.3) break
+    if (isTooClose(cells, i, placedCells, townSpacing)) continue
+    placeOne(i, {
+      name: getTownName(burgs.length - 1),
+      capital: false,
+      snapPort: 0.2,
+    })
     townPlaced++
   }
 
+  // 首都 state 字段统一(原 generateStates 之前会重写一次,这里留 state 留作生成时的临时)
+  // 实际上 capitals 在轮 1 用 placeOne 时 state = burgs.length(占位)。
+  // 真正的 state id 会在 generateStates 阶段被 burg.state 重新赋值。
   return burgs
 }
 
-/** 生成国家（从首都 Dijkstra 扩张） */
+/** 生成国家（多源 Dijkstra 扩张，阶段 3） */
 export function generateStates(
   cells: GridCells,
   burgs: Burg[],
@@ -151,27 +546,38 @@ export function generateStates(
   rng: () => number,
   stateNames?: string[],
 ): State[] {
-  const states: State[] = [{ i: 0, name: '无主之地', color: '#ccc', capital: 0, expansionism: 0, cells: 0, area: 0, totalPopulation: 0 }]
+  const states: State[] = [{
+    i: 0, name: '无主之地', color: '#ccc', capital: 0,
+    expansionism: 0, cells: 0, area: 0, totalPopulation: 0,
+    government: 'generic',
+  }]
 
   // 创建国家（每个首都一个）
   const capitals = burgs.filter(b => b.capital)
   for (let i = 0; i < capitals.length; i++) {
     const burg = capitals[i]
+    const cultureId = cells.culture[burg.cell]
+    const cultureCore = findCultureCoreCell(cells, cultureId, burg.cell)
+    // 阶段 3：根据文化核心地形预分配政体(供 moveCostForEdge 用)
+    const government = pickGovernmentByTerrain(cells, cultureCore, rng)
     const state: State = {
       i: states.length,
       name: stateNames?.[i] || getStateName(i),
       color: STATE_COLORS[i % STATE_COLORS.length],
       capital: burg.i,
+      culture: cultureId,
+      nativeBiome: cells.biome[cultureCore],
       expansionism: 0.8 + rng() * 1.5,
       cells: 0,
       area: 0,
       totalPopulation: 0,
+      government,
     }
     states.push(state)
     burg.state = state.i
   }
 
-  // Dijkstra 扩张
+  // 多源 Dijkstra 扩张
   expandStates(cells, states, burgs)
 
   // 分配城镇到所在国家
@@ -214,21 +620,25 @@ export function __test_getLastExpandStatesDiagnostics(): ExpandStatesDiagnostics
   return lastExpandStatesDiagnostics
 }
 
-/** Dijkstra 领土扩张（graphology：构陆地无向图一次，per-state 单源 Dijkstra，从 path 还原权值距离） */
+/** 阶段 3：多源统一优先队列 Dijkstra 扩张 + 平滑 + 去飞地 */
 function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
   const n = cells.length
-  // 路径代价必须保留双精度，避免 totalCost < cost 成立但写回 Float32 后值未变
-  const cost = new Float64Array(n).fill(Infinity)
+  const bestCost = new Float64Array(n).fill(Infinity)
+  const maxStateId = states.reduce((max, state) => Math.max(max, state.i), 0)
+
+  // 预计算主流河道
+  const mainRiverSet = computeMainRiverCells(cells)
+
   const diagnostics = expandStatesDiagnosticsEnabled
     ? {
-        // 语义变化：原 pushCount = heap 入堆次数；现 pushCount = getEdgeWeight 调用次数
+        // 阶段 3 语义：pushCount = 实际 heap.push 次数
         pushCount: 0,
         popCount: 0,
         staleCount: 0,
         edgeScanCount: 0,
         updateCount: 0,
         reassignmentCount: 0,
-        // graphology 不暴露内部堆，保留字段为 0 以便旧测试接口不崩
+        // maxHeap 保留为 0(测试断言要求;若要跟踪也用真实数,目前保留 0 兼容性最好)
         maxHeap: 0,
         maxNeighborCount: 0,
       }
@@ -236,150 +646,247 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
 
   lastExpandStatesDiagnostics = null
 
-  // 构陆地无向图（一次性，避开 cell.h < SEA_LEVEL 的水域节点）
-  const graph = new Graph({ type: 'undirected', multi: false, allowSelfLoops: false })
-  for (let i = 0; i < n; i++) {
-    if (cells.h[i] >= SEA_LEVEL) graph.addNode(String(i))
-  }
-  for (let i = 0; i < n; i++) {
-    if (cells.h[i] < SEA_LEVEL) continue
-    for (const j of cells.c[i]) {
-      if (cells.h[j] < SEA_LEVEL) continue
-      if (i < j) graph.addEdge(String(i), String(j))
-    }
-  }
+  // ── 多源统一优先队列 ──
+  const heap = new MinHeap<{ cell: number, cost: number, state: number }>(
+    (a, b) => a.cost - b.cost,
+  )
 
-  const maxCost = n * 0.8
-
-  // per-edge 权值函数（闭包捕获 state.expansionism）
-  const makeWeightFn = (state: State) =>
-    (_edge: string, _attrs: unknown, source: string, target: string): number => {
-      if (diagnostics) diagnostics.pushCount++
-      const tId = +target
-      if (cells.h[tId] < SEA_LEVEL) return Infinity
-      return moveCostForEdge(cells, +source, tId) / state.expansionism
-    }
-
-  // per-state 单源 Dijkstra；graphology.singleSource 只回 paths，从 path 累计权值还原距离
   for (const state of states) {
     if (state.i === 0) continue
     const burg = burgs[state.capital]
     if (!burg) continue
-    if (!graph.hasNode(String(burg.cell))) continue
+    const cell = burg.cell
+    if (cells.h[cell] < SEA_LEVEL) continue
+    bestCost[cell] = 0
+    cells.state[cell] = state.i
+    heap.push({ cell, cost: 0, state: state.i })
+    if (diagnostics) diagnostics.pushCount++
+  }
 
-    const paths = dijkstra.singleSource(graph, String(burg.cell), makeWeightFn(state))
+  const maxCost = n * 0.8
 
-    for (const node in paths) {
-      const path = paths[node]
-      const i = +node
-      if (path.length < 2) {
-        // source = burg.cell, cost = 0
-        if (cost[i] > 0) {
-          cost[i] = 0
-          if (cells.state[i] > 0 && cells.state[i] !== state.i && diagnostics) {
-            diagnostics.reassignmentCount++
-          }
-          cells.state[i] = state.i
-          if (diagnostics) diagnostics.updateCount++
+  while (!heap.empty()) {
+    const top = heap.pop()!
+    if (diagnostics) diagnostics.popCount++
+    if (top.cost > bestCost[top.cell]) {
+      if (diagnostics) diagnostics.staleCount++
+      continue
+    }
+    const curState = states[top.state]
+    if (!curState) continue
+
+    for (const nb of cells.c[top.cell]) {
+      if (cells.h[nb] < SEA_LEVEL) continue
+      if (diagnostics) diagnostics.edgeScanCount++
+
+      // 跳过自然屏障(沙漠、主流河道)
+      if (frontierScore(cells, nb, mainRiverSet) < 0.3) continue
+
+      const w = moveCostForEdge(cells, top.cell, nb, curState, mainRiverSet)
+      if (!isFinite(w)) continue
+      const newCost = top.cost + w
+      if (newCost < bestCost[nb] && newCost < maxCost) {
+        if (cells.state[nb] > 0 && cells.state[nb] !== top.state) {
+          if (diagnostics) diagnostics.reassignmentCount++
         }
-        continue
-      }
-      // 沿 path 累计权值
-      let dist = 0
-      for (let k = 1; k < path.length; k++) {
-        dist += moveCostForEdge(cells, +path[k - 1], +path[k]) / state.expansionism
-      }
-      if (dist < cost[i] && dist < maxCost) {
-        if (cells.state[i] > 0 && cells.state[i] !== state.i && diagnostics) {
-          diagnostics.reassignmentCount++
-        }
-        cost[i] = dist
-        cells.state[i] = state.i
+        bestCost[nb] = newCost
+        cells.state[nb] = top.state
         if (diagnostics) diagnostics.updateCount++
+        heap.push({ cell: nb, cost: newCost, state: top.state })
+        if (diagnostics) diagnostics.pushCount++
       }
     }
   }
 
-  // 平滑：去除孤立单元格（与原实现一致，未变）
+  // 平滑:3 轮去孤立(少数邻居多数派胜出)
+  const neighborStates = new Int32Array(maxStateId + 1)
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 0; i < n; i++) {
       if (cells.h[i] < SEA_LEVEL || cells.state[i] === 0) continue
-
-      const neighborStates: Record<number, number> = {}
+      neighborStates.fill(0)
       for (const neighbor of cells.c[i]) {
-        if (cells.state[neighbor] > 0) {
-          neighborStates[cells.state[neighbor]] = (neighborStates[cells.state[neighbor]] || 0) + 1
+        const sid = cells.state[neighbor]
+        if (sid > 0 && sid <= maxStateId) {
+          neighborStates[sid]++
         }
       }
-
       const myCount = neighborStates[cells.state[i]] || 0
-      for (const [sid, count] of Object.entries(neighborStates)) {
-        if (count > myCount + 1 && +sid !== cells.state[i]) {
-          cells.state[i] = +sid
+      for (let sid = 1; sid <= maxStateId; sid++) {
+        const count = neighborStates[sid]
+        if (count > myCount + 1 && sid !== cells.state[i]) {
+          cells.state[i] = sid
           break
         }
       }
     }
   }
 
+  // 去飞地:3 轮 BFS-from-capital,不可达 cell 改归邻居多数派
+  for (let pass = 0; pass < 3; pass++) {
+    deExclaveStates(cells, states, burgs, maxStateId)
+  }
+
   if (diagnostics) lastExpandStatesDiagnostics = diagnostics
 }
 
-/** 简单文化生成（为国家扩张提供依据） */
+/** 去飞地:对每个 state 做 BFS-from-capital,标记可达;不可达 cell 改归多数邻居 */
+function deExclaveStates(cells: GridCells, states: State[], burgs: Burg[], maxStateId: number): void {
+  const counts = new Int32Array(maxStateId + 1)
+  for (const state of states) {
+    if (state.i === 0) continue
+    const burg = burgs[state.capital]
+    if (!burg) continue
+    if (cells.h[burg.cell] < SEA_LEVEL) continue
+
+    // BFS from capital,只走 cells.state === state.i 的格
+    const visited = new Uint8Array(cells.length)
+    const queue: number[] = [burg.cell]
+    visited[burg.cell] = 1
+    for (let head = 0; head < queue.length; head++) {
+      const c = queue[head]
+      for (const nb of cells.c[c]) {
+        if (cells.state[nb] === state.i && !visited[nb]) {
+          visited[nb] = 1
+          queue.push(nb)
+        }
+      }
+    }
+
+    // 不可达且属本 state 的 cell:改归多数邻居
+    for (let i = 0; i < cells.length; i++) {
+      if (cells.state[i] !== state.i || visited[i]) continue
+      counts.fill(0)
+      for (const nb of cells.c[i]) {
+        const ns = cells.state[nb]
+        if (ns > 0 && ns <= maxStateId && ns !== state.i) {
+          counts[ns]++
+        }
+      }
+      let best = 0
+      let bestC = 0
+      for (let sid = 1; sid <= maxStateId; sid++) {
+        if (counts[sid] > bestC) { bestC = counts[sid]; best = sid }
+      }
+      if (best > 0) cells.state[i] = best
+    }
+  }
+}
+
+/** 阶段 3：文化成本扩散(Dijkstra 替代欧氏最近邻)
+ *  - 选中心:与阶段 0 一致,按 s 降序 + spacing
+ *  - 扩张:从所有中心 Dijkstra,代价 = biome.moveCost/20 + 30 + |h_dst-h_src|*2 + 跨河 +30
+ *  - 政府预分配:与 State 同步(海岸→naval、山地→highland、草原→nomadic、河→river)
+ */
 export function generateCultures(
   cells: GridCells,
   count: number,
   rng: () => number,
 ): Culture[] {
-  const cultures: Culture[] = [{ i: 0, name: '蛮荒', color: '#ccc', center: 0, type: 'generic', expansionism: 0 }]
+  const cultures: Culture[] = [{
+    i: 0, name: '蛮荒', color: '#ccc', center: 0,
+    type: 'generic', expansionism: 0, government: 'generic',
+  }]
 
   // 找到高适宜度的陆地单元格作为文化中心
   const candidates = Array.from({ length: cells.length }, (_, i) => i)
-    .filter(i => cells.h[i] >= SEA_LEVEL && cells.s[i] > 10)
-    .sort((a, b) => cells.s[b] - cells.s[a])
+    .filter(i => cells.h[i] >= SEA_LEVEL && (cells.pop[i] > 0 || cells.s[i] > 10))
+    .sort((a, b) => (cells.pop[b] - cells.pop[a]) || (cells.s[b] - cells.s[a]))
 
-  const spacing = Math.sqrt((cells.p[0] || 1000) * 2 / count) * 3
+  const { width, height } = deriveMapExtent(cells)
+  const spacing = Math.sqrt((width * height) / Math.max(1, count)) * 0.42
   const placed: number[] = []
 
   for (const cell of candidates) {
     if (placed.length >= count) break
     if (isTooClose(cells, cell, placed, spacing)) continue
 
+    const type: Culture['type'] =
+      cells.harbor[cell] > 0 ? 'naval'
+      : cells.h[cell] > 60 ? 'highland'
+      : (cells.r && cells.r[cell] > 0) ? 'river'
+      : 'generic'
+
     const culture: Culture = {
       i: cultures.length,
       name: getCultureName(cultures.length - 1),
       color: STATE_COLORS[(cultures.length - 1) % STATE_COLORS.length],
       center: cell,
-      type: cells.harbor[cell] > 0 ? 'naval'
-        : cells.h[cell] > 60 ? 'highland'
-        : cells.r[cell] > 0 ? 'river'
-        : 'generic',
+      type,
       expansionism: 0.5 + rng() * 1.5,
+      // 阶段 3:同步政体字段(暂用 type 推导的对应值)
+      government: type === 'naval' ? 'naval'
+        : type === 'highland' ? 'highland'
+        : type === 'river' ? 'river'
+        : type === 'nomadic' ? 'nomadic'
+        : 'generic',
     }
 
     cultures.push(culture)
     placed.push(cell)
   }
 
-  // 简单扩张：每个单元格分配到最近的文化中心
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] < SEA_LEVEL) continue
+  if (placed.length < count) {
+    for (const cell of candidates) {
+      if (placed.length >= count) break
+      if (placed.includes(cell)) continue
 
-    let bestCulture = 0
-    let bestDist = Infinity
+      const type: Culture['type'] =
+        cells.harbor[cell] > 0 ? 'naval'
+        : cells.h[cell] > 60 ? 'highland'
+        : (cells.r && cells.r[cell] > 0) ? 'river'
+        : 'generic'
 
-    for (const culture of cultures) {
-      if (culture.i === 0) continue
-      const dx = cells.p[i * 2] - cells.p[culture.center * 2]
-      const dy = cells.p[i * 2 + 1] - cells.p[culture.center * 2 + 1]
-      const dist = dx * dx + dy * dy
-      if (dist < bestDist) {
-        bestDist = dist
-        bestCulture = culture.i
+      cultures.push({
+        i: cultures.length,
+        name: getCultureName(cultures.length - 1),
+        color: STATE_COLORS[(cultures.length - 1) % STATE_COLORS.length],
+        center: cell,
+        type,
+        expansionism: 0.5 + rng() * 1.5,
+        government: type === 'naval' ? 'naval'
+          : type === 'highland' ? 'highland'
+          : type === 'river' ? 'river'
+          : type === 'nomadic' ? 'nomadic'
+          : 'generic',
+      })
+      placed.push(cell)
+    }
+  }
+
+  // 阶段 3:成本扩散 Dijkstra
+  // 边权 = biome.moveCost/20 + 30(基础步长) + |h_dst - h_src| * 2 + 跨河 + 30
+  const n = cells.length
+  const bestCost = new Float64Array(n).fill(Infinity)
+  const bestCulture = new Int32Array(n).fill(0)
+  const heap = new MinHeap<{ cell: number, cost: number, culture: number }>(
+    (a, b) => a.cost - b.cost,
+  )
+
+  for (const culture of cultures) {
+    if (culture.i === 0) continue
+    bestCost[culture.center] = 0
+    bestCulture[culture.center] = culture.i
+    cells.culture[culture.center] = culture.i
+    heap.push({ cell: culture.center, cost: 0, culture: culture.i })
+  }
+
+  while (!heap.empty()) {
+    const top = heap.pop()!
+    if (top.cost > bestCost[top.cell]) continue
+    for (const nb of cells.c[top.cell]) {
+      if (cells.h[nb] < SEA_LEVEL) continue
+      const biome = BIOMES[cells.biome[nb]]
+      let w = (biome?.moveCost ?? 100) / 20 + 30
+      w += Math.abs(cells.h[nb] - cells.h[top.cell]) * 2
+      if (cells.r && cells.r[nb] > 0 && cells.r[top.cell] > 0) w += 30
+      const newCost = top.cost + w
+      if (newCost < bestCost[nb]) {
+        bestCost[nb] = newCost
+        bestCulture[nb] = top.culture
+        cells.culture[nb] = top.culture
+        heap.push({ cell: nb, cost: newCost, culture: top.culture })
       }
     }
-
-    cells.culture[i] = bestCulture
   }
 
   return cultures
@@ -402,27 +909,74 @@ function isTooClose(cells: GridCells, cell: number, placed: number[], minDist: n
 
 // ── 省份生成 ────────────────────────────────────────
 
-/** 为每个国家生成省份 */
+/** 阶段 4：省份成本图划分 + cells.province 写回
+ *  - 不是每城镇一个省；按"区域中心性"筛出 N 个省中心
+ *  - 每个 state 内部做多源 Dijkstra 划分(cost = biome.moveCost + 跨河 +20 + 跨山 +30)
+ *  - 写回 cells.province,renderer 不再每帧重算 Voronoi
+ */
 export function generateProvinces(
   cells: GridCells,
   states: State[],
   burgs: Burg[],
   rng: () => number,
 ): Province[] {
+  const n = cells.length
   const provinces: Province[] = [{ i: 0, name: '', color: '#ccc', state: 0, capital: 0, cells: 0 }]
 
-  // 为每个国家的每个城镇创建一个省份（Voronoi 划分）
+  if (!cells.province || cells.province.length < n) {
+    cells.province = new Uint16Array(n)
+  } else {
+    cells.province.fill(0)
+  }
+
   for (const state of states) {
     if (state.i === 0) continue
 
-    // 找出该国家所有城镇
+    // 1. 收集本 state 的陆地块
+    const stateCellSet = new Set<number>()
+    for (let i = 0; i < n; i++) {
+      if (cells.state[i] === state.i && cells.h[i] >= SEA_LEVEL) {
+        stateCellSet.add(i)
+      }
+    }
+    if (stateCellSet.size === 0) continue
+
+    // 2. 本 state 内的 burg
     const stateBurgs = burgs.filter(b => b.state === state.i && b.i > 0)
     if (stateBurgs.length === 0) continue
 
-    // 每个城镇作为省会
-    const provIds: number[] = []
-    for (let bi = 0; bi < stateBurgs.length; bi++) {
-      const burg = stateBurgs[bi]
+    // 3. 决定省数:岛屿国(< 200 cell)= 1;其余 = max(2, cells/200, 海岸段数估算),封顶 4
+    let provCount: number
+    if (stateCellSet.size < 200) {
+      provCount = 1
+    } else {
+      let coastal = 0
+      for (const c of stateCellSet) if (cells.t[c] === 1) coastal++
+      const coastalSegs = Math.min(4, Math.max(2, Math.floor(coastal / 30) + 1))
+      const sizeBased = Math.max(2, Math.floor(stateCellSet.size / 200))
+      provCount = Math.min(coastalSegs, sizeBased, stateBurgs.length)
+    }
+    if (provCount < 1) provCount = 1
+
+    // 4. 选省中心:区域中心性 = radius 内同国 burg 数 / radius^2
+    const radius = 200
+    const radius2 = radius * radius
+    const scored = stateBurgs.map(b => {
+      let count = 0
+      for (const other of stateBurgs) {
+        if (other.i === b.i) continue
+        const dx = other.x - b.x
+        const dy = other.y - b.y
+        if (dx * dx + dy * dy <= radius2) count++
+      }
+      return { burg: b, centrality: count }
+    })
+    scored.sort((a, b) => b.centrality - a.centrality)
+    const centers = scored.slice(0, provCount).map(s => s.burg)
+
+    // 5. 为每个省中心创建 Province
+    const stateProvIds: number[] = []
+    for (const burg of centers) {
       const prov: Province = {
         i: provinces.length,
         name: getProvinceName(provinces.length - 1),
@@ -432,34 +986,63 @@ export function generateProvinces(
         cells: 0,
       }
       provinces.push(prov)
-      provIds.push(prov.i)
+      stateProvIds.push(prov.i)
     }
 
-    // 按最近城镇分配该国家的单元格到省份
-    for (let i = 0; i < cells.length; i++) {
-      if (cells.state[i] !== state.i) continue
+    // 6. 本 state 内多源 Dijkstra
+    const bestCost = new Float32Array(n).fill(Infinity)
+    const bestProv = new Uint16Array(n)
+    const pending = new Uint8Array(n)
+    for (const c of stateCellSet) pending[c] = 1
+    for (let k = 0; k < centers.length; k++) {
+      const startCell = centers[k].cell
+      bestCost[startCell] = 0
+      bestProv[startCell] = stateProvIds[k]
+    }
 
-      let bestProv = provIds[0]
-      let bestDist = Infinity
-
-      for (let pi = 0; pi < stateBurgs.length; pi++) {
-        const burg = stateBurgs[pi]
-        const dx = cells.p[i * 2] - burg.x
-        const dy = cells.p[i * 2 + 1] - burg.y
-        const dist = dx * dx + dy * dy
-        if (dist < bestDist) {
-          bestDist = dist
-          bestProv = provIds[pi]
+    let progress = true
+    let safetyLoops = stateCellSet.size * 8
+    while (progress && safetyLoops-- > 0) {
+      progress = false
+      for (const c of stateCellSet) {
+        if (!pending[c]) continue
+        const cur = bestCost[c]
+        if (cur === Infinity) continue
+        for (const nb of cells.c[c]) {
+          if (!stateCellSet.has(nb)) continue
+          const stepCost = provinceStepCost(cells, c, nb)
+          const next = cur + stepCost
+          if (next < bestCost[nb]) {
+            bestCost[nb] = next
+            bestProv[nb] = bestProv[c]
+            pending[nb] = 1
+            progress = true
+          }
         }
+        pending[c] = 0
       }
+    }
 
-      // 使用 culture 数组临时存省份（或可加新字段，这里复用不冲突）
-      // 实际上我们不修改 cells，省份信息存在 Province 对象中
-      provinces[bestProv].cells++
+    // 7. 写回 cells.province,统计 cell 数
+    for (const c of stateCellSet) {
+      const pid = bestProv[c]
+      if (pid > 0) {
+        cells.province[c] = pid
+        provinces[pid].cells++
+      }
     }
   }
 
   return provinces
+}
+
+/** 阶段 4:本 state 内省界推进代价(biome + 跨河 + 跨山脊) */
+function provinceStepCost(cells: GridCells, src: number, tgt: number): number {
+  const biome = BIOMES[cells.biome[tgt]]
+  let mc = (biome?.moveCost ?? 100) / 20
+  if (cells.r[tgt] > 0 && cells.r[src] === 0) mc += 20
+  if (cells.h[tgt] > 70 && cells.h[src] <= 70) mc += 30
+  return mc
 }
 
 /** 颜色亮度微调 */
@@ -471,9 +1054,49 @@ function lightenColor(hex: string, amount: number): string {
   return `#${(0x1000000 + (Math.round(r) << 16) + (Math.round(g) << 8) + Math.round(b)).toString(16).slice(1)}`
 }
 
-// ── 道路生成 ────────────────────────────────────────
+// ── 道路生成（阶段 5：分层路网） ──────────────────────
 
-/** 生成城镇之间的道路 */
+/** 鞍点判定:cell 自身较低 (h<60),但至少 2 个邻居较高 (h>70)。
+ *  用于识别山口,A* 会倾向走这里(减半)而非翻山(×2)。
+ */
+function isSaddle(cells: GridCells, tgt: number): boolean {
+  if (cells.h[tgt] >= 60) return false
+  let high = 0
+  for (const nb of cells.c[tgt]) {
+    if (cells.h[nb] > 70) high++
+  }
+  return high >= 2
+}
+
+/** 基础 biome 成本 — 与原 findPath 同款,无任何偏置。 */
+function baseBiomeCost(cells: GridCells, tgt: number): number {
+  const biome = BIOMES[cells.biome[tgt]]
+  let mc = (biome?.moveCost ?? 100) / 50
+  if (cells.h[tgt] > 70) mc += (cells.h[tgt] - 70) * 0.5
+  if (cells.r[tgt] > 0) mc *= 0.8
+  return mc
+}
+
+/** 阶段 5:stratified 边成本 = biome 基础 + 河流/山地/同国/首都偏置。 */
+function roadCostForEdge(
+  cells: GridCells,
+  _src: number,
+  tgt: number,
+  burgA: Burg,
+  burgB: Burg,
+): number {
+  let mc = baseBiomeCost(cells, tgt)
+  if (cells.r[tgt] > 0) mc *= 0.7  // 沿河便宜
+  if (cells.h[tgt] > 70) {
+    if (isSaddle(cells, tgt)) mc *= 0.5  // 山口便宜
+    else mc *= 2.0                      // 高山贵
+  }
+  if (burgA.state === burgB.state && burgA.state > 0) mc *= 0.8  // 同国便宜
+  if (burgA.capital && burgB.capital) mc *= 0.7                    // 首都间主干道
+  return mc
+}
+
+/** 生成城镇之间的道路（阶段 5:5 层分层路网） */
 export function generateRoads(
   cells: GridCells,
   burgs: Burg[],
@@ -485,9 +1108,40 @@ export function generateRoads(
   if (activeBurgs.length < 2) return roads
 
   let roadId = 1
+  const roadEdgeSet = new Set<string>()
+  const edgeKey = (a: number, b: number) => {
+    const lo = a < b ? a : b
+    const hi = a < b ? b : a
+    return `${lo}-${hi}`
+  }
+  /** 添加一条道路;若该 cell-pair 已存在同方向任意类型道路则跳过。 */
+  const addRoad = (
+    aCell: number,
+    bCell: number,
+    type: Road['type'],
+    path: number[],
+    name: string,
+  ): Road | null => {
+    if (path.length < 2) return null
+    const k = edgeKey(aCell, bCell)
+    if (roadEdgeSet.has(k)) return null
+    roadEdgeSet.add(k)
+    const road: Road = {
+      i: roadId++,
+      name,
+      type,
+      cells: path,
+      points: path.map(c => [cells.p[c * 2], cells.p[c * 2 + 1]] as [number, number]),
+    }
+    roads.push(road)
+    return road
+  }
 
-  // 1. 主干道：每个首都连接最近的 2-3 个首都
   const capitals = activeBurgs.filter(b => b.capital)
+  const ports = activeBurgs.filter(b => b.port)
+  const nonCapitalTowns = activeBurgs.filter(b => !b.capital)
+
+  // ── Level 1: 首都间主干道 — 每个首都连最近 2-3 个首都 ──
   for (const cap of capitals) {
     const sorted = capitals
       .filter(c => c.i !== cap.i)
@@ -496,123 +1150,209 @@ export function generateRoads(
         dist: (c.x - cap.x) ** 2 + (c.y - cap.y) ** 2,
       }))
       .sort((a, b) => a.dist - b.dist)
-      .slice(0, 2 + Math.floor(rng()))
+      .slice(0, 2 + Math.floor(rng() * 2))  // 2 或 3 个
 
     for (const { burg: target } of sorted) {
-      // 避免重复路线（A→B 和 B→A）
-      if (roads.some(r => r.type === 'major' &&
-        ((r.cells[0] === cap.cell && r.cells[r.cells.length - 1] === target.cell) ||
-         (r.cells[0] === target.cell && r.cells[r.cells.length - 1] === cap.cell)))) continue
-
-      const path = findPath(cells, cap.cell, target.cell)
-      if (path.length < 2) continue
-
-      roads.push({
-        i: roadId++,
-        name: `${cap.name}—${target.name}`,
-        type: 'major',
-        cells: path,
-        points: path.map(c => [cells.p[c * 2], cells.p[c * 2 + 1]] as [number, number]),
-      })
+      const path = findPath(cells, cap.cell, target.cell, cap, target)
+      addRoad(cap.cell, target.cell, 'major', path, `${cap.name}—${target.name}`)
     }
   }
 
-  // 2. 支路：每个城镇连接最近的首都或大城镇
-  const towns = activeBurgs.filter(b => !b.capital)
-  for (const town of towns) {
-    // 找最近的首都
-    let nearest: Burg | null = null
-    let nearDist = Infinity
+  // ── Level 2: 港口到腹地 — 同国最近非港 burg ──
+  for (const port of ports) {
+    if (port.capital) continue  // 首都港走 Level 1,避免与主干道重复
+    let best: Burg | null = null
+    let bestDist = Infinity
+    for (const other of activeBurgs) {
+      if (other.i === port.i) continue
+      if (other.port) continue
+      if (other.state !== port.state) continue
+      const d = (other.x - port.x) ** 2 + (other.y - port.y) ** 2
+      if (d < bestDist) { bestDist = d; best = other }
+    }
+    if (!best) continue
+    const path = findPath(cells, port.cell, best.cell, port, best)
+    addRoad(port.cell, best.cell, 'minor', path, `${port.name}—${best.name}道`)
+  }
+
+  // ── Level 3: 城镇到首都 — 同国最近首都,path ≤ 80 cells ──
+  for (const town of nonCapitalTowns) {
+    if (town.port) continue  // 港已走 Level 2
+    let best: Burg | null = null
+    let bestDist = Infinity
     for (const cap of capitals) {
-      if (cap.state !== town.state && rng() > 0.3) continue // 跨国连接概率低
+      if (cap.state !== town.state) continue
       const d = (cap.x - town.x) ** 2 + (cap.y - town.y) ** 2
-      if (d < nearDist) {
-        nearDist = d
-        nearest = cap
-      }
+      if (d < bestDist) { bestDist = d; best = cap }
     }
-
-    if (!nearest) continue
-    // 距离太远的跳过
-    if (nearDist > (cells.length * 0.1) ** 2) continue
-
-    const path = findPath(cells, town.cell, nearest.cell)
-    if (path.length < 2 || path.length > 80) continue
-
-    roads.push({
-      i: roadId++,
-      name: `${town.name}道`,
-      type: 'minor',
-      cells: path,
-      points: path.map(c => [cells.p[c * 2], cells.p[c * 2 + 1]] as [number, number]),
-    })
-
-    if (roads.length > 60) break // 限制道路数量
+    if (!best) continue
+    const path = findPath(cells, town.cell, best.cell, town, best)
+    if (path.length > 80) continue
+    addRoad(town.cell, best.cell, 'minor', path, `${town.name}—${best.name}道`)
   }
 
-  // 3. 商路：连接有港口的城镇（海上贸易）
-  const ports = activeBurgs.filter(b => b.port)
-  for (let i = 0; i < ports.length && roads.length < 80; i++) {
-    for (let j = i + 1; j < ports.length; j++) {
-      const a = ports[i], b = ports[j]
-      const dist = (a.x - b.x) ** 2 + (a.y - b.y) ** 2
-      // 只连接相对近的港口
-      if (dist > (cells.length * 0.15) ** 2) continue
-      if (rng() > 0.4) continue // 不是所有港口都有航线
+  // ── Level 4: 跨国商道 — ~30% 概率,邻国首都/大港之间 ──
+  // 先估算平均道路成本(用 baseBiomeCost 求平均 edge cost)
+  let totalEdges = 0
+  let totalCost = 0
+  for (const r of roads) {
+    for (let i = 1; i < r.cells.length; i++) {
+      totalCost += baseBiomeCost(cells, r.cells[i])
+      totalEdges++
+    }
+  }
+  const avgEdgeCost = totalEdges > 0 ? totalCost / totalEdges : 1.0
+  const costIsReasonable = (path: number[], a: Burg, b: Burg): boolean => {
+    if (path.length < 2) return false
+    let pc = 0
+    for (let k = 1; k < path.length; k++) {
+      pc += roadCostForEdge(cells, path[k - 1], path[k], a, b)
+    }
+    return (pc / (path.length - 1)) <= avgEdgeCost * 2
+  }
 
-      roads.push({
-        i: roadId++,
-        name: `${a.name}—${b.name}航线`,
-        type: 'sea',
-        cells: [a.cell, b.cell],
-        points: [[a.x, a.y], [b.x, b.y]],
-      })
+  // 4a: 首都 ↔ 邻国首都
+  for (let i = 0; i < capitals.length; i++) {
+    for (let j = i + 1; j < capitals.length; j++) {
+      const a = capitals[i], b = capitals[j]
+      if (a.state === b.state) continue
+      if (rng() > 0.3) continue
+      const path = findPath(cells, a.cell, b.cell, a, b)
+      if (!costIsReasonable(path, a, b)) continue
+      addRoad(a.cell, b.cell, 'trade', path, `${a.name}—${b.name}商道`)
+    }
+  }
+  // 4b: 大港 ↔ 邻国大港/首都
+  const bigPortTowns = ports.filter(p => !p.capital)  // 排除首都港(已走 4a)
+  for (let i = 0; i < bigPortTowns.length; i++) {
+    for (let j = i + 1; j < bigPortTowns.length; j++) {
+      const a = bigPortTowns[i], b = bigPortTowns[j]
+      if (a.state === b.state) continue
+      if (rng() > 0.3) continue
+      const path = findPath(cells, a.cell, b.cell, a, b)
+      if (!costIsReasonable(path, a, b)) continue
+      addRoad(a.cell, b.cell, 'trade', path, `${a.name}—${b.name}商道`)
+    }
+  }
+
+  // ── Level 5: 海上航线 — 大港(> 1.5× 中位人口)之间,2-3 条/港 ──
+  if (ports.length > 1) {
+    const pops = activeBurgs.map(b => b.population).sort((a, b) => a - b)
+    const median = pops.length > 0 ? pops[Math.floor(pops.length / 2)] : 0
+    const threshold = median * 1.5
+    const bigPorts = ports.filter(p => p.population > threshold)
+    for (let i = 0; i < bigPorts.length; i++) {
+      const distances = bigPorts
+        .map((p, j) => ({
+          idx: j,
+          dist: i !== j ? (p.x - bigPorts[i].x) ** 2 + (p.y - bigPorts[i].y) ** 2 : Infinity,
+        }))
+        .filter(d => d.dist !== Infinity)
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 3)  // top 3
+      for (const { idx } of distances) {
+        if (idx <= i) continue  // 防重复
+        const a = bigPorts[i], b = bigPorts[idx]
+        addRoad(a.cell, b.cell, 'sea', [a.cell, b.cell], `${a.name}—${b.name}航线`)
+      }
     }
   }
 
   return roads
 }
 
-/** A* 寻路（陆地，沿 Voronoi 邻居） — graphology.astar.bidirectional + Euclidean 启发 */
-function findPath(cells: GridCells, start: number, end: number): number[] {
-  if (start === end) return [start]
+interface LandGraph {
+  neighbors: Int32Array[]
+}
 
-  // 构陆地无向图
-  const graph = new Graph({ type: 'undirected', multi: false, allowSelfLoops: false })
-  for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] >= SEA_LEVEL) graph.addNode(String(i))
-  }
+/** 陆地数值邻接缓存 — 同一 cells 对象在一次 generateRoads 调用中只构建一次。 */
+const landGraphCache = new WeakMap<GridCells, LandGraph>()
+
+function buildLandGraph(cells: GridCells): LandGraph {
+  const cached = landGraphCache.get(cells)
+  if (cached) return cached
+  const edgeLists = Array.from({ length: cells.length }, () => [] as number[])
   for (let i = 0; i < cells.length; i++) {
     if (cells.h[i] < SEA_LEVEL) continue
     for (const j of cells.c[i]) {
+      if (j <= i || j < 0 || j >= cells.length) continue
       if (cells.h[j] < SEA_LEVEL) continue
-      if (i < j) graph.addEdge(String(i), String(j))
+      edgeLists[i].push(j)
+      edgeLists[j].push(i)
+    }
+  }
+  const graph: LandGraph = {
+    neighbors: edgeLists.map(edges => Int32Array.from(edges.sort((a, b) => a - b))),
+  }
+  landGraphCache.set(cells, graph)
+  return graph
+}
+
+/** A* 寻路（陆地，沿 Voronoi 邻居）。
+ *  若传 burgA/burgB,使用阶段 5 的 stratified 成本(河流/山地/同国/首都偏置);
+ *  否则退回原 findPath 语义(供向后兼容或纯寻路场景)。 */
+function findPath(
+  cells: GridCells,
+  start: number,
+  end: number,
+  burgA?: Burg,
+  burgB?: Burg,
+): number[] {
+  if (start < 0 || end < 0 || start >= cells.length || end >= cells.length) return []
+  if (start === end) return [start]
+  if (cells.h[start] < SEA_LEVEL || cells.h[end] < SEA_LEVEL) return []
+
+  const graph = buildLandGraph(cells)
+  const endX = cells.p[end * 2]
+  const endY = cells.p[end * 2 + 1]
+  const gScore = new Float64Array(cells.length).fill(Infinity)
+  const previous = new Int32Array(cells.length).fill(-1)
+  const open = new MinHeap<{ cell: number; g: number; f: number }>((a, b) => (
+    (a.f - b.f) || (a.g - b.g) || (a.cell - b.cell)
+  ))
+
+  const heuristic = (cell: number): number => {
+    const dx = cells.p[cell * 2] - endX
+    const dy = cells.p[cell * 2 + 1] - endY
+    return Math.sqrt(dx * dx + dy * dy) * 0.01
+  }
+
+  gScore[start] = 0
+  open.push({ cell: start, g: 0, f: heuristic(start) })
+
+  while (!open.empty()) {
+    const current = open.pop()!
+    if (current.g > gScore[current.cell]) continue
+    if (current.cell === end) return reconstructPath(previous, start, end)
+
+    for (const neighbor of graph.neighbors[current.cell]) {
+      const edgeCost = (() => {
+        if (burgA && burgB) {
+          return roadCostForEdge(cells, current.cell, neighbor, burgA, burgB)
+        }
+        return baseBiomeCost(cells, neighbor)
+      })()
+      if (!isFinite(edgeCost)) continue
+      const nextG = current.g + edgeCost
+      if (nextG >= gScore[neighbor]) continue
+      gScore[neighbor] = nextG
+      previous[neighbor] = current.cell
+      open.push({ cell: neighbor, g: nextG, f: nextG + heuristic(neighbor) })
     }
   }
 
-  const endX = cells.p[end * 2]
-  const endY = cells.p[end * 2 + 1]
+  return []
+}
 
-  const path = astar.bidirectional(
-    graph,
-    String(start),
-    String(end),
-    (_edge, _attrs, _source, target) => {
-      const tId = +target
-      const biome = BIOMES[cells.biome[tId]]
-      let mc = (biome?.moveCost ?? 100) / 50
-      if (cells.h[tId] > 70) mc += (cells.h[tId] - 70) * 0.5
-      if (cells.r[tId] > 0) mc *= 0.8
-      return mc
-    },
-    (node) => {
-      const t = +node
-      const dx = cells.p[t * 2] - endX
-      const dy = cells.p[t * 2 + 1] - endY
-      return Math.sqrt(dx * dx + dy * dy) * 0.01
-    },
-  )
-
-  if (!path) return []
-  return path.map(s => +s)
+function reconstructPath(previous: Int32Array, start: number, end: number): number[] {
+  const path: number[] = []
+  let cell = end
+  while (cell !== -1) {
+    path.push(cell)
+    if (cell === start) break
+    cell = previous[cell]
+  }
+  if (path[path.length - 1] !== start) return []
+  path.reverse()
+  return path
 }

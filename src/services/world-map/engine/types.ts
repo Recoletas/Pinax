@@ -55,10 +55,16 @@ export interface GridCells {
   haven: Uint16Array
   /** 相邻水域单元格数量 */
   harbor: Uint8Array
+  /** 端口质量分数 0-100（features.ts 阶段 2 写入；settlement 评分用） */
+  portQuality?: Uint8Array
+  /** 阶段 4：每 cell 归属的 province id（0=水域或未分配） */
+  province?: Uint16Array
   /** 板块数据（plateId/boundaryDist/boundaryType/subduction/orogenyAge/volcanoArc 6 个并行数组） */
   tectonic?: TectonicData
   /** 火山类型（0=无 1=strato 2=shield） */
   volcano?: Uint8Array
+  /** 山影预计算值（正=亮面，负=暗面，0=无山影） */
+  hillshade?: Float32Array
   /** 河流 ID（0=无，>0=河流编号） */
   riverId?: Uint16Array
 }
@@ -124,6 +130,9 @@ export interface Burg {
   population: number
 }
 
+/** 政体类型(国家/文化共用) */
+export type Government = 'naval' | 'highland' | 'nomadic' | 'river' | 'generic'
+
 /** 国家 */
 export interface State {
   i: number
@@ -131,6 +140,10 @@ export interface State {
   color: string
   /** 首都 burg ID */
   capital: number
+  /** 核心文化 ID */
+  culture?: number
+  /** 国家核心生境 */
+  nativeBiome?: number
   /** 扩张系数 */
   expansionism: number
   /** 包含的单元格数 */
@@ -139,6 +152,8 @@ export interface State {
   area: number
   /** 总人口 */
   totalPopulation: number
+  /** 政体类型 — 影响 moveCostForEdge 的扩张偏置 */
+  government: Government
 }
 
 /** 省份 */
@@ -174,6 +189,8 @@ export interface Culture {
   center: number
   type: 'generic' | 'nomadic' | 'highland' | 'lake' | 'naval' | 'river' | 'hunting'
   expansionism: number
+  /** 政体类型 — 与 State 同(阶段 3 新增) */
+  government: Government
 }
 
 /** 生态群落定义 */
@@ -234,6 +251,9 @@ export interface WindData {
   ws: Float32Array
 }
 
+/** 归一化坐标点 [0, 1] */
+export type NormPoint = [number, number]
+
 /** 完整的地图数据 */
 export interface VoronoiMapData {
   /** 画布宽高 */
@@ -267,8 +287,19 @@ export interface VoronoiMapData {
   oceanCurrents: OceanCurrent[]
   /** 风场数据 */
   wind: WindData
+  /** 主要陆块海岸线(每块陆块 1 个闭合多边形,归一化坐标) */
+  coastlines: NormPoint[][]
   /** 地图名称 */
   name: string
+  /**
+   * 实际选中的 heightmap 模板(显式 / 自动 / reroll 后)。`undefined`
+   * 只发生在极早期版本;Round 2 起 generateMap 总会写回。
+   * Round 2 修复:之前 generateMap 没保存 generateHeightmap 返回值,
+   * 调用方拿不到实际选中的模板。
+   */
+  heightmapTemplate?: HeightmapTemplate
+  /** 形状 intent(对应 `TemplateShapeIntent`) */
+  shapeIntent?: import('./heightmap-templates').TemplateShapeIntent
 }
 
 /** 文化命名风格 */
@@ -279,6 +310,23 @@ export type NamingStyle =
   | 'arabic'        // 阿拉伯/沙漠
   | 'highFantasy'   // 高魔奇幻（精灵/矮人风）
   | 'darkFantasy'   // 暗黑奇幻
+
+/** Azgaar 高度图模板 */
+export type HeightmapTemplate =
+  | 'volcano'
+  | 'highIsland'
+  | 'lowIsland'
+  | 'continents'
+  | 'archipelago'
+  | 'atoll'
+  | 'mediterranean'
+  | 'peninsula'
+  | 'pangea'
+  | 'isthmus'
+  | 'shattered'
+  | 'taklamakan'
+  | 'oldWorld'
+  | 'fractious'
 
 /** 渲染风格预设 */
 export type MapStylePreset =
@@ -291,11 +339,18 @@ export type MapStylePreset =
 
 /** 图层显隐配置 */
 export interface LayerVisibility {
+  hillshade?: boolean   // 山影
   terrain?: boolean    // 地形着色
+  ice?: boolean        // 冰盖 / 海冰覆盖
   coastlines?: boolean // 海岸线
+  coastGlow?: boolean   // 海岸光晕
+  volcanoes?: boolean   // 火山 / 高峰强调
   continents?: boolean // 大陆轮廓
   rivers?: boolean     // 河流
+  landDividers?: boolean // 陆地内部划分线
   borders?: boolean    // 国界线
+  borderlands?: boolean // 国界缓冲
+  factionTexture?: boolean // 国家纹理底色
   provinces?: boolean  // 省界线
   roads?: boolean      // 道路
   stateLabels?: boolean // 国家标签
@@ -391,6 +446,8 @@ export interface MapGenConfig {
   pointCount?: number
   /** 海陆比例 0-1（默认 0.5） */
   landRatio?: number
+  /** Azgaar 高度图模板（可选；不传则按 continentCount / landRatio 自动选） */
+  heightmapTemplate?: HeightmapTemplate
   /** 板块数量 2-12（默认 6；旧名 `continentCount` 保留为 alias） */
   continentCount?: number
   /** 国家数量 */

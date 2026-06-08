@@ -1,0 +1,129 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`视觉/性能验收 > 视觉基线：cc=1（单大陆） > visual-cc1 1`] = `
+{
+  "boundaries": 4,
+  "boundaryByType": {
+    "convergent": 83,
+    "divergent": 73,
+    "total": 2000,
+    "transform": 52,
+  },
+  "coastlineVertCounts": [
+    25,
+    65,
+  ],
+  "coastlines": 2,
+  "land": 924,
+  "landRatio": 0.462,
+  "landmass": {
+    "bboxAspectRatio": 1.65,
+    "bboxFillRatio": 0.512,
+    "coastRoughness": 9.116,
+    "componentCount": 1,
+    "edgeLinearity": 0.305,
+    "largestRatio": 0.985,
+    "polarLandRatio": 0.105,
+    "secondRatio": 0,
+  },
+  "plates": 4,
+  "total": 2000,
+  "water": 1076,
+}
+`;
+
+exports[`视觉/性能验收 > 视觉基线：cc=4（多大陆） > visual-cc4 1`] = `
+{
+  "boundaries": 10,
+  "boundaryByType": {
+    "convergent": 205,
+    "divergent": 37,
+    "total": 3000,
+    "transform": 100,
+  },
+  "coastlineVertCounts": [
+    8,
+    11,
+    13,
+    29,
+    213,
+    261,
+    373,
+  ],
+  "coastlines": 7,
+  "land": 1350,
+  "landRatio": 0.45,
+  "landmass": {
+    "bboxAspectRatio": 1.281,
+    "bboxFillRatio": 0.614,
+    "coastRoughness": 6.433,
+    "componentCount": 3,
+    "edgeLinearity": 0.455,
+    "largestRatio": 0.499,
+    "polarLandRatio": 0.096,
+    "secondRatio": 0.314,
+  },
+  "plates": 6,
+  "total": 3000,
+  "water": 1650,
+}
+`;
+
+exports[`视觉/性能验收 > 视觉基线：cc=6（多大陆 + 多板块） > visual-cc6 1`] = `
+{
+  "boundaries": 15,
+  "boundaryByType": {
+    "convergent": 72,
+    "divergent": 168,
+    "total": 3000,
+    "transform": 235,
+  },
+  "coastlineVertCounts": [
+    9,
+    9,
+    9,
+    9,
+    10,
+    10,
+    10,
+    11,
+    11,
+    11,
+    12,
+    12,
+    12,
+    12,
+    12,
+    13,
+    13,
+    13,
+    14,
+    14,
+    15,
+    15,
+    18,
+    25,
+    26,
+    35,
+    35,
+    38,
+    56,
+  ],
+  "coastlines": 29,
+  "land": 1349,
+  "landRatio": 0.45,
+  "landmass": {
+    "bboxAspectRatio": 1.299,
+    "bboxFillRatio": 0.417,
+    "coastRoughness": 12.981,
+    "componentCount": 2,
+    "edgeLinearity": 0.331,
+    "largestRatio": 0.503,
+    "polarLandRatio": 0.234,
+    "secondRatio": 0.497,
+  },
+  "plates": 8,
+  "total": 3000,
+  "water": 1651,
+}
+`;

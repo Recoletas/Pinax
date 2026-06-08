@@ -1,27 +1,21 @@
 /**
- * 高度图生成（azgaar 风格：板块驱动）
+ * 高度图生成（Azgaar template-driven）
  *
  * 算法（在 `generateTectonics` 之后调用）：
- *  1. 板块 base 高度：洋 5-15，陆 25-50
- *  2. FBM 噪声叠加（4 octaves, scale 0.015, amplitude 5）打破板块几何
- *  3. 边界效果：
- *     - 汇聚 → 沿 spine 拉山脊（applyConvergentRange）
- *     - 离散 → 沿 spine 挖裂谷（applyDivergentRift）
- *     - 转换 → 小起伏（applyTransformShear）
- *     - 俯冲带 → 内陆侧火山弧（applyVolcanicArc）
- *  4. 边缘遮罩
- *  5. 调整海陆比（gap-aware threshold）
- *  6. 平滑
+ *  1. 从 Azgaar 14 个模板中选择一个，执行 Hill / Range / Strait / Mask 操作链
+ *  2. 追加轻量 FBM 噪声，缓解 Voronoi 采样后的几何感
+ *  3. 按 landRatio 调整海平面
+ *  4. 平滑稳定海岸与内陆过渡
+ *
+ * `plates / boundaries` 仍保留给 tectonic metadata、渲染和后续模块使用，
+ * 但不再直接主导主高度图形状。
  */
 
-import type { GridCells, Plate, PlateBoundary, MapRealism } from './types'
-import {
-  applyConvergentRange,
-  applyDivergentRift,
-  applyTransformShear,
-  applyVolcanicArc,
-} from './boundary-terrain'
-import { HEIGHTMAP_TEMPLATES, pickTemplate, applyTemplate } from './heightmap-templates'
+import type { GridCells, Plate, PlateBoundary, MapRealism, HeightmapTemplate } from './types'
+import { HEIGHTMAP_TEMPLATES, applyTemplate, resolveHeightmapTemplate, type TemplateShapeIntent } from './heightmap-templates'
+import { adjustSeaLevelTemplateAware } from './heightmap-template-aware'
+import { evaluateContract } from './enforceTemplateContract'
+import { seedRandom } from './random'
 
 function lim(v: number): number {
   return Math.max(0, Math.min(100, v))
@@ -29,12 +23,32 @@ function lim(v: number): number {
 
 const SEA_LEVEL = 20
 const FBM_SCALE = 0.015
-const FBM_AMP = 5
+const FBM_AMP = 1
 
 /**
- * 生成高度图（azgaar 风格：板块驱动）
+ * Round 2 Stage 1:派生 sub-RNG 用于模板层（选择 + 执行 + 后续反轴向偏移）。
+ *
+ * `attempt` 是合同 reroll 计数器（Stage 5），从 0 开始每次 reroll +1。
+ * 模板层**不**消费主 rng；主世界（grid / plates / cultures / nations）的
+ * determinism 不会被模板层任何重试扰动。显式模板和自动模板走同一套
+ * sub-RNG，避免同 seed 显式 / 自动底层世界不同。
+ */
+function templateRngFor(seed: string, attempt = 0): () => number {
+  return seedRandom(`${seed}:heightmap:${attempt}`)
+}
+
+/**
+ * 生成高度图（Azgaar template-driven）
  *
  * 假定 `generateTectonics` 已先调用，且 `cells.tectonic.plateId` 已被填充。
+ *
+ * Round 2 Stage 1 起，自动模板选择走独立 sub-RNG（由 `heightmapSeed` 派生），
+ * 不消费主 `rng`。这保证：
+ *  1. 显式模板 vs 同 seed 自动模板的**底层世界**（grid / plates / cultures）
+ *     一致（仅模板层选择走 sub-RNG，不影响其它层）。
+ *  2. Stage 5 reroll 改 attempt 后缀只换模板，**不**扰动主世界 determinism。
+ *
+ * 显式 `templateOverride` 仍由调用方传入（`generateMap` 用 `config.heightmapTemplate`）。
  */
 export function generateHeightmap(
   cells: GridCells,
@@ -46,72 +60,109 @@ export function generateHeightmap(
   boundaries: PlateBoundary[] = [],
   continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
-): void {
+  templateOverride?: HeightmapTemplate,
+  heightmapSeed: string,
+): { shapeIntent: TemplateShapeIntent | undefined; templateName: HeightmapTemplate | undefined } {
   const n = cells.length
-  const plateId = cells.tectonic?.plateId
-  if (!plateId) {
+  if (!cells.tectonic?.plateId) {
     throw new Error('generateHeightmap: cells.tectonic.plateId not initialized. Call generateTectonics first.')
   }
 
-  // 步骤 1：Azgaar 模板（faithful port）—— 从 0 起步，按 14 模板之一叠 hills / ranges / straits / mask。
-  // 模板的设计前提是 cells.h 初始为 0（Azgaar 原版如此），plate 仅影响 boundary effects，不决定 base 高度。
-  const templateName = pickTemplate(continentCount, landRatio, rng)
-  const template = HEIGHTMAP_TEMPLATES[templateName]
-  if (template) {
-    applyTemplate(cells, width, height, template.template, rng)
-  } else {
-    // 没匹配到模板：fallback 到 30 等高（不读 plate，与 spec §4a 的 per-cell 简化路径不同）
-    for (let i = 0; i < n; i++) cells.h[i] = 30
+  // 步骤 1：Azgaar 模板（faithful port）
+  // Stage 4：模板层（含 `applyTemplate` 内部 rng 调用 + 反轴向偏移）走
+  // 独立 sub-RNG `templateRng`，**不**消费主 rng。主 rng 仍保留在签名
+  // 中供后续 FBM 噪声叠加 / 板块边界地形使用。
+  //
+  // Stage 5：合同评估 + reroll。snapshot 记录 applyTemplate 前的 cells.h
+  // (此时全 0),reroll 时回滚 + 重新跑 applyTemplate + FBM + seaLevel。
+  // sub-RNG 的 attempt 计数器 +1,主世界 determinism 不变。
+  //
+  // Round 2 修复: 原本 reroll 循环结束后会**再次**跑 FBM + softenMapEdges,
+  // 导致合同评估的高度场和最终输出不是同一个状态(soften 后又被 FBM
+  // 叠加、plateRelief 前被两次 soften 弱化)。现在把 post-template 跑
+  // 在每次 reroll 之后,合同通过即停止,不再二次叠加。
+  const heightmapSnapshot = new Uint8Array(cells.h)  // applyTemplate 前的高度场
+
+  const pickAndApply = (attempt: number): { templateName: HeightmapTemplate; shapeIntent: TemplateShapeIntent | undefined; tplRng: () => number } => {
+    const tplRng = templateRngFor(heightmapSeed, attempt)
+    const resolved = resolveHeightmapTemplate({
+      continentCount,
+      landRatio,
+      rng: tplRng,
+      explicitTemplate: templateOverride,
+    })
+    const tplName = resolved.templateName
+    // 回滚到 snapshot(attempt > 0 时 cells.h 是上一次 applyTemplate 的结果)
+    cells.h.set(heightmapSnapshot)
+    const tpl = HEIGHTMAP_TEMPLATES[tplName]
+    if (tpl) {
+      applyTemplate(cells, width, height, tpl.template, tplRng)
+    } else {
+      // 没匹配到模板：fallback 到 30 等高
+      for (let i = 0; i < n; i++) cells.h[i] = 30
+    }
+    return { templateName: tplName, shapeIntent: resolved.shapeIntent, tplRng }
   }
 
-  // 步骤 2：FBM 噪声叠加
-  for (let i = 0; i < n; i++) {
-    const x = cells.p[i * 2]
-    const y = cells.p[i * 2 + 1]
-    cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
+  // 第一次选 + 跑
+  let { templateName, shapeIntent } = pickAndApply(0)
+
+  // 单阶段 post-template:FBM 噪声 + 边缘软化 + 模板保形海陆比 remap。
+  // 跑在合同评估之前(landmass 形状需要 sea level 调整过的高度场)。
+  // 每次 reroll 都会**完整**重跑这一段,合同通过后不再叠加。
+  const runPostTemplate = (
+    currentShapeIntent: TemplateShapeIntent | undefined,
+    currentTemplateName: HeightmapTemplate,
+  ) => {
+    for (let i = 0; i < n; i++) {
+      if (cells.h[i] <= SEA_LEVEL + 4) continue
+      const x = cells.p[i * 2]
+      const y = cells.p[i * 2 + 1]
+      cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
+    }
+    softenMapEdges(cells, width, height)
+    adjustSeaLevelTemplateAware(cells, landRatio, currentShapeIntent, currentTemplateName)
+  }
+  runPostTemplate(shapeIntent, templateName)
+
+  // 步骤 1.5：合同评估 + reroll（最多 3 次 attempt）
+  const maxAttempts = templateOverride ? 1 : 4  // attempt 0 + 3 rerolls
+  let contractAttempt = 0
+  let contract = evaluateContract({
+    cells, width, height, templateName, shapeIntent: shapeIntent ?? 'continents', explicit: !!templateOverride,
+  })
+  while (!contract.met && contractAttempt + 1 < maxAttempts) {
+    contractAttempt++
+    ;({ templateName, shapeIntent } = pickAndApply(contractAttempt))
+    runPostTemplate(shapeIntent, templateName)
+    contract = evaluateContract({
+      cells, width, height, templateName, shapeIntent: shapeIntent ?? 'continents', explicit: !!templateOverride,
+    })
+  }
+  if (!contract.met) {
+    console.warn(`[generateHeightmap] template contract NOT met after ${contractAttempt} rerolls: ${contract.reason}`)
   }
 
-  // 步骤 3：边界效果
+  // 合同通过(或放弃 reroll)后,直接进入板块边界地形 + 平滑。
+  // **不**再叠加 FBM / 软化边缘:这两步已包含在 runPostTemplate 里,
+  // 合同评估和最终输出的应是同一个高度场。Round 2 修复:之前在合同
+  // 循环结束后又跑了一次 FBM + softenMapEdges,导致最终图与合同评估
+  // 看到的状态不一致,且额外 soften 弱化了大陆骨架。
+
+  // 保留 realism.tectonics 参数兼容旧配置,并用于实际板块边界地形。
   const rangeWidth = clamp(realism?.tectonics?.rangeWidth ?? 3, 1, 8)
   const riftDepth = clamp(realism?.tectonics?.riftDepth ?? 25, 5, 60)
-  for (const boundary of boundaries) {
-    const seg = {
-      cellsA: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateA),
-      cellsB: splitCellsByPlate(boundary.cellIds, plateId, boundary.plateB),
-      normalX: 0,
-      normalY: 0,
-    }
-    computeBoundaryNormal(cells, boundary, seg)
-    if (boundary.type === 'convergent') {
-      const peakHeight = 50 + rangeWidth * 5
-      applyConvergentRange(cells, seg, { peakHeight, rangeWidth, rng })
-      if (boundary.subductionSide !== undefined) {
-        const overriding = boundary.subductionSide === boundary.plateA
-          ? plates[boundary.plateB]
-          : plates[boundary.plateA]
-        applyVolcanicArc(cells, seg, overriding.i, { offsetCell: 4, peakHeight: 35, rng })
-      }
-    } else if (boundary.type === 'divergent') {
-      applyDivergentRift(cells, seg, { riftDepth })
-    } else {
-      applyTransformShear(cells, seg, rng)
-    }
-  }
 
-  // 步骤 4：边缘遮罩
-  for (let i = 0; i < n; i++) {
-    const x = cells.p[i * 2] / width
-    const y = cells.p[i * 2 + 1] / height
-    const edgeMask = (1 - (2 * x - 1) ** 6) * (1 - (2 * y - 1) ** 6)
-    cells.h[i] = Math.max(0, Math.min(100, Math.round(cells.h[i] * edgeMask)))
-  }
+  // 步骤 3.5：板块边界地形。汇聚边界形成山带，张裂边界形成浅裂谷。
+  applyPlateBoundaryRelief(cells, width, height, boundaries, plates, { rangeWidth, riftDepth })
 
-  // 步骤 5：调整海陆比
-  adjustSeaLevel(cells, landRatio)
+  // 步骤 4：轻平滑，保留模板骨架与海岸拓扑。
+  // Round 2.6:旧 smooth 会跨海平面平均,把 `compactLandmassErosion`
+  // 切出的窄海湾重新抬成陆地,视觉上又回到 bbox 被填满的方块大陆。
+  // 这里改成同侧平滑:陆只跟陆平均,水只跟水平均,不改变海陆分类。
+  smooth(cells, 1)
 
-  // 步骤 6：平滑
-  smooth(cells, 2, 2)
-  smooth(cells, 1, 1)
+  return { shapeIntent, templateName }
 }
 
 // ── 工具 ────────────────────────────────────────────
@@ -137,81 +188,218 @@ function fbm2D(x: number, y: number, octaves: number): number {
   return v / max
 }
 
-/** 把 boundary.cellIds 按 plateId 拆成 cellsA / cellsB（按 apply* 期望的格式） */
-function splitCellsByPlate(
-  cellIds: number[],
-  plateId: Int16Array,
-  plateA: number,
-): number[] {
-  const out: number[] = []
-  for (const id of cellIds) {
-    if (plateId[id] === plateA) out.push(id)
-  }
-  return out
-}
-
-/** 计算 boundary 的法线（与旧 tectonics.ts::detectBoundaries 同款：质心差） */
-function computeBoundaryNormal(
-  cells: GridCells,
-  boundary: PlateBoundary,
-  seg: { cellsA: number[]; cellsB: number[]; normalX: number; normalY: number },
-): void {
-  let avgAx = 0, avgAy = 0, avgBx = 0, avgBy = 0
-  for (const c of seg.cellsA) { avgAx += cells.p[c * 2]; avgAy += cells.p[c * 2 + 1] }
-  for (const c of seg.cellsB) { avgBx += cells.p[c * 2]; avgBy += cells.p[c * 2 + 1] }
-  const nA = Math.max(1, seg.cellsA.length)
-  const nB = Math.max(1, seg.cellsB.length)
-  avgAx /= nA; avgAy /= nA
-  avgBx /= nB; avgBy /= nB
-  let nx = avgBx - avgAx
-  let ny = avgBy - avgAy
-  const len = Math.sqrt(nx * nx + ny * ny) || 1
-  seg.normalX = nx / len
-  seg.normalY = ny / len
-}
-
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 
-/** 调整海平面以达到目标海陆比例（gap-aware） */
-function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
-  const landH: number[] = []
-  let zeroCount = 0
+function softenMapEdges(cells: GridCells, width: number, height: number): void {
   for (let i = 0; i < cells.length; i++) {
-    if (cells.h[i] > 0) landH.push(cells.h[i])
-    else zeroCount++
-  }
-  if (landH.length === 0) return
+    const x = cells.p[i * 2] / width
+    const y = cells.p[i * 2 + 1] / height
+    const edgeDist = Math.min(x, y, 1 - x, 1 - y)
+    if (edgeDist < 0.05) {
+      const factor = clamp(edgeDist / 0.05, 0, 1)
+      const shaped = factor * factor
+      cells.h[i] = lim(Math.round(cells.h[i] * shaped))
+    }
 
-  landH.sort((a, b) => a - b)
-  const targetLand = Math.floor(cells.length * targetLandRatio)
-  const needFromLand = Math.max(0, Math.min(landH.length, targetLand))
-  const waterInLand = landH.length - needFromLand
-  const idx = Math.max(0, Math.min(waterInLand, landH.length - 1))
-  const seaLevel = landH[idx]
-
-  const shift = SEA_LEVEL - seaLevel
-  for (let i = 0; i < cells.length; i++) {
-    cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + shift))
+    const poleDist = Math.min(y, 1 - y)
+    if (poleDist >= 0.12) continue
+    const polarFactor = clamp(poleDist / 0.12, 0, 1)
+    const shaped = 0.28 + polarFactor * polarFactor * 0.72
+    cells.h[i] = lim(Math.round(cells.h[i] * shaped))
   }
 }
 
-/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3，保留峰值。
- *  threshold：newH 低于此值的格子视为海洋（h=0），避免向海渗色。 */
-function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
+/**
+ * @deprecated Round 2 Stage 2 起被 `adjustSeaLevelTemplateAware`（在
+ * `heightmap-template-aware.ts`）替代。保留为内部 helper 备用 — 行为与
+ * Round 1.5 一致：step ±10 × 6 attempts = 60 max shift。
+ *
+ * 历史步幅：
+ *   原版：       step ±12 × 4 attempts = 48 max shift
+ *   Round 1：    step ±3 → ±6 × 4 attempts = 24 max shift（plan 阶段 6 要求限幅）
+ *   Round 1.5：  step ±10 × 6 attempts = 60 max shift
+ *
+ * Round 1 退到 ±6 × 4 = 24 在 pangea / mediterranean 类高基线模板下
+ * 完全拉不到目标 0.45 landRatio（实测 cc=1 pangea 0.658, cc=6
+ * mediterranean 0.613）。Round 1.5 给到 60 max shift，2.4× 余量
+ * 应对最坏基线。
+ *
+ * 落入容差（±0.025）即提前返回；末尾不再做 ±N 强制截断。
+ */
+function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
+  const heights = Array.from(cells.h)
+  if (heights.length === 0) return
+  heights.sort((a, b) => a - b)
+  const targetWater = clamp(Math.floor(cells.length * (1 - targetLandRatio)), 0, heights.length - 1)
+  const seaLevel = heights[targetWater]
+  let shift = SEA_LEVEL - seaLevel
+  if (shift === 0) return
+
+  let attempts = 0
+  while (shift !== 0 && attempts++ < 6) {
+    const step = clamp(shift, -10, 10)
+    for (let i = 0; i < cells.length; i++) {
+      cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + step))
+    }
+
+    let land = 0
+    for (let i = 0; i < cells.length; i++) {
+      if (cells.h[i] >= SEA_LEVEL) land++
+    }
+    const landRatio = land / cells.length
+    if (Math.abs(landRatio - targetLandRatio) <= 0.025) return
+
+    const nextHeights = Array.from(cells.h).sort((a, b) => a - b)
+    const nextSeaLevel = nextHeights[targetWater]
+    shift = SEA_LEVEL - nextSeaLevel
+  }
+}
+
+function applyPlateBoundaryRelief(
+  cells: GridCells,
+  width: number,
+  height: number,
+  boundaries: PlateBoundary[],
+  plates: Plate[],
+  options: { rangeWidth: number; riftDepth: number },
+): void {
+  if (boundaries.length === 0) return
+
+  const uplift = new Uint8Array(cells.length)
+  const rift = new Uint8Array(cells.length)
+
+  for (const boundary of boundaries) {
+    if (boundary.cellIds.length === 0) continue
+    if (boundary.type === 'convergent') {
+      const peak = getConvergentPeak(boundary, plates)
+      const effectiveWidth = getConvergentWidth(boundary, plates, options.rangeWidth)
+      spreadBoundaryEffect(cells, boundary.cellIds, effectiveWidth, (cellId, layer) => {
+        if (cells.h[cellId] < SEA_LEVEL) return
+        if (!isUpliftSide(cells, boundary, cellId)) return
+        const attenuation = getReliefAttenuation(cells, cellId, width, height)
+        if (attenuation <= 0.06) return
+        const sigma = Math.max(0.85, effectiveWidth / 3)
+      const localRelief = 0.82 + hash2D(cellId * 0.73, layer * 13.17) * 0.36
+      const lift = Math.round(peak * localRelief * attenuation * Math.exp(-(layer * layer) / (2 * sigma * sigma)))
+        if (lift > uplift[cellId]) uplift[cellId] = lift
+      })
+    } else if (boundary.type === 'divergent') {
+      const width = Math.max(1, Math.floor(options.rangeWidth * 0.45))
+      const depth = Math.max(2, Math.round(options.riftDepth * 0.22))
+      spreadBoundaryEffect(cells, boundary.cellIds, width, (cellId, layer) => {
+        const cut = Math.round(depth * Math.max(0, 1 - layer / (width + 1)))
+        if (cut > rift[cellId]) rift[cellId] = cut
+      })
+    }
+  }
+
+  for (let i = 0; i < cells.length; i++) {
+    let h = cells.h[i]
+    if (uplift[i] > 0) h = lim(h + uplift[i])
+    if (rift[i] > 0) {
+      h = h >= SEA_LEVEL ? Math.max(SEA_LEVEL, h - rift[i]) : Math.max(0, h - rift[i])
+    }
+    cells.h[i] = h
+  }
+}
+
+function getConvergentPeak(boundary: PlateBoundary, plates: Plate[]): number {
+  const plateA = plates[boundary.plateA]
+  const plateB = plates[boundary.plateB]
+  if (!plateA || !plateB) return boundary.subductionSide === undefined ? 28 : 22
+
+  if (!plateA.oceanic && !plateB.oceanic) return 36
+  if (plateA.oceanic !== plateB.oceanic) return 26
+  return 16
+}
+
+function getConvergentWidth(boundary: PlateBoundary, plates: Plate[], configuredWidth: number): number {
+  const plateA = plates[boundary.plateA]
+  const plateB = plates[boundary.plateB]
+  const baseWidth = Math.max(1, configuredWidth)
+  if (!plateA || !plateB) return baseWidth + 2
+  if (!plateA.oceanic && !plateB.oceanic) return baseWidth + 2
+  if (plateA.oceanic !== plateB.oceanic) return baseWidth + 1
+  return Math.max(1, Math.floor(baseWidth * 0.6))
+}
+
+function isUpliftSide(cells: GridCells, boundary: PlateBoundary, cellId: number): boolean {
+  if (boundary.subductionSide === undefined) return true
+  return cells.tectonic?.plateId[cellId] !== boundary.subductionSide
+}
+
+function getReliefAttenuation(cells: GridCells, cellId: number, width: number, height: number): number {
+  const x = cells.p[cellId * 2] / width
+  const y = cells.p[cellId * 2 + 1] / height
+  const edgeDist = Math.min(x, y, 1 - x, 1 - y)
+  const poleDist = Math.min(y, 1 - y)
+  const edgeFactor = smoothstep(0.04, 0.1, edgeDist)
+  const polarFactor = smoothstep(0.1, 0.24, poleDist)
+  return Math.min(edgeFactor, polarFactor)
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
+function spreadBoundaryEffect(
+  cells: GridCells,
+  seeds: number[],
+  width: number,
+  visit: (cellId: number, layer: number) => void,
+): void {
+  const visited = new Uint8Array(cells.length)
+  let frontier: number[] = []
+  for (const seed of seeds) {
+    if (seed < 0 || seed >= cells.length || visited[seed]) continue
+    visited[seed] = 1
+    frontier.push(seed)
+  }
+
+  for (let layer = 0; layer <= width && frontier.length > 0; layer++) {
+    const next: number[] = []
+    for (const cellId of frontier) {
+      visit(cellId, layer)
+      if (layer === width) continue
+      for (const nb of cells.c[cellId]) {
+        if (visited[nb]) continue
+        visited[nb] = 1
+        next.push(nb)
+      }
+    }
+    frontier = next
+  }
+}
+
+/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3。
+ *
+ * 保持海陆拓扑:每一 pass 先记录原始海陆分类,只用同侧邻居求均值,并把
+ * 结果 clamp 回原侧。否则水格会被近岸高陆平均到 SEA_LEVEL 以上,填死
+ * 前面宏观海岸重塑切出的海湾,重新形成方块大陆。
+ */
+function smooth(cells: GridCells, passes: number): void {
   const fr = 3
   for (let pass = 0; pass < passes; pass++) {
+    const wasLand = new Uint8Array(cells.length)
+    for (let i = 0; i < cells.length; i++) wasLand[i] = cells.h[i] >= SEA_LEVEL ? 1 : 0
+
     const newH = new Uint8Array(cells.length)
     for (let i = 0; i < cells.length; i++) {
       const neighbors = cells.c[i]
       if (neighbors.length === 0) { newH[i] = cells.h[i]; continue }
       let sum = cells.h[i]
       let count = 1
-      for (const n of neighbors) { sum += cells.h[n]; count++ }
+      for (const n of neighbors) {
+        if (wasLand[n] !== wasLand[i]) continue
+        sum += cells.h[n]
+        count++
+      }
       const mean = sum / count
       const newV = lim(Math.round((cells.h[i] * (fr - 1) + mean) / fr))
-      newH[i] = threshold > 0 && newV < threshold ? 0 : newV
+      newH[i] = wasLand[i] ? Math.max(SEA_LEVEL, newV) : Math.min(SEA_LEVEL - 1, newV)
     }
     cells.h.set(newH)
   }

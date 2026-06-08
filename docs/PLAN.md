@@ -1,12 +1,12 @@
-# 叙事工具链总计划（UI 可用性重构版）
+# 叙事工具链总计划（历史归档）
 
-> 当前默认只看本文件和 [plan/current-execution-plan.md](./plan/current-execution-plan.md)。
+> 本文件保留 UI 可用性重构阶段的历史主线。当前仓库事实以 [src/index.md](./src/index.md)、[src/code-map.md](./src/code-map.md)、[src/known-issues.md](./src/known-issues.md) 和 [src/test-status.md](./src/test-status.md) 为准。
 
 ## 1. 当前阶段目标
 
-当前主目标不是继续扩功能，而是先完成 UI 可用性重构。兼容性只作为回归底线，不作为保留旧入口、旧布局或旧交互路径的理由。
+本阶段当时的主目标不是继续扩功能，而是先完成 UI 可用性重构。兼容性只作为回归底线，不作为保留旧入口、旧布局或旧交互路径的理由。
 
-当前 P2 视觉 polish 的执行焦点是页面间动画衔接与反馈一致性，具体执行文档见 [plan/page-transition.md](./plan/page-transition.md)。这项工作只处理内容区路由过渡，不改变导航、侧栏、路由结构或业务状态。
+P2 视觉 polish 的执行文档已不再作为当前入口维护。若需要确认当前 UI / 兼容问题，先看 [src/known-issues.md](./src/known-issues.md)。
 
 1. 让用户能在最短路径内完成体验、世界书、写作、素材整理和关系分镜的核心任务。
 2. 减少重复入口和互相遮挡的浮层，降低首次理解成本。

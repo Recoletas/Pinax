@@ -35,15 +35,19 @@
         {{ mapData.states.filter(s => s.i > 0).length }} 国 ·
         {{ mapData.burgs.filter(b => b.i > 0).length }} 城 ·
         {{ mapData.rivers.length }} 河 ·
-        {{ mapData.roads.length }} 路
+        {{ markerCount }} 标记
       </div>
     </div>
 
     <!-- Top-right buttons -->
     <div v-if="mapData && !generating" class="top-actions">
-      <button class="canvas-btn" :class="{ active: showSettings }" @click="showSettings = !showSettings">
+      <button class="canvas-btn" :class="{ active: addingMarkerMode }" @click="toggleAddMarkerMode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/><circle cx="12" cy="12" r="9"/></svg>
+        添加标记
+      </button>
+      <button class="canvas-btn" :class="{ active: showSettings }" @click="toggleSettings">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        设置
+        参数
       </button>
       <button class="canvas-btn" @click="handleExportHD" :disabled="exporting">
         <svg v-if="!exporting" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -58,44 +62,70 @@
 
     <!-- Settings panel -->
     <div v-if="mapData && !generating && showSettings" class="settings-panel">
-      <h4 class="panel-title">渲染设置</h4>
-
-      <div class="panel-section">
-        <label class="section-label">渲染风格</label>
-        <div class="style-grid">
-          <button
-            v-for="(label, key) in STYLE_LABELS"
-            :key="key"
-            class="style-btn"
-            :class="{ active: stylePreset === key }"
-            @click="handleStyleChange(key)"
-          >{{ label }}</button>
+      <div class="settings-head">
+        <div>
+          <h4 class="panel-title">地图参数</h4>
+          <p class="panel-subtitle">只开放影响生成结果的核心项；应用后保存到当前世界并重新生成。</p>
         </div>
       </div>
 
       <div class="panel-section">
-        <label class="section-label">图层显隐</label>
-        <div class="layer-list">
-          <label v-for="(label, key) in LAYER_LABELS" :key="key" class="layer-item">
-            <input type="checkbox" :checked="layers[key] ?? true" @change="toggleLayer(key)" />
-            <span>{{ label }}</span>
+        <div class="config-strip">
+          <span>当前</span>
+          <strong>{{ configCompactSummary }}</strong>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <label class="section-label">核心参数</label>
+        <div class="param-field">
+          <div class="param-head">
+            <span>陆地比例</span>
+            <strong>{{ formatPercent(paramDraft.landRatio) }}</strong>
+          </div>
+          <input class="param-range" type="range" min="0.15" max="0.8" step="0.01" v-model.number="paramDraft.landRatio" />
+          <small class="param-hint">极端值（AI 导入 &lt; 0.15 / &gt; 0.85）会切到群岛 / 特殊（沙漠 · 火山）模板组</small>
+        </div>
+        <div class="param-field">
+          <div class="param-head">
+            <span>板块数量</span>
+            <strong>{{ paramDraft.plateCount }}</strong>
+          </div>
+          <input class="param-range" type="range" min="2" max="12" step="1" v-model.number="paramDraft.plateCount" />
+        </div>
+        <div class="param-field">
+          <div class="param-head">
+            <span>国家数量</span>
+            <strong>{{ paramDraft.stateCount }}</strong>
+          </div>
+          <input class="param-range" type="range" min="2" max="15" step="1" v-model.number="paramDraft.stateCount" />
+        </div>
+        <div class="param-field">
+          <div class="param-head">
+            <span>城市密度</span>
+            <strong>{{ formatNumber(paramDraft.burgDensity) }}x</strong>
+          </div>
+          <input class="param-range" type="range" min="0.1" max="1.5" step="0.1" v-model.number="paramDraft.burgDensity" />
+        </div>
+        <div class="param-grid">
+          <label class="compact-field">
+            <span>气温偏移</span>
+            <input class="compact-input" type="number" min="-20" max="20" step="1" v-model.number="paramDraft.temperatureShift" />
+          </label>
+          <label class="compact-field">
+            <span>降水倍率</span>
+            <input class="compact-input" type="number" min="0.2" max="3" step="0.1" v-model.number="paramDraft.precipitationFactor" />
           </label>
         </div>
-      </div>
-
-      <div class="panel-section">
-        <label class="section-label">板块构造</label>
-        <div class="param-row">
-          <span class="param-label">板块数量</span>
-          <input type="range" min="2" max="12" step="1" :value="plateCount" @input="plateCount = Number($event.target.value)" class="param-range" />
-          <span class="param-value">{{ plateCount }}</span>
-        </div>
-        <div class="param-row">
-          <span class="param-label">板块速率</span>
-          <input type="range" min="0.5" max="2" step="0.1" :value="plateSpeed" @input="plateSpeed = Number($event.target.value)" class="param-range" />
-          <span class="param-value">{{ plateSpeed.toFixed(1) }}</span>
-        </div>
-        <button class="canvas-btn sm" style="margin-top: 6px" @click="regenerateWithTectonics">
+        <label class="compact-field">
+          <span>地形模板</span>
+          <select class="compact-input" v-model="paramDraft.heightmapTemplate">
+            <option v-for="option in HEIGHTMAP_TEMPLATE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+          <small class="param-hint">选择显式模板时，板块数 / 陆地比例仅作 routing 参考，模板以选择为准</small>
+        </label>
+        <p class="param-note">风格和图层保持固定，由地形图方案统一渲染；这里的参数会改变生成结果本身。</p>
+        <button class="canvas-btn sm apply-btn" @click="applyParamDraft">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           应用并重新生成
         </button>
@@ -105,6 +135,7 @@
     <!-- Bottom: legend + scale -->
     <div v-if="mapData && !generating" class="bottom-bar">
       <div class="bottom-left">
+        <div v-if="addingMarkerMode" class="mode-hint">单击地图放置新标记，Esc 取消</div>
         <button class="canvas-btn sm" :class="{ active: showLegend }" @click="showLegend = !showLegend">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           图例
@@ -112,7 +143,7 @@
         <div class="hint-text">
           <span>滚轮缩放</span>
           <span>拖拽平移</span>
-          <span>双击添加标记</span>
+          <span>双击/按钮添加标记</span>
           <span>拖拽移动标记</span>
         </div>
       </div>
@@ -142,10 +173,10 @@
       <h4 class="legend-title">地图图例</h4>
       <div class="legend-section">
         <p class="legend-section-title">水域</p>
-        <div class="legend-row"><div class="legend-color" style="background:#2b6da8"></div><span>深海</span></div>
-        <div class="legend-row"><div class="legend-color" style="background:#6baed6"></div><span>浅海</span></div>
-        <div class="legend-row"><div class="legend-color" style="background:#b3d7ea"></div><span>近岸</span></div>
-        <div class="legend-row"><div class="legend-line" style="border-color:#4a96d0"></div><span>河流</span></div>
+        <div class="legend-row"><div class="legend-color" style="background:#0f5d95"></div><span>深海</span></div>
+        <div class="legend-row"><div class="legend-color" style="background:#68bbd8"></div><span>浅海</span></div>
+        <div class="legend-row"><div class="legend-color" style="background:#d9f3f2"></div><span>近岸</span></div>
+        <div class="legend-row"><div class="legend-line" style="border-color:#0879c5"></div><span>河流</span></div>
       </div>
       <div class="legend-section">
         <p class="legend-section-title">海拔</p>
@@ -169,13 +200,47 @@
 
 <script setup>
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
-import { generateMapInWorker, renderMap, renderMapAsync, terminateWorker, STYLE_PRESET_LABELS } from '../../services/world-map/engine'
+import { generateMapInWorker, renderMap, renderMapAsync, renderScaleBarLayer, terminateWorker } from '../../services/world-map/engine'
 import { drawMarkers, hitTestMarker } from '../../services/world-map/markers'
-import { LAYER_LABELS } from '../../config/geography-types'
 import MapMarkerEditor from './MapMarkerEditor.vue'
 import { usePerf } from '../../composables/usePerf'
 
-const STYLE_LABELS = STYLE_PRESET_LABELS
+const DEFAULT_RENDER_LAYERS = Object.freeze({
+  hillshade: true,
+  terrain: true,
+  ice: true,
+  coastlines: true,
+  coastGlow: true,
+  volcanoes: true,
+  continents: false,
+  rivers: true,
+  landDividers: true,
+  borders: true,
+  borderlands: true,
+  factionTexture: false,
+  provinces: false,
+  roads: true,
+  tectonics: false,
+  oceanCurrents: false,
+  wind: false,
+  stateLabels: true,
+  burgIcons: true,
+  burgLabels: true,
+  scaleBar: true,
+  vignette: true,
+})
+
+const HEIGHTMAP_TEMPLATE_OPTIONS = Object.freeze([
+  { value: '', label: '自动选择' },
+  { value: 'continents', label: '多大陆' },
+  { value: 'pangea', label: '单一大陆' },
+  { value: 'archipelago', label: '群岛' },
+  { value: 'peninsula', label: '半岛' },
+  { value: 'mediterranean', label: '内海' },
+  { value: 'oldWorld', label: '旧世界' },
+  { value: 'fractious', label: '破碎大陆' },
+])
+
 const perf = usePerf()
 
 const props = defineProps({
@@ -183,11 +248,13 @@ const props = defineProps({
   markers: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['map-generated', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end'])
+const emit = defineEmits(['map-generated', 'config-change', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end'])
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
 let offscreen = null
+let scaleBarOverlay = null
+let baseRenderScale = 1
 
 const mapData = shallowRef(null)
 const generating = ref(false)
@@ -200,16 +267,7 @@ const kmPerPixel = shallowRef(1)
 
 const showLegend = ref(false)
 const showSettings = ref(false)
-
-const stylePreset = shallowRef(props.config?.stylePreset || 'topographic')
-
-const layers = shallowRef({
-  terrain: true, coastlines: true, continents: true, rivers: true, borders: true,
-  provinces: false, roads: true, tectonics: false, oceanCurrents: false, wind: false,
-  stateLabels: true, burgIcons: true, burgLabels: true, scaleBar: true, vignette: true,
-})
-const plateCount = ref(6)
-const plateSpeed = ref(1.0)
+const addingMarkerMode = ref(false)
 
 const exporting = ref(false)
 
@@ -218,13 +276,23 @@ const hoveredMarkerId = ref(null)
 let isDraggingMarker = false
 let dragMoved = false
 let draggedMarker = null
+let paintScheduled = false
+let pendingGenerateConfig = null
+let pendingSelectedMarkerId = null
+let pendingSubmittedConfigKey = null
 
 const selectedMarker = computed(() =>
   props.markers.find(m => m.id === selectedMarkerId.value) || null
 )
+const markerCount = computed(() => props.markers.length)
 
-let canvasBgColor = '#1a1f2e'
-try { canvasBgColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || canvasBgColor } catch {}
+let canvasBgColor = '#f4f1e8'
+try {
+  const styles = getComputedStyle(document.documentElement)
+  canvasBgColor = styles.getPropertyValue('--surface-soft').trim()
+    || styles.getPropertyValue('--bg-secondary').trim()
+    || canvasBgColor
+} catch {}
 
 const configKey = computed(() => JSON.stringify(props.config || {}))
 
@@ -234,21 +302,113 @@ const mergedConfig = computed(() => ({
   ...props.config,
 }))
 
+const renderStylePreset = computed(() => props.config?.stylePreset || 'topographic')
+const renderLayers = computed(() => ({
+  ...DEFAULT_RENDER_LAYERS,
+  ...(props.config?.layers && typeof props.config.layers === 'object' ? props.config.layers : {}),
+}))
+
+const paramDraft = ref(createParamDraft(mergedConfig.value))
+
+const configCompactSummary = computed(() => {
+  const cfg = mergedConfig.value
+  return `${templateLabel(cfg.heightmapTemplate)} · 陆地${formatPercent(cfg.landRatio ?? 0.45)} · ${cfg.stateCount ?? 8}国 · ${cfg.plateCount ?? cfg.continentCount ?? 6}板块`
+})
+
 function withoutSeed(cfg) {
   const { seed: _seed, ...rest } = cfg
   return rest
 }
 
 function regenerate() {
-  doGenerate(withoutSeed(mergedConfig.value))
+  submitConfig({
+    ...withoutSeed(mergedConfig.value),
+    seed: String(Math.floor(Math.random() * 1e10)),
+  })
 }
 
-function regenerateWithTectonics() {
-  doGenerate(withoutSeed({ ...mergedConfig.value, plateCount: plateCount.value, plateSpeedFactor: plateSpeed.value }))
+function toggleSettings() {
+  showSettings.value = !showSettings.value
+  if (showSettings.value) {
+    addingMarkerMode.value = false
+    syncParamDraft()
+  }
+}
+
+function toggleAddMarkerMode() {
+  addingMarkerMode.value = !addingMarkerMode.value
+  if (addingMarkerMode.value) {
+    showSettings.value = false
+    selectedMarkerId.value = null
+  }
+}
+
+function applyParamDraft() {
+  const nextConfig = {
+    ...mergedConfig.value,
+    ...normalizeParamDraft(paramDraft.value),
+    seed: String(Math.floor(Math.random() * 1e10)),
+  }
+  submitConfig(nextConfig)
+}
+
+function submitConfig(config) {
+  const plainConfig = cloneConfig(config)
+  if (props.config && Object.keys(props.config).length > 0) {
+    pendingSubmittedConfigKey = JSON.stringify(plainConfig)
+    emit('config-change', plainConfig)
+  }
+  doGenerate(plainConfig)
+}
+
+function releaseCanvas(canvas) {
+  if (!canvas) return
+  canvas.width = 0
+  canvas.height = 0
+}
+
+function baseRenderLayers() {
+  return { ...renderLayers.value, scaleBar: false }
+}
+
+async function renderBaseMap(canvas, data, renderScale) {
+  await renderMapAsync(canvas, data, {
+    scale: renderScale,
+    kmPerPixel: kmPerPixel.value,
+    stylePreset: renderStylePreset.value,
+    layers: baseRenderLayers(),
+  })
+}
+
+function createScaleOverlay(data, renderScale) {
+  const canvas = document.createElement('canvas')
+  renderScaleBarLayer(canvas, data, {
+    scale: renderScale,
+    kmPerPixel: kmPerPixel.value,
+    stylePreset: renderStylePreset.value,
+    layers: renderLayers.value,
+  })
+  return canvas
+}
+
+function renderScaleOverlay(data, renderScale) {
+  releaseCanvas(scaleBarOverlay)
+  const canvas = createScaleOverlay(data, renderScale)
+  scaleBarOverlay = canvas
+}
+
+function currentRenderScale() {
+  const dpr = window.devicePixelRatio || 1
+  return Math.min(dpr, 3)
 }
 
 async function doGenerate(cfg) {
-  if (generating.value) return
+  const requestConfig = cloneConfig(cfg)
+  if (generating.value) {
+    pendingGenerateConfig = requestConfig
+    return
+  }
+
   generating.value = true
   error.value = null
 
@@ -256,54 +416,69 @@ async function doGenerate(cfg) {
     // 深拷贝 cfg 以剥离 Vue 响应式代理（Worker postMessage 要求纯数据）。
     // 用 JSON 走代理：toRaw 只剥一层，nested proxy 仍存在，structuredClone 无法克隆。
     // JSON.stringify 会沿 proxy 走读路径并输出可序列化值，再 parse 回来即纯对象。
-    const plainCfg = JSON.parse(JSON.stringify(cfg))
-    const { data, meta } = await generateMapInWorker(plainCfg, { debugPerf: perf.enabled })
+    const { data, meta } = await generateMapInWorker(requestConfig, { debugPerf: perf.enabled })
     perf.record(meta)
 
-    // 释放旧 canvas 位图内存
-    if (offscreen) {
-      offscreen.width = 0
-      offscreen.height = 0
-      offscreen = null
+    const renderScale = currentRenderScale()
+    const canvas = document.createElement('canvas')
+    await renderBaseMap(canvas, data, renderScale)
+    const scaleOverlay = createScaleOverlay(data, renderScale)
+
+    if (pendingGenerateConfig) {
+      releaseCanvas(canvas)
+      releaseCanvas(scaleOverlay)
+      return
     }
 
-    const dpr = window.devicePixelRatio || 1
-    const renderScale = Math.min(dpr, 3)
-    const canvas = document.createElement('canvas')
-    await renderMapAsync(canvas, data, {
-      scale: renderScale,
-      kmPerPixel: kmPerPixel.value,
-      stylePreset: stylePreset.value,
-      layers: layers.value,
-    })
+    // 新图完全可用后再替换旧位图，避免失败或过期请求清空当前画面。
+    releaseCanvas(offscreen)
+    releaseCanvas(scaleBarOverlay)
+    baseRenderScale = renderScale
     offscreen = canvas
+    scaleBarOverlay = scaleOverlay
     mapData.value = data
-    generating.value = false
-    emit('map-generated', data)
+    emit('map-generated', { data, meta })
   } catch (e) {
     console.error('[WorldMapVoronoi] Generation failed:', e)
     error.value = e instanceof Error ? e.message : String(e)
+  } finally {
     generating.value = false
+    const queuedConfig = pendingGenerateConfig
+    pendingGenerateConfig = null
+    if (queuedConfig) {
+      requestAnimationFrame(() => doGenerate(queuedConfig))
+    }
   }
+}
+
+function cloneConfig(cfg) {
+  return JSON.parse(JSON.stringify(cfg || {}))
 }
 
 async function rerender() {
   if (!mapData.value) return
   // 释放旧 canvas 位图内存
-  if (offscreen) {
-    offscreen.width = 0
-    offscreen.height = 0
-  }
-  const dpr = window.devicePixelRatio || 1
+  releaseCanvas(offscreen)
+  releaseCanvas(scaleBarOverlay)
+  scaleBarOverlay = null
+  const renderScale = currentRenderScale()
   const canvas = document.createElement('canvas')
-  await renderMapAsync(canvas, mapData.value, {
-    scale: Math.min(dpr, 3),
-    kmPerPixel: kmPerPixel.value,
-    stylePreset: stylePreset.value,
-    layers: layers.value,
-  })
+  await renderBaseMap(canvas, mapData.value, renderScale)
+  renderScaleOverlay(mapData.value, renderScale)
+  baseRenderScale = renderScale
   offscreen = canvas
-  paint()
+  schedulePaint()
+}
+
+function rerenderScaleBarOverlay() {
+  if (!mapData.value) return
+  const renderScale = currentRenderScale()
+  if (renderScale !== baseRenderScale) {
+    requestAnimationFrame(() => rerender())
+    return
+  }
+  renderScaleOverlay(mapData.value, renderScale)
+  schedulePaint()
 }
 
 function paint() {
@@ -334,11 +509,23 @@ function paint() {
   const mapW = md?.width || offscreen.width
   const mapH = md?.height || offscreen.height
   ctx.drawImage(offscreen, 0, 0, offscreen.width, offscreen.height, 0, 0, mapW, mapH)
+  if (scaleBarOverlay) {
+    ctx.drawImage(scaleBarOverlay, 0, 0, scaleBarOverlay.width, scaleBarOverlay.height, 0, 0, mapW, mapH)
+  }
 
   // 叠加绘制用户标记
   if (props.markers.length > 0) {
     drawMarkers(ctx, props.markers, selectedMarkerId.value, hoveredMarkerId.value)
   }
+}
+
+function schedulePaint() {
+  if (paintScheduled) return
+  paintScheduled = true
+  requestAnimationFrame(() => {
+    paintScheduled = false
+    paint()
+  })
 }
 
 function fitToView() {
@@ -366,27 +553,17 @@ function handleZoomBtn(delta) {
     offsetX: cx - cw / (2 * newScale),
     offsetY: cy - ch / (2 * newScale),
   }
-  paint()
+  schedulePaint()
 }
 
 function handleFitView() {
   fitToView()
-  paint()
+  schedulePaint()
 }
 
 function handleKmPerPixelChange(val) {
   kmPerPixel.value = val
-  rerender()
-}
-
-function toggleLayer(key) {
-  layers.value = { ...layers.value, [key]: !layers.value[key] }
-  requestAnimationFrame(() => rerender())
-}
-
-function handleStyleChange(preset) {
-  stylePreset.value = preset
-  requestAnimationFrame(() => rerender())
+  rerenderScaleBarOverlay()
 }
 
 function handleExportHD() {
@@ -398,8 +575,8 @@ function handleExportHD() {
       renderMap(exportCanvas, mapData.value, {
         scale: 5,
         kmPerPixel: kmPerPixel.value,
-        stylePreset: stylePreset.value,
-        layers: layers.value,
+        stylePreset: renderStylePreset.value,
+        layers: renderLayers.value,
       })
       exportCanvas.toBlob(blob => {
         if (!blob) { exporting.value = false; return }
@@ -451,12 +628,19 @@ function onWheel(e) {
     offsetX: wx - mx / newScale,
     offsetY: wy - my / newScale,
   }
-  paint()
+  schedulePaint()
 }
 
 function onPointerDown(e) {
   cachedRect = null
   const world = screenToWorld(e.clientX, e.clientY)
+  if (e.button === 0 && addingMarkerMode.value) {
+    createMarkerAt(world.x, world.y)
+    addingMarkerMode.value = false
+    schedulePaint()
+    return
+  }
+
   const hitRadius = 16 / vp.value.scale
   const hit = hitTestMarker(props.markers, world.x, world.y, hitRadius)
 
@@ -468,7 +652,7 @@ function onPointerDown(e) {
     dragMoved = false
     draggedMarker = hit
     canvasRef.value?.setPointerCapture(e.pointerId)
-    paint()
+    schedulePaint()
     return
   }
 
@@ -479,7 +663,7 @@ function onPointerDown(e) {
   lastX = e.clientX
   lastY = e.clientY
   canvasRef.value?.setPointerCapture(e.pointerId)
-  paint()
+  schedulePaint()
 }
 
 function onPointerMove(e) {
@@ -491,7 +675,7 @@ function onPointerMove(e) {
     const mapH = mapData.value?.height || 800
     draggedMarker.x = Math.max(20, Math.min(mapW - 20, world.x))
     draggedMarker.y = Math.max(20, Math.min(mapH - 20, world.y))
-    paint()
+    schedulePaint()
     return
   }
 
@@ -503,7 +687,7 @@ function onPointerMove(e) {
     }
     lastX = e.clientX
     lastY = e.clientY
-    paint()
+    schedulePaint()
     return
   }
 
@@ -514,7 +698,7 @@ function onPointerMove(e) {
   if (newHovered !== hoveredMarkerId.value) {
     hoveredMarkerId.value = newHovered
     canvasRef.value.style.cursor = newHovered ? 'pointer' : ''
-    paint()
+    schedulePaint()
   }
 }
 
@@ -535,13 +719,21 @@ function onDblClick(e) {
 
   if (hit) {
     selectedMarkerId.value = hit.id
-    paint()
+    schedulePaint()
   } else {
-    emit('add-marker', world.x, world.y)
+    createMarkerAt(world.x, world.y)
   }
 }
 
 // ── 标记事件处理 ──
+function createMarkerAt(x, y) {
+  const id = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  const name = `新标记 ${markerCount.value + 1}`
+  pendingSelectedMarkerId = id
+  selectedMarkerId.value = id
+  emit('add-marker', x, y, { id, name })
+}
+
 function handleMarkerUpdate(id, patch) {
   emit('update-marker', id, patch)
 }
@@ -553,23 +745,51 @@ function handleMarkerDelete(id) {
 
 // Watch for config changes
 watch(configKey, () => {
+  syncParamDraft()
+  selectedMarkerId.value = null
+  addingMarkerMode.value = false
+  if (pendingSubmittedConfigKey === configKey.value) {
+    pendingSubmittedConfigKey = null
+    return
+  }
   if (props.config && Object.keys(props.config).length > 0) {
     doGenerate(mergedConfig.value)
   }
 })
 
-watch(() => props.markers, () => { paint() })
+watch(() => props.markers, () => {
+  if (pendingSelectedMarkerId && props.markers.some(m => m.id === pendingSelectedMarkerId)) {
+    selectedMarkerId.value = pendingSelectedMarkerId
+    pendingSelectedMarkerId = null
+  }
+  if (selectedMarkerId.value && !props.markers.some(m => m.id === selectedMarkerId.value)) {
+    selectedMarkerId.value = null
+  }
+  schedulePaint()
+})
 
 // When mapData changes, fit to view and paint
 watch(mapData, () => {
   if (!mapData.value) return
   fitToView()
-  paint()
+  schedulePaint()
 })
 
-const onResize = () => { cachedRect = null; paint() }
+const onResize = () => {
+  cachedRect = null
+  if (mapData.value && currentRenderScale() !== baseRenderScale) {
+    requestAnimationFrame(() => rerender())
+    return
+  }
+  schedulePaint()
+}
 
 function onKeyDown(e) {
+  if (e.key === 'Escape') {
+    addingMarkerMode.value = false
+    showSettings.value = false
+    return
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedMarkerId.value) {
     const tag = e.target?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
@@ -580,6 +800,7 @@ function onKeyDown(e) {
 }
 
 onMounted(() => {
+  syncParamDraft()
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKeyDown)
   const canvas = canvasRef.value
@@ -610,7 +831,74 @@ onUnmounted(() => {
   }
   // 终止可能仍在运行的 Worker，丢弃未完成的请求
   terminateWorker()
+  releaseCanvas(offscreen)
+  releaseCanvas(scaleBarOverlay)
+  offscreen = null
+  scaleBarOverlay = null
+  pendingGenerateConfig = null
+  pendingSelectedMarkerId = null
+  pendingSubmittedConfigKey = null
 })
+
+function formatPercent(value) {
+  return `${Math.round(Number(value) * 100)}%`
+}
+
+function formatNumber(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '0'
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+function formatSigned(value) {
+  const n = Number(value) || 0
+  return n > 0 ? `+${n}` : String(n)
+}
+
+function templateLabel(value) {
+  return HEIGHTMAP_TEMPLATE_OPTIONS.find(option => option.value === (value || ''))?.label || value || '自动'
+}
+
+function syncParamDraft() {
+  paramDraft.value = createParamDraft(mergedConfig.value)
+}
+
+function createParamDraft(cfg) {
+  return {
+    heightmapTemplate: cfg.heightmapTemplate || '',
+    landRatio: clampNumber(cfg.landRatio ?? 0.45, 0.15, 0.8),
+    plateCount: Math.round(clampNumber(cfg.plateCount ?? cfg.continentCount ?? 6, 2, 12)),
+    stateCount: Math.round(clampNumber(cfg.stateCount ?? 8, 2, 15)),
+    burgDensity: clampNumber(cfg.burgDensity ?? 0.5, 0.1, 1.5),
+    temperatureShift: Math.round(clampNumber(cfg.temperatureShift ?? 0, -20, 20)),
+    precipitationFactor: clampNumber(cfg.precipitationFactor ?? 1, 0.2, 3),
+  }
+}
+
+function normalizeParamDraft(draft) {
+  const normalized = {
+    landRatio: roundTo(clampNumber(draft.landRatio, 0.15, 0.8), 2),
+    plateCount: Math.round(clampNumber(draft.plateCount, 2, 12)),
+    stateCount: Math.round(clampNumber(draft.stateCount, 2, 15)),
+    burgDensity: roundTo(clampNumber(draft.burgDensity, 0.1, 1.5), 1),
+    temperatureShift: Math.round(clampNumber(draft.temperatureShift, -20, 20)),
+    precipitationFactor: roundTo(clampNumber(draft.precipitationFactor, 0.2, 3), 1),
+  }
+  if (draft.heightmapTemplate) normalized.heightmapTemplate = draft.heightmapTemplate
+  else normalized.heightmapTemplate = undefined
+  return normalized
+}
+
+function clampNumber(value, min, max) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return min
+  return Math.max(min, Math.min(max, n))
+}
+
+function roundTo(value, digits) {
+  const factor = 10 ** digits
+  return Math.round(value * factor) / factor
+}
 </script>
 
 <style scoped>
@@ -619,8 +907,13 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   min-height: 400px;
-  background: var(--canvas-bg);
+  background: var(--surface-soft);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bg-secondary) 78%, transparent),
+    inset 0 -28px 60px color-mix(in srgb, var(--shadow) 12%, transparent);
 }
 
 .voronoi-canvas {
@@ -637,7 +930,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--canvas-bg);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
 }
 
 .empty-content, .loading-content, .error-content {
@@ -645,16 +938,16 @@ onUnmounted(() => {
   max-width: 320px;
 }
 
-.empty-content { color: var(--canvas-text-secondary); }
-.empty-title { font-size: 14px; margin: 12px 0 4px; color: var(--canvas-text); }
+.empty-content { color: var(--text-secondary); }
+.empty-title { font-size: 14px; margin: 12px 0 4px; color: var(--text-primary); }
 .empty-desc { font-size: 12px; opacity: 0.6; line-height: 1.5; }
 
-.loading-content { color: var(--canvas-text); }
+.loading-content { color: var(--text-primary); }
 .loading-content p { font-size: 14px; margin-top: 12px; }
 
 .error-content { color: var(--danger); max-width: 320px; }
 .error-title { font-size: 14px; margin-bottom: 8px; }
-.error-msg { font-size: 12px; color: var(--canvas-text-secondary); margin-bottom: 16px; }
+.error-msg { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
 
 .primary-btn-sm {
   height: 34px;
@@ -677,15 +970,17 @@ onUnmounted(() => {
   top: 12px;
   left: 12px;
   font-size: 12px;
-  background: var(--canvas-overlay);
-  color: var(--canvas-text);
-  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  color: var(--text-primary);
+  border-radius: 12px;
   padding: 8px 12px;
-  border: 1px solid var(--canvas-border);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(10px);
 }
 
-.info-name { font-weight: 600; color: var(--canvas-text); margin-bottom: 2px; }
-.info-stats { color: var(--canvas-text-secondary); }
+.info-name { font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.info-stats { color: var(--text-secondary); }
 
 /* Top actions */
 .top-actions {
@@ -702,18 +997,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--canvas-overlay);
-  color: var(--canvas-text);
-  border: 1px solid var(--canvas-border);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 9px;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--shadow) 65%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .canvas-btn:hover {
-  color: var(--canvas-text);
-  border-color: var(--canvas-border-hover);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent) 6%);
 }
 
 .canvas-btn.active {
@@ -734,89 +1032,134 @@ onUnmounted(() => {
   position: absolute;
   top: 48px;
   right: 12px;
-  background: var(--canvas-overlay-strong);
-  border: 1px solid var(--canvas-border);
-  border-radius: 10px;
-  padding: 12px;
-  width: 208px;
+  background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 14px;
+  padding: 14px;
+  width: 292px;
   max-height: 75vh;
   overflow-y: auto;
   z-index: 20;
   box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(12px);
 }
 
-.panel-title { font-size: 12px; font-weight: 600; color: var(--canvas-text); margin: 0 0 10px; }
-.panel-section { margin-bottom: 10px; }
-.section-label { font-size: 12px; color: var(--canvas-text-secondary); display: block; margin-bottom: 6px; }
-
-.style-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
-.style-btn {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--canvas-border);
-  background: var(--canvas-surface);
-  color: var(--canvas-text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
+.panel-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin: 0 0 2px; }
+.panel-subtitle { font-size: 11px; line-height: 1.4; color: var(--text-muted); margin: 0; }
+.panel-section { margin-bottom: 14px; }
+.panel-section:last-child { margin-bottom: 0; }
+.section-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 8px; }
 
-.style-btn:hover { color: var(--canvas-text); border-color: var(--canvas-border-hover); }
-.style-btn.active { background: color-mix(in srgb, var(--accent) 12%, var(--canvas-surface)); color: var(--accent); border-color: var(--accent); }
-
-.layer-list { display: flex; flex-direction: column; gap: 4px; }
-
-.layer-item {
+.config-strip {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
-  padding: 4px 0;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  padding: 7px 9px;
 }
 
-.layer-item input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 12px;
-  height: 12px;
+.config-strip span {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
-.layer-item span {
+.config-strip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
-  color: var(--canvas-text-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
-.param-row {
+.param-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.param-hint {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.param-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.param-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
-.param-label {
-  font-size: 12px;
-  color: var(--canvas-text-secondary);
-  min-width: 60px;
+.param-head strong {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .param-range {
-  flex: 1;
-  accent-color: var(--accent);
+  width: 100%;
   height: 4px;
+  accent-color: var(--accent);
 }
 
-.param-value {
+.param-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.compact-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
   font-size: 12px;
-  color: var(--canvas-text);
-  min-width: 24px;
-  text-align: right;
+  color: var(--text-secondary);
 }
 
-.layer-item:hover span { color: var(--canvas-text); }
+.compact-input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.compact-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.apply-btn { margin-top: 8px; width: 100%; justify-content: center; }
 
 /* Bottom bar */
 .bottom-bar {
@@ -831,39 +1174,54 @@ onUnmounted(() => {
 
 .bottom-left { display: flex; flex-direction: column; gap: 6px; }
 
+.mode-hint {
+  width: max-content;
+  max-width: 320px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  color: var(--text-primary);
+  font-size: 12px;
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(10px);
+}
+
 .hint-text {
   display: flex;
   gap: 8px;
   font-size: 12px;
-  color: var(--canvas-text-muted);
-  background: var(--canvas-overlay);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
   border-radius: 8px;
   padding: 4px 8px;
-  border: 1px solid var(--canvas-border);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .scale-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--canvas-overlay);
-  border: 1px solid var(--canvas-border);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 8px;
   padding: 4px 8px;
+  backdrop-filter: blur(10px);
 }
 
-.scale-label { font-size: 12px; color: var(--canvas-text-secondary); white-space: nowrap; }
+.scale-label { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 
 .scale-select {
   background: transparent;
   border: none;
   font-size: 12px;
-  color: var(--canvas-text);
+  color: var(--text-primary);
   outline: none;
   cursor: pointer;
 }
 
-.scale-select option { background: var(--canvas-overlay-strong); }
+.scale-select option { background: var(--bg-secondary); color: var(--text-primary); }
 
 /* Zoom controls */
 .zoom-controls {
@@ -873,10 +1231,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--canvas-overlay);
-  border: 1px solid var(--canvas-border);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 8px;
   padding: 4px 8px;
+  backdrop-filter: blur(10px);
 }
 
 .zoom-btn {
@@ -887,14 +1246,14 @@ onUnmounted(() => {
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--canvas-text);
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 6px;
   font-size: 14px;
   transition: all 0.15s ease;
 }
 
-.zoom-btn:hover { background: var(--canvas-border); color: var(--canvas-text); }
+.zoom-btn:hover { background: var(--bg-hover); color: var(--accent); }
 .zoom-btn.label { width: auto; min-width: 36px; font-size: 12px; }
 
 /* Legend popup */
@@ -902,21 +1261,22 @@ onUnmounted(() => {
   position: absolute;
   bottom: 56px;
   left: 12px;
-  background: var(--canvas-overlay-strong);
-  border: 1px solid var(--canvas-border);
-  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 14px;
   padding: 12px;
   width: 160px;
   max-height: 60vh;
   overflow-y: auto;
   z-index: 20;
   box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(12px);
 }
 
-.legend-title { font-size: 12px; font-weight: 600; color: var(--canvas-text); margin: 0 0 8px; }
+.legend-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 0 0 8px; }
 .legend-section { margin-bottom: 8px; }
 .legend-section:last-child { margin-bottom: 0; }
-.legend-section-title { font-size: 11px; color: var(--canvas-text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.legend-section-title { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
 
 .legend-row {
   display: flex;
@@ -924,14 +1284,14 @@ onUnmounted(() => {
   gap: 6px;
   padding: 2px 0;
   font-size: 12px;
-  color: var(--canvas-text-secondary);
+  color: var(--text-secondary);
 }
 
 .legend-color {
   width: 12px;
   height: 12px;
   border-radius: 6px;
-  border: 1px solid var(--canvas-border);
+  border: 1px solid var(--border);
   flex-shrink: 0;
 }
 
