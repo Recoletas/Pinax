@@ -36,6 +36,8 @@ coverage/
 # Cache and temp
 .cache/
 .temp/
+docs/src/.vitepress/cache/
+docs/src/.vitepress/dist/
 tmp/
 temp/
 .eslintcache
@@ -52,11 +54,22 @@ temp/
 .DS_Store
 Thumbs.db
 
-# Agent skills
-.agents/
-.claude/
+# Agent runtime/config (local state, not tracked)
+.codex/
+.agents/*
+.claude/*
 .superpowers/
 skills-lock.json
+
+# Shared project skills (re-include shim subpaths)
+!.agents/skills/
+!.agents/skills/**
+!.claude/skills/
+!.claude/skills/**
+
+# Local notes (user-only, not tracked)
+LOCAL.md
+CLAUDE.local.md
 
 # Editor
 .vscode/
