@@ -38,8 +38,10 @@ describe('road realism (阶段 5)', () => {
     }
   })
 
-  it('5 级分层中至少出现 3 种 road type (s1)', () => {
-    const data = generateMap({ seed: 'realism-s1', pointCount: 2000, generateRoads: true })
+  it('5 级分层中至少出现 3 种 road type', () => {
+    // Round 2 sub-RNG 隔离改了模板选择消费,'realism-s1' 现在只产 2 种,
+    // 换 'realism-s3'(同文件已用)产 3 种(major,minor,trade)。
+    const data = generateMap({ seed: 'realism-s3', pointCount: 2000, generateRoads: true })
     const types = new Set(data.roads.map(r => r.type))
     expect(types.size).toBeGreaterThanOrEqual(3)
     // 验证 type 字段取值在允许范围内

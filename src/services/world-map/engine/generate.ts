@@ -11,7 +11,7 @@ import { detectFeatures, updatePortQuality } from './features'
 import { calculateTemperature, calculatePrecipitation, assignBiomes, rankCells } from './climate'
 import { generateTectonics } from './tectonics'
 import { computeTectonicData } from './tectonic-data'
-import { perturbCoast } from './coast'
+import { perturbCoast, reshapeCoasts } from './coast'
 import { extractCoastlines } from './coastline'
 import { generateWindAndCurrents } from './wind'
 import { generateRivers } from './rivers'
@@ -19,10 +19,7 @@ import { computeHillshade } from './hillshade'
 import { generateCultures, generateBurgs, generateStates, generateProvinces, generateRoads } from './nations'
 import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
-import {
-  resolveHeightmapTemplate,
-  type TemplateShapeIntent,
-} from './heightmap-templates'
+import { type TemplateShapeIntent } from './heightmap-templates'
 
 interface ResolvedMapShapeConfig {
   plateCount: number
@@ -31,25 +28,27 @@ interface ResolvedMapShapeConfig {
   effectiveContinentCount: number
   effectivePlateCount: number
   /**
-   * 形状语义（Round 1.5 贯穿）。rng 未传时为 undefined，调用方需在
-   * seedRandom 之后再次调用以消费 RNG 并把形状语义传到 generateHeightmap。
+   * 形状语义（Round 1.5 字段保留，Round 2 起由 `generateHeightmap` 用 sub-RNG
+   * 派生并返回；这里始终为 `undefined`，调用方改读 `generateHeightmap` 返回值）。
    */
   shapeIntent: TemplateShapeIntent | undefined
-  /** 形状解析后选中的具体模板名（透传给 generateHeightmap 作 templateOverride） */
+  /**
+   * 实际选中的模板名（Round 2 起由 `generateHeightmap` 用 sub-RNG 派生并返回；
+   * 这里始终为 `undefined`，调用方改读 `generateHeightmap` 返回值）。
+   */
   templateName: HeightmapTemplate | undefined
 }
 
 /**
- * 统一解析地图形状配置。rng 可选：
- *  - 不传：只解析 plate / continent 派生，shapeIntent + templateName 留空
- *  - 传入：自动路径走 `resolveHeightmapTemplate`（消费 1 次 RNG），
- *          显式路径 reverse-map 形状意图；templateName 一律填好供
- *          `generateHeightmap` 作 `templateOverride` 使用
+ * 统一解析地图形状配置（Round 2 后只做结构性派生，不消费 RNG）。
+ *
+ *  - `shapeIntent` + `templateName` 不再在此处计算，统一由
+ *    `generateHeightmap` 用独立 sub-RNG 派生并返回，避免模板层
+ *    消费主 rng、扰动 grid / plates / cultures 的 determinism。
+ *  - 调用方若需 `shapeIntent` / `templateName` 用于报告或外部 override，
+ *    改用 `generateHeightmap` 的返回值（它会消费 sub-RNG，**不**消费主 rng）。
  */
-function resolveMapShapeConfig(
-  config: MapGenConfig,
-  rng?: () => number,
-): ResolvedMapShapeConfig {
+function resolveMapShapeConfig(config: MapGenConfig): ResolvedMapShapeConfig {
   const continentCount = config.continentCount
   const effectivePlateCount = config.plateCount ?? continentCount ?? 6
   const effectiveContinentCount = Math.max(
@@ -60,27 +59,14 @@ function resolveMapShapeConfig(
     ),
   )
 
-  let shapeIntent: TemplateShapeIntent | undefined
-  let templateName: HeightmapTemplate | undefined
-  if (rng) {
-    const resolved = resolveHeightmapTemplate({
-      continentCount: effectiveContinentCount,
-      landRatio: config.landRatio ?? 0.45,
-      rng,
-      explicitTemplate: config.heightmapTemplate,
-    })
-    shapeIntent = resolved.shapeIntent
-    templateName = resolved.templateName
-  }
-
   return {
     plateCount: effectivePlateCount,
     continentCount: effectiveContinentCount,
     explicitTemplate: config.heightmapTemplate,
     effectiveContinentCount,
     effectivePlateCount,
-    shapeIntent,
-    templateName,
+    shapeIntent: undefined,
+    templateName: undefined,
   }
 }
 
@@ -113,9 +99,11 @@ export function generateMap(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  // 形状语义解析放在 seedRandom 之后以便消费 RNG；templateName 透传给 generateHeightmap
+  // Round 2：形状语义（shapeIntent / templateName）由 generateHeightmap 用
+  // 独立 sub-RNG 派生，**不**消费主 rng。`resolveMapShapeConfig` 现在只
+  // 做结构性派生（plate/continent count），不消费 RNG。
   const rng = seedRandom(seed)
-  const shapeConfig = resolveMapShapeConfig(config, rng)
+  const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
 
@@ -147,11 +135,13 @@ export function generateMap(
   collector?.end('tectonics')
 
   // 3. 高度图（azgaar 风格：由板块 + 边界效果驱动）
+  // Round 2：传 `config.heightmapTemplate` 作显式 override + `seed` 作
+  // heightmapSeed。模板层（选 + 执行）走独立 sub-RNG，**不**消费主 rng。
   console.time('[MapEngine] Heightmap')
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism, shapeConfig.templateName,
+    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate, seed,
   )
   console.timeEnd('[MapEngine] Heightmap')
   collector?.end('heightmap')
@@ -162,6 +152,10 @@ export function generateMap(
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 2,
     latitudeScale: 0.35,
   }, 'low')
+
+  // 3.6 Round 2 Stage 3：宏观尺度海岸低频重塑（打破 axis-aligned 感）。
+  // 必须在 perturbCoast 之后、smooth 之前。
+  reshapeCoasts(cells, { latitudeScale: 0.35, passes: 2 })
 
   // 4. 检测地理特征（岛屿、湖泊、海洋）
   console.time('[MapEngine] Features')
@@ -344,9 +338,11 @@ export async function generateMapAsync(
     heightmapTemplate,
   } = config
   // continentCount 作为 plateCount 的 alias（无 plateCount 但有 continentCount 时生效）
-  // 形状语义解析放在 seedRandom 之后以便消费 RNG；templateName 透传给 generateHeightmap
+  // Round 2：形状语义（shapeIntent / templateName）由 generateHeightmap 用
+  // 独立 sub-RNG 派生，**不**消费主 rng。`resolveMapShapeConfig` 现在只
+  // 做结构性派生（plate/continent count），不消费 RNG。
   const rng = seedRandom(seed)
-  const shapeConfig = resolveMapShapeConfig(config, rng)
+  const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
 
@@ -373,11 +369,13 @@ export async function generateMapAsync(
   await yieldToMain()
 
   // 3. Heightmap (azgaar-style: plate-driven)
+  // Round 2：传 `config.heightmapTemplate` 作显式 override + `seed` 作
+  // heightmapSeed。模板层走独立 sub-RNG，**不**消费主 rng。
   onProgress?.('高度图', 14)
   collector?.start('heightmap')
   generateHeightmap(
     cells, width, height, rng, landRatio,
-    plates, boundaries, effectiveContinentCount, config.realism, shapeConfig.templateName,
+    plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate, seed,
   )
   collector?.end('heightmap')
   await yieldToMain()
@@ -388,6 +386,10 @@ export async function generateMapAsync(
     noiseAmplitude: config.realism?.coast?.noiseAmplitude ?? 2,
     latitudeScale: 0.35,
   }, 'low')
+
+  // 3.6 Round 2 Stage 3：宏观尺度海岸低频重塑（打破 axis-aligned 感）。
+  // 必须在 perturbCoast 之后、smooth 之前。
+  reshapeCoasts(cells, { latitudeScale: 0.35, passes: 2 })
 
   // 4. Features
   onProgress?.('地理特征', 21)

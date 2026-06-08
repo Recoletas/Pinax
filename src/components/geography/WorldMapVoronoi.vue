@@ -84,6 +84,7 @@
             <strong>{{ formatPercent(paramDraft.landRatio) }}</strong>
           </div>
           <input class="param-range" type="range" min="0.15" max="0.8" step="0.01" v-model.number="paramDraft.landRatio" />
+          <small class="param-hint">极端值（AI 导入 &lt; 0.15 / &gt; 0.85）会切到群岛 / 特殊（沙漠 · 火山）模板组</small>
         </div>
         <div class="param-field">
           <div class="param-head">
@@ -121,6 +122,7 @@
           <select class="compact-input" v-model="paramDraft.heightmapTemplate">
             <option v-for="option in HEIGHTMAP_TEMPLATE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
+          <small class="param-hint">选择显式模板时，板块数 / 陆地比例仅作 routing 参考，模板以选择为准</small>
         </label>
         <p class="param-note">风格和图层保持固定，由地形图方案统一渲染；这里的参数会改变生成结果本身。</p>
         <button class="canvas-btn sm apply-btn" @click="applyParamDraft">
@@ -1088,6 +1090,13 @@ function roundTo(value, digits) {
   font-size: 11px;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+.param-hint {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  opacity: 0.85;
 }
 
 .param-field {

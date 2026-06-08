@@ -244,20 +244,18 @@ export type TemplateShapeIntent =
   | 'special'     // 极特殊（火山、沙漠化、破碎）
 
 /**
- * 按 shape intent 聚合的模板集合（round 1.5 静态分组）
+ * 按 shape intent 聚合的模板集合
  *  - `single`      仅 `pangea`（oldWorld 暂未验证稳定产生单主陆块，留待第二轮）
- *  - `special`     不在自动分支暴露，仅 landRatio>0.85 触发或显式选择
- *  - `continents`  Round 1.5 临时去掉 `mediterranean`：mediterranean 模板的
- *                  Mask -2 + 上下 Hills 组合在部分 seed 下覆盖几乎全图，
- *                  在自动路径里会显著拉高 landRatio（snapshot cc=6: 0.613）。
- *                  Round 2 完成「中心水域 + 上下陆地带 + 中心水域不填死」
- *                  完整合同后再放回。显式选择仍可触发（reverse-map 走
- *                  `TEMPLATE_TO_INTENT.mediterranean = 'continents'`）。
+ *  - `special`     不在自动分支暴露,仅 landRatio>0.85 触发或显式选择
+ *  - `continents`  Round 2 起放回 `mediterranean`:`enforceTemplateContract`
+ *                  现要求"中心 30% × 30% 水域 > 50% + 极地陆地带 + largestRatio
+ *                  ≤ 0.60"硬合同(`mediterraneanContract`)。auto 路径选到不满足
+ *                  合同的 seed 会被 reroll 换到同组其它模板（continents / oldWorld）。
  *  - 其它组别权重取自各模板 entry 的 `probability` 字段
  */
 export const TEMPLATE_GROUPS: Record<TemplateShapeIntent, readonly HeightmapTemplate[]> = {
   single:      ['pangea'],
-  continents:  ['continents', 'oldWorld'],
+  continents:  ['continents', 'oldWorld', 'mediterranean'],
   archipelago: ['archipelago', 'shattered', 'highIsland', 'lowIsland', 'atoll'],
   peninsula:   ['peninsula', 'isthmus'],
   special:     ['volcano', 'taklamakan', 'fractious'],
@@ -396,6 +394,25 @@ function getPointInRange(range: string, length: number, rng: () => number): numb
   return min * length + rng() * (max - min) * length
 }
 
+/**
+ * Round 2 Stage 4:解析 "15-85" → 该 range 的 span 比例（0.85 - 0.15 = 0.70）。
+ * 用于在 `applyTemplate` 顶层算 (dx, dy) 偏移上限，让 Hill/Pit/Range/Trough
+ * 的矩形采样被 sub-RNG 推离原矩形 [min, max] 内区。
+ */
+function getRangeSpan(range: string): number {
+  const parts = range.split('-')
+  const min = parseInt(parts[0], 10) / 100 || 0
+  const max = parseInt(parts[1] ?? parts[0], 10) / 100 || min
+  return Math.max(0, max - min)
+}
+
+/** 折回到 [0, length) 区间（toroidal 假设） */
+function wrapCoord(v: number, length: number): number {
+  let x = v % length
+  if (x < 0) x += length
+  return x
+}
+
 /** Voronoi 网格下找离 (x, y) 最近的 cellId（Azgaar 原版是规则格 → 直接 floor） */
 function findGridCell(x: number, y: number, cells: GridCells): number {
   let best = 0
@@ -447,6 +464,10 @@ function getLinePower(n: number): number {
 /**
  * 在 [startX%, endX%] × [startY%, endY%] 矩形内放 N 个山地 blob；
  * 每个 blob 中心抬高 h，BFS 扩散时按 blobPower 衰减。
+ *
+ * Round 2 Stage 4:`dx` / `dy` 是 `applyTemplate` 顶层消耗 2 次 templateRng
+ * 算出的矩形偏移（推到 range 矩形外/周），用于打破"同一模板内多次 Hill
+ * 调用都堆在固定内区"的轴向感。
  */
 function addHill(
   cells: GridCells,
@@ -457,6 +478,8 @@ function addHill(
   rangeX: string,
   rangeY: string,
   blobPower: number,
+  dx: number,
+  dy: number,
   rng: () => number,
 ): void {
   const addOne = () => {
@@ -464,8 +487,8 @@ function addHill(
     let limit = 0
     const heightVal = lim(getNumberInRange(h, rng))
     do {
-      const x = getPointInRange(rangeX, width, rng)
-      const y = getPointInRange(rangeY, height, rng)
+      const x = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
+      const y = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
       if (x === undefined || y === undefined) return
       start = findGridCell(x, y, cells)
       limit++
@@ -493,6 +516,8 @@ function addHill(
 
 /**
  * 在矩形内放 N 个凹陷 blob；BFS 扩散并按 blobPower 衰减。
+ *
+ * Round 2 Stage 4:`dx` / `dy` 矩形偏移（见 `addHill` 注释）。
  */
 function addPit(
   cells: GridCells,
@@ -503,6 +528,8 @@ function addPit(
   rangeX: string,
   rangeY: string,
   blobPower: number,
+  dx: number,
+  dy: number,
   rng: () => number,
 ): void {
   const addOne = () => {
@@ -511,8 +538,8 @@ function addPit(
     let hVal = lim(getNumberInRange(h, rng))
     let limit = 0
     do {
-      const x = getPointInRange(rangeX, width, rng)
-      const y = getPointInRange(rangeY, height, rng)
+      const x = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
+      const y = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
       if (x === undefined || y === undefined) return
       start = findGridCell(x, y, cells)
       limit++
@@ -537,7 +564,10 @@ function addPit(
   for (let i = 0; i < desired; i++) addOne()
 }
 
-/** 在矩形内放 N 条山脉（两点 pathfind + linePower 衰减） */
+/** 在矩形内放 N 条山脉（两点 pathfind + linePower 衰减）
+ *
+ * Round 2 Stage 4:`dx` / `dy` 矩形偏移（见 `addHill` 注释）。
+ */
 function addRange(
   cells: GridCells,
   width: number,
@@ -547,6 +577,8 @@ function addRange(
   rangeX: string,
   rangeY: string,
   linePower: number,
+  dx: number,
+  dy: number,
   rng: () => number,
 ): void {
   const getRange = (cur: number, end: number, used: Uint8Array): number[] => {
@@ -577,8 +609,8 @@ function addRange(
     let hVal = lim(getNumberInRange(h, rng))
     const used = new Uint8Array(cells.length)
 
-    const startX = getPointInRange(rangeX, width, rng)
-    const startY = getPointInRange(rangeY, height, rng)
+    const startX = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
+    const startY = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
     let dist = 0
     let limit = 0
     let endX = 0
@@ -639,7 +671,10 @@ function addRange(
   for (let i = 0; i < desired; i++) addOne()
 }
 
-/** 在矩形内放 N 条凹槽（两点 pathfind + linePower 衰减） */
+/** 在矩形内放 N 条凹槽（两点 pathfind + linePower 衰减）
+ *
+ * Round 2 Stage 4:`dx` / `dy` 矩形偏移（见 `addHill` 注释）。
+ */
 function addTrough(
   cells: GridCells,
   width: number,
@@ -649,6 +684,8 @@ function addTrough(
   rangeX: string,
   rangeY: string,
   linePower: number,
+  dx: number,
+  dy: number,
   rng: () => number,
 ): void {
   const getRange = (cur: number, end: number, used: Uint8Array): number[] => {
@@ -682,8 +719,8 @@ function addTrough(
     let startCellId: number
     let limit = 0
     do {
-      const startX = getPointInRange(rangeX, width, rng)
-      const startY = getPointInRange(rangeY, height, rng)
+      const startX = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
+      const startY = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
       startCellId = findGridCell(startX, startY, cells)
       limit++
     } while (cells.h[startCellId] < 20 && limit < 50)
@@ -746,7 +783,12 @@ function addTrough(
   for (let i = 0; i < desired; i++) addOne()
 }
 
-/** 沿一条横/纵线开凿海峡（heights ^= exp 把 h 压低） */
+/** 沿一条横/纵线开凿海峡（heights ^= exp 把 h 压低）
+ *
+ * Round 2 Stage 4:在 start → end 中间插入 1 个 meander 中点,消耗 2 次
+ * rng(中点 X / Y 偏移)。原版 Azgaar 是直线 pathfind,偏离原版意图但加
+ * meander 是为了打破"垂直 / 水平硬切"的轴向感。
+ */
 function addStrait(
   cells: GridCells,
   width: number,
@@ -768,30 +810,20 @@ function addStrait(
     ? height - 5
     : Math.floor(height - startY - height * 0.1 + rng() * height * 0.2)
 
+  // meander 中点:start/end 均值 + 偏移(0.15 × length)。消耗 2 rng。
+  const midX = (startX + endX) / 2 + (rng() - 0.5) * 0.15 * width
+  const midY = (startY + endY) / 2 + (rng() - 0.5) * 0.15 * height
+
   const start = findGridCell(startX, startY, cells)
+  const mid = findGridCell(midX, midY, cells)
   const end = findGridCell(endX, endY, cells)
 
-  const range: number[] = []
-  let cur = start
-  const usedRange = new Uint8Array(cells.length)
-  while (cur !== end) {
-    let min = Infinity
-    let next = cur
-    for (const e of cells.c[cur]) {
-      if (usedRange[e]) continue
-      let diff = (cells.p[end * 2] - cells.p[e * 2]) ** 2 +
-        (cells.p[end * 2 + 1] - cells.p[e * 2 + 1]) ** 2
-      if (rng() > 0.8) diff = diff / 2
-      if (diff < min) {
-        min = diff
-        next = e
-      }
-    }
-    if (min === Infinity) break
-    cur = next
-    range.push(cur)
-    usedRange[cur] = 1
-  }
+  // 拼接 2 段 pathfind:start → mid → end。中间点 mid 不去重(让 2 段边界
+  // 自然产生 meander 拐点)。
+  const seg1 = pathfindStraitSegment(cells, start, mid, rng)
+  const seg2 = pathfindStraitSegment(cells, mid, end, rng)
+  // 去重 mid(seg1 末尾 = mid = seg2 起头),seg2 跳过第一个 mid
+  const range = seg1.concat(seg2.slice(1))
 
   const step = 0.1 / desiredWidth
   const used = new Uint8Array(cells.length)
@@ -811,6 +843,37 @@ function addStrait(
     range.length = 0
     range.push(...query)
   }
+}
+
+/** addStrait 的 pathfind 段落(原本内联,Stage 4 拆出以便 start→mid→end 复用) */
+function pathfindStraitSegment(
+  cells: GridCells,
+  start: number,
+  end: number,
+  rng: () => number,
+): number[] {
+  const range: number[] = []
+  let cur = start
+  const usedRange = new Uint8Array(cells.length)
+  while (cur !== end) {
+    let min = Infinity
+    let next = cur
+    for (const e of cells.c[cur]) {
+      if (usedRange[e]) continue
+      let diff = (cells.p[end * 2] - cells.p[e * 2]) ** 2 +
+        (cells.p[end * 2 + 1] - cells.p[e * 2 + 1]) ** 2
+      if (rng() > 0.8) diff = diff / 2
+      if (diff < min) {
+        min = diff
+        next = e
+      }
+    }
+    if (min === Infinity) return range
+    cur = next
+    range.push(cur)
+    usedRange[cur] = 1
+  }
+  return range
 }
 
 /** fr-均值平滑：lim((h*(fr-1) + mean + add) / fr) */
@@ -914,7 +977,13 @@ function templateModify(
   }
 }
 
-/** 模板解析入口：把每行 "Op arg1 arg2 arg3 arg4" dispatch 到对应函数 */
+/** 模板解析入口：把每行 "Op arg1 arg2 arg3 arg4" dispatch 到对应函数。
+ *
+ * Round 2 Stage 4:对 Hill/Pit/Range/Trough 4 类 op,先消耗 2 次 rng 算
+ * (dx, dy) 矩形偏移,再传给 add*。这样同一模板内多次 Hill/Range 调用
+ * 不都堆在固定内区,打破 axis-aligned 感。所有 rng 来自调用方传入的
+ * `templateRng`(sub-RNG),**不**消费主 rng。
+ */
 export function applyTemplate(
   cells: GridCells,
   width: number,
@@ -931,18 +1000,22 @@ export function applyTemplate(
     const [tool, a2, a3, a4, a5] = els
     switch (tool) {
       case 'Hill':
-        addHill(cells, width, height, a2, a3, a4, a5, blobPower, rng)
-        break
       case 'Pit':
-        addPit(cells, width, height, a2, a3, a4, a5, blobPower, rng)
-        break
       case 'Range':
-        addRange(cells, width, height, a2, a3, a4, a5, linePower, rng)
+      case 'Trough': {
+        // 反轴向偏移(dx, dy) ∈ [0, rangeSpan],由 rng 决定
+        const xSpan = getRangeSpan(a4) * width
+        const ySpan = getRangeSpan(a5) * height
+        const dx = rng() * xSpan
+        const dy = rng() * ySpan
+        if (tool === 'Hill') addHill(cells, width, height, a2, a3, a4, a5, blobPower, dx, dy, rng)
+        else if (tool === 'Pit') addPit(cells, width, height, a2, a3, a4, a5, blobPower, dx, dy, rng)
+        else if (tool === 'Range') addRange(cells, width, height, a2, a3, a4, a5, linePower, dx, dy, rng)
+        else /* Trough */ addTrough(cells, width, height, a2, a3, a4, a5, linePower, dx, dy, rng)
         break
-      case 'Trough':
-        addTrough(cells, width, height, a2, a3, a4, a5, linePower, rng)
-        break
+      }
       case 'Strait':
+        // Strait 内部已消耗 2 rng 算 meander 中点(详见 addStrait 注释)
         addStrait(cells, width, height, a2, a3, rng)
         break
       case 'Smooth':

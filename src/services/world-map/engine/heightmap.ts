@@ -12,7 +12,10 @@
  */
 
 import type { GridCells, Plate, PlateBoundary, MapRealism, HeightmapTemplate } from './types'
-import { HEIGHTMAP_TEMPLATES, pickTemplate, applyTemplate } from './heightmap-templates'
+import { HEIGHTMAP_TEMPLATES, applyTemplate, resolveHeightmapTemplate, type TemplateShapeIntent } from './heightmap-templates'
+import { adjustSeaLevelTemplateAware } from './heightmap-template-aware'
+import { evaluateContract } from './enforceTemplateContract'
+import { seedRandom } from './random'
 
 function lim(v: number): number {
   return Math.max(0, Math.min(100, v))
@@ -23,9 +26,29 @@ const FBM_SCALE = 0.015
 const FBM_AMP = 1
 
 /**
+ * Round 2 Stage 1:派生 sub-RNG 用于模板层（选择 + 执行 + 后续反轴向偏移）。
+ *
+ * `attempt` 是合同 reroll 计数器（Stage 5），从 0 开始每次 reroll +1。
+ * 模板层**不**消费主 rng；主世界（grid / plates / cultures / nations）的
+ * determinism 不会被模板层任何重试扰动。显式模板和自动模板走同一套
+ * sub-RNG，避免同 seed 显式 / 自动底层世界不同。
+ */
+function templateRngFor(seed: string, attempt = 0): () => number {
+  return seedRandom(`${seed}:heightmap:${attempt}`)
+}
+
+/**
  * 生成高度图（Azgaar template-driven）
  *
  * 假定 `generateTectonics` 已先调用，且 `cells.tectonic.plateId` 已被填充。
+ *
+ * Round 2 Stage 1 起，自动模板选择走独立 sub-RNG（由 `heightmapSeed` 派生），
+ * 不消费主 `rng`。这保证：
+ *  1. 显式模板 vs 同 seed 自动模板的**底层世界**（grid / plates / cultures）
+ *     一致（仅模板层选择走 sub-RNG，不影响其它层）。
+ *  2. Stage 5 reroll 改 attempt 后缀只换模板，**不**扰动主世界 determinism。
+ *
+ * 显式 `templateOverride` 仍由调用方传入（`generateMap` 用 `config.heightmapTemplate`）。
  */
 export function generateHeightmap(
   cells: GridCells,
@@ -38,23 +61,81 @@ export function generateHeightmap(
   continentCount = Math.max(2, Math.round((plates.length || 6) * 0.5)),
   realism?: MapRealism,
   templateOverride?: HeightmapTemplate,
-): void {
+  heightmapSeed?: string,
+): { shapeIntent: TemplateShapeIntent | undefined; templateName: HeightmapTemplate | undefined } {
   const n = cells.length
   if (!cells.tectonic?.plateId) {
     throw new Error('generateHeightmap: cells.tectonic.plateId not initialized. Call generateTectonics first.')
   }
 
   // 步骤 1：Azgaar 模板（faithful port）
-  const templateName = templateOverride ?? pickTemplate(continentCount, landRatio, rng)
-  const template = HEIGHTMAP_TEMPLATES[templateName]
-  if (template) {
-    applyTemplate(cells, width, height, template.template, rng)
-  } else {
-    // 没匹配到模板：fallback 到 30 等高（不读 plate，与 spec §4a 的 per-cell 简化路径不同）
-    for (let i = 0; i < n; i++) cells.h[i] = 30
+  // Stage 4：模板层（含 `applyTemplate` 内部 rng 调用 + 反轴向偏移）走
+  // 独立 sub-RNG `templateRng`，**不**消费主 rng。主 rng 仍保留在签名
+  // 中供后续 FBM 噪声叠加 / 板块边界地形使用。
+  //
+  // Stage 5：合同评估 + reroll。snapshot 记录 applyTemplate 前的 cells.h
+  // (此时全 0),reroll 时回滚 + 重新跑 applyTemplate + FBM + seaLevel
+  // + smooth。sub-RNG 的 attempt 计数器 +1,主世界 determinism 不变。
+  const seedKey = heightmapSeed ?? 'heightmap-default'
+  const heightmapSnapshot = new Uint8Array(cells.h)  // applyTemplate 前的高度场
+
+  const pickAndApply = (attempt: number): { templateName: HeightmapTemplate; shapeIntent: TemplateShapeIntent | undefined; tplRng: () => number } => {
+    const tplRng = templateRngFor(seedKey, attempt)
+    const resolved = resolveHeightmapTemplate({
+      continentCount,
+      landRatio,
+      rng: tplRng,
+      explicitTemplate: templateOverride,
+    })
+    const tplName = resolved.templateName
+    // 回滚到 snapshot(attempt > 0 时 cells.h 是上一次 applyTemplate 的结果)
+    cells.h.set(heightmapSnapshot)
+    const tpl = HEIGHTMAP_TEMPLATES[tplName]
+    if (tpl) {
+      applyTemplate(cells, width, height, tpl.template, tplRng)
+    } else {
+      // 没匹配到模板：fallback 到 30 等高
+      for (let i = 0; i < n; i++) cells.h[i] = 30
+    }
+    return { templateName: tplName, shapeIntent: resolved.shapeIntent, tplRng }
   }
 
-  // 步骤 2：FBM 噪声叠加
+  // 第一次选 + 跑
+  let { templateName, shapeIntent, tplRng: _ } = pickAndApply(0)
+
+  // 跑剩余管线（FBM + seaLevel + smooth）— 必须在 contract 评估之前完成，
+  // 因为 landmass 形状需要 sea level 调整过的高度场。
+  const runPostTemplate = () => {
+    for (let i = 0; i < n; i++) {
+      if (cells.h[i] <= SEA_LEVEL + 4) continue
+      const x = cells.p[i * 2]
+      const y = cells.p[i * 2 + 1]
+      cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
+    }
+    softenMapEdges(cells, width, height)
+    adjustSeaLevelTemplateAware(cells, landRatio)
+  }
+  runPostTemplate()
+
+  // 步骤 1.5：合同评估 + reroll（最多 3 次 attempt）
+  const maxAttempts = templateOverride ? 1 : 4  // attempt 0 + 3 rerolls
+  let contractAttempt = 0
+  let contract = evaluateContract({
+    cells, width, height, templateName, shapeIntent: shapeIntent ?? 'continents', explicit: !!templateOverride,
+  })
+  while (!contract.met && contractAttempt + 1 < maxAttempts) {
+    contractAttempt++
+    ;({ templateName, shapeIntent } = pickAndApply(contractAttempt))
+    runPostTemplate()
+    contract = evaluateContract({
+      cells, width, height, templateName, shapeIntent: shapeIntent ?? 'continents', explicit: !!templateOverride,
+    })
+  }
+  if (!contract.met) {
+    console.warn(`[generateHeightmap] template contract NOT met after ${contractAttempt} rerolls: ${contract.reason}`)
+  }
+
+  // 步骤 2：FBM 噪声叠加（在合同评估后,避免对 reroll 状态重叠加）
   for (let i = 0; i < n; i++) {
     if (cells.h[i] <= SEA_LEVEL + 4) continue
     const x = cells.p[i * 2]
@@ -69,14 +150,13 @@ export function generateHeightmap(
   // 保证画布边缘以海洋为主，避免 coastline 提取在边界处分裂成开放折线。
   softenMapEdges(cells, width, height)
 
-  // 步骤 3：调整海陆比
-  adjustSeaLevel(cells, landRatio)
-
   // 步骤 3.5：板块边界地形。汇聚边界形成山带，张裂边界形成浅裂谷。
   applyPlateBoundaryRelief(cells, width, height, boundaries, plates, { rangeWidth, riftDepth })
 
   // 步骤 4：轻平滑，保留模板骨架与海岸大形。
   smooth(cells, 1, 1)
+
+  return { shapeIntent, templateName }
 }
 
 // ── 工具 ────────────────────────────────────────────
@@ -126,7 +206,9 @@ function softenMapEdges(cells: GridCells, width: number, height: number): void {
 }
 
 /**
- * 调整海平面以达到目标海陆比例（gap-aware）。
+ * @deprecated Round 2 Stage 2 起被 `adjustSeaLevelTemplateAware`（在
+ * `heightmap-template-aware.ts`）替代。保留为内部 helper 备用 — 行为与
+ * Round 1.5 一致：step ±10 × 6 attempts = 60 max shift。
  *
  * 历史步幅：
  *   原版：       step ±12 × 4 attempts = 48 max shift
@@ -136,9 +218,7 @@ function softenMapEdges(cells: GridCells, width: number, height: number): void {
  * Round 1 退到 ±6 × 4 = 24 在 pangea / mediterranean 类高基线模板下
  * 完全拉不到目标 0.45 landRatio（实测 cc=1 pangea 0.658, cc=6
  * mediterranean 0.613）。Round 1.5 给到 60 max shift，2.4× 余量
- * 应对最坏基线。步幅仍保持小（±10 < 原版 ±12），分多轮逼近以减少
- * 单步模板细节扭曲。真正的「保形」remap（海岸带侵蚀/扩张 + 低频噪声）
- * 放 Round 2 的 `adjustSeaLevelTemplateAware`。
+ * 应对最坏基线。
  *
  * 落入容差（±0.025）即提前返回；末尾不再做 ±N 强制截断。
  */

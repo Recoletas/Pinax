@@ -160,3 +160,84 @@ export function perturbCoast(
     perturbOnce(cells, cells.h, boundary, canvasH, noiseScale, noiseAmplitude, latitudeScale)
   }
 }
+
+// ── Round 2 Stage 3:宏观尺度海岸低频重塑 ──────────────────────────
+
+export interface ReshapeCoastsOptions {
+  /** 极地衰减（与 perturbCoast 一致），0=均匀,1=极地振幅→0；默认 0.35 */
+  latitudeScale?: number
+  /** 跑几轮（多次让小扰动放大成 2-3 cell 半径的海湾）；默认 2 */
+  passes?: number
+  /** bias 阈值，|bias|>thr 才触发高度 ±1；默认 0.2 */
+  biasThreshold?: number
+  /** 极低频 FBM scale；默认 0.003（比 perturbCoast 的 0.008 还低一档） */
+  fbmScale?: number
+  /** FBM octaves；默认 2（更平滑） */
+  octaves?: number
+}
+
+const DEFAULT_RESHAPE: Required<ReshapeCoastsOptions> = {
+  latitudeScale: 0.35,
+  passes: 2,
+  biasThreshold: 0.2,
+  fbmScale: 0.003,
+  octaves: 2,
+}
+
+/**
+ * 海岸低频重塑（Round 2 Stage 3）
+ *
+ * 目的：打破 `perturbCoast` 已形成的近岸小扰动，叠加宏观尺度的"大海湾
+ * / 大半岛"凹凸，使大陆骨架不再有 axis-aligned 感。
+ *
+ * 算法（**不**消费 rng — 与 `perturbCoast` 的 hash2D 保持一致以保证
+ * determinism）：
+ *  1. 收集所有 coast cell（land 邻 water）
+ *  2. 极低频 FBM (scale 0.003, 2 octaves) 给每个 coast cell 算 bias ∈ [-1, 1]
+ *  3. bias > +thr → 该 cell 高度 +1（向海推, 制造海湾或半岛缺口）
+ *  4. bias < -thr → 该 cell 高度 -1（向陆吃, 制造海湾或陆地凸出）
+ *  5. |bias| ≤ thr → 不动
+ *  6. 极地衰减：polarFactor 同 perturbCoast
+ *  7. 跑 2 轮（多次会让小扰动放大成 2-3 cell 半径的海湾）
+ *
+ * 注意：必须跑在 `perturbCoast` 之后、smooth 之前。
+ */
+export function reshapeCoasts(
+  cells: GridCells,
+  options?: ReshapeCoastsOptions,
+): void {
+  const opts = { ...DEFAULT_RESHAPE, ...(options ?? {}) }
+  const n = cells.length
+  const canvasH = inferCanvasHeight(cells, n)
+  const thr = opts.biasThreshold
+
+  for (let pass = 0; pass < opts.passes; pass++) {
+    // 每次重收集：上一轮可能产生新的 coast cell
+    const boundary = collectBoundaryCells(cells, cells.h, n)
+    for (let k = 0; k < boundary.length; k++) {
+      const id = boundary[k]
+      const x = cells.p[id * 2]
+      const y = cells.p[id * 2 + 1]
+      const bias = fbm(x * opts.fbmScale, y * opts.fbmScale, opts.octaves)
+      if (bias > thr) {
+        // 向海推:降低 h
+        let amp = 1
+        if (opts.latitudeScale > 0 && canvasH > 0) {
+          const pf = polarFactor(y / canvasH)
+          amp *= 1 - pf * opts.latitudeScale
+        }
+        if (amp < 0.1) continue
+        cells.h[id] = Math.max(0, cells.h[id] - 1)
+      } else if (bias < -thr) {
+        // 向陆吃:抬高 h
+        let amp = 1
+        if (opts.latitudeScale > 0 && canvasH > 0) {
+          const pf = polarFactor(y / canvasH)
+          amp *= 1 - pf * opts.latitudeScale
+        }
+        if (amp < 0.1) continue
+        cells.h[id] = Math.min(100, cells.h[id] + 1)
+      }
+    }
+  }
+}
