@@ -2,7 +2,7 @@
   <div class="welcome-page">
     <header class="title-bar">
       <div class="title-left">
-        <span class="app-title">WriterHelper 欢迎页</span>
+        <span class="app-title">Pinax · 可玩的世界书</span>
       </div>
       <div class="title-right">
         <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
@@ -22,22 +22,22 @@
     <main class="content-area">
       <section class="hero-panel">
         <p class="hero-kicker">WELCOME</p>
-        <h1 class="hero-title">进入你的叙事工具链工作台</h1>
-        <p class="hero-subtitle">首页只负责欢迎与分发入口，体验、世界书、写作、素材和分镜都从这里进入。</p>
+        <h1 class="hero-title">先进入一个世界，再写出你的版本</h1>
+        <p class="hero-subtitle">选择世界书，让 AI GM 推动冒险；剧情会沉淀为素材、章节和分镜，而不是停留在一次聊天里。</p>
       </section>
 
       <section class="entry-section">
         <h2 class="section-title">快捷入口</h2>
         <div class="entry-grid">
-          <router-link to="/game" class="entry-card primary">
+          <router-link to="/experience" class="entry-card primary">
             <div class="entry-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="8"></circle>
                 <path d="M9.2 13.8L10.8 10.2L14.4 8.6L12.8 12.2L9.2 13.8Z"></path>
               </svg>
             </div>
-            <h3>开始体验</h3>
-            <p>直接进入冒险，不再经过体裁选择界面</p>
+            <h3>进入世界</h3>
+            <p>从种子世界开始冒险，由 AI GM 推动剧情</p>
           </router-link>
 
           <router-link to="/experience/worldbook" class="entry-card">
@@ -48,7 +48,7 @@
               </svg>
             </div>
             <h3>世界书</h3>
-            <p>导入、编辑与注入参数细调</p>
+            <p>导入种子世界，维护地图、势力、规则和文风</p>
           </router-link>
 
           <router-link to="/writing" class="entry-card">
@@ -90,7 +90,7 @@
 
       <section class="tips-panel">
         <h2>今天怎么开始？</h2>
-        <p>如果你想快速进入剧情，点“开始体验”；如果你是创作模式，直接进入世界书、写作、素材或分镜工作区。</p>
+        <p>推荐路径：进入世界 → 玩出剧情线 → 写成我的版本。分镜和短片出口放在最后一步，不抢占创作主线。</p>
       </section>
     </main>
 

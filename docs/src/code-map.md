@@ -1,106 +1,91 @@
 # 代码库地图
 
-> 浅层地图：识别 owning surface 即可。
-> 新成员和 agent 应能在 5 分钟内从这里找到任意行为的负责人 / 文件。
+> 目标是快速找到行为负责人，不在这里复述实现细节。
 
-## 顶层布局
+## 顶层
 
-```
-pinax/
-├── src/                       # 前端 + 引擎
-│   ├── services/              # 业务服务层（含 world-map 引擎、AI 集成、生成）
-│   ├── components/ views/ pages/ layouts/   # Vue 3 UI
-│   ├── stores/ composables/                  # Pinia 状态 + 组合式
-│   ├── router/  api.js                       # 路由 + 网络
-│   ├── __tests__/                            # vitest 测例
-│   └── config/ types/ utils/ styles/         # 通用
-├── server/                    # Express + WebSocket
-├── docs/                      # 项目文档
-├── deploy/                    # 部署配置（pm2 等）
-├── dist/                      # 构建产物
-└── .agents/ .codex/ .claude/  # 各自带的 agent 工作目录与指令
-```
+| 路径 | 角色 |
+| --- | --- |
+| `src/pages/` | 路由级页面和主要用户流程 |
+| `src/components/` | 页面内组件和局部工作台 |
+| `src/services/` | 业务服务、生成、地图引擎、导出和数据层 |
+| `src/stores/` | Pinia 状态源 |
+| `src/composables/` | 组合式状态和 UI 行为 |
+| `src/__tests__/` | Vitest 测试 |
+| `server/` | Express、WebSocket、服务端代理 |
+| `docs/` | 项目文档 |
 
-## 服务层 owning surface
+## 当前主线路径
 
-### world-map 引擎（最大子系统）
-
-`src/services/world-map/`：
-
-| 模块 | 职责 | 关键文件 |
+| 用户链路 | 主要入口 | 关键支撑 |
 | --- | --- | --- |
-| 高程图 | 海陆分布、模板选择、模板合同 | `engine/heightmap.ts` · `engine/heightmap-templates.ts` · `engine/heightmap-template-aware.ts` · `engine/enforceTemplateContract.ts` · `engine/parseTemplate.ts` · `engine/shape-metrics.ts` |
-| 板块构造 | plate-driven 地形、边界地形 | `engine/tectonics.ts` · `engine/boundary-terrain.ts` · `engine/tectonic-data.ts` |
-| 海岸 | 扰动、低频重塑、多边形提取 | `engine/coast.ts` · `engine/coastline.ts` |
-| 河网 | 曲流、三角洲 | `engine/rivers.ts` |
-| 聚落 | 选址 | `engine/settlements.ts` |
-| 国家 | graphology 图 | `engine/nations.ts` |
-| 边界 / 派系 | 边境 / 派系纹理 | `engine/borderlands.ts` · `engine/faction-texture.ts` |
-| 渲染管线 | 6 preset、layer ordering | `engine/renderer-pipeline.ts` · `engine/renderer.ts` · `engine/style-presets.ts` · `engine/hillshade.ts` · `engine/wind.ts` · `engine/climate.ts` · `engine/features.ts` |
-| 编排 | 主编排入口 | `engine/generate.ts` · `engine/index.ts` |
-| 离线程 | comlink worker 桥 | `engine/worker.ts` · `engine/worker-bridge.ts` |
-| 通用 | 随机、类型、网格、性能 | `engine/random.ts` · `engine/types.ts` · `engine/grid.ts` · `engine/perf.ts` · `engine/realism-metrics.ts` · `engine/name-pool.ts` |
+| 进入世界 / 开始冒险 | `src/pages/Experience.vue`, `src/components/GamePanel.vue` | `src/composables/useAdvisor.js`, `src/services/generationService.js`, `src/services/memorySync.js` |
+| 世界书 / 设定 | `src/pages/WorldBookQuickImport.vue`, `src/pages/WorldBookEditor.vue`, `src/pages/StructuredSettings.vue` | `src/stores/worldStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/settingFieldGeneration.js`, `src/services/settingPanelSchema.js` |
+| 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js` |
+| 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/relationCanvas.js`, `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
+| 写作消费 | `src/pages/Writing.vue` | `src/services/proseGeneration.js`, `src/services/writingNotes.js` |
 
-> 命名池、地名、文化相关：`engine/name-pool.ts`。
-> 真实感档位（classic / realistic / ultra）经 `engine/realism-metrics.ts` 评估，由 `tectonics.ts` 和 `coast.ts` 接受参数后生效。
+## 重点子系统
 
-### 文本生成 / 世界书
+### 地图引擎
 
-- `services/worldbookContextBuilder.js` · `worldbookImportGeneration.js` · `worldbookDraftAssets.js` · `worldbookFeedback.js` —— 世界书导入 / 构建 / 反馈
-- `services/generationService.js` · `generationFeatureServices.js` · `generationRetry.js` —— 生成服务主路径
-- `services/proseGeneration.js` · `poetryGeneration.js` · `dialogueOptions.js` · `textExpander.js` · `textRewriter.js` · `chapterOutline.js` —— 各文本变换
-- `services/settingFieldGeneration.js` · `settingPanelSchema.js` · `professionalInfoGenerator.js` —— 设定字段生成
-- `services/promptBuilder.js` · `promptRegistry.js` · `experienceAssetSummarizer.js` —— prompt 组装与模板
-- `services/advisorTaskService.js` · `advisorResultApplier.js` —— 统一智能顾问
+路径：`src/services/world-map/`
 
-### 记忆 / 上下文
+| 区块 | 关键文件 |
+| --- | --- |
+| 生成编排 | `engine/generate.ts`, `engine/index.ts` |
+| 高程图 / 模板 | `engine/heightmap.ts`, `engine/heightmap-templates.ts`, `engine/enforceTemplateContract.ts`, `engine/shape-metrics.ts` |
+| 板块 / 地形 | `engine/tectonics.ts`, `engine/boundary-terrain.ts`, `engine/tectonic-data.ts` |
+| 海岸 / 河流 | `engine/coast.ts`, `engine/coastline.ts`, `engine/rivers.ts` |
+| 聚落 / 国家 / 边界 | `engine/settlements.ts`, `engine/nations.ts`, `engine/borderlands.ts` |
+| 渲染 | `engine/renderer.ts`, `engine/renderer-pipeline.ts`, `engine/style-presets.ts` |
+| worker 桥 | `engine/worker.ts`, `engine/worker-bridge.ts` |
 
-- `services/memorySync.js` · `memoryCandidates.js` · `memoryCompaction.js` —— 记忆系统
-- `services/contextCompression.js` · `contextMessage` —— 上下文压缩
+### 世界书 / 设定
 
-### 分镜 / 导出
+| 职责 | 关键文件 |
+| --- | --- |
+| 世界书存储 | `src/stores/worldStore.js` |
+| 上下文构建 | `src/services/worldbookContextBuilder.js` |
+| 快速导入 / 生成 | `src/services/worldbookImportGeneration.js`, `src/services/worldbookDraftAssets.js` |
+| 结构化设定 | `src/services/settingPanelSchema.js`, `src/services/settingFieldGeneration.js`, `src/components/worldbook/` |
 
-- `services/storyboardStore.js` · `shotExporter.js` · `relationCanvas.js` —— 分镜与关系画布
-- `services/narrativeAssets.js` · `writingNotes.js` —— 叙事资产与写作笔记
+### 记忆 / 顾问 / 生成
 
-### 集成
+| 职责 | 关键文件 |
+| --- | --- |
+| 记忆 | `src/services/memorySync.js`, `src/services/memoryCandidates.js`, `src/composables/useMem0Scope.js` |
+| 顾问 | `src/services/advisorTaskService.js`, `src/services/advisorResultApplier.js`, `src/composables/useAdvisor.js` |
+| 通用生成 | `src/services/generationService.js`, `src/services/generationFeatureServices.js`, `src/services/generationRetry.js` |
 
-- `services/api.js` —— 前端 HTTP 客户端
-- `services/ai/` —— AI 适配层（具体模块按集成目标划分）
+### 素材 / 画布 / 导出
 
-## UI owning surface
-
-- `src/pages/` —— 路由级页面
-- `src/views/` —— 视图组件
-- `src/components/` —— 通用组件
-- `src/layouts/` —— 页面骨架
-- `src/router/` —— 路由表
-- `src/stores/` —— Pinia store
-- `src/composables/` —— 组合式 API（`useCopilot` `useDirector` `useMem0Scope` `usePerf` `useAdvisor`）
+| 职责 | 关键文件 |
+| --- | --- |
+| 素材真源 | `src/services/narrativeAssets.js` |
+| 关系画布 | `src/services/relationCanvas.js` |
+| 分镜状态 / 导出 | `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
 
 ## 服务端
 
-- `server/index.js` —— Express 入口
-- `server/` 下：WebSocket、openclaw 通道、advisor task 等
+| 路径 | 角色 |
+| --- | --- |
+| `server/index.js` | Express 入口 |
+| `server/routes/chat.js` | 聊天 / 代理相关入口之一 |
+| `server/` 其他模块 | WebSocket、顾问任务、外部通道 |
 
-## 关键测试入口
+## 测试入口
 
 | 路径 / 命令 | 用途 |
 | --- | --- |
-| `src/__tests__/` | vitest 测例 |
-| `src/__tests__/architectureGuard.test.js` | 架构护栏（`npm run test:arch`） |
-| `src/__tests__/__snapshots__/` | 视觉 / 序列化快照 |
-| `npm run test:run` | 全量跑 |
-| `npm run verify` | 测例 + 构建 |
+| `src/__tests__/` | 全部测试 |
+| `npm run test:run` | 全量回归 |
+| `npm run test:arch` | 架构护栏 |
+| `npm run build` | 生产构建 |
+| `npm run docs:build` | 文档站构建 |
 
-## 仓库自动化
+## 不放在这里
 
-- `.agents/` `.codex/` `.claude/` —— 各自带的 agent 工作目录与指令
-- `docs/superpowers/` —— 既有 spec / plan / note（迁移路径见 [`index.md` §关系](./index.md)）
-
-## 不在地图里的
-
-- 公开 API 详细说明 → 不维护（见 [`index.md` §不应该维护](./index.md)）
-- 部署步骤 → `docs/operations/`
-- 用户操作手册 → `docs/user-manual/`
-- 单一文件级别的枚举 → 在 IDE 里跳转，不要在这里重复
+- 单文件内部的实现细节：直接在 IDE 跳转。
+- 公开 API 说明：不维护。
+- 计划 / 风险 / 验证状态：分别去 `PLAN.md`、`known-issues.md`、`test-status.md`。

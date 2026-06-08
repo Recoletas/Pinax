@@ -5,11 +5,14 @@
       <div class="title-left">
         <span class="app-title">小说体验</span>
         <select class="worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange">
-          <option value="">选择世界书...</option>
+          <option value="">选择一个可玩的世界...</option>
           <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id">
             {{ wb.name }}
           </option>
         </select>
+        <button class="action-btn" type="button" @click="openWorldbookQuickImport">
+          导入种子世界
+        </button>
       </div>
       <div class="title-right">
         <button class="action-btn primary" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
@@ -30,6 +33,27 @@
         <button class="action-btn" @click="showSettings = true">设置</button>
       </div>
     </header>
+
+    <section class="playable-world-strip" :class="{ 'is-empty': !hasSelectedWorldbook }">
+      <div class="playable-world-copy">
+        <span class="playable-world-kicker">可玩的世界书</span>
+        <strong>{{ playableWorldTitle }}</strong>
+        <p>{{ playableWorldDescription }}</p>
+      </div>
+      <div class="playable-world-steps" aria-label="创作路径">
+        <span>选择世界</span>
+        <span>开始冒险</span>
+        <span>写成作品</span>
+      </div>
+      <div class="playable-world-actions">
+        <button class="action-btn primary" type="button" :disabled="!hasSelectedWorldbook" @click="startWorldAdventure">
+          {{ hasSelectedWorldbook ? '进入这个世界' : '先导入世界' }}
+        </button>
+        <button class="action-btn" type="button" @click="openWorldbookQuickImport">
+          {{ hasSelectedWorldbook ? '换一个种子世界' : '导入种子世界' }}
+        </button>
+      </div>
+    </section>
 
     <div class="game-layout">
       <aside v-if="!showSessionPicker" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
@@ -256,6 +280,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -279,11 +304,26 @@ import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
+const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
+const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
+const hasSelectedWorldbook = computed(() => Boolean(selectedWorldbookId.value && activeWorldbook.value))
+const playableWorldTitle = computed(() => {
+  if (!hasSelectedWorldbook.value) return '先选择一个世界，再开始冒险'
+  return `正在进入：${activeWorldbook.value?.name || '未命名世界'}`
+})
+const playableWorldDescription = computed(() => {
+  if (!hasSelectedWorldbook.value) {
+    return worldbooksIndex.value.length
+      ? '选择上方世界书后即可创建会话；冒险记录之后可以整理成素材、章节或分镜。'
+      : '还没有世界书。先导入一个种子世界，Pinax 会用世界书、地图和规则支撑 AI GM 的叙事。'
+  }
+  return activeWorldbook.value?.worldDescription || activeWorldbook.value?.description || 'AI GM 会引用这个世界的地点、势力、规则和文风来推进剧情。'
+})
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 
@@ -332,6 +372,38 @@ async function onWorldbookChange() {
   if (!worldbookId) return
 
   await worldStore.setActiveWorldbook(worldbookId)
+}
+
+function openWorldbookQuickImport() {
+  router.push({ name: 'experience-worldbook' })
+}
+
+async function startWorldAdventure() {
+  const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
+  if (!worldbookId) {
+    openWorldbookQuickImport()
+    return
+  }
+  await worldStore.setActiveWorldbook(worldbookId)
+  selectedWorldbookId.value = worldbookId
+
+  const currentSession = gameStore.currentSessionId
+    ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId)
+    : null
+  const sessionWorldbookId = currentSession?.worldbookId || currentSession?.worldId || ''
+
+  if (!currentSession || sessionWorldbookId !== worldbookId) {
+    gameStore.createSession({
+      title: `${worldStore.activeWorldbook?.name || '世界'} · 冒险`,
+      worldbookId,
+      inheritRuntimeState: false
+    })
+  }
+
+  showSessionPicker.value = false
+  if (!gameStore.messages || gameStore.messages.length === 0) {
+    await gameStore.initGame()
+  }
 }
 
 function collectGameContext() {
@@ -502,7 +574,7 @@ async function handleSessionSelect(session) {
 async function handleSessionCreate() {
   const worldbookId = selectedWorldbookId.value || ''
   if (!worldbookId) {
-    window.alert('请先选择世界书')
+    openWorldbookQuickImport()
     return
   }
   gameStore.createSession({
@@ -982,6 +1054,84 @@ function quickNoteWordCount(text) {
   overflow: hidden;
 }
 
+.playable-world-strip {
+  width: calc(100% - 32px);
+  max-width: 1400px;
+  margin: 12px auto 0;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 8% 10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
+    color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+  box-shadow: 0 8px 18px color-mix(in srgb, #000 8%, transparent);
+}
+
+.playable-world-strip.is-empty {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background:
+    radial-gradient(circle at 8% 10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 36%),
+    color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
+}
+
+.playable-world-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.playable-world-kicker {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+.playable-world-copy strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.playable-world-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.playable-world-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.playable-world-steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.playable-world-steps span:not(:last-child)::after {
+  content: '→';
+  color: color-mix(in srgb, var(--accent) 60%, var(--text-muted));
+}
+
+.playable-world-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .quick-notes-rail {
   position: fixed;
   right: 12px;
@@ -1356,6 +1506,33 @@ function quickNoteWordCount(text) {
 }
 
 @media (max-width: 980px) {
+  .title-bar {
+    height: auto;
+    min-height: 48px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .title-left,
+  .title-right {
+    flex-wrap: wrap;
+  }
+
+  .playable-world-strip {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .playable-world-steps {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .playable-world-actions {
+    justify-content: flex-start;
+  }
+
   .quick-notes-rail {
     top: auto;
     right: 12px;

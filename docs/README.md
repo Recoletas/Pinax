@@ -1,20 +1,29 @@
 # 文档导航
 
-> 当前文档分两层：`docs/src/` 记录仓库当前事实与已接受决策；其余目录保留用户手册、运维说明和历史计划。
+> 先读当前主线和当前事实；专题路线图按需打开，只有标明 `SUPERSEDED` 的材料才默认按历史看。
 
-## 快速入口
+## 先读这几份
 
-| 文档 | 用途 | 状态 |
-| --- | --- | --- |
-| [src/index.md](./src/index.md) | 项目内文档框架入口 | 当前主入口 |
-| [src/code-map.md](./src/code-map.md) | 代码库地图和 owning surface | 持续维护 |
-| [src/known-issues.md](./src/known-issues.md) | 当前活跃问题与已接受限制 | 持续维护 |
-| [src/test-status.md](./src/test-status.md) | 测例与基准通过情况 | 跑测后更新 |
-| [src/decisions/](./src/decisions/) | 已接受决策记录（ADR） | 稳定事实 |
-| [src/rfcs/](./src/rfcs/) | 仍需评审或保留上下文的设计草案 | 逐步收敛 |
-| [user-manual/README.md](./user-manual/README.md) | 面向用户的说明书 | 持续维护 |
-| [engineering/development-standards.md](./engineering/development-standards.md) | 开发与 UI 基线 | 持续维护 |
-| [operations/troubleshooting.md](./operations/troubleshooting.md) | 运维与故障定位 | 持续维护 |
+| 文档 | 用途 |
+| --- | --- |
+| [PLAN.md](./PLAN.md) | 当前产品主线、近期重点和非目标 |
+| [LOG.md](./LOG.md) | 近期用户可感知变化和验证记录 |
+| [src/code-map.md](./src/code-map.md) | 代码 owning surface，找行为负责人 |
+| [src/known-issues.md](./src/known-issues.md) | 当前风险、已知缺口和稳定限制 |
+| [src/test-status.md](./src/test-status.md) | 最近测试 / 构建 / 视觉验收状态 |
+
+## 其他入口
+
+| 文档 | 用途 |
+| --- | --- |
+| [src/index.md](./src/index.md) | 当前事实层的维护规则 |
+| [src/decisions/](./src/decisions/) | 已接受决策记录（ADR） |
+| [src/rfcs/](./src/rfcs/) | 仍需评审或保留上下文的设计草案 |
+| [user-manual/README.md](./user-manual/README.md) | 面向用户的说明书 |
+| [engineering/development-standards.md](./engineering/development-standards.md) | 开发与 UI 基线 |
+| [operations/troubleshooting.md](./operations/troubleshooting.md) | 运维与故障定位 |
+| [plan/README.md](./plan/README.md) | 计划文档分层：当前主线专题 + 活跃技术专题 + 历史背景 |
+| [superpowers/README.md](./superpowers/README.md) | 设计草案 / 执行计划 / agent 基础设施材料；不是当前事实入口 |
 
 ## 本地文档站
 
@@ -23,13 +32,7 @@ npm run docs:dev
 npm run docs:build
 ```
 
-VitePress 源码位于 [src/](./src/)，入口页必须是 [src/index.md](./src/index.md)。不要提交 `.vitepress/cache/` 或 `.vitepress/dist/` 生成产物。
-
-## 历史材料
-
-- [plan/](./plan/)：仍在本仓保留的迭代计划和状态记录。
-- [superpowers/](./superpowers/)：历史 specs / plans / notes。已经迁移到 ADR / RFC 的内容不再作为当前事实入口。
-- [LOG.md](./LOG.md) / [PLAN.md](./PLAN.md)：历史主线与开发日志，当前事实优先看 `docs/src/`。
+VitePress 源码位于 [src/](./src/)，入口页是 [src/index.md](./src/index.md)。不要提交 `.vitepress/cache/` 或 `.vitepress/dist/` 生成产物。
 
 ## 维护规则
 

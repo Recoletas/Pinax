@@ -37,4 +37,33 @@ describe('ui polish contract', () => {
     expect(proseEssay).toMatch(/\.card-wall\s*\{[\s\S]*radial-gradient/);
     expect(proseEssay).toMatch(/\.card-wall\s*\{[\s\S]*background-size:/);
   })
+
+  it('keeps material bulk actions in the checked-selection toolbar', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+
+    expect(notes).toContain('class="material-selection-bar"')
+    expect(notes).toContain('@click="importCheckedToCanvas">导入</button>')
+    expect(notes).toContain('@click="setCheckedAssetsState(\'accepted\')">采纳</button>')
+    expect(notes).toContain('@click="setCheckedAssetsState(\'archived\')">归档</button>')
+    expect(notes).toContain('@click="deleteCheckedAssets">删除</button>')
+    expect(notes).not.toContain('class="asset-status-control"')
+    expect(notes).not.toContain('function setSelectedAssetState')
+  })
+
+  it('keeps the playable-worldbook entry path visible before heavy editor exits', () => {
+    const home = readProjectFile('src/pages/Home.vue')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const quickImport = readProjectFile('src/pages/WorldBookQuickImport.vue')
+
+    expect(home).toContain('Pinax · 可玩的世界书')
+    expect(home).toContain('to="/experience"')
+    expect(home).toContain('进入世界')
+    expect(experience).toContain('可玩的世界书')
+    expect(experience).toContain('导入种子世界')
+    expect(experience).toContain('选择世界')
+    expect(experience).toContain('开始冒险')
+    expect(experience).toContain('写成作品')
+    expect(quickImport).toContain('种子世界')
+    expect(quickImport).toContain('开场困境')
+  })
 })

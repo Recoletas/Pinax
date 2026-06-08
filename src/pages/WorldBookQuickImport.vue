@@ -4,7 +4,7 @@
       <div class="hero-left">
         <h1>设定 · 快速导入</h1>
         <p>
-          这是快速工作流入口：用预设、小说段落或一句说明，生成可执行的世界书草案。
+          这是“可玩的世界书”入口：先导入一个种子世界，回到体验页由 AI GM 推动冒险。
           条目精修、注入参数与批量改动请在高级设置中处理。
         </p>
       </div>
@@ -26,8 +26,8 @@
     <section class="quick-grid">
       <article class="card">
         <div class="card-head">
-          <h2>一键预设</h2>
-          <span>标准基线，开箱可用</span>
+          <h2>种子世界</h2>
+          <span>开箱可玩，适合直接进入冒险</span>
         </div>
 
         <div class="preset-list">
@@ -35,12 +35,17 @@
             <div class="preset-main">
               <strong>{{ preset.name }}</strong>
               <p>{{ preset.description }}</p>
+              <p class="preset-hook">开场困境：{{ preset.openingHook }}</p>
               <div class="preset-tags">
                 <span class="tag">{{ preset.genreLabel }}</span>
                 <span class="tag">{{ preset.entries.length }} 条目</span>
+                <span class="tag">{{ preset.entries.filter((entry) => isConstraintType(entry.type)).length }} 约束</span>
+              </div>
+              <div class="preset-exits" v-if="preset.creativeExits?.length">
+                <span v-for="exit in preset.creativeExits" :key="exit">{{ exit }}</span>
               </div>
             </div>
-            <button class="ghost-btn" :disabled="creating" @click="importPreset(preset)">
+            <button class="ghost-btn preset-import-btn" :disabled="creating" @click="importPreset(preset)">
               {{ creating ? '创建中...' : '一键导入' }}
             </button>
           </div>
@@ -654,8 +659,11 @@ function ensureEntryContent(type, name, content) {
 }
 
 function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
-  const modeText = normalizeText(rawEntry?.mode || '').toLowerCase()
-  const explicitMode = rawEntry?.constant === true
+  const injectionSource = rawEntry?.injection && typeof rawEntry.injection === 'object'
+    ? rawEntry.injection
+    : {}
+  const modeText = normalizeText(rawEntry?.mode || injectionSource.mode || '').toLowerCase()
+  const explicitMode = rawEntry?.constant === true || injectionSource.mode === 'constant'
     ? 'constant'
     : (modeText === 'constant' ? 'constant' : (modeText === 'selective' || rawEntry?.selective === true ? 'selective' : ''))
 
@@ -665,10 +673,10 @@ function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
 
   return {
     mode,
-    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability, 100, 0, 100),
-    cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
-    depth: clampNumber(rawEntry?.depth, depthFallback, 1, 99),
-    excludeRecursion: Boolean(rawEntry?.excludeRecursion)
+    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability ?? injectionSource.probability, 100, 0, 100),
+    cooldown: clampNumber(rawEntry?.cooldown ?? injectionSource.cooldown, 0, 0, 9999),
+    depth: clampNumber(rawEntry?.depth ?? injectionSource.depth, depthFallback, 1, 99),
+    excludeRecursion: Boolean(rawEntry?.excludeRecursion ?? injectionSource.excludeRecursion)
   }
 }
 
@@ -750,43 +758,87 @@ const entryTypeOptions = [
 const presets = [
   {
     id: 'preset-fantasy',
-    name: '奇幻调查基线',
-    genreLabel: '奇幻冒险',
-    description: '覆盖主城、机构、关键角色、关键道具与主线危机，可作为首轮约束基线。',
+    name: '边境王国 · 雾潮暮湾',
+    genreLabel: '边境奇幻',
+    description: '一个被雾潮、边境王权和行会契约牵扯的港口王国，适合直接开始调查、远征和势力抉择。',
+    worldDescription: '雾潮笼罩的边境港口王国长期依赖王室、学院、行会和城防队维持秩序。探索者必须在未知异常、边境战争和城中谣言之间保持证据链。',
+    writingStyle: '克制悬疑的边境奇幻语气，重视潮湿港雾、势力谈判、线索递进和人物谨慎判断。',
+    forbidden: '不得无因推翻雾潮契约，不得让关键道具无限制解决所有危机，不得让王国势力无代价统一行动。',
+    openingHook: '暮湾钟楼连续三夜停摆，北境难民带来“雾中军队”的消息，王室要求你在黎明前确认真相。',
+    creativeExits: ['写成边境调查章节', '整理成王国势力分镜', '扩展新地点/行会'],
+    groups: ['硬约束', '文风约束', '禁写边界', '地理', '组织', '角色', '道具', '事件', '设定', '任务'],
     entries: [
+      createSeedEntry('rule', '暮湾一致性规则', ['暮湾', '雾潮', '契约'], '雾潮、学院、城防队和旧时代契约之间的因果必须稳定；任何新线索都要能回扣已有异常和调查记录。', '硬约束', 'constant'),
+      createSeedEntry('style', '奇幻调查文风', ['调查文风', '线索', '雾港'], '叙事以谨慎调查、湿冷港雾和证据递进为主，避免突然变成无约束战斗爽文。', '文风约束', 'constant'),
+      createSeedEntry('forbidden', '雾潮禁写边界', ['禁忌', '雾潮契约', '风蚀罗盘'], '禁止让风蚀罗盘无限使用，禁止无代价解除雾潮，禁止让角色在没有证据时直接得知真相。', '禁写边界', 'constant'),
       createSeedEntry('location', '暮湾主城', ['暮湾', '主城'], '港雾常年笼罩的贸易主城，夜晚会响起无来源的钟声。', '地理'),
       createSeedEntry('location', '银藤学院', ['银藤学院', '法师学院'], '培养探索者与记录官的学院，地下藏有古代观测仪。', '地理'),
+      createSeedEntry('location', '北境灰墙', ['北境', '灰墙'], '王国北部的旧防线，难民、巡骑和失踪商队都从这里进入暮湾。', '地理'),
+      createSeedEntry('organization', '潮盐行会', ['潮盐行会', '行会'], '控制港口盐税和雾灯燃料的商人组织，公开支持王室，私下与学院互相试探。', '组织'),
+      createSeedEntry('organization', '王家巡骑团', ['巡骑团', '王家巡骑'], '负责北境道路和难民营安全的军务组织，近期不断要求城防队交出调查权。', '组织'),
       createSeedEntry('character', '伊薇队长', ['伊薇', '队长'], '城防调查队长，信奉先证据后判断，与你关系复杂但可靠。', '角色'),
+      createSeedEntry('character', '卢岑公使', ['卢岑', '公使'], '王室派来的年轻公使，急于证明雾潮与北境军情有关，擅长施压但缺乏现场经验。', '角色'),
       createSeedEntry('item', '风蚀罗盘', ['罗盘', '风蚀罗盘'], '能够在异常雾潮中定位安全路径，但每次使用会损耗刻度。', '道具'),
       createSeedEntry('event', '钟楼停摆事件', ['钟楼停摆', '停摆'], '城中钟楼在三日前停摆，引发港区谣言与恐慌。', '事件'),
-      createSeedEntry('lore', '雾潮契约', ['雾潮契约', '契约'], '旧时代签订的禁令：不得在雾潮之夜燃放高频火光。', '设定')
+      createSeedEntry('event', '北境难民潮', ['难民潮', '北境'], '边境道路忽然涌入难民，他们声称看见不属于任何王国军旗的雾中军队。', '事件'),
+      createSeedEntry('lore', '雾潮契约', ['雾潮契约', '契约'], '旧时代流传下来的雾潮仪式约定，要求城民在雾潮之夜降低火光与声响。', '设定'),
+      createSeedEntry('quest', '黎明前的钟楼调查', ['钟楼调查', '黎明'], '在黎明前确认钟楼停摆、难民证词和雾潮异动之间是否存在同一条因果链。', '任务')
     ]
   },
   {
     id: 'preset-urban',
-    name: '都市悬疑基线',
-    genreLabel: '都市现实',
-    description: '包含机构、人物网络、案件锚点与证据道具，适合推进推理和关系线。',
+    name: '都市异闻 · 北岸旧档',
+    genreLabel: '都市异闻',
+    description: '现代城市里的媒体、律所、企业公关和异常传闻互相缠绕，适合调查、关系网和悬疑分支。',
+    worldDescription: '北岸市表面由媒体、律所和企业公关维持秩序，暗处的信息网、旧档案、地下社群和异闻目击不断影响案件走向。',
+    writingStyle: '现实悬疑与都市异闻混合风格，语气冷静，强调证据、时间线、访谈、信息差和暧昧异常。',
+    forbidden: '不得用超自然能力直接破案，不得跳过证据链宣告真相，不得把所有异闻都解释成万能阴谋。',
+    openingHook: '北岸传媒大厦凌晨坠楼，监控缺失七分钟；死者笔记里反复写着“第三层信息网在看我们”。',
+    creativeExits: ['写成都市调查章节', '整理成人物关系分镜', '扩展新案件/异闻'],
+    groups: ['硬约束', '文风约束', '禁写边界', '地理', '组织', '角色', '道具', '事件', '设定', '任务'],
     entries: [
+      createSeedEntry('rule', '证据链规则', ['证据链', '监控', '资金流'], '案件推进必须依赖证词、监控、资金流或物证，不得让角色凭空知道幕后真相。', '硬约束', 'constant'),
+      createSeedEntry('style', '都市悬疑文风', ['都市悬疑', '调查', '信息差'], '叙事保持克制现实感，用细节、采访和时间线错位制造紧张，不使用夸张玄幻解决方案。', '文风约束', 'constant'),
+      createSeedEntry('forbidden', '破案禁写边界', ['禁忌', '无证推理', '超自然'], '禁止无证推理成功，禁止关键证据被一句话带过，禁止把普通都市案件写成超自然干预。', '禁写边界', 'constant'),
       createSeedEntry('location', '北岸传媒大厦', ['北岸传媒', '大厦'], '新闻与公关中心，内部流传一份不能公开的旧档案。', '地理'),
+      createSeedEntry('location', '旧港地下站', ['旧港站', '地下站'], '废弃地铁站改造出的地下社群据点，许多异闻目击者会在这里交换消息。', '地理'),
+      createSeedEntry('organization', '晨星公关', ['晨星公关', '公关公司'], '专门替企业和名人处理舆论危机的公司，擅长制造可验证但不完整的事实。', '组织'),
+      createSeedEntry('organization', '三层信息网', ['三层信息网', '暗线'], '由记者、律师、黑客和匿名目击者组成的松散信息网络，真假消息混杂。', '组织'),
       createSeedEntry('character', '沈述记者', ['沈述', '记者'], '调查记者，擅长追踪资金流，嘴硬心软。', '角色'),
       createSeedEntry('character', '周岚律师', ['周岚', '律师'], '商业诉讼专家，知晓多家企业的隐秘协议。', '角色'),
+      createSeedEntry('character', '阿蒙', ['阿蒙', '线人'], '长期混迹旧港地下站的匿名线人，掌握异闻社群的目击记录，但从不免费给出完整答案。', '角色'),
       createSeedEntry('event', '凌晨坠楼案', ['坠楼案', '凌晨案'], '看似意外的坠楼事件，留下了被篡改的监控时间轴。', '事件'),
+      createSeedEntry('event', '七分钟空白', ['七分钟', '监控空白'], '坠楼前后所有监控同时缺失七分钟，且不同设备显示的系统时间互相冲突。', '事件'),
       createSeedEntry('item', '缺页笔记本', ['笔记本', '缺页'], '受害者遗留笔记，本应记录线索的几页被完整裁走。', '道具'),
-      createSeedEntry('lore', '三层信息网', ['信息网', '三层'], '本城消息传播分公开、半公开、暗线三层，互相嵌套。', '设定')
+      createSeedEntry('lore', '北岸异闻档案', ['异闻档案', '北岸'], '北岸市存在一批无法完全归档的目击记录，常与企业危机、旧城区拆迁和失踪人口交错。', '设定'),
+      createSeedEntry('quest', '追查第三层信息网', ['追查', '第三层'], '从坠楼案、缺页笔记本和旧港线人入手，确认“第三层信息网”是否真实存在。', '任务')
     ]
   },
   {
     id: 'preset-scifi',
-    name: '星际远征基线',
-    genreLabel: '科幻星际',
-    description: '覆盖舰队、前哨站、协定约束与风险事件，适合硬科幻任务流开局。',
+    name: '近未来殖民地 · 赫利俄斯',
+    genreLabel: '近未来科幻',
+    description: '一个资源紧张、派系分裂、通讯受限的边境殖民地，适合任务流、灾害和伦理抉择。',
+    worldDescription: '赫利俄斯殖民地由前哨站、远征舰队、矿业财团和自治议会共同维系。静默区、补给限制、未知信号和生态改造失败构成主要风险。',
+    writingStyle: '任务流近未来科幻语气，关注流程、资源、风险评估、团队协作和殖民地伦理。',
+    forbidden: '不得无视联邦协定 17-B，不得让折跃与通讯绕开所有风险限制，不得让殖民地资源问题被一句万能科技解决。',
+    openingHook: '静默区三支巡检小队失联，氧气配给只够 72 小时；自治议会和矿业财团都要求你先保护他们的利益。',
+    creativeExits: ['写成殖民地任务章节', '整理成灾害救援分镜', '扩展派系/科技限制'],
+    groups: ['硬约束', '文风约束', '禁写边界', '地理', '组织', '角色', '道具', '事件', '设定', '任务'],
     entries: [
+      createSeedEntry('rule', '远征程序规则', ['远征程序', '17-B', '静默区'], '未知信号、折跃、全频广播和边境行动必须遵守联邦协定 17-B，违规会引发明确后果。', '硬约束', 'constant'),
+      createSeedEntry('style', '星际任务文风', ['任务流', '硬科幻', '风险评估'], '叙事偏向程序化任务、资源权衡和冷静风险评估，避免用万能科技瞬间消解危机。', '文风约束', 'constant'),
+      createSeedEntry('forbidden', '科技禁写边界', ['禁忌', '折跃', '通讯'], '禁止无代价全频广播，禁止折跃芯簇无限供应，禁止角色忽略供氧、补给和轨道风险。', '禁写边界', 'constant'),
       createSeedEntry('location', '赫利俄斯前哨站', ['前哨站', '赫利俄斯'], '位于边境轨道的补给站，长期受微陨石风暴干扰。', '地理'),
+      createSeedEntry('location', '静默区矿坑', ['静默区', '矿坑'], '殖民地北部的废弃矿坑群，通讯信号会被周期性吞噬，仍残留自动采掘设备。', '地理'),
+      createSeedEntry('organization', '自治议会', ['自治议会', '议会'], '殖民地居民自组的决策机构，优先保护生存配给和居住区安全。', '组织'),
+      createSeedEntry('organization', '奥尔特矿业', ['奥尔特矿业', '矿业财团'], '持有赫利俄斯大部分采矿设备的财团，宣称失联小队带走了重要勘探数据。', '组织'),
       createSeedEntry('character', '林霁舰长', ['林霁', '舰长'], '远征舰指挥官，强调程序与纪律，但对平民保持克制。', '角色'),
+      createSeedEntry('character', '玛拉工程师', ['玛拉', '工程师'], '生态穹顶维护负责人，掌握氧气配给真实数据，对矿业财团极不信任。', '角色'),
       createSeedEntry('item', '折跃芯簇', ['折跃芯簇', '芯簇'], '维持短距折跃稳定的核心组件，库存稀缺。', '道具'),
       createSeedEntry('event', '静默区失联', ['静默区', '失联'], '三支巡检小队进入静默区后全部失联，仅返还空白日志。', '事件'),
-      createSeedEntry('lore', '联邦协定 17-B', ['17-B', '协定'], '禁止在未知信号源附近启用全频广播，以免触发回声干扰。', '设定'),
+      createSeedEntry('event', '氧气配给危机', ['氧气配给', '危机'], '生态穹顶过滤系统异常，剩余氧气配给被迫按派系优先级重新分配。', '事件'),
+      createSeedEntry('lore', '联邦协定 17-B', ['17-B', '协定'], '边境行动中的旧版联邦协定，记录了未知信号源附近的通讯风险与回声干扰案例。', '设定'),
       createSeedEntry('quest', '回收黑匣任务', ['黑匣', '回收任务'], '需在 72 小时内回收失联舰的黑匣，避免航线被封锁。', '任务')
     ]
   }
@@ -934,7 +986,7 @@ function normalizeGeneratedEntry(rawEntry, index = 0) {
   const type = inferEntryType(rawType, name, rawEntry?.content || rawEntry?.description || '', keys)
   const content = ensureEntryContent(type, name, rawEntry?.content || rawEntry?.description || `${name}相关设定。`)
   const keysSecondary = normalizeKeywords(rawEntry?.keysSecondary || rawEntry?.secondary || rawEntry?.keysecondary)
-  const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || defaultGroupByType(type)) || null
+  const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || rawEntry?.injection?.group || defaultGroupByType(type)) || null
   const injection = resolveInjectionPolicy(rawEntry, type, name, content, keys)
 
   return {
@@ -1404,35 +1456,41 @@ async function generateFromNovelText() {
   generatingNovel.value = true
 
   try {
+    const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
     const chapters = detectChapters(sourceText)
+    let aiFallbackReason = ''
+
+    if (novelInput.useAiFirst) {
+      const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
+      if (aiResult.ok && aiResult.payload) {
+        novelSegments.value = []
+        expandedSegmentIndex.value = -1
+        pendingImport.value = buildPendingPayload(aiResult.payload)
+        setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
+        return
+      }
+      aiFallbackReason = normalizeText(aiResult.reason)
+    }
+
     if (chapters.length > 1) {
       const segments = buildSegmentedEntries(chapters)
       novelSegments.value = segments
+      pendingImport.value = null
       expandedSegmentIndex.value = 0
-      setWorldbookInfo(`检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`)
+      const fallbackInfo = `检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`
+      setWorldbookInfo(aiFallbackReason ? `${aiFallbackReason} ${fallbackInfo}` : fallbackInfo)
     } else {
-      const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
       const fallbackEntries = buildEntriesFromParagraphs(sourceText, targetCount)
-      let payload = buildPendingPayload({
+      const payload = buildPendingPayload({
         name: novelInput.name || createAutoWorldbookName('小说提炼世界书'),
         description: '由小说段落快速提炼生成，可在高级设置继续精修。',
         sourceLabel: '本地智能提炼（回退）',
         entries: fallbackEntries
       })
 
-      if (novelInput.useAiFirst) {
-        const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
-        if (aiResult.ok && aiResult.payload) {
-          payload = buildPendingPayload(aiResult.payload)
-          setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
-        } else if (aiResult.reason) {
-          setWorldbookInfo(aiResult.reason)
-        }
-      } else {
-        setWorldbookInfo('已使用本地智能提炼生成预览。')
-      }
-
+      novelSegments.value = []
       pendingImport.value = payload
+      setWorldbookInfo(aiFallbackReason || '已使用本地智能提炼生成预览。')
     }
   } catch (error) {
     setWorldbookError(`生成预览失败：${error?.message || '未知错误'}`)
@@ -1722,8 +1780,12 @@ async function importPreset(preset) {
     const payload = buildPendingPayload({
       name: createAutoWorldbookName(preset.name),
       description: preset.description,
+      worldDescription: preset.worldDescription,
+      writingStyle: preset.writingStyle,
+      forbidden: preset.forbidden,
       sourceLabel: `一键预设：${preset.name}`,
-      entries: preset.entries
+      entries: preset.entries,
+      groups: preset.groups
     })
 
     const created = await createWorldbookFromPayload(payload)
@@ -1882,6 +1944,10 @@ function clearPendingImport() {
   background: var(--bg-primary);
 }
 
+.preset-main {
+  min-width: 0;
+}
+
 .preset-main strong {
   font-size: 13px;
 }
@@ -1893,10 +1959,34 @@ function clearPendingImport() {
   color: var(--text-secondary);
 }
 
+.preset-hook {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-primary));
+  color: var(--text-primary);
+}
+
 .preset-tags {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.preset-exits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.preset-exits span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-tertiary));
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .tag {
@@ -1905,6 +1995,11 @@ function clearPendingImport() {
   padding: 1px 7px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.preset-import-btn {
+  flex: 0 0 auto;
+  min-width: 76px;
 }
 
 label {
@@ -2340,11 +2435,16 @@ label {
 
 .primary-btn,
 .ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border);
   border-radius: 8px;
   height: 34px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -2368,7 +2468,7 @@ label {
 .ghost-btn.small {
   height: 26px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ghost-btn.danger {
