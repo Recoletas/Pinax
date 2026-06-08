@@ -118,4 +118,41 @@ describe('WorldBookQuickImport novel import', () => {
 
     wrapper.unmount()
   })
+
+  it('shows and imports adapted RPG world.json presets', async () => {
+    const wrapper = mount(WorldBookQuickImport)
+    const worldStore = useWorldStore()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RPG 预设适配')
+    expect(wrapper.text()).toContain('仙侠世界')
+    expect(wrapper.text()).toContain('奇幻大陆')
+    expect(wrapper.text()).toContain('末日生存')
+    expect(wrapper.text()).toContain('科幻星际')
+    expect(wrapper.text()).toContain('都市生活')
+
+    const rpgPreset = wrapper.findAll('.preset-item')
+      .find((item) => item.text().includes('科幻星际') && item.text().includes('RPG 预设适配'))
+    expect(rpgPreset).toBeTruthy()
+
+    const importButton = rpgPreset.find('button')
+    await importButton.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    const active = worldStore.activeWorldbook
+    const entries = active?.entries || []
+
+    expect(active?.name).toContain('科幻星际')
+    expect(active?.worldDescription).toContain('新希望号空间站')
+    expect(active?.writingStyle).toContain('科幻')
+    expect(entries.some((entry) => entry.type === 'location' && entry.name.includes('空间站'))).toBe(true)
+    expect(entries.some((entry) => entry.type === 'character' && entry.name.includes('接线员'))).toBe(true)
+    expect(entries.some((entry) => entry.type === 'event' && entry.name.includes('太空救援'))).toBe(true)
+    expect(entries.some((entry) => entry.type === 'quest' && entry.name.includes('星际漂流'))).toBe(true)
+    expect(active?.groups).toContain('地理')
+    expect(active?.groups).toContain('任务')
+
+    wrapper.unmount()
+  })
 })

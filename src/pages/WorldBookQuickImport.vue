@@ -31,6 +31,7 @@
         </div>
 
         <div class="preset-list">
+          <div class="preset-section-label">首轮种子世界</div>
           <div class="preset-item" v-for="preset in presets" :key="preset.id">
             <div class="preset-main">
               <strong>{{ preset.name }}</strong>
@@ -40,6 +41,28 @@
                 <span class="tag">{{ preset.genreLabel }}</span>
                 <span class="tag">{{ preset.entries.length }} 条目</span>
                 <span class="tag">{{ preset.entries.filter((entry) => isConstraintType(entry.type)).length }} 约束</span>
+              </div>
+              <div class="preset-exits" v-if="preset.creativeExits?.length">
+                <span v-for="exit in preset.creativeExits" :key="exit">{{ exit }}</span>
+              </div>
+            </div>
+            <button class="ghost-btn preset-import-btn" :disabled="creating" @click="importPreset(preset)">
+              {{ creating ? '创建中...' : '一键导入' }}
+            </button>
+          </div>
+
+          <div class="preset-section-label">RPG 预设适配</div>
+          <div class="preset-item" v-for="preset in rpgWorldbookPresets" :key="preset.id">
+            <div class="preset-main">
+              <strong>{{ preset.name }}</strong>
+              <p>{{ preset.description }}</p>
+              <p class="preset-hook">开场困境：{{ preset.openingHook }}</p>
+              <div class="preset-tags">
+                <span class="tag">RPG 预设适配</span>
+                <span class="tag">{{ preset.genreLabel }}</span>
+                <span class="tag">{{ preset.entries.length }} 条目</span>
+                <span class="tag">{{ preset.sourceWorldShape.locations }} 地点</span>
+                <span class="tag">{{ preset.sourceWorldShape.randomEncounters }} 随机事件</span>
               </div>
               <div class="preset-exits" v-if="preset.creativeExits?.length">
                 <span v-for="exit in preset.creativeExits" :key="exit">{{ exit }}</span>
@@ -396,6 +419,7 @@ import {
   tryAiGenerateWorldbookJsonFromBrief
 } from '../services/worldbookImportGeneration'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import { rpgWorldbookPresets } from '../services/rpgWorldbookPresets'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -1931,6 +1955,19 @@ function clearPendingImport() {
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+.preset-section-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .preset-item {
