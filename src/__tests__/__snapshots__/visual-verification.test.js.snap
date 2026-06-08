@@ -10,15 +10,15 @@ exports[`视觉/性能验收 > 视觉基线：cc=1（单大陆） > visual-cc1 1
     "transform": 52,
   },
   "coastlineVertCounts": [
-    14,
-    446,
+    85,
+    410,
   ],
   "coastlines": 2,
-  "land": 893,
-  "landRatio": 0.447,
+  "land": 886,
+  "landRatio": 0.443,
   "plates": 4,
   "total": 2000,
-  "water": 1107,
+  "water": 1114,
 }
 `;
 
@@ -32,18 +32,18 @@ exports[`视觉/性能验收 > 视觉基线：cc=4（多大陆） > visual-cc4 1
     "transform": 100,
   },
   "coastlineVertCounts": [
-    17,
-    29,
-    66,
-    259,
-    279,
+    14,
+    19,
+    63,
+    275,
+    289,
   ],
   "coastlines": 5,
-  "land": 1382,
-  "landRatio": 0.461,
+  "land": 1381,
+  "landRatio": 0.46,
   "plates": 6,
   "total": 3000,
-  "water": 1618,
+  "water": 1619,
 }
 `;
 
@@ -57,18 +57,15 @@ exports[`视觉/性能验收 > 视觉基线：cc=6（多大陆 + 多板块） > 
     "transform": 235,
   },
   "coastlineVertCounts": [
-    8,
-    11,
-    63,
-    83,
-    292,
-    334,
+    88,
+    256,
+    308,
   ],
-  "coastlines": 6,
-  "land": 1390,
-  "landRatio": 0.463,
+  "coastlines": 3,
+  "land": 1364,
+  "landRatio": 0.455,
   "plates": 8,
   "total": 3000,
-  "water": 1610,
+  "water": 1636,
 }
 `;

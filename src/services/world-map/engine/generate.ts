@@ -392,10 +392,12 @@ export async function generateMapAsync(
   // heightmapSeed。模板层走独立 sub-RNG，**不**消费主 rng。
   onProgress?.('高度图', 14)
   collector?.start('heightmap')
-  generateHeightmap(
+  const heightmapResult = generateHeightmap(
     cells, width, height, rng, landRatio,
     plates, boundaries, effectiveContinentCount, config.realism, heightmapTemplate, seed,
   )
+  resolvedShapeIntent = heightmapResult.shapeIntent
+  resolvedTemplateName = heightmapResult.templateName
   collector?.end('heightmap')
   await yieldToMain()
 

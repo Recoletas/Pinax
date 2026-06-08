@@ -139,10 +139,12 @@ describe('极区真实性', () => {
 
   it('南极高纬区不出现森林/草原/湿地绿化，中高纬过渡带不能完全寒带化', () => {
     // y=0.7-0.82 对应 absLat 36-57.6(温带/亚寒带),此处大地以森林/草原为
-    // 主,几乎无冻原。Round 2 落地后 softenMapEdges + macroReshape 把
-    // southBelt 陆面压到 60-250 cells,残存 cell 几乎全是温带森林/针叶
-    // 林(green biomes),所以 < 0.95 的 hard 上限不再适用 — 写为 soft log,
-    // 验收: southCap(>0.82)必须 0 green,这是 hard 硬保证。
+    // 主,几乎无冻原。Round 2.5 极地惩罚(NEAR_POLAR_BAND 0.30→0.40,
+    // penalty 150→200)修复了单位错位的 bug,unit fix 落地后
+    // southBelt 实测 greenRatio ≈ 0.70-0.96(debug-mountain-logic 因
+    // macroReshape 把陆面压到 ~90 cells,大部分为温带/亚寒带林)。
+    // < 0.95 在新 heightmap 分布下不可达(温带就是绿),改为 < 1.0 hard
+    // 保证"不是 100% 绿" — 这才是真实约束(southBelt 100% 绿洲才奇怪)。
     for (const seed of ['polar-edge-ratio', 'debug-polar-brown', 'debug-mountain-logic']) {
       const data = generateMap({
         seed,
@@ -155,11 +157,8 @@ describe('极区真实性', () => {
 
       expect(southBelt.land).toBeGreaterThan(0)
       expect(southBelt.greenRatio).toBeGreaterThan(0.2)
-      // soft: 大多数 seed 在 0.7-0.9 之间,debug-mountain-logic 因南端陆
-      // 面被 macroReshape 压到 ~60 cells,几乎全是温带/亚寒带林
-      if (southBelt.greenRatio >= 0.95) {
-        console.warn(`[polar-realism] ${seed} southBelt.greenRatio=${southBelt.greenRatio.toFixed(3)} soft(>=0.95); land=${southBelt.land}`)
-      }
+      // hard: southBelt 不允许 100% 全绿洲
+      expect(southBelt.greenRatio).toBeLessThan(1.0)
       // hard: 极冠(y>=0.82)必须 0% green
       expect(southCap.greenRatio).toBe(0)
     }

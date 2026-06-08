@@ -31,7 +31,11 @@ const POLAR_LATITUDE_SCALE = 0.85  // 极地 macroReshape 衰减强度
 // `polar-realism` 合同要求 y > 0.7 的"近极地"也保持一定的非绿洲比
 // 例。`macroReshape` 在 y > 0.7 / y < 0.3 范围也加 cost 惩罚,避免
 // 把大片近极地翻成陆并被 climate 判成温带。
-const NEAR_POLAR_BAND = 0.30
+// Round 2.5 hotfix:实测 0.972 southBelt greenRatio,需把 NEAR_POLAR_BAND
+// 扩到 0.4 让 y=0.7+ 的过渡带也吃到非零 cost,避免 macroReshape 翻
+// 出来的近极地 cell 刚好落在 y ∈ [0.7, 0.75] 这段"温度温和 + 全绿洲"
+// 的高发区。
+const NEAR_POLAR_BAND = 0.40
 const NEAR_POLAR_LATITUDE_SCALE = 0.50
 
 /**
@@ -84,6 +88,20 @@ function countLand(cells: GridCells): number {
 }
 
 /**
+ * 推算画布高度(归一化分母),与 `coast.ts::inferCanvasHeight` 同思路。
+ * `polarFactor` / `nearPolarFactor` 期望 0..1 的 yFrac,直接把像素 y 传
+ * 进去会被 clamp 截到 1(无差别),所以必须先除以画布高度。
+ */
+function inferCanvasHeight(cells: GridCells, n: number): number {
+  let h = 0
+  for (let i = 0; i < n; i++) {
+    const y = cells.p[i * 2 + 1]
+    if (y > h) h = y
+  }
+  return h || 1
+}
+
+/**
  * 阶段 A:sort + median-threshold 算出 shift 方向,小步 ±10 × 6 逼近。
  * 思路与原 `adjustSeaLevel` 一致（最大 shift = ±60 应对 pangea / archipelago
  * 等基线极端模板）。Phase B 在此之后接管"窗口内不规则化 + 精确收尾"。
@@ -129,6 +147,7 @@ interface Transition {
  */
 function transitionFlip(cells: GridCells, targetLandRatio: number): void {
   const n = cells.length
+  const canvasH = inferCanvasHeight(cells, n)
   const transitions: Transition[] = []
   for (let i = 0; i < n; i++) {
     const h = cells.h[i]
@@ -136,7 +155,7 @@ function transitionFlip(cells: GridCells, targetLandRatio: number): void {
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
-    const pf = polarFactor(y)
+    const pf = polarFactor(y / canvasH)
     transitions.push({
       i, h,
       cost: Math.abs(h - SEA_LEVEL) + bias * BIAS_GAIN + (1 - pf) * 100,
@@ -185,6 +204,7 @@ function transitionFlip(cells: GridCells, targetLandRatio: number): void {
  */
 function macroReshape(cells: GridCells): void {
   const n = cells.length
+  const canvasH = inferCanvasHeight(cells, n)
   const targetFlips = Math.max(1, Math.round(n * 0.03))
   const transitions: Transition[] = []
   for (let i = 0; i < n; i++) {
@@ -193,16 +213,17 @@ function macroReshape(cells: GridCells): void {
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
-    const pf = polarFactor(y)
-    const npf = nearPolarFactor(y)
-    // 极地 + 近极地双重 cost 惩罚。极地带(y < 0.12 / y > 0.88)惩罚
-    // 极重;近极地带(y < 0.30 / y > 0.70)惩罚较重。共同防止
+    const pf = polarFactor(y / canvasH)
+    const npf = nearPolarFactor(y / canvasH)
+    // 极地 + 近极地双重 cost 惩罚。极地带(y < 12% / y > 88%)惩罚
+    // 极重;近极地带(y < 40% / y > 60%)惩罚较重。共同防止
     // macroReshape 把大片高纬 cell 翻成陆,推反 `softenMapEdges` 的
     // 极地海冰带 + `polar-realism` 合同要求的"非全绿洲"分布。
-    // Round 2.5 调高:实测 0.98 greenRatio,需要把高纬 macroReshape
-    // 翻动**完全抑制**才能让 southBelt 留够 tundra / desert 空间。
-    const polarPenalty = (1 - pf) * 200
-      + (1 - npf) * 150
+    // Round 2.5 hotfix:NEAR_POLAR_BAND 0.30→0.40 扩到 y=0.7+ 也有
+    // 惩罚。penalty (1-pf)*180 + (1-npf)*120 是 unit fix + pangea
+    // 保持最大的平衡点;再高会切碎 pangea(largestRatio 0.85→0.81)。
+    const polarPenalty = (1 - pf) * 180
+      + (1 - npf) * 120
     transitions.push({
       i, h,
       cost: Math.abs(h - SEA_LEVEL) + Math.abs(bias) * BIAS_GAIN + polarPenalty,

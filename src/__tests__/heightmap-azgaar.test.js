@@ -97,7 +97,11 @@ describe('azgaar 管线 smoke', () => {
     expect(m.largestRatio).toBeLessThanOrEqual(0.85)
   })
 
-  it('显式 pangea 模板：largestRatio ≥ 0.85', () => {
+  it('显式 pangea 模板：largestRatio ≥ 0.78', () => {
+    // Round 2.5 修复:polarFactor 单位错位 bug 落地后,极地惩罚
+    // (NEAR_POLAR_BAND 0.30→0.40) 实际生效,pangea 南端细尾被压短
+    // 一点,largestRatio 从 0.85+ 跌到 ~0.81。把硬下限从 0.85 放到 0.78,
+    // 既保住"pangea 仍是单块大大陆"的语义,又不再和 polar 合同冲突。
     const data = generateMap({
       seed: 'az-pangea',
       pointCount: 3000,
@@ -108,6 +112,6 @@ describe('azgaar 管线 smoke', () => {
       generateRoads: false,
     })
     const m = getLandmassMetrics(data.cells, { minSize: 100, width: 1200, height: 800 })
-    expect(m.largestRatio).toBeGreaterThanOrEqual(0.85)
+    expect(m.largestRatio).toBeGreaterThanOrEqual(0.78)
   })
 })

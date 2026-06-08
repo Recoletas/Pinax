@@ -737,26 +737,31 @@ function addTrough(
     let hVal = lim(getNumberInRange(h, rng))
     const used = new Uint8Array(cells.length)
 
-    let startCellId: number
+    // Round 2.5 修复:与 addRange 完全对齐。start 用 wrapCoord 平移
+    // (dx, dy);end 用同一 (dx, dy) 平移并 clamp。Trough 内部此前没
+    // 共享 (dx, dy) 也没 clamp,导致同一模板内多条 Trough 仍可能停在
+    // 固定 [0.1W, 0.9W] / [0.15H, 0.85H] 内区,保留"沟槽在画布中间"的
+    // 轴向锚定伪影。
+    const startX = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
+    const startY = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
+    let dist = 0
     let limit = 0
-    do {
-      const startX = wrapCoord(getPointInRange(rangeX, width, rng) + dx, width)
-      const startY = wrapCoord(getPointInRange(rangeY, height, rng) + dy, height)
-      startCellId = findGridCell(startX, startY, cells)
-      limit++
-    } while (cells.h[startCellId] < 20 && limit < 50)
-
     let endX = 0
     let endY = 0
-    limit = 0
-    let dist = 0
     do {
-      endX = rng() * width * 0.8 + width * 0.1
-      endY = rng() * height * 0.7 + height * 0.15
-      dist = Math.abs(endY - cells.p[startCellId * 2 + 1]) + Math.abs(endX - cells.p[startCellId * 2])
+      endX = rng() * width * 0.8 + width * 0.1 + dx
+      endY = rng() * height * 0.7 + height * 0.15 + dy
+      const cx0 = clampCoord(startX, 0, width)
+      const cy0 = clampCoord(startY, 0, height)
+      const cx1 = clampCoord(endX, 0, width)
+      const cy1 = clampCoord(endY, 0, height)
+      dist = Math.abs(cy1 - cy0) + Math.abs(cx1 - cx0)
       limit++
     } while ((dist < width / 8 || dist > width / 2) && limit < 50)
+    endX = clampCoord(endX, 0, width)
+    endY = clampCoord(endY, 0, height)
 
+    const startCellId = findGridCell(startX, startY, cells)
     const endCellId = findGridCell(endX, endY, cells)
     const range = getRange(startCellId, endCellId, used)
 
