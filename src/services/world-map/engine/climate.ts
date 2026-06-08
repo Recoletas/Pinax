@@ -359,6 +359,16 @@ export function assignBiomes(cells: GridCells, height: number): void {
     }
   }
 
+  // Defensive invariant: land must never keep biome 0 (ocean). A malformed
+  // climate input would otherwise make downstream scoring and rendering treat
+  // valid land as blue water.
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < SEA_LEVEL) continue
+    if (cells.biome[i] > 0 && BIOMES[cells.biome[i]]) continue
+    const absLat = Math.abs(90 - (cells.p[i * 2 + 1] / height) * 180)
+    cells.biome[i] = fallbackLandBiome(cells.temp[i], cells.prec[i], absLat)
+  }
+
   function isGlacierCell(i: number, absLat: number): boolean {
     const h = cells.h[i]
     const temp = cells.temp[i]
@@ -426,6 +436,17 @@ export function assignBiomes(cells: GridCells, height: number): void {
 
   function coldOpenBiome(prec: number): number {
     return prec < 24 ? 2 : 10
+  }
+
+  function fallbackLandBiome(temp: number, prec: number, absLat: number): number {
+    if (absLat >= 84) return temp <= -1 ? 11 : 10
+    if (absLat >= 68) return temp <= -7 ? 11 : coldOpenBiome(prec)
+    if (temp >= 25 && prec < 20) return 1
+    if (temp <= -6) return prec < 24 ? 2 : 10
+    if (prec > 85) return temp > 20 ? 7 : 8
+    if (prec > 55) return temp > 18 ? 5 : 6
+    if (prec < 22) return temp > 18 ? 1 : 4
+    return temp > 18 ? 3 : 4
   }
 }
 

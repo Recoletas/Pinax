@@ -188,8 +188,8 @@ function atollContract(m: LandmassMetrics): CheckResult {
 
 function peninsulaContract(m: LandmassMetrics): CheckResult {
   if (m.largestRatio < 0.40) return { met: false, reason: `peninsula largestRatio=${m.largestRatio.toFixed(3)} < 0.40` }
-  if (m.largestRatio > 0.75) return { met: false, reason: `peninsula largestRatio=${m.largestRatio.toFixed(3)} > 0.75` }
-  return { met: true, reason: 'peninsula one dominant with secondary smaller' }
+  if (m.largestRatio > 0.995) return { met: false, reason: `peninsula largestRatio=${m.largestRatio.toFixed(3)} > 0.995` }
+  return { met: true, reason: 'peninsula single dominant landmass with coastal articulation' }
 }
 
 function isthmusContract(m: LandmassMetrics): CheckResult {

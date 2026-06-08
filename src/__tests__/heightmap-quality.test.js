@@ -25,6 +25,14 @@ function computeLandRatio(cells) {
   return land / cells.length
 }
 
+function countLandWithOceanBiome(cells) {
+  let count = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] >= 20 && cells.biome[i] === 0) count++
+  }
+  return count
+}
+
 describe('Heightmap 质量', () => {
   it('deterministic：同 seed 两次 h 完全相同', () => {
     const a = generateMap({ seed: 'q-determin', pointCount: 1500 })
@@ -65,6 +73,22 @@ describe('Heightmap 质量', () => {
       // 模板可能无法拉到 0.85。这是软断言，目的是防止回归到 0% 或 100%。
       expect(actual).toBeGreaterThan(0.05)
       expect(actual).toBeLessThan(0.95)
+    }
+  })
+
+  it('高 landRatio 不允许陆地保留 ocean biome（防止蓝色大陆）', () => {
+    for (const target of [0.75, 0.85, 0.9]) {
+      for (let i = 0; i < 5; i++) {
+        const data = generateMap({
+          seed: `q-blue-land-${target}-${i}`,
+          pointCount: 1200,
+          landRatio: target,
+          stateCount: 3,
+          generateProvinces: false,
+          generateRoads: false,
+        })
+        expect(countLandWithOceanBiome(data.cells), `target=${target} seed=${i}`).toBe(0)
+      }
     }
   })
 

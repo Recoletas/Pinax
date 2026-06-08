@@ -21,13 +21,9 @@ const SEA_LEVEL = 20
 const MIN_LANDMASS_CELLS = 30
 const MIN_POLYGON_POINTS = 8
 
-interface Arc {
-  /** 起点 Voronoi vertex id(也是上一个 arc 的终点) */
-  v0: number
-  /** 终点 Voronoi vertex id(也是下一个 arc 的起点) */
-  v1: number
-  /** 顶点序列(包含 v0 和 v1) */
-  verts: number[]
+interface CoastSegment {
+  a: number
+  b: number
 }
 
 /**
@@ -65,15 +61,18 @@ export function extractCoastlines(
     landmassCells.push(queue)
   }
 
-  // 2. 对每个陆块:collect arcs, then stitch
+  // 2. 对每个陆块:collect true land-water Voronoi edges, then stitch
   const coastlines: Point[][] = []
   for (let m = 0; m < landmassCells.length; m++) {
     if (landmassCells[m].length < MIN_LANDMASS_CELLS) continue
 
-    const arcs = collectArcsForLandmass(cells, landmassCells[m], isLand)
-    if (arcs.length === 0) continue
+    const segments = collectSegmentsForLandmass(cells, landmassCells[m], isLand)
+    if (segments.length === 0) continue
 
-    const polygons = stitchArcs(arcs, vertices, width, height)
+    let polygons = stitchSegments(segments, vertices, width, height)
+    if (polygons.length === 0) {
+      polygons = [fallbackHullPolygon(cells, landmassCells[m], width, height)]
+    }
     for (const p of polygons) {
       if (p.length >= MIN_POLYGON_POINTS) coastlines.push(p)
     }
@@ -83,88 +82,96 @@ export function extractCoastlines(
 }
 
 /**
- * 对一个 landmass 的所有 cell,收集 boundary arcs(每 cell 可能有 0~多个 arc)。
- * Arc: 连续 water-facing 边对应的顶点序列,沿 cell 顶点顺序走。
+ * 对一个 landmass 的所有 cell,收集真正的陆-水 Voronoi 边。
+ *
+ * 旧版按 `cells.v[L][k] -> cells.v[L][k+1]` 和 `cells.c[L][k]` 假定
+ * 邻居顺序与顶点边顺序完全对齐。当前 `buildVoronoi` 只保证二者都是
+ * 环绕枚举,并不保证 `k` 对应同一条边,复杂海岸会被拼成极短的粗环
+ * (例如 400+ 边界段退化成 27 个点)。这里改为从陆 cell / 水 neighbor
+ * 的共享顶点求真实边,不依赖数组索引对齐。
  */
-function collectArcsForLandmass(
+function collectSegmentsForLandmass(
   cells: GridCells,
   landmass: number[],
   isLand: (i: number) => boolean,
-): Arc[] {
-  const arcs: Arc[] = []
+): CoastSegment[] {
+  const segments: CoastSegment[] = []
+  const seen = new Set<string>()
   for (const L of landmass) {
-    const verts = cells.v[L]
-    const neighbors = cells.c[L]
-    const N = verts.length
-    if (N === 0) continue
-
-    let current: number[] = []
-    for (let k = 0; k < N; k++) {
-      const nb = neighbors[k]
-      const isBoundaryEdge = !isLand(nb)
-      if (isBoundaryEdge) {
-        if (current.length === 0) current.push(verts[k])
-        current.push(verts[(k + 1) % N])
-      } else {
-        if (current.length >= 2) {
-          arcs.push({ v0: current[0], v1: current[current.length - 1], verts: current })
-        }
-        current = []
-      }
-    }
-    if (current.length >= 2) {
-      arcs.push({ v0: current[0], v1: current[current.length - 1], verts: current })
+    const landVerts = cells.v[L]
+    if (!landVerts || landVerts.length < 2) continue
+    for (const nb of cells.c[L]) {
+      if (isLand(nb)) continue
+      const waterVerts = cells.v[nb]
+      if (!waterVerts || waterVerts.length < 2) continue
+      const shared = sharedVertexIds(landVerts, waterVerts)
+      if (shared.length < 2) continue
+      const a = shared[0]
+      const b = shared[1]
+      if (a === b) continue
+      const lo = Math.min(a, b)
+      const hi = Math.max(a, b)
+      const key = `${lo}:${hi}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      segments.push({ a, b })
     }
   }
-  return arcs
+  return segments
 }
 
 /**
- * 按端点匹配把 arcs 拼接成闭合环。
- * 每个 arc 的 v0 = 上一个 arc 的 v1, v1 = 下一个 arc 的 v0。
+ * 按端点匹配把 coastline segments 拼接成闭合环。
  */
-function stitchArcs(
-  arcs: Arc[],
+function stitchSegments(
+  segments: CoastSegment[],
   vertices: GridVertices,
   width: number,
   height: number,
 ): Point[][] {
-  // 按 v0 索引
-  const byStart = new Map<number, Arc[]>()
-  for (const a of arcs) {
-    let bucket = byStart.get(a.v0)
-    if (!bucket) { bucket = []; byStart.set(a.v0, bucket) }
-    bucket.push(a)
+  const byVertex = new Map<number, number[]>()
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    let bucket = byVertex.get(seg.a)
+    if (!bucket) { bucket = []; byVertex.set(seg.a, bucket) }
+    bucket.push(i)
+    bucket = byVertex.get(seg.b)
+    if (!bucket) { bucket = []; byVertex.set(seg.b, bucket) }
+    bucket.push(i)
   }
-  const used = new Set<Arc>()
 
+  const used = new Uint8Array(segments.length)
   const polygons: Point[][] = []
-  for (const startArc of arcs) {
-    if (used.has(startArc)) continue
-    used.add(startArc)
+  for (let startSeg = 0; startSeg < segments.length; startSeg++) {
+    if (used[startSeg]) continue
+    used[startSeg] = 1
 
-    // polygon = startArc.verts,然后向后追加
-    const vertexIds: number[] = [...startArc.verts]
-    let lastV = startArc.v1
-    const firstV = startArc.v0
+    const start = segments[startSeg]
+    const vertexIds = [start.a, start.b]
+    const firstV = start.a
+    let prevV = start.a
+    let currentV = start.b
 
-    // 最多循环 arcs.length 次(防止死循环)
     let iter = 0
-    while (lastV !== firstV && iter++ < arcs.length + 5) {
-      const candidates = byStart.get(lastV)
-      if (!candidates) break
-      const prevV = vertexIds.length >= 2 ? vertexIds[vertexIds.length - 2] : -1
-      const next = pickBestNextArc(candidates, used, vertices, prevV, lastV)
-      if (!next) break
-      used.add(next)
-      // 追加 next.verts[1..] (skip verts[0] = lastV)
-      for (let i = 1; i < next.verts.length; i++) {
-        vertexIds.push(next.verts[i])
-      }
-      lastV = next.v1
+    while (currentV !== firstV && iter++ < segments.length + 5) {
+      const nextSeg = pickBestNextSegment(
+        byVertex.get(currentV) || [],
+        used,
+        segments,
+        vertices,
+        prevV,
+        currentV,
+      )
+      if (nextSeg < 0) break
+      used[nextSeg] = 1
+      const seg = segments[nextSeg]
+      const nextV = seg.a === currentV ? seg.b : seg.a
+      vertexIds.push(nextV)
+      prevV = currentV
+      currentV = nextV
     }
 
-    if (lastV === firstV && vertexIds.length >= MIN_POLYGON_POINTS) {
+    if (currentV === firstV && vertexIds.length >= MIN_POLYGON_POINTS) {
       const poly: Point[] = vertexIds.map(v => vertexToPoint(vertices, v, width, height))
       polygons.push(poly)
     }
@@ -173,27 +180,85 @@ function stitchArcs(
   return polygons
 }
 
-function pickBestNextArc(
-  candidates: Arc[],
-  used: Set<Arc>,
+function pickBestNextSegment(
+  candidates: number[],
+  used: Uint8Array,
+  segments: CoastSegment[],
   vertices: GridVertices,
   prevV: number,
-  lastV: number,
-): Arc | undefined {
-  let best: Arc | undefined
+  currentV: number,
+): number {
+  let best = -1
   let bestScore = Infinity
 
-  for (const arc of candidates) {
-    if (used.has(arc)) continue
-    if (prevV < 0 || arc.verts.length < 2) return arc
-    const score = turnPenalty(vertices, prevV, lastV, arc.verts[1])
+  for (const segId of candidates) {
+    if (used[segId]) continue
+    const seg = segments[segId]
+    const nextV = seg.a === currentV ? seg.b : seg.a
+    const score = turnPenalty(vertices, prevV, currentV, nextV)
     if (score < bestScore) {
       bestScore = score
-      best = arc
+      best = segId
     }
   }
 
   return best
+}
+
+function sharedVertexIds(a: number[], b: number[]): number[] {
+  const bSet = new Set(b)
+  const shared: number[] = []
+  for (const v of a) {
+    if (bSet.has(v)) shared.push(v)
+  }
+  return shared
+}
+
+function fallbackHullPolygon(
+  cells: GridCells,
+  landmass: number[],
+  width: number,
+  height: number,
+): Point[] {
+  const boundary: number[] = []
+  for (const cellId of landmass) {
+    for (const nb of cells.c[cellId]) {
+      if (cells.h[nb] < SEA_LEVEL) {
+        boundary.push(cellId)
+        break
+      }
+    }
+  }
+  const source = boundary.length >= MIN_POLYGON_POINTS ? boundary : landmass
+  if (source.length === 0) return []
+  let cx = 0, cy = 0
+  for (const cellId of source) {
+    cx += cells.p[cellId * 2]
+    cy += cells.p[cellId * 2 + 1]
+  }
+  cx /= source.length
+  cy /= source.length
+
+  const buckets = new Map<number, { cellId: number; dist: number; angle: number }>()
+  const bucketCount = Math.max(MIN_POLYGON_POINTS, Math.min(96, Math.round(Math.sqrt(source.length) * 4)))
+  for (const cellId of source) {
+    const x = cells.p[cellId * 2]
+    const y = cells.p[cellId * 2 + 1]
+    const angle = Math.atan2(y - cy, x - cx)
+    const idx = Math.floor((((angle + Math.PI) / (Math.PI * 2)) * bucketCount)) % bucketCount
+    const dist = (x - cx) ** 2 + (y - cy) ** 2
+    const current = buckets.get(idx)
+    if (!current || dist > current.dist) buckets.set(idx, { cellId, dist, angle })
+  }
+
+  const poly = [...buckets.values()]
+    .sort((a, b) => a.angle - b.angle)
+    .map(({ cellId }): Point => [
+      Math.max(0, Math.min(1, cells.p[cellId * 2] / width)),
+      Math.max(0, Math.min(1, cells.p[cellId * 2 + 1] / height)),
+    ])
+  if (poly.length > 0) poly.push(poly[0])
+  return poly
 }
 
 function turnPenalty(

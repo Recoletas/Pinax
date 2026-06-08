@@ -32,6 +32,8 @@ export interface LandmassMetrics {
   bboxAspectRatio: number
   /** 唯一边界 cell 数 / sqrt(largest.size) */
   coastRoughness: number
+  /** 最大陆块边界中靠近 bbox 四边的比例。越大越像矩形裁块。 */
+  edgeLinearity: number
   /** 归一化 y<0.15 或 y>0.85 的陆地 cell / 全部陆地 */
   polarLandRatio: number
 }
@@ -148,7 +150,7 @@ export function getLandmassMetrics(
   }
 
   // coastRoughness:陆-水边界 cell 数(去重) / sqrt(largest.size)
-  let coastRoughness = 0
+  let coastRoughness = 0, edgeLinearity = 0
   if (largest && largestSize > 0) {
     const set = new Set<number>()
     for (const id of largest.cellIds) {
@@ -158,6 +160,23 @@ export function getLandmassMetrics(
       }
     }
     coastRoughness = set.size / Math.sqrt(largestSize)
+
+    const w = Math.max(1, largest.bbox.maxX - largest.bbox.minX)
+    const h = Math.max(1, largest.bbox.maxY - largest.bbox.minY)
+    const edgeBand = Math.max(24, Math.min(w, h) * 0.12)
+    let nearBoxEdge = 0
+    for (const id of set) {
+      const x = cells.p[id * 2]
+      const y = cells.p[id * 2 + 1]
+      const edgeDist = Math.min(
+        x - largest.bbox.minX,
+        largest.bbox.maxX - x,
+        y - largest.bbox.minY,
+        largest.bbox.maxY - y,
+      )
+      if (edgeDist <= edgeBand) nearBoxEdge++
+    }
+    edgeLinearity = set.size > 0 ? nearBoxEdge / set.size : 0
   }
 
   // polarLandRatio:y 归一化后 y<0.15 或 y>0.85 的陆地 cell / 全部陆地
@@ -177,6 +196,6 @@ export function getLandmassMetrics(
     sizes: major,
     largestRatio: totalLand > 0 ? largestSize / totalLand : 0,
     secondRatio: totalLand > 0 ? secondSize / totalLand : 0,
-    bboxFillRatio, bboxAspectRatio, coastRoughness, polarLandRatio,
+    bboxFillRatio, bboxAspectRatio, coastRoughness, edgeLinearity, polarLandRatio,
   }
 }

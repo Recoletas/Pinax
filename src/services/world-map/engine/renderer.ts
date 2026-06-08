@@ -250,32 +250,135 @@ function drawTerrain(
   ctx: CanvasRenderingContext2D, data: VoronoiMapData,
   style: StyleConfig, biomeColors: string[],
 ): void {
-  const { cells, vertices, width, height } = data
+  const { width, height } = data
   const terrainColors = computeTerrainBaseColors(data, style, biomeColors)
 
   ctx.fillStyle = style.oceanBg
   ctx.fillRect(0, 0, width, height)
 
-  for (let i = 0; i < cells.length; i++) {
-    const cellVerts = cells.v[i]
-    if (!cellVerts || cellVerts.length < 3) continue
+  drawWaterCells(ctx, data, terrainColors)
 
-    const rgb = smoothTerrainColor(cells, i, terrainColors)
-    const texture = cells.h[i] >= 20 ? terrainTexture(cells, i) : 0
-    const nearCoastRgb = applyCoastalTone(cells, i, rgb)
-    ctx.fillStyle = rgbToCss(applyRgbDelta(nearCoastRgb, texture))
-
-    ctx.beginPath()
-    for (let j = 0; j < cellVerts.length; j++) {
-      const vi = cellVerts[j]
-      const vx = vertices.p[vi * 2]
-      const vy = vertices.p[vi * 2 + 1]
-      if (j === 0) ctx.moveTo(vx, vy)
-      else ctx.lineTo(vx, vy)
-    }
-    ctx.closePath()
-    ctx.fill()
+  if (shouldUseCoastlinePolygons(data)) {
+    ctx.save()
+    buildCoastClipPath(ctx, data)
+    ctx.clip()
+    drawLandCells(ctx, data, terrainColors)
+    ctx.restore()
+  } else {
+    drawLandCells(ctx, data, terrainColors)
   }
+
+  drawCoastalTerrainWash(ctx, data, style)
+}
+
+function drawWaterCells(
+  ctx: CanvasRenderingContext2D,
+  data: VoronoiMapData,
+  terrainColors: RgbColor[],
+): void {
+  const { cells } = data
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] >= 20) continue
+    drawTerrainCell(ctx, data, terrainColors, i)
+  }
+}
+
+function drawLandCells(
+  ctx: CanvasRenderingContext2D,
+  data: VoronoiMapData,
+  terrainColors: RgbColor[],
+): void {
+  const { cells } = data
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < 20) continue
+    drawTerrainCell(ctx, data, terrainColors, i)
+  }
+}
+
+function drawTerrainCell(
+  ctx: CanvasRenderingContext2D,
+  data: VoronoiMapData,
+  terrainColors: RgbColor[],
+  cellId: number,
+): void {
+  const { cells, vertices } = data
+  const cellVerts = cells.v[cellId]
+  if (!cellVerts || cellVerts.length < 3) return
+
+  const rgb = smoothTerrainColor(cells, cellId, terrainColors)
+  const texture = cells.h[cellId] >= 20 ? terrainTexture(cells, cellId) : 0
+  const nearCoastRgb = applyCoastalTone(cells, cellId, rgb)
+  ctx.fillStyle = rgbToCss(applyRgbDelta(nearCoastRgb, texture))
+
+  ctx.beginPath()
+  for (let j = 0; j < cellVerts.length; j++) {
+    const vi = cellVerts[j]
+    const vx = vertices.p[vi * 2]
+    const vy = vertices.p[vi * 2 + 1]
+    if (j === 0) ctx.moveTo(vx, vy)
+    else ctx.lineTo(vx, vy)
+  }
+  ctx.closePath()
+  ctx.fill()
+}
+
+function buildCoastClipPath(ctx: CanvasRenderingContext2D, data: VoronoiMapData): void {
+  ctx.beginPath()
+  for (const coast of data.coastlines) addCoastPath(ctx, coast, data.width, data.height)
+}
+
+function shouldUseCoastlinePolygons(data: VoronoiMapData): boolean {
+  if (data.coastlines.length === 0) return false
+  const boundarySegments = countCoastBoundarySegments(data)
+  if (boundarySegments === 0) return false
+  const totalVertices = data.coastlines.reduce((sum, coast) => sum + coast.length, 0)
+  const largest = data.coastlines.reduce((best, coast) => Math.max(best, coast.length), 0)
+  const landRatio = countLandCells(data.cells) / Math.max(1, data.cells.length)
+  const polygonCoverage = coastlinePolygonCoverage(data.coastlines)
+  // Arc stitching can occasionally collapse a complex coast into a very short
+  // polygon. Such polygons are fine as metadata, but using them as a clip path
+  // visually turns detailed cell coasts into coarse rounded blocks.
+  if (largest < 48 || totalVertices < Math.max(64, boundarySegments * 0.28)) return false
+  // High-land maps can produce closed rings around seas instead of the outer
+  // landmass. Clipping terrain to those rings makes valid land fall back to the
+  // ocean background, i.e. "blue continents". Only use polygon clipping when
+  // the polygon area is plausible for the actual land coverage.
+  return polygonCoverage >= Math.max(0.03, landRatio * 0.45)
+}
+
+function countCoastBoundarySegments(data: VoronoiMapData): number {
+  let count = 0
+  const { cells } = data
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < 20) continue
+    for (const nb of cells.c[i]) {
+      if (cells.h[nb] < 20) count++
+    }
+  }
+  return count
+}
+
+function countLandCells(cells: VoronoiMapData['cells']): number {
+  let land = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] >= 20) land++
+  }
+  return land
+}
+
+function coastlinePolygonCoverage(coastlines: VoronoiMapData['coastlines']): number {
+  let area = 0
+  for (const coast of coastlines) {
+    if (!coast || coast.length < 3) continue
+    let twiceArea = 0
+    for (let i = 0; i < coast.length; i++) {
+      const a = coast[i]
+      const b = coast[(i + 1) % coast.length]
+      twiceArea += a[0] * b[1] - b[0] * a[1]
+    }
+    area += Math.abs(twiceArea) * 0.5
+  }
+  return Math.max(0, Math.min(1, area))
 }
 
 // ── 海岸线 ──────────────────────────────────────────
@@ -286,19 +389,72 @@ function drawCoastlines(ctx: CanvasRenderingContext2D, data: VoronoiMapData, sty
 
   ctx.strokeStyle = 'rgba(236, 248, 246, 0.48)'
   ctx.lineWidth = 8.8
-  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+  strokeCoast(ctx, data)
 
   ctx.strokeStyle = 'rgba(126, 196, 205, 0.34)'
   ctx.lineWidth = 5.2
-  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+  strokeCoast(ctx, data)
 
   ctx.strokeStyle = 'rgba(249, 241, 196, 0.42)'
   ctx.lineWidth = 2.8
-  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+  strokeCoast(ctx, data)
 
   ctx.strokeStyle = colorWithAlpha(style.coastline, 0.78)
   ctx.lineWidth = 1.15
-  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+  strokeCoast(ctx, data)
+}
+
+function strokeCoast(ctx: CanvasRenderingContext2D, data: VoronoiMapData): void {
+  if (shouldUseCoastlinePolygons(data)) {
+    for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+    return
+  }
+  drawVoronoiCoastSegments(ctx, data)
+}
+
+function drawVoronoiCoastSegments(ctx: CanvasRenderingContext2D, data: VoronoiMapData): void {
+  const { cells, vertices } = data
+  let hasSegment = false
+  ctx.beginPath()
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < 20) continue
+    for (const nb of cells.c[i]) {
+      if (cells.h[nb] >= 20) continue
+      const shared = sharedCellIds(cells.v[i], cells.v[nb])
+      if (shared.length < 2) continue
+      ctx.moveTo(vertices.p[shared[0] * 2], vertices.p[shared[0] * 2 + 1])
+      ctx.lineTo(vertices.p[shared[1] * 2], vertices.p[shared[1] * 2 + 1])
+      hasSegment = true
+    }
+  }
+  if (hasSegment) ctx.stroke()
+}
+
+function drawCoastalTerrainWash(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
+  const landRatio = countLandCells(data.cells) / Math.max(1, data.cells.length)
+  const fallbackIntensity = shouldUseCoastlinePolygons(data) ? 0 : 0.42
+  const highLandIntensity = Math.max(0, Math.min(0.42, (landRatio - 0.58) / 0.42))
+  const intensity = Math.max(fallbackIntensity, highLandIntensity)
+  if (intensity <= 0.02) return
+
+  const prevComposite = typeof ctx.globalCompositeOperation === 'string'
+    ? ctx.globalCompositeOperation
+    : 'source-over'
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+
+  ctx.strokeStyle = colorWithAlpha(style.oceanDepth[0], 0.22 * intensity)
+  ctx.lineWidth = 7.5 + intensity * 5
+  strokeCoast(ctx, data)
+
+  ctx.strokeStyle = colorWithAlpha(mixColor(style.coastline, '#efe6b6', 0.7), 0.16 * intensity)
+  ctx.lineWidth = 3.5 + intensity * 3
+  strokeCoast(ctx, data)
+
+  ctx.restore()
+  ctx.globalCompositeOperation = prevComposite
 }
 
 function drawCoastPath(
@@ -309,13 +465,23 @@ function drawCoastPath(
 ): void {
   if (!coast || coast.length < 2) return
   ctx.beginPath()
+  addCoastPath(ctx, coast, width, height)
+  ctx.stroke()
+}
+
+function addCoastPath(
+  ctx: CanvasRenderingContext2D,
+  coast: VoronoiMapData['coastlines'][number],
+  width: number,
+  height: number,
+): void {
+  if (!coast || coast.length < 2) return
   if (coast.length < 8) {
     ctx.moveTo(coast[0][0] * width, coast[0][1] * height)
     for (let i = 1; i < coast.length; i++) {
       ctx.lineTo(coast[i][0] * width, coast[i][1] * height)
     }
     ctx.closePath()
-    ctx.stroke()
     return
   }
   const n = coast.length
@@ -333,7 +499,6 @@ function drawCoastPath(
     ctx.quadraticCurveTo(cx, cy, ex, ey)
   }
   ctx.closePath()
-  ctx.stroke()
 }
 
 // ── 大陆轮廓 ──────────────────────────────────────────
@@ -1056,7 +1221,7 @@ function drawCoastGlow(
   ctx.lineWidth = 1.8
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-  for (const coast of data.coastlines) drawCoastPath(ctx, coast, data.width, data.height)
+  strokeCoast(ctx, data)
 }
 
 /** 国界 buffer（用 computeBorderlands 算 buffer，渲染半透明沙色） */
@@ -1182,7 +1347,7 @@ function computeTerrainBaseColors(
     const h = cells.h[i]
     const polarBlend = getPolarBlend(cells, i, height)
     const coldBlend = getColdTerrainBlend(cells, i, height)
-    const naturalBiome = biomeColors[cells.biome[i]] || TERRAIN_BIOME_COLORS[cells.biome[i]] || '#8c946b'
+    const naturalBiome = landBiomeColor(cells, i, biomeColors)
     let color = parseColor(naturalBiome)
 
     if (h > 84) {
@@ -1230,13 +1395,35 @@ function computeTerrainBaseColors(
   return colors
 }
 
+function landBiomeColor(cells: VoronoiMapData['cells'], cellId: number, biomeColors: string[]): string {
+  const biome = cells.biome[cellId]
+  if (biome > 0) {
+    return biomeColors[biome] || TERRAIN_BIOME_COLORS[biome] || fallbackLandColor(cells, cellId)
+  }
+  return fallbackLandColor(cells, cellId)
+}
+
+function fallbackLandColor(cells: VoronoiMapData['cells'], cellId: number): string {
+  const h = cells.h[cellId]
+  const temp = cells.temp[cellId]
+  const prec = cells.prec[cellId]
+  if (h > 72) return temp <= 0 ? '#b9beb5' : '#8b6745'
+  if (temp <= -6) return prec < 24 ? '#c8d0c8' : '#d8ded8'
+  if (prec < 22) return temp >= 20 ? '#dfbd43' : '#b5c06b'
+  if (prec > 85) return temp >= 20 ? '#218635' : '#2b7d36'
+  if (prec > 55) return temp >= 18 ? '#69b84b' : '#3fa23d'
+  return temp >= 18 ? '#b5d45e' : '#93cc4d'
+}
+
 function smoothTerrainColor(cells: VoronoiMapData['cells'], cellId: number, colors: RgbColor[]): RgbColor {
   const base = colors[cellId]
   if (cells.h[cellId] < 20) return base
-  let r = base.r * 4
-  let g = base.g * 4
-  let b = base.b * 4
-  let weight = 4
+  const coastBlend = coastalBlendStrength(cells, cellId)
+  const selfWeight = Math.max(2.4, 4 - coastBlend * 1.3)
+  let r = base.r * selfWeight
+  let g = base.g * selfWeight
+  let b = base.b * selfWeight
+  let weight = selfWeight
   for (const nb of cells.c[cellId]) {
     if (cells.h[nb] < 20) continue
     if (isColdTerrain(cells, cellId) !== isColdTerrain(cells, nb)) continue
@@ -1246,7 +1433,8 @@ function smoothTerrainColor(cells: VoronoiMapData['cells'], cellId: number, colo
     const baseW = mountainous
       ? (Math.abs(cells.h[nb] - cells.h[cellId]) > 12 ? 0.1 : 0.22)
       : (Math.abs(cells.h[nb] - cells.h[cellId]) > 12 ? 0.24 : 0.46)
-    const w = cells.biome[nb] === cells.biome[cellId] ? baseW : baseW * 0.35
+    const biomeMismatch = cells.biome[nb] === cells.biome[cellId] ? 1 : 0.35 + coastBlend * 0.4
+    const w = baseW * biomeMismatch * (1 + coastBlend * 0.55)
     r += c.r * w
     g += c.g * w
     b += c.b * w
@@ -1278,6 +1466,15 @@ function applyCoastalTone(cells: VoronoiMapData['cells'], cellId: number, color:
   return color
 }
 
+function coastalBlendStrength(cells: VoronoiMapData['cells'], cellId: number): number {
+  if (cells.h[cellId] < 20) return 0
+  if (hasWaterNeighbor(cells, cellId)) return 1
+  const t = cells.t[cellId]
+  if (t <= 1) return 1
+  if (t === 2) return 0.55
+  return 0
+}
+
 function hasWaterNeighbor(cells: VoronoiMapData['cells'], cellId: number): boolean {
   for (const nb of cells.c[cellId]) {
     if (cells.h[nb] < 20) return true
@@ -1297,7 +1494,8 @@ function terrainTexture(cells: VoronoiMapData['cells'], cellId: number): number 
     : biome === 1 || biome === 2 ? 2.0
     : 1.4
   const reliefAmp = cells.h[cellId] > 58 ? 3.4 : cells.h[cellId] > 46 ? 1.8 : 1
-  return (noise - 0.5) * biomeAmp * reliefAmp
+  const coastDamp = 1 - coastalBlendStrength(cells, cellId) * 0.62
+  return (noise - 0.5) * biomeAmp * reliefAmp * coastDamp
 }
 
 function stateNoiseLike(a: number, b: number): number {

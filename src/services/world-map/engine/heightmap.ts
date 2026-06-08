@@ -110,7 +110,10 @@ export function generateHeightmap(
   // 单阶段 post-template:FBM 噪声 + 边缘软化 + 模板保形海陆比 remap。
   // 跑在合同评估之前(landmass 形状需要 sea level 调整过的高度场)。
   // 每次 reroll 都会**完整**重跑这一段,合同通过后不再叠加。
-  const runPostTemplate = () => {
+  const runPostTemplate = (
+    currentShapeIntent: TemplateShapeIntent | undefined,
+    currentTemplateName: HeightmapTemplate,
+  ) => {
     for (let i = 0; i < n; i++) {
       if (cells.h[i] <= SEA_LEVEL + 4) continue
       const x = cells.p[i * 2]
@@ -118,9 +121,9 @@ export function generateHeightmap(
       cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
     }
     softenMapEdges(cells, width, height)
-    adjustSeaLevelTemplateAware(cells, landRatio)
+    adjustSeaLevelTemplateAware(cells, landRatio, currentShapeIntent, currentTemplateName)
   }
-  runPostTemplate()
+  runPostTemplate(shapeIntent, templateName)
 
   // 步骤 1.5：合同评估 + reroll（最多 3 次 attempt）
   const maxAttempts = templateOverride ? 1 : 4  // attempt 0 + 3 rerolls
@@ -131,7 +134,7 @@ export function generateHeightmap(
   while (!contract.met && contractAttempt + 1 < maxAttempts) {
     contractAttempt++
     ;({ templateName, shapeIntent } = pickAndApply(contractAttempt))
-    runPostTemplate()
+    runPostTemplate(shapeIntent, templateName)
     contract = evaluateContract({
       cells, width, height, templateName, shapeIntent: shapeIntent ?? 'continents', explicit: !!templateOverride,
     })
@@ -153,8 +156,11 @@ export function generateHeightmap(
   // 步骤 3.5：板块边界地形。汇聚边界形成山带，张裂边界形成浅裂谷。
   applyPlateBoundaryRelief(cells, width, height, boundaries, plates, { rangeWidth, riftDepth })
 
-  // 步骤 4：轻平滑，保留模板骨架与海岸大形。
-  smooth(cells, 1, 1)
+  // 步骤 4：轻平滑，保留模板骨架与海岸拓扑。
+  // Round 2.6:旧 smooth 会跨海平面平均,把 `compactLandmassErosion`
+  // 切出的窄海湾重新抬成陆地,视觉上又回到 bbox 被填满的方块大陆。
+  // 这里改成同侧平滑:陆只跟陆平均,水只跟水平均,不改变海陆分类。
+  smooth(cells, 1)
 
   return { shapeIntent, templateName }
 }
@@ -368,23 +374,33 @@ function spreadBoundaryEffect(
   }
 }
 
-/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3，保留峰值。
- *  threshold：newH 低于此值的格子视为海洋（h=0），避免向海渗色。 */
-function smooth(cells: GridCells, passes: number, threshold: number = 0): void {
+/** 平滑处理：Azgaar `lim((h * (fr-1) + mean + add) / fr)` 公式，fr=3。
+ *
+ * 保持海陆拓扑:每一 pass 先记录原始海陆分类,只用同侧邻居求均值,并把
+ * 结果 clamp 回原侧。否则水格会被近岸高陆平均到 SEA_LEVEL 以上,填死
+ * 前面宏观海岸重塑切出的海湾,重新形成方块大陆。
+ */
+function smooth(cells: GridCells, passes: number): void {
   const fr = 3
   for (let pass = 0; pass < passes; pass++) {
+    const wasLand = new Uint8Array(cells.length)
+    for (let i = 0; i < cells.length; i++) wasLand[i] = cells.h[i] >= SEA_LEVEL ? 1 : 0
+
     const newH = new Uint8Array(cells.length)
     for (let i = 0; i < cells.length; i++) {
       const neighbors = cells.c[i]
       if (neighbors.length === 0) { newH[i] = cells.h[i]; continue }
       let sum = cells.h[i]
       let count = 1
-      for (const n of neighbors) { sum += cells.h[n]; count++ }
+      for (const n of neighbors) {
+        if (wasLand[n] !== wasLand[i]) continue
+        sum += cells.h[n]
+        count++
+      }
       const mean = sum / count
       const newV = lim(Math.round((cells.h[i] * (fr - 1) + mean) / fr))
-      newH[i] = threshold > 0 && newV < threshold ? 0 : newV
+      newH[i] = wasLand[i] ? Math.max(SEA_LEVEL, newV) : Math.min(SEA_LEVEL - 1, newV)
     }
     cells.h.set(newH)
   }
 }
-

@@ -142,8 +142,8 @@ describe('5 shapeIntent 硬合同(auto path + reroll)', () => {
     continents:  m => m.componentCount >= 2 && m.componentCount <= 5 && m.largestRatio <= 0.75,
     // archipelago: 散点,允许单主岛 + 卫星(0.95 容忍极端 seed)
     archipelago: m => m.largestRatio <= 0.95,
-    // peninsula: 主陆 + 次陆,允许单主陆 0.97(peninsula 模板偶发)
-    peninsula:   m => m.largestRatio >= 0.45 && m.largestRatio <= 0.98,
+    // peninsula: 半岛语义允许一个主陆块,重点不是拆成多大陆
+    peninsula:   m => m.largestRatio >= 0.45 && m.largestRatio <= 0.995,
     // special: 极端 landRatio 0.9 必出大块陆地
     special:     m => m.largestRatio >= 0.55,
   }

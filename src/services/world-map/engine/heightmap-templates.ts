@@ -379,11 +379,50 @@ function getNumberInRange(r: string, rng: () => number): number {
   const min = parseFloat(range[0]) * sign
   const max = parseFloat(range[1])
   if (Number.isNaN(min) || Number.isNaN(max)) return 0
-  return min + rng() * (max - min)
+  return Math.floor(min + rng() * (max - min + 1))
 }
 
 function lim(v: number): number {
   return Math.max(0, Math.min(100, v))
+}
+
+function hash2D(x: number, y: number): number {
+  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
+  return s - Math.floor(s)
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+function smooth01(t: number): number {
+  return t * t * (3 - 2 * t)
+}
+
+function valueNoise2D(x: number, y: number): number {
+  const x0 = Math.floor(x)
+  const y0 = Math.floor(y)
+  const tx = smooth01(x - x0)
+  const ty = smooth01(y - y0)
+  const a = hash2D(x0, y0)
+  const b = hash2D(x0 + 1, y0)
+  const c = hash2D(x0, y0 + 1)
+  const d = hash2D(x0 + 1, y0 + 1)
+  return lerp(lerp(a, b, tx), lerp(c, d, tx), ty) * 2 - 1
+}
+
+function fbm2D(x: number, y: number, octaves: number): number {
+  let v = 0
+  let amp = 1
+  let freq = 1
+  let max = 0
+  for (let i = 0; i < octaves; i++) {
+    v += amp * valueNoise2D(x * freq, y * freq)
+    max += amp
+    amp *= 0.5
+    freq *= 2
+  }
+  return v / max
 }
 
 /** 解析 "15-85" → 15% 到 85% of length 的随机点 */
@@ -941,7 +980,9 @@ function templateMask(
     const y = cells.p[i * 2 + 1]
     const nx = (2 * x) / width - 1
     const ny = (2 * y) / height - 1
-    let distance = (1 - nx ** 2) * (1 - ny ** 2)
+    const warp = fbm2D(x * 0.0037 + power * 17.17, y * 0.0037 - power * 9.91, 3) * 0.16
+    let distance = 1 - Math.min(1.25, Math.hypot(nx, ny) / Math.SQRT2 + warp)
+    distance = Math.max(0, distance)
     if (power < 0) distance = 1 - distance
     const masked = cells.h[i] * distance
     cells.h[i] = lim(Math.round((cells.h[i] * (fr - 1) + masked) / fr))

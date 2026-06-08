@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { generateMap } from '../services/world-map/engine/generate'
 import { computeBorderlands } from '../services/world-map/engine/borderlands'
 import { renderMap } from '../services/world-map/engine/renderer'
+import { getLandmassMetrics } from '../services/world-map/engine/shape-metrics'
 import { createCanvas } from './helpers/canvas'
 
 /**
@@ -170,6 +171,7 @@ describe('视觉/性能验收', () => {
    *   - 陆/海 cell 数
    *   - coastline 数量 + 每个环的顶点数
    *   - boundary 类型分布
+   *   - 陆块 compactness / roughness 指标（锁住"大陆不能过方"）
    * 写算法改了就该挂。改 FBM 系数 / 阈值需要同步更新 snapshot。
    */
   function visualSignature(data) {
@@ -178,6 +180,7 @@ describe('视觉/性能验收', () => {
       if (data.cells.h[i] >= 20) land++
       else water++
     }
+    const landmass = getLandmassMetrics(data.cells, { minSize: 50, width: 1200, height: 800 })
     return {
       total: data.cells.length,
       land,
@@ -188,7 +191,22 @@ describe('视觉/性能验收', () => {
       boundaryByType: stats(data.cells.tectonic),
       coastlines: data.coastlines.length,
       coastlineVertCounts: data.coastlines.map(c => c.length).sort((a, b) => a - b),
+      landmass: {
+        componentCount: landmass.componentCount,
+        largestRatio: Math.round(landmass.largestRatio * 1000) / 1000,
+        secondRatio: Math.round(landmass.secondRatio * 1000) / 1000,
+        bboxFillRatio: Math.round(landmass.bboxFillRatio * 1000) / 1000,
+        bboxAspectRatio: Math.round(landmass.bboxAspectRatio * 1000) / 1000,
+        coastRoughness: Math.round(landmass.coastRoughness * 1000) / 1000,
+        edgeLinearity: Math.round(landmass.edgeLinearity * 1000) / 1000,
+        polarLandRatio: Math.round(landmass.polarLandRatio * 1000) / 1000,
+      },
     }
+  }
+
+  function expectNotOverlySquare(sig, maxFill = 0.70) {
+    expect(sig.landmass.bboxFillRatio).toBeLessThanOrEqual(maxFill)
+    expect(sig.landmass.edgeLinearity).toBeLessThanOrEqual(0.86)
   }
 
   it('视觉基线：cc=1（单大陆）', () => {
@@ -197,6 +215,7 @@ describe('视觉/性能验收', () => {
       continentCount: 1, plateCount: 4,
     })
     const sig = visualSignature(data)
+    expectNotOverlySquare(sig)
     expect(sig).toMatchSnapshot('visual-cc1')
   })
 
@@ -206,6 +225,7 @@ describe('视觉/性能验收', () => {
       continentCount: 4, plateCount: 6,
     })
     const sig = visualSignature(data)
+    expectNotOverlySquare(sig)
     expect(sig).toMatchSnapshot('visual-cc4')
   })
 
@@ -215,6 +235,7 @@ describe('视觉/性能验收', () => {
       continentCount: 6, plateCount: 8,
     })
     const sig = visualSignature(data)
+    expectNotOverlySquare(sig)
     expect(sig).toMatchSnapshot('visual-cc6')
   })
 })
