@@ -1723,10 +1723,15 @@ async function importPreset(preset) {
   clearFeedback()
 
   try {
+    const openingHook = normalizeText(preset.openingHook)
+    const worldDescription = [
+      preset.worldDescription,
+      openingHook ? `开场困境：${openingHook}` : ''
+    ].filter(Boolean).join('\n\n')
     const payload = buildPendingPayload({
       name: createAutoWorldbookName(preset.name),
       description: preset.description,
-      worldDescription: preset.worldDescription,
+      worldDescription,
       writingStyle: preset.writingStyle,
       forbidden: preset.forbidden,
       sourceLabel: `一键预设：${preset.name}`,

@@ -5,6 +5,7 @@ import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 import { createMemoryCandidate } from '../services/memoryCandidates'
 import { runGenerationStreamTask } from '../services/generationService'
+import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 
 vi.mock('../services/api', () => ({
   default: {
@@ -161,6 +162,7 @@ describe('gameStore sessions', () => {
     const session = gameStore.createSession({ title: '第一章', worldbookId: 'project-1' })
     gameStore.chatHistory = [
       { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你站在旧书店门外。' },
       { role: 'user', content: '继续。' }
     ]
 
@@ -213,5 +215,46 @@ describe('gameStore sessions', () => {
     expect(memoryMessage?.content).not.toContain('其他作品记忆')
     expect(memoryMessage?.content).not.toContain('待确认记忆')
     expect(gameStore.lastMemoryContext).toBe(memoryMessage?.content)
+  })
+
+  it('starts playable seed worlds with starter worldbook context on narrative init', async () => {
+    const preset = seedWorldbookPresets[0]
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = {
+      id: 'seed-border',
+      ...preset,
+      worldDescription: `${preset.worldDescription}\n\n开场困境：${preset.openingHook}`,
+      entries: preset.entries.map((entry, index) => ({
+        id: `${preset.id}-${index}`,
+        ...entry
+      }))
+    }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '暮湾开局', worldbookId: 'seed-border' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'user', content: '开始故事' }
+    ]
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: '暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: '暮湾钟楼仍然沉默。' })
+      return { content: '暮湾钟楼仍然沉默。' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const worldbookMessage = streamTask.baseMessages.find((message) => message.content?.includes('【世界书：边境王国 · 雾潮暮湾】'))
+
+    expect(streamTask.taskType).toBe('narrative.init')
+    expect(streamTask.generationOptions.max_tokens).toBe(1500)
+    expect(worldbookMessage?.content).toContain('开场困境')
+    expect(worldbookMessage?.content).toContain('暮湾主城')
+    expect(worldbookMessage?.content).toContain('潮盐行会')
+    expect(worldbookMessage?.content).toContain('钟楼停摆事件')
+    expect(worldbookMessage?.content).toContain('黎明前的钟楼调查')
+    expect(gameStore.lastWorldbookContext.matchedEntries.some((entry) => entry.matchReason === 'starter')).toBe(true)
   })
 })

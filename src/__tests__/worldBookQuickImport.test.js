@@ -119,6 +119,8 @@ describe('WorldBookQuickImport novel import', () => {
     expect(worldStore.activeWorldbook?.groups).toContain('组织')
     expect(worldStore.activeWorldbook?.groups).toContain('任务')
     expect(worldStore.activeWorldbook?.worldDescription).toContain('雾潮')
+    expect(worldStore.activeWorldbook?.worldDescription).toContain('开场困境')
+    expect(worldStore.activeWorldbook?.worldDescription).toContain('暮湾钟楼')
     expect(worldStore.activeWorldbook?.writingStyle).toContain('边境')
     expect(worldStore.activeWorldbook?.forbidden).toContain('不得')
 

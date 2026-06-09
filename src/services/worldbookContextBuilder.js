@@ -2,6 +2,15 @@ import { summarizeStructuredSettings } from './settingPanelSchema'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
+const DEFAULT_STARTER_ENTRY_LIMITS = {
+  location: 3,
+  organization: 3,
+  event: 3,
+  quest: 2,
+  character: 2,
+  item: 1,
+  lore: 1
+}
 
 export const ENTRY_TYPE_PRIORITY = {
   rule: 1,
@@ -81,11 +90,44 @@ function collectScanText(chatHistory = [], runtimeState = {}, scanDepth = DEFAUL
   return [...parts, ...runtimeParts].join('\n').toLowerCase()
 }
 
+function starterEntryLimits(limits = {}) {
+  return {
+    ...DEFAULT_STARTER_ENTRY_LIMITS,
+    ...(limits && typeof limits === 'object' ? limits : {})
+  }
+}
+
+function collectStarterEntries(rawEntries = [], seenIds = new Set(), limits = {}) {
+  const normalizedLimits = starterEntryLimits(limits)
+  const counts = Object.fromEntries(Object.keys(normalizedLimits).map(type => [type, 0]))
+  const starters = []
+
+  for (const rawEntry of rawEntries) {
+    const entry = normalizeEntry(rawEntry)
+    if (!entry || seenIds.has(entry.id)) continue
+    const limit = normalizedLimits[entry.type]
+    if (!limit || counts[entry.type] >= limit) continue
+
+    starters.push({
+      ...entry,
+      matchReason: 'starter',
+      matchedKeys: [],
+      matchedKeysLabel: '开局'
+    })
+    seenIds.add(entry.id)
+    counts[entry.type] += 1
+  }
+
+  return starters
+}
+
 export function matchWorldbookEntries({
   worldbook,
   chatHistory = [],
   runtimeState = {},
-  scanDepth = DEFAULT_SCAN_DEPTH
+  scanDepth = DEFAULT_SCAN_DEPTH,
+  includeStarterEntries = false,
+  starterEntryLimits: starterLimits = {}
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -141,6 +183,10 @@ export function matchWorldbookEntries({
     }
   }
 
+  if (includeStarterEntries) {
+    matchedEntries.push(...collectStarterEntries(worldbook.entries, seenIds, starterLimits))
+  }
+
   return matchedEntries.sort((a, b) => {
     const modeDelta = (a.matchReason === 'constant' ? 0 : 1) - (b.matchReason === 'constant' ? 0 : 1)
     if (modeDelta !== 0) return modeDelta
@@ -155,7 +201,9 @@ export function buildWorldbookContext({
   chatHistory = [],
   runtimeState = {},
   tokenBudget = DEFAULT_TOKEN_BUDGET,
-  scanDepth = DEFAULT_SCAN_DEPTH
+  scanDepth = DEFAULT_SCAN_DEPTH,
+  includeStarterEntries = false,
+  starterEntryLimits = {}
 } = {}) {
   const warnings = []
 
@@ -178,7 +226,9 @@ export function buildWorldbookContext({
     worldbook,
     chatHistory,
     runtimeState,
-    scanDepth
+    scanDepth,
+    includeStarterEntries,
+    starterEntryLimits
   })
 
   if (matchedEntries.length === 0) {

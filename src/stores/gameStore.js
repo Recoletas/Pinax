@@ -888,6 +888,9 @@ export const useGameStore = defineStore('game', {
 
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
+        const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
+        const isInitGeneration = this._isRegenerating ? false : !hasAssistantHistory
+
         const worldbookContext = buildWorldbookContext({
           worldbook,
           chatHistory: this.chatHistory,
@@ -900,7 +903,8 @@ export const useGameStore = defineStore('game', {
             dialogueCharacter: cloneState(this.dialogueCharacter, null)
           },
           tokenBudget: 2000,
-          scanDepth: 3
+          scanDepth: 3,
+          includeStarterEntries: isInitGeneration
         })
         this.lastWorldbookContext = worldbookContext
         const worldBookMsg = worldbookContext.messages[0] || null
@@ -971,10 +975,6 @@ export const useGameStore = defineStore('game', {
         // 使用流式 API
         let fullContent = ''
 
-        // 判断是否为初始化生成（只有当 chatHistory 完全没有 user/assistant 消息时才初始化）
-        const hasExistingHistory = this.chatHistory.some(m => m.role === 'user' || m.role === 'assistant')
-        // 强制：如果 _isRegenerating 为 true，绝对不触发初始化
-        const isInitGeneration = this._isRegenerating ? false : !hasExistingHistory
         const maxTokens = isInitGeneration ? 1500 : 800
 
         await runGenerationStreamTask({

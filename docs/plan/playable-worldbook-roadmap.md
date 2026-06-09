@@ -157,7 +157,7 @@ Review gate：
 
 ### Stage 2 — 种子世界内容生产
 
-状态：进行中，首轮数据质量补齐已落地，待手动冒险 review。
+状态：进行中，首轮数据质量补齐与开局上下文自动冒烟已落地，待真实 LLM 手动冒险 review。
 
 目标：解决冷启动，不要求用户先写设定。
 
@@ -187,7 +187,9 @@ Review gate：
 - `边境王国 · 雾潮暮湾`：新增 6 个地点、4 个势力、8 个事件、3 个任务出口。
 - `都市异闻 · 北岸旧档`：从现有都市题材复用方向升级为调查/关系网世界，新增 5 个地点、4 个势力、8 个事件、3 个任务出口。
 - `近未来殖民地 · 赫利俄斯`：从现有科幻题材复用方向升级为殖民地任务流，新增 6 个地点、4 个势力、8 个事件、3 个任务出口。
+- `worldbookContextBuilder` 开局模式会补入代表性地点、势力、事件和任务，避免“开始故事”只命中常驻约束。
 - `src/__tests__/seedWorldbookPresets.test.js` 锁住 Stage 2 内容质量下限。
+- `worldbookContextBuilder.test.js` / `gameStoreSession.test.js` 锁住开局 GM prompt 能读到种子世界素材并使用 `narrative.init`。
 
 验收：
 
@@ -381,7 +383,7 @@ Stage 0 文档同步
 
 下一步：
 
-- Stage 2 review：从空白状态导入 3 个主推世界，分别完成至少 1 轮 AI GM 冒险冒烟。
+- Stage 2 review：从空白状态导入 3 个主推世界，分别完成至少 1 轮真实 LLM 冒险冒烟。
 - Stage 2 完成后再进入 Stage 3a；在手动冒险 review 前，不继续扩大 GM 状态字段或 trigger。
 
 ## 7. 验证策略
@@ -398,7 +400,7 @@ Stage 0 文档同步
 Stage-specific 额外验证：
 
 - Stage 1.5：转换层单测覆盖 5 个现有 world fixture。
-- Stage 2：自动测试锁住内容质量下限；每个主推世界需手动跑 10-15 分钟体验。
+- Stage 2：自动测试锁住内容质量下限和开局 prompt 素材注入；每个主推世界需手动跑 10-15 分钟体验。
 - Stage 3a：`StatusBar` / `QuestLog` / session persistence 回归。
 - Stage 3b：mock LLM 验证日志聚合结构。
 - Stage 4：两个 trigger 都走 generation task layer，且失败可回退。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildWorldbookContext, describeWorldbookWarning } from '../services/worldbookContextBuilder'
+import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 
 describe('worldbookContextBuilder', () => {
   it('builds worldbook context with matched entries and budget report', () => {
@@ -131,5 +132,35 @@ describe('worldbookContextBuilder', () => {
     expect(result.messages[0].content).toContain('【结构化设定】')
     expect(result.messages[0].content).toContain('一句话故事：书记官追查吞噬姓名的雾。')
     expect(result.messages[0].content).toContain('一致性规则：所有魔法都必须付出记忆代价。')
+  })
+
+  it('injects starter entries for promoted playable seed worlds on narrative init', () => {
+    for (const preset of seedWorldbookPresets) {
+      const result = buildWorldbookContext({
+        worldbook: {
+          ...preset,
+          worldDescription: `${preset.worldDescription}\n\n开场困境：${preset.openingHook}`,
+          entries: preset.entries.map((entry, index) => ({
+            id: `${preset.id}-${index}`,
+            ...entry
+          }))
+        },
+        chatHistory: [{ role: 'user', content: '开始故事' }],
+        includeStarterEntries: true,
+        tokenBudget: 3000
+      })
+
+      const starterEntries = result.matchedEntries.filter(entry => entry.matchReason === 'starter')
+      const starterTypes = new Set(starterEntries.map(entry => entry.type))
+
+      expect(result.messages).toHaveLength(1)
+      expect(result.messages[0].content).toContain(preset.name)
+      expect(result.messages[0].content).toContain(preset.openingHook.slice(0, 12))
+      expect(starterTypes.has('location')).toBe(true)
+      expect(starterTypes.has('organization')).toBe(true)
+      expect(starterTypes.has('event')).toBe(true)
+      expect(starterTypes.has('quest')).toBe(true)
+      expect(starterEntries.length).toBeGreaterThanOrEqual(8)
+    }
   })
 })
