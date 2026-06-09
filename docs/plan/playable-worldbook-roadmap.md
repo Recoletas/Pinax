@@ -111,14 +111,14 @@ Review gate：
 
 ### Stage 1.5 — RPG world.json 到世界书的迁移/适配
 
-状态：下一步优先。
+状态：已完成首轮实现。
 
 目标：先把现有 `server/data/worlds/*/world.json` 接入世界书 pipeline，再谈种子世界内容生产。
 
 交付：
 
-- 审计 5 个 `world.json` 的实际字段：locations、npcs、items、quests/events、rules、opening 等。
-- 新增一个转换层，将 RPG world 数据转换为世界书导入 payload：
+- 已审计 5 个 `world.json` 的实际字段：locations、npcs、items、quests/events、rules、opening 等。
+- 已新增只读转换层，将 RPG world 数据转换为世界书导入 payload：
   - `worldDescription`
   - `writingStyle`
   - `forbidden`
@@ -126,14 +126,15 @@ Review gate：
   - `groups`
   - 必要的 `structuredSettings` 兼容字段
 - 转换规则优先适配现有世界书导入三路径，不发明不可迁移的新 schema。
-- 快速导入里标明来源：`RPG 预设适配` / `新种子世界`。
+- 快速导入里标明来源：`RPG 预设适配` / `首轮种子世界`。
 - 明确弃用或保留 `experienceStore.js` 的决策；在没有证据前不把它作为新入口。
 
 建议实现落点：
 
-- 新服务：`src/services/worldbookPresetAdapter.js` 或同类命名。
+- 新服务：`src/services/worldbookPresetAdapter.js`。
+- RPG preset 列表：`src/services/rpgWorldbookPresets.js`。
 - 入口复用：`src/pages/WorldBookQuickImport.vue`。
-- 测试：新增 world preset adapter 单测，覆盖 5 个 world fixture 的字段映射。
+- 测试：`src/__tests__/worldbookPresetAdapter.test.js` 覆盖 5 个 world fixture 的字段映射。
 
 风险：
 
@@ -156,6 +157,8 @@ Review gate：
 
 ### Stage 2 — 种子世界内容生产
 
+状态：进行中，首轮数据质量补齐已落地，待手动冒险 review。
+
 目标：解决冷启动，不要求用户先写设定。
 
 策略：
@@ -177,6 +180,14 @@ Review gate：
 - 1 个开场困境。
 - 3 个改写方向：小说章节、分镜、扩展世界。
 - 可选章节/剧情段落，用于后续日志和 trigger。
+
+首轮实现落点：
+
+- `src/services/seedWorldbookPresets.js` 统一维护 3 个主推世界，不再把长内容硬编码在页面里。
+- `边境王国 · 雾潮暮湾`：新增 6 个地点、4 个势力、8 个事件、3 个任务出口。
+- `都市异闻 · 北岸旧档`：从现有都市题材复用方向升级为调查/关系网世界，新增 5 个地点、4 个势力、8 个事件、3 个任务出口。
+- `近未来殖民地 · 赫利俄斯`：从现有科幻题材复用方向升级为殖民地任务流，新增 6 个地点、4 个势力、8 个事件、3 个任务出口。
+- `src/__tests__/seedWorldbookPresets.test.js` 锁住 Stage 2 内容质量下限。
 
 验收：
 
@@ -370,8 +381,8 @@ Stage 0 文档同步
 
 下一步：
 
-- Stage 1.5：审计并适配 `server/data/worlds/*/world.json` 到现代世界书 payload。
-- 在适配层稳定前，不继续扩大 GM 状态字段或 trigger。
+- Stage 2 review：从空白状态导入 3 个主推世界，分别完成至少 1 轮 AI GM 冒险冒烟。
+- Stage 2 完成后再进入 Stage 3a；在手动冒险 review 前，不继续扩大 GM 状态字段或 trigger。
 
 ## 7. 验证策略
 
@@ -387,7 +398,7 @@ Stage 0 文档同步
 Stage-specific 额外验证：
 
 - Stage 1.5：转换层单测覆盖 5 个现有 world fixture。
-- Stage 2：每个主推世界能跑 10-15 分钟体验。
+- Stage 2：自动测试锁住内容质量下限；每个主推世界需手动跑 10-15 分钟体验。
 - Stage 3a：`StatusBar` / `QuestLog` / session persistence 回归。
 - Stage 3b：mock LLM 验证日志聚合结构。
 - Stage 4：两个 trigger 都走 generation task layer，且失败可回退。
