@@ -56,6 +56,21 @@
               <span>今晚的困境</span>
               <strong>{{ featuredPreset.openingHook }}</strong>
             </div>
+
+            <div class="world-action-hooks" aria-label="开局行动">
+              <button
+                v-for="action in featuredActionHooks"
+                :key="action.id"
+                type="button"
+                class="world-action-card"
+                :disabled="creating"
+                @click="enterPresetWorld(featuredPreset, action)"
+              >
+                <span>{{ action.label }}</span>
+                <strong>{{ action.title }}</strong>
+                <small>{{ action.detail }}</small>
+              </button>
+            </div>
           </div>
 
           <div class="world-feature-panel">
@@ -501,6 +516,10 @@ import {
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
 import { rpgWorldbookPresets } from '../services/rpgWorldbookPresets'
 import { seedWorldbookPresets as presets } from '../services/seedWorldbookPresets'
+import {
+  buildPlayableWorldActionHooks,
+  savePlayableWorldEntryIntent
+} from '../services/playableWorldEntry'
 
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -512,6 +531,7 @@ const secondaryPresets = computed(() => presets.slice(1, 3))
 const featuredLocationNames = computed(() => getPresetEntryNames(featuredPreset.value, 'location').slice(0, 3))
 const featuredFactionNames = computed(() => getPresetEntryNames(featuredPreset.value, 'organization').slice(0, 3))
 const featuredEventNames = computed(() => getPresetEntryNames(featuredPreset.value, 'event').slice(0, 3))
+const featuredActionHooks = computed(() => buildPlayableWorldActionHooks(featuredPreset.value))
 
 const creating = ref(false)
 const generatingNovel = ref(false)
@@ -1846,9 +1866,19 @@ async function importPreset(preset) {
   }
 }
 
-async function enterPresetWorld(preset) {
+async function enterPresetWorld(preset, action = null) {
   const created = await importPreset(preset)
   if (created) {
+    const resolvedAction = action || buildPlayableWorldActionHooks(preset)[0]
+    if (resolvedAction) {
+      savePlayableWorldEntryIntent({
+        worldbookId: created.id,
+        worldbookName: created.name,
+        presetId: preset.id,
+        presetName: preset.name,
+        action: resolvedAction
+      })
+    }
     openExperience()
   }
 }
@@ -2131,6 +2161,65 @@ function clearPendingImport() {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.world-action-hooks {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.world-action-card {
+  min-height: 118px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-primary) 80%, transparent), color-mix(in srgb, var(--accent-light) 28%, var(--bg-secondary)));
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+
+.world-action-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-light) 42%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 88%, var(--accent-light)));
+}
+
+.world-action-card:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.world-action-card span {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.world-action-card strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.world-action-card small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .world-feature-panel {
@@ -3085,6 +3174,7 @@ label {
 
   .world-feature-card,
   .world-branch-grid,
+  .world-action-hooks,
   .world-flow {
     grid-template-columns: 1fr;
   }

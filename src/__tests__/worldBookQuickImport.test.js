@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import WorldBookQuickImport from '../pages/WorldBookQuickImport.vue'
 import { tryAiExtractWorldbookJson } from '../services/worldbookImportGeneration'
 import { useWorldStore } from '../stores/worldStore'
+import { getPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() })
@@ -116,11 +117,15 @@ describe('WorldBookQuickImport novel import', () => {
     expect(wrapper.text()).toContain('今晚推荐开局')
     expect(wrapper.text()).toContain('换个题材')
     expect(wrapper.text()).toContain('进入这个世界')
+    expect(wrapper.text()).toContain('先去钟楼查痕迹')
+    expect(wrapper.text()).toContain('夜访码头核夜账')
+    expect(wrapper.text()).toContain('找证人问雾军')
     expect(wrapper.text()).toContain('更多旧世界归档')
     expect(wrapper.text()).toContain('今晚的困境')
     expect(wrapper.text()).toContain('事件')
     expect(wrapper.text()).toContain('势力')
     expect(wrapper.text()).toContain('地点')
+    expect(wrapper.findAll('.world-action-card')).toHaveLength(3)
 
     const shelfToggle = wrapper.findAll('button')
       .find((button) => button.text().includes('换个题材'))
@@ -131,10 +136,8 @@ describe('WorldBookQuickImport novel import', () => {
     expect(wrapper.text()).toContain('都市异闻 · 北岸旧档')
     expect(wrapper.text()).toContain('近未来殖民地 · 赫利俄斯')
 
-    const presetButton = wrapper.findAll('button')
-      .find((button) => button.text().includes('进入这个世界'))
-    expect(presetButton).toBeTruthy()
-    await presetButton.trigger('click')
+    const actionCards = wrapper.findAll('.world-action-card')
+    await actionCards[1].trigger('click')
     await flushPromises()
     await nextTick()
 
@@ -155,6 +158,13 @@ describe('WorldBookQuickImport novel import', () => {
     expect(worldStore.activeWorldbook?.worldDescription).toContain('暮湾钟楼')
     expect(worldStore.activeWorldbook?.writingStyle).toContain('边境')
     expect(worldStore.activeWorldbook?.forbidden).toContain('不得')
+    expect(getPlayableWorldEntryIntent()).toEqual(expect.objectContaining({
+      worldbookId: worldStore.activeWorldbook?.id,
+      action: expect.objectContaining({
+        id: 'pressure-faction',
+        command: expect.stringContaining('灯痕码头')
+      })
+    }))
 
     wrapper.unmount()
   })

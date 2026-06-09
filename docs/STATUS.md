@@ -21,9 +21,9 @@
 - Owner/session: Codex
   Worktree: /home/recoletas/jiuguan/text-game-framework
   Branch: wip/map-realism-render-docs-20260608
-  Scope: src/pages/WorldBookQuickImport.vue; src/pages/Experience.vue; src/stores/gameStore.js; src/services/worldbookContextBuilder.js; docs/plan/playable-worldbook-parallel-plan.md
-  Intent: 下一轮主线收窄为“单旗舰世界 + 更有趣入口 + GM 轻状态/剧情日志/2 个 trigger”；Codex 做工程主链路，内容 review/demo 交给并行线程。
-  Last touched: 2026-06-09 11:30 CST
+  Scope: src/stores/gameStore.js; src/components/StatusBar.vue; src/components/QuestLog.vue; src/services/worldbookContextBuilder.js; docs/plan/playable-worldbook-parallel-plan.md
+  Intent: 下一步进入 Stage 3a：只做 GM 轻状态最小字段与回归保护，不再重做单旗舰入口 UI。
+  Last touched: 2026-06-09 14:25 CST
 
 ## Blocked / questions
 - (none)
@@ -33,6 +33,7 @@
   Keep the latest 5-10 completed handoffs, newest first.
   Remove entries once they are reflected in docs/LOG.md, docs/PLAN.md, known issues, or commits.
 -->
+- 2026-06-09 11:54 CST — Codex on `wip/map-realism-render-docs-20260608`: 完成并行计划第一切片：快速导入首屏主推 `边境王国 · 雾潮暮湾`，新增 3 个可点击开局行动；体验页从入口 intent 优先创建新世界会话、自动走现有 GM 开场流程，并在第一轮输入前显示“今晚开场”行动卡。同步落地 Thread B 文档：旗舰世界内容 review、UI 参考和 demo case。验证：专项测试 3 files / 11 tests 通过；`npm run test:run` 通过（84 files, 568 tests）；视觉测试 12 tests 通过；`npm run build`、`npm run docs:build`、`git diff --check` 通过。
 - 2026-06-09 11:30 CST — Codex on `wip/map-realism-render-docs-20260608`: 收口结构化设定工作台首轮改动，新增字段级控件、dirty/undo、键盘提示、AI 草稿状态与 a11y 测试；同时补齐 Mem0 错误边界和地理面板 UI 打磨。新增下一轮并行计划，明确不再堆种子世界，先做单旗舰世界入口。验证：clean archive 下 `npm ci`、`npm run test:run`（83 files, 565 tests）、视觉测试（12 tests）、`npm run build`、`npm run docs:build` 全部通过；`git diff --check` 通过。
 - 2026-06-08 21:33 CST — Codex on `wip/map-realism-render-docs-20260608`: 继续纠正文档里的实际错误，重写根 `README.md` 的主线叙事，并修正 `docs/user-manual/05-deployment.md`、`04-configuration.md`、`06-faq.md` 中的历史路径、模板假设、备份安全说明和旧 issue 链接。验证：仅做轻量检查 `git diff --check`；未跑全量测试；未做实现层改动。
 - 2026-06-08 21:33 CST — Codex on `wip/map-realism-render-docs-20260608`: 继续收口用户手册剩余旧术语，更新 `docs/user-manual/02-concepts.md`、`04-configuration.md`、`06-faq.md`，把“散文画布 / 诗歌工作坊 / 世界书入口名”等旧叫法降到历史说明或改成当前导航语境。验证：本轮仅做文档事实对齐，未跑全量测试；未做实现层改动。
@@ -49,5 +50,6 @@
 <!--
   Things planned but not yet started. Move into "In flight" when picked up.
 -->
-- Codex 主线程：按 `docs/plan/playable-worldbook-parallel-plan.md` 做单旗舰世界入口 UI、体验页开场卡、GM 轻状态、剧情日志和 2 个 trigger。
-- 并行内容线程：只 review `边境王国 · 雾潮暮湾`，产出 10-15 分钟手测记录、demo case 和 UI 参考，不直接改高冲突工程文件。
+- Codex 主线程：Stage 3a 做 `gameStore` 最小 GM 轻状态字段、session persistence、StatusBar/QuestLog 回归；通过后再进 Stage 3b 剧情日志。
+- 并行内容线程：基于 `docs/demo/border-kingdom-adventure.md` 跑 10-15 分钟真实手测，记录 GM 引用世界书证据和需要改种子内容的具体 patch 点。
+- 工程线程：等真实手测反馈后，再决定是否短 patch `seedWorldbookPresets` 或 `playableWorldEntry` 的具体内容。

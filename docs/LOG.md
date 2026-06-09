@@ -6,7 +6,29 @@
 
 - 产品主线正在从“文字游戏 + 写作工具集合”收口为“可玩的世界书”：进入世界、冒险、沉淀剧情，再写成作品或整理为分镜。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
-- 当前验证基线：`npm run test:run` 通过（83 files, 565 tests），`npm run build` 通过，视觉/性能验收通过（12 tests）。
+- 当前验证基线：`npm run test:run` 通过（84 files, 568 tests），`npm run build` 通过，视觉/性能验收通过（12 tests）。
+
+## 2026-06-09 - 单旗舰世界入口与开场行动
+
+状态：完成首轮，待进入 Stage 3a
+
+结果摘要：
+- 快速导入首屏继续收窄为单旗舰世界 `边境王国 · 雾潮暮湾`，并新增 3 个可点击开局行动：钟楼现场、码头夜账、证人雾军。
+- 新增 `playableWorldEntry` 入口意图 helper，保存开局行动到本地 intent；预设导入、小说文本导入、说明驱动 AI 生成三条世界书入口保持不变。
+- 体验页新增“今晚开场”行动卡；从旗舰入口进入时会优先创建新世界会话、自动走现有 GM 开场流程，并在第一轮输入前提供行动建议。
+- Thread B 首批内容文档落地：
+  - [content-review/border-kingdom-review.md](./content-review/border-kingdom-review.md)
+  - [demo/border-kingdom-adventure.md](./demo/border-kingdom-adventure.md)
+  - [content-review/border-kingdom-ui-reference.md](./content-review/border-kingdom-ui-reference.md)
+  后续手测不需要抢改高冲突工程文件。
+
+验证：
+- `npm run test:run -- src/__tests__/playableWorldEntry.test.js src/__tests__/worldBookQuickImport.test.js src/__tests__/uiPolish.test.js` 通过（3 files, 11 tests）。
+- `npm run test:run` 通过（84 files, 568 tests）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
 
 ## 2026-06-09 - 结构化设定工作台与并行计划
 

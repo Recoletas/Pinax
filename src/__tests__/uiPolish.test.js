@@ -67,5 +67,8 @@ describe('ui polish contract', () => {
     expect(quickImport).toContain('默认只给一个世界')
     expect(quickImport).toContain('今晚推荐开局')
     expect(quickImport).toContain('今晚的困境')
+    expect(quickImport).toContain('class="world-action-card"')
+    expect(experience).toContain('今晚开场')
+    expect(experience).toContain('用这个行动开局')
   })
 })

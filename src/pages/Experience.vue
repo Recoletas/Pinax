@@ -55,6 +55,44 @@
       </div>
     </section>
 
+    <section
+      v-if="showOpeningActionCard"
+      class="opening-action-card"
+      aria-label="世界开场行动"
+    >
+      <div class="opening-map-mark" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="opening-action-copy">
+        <span class="opening-kicker">今晚开场</span>
+        <strong>{{ selectedOpeningAction?.title || activeWorldbook?.name }}</strong>
+        <p>{{ selectedOpeningAction?.detail || playableWorldDescription }}</p>
+      </div>
+      <div class="opening-action-list">
+        <button
+          v-for="action in openingActionHooks"
+          :key="action.id"
+          type="button"
+          class="opening-choice"
+          :class="{ active: selectedOpeningAction?.id === action.id }"
+          @click="selectedOpeningActionId = action.id"
+        >
+          <span>{{ action.label }}</span>
+          <strong>{{ action.title }}</strong>
+        </button>
+      </div>
+      <div class="opening-action-actions">
+        <button class="action-btn primary" type="button" :disabled="gameStore.isLoading" @click="sendOpeningAction">
+          用这个行动开局
+        </button>
+        <button class="action-btn" type="button" @click="dismissOpeningActionCard">
+          先自己输入
+        </button>
+      </div>
+    </section>
+
     <div class="game-layout">
       <aside v-if="!showSessionPicker" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
@@ -301,6 +339,11 @@ import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composabl
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
+import {
+  buildPlayableWorldActionHooks,
+  clearPlayableWorldEntryIntent,
+  getPlayableWorldEntryIntent
+} from '../services/playableWorldEntry'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
@@ -324,6 +367,29 @@ const playableWorldDescription = computed(() => {
   }
   return activeWorldbook.value?.worldDescription || activeWorldbook.value?.description || 'AI GM 会引用这个世界的地点、势力、规则和文风来推进剧情。'
 })
+const selectedOpeningActionId = ref('')
+const openingCardDismissed = ref(false)
+const openingActionHooks = computed(() => buildPlayableWorldActionHooks(activeWorldbook.value))
+const storedOpeningIntent = ref(null)
+const selectedOpeningAction = computed(() => {
+  const hooks = openingActionHooks.value
+  if (!hooks.length) return null
+  const storedAction = storedOpeningIntent.value?.worldbookId === activeWorldbook.value?.id
+    ? storedOpeningIntent.value?.action
+    : null
+  const selected = hooks.find((action) => action.id === selectedOpeningActionId.value)
+  return selected || storedAction || hooks[0]
+})
+const hasUserActionMessages = computed(() => {
+  return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
+})
+const showOpeningActionCard = computed(() => {
+  return hasSelectedWorldbook.value &&
+    !showSessionPicker.value &&
+    !openingCardDismissed.value &&
+    !hasUserActionMessages.value &&
+    openingActionHooks.value.length > 0
+})
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 
@@ -331,14 +397,31 @@ onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
   await worldStore.loadWorldbooksIndex()
   gameStore.loadSessions()
+  refreshOpeningIntent()
 
   const currentSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-  if (currentSession) {
+  const intentWorldbookId = storedOpeningIntent.value?.worldbookId || ''
+  const hasIntentWorldbook = Boolean(intentWorldbookId && worldbooksIndex.value.some((wb) => wb.id === intentWorldbookId))
+  let loadedExistingSession = false
+
+  if (hasIntentWorldbook) {
+    await worldStore.setActiveWorldbook(intentWorldbookId)
+    selectedWorldbookId.value = intentWorldbookId
+    gameStore.resetRuntimeState()
+    gameStore.createSession({
+      title: `${storedOpeningIntent.value?.worldbookName || worldStore.activeWorldbook?.name || '世界'} · 冒险`,
+      worldbookId: intentWorldbookId,
+      inheritRuntimeState: false
+    })
+    showSessionPicker.value = false
+    await gameStore.initGame()
+  } else if (currentSession) {
     gameStore.loadSession(currentSession.id)
     selectedWorldbookId.value = currentSession.worldbookId || currentSession.worldId || ''
     if (selectedWorldbookId.value) {
       await worldStore.setActiveWorldbook(selectedWorldbookId.value)
     }
+    loadedExistingSession = true
   } else {
     selectedWorldbookId.value = ''
     await worldStore.setActiveWorldbook(null)
@@ -346,13 +429,14 @@ onMounted(async () => {
     showSessionPicker.value = true
   }
 
-  if (currentSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
+  if (loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
     await gameStore.initGame()
   }
 
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
   }
+  refreshOpeningIntent()
 })
 
 onUnmounted(() => {
@@ -365,6 +449,8 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
   if (selectedWorldbookId.value !== normalized) {
     selectedWorldbookId.value = normalized
   }
+  openingCardDismissed.value = false
+  refreshOpeningIntent()
 })
 
 async function onWorldbookChange() {
@@ -376,6 +462,16 @@ async function onWorldbookChange() {
 
 function openWorldbookQuickImport() {
   router.push({ name: 'experience-worldbook' })
+}
+
+function refreshOpeningIntent() {
+  const intent = getPlayableWorldEntryIntent()
+  storedOpeningIntent.value = intent
+  if (intent?.worldbookId === activeWorldbook.value?.id && intent.action?.id) {
+    selectedOpeningActionId.value = intent.action.id
+  } else {
+    selectedOpeningActionId.value = ''
+  }
 }
 
 async function startWorldAdventure() {
@@ -404,6 +500,7 @@ async function startWorldAdventure() {
   if (!gameStore.messages || gameStore.messages.length === 0) {
     await gameStore.initGame()
   }
+  refreshOpeningIntent()
 }
 
 function collectGameContext() {
@@ -569,6 +666,8 @@ async function handleSessionSelect(session) {
   if (!gameStore.messages || gameStore.messages.length === 0) {
     await gameStore.initGame()
   }
+  openingCardDismissed.value = false
+  refreshOpeningIntent()
 }
 
 async function handleSessionCreate() {
@@ -587,6 +686,8 @@ async function handleSessionCreate() {
   selectedWorldbookId.value = worldbookId
   showSessionPicker.value = false
   await gameStore.initGame()
+  openingCardDismissed.value = false
+  refreshOpeningIntent()
 }
 
 async function handleSessionDelete(session) {
@@ -604,6 +705,8 @@ async function handleSessionDelete(session) {
     selectedWorldbookId.value = worldbookId
     showSessionPicker.value = false
     await gameStore.initGame()
+    openingCardDismissed.value = false
+    refreshOpeningIntent()
     return
   }
   if (gameStore.currentSessionId === null) {
@@ -679,7 +782,20 @@ const dialoguePanelMessages = computed(() => {
 })
 
 function handleSend(text, options = {}) {
+  openingCardDismissed.value = true
+  clearPlayableWorldEntryIntent()
   gameStore.sendAction(text, options)
+}
+
+function sendOpeningAction() {
+  const action = selectedOpeningAction.value
+  if (!action?.command) return
+  handleSend(action.command)
+}
+
+function dismissOpeningActionCard() {
+  openingCardDismissed.value = true
+  clearPlayableWorldEntryIntent()
 }
 
 function loadQuickNoteDraft() {
@@ -1132,6 +1248,137 @@ function quickNoteWordCount(text) {
   justify-content: flex-end;
 }
 
+.opening-action-card {
+  width: calc(100% - 32px);
+  max-width: 1400px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) minmax(320px, 0.8fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber, var(--accent)) 30%, var(--border));
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--accent-amber, var(--accent)) 18%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary)), color-mix(in srgb, var(--bg-primary) 88%, var(--accent-light)));
+  box-shadow: var(--shadow-floating);
+}
+
+.opening-map-mark {
+  height: 76px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(35deg, transparent 48%, color-mix(in srgb, var(--accent) 22%, transparent) 49%, transparent 51%),
+    radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--accent-amber, var(--accent)) 42%, transparent) 0 7px, transparent 8px),
+    radial-gradient(circle at 70% 62%, color-mix(in srgb, var(--accent-teal, var(--accent)) 38%, transparent) 0 6px, transparent 7px),
+    color-mix(in srgb, var(--bg-primary) 82%, transparent);
+}
+
+.opening-map-mark span {
+  position: absolute;
+  width: 26px;
+  height: 1px;
+  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+  transform: rotate(-22deg);
+}
+
+.opening-map-mark span:nth-child(1) {
+  left: 18px;
+  top: 50px;
+}
+
+.opening-map-mark span:nth-child(2) {
+  left: 42px;
+  top: 32px;
+}
+
+.opening-map-mark span:nth-child(3) {
+  left: 54px;
+  top: 54px;
+}
+
+.opening-action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.opening-kicker {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--accent-amber, var(--accent)) 14%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--accent-amber, var(--accent)) 76%, var(--text-primary));
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.opening-action-copy strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.opening-action-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.opening-action-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.opening-choice {
+  min-height: 68px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 12px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.opening-choice:hover,
+.opening-choice.active {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-primary));
+}
+
+.opening-choice span {
+  display: block;
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.opening-choice strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.opening-action-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .quick-notes-rail {
   position: fixed;
   right: 12px;
@@ -1531,6 +1778,23 @@ function quickNoteWordCount(text) {
 
   .playable-world-actions {
     justify-content: flex-start;
+  }
+
+  .opening-action-card {
+    grid-template-columns: 1fr;
+  }
+
+  .opening-map-mark {
+    display: none;
+  }
+
+  .opening-action-list {
+    grid-template-columns: 1fr;
+  }
+
+  .opening-action-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .quick-notes-rail {

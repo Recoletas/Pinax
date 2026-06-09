@@ -20,6 +20,9 @@
 | [src/decisions/](./src/decisions/) | 已接受决策记录（ADR） |
 | [src/rfcs/](./src/rfcs/) | 仍需评审或保留上下文的设计草案 |
 | [user-manual/README.md](./user-manual/README.md) | 面向用户的说明书 |
+| [content-review/border-kingdom-review.md](./content-review/border-kingdom-review.md) | 旗舰世界内容 review：雾潮暮湾是否够格做单主推世界 |
+| [demo/border-kingdom-adventure.md](./demo/border-kingdom-adventure.md) | 边境王国 demo case：手测执行稿、小说样例、分镜节点 |
+| [content-review/border-kingdom-ui-reference.md](./content-review/border-kingdom-ui-reference.md) | 单旗舰世界入口 UI 参考与信息优先级约束 |
 | [engineering/development-standards.md](./engineering/development-standards.md) | 开发与 UI 基线 |
 | [operations/troubleshooting.md](./operations/troubleshooting.md) | 运维与故障定位 |
 | [plan/README.md](./plan/README.md) | 计划文档分层：当前主线专题 + 活跃技术专题 + 历史背景 |

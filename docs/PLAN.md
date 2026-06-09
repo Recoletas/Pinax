@@ -27,9 +27,13 @@ Pinax 当前收口为“可玩的世界书”：
 ## 近期重点
 
 0. **下一轮并行执行**
-   - 不继续堆种子世界数量；首屏只主推 `边境王国 · 雾潮暮湾`。
-   - 工程主线做入口 UI、体验页开场卡、GM 轻状态、剧情日志和 2 个 trigger。
-   - 内容线程做旗舰世界 review、10-15 分钟手测记录和 demo case。
+   - 已完成首轮入口切片：首屏只主推 `边境王国 · 雾潮暮湾`，并在快速导入和体验页提供 3 个开局行动。
+   - 工程主线下一步进入 GM 轻状态、剧情日志和 2 个 trigger。
+   - 内容线程首批 review / UI 参考 / demo case 已落文档，下一步跑真实 10-15 分钟手测。
+   - 内容线程首批文档：
+     - [content-review/border-kingdom-review.md](./content-review/border-kingdom-review.md)
+     - [demo/border-kingdom-adventure.md](./demo/border-kingdom-adventure.md)
+     - [content-review/border-kingdom-ui-reference.md](./content-review/border-kingdom-ui-reference.md)
    - 详细分工见 [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md)。
 
 1. **入口话术收尾**

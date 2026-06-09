@@ -47,6 +47,9 @@ export const STORAGE_KEYS = {
   // AI 生图
   IMAGE_MODEL_CONFIGS: 'image_model_configs',
 
+  // 可玩的世界书入口
+  PLAYABLE_WORLD_ENTRY_INTENT: 'playable_world_entry_intent_v1',
+
   // 游戏
   GAME_SETTINGS: 'gameSettings',
   API_SETTINGS: 'apiSettings',
