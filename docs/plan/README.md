@@ -6,6 +6,8 @@
 
 - [playable-worldbook-roadmap.md](./playable-worldbook-roadmap.md)
   当前产品主线的专题路线图，和 [../PLAN.md](../PLAN.md) 一起使用。
+- [playable-worldbook-parallel-plan.md](./playable-worldbook-parallel-plan.md)
+  下一轮并行执行清单：Codex 做工程主链路，另一组做旗舰世界内容 review、手测和 demo。
 
 ## 活跃技术专题
 

@@ -20,9 +20,10 @@ describe('page route transition contract', () => {
     const mainCss = readProjectFile('src/styles/main.css')
 
     expect(appShell).not.toMatch(/\.page-route-(enter|leave)-/)
-    expect(mainCss).toMatch(/\.page-route-enter-active\s*\{[^}]*transition:\s*opacity 0\.2s ease,\s*transform 0\.2s ease;/s)
-    expect(mainCss).toMatch(/\.page-route-leave-active\s*\{[^}]*transition:\s*opacity 0\.15s ease;/s)
-    expect(mainCss).toMatch(/\.page-route-enter-from\s*\{[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(8px\);/s)
+    expect(mainCss).toMatch(/\.page-route-enter-active\s*\{[^}]*transition:\s*opacity 0\.16s ease,\s*transform 0\.16s ease;[^}]*will-change:\s*opacity,\s*transform;/s)
+    expect(mainCss).toMatch(/\.page-route-leave-active\s*\{[^}]*transition:\s*opacity 0\.1s ease,\s*transform 0\.1s ease;/s)
+    expect(mainCss).toMatch(/\.page-route-enter-from\s*\{[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(4px\) scale\(0\.995\);/s)
+    expect(mainCss).toMatch(/\.page-route-leave-to\s*\{[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(-2px\) scale\(0\.998\);/s)
     expect(mainCss).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*\.page-route-enter-from\s*\{[^}]*transform:\s*none;/)
   })
 })

@@ -3109,6 +3109,7 @@ function goToMaterialsImageGen() {
   flex: 1;
   display: flex;
   overflow: hidden;
+  background: var(--bg-primary);
 }
 
 /* Card Wall - PoetryLab-style canvas */
@@ -3428,11 +3429,14 @@ function goToMaterialsImageGen() {
 /* Left Panel */
 .left-panel {
   width: 320px;
-  background: var(--surface-panel);
-  border-left: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface-panel), color-mix(in srgb, var(--surface-panel) 86%, var(--bg-secondary)));
+  border-right: 1px solid color-mix(in srgb, var(--border) 88%, var(--text-muted));
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--bg-primary) 70%, transparent), 8px 0 18px color-mix(in srgb, var(--shadow) 42%, transparent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  z-index: 2;
 }
 
 /* Card Detail Panel - PoetryLab style */

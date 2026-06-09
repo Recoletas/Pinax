@@ -97,10 +97,17 @@ function nodeColor(type) { return NODE_COLORS[type] ?? '#94a3b8' }
 
 <style scoped>
 .tree-map-container {
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
+  border: none;
+  background:
+    radial-gradient(circle at 20% 16%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary)), var(--bg-primary));
+}
+
+.tree-map-container svg {
+  display: block;
+  min-height: 240px;
 }
 
 .empty-state {
@@ -110,21 +117,24 @@ function nodeColor(type) { return NODE_COLORS[type] ?? '#94a3b8' }
   height: 160px;
   color: var(--text-muted);
   font-size: 13px;
+  text-align: center;
+  padding: 18px;
 }
 
 .legend {
-  padding: 12px;
-  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 5px 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 

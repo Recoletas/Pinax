@@ -70,6 +70,24 @@ function normalizeMem0ApiUrl(host) {
   return `${raw.replace(/\/$/, '')}/v1`
 }
 
+function createMem0UpstreamError(status) {
+  const error = new Error('Mem0 upstream request failed')
+  error.status = status
+  return error
+}
+
+function logMem0ProxyError(action, error) {
+  const status = error?.status ? ` HTTP ${error.status}` : ''
+  const name = error?.name ? ` ${error.name}` : ''
+  console.error(`[chat] mem0 proxy ${action} error:${status}${name}`.trim())
+}
+
+function getMem0ClientError(error) {
+  return error?.status
+    ? `记忆服务请求失败 (${error.status})`
+    : '记忆服务请求失败，请检查网络和配置'
+}
+
 function extractTextContent(payload) {
   if (typeof payload === 'string') return payload
   if (payload == null) return ''
@@ -1056,15 +1074,15 @@ router.post('/mem0/test', async (req, res) => {
       return res.json({ ok: true, message: '记忆连接成功' })
     }
 
-    const detail = await response.text().catch(() => '')
     return res.json({
       ok: false,
-      message: `记忆连接失败 (${response.status})${detail ? `：${detail.slice(0, 120)}` : ''}`
+      message: `记忆连接失败 (${response.status})，请检查 Mem0 API Key 和 Host。`
     })
   } catch (e) {
+    logMem0ProxyError('test', e)
     return res.json({
       ok: false,
-      message: e?.message ? `记忆连接失败：${e.message}` : '记忆连接失败'
+      message: '记忆连接失败，请检查网络和配置。'
     })
   }
 })
@@ -1091,14 +1109,13 @@ router.post('/mem0/memories', async (req, res) => {
       body: JSON.stringify({ messages, user_id: effectiveUserId, metadata })
     })
     if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+      throw createMem0UpstreamError(response.status)
     }
     const data = await response.json()
     return res.json({ success: true, data })
   } catch (e) {
-    console.error('[chat] mem0 proxy store error:', e.message)
-    return res.json({ success: false, error: e.message })
+    logMem0ProxyError('store', e)
+    return res.json({ success: false, error: getMem0ClientError(e) })
   }
 })
 
@@ -1134,14 +1151,13 @@ router.post('/mem0/search', async (req, res) => {
       body: JSON.stringify(body)
     })
     if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+      throw createMem0UpstreamError(response.status)
     }
     const data = await response.json()
     return res.json({ success: true, data })
   } catch (e) {
-    console.error('[chat] mem0 proxy search error:', e.message)
-    return res.json({ success: false, error: e.message })
+    logMem0ProxyError('search', e)
+    return res.json({ success: false, error: getMem0ClientError(e) })
   }
 })
 
@@ -1166,13 +1182,12 @@ router.post('/mem0/delete', async (req, res) => {
       headers: { Authorization: `Token ${effectiveApiKey}` }
     })
     if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`)
+      throw createMem0UpstreamError(response.status)
     }
     return res.json({ success: true })
   } catch (e) {
-    console.error('[chat] mem0 proxy delete error:', e.message)
-    return res.json({ success: false, error: e.message })
+    logMem0ProxyError('delete', e)
+    return res.json({ success: false, error: getMem0ClientError(e) })
   }
 })
 

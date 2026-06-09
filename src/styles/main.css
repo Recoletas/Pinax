@@ -324,20 +324,23 @@ body {
 
 /* Page route transitions */
 .page-route-enter-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  will-change: opacity, transform;
 }
 
 .page-route-leave-active {
-  transition: opacity 0.15s ease;
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  will-change: opacity, transform;
 }
 
 .page-route-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(4px) scale(0.995);
 }
 
 .page-route-leave-to {
   opacity: 0;
+  transform: translateY(-2px) scale(0.998);
 }
 
 .modal-fade-enter-active,
@@ -365,6 +368,7 @@ body {
   .page-route-enter-active,
   .page-route-leave-active {
     transition: opacity 0.01s ease;
+    will-change: auto;
   }
 
   .page-route-enter-from {

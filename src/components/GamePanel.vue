@@ -177,6 +177,12 @@ const scroll = () => {
 }
 
 const onTextWrapperClick = (index, msg, event) => {
+  const mechanismTarget = event?.target?.closest?.('.mechanism-trigger')
+  if (mechanismTarget && msg?.mechanismTrigger?.type) {
+    gameStore.activateMechanism(msg.mechanismTrigger.type, msg.mechanismTrigger)
+    return
+  }
+
   const inlineTarget = event?.target?.closest?.('[data-inline-type]')
   if (inlineTarget) {
     const type = inlineTarget.dataset.inlineType || ''

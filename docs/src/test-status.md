@@ -4,11 +4,11 @@
 
 ## 最近验证
 
-最后更新：2026-06-08 21:26 CST
+最后更新：2026-06-09 11:30 CST
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| `npm run test:run` | 通过：81 files / 559 tests | 输出中仍有既有地图模板合同告警、jsdom/canvas not implemented 警告；测试退出码为 0 |
+| `npm run test:run` | 通过：83 files / 565 tests | 输出中仍有既有地图模板合同告警、jsdom/canvas not implemented 警告；测试退出码为 0 |
 | `npm run test:run -- src/__tests__/visual-verification.test.js` | 通过：1 file / 12 tests | headless 地图视觉 / 性能验收 |
 | `npm run build` | 通过 | Vite production build |
 | `npm run docs:build` | 通过 | VitePress 文档站构建 |
@@ -28,7 +28,7 @@
 ## 覆盖面摘要
 
 - 地图引擎：高程图、板块、海岸、河流、聚落、国家、省份、道路、边界、渲染 preset、worker 桥、视觉/性能基线。
-- 世界书 / 设定：种子世界导入、上下文构建、地图桥接、结构化设定、字段生成和草稿预览。
+- 世界书 / 设定：种子世界导入、RPG `world.json` 到世界书 payload 适配、上下文构建、地图桥接、结构化设定、字段生成和草稿预览。
 - 记忆 / 上下文：Mem0 scope、记忆候选、同步、压缩和服务端代理边界。
 - 体验 / 生成：体验机制、生成服务、重试、顾问任务和文本渲染。
 - 素材 / 写作 / 画布：叙事资产、素材删除与画布引用清理、分镜 store、关系画布和导出链路。

@@ -1,6 +1,7 @@
 # 部署到公网
 
-> 这一节是这个项目说明书区别于其他 LLM 应用的核心。先把"密钥模型"那一段读完再上手。
+> 这一节是这个项目说明书区别于其他 LLM 应用的核心。先把“密钥模型”那一段读完再上手。
+> `deploy/` 里的脚本和配置文件目前都带历史硬编码路径或默认值，把它们当模板，不要原样上生产。
 
 ## 部署模型
 
@@ -50,9 +51,9 @@ POST /api/chat/stream
 
 历史上这个项目曾经把用户的 key 落到 `server/data/secrets.json`。本地单用户玩的时候没问题，但一旦公网部署就完了：所有用户的 key 全在一台机器的一个 JSON 文件里，访问 `/chat/secrets/read` 端点（虽然现在没了）就能读到。
 
-新设计把这个面缩到最小：用户自己的 key 只在自己浏览器里，服务器**根本看不到**用户的 key 长什么样（它只是个透传的中转站）。
+新设计把这个面缩到最小：用户自己的 key 只在自己浏览器里；服务端会在请求处理时短暂拿到这些 key 并转发给上游，但仓库内没有用户密钥持久化文件、读密钥端点或默认环境变量兜底。
 
-攻击者能拿到一个用户 key 的唯一路径是：拿到那个用户**自己电脑 / 浏览器**的访问权。这跟 GitHub、Notion 这些 SaaS 是同样的边界条件。
+攻击者要拿到一个用户 key，主要还是得拿到那个用户**自己电脑 / 浏览器**的访问权，或者拿到你错误记录了请求体的反向代理日志。所以部署时要同时守浏览器端和代理层。
 
 ## 部署到公网前必须做三件事
 
@@ -112,9 +113,9 @@ server {
 
 仓库根目录有现成的：
 
-- `ecosystem.config.js` —— PM2 配置
-- `deploy/nginx-pinax.conf` —— nginx 站点配置
-- `deploy/setup.sh` —— 一键安装脚本（**注意**：这个脚本硬编码了 `/root/Pinax/` 路径，要在你的服务器上跑得先改）
+- `ecosystem.config.js` —— PM2 配置模板；当前 `out_file` / `error_file` 硬编码到 `/root/Pinax/logs/`
+- `deploy/nginx-pinax.conf` —— nginx 起步模板；当前 `root` 还是 `/root/Pinax/public`
+- `deploy/setup.sh` —— 一键安装脚本样例；当前同时硬编码 `/root/Pinax/` 路径和旧 nginx 模板假设
 
 ### 简化版流程
 
@@ -127,26 +128,31 @@ sudo apt install -y nginx
 sudo npm install -g pm2
 
 # 2. 把项目代码放到服务器
-sudo mkdir -p /opt/wrias
-sudo chown $USER:$USER /opt/wrias
-git clone <仓库地址> /opt/wrias
-cd /opt/wrias
+sudo mkdir -p /opt/pinax
+sudo chown $USER:$USER /opt/pinax
+git clone <Pinax 仓库地址> /opt/pinax
+cd /opt/pinax
 npm ci
 npm run build
 
 # 3. 起后端（PM2）
+# 先编辑 ecosystem.config.js：
+#   - 把 /root/Pinax/logs 改成你的实际日志目录，或删掉 out_file/error_file
+#   - 确认 PORT=3001
+mkdir -p /opt/pinax/logs
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup  # 跟着提示跑 sudo 命令
 
 # 4. 配 nginx
-sudo cp deploy/nginx-pinax.conf /etc/nginx/sites-available/wrias
-# 编辑 /etc/nginx/sites-available/wrias：
-#   - root 改成 /opt/wrias/dist
+sudo cp deploy/nginx-pinax.conf /etc/nginx/sites-available/pinax
+# 编辑 /etc/nginx/sites-available/pinax：
+#   - root 改成 /opt/pinax/dist
 #   - proxy_pass 保持 127.0.0.1:3001
 #   - access_log 改成 off（或自定义 log_format 不带 $request_body）
 #   - 加上 limit_req
-sudo ln -s /etc/nginx/sites-available/wrias /etc/nginx/sites-enabled/
+#   - 当前模板里写的是 /root/Pinax/public，这个要手动改
+sudo ln -s /etc/nginx/sites-available/pinax /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 
@@ -212,7 +218,7 @@ location /api/chat/stream {
 }
 ```
 
-仓库的 `deploy/nginx-pinax.conf` 已经配好了，你照搬就行。
+仓库里的 `deploy/nginx-pinax.conf` 已经包含了 `proxy_buffering off` 这类基础设置，但路径、日志策略和限流策略仍要按你的服务器环境手动改。
 
 ### WebSocket 超时（如果用 OpenClaw 直连）
 

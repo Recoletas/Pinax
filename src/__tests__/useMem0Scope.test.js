@@ -13,6 +13,24 @@ describe('useMem0 scope awareness', () => {
     vi.unstubAllGlobals()
   })
 
+  it('does not call the proxy when apiKey is missing', async () => {
+    const fetchMock = vi.mocked(fetch)
+    const { storeMemory, searchMemories, deleteMemory, isConfigured } = useMem0({
+      apiUrl: 'https://mem0.example',
+      userId: 'user-1',
+      apiKey: ''
+    })
+
+    expect(isConfigured.value).toBe(false)
+    await expect(storeMemory({ content: '不会发送' })).resolves.toMatchObject({
+      success: false,
+      error: 'mem0 未配置'
+    })
+    await expect(searchMemories('不会查询')).resolves.toEqual([])
+    await expect(deleteMemory('mem-1')).resolves.toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('stores scope metadata with memory payload', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockResolvedValue({

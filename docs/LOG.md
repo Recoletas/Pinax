@@ -6,7 +6,68 @@
 
 - 产品主线正在从“文字游戏 + 写作工具集合”收口为“可玩的世界书”：进入世界、冒险、沉淀剧情，再写成作品或整理为分镜。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
-- 当前验证基线：`npm run test:run` 通过（81 files, 559 tests），`npm run build` 通过，视觉/性能验收通过（12 tests）。
+- 当前验证基线：`npm run test:run` 通过（83 files, 565 tests），`npm run build` 通过，视觉/性能验收通过（12 tests）。
+
+## 2026-06-09 - 结构化设定工作台与并行计划
+
+状态：完成首轮
+
+结果摘要：
+- 结构化设定页升级为工作台：新增字段级控件、dirty/saving/saved 状态、撤销/重做、键盘提示、底部保存状态栏和字段完成度。
+- AI 设定生成支持字段级与分区级草稿，草稿可查看差异、采纳到字段、转为世界书条目，并补上生成状态、brief 输入和持久化预览。
+- 新增字段控件与 a11y/交互测试，测试 setup 统一安装 Pinia，并补齐 `vitest-axe` / `axe-core` 依赖，避免 clean CI 缺包。
+- Mem0 配置边界收紧：未配置 API key 时不视为可用，服务端代理不再把上游错误详情回显给浏览器。
+- 地理面板和时间轴/机制入口完成一轮 UI 打磨。
+- 新增 [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md)，下一轮不再继续堆种子世界数量，改为单旗舰世界入口 + 并行内容 review。
+
+验证：
+- clean archive + staged patch：`npm ci` 通过。
+- clean archive + staged patch：`npm run test:run` 通过（83 files, 565 tests）。
+- clean archive + staged patch：`npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- clean archive + staged patch：`npm run build` 通过。
+- clean archive + staged patch：`npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-08 - README 与部署说明纠偏
+
+状态：完成首轮
+
+结果摘要：
+- 根 `README.md` 改成当前 Pinax 主线叙事，不再用旧的 `WriterHelper / Text Game Framework` 标题和功能并列描述。
+- `docs/user-manual/05-deployment.md` 明确指出 `deploy/` 下脚本和 nginx / PM2 配置只是模板，不能原样上线；同步修正路径、目录名和“模板已可直接照搬”的误导表述。
+- `docs/user-manual/04-configuration.md` 和 `06-faq.md` 补上 localStorage 备份会包含 API key 的风险说明，并修正旧 issue 链接。
+
+验证：
+- 仅做轻量检查：`git diff --check`。
+- 未跑全量测试；未做实现层改动。
+
+## 2026-06-08 - 用户手册术语对齐
+
+状态：完成首轮
+
+结果摘要：
+- `docs/user-manual/02-concepts.md` 把体验页相关描述改成“冒险或写作”共用语境，不再默认按旧写作流叙述。
+- `docs/user-manual/06-faq.md` 把“世界书 → 高级设置”统一成当前导航里的“设定 → 高级设置”。
+- `docs/user-manual/04-configuration.md` 把旧的“散文画布 / 诗歌工作坊”说法降成历史遗留键说明，避免误判为当前主功能。
+
+验证：
+- 本轮只做文档事实对齐，未跑全量测试；未做实现层改动。
+
+## 2026-06-08 - 用户手册与 RFC 入口收口
+
+状态：完成首轮
+
+结果摘要：
+- `docs/user-manual/README.md`、`01-quickstart.md`、`03-features.md` 改成当前产品语境，不再把旧的“五个预设世界 / 九大功能并列”当作首要叙事。
+- 快速开始和功能说明现在对齐真实入口：先导入种子世界，再从体验页进入当前世界。
+- `docs/src/rfcs/index.md` 明确标出“RFC 不是当前事实入口”，accepted RFC 只在需要设计背景时再看。
+- 修正 `nations-perf-fix` 与 `perf-profiling` 两份 accepted RFC 的正文状态矛盾，不再写成“已批准，待实现”。
+
+验证：
+- `npm run docs:build` 通过。
+- `npm run test:run` 通过（81 files, 559 tests）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
 
 ## 2026-06-08 - 文档分层补完
 
