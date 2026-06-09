@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import WorldBookQuickImport from '../pages/WorldBookQuickImport.vue'
 import { tryAiExtractWorldbookJson } from '../services/worldbookImportGeneration'
 import { useWorldStore } from '../stores/worldStore'
@@ -27,7 +28,11 @@ function multiChapterText() {
 }
 
 describe('WorldBookQuickImport novel import', () => {
+  let pinia
+
   beforeEach(() => {
+    pinia = createPinia()
+    setActivePinia(pinia)
     localStorage.clear()
     tryAiExtractWorldbookJsonMock.mockReset()
   })
@@ -63,7 +68,11 @@ describe('WorldBookQuickImport novel import', () => {
       }
     })
 
-    const wrapper = mount(WorldBookQuickImport)
+    const wrapper = mount(WorldBookQuickImport, {
+      global: {
+        plugins: [pinia]
+      }
+    })
     await flushPromises()
 
     const customToggle = wrapper.findAll('button')
@@ -93,7 +102,11 @@ describe('WorldBookQuickImport novel import', () => {
   })
 
   it('imports presets with modern constraint entries', async () => {
-    const wrapper = mount(WorldBookQuickImport)
+    const wrapper = mount(WorldBookQuickImport, {
+      global: {
+        plugins: [pinia]
+      }
+    })
     const worldStore = useWorldStore()
     await flushPromises()
 
@@ -147,7 +160,11 @@ describe('WorldBookQuickImport novel import', () => {
   })
 
   it('shows and imports adapted RPG world.json presets', async () => {
-    const wrapper = mount(WorldBookQuickImport)
+    const wrapper = mount(WorldBookQuickImport, {
+      global: {
+        plugins: [pinia]
+      }
+    })
     const worldStore = useWorldStore()
     await flushPromises()
 
