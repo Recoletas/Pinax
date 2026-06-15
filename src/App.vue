@@ -63,7 +63,6 @@ function handleGenerationMeta(event) {
 }
 
 onMounted(() => {
-  initTheme()
   window.addEventListener('ai-generation-meta', handleGenerationMeta)
   syncDocumentTitle()
 })

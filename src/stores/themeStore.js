@@ -15,8 +15,18 @@ export const useThemeStore = defineStore('theme', {
   }),
   actions: {
     initTheme() {
-      const v = localStorage.getItem(LS_VARIANT)
-      const c = localStorage.getItem(LS_COLOR)
+      // localStorage can throw SecurityError in Safari private mode or with
+      // storage disabled. Treat any read failure as "no stored value" so the
+      // store falls through to defaults and still applies the theme to <html>.
+      let v = null
+      let c = null
+      try {
+        v = localStorage.getItem(LS_VARIANT)
+        c = localStorage.getItem(LS_COLOR)
+      } catch (_) {
+        v = null
+        c = null
+      }
       this.variant = VALID_VARIANTS.includes(v) ? v : DEFAULT_VARIANT
       this.colorScheme = VALID_COLOR_SCHEMES.includes(c) ? c : DEFAULT_COLOR_SCHEME
       this.applyToHtml()
@@ -25,13 +35,13 @@ export const useThemeStore = defineStore('theme', {
     setVariant(v) {
       if (!VALID_VARIANTS.includes(v)) return
       this.variant = v
-      localStorage.setItem(LS_VARIANT, v)
+      try { localStorage.setItem(LS_VARIANT, v) } catch (_) { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
     setColorScheme(s) {
       if (!VALID_COLOR_SCHEMES.includes(s)) return
       this.colorScheme = s
-      localStorage.setItem(LS_COLOR, s)
+      try { localStorage.setItem(LS_COLOR, s) } catch (_) { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
     applyToHtml() {

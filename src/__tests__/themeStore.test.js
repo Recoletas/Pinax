@@ -70,4 +70,14 @@ describe('themeStore', () => {
     expect(document.documentElement.classList.contains('theme-dark')).toBe(true)
     expect(document.documentElement.classList.contains('theme-light')).toBe(false)
   })
+
+  it('toggling setVariant cleans up the previous theme-* class (no leftover)', () => {
+    const s = useThemeStore()
+    s.initTheme()
+    s.setVariant('kao')
+    expect(document.documentElement.classList.contains('theme-kao')).toBe(true)
+    s.setVariant('legacy')
+    expect(document.documentElement.classList.contains('theme-legacy')).toBe(true)
+    expect(document.documentElement.classList.contains('theme-kao')).toBe(false)
+  })
 })
