@@ -14,7 +14,7 @@
 
 ## First action
 At session start, before task work or clarification:
-1. If available, invoke `superpowers:using-superpowers` (Claude plugin name) or `using-superpowers` (Codex global skill name).
+1. Try to invoke `superpowers:using-superpowers` (Claude plugin name) or `using-superpowers` (Codex global skill name). **如果两者都不可用，第一条回复里显式说**"superpowers 套件不可用，本 session 按裸 `AGENTS.md` 流程执行"。
 2. Read `docs/STATUS.md`.
 3. Read `LOCAL.md` only if it exists and is non-empty.
 
@@ -55,6 +55,8 @@ For small fixes / single-step tasks, do not force this split.
 - Codex: `.agents/skills/<name>/SKILL.md`（symlink 到 canonical）
 - Codex user/global: `~/.codex/skills/<name>/SKILL.md`（used for installed third-party skills such as Superpowers）
 - Claude Code: `.claude/skills/<name>/SKILL.md`（symlink 到 canonical）
+- 项目内 brainstorm scratch: `.superpowers/brainstorm/`（**不是** skill discovery 路径；不要在它下面建 `SKILL.md`，那只是 session 临时产物）
+- Claude plugin 入口: `.claude/settings.json` 的 `enabledPlugins`（当前 `{ superpowers, context7 }`）是 Claude 插件真正生效入口；不在 `agent-skills/` 目录里
 
 ## Local notes
 `LOCAL.md` 在根目录、gitignored；放用户私人 todo / 偏好 / 备注。agent first action 读，但不写——只有用户写。
