@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -18,15 +18,24 @@ describe('ui polish contract', () => {
   })
 
   it('exposes the archive-folio utilities and mounts them across the core chrome surfaces', () => {
-    const mainCss = readProjectFile('src/styles/main.css')
+    // The archive-folio utility classes (`.is-folio`, `.is-bookmark`,
+    // `.is-archive-strip`) live in src/styles/themes/kao.css and are
+    // gated by `.theme-kao` (per theme-system Task 3 split). They are
+    // not in main.css.
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
     const appShell = readProjectFile('src/layouts/AppShell.vue')
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
-    expect(mainCss).toContain('.is-folio')
-    expect(mainCss).toContain('.is-bookmark')
-    expect(mainCss).toContain('.is-archive-strip')
+    expect(kaoCss).toContain('.is-folio')
+    expect(kaoCss).toContain('.is-bookmark')
+    expect(kaoCss).toContain('.is-archive-strip')
+    // Each utility must be gated by `.theme-kao` so it only applies
+    // when the kao variant is loaded (legacy snapshot owns its own chrome).
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-folio/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-bookmark/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-strip/)
     expect(welcomeView).toContain('<PosterStage')
     expect(welcomeView).toContain('<FolioSurface')
     expect(welcomeView).toContain('<BookmarkButton')
@@ -518,30 +527,28 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
 
 describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
   it('declares an @font-face for LXGW WenKai pointing at the subsetted WOFF2', () => {
-    const mainCss = readProjectFile('src/styles/main.css')
+    // The LXGW @font-face moved to src/styles/themes/kao.css in
+    // theme-system Task 3; main.js no longer preloads it (Task 5 owns
+    // the dynamic injection in ThemeAssets).
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
 
-    const faceBlock = mainCss.match(/@font-face\s*\{[\s\S]*?\}/)?.[0] || ''
-    expect(faceBlock).toContain('font-family: "LXGW WenKai"')
+    const faceBlock = kaoCss.match(/@font-face\s*\{[\s\S]*?\}/)?.[0] || ''
+    expect(faceBlock).toContain('font-family: \'LXGW WenKai\'')
     expect(faceBlock).toContain('font-display: swap')
-    expect(faceBlock).toMatch(/url\("\.\.\/assets\/fonts\/LXGWWenKai-Regular\.woff2"\)/)
-    expect(faceBlock).toMatch(/format\("woff2"\)/)
+    expect(faceBlock).toMatch(/url\(['"]?\.\.\/\.\.\/assets\/fonts\/LXGWWenKai-Regular\.woff2['"]?\)/)
+    expect(faceBlock).toMatch(/format\(['"]woff2['"]\)/)
   })
 
   it('exposes --font-display / --font-serif / --font-sans / --font-mono tokens', () => {
+    // `--font-display` is kao-specific (paired with the LXGW @font-face
+    // in kao.css); the other three stay in main.css as shared tokens.
     const mainCss = readProjectFile('src/styles/main.css')
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
 
-    expect(mainCss).toMatch(/--font-display:\s*"LXGW WenKai"/)
+    expect(kaoCss).toMatch(/--font-display:\s*"LXGW WenKai"/)
     expect(mainCss).toMatch(/--font-serif:\s*"Iowan Old Style"/)
     expect(mainCss).toMatch(/--font-sans:\s*"Segoe UI Variable"/)
     expect(mainCss).toMatch(/--font-mono:/)
-  })
-
-  it('preloads the subset WOFF2 in index.html so the title swaps without FOUT', () => {
-    const html = readProjectFile('index.html')
-
-    expect(html).toMatch(/<link[^>]*rel="preload"[^>]*as="font"[^>]*type="font\/woff2"/)
-    expect(html).toMatch(/href="[^"]*LXGWWenKai-Regular\.woff2"/)
-    expect(html).toMatch(/crossorigin/)
   })
 
   it('routes the OpeningPage title block through var(--font-display), not raw Iowan', () => {
@@ -564,5 +571,39 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(woff2.size).toBeGreaterThan(100_000) // sanity: not truncated
     expect(woff2.size).toBeLessThan(1_000_000) // under vite 1MB hard cap
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
+  })
+})
+
+describe('theme system CSS contracts', () => {
+  const ROOT = resolve(__dirname, '../..')
+
+  it('main.js imports shared CSS exactly once', () => {
+    const mainJs = readFileSync(resolve(ROOT, 'src/main.js'), 'utf8')
+    const imports = mainJs.match(/import\s+['"][^'"]*\.css['"]/g) || []
+    expect(imports.length).toBe(1)
+    expect(imports[0]).toMatch(/styles\/main\.css/)
+  })
+
+  it('no runtime source-CSS link injection via /src/styles/*.css', () => {
+    const mainJs = readFileSync(resolve(ROOT, 'src/main.js'), 'utf8')
+    const appVue = readFileSync(resolve(ROOT, 'src/App.vue'), 'utf8')
+    expect(mainJs).not.toMatch(/href=["']\/src\/styles\//)
+    expect(appVue).not.toMatch(/href=["']\/src\/styles\//)
+  })
+
+  it('variant CSS files exist under src/styles/themes/', () => {
+    expect(existsSync(resolve(ROOT, 'src/styles/themes/kao.css'))).toBe(true)
+    expect(existsSync(resolve(ROOT, 'src/styles/themes/legacy.css'))).toBe(true)
+  })
+
+  it('index.html no longer contains static LXGW preload', () => {
+    const indexHtml = readFileSync(resolve(ROOT, 'index.html'), 'utf8')
+    expect(indexHtml).not.toMatch(/LXGWWenKai-Regular\.woff2/)
+  })
+
+  it('legacy.css does not contain LXGW WenKai or @font-face', () => {
+    const legacy = readFileSync(resolve(ROOT, 'src/styles/themes/legacy.css'), 'utf8')
+    expect(legacy).not.toMatch(/LXGW\s*WenKai/i)
+    expect(legacy).not.toMatch(/@font-face/)
   })
 })

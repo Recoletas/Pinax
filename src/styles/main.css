@@ -37,19 +37,9 @@
 }
 .spin { animation: spin 1s linear infinite; }
 
-/* Self-hosted display font (LXGW WenKai v1.522, OFL 1.1)
-   Used for hero titles on the Welcome / Opening surfaces.
-   Subset to ~2700 common chars + ASCII + CJK punctuation (593 KB WOFF2). */
-@font-face {
-  font-family: "LXGW WenKai";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("../assets/fonts/LXGWWenKai-Regular.woff2") format("woff2");
-}
-
+/* Self-hosted display font (LXGW WenKai v1.522, OFL 1.1) — moved to
+   src/styles/themes/kao.css; the token is gated by variant loading. */
 :root {
-  --font-display: "LXGW WenKai", "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
   --font-serif: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
   --font-sans: "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -91,18 +81,6 @@
   --accent-emerald: #2d9978;
   --accent-emerald-light: rgba(45, 153, 120, 0.12);
 
-  /* Kao / archive-folio visual system */
-  --archive-paper: #f5ebdd;
-  --archive-paper-strong: #e8d9c3;
-  --archive-paper-soft: #fbf4e9;
-  --archive-ink: #241a15;
-  --archive-ink-soft: #5f5348;
-  --archive-olive: #2f6e64;
-  --archive-olive-strong: #173c37;
-  --archive-gold: #b78a34;
-  --archive-gold-soft: #e0ae68;
-  --archive-rose: #944f5b;
-  --archive-photo: #264944;
   --hairline-soft: rgba(122, 111, 96, 0.18);
   --hairline-accent: rgba(183, 138, 52, 0.40);
   --hairline-rose: rgba(147, 75, 87, 0.40);
@@ -162,18 +140,6 @@
   --accent-emerald: #5bc9a3;
   --accent-emerald-light: rgba(91, 201, 163, 0.15);
 
-  /* Kao / archive-folio visual system */
-  --archive-paper: #eee3d2;
-  --archive-paper-strong: #d8c6ae;
-  --archive-paper-soft: #f4e9d9;
-  --archive-ink: #17110d;
-  --archive-ink-soft: #c1b29e;
-  --archive-olive: #57a092;
-  --archive-olive-strong: #294c47;
-  --archive-gold: #d8ab54;
-  --archive-gold-soft: #f0c271;
-  --archive-rose: #cb7a88;
-  --archive-photo: #17322f;
   --hairline-soft: rgba(216, 198, 174, 0.18);
   --hairline-accent: rgba(216, 171, 84, 0.42);
   --hairline-rose: rgba(203, 122, 136, 0.40);
@@ -503,34 +469,6 @@ body {
 }
 
 /* Utilities */
-.is-folio {
-  position: relative;
-  border-radius: 0;
-  box-shadow: none;
-  background:
-    linear-gradient(180deg, rgba(232, 220, 192, 0.04), rgba(107, 74, 43, 0.10));
-  mix-blend-mode: multiply;
-}
-
-.is-bookmark {
-  border-radius: 0;
-  box-shadow: none;
-  clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 50%, calc(100% - 28px) 100%, 0 100%, 14px 50%);
-  border-left: 3px solid var(--archive-gold);
-  transform: perspective(1200px) skewX(-8deg);
-}
-
-.is-bookmark:hover {
-  box-shadow: 0 0 0 1px var(--hairline-accent);
-}
-
-.is-archive-strip {
-  border-radius: 0;
-  box-shadow: none;
-  transform: rotate(-3deg) translateX(8px);
-  border: 1px solid var(--hairline-soft);
-}
-
 /* Archive paper — for central character poster stage.
    Adds subtle paper-fiber speckle overlay via a multiply layer. */
 .is-archive-paper {
