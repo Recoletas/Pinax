@@ -2,23 +2,33 @@
   <div class="quick-page">
     <header class="quick-hero">
       <div class="hero-left">
-        <span class="hero-kicker">Playable Worldbook</span>
-        <h1>今晚进入一个世界</h1>
-        <p>
-          不从空白聊天开始。先选一个有地点、势力、事件和开场困境的世界，
-          回到体验页由 AI GM 推动冒险，再把经历改写成作品。
-        </p>
+        <h1>选择一个世界</h1>
+        <p class="hero-deck">从一个已有设定的世界进入体验，再把经历写回章节、素材和分镜。</p>
+
+        <div class="hero-path" aria-label="主线路径">
+          <span>选择世界</span>
+          <span>开始冒险</span>
+          <span>写成作品</span>
+        </div>
+
+        <div class="hero-signal-board" aria-label="入口摘要">
+          <span><strong>1</strong> 默认世界</span>
+          <span><strong>3</strong> 开场切口</span>
+          <span><strong>AI GM</strong> 直接开场</span>
+        </div>
+
+        <div v-if="featuredPreset" class="hero-worldline">
+          <span>默认世界</span>
+          <strong>{{ featuredPreset.name }}</strong>
+          <em>{{ featuredPreset.genreLabel }}</em>
+        </div>
       </div>
+
       <div class="hero-actions">
-        <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <button class="primary-btn" @click="openAdvancedEditor">进入高级设置</button>
+        <button class="ghost-btn" @click="openExperience">继续当前冒险</button>
+        <button class="primary-btn" @click="featuredPreset && enterPresetWorld(featuredPreset)">开始冒险</button>
       </div>
     </header>
-
-    <section class="status-row">
-      <div class="status-chip">当前世界书数量：{{ worldbooksIndex.length }}</div>
-      <div class="status-chip" v-if="activeWorldbookName">当前激活：{{ activeWorldbookName }}</div>
-    </section>
 
     <section v-if="errorMessage" class="feedback error">{{ errorMessage }}</section>
     <section v-if="successMessage" class="feedback success">{{ successMessage }}</section>
@@ -27,49 +37,85 @@
     <section class="quick-grid">
       <article class="card world-start-card" v-if="featuredPreset">
         <div class="world-kicker">
-          <span>今晚推荐开局</span>
-          <strong>默认只给一个世界，减少选择噪音</strong>
+          <span>默认世界入口</span>
+          <strong>先开始，再决定是否更换世界</strong>
         </div>
 
         <section class="world-feature-card">
           <div class="world-feature-copy">
             <span class="world-genre">{{ featuredPreset.genreLabel }}</span>
             <h2>{{ featuredPreset.name }}</h2>
-            <p>{{ featuredPreset.description }}</p>
+            <p class="world-standfirst">{{ featuredPreset.description }}</p>
 
-            <div class="world-scene-board">
-              <div class="scene-lane">
-                <span>你醒在</span>
-                <strong>{{ featuredLocationNames[0] || '未知地点' }}</strong>
-              </div>
-              <div class="scene-lane">
-                <span>第一名对手</span>
-                <strong>{{ featuredFactionNames[0] || '本地势力' }}</strong>
-              </div>
-              <div class="scene-lane">
-                <span>第一声警报</span>
-                <strong>{{ featuredEventNames[0] || '异常事件' }}</strong>
-              </div>
+            <div class="world-ledger-line" aria-label="世界规模摘要">
+              <span><strong>{{ countPresetEntries(featuredPreset, 'event') }}</strong> 事件</span>
+              <span><strong>{{ countPresetEntries(featuredPreset, 'organization') }}</strong> 势力</span>
+              <span><strong>{{ countPresetEntries(featuredPreset, 'location') }}</strong> 地点</span>
             </div>
 
             <div class="world-hook">
-              <span>今晚的困境</span>
+              <span>开场困境</span>
               <strong>{{ featuredPreset.openingHook }}</strong>
+            </div>
+
+            <div class="world-pressure-row" aria-label="进入前就能感到的压力">
+              <span v-for="item in featuredPressureRow" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                {{ item.detail }}
+              </span>
+            </div>
+
+            <div class="world-dossier" aria-label="世界任务档案">
+              <div>
+                <span>任务代号</span>
+                <strong>雾潮前夜</strong>
+              </div>
+              <div>
+                <span>当前阶段</span>
+                <strong>第一幕 · 证据争夺</strong>
+              </div>
+              <div>
+                <span>写回出口</span>
+                <strong>章节 / 素材 / 分镜</strong>
+              </div>
+            </div>
+
+            <div class="world-adventure-route" aria-label="冒险推进路径">
+              <span>抵达现场</span>
+              <span>找到证词</span>
+              <span>被迫站队</span>
+              <span>写成章节</span>
             </div>
 
             <div class="world-action-hooks" aria-label="开局行动">
               <button
-                v-for="action in featuredActionHooks"
+                v-for="(action, actionIndex) in featuredActionHooks"
                 :key="action.id"
                 type="button"
                 class="world-action-card"
                 :disabled="creating"
                 @click="enterPresetWorld(featuredPreset, action)"
               >
+                <em>{{ String(actionIndex + 1).padStart(2, '0') }}</em>
                 <span>{{ action.label }}</span>
                 <strong>{{ action.title }}</strong>
                 <small>{{ action.detail }}</small>
               </button>
+            </div>
+
+            <div class="world-scene-board">
+              <div class="scene-lane">
+                <span>第一现场</span>
+                <strong>{{ featuredLocationNames[0] || '未知地点' }}</strong>
+              </div>
+              <div class="scene-lane">
+                <span>主要阻力</span>
+                <strong>{{ featuredFactionNames[0] || '本地势力' }}</strong>
+              </div>
+              <div class="scene-lane">
+                <span>异常事件</span>
+                <strong>{{ featuredEventNames[0] || '异常事件' }}</strong>
+              </div>
             </div>
           </div>
 
@@ -77,7 +123,26 @@
             <div class="world-role-card">
               <span>你的开局身份</span>
               <strong>临时调查者</strong>
-              <small>AI GM 会把你放进第一个冲突现场，而不是让你从空白聊天开始。</small>
+              <small>AI GM 会把你直接放进第一个冲突现场。</small>
+            </div>
+            <div class="world-map-card" aria-hidden="true">
+              <div class="fog-orbit"></div>
+              <div class="fog-route"></div>
+              <span class="map-pin is-main">{{ featuredLocationNames[0] || '主城' }}</span>
+              <span class="map-pin is-port">{{ featuredLocationNames[1] || '码头' }}</span>
+              <span class="map-pin is-wall">{{ featuredLocationNames[2] || '灰墙' }}</span>
+              <div class="map-readout">
+                <strong>72h</strong>
+                <span>雾潮窗口</span>
+              </div>
+            </div>
+
+            <div class="world-threat-meter" aria-label="今晚的局势强度">
+              <div v-for="meter in featuredThreatMeters" :key="meter.label">
+                <span>{{ meter.label }}</span>
+                <strong>{{ meter.value }}</strong>
+                <i :style="{ '--value': meter.width }"></i>
+              </div>
             </div>
             <div class="world-stat">
               <strong>{{ countPresetEntries(featuredPreset, 'event') }}</strong>
@@ -91,20 +156,37 @@
               <strong>{{ countPresetEntries(featuredPreset, 'location') }}</strong>
               <span>地点</span>
             </div>
+
+            <div class="world-pressure-stack" aria-label="进入后会先付出的代价">
+              <span v-for="item in featuredPressureStack" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                {{ item.detail }}
+              </span>
+            </div>
+
+            <div class="world-brief-list" aria-label="进入后会先遇到">
+              <div>
+                <span>第一道压力</span>
+                <strong>王室要求黎明前给出答案</strong>
+              </div>
+              <div>
+                <span>第二道压力</span>
+                <strong>行会要求先封存港口账簿</strong>
+              </div>
+              <div>
+                <span>第三道压力</span>
+                <strong>难民掌握第一手证词</strong>
+              </div>
+            </div>
+
             <button class="primary-btn world-enter-btn" :disabled="creating" @click="enterPresetWorld(featuredPreset)">
-              {{ creating ? '创建中...' : '进入这个世界' }}
+              {{ creating ? '创建中...' : '开始冒险' }}
             </button>
           </div>
         </section>
 
-        <div class="world-flow">
-          <span>选择世界</span>
-          <span>AI GM 开局</span>
-          <span>写成我的版本</span>
-        </div>
-
         <div class="world-exit-strip" v-if="featuredPreset.creativeExits?.length">
-          <span>玩完后可以：</span>
+          <span>玩完后写回：</span>
           <strong v-for="exit in featuredPreset.creativeExits" :key="exit">{{ exit }}</strong>
         </div>
 
@@ -115,7 +197,7 @@
             :aria-expanded="showWorldShelf"
             @click="showWorldShelf = !showWorldShelf"
           >
-            <span>{{ showWorldShelf ? '收起备用题材' : '换个题材' }}</span>
+            <span>{{ showWorldShelf ? '收起更多世界' : '查看更多世界' }}</span>
             <strong>{{ secondaryPresets.length }} 个备用世界</strong>
           </button>
 
@@ -141,7 +223,7 @@
             :aria-expanded="showLegacyArchive"
             @click="showLegacyArchive = !showLegacyArchive"
           >
-            <span>更多旧世界归档</span>
+            <span>查看旧预设归档</span>
             <strong>{{ rpgWorldbookPresets.length }} 个 RPG 预设适配</strong>
           </button>
           <div class="legacy-preset-list" v-if="showLegacyArchive">
@@ -165,8 +247,8 @@
           :aria-expanded="showCustomTools"
           @click="showCustomTools = !showCustomTools"
         >
-          <span>{{ showCustomTools ? '收起自定义世界' : '我想导入自己的世界' }}</span>
-          <strong>小说片段 / 说明生成</strong>
+          <span>{{ showCustomTools ? '收起自定义入口' : '导入或生成自己的世界' }}</span>
+          <strong>小说片段 / 说明生成 / 高级编辑</strong>
         </button>
       </section>
 
@@ -532,6 +614,37 @@ const featuredLocationNames = computed(() => getPresetEntryNames(featuredPreset.
 const featuredFactionNames = computed(() => getPresetEntryNames(featuredPreset.value, 'organization').slice(0, 3))
 const featuredEventNames = computed(() => getPresetEntryNames(featuredPreset.value, 'event').slice(0, 3))
 const featuredActionHooks = computed(() => buildPlayableWorldActionHooks(featuredPreset.value))
+const featuredCreativeExits = computed(() => Array.isArray(featuredPreset.value?.creativeExits) ? featuredPreset.value.creativeExits.slice(0, 3) : [])
+const featuredPressureRow = computed(() => {
+  const [firstFaction = '王室', secondFaction = '行会'] = featuredFactionNames.value
+  return [
+    { title: '黎明前', detail: '先拿到第一条可验证证据' },
+    { title: firstFaction, detail: '会要求你先交出判断' },
+    { title: secondFaction, detail: '会要求你先封存账本' }
+  ]
+})
+const featuredThreatMeters = computed(() => {
+  const [firstFaction = '王室', secondFaction = '行会'] = featuredFactionNames.value
+  return [
+    { label: '时间窗口', value: '黎明前', width: '84%' },
+    { label: '站队压力', value: `${firstFaction} / ${secondFaction}`, width: '76%' },
+    { label: '写回出口', value: featuredCreativeExits.value.slice(0, 2).join(' · ') || '章节 · 分镜', width: '68%' }
+  ]
+})
+const featuredPressureStack = computed(() => [
+  {
+    title: '第一现场',
+    detail: `${featuredLocationNames.value[0] || '主城'} 会先给你证据，不会先给你真相。`
+  },
+  {
+    title: '第一代价',
+    detail: `${featuredFactionNames.value[0] || '第一个势力'} 与 ${featuredFactionNames.value[1] || '第二个势力'} 都会逼你先站队。`
+  },
+  {
+    title: '第一出口',
+    detail: `${featuredCreativeExits.value.slice(0, 2).join('、') || '章节、分镜'} 会直接接住这一段冒险。`
+  }
+])
 
 const creating = ref(false)
 const generatingNovel = ref(false)
@@ -1879,7 +1992,7 @@ async function enterPresetWorld(preset, action = null) {
         action: resolvedAction
       })
     }
-    openExperience()
+    router.push({ name: 'opening' })
   }
 }
 
@@ -1892,32 +2005,46 @@ function clearPendingImport() {
 <style scoped>
 .quick-page {
   min-height: var(--app-viewport-height, 100vh);
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   background:
-    radial-gradient(130% 120% at 100% 0%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 86%, #ffffff 14%) 0%, var(--bg-primary) 40%);
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, transparent), var(--bg-primary)),
+    repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-primary) 98%, transparent) 0 32px,
+      color-mix(in srgb, var(--border) 18%, transparent) 32px 33px
+    );
   color: var(--text-primary);
 }
 
 .quick-hero {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 88%, #ffffff 12%);
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 22px;
+  padding: clamp(18px, 2.6vw, 28px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 98%, transparent), color-mix(in srgb, var(--bg-primary) 94%, transparent)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 24px,
+      color-mix(in srgb, var(--border) 10%, transparent) 24px 25px
+    );
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+  box-shadow: var(--shadow-floating);
 }
 
 .hero-left h1 {
-  margin: 3px 0 8px;
-  font-size: clamp(26px, 4vw, 42px);
-  line-height: 1;
-  letter-spacing: -0.04em;
+  margin: 4px 0 12px;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: clamp(38px, 5vw, 64px);
+  line-height: 0.94;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-wrap: balance;
 }
 
 .hero-kicker {
@@ -1933,18 +2060,95 @@ function clearPendingImport() {
   text-transform: uppercase;
 }
 
-.hero-left p {
+.hero-deck {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--text-secondary);
-  max-width: 760px;
+  max-width: 32ch;
 }
 
 .hero-actions {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.hero-path {
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.hero-path span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hero-signal-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.hero-signal-board span {
+  min-height: 50px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.hero-signal-board strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.hero-worldline {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hero-worldline span {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hero-worldline strong {
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 650;
+}
+
+.hero-worldline em {
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
 }
 
 .status-row {
@@ -1994,9 +2198,9 @@ function clearPendingImport() {
 }
 
 .card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 16px;
+  padding: 14px;
   background: color-mix(in srgb, var(--bg-secondary) 93%, #ffffff 7%);
   display: flex;
   flex-direction: column;
@@ -2029,15 +2233,27 @@ function clearPendingImport() {
 
 .world-start-card {
   grid-column: 1 / -1;
-  padding: clamp(14px, 2.4vw, 24px);
-  gap: 14px;
+  padding: clamp(18px, 2.6vw, 28px);
+  gap: 18px;
   overflow: hidden;
   position: relative;
   background:
-    radial-gradient(circle at 8% 4%, color-mix(in srgb, var(--accent-amber) 28%, transparent), transparent 29%),
-    radial-gradient(circle at 78% 0%, color-mix(in srgb, var(--accent-teal) 22%, transparent), transparent 34%),
-    linear-gradient(145deg, color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary)), var(--bg-secondary));
-  box-shadow: var(--shadow-floating);
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 98%, transparent), color-mix(in srgb, var(--bg-primary) 95%, transparent)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 28px,
+      color-mix(in srgb, var(--border) 8%, transparent) 28px 29px
+    );
+  box-shadow: var(--shadow-elevated);
+}
+
+.world-start-card::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 80px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent-light) 10%, transparent));
 }
 
 .world-start-card::before {
@@ -2074,7 +2290,7 @@ function clearPendingImport() {
 
 .world-feature-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(230px, 300px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   gap: clamp(14px, 2vw, 22px);
   position: relative;
   z-index: 1;
@@ -2098,55 +2314,116 @@ function clearPendingImport() {
 
 .world-feature-copy h2 {
   margin: 0;
-  font-size: clamp(34px, 7vw, 74px);
-  line-height: 0.92;
-  letter-spacing: -0.07em;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: clamp(38px, 7vw, 72px);
+  line-height: 0.94;
+  font-weight: 650;
+  letter-spacing: 0;
+  max-width: 760px;
+  text-wrap: balance;
 }
 
-.world-feature-copy p {
+.world-standfirst {
   margin: 12px 0 0;
-  max-width: 640px;
+  max-width: 34ch;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.65;
 }
 
+.world-ledger-line {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.world-ledger-line span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.world-ledger-line strong {
+  margin-right: 5px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.world-dossier {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.world-dossier div {
+  min-height: 68px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 16px;
+  padding: 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+}
+
+.world-dossier span {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.world-dossier strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
 .world-scene-board {
-  margin-top: 18px;
+  margin-top: 14px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .scene-lane {
-  min-height: 86px;
+  min-height: 92px;
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 16px;
   padding: 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 78%, transparent), color-mix(in srgb, var(--bg-secondary) 84%, transparent));
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
 }
 
 .scene-lane span {
   color: var(--text-muted);
   font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .scene-lane strong {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.25;
 }
 
 .world-hook {
-  margin-top: 14px;
-  padding: 12px;
+  margin-top: 16px;
+  padding: 14px 15px;
   border: 1px solid color-mix(in srgb, var(--accent-amber) 26%, var(--border));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-primary) 76%, var(--accent-amber-light));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent-amber-light) 36%, var(--bg-secondary));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2159,39 +2436,119 @@ function clearPendingImport() {
 
 .world-hook strong {
   color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.55;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.world-pressure-row {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.world-pressure-row span {
+  min-height: 46px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 18%, var(--border));
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-rose-light) 24%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 86%, transparent));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.world-pressure-row strong {
+  color: color-mix(in srgb, var(--accent-rose) 74%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-adventure-route {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+}
+
+.world-adventure-route span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.world-adventure-route span:first-child {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-light) 68%, transparent);
+}
+
+.world-adventure-route span:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 84%, transparent);
 }
 
 .world-action-hooks {
-  margin-top: 14px;
+  margin-top: 18px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
 .world-action-card {
-  min-height: 118px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
   border-radius: 16px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  padding: 14px 16px 14px 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   text-align: left;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--bg-primary) 80%, transparent), color-mix(in srgb, var(--accent-light) 28%, var(--bg-secondary)));
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
   color: var(--text-primary);
   cursor: pointer;
   font: inherit;
-  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.world-action-card em {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .world-action-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--accent-light) 42%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 88%, var(--accent-light)));
+  box-shadow: var(--shadow-floating);
+  background: color-mix(in srgb, var(--accent-light) 20%, var(--bg-secondary));
 }
 
 .world-action-card:disabled {
@@ -2202,33 +2559,34 @@ function clearPendingImport() {
 
 .world-action-card span {
   width: fit-content;
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
-  color: var(--accent);
+  color: var(--text-muted);
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
 }
 
 .world-action-card strong {
   color: var(--text-primary);
-  font-size: 15px;
-  line-height: 1.2;
+  font-size: 17px;
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
 }
 
 .world-action-card small {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
+  position: relative;
+  z-index: 1;
 }
 
 .world-feature-panel {
   align-self: stretch;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 20px;
-  background:
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-teal) 12%, transparent), transparent 46%),
-    color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
   padding: 14px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2236,11 +2594,157 @@ function clearPendingImport() {
   align-content: start;
 }
 
+.world-map-card {
+  grid-column: 1 / -1;
+  min-height: 230px;
+  border: 1px solid color-mix(in srgb, var(--accent-teal) 24%, var(--border));
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 30%, color-mix(in srgb, var(--accent-amber) 24%, transparent) 0 8px, transparent 9px),
+    radial-gradient(circle at 70% 42%, color-mix(in srgb, var(--accent) 22%, transparent) 0 7px, transparent 8px),
+    radial-gradient(circle at 52% 76%, color-mix(in srgb, var(--accent-teal) 30%, transparent) 0 9px, transparent 10px),
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-primary) 86%, var(--accent-teal-light)), color-mix(in srgb, var(--bg-secondary) 84%, transparent));
+}
+
+.world-map-card::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--text-muted) 26%, transparent);
+  transform: rotate(-12deg) scaleX(1.15);
+}
+
+.fog-orbit {
+  position: absolute;
+  inset: 34px 26px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 24%, transparent);
+  transform: rotate(18deg);
+}
+
+.fog-route {
+  position: absolute;
+  left: 25%;
+  top: 36%;
+  width: 46%;
+  height: 34%;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 0 0 0 72px;
+  transform: rotate(-12deg);
+}
+
+.map-pin {
+  position: absolute;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: var(--shadow-floating);
+}
+
+.map-pin.is-main {
+  left: 12%;
+  top: 20%;
+}
+
+.map-pin.is-port {
+  right: 12%;
+  top: 35%;
+}
+
+.map-pin.is-wall {
+  left: 42%;
+  bottom: 16%;
+}
+
+.map-readout {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 36%, var(--border));
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--accent-amber-light) 56%, var(--bg-secondary)), color-mix(in srgb, var(--bg-primary) 88%, transparent));
+}
+
+.map-readout strong {
+  color: var(--text-primary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.map-readout span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.world-threat-meter {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 20%, var(--border));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-amber-light) 24%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 88%, transparent));
+}
+
+.world-threat-meter div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.world-threat-meter span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.world-threat-meter strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-threat-meter i {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border) 64%, transparent);
+  position: relative;
+}
+
+.world-threat-meter i::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--value);
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, var(--accent-teal), var(--accent-amber), var(--accent-rose));
+}
+
 .world-role-card {
   grid-column: 1 / -1;
   border: 1px solid color-mix(in srgb, var(--accent-teal) 22%, var(--border));
-  border-radius: 16px;
-  padding: 13px;
+  border-radius: 18px;
+  padding: 14px;
   background: color-mix(in srgb, var(--accent-teal-light) 54%, var(--bg-primary));
 }
 
@@ -2256,8 +2760,67 @@ function clearPendingImport() {
   display: block;
   margin: 4px 0 7px;
   color: var(--text-primary);
-  font-size: 20px;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 24px;
   line-height: 1.1;
+}
+
+.world-pressure-stack {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.world-pressure-stack span {
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 18%, var(--border));
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-rose-light) 34%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 84%, transparent));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.world-pressure-stack strong {
+  color: color-mix(in srgb, var(--accent-rose) 72%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-brief-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.world-brief-list div {
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.world-brief-list span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.world-brief-list strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .world-stat {
@@ -2289,24 +2852,6 @@ function clearPendingImport() {
   border-radius: 999px;
 }
 
-.world-flow {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.world-flow span {
-  padding: 10px 12px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
-  color: var(--text-primary);
-  text-align: center;
-  font-size: 12px;
-  font-weight: 650;
-}
-
 .world-exit-strip {
   position: relative;
   z-index: 1;
@@ -2317,7 +2862,7 @@ function clearPendingImport() {
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--accent-amber) 18%, var(--border));
   border-radius: 16px;
-  background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
 }
 
 .world-exit-strip span {
@@ -2351,8 +2896,8 @@ function clearPendingImport() {
 .legacy-summary {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
-  border-radius: 16px;
-  padding: 12px 14px;
+  border-radius: 18px;
+  padding: 14px 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2396,13 +2941,13 @@ function clearPendingImport() {
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .world-mini-card {
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  border-radius: 14px;
-  padding: 12px;
+  border-radius: 18px;
+  padding: 14px;
   text-align: left;
   background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
   color: var(--text-primary);
@@ -3175,8 +3720,25 @@ label {
   .world-feature-card,
   .world-branch-grid,
   .world-action-hooks,
-  .world-flow {
+  .world-scene-board,
+  .world-dossier,
+  .world-pressure-row,
+  .hero-signal-board,
+  .world-adventure-route {
     grid-template-columns: 1fr;
+  }
+
+  .world-adventure-route {
+    border-radius: 18px;
+  }
+
+  .world-adventure-route span:not(:last-child)::after {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 1px;
   }
 
   .world-feature-panel {
@@ -3184,7 +3746,8 @@ label {
   }
 
   .quick-hero {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    align-items: flex-start;
   }
 
   .preview-summary {

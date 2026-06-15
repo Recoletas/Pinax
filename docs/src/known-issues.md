@@ -17,10 +17,10 @@
 - 仍需关注：模板后处理重复 FBM / `softenMapEdges` 风险、`reshapeCoasts` 大轮廓重塑不足、部分模板合同仍是 soft-fail 诊断。
 - 处理边界：先做 Round 2.1 小修，不扩大到 UI / 国家 / 城市逻辑。
 
-### 可玩的世界书收口
+### 迁移期双轨收口
 
-- 🔴 当前产品主线正在改为“可玩的世界书”，入口叙事、种子世界、AI GM 轻状态和玩到写触发点还未全部闭环。
-- 近期事实入口：[PLAN.md](../PLAN.md) 和 [plan/playable-worldbook-roadmap.md](../plan/playable-worldbook-roadmap.md)。
+- 🔴 产品方向已经切向“角色化 AI GM”，但迁移期底层骨架仍然依赖 `playable-worldbook`；UI shell 与 runtime skeleton 同时推进时，最容易出现“壳和底混改、旧壳继续深投、边界不清”的问题。
+- 近期事实入口：[PLAN.md](../PLAN.md)、[plan/character-driven-arc.md](../plan/character-driven-arc.md) 和 [plan/playable-worldbook-roadmap.md](../plan/playable-worldbook-roadmap.md)。
 
 ## 已知缺口
 

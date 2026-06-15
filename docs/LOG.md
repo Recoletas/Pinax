@@ -5,8 +5,201 @@
 ## 当前摘要
 
 - 产品主线正在从“文字游戏 + 写作工具集合”收口为“可玩的世界书”：进入世界、冒险、沉淀剧情，再写成作品或整理为分镜。
+- 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
-- 当前验证基线：`npm run test:run` 通过（84 files, 568 tests），`npm run build` 通过，视觉/性能验收通过（12 tests）。
+- 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
+
+## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
+
+状态：完成本轮收口
+
+结果摘要：
+- Pass 2 落地: WelcomeView 主图软过渡 (PosterStage `feGaussianBlur stdDeviation="3"` 串在现有 `feDisplacementMap` 后 + `.welcome-stage-haze::after` 色温 multiply + `.welcome-poster-stage::before` cream multiply)、7-tile A3 中密度 (3 → 7 tile per A3 mock 精确数值 + 4 件 prop: tape × 2 / fold × 1 / stain × 1)、`isolation: isolate` 救 01 按钮 980px (在 `.welcome-stage-poster` 上把 mix-blend-mode stacking context 隔离)、760px 隐藏全部 tile + prop (R7 mitigation)。
+- Experience 综合修: `.stage-command` 980px 降级为 `skewX(-8deg)` (base + hover 同步) + `min-height: 50px`、Hero 标题 640px 改 `clamp(32px, 9vw, 46px)` 防溢出、`.playable-world-stage-poster` 980px 加 `max-height: 280px`、浮动层 (mechanism-notice / quick-notes-rail / game-image-gen-rail) 980px 统一 `bottom: calc(150px + env(safe-area-inset-bottom, 0px))`、`.mechanism-notice` z-index 改 `var(--z-mechanism-notice)` 替代硬编码 248。
+- main.css 新加 4 个 z-index token (`--z-stage-decor: 2` / `--z-stage-hero: 5` / `--z-stage-cta: 6` / `--z-mechanism-notice: 248`) + `.is-archive-prop` utility 及 3 modifier (`--tape` / `--fold` / `--stain`)。
+- Test: `welcomeView.test.js` 加 7-tile + 4-prop 存在性断言、`uiPolish.test.js` 加 isolation + 4 token + Experience mechanism-notice token 断言。
+- Spec: `docs/superpowers/specs/2026-06-11-welcome-experience-pass2-design.md` (v3, commit `7f98157`, 8-subagent review)。验证截图见 `docs/demo/pass2-screenshots/` (6 张, 1280/980/760 × welcome/experience)。
+
+## 2026-06-10 - Thread B runtime context continuity
+
+状态：完成本轮收口
+
+结果摘要：
+- `src/services/api.js` 的普通模式 context 注入不再只依赖 legacy 的 `character / time / location / scene / activities`；当会话里只有 `goals`、`encounteredCharacters`、`factionRelations`、`keyChoices`、`plotJournal` 这类轻 runtime 状态时，也会生成系统上下文，并把这些字段完整写进背景信息。
+- `src/services/worldbookContextBuilder.js` 的扫描文本开始消费阵营名和 `plotJournal` 的 `participants / locations / keyChoices / unresolvedHooks`，让 Stage 3a / 3b 写下来的剧情日志能更直接驱动世界书命中，而不是只吃 `summary`。
+- 定向回归补到 `src/__tests__/contextMessage.test.js` 和 `src/__tests__/worldbookContextBuilder.test.js`，同时保留一条 `generationService` smoke，确保这轮 Thread B 只收口 runtime 主链，没有顺手碰 A 持有的 `WelcomeView / AppShell / gm-persona / QuestLog` UI 面。
+
+验证：
+- `npm run test:run -- src/__tests__/contextMessage.test.js src/__tests__/worldbookContextBuilder.test.js src/__tests__/generationService.test.js` 通过（3 files, 12 tests）。
+- `npm run test:run` 通过（87 files, 584 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-10 - Thread A Phase 1B 第三切片内层舞台重排
+
+状态：进行中，已完成第三切片
+
+结果摘要：
+- `src/pages/Experience.vue` 从“页头统一了，但下方仍是旧聊天工具区”进一步改成两段式工作面：上半 `experience-stage-band` 负责世界摘要、开场卡和切口列表；下半 `game-layout` 负责聊天主区与右侧情报侧栏，主次关系比之前清楚一层。
+- 这轮重心是减工具感而不是加装饰：右栏只保留“主线路径 / 当前切口 / 现场情报”三类信息，CTA 改成更整块的动作按钮，聊天区和输入区重新包进统一的 editorial shell。
+- `src/views/WelcomeView.vue` 也同步收掉一批容易显得偶发的“今晚”表述，改成更通用的世界入口语气，避免入口文案被具体时态绑死。
+- 契约测试同步更新：`uiPolish` 现在断言 `shell-mast / shell-drawer / activity-btn` 和 `experience-stage-band / game-main-shell / 当前切口`，不再盯旧的 `shell-flyout / compact` 结构。
+
+验证：
+- `npm run test:run -- src/__tests__/uiPolish.test.js src/__tests__/welcomeView.test.js src/__tests__/gmPersonaLauncher.test.js` 通过（3 files, 10 tests）。
+- `npm run test:run` 通过（87 files, 582 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - Thread A Phase 1B 第二切片 shared page hero
+
+状态：进行中，已完成第二切片
+
+结果摘要：
+- 新增共享组件 `src/components/workbench/WorkbenchPageHero.vue`，把四个重工作面的页头收口成同一套 editorial shell：统一承载 back / inline selector / meta chips / actions，减少“每页一排工具按钮”的割裂感。
+- `Experience`、`Writing`、`Notes`、`ProseEssay` 现已统一接入 shared hero；原先散在各页的 world select、book select、topic input、meta 状态和常用动作都被压进同一视觉语法。`Writing` 的 hero 切书同时补上真正的 `selectBook` 调用，不再只改选择框外观。
+- 这轮顺手恢复了当前工作树里被删除但仍被引用的 `src/components/QuestLog.vue`，保留轻量活动记录，并把 latest `plotJournal` 的“本段冒险总结 + 写成我的版本 / 整理成分镜”出口重新接回侧栏，以维持现有 Stage 4 contract 与回归测试一致。
+- 仍未触碰 `gameStore`、`worldbookContextBuilder` 或 generation 实现层；Thread A 下一步继续聚焦内层布局节奏、字级和左右分区辨识度，而不是再回到旧工具条堆按钮。
+
+验证：
+- `npm run test:run -- src/__tests__/questLog.test.js` 通过（1 file, 3 tests）。
+- `npm run test:run` 通过（87 files, 582 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - Thread B Stage 4 MVP trigger 首轮
+
+状态：完成首轮
+
+结果摘要：
+- 新增 `src/services/generationAdventureTriggers.js`，集中维护“写成我的版本 / 整理成分镜”两类 generation task：统一拼接世界书上下文、轻 runtime 状态、最新 `plotJournal` 总结，并负责解析正文草稿和结构化分镜草稿。
+- `src/stores/gameStore.js` 补齐 Stage 4 runtime 行为：`adventureTriggers` draft state、单用户节流与 3 秒 cooldown、accept/dismiss、session persistence，以及“已保存则不再对同一段剧情重复开放按钮”的判定。
+- `src/components/QuestLog.vue` 从“轻量冒险摘要”扩成 Stage 4 侧栏入口：显示最新 `plotJournal` 总结、地点/角色/关键选择标签、两个 trigger 按钮、生成中/失败/已保存态，以及正文/分镜预览采纳动作。
+- 新增 `src/__tests__/generationAdventureTriggers.test.js`，并扩 `gameStoreSession` / `questLog` 回归，锁住 prompt 构造、解析、accept persistence 和 UI wiring。
+
+验证：
+- `npm run test:run -- src/__tests__/gameStoreSession.test.js src/__tests__/questLog.test.js src/__tests__/generationAdventureTriggers.test.js` 通过（3 files, 14 tests）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run test:run` 通过（87 files, 582 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - Thread B Stage 3a + 最小 Stage 3b runtime skeleton
+
+状态：完成首轮
+
+结果摘要：
+- `src/stores/gameStore.js` 补齐轻状态骨架：`goals`、`encounteredCharacters`、`factionRelations`、`keyChoices`、`plotJournal` 进入 runtime state、session persistence 和恢复链路。
+- runtime 现在会从生成文本里做最小启发式提取，并在累计约 8 个 assistant turn 后自动写入一条压缩剧情日志，保留 `chapterId`、摘要、参与者、地点、关键选择、未决钩子和来源 message index。
+- `src/services/worldbookContextBuilder.js` 开始消费这些轻状态辅助匹配世界书条目；`src/components/QuestLog.vue` 追加轻量冒险摘要，先露出“当前目标 / 最近选择 / 已遇角色”，不顺手扩成新壳层。
+- 对应回归测试补到 `gameStoreSession`、`worldbookContextBuilder`、`contextMessage`、`questLog`，确保轻状态既能持久化，也能参与上下文构建和 UI 摘要。
+
+验证：
+- `npm run test:run -- src/__tests__/gameStoreSession.test.js src/__tests__/worldbookContextBuilder.test.js src/__tests__/contextMessage.test.js src/__tests__/questLog.test.js` 通过（4 files, 15 tests）。
+- `npm run test:run -- src/__tests__/generationService.test.js` 通过（1 file, 2 tests）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run test:run` 通过（86 files, 574 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - Thread A Phase 1B 首轮入口封面与 hidden-first chrome
+
+状态：进行中，已完成第一切片
+
+结果摘要：
+- `AppShell` 改为 hidden-first chrome：桌面端左侧一级/二级导航不再常驻撑满布局，而是变成默认收起、悬停可展开、点击可固定的 flyout；移动端仍保留底部一级导航。
+- `ActivityBar` 与 `SidePanel` 同步收成更克制的外壳，保留现有路由和模块结构，但减少“工具站式常驻边栏”的存在感。
+- `WelcomeView` 补进角色化入口提示与“工作区退到第二层”的说明，继续沿用 `边境王国 · 雾潮暮湾` 作为默认世界入口，但不再只靠旧任务板式说明撑首屏。
+- 这轮仍然没有碰 `gameStore`、`worldbookContextBuilder` 或 generation task layer；Phase 1B 还剩下一段：把 `Experience / Writing / Notes / ProseEssay` 的页面 chrome 再统一一轮。
+
+验证：
+- `npm run test:run` 通过（86 files, 574 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - Thread A Phase 1A 共享角色入口壳层
+
+状态：完成首轮
+
+结果摘要：
+- 新增共享组件 [src/components/gm-persona/GmPersonaLauncher.vue](../src/components/gm-persona/GmPersonaLauncher.vue)，把“先展开 persona bubble，再进入顾问面板”的入口语义收口成单一壳层。
+- `Experience`、`Writing`、`Notes`、`ProseEssay` 四个重工作面都改为接同一套角色入口；顾问逻辑仍复用现有 `AdvisorPanel` / `useAdvisor`，没有顺手碰 runtime 状态或世界书上下文。
+- 同步清掉四页已失效的 `.advisor-fab` 样式残留，并补 UI 契约测试，避免回退到旧浮动按钮实现。
+
+验证：
+- `npm run test:run` 通过（86 files, 573 tests；含既有地图合同诊断与 jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - 方向文档与执行骨架重构
+
+状态：完成首轮
+
+结果摘要：
+- 把 `character-driven-arc.md` 从“并行未决提案”升级为**已采纳方向文档**，明确产品外壳开始向角色化 AI GM 迁移。
+- 把 `playable-worldbook-roadmap.md` 降级为**迁移期执行骨架**，专注保留 runtime / content / trigger 主链，不再独占最终产品定位。
+- `PLAN.md`、`docs/README.md`、`docs/plan/README.md`、根 `README.md`、并行执行计划同步改口，统一成“方向已定，底层与 UI 双轨推进，旧壳层冻结”的模型。
+- 并行计划改成三线程：UI shell、runtime skeleton、content/demo，并明确高冲突文件边界。
+
+验证：
+- `npm run test:run` 通过（85 files, 570 tests；含既有地图合同诊断、jsdom/canvas warnings，但 exit code 为 0）。
+- `npm run build` 通过。
+- `npm run docs:build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - 入口链最后一屏承接感补齐
+
+状态：完成首轮
+
+结果摘要：
+- `Experience.vue` 的首屏从旧“小说体验”语义继续收口为“世界冒险”，与 `WelcomeView -> WorldBookQuickImport` 的任务板叙事保持同一条线。
+- 顶部世界摘要新增开场 route、任务/压力摘要；“今晚开场”卡新增现场三联卡、代价条和更完整的行动说明，让用户进入世界后立刻知道第一现场、第一阻力和第一出口。
+- 这轮没有引入新数据模型，仍只复用稳定字段 `worldDescription`、`entries` 和 `buildPlayableWorldActionHooks()` 的结果，避免把 UI 打磨变成新一轮产品重构。
+
+验证：
+- `npm run test:run -- src/__tests__/welcomeView.test.js src/__tests__/uiPolish.test.js src/__tests__/worldBookQuickImport.test.js` 通过（3 files, 9 tests）。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过（1 file, 12 tests）。
+- `npm run test:run` 通过（84 files, 568 tests；含地图/axe/canvas 既有 stderr warnings，但 exit code 为 0）。
+- `npm run build` 通过。
+
+## 2026-06-09 - 清理废弃 Home 首屏文件
+
+状态：完成首轮
+
+结果摘要：
+- 删除未被路由和运行时代码引用的 `src/pages/Home.vue`，避免后续继续围绕错误首屏文件做 UI 改动。
+- 把仍把 `Home.vue` 当作首屏实现或复用点的计划/规格文档改为 `WelcomeView` 当前事实，保留必要历史说明但去掉误导性指向。
+- 当前在线首屏边界进一步收紧为 `WelcomeView -> WorldBookQuickImport -> Experience`。
+
+验证：
+- `npm run test:run` 通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
+## 2026-06-09 - WelcomeView 首屏边界收口
+
+状态：完成首轮
+
+结果摘要：
+- 根路由 `/` 的唯一首屏明确为 `src/views/WelcomeView.vue`，并通过 `AppShell` 的 `immersiveShell / hideActivityBar / hideSidePanel` 元信息保持沉浸式门面。
+- 世界选择页 `src/pages/WorldBookQuickImport.vue` 和体验页 `src/pages/Experience.vue` 继续沿用“选择世界 -> 开始冒险 -> 写成作品”的主路径，不再把 `Home.vue` 视为在线入口的一部分。
+- 对应 UI 契约测试同步改为断言 `WelcomeView`、真实路由和快速导入页，避免后续再围绕未挂路由的 `Home.vue` 做错误回归。
+
+验证：
+- `npm run test:run -- src/__tests__/welcomeView.test.js src/__tests__/uiPolish.test.js src/__tests__/worldBookQuickImport.test.js` 通过。
+- `npm run test:run -- src/__tests__/visual-verification.test.js` 通过。
+- `npm run test:run` 通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
 
 ## 2026-06-09 - 单旗舰世界入口与开场行动
 

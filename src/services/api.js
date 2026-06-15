@@ -555,7 +555,12 @@ export function getWritingContextDetail(override = {}) {
     time: null,
     location: null,
     scene: null,
-    activities: []
+    activities: [],
+    goals: [],
+    encounteredCharacters: [],
+    factionRelations: {},
+    keyChoices: [],
+    plotJournal: []
   }
 
   const hasOverride = (key) => Object.prototype.hasOwnProperty.call(override || {}, key)
@@ -638,6 +643,47 @@ export function getWritingContextDetail(override = {}) {
       date: a.date || null,
       type: a.type || 'event'
     }))
+  }
+
+  if (Array.isArray(override.goals) && override.goals.length > 0) {
+    context.goals = override.goals
+      .map((goal) => ({
+        title: String(goal?.title || '').trim(),
+        status: String(goal?.status || 'active').trim()
+      }))
+      .filter((goal) => goal.title)
+      .slice(0, 4)
+  }
+
+  if (Array.isArray(override.encounteredCharacters) && override.encounteredCharacters.length > 0) {
+    context.encounteredCharacters = override.encounteredCharacters
+      .map((character) => String(character?.name || character || '').trim())
+      .filter(Boolean)
+      .slice(0, 8)
+  }
+
+  if (override.factionRelations && typeof override.factionRelations === 'object') {
+    context.factionRelations = Object.entries(override.factionRelations).reduce((acc, [name, value]) => {
+      const key = String(name || '').trim()
+      const score = Number(value)
+      if (!key || !Number.isFinite(score)) return acc
+      acc[key] = score
+      return acc
+    }, {})
+  }
+
+  if (Array.isArray(override.keyChoices) && override.keyChoices.length > 0) {
+    context.keyChoices = override.keyChoices
+      .map((choice) => String(choice?.label || choice?.title || choice || '').trim())
+      .filter(Boolean)
+      .slice(-5)
+  }
+
+  if (Array.isArray(override.plotJournal) && override.plotJournal.length > 0) {
+    context.plotJournal = override.plotJournal
+      .map((item) => String(item?.summary || item?.content || '').trim())
+      .filter(Boolean)
+      .slice(-2)
   }
 
   return context
@@ -725,6 +771,41 @@ export function getWritingContext() {
     })
   }
 
+  if (detail.goals?.length > 0) {
+    parts.push(`【当前目标】`)
+    detail.goals.forEach((goal) => {
+      parts.push(`- ${goal.title} (${goal.status || 'active'})`)
+    })
+  }
+
+  if (detail.encounteredCharacters?.length > 0) {
+    parts.push(`【已遇角色】`)
+    parts.push(detail.encounteredCharacters.join('、'))
+  }
+
+  if (detail.keyChoices?.length > 0) {
+    parts.push(`【关键选择】`)
+    detail.keyChoices.forEach((choice) => {
+      parts.push(`- ${choice}`)
+    })
+  }
+
+  const factionEntries = Object.entries(detail.factionRelations || {})
+  if (factionEntries.length > 0) {
+    parts.push(`【阵营关系】`)
+    factionEntries.slice(0, 6).forEach(([name, score]) => {
+      const tendency = score >= 15 ? '友好' : score <= -15 ? '紧张' : '观望'
+      parts.push(`- ${name}: ${tendency} (${score})`)
+    })
+  }
+
+  if (detail.plotJournal?.length > 0) {
+    parts.push(`【最近剧情摘要】`)
+    detail.plotJournal.forEach((summary) => {
+      parts.push(`- ${summary}`)
+    })
+  }
+
   return parts.join('\n')
 }
 
@@ -756,6 +837,31 @@ function buildCurrentSituation(context) {
     if (context.time.day) timeStr += `月${context.time.day}`
     timeStr += '日'
     situation.push(timeStr)
+  }
+
+  if (context.goals?.length > 0) {
+    situation.push(`当前目标：${context.goals[0].title}`)
+  }
+
+  if (context.keyChoices?.length > 0) {
+    situation.push(`最近选择：${context.keyChoices[context.keyChoices.length - 1]}`)
+  }
+
+  if (context.encounteredCharacters?.length > 0) {
+    situation.push(`已遇角色：${context.encounteredCharacters.join('、')}`)
+  }
+
+  const factionEntries = Object.entries(context.factionRelations || {})
+  if (factionEntries.length > 0) {
+    const summary = factionEntries
+      .slice(0, 3)
+      .map(([name, score]) => `${name} ${score >= 15 ? '友好' : score <= -15 ? '紧张' : '观望'}`)
+      .join('；')
+    situation.push(`阵营关系：${summary}`)
+  }
+
+  if (context.plotJournal?.length > 0) {
+    situation.push(`最近剧情：${context.plotJournal[context.plotJournal.length - 1]}`)
   }
 
   // 基于心境的场景氛围补充
@@ -803,6 +909,14 @@ const DIALOGUE_SYSTEM_TEMPLATE = `【角色扮演】你正在以特定角色的�
 
 请以该角色的身份，延续对话并回应用户的行动。`
 
+function hasSupplementalRuntimeContext(detail) {
+  return detail.goals.length > 0 ||
+    detail.encounteredCharacters.length > 0 ||
+    detail.keyChoices.length > 0 ||
+    Object.keys(detail.factionRelations || {}).length > 0 ||
+    detail.plotJournal.length > 0
+}
+
 /**
  * 将写作上下文作为系统消息注入
  * @param {object|null} dialogueCharacter - 对话角色信息
@@ -814,7 +928,6 @@ export function buildContextMessage(dialogueCharacter = null, options = {}) {
   const context = getWritingContextDetail(contextDetail || {})
 
   // 如果需要排除时间，临时清除时间信息
-  const originalTime = context.time
   if (excludeTime) {
     context.time = null
   }
@@ -844,7 +957,9 @@ export function buildContextMessage(dialogueCharacter = null, options = {}) {
   }
 
   // 普通模式
-  if (!context.character && !context.time && !context.location && !context.scene && context.activities.length === 0) {
+  const hasPrimaryContext = Boolean(context.character || context.time || context.location || context.scene)
+  const hasActivityContext = context.activities.length > 0
+  if (!hasPrimaryContext && !hasActivityContext && !hasSupplementalRuntimeContext(context)) {
     return null
   }
 
@@ -921,6 +1036,41 @@ function getWritingContextFromDetail(detail) {
     const typeLabels = { event: '事件', milestone: '里程碑', decision: '决定', encounter: '遭遇' }
     detail.activities.forEach(a => {
       parts.push(`- ${a.date || ''} ${a.title} (${typeLabels[a.type] || a.type})`)
+    })
+  }
+
+  if (detail.goals?.length > 0) {
+    parts.push(`【当前目标】`)
+    detail.goals.forEach((goal) => {
+      parts.push(`- ${goal.title} (${goal.status || 'active'})`)
+    })
+  }
+
+  if (detail.encounteredCharacters?.length > 0) {
+    parts.push(`【已遇角色】`)
+    parts.push(detail.encounteredCharacters.join('、'))
+  }
+
+  if (detail.keyChoices?.length > 0) {
+    parts.push(`【关键选择】`)
+    detail.keyChoices.forEach((choice) => {
+      parts.push(`- ${choice}`)
+    })
+  }
+
+  const factionEntries = Object.entries(detail.factionRelations || {})
+  if (factionEntries.length > 0) {
+    parts.push(`【阵营关系】`)
+    factionEntries.slice(0, 6).forEach(([name, score]) => {
+      const tendency = score >= 15 ? '友好' : score <= -15 ? '紧张' : '观望'
+      parts.push(`- ${name}: ${tendency} (${score})`)
+    })
+  }
+
+  if (detail.plotJournal?.length > 0) {
+    parts.push(`【最近剧情摘要】`)
+    detail.plotJournal.forEach((summary) => {
+      parts.push(`- ${summary}`)
     })
   }
 

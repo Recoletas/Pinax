@@ -37,12 +37,67 @@ describe('buildContextMessage', () => {
           currentCity: '青石城',
           currentScene: '城门'
         },
-        activities: []
+        activities: [],
+        goals: [
+          { title: '拿到钟楼证据', status: 'active' }
+        ],
+        encounteredCharacters: [
+          { name: '林舟' }
+        ],
+        factionRelations: {
+          潮盐行会: -18
+        },
+        keyChoices: [
+          { label: '答应先查钟楼' }
+        ],
+        plotJournal: [
+          { summary: '主角抵达城门，接下第一轮调查。' }
+        ]
       }
     })
 
     expect(message?.content || '').toContain('姓名：新会话角色')
     expect(message?.content || '').toContain('性别：女')
+    expect(message?.content || '').toContain('当前目标：开启新故事')
+    expect(message?.content || '').toContain('拿到钟楼证据')
+    expect(message?.content || '').toContain('林舟')
+    expect(message?.content || '').toContain('潮盐行会')
+    expect(message?.content || '').toContain('答应先查钟楼')
+    expect(message?.content || '').toContain('最近剧情')
     expect(message?.content || '').not.toContain('旧角色')
+  })
+
+  it('builds a normal-mode context message from lightweight runtime state alone', () => {
+    const message = buildContextMessage(null, {
+      contextDetail: {
+        activities: [],
+        goals: [
+          { title: '拿到钟楼证据', status: 'active' }
+        ],
+        encounteredCharacters: [
+          { name: '林舟' }
+        ],
+        factionRelations: {
+          潮盐行会: -18
+        },
+        keyChoices: [
+          { label: '先去钟楼查痕迹' }
+        ],
+        plotJournal: [
+          { summary: '主角决定先去钟楼，再追查雾税账册。' }
+        ]
+      }
+    })
+
+    expect(message).not.toBeNull()
+    expect(message?.content || '').toContain('【当前目标】')
+    expect(message?.content || '').toContain('拿到钟楼证据')
+    expect(message?.content || '').toContain('【已遇角色】')
+    expect(message?.content || '').toContain('林舟')
+    expect(message?.content || '').toContain('【阵营关系】')
+    expect(message?.content || '').toContain('潮盐行会')
+    expect(message?.content || '').toContain('【关键选择】')
+    expect(message?.content || '').toContain('先去钟楼查痕迹')
+    expect(message?.content || '').toContain('【最近剧情摘要】')
   })
 })

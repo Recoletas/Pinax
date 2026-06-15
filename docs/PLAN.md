@@ -1,81 +1,114 @@
 # 当前产品计划
 
-> 本文件只保留当前产品主线和近期判断。更细的专题路线图见 [plan/README.md](./plan/README.md)。
+> 先看这里，再决定读哪份专题计划。当前文档口径已经调整为：**角色化产品方向已采纳，`playable-worldbook` 保留为迁移期执行骨架。**
 
-## 产品主线
+## 产品方向
 
-Pinax 当前收口为“可玩的世界书”：
+Pinax 正在朝一个**角色化 AI GM 驱动的轻量文字冒险工作台**迁移。
+
+对外产品承诺不再是“文字游戏 + 写作工具 + 世界书 + 地图 + 画布”的并列集合，而是：
 
 ```text
-选择世界
-  -> 进入冒险
-  -> 形成剧情日志和素材
+进入一个世界
+  -> 与角色化 GM 推进冒险
+  -> 沉淀剧情、素材与状态
   -> 写成作品
-  -> 整理为分镜或改编出口
+  -> 整理成分镜或后续改编出口
 ```
 
-这个定位替代旧的“文字游戏 + 写作工具 + 世界书 + 地图 + 画布”并列叙述。短期目标不是继续铺功能入口，而是让用户能从一个世界开始玩，并自然沉淀为可编辑作品。
+方向文档见 [plan/character-driven-arc.md](./plan/character-driven-arc.md)。
 
-## 当前稳定链路
+在平面设计层，当前新增一个更具体的视觉锚：[plan/kao-ui-direction.md](./plan/kao-ui-direction.md)。它负责回答“首页 / chrome / 工作面具体应该长什么样”，特别是 `kao.jpg` 参考图里的档案册、拼贴相片、纸页材质和书签按钮如何翻译进 Pinax。
 
-- `体验页`：进入世界、进行 AI GM 冒险、产出剧情上下文。
-- `世界书 / 设定`：导入、生成、编辑世界信息；快速导入预设是冷启动入口。
-- `素材页`：内容真源和中转层；接收体验、设定、图片和正文候选。
-- `卡片画布`：素材关系、镜头顺序和分镜参数的空间视图。
-- `写作页`：把冒险或素材改写成正文。
+## 执行骨架
+
+虽然产品外壳开始切向角色化 GM，但当前可复用的工程骨架仍然是 `playable-worldbook`：
+
+- 世界选择 / 进入冒险 / 写回作品 这条漏斗保留。
+- `gameStore`、`worldbookContextBuilder`、`generation*` 任务层继续作为唯一主链。
+- 种子世界、demo case、手测记录继续有效，不因为外壳改向而作废。
+
+执行骨架文档见 [plan/playable-worldbook-roadmap.md](./plan/playable-worldbook-roadmap.md)。
+
+## 当前工作模型
+
+当前按**双轨推进，单方向收敛**执行：
+
+1. **Runtime skeleton**
+   - Stage 3a / 3b / 4 已落地首轮：轻状态、剧情日志和两个 MVP trigger 已接到同一条 runtime 主链。
+   - 下一步围绕 trigger 质量、剧情日志质量和 live demo 验证继续收口，不新增第二套状态源。
+
+2. **UI shell migration**
+   - Phase 1B 现在明确按 `character-driven-arc` §3.4 / §3.5 + [superpowers/specs/2026-06-10-ui-redesign-design.md](./superpowers/specs/2026-06-10-ui-redesign-design.md) 推进：`WelcomeView` 先做 olive/gold kao 档案册首页(纸页底、相片拼贴、暖金/氧化绿、极少文字、书签式 CTA)，3 阶段路径：Phase A 纯 CSS tokens + 3 个 `.is-*` 自包含 utility → Phase B 抽 4 个 kao 组件(`FolioSurface` / `PosterStage` / `BookmarkButton` / `ArchiveStrip`)+ 模板局部重排 → Phase C 3 文件(`WelcomeView` / `AppShell` / `Experience`)复用证明 + 1 次人工截图审查。
+   - 该方向现在进一步细化为 `kao-ui-direction`：`WelcomeView`、`AppShell`、`Experience` 等表层 UI 从旧 framey PPT 工具壳切到”角色海报 + 档案册 + 相片拼贴 + 纸页材质”的复合语法。
+   - Phase 1C 再把角色在场感分配到重工作面：`Experience` 优先对应正立对话态，`Writing / Notes` 优先对应侧视静默批注态，`ProseEssay` 对应编辑态。
+   - Phase 2 资产与电影感 motion 仍未开闸；这一轮不要提前引入最终立绘资产、Motion One / GSAP 或单世界专属背景。
+   - 不再继续深投旧的工具化外壳。
+
+3. **Content / demo**
+   - 继续用 `边境王国 · 雾潮暮湾` 做旗舰世界。
+   - 继续跑真实冒险、小说样例、分镜节点和 demo case。
+
+并行执行细分见 [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md)。
 
 ## 近期重点
 
-0. **下一轮并行执行**
-   - 已完成首轮入口切片：首屏只主推 `边境王国 · 雾潮暮湾`，并在快速导入和体验页提供 3 个开局行动。
-   - 工程主线下一步进入 GM 轻状态、剧情日志和 2 个 trigger。
-   - 内容线程首批 review / UI 参考 / demo case 已落文档，下一步跑真实 10-15 分钟手测。
-   - 内容线程首批文档：
-     - [content-review/border-kingdom-review.md](./content-review/border-kingdom-review.md)
-     - [demo/border-kingdom-adventure.md](./demo/border-kingdom-adventure.md)
-     - [content-review/border-kingdom-ui-reference.md](./content-review/border-kingdom-ui-reference.md)
-   - 详细分工见 [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md)。
+1. **Phase 1B — 入口与 chrome 重做**
+   - Phase 1A 已完成首轮：四个重工作面已统一到共享 `GmPersonaLauncher`，并继续复用现有 `AdvisorPanel` 逻辑。
+   - 当前切片先重做 `WelcomeView` 的海报构图，并以 `kao-ui-direction` 为视觉锚：档案册纸面、相片拼贴、金属角件、书签按钮、极少文字，不再把大段文案或功能概览放在首屏。
+   - 在真实位图资产接入前，不再使用 CSS 假人物 / 假剪影去冒充角色海报。
+   - 然后再统一 `AppShell` chrome、工具栏显隐与页面层级，把“隐藏优先”的导航和角色化入口语言稳定下来，并从普通 tab/header 过渡到更像页签 / 档案目录的壳层。
+   - `Experience` / `Writing` / `Notes` / `ProseEssay` 的壳层统一仍在这一阶段，但排在首页构图稳定之后。
+   - **2026-06-10 锁定**:基色从 `character-driven-arc` 的暗红海报舞台切到现有 `--archive-*` 绿/金/玫/相片调色板(olive/gold 优先),用户拍板覆盖 P5R 暗朱红 + 构成主义红。书签脊 = `var(--archive-gold)`,PINAX wedge = `var(--archive-olive-strong)`,utility class 用 `.is-folio` / `.is-bookmark` / `.is-archive-strip` 命名。完整设计决策见 [superpowers/specs/2026-06-10-ui-redesign-design.md](./superpowers/specs/2026-06-10-ui-redesign-design.md)。
+   - **三阶段路径**:Phase A 纯 CSS(`main.css` 加 8 token + 3 个 opt-in `.is-*` utility,各自包含 `box-shadow:none` / `border-radius:0`,**不使用** `[class*='welcome-']` 全局选择器,模板零改)→ Phase B 抽 4 个 kao 组件(`FolioSurface` / `PosterStage` / `BookmarkButton` / `ArchiveStrip`)+ 模板局部重排(8 个 `display:none` 契约壳全保留)→ Phase C 三文件(WelcomeView + AppShell + Experience)复用证明 kao §11 验收门槛。
+   - 继续只动壳层，不在这一轮触碰 `gameStore` / `worldbookContextBuilder` / generation task layer。
 
-1. **入口话术收尾**
-   - 首页和体验页统一表达为“进入一个世界”。
-   - 没有世界书时，引导使用种子世界或快速导入。
-   - 只改用户可见文案和 CTA，不改路由、store key、localStorage key 或文件路径。
+2. **Phase 2 gate 仍关闭**
+   - `character-driven-arc` 已补齐多 pose、首屏构图、C5 cinematic 和 Phase 2 预算；这些现在作为约束存在，但还不是本轮实施范围。
+   - Phase 1B / 1C 没跑稳前，不进入真实立绘生产、动画库接入或 3D / GSAP 方案。
+   - 当前仍待定：demo persona、初版字体组合、角色资产生产流程、动画库是否真的需要。
 
-2. **Stage 1.5：RPG 预设适配**
-   - 先把 `server/data/worlds/*/world.json` 适配到现代世界书 payload。
-   - 现有 5 个 RPG 世界不是 `worldStore.entries` 真源，不能直接当作已接入世界书。
-   - 不新增不可迁移的临时 schema，不绕开现有世界书导入链路。
+3. **Stage 3a / 3b / 4 — runtime skeleton 首轮已通**
+   - `gameStore`、`worldbookContextBuilder`、`QuestLog` 和 generation task layer 已接上轻状态、剧情日志、章节草稿与分镜草稿。
+   - 下一步以质量打磨和真实 demo 验证为主，而不是继续扩第二套 runtime 结构。
 
-3. **种子世界冷启动**
-   - 新增 1 个真正差异化世界，另外 2 个优先复用/改造现有 `科幻星际`、`都市生活`。
-   - 每个主推世界补齐事件、势力、开场困境和改写方向。
-   - 先验证 1 个完整世界，再量产其余世界。
+4. **旗舰世界 live 手测**
+   - 保持 `边境王国 · 雾潮暮湾` 作为当前唯一主推内容样本。
+   - 继续沉淀 10-15 分钟真实冒险记录与写回样例。
 
-4. **玩到写的触发点**
-   - 冒险一段后先做 2 个 MVP trigger：“写成我的版本”“整理成分镜”。
-   - AI 调用走现有 `src/services/generation*` 任务层，不直接 fetch。
-   - 先接通日志到素材和写作出口，再考虑视频或社区能力。
+## 冻结区
+
+以下区域除 bugfix、兼容性修复或迁移必需工作外，**不再继续做重度 polish**：
+
+- 旧 `WelcomeView` 任务板式外壳的继续精修
+- 旧 `.advisor-fab` 视觉微调
+- 旧 Fluent / Segoe 工具化风格的小修小补
+- 把旧壳层继续包装成“最终方向”的文案投资
 
 ## 非目标
 
-- 不优先做社区、公开 fork、排行榜或内容市场。
-- 不把短剧 / 生视频作为当前主 CTA；它只是分镜后的实验出口。
-- 不新增独立工作区；优先复用体验页、世界书、素材、卡片画布和写作页。
-- 不重写世界书 schema、地图引擎或统一生成任务层。
-
-## 工程规则
-
 - 不新增第二套状态源。
-- 不绕开统一生成任务层。
-- 不重命名现有路由、store key、localStorage key。
-- 素材内容以素材层为真源，画布优先保存引用。
-- UI 改动必须说明用户可感知变化，并跑对应回归。
+- 不绕开现有 `generation*` 任务层。
+- 不先做完整 agent runtime、多步规划层或 LangChain 式框架。
+- 不先做角色 voice、BGM 或 3D 电影感系统。
+- 不先改 world-map / geography / renderer 主链。
+- 不为了 UI 方向切换而推翻已经有效的世界书 / 内容 / demo 积累。
+
+## 工程边界
+
+- runtime 状态仍以 `gameStore` 为唯一主入口。
+- 世界书上下文仍以 `worldbookContextBuilder` 为主。
+- 角色化 GM 的第一阶段是**包装层**，不是第二套逻辑层。
+- 旧壳层和新壳层不要在同一轮里同时深挖同一块高冲突 UI。
 
 ## 当前事实入口
 
+- [../README.md](../README.md)：仓库入口与启动方式。
 - [README.md](./README.md)：文档导航。
-- [src/index.md](./src/index.md)：当前事实层说明。
+- [plan/character-driven-arc.md](./plan/character-driven-arc.md)：产品方向文档。
+- [plan/kao-ui-direction.md](./plan/kao-ui-direction.md)：当前首页 / chrome / 工作面的视觉执行锚。
+- [plan/playable-worldbook-roadmap.md](./plan/playable-worldbook-roadmap.md)：迁移期执行骨架。
+- [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md)：接下来并行分工。
 - [src/code-map.md](./src/code-map.md)：代码 owning surface。
-- [src/known-issues.md](./src/known-issues.md)：当前风险和限制。
-- [src/test-status.md](./src/test-status.md)：最近验证状态。
-- [plan/playable-worldbook-roadmap.md](./plan/playable-worldbook-roadmap.md)：可玩的世界书路线图。
+- [src/known-issues.md](./src/known-issues.md)：当前限制与风险。
+- [./superpowers/specs/2026-06-10-ui-redesign-design.md](./superpowers/specs/2026-06-10-ui-redesign-design.md):WelcomeView UI 重构设计 spec(2026-06-10 锁定,基色 = 现有 `--archive-*`,3 阶段路径,4 个 kao 组件待建)。

@@ -14,7 +14,7 @@
 
 ## First action
 At session start, before task work or clarification:
-1. If available, invoke `superpowers:using-superpowers`.
+1. If available, invoke `superpowers:using-superpowers` (Claude plugin name) or `using-superpowers` (Codex global skill name).
 2. Read `docs/STATUS.md`.
 3. Read `LOCAL.md` only if it exists and is non-empty.
 
@@ -53,6 +53,7 @@ For small fixes / single-step tasks, do not force this split.
 ## Skill discovery paths
 - canonical: `agent-skills/<name>/SKILL.md`
 - Codex: `.agents/skills/<name>/SKILL.md`（symlink 到 canonical）
+- Codex user/global: `~/.codex/skills/<name>/SKILL.md`（used for installed third-party skills such as Superpowers）
 - Claude Code: `.claude/skills/<name>/SKILL.md`（symlink 到 canonical）
 
 ## Local notes

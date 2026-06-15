@@ -1,143 +1,176 @@
-# 可玩的世界书并行执行计划
+# 角色化迁移并行执行计划
 
-> 目标：下一轮不要继续堆种子世界数量，也不要只换文案。主线改成“一个主推可玩世界 + 更有仪式感的入口 + 玩到写闭环”。
+> 文件名沿用旧名，但内容已经切到当前模型：**方向按 `character-driven` 走，执行按 `playable-worldbook` 骨架走。**
 
-## 0. 当前进度
+## 0. 当前共识
 
-更新：2026-06-09
+- 产品方向：角色化 AI GM 驱动的文字冒险工作台。
+- 执行骨架：`playable-worldbook` 的 runtime / content / trigger 主链。
+- 推进方式：UI shell、runtime skeleton、content/demo 三条线程并行。
+- 冻结区：旧 `WelcomeView` 任务板、旧 `.advisor-fab`、旧工具化外壳只做 bugfix，不再深度 polish。
+- 当前进度：线程 A 的 Phase 1A 已完成首轮，四页已接入共享 `GmPersonaLauncher`；线程 A 当前推进点改为 Phase 1B 的“海报入口语法 + chrome 收敛”，Phase 2 资产与 motion gate 仍关闭。
 
-- Thread A 已完成第一切片：快速导入首屏只主推 `边境王国 · 雾潮暮湾`，并补上 3 个可点击开局行动。
-- Thread A 已完成体验页开场卡：从主推世界进入后会保存开局意图、优先打开新世界会话、自动走现有 GM 开场流程，并在第一轮输入前显示 3 个行动建议。
-- Thread B 首批文档已落地：`docs/content-review/border-kingdom-review.md`、`docs/content-review/border-kingdom-ui-reference.md`、`docs/demo/border-kingdom-adventure.md`。
-- 下一步进入 Stage 3a：只做 `gameStore` 最小轻状态字段与回归保护，不启用第二套 `experienceStore`。
+## 1. 线程 A — UI shell / 显示全面重构
 
-## 1. 产品修正
+**目标**：开始把产品“看起来像一个角色在带你进入世界”，而不是一个工具集合。
 
-上一轮方向成立，但执行要收窄：
+**Owner**：UI 主线程
 
-- 首页/快速导入不要同时主推太多世界。短期只推 1 个旗舰世界：`边境王国 · 雾潮暮湾`。
-- `都市异闻`、`近未来殖民地` 和 RPG 旧世界放进“更多题材 / 归档”，不抢首屏。
-- UI 不再沿用旧表单列表。下一轮入口要像“今晚进入一个世界”：
-  - 世界封面卡。
-  - 开场困境。
-  - 3 个可点行动钩子。
-  - 势力/地点/事件的可视化摘要。
-  - 明确的下一步：开始冒险 -> 写成我的版本 -> 整理成分镜。
+**建议文件边界**：
 
-## 2. 并行分工
+- `src/views/WelcomeView.vue`
+- `src/layouts/AppShell.vue`
+- `src/styles/main.css`
+- `src/pages/Experience.vue` 的外壳层
+- `src/pages/Writing.vue`
+- `src/pages/Notes.vue`
+- `src/pages/ProseEssay.vue`
+- 新的 `src/components/gm-persona/*`
 
-### 线程 A — Codex 主做
+**本轮切片**：
 
-范围：工程主链路和高冲突文件。其他人不要同时改这些文件。
+1. Phase 1A：角色 launcher / bubble / panel（已完成首轮）
+2. Phase 1B-a：`WelcomeView` 海报入口语法
+   - 通用暗红海背景
+   - 构成主义切面 / 楔形
+   - 诚实的海报舞台与反射语法；在真实位图资产接入前，不用 CSS 假人物 / 假剪影冒充角色海报
+   - 默认世界入口降到辅助层
+   - 入口 CTA 保持命令式，避免功能总览
+3. Phase 1B-b：`AppShell` / 导航 / 页面 chrome 收敛
+   - hidden-first chrome
+   - 页面 mast / side shell 层级统一
+   - 不把旧工具栏包装成“最终方向”
+4. Phase 1C：Experience 与其余重工作面的在场感映射
+   - `Experience` 优先对齐正立对话态
+   - `Writing / Notes` 优先对齐侧视静默批注态
+   - `ProseEssay` 对齐编辑态
 
-Owner：Codex
+**硬边界**：
 
-主要文件：
+- 不改 `gameStore` 状态结构
+- 不碰 `worldbookContextBuilder` 核心逻辑
+- 不先做 Mem0 character 轴
+- 不用单一世界专属背景图当长期方案
+- 不提前引入真实立绘资产生产、Motion One / GSAP 或 3D 倾斜立绘
+- 不把单次首页预览硬写成最终字体系统
 
-- `src/pages/WorldBookQuickImport.vue`
-- `src/pages/Experience.vue`
+**交付物**：
+
+- 新角色入口原型
+- 局部 token / typography wedge
+- WelcomeView / Experience 的新外壳截图或实现
+
+## 2. 线程 B — Runtime skeleton / 底层逻辑
+
+**目标**：继续把“世界会记住发生了什么，并能写回作品”做成稳定骨架。
+
+**Owner**：runtime 主线程
+
+**建议文件边界**：
+
 - `src/stores/gameStore.js`
-- `src/components/GamePanel.vue`
 - `src/services/worldbookContextBuilder.js`
 - `src/services/generation*`
-- `src/components/worldbook/*`
-- 相关测试文件
+- `src/components/StatusBar.vue`
+- `src/components/QuestLog.vue`
+- 对应测试文件
 
-交付顺序：
+**本轮切片**：
 
-1. 快速导入入口重构为“单主推世界”。（已完成首轮）
-   - 首屏只展示 `边境王国 · 雾潮暮湾`。
-   - 其他世界折叠到“更多题材”。
-   - 增加封面式 hero、开局困境、3 个行动钩子。
-   - 保留旧导入路径：预设导入、小说文本导入、说明驱动 AI 生成。
-2. 体验页开局变得更像冒险入口。（已完成首轮）
-   - 导入后显示“进入这个世界”的开场卡。
-   - 第一轮输入前提供 3 个行动建议。
-   - 不改路由、store key、localStorage key。
-3. Stage 3a：GM 轻状态。
-   - 复用 `gameStore`，新增最小字段。
-   - 不启用第二套 `experienceStore` 状态。
-   - 加 `StatusBar` / `QuestLog` / session persistence 回归。
-4. Stage 3b：剧情日志聚合器。
-   - 每 8-12 轮生成结构化摘要。
-   - 日志服务只消费世界书摘要、轻状态和最近对话。
-5. Stage 4 MVP：两个 trigger。
-   - `写成我的版本`：剧情日志 -> 小说章节草稿。
-   - `整理成分镜`：剧情节点 -> 卡片画布 / 分镜草稿。
-   - 必须走现有 generation task layer，不直接 fetch。
+1. Stage 3a：轻状态字段
+2. Stage 3b：剧情日志聚合
+3. Stage 4：两个 MVP trigger
 
-验收：
+**硬边界**：
 
-- 新用户 30 秒内只看到一个清晰主世界，而不是题材货架。
-- 从空白状态导入旗舰世界后，能直接开始 1 轮冒险。
-- 10 轮冒险后能生成剧情摘要。
-- 冒险摘要后出现“写成我的版本”和“整理成分镜”。
-- `npm run test:run`、`npm run build` 通过；UI 改动补视觉/契约测试。
+- 不顺手接 UI 壳层重做
+- 不把旧壳层继续 polish 成“看起来更像最终方向”
+- 不启用第二套状态源
 
-### 线程 B — 交给用户/其他人
+**交付物**：
 
-范围：内容质量、手测、demo 和营销材料。尽量不要改线程 A 的高冲突工程文件。
+- 轻状态字段与回归测试
+- 剧情摘要结构
+- `写成我的版本` / `整理成分镜` 两个入口
 
-建议独立分支：`content/flagship-world-review`
+## 3. 线程 C — 内容 / demo / 手测
 
-主要文件：
+**目标**：继续用旗舰世界验证这条方向是不是能玩、能写、能展示。
+
+**Owner**：内容线程 / 文档线程
+
+**建议文件边界**：
 
 - `docs/demo/*`
+- `docs/content-review/*`
 - `docs/plan/*`
-- `docs/user-manual/*`
-- 可新增 `docs/content-review/*`
-- 需要改世界内容时，先提交 review 文档，不直接大改工程文件
+- `src/services/seedWorldbookPresets.js` 只在 patch 点明确后再动
 
-交付：
+**本轮切片**：
 
-1. 旗舰世界内容 review。
-   - 只审 `边境王国 · 雾潮暮湾`。
-   - 检查 6-10 个事件是否能串成 10-15 分钟冒险。
-   - 检查 3 个行动钩子是否有差异，而不是同义按钮。
-   - 检查势力冲突是否能给 GM 明确压力。
-2. 手动冒险记录。
-   - 从空白浏览器开始。
-   - 导入旗舰世界。
-   - 玩 10-15 分钟。
-   - 记录每轮：玩家输入、GM 是否引用世界书、是否出现可写作素材。
-3. Demo case。
-   - 写 `docs/demo/border-kingdom-adventure.md`。
-   - 产出 1 段冒险摘要。
-   - 产出 1 段小说化改写示例。
-   - 产出 1 个分镜节点清单。
-4. UI 参考。
-   - 找 3 个“可玩世界入口”参考，不要只找写作工具。
-   - 输出文字说明即可：信息层级、首屏动线、按钮文案、视觉氛围。
+1. `边境王国 · 雾潮暮湾` 10-15 分钟真实手测
+2. 开场钩子、世界细节、写回出口文案补点
+3. demo case、小说化样例、分镜节点清单
+4. UI 参考继续偏“文字冒险 / 编辑设计 / 角色化入口”，不再偏工具站
+5. 给 Thread A 提供 Phase 2 前置资料，而不是直接抢实现：
+   - demo persona 候选 brief
+   - 字体 shortlist
+   - 资产 prompt / pose 说明草稿
 
-验收：
+**硬边界**：
 
-- 旗舰世界可支撑 10-15 分钟，不靠用户临场补设定。
-- 手测记录能指出 GM 引用世界书的证据。
-- demo 文档能支撑后续营销：选世界 -> 玩 -> 写 -> 分镜。
-- 不直接和线程 A 抢改 `gameStore`、`Experience.vue`、`WorldBookQuickImport.vue`。
+- 不直接抢改 `Experience.vue` / `gameStore.js` / `WorldBookQuickImport.vue`
+- 先提文档 patch 点，再由对应线程落地工程改动
 
-## 3. 合流规则
+**交付物**：
 
-- 线程 A 先合工程主线。
-- 线程 B 的内容 review 以文档 PR 合入。
-- 如果线程 B 发现必须改种子世界内容，先提具体 patch 点，再由线程 A 或单独短分支改 `seedWorldbookPresets`。
-- Stage 3a/3b 属于高风险状态改动，必须单独 review 后再做 Stage 4。
+- live 手测记录
+- 可复用 demo 文档
+- 内容 patch 建议
 
-## 4. 下一轮顺序
+## 4. 避冲突规则
+
+### 线程 A 不要抢
+
+- `gameStore.js`
+- `worldbookContextBuilder.js`
+- generation task layer
+
+### 线程 B 不要抢
+
+- `WelcomeView.vue`
+- `AppShell.vue`
+- 新角色壳层组件
+- 全局视觉语言重做
+
+### 线程 C 不要抢
+
+- 高冲突运行时代码
+- 正在做大改的 UI 外壳文件
+
+## 5. 接下来两轮的推荐顺序
 
 ```text
-Codex:
-  单主推世界入口 UI
-  -> 体验页开场卡
-  -> GM 轻状态
-  -> 剧情日志
-  -> 2 个 trigger
+Round 1
+  A: 角色 launcher / bubble / panel（已完成）
+  B: Stage 3a 轻状态
+  C: 边境王国 live 手测 + demo 样例
 
-其他人:
-  旗舰世界内容 review
-  -> 10-15 分钟手测记录
-  -> demo case 文档
-  -> UI 参考清单
+Round 2
+  A: WelcomeView 海报入口语法 + chrome 重做
+  B: Stage 3b 剧情日志
+  C: 世界内容 patch 建议 + UI 参考补充 + persona/字体/pose brief
+
+Round 3
+  A: Experience 呈现层统一，再带到 Writing / Notes / ProseEssay
+  B: Stage 4 两个 trigger
+  C: 完整 demo case 录制与营销材料骨架
 ```
 
-这两个线程可以并行。唯一硬约束是不要同时改高冲突工程文件。
+## 6. 当前最重要的约束
+
+- 不要再同时推进“旧任务板首屏打磨”和“角色化首屏重构”。
+- 不要让 UI 方向切换把 runtime skeleton 拖停。
+- 不要把 Mem0 character 轴误写成第一阶段轻改。
+- 先把壳层价值证明出来，再决定是否继续深入 persona memory。
+- Phase 2 的 pose / 资产 / 动画约束已经写进方向文档，但 gate 还没开；当前并行线程都不能把自己滑进去。

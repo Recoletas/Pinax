@@ -1,6 +1,7 @@
 <template>
   <aside class="side-panel" aria-label="二级导航">
     <header class="side-panel-head">
+      <span class="side-panel-kicker">Section</span>
       <h2 class="side-panel-title">{{ title }}</h2>
     </header>
 
@@ -44,68 +45,129 @@ defineEmits(['select'])
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
-  border-right: 1px solid var(--border);
+  background: transparent;
 }
 
 .side-panel-head {
-  height: 50px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 18px 16px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  background:
+    linear-gradient(126deg, color-mix(in srgb, var(--accent-light) 12%, transparent) 0 34%, transparent 34.4% 100%);
+}
+
+.side-panel-kicker {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .side-panel-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
+  margin-top: 6px;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 820;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--text-primary);
 }
 
 .side-panel-list {
-  padding: 8px 6px;
+  padding: 10px 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .side-link {
   width: 100%;
   text-align: left;
-  border: 1px solid transparent;
-  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 10px 50%);
   background: transparent;
-  padding: 8px 8px;
+  padding: 12px 14px 12px 18px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease, color 0.16s ease;
 }
 
 .side-link:hover {
-  background: color-mix(in srgb, var(--bg-hover) 76%, transparent);
+  transform: translateY(-1px) translateX(1px);
+  background: color-mix(in srgb, var(--accent-light) 8%, var(--surface-soft));
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
   color: var(--text-primary);
 }
 
 .side-link.active {
-  background: color-mix(in srgb, var(--accent-light) 72%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-light) 18%, var(--surface-soft)), color-mix(in srgb, var(--surface-raised) 92%, transparent));
+  color: var(--text-primary);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 10px 18px color-mix(in srgb, #000 10%, transparent);
 }
 
 .side-link-label {
   display: block;
   font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .side-link-desc {
   display: block;
-  font-size: 10px;
-  line-height: 1.3;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
   opacity: 0.8;
-  margin-top: 2px;
+}
+
+.side-panel-head {
+  border-bottom-color: color-mix(in srgb, var(--archive-gold) 16%, transparent);
+  background:
+    linear-gradient(126deg, color-mix(in srgb, var(--archive-gold) 10%, transparent) 0 34%, transparent 34.4% 100%);
+}
+
+.side-panel-kicker {
+  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
+}
+
+.side-panel-title {
+  color: var(--archive-ink);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  text-transform: none;
+}
+
+.side-link {
+  border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 78%, transparent);
+  color: var(--archive-ink-soft);
+}
+
+.side-link:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 24%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper) 88%, transparent);
+  color: var(--archive-ink);
+}
+
+.side-link.active {
+  border-color: color-mix(in srgb, var(--archive-gold) 32%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0 72%, color-mix(in srgb, var(--archive-gold) 18%, transparent) 72% 100%);
+  color: var(--archive-ink);
+}
+
+.side-link-label {
+  color: var(--archive-ink);
+}
+
+.side-link-desc {
+  color: var(--archive-ink-soft);
+  opacity: 1;
 }
 </style>

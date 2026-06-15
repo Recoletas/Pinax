@@ -1,53 +1,64 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
-    <!-- 顶部标题栏 -->
-    <header class="title-bar">
-      <div class="title-left">
-        <button class="icon-btn" @click="goBack" title="返回">
+    <WorkbenchPageHero
+      kicker="Writing Desk"
+      title="写作"
+      :description="writingHeroDescription"
+    >
+      <template #back>
+        <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">写作</span>
-      </div>
-      <div class="title-center">
-        <select v-model="selectedBookId" class="book-selector">
-          <option value="">选择书籍...</option>
-          <option v-for="book in books" :key="book.id" :value="book.id">
-            {{ book.title }}
-          </option>
-        </select>
-      </div>
-      <div class="title-right">
-        <div class="status-indicator" :class="saveStatus">
-          <span class="status-dot"></span>
-          <span class="status-text">{{ statusText }}</span>
-          <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
-          <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
+      </template>
+      <template #inline>
+        <div class="workbench-hero-input-group">
+          <select
+            v-model="selectedBookId"
+            class="book-selector workbench-hero-inline-select"
+            @change="handleHeroBookChange"
+          >
+            <option value="">选择书籍...</option>
+            <option v-for="book in books" :key="book.id" :value="book.id">
+              {{ book.title }}
+            </option>
+          </select>
         </div>
-        <div v-if="quickNoteStatus" class="action-status-chip" :title="quickNoteStatus">{{ quickNoteStatus }}</div>
-        <button class="toolbar-text-btn" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
-          收件箱
-        </button>
-        <button class="toolbar-text-btn prominent" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">
-          素材库
-        </button>
-        <button class="toolbar-text-btn" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
-          章节分镜
-        </button>
-        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-          <span class="theme-icon">
-            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-            </svg>
-          </span>
-          <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
-        </button>
-      </div>
-    </header>
+      </template>
+      <template #meta>
+        <div class="workbench-hero-meta-list">
+          <span class="workbench-hero-chip accent">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <span class="workbench-hero-chip">{{ books.length }} 本书 / {{ chapters.length }} 章</span>
+          <span v-if="selectedChapterSummary" class="workbench-hero-chip">{{ selectedChapterSummary }}</span>
+          <span v-if="writingQuickNoteLabel" class="workbench-hero-chip">{{ writingQuickNoteLabel }}</span>
+        </div>
+      </template>
+      <template #actions>
+        <div class="workbench-hero-actions-row">
+          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
+            收件箱
+          </button>
+          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">
+            素材库
+          </button>
+          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
+            章节分镜
+          </button>
+          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+            <span class="theme-icon">
+              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+              </svg>
+            </span>
+            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+          </button>
+        </div>
+      </template>
+    </WorkbenchPageHero>
 
     <div class="content-area">
       <!-- 左侧边栏：作品导航 -->
@@ -697,12 +708,14 @@
       </div>
     </Transition>
 
-    <button class="advisor-fab" @click="openAdvisorFromAction" title="打开创作顾问">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="5"></circle>
-        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-      </svg>
-    </button>
+    <GmPersonaLauncher
+      kicker="写作顾问"
+      title="这段该收束、扩写还是换焦点"
+      body="我先看当前章节和素材结构，再给你一个够轻、但能继续推进的写法。"
+      caption="虚构集"
+      captionHint="写作入口"
+      @open="openAdvisorFromAction"
+    />
 
     <AdvisorPanel
       :isOpen="advisorOpen"
@@ -732,7 +745,9 @@ import { useWorldStore } from '../stores/worldStore'
 import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
@@ -952,6 +967,36 @@ const statusText = computed(() => {
     default: return ''
   }
 })
+const selectedBookSummary = computed(() => {
+  const book = books.value.find((item) => item.id === selectedBookId.value)
+  if (!book) return ''
+  return book.title || '未命名书籍'
+})
+const selectedChapterSummary = computed(() => {
+  const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
+  if (!chapter) return selectedBookSummary.value
+  const title = String(chapter.title || '无标题章节').trim()
+  const count = Number(chapter.wordCount || 0)
+  return `${title} · ${count.toLocaleString()} 字`
+})
+const writingQuickNoteLabel = computed(() => {
+  const text = String(quickNoteStatus.value || '').trim()
+  return text || ''
+})
+const writingHeroDescription = computed(() => {
+  if (!selectedBookId.value) {
+    return '先选一本书，左侧继续管理作品和章节；上方只保留当前稿件状态、素材入口和分镜出口。'
+  }
+  if (!selectedChapterId.value) {
+    return `当前聚焦《${selectedBookSummary.value || '未命名书籍'}》，下一步是选章或开新章，再进入正文工作面。`
+  }
+  return `当前正在处理 ${selectedChapterSummary.value || '章节正文'}。素材收件箱、素材库和章节分镜都从这里出入，不再单独挤成工具栏。`
+})
+
+function handleHeroBookChange() {
+  if (!selectedBookId.value) return
+  selectBook(selectedBookId.value)
+}
 
 function goBack() {
   saveCurrentChapter()
@@ -2927,56 +2972,6 @@ function stopResizeRight() {
   text-align: center;
 }
 
-.title-bar {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--surface-soft);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.title-left .app-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.title-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.title-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.action-status-chip {
-  max-width: 280px;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 28px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .toolbar-text-btn {
   height: 32px;
   padding: 0 10px;
@@ -3041,45 +3036,6 @@ function stopResizeRight() {
 .book-selector:focus {
   outline: none;
   border-color: var(--accent);
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  background: var(--bg-tertiary);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-}
-
-.status-indicator.saving .status-dot {
-  background: var(--warning);
-}
-
-.status-indicator.unsaved .status-dot {
-  background: var(--danger);
-}
-
-.status-text {
-  color: var(--text-secondary);
-}
-
-.status-divider {
-  color: var(--text-muted);
-  margin: 0 4px;
-}
-
-.status-count {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .theme-toggle {
@@ -3457,30 +3413,6 @@ function stopResizeRight() {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.advisor-fab {
-  position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border: none;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 245;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .editor-header {
@@ -4668,11 +4600,5 @@ function stopResizeRight() {
     grid-template-columns: 1fr;
   }
 
-  .advisor-fab {
-    right: 16px;
-    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    width: 52px;
-    height: 52px;
-  }
 }
 </style>

@@ -1,102 +1,21 @@
 <template>
   <div class="game-page">
-    <!-- 标题栏 -->
-    <header class="title-bar">
-      <div class="title-left">
-        <span class="app-title">小说体验</span>
-        <select class="worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange">
-          <option value="">选择一个可玩的世界...</option>
-          <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id">
-            {{ wb.name }}
-          </option>
-        </select>
-        <button class="action-btn" type="button" @click="openWorldbookQuickImport">
-          导入种子世界
-        </button>
-      </div>
-      <div class="title-right">
-        <button class="action-btn primary" :disabled="assetSummaryLoading" @click="organizeExperienceAssets">
-          {{ assetSummaryLoading ? '整理中' : '整理素材' }}
-        </button>
-        <button class="action-btn" @click="showSessionPicker = true">会话</button>
-        <button class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-          <span class="theme-icon">
-            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-            </svg>
-          </span>
-          <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
-        </button>
-        <button class="action-btn" @click="showSettings = true">设置</button>
-      </div>
-    </header>
-
-    <section class="playable-world-strip" :class="{ 'is-empty': !hasSelectedWorldbook }">
-      <div class="playable-world-copy">
-        <span class="playable-world-kicker">可玩的世界书</span>
-        <strong>{{ playableWorldTitle }}</strong>
-        <p>{{ playableWorldDescription }}</p>
-      </div>
-      <div class="playable-world-steps" aria-label="创作路径">
-        <span>选择世界</span>
-        <span>开始冒险</span>
-        <span>写成作品</span>
-      </div>
-      <div class="playable-world-actions">
-        <button class="action-btn primary" type="button" :disabled="!hasSelectedWorldbook" @click="startWorldAdventure">
-          {{ hasSelectedWorldbook ? '进入这个世界' : '先导入世界' }}
-        </button>
-        <button class="action-btn" type="button" @click="openWorldbookQuickImport">
-          {{ hasSelectedWorldbook ? '换一个种子世界' : '导入种子世界' }}
-        </button>
-      </div>
-    </section>
-
-    <section
-      v-if="showOpeningActionCard"
-      class="opening-action-card"
-      aria-label="世界开场行动"
-    >
-      <div class="opening-map-mark" aria-hidden="true">
-        <span></span>
-        <span></span>
-        <span></span>
-      </div>
-      <div class="opening-action-copy">
-        <span class="opening-kicker">今晚开场</span>
-        <strong>{{ selectedOpeningAction?.title || activeWorldbook?.name }}</strong>
-        <p>{{ selectedOpeningAction?.detail || playableWorldDescription }}</p>
-      </div>
-      <div class="opening-action-list">
-        <button
-          v-for="action in openingActionHooks"
-          :key="action.id"
-          type="button"
-          class="opening-choice"
-          :class="{ active: selectedOpeningAction?.id === action.id }"
-          @click="selectedOpeningActionId = action.id"
-        >
-          <span>{{ action.label }}</span>
-          <strong>{{ action.title }}</strong>
-        </button>
-      </div>
-      <div class="opening-action-actions">
-        <button class="action-btn primary" type="button" :disabled="gameStore.isLoading" @click="sendOpeningAction">
-          用这个行动开局
-        </button>
-        <button class="action-btn" type="button" @click="dismissOpeningActionCard">
-          先自己输入
-        </button>
-      </div>
-    </section>
-
     <div class="game-layout">
+      <div class="game-main-shell" v-if="!showSessionPicker">
+        <div class="game-main">
+          <GamePanel @show-inline-detail="handleInlineDetail" />
+          <InputArea @send="handleSend" />
+        </div>
+      </div>
       <aside v-if="!showSessionPicker" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-        <div class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
-          <span>{{ sidebarCollapsed ? '»' : '«' }}</span>
+        <div class="sidebar-head">
+          <div class="sidebar-head-copy">
+            <span>情报</span>
+            <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '未选择世界' }}</strong>
+          </div>
+          <button class="sidebar-toggle" type="button" @click="sidebarCollapsed = !sidebarCollapsed">
+            {{ sidebarCollapsed ? '展开' : '收起' }}
+          </button>
         </div>
         <template v-if="!sidebarCollapsed">
           <div class="sidebar-section">
@@ -110,11 +29,6 @@
           </div>
         </template>
       </aside>
-
-      <div class="game-main" v-if="!showSessionPicker">
-        <GamePanel @show-inline-detail="handleInlineDetail" />
-        <InputArea @send="handleSend" />
-      </div>
       <SessionPicker
         v-else
         @select="handleSessionSelect"
@@ -123,7 +37,7 @@
       />
     </div>
 
-    <aside class="quick-notes-rail" aria-label="快捷入口">
+    <aside v-if="showExperienceWorkChrome" class="quick-notes-rail" aria-label="快捷入口">
       <button class="quick-notes-btn" type="button" @click.stop="toggleQuickNoteWorkspace" title="打开速记">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -212,7 +126,6 @@
     </Transition>
 
     <Character v-if="showCharacter" @close="showCharacter = false" />
-    <Settings v-if="showSettings" @close="showSettings = false" />
 
     <!-- 机制面板 -->
     <MechanismPanel
@@ -250,12 +163,15 @@
       </button>
     </Transition>
 
-    <button class="advisor-fab" @click="openAdvisorFromAction" title="打开创作顾问">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="5"></circle>
-        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-      </svg>
-    </button>
+    <GmPersonaLauncher
+      v-if="showExperienceWorkChrome"
+      kicker="在场 GM"
+      title="从这里继续推进"
+      body="我先看当前世界、开场现场和最近对话，再给你一个更紧的推进切口。"
+      caption="虚构集"
+      captionHint="继续冒险"
+      @open="openAdvisorFromAction"
+    />
 
     <!-- 内联事件详情弹窗 -->
     <Teleport to="body">
@@ -286,7 +202,7 @@
       </Transition>
     </Teleport>
 
-    <div class="game-image-gen-rail">
+    <div v-if="showExperienceWorkChrome" class="game-image-gen-rail">
       <ImageGenRail
         storage-key="game_image_library_v1"
         side="right"
@@ -322,7 +238,7 @@ import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
-import { useTheme } from '../composables/useTheme'
+import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GamePanel from '../components/GamePanel.vue'
@@ -330,103 +246,70 @@ import InputArea from '../components/InputArea.vue'
 import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
 import GeographyPanel from '../components/geography/GeographyPanel.vue'
-import Settings from '../components/Settings.vue'
 import Character from '../components/Character.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
-import { summarizeExperienceAssets } from '../services/experienceAssetSummarizer'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
-import {
-  buildPlayableWorldActionHooks,
-  clearPlayableWorldEntryIntent,
-  getPlayableWorldEntryIntent
-} from '../services/playableWorldEntry'
+import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const router = useRouter()
-const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
-const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
 const hasSelectedWorldbook = computed(() => Boolean(selectedWorldbookId.value && activeWorldbook.value))
 const playableWorldTitle = computed(() => {
-  if (!hasSelectedWorldbook.value) return '先选择一个世界，再开始冒险'
-  return `正在进入：${activeWorldbook.value?.name || '未命名世界'}`
+  if (!hasSelectedWorldbook.value) return ''
+  return activeWorldbook.value?.name || '未命名世界'
 })
-const playableWorldDescription = computed(() => {
-  if (!hasSelectedWorldbook.value) {
-    return worldbooksIndex.value.length
-      ? '选择上方世界书后即可创建会话；冒险记录之后可以整理成素材、章节或分镜。'
-      : '还没有世界书。先导入一个种子世界，Pinax 会用世界书、地图和规则支撑 AI GM 的叙事。'
-  }
-  return activeWorldbook.value?.worldDescription || activeWorldbook.value?.description || 'AI GM 会引用这个世界的地点、势力、规则和文风来推进剧情。'
-})
-const selectedOpeningActionId = ref('')
-const openingCardDismissed = ref(false)
-const openingActionHooks = computed(() => buildPlayableWorldActionHooks(activeWorldbook.value))
-const storedOpeningIntent = ref(null)
-const selectedOpeningAction = computed(() => {
-  const hooks = openingActionHooks.value
-  if (!hooks.length) return null
-  const storedAction = storedOpeningIntent.value?.worldbookId === activeWorldbook.value?.id
-    ? storedOpeningIntent.value?.action
-    : null
-  const selected = hooks.find((action) => action.id === selectedOpeningActionId.value)
-  return selected || storedAction || hooks[0]
-})
+const showExperienceWorkChrome = computed(() => hasUserActionMessages.value)
 const hasUserActionMessages = computed(() => {
   return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
-})
-const showOpeningActionCard = computed(() => {
-  return hasSelectedWorldbook.value &&
-    !showSessionPicker.value &&
-    !openingCardDismissed.value &&
-    !hasUserActionMessages.value &&
-    openingActionHooks.value.length > 0
 })
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
+
   await worldStore.loadWorldbooksIndex()
   gameStore.loadSessions()
-  refreshOpeningIntent()
 
-  const currentSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-  const intentWorldbookId = storedOpeningIntent.value?.worldbookId || ''
-  const hasIntentWorldbook = Boolean(intentWorldbookId && worldbooksIndex.value.some((wb) => wb.id === intentWorldbookId))
+  const activeSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+  const latestStoredSession = !activeSession && Array.isArray(gameStore.sessions) && gameStore.sessions.length
+    ? [...gameStore.sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
+    : null
   let loadedExistingSession = false
 
-  if (hasIntentWorldbook) {
-    await worldStore.setActiveWorldbook(intentWorldbookId)
-    selectedWorldbookId.value = intentWorldbookId
-    gameStore.resetRuntimeState()
-    gameStore.createSession({
-      title: `${storedOpeningIntent.value?.worldbookName || worldStore.activeWorldbook?.name || '世界'} · 冒险`,
-      worldbookId: intentWorldbookId,
-      inheritRuntimeState: false
-    })
-    showSessionPicker.value = false
-    await gameStore.initGame()
-  } else if (currentSession) {
-    gameStore.loadSession(currentSession.id)
-    selectedWorldbookId.value = currentSession.worldbookId || currentSession.worldId || ''
+  if (activeSession) {
+    gameStore.loadSession(activeSession.id)
+    selectedWorldbookId.value = activeSession.worldbookId || activeSession.worldId || ''
     if (selectedWorldbookId.value) {
       await worldStore.setActiveWorldbook(selectedWorldbookId.value)
     }
     loadedExistingSession = true
+  } else if (latestStoredSession) {
+    gameStore.loadSession(latestStoredSession.id)
+    selectedWorldbookId.value = latestStoredSession.worldbookId || latestStoredSession.worldId || ''
+    if (selectedWorldbookId.value) {
+      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+    }
+    showSessionPicker.value = false
+    loadedExistingSession = true
   } else {
-    selectedWorldbookId.value = ''
-    await worldStore.setActiveWorldbook(null)
     gameStore.resetRuntimeState()
-    showSessionPicker.value = true
+    if (worldStore.worldbooksIndex.length) {
+      const defaultWorldbook = await worldStore.ensureActiveWorldbook()
+      selectedWorldbookId.value = defaultWorldbook?.id || worldStore.activeWorldbookId || ''
+    } else {
+      selectedWorldbookId.value = worldStore.activeWorldbookId || ''
+    }
+    showSessionPicker.value = false
   }
 
   if (loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
@@ -436,7 +319,6 @@ onMounted(async () => {
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
   }
-  refreshOpeningIntent()
 })
 
 onUnmounted(() => {
@@ -449,58 +331,10 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
   if (selectedWorldbookId.value !== normalized) {
     selectedWorldbookId.value = normalized
   }
-  openingCardDismissed.value = false
-  refreshOpeningIntent()
 })
-
-async function onWorldbookChange() {
-  const worldbookId = selectedWorldbookId.value
-  if (!worldbookId) return
-
-  await worldStore.setActiveWorldbook(worldbookId)
-}
 
 function openWorldbookQuickImport() {
   router.push({ name: 'experience-worldbook' })
-}
-
-function refreshOpeningIntent() {
-  const intent = getPlayableWorldEntryIntent()
-  storedOpeningIntent.value = intent
-  if (intent?.worldbookId === activeWorldbook.value?.id && intent.action?.id) {
-    selectedOpeningActionId.value = intent.action.id
-  } else {
-    selectedOpeningActionId.value = ''
-  }
-}
-
-async function startWorldAdventure() {
-  const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
-  if (!worldbookId) {
-    openWorldbookQuickImport()
-    return
-  }
-  await worldStore.setActiveWorldbook(worldbookId)
-  selectedWorldbookId.value = worldbookId
-
-  const currentSession = gameStore.currentSessionId
-    ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId)
-    : null
-  const sessionWorldbookId = currentSession?.worldbookId || currentSession?.worldId || ''
-
-  if (!currentSession || sessionWorldbookId !== worldbookId) {
-    gameStore.createSession({
-      title: `${worldStore.activeWorldbook?.name || '世界'} · 冒险`,
-      worldbookId,
-      inheritRuntimeState: false
-    })
-  }
-
-  showSessionPicker.value = false
-  if (!gameStore.messages || gameStore.messages.length === 0) {
-    await gameStore.initGame()
-  }
-  refreshOpeningIntent()
 }
 
 function collectGameContext() {
@@ -532,7 +366,6 @@ function openAdvisorFromAction() {
 }
 
 const showCharacter = ref(false)
-const showSettings = ref(false)
 const pendingMechanismNotice = ref(null)
 let mechanismNoticeTimer = null
 
@@ -666,8 +499,6 @@ async function handleSessionSelect(session) {
   if (!gameStore.messages || gameStore.messages.length === 0) {
     await gameStore.initGame()
   }
-  openingCardDismissed.value = false
-  refreshOpeningIntent()
 }
 
 async function handleSessionCreate() {
@@ -686,8 +517,6 @@ async function handleSessionCreate() {
   selectedWorldbookId.value = worldbookId
   showSessionPicker.value = false
   await gameStore.initGame()
-  openingCardDismissed.value = false
-  refreshOpeningIntent()
 }
 
 async function handleSessionDelete(session) {
@@ -705,8 +534,6 @@ async function handleSessionDelete(session) {
     selectedWorldbookId.value = worldbookId
     showSessionPicker.value = false
     await gameStore.initGame()
-    openingCardDismissed.value = false
-    refreshOpeningIntent()
     return
   }
   if (gameStore.currentSessionId === null) {
@@ -744,7 +571,6 @@ const quickNoteStatus = ref('')
 const quickNoteImportOpen = ref(false)
 const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
-const assetSummaryLoading = ref(false)
 
 const shouldLockPageScroll = computed(() => {
   return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value)
@@ -781,21 +607,9 @@ const dialoguePanelMessages = computed(() => {
     .filter((item) => item.role !== 'system' && item.content)
 })
 
-function handleSend(text, options = {}) {
-  openingCardDismissed.value = true
+async function handleSend(text, options = {}) {
   clearPlayableWorldEntryIntent()
-  gameStore.sendAction(text, options)
-}
-
-function sendOpeningAction() {
-  const action = selectedOpeningAction.value
-  if (!action?.command) return
-  handleSend(action.command)
-}
-
-function dismissOpeningActionCard() {
-  openingCardDismissed.value = true
-  clearPlayableWorldEntryIntent()
+  await gameStore.sendAction(text, options)
 }
 
 function loadQuickNoteDraft() {
@@ -899,64 +713,6 @@ function saveSelectedDialogueSegmentsAsAsset() {
   return true
 }
 
-function getUsableExperienceMessages() {
-  return (gameStore.messages || []).filter((message) => {
-    const role = message.role || message.type || 'assistant'
-    return role !== 'system' && String(message.content || '').trim()
-  })
-}
-
-function getCurrentExperienceSession() {
-  return gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-}
-
-async function organizeExperienceAssets() {
-  const messages = getUsableExperienceMessages()
-
-  if (messages.length < 2) {
-    quickNoteStatus.value = '当前体验内容太少，先推进几轮剧情'
-    quickNoteOpen.value = true
-    return
-  }
-
-  assetSummaryLoading.value = true
-  quickNoteOpen.value = true
-  quickNoteStatus.value = '正在整理体验素材...'
-
-  const currentSession = getCurrentExperienceSession()
-  const result = await summarizeExperienceAssets({
-    messages,
-    worldName: worldStore.activeWorldbookName || gameStore.worldName || '',
-    sessionTitle: currentSession?.title || ''
-  })
-
-  assetSummaryLoading.value = false
-
-  if (!result.success) {
-    quickNoteStatus.value = result.error || '整理体验失败'
-    return
-  }
-
-  if (!result.assets.length) {
-    quickNoteStatus.value = '没有整理出可用素材'
-    return
-  }
-
-  for (const asset of result.assets) {
-    addNarrativeAsset({
-      ...asset,
-      projectId: gameStore.worldId || null,
-      source: {
-        type: 'experience-session',
-        id: gameStore.currentSessionId || '',
-        messageIds: messages.map((message, index) => message.id || `message_${index}`).slice(-24)
-      }
-    })
-  }
-
-  quickNoteStatus.value = `已整理 ${result.assets.length} 条素材`
-}
-
 function clearQuickNoteDraft() {
   quickNoteDraft.value = ''
   removeItem(QUICK_NOTE_DRAFT_KEY)
@@ -988,396 +744,172 @@ function quickNoteWordCount(text) {
 
 <style scoped>
 .game-page {
+  position: relative;
   height: var(--app-viewport-height, 100vh);
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--accent-rose) 18%, transparent), transparent 24%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--accent-amber) 18%, transparent), transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary)), color-mix(in srgb, var(--bg-primary) 98%, #050506 2%));
   color: var(--text-primary);
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.title-bar {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+.game-page::before,
+.game-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.game-page::before {
+  background:
+    linear-gradient(124deg, transparent 0 54%, color-mix(in srgb, var(--accent) 8%, transparent) 54.4% 60%, transparent 60.4%),
+    linear-gradient(146deg, transparent 0 78%, color-mix(in srgb, var(--accent-rose) 10%, transparent) 78.2% 84%, transparent 84.2%);
+  opacity: 0.8;
 }
 
-.title-left .app-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.title-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.theme-toggle:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.theme-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-btn {
-  height: 32px;
-  padding: 0 12px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.action-btn.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.action-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.action-btn.primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--accent-text);
-}
-
-.action-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.action-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-.worldbook-select {
-  height: 32px;
-  padding: 0 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  min-width: 160px;
-}
-
-.worldbook-select:focus {
-  outline: none;
-  border-color: var(--accent);
+.game-page::after {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 78px,
+      color-mix(in srgb, var(--border) 6%, transparent) 78px 79px
+    ),
+    linear-gradient(180deg, color-mix(in srgb, #000 10%, transparent), transparent 16%, transparent 84%, color-mix(in srgb, #000 18%, transparent));
+  opacity: 0.48;
 }
 
 .game-layout {
+  position: relative;
+  z-index: 1;
   flex: 1;
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
-  max-width: 1400px;
+  gap: 14px;
+  padding: 14px 16px 16px;
+  max-width: 1420px;
   margin: 0 auto;
   width: 100%;
   overflow: hidden;
 }
 
-.sidebar {
-  width: 220px;
+.game-main-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  padding: 18px 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  clip-path: polygon(0 18px, 24px 0, calc(100% - 44px) 0, 100% 42px, 100% 100%, 0 100%);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--surface-panel) 96%, #040405 4%) 0%, color-mix(in srgb, var(--surface-raised) 88%, #000 12%) 100%);
+  box-shadow: var(--shadow-floating);
+  overflow: hidden;
+}
+
+.game-main-shell::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 14%, transparent);
+  clip-path: polygon(0 12px, 16px 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.sidebar {
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-y: auto;
   flex-shrink: 0;
   transition: width 0.2s ease;
 }
 
 .sidebar.collapsed {
-  width: 32px;
+  width: 40px;
   overflow: visible;
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  clip-path: polygon(0 14px, 18px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+  background:
+    linear-gradient(142deg, color-mix(in srgb, var(--surface-panel) 94%, #060607 6%), color-mix(in srgb, var(--surface-raised) 90%, transparent));
+  box-shadow: var(--shadow-floating);
+}
+
+.sidebar-head-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar-head-copy span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sidebar-head-copy strong {
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: var(--text-primary);
+}
+
 .sidebar-toggle {
-  width: 24px;
-  height: 32px;
+  width: 30px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  clip-path: polygon(0 8px, 10px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 10px) 100%, 0 100%);
   cursor: pointer;
   font-size: 12px;
   color: var(--text-muted);
   align-self: flex-end;
+  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
 
 .sidebar-toggle:hover {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  transform: translateY(-1px);
 }
 
 .sidebar-section {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  clip-path: polygon(0 14px, 18px 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
+  padding: 14px;
+  box-shadow: var(--shadow-floating);
 }
 
 .game-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
   overflow: hidden;
 }
 
-.playable-world-strip {
-  width: calc(100% - 32px);
-  max-width: 1400px;
-  margin: 12px auto 0;
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 8% 10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
-    color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
-  box-shadow: 0 8px 18px color-mix(in srgb, #000 8%, transparent);
-}
-
-.playable-world-strip.is-empty {
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-  background:
-    radial-gradient(circle at 8% 10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 36%),
-    color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
-}
-
-.playable-world-copy {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.playable-world-kicker {
-  font-size: 10px;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-}
-
-.playable-world-copy strong {
-  color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.3;
-}
-
-.playable-world-copy p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.playable-world-steps {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.playable-world-steps span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.playable-world-steps span:not(:last-child)::after {
-  content: '→';
-  color: color-mix(in srgb, var(--accent) 60%, var(--text-muted));
-}
-
-.playable-world-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.opening-action-card {
-  width: calc(100% - 32px);
-  max-width: 1400px;
-  margin: 10px auto 0;
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) minmax(320px, 0.8fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent-amber, var(--accent)) 30%, var(--border));
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--accent-amber, var(--accent)) 18%, transparent), transparent 34%),
-    linear-gradient(135deg, color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary)), color-mix(in srgb, var(--bg-primary) 88%, var(--accent-light)));
-  box-shadow: var(--shadow-floating);
-}
-
-.opening-map-mark {
-  height: 76px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 14px;
-  position: relative;
-  overflow: hidden;
-  background:
-    linear-gradient(35deg, transparent 48%, color-mix(in srgb, var(--accent) 22%, transparent) 49%, transparent 51%),
-    radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--accent-amber, var(--accent)) 42%, transparent) 0 7px, transparent 8px),
-    radial-gradient(circle at 70% 62%, color-mix(in srgb, var(--accent-teal, var(--accent)) 38%, transparent) 0 6px, transparent 7px),
-    color-mix(in srgb, var(--bg-primary) 82%, transparent);
-}
-
-.opening-map-mark span {
-  position: absolute;
-  width: 26px;
-  height: 1px;
-  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
-  transform: rotate(-22deg);
-}
-
-.opening-map-mark span:nth-child(1) {
-  left: 18px;
-  top: 50px;
-}
-
-.opening-map-mark span:nth-child(2) {
-  left: 42px;
-  top: 32px;
-}
-
-.opening-map-mark span:nth-child(3) {
-  left: 54px;
-  top: 54px;
-}
-
-.opening-action-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.opening-kicker {
-  width: fit-content;
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: color-mix(in srgb, var(--accent-amber, var(--accent)) 14%, var(--bg-secondary));
-  color: color-mix(in srgb, var(--accent-amber, var(--accent)) 76%, var(--text-primary));
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
-
-.opening-action-copy strong {
-  color: var(--text-primary);
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.opening-action-copy p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.opening-action-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.opening-choice {
-  min-height: 68px;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 12px;
-  padding: 9px;
-  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-}
-
-.opening-choice:hover,
-.opening-choice.active {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg-primary));
-}
-
-.opening-choice span {
-  display: block;
-  color: var(--accent);
-  font-size: 10px;
-  line-height: 1;
-}
-
-.opening-choice strong {
-  display: block;
-  margin-top: 7px;
-  color: var(--text-primary);
-  font-size: 12px;
-  line-height: 1.25;
-}
-
-.opening-action-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-}
+/* Pass 3: warm-gold multiply overlay — uses its own DOM element to avoid cascade collision with kao blade ::after above */
 
 .quick-notes-rail {
   position: fixed;
@@ -1659,7 +1191,7 @@ function quickNoteWordCount(text) {
   left: 50%;
   bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
-  z-index: 248;
+  z-index: var(--z-mechanism-notice);
   width: min(560px, calc(100vw - 32px));
   display: flex;
   align-items: flex-start;
@@ -1717,30 +1249,6 @@ function quickNoteWordCount(text) {
   white-space: nowrap;
 }
 
-.advisor-fab {
-  position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border: none;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 245;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
 .mechanism-notice-fade-enter-active,
 .mechanism-notice-fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -1753,48 +1261,23 @@ function quickNoteWordCount(text) {
 }
 
 @media (max-width: 980px) {
-  .title-bar {
-    height: auto;
-    min-height: 48px;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 8px 12px;
+  .game-layout {
+    width: min(100%, calc(100% - 28px));
   }
 
-  .title-left,
-  .title-right {
-    flex-wrap: wrap;
-  }
-
-  .playable-world-strip {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-
-  .playable-world-steps {
-    flex-wrap: wrap;
-    white-space: normal;
-  }
-
-  .playable-world-actions {
-    justify-content: flex-start;
-  }
-
-  .opening-action-card {
+  .game-layout {
     grid-template-columns: 1fr;
   }
 
-  .opening-map-mark {
-    display: none;
+  .sidebar {
+    position: static;
+    top: auto;
+    max-height: none;
   }
 
-  .opening-action-list {
-    grid-template-columns: 1fr;
-  }
-
-  .opening-action-actions {
-    flex-direction: row;
-    flex-wrap: wrap;
+  .game-main-shell,
+  .sidebar {
+    padding: 12px;
   }
 
   .quick-notes-rail {
@@ -1818,13 +1301,6 @@ function quickNoteWordCount(text) {
     border-radius: 999px;
   }
 
-  .advisor-fab {
-    right: 16px;
-    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    width: 52px;
-    height: 52px;
-  }
-
   .mechanism-notice {
     bottom: calc(86px + env(safe-area-inset-bottom, 0px));
     width: min(100vw - 20px, 100%);
@@ -1842,6 +1318,17 @@ function quickNoteWordCount(text) {
 
   .quick-note-workspace-body {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .game-layout {
+    width: min(100%, calc(100% - 20px));
+    margin-top: 14px;
+  }
+
+  .sidebar-head-copy strong {
+    font-size: 20px;
   }
 }
 
@@ -1950,5 +1437,297 @@ function quickNoteWordCount(text) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Phase 1C archive-folio overrides */
+.game-page {
+  background:
+    radial-gradient(circle at 14% 8%, color-mix(in srgb, var(--archive-gold) 18%, transparent), transparent 24%),
+    radial-gradient(circle at 84% 12%, color-mix(in srgb, var(--archive-olive) 10%, transparent), transparent 18%),
+    linear-gradient(146deg,
+      color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-secondary)) 0 66%,
+      color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 66% 100%);
+  color: var(--archive-ink);
+}
+
+.game-page::before {
+  background:
+    linear-gradient(118deg, transparent 0 58%, color-mix(in srgb, var(--archive-gold) 8%, transparent) 58.2% 63%, transparent 63.2%),
+    linear-gradient(144deg, transparent 0 82%, color-mix(in srgb, var(--archive-olive) 10%, transparent) 82.2% 86%, transparent 86.2%);
+  opacity: 0.86;
+}
+
+.game-page::after {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 88px,
+      color-mix(in srgb, var(--border) 7%, transparent) 88px 89px
+    ),
+    linear-gradient(180deg, color-mix(in srgb, #fff 12%, transparent), transparent 14%, transparent 86%, color-mix(in srgb, #000 10%, transparent));
+  opacity: 0.42;
+}
+
+.action-btn {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, var(--border));
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 48%, calc(100% - 10px) 100%, 0 100%, 8px 48%);
+  background: color-mix(in srgb, var(--archive-paper-soft) 90%, var(--surface-raised));
+  color: var(--archive-ink-soft);
+  box-shadow: 0 10px 18px color-mix(in srgb, #000 8%, transparent);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.action-btn:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
+  color: var(--archive-ink);
+}
+
+.action-btn:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--border));
+}
+
+.action-btn.primary {
+  border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 88%, #fff5db) 0 68%, color-mix(in srgb, var(--archive-gold) 92%, #ae7f2d) 68% 100%);
+  color: var(--archive-ink);
+}
+
+.action-btn.primary:hover {
+  border-color: color-mix(in srgb, var(--archive-gold) 68%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 84%, #fff8e4) 0 66%, color-mix(in srgb, var(--archive-gold-soft) 96%, #bb8e36) 66% 100%);
+  color: var(--archive-ink);
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.game-layout {
+  width: min(1440px, calc(100% - 40px));
+  gap: 18px;
+  padding: 18px 0 22px;
+}
+
+.game-main-shell {
+  padding: 18px 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, var(--border));
+  clip-path: polygon(0 20px, 24px 0, calc(100% - 36px) 0, 100% 36px, 100% 100%, 0 100%);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 100%);
+  box-shadow:
+    0 26px 40px color-mix(in srgb, #000 12%, transparent),
+    14px 14px 0 color-mix(in srgb, var(--archive-olive-strong) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent);
+}
+
+.game-main-shell::before {
+  inset: 12px;
+  border-color: color-mix(in srgb, var(--archive-gold) 10%, transparent);
+  clip-path: polygon(0 14px, 18px 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+  border-radius: 0;
+}
+
+.sidebar {
+  width: 264px;
+  padding: 18px 18px 20px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--archive-paper) 8%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 94%, #0f201d), color-mix(in srgb, var(--archive-photo) 94%, #17302c));
+  box-shadow:
+    0 24px 34px color-mix(in srgb, #000 16%, transparent),
+    14px 14px 0 color-mix(in srgb, #000 10%, transparent);
+}
+
+.sidebar-head {
+  padding: 0 0 14px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-head-copy span {
+  color: color-mix(in srgb, var(--archive-gold-soft) 84%, var(--archive-paper));
+}
+
+.sidebar-head-copy strong {
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+}
+
+.sidebar-toggle {
+  border-color: color-mix(in srgb, var(--archive-paper) 16%, transparent);
+  background: color-mix(in srgb, #fff 6%, transparent);
+  color: color-mix(in srgb, var(--archive-paper-soft) 88%, #fff);
+}
+
+.sidebar-toggle:hover {
+  border-color: color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  background: color-mix(in srgb, var(--archive-gold) 10%, transparent);
+}
+
+.sidebar-section {
+  padding: 14px 0 0;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.quick-notes-btn {
+  border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  color: var(--archive-ink);
+}
+
+.quick-notes-btn:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
+  color: var(--archive-olive-strong);
+}
+
+@media (max-width: 980px) {
+  .game-layout {
+    width: min(100%, calc(100% - 28px));
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .game-layout {
+    width: min(100%, calc(100% - 20px));
+  }
+}
+
+@media (max-width: 760px) {
+  .action-btn {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+}
+
+/* Experience redo: folio spread, fewer frames */
+
+.game-layout {
+  width: min(1440px, calc(100% - 40px));
+  gap: 18px;
+  padding: 18px 0 22px;
+}
+
+.game-main-shell {
+  padding: 18px 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, var(--border));
+  clip-path: polygon(0 18px, 22px 0, calc(100% - 30px) 0, 100% 30px, 100% 100%, 0 100%);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 100%);
+  box-shadow:
+    0 24px 36px color-mix(in srgb, #000 12%, transparent),
+    14px 14px 0 color-mix(in srgb, var(--archive-olive-strong) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent);
+}
+
+.game-main-shell::before {
+  inset: 12px;
+  border-color: color-mix(in srgb, var(--archive-gold) 10%, transparent);
+  clip-path: polygon(0 12px, 16px 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 0 100%);
+  border-radius: 0;
+}
+
+.sidebar {
+  width: 252px;
+  padding: 18px 16px 18px;
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(0 16px, 18px 0, 100% 0, 100% calc(100% - 20px), calc(100% - 18px) 100%, 0 100%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 6%, transparent), transparent 16%),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 95%, #0f201d), color-mix(in srgb, var(--archive-photo) 94%, #17302c));
+  box-shadow:
+    0 24px 34px color-mix(in srgb, #000 16%, transparent),
+    12px 12px 0 color-mix(in srgb, #000 10%, transparent);
+}
+
+.sidebar-head {
+  padding: 0 0 12px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-head-copy span {
+  color: color-mix(in srgb, var(--archive-gold-soft) 84%, var(--archive-paper));
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.sidebar-head-copy strong {
+  max-width: none;
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.sidebar-toggle {
+  border-color: color-mix(in srgb, var(--archive-paper) 16%, transparent);
+  background: color-mix(in srgb, #fff 6%, transparent);
+  color: color-mix(in srgb, var(--archive-paper-soft) 88%, #fff);
+}
+
+.sidebar-toggle:hover {
+  border-color: color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  background: color-mix(in srgb, var(--archive-gold) 10%, transparent);
+}
+
+.sidebar-section {
+  padding: 14px 0 0;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.quick-notes-btn {
+  border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  color: var(--archive-ink);
+}
+
+.quick-notes-btn:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
+  color: var(--archive-olive-strong);
+}
+
+@media (max-width: 980px) {
+
+  .mechanism-notice,
+  .quick-notes-rail,
+  .game-image-gen-rail {
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  }
 }
 </style>

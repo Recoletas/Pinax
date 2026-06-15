@@ -1,41 +1,47 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
-    <!-- 顶部标题栏 -->
-    <header class="title-bar">
-      <div class="title-left">
-        <button class="icon-btn" @click="goBack" title="返回">
+    <WorkbenchPageHero
+      kicker="Material Library"
+      title="素材"
+      :description="notesHeroDescription"
+    >
+      <template #back>
+        <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">素材</span>
-      </div>
-      <div class="title-right">
-        <div class="status-indicator" :class="saveStatus">
-          <span class="status-dot"></span>
-          <span class="status-text">{{ statusText }}</span>
-          <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
-          <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
+      </template>
+      <template #meta>
+        <div class="workbench-hero-meta-list">
+          <span class="workbench-hero-chip accent">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <span class="workbench-hero-chip">{{ chapters.length }} 条素材</span>
+          <span v-if="selectedAssetSummary" class="workbench-hero-chip">{{ selectedAssetSummary }}</span>
+          <span v-if="checkedAssetIds.length" class="workbench-hero-chip">{{ checkedAssetIds.length }} 项已勾选</span>
         </div>
-        <button class="toolbar-text-btn" type="button" @click.stop="goToWriting" title="返回写作">
-          写作
-        </button>
-        <button class="toolbar-text-btn" type="button" @click="createNewNote" title="新建素材">
-          新素材
-        </button>
-        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-          <span class="theme-icon">
-            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-            </svg>
-          </span>
-          <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
-        </button>
-      </div>
-    </header>
+      </template>
+      <template #actions>
+        <div class="workbench-hero-actions-row">
+          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="goToWriting" title="返回写作">
+            写作
+          </button>
+          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
+            新素材
+          </button>
+          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+            <span class="theme-icon">
+              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+              </svg>
+            </span>
+            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+          </button>
+        </div>
+      </template>
+    </WorkbenchPageHero>
 
     <div class="content-area">
       <!-- 左侧边栏：素材 -->
@@ -278,13 +284,14 @@
       </div>
     </Transition>
 
-    <!-- 创作顾问悬浮按钮 -->
-    <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="5"></circle>
-        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-      </svg>
-    </button>
+    <GmPersonaLauncher
+      kicker="素材顾问"
+      title="先收一条线索，再决定导向哪里"
+      body="我先看当前素材、状态和画布去向，再帮你判断该采纳、导画布还是继续扩。"
+      caption="虚构集"
+      captionHint="素材入口"
+      @open="openAdvisor"
+    />
 
     <AdvisorPanel
       :isOpen="advisorOpen"
@@ -323,7 +330,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   addNarrativeAsset,
@@ -457,6 +466,18 @@ const statusText = computed(() => {
     case 'unsaved': return '未保存'
     default: return ''
   }
+})
+const selectedAssetSummary = computed(() => {
+  if (!selectedAsset.value) return ''
+  const title = String(selectedAsset.value.title || '无标题素材').trim()
+  return `${getAssetKindLabel(selectedAsset.value.kind)} · ${title}`
+})
+const notesHeroDescription = computed(() => {
+  if (!selectedAsset.value) {
+    return '素材页现在是整理台而不是工具条。左侧继续做分组与批量处理，顶部只保留当前状态和跨页出口。'
+  }
+  const canvasState = isAssetOnCanvas(selectedAsset.value.id) ? '已入画布' : '未入画布'
+  return `当前素材是 ${selectedAssetSummary.value || '未命名素材'}，${canvasState}。可以从这里决定导入画布、改类型，或继续写成更完整的片段。`
 })
 
 function goBack() {
@@ -1399,66 +1420,6 @@ function stopResizeRight() {
   overflow: hidden;
 }
 
-/* 标题栏 */
-.advisor-fab {
-  position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 200;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
-.title-bar {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.title-left .app-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.title-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.title-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .icon-btn {
   width: 32px;
   height: 32px;
@@ -1493,45 +1454,6 @@ function stopResizeRight() {
 .book-selector:focus {
   outline: none;
   border-color: var(--accent);
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  background: var(--bg-tertiary);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-}
-
-.status-indicator.saving .status-dot {
-  background: var(--warning);
-}
-
-.status-indicator.unsaved .status-dot {
-  background: var(--danger);
-}
-
-.status-text {
-  color: var(--text-secondary);
-}
-
-.status-divider {
-  color: var(--text-muted);
-  margin: 0 4px;
-}
-
-.status-count {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .theme-toggle {

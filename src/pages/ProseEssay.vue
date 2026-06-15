@@ -1,40 +1,54 @@
 <template>
   <div class="prose-essay-page">
-    <!-- 顶部标题栏 -->
-    <header class="pe-header">
-      <div class="pe-header-left">
-        <button class="icon-btn" @click="router.push('/')" title="返回">
+    <WorkbenchPageHero
+      kicker="Storyboard Canvas"
+      title="卡片画布"
+      :description="proseHeroDescription"
+    >
+      <template #back>
+        <button class="icon-btn workbench-hero-button icon-only" @click="router.push('/')" title="返回">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="pe-title">卡片画布</span>
-      </div>
-      <div class="pe-header-center">
-        <input
-          v-model="currentTopic"
-          class="topic-input"
-          placeholder="输入场景线索，生成素材节点..."
-          @keydown.enter="generateCards"
-        />
-        <button class="btn-primary generate-btn" @click="generateCards" :disabled="isGenerating || !currentTopic.trim()">
-          {{ isGenerating ? generationMessage : '生成节点' }}
-        </button>
-      </div>
-      <div class="pe-header-right">
-        <span class="mode-caption">关系与分镜</span>
-        <span class="card-count">{{ cards.length }} 个节点</span>
-        <button class="icon-btn" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-          <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-          </svg>
-          <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-          </svg>
-        </button>
-        <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
-      </div>
-    </header>
+      </template>
+      <template #inline>
+        <div class="workbench-hero-input-group">
+          <input
+            v-model="currentTopic"
+            class="topic-input workbench-hero-inline-input"
+            placeholder="输入场景线索，生成素材节点..."
+            @keydown.enter="generateCards"
+          />
+          <button class="btn-primary generate-btn workbench-hero-button" @click="generateCards" :disabled="isGenerating || !currentTopic.trim()">
+            {{ isGenerating ? generationMessage : '生成节点' }}
+          </button>
+        </div>
+      </template>
+      <template #meta>
+        <div class="workbench-hero-meta-list">
+          <span class="workbench-hero-chip accent">{{ currentModeLabel }}</span>
+          <span class="workbench-hero-chip">{{ cards.length }} 个节点</span>
+          <span class="workbench-hero-chip">{{ timelineSummaryLabel }}</span>
+          <span v-if="directorStatusLabel" class="workbench-hero-chip">{{ directorStatusLabel }}</span>
+        </div>
+      </template>
+      <template #actions>
+        <div class="workbench-hero-actions-row">
+          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+            <span class="theme-icon">
+              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+              </svg>
+            </span>
+            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+          </button>
+        </div>
+      </template>
+    </WorkbenchPageHero>
 
     <div class="pe-main">
       <!-- 左侧面板 -->
@@ -545,13 +559,14 @@
       </div>
     </Transition>
 
-      <!-- 创作顾问悬浮按钮 -->
-      <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
-        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="8" cy="8" r="5"></circle>
-          <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-        </svg>
-      </button>
+      <GmPersonaLauncher
+        kicker="编导顾问"
+        title="先理顺镜头和关系，再决定下一刀"
+        body="我先看卡片关系、镜头顺序和转场，再帮你指出最该先修的一处。"
+        caption="虚构集"
+        captionHint="编导入口"
+        @open="openAdvisor"
+      />
 
       <AdvisorPanel
         :isOpen="advisorOpen"
@@ -578,6 +593,8 @@ import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
+import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
 import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
 import {
@@ -2147,6 +2164,28 @@ const directorTimelineActionTitle = computed(() => {
   if (kind === 'stale') return '画布已变化，更新分镜版本'
   return '根据当前时间轴生成分镜版本'
 })
+const currentModeLabel = computed(() => currentMode.value === 'directing' ? '关系与分镜' : '关系整理')
+const timelineSummaryLabel = computed(() => {
+  const shotCount = timelineItems.value.length
+  if (shotCount === 0) return '时间轴为空'
+  return `${shotCount} 镜 / ${timelineTotalDuration.value}s`
+})
+const directorStatusLabel = computed(() => {
+  if (currentMode.value !== 'directing') return ''
+  const status = directorExportStatus.value
+  if (!status) return ''
+  return `${status.title} · ${status.detail}`
+})
+const proseHeroDescription = computed(() => {
+  const topic = String(currentTopic.value || '').trim()
+  if (!topic) {
+    return '先给一个场景线索，再把节点、关系和时间轴收成可剪的镜头版本。顶部只保留主题输入与导演态摘要。'
+  }
+  if (timelineItems.value.length === 0) {
+    return `当前主题是「${topic}」。节点已经可以继续铺开，但还没进入时间轴，先把关键镜头顺一遍。`
+  }
+  return `当前主题是「${topic}」，时间轴已挂 ${timelineSummaryLabel.value}。接下来该收的是镜头顺序、关系强度和分镜版本同步。`
+})
 
 function handleDirectorTimelineAction() {
   if (directorTimelineActionDisabled.value) return
@@ -2988,36 +3027,6 @@ function goToMaterialsImageGen() {
 }
 
 /* Header */
-.pe-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: var(--surface-panel);
-  border-bottom: 1px solid var(--border);
-  gap: 16px;
-}
-
-.pe-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 120px;
-}
-
-.pe-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.pe-header-center {
-  flex: 1;
-  max-width: 600px;
-  display: flex;
-  gap: 8px;
-}
-
 .topic-input {
   flex: 1;
   padding: 8px 12px;
@@ -3041,67 +3050,6 @@ function goToMaterialsImageGen() {
   padding: 8px 16px;
   white-space: nowrap;
   flex: none;
-}
-
-.pe-header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 260px;
-  justify-content: flex-end;
-}
-
-/* Mode Switch */
-.mode-switch {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-  height: 28px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-}
-
-.mode-caption {
-  max-width: 160px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.mode-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.mode-label.active {
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-
-.mode-label:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.card-count {
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
 }
 
 /* Main */
@@ -4284,30 +4232,6 @@ function goToMaterialsImageGen() {
   box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.advisor-fab {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 200;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
 .image-gen-header {
   display: flex;
   justify-content: space-between;
@@ -4706,26 +4630,6 @@ function goToMaterialsImageGen() {
 }
 
 @media (max-width: 760px) {
-  .pe-header {
-    flex-wrap: wrap;
-  }
-
-  .pe-header-center {
-    order: 3;
-    flex-basis: 100%;
-    max-width: none;
-  }
-
-  .pe-header-right {
-    min-width: 0;
-    gap: 8px;
-  }
-
-  .mode-caption,
-  .card-count {
-    display: none;
-  }
-
   .image-gen-btn {
     width: 46px;
     height: 46px;
@@ -4744,10 +4648,6 @@ function goToMaterialsImageGen() {
     transition: none;
   }
 
-  .advisor-fab {
-    right: 12px;
-    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  }
 }
 
 /* Image Config Dialog */

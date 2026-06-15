@@ -1,13 +1,20 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
 import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
+import { useGameStore } from './stores/gameStore'
 
 const { initTheme } = useTheme()
 const route = useRoute()
+const gameStore = useGameStore()
 const generationMetaNotice = ref('')
+const hasUserActionMessages = computed(() => {
+  return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
+})
+const isExperienceEntryTransition = computed(() => route.name === 'experience' && !hasUserActionMessages.value)
+const showGlobalMemoryIndicator = computed(() => !route.meta?.hideGlobalMemory && !isExperienceEntryTransition.value)
 let noticeTimer = null
 
 useViewportHeight()
@@ -79,7 +86,7 @@ watch(
         {{ generationMetaNotice }}
       </div>
     </transition>
-    <MemoryIndicator />
+    <MemoryIndicator v-if="showGlobalMemoryIndicator" />
   </div>
 </template>
 

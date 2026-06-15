@@ -4,12 +4,17 @@
 
 ## 最近验证
 
-最后更新：2026-06-09 11:30 CST
+最后更新：2026-06-10 11:10 CST
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| `npm run test:run` | 通过：83 files / 565 tests | 输出中仍有既有地图模板合同告警、jsdom/canvas not implemented 警告；测试退出码为 0 |
-| `npm run test:run -- src/__tests__/visual-verification.test.js` | 通过：1 file / 12 tests | headless 地图视觉 / 性能验收 |
+| `npm run test:run -- src/__tests__/contextMessage.test.js src/__tests__/worldbookContextBuilder.test.js src/__tests__/generationService.test.js` | 通过：3 files / 12 tests | Thread B runtime context 注入 + worldbook 匹配定向回归 |
+| `npm run test:run -- src/__tests__/uiPolish.test.js src/__tests__/welcomeView.test.js src/__tests__/gmPersonaLauncher.test.js` | 通过：3 files / 10 tests | Thread A Phase 1B 第三切片 UI 契约回归 |
+| `npm run test:run -- src/__tests__/gameStoreSession.test.js src/__tests__/questLog.test.js src/__tests__/generationAdventureTriggers.test.js` | 通过：3 files / 14 tests | Thread B Stage 4 trigger 定向回归 |
+| `npm run test:run -- src/__tests__/questLog.test.js` | 通过：1 file / 3 tests | QuestLog 恢复 + Stage 4 trigger panel contract |
+| `npm run test:run -- src/__tests__/generationService.test.js` | 通过：1 file / 2 tests | context injection generation smoke |
+| `npm run test:run` | 通过：87 files / 584 tests | 输出中仍有既有地图模板合同告警、jsdom/canvas not implemented 警告；测试退出码为 0 |
+| `npm run test:run -- src/__tests__/visual-verification.test.js` | 通过：1 file / 12 tests | 视觉 / 性能验收基线 |
 | `npm run build` | 通过 | Vite production build |
 | `npm run docs:build` | 通过 | VitePress 文档站构建 |
 | `git diff --check` | 通过 | 无空白错误 |

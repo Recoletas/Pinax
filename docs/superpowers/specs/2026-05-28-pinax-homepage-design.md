@@ -25,7 +25,7 @@
 - 不改 `src/router/index.js`
 - 不改体验、世界书、写作、素材、画布页面逻辑
 - 不改顾问专项文件
-- 不改 `src/pages/Home.vue` 的历史残留，除非后续确认它真的还在被路由引用
+- 历史残留 `src/pages/Home.vue` 已在确认无路由引用后清理；当前首页事实文件只有 `src/views/WelcomeView.vue`
 
 ## 3. 页面结构
 
@@ -107,4 +107,4 @@
 - 首选在 `src/views/WelcomeView.vue` 内完成结构和样式收敛。
 - 如需共享 token，只做最小量的 `main.css` 补充，不扩散到其他页面。
 - 不需要引入新依赖，不需要改 router，不需要新状态源。
-- 如果后续发现 `src/pages/Home.vue` 仍有实际入口，再单独决定是否清理，不在本次首页改版里顺手处理。
+- 如果后续需要新增实验性门面，单独开文件和路由，不要再复活 `src/pages/Home.vue` 这种未挂路由的并行入口。

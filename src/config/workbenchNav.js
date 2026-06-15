@@ -6,7 +6,7 @@ export const ACTIVITY_ITEMS = [
     label: '体验',
     description: '沉浸式文字冒险',
     icon: 'compass',
-    defaultRouteName: 'experience'
+    defaultRouteName: 'opening'
   },
   {
     key: 'worldbook',
@@ -43,9 +43,19 @@ export const SIDE_PANELS = {
     title: '体验',
     items: [
       {
+        routeName: 'opening',
+        label: '开场页',
+        description: '独立选择开局行动'
+      },
+      {
+        routeName: 'experience-worldbook',
+        label: '选择世界',
+        description: '选择世界与开场行动'
+      },
+      {
         routeName: 'experience',
-        label: '进入体验',
-        description: '直接进入当前冒险'
+        label: '当前冒险',
+        description: '继续已进入的现场'
       }
     ]
   },

@@ -35,7 +35,11 @@ describe('worldbookContextBuilder', () => {
         writingCharacter: { name: '阿离' },
         writingTime: { eraName: '永夜历', year: '12' },
         worldMapState: { currentScene: '城门' },
-        activities: [{ title: '抵达城门' }]
+        activities: [{ title: '抵达城门' }],
+        goals: [{ title: '找到林舟' }],
+        encounteredCharacters: [{ name: '林舟' }],
+        keyChoices: [{ label: '先去城门问守卫' }],
+        plotJournal: [{ summary: '阿离抵达城门并开始寻找林舟。' }]
       },
       tokenBudget: 1200,
       scanDepth: 2
@@ -52,6 +56,89 @@ describe('worldbookContextBuilder', () => {
     expect(result.budgetReport.tokenBudget).toBe(1200)
     expect(result.budgetReport.usedChars).toBeGreaterThan(0)
     expect(result.warnings).toEqual([])
+  })
+
+  it('uses lightweight runtime state to help worldbook matching', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '边境世界书',
+        entries: [
+          {
+            id: 'goal-entry',
+            name: '钟楼任务',
+            type: 'quest',
+            content: '调查钟楼停摆背后的证据链。',
+            keys: ['钟楼证据']
+          },
+          {
+            id: 'character-entry',
+            name: '林舟',
+            type: 'character',
+            content: '林舟知道第一现场的异常。',
+            keys: ['林舟']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '继续。' }],
+      runtimeState: {
+        goals: [{ title: '拿到钟楼证据' }],
+        encounteredCharacters: [{ name: '林舟' }],
+        keyChoices: [{ label: '先去钟楼查痕迹' }],
+        plotJournal: [{ summary: '主角已经确认要去钟楼拿证据。' }]
+      }
+    })
+
+    expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['character-entry', 'goal-entry'])
+  })
+
+  it('matches entries from rich plot journal fields and faction runtime state', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '雾潮暮湾世界书',
+        entries: [
+          {
+            id: 'faction-entry',
+            name: '潮盐行会',
+            type: 'organization',
+            content: '潮盐行会控制着本地夜间盐货流通。',
+            keys: ['潮盐行会']
+          },
+          {
+            id: 'location-entry',
+            name: '钟楼',
+            type: 'location',
+            content: '钟楼停摆后，城区开始按雾钟而不是日钟作息。',
+            keys: ['钟楼']
+          },
+          {
+            id: 'hook-entry',
+            name: '雾税账册',
+            type: 'quest',
+            content: '账册可能证明有人改写了雾税流向。',
+            keys: ['雾税账册']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '继续。' }],
+      runtimeState: {
+        factionRelations: {
+          潮盐行会: -18
+        },
+        plotJournal: [{
+          summary: '主角刚离开城门。',
+          participants: ['林舟'],
+          locations: ['钟楼'],
+          keyChoices: ['先去钟楼查痕迹'],
+          unresolvedHooks: ['雾税账册']
+        }]
+      }
+    })
+
+    expect(result.matchedEntries.map((entry) => entry.id)).toEqual([
+      'location-entry',
+      'faction-entry',
+      'hook-entry'
+    ])
   })
 
   it('orders constant entries before typed keyword matches', () => {

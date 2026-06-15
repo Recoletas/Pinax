@@ -87,6 +87,54 @@ function collectScanText(chatHistory = [], runtimeState = {}, scanDepth = DEFAUL
     if (activity?.title) runtimeParts.push(String(activity.title))
   }
 
+  const goals = Array.isArray(runtimeState?.goals) ? runtimeState.goals : []
+  for (const goal of goals.slice(0, 4)) {
+    if (goal?.title) runtimeParts.push(String(goal.title))
+  }
+
+  const encounteredCharacters = Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : []
+  for (const character of encounteredCharacters.slice(-6)) {
+    if (character?.name) runtimeParts.push(String(character.name))
+  }
+
+  const keyChoices = Array.isArray(runtimeState?.keyChoices) ? runtimeState.keyChoices : []
+  for (const choice of keyChoices.slice(-5)) {
+    if (choice?.label) runtimeParts.push(String(choice.label))
+  }
+
+  const factionRelations = runtimeState?.factionRelations && typeof runtimeState.factionRelations === 'object'
+    ? runtimeState.factionRelations
+    : {}
+  for (const [name, score] of Object.entries(factionRelations)) {
+    const normalizedName = String(name || '').trim()
+    if (!normalizedName) continue
+    runtimeParts.push(normalizedName)
+    if (Number.isFinite(Number(score))) {
+      runtimeParts.push(`${normalizedName} ${Number(score) >= 15 ? '友好' : Number(score) <= -15 ? '紧张' : '观望'}`)
+    }
+  }
+
+  const plotJournal = Array.isArray(runtimeState?.plotJournal) ? runtimeState.plotJournal : []
+  for (const item of plotJournal.slice(-2)) {
+    if (item?.summary) runtimeParts.push(String(item.summary))
+    for (const participant of Array.isArray(item?.participants) ? item.participants : []) {
+      const name = String(participant || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const locationName of Array.isArray(item?.locations) ? item.locations : []) {
+      const name = String(locationName || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const choice of Array.isArray(item?.keyChoices) ? item.keyChoices : []) {
+      const label = String(choice || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+    for (const hook of Array.isArray(item?.unresolvedHooks) ? item.unresolvedHooks : []) {
+      const label = String(hook || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+  }
+
   return [...parts, ...runtimeParts].join('\n').toLowerCase()
 }
 

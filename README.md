@@ -1,8 +1,7 @@
 # Pinax
 
-Pinax 是一个“可玩的世界书”工作台：先选择一个世界，让 AI GM 推动冒险，再把剧情沉淀成素材、章节和分镜。
-
-当前主线路径：
+Pinax 正在向一个**角色化 AI GM 驱动的网页文字冒险工作台**迁移。
+当前稳定执行骨架仍是：
 
 ```text
 选择世界
@@ -11,6 +10,8 @@ Pinax 是一个“可玩的世界书”工作台：先选择一个世界，让 A
   -> 写成作品
   -> 整理成分镜或继续扩展世界
 ```
+
+也就是说：**产品外壳开始换，底层主链继续沿用 `playable-worldbook`。**
 
 ## 快速开始
 
@@ -38,13 +39,14 @@ npm run dev
 
 ## 文档入口
 
-- 用户说明书：[docs/user-manual/README.md](docs/user-manual/README.md)
-- 项目文档导航：[docs/README.md](docs/README.md)
-- 当前产品主线：[docs/PLAN.md](docs/PLAN.md)
+- 当前计划：[docs/PLAN.md](docs/PLAN.md)
+- 产品方向：[docs/plan/character-driven-arc.md](docs/plan/character-driven-arc.md)
+- 执行骨架：[docs/plan/playable-worldbook-roadmap.md](docs/plan/playable-worldbook-roadmap.md)
+- 并行分工：[docs/plan/playable-worldbook-parallel-plan.md](docs/plan/playable-worldbook-parallel-plan.md)
 - 近期变化：[docs/LOG.md](docs/LOG.md)
+- 项目文档导航：[docs/README.md](docs/README.md)
 - 代码 owning surface：[docs/src/code-map.md](docs/src/code-map.md)
 - 已知风险：[docs/src/known-issues.md](docs/src/known-issues.md)
-- 公网部署：[docs/user-manual/05-deployment.md](docs/user-manual/05-deployment.md)
 
 ## 主要工作区
 
@@ -83,5 +85,3 @@ npm run dev
 - 用户级 API key 默认存浏览器 `localStorage`，不是服务器配置。
 - 服务端接收并转发这些 key，但不提供仓库内持久化的用户密钥存储。
 - 公网部署默认是开放模型，必须自己处理反向代理日志、限流和 HTTPS。
-
-部署细节和风险说明见 [docs/user-manual/05-deployment.md](docs/user-manual/05-deployment.md)。

@@ -6,7 +6,7 @@
 
 | 问题 | 先看 |
 | --- | --- |
-| 当前产品主线是什么？ | [`../PLAN.md`](../PLAN.md) |
+| 当前方向 / 执行骨架是什么？ | [`../PLAN.md`](../PLAN.md) |
 | 最近改了什么？ | [`../LOG.md`](../LOG.md) |
 | 某段行为归谁负责？ | [`code-map.md`](./code-map.md) |
 | 当前有哪些风险或已知限制？ | [`known-issues.md`](./known-issues.md) |
