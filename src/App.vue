@@ -5,8 +5,11 @@ import { useTheme } from './composables/useTheme'
 import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
 import { useGameStore } from './stores/gameStore'
+import { useThemeStore } from './stores/themeStore.js'
 
 const { initTheme } = useTheme()
+const themeStore = useThemeStore()
+themeStore.initTheme()
 const route = useRoute()
 const gameStore = useGameStore()
 const generationMetaNotice = ref('')

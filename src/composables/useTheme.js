@@ -1,33 +1,15 @@
-import { ref, watch } from 'vue'
-
-const isDark = ref(false)
+import { computed } from 'vue'
+import { useThemeStore } from '../stores/themeStore.js'
 
 export function useTheme() {
-  const initTheme = () => {
-    const saved = localStorage.getItem('app_theme')
-    isDark.value = saved === 'dark'
-    applyTheme()
-  }
-
-  const toggleTheme = () => {
-    isDark.value = !isDark.value
-    localStorage.setItem('app_theme', isDark.value ? 'dark' : 'light')
-    applyTheme()
-  }
-
-  const applyTheme = () => {
-    if (isDark.value) {
-      document.documentElement.classList.add('theme-dark')
-    } else {
-      document.documentElement.classList.remove('theme-dark')
-    }
-  }
-
-  watch(isDark, applyTheme)
-
+  const store = useThemeStore()
   return {
-    isDark,
-    initTheme,
-    toggleTheme
+    isDark: computed(() => store.colorScheme === 'dark'),
+    toggleTheme() {
+      store.setColorScheme(store.colorScheme === 'dark' ? 'light' : 'dark')
+    },
+    initTheme() {
+      store.initTheme()
+    },
   }
 }
