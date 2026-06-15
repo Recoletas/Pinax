@@ -33,6 +33,7 @@ function removeFontPreload() {
 }
 
 async function syncAssets(variant) {
+  if (!VARIANT_CSS[variant]) return
   await VARIANT_CSS[variant]() // Vite injects CSS chunk on first call
   if (variant === 'kao') injectFontPreload()
   else removeFontPreload()
