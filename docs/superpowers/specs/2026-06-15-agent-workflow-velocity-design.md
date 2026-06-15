@@ -1,7 +1,7 @@
 # Agent Workflow Velocity — Verify / Skeleton / Skill Hygiene / 6-Stage Workflow
 
 **Date**: 2026-06-15
-**Status**: Draft v3 (pending review; v3 = v2 + 2 review passes: title-block convention fix, 设想 mixed trigger, soft lock clarification, R5/R12 校正, plan 文件澄清, commit scope 修正)
+**Status**: Draft v5 (v4 + 3 title-block consistency fixes: 重点段措辞 / Non-Goals / specs/README 使用规则 — 全部从 "frontmatter" 统一到 "metadata 块" 措辞，与 G10 一致)
 **Stage**: 方案 (this spec sits at 方案 level in the 6-stage chain — see §Self-Application)
 **Branch base**: `wip/map-realism-render-docs-20260608` (current)
 **Related**:
@@ -15,9 +15,9 @@
 
 > **本段自示范 G9**（每个 spec/plan 顶部必含 1-3 句成功标准）。agent 改动本 spec 任何一段前，先回看这 3 句。
 
-1. **结构化减负**：把验证链、跨 doc 一致、阶段判断、节奏判断四类高频手写动作，从 agent 记忆转成结构化输入（`verify:contract`/`verify:full` 分档、frontmatter `stage:` 标签、spec 顶部 `## 重点` 段、`docs/superpowers/specs/README.md` 转换门禁）；agent 起手不再靠猜。
-2. **不破 7-skill 体系**：7/7 仍 cap，6 阶段框架**不**引入新 skill；所有改动 1-2 行级；frontmatter `description:` trigger 不动；`AGENTS.md` §Hard rules 主表 6 个 trigger → skill 对应关系不动。
-3. **单 PR 单 commit ship gate**：全部改动落 9 文件（v1 7 + v2 新增 1 个 `docs/templates/spec-template.md` + 1 个 `docs/superpowers/specs/README.md`）；`verify:full` 仍绿；`uiPolish` (39) + `welcomeView` (4) + `workbenchNav` (2) 契约不退；执行完跑 4 个 triggered skill。
+1. **结构化减负**：把验证链、跨 doc 一致、阶段判断、节奏判断四类高频手写动作，从 agent 记忆转成结构化输入（`verify:contract` / `verify:post` / `verify:full` 三档、title-block `**Stage**:` 标签、spec 顶部 `## 重点` 段、`docs/superpowers/specs/README.md` 转换门禁）；agent 起手不再靠猜。
+2. **不破 7-skill 体系**：7/7 仍 cap，6 阶段框架**不**引入新 skill；所有改动 1-2 行级；`agent-skills/*/SKILL.md` frontmatter `description:` trigger 不动；`AGENTS.md` §Hard rules 主表 6 个 trigger → skill 对应关系不动。
+3. **单 PR 单 commit ship gate**：全部改动落 10 文件（v1 7 + v2 新增 `docs/templates/spec-template.md` / `docs/superpowers/specs/README.md` + G12 `docs/STATUS.md` 前置安排段）；`verify:full` 仍绿；`uiPolish` (39) + `welcomeView` (4) + `workbenchNav` (2) 契约不退；执行前后按触发规则跑 4 个 required skill。
 
 ---
 
@@ -97,15 +97,15 @@
 ## Goals（14 个 = 8 旧 + 6 新）
 
 ### A. 验证链结构化
-1. **`verify` 脚本分档**：`verify:contract`（test:run -- paths + build + diff --check） / `verify:full`（test:run + build + diff --check + docs:build + visual） / `verify` = `verify:full` 兼容默认。Agent 按改动范围选档，**强制尊重**"不要跑那么多验证"约束。
-2. **`testing-verification` skill 同步**：把"跑 X / Y / Z"那一步改成"按 scope 选 `verify:contract` 或 `verify:full`，贴该档的 summary 一行"。
+1. **`verify` 脚本分档**：`verify:contract`（Vitest scoped paths）+ `verify:post`（build + diff --check）/ `verify:full`（test:run + build + diff --check + docs:build + visual）/ `verify` = `verify:full` 兼容默认。Agent 按改动范围选档，**强制尊重**"不要跑那么多验证"约束。
+2. **`testing-verification` skill 同步**：把"跑 X / Y / Z"那一步改成"按 scope 选 `verify:contract + verify:post` 或 `verify:full`，贴该档的 summary 一行"。
 
 ### B. Research 骨架
 3. **Research doc 5 段写作约定**：在 `docs/plan/README.md` 末尾加 5 条约束：preamble / TL;DR / 候选矩阵 / Pinax Recommendation / Sources；统一 Recommendation 子标题为 `### N.1 Copy / ### N.2 Avoid / ### N.3 Open questions`。**不**改造前 6 篇，新写必套。
 
 ### E. Skill / AGENTS 卫生
 4. **Skill ↔ guide 对齐**：`worldbook-workflow` skill 删 2 个 phantom surface（context injection / structured settings），补 guide §3 同名冲突策略的引用。
-5. **`AGENTS.md` discovery paths 补 2 条**：`.superpowers/brainstorm/`（项目内 brainstorm scratch，不是 skill）+ `.claude/settings.json` 里 `enabledPlugins: {superpowers, context7}` 是真正生效的 plugin 入口。
+5. **`AGENTS.md` discovery paths 补 2 条**：当前 `~/.codex/skills/` 已存在；本轮只补 `.superpowers/brainstorm/`（项目内 brainstorm scratch，不是 skill）+ `.claude/settings.json` 里 `enabledPlugins: {superpowers, context7}` 是真正生效的 plugin 入口。
 6. **触发重叠去重**：`commit-conventions` step 4 改成"确认 `testing-verification` 已在本 session 跑过"，不再重复 `test:run` 命令。
 7. **First action fallback 明示**：`AGENTS.md` L17 加一句"如果 Claude plugin 和 Codex global skill 都不可用，第一条回复显式说明"。
 
@@ -138,7 +138,7 @@
 - 不做"用 `marked` / YAML 渲染 STATUS.md"的 C 类工作
 - 不强制改造前 6 篇 research doc
 - 不动 `docs/superpowers/specs/` 下 9 份历史 spec / 6 份 plan
-- 不动 9 份历史 spec/plan 的 frontmatter（即使是"补 stage 标签"也不回溯）
+- 不动 9 份历史 spec/plan 的 metadata 块（即使是"补 `**Stage**:` 标签"也不回溯）
 - 不改 `ui-style-check` skill（最大那个，6019 bytes，独立 PR）
 - 不强制拆 spec 为方案+计划两份（新 feature opt-in 即可）
 - 不强制所有 feature 立项前写 设想
@@ -149,7 +149,7 @@
 
 ## Approach
 
-**单 PR，1 commit**（per `commit-conventions` rule 5）。改动 9 个文件（v1 7 + v2 新增 1 个 `docs/templates/spec-template.md` + 1 个 `docs/superpowers/specs/README.md`），全部 1-2 行级。
+**单 PR，1 commit**（per `commit-conventions` rule 5）。改动 10 个文件（v1 7 + v2 新增 `docs/templates/spec-template.md` / `docs/superpowers/specs/README.md` + G12 `docs/STATUS.md`），多数为 1-2 行级；`docs/STATUS.md` 只加前置 `## 当前安排` 段，不改 4 段主结构。
 
 **6 阶段框架作为元方法**嵌入 4 类旧改动：
 
@@ -167,11 +167,11 @@
 
 ## Architecture
 
-### 改动文件清单（v2 共 9 文件）
+### 改动文件清单（v4 共 10 文件）
 
 | # | 文件 | 改动类型 | 关联 Goal | 新 / 改 |
 |---|---|---|---|---|
-| 1 | `package.json` | scripts 扩 2 行 + verify 默认值重定向 | G1 | 改 |
+| 1 | `package.json` | scripts 扩 3 行 + verify 默认值重定向 | G1 | 改 |
 | 2 | `agent-skills/testing-verification/SKILL.md` | body step 1-3 措辞改"按 scope 选档" | G2 | 改 |
 | 3 | `agent-skills/worldbook-workflow/SKILL.md` | body step 2 改 5 surface → 3 surface + step 3.5 | G4 | 改 |
 | 4 | `AGENTS.md` | §Skill discovery paths 补 2 条 + §First action step 1 fallback | G5, G7 | 改 |
@@ -180,10 +180,11 @@
 | 7 | `docs/superpowers/README.md` | §使用规则 后插 "spec/plan 节奏经验" 段 | G8 | 改 |
 | 8 | `docs/templates/spec-template.md` | **新建**：spec/plan 必含 10 段模板（其中 7 段必含：重点 / Context / Goals / Non-Goals / Approach / Architecture / Self-Application + metadata 块 + Out of scope + Risks） | G9, G10 | 新 |
 | 9 | `docs/superpowers/specs/README.md` | **新建**：spec 目录自述 + spec→plan 转换门禁 checklist | G13 | 新 |
+| 10 | `docs/STATUS.md` | 顶部 `# Status` 后加 `## 当前安排` 前置段；不重排 In flight / Blocked / Recently done / Next up | G12 | 改 |
 
 不删任何文件。
 
-### 9 个文件的 frontmatter 改动
+### 阶段标签策略
 
 按 G10 阶段标签原则，下列 doc 在**未来**（本 spec 实施完成 + 新 spec/plan 落地时）应加 `stage:` 标签。**本 spec 自身**已加：
 
@@ -196,7 +197,7 @@
 | 8 篇 research doc | `stage: 设想`（每篇） | 由本 spec 不动；新写 research 必加（template G3 + G10 联合约束） |
 | 9 份历史 spec | `stage: 方案` | **不**回溯（Non-Goal） |
 | 6 份历史 plan | `stage: 计划` | **不**回溯（Non-Goal） |
-| `docs/STATUS.md` | `stage: 安排`（混合） | 由本 spec 不动；G12 加 `## 当前安排` 段时不加 stage 标签 |
+| `docs/STATUS.md` | `stage: 安排`（混合） | G12 只加 `## 当前安排` 前置段；不加 `**Stage**:`，避免破坏 STATUS 现有手写结构 |
 | 7 份 `agent-skills/*/SKILL.md` | （无 stage — skill 是工具，不是 stage 产物） | 不加 |
 
 **关键设计点**：frontmatter 阶段标签**只**对未来新写 / 新落地的 doc 强制；本 spec 实施过程**不**回溯改 15+ 历史文件（Non-Goal）。模板（文件 8）固化要求"新写 spec/plan 必带 stage + 重点"。
@@ -210,21 +211,29 @@
 | 位置 | 现状 | 改后 |
 |---|---|---|
 | L17 | `"verify": "npm run test:run && npm run build"` | `"verify": "npm run verify:full"` |
-| L17 后插入 | — | `"verify:contract": "vitest run -- && vite build && git diff --check"` |
+| L17 后插入 | — | `"verify:contract": "vitest run"` |
+| L17 后插入 | — | `"verify:post": "vite build && git diff --check"` |
 | L17 后插入 | — | `"verify:full": "vitest run && vite build && git diff --check && vitepress build docs/src && vitest run src/__tests__/visual-verification.test.js"` |
 
-**`verify` 默认改向 `verify:full`**：`npm run verify` 调用强度升级（test:run + build + diff:check + docs:build + visual），`&&` 短路让不可达子步不掩盖。**新增 `verify:contract`**：承载用户 "不要跑那么多验证" 约束。`vitest run --` 后接 paths 由 agent 在命令行追加（`-- src/__tests__/uiPolish.test.js`）。
+**`verify` 默认改向 `verify:full`**：`npm run verify` 调用强度升级（test:run + build + diff:check + docs:build + visual），`&&` 短路让失败子步直接暴露。**新增 `verify:contract` + `verify:post`**：承载用户 "不要跑那么多验证" 约束。contract 档调用形式固定为：
+
+```bash
+npm run verify:contract -- src/__tests__/uiPolish.test.js
+npm run verify:post
+```
+
+不要把 dynamic test paths 放进带 `&&` 的同一个 npm script；npm 参数追加在复合 shell 命令里容易落到错误位置。
 
 ### 2. `agent-skills/testing-verification/SKILL.md`
 
 | 位置 | 现状 | 改后 |
 |---|---|---|
-| L10-11 | "1. Run `npm run test:run` and confirm exit code 0.\n2. Run `npm run build` and confirm exit code 0." | "1. 按改动范围选 verify 档：纯代码契约 → `npm run verify:contract -- <contract-paths>`；含文档 / 视觉 → `npm run verify:full`。`npm run verify` 走 full 档。\n2. 确认 exit code 0 + 贴该档的 summary 一行（如 `verify:full: 87 files / 619 tests / build OK / diff clean / docs OK / visual OK`）。" |
+| L10-11 | "1. Run `npm run test:run` and confirm exit code 0.\n2. Run `npm run build` and confirm exit code 0." | "1. 按改动范围选 verify 档：纯代码契约 → `npm run verify:contract -- <contract-paths>` 后接 `npm run verify:post`；含文档 / 视觉 → `npm run verify:full`。`npm run verify` 走 full 档。\n2. 确认 exit code 0 + 贴该档的 summary 一行（如 `verify:contract: 4 files / 51 tests / build OK / diff clean` 或 `verify:full: 88 files / 625 tests / build OK / diff clean / docs OK / visual OK`）。" |
 | L12 | "3. If UI changed, run the visual snapshot tests..." | "3. **跳过**（已并入 `verify:full` 的 visual 子步）。" |
 | L13 | "4. State the verification commands and their results..." | （保留，措辞不动） |
 
 **summary 格式约定**（agent 自填到 STATUS / LOG handoff）：
-- `verify:contract` 成功: `verify:contract: <files> / <tests> / build OK / diff clean`
+- `verify:contract + verify:post` 成功: `verify:contract: <files> / <tests> / build OK / diff clean`
 - `verify:full` 成功: `verify:full: <files> / <tests> / build OK / diff clean / docs OK / visual OK`
 - 任一失败: `verify:full: FAIL at <step>: <error 1 line>`
 
@@ -241,7 +250,7 @@
 
 | 位置 | 现状 | 改后 |
 |---|---|---|
-| L56-58 | 3 条 path | + 2 条新 path：Codex global (`~/.codex/skills/`) + 项目内 scratch (`.superpowers/brainstorm/`，**不是** skill)；加 1 条 plugin 入口说明（`.claude/settings.json` 之前完全没提） |
+| L53-57 | 已有 canonical / Codex shim / Codex global / Claude shim 4 条 | + 2 条说明：项目内 scratch (`.superpowers/brainstorm/`，**不是** skill)；plugin 入口（`.claude/settings.json` 的 `enabledPlugins` 是 Claude 插件真正生效入口）。Codex global `~/.codex/skills/` 已存在，本轮不重复新增。 |
 
 #### 4b. §First action step 1 加 fallback
 
@@ -296,7 +305,25 @@
 - **Per-feature commit**：5/50 (10%) 是 mega-completion（>20 文件）。`commit-conventions` skill 已有 soft 警告"≥3 不相关顶层目录"自问能否拆，不设硬规则。
 ```
 
-### 8. `docs/templates/spec-template.md`（新建）
+### 8. `docs/STATUS.md`
+
+在 `# Status` 后、`## In flight` 前插入前置段：
+
+```markdown
+## 当前安排
+
+| Owner/session | Worktree | Branch | Deadline |
+|---|---|---|---|
+| n/a | n/a | n/a | n/a |
+
+> 当前安排只记录"谁在哪个 worktree 做什么、什么时候交付"。详细上下文仍写在 In flight / Recently done / Next up，避免 STATUS 顶部变成长 handoff。
+```
+
+说明：
+- 这是 G12 的最小落地，不改 `In flight / Blocked / Recently done / Next up` 四段主结构。
+- 默认填 `n/a`，具体 feature 开始时由 agent 更新该行；没有活跃安排时不删除段落。
+
+### 9. `docs/templates/spec-template.md`（新建）
 
 ```markdown
 # Spec / Plan Template (Pinax)
@@ -364,7 +391,7 @@
 | Risk | Mitigation | 残留风险 |
 ```
 
-### 9. `docs/superpowers/specs/README.md`（新建）
+### 10. `docs/superpowers/specs/README.md`（新建）
 
 ```markdown
 # specs/ 目录自述
@@ -402,7 +429,7 @@
 - 当前事实不写在这里；落实后的结果回填 `docs/PLAN.md`、`docs/LOG.md` 或 `src/` 下的事实文档。
 - 旧 spec / plan 如果失效，应在正文显式标 `SUPERSEDED` 或给出替代入口。
 - 调试当前行为问题时，不要从这里起步，先看 `src/code-map.md` 和 `src/known-issues.md`。
-- 旧 spec **不**回溯补 frontmatter / 重点 / Self-Application（避免回归 + 边际价值低）。
+- 旧 spec **不**回溯补 metadata 块（`**Stage**:` 标签）/ 重点 / Self-Application（避免回归 + 边际价值低）。
 ```
 
 ---
@@ -456,8 +483,9 @@
 ### 收尾必跑
 
 ```bash
-# 1. verify:contract 档可调起
+# 1. verify:contract + verify:post 档可调起
 npm run verify:contract -- src/__tests__/uiPolish.test.js
+npm run verify:post
 
 # 2. verify:full 档可调起
 npm run verify:full
@@ -481,7 +509,8 @@ for f in agent-skills/*/SKILL.md; do
   grep -oE "AGENTS\.md|docs/STATUS\.md|docs/PLAN\.md|docs/LOG\.md|docs/src/[a-z-]+\.md|docs/guides/[a-z-]+\.md" "$f" | sort -u
 done
 
-# 7. 3 个 README 段可读
+# 7. STATUS 前置安排 + 3 个 README 段可读
+grep -A 4 "## 当前安排" docs/STATUS.md
 grep -A 1 "## 研究文档写作约定" docs/plan/README.md
 grep -A 1 "## spec / plan 节奏经验" docs/superpowers/README.md
 grep -A 1 "## spec → plan 转换门禁" docs/superpowers/specs/README.md
@@ -508,7 +537,7 @@ npm run verify
 - 步骤 8: 7 个段标题
 - 步骤 9: 顶部有 `Stage: 方案` 和 `## 重点`；中后部有 `## Self-Application`
 - 步骤 10: 4 文件全 PASS（39 + 4 + 2 = 45 tests）
-- 步骤 11: exit 0（verify:full 输出应包含 87 files / 619 tests + build OK + diff clean + docs OK + visual OK）
+- 步骤 11: exit 0（verify:full 输出应包含当前全量 Vitest 文件/测试数 + build OK + diff clean + docs OK + visual OK；不要硬编码 87/619，当前 5A 后已是 88/625）
 
 ### 不引入
 
@@ -519,14 +548,14 @@ npm run verify
 
 ---
 
-## Triggered skills（收尾前必跑）
+## Triggered skills（按时机必跑）
 
 按 `AGENTS.md` 硬规则：
 
-- `agent-maintenance`（改 `AGENTS.md` / `agent-skills/` 触发；本文触发）
-- `docs-status-handoff`（改 `docs/plan/README.md` / `docs/superpowers/README.md` / 新建 `specs/README.md` 触发；本文触发）
-- `commit-conventions`（准备 commit 触发；本文收尾触发）
-- `testing-verification`（声明 done 前触发；本文收尾触发）
+- **编辑前**：`agent-maintenance`（改 `AGENTS.md` / `agent-skills/` 触发；本文触发）。先读 skill，再改 agent 基础设施，避免事后补救。
+- **收尾前**：`docs-status-handoff`（改 `docs/plan/README.md` / `docs/superpowers/README.md` / `docs/STATUS.md` / 新建 `specs/README.md` 触发；本文触发）
+- **commit 前**：`commit-conventions`（准备 commit 触发；本文收尾触发）
+- **声明 done 前**：`testing-verification`（本文收尾触发）
 
 不触发：
 - `ui-style-check`（无 UI 改动）
@@ -543,15 +572,15 @@ npm run verify
 |---|---|---|
 | **设想** | 本 spec 的"为什么" | 审计 4 类手动重复 + 6 阶段框架研究 |
 | **规划** | 本 spec 的"在哪条项目主线上" | `wip/map-realism-render-docs-20260608` 上的 agent workflow velocity 优化 |
-| **方案** | 本 spec 自身 | 14 Goal + 9 文件改动 + 软锁 + 测试 |
-| **计划** | §Implementation checklist | 单 PR 单 commit，按 10 步走 |
+| **方案** | 本 spec 自身 | 14 Goal + 10 文件改动 + 软锁 + 测试 |
+| **计划** | §Implementation checklist | 单 PR 单 commit，按 11 步走 |
 | **重点** | 顶部 `## 重点` 段 | 3 句成功标准（结构化减负 / 不破 7-skill / 单 PR ship） |
 | **安排** | worktree + branch + 1 commit | `../worktrees/agent-velocity-0615` + 1 commit + push + 合 PR |
 
 **依赖链**：
 - **上游（不在本文）**：`2026-06-08-internal-agent-workflow-design.md`（原 agent 基础设施 spec；本 spec 是其 follow-up）
 - **本 spec（方案）**：本文件
-- **下游（无独立 plan 文件）**：本 spec 自含 §Implementation checklist（10 步 + 验证），per `commit-conventions` rule 5 "default 1 commit per feature, max 2"，不另开 `docs/superpowers/plans/*.md` 文件。10 步对应 1 个 commit 内的小步，**不**需要拆 plan。
+- **下游（无独立 plan 文件）**：本 spec 自含 §Implementation checklist（11 步 + 验证），per `commit-conventions` rule 5 "default 1 commit per feature, max 2"，不另开 `docs/superpowers/plans/*.md` 文件。11 步对应 1 个 commit 内的小步，**不**需要拆 plan。
 
 **自示范的可见信号**：
 1. 顶部 metadata 有 `Stage: 方案`（G10 自示范）
@@ -568,14 +597,16 @@ npm run verify
 [ ] 0. 起点准备
     [ ] 0.1 确认当前在 wip/map-realism-render-docs-20260608
     [ ] 0.2 git status 干净（无未提交 / 未跟踪）
-    [ ] 0.3 git worktree add ../worktrees/agent-velocity-0615 wip/map-realism-render-docs-20260608
+    [ ] 0.3 git worktree add ../worktrees/agent-velocity-0615 -b chore/agent-workflow-velocity wip/map-realism-render-docs-20260608
     [ ] 0.4 cd 到新 worktree
+    [ ] 0.5 invoke agent-maintenance（本 spec 会改 AGENTS.md / agent-skills）
 
 [ ] 1. 改 package.json（L17 verify 系列扩字段）
     [ ] 1.1 L17 改 "verify": "npm run verify:full"
-    [ ] 1.2 L17 后插入 "verify:contract" 行
-    [ ] 1.3 L17 后插入 "verify:full" 行
-    [ ] 1.4 cat package.json | jq '.scripts' 确认 JSON 合法
+    [ ] 1.2 L17 后插入 "verify:contract": "vitest run"
+    [ ] 1.3 L17 后插入 "verify:post": "vite build && git diff --check"
+    [ ] 1.4 L17 后插入 "verify:full" 行
+    [ ] 1.5 node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); console.log('package.json OK')" 确认 JSON 合法
 
 [ ] 2. 改 agent-skills/testing-verification/SKILL.md（L10-12 措辞改档）
     [ ] 2.1 step 1 改"按改动范围选 verify 档"
@@ -589,7 +620,7 @@ npm run verify
     [ ] 3.3 L14 / L15 不动
 
 [ ] 4. 改 AGENTS.md（§Skill discovery paths 补 2 条 + §First action step 1 加 fallback）
-    [ ] 4.1 §Skill discovery paths 段末加 3 条（Codex global + 项目内 scratch + plugin 入口）
+    [ ] 4.1 §Skill discovery paths 段末加 2 条说明（项目内 scratch + plugin 入口；Codex global 已存在，不重复新增）
     [ ] 4.2 §First action step 1 改 "If available" → "Try to invoke" + 加 fallback 明示
     [ ] 4.3 §First action step 2 / step 3 不动
     [ ] 4.4 §Hard rules 主表不动
@@ -607,22 +638,25 @@ npm run verify
     [ ] 7.1 cat docs/superpowers/README.md | tail -5 确认插入位置
     [ ] 7.2 "## 使用规则" 段后插 "## spec / plan 节奏经验" 段
 
-[ ] 8. 新建 docs/templates/spec-template.md
-    [ ] 8.1 写文件时自动创建目录（无需 mkdir）
-    [ ] 8.2 写入 spec-template.md（见 §Component changes 8）
+[ ] 8. 改 docs/STATUS.md（G12 当前安排前置段）
+    [ ] 8.1 在 # Status 后、## In flight 前插入 ## 当前安排 表格
+    [ ] 8.2 不重排 In flight / Blocked / Recently done / Next up
 
-[ ] 9. 新建 docs/superpowers/specs/README.md
-    [ ] 9.1 写入 specs/README.md（见 §Component changes 9）
-    [ ] 9.2 确认 frontmatter 6 阶段框架自述 + spec→plan 转换门禁 6 条
+[ ] 9. 新建 docs/templates/spec-template.md
+    [ ] 9.1 mkdir -p docs/templates
+    [ ] 9.2 写入 spec-template.md（见 §Component changes 9）
 
-[ ] 10. 收尾
-    [ ] 10.1 跑 §Testing 步骤 1-11
-    [ ] 10.2 跑 agent-maintenance（确认 7 skill 仍合法 + AGENTS.md 引用未断）
-    [ ] 10.3 跑 docs-status-handoff（更新 STATUS.md In-flight → Recently done）
-    [ ] 10.4 跑 commit-conventions（确认无 Co-Authored-By footer + format + 1 commit）
-    [ ] 10.5 跑 testing-verification（verify:full 全绿）
-    [ ] 10.6 git commit -m "chore(workflow): verify 档分档 + research 骨架 + 4 skill 卫生 + 6 阶段框架落地"
-    [ ] 10.7 push worktree branch + 合 PR
+[ ] 10. 新建 docs/superpowers/specs/README.md
+    [ ] 10.1 写入 specs/README.md（见 §Component changes 10）
+    [ ] 10.2 确认 frontmatter 6 阶段框架自述 + spec→plan 转换门禁 6 条
+
+[ ] 11. 收尾
+    [ ] 11.1 跑 §Testing 步骤 1-11
+    [ ] 11.2 跑 docs-status-handoff（更新 STATUS.md In-flight → Recently done 或记录本轮落地）
+    [ ] 11.3 跑 commit-conventions（确认无 Co-Authored-By footer + format + 1 commit）
+    [ ] 11.4 跑 testing-verification（verify:full 全绿）
+    [ ] 11.5 git commit -m "chore(workflow): verify 档分档 + research 骨架 + 4 skill 卫生 + 6 阶段框架落地"
+    [ ] 11.6 push worktree branch + 合 PR
 ```
 
 ---
@@ -653,20 +687,20 @@ npm run verify
 | # | Risk | Mitigation | 残留风险 |
 |---|---|---|---|
 | R0 | **PreToolUse hook 未做**（用户审计后排除） | `commit-conventions` skill + agent 自觉（已 100% 命中） | Codex 侧 commit 仍裸奔，依赖同 skill 文本双读 |
-| R1 | `verify:full` 跑不通时 `&&` 短路会**部分静默** | `&&` 短路，agent 看到哪步失败；§Testing Step 11 显式跑 | 部分子步不可达会**部分静默**（exit 0 但 visual 没跑） |
+| R1 | `verify:full` 跑不通时 `&&` 短路导致后续子步不执行 | `&&` 短路返回非 0，agent 看到失败步；§Testing Step 11 显式跑 full 档 | 失败步之后的证据缺失，需要修复后重跑 full |
 | R2 | `worldbook-workflow` skill ↔ guide 对齐后，guide 仍可能 drift | guide §3 同名冲突策略显式引用，agent 改这块时直接看 guide | guide 后续若有改动，skill 引用**不**自动跟 |
-| R3 | AGENTS.md §Skill discovery paths 补 3 条后，路径列表仍可能过期 | 5 条 path 是当前 5 个实际 discovery 点全列 | 无自动检测 |
+| R3 | AGENTS.md §Skill discovery paths 补 2 条说明后，路径列表仍可能过期 | 当前 4 个 skill path + scratch + plugin 入口全列；Codex global 已存在，不重复新增 | 无自动检测 |
 | R4 | `commit-conventions` step 6 soft 警告被 agent 忽略 | soft 而非 hard，agent 自由裁量 | 5/50 mega-commit 比例可能不下降 |
 | R5 | `docs/plan/README.md` 写入约定后，已有 8 篇 research doc 不套 | 显式说明"已有 8 篇不强制改造" | 跨 doc 形态分裂短期持续；新 doc 起套 |
 | R6 | `docs/superpowers/README.md` 经验值段误导（数据样本小） | 段首明说"样本小，**不**作为硬规则" | agent 可能误把"8 subagent 上限"当硬规则 |
-| R7 | `verify:contract --` 后接 paths 的语法依赖 agent 调用习惯 | vitest run -- 支持接 paths | agent 偶尔忘 `--` |
-| R8 | `package.json` scripts 改动后 npm 解析失败 | §Implementation 1.4 显式 `jq` 验 JSON 合法 | 拼写错导致 verify 整套不可调 |
+| R7 | `verify:contract --` 后接 paths 的语法依赖 agent 调用习惯 | `verify:contract` 只包 `vitest run`，不再和 build/diff 复合；忘 `--` 时 Vitest 会跑全量，仍安全但慢 | agent 偶尔多跑全量 |
+| R8 | `package.json` scripts 改动后 npm 解析失败 | §Implementation 1.5 用 `node -e JSON.parse(...)` 验 JSON 合法（不依赖 jq） | 拼写错导致 verify 整套不可调 |
 | R9 | research doc 写作约定第 4 段子标题强制统一后，少数 doc 段落不自然 | 子标题是 `### N.x` 形式，已有 worldbook 那篇类似 | 个别 doc 看起来"为了套模板而套" |
 | R10 | 用户已花 5+ 消息调过的 7 个 skill 文字被本文微调 | 改动限制在 1-2 行/文件；不改 frontmatter trigger；不改 §结构 | 个别措辞偏离用户原意（review 时捕） |
 | **R11** | **新增 G9 重点 段后，旧 spec 不回溯补 → 短期内"新 spec 有 重点 / 旧 spec 无"分裂** | Non-Goal 显式说明不回溯；新 spec 起必套 | 短期内 spec 体例不齐 |
 | **R12** | **新增 G10 `Stage:` 标签后，agent grep 短期内只找到本 spec + 未来新 spec；9 历史 spec / 6 历史 plan / 8 research doc 都不回溯 → grep 输出稀疏** | template 要求新 spec 必带 Stage + 重点；plan 也加 | 短期内 6 阶段分布不均（方案占多数，设想 / 重点 / 安排 罕见） |
 | **R13** | **G11 设想 触发条件（v3+ multi-version）** 实际是事后触发而非事前 → 不能阻止早期 v1→v2→v3 的 5 版代价 | 显式说明是事后补救；不强制所有 feature 立项前都写 | 多版本 spec 仍会发生产生 v3 才补 设想 的"事后合理化" |
 | **R14** | **G12 安排 段加在 STATUS 顶部** 但 STATUS 4 段结构（In flight / Blocked / Recently done / Next up）不动 → 实际是 5 段，可能与 4 段约定不符** | 显式标 `## 当前安排` 为"前置 metadata"段，**不**计入 4 段 | 阅读 STATUS 时多 1 段，需要约定"顶部看安排 / 中间看状态"两段阅读顺序 |
-| **R15** | **G13 spec → plan 转换门禁** 是软纪律不是 hook，agent 可能跳过 | 写在 `specs/README.md` 显眼位置；§Implementation Step 9 显式写 | agent 仍可能漏跑门禁 |
+| **R15** | **G13 spec → plan 转换门禁** 是软纪律不是 hook，agent 可能跳过 | 写在 `specs/README.md` 显眼位置；§Implementation Step 10 显式写 | agent 仍可能漏跑门禁 |
 | **R16** | **G14 自示范** → 本 spec 自身就是模板的实例，agent 抄本 spec 写新 spec 时可能误把"agent workflow velocity"上下文带过去 | template 是参数化版本（不含本 spec 上下文），新 spec 走 template 走 | 个别 spec 体例看起来像 agent-velocity 的衍生 |
 | **R17** | **6 阶段框架本身未被 user 验证**（本 spec 是第一份应用）— 6 阶段对 Pinax 实际工作流是否合适，需 1-2 个新 feature 落地后才知道 | 本 spec 是 v1 试用，v2 仍可改 | 6 阶段框架本身被推翻 → R11-R16 全部返工 |

@@ -52,3 +52,20 @@
 - 改 `WelcomeView`、`AppShell`、海报页、书签按钮、拼贴布局或 palette 时，先读 `kao-ui-direction.md`。
 - 改 `gameStore`、`worldbookContextBuilder`、trigger 或剧情日志前，先读 `playable-worldbook-roadmap.md` 的对应 stage。
 - 只有正文显式标注 `SUPERSEDED` 的计划，才默认按历史材料处理。
+
+## 研究文档写作约定
+
+> 本节约束 `docs/plan/*-research-*.md` 的骨架。已有 8 篇不强制改造，新写的研究 doc 必套。
+
+新写 research doc 时必含 5 段，按顺序：
+
+1. **Preamble / 工具声明**（开头）— 显式说明本 session 可用工具（Firecrawl / WebSearch / WebFetch / Context7 / curl），缺失的工具要写"n/a — <reason>"，不写"未跑通"这种模糊话。
+2. **TL;DR / 结论先行**（preamble 之后，正文之前）— ≤ 200 字，含 3 件事：候选范围、推荐对象、推荐理由。**不**是详细论证，是给读者 30 秒拿到 punchline。
+3. **候选矩阵**（`## 1. <Matrix>` 第一节）— 一张主比较表，列含 name / 关键 feature / 维护状态 / 与 Pinax 当前栈的契合度。表后跟 1-2 段解释不直白看表的隐含 trade-off。
+4. **Pinax Recommendation**（正文倒数第二节）— 子标题统一为：
+   - `### N.1 Copy` — 应借鉴的具体模式
+   - `### N.2 Avoid` — 应避开的反模式
+   - `### N.3 Open questions` — 没解决、留给后续调研的问题
+5. **Sources**（末尾）— 引用列表，含 source type（canonical docs / blog / demo / curl-only）和访问日期。
+
+不强制：表格 / 章节深度 / 候选数量（按需展开）。但 5 段顺序不能换。

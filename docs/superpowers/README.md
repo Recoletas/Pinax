@@ -35,3 +35,13 @@
 - 当前事实不写在这里；落实后的结果回填 `PLAN.md`、`LOG.md` 或 `src/` 下的事实文档。
 - 旧 spec / plan 如果失效，应在正文显式标 `SUPERSEDED` 或给出替代入口。
 - 调试当前行为问题时，不要从这里起步，先看 `src/code-map.md` 和 `src/known-issues.md`。
+
+## spec / plan 节奏经验（不强制，仅参考）
+
+> 本节是过去 9 份 spec / 6 份 plan 的观察值，样本小，**不**作为硬规则。
+
+- **Spec 版本数**：6/9 spec 1 版过；2/9 (pass2 / stereo-migration) 走了 3+ 版。**>3 版**通常是 spec scope 过大或 user 视角有未对齐的硬约束，建议停下来重新定义 scope。
+- **Subagent 评审数**：样本 4 例，最少 4 最多 12，中位 8。**<3** 通常不够（漏边缘 case / 代码 / 架构任一视角）；**>8** 是信号 — 要么 spec 本身模糊需要重新对齐，要么评审维度重叠。
+- **Plan 存在与 feature 复杂度的关系**：multi-pass UI 重设计都有 plan；single-pass polish 无 plan。**复杂度跟踪**不是覆盖率，强行写 plan for trivial 反而拖慢。
+- **修/改 commit 比例**：近 30 commit 是 17:12（1.42）— 返工 > 新功能。立体感迁移 v1→v5 期间 6/12 是 review-iteration docs。这是 spec 多版的合理代价，**不**是失败信号。
+- **Per-feature commit**：5/50 (10%) 是 mega-completion（>20 文件）。`commit-conventions` skill 已有 soft 警告"≥3 不相关顶层目录"自问能否拆，不设硬规则。

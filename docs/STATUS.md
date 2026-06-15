@@ -7,6 +7,14 @@
   Long-term history does NOT live here; migrate to docs/LOG.md / docs/PLAN.md / docs/src/known-issues.md.
 -->
 
+## 当前安排
+
+| Owner/session | Worktree | Branch | Deadline |
+|---|---|---|---|
+| n/a | n/a | n/a | n/a |
+
+> 当前安排只记录"谁在哪个 worktree 做什么、什么时候交付"。详细上下文仍写在 In flight / Recently done / Next up，避免 STATUS 顶部变成长 handoff。
+
 ## In flight
 <!--
   Per-entry fields (all required unless noted):
@@ -25,6 +33,12 @@
   Intent: Thread A 正在推进 `kao` / archive-folio UI 重构；按用户 2026-06-10 晚反馈，`WelcomeView` 重新成为 Phase 1B 第一优先：先做 olive/gold kao 档案册首页(3 阶段路径见 [superpowers/specs/2026-06-10-ui-redesign-design.md](./superpowers/specs/2026-06-10-ui-redesign-design.md))，再统一 `AppShell` chrome 与 `Experience` 入口结构，再决定是否把同一套开页语言继续带到 `Writing / Notes / ProseEssay`
   Last touched: 2026-06-10 22:15 CST
   Do not touch: `src/stores/gameStore.js`、`src/services/worldbookContextBuilder.js`、`src/services/generation*`、`src/components/StatusBar.vue`
+- Owner/session: Claude
+  Worktree: /home/recoletas/jiuguan/worktrees/agent-velocity-0615
+  Branch: chore/agent-workflow-velocity (本地 1 commit, **待 push + 合 PR**)
+  Scope: `package.json` + `agent-skills/{testing-verification,worldbook-workflow,commit-conventions}/SKILL.md` + `AGENTS.md` + `docs/STATUS.md` + `docs/{plan,superpowers}/README.md` + `docs/templates/spec-template.md` (new) + `docs/superpowers/specs/README.md` (new) + `docs/superpowers/specs/2026-06-15-agent-workflow-velocity-design.md` (v3 → v5 同步)
+  Intent: agent workflow velocity spec v5 实施。10 文件改动落地 4 类优化：(A) `verify` 三档分档 + testing-verification skill 改"选档"；(B) `docs/plan/README.md` 加 5 条 research doc 写作约定；(E) `worldbook-workflow` skill ↔ guide 对齐 + AGENTS.md discovery paths 补 2 条 + commit-conventions step 4 去重 + First action fallback 明示；(F) commit-conventions step 6 soft 警告 + `docs/superpowers/README.md` 加 spec/plan 节奏经验段。6 阶段框架 (G9-G14) 落地：`docs/STATUS.md` 顶部加 `## 当前安排` 前置段；新建 `docs/templates/spec-template.md` 模板（7 必含段）；新建 `docs/superpowers/specs/README.md`（含 spec→plan 转换门禁 6 条）；本 spec v3 → v5（3 处 title-block 措辞统一）。
+  Last touched: 2026-06-15 18:18 CST
 - Owner/session: Claude
   Worktree: /home/recoletas/jiuguan/worktrees/5a-stereo
   Branch: feat/5a-stereo-migration (pushed to origin, **PR pending**)
