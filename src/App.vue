@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
 import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
+import ThemeAssets from './components/theme/ThemeAssets.vue'
 import { useGameStore } from './stores/gameStore'
 import { useThemeStore } from './stores/themeStore.js'
 
@@ -82,6 +83,7 @@ watch(
 
 <template>
   <div class="app-root">
+    <ThemeAssets />
     <router-view />
     <transition name="meta-toast-fade">
       <div v-if="generationMetaNotice" class="generation-meta-toast">

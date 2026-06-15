@@ -130,16 +130,16 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useGameStore } from '../stores/gameStore'
-import { useWorldStore } from '../stores/worldStore'
-import { useTheme } from '../composables/useTheme'
-import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
-import BookmarkButton from '../components/folio/BookmarkButton.vue'
+import { useGameStore } from '../../stores/gameStore'
+import { useWorldStore } from '../../stores/worldStore'
+import { useTheme } from '../../composables/useTheme'
+import ArchiveStrip from '../../components/folio/ArchiveStrip.vue'
+import BookmarkButton from '../../components/folio/BookmarkButton.vue'
 import {
   buildPlayableWorldActionHooks,
   clearPlayableWorldEntryIntent,
   getPlayableWorldEntryIntent
-} from '../services/playableWorldEntry'
+} from '../../services/playableWorldEntry'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()

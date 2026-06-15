@@ -2,9 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 // 懒加载页面组件
 const AppShell = () => import('../layouts/AppShell.vue')
-const WelcomeView = () => import('../views/WelcomeView.vue')
-const OpeningPage = () => import('../pages/OpeningPage.vue')
-const Experience = () => import('../pages/Experience.vue')
+const ThemeVariantView = () => import('../components/theme/ThemeVariantView.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
@@ -17,7 +15,8 @@ const workbenchChildren = [
   {
     path: '',
     name: 'welcome',
-    component: WelcomeView,
+    component: ThemeVariantView,
+    props: { view: 'welcome' },
     meta: {
       immersiveShell: true,
       hideActivityBar: true,
@@ -27,7 +26,8 @@ const workbenchChildren = [
   {
     path: 'opening',
     name: 'opening',
-    component: OpeningPage,
+    component: ThemeVariantView,
+    props: { view: 'opening' },
     meta: {
       immersiveShell: true,
       hideActivityBar: true,
@@ -40,7 +40,8 @@ const workbenchChildren = [
   {
     path: 'experience',
     name: 'experience',
-    component: Experience,
+    component: ThemeVariantView,
+    props: { view: 'experience' },
     meta: {
       activityKey: 'experience',
       title: '体验'

@@ -113,8 +113,8 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useTheme } from '../composables/useTheme'
-import { ACTIVITY_ITEMS } from '../config/workbenchNav'
+import { useTheme } from '../../composables/useTheme'
+import { ACTIVITY_ITEMS } from '../../config/workbenchNav'
 
 const { isDark, toggleTheme } = useTheme()
 const route = useRoute()
