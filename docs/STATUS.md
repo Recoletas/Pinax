@@ -18,6 +18,12 @@
     - Last touched: YYYY-MM-DD HH:MM TZ
     - Do not touch: ... (optional, only when there are specific files/areas to avoid)
 -->
+- Owner/session: Claude
+  Worktree: /home/recoletas/jiuguan/text-game-framework
+  Branch: wip/map-realism-render-docs-20260608
+  Scope: `docs/superpowers/specs/2026-06-15-stereo-migration-design.md` (v4)
+  Intent: Thread A 立体感迁移 design v5 已 user-approved,转 writing-plans 写 5A/5B 实施计划 (5A 3 atomic commits:modules / wiring / css;5B 1 PR 6 image_generate call + cwebp + swap)
+  Last touched: 2026-06-15 11:30 CST
 - Owner/session: user
   Worktree: /home/recoletas/jiuguan/text-game-framework
   Branch: wip/map-realism-render-docs-20260608
