@@ -81,4 +81,68 @@
     transform: rotate(-3deg) translateX(8px);
     border: 1px solid var(--hairline-soft);
   }
+
+  /* Archive paper — for central character poster stage.
+     Adds subtle paper-fiber speckle overlay via a multiply layer.
+     References --archive-* tokens defined above; rules only apply
+     when this theme file is loaded. */
+  .theme-kao .is-archive-paper {
+    position: relative;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .theme-kao .is-archive-paper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--archive-gold) 14%, transparent) 0 1px, transparent 2px),
+      radial-gradient(circle at 67% 78%, color-mix(in srgb, var(--archive-ink) 12%, transparent) 0 1px, transparent 2px),
+      radial-gradient(circle at 38% 52%, color-mix(in srgb, var(--archive-rose) 10%, transparent) 0 1px, transparent 2px);
+    background-size: 7px 7px, 11px 11px, 13px 13px;
+    mix-blend-mode: multiply;
+    opacity: 0.42;
+    z-index: 2;
+  }
+
+  .theme-kao .is-archive-paper img,
+  .theme-kao .is-archive-paper .poster-stage__art {
+    mix-blend-mode: normal;
+  }
+
+  /* Archive prop — scattered tape / corner-fold / coffee-stain
+     decorations in the WelcomeView poster collage. Each modifier sets
+     its own width/height/background; the base class shares position +
+     shadow semantics with the parent stage. Position (top/left/right)
+     is set per-instance in WelcomeView.vue (tied to A3 mock numbers). */
+  .theme-kao .is-archive-prop {
+    position: absolute;
+    pointer-events: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .theme-kao .is-archive-prop--tape {
+    width: 70px;
+    height: 20px;
+    background: rgba(245, 235, 221, 0.55);
+    border: 1px solid rgba(183, 138, 52, 0.5);
+  }
+
+  .theme-kao .is-archive-prop--fold {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(225deg, rgba(0, 0, 0, 0.45) 50%, transparent 50%);
+    box-shadow: none;
+  }
+
+  .theme-kao .is-archive-prop--stain {
+    width: 42px;
+    height: 36px;
+    background: radial-gradient(ellipse, rgba(120, 70, 30, 0.55) 0%, transparent 60%);
+    border-radius: 50%;
+    filter: blur(2px);
+    box-shadow: none;
+  }
 }

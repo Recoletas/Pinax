@@ -261,13 +261,19 @@ describe('welcome + experience pass 2 — z-index tokens and isolation', () => {
     expect(welcomeView).toMatch(/\.welcome-stage-poster\s*\{[\s\S]*?isolation:\s*isolate;[\s\S]*?\}/)
   })
 
-  it('exposes .is-archive-prop utility with 3 modifiers in main.css', () => {
-    const mainCss = readProjectFile('src/styles/main.css')
+  it('exposes .is-archive-prop utility with 3 modifiers in kao.css (gated by .theme-kao)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
 
-    expect(mainCss).toContain('.is-archive-prop')
-    expect(mainCss).toContain('.is-archive-prop--tape')
-    expect(mainCss).toContain('.is-archive-prop--fold')
-    expect(mainCss).toContain('.is-archive-prop--stain')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--tape\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--fold\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--stain\b/)
+  })
+
+  it('main.css does not reference kao-only .is-archive-* utilities', () => {
+    const mainCss = readProjectFile('src/styles/main.css')
+    expect(mainCss).not.toMatch(/is-archive-paper/)
+    expect(mainCss).not.toMatch(/is-archive-prop/)
   })
 
   it('replaces hardcoded mechanism-notice z-index with --z-mechanism-notice token', () => {
