@@ -612,4 +612,43 @@ describe('theme system CSS contracts', () => {
     expect(legacy).not.toMatch(/LXGW\s*WenKai/i)
     expect(legacy).not.toMatch(/@font-face/)
   })
+
+  it('AppShell.vue or shared AppearanceControls.vue exposes 外观 group', () => {
+    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
+    const appearance = (() => {
+      try {
+        return readFileSync(resolve(ROOT, 'src/components/theme/AppearanceControls.vue'), 'utf8')
+      } catch { return '' }
+    })()
+    const combined = appShell + appearance
+    expect(combined).toMatch(/外观/)
+    // 4 options: kao+light, kao+dark, legacy+light, legacy+dark
+    expect(combined).toMatch(/kao/i)
+    expect(combined).toMatch(/legacy/i)
+    expect(combined).toMatch(/亮色/)
+    expect(combined).toMatch(/暗色/)
+  })
+
+  it('ThemeAssets injects LXGW preload when variant=kao, removes when variant=legacy', async () => {
+    const { mount } = await import('@vue/test-utils')
+    const { setActivePinia, createPinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const ThemeAssets = (await import('../components/theme/ThemeAssets.vue')).default
+    const { useThemeStore } = await import('../stores/themeStore.js')
+
+    const store = useThemeStore()
+    store.initTheme()
+    const wrapper = mount(ThemeAssets)
+    await new Promise((r) => setTimeout(r, 0))
+
+    store.setVariant('kao')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.querySelector('link[data-theme-font="LXGW"]')).not.toBeNull()
+
+    store.setVariant('legacy')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(document.querySelector('link[data-theme-font="LXGW"]')).toBeNull()
+
+    wrapper.unmount()
+  })
 })

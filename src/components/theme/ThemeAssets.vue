@@ -34,9 +34,12 @@ function removeFontPreload() {
 
 async function syncAssets(variant) {
   if (!VARIANT_CSS[variant]) return
-  await VARIANT_CSS[variant]() // Vite injects CSS chunk on first call
+  // Font preload is variant-gated but independent of the CSS chunk.
+  // Apply it synchronously so observers see the <link> as soon as the
+  // variant changes, without waiting for the Vite CSS import to settle.
   if (variant === 'kao') injectFontPreload()
   else removeFontPreload()
+  await VARIANT_CSS[variant]() // Vite injects CSS chunk on first call
 }
 
 onMounted(() => syncAssets(themeStore.variant))

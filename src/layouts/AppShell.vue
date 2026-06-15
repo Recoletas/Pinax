@@ -4,6 +4,7 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
+import AppearanceControls from '../components/theme/AppearanceControls.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 
 const route = useRoute()
@@ -103,6 +104,7 @@ function handleSelectPanel(routeName) {
               :active-key="currentActivityKey"
               @select="handleSelectActivity"
             />
+            <AppearanceControls />
           </div>
 
           <div v-if="drawerHasPanel" class="shell-drawer__panel">
