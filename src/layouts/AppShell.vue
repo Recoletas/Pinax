@@ -104,7 +104,6 @@ function handleSelectPanel(routeName) {
               :active-key="currentActivityKey"
               @select="handleSelectActivity"
             />
-            <AppearanceControls />
           </div>
 
           <div v-if="drawerHasPanel" class="shell-drawer__panel">
@@ -115,6 +114,8 @@ function handleSelectPanel(routeName) {
               @select="handleSelectPanel"
             />
           </div>
+
+          <AppearanceControls />
         </div>
       </FolioSurface>
     </template>

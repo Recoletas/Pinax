@@ -629,6 +629,40 @@ describe('theme system CSS contracts', () => {
     expect(combined).toMatch(/暗色/)
   })
 
+  it('AppShell.vue mounts AppearanceControls inside shell-drawer__body (not nested in shell-drawer__activity)', () => {
+    // Spec §6: "Primary placement inside shell-drawer__body, preferably below
+    // navigation groups." Mounting inside shell-drawer__activity would constrain
+    // the 4-radio fieldset to the 168px activity column on desktop >= 1040px.
+    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
+
+    // Balance <div> / </div> starting at a marker so nested child divs
+    // (shell-drawer__activity, shell-drawer__panel) are included.
+    function extractBalancedDiv(source, marker) {
+      const start = source.indexOf(marker)
+      if (start < 0) return ''
+      const afterMarker = start + marker.length
+      let depth = 1
+      const divRe = /<\/?div\b[^>]*>/g
+      divRe.lastIndex = afterMarker
+      let m
+      while ((m = divRe.exec(source)) !== null) {
+        const isClose = m[0].startsWith('</div')
+        depth += isClose ? -1 : 1
+        if (depth === 0) return source.slice(start, m.index + m[0].length)
+      }
+      return ''
+    }
+
+    const bodyBlock = extractBalancedDiv(appShell, '<div class="shell-drawer__body">')
+    const activityBlock = extractBalancedDiv(appShell, '<div class="shell-drawer__activity">')
+
+    // Positive: <AppearanceControls /> must live inside shell-drawer__body.
+    expect(bodyBlock).toMatch(/<AppearanceControls\s*\/>/)
+
+    // Negative: <AppearanceControls /> must NOT live inside shell-drawer__activity.
+    expect(activityBlock).not.toMatch(/<AppearanceControls\s*\/>/)
+  })
+
   it('ThemeAssets injects LXGW preload when variant=kao, removes when variant=legacy', async () => {
     const { mount } = await import('@vue/test-utils')
     const { setActivePinia, createPinia } = await import('pinia')
