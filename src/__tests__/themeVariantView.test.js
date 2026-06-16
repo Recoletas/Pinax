@@ -86,4 +86,30 @@ describe('ThemeVariantView', () => {
     expect(wrapper.text()).toMatch(/legacy welcome/)
     wrapper.unmount()
   })
+
+  it('only one variant renders at a time (no dual-mount)', async () => {
+    // Locks in the `:key="${view}-${themeStore.variant}"` contract in
+    // ThemeVariantView.vue. The contract: when the variant flips, the old
+    // component must unmount and the new one must mount — never both at once.
+    // If the `:key` binding were removed, both components would render
+    // simultaneously and this test would fail.
+    const s = useThemeStore()
+    s.initTheme()
+    s.setVariant('kao')
+    const wrapper = factory({ view: 'welcome' })
+    await settle()
+
+    // After the initial render: only kao is present, legacy is not.
+    expect(wrapper.findAllComponents({ name: 'WelcomeKao' }).length).toBe(1)
+    expect(wrapper.findAllComponents({ name: 'WelcomeLegacy' }).length).toBe(0)
+
+    // Flip to legacy: only legacy should be present, kao should be unmounted.
+    s.setVariant('legacy')
+    await settle()
+    const kaoAfter = wrapper.findAllComponents({ name: 'WelcomeKao' })
+    const legacyAfter = wrapper.findAllComponents({ name: 'WelcomeLegacy' })
+    expect(kaoAfter.length).toBe(0)
+    expect(legacyAfter.length).toBe(1)
+    wrapper.unmount()
+  })
 })
