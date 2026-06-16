@@ -685,4 +685,39 @@ describe('theme system CSS contracts', () => {
 
     wrapper.unmount()
   })
+
+  it('variant-specific selectors are gated by .theme-kao / .theme-legacy', () => {
+    const kaoRaw = readFileSync(resolve(ROOT, 'src/styles/themes/kao.css'), 'utf8')
+    // Strip CSS comments AND rule bodies so comment text and property
+    // values (e.g. `.woff2')` URLs inside @font-face) don't create false
+    // "selector" matches — the loose `/[.][a-z][^{]*\{[^}]*\}/` regex
+    // would otherwise eat across rule boundaries and inside bodies.
+    const kao = kaoRaw
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // strip /* ... */ comments
+      .replace(/\{[^}]*\}/g, '')           // strip { ... } bodies
+    // All kao rules that don't apply at :root or @font-face must be inside .theme-kao
+    const ruleBlocks = kao.match(/[.][a-z][^{]*\{[^}]*\}/gi) || []
+    for (const block of ruleBlocks) {
+      const selector = block.split('{')[0].trim()
+      // :root + .theme-dark/.theme-light are color-scheme tokens, not
+      // variant-specific selectors; :root is allowed ungated per spec §3.3.
+      if (selector.startsWith(':root') || selector.startsWith('.theme-dark') || selector.startsWith('.theme-light')) continue
+      if (selector.includes('@')) continue
+      // selectors must include .theme-kao
+      expect(selector).toMatch(/\.theme-kao/)
+    }
+  })
+
+  it('/experience legacy/current contracts do not include removed opening-page residues', () => {
+    const expCurrent = readFileSync(resolve(ROOT, 'src/pages/Experience.vue'), 'utf8')
+    const expLegacy = readFileSync(resolve(ROOT, 'src/pages/legacy/Experience.vue'), 'utf8')
+    for (const exp of [expCurrent, expLegacy]) {
+      // Forbidden strings/classes per spec §8.2
+      expect(exp).not.toMatch(/playable-world-opening-page/)
+      expect(exp).not.toMatch(/opening-brief-lines/)
+      expect(exp).not.toMatch(/opening-action-directory/)
+      expect(exp).not.toMatch(/experience-stage-band/)
+      expect(exp).not.toMatch(/playable-world-strip/)
+    }
+  })
 })
