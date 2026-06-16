@@ -1,5 +1,12 @@
 <template>
   <div class="game-page">
+    <CharacterBackdrop
+      :src="speakerThumbSrc"
+      position="right center"
+      tint="archive-olive-strong"
+      :tint-strength="58"
+      :blur="2"
+    />
     <div class="game-layout">
       <div class="game-main-shell" v-if="!showSessionPicker">
         <div class="game-main">
@@ -50,13 +57,15 @@
       <div v-if="quickNoteOpen" class="quick-note-workspace-overlay" @click.self="quickNoteOpen = false">
         <Transition name="modal-scale" appear>
           <section class="quick-note-workspace">
-            <header class="quick-note-workspace-header">
-              <div>
-                <div class="quick-note-workspace-kicker">体验素材</div>
-                <h3 class="quick-note-workspace-title">速记与对话导入</h3>
-              </div>
-              <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
-            </header>
+            <FolioSurface as="div" variant="paper" :decorated="false" class="quick-note-workspace-header-wrap">
+              <header class="quick-note-workspace-header">
+                <div>
+                  <div class="quick-note-workspace-kicker">体验素材</div>
+                  <h3 class="quick-note-workspace-title">速记与对话导入</h3>
+                </div>
+                <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
+              </header>
+            </FolioSurface>
 
             <div class="quick-note-workspace-body">
               <section class="quick-note-editor-panel">
@@ -75,15 +84,15 @@
                   @input="handleQuickNoteInput"
                 ></textarea>
                 <div class="quick-note-workspace-actions">
-                  <button class="quick-note-panel-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
-                  <button class="quick-note-panel-btn" type="button" @click="clearQuickNoteDraft">清空</button>
+                  <button class="action-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
+                  <button class="action-btn" type="button" @click="clearQuickNoteDraft">清空</button>
                 </div>
               </section>
 
               <aside class="quick-note-dialogue-panel">
                 <div class="quick-note-panel-head">
                   <span>对话段</span>
-                  <button class="quick-note-panel-btn compact" type="button" @click="toggleQuickNoteImport">
+                  <button class="action-btn" type="button" @click="toggleQuickNoteImport">
                     {{ quickNoteImportOpen ? '关闭选择' : '选择模式' }}
                   </button>
                 </div>
@@ -113,9 +122,9 @@
                   <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
                 </div>
                 <div class="quick-note-workspace-actions">
-                  <button class="quick-note-panel-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
-                  <button class="quick-note-panel-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
-                  <button class="quick-note-panel-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
+                  <button class="action-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
+                  <button class="action-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
+                  <button class="action-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
                 </div>
                 <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
               </aside>
@@ -178,25 +187,32 @@
       <Transition name="modal-fade">
         <div v-if="inlineDetail" class="inline-detail-overlay" @click.self="closeInlineDetail">
           <Transition name="modal-scale" appear>
-            <div class="inline-detail-card">
-              <header class="inline-detail-header">
-                <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
-                <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
-                <button class="inline-detail-close" @click="closeInlineDetail">×</button>
-              </header>
-              <div class="inline-detail-body">
-                <template v-if="inlineDetail.type === 'dialogue'">
-                  <p class="inline-detail-content">"{{ inlineDetail.content }}"</p>
-                  <div class="inline-detail-hint">点击其他区域关闭</div>
-                </template>
-                <template v-else-if="inlineDetail.type === 'item'">
-                  <p class="inline-detail-content">{{ inlineDetail.content }}</p>
-                  <div class="inline-detail-actions">
-                    <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
-                  </div>
-                </template>
+            <FolioSurface as="div" variant="chrome" :decorated="false">
+              <div class="inline-detail-card">
+                <header class="inline-detail-header">
+                  <CharacterPortrait
+                    pose-id="speaker-thumb"
+                    size="thumb"
+                    :caption="inlineDetail?.speaker || '对话人'"
+                  />
+                  <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
+                  <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
+                  <button class="inline-detail-close" @click="closeInlineDetail">×</button>
+                </header>
+                <div class="inline-detail-body">
+                  <template v-if="inlineDetail.type === 'dialogue'">
+                    <p class="inline-detail-content">"{{ inlineDetail.content }}"</p>
+                    <div class="inline-detail-hint">点击其他区域关闭</div>
+                  </template>
+                  <template v-else-if="inlineDetail.type === 'item'">
+                    <p class="inline-detail-content">{{ inlineDetail.content }}</p>
+                    <div class="inline-detail-actions">
+                      <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
+                    </div>
+                  </template>
+                </div>
               </div>
-            </div>
+            </FolioSurface>
           </Transition>
         </div>
       </Transition>
@@ -247,6 +263,10 @@ import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
 import GeographyPanel from '../components/geography/GeographyPanel.vue'
 import Character from '../components/Character.vue'
+import FolioSurface from '@/components/folio/FolioSurface.vue'
+import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
+import CharacterBackdrop from '@/components/folio/CharacterBackdrop.vue'
+import { useCharacterArt } from '@/composables/useCharacterArt'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
@@ -258,6 +278,8 @@ import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const router = useRouter()
+const { resolveArt } = useCharacterArt()
+const speakerThumbSrc = computed(() => resolveArt({ poseId: 'speaker-thumb' }).src)
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
@@ -745,6 +767,7 @@ function quickNoteWordCount(text) {
 <style scoped>
 .game-page {
   position: relative;
+  isolation: isolate;
   height: var(--app-viewport-height, 100vh);
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
@@ -758,31 +781,9 @@ function quickNoteWordCount(text) {
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.game-page::before,
-.game-page::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.game-page::before {
-  background:
-    linear-gradient(124deg, transparent 0 54%, color-mix(in srgb, var(--accent) 8%, transparent) 54.4% 60%, transparent 60.4%),
-    linear-gradient(146deg, transparent 0 78%, color-mix(in srgb, var(--accent-rose) 10%, transparent) 78.2% 84%, transparent 84.2%);
-  opacity: 0.8;
-}
-
-.game-page::after {
-  background:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 78px,
-      color-mix(in srgb, var(--border) 6%, transparent) 78px 79px
-    ),
-    linear-gradient(180deg, color-mix(in srgb, #000 10%, transparent), transparent 16%, transparent 84%, color-mix(in srgb, #000 18%, transparent));
-  opacity: 0.48;
-}
+/* 5C v3.5: page-level pseudo-element overlays (diagonal accent + vertical
+   hatch) are intentionally removed. The CharacterBackdrop is the page
+   background; the page-level gradient stack that muted the art is gone. */
 
 .game-layout {
   position: relative;
@@ -1439,33 +1440,13 @@ function quickNoteWordCount(text) {
   opacity: 0;
 }
 
-/* Phase 1C archive-folio overrides */
+/* Phase 1C archive-folio overrides
+   5C v3.5: drop the page-level gradient + ::before / ::after pseudo
+   overlays. <CharacterBackdrop> is now the page background; the
+   folio chrome frame is gone (translucent panel reads through the
+   art). */
 .game-page {
-  background:
-    radial-gradient(circle at 14% 8%, color-mix(in srgb, var(--archive-gold) 18%, transparent), transparent 24%),
-    radial-gradient(circle at 84% 12%, color-mix(in srgb, var(--archive-olive) 10%, transparent), transparent 18%),
-    linear-gradient(146deg,
-      color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-secondary)) 0 66%,
-      color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 66% 100%);
   color: var(--archive-ink);
-}
-
-.game-page::before {
-  background:
-    linear-gradient(118deg, transparent 0 58%, color-mix(in srgb, var(--archive-gold) 8%, transparent) 58.2% 63%, transparent 63.2%),
-    linear-gradient(144deg, transparent 0 82%, color-mix(in srgb, var(--archive-olive) 10%, transparent) 82.2% 86%, transparent 86.2%);
-  opacity: 0.86;
-}
-
-.game-page::after {
-  background:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 88px,
-      color-mix(in srgb, var(--border) 7%, transparent) 88px 89px
-    ),
-    linear-gradient(180deg, color-mix(in srgb, #fff 12%, transparent), transparent 14%, transparent 86%, color-mix(in srgb, #000 10%, transparent));
-  opacity: 0.42;
 }
 
 .action-btn {
@@ -1633,16 +1614,29 @@ function quickNoteWordCount(text) {
 }
 
 .game-main-shell {
+  /* 5C v3.6: p5r Confidant panel — solid paper + 0 radius + 1px ink 3
+     sides + 4px rose left hinge + 6px hard-offset ink shadow (no blur).
+     Replaces v3.5 translucent + backdrop-filter + soft shadow (the
+     "modern dashboard glass card" that the user said has no 3D feel). */
   padding: 18px 18px 20px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, var(--border));
-  clip-path: polygon(0 18px, 22px 0, calc(100% - 30px) 0, 100% 30px, 100% 100%, 0 100%);
+  background: var(--archive-paper);
   border-radius: 0;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 100%);
-  box-shadow:
-    0 24px 36px color-mix(in srgb, #000 12%, transparent),
-    14px 14px 0 color-mix(in srgb, var(--archive-olive-strong) 8%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent);
+  border-top: 1px solid var(--archive-ink);
+  border-right: 1px solid var(--archive-ink);
+  border-bottom: 1px solid var(--archive-ink);
+  border-left: 4px solid var(--accent-rose);
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 88%, transparent);
+  color: var(--archive-ink);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+}
+
+.game-main-shell h1, .game-main-shell h2, .game-main-shell h3, .game-main-shell strong {
+  color: var(--archive-ink);
+  text-shadow: 1px 1px 0 color-mix(in srgb, var(--archive-paper) 60%, transparent);
+}
+
+.game-main-shell p, .game-main-shell span, .game-main-shell li {
+  color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-ink-soft));
 }
 
 .game-main-shell::before {

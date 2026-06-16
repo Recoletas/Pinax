@@ -37,10 +37,20 @@
 }
 .spin { animation: spin 1s linear infinite; }
 
-/* Self-hosted display font (LXGW WenKai v1.522, OFL 1.1) — moved to
-   src/styles/themes/kao.css; the token is gated by variant loading. */
+/* Self-hosted display font (LXGW WenKai v1.522, OFL 1.1)
+   Used for hero titles on the Welcome / Opening surfaces.
+   Subset to ~2700 common chars + ASCII + CJK punctuation (593 KB WOFF2). */
+@font-face {
+  font-family: "LXGW WenKai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/LXGWWenKai-Regular.woff2") format("woff2");
+}
+
 :root {
-  --font-serif: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  --font-display: "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  --font-serif: "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
   --font-sans: "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -81,6 +91,18 @@
   --accent-emerald: #2d9978;
   --accent-emerald-light: rgba(45, 153, 120, 0.12);
 
+  /* Kao / archive-folio visual system */
+  --archive-paper: #f5ebdd;
+  --archive-paper-strong: #e8d9c3;
+  --archive-paper-soft: #fbf4e9;
+  --archive-ink: #241a15;
+  --archive-ink-soft: #5f5348;
+  --archive-olive: #2f6e64;
+  --archive-olive-strong: #173c37;
+  --archive-gold: #b78a34;
+  --archive-gold-soft: #e0ae68;
+  --archive-rose: #944f5b;
+  --archive-photo: #264944;
   --hairline-soft: rgba(122, 111, 96, 0.18);
   --hairline-accent: rgba(183, 138, 52, 0.40);
   --hairline-rose: rgba(147, 75, 87, 0.40);
@@ -140,6 +162,18 @@
   --accent-emerald: #5bc9a3;
   --accent-emerald-light: rgba(91, 201, 163, 0.15);
 
+  /* Kao / archive-folio visual system */
+  --archive-paper: #eee3d2;
+  --archive-paper-strong: #d8c6ae;
+  --archive-paper-soft: #f4e9d9;
+  --archive-ink: #17110d;
+  --archive-ink-soft: #c1b29e;
+  --archive-olive: #57a092;
+  --archive-olive-strong: #294c47;
+  --archive-gold: #d8ab54;
+  --archive-gold-soft: #f0c271;
+  --archive-rose: #cb7a88;
+  --archive-photo: #17322f;
   --hairline-soft: rgba(216, 198, 174, 0.18);
   --hairline-accent: rgba(216, 171, 84, 0.42);
   --hairline-rose: rgba(203, 122, 136, 0.40);
@@ -359,6 +393,68 @@ body {
   animation: fadeIn 0.2s ease forwards;
 }
 
+/* 5C v3.10: 上半屏动态 — drifting dust motes.
+   Lives in the upper half of the viewport only (inset: 0 0 50% 0).
+   8 CSS-only particles via box-shadow on two pseudo-elements.
+   No JS, no images, no canvas. Gated by prefers-reduced-motion. */
+.dust-motes {
+  position: fixed;
+  inset: 0 0 50% 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+.dust-motes::before,
+.dust-motes::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--archive-paper);
+  opacity: 0.4;
+  box-shadow:
+    100px 50px 1px 0.5px var(--archive-paper),
+    300px 120px 1.5px 0.5px var(--archive-paper),
+    500px 80px 1px 0.5px var(--archive-paper),
+    700px 200px 1.2px 0.5px var(--archive-paper);
+  animation: dustFloat 12s linear infinite;
+}
+.dust-motes::after {
+  left: 200px;
+  top: 30px;
+  animation-delay: -6s;
+  box-shadow:
+    400px 180px 1px 0.5px var(--archive-paper),
+    600px 50px 1.5px 0.5px var(--archive-paper),
+    800px 130px 1px 0.5px var(--archive-paper),
+    1000px 220px 1.2px 0.5px var(--archive-paper);
+}
+@keyframes dustFloat {
+  from { transform: translate(0, 0); opacity: 0; }
+  10%  { opacity: 0.4; }
+  90%  { opacity: 0.4; }
+  to   { transform: translate(40px, 100vh); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dust-motes { display: none; }
+}
+
+/* 5C v3.10: 上半屏动态 — title breathing. Subtle scale on the
+   .opening-title-block strong element. Anchored on the left so it
+   "swells" rightward, not center-out (which would feel like a pulse
+   of the whole block). */
+@media (prefers-reduced-motion: no-preference) {
+  .opening-title-block strong {
+    animation: titleBreathe 6s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+    transform-origin: 0 50%;
+  }
+}
+@keyframes titleBreathe {
+  from { transform: scale(1.0); }
+  to   { transform: scale(1.02); }
+}
+
 /* Page route transitions */
 .page-route-enter-active {
   transition: opacity 0.16s ease, transform 0.16s ease;
@@ -469,6 +565,7 @@ body {
 }
 
 /* Utilities */
+
 .text-center { text-align: center; }
 .text-muted { color: var(--text-muted); }
 .text-accent { color: var(--accent); }

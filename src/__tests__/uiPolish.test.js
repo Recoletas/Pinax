@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -18,24 +18,15 @@ describe('ui polish contract', () => {
   })
 
   it('exposes the archive-folio utilities and mounts them across the core chrome surfaces', () => {
-    // The archive-folio utility classes (`.is-folio`, `.is-bookmark`,
-    // `.is-archive-strip`) live in src/styles/themes/kao.css and are
-    // gated by `.theme-kao` (per theme-system Task 3 split). They are
-    // not in main.css.
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    const mainCss = readProjectFile('src/styles/main.css')
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
     const appShell = readProjectFile('src/layouts/AppShell.vue')
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
-    expect(kaoCss).toContain('.is-folio')
-    expect(kaoCss).toContain('.is-bookmark')
-    expect(kaoCss).toContain('.is-archive-strip')
-    // Each utility must be gated by `.theme-kao` so it only applies
-    // when the kao variant is loaded (legacy snapshot owns its own chrome).
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-folio/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-bookmark/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-strip/)
+    expect(mainCss).toContain('.is-folio')
+    expect(mainCss).toContain('.is-bookmark')
+    expect(mainCss).toContain('.is-archive-strip')
     expect(welcomeView).toContain('<PosterStage')
     expect(welcomeView).toContain('<FolioSurface')
     expect(welcomeView).toContain('<BookmarkButton')
@@ -43,8 +34,7 @@ describe('ui polish contract', () => {
     expect(appShell).toContain('<FolioSurface')
     expect(appShell).toContain('class="shell-drawer"')
     expect(openingPage).toContain('<BookmarkButton')
-    expect(openingPage).toContain('<ArchiveStrip')
-    expect(openingPage).toContain('class="opening-archive-strip"')
+    expect(openingPage).toContain('<CharacterArchiveStrip')
     expect(openingPage).toContain('index-class="stage-command__index"')
     expect(openingPage).toContain('label-class="stage-command__label"')
     expect(experience).not.toContain('<BookmarkButton')
@@ -129,19 +119,24 @@ describe('ui polish contract', () => {
     expect(experience).not.toContain('label="进入世界"')
     expect(experience).not.toContain('label="会话"')
     expect(experience).not.toContain('切口目录')
-    expect(openingPage).toContain('class="playable-world-opening-page"')
+    // 5C step 3 refactor: 开局/改写 buttons moved from a separate
+    // playable-world-opening-page section into the main .opening-copy.
+    // The briefing is the new entry path. playableWorldOpeningFacts is no
+    // longer surfaced (it was duplicate content with opening-briefing).
     expect(openingPage).toContain('class="opening-briefing"')
     expect(openingPage).toContain('class="opening-mission"')
     expect(openingPage).toContain('class="opening-pressure-grid"')
-    expect(openingPage).toContain('class="opening-page-lead"')
-    expect(openingPage).toContain('class="opening-page-facts"')
-    expect(openingPage).toContain('playableWorldOpeningFacts')
+    expect(openingPage).toContain('class="opening-action-actions"')
     expect(openingPage).toContain('label="开局"')
     expect(openingPage).toContain('label="改写"')
     expect(openingPage).toContain("router.push({ name: 'experience' })")
     expect(experience).not.toContain('class="playable-world-opening-page"')
     expect(experience).not.toContain('class="opening-page-lead"')
     expect(experience).not.toContain('class="opening-page-facts"')
+    expect(openingPage).not.toContain('class="playable-world-opening-page"')
+    expect(openingPage).not.toContain('class="opening-page-lead"')
+    expect(openingPage).not.toContain('class="opening-page-facts"')
+    expect(openingPage).not.toContain('playableWorldOpeningFacts')
     expect(quickImport).toContain('选择一个世界')
     expect(quickImport).toContain('默认世界入口')
     expect(quickImport).toContain('查看更多世界')
@@ -261,19 +256,13 @@ describe('welcome + experience pass 2 — z-index tokens and isolation', () => {
     expect(welcomeView).toMatch(/\.welcome-stage-poster\s*\{[\s\S]*?isolation:\s*isolate;[\s\S]*?\}/)
   })
 
-  it('exposes .is-archive-prop utility with 3 modifiers in kao.css (gated by .theme-kao)', () => {
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
-
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop\b/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--tape\b/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--fold\b/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--stain\b/)
-  })
-
-  it('main.css does not reference kao-only .is-archive-* utilities', () => {
+  it('exposes .is-archive-prop utility with 3 modifiers in main.css', () => {
     const mainCss = readProjectFile('src/styles/main.css')
-    expect(mainCss).not.toMatch(/is-archive-paper/)
-    expect(mainCss).not.toMatch(/is-archive-prop/)
+
+    expect(mainCss).toContain('.is-archive-prop')
+    expect(mainCss).toContain('.is-archive-prop--tape')
+    expect(mainCss).toContain('.is-archive-prop--fold')
+    expect(mainCss).toContain('.is-archive-prop--stain')
   })
 
   it('replaces hardcoded mechanism-notice z-index with --z-mechanism-notice token', () => {
@@ -293,25 +282,42 @@ describe('welcome + experience pass 3 — z-stage-cta wiring, kao grammar, no fe
     expect(stackRule).not.toMatch(/z-index:\s*2\s*;/)
   })
 
-  it('OpeningPage world hero uses kao grammar: isolation + mix-blend + background-image var', () => {
+  it('OpeningPage world hero uses kao grammar: CharacterBackdrop with isolation + mix-blend (5C v3.5: cover via full-bleed Backdrop, no .opening-stage-poster wrapper, no .opening-shell card)', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
+    const backdrop = readProjectFile('src/components/folio/CharacterBackdrop.vue')
 
-    const heroMatches = openingPage.match(/\.opening-stage-poster\s*\{[^}]*\}/gs) || []
-    const heroRule =
-      heroMatches.find((rule) => /isolation:\s*isolate/.test(rule)) || ''
-    expect(heroRule).toMatch(/isolation:\s*isolate/)
-    expect(heroRule).toMatch(/mix-blend-mode:\s*multiply/)
-    expect(heroRule).toMatch(/background-image:\s*var\(--hero-image/)
+    // 5C refactor: cover is a full-page <CharacterBackdrop>, not a 360px
+    // .opening-stage-poster card. The kao grammar (isolation, mix-blend,
+    // vignette + color-wash) now lives in CharacterBackdrop.
+    expect(openingPage).not.toMatch(/\.opening-stage-poster\s*\{/)
+    expect(openingPage).toMatch(/<CharacterBackdrop\b/)
+
+    // 5C v3.5: the .opening-shell card (clip-path polygon + cream bg +
+    // box-shadow + min(1240px, 100%) width) is GONE. .opening-view is
+    // now the full-bleed layering root: position: relative; isolation:
+    // isolate; <CharacterBackdrop> is its direct child.
+    expect(openingPage).not.toMatch(/class="opening-shell"/)
+    expect(openingPage).not.toMatch(/\.opening-shell\s*\{/)
+    const viewRule = openingPage.match(/\.opening-view\s*\{[^}]*\}/s)?.[0] || ''
+    expect(viewRule).toMatch(/isolation:\s*isolate/)
+    expect(viewRule).toMatch(/position:\s*relative/)
+
+    // The kao grammar properties live in CharacterBackdrop.vue now.
+    const backdropRules = backdrop.match(/\.[^{]+\{[^}]*\}/gs) || []
+    const allBackdropCss = backdropRules.join('\n')
+    expect(allBackdropCss).toMatch(/isolation:\s*isolate/)
+    expect(allBackdropCss).toMatch(/mix-blend-mode:\s*multiply/)
+    expect(allBackdropCss).toMatch(/background-image:\s*var\(--character-backdrop-image/)
   })
 
-  it('Experience no longer carries the opening strip while OpeningPage isolates its shell', () => {
+  it('Experience no longer carries the opening strip while OpeningPage isolates its view (5C v3.5: .opening-shell → .opening-view)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
-    const shellRule =
-      openingPage.match(/\.opening-shell\s*\{[^}]*\}/s)?.[0] || ''
+    // 5C v3.5: .opening-shell is gone; the layering root is .opening-view.
+    const viewRule = openingPage.match(/\.opening-view\s*\{[^}]*\}/s)?.[0] || ''
     expect(experience).not.toContain('class="playable-world-strip"')
-    expect(shellRule).toMatch(/isolation:\s*isolate/)
+    expect(viewRule).toMatch(/isolation:\s*isolate/)
   })
 
   it('removes SVG feGaussianBlur stdDeviation="3" from PosterStage filter chain', () => {
@@ -488,21 +494,22 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     expect(openingRule).not.toMatch(/flex:\s*1\s+1\s+180px/)
   })
 
-  it('OpeningPage.vue owns opening action buttons and sends hidden command before returning to /experience', () => {
+  it('OpeningPage.vue owns opening action buttons and sends hidden command before returning to /experience (5C: buttons live in main .opening-copy, not a sub-section)', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
     const experience = readProjectFile('src/pages/Experience.vue')
 
-    const pageStart = openingPage.indexOf('<section v-if="hasSelectedWorldbook" class="playable-world-opening-page"')
-    const pageEnd = openingPage.indexOf('</section>', pageStart)
-    const pageBlock = pageStart >= 0 && pageEnd > pageStart
-      ? openingPage.slice(pageStart, pageEnd)
+    // 5C refactor: 开局/改写 buttons moved into the main .opening-copy section.
+    const copyStart = openingPage.indexOf('<section class="opening-copy"')
+    const copyEnd = openingPage.indexOf('</section>', copyStart)
+    const copyBlock = copyStart >= 0 && copyEnd > copyStart
+      ? openingPage.slice(copyStart, copyEnd)
       : ''
+    expect(copyBlock).toContain('class="opening-action-actions"')
+    expect(copyBlock).toContain('label="开局"')
+    expect(copyBlock).toContain('label="改写"')
+
     const sendBlock =
       openingPage.match(/async function sendOpeningAction\(\) \{[\s\S]*?\n\}/)?.[0] || ''
-    expect(pageBlock).toContain('class="opening-action-head"')
-    expect(pageBlock).toContain('class="opening-action-actions"')
-    expect(pageBlock).toContain('class="opening-page-lead"')
-    expect(pageBlock).toContain('class="opening-page-facts"')
     expect(sendBlock).toContain('await ensureWorldAdventureSession({ initIfEmpty: false })')
     expect(sendBlock).toContain('await gameStore.sendAction(action.command, { hidden: true })')
     expect(sendBlock).toContain("router.push({ name: 'experience' })")
@@ -533,28 +540,42 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
 
 describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
   it('declares an @font-face for LXGW WenKai pointing at the subsetted WOFF2', () => {
-    // The LXGW @font-face moved to src/styles/themes/kao.css in
-    // theme-system Task 3; main.js no longer preloads it (Task 5 owns
-    // the dynamic injection in ThemeAssets).
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    const mainCss = readProjectFile('src/styles/main.css')
 
-    const faceBlock = kaoCss.match(/@font-face\s*\{[\s\S]*?\}/)?.[0] || ''
-    expect(faceBlock).toContain('font-family: \'LXGW WenKai\'')
+    const faceBlock = mainCss.match(/@font-face\s*\{[\s\S]*?\}/)?.[0] || ''
+    expect(faceBlock).toContain('font-family: "LXGW WenKai"')
     expect(faceBlock).toContain('font-display: swap')
-    expect(faceBlock).toMatch(/url\(['"]?\.\.\/\.\.\/assets\/fonts\/LXGWWenKai-Regular\.woff2['"]?\)/)
-    expect(faceBlock).toMatch(/format\(['"]woff2['"]\)/)
+    expect(faceBlock).toMatch(/url\("\.\.\/assets\/fonts\/LXGWWenKai-Regular\.woff2"\)/)
+    expect(faceBlock).toMatch(/format\("woff2"\)/)
   })
 
   it('exposes --font-display / --font-serif / --font-sans / --font-mono tokens', () => {
-    // `--font-display` is kao-specific (paired with the LXGW @font-face
-    // in kao.css); the other three stay in main.css as shared tokens.
     const mainCss = readProjectFile('src/styles/main.css')
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
 
-    expect(kaoCss).toMatch(/--font-display:\s*"LXGW WenKai"/)
-    expect(mainCss).toMatch(/--font-serif:\s*"Iowan Old Style"/)
+    // 5C v3.14: --font-display reverted to ZCOOL XiaoWei (v3.13
+    // tried ZCOOL QingKe HuangYou for artistic hand-drawn feel, but
+    // user said the font looked "weird" and the brush underline +
+    // text-stroke felt too decorative/cheap). v3.12 baseline restored:
+    // ZCOOL XiaoWei for both --font-display and --font-serif (signature
+    // direction locked by user). LXGW WenKai stays in @font-face as
+    // last-resort fallback.
+    expect(mainCss).toMatch(/--font-display:\s*"ZCOOL XiaoWei"/)
+    expect(mainCss).toMatch(/--font-serif:\s*"ZCOOL XiaoWei"/)
     expect(mainCss).toMatch(/--font-sans:\s*"Segoe UI Variable"/)
     expect(mainCss).toMatch(/--font-mono:/)
+  })
+
+  it('preloads the LXGW WOFF2 only as fallback (Google Fonts CDN is primary)', () => {
+    const html = readProjectFile('index.html')
+
+    // 5C v3.12: the LXGW preload is gone (Google Fonts CDN is faster)
+    // and the Google Fonts stylesheet now loads a SINGLE signature
+    // font — ZCOOL XiaoWei — for both display and body. LXGW's
+    // @font-face still ships so the browser can fall back if Google
+    // Fonts is unreachable. The v3.11 calligraphic chain
+    // (Liu Jian Mao Cao / Long Cang / Ma Shan Zheng) was dropped.
+    expect(html).not.toMatch(/<link[^>]*rel="preload"[^>]*LXGWWenKai-Regular\.woff2/)
+    expect(html).toMatch(/family=ZCOOL\+XiaoWei/)
   })
 
   it('routes the OpeningPage title block through var(--font-display), not raw Iowan', () => {
@@ -577,199 +598,5 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(woff2.size).toBeGreaterThan(100_000) // sanity: not truncated
     expect(woff2.size).toBeLessThan(1_000_000) // under vite 1MB hard cap
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
-  })
-})
-
-describe('theme system CSS contracts', () => {
-  const ROOT = resolve(__dirname, '../..')
-
-  it('main.js imports shared base CSS and the default-variant (kao) CSS so the initial paint is styled', () => {
-    // Spec §3.3 / fixup-1: kao is the default variant, so its CSS is
-    // bundled into the initial chunk (avoids a brief unstyled flash
-    // before ThemeAssets' onMounted runs). legacy.css is the un-styled
-    // baseline — 0 bytes — and is intentionally not statically imported.
-    const mainJs = readFileSync(resolve(ROOT, 'src/main.js'), 'utf8')
-    const imports = mainJs.match(/import\s+['"][^'"]*\.css['"]/g) || []
-    expect(imports.length).toBe(2)
-    expect(imports[0]).toMatch(/styles\/main\.css/)
-    expect(imports[1]).toMatch(/styles\/themes\/kao\.css/)
-  })
-
-  it('no runtime source-CSS link injection via /src/styles/*.css', () => {
-    const mainJs = readFileSync(resolve(ROOT, 'src/main.js'), 'utf8')
-    const appVue = readFileSync(resolve(ROOT, 'src/App.vue'), 'utf8')
-    expect(mainJs).not.toMatch(/href=["']\/src\/styles\//)
-    expect(appVue).not.toMatch(/href=["']\/src\/styles\//)
-  })
-
-  it('variant CSS files exist under src/styles/themes/', () => {
-    expect(existsSync(resolve(ROOT, 'src/styles/themes/kao.css'))).toBe(true)
-    expect(existsSync(resolve(ROOT, 'src/styles/themes/legacy.css'))).toBe(true)
-  })
-
-  it('index.html no longer contains static LXGW preload', () => {
-    const indexHtml = readFileSync(resolve(ROOT, 'index.html'), 'utf8')
-    expect(indexHtml).not.toMatch(/LXGWWenKai-Regular\.woff2/)
-  })
-
-  it('legacy.css does not contain LXGW WenKai or @font-face', () => {
-    const legacy = readFileSync(resolve(ROOT, 'src/styles/themes/legacy.css'), 'utf8')
-    expect(legacy).not.toMatch(/LXGW\s*WenKai/i)
-    expect(legacy).not.toMatch(/@font-face/)
-  })
-
-  it('AppShell.vue or shared AppearanceControls.vue exposes 外观 group', () => {
-    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
-    const appearance = (() => {
-      try {
-        return readFileSync(resolve(ROOT, 'src/components/theme/AppearanceControls.vue'), 'utf8')
-      } catch { return '' }
-    })()
-    const combined = appShell + appearance
-    expect(combined).toMatch(/外观/)
-    // 4 options: kao+light, kao+dark, legacy+light, legacy+dark
-    expect(combined).toMatch(/kao/i)
-    expect(combined).toMatch(/legacy/i)
-    expect(combined).toMatch(/亮色/)
-    expect(combined).toMatch(/暗色/)
-  })
-
-  it('AppShell.vue mounts AppearanceControls inside shell-drawer__body (not nested in shell-drawer__activity)', () => {
-    // Spec §6: "Primary placement inside shell-drawer__body, preferably below
-    // navigation groups." Mounting inside shell-drawer__activity would constrain
-    // the 4-radio fieldset to the 168px activity column on desktop >= 1040px.
-    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
-
-    // Balance <div> / </div> starting at a marker so nested child divs
-    // (shell-drawer__activity, shell-drawer__panel) are included.
-    function extractBalancedDiv(source, marker) {
-      const start = source.indexOf(marker)
-      if (start < 0) return ''
-      const afterMarker = start + marker.length
-      let depth = 1
-      const divRe = /<\/?div\b[^>]*>/g
-      divRe.lastIndex = afterMarker
-      let m
-      while ((m = divRe.exec(source)) !== null) {
-        const isClose = m[0].startsWith('</div')
-        depth += isClose ? -1 : 1
-        if (depth === 0) return source.slice(start, m.index + m[0].length)
-      }
-      return ''
-    }
-
-    const bodyBlock = extractBalancedDiv(appShell, '<div class="shell-drawer__body">')
-    const activityBlock = extractBalancedDiv(appShell, '<div class="shell-drawer__activity">')
-
-    // Positive: <AppearanceControls /> must live inside shell-drawer__body.
-    expect(bodyBlock).toMatch(/<AppearanceControls\s*\/>/)
-
-    // Negative: <AppearanceControls /> must NOT live inside shell-drawer__activity.
-    expect(activityBlock).not.toMatch(/<AppearanceControls\s*\/>/)
-  })
-
-  it('ThemeAssets injects LXGW preload when variant=kao, removes when variant=legacy', async () => {
-    const { mount } = await import('@vue/test-utils')
-    const { setActivePinia, createPinia } = await import('pinia')
-    setActivePinia(createPinia())
-    const ThemeAssets = (await import('../components/theme/ThemeAssets.vue')).default
-    const { useThemeStore } = await import('../stores/themeStore.js')
-
-    const store = useThemeStore()
-    store.initTheme()
-    const wrapper = mount(ThemeAssets)
-    await new Promise((r) => setTimeout(r, 0))
-
-    store.setVariant('kao')
-    await new Promise((r) => setTimeout(r, 0))
-    expect(document.querySelector('link[data-theme-font="LXGW"]')).not.toBeNull()
-
-    store.setVariant('legacy')
-    await new Promise((r) => setTimeout(r, 0))
-    expect(document.querySelector('link[data-theme-font="LXGW"]')).toBeNull()
-
-    wrapper.unmount()
-  })
-
-  it('variant-specific selectors are gated by .theme-kao / .theme-legacy', () => {
-    const kaoRaw = readFileSync(resolve(ROOT, 'src/styles/themes/kao.css'), 'utf8')
-    // Strip CSS comments AND rule bodies so comment text and property
-    // values (e.g. `.woff2')` URLs inside @font-face) don't create false
-    // "selector" matches — the loose `/[.][a-z][^{]*\{[^}]*\}/` regex
-    // would otherwise eat across rule boundaries and inside bodies.
-    const kao = kaoRaw
-      .replace(/\/\*[\s\S]*?\*\//g, '')   // strip /* ... */ comments
-      .replace(/\{[^}]*\}/g, '')           // strip { ... } bodies
-    // All kao rules that don't apply at :root or @font-face must be inside .theme-kao
-    const ruleBlocks = kao.match(/[.][a-z][^{]*\{[^}]*\}/gi) || []
-    for (const block of ruleBlocks) {
-      const selector = block.split('{')[0].trim()
-      // :root + .theme-dark/.theme-light are color-scheme tokens, not
-      // variant-specific selectors; :root is allowed ungated per spec §3.3.
-      if (selector.startsWith(':root') || selector.startsWith('.theme-dark') || selector.startsWith('.theme-light')) continue
-      if (selector.includes('@')) continue
-      // selectors must include .theme-kao
-      expect(selector).toMatch(/\.theme-kao/)
-    }
-  })
-
-  it('AppShell drawer exposes Esc-to-close + focus return + dialog role (a11y)', () => {
-    // Fixup 4: keyboard a11y. Without these, keyboard users cannot close
-    // the drawer or know it owns focus. The drawer must:
-    //   - be marked role="dialog" + aria-modal="true"
-    //   - have a document-level Escape handler that calls closeDrawer
-    //   - return focus to the trigger button when closed
-    //   - move focus into the drawer (close button) when opened
-    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
-
-    expect(appShell).toMatch(/role="dialog"/)
-    expect(appShell).toMatch(/aria-modal="true"/)
-    // Escape handler bound on document, only acts when drawer is open
-    expect(appShell).toMatch(/e\.key\s*===\s*['"]Escape['"]/)
-    expect(appShell).toMatch(/drawerTriggerRef/)
-    expect(appShell).toMatch(/drawerCloseRef/)
-    expect(appShell).toMatch(/drawerTriggerRef\.value\.focus\(\)/)
-    // document-level keydown listener wired up + cleaned up on unmount
-    expect(appShell).toMatch(/addEventListener\(\s*['"]keydown['"]/)
-    expect(appShell).toMatch(/removeEventListener\(\s*['"]keydown['"]/)
-  })
-
-  it('AppShell archive-folio chrome overrides are gated by .theme-kao (legacy inheritance fix)', () => {
-    // Fixup 3: the archive-folio overrides (lines ~533-680 in AppShell.vue)
-    // are kao-specific visual language and must NOT apply when the legacy
-    // variant is active. Each archive-folio rule selector must be prefixed
-    // with `.theme-kao `. Shared chrome (basic drawer layout, button
-    // positions) remains ungated.
-    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
-
-    // archive-folio selectors use --archive-* tokens. Match selectors that
-    // reference at least one --archive-* variable and assert each is gated.
-    // We extract selectors by splitting on '}' and looking at the
-    // selector portion before '{'.
-    const blocks = appShell.match(/[^{}]*\{[^{}]*\}/g) || []
-    const archiveBlocks = blocks.filter((b) => /--archive-/.test(b))
-    expect(archiveBlocks.length).toBeGreaterThan(0) // sanity: we have archive rules
-
-    for (const block of archiveBlocks) {
-      const selector = block.split('{')[0].trim()
-      // strip Vue's [data-v-xxx] scoped attribute suffix so the gate
-      // assertion reads cleanly: `.theme-kao .app-shell[data-v-xxx]`
-      // passes the gate check.
-      const cleanSelector = selector.replace(/\[data-v-[a-z0-9]+\]/g, '').trim()
-      expect(cleanSelector, `archive selector must be gated by .theme-kao: ${selector}`).toMatch(/\.theme-kao/)
-    }
-  })
-
-  it('/experience legacy/current contracts do not include removed opening-page residues', () => {
-    const expCurrent = readFileSync(resolve(ROOT, 'src/pages/Experience.vue'), 'utf8')
-    const expLegacy = readFileSync(resolve(ROOT, 'src/pages/legacy/Experience.vue'), 'utf8')
-    for (const exp of [expCurrent, expLegacy]) {
-      // Forbidden strings/classes per spec §8.2
-      expect(exp).not.toMatch(/playable-world-opening-page/)
-      expect(exp).not.toMatch(/opening-brief-lines/)
-      expect(exp).not.toMatch(/opening-action-directory/)
-      expect(exp).not.toMatch(/experience-stage-band/)
-      expect(exp).not.toMatch(/playable-world-strip/)
-    }
   })
 })

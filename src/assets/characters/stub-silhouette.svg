@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1360" width="1024" height="1360">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ecdfc6"/>
+      <stop offset="100%" stop-color="#d9c8a8"/>
+    </linearGradient>
+    <linearGradient id="silhouette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a4a44" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#2a3530" stop-opacity="0.95"/>
+    </linearGradient>
+    <clipPath id="torn-corner">
+      <path d="M0,0 L1024,0 L1024,1320 L1000,1340 L960,1320 L920,1360 L880,1330 L840,1350 L800,1320 L0,1320 Z"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1360" fill="url(#paper)"/>
+  <g clip-path="url(#torn-corner)">
+    <ellipse cx="512" cy="500" rx="180" ry="220" fill="url(#silhouette)"/>
+    <path d="M 200 900 Q 512 700 824 900 L 824 1360 L 200 1360 Z" fill="url(#silhouette)"/>
+    <path d="M0,1320 L100,1280 L160,1340 L220,1290 L280,1360 L0,1360 Z" fill="#ecdfc6"/>
+  </g>
+  <rect x="20" y="20" width="984" height="1320" fill="none" stroke="#b88a33" stroke-width="2" opacity="0.6"/>
+</svg>

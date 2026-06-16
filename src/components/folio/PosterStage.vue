@@ -97,6 +97,8 @@ const tornPaperMaskUrl = `url("data:image/svg+xml;utf8,${encodeURIComponent(
 .poster-stage {
   position: relative;
   overflow: hidden;
+  width: 100%;
+  height: 100%;
 }
 
 .poster-stage--decorated {

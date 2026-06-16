@@ -1,79 +1,63 @@
 <template>
-  <div class="opening-view" :style="{ '--hero-image': heroImage }">
-    <header class="opening-toolbar">
-      <div class="opening-toolbar__copy">
-        <span>开场页</span>
-        <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '选择世界' }}</strong>
-      </div>
-
-      <div class="opening-toolbar__actions">
-        <select
-          class="opening-world-select"
-          v-model="selectedWorldbookId"
-          @change="onWorldbookChange"
-        >
-          <option value="">选择一个可玩的世界...</option>
-          <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id">
-            {{ wb.name }}
-          </option>
-        </select>
-        <button class="opening-utility" type="button" @click="openWorldbookQuickImport">换世界</button>
-        <button class="opening-utility" type="button" @click="toggleTheme">
-          {{ isDark ? '暗色' : '亮色' }}
-        </button>
-      </div>
-    </header>
-
-    <main class="opening-shell" :class="{ 'is-empty': !hasSelectedWorldbook }">
-      <section class="opening-copy">
-        <div class="opening-kicker-stack">
-          <span v-if="playableWorldGenre" class="opening-world-kicker">{{ playableWorldGenre }}</span>
-          <span class="opening-phase-tag">{{ showOpeningActionCard ? 'SCENE' : 'LIVE' }}</span>
-        </div>
-
-        <div class="opening-title-block">
-          <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '还没有选中世界' }}</strong>
-          <p v-if="hasSelectedWorldbook && playableWorldDeck">{{ playableWorldDeck }}</p>
-          <p v-else>先选择一个世界，再从开场页进入当前冒险。</p>
-        </div>
-
-        <div v-if="hasSelectedWorldbook" class="opening-briefing" aria-label="进入前摘要">
-          <div class="opening-mission">
-            <span>开场钩子</span>
-            <strong>{{ playableWorldHookLead }}</strong>
-          </div>
-          <div class="opening-pressure-grid">
-            <div v-for="item in playableWorldPressureCards" :key="item.label">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
+  <div class="opening-view" :class="{ 'is-empty': !hasSelectedWorldbook }">
+    <!-- 5C v3.5: CharacterBackdrop is the page background; it lives as a
+         direct child of .opening-view (no .opening-shell wrapper). The
+         toolbar floats above as a translucent bar (z-index 2) and the
+         orbit panels sit inside the backdrop slot (z-index 1) above the
+         art layer (z-index 0). -->
+    <CharacterBackdrop
+      v-if="hasSelectedWorldbook"
+      :src="sceneBackgroundSrc"
+      position="center"
+      tint="archive-olive-strong"
+      :tint-strength="34"
+      :kicker="kicker"
+      :status-line="statusLine"
+    >
+      <!-- 5C v3.10: 上半屏动态 — drifting dust motes.
+           Positioned inside CharacterBackdrop BEFORE the orbit Transition
+           so it sits at the backdrop level (above the art, below the
+           orbit panels). aria-hidden: decorative only. -->
+      <div class="dust-motes" aria-hidden="true"></div>
+      <!-- 5C v3 P1.A: panels "orbit" the figure's negative space. The
+           Transition fires when currentScenePoseId changes; in v0 all
+           stub poses share the same bbox so the drift is a small reset
+           (wiring is in place for v1 per-pose bboxes). -->
+      <Transition name="orbit-drift">
+        <!-- :key on the orbit div drives the orbit-drift transition; the
+             archive-strip below also reads currentScenePoseId (active-pose-id)
+             to mirror the active tile, but only the orbit uses it as a
+             transition key on purpose. -->
+        <div :key="currentScenePoseId" class="opening-orbit">
+          <section class="opening-copy">
+            <div class="opening-kicker-stack">
+              <span v-if="playableWorldGenre" class="opening-world-kicker">{{ playableWorldGenre }}</span>
+              <span class="opening-phase-tag">{{ showOpeningActionCard ? 'SCENE' : 'LIVE' }}</span>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <section v-if="hasSelectedWorldbook" class="opening-scene">
-        <div class="opening-stage-poster" aria-hidden="true">
-          <span class="opening-stage-poster__halo" aria-hidden="true"></span>
-          <span class="opening-stage-badge">SCENE</span>
-          <span class="opening-stage-roman">I</span>
-          <span class="opening-stage-index">01</span>
-          <span class="opening-stage-world">SCENE</span>
-          <span class="opening-stage-title">{{ selectedOpeningAction?.title || openingSceneCards.location }}</span>
-          <span class="opening-stage-sash"></span>
-          <span class="opening-stage-blade"></span>
-          <span class="opening-stage-grid"></span>
-        </div>
-        <ArchiveStrip class="opening-archive-strip" :items="playableWorldArchiveItems" aria-label="当前现场缩略条" />
+            <div class="opening-title-block">
+              <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '还没有选中世界' }}</strong>
+              <p v-if="hasSelectedWorldbook && playableWorldDeck">{{ playableWorldDeck }}</p>
+              <p v-else>先选择一个世界，再从开场页进入当前冒险。</p>
+            </div>
 
-        <section v-if="hasSelectedWorldbook" class="playable-world-opening-page" aria-label="开场页">
-          <div class="opening-action-head">
-            <span class="opening-kicker">开场页</span>
-            <span class="opening-phase-tag">{{ showOpeningActionCard ? 'SCENE' : 'LIVE' }}</span>
-            <div v-if="showOpeningActionCard" class="opening-action-actions">
+            <div v-if="hasSelectedWorldbook" class="opening-briefing" aria-label="进入前摘要">
+              <div class="opening-mission">
+                <span>开场钩子</span>
+                <strong>{{ playableWorldHookLead }}</strong>
+              </div>
+              <div class="opening-pressure-grid">
+                <div v-for="item in playableWorldPressureCards" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="hasSelectedWorldbook && showOpeningActionCard" class="opening-action-actions">
               <BookmarkButton
-                class="action-btn stage-command stage-command--compact stage-command--primary"
+                class="action-btn stage-command stage-command--primary"
                 type="button"
-                size="micro"
                 :disabled="gameStore.isLoading || isStarting"
                 index="01"
                 label="开局"
@@ -82,9 +66,8 @@
                 @click="sendOpeningAction"
               />
               <BookmarkButton
-                class="action-btn stage-command stage-command--compact stage-command--secondary"
+                class="action-btn stage-command stage-command--secondary"
                 type="button"
-                size="micro"
                 index="02"
                 label="改写"
                 variant="secondary"
@@ -93,23 +76,47 @@
                 @click="dismissOpeningActionCard"
               />
             </div>
-          </div>
+          </section>
 
-          <div class="opening-page-lead">
-            <span>开场钩子</span>
-            <strong>{{ selectedOpeningAction?.title || openingSceneCards.location }}</strong>
-            <p v-if="playableWorldHookLead">{{ playableWorldHookLead }}</p>
-          </div>
+          <section v-if="hasSelectedWorldbook" class="opening-scene">
+            <CharacterArchiveStrip
+              :tiles="openingActionStubTiles"
+              role="scene-switcher"
+              :active-pose-id="currentScenePoseId"
+              aria-label="切换场景背景"
+              @select="onSceneSelect"
+            />
+          </section>
+        </div>
+      </Transition>
+    </CharacterBackdrop>
 
-          <div class="opening-page-facts" aria-label="开场页现场摘要">
-            <div v-for="item in playableWorldOpeningFacts" :key="item.label">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </div>
-          </div>
-        </section>
-      </section>
-    </main>
+    <header class="opening-toolbar">
+      <div class="opening-toolbar__actions">
+        <div class="opening-world-card">
+          <span class="opening-world-card__eyebrow">SELECTED WORLD</span>
+          <select
+            class="opening-world-select"
+            v-model="selectedWorldbookId"
+            aria-label="选择可玩的世界"
+            @change="onWorldbookChange"
+          >
+            <option value="">选择一个可玩的世界...</option>
+            <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id">
+              {{ wb.name }}
+            </option>
+          </select>
+        </div>
+        <button class="opening-rail-btn opening-rail-btn--primary" type="button" data-rail-index="01" @click="openWorldbookQuickImport">
+          <span>换世界</span>
+          <strong>CHANGE</strong>
+        </button>
+        <button class="opening-rail-btn" type="button" data-rail-index="02" @click="toggleTheme">
+          <span>{{ isDark ? '暗色' : '亮色' }}</span>
+          <strong>{{ isDark ? 'MOON' : 'SUN' }}</strong>
+        </button>
+      </div>
+    </header>
   </div>
 </template>
 
@@ -119,8 +126,12 @@ import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useTheme } from '../composables/useTheme'
+import { useCharacterArt } from '@/composables/useCharacterArt'
+import { useSceneBackground } from '@/composables/useSceneBackground'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
+import CharacterBackdrop from '@/components/folio/CharacterBackdrop.vue'
+import CharacterArchiveStrip from '@/components/folio/CharacterArchiveStrip.vue'
 import {
   buildPlayableWorldActionHooks,
   clearPlayableWorldEntryIntent,
@@ -142,10 +153,14 @@ const worldImageUrl = ref(null)
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
 const hasSelectedWorldbook = computed(() => Boolean(selectedWorldbookId.value && activeWorldbook.value))
-const heroImage = computed(() => {
-  if (!hasSelectedWorldbook.value) return null
-  return worldImageUrl.value || null
-})
+const { resolveArt } = useCharacterArt()
+const { currentScenePoseId, setScene } = useSceneBackground()
+// 5C: scene background flows through CharacterBackdrop, sourced from
+// useSceneBackground (shared with CharacterArchiveStrip in scene-switcher role).
+const sceneBackgroundSrc = computed(() => resolveArt({ poseId: currentScenePoseId.value }).src)
+function onSceneSelect(poseId) {
+  setScene(poseId)
+}
 const playableWorldTitle = computed(() => {
   if (!hasSelectedWorldbook.value) return ''
   return activeWorldbook.value?.name || '未命名世界'
@@ -207,19 +222,26 @@ const openingSceneCards = computed(() => {
     event: events[0] || '未标注'
   }
 })
-const playableWorldOpeningFacts = computed(() => {
-  const exitValue = playableWorldPressureCards.value.find((item) => item.label === '出口')?.value || '章节 / 素材 / 分镜'
-  return [
-    { label: '现场', value: openingSceneCards.value.location },
-    { label: '阻力', value: openingSceneCards.value.faction },
-    { label: '出口', value: exitValue }
-  ]
-})
 const playableWorldArchiveItems = computed(() => [
   { label: '01' },
   { label: '02' },
   { label: '03' }
 ])
+const openingActionStubTiles = computed(() => [
+  { poseId: 'opening-scene-01', kicker: '01 边界小镇' },
+  { poseId: 'opening-scene-02', kicker: '02 废墟灯塔' },
+  { poseId: 'opening-scene-03', kicker: '03 塔内档案室' },
+])
+// 5C v3.9b (Arknights pattern 1): kicker + statusLine derived from the
+// active scene pose. The text updates as the user switches scenes via
+// CharacterArchiveStrip — the art "talks" to the page via scene copy.
+const SCENE_COPY = {
+  'opening-scene-01': { kicker: '01 / BORDER TOWN', statusLine: '那天的海风带着薄雾' },
+  'opening-scene-02': { kicker: '02 / RUINED LIGHTHOUSE', statusLine: '月光从裂缝里漏进来' },
+  'opening-scene-03': { kicker: '03 / ARCHIVE ROOM', statusLine: '桌面上的灯油快见底了' },
+}
+const kicker = computed(() => SCENE_COPY[currentScenePoseId.value]?.kicker || '')
+const statusLine = computed(() => SCENE_COPY[currentScenePoseId.value]?.statusLine || '')
 const showOpeningActionCard = computed(() => {
   return hasSelectedWorldbook.value &&
     !openingCardDismissed.value &&
@@ -271,7 +293,7 @@ function openWorldbookQuickImport() {
 function refreshOpeningIntent() {
   const intent = getPlayableWorldEntryIntent()
   storedOpeningIntent.value = intent
-  if (intent?.worldbookId === activeWorldbook.value?.id && intent.action?.id) {
+  if (intent?.worldbookId === activeWorldbook.value?.id && intent?.action?.id) {
     selectedOpeningActionId.value = intent.action.id
   } else {
     selectedOpeningActionId.value = ''
@@ -340,98 +362,196 @@ function getActiveEntryNames(typeValue, limit = 3) {
 </script>
 
 <style scoped>
+/* 5C v3.5: kill the card frame.
+   .opening-view is now full-bleed (no padding, no gradient — the
+   CharacterBackdrop IS the page background). The toolbar floats as a
+   translucent bar at the top (z-index 2), the orbit panels live inside
+   the backdrop's slot (z-index 1) above the art (z-index 0). */
 .opening-view {
   min-height: var(--app-viewport-height, 100vh);
-  padding: 18px;
+  position: relative;
+  isolation: isolate;
   color: var(--text-primary);
-  background:
-    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--archive-gold) 16%, transparent), transparent 24%),
-    linear-gradient(152deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-secondary)) 0%, color-mix(in srgb, var(--archive-paper) 92%, var(--bg-primary)) 66%, color-mix(in srgb, var(--archive-paper-strong) 84%, var(--bg-primary)) 100%);
 }
 
+/* 5C v3.7: drop the panel chrome — text and tiles sit directly on the
+   art. Toolbar keeps its flex layout but loses background / border /
+   box-shadow / rose hinge. Spacing via padding only. */
 .opening-toolbar {
-  width: min(1240px, 100%);
-  margin: 0 auto 14px;
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
-.opening-toolbar__copy {
-  display: grid;
-  gap: 3px;
-}
-
-.opening-toolbar__copy span,
 .opening-world-kicker,
 .opening-kicker {
-  color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
+  color: var(--text-primary);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-}
-
-.opening-toolbar__copy strong {
-  color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 22px;
-  line-height: 1;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
 }
 
 .opening-toolbar__actions {
-  display: flex;
+  position: relative;
+  margin-left: auto;
+  display: grid;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-items: end;
+  gap: 9px;
+  width: min(318px, 34vw);
+  padding-left: 20px;
 }
 
-.opening-world-select,
-.opening-utility {
-  min-height: 34px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 18%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
-  color: var(--archive-ink);
-  font: inherit;
+.opening-toolbar__actions::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 5px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--archive-gold) 70%, transparent) 18% 78%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--archive-gold) 28%, transparent);
+}
+
+.opening-toolbar__actions::after {
+  content: "";
+  position: absolute;
+  top: 20px;
+  left: 1px;
+  width: 9px;
+  height: 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 62%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  transform: rotate(45deg);
+}
+
+.opening-world-card,
+.opening-rail-btn {
+  position: relative;
+  width: min(318px, 100%);
+  color: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--archive-paper) 7%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-olive-strong) 76%, transparent), color-mix(in srgb, #000 44%, transparent)),
+    color-mix(in srgb, var(--archive-ink) 42%, transparent);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px) saturate(1.08);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.opening-world-card::before,
+.opening-rail-btn::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
+  clip-path: inherit;
+}
+
+.opening-world-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 12px;
+}
+
+.opening-world-card__eyebrow,
+.opening-rail-btn strong {
+  color: var(--archive-gold);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.68);
 }
 
 .opening-world-select {
-  width: min(280px, 100%);
-  padding: 0 12px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 28px 0 0;
+  color: var(--archive-paper);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  outline: none;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.68);
 }
 
-.opening-utility {
-  padding: 0 12px;
-  cursor: pointer;
+.opening-world-select option {
+  color: var(--archive-ink);
+  background: var(--archive-paper);
 }
 
-.opening-shell {
-  isolation: isolate;
-  width: min(1240px, 100%);
-  margin: 0 auto;
-  position: relative;
+.opening-rail-btn {
+  min-height: 54px;
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.78fr);
-  gap: 30px;
-  padding: 30px 34px;
-  clip-path: polygon(0 24px, 26px 0, calc(100% - 44px) 0, 100% 44px, 100% 100%, 0 100%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 14%, transparent), transparent 96px),
-    linear-gradient(160deg, color-mix(in srgb, var(--archive-paper-soft) 98%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 96%, #f0e2cf) 56%, color-mix(in srgb, var(--archive-paper-strong) 90%, #d4c2aa) 100%);
-  box-shadow:
-    0 30px 58px color-mix(in srgb, #000 14%, transparent),
-    18px 18px 0 color-mix(in srgb, var(--archive-olive-strong) 10%, transparent);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 0 16px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, filter 180ms ease;
 }
 
-.opening-shell::before {
-  content: '';
-  position: absolute;
-  inset: 16px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
-  clip-path: polygon(0 16px, 20px 0, calc(100% - 34px) 0, 100% 32px, 100% 100%, 0 100%);
-  pointer-events: none;
+.opening-rail-btn::after {
+  content: attr(data-rail-index);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  grid-column: 1;
+  grid-row: 1;
+  color: color-mix(in srgb, var(--archive-gold) 82%, var(--archive-paper));
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 900;
+}
+
+.opening-rail-btn span {
+  min-width: 0;
+  grid-column: 2;
+  color: var(--archive-paper);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.68);
+}
+
+.opening-rail-btn strong {
+  grid-column: 3;
+}
+
+.opening-rail-btn--primary {
+  background:
+    linear-gradient(122deg, color-mix(in srgb, var(--archive-olive-strong) 82%, #000) 0 62%, color-mix(in srgb, var(--archive-gold) 74%, #7a5a24) 62% 100%);
+}
+
+.opening-rail-btn:hover {
+  transform: translateX(-6px);
+  border-color: color-mix(in srgb, var(--archive-gold) 62%, transparent);
+  filter: brightness(1.05);
 }
 
 .opening-copy,
@@ -441,63 +561,76 @@ function getActiveEntryNames(typeValue, limit = 3) {
   min-width: 0;
 }
 
+/* 5C v3.5: panel-slot orbit layer. Now sits inside CharacterBackdrop's
+   slot (not inside a .opening-shell card). The 88px top padding
+   reserves space for the floating toolbar (top: 18px + ~50px tall +
+   20px gap). pointer-events: none on the orbit lets clicks pass
+   through to the backdrop art where the panels don't cover; children
+   opt back in. */
+.opening-orbit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.78fr);
+  gap: 30px;
+  padding: 88px 40px 40px;
+  pointer-events: none;
+  z-index: 1;
+}
+.opening-orbit > .opening-copy,
+.opening-orbit > .opening-scene {
+  pointer-events: auto;
+}
+
+/* 5C v3 P1.A: orbit-drift transition. When currentScenePoseId changes,
+   the :key swap triggers an 8px translate between old slot → new slot
+   (320ms, easing for a soft folio page turn). */
+.orbit-drift-enter-active,
+.orbit-drift-leave-active {
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.orbit-drift-enter-from {
+  transform: translateY(8px);
+  opacity: 0;
+}
+.orbit-drift-leave-to {
+  transform: translateY(-8px);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-drift-enter-active,
+  .orbit-drift-leave-active {
+    transition: none;
+  }
+}
+
+/* 5C v3.7: drop the panel chrome — no background / border / box-shadow
+   / panel padding. Text and tiles sit directly on the art. Color flips
+   to cream via --text-primary so text reads on the dark olive backdrop. */
 .opening-copy {
   position: relative;
   isolation: isolate;
   display: grid;
   gap: 18px;
   align-content: start;
-  padding: 22px 28px 18px 4px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 22%, transparent), transparent 80px),
-    repeating-linear-gradient(180deg, transparent 0 31px, color-mix(in srgb, var(--border) 7%, transparent) 31px 32px),
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 64%, transparent), color-mix(in srgb, var(--archive-paper) 38%, transparent));
-}
-
-.opening-copy::before {
-  content: '';
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 0;
-  height: 8px;
-  pointer-events: none;
-  z-index: 1;
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--archive-gold) 56%, transparent) 0 24px,
-      transparent 24px 32px,
-      color-mix(in srgb, var(--archive-olive) 38%, transparent) 32px 96px,
-      transparent 96px 108px,
-      color-mix(in srgb, var(--archive-gold) 40%, transparent) 108px calc(100% - 28px),
-      transparent calc(100% - 28px) calc(100% - 16px),
-      color-mix(in srgb, var(--archive-rose) 46%, transparent) calc(100% - 16px) 100%
-    );
-  clip-path: polygon(0 0, 100% 0, calc(100% - 4px) 60%, calc(100% - 12px) 100%, 12px 100%, 4px 70%, 0 80%);
-  filter: blur(0.3px);
-  opacity: 0.86;
-}
-
-.opening-copy::after {
-  content: 'C·01';
-  position: absolute;
-  top: 22px;
-  right: 18px;
-  width: 54px;
-  height: 54px;
-  display: grid;
-  place-items: center;
-  border: 1.5px solid color-mix(in srgb, var(--accent-rose) 58%, transparent);
-  border-radius: 50%;
-  color: color-mix(in srgb, var(--accent-rose) 84%, var(--archive-ink));
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-primary);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  transform: rotate(-9deg);
-  opacity: 0.82;
-  pointer-events: none;
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--accent-rose) 18%, transparent) inset;
+}
+
+.opening-copy h1, .opening-copy h2, .opening-copy h3, .opening-copy strong {
+  color: var(--text-primary);
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
+}
+
+.opening-copy p, .opening-copy span, .opening-copy li {
+  color: var(--text-primary);
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
 }
 
 .opening-kicker-stack,
@@ -506,6 +639,12 @@ function getActiveEntryNames(typeValue, limit = 3) {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.opening-kicker-stack > *,
+.opening-action-head span {
+  color: var(--archive-paper);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
 }
 
 .opening-phase-tag {
@@ -528,69 +667,69 @@ function getActiveEntryNames(typeValue, limit = 3) {
 .opening-title-block strong {
   position: relative;
   max-width: 8ch;
-  color: var(--archive-ink);
-  font-family: var(--font-display);
-  font-size: clamp(44px, 5.2vw, 78px);
-  font-weight: 400;
+  color: var(--archive-paper);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  font-size: clamp(48px, 6.5vw, 96px);
+  font-style: italic;
+  font-weight: 760;
   line-height: 0.92;
-  letter-spacing: 0.04em;
-  text-shadow:
-    1px 0 0 color-mix(in srgb, var(--archive-olive) 30%, transparent),
-    -1px 0 0 color-mix(in srgb, var(--accent-rose) 24%, transparent),
-    0 1px 0 color-mix(in srgb, var(--archive-paper) 60%, transparent);
+  letter-spacing: 0.02em;
+  transform: skewX(-4deg);
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
+  animation: titleGlow 4.8s ease-in-out infinite alternate;
 }
-
-.opening-title-block strong::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 8px;
-  width: 4px;
-  bottom: 8px;
-  background: linear-gradient(180deg, var(--archive-gold), color-mix(in srgb, var(--archive-gold) 36%, transparent));
-  pointer-events: none;
+@keyframes titleGlow {
+  from { text-shadow: 0 0 8px rgba(0,0,0,0.5), 0 0 12px rgba(0,0,0,0.3); }
+  to   { text-shadow: 0 0 20px rgba(0,0,0,0.7), 0 0 40px rgba(0,0,0,0.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opening-title-block strong {
+    animation: none;
+  }
 }
 
 .opening-title-block p,
 .opening-page-lead p {
   margin: 0;
-  color: var(--archive-ink-soft);
-  font-size: 12px;
+  color: var(--archive-paper);
+  font-size: 16px;
+  font-weight: 400;
   line-height: 1.58;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
 }
 
 .opening-briefing {
   display: grid;
   gap: 14px;
   padding-top: 16px;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
 }
 
 .opening-mission {
   display: grid;
   gap: 6px;
   padding-bottom: 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
 }
 
 .opening-mission span,
 .opening-pressure-grid span,
 .opening-page-lead span,
 .opening-page-facts span {
-  color: color-mix(in srgb, var(--archive-olive) 76%, var(--archive-ink-soft));
+  color: var(--archive-paper-soft);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
 }
 
 .opening-mission strong {
   max-width: 18ch;
-  color: var(--archive-ink);
+  color: var(--archive-paper);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: clamp(18px, 2vw, 28px);
+  font-size: clamp(20px, 2.4vw, 32px);
   font-weight: 800;
   line-height: 1.14;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
 }
 
 .opening-pressure-grid,
@@ -599,30 +738,6 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 12%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 12%, transparent);
-}
-
-.opening-pressure-grid::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: -10px;
-  height: 6px;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--archive-olive) 46%, transparent) 0 12%,
-      transparent 12% 16%,
-      color-mix(in srgb, var(--archive-gold) 36%, transparent) 16% 62%,
-      transparent 62% 66%,
-      color-mix(in srgb, var(--accent-rose) 38%, transparent) 66% 100%
-    );
-  transform: rotate(-2deg);
-  transform-origin: left center;
-  filter: blur(0.4px);
-  opacity: 0.78;
 }
 
 .opening-pressure-grid div,
@@ -631,284 +746,86 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: grid;
   gap: 5px;
   padding: 10px 10px 10px 0;
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 12%, transparent);
-}
-
-.opening-pressure-grid div:last-child,
-.opening-page-facts div:last-child {
-  border-right: none;
 }
 
 .opening-pressure-grid strong,
 .opening-page-facts strong {
-  color: var(--archive-ink);
-  font-size: 12px;
+  color: var(--archive-paper);
+  font-size: 14px;
+  font-weight: 700;
   line-height: 1.35;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
 }
 
+/* 5C v3.7: drop the panel chrome — same treatment as .opening-copy.
+   The scene strip (CharacterArchiveStrip) sits directly on the art. */
 .opening-scene {
   display: grid;
   gap: 14px;
-  align-content: start;
-  padding: 6px 4px 12px 30px;
-}
-
-.opening-stage-poster {
-  position: relative;
-  height: 360px;
-  overflow: hidden;
-  border: 7px solid color-mix(in srgb, #fff 86%, var(--archive-paper-soft));
-  border-radius: 2px;
-  background-image: var(--hero-image, var(--hero-placeholder-gradient));
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  isolation: isolate;
-  mix-blend-mode: multiply;
-  transform: rotate(-0.4deg);
-  box-shadow:
-    0 26px 42px color-mix(in srgb, #000 18%, transparent),
-    14px 16px 0 color-mix(in srgb, #000 12%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 34%, transparent);
-}
-
-.opening-stage-poster::before {
-  content: '';
-  position: absolute;
-  inset: 14px 14px 14px 44px;
-  background:
-    linear-gradient(125deg, transparent 0 44%, color-mix(in srgb, var(--accent-rose) 12%, transparent) 44.5% 48%, transparent 48.5%),
-    linear-gradient(180deg, transparent 0 74%, color-mix(in srgb, #000 10%, transparent) 100%);
-  opacity: 0.9;
-}
-
-.opening-stage-poster::after {
-  content: '';
-  position: absolute;
-  right: 22px;
-  bottom: 16px;
-  width: 82px;
-  height: 18px;
-  background: linear-gradient(180deg, color-mix(in srgb, #fff 40%, transparent), color-mix(in srgb, var(--archive-gold) 30%, transparent));
-  transform: rotate(-5deg);
-  opacity: 0.72;
-}
-
-.opening-stage-poster__halo {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at 50% 50%, transparent 35%, rgba(183, 138, 52, 0.22) 80%, rgba(120, 50, 30, 0.18) 100%);
-  mix-blend-mode: multiply;
-}
-
-.opening-stage-badge,
-.opening-stage-index,
-.opening-stage-world,
-.opening-stage-title,
-.opening-stage-roman,
-.opening-stage-sash,
-.opening-stage-blade,
-.opening-stage-grid {
-  position: absolute;
-}
-
-.opening-stage-badge {
-  top: 16px;
-  left: 18px;
-  min-height: 24px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  background: color-mix(in srgb, var(--text-primary) 86%, #111);
-  color: color-mix(in srgb, var(--accent-amber-light) 72%, #f8e7ba);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
-}
-
-.opening-stage-badge::after {
-  content: 'NO.01';
-  position: absolute;
-  top: -10px;
-  right: -52px;
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border: 1.5px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
-  color: color-mix(in srgb, var(--accent-rose) 78%, var(--archive-ink));
+  align-content: end;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-primary);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  transform: rotate(8deg);
-  pointer-events: none;
-  box-shadow: 0 4px 8px color-mix(in srgb, #000 12%, transparent);
 }
 
-.opening-stage-roman {
-  top: 20px;
-  right: 24px;
-  color: color-mix(in srgb, var(--accent-rose) 24%, transparent);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 152px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.opening-stage-index {
-  right: 22px;
-  bottom: 18px;
-  color: color-mix(in srgb, var(--accent-amber) 86%, var(--text-primary));
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-}
-
-.opening-stage-world {
-  left: 12px;
-  top: 18px;
-  bottom: 16px;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  color: color-mix(in srgb, var(--text-primary) 92%, #28201a);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 16px;
-  font-weight: 900;
-  letter-spacing: 0.18em;
-  z-index: 2;
-}
-
-.opening-stage-title {
-  left: 58px;
-  right: 22px;
-  bottom: 22px;
-  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: clamp(26px, 2.8vw, 36px);
-  font-weight: 900;
-  line-height: 1.05;
-  z-index: 2;
-}
-
-.opening-stage-sash {
-  left: 58px;
-  right: -26px;
-  top: 24px;
-  height: 22px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--text-primary) 92%, #101010), color-mix(in srgb, var(--accent-rose) 72%, #843c48));
-}
-
-.opening-stage-blade {
-  left: 72px;
-  right: 22px;
-  bottom: 26px;
-  height: 128px;
-  background:
-    radial-gradient(circle at 26% 28%, color-mix(in srgb, var(--accent-amber) 28%, transparent), transparent 24%),
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-rose-light) 24%, transparent), transparent 78%);
-  clip-path: polygon(0 100%, 8% 76%, 18% 56%, 36% 32%, 58% 12%, 100% 0, 100% 100%);
-  opacity: 0.88;
-}
-
-.opening-stage-grid {
-  inset: 14px 18px 14px 54px;
-  background:
-    linear-gradient(90deg, transparent 0 8px, color-mix(in srgb, var(--border) 14%, transparent) 8px 9px, transparent 9px),
-    repeating-linear-gradient(180deg, transparent 0 22px, color-mix(in srgb, var(--border) 7%, transparent) 22px 23px);
-  opacity: 0.5;
-}
-
-.opening-archive-strip {
-  width: min(300px, 78%);
-  justify-self: end;
-  margin: -32px 18px 0 0;
-  z-index: 2;
-  opacity: 0.92;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 78%, transparent);
-  box-shadow: 0 8px 18px color-mix(in srgb, #000 10%, transparent);
-}
-
-.opening-archive-strip :deep(.archive-strip__tile) {
-  min-height: 58px;
-}
-
-.playable-world-opening-page {
-  display: grid;
-  gap: 14px;
-  padding: 12px 2px 0;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
-}
-
-.opening-action-head {
-  padding-bottom: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 12%, transparent);
-}
-
+/* 5C v3.7: postage-stamp row floats bottom-center of the page on the
+   art, no longer nested inside the (gone) copy panel. */
 .opening-action-actions {
+  position: absolute;
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex: 0 0 auto;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 18px;
+  z-index: 3;
 }
 
-.opening-action-actions .stage-command {
-  width: 88px;
-  min-width: 88px;
-  flex: 0 0 88px;
+.opening-action-actions--primary {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
 }
 
-.opening-page-lead {
-  display: grid;
-  gap: 7px;
-}
-
-.opening-page-lead strong {
-  color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: clamp(18px, 2vw, 28px);
-  font-weight: 900;
-  line-height: 1.08;
-}
-
-.opening-page-lead p {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
+/* 5C v3.7: .stage-command becomes a postage stamp — notched clip-path,
+   solid cream paper, tilted + skewed, hard 2px offset shadow. */
 .stage-command {
-  --command-tilt: -3deg;
+  --command-tilt: -12deg;
   position: relative;
-  min-width: 144px;
-  min-height: 40px;
+  min-width: 210px;
+  min-height: 72px;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: stretch;
-  padding: 0 12px 0 0;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 9px 50%);
-  transform: rotate(var(--command-tilt));
-  box-shadow:
-    0 8px 12px color-mix(in srgb, #000 8%, transparent),
-    4px 5px 0 color-mix(in srgb, #000 7%, transparent);
+  padding: 0 20px 0 0;
+  background:
+    linear-gradient(122deg, color-mix(in srgb, var(--archive-olive-strong) 88%, #000) 0 64%, color-mix(in srgb, var(--archive-gold) 88%, #8b6426) 64% 100%);
+  color: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  transform: rotate(var(--command-tilt)) skewX(-2deg);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 88%, #000), 0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
 .stage-command--secondary {
-  --command-tilt: 2deg;
+  --command-tilt: -10deg;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 94%, transparent) 0 66%, color-mix(in srgb, var(--archive-olive) 70%, var(--archive-olive-strong)) 66% 100%);
+  color: var(--archive-ink);
+  transform: rotate(var(--command-tilt)) skewX(-2deg);
 }
 
 .stage-command--compact {
-  min-width: 88px;
-  min-height: 28px;
-  grid-template-columns: 24px minmax(0, 1fr);
-  padding-right: 6px;
+  min-width: 160px;
+  min-height: 54px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  padding-right: 14px;
 }
 
 .stage-command :deep(.stage-command__index) {
@@ -916,7 +833,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   align-items: center;
   justify-content: center;
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  font-size: 16px;
+  font-size: 24px;
   font-weight: 900;
   background: color-mix(in srgb, #000 16%, transparent);
 }
@@ -927,11 +844,11 @@ function getActiveEntryNames(typeValue, limit = 3) {
 
 .stage-command :deep(.stage-command__label) {
   min-width: 0;
-  padding-left: 10px;
+  padding-left: 16px;
   display: inline-flex;
   align-items: center;
   color: inherit;
-  font-size: 13px;
+  font-size: 22px;
   font-weight: 900;
   line-height: 1.05;
 }
@@ -947,28 +864,40 @@ function getActiveEntryNames(typeValue, limit = 3) {
     flex-direction: column;
   }
 
-  .opening-shell {
+  .opening-toolbar__actions {
+    width: min(460px, 100%);
+    justify-items: stretch;
+  }
+
+  .opening-world-card,
+  .opening-rail-btn {
+    width: 100%;
+  }
+
+  .opening-orbit {
     grid-template-columns: 1fr;
     gap: 20px;
   }
 
   .opening-copy,
   .opening-scene {
-    padding: 10px 0 0;
-  }
-
-  .opening-stage-poster {
-    height: 280px;
+    padding: 0;
   }
 }
 
 @media (max-width: 640px) {
   .opening-view {
-    padding: 12px;
+    /* v3.5: no padding on the view (full-bleed); tighten the orbit + toolbar. */
   }
 
-  .opening-shell {
-    padding: 16px 14px;
+  .opening-toolbar {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+  }
+
+  .opening-orbit {
+    padding: 76px 14px 14px;
   }
 
   .opening-pressure-grid,
@@ -994,9 +923,20 @@ function getActiveEntryNames(typeValue, limit = 3) {
   }
 
   .opening-action-actions .stage-command {
-    width: 88px;
-    min-width: 88px;
-    flex: 0 0 88px;
+    width: 138px;
+    min-width: 138px;
+    min-height: 52px;
+    grid-template-columns: 42px minmax(0, 1fr);
+    flex: 0 0 138px;
+  }
+
+  .stage-command :deep(.stage-command__index) {
+    font-size: 16px;
+  }
+
+  .stage-command :deep(.stage-command__label) {
+    padding-left: 10px;
+    font-size: 16px;
   }
 }
 </style>
