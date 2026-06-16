@@ -43,6 +43,10 @@ describe('ThemeVariantView', () => {
     // setVariant('legacy') doesn't leak into the next test's "default kao"
     // assumption.
     localStorage.clear()
+    // themeStore.applyToHtml() mutates document.documentElement.classList;
+    // reset so a prior test (in another file) that left theme-legacy
+    // theme-dark on <html> doesn't bleed into this file's expectations.
+    document.documentElement.className = ''
   })
 
   it('resolves welcome/opening/experience in both variants', async () => {
