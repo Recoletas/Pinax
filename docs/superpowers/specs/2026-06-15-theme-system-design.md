@@ -3,7 +3,7 @@
 > 把当前 `kao / archive-folio` UI 作为默认主题，同时保留一个可切换的 legacy fallback。目标是“可运行的视觉回退”，不是把整个应用永久分叉。
 
 - **Date**: 2026-06-15
-- **Status**: review-optimized, needs self-review
+- **Status**: v1 implemented (see `feat/theme-system-20260615` branch)
 - **Owner**: Claude / Codex review
 - **Branch**: `feat/theme-system-20260615`
 - **Base**: 当前工作区已在 `feat/theme-system-20260615`；不要再回到 `wip/map-realism-render-docs-20260608` 实施。
@@ -405,3 +405,18 @@ npm run test:run
 1. Should legacy include a separate `AppShell.vue`, or is a shared current shell with variant-scoped contents enough?
 2. Should `WelcomeView` also be routed through `ThemeVariantView`, or should it remain current-only for first implementation?
 3. Is dynamic LXGW preload required in v1, or can v1 simply remove static preload and let `kao.css` reference the font normally?
+
+## 13. Resolved Open Questions
+
+The §12 open questions were resolved during planning (see `docs/superpowers/plans/2026-06-15-theme-system.md` Step 0 and the brainstorm transcript) and verified during v1 implementation:
+
+- **Q1** (separate `legacy/AppShell.vue`?): **No** — current AppShell is shared. Variant-specific chrome is gated by `.theme-kao` in AppShell.vue scoped styles (Fixup 3 of v1.1 — commit `12ba51a fix(theme): gate AppShell archive-folio chrome by .theme-kao`). Legacy variant uses the same shell but without archive-folio chrome.
+- **Q2** (WelcomeView through ThemeVariantView?): **Yes** — `src/router/index.js:18-19` (welcome route) uses `ThemeVariantView` with `props: { view: 'welcome' }`. Consistent with opening and experience routes.
+- **Q3** (dynamic LXGW preload in v1?): **Yes** — `src/components/theme/ThemeAssets.vue:17-37` injects `<link rel="preload">` only when `variant === 'kao'`. Static preload removed from `index.html` per Fixup 1 of v1 prep (commit `c70a74e chore(css): split main.css into base + themes/kao.css; remove static LXGW preload`).
+
+Additional v1.1 fixups (post-review, see `feat/theme-system-20260615` branch log after `3d0af42`):
+
+- FOUC: `kao.css` is also statically imported by `src/main.js` (commit `06c75bb`) so the default-variant CSS ships in the initial paint.
+- Drawer a11y: Escape-to-close + focus return added to `src/layouts/AppShell.vue` (commit `1db6541`).
+- Atomic UI: `themeStore.setAppearance(v, s)` replaces the old `setVariant + setColorScheme` pair from the AppearanceControls radio click (commit `a31445e`).
+- Empty legacy chunk: `legacy.css` is the un-styled baseline and is no longer dynamically imported (commit `0413d7f`).
