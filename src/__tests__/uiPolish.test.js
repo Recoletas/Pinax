@@ -583,11 +583,16 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
 describe('theme system CSS contracts', () => {
   const ROOT = resolve(__dirname, '../..')
 
-  it('main.js imports shared CSS exactly once', () => {
+  it('main.js imports shared base CSS and the default-variant (kao) CSS so the initial paint is styled', () => {
+    // Spec §3.3 / fixup-1: kao is the default variant, so its CSS is
+    // bundled into the initial chunk (avoids a brief unstyled flash
+    // before ThemeAssets' onMounted runs). legacy.css is the un-styled
+    // baseline — 0 bytes — and is intentionally not statically imported.
     const mainJs = readFileSync(resolve(ROOT, 'src/main.js'), 'utf8')
     const imports = mainJs.match(/import\s+['"][^'"]*\.css['"]/g) || []
-    expect(imports.length).toBe(1)
+    expect(imports.length).toBe(2)
     expect(imports[0]).toMatch(/styles\/main\.css/)
+    expect(imports[1]).toMatch(/styles\/themes\/kao\.css/)
   })
 
   it('no runtime source-CSS link injection via /src/styles/*.css', () => {
