@@ -16,8 +16,7 @@ const current = computed(() =>
 )
 
 function pick(option) {
-  themeStore.setVariant(option.variant)
-  themeStore.setColorScheme(option.colorScheme)
+  themeStore.setAppearance(option.variant, option.colorScheme)
 }
 </script>
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useThemeStore, DEFAULT_VARIANT, DEFAULT_COLOR_SCHEME, LS_VARIANT, LS_COLOR } from '../stores/themeStore.js'
 
@@ -79,5 +79,37 @@ describe('themeStore', () => {
     s.setVariant('legacy')
     expect(document.documentElement.classList.contains('theme-legacy')).toBe(true)
     expect(document.documentElement.classList.contains('theme-kao')).toBe(false)
+  })
+
+  it('setAppearance(v, s) updates both, localStorage, and <html> in one applyToHtml call', () => {
+    const s = useThemeStore()
+    s.initTheme()
+    // Spy on applyToHtml AFTER initTheme so we only count the
+    // appearance-update call, not the one inside initTheme.
+    const applySpy = vi.spyOn(s, 'applyToHtml')
+    s.setAppearance('legacy', 'dark')
+    expect(s.variant).toBe('legacy')
+    expect(s.colorScheme).toBe('dark')
+    expect(localStorage.getItem(LS_VARIANT)).toBe('legacy')
+    expect(localStorage.getItem(LS_COLOR)).toBe('dark')
+    expect(document.documentElement.classList.contains('theme-legacy')).toBe(true)
+    expect(document.documentElement.classList.contains('theme-dark')).toBe(true)
+    // Old path fired setVariant then setColorScheme = 2 applyToHtml.
+    // New atomic action must fire exactly once per click.
+    expect(applySpy).toHaveBeenCalledTimes(1)
+    applySpy.mockRestore()
+  })
+
+  it('setAppearance(v, s) rejects invalid values without mutating state', () => {
+    const s = useThemeStore()
+    s.initTheme()
+    const beforeVariant = s.variant
+    const beforeColor = s.colorScheme
+    s.setAppearance('garbage', 'dark')
+    expect(s.variant).toBe(beforeVariant)
+    expect(s.colorScheme).toBe(beforeColor)
+    s.setAppearance('kao', 'neon')
+    expect(s.variant).toBe(beforeVariant)
+    expect(s.colorScheme).toBe(beforeColor)
   })
 })

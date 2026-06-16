@@ -44,6 +44,18 @@ export const useThemeStore = defineStore('theme', {
       try { localStorage.setItem(LS_COLOR, s) } catch (_) { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
+    // Atomic variant + colorScheme update for the 4-radio appearance
+    // switcher. A single click should fire exactly one applyToHtml(),
+    // one setItem pair, and one Vue reactivity flush — not two of each.
+    setAppearance(variant, colorScheme) {
+      if (!VALID_VARIANTS.includes(variant)) return
+      if (!VALID_COLOR_SCHEMES.includes(colorScheme)) return
+      this.variant = variant
+      this.colorScheme = colorScheme
+      try { localStorage.setItem(LS_VARIANT, variant) } catch (_) { /* storage disabled — in-memory state still applies */ }
+      try { localStorage.setItem(LS_COLOR, colorScheme) } catch (_) { /* storage disabled — in-memory state still applies */ }
+      this.applyToHtml()
+    },
     applyToHtml() {
       const html = document.documentElement
       html.classList.remove('theme-kao', 'theme-legacy')
