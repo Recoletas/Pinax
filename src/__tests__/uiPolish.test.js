@@ -713,6 +713,27 @@ describe('theme system CSS contracts', () => {
     }
   })
 
+  it('AppShell drawer exposes Esc-to-close + focus return + dialog role (a11y)', () => {
+    // Fixup 4: keyboard a11y. Without these, keyboard users cannot close
+    // the drawer or know it owns focus. The drawer must:
+    //   - be marked role="dialog" + aria-modal="true"
+    //   - have a document-level Escape handler that calls closeDrawer
+    //   - return focus to the trigger button when closed
+    //   - move focus into the drawer (close button) when opened
+    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
+
+    expect(appShell).toMatch(/role="dialog"/)
+    expect(appShell).toMatch(/aria-modal="true"/)
+    // Escape handler bound on document, only acts when drawer is open
+    expect(appShell).toMatch(/e\.key\s*===\s*['"]Escape['"]/)
+    expect(appShell).toMatch(/drawerTriggerRef/)
+    expect(appShell).toMatch(/drawerCloseRef/)
+    expect(appShell).toMatch(/drawerTriggerRef\.value\.focus\(\)/)
+    // document-level keydown listener wired up + cleaned up on unmount
+    expect(appShell).toMatch(/addEventListener\(\s*['"]keydown['"]/)
+    expect(appShell).toMatch(/removeEventListener\(\s*['"]keydown['"]/)
+  })
+
   it('AppShell archive-folio chrome overrides are gated by .theme-kao (legacy inheritance fix)', () => {
     // Fixup 3: the archive-folio overrides (lines ~533-680 in AppShell.vue)
     // are kao-specific visual language and must NOT apply when the legacy

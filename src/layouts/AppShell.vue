@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
@@ -11,6 +11,8 @@ const route = useRoute()
 const router = useRouter()
 
 const drawerOpen = ref(false)
+const drawerTriggerRef = ref(null)
+const drawerCloseRef = ref(null)
 
 const currentActivityKey = computed(() => resolveActivityKey(route))
 const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
@@ -25,6 +27,28 @@ watch(() => route.fullPath, () => {
   drawerOpen.value = false
 })
 
+// Focus management: move focus into the drawer when it opens, return
+// focus to the trigger when it closes. Minimal-but-real a11y — a full
+// focus-trap loop is left for future polish, but keyboard users can at
+// least dismiss the drawer with Esc and re-enter via Tab from the trigger.
+watch(drawerOpen, async (open) => {
+  if (open) {
+    await nextTick()
+    drawerCloseRef.value?.focus()
+  } else if (drawerTriggerRef.value) {
+    // Only restore focus when the drawer was actually closed (not
+    // initial mount where drawerTriggerRef is null).
+    drawerTriggerRef.value.focus()
+  }
+})
+
+function handleDrawerKeydown(e) {
+  if (e.key === 'Escape' && drawerOpen.value) {
+    e.preventDefault()
+    closeDrawer()
+  }
+}
+
 function toggleDrawer() {
   drawerOpen.value = !drawerOpen.value
 }
@@ -32,6 +56,14 @@ function toggleDrawer() {
 function closeDrawer() {
   drawerOpen.value = false
 }
+
+onMounted(() => {
+  document.addEventListener('keydown', handleDrawerKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleDrawerKeydown)
+})
 
 function handleSelectActivity(activityKey) {
   const matched = ACTIVITY_ITEMS.find((item) => item.key === activityKey)
@@ -61,6 +93,7 @@ function handleSelectPanel(routeName) {
   >
     <template v-if="!hideActivityBar">
       <button
+        ref="drawerTriggerRef"
         class="shell-menu-btn shell-nav-trigger"
         type="button"
         :aria-expanded="drawerOpen ? 'true' : 'false'"
@@ -88,13 +121,18 @@ function handleSelectPanel(routeName) {
         variant="chrome"
         :decorated="false"
         :class="{ open: drawerOpen, 'has-panel': drawerHasPanel }"
+        role="dialog"
+        aria-modal="true"
+        :aria-hidden="drawerOpen ? 'false' : 'true'"
+        :inert="drawerOpen ? null : ''"
+        :tabindex="drawerOpen ? -1 : null"
       >
         <div class="shell-drawer__head">
           <div class="shell-drawer__copy">
             <span>Pinax</span>
             <strong>{{ currentRouteCaption }}</strong>
           </div>
-          <button class="shell-drawer__close" type="button" aria-label="关闭导航" @click="closeDrawer">×</button>
+          <button ref="drawerCloseRef" class="shell-drawer__close" type="button" aria-label="关闭导航" @click="closeDrawer">×</button>
         </div>
 
         <div class="shell-drawer__body">
