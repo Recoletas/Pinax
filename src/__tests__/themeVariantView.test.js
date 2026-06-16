@@ -49,12 +49,17 @@ describe('ThemeVariantView', () => {
     const s = useThemeStore()
     s.initTheme()
 
+    // /opening in legacy mode aliases to legacy/Experience.vue (pre-kao had
+    // no standalone /opening route — the opening UI lived inside /experience).
+    const expectedText = (variant, view) =>
+      (view === 'opening' && variant === 'legacy') ? 'legacy experience' : `${variant} ${view}`
+
     for (const view of ['welcome', 'opening', 'experience']) {
       for (const variant of ['kao', 'legacy']) {
         s.setVariant(variant)
         const wrapper = factory({ view })
         await settle()
-        expect(wrapper.text()).toMatch(new RegExp(`${variant} ${view}`))
+        expect(wrapper.text()).toMatch(new RegExp(expectedText(variant, view)))
         wrapper.unmount()
       }
     }
