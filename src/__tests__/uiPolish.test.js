@@ -713,6 +713,32 @@ describe('theme system CSS contracts', () => {
     }
   })
 
+  it('AppShell archive-folio chrome overrides are gated by .theme-kao (legacy inheritance fix)', () => {
+    // Fixup 3: the archive-folio overrides (lines ~533-680 in AppShell.vue)
+    // are kao-specific visual language and must NOT apply when the legacy
+    // variant is active. Each archive-folio rule selector must be prefixed
+    // with `.theme-kao `. Shared chrome (basic drawer layout, button
+    // positions) remains ungated.
+    const appShell = readFileSync(resolve(ROOT, 'src/layouts/AppShell.vue'), 'utf8')
+
+    // archive-folio selectors use --archive-* tokens. Match selectors that
+    // reference at least one --archive-* variable and assert each is gated.
+    // We extract selectors by splitting on '}' and looking at the
+    // selector portion before '{'.
+    const blocks = appShell.match(/[^{}]*\{[^{}]*\}/g) || []
+    const archiveBlocks = blocks.filter((b) => /--archive-/.test(b))
+    expect(archiveBlocks.length).toBeGreaterThan(0) // sanity: we have archive rules
+
+    for (const block of archiveBlocks) {
+      const selector = block.split('{')[0].trim()
+      // strip Vue's [data-v-xxx] scoped attribute suffix so the gate
+      // assertion reads cleanly: `.theme-kao .app-shell[data-v-xxx]`
+      // passes the gate check.
+      const cleanSelector = selector.replace(/\[data-v-[a-z0-9]+\]/g, '').trim()
+      expect(cleanSelector, `archive selector must be gated by .theme-kao: ${selector}`).toMatch(/\.theme-kao/)
+    }
+  })
+
   it('/experience legacy/current contracts do not include removed opening-page residues', () => {
     const expCurrent = readFileSync(resolve(ROOT, 'src/pages/Experience.vue'), 'utf8')
     const expLegacy = readFileSync(resolve(ROOT, 'src/pages/legacy/Experience.vue'), 'utf8')

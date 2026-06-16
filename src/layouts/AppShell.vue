@@ -530,14 +530,18 @@ function handleSelectPanel(routeName) {
   }
 }
 
-/* archive-folio chrome overrides */
-.app-shell {
+/* archive-folio chrome overrides — gated by .theme-kao so the legacy
+   variant (un-styled baseline) does not inherit these visuals.
+   The .app-shell scoped styles below remain the source for shared
+   layout/positioning; only the kao-specific archive visual language
+   is conditional. */
+.theme-kao .app-shell {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary)), color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)));
   color: var(--archive-ink);
 }
 
-.app-shell::before {
+.theme-kao .app-shell::before {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 10%, transparent), transparent 120px),
     linear-gradient(118deg, transparent 0 62%, color-mix(in srgb, var(--archive-olive) 8%, transparent) 62.2% 66%, transparent 66.2%),
@@ -549,7 +553,7 @@ function handleSelectPanel(routeName) {
   opacity: 0.62;
 }
 
-.shell-mast {
+.theme-kao .shell-mast {
   min-height: 68px;
   padding: 10px 18px;
   border-bottom-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
@@ -559,30 +563,30 @@ function handleSelectPanel(routeName) {
   box-shadow: 0 12px 24px color-mix(in srgb, #000 8%, transparent);
 }
 
-.shell-mast::before {
+.theme-kao .shell-mast::before {
   background:
     linear-gradient(116deg, transparent 0 68%, color-mix(in srgb, var(--archive-gold) 10%, transparent) 68.2% 72%, transparent 72.2%),
     linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--border) 10%, transparent) 22px 23px, transparent 23px 100%);
 }
 
-.shell-menu-btn {
+.theme-kao .shell-menu-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 22%, var(--border));
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff), color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised)));
   color: var(--archive-ink);
 }
 
-.shell-menu-btn:hover {
+.theme-kao .shell-menu-btn:hover {
   border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
   background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
 }
 
-.shell-brand-mark {
+.theme-kao .shell-brand-mark {
   color: color-mix(in srgb, var(--archive-gold) 82%, var(--archive-ink));
   font-size: 11px;
 }
 
-.shell-brand-route strong {
+.theme-kao .shell-brand-route strong {
   color: var(--archive-ink);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
   font-size: 24px;
@@ -591,60 +595,60 @@ function handleSelectPanel(routeName) {
   text-transform: none;
 }
 
-.shell-brand-route span {
+.theme-kao .shell-brand-route span {
   color: var(--archive-ink-soft);
 }
 
-.shell-tabbar {
+.theme-kao .shell-tabbar {
   gap: 10px;
 }
 
-.shell-tab {
+.theme-kao .shell-tab {
   min-height: 38px;
   border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
   background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
   color: var(--archive-ink-soft);
 }
 
-.shell-tab:hover {
+.theme-kao .shell-tab:hover {
   border-color: color-mix(in srgb, var(--archive-olive) 26%, var(--border));
   background: color-mix(in srgb, var(--archive-paper) 94%, transparent);
   color: var(--archive-ink);
 }
 
-.shell-tab.active {
+.theme-kao .shell-tab.active {
   border-color: color-mix(in srgb, var(--archive-gold) 36%, var(--border));
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0 68%, color-mix(in srgb, var(--archive-gold) 24%, transparent) 68% 100%);
   color: var(--archive-ink);
 }
 
-.shell-tab__index {
+.theme-kao .shell-tab__index {
   background: color-mix(in srgb, var(--archive-paper) 92%, transparent);
   color: var(--archive-ink-soft);
 }
 
-.shell-tab.active .shell-tab__index {
+.theme-kao .shell-tab.active .shell-tab__index {
   color: var(--archive-paper-soft);
   background: linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 92%, #15312d), color-mix(in srgb, var(--archive-photo) 90%, #22413c));
 }
 
-.shell-tab__label {
+.theme-kao .shell-tab__label {
   font-size: 11px;
   letter-spacing: 0.1em;
 }
 
-.shell-meta-chip {
+.theme-kao .shell-meta-chip {
   border-color: color-mix(in srgb, var(--archive-olive) 24%, var(--border));
   background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
   color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
 }
 
-.shell-overlay {
+.theme-kao .shell-overlay {
   background: color-mix(in srgb, #000 16%, transparent);
 }
 
-.shell-drawer {
+.theme-kao .shell-drawer {
   border-right-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff), color-mix(in srgb, var(--archive-paper) 94%, var(--surface-panel)));
@@ -652,29 +656,29 @@ function handleSelectPanel(routeName) {
   mix-blend-mode: normal;
 }
 
-.shell-drawer__head {
+.theme-kao .shell-drawer__head {
   border-bottom-color: color-mix(in srgb, var(--archive-gold) 16%, transparent);
   background:
     linear-gradient(126deg, color-mix(in srgb, var(--archive-gold) 10%, transparent) 0 28%, transparent 28.4% 100%);
 }
 
-.shell-drawer__copy span {
+.theme-kao .shell-drawer__copy span {
   color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
 }
 
-.shell-drawer__copy strong {
+.theme-kao .shell-drawer__copy strong {
   color: var(--archive-ink);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
   text-transform: none;
 }
 
-.shell-drawer__close {
+.theme-kao .shell-drawer__close {
   border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
   background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
   color: var(--archive-ink-soft);
 }
 
-.shell-drawer__activity {
+.theme-kao .shell-drawer__activity {
   border-right-color: color-mix(in srgb, var(--archive-gold) 14%, transparent);
   background: color-mix(in srgb, var(--archive-paper) 34%, transparent);
 }
