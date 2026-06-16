@@ -30,7 +30,7 @@
     </header>
 
     <div class="settings-body">
-      <StructuredSettingsPanel
+      <StructuredSettingsWorkspace
         v-if="activeWorldbook"
         :worldbook="activeWorldbook"
       />
@@ -46,7 +46,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { useTheme } from '../composables/useTheme'
-import StructuredSettingsPanel from '../components/worldbook/StructuredSettingsPanel.vue'
+import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 
 const router = useRouter()
 const worldStore = useWorldStore()

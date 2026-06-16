@@ -14,7 +14,10 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:arch": "vitest run src/__tests__/architectureGuard.test.js",
-    "verify": "npm run test:run && npm run build",
+    "verify": "npm run verify:full",
+    "verify:contract": "vitest run",
+    "verify:post": "vite build && git diff --check",
+    "verify:full": "vitest run && vite build && git diff --check && vitepress build docs/src && vitest run src/__tests__/visual-verification.test.js",
     "docs:dev": "vitepress dev docs/src",
     "docs:build": "vitepress build docs/src",
     "docs:preview": "vitepress preview docs/src"
@@ -42,11 +45,14 @@
     "@eslint/js": "^9.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vitest/ui": "^1.0.0",
+    "@vue/test-utils": "^2.4.11",
+    "axe-core": "^4.12.0",
     "eslint": "^9.0.0",
     "eslint-plugin-vue": "^9.0.0",
     "jsdom": "^29.1.1",
     "vite": "^5.0.0",
     "vitepress": "^1.6.4",
-    "vitest": "^1.0.0"
+    "vitest": "^1.0.0",
+    "vitest-axe": "^0.1.0"
   }
 }

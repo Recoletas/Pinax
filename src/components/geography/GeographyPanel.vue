@@ -1,11 +1,27 @@
 <template>
   <div class="geography-panel">
-    <h2 class="panel-heading">地理环境</h2>
+    <header class="geo-header">
+      <div class="geo-title-block">
+        <span class="panel-kicker">体验上下文</span>
+        <h2 class="panel-heading">地理环境</h2>
+      </div>
+      <span class="geo-count" aria-label="地点数量">{{ locations.length }}</span>
+    </header>
+
+    <div class="geo-stat-strip" aria-label="地理环境概览">
+      <span><strong>{{ locationStats.root }}</strong> 顶级</span>
+      <span><strong>{{ locationStats.linked }}</strong> 从属</span>
+      <span><strong>{{ locationStats.described }}</strong> 已描述</span>
+    </div>
 
     <!-- Overview -->
-    <div class="section">
-      <label class="field-label">地理总述</label>
+    <div class="section overview-card">
+      <div class="field-label-row">
+        <label class="field-label" for="geo-overview">地理总述</label>
+        <span class="save-hint">失焦自动保存</span>
+      </div>
       <textarea
+        id="geo-overview"
         class="text-area"
         rows="5"
         v-model="overview"
@@ -16,18 +32,21 @@
 
     <!-- Toolbar -->
     <div class="toolbar">
-      <h3 class="toolbar-title">地点列表 ({{ locations.length }})</h3>
+      <div class="toolbar-title-group">
+        <h3 class="toolbar-title">地点网络</h3>
+        <span class="toolbar-subtitle">{{ locationStats.described }} / {{ locations.length }} 个地点有描述</span>
+      </div>
       <div class="toolbar-actions">
         <div class="view-tabs">
-          <button class="tab-btn" :class="{ active: view === 'map' }" @click="view = 'map'">
+          <button class="tab-btn" :class="{ active: view === 'map' }" :aria-pressed="view === 'map'" @click="view = 'map'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
             树状图
           </button>
-          <button class="tab-btn" :class="{ active: view === 'aimap' }" @click="view = 'aimap'">
+          <button class="tab-btn" :class="{ active: view === 'aimap' }" :aria-pressed="view === 'aimap'" @click="view = 'aimap'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z"/></svg>
             AI地图
           </button>
-          <button class="tab-btn" :class="{ active: view === 'list' }" @click="view = 'list'">
+          <button class="tab-btn" :class="{ active: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             列表
           </button>
@@ -40,12 +59,12 @@
     </div>
 
     <!-- Tree map view -->
-    <div v-if="view === 'map'" class="mb-6">
+    <div v-if="view === 'map'" class="view-surface">
       <LocationTreeMap :locations="locations" />
     </div>
 
     <!-- AI concept map view -->
-    <div v-if="view === 'aimap'" class="mb-6">
+    <div v-if="view === 'aimap'" class="view-surface ai-map-panel">
       <div class="ai-actions">
         <button class="primary-btn-sm" @click="generateConceptMap" :disabled="streaming || locations.length === 0">
           <svg v-if="streaming" class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
@@ -56,12 +75,18 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           生成图像 Prompt
         </button>
-        <span v-if="locations.length === 0" class="hint-text">请先在列表中添加地点</span>
+        <span v-if="locations.length === 0" class="hint-text">请先添加地点</span>
       </div>
 
       <div v-if="streaming && !svgContent" class="ai-status">
         <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
         AI 正在绘制地图...
+      </div>
+
+      <div v-if="!streaming && !svgContent" class="ai-empty">
+        <span class="ai-empty-icon" aria-hidden="true">✦</span>
+        <strong>{{ locations.length ? '生成一张地点关系概念图' : '还没有地点可绘制' }}</strong>
+        <span>{{ locations.length ? '会根据总述、地点层级和剧情重要性绘制关系图。' : '先建立几个地点，再让 AI 绘制世界结构。' }}</span>
       </div>
 
       <div v-if="svgContent" class="svg-output" v-html="svgContent"></div>
@@ -83,13 +108,27 @@
     </div>
 
     <!-- Location list -->
-    <div v-if="view !== 'map'" class="location-list">
-      <div v-if="locations.length === 0" class="empty-state">暂无地点，点击上方按钮添加</div>
-      <div v-for="loc in locations" :key="loc.id" class="location-card">
+    <div v-if="view !== 'map'" class="location-list" :class="{ 'below-ai-map': view === 'aimap' }">
+      <div v-if="locations.length === 0" class="empty-state">
+        <span class="empty-icon" aria-hidden="true">⌖</span>
+        <strong>暂无地点</strong>
+        <span>先添加一个大陆、城市或关键场景。</span>
+        <button class="toolbar-text-btn" @click="addLocation">添加第一个地点</button>
+      </div>
+      <div
+        v-for="loc in locations"
+        :key="loc.id"
+        class="location-card"
+        :class="{ expanded: expandedId === loc.id }"
+        :style="{ '--loc-color': typeColor(loc.type) }"
+      >
         <button class="location-header" @click="toggleExpand(loc.id)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><polyline v-if="expandedId === loc.id" points="6 9 12 15 18 9"/><polyline v-else points="9 18 15 12 9 6"/></svg>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          <span class="loc-name">{{ loc.name }}</span>
+          <span class="loc-pin" aria-hidden="true"></span>
+          <span class="loc-copy">
+            <span class="loc-name">{{ loc.name }}</span>
+            <span class="loc-meta">{{ parentLabel(loc.parentId) }}</span>
+          </span>
           <span class="loc-type-badge">{{ typeLabel(loc.type) }}</span>
         </button>
 
@@ -134,7 +173,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
 import { buildConceptMapPrompt, buildImageMapPrompt } from '../../services/ai/geographyAdapter'
@@ -154,8 +193,27 @@ const imagePrompt = ref('')
 const copied = ref(false)
 const streaming = ref(false)
 
+const locationStats = computed(() => {
+  const items = locations.value || []
+  return {
+    root: items.filter((loc) => !loc.parentId).length,
+    linked: items.filter((loc) => loc.parentId).length,
+    described: items.filter((loc) => String(loc.description || '').trim()).length,
+  }
+})
+
 function typeLabel(type) {
   return LOCATION_TYPES.find(t => t.value === type)?.label || type
+}
+
+function typeColor(type) {
+  return LOCATION_TYPES.find(t => t.value === type)?.color || 'var(--accent)'
+}
+
+function parentLabel(parentId) {
+  if (!parentId) return '顶级地点'
+  const parent = locations.value.find((loc) => loc.id === parentId)
+  return parent ? `从属：${parent.name}` : '父级缺失'
 }
 
 function toggleExpand(id) {
@@ -237,93 +295,223 @@ async function copyPrompt() {
 
 <style scoped>
 .geography-panel {
-  max-width: 800px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  --geo-radius: 11px;
+}
+
+.geo-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.geo-title-block {
+  min-width: 0;
+}
+
+.panel-kicker {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text-muted) 82%, var(--accent));
 }
 
 .panel-heading {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 16px;
+  margin: 0;
 }
 
-.section { margin-bottom: 24px; }
+.geo-count {
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 62%),
+    var(--bg-primary);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.geo-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.geo-stat-strip span {
+  min-width: 0;
+  padding: 7px 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.geo-stat-strip strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.section { margin: 0; }
+
+.overview-card {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--geo-radius);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent));
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
 
 .field-label {
   display: block;
   font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+.save-hint {
+  font-size: 10px;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  white-space: nowrap;
 }
 
 .text-area {
   width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
+  line-height: 1.55;
   resize: vertical;
-  min-height: 80px;
+  min-height: 86px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.text-area:focus { border-color: var(--accent); }
+.text-area:focus {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
 
 .toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.toolbar-title-group {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
 .toolbar-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0;
+}
+
+.toolbar-subtitle {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .view-tabs {
-  display: flex;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-  padding: 2px;
-  border: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: 1 1 100%;
+  min-width: 0;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  border-radius: 10px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
 }
 
 .tab-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 7px 10px;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 5px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tab-btn:hover { color: var(--text-primary); }
-.tab-btn.active { background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary)); color: var(--accent); }
+.tab-btn.active {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)), color-mix(in srgb, var(--accent) 8%, var(--bg-secondary)));
+  color: var(--accent);
+  box-shadow: 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent) inset;
+}
+
+.tab-btn:focus-visible,
+.primary-btn-sm:focus-visible,
+.toolbar-text-btn:focus-visible,
+.copy-btn:focus-visible,
+.danger-btn-sm:focus-visible,
+.location-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .primary-btn-sm {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   height: 34px;
   padding: 0 12px;
@@ -332,6 +520,7 @@ async function copyPrompt() {
   border: none;
   border-radius: 8px;
   font-size: 12px;
+  font-weight: 650;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -342,32 +531,51 @@ async function copyPrompt() {
 .toolbar-text-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   height: 34px;
   padding: 0 12px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 8px;
-  background: transparent;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.toolbar-text-btn:hover { background: var(--surface-raised); color: var(--text-primary); }
+.toolbar-text-btn:hover {
+  background: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--text-primary);
+}
 .toolbar-text-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .hint-text { font-size: 12px; color: var(--text-muted); }
 
-.mb-6 { margin-bottom: 24px; }
+.view-surface {
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: var(--geo-radius);
+  background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
+  overflow: hidden;
+}
 
 /* AI section */
+.ai-map-panel {
+  padding: 10px;
+}
+
 .ai-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+
+.ai-actions .primary-btn-sm,
+.ai-actions .toolbar-text-btn {
+  flex: 1 1 100%;
 }
 
 .ai-status {
@@ -380,19 +588,53 @@ async function copyPrompt() {
   justify-content: center;
 }
 
+.ai-empty {
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 20px 14px;
+  border: 1px dashed color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 12%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 58%),
+    color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-empty strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ai-empty-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  color: var(--accent);
+}
+
 .svg-output {
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   background: var(--bg-primary);
 }
 
 .image-prompt-box {
   margin-top: 16px;
   padding: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
 }
 
 .prompt-header {
@@ -417,7 +659,7 @@ async function copyPrompt() {
   gap: 4px;
   padding: 4px 8px;
   border: none;
-  background: transparent;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
@@ -440,21 +682,58 @@ async function copyPrompt() {
 .location-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 
 .empty-state {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
   text-align: center;
-  padding: 32px 0;
+  padding: 24px 12px;
+  border: 1px dashed color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: var(--geo-radius);
+  background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
   color: var(--text-muted);
   font-size: 12px;
 }
 
+.empty-state strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.empty-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .location-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-secondary);
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--geo-radius);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--loc-color, var(--accent)) 16%, transparent) 0 3px, transparent 3px),
+    color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.location-card:hover,
+.location-card.expanded {
+  border-color: color-mix(in srgb, var(--loc-color, var(--accent)) 46%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--loc-color, var(--accent)) 24%, transparent) 0 3px, transparent 3px),
+    color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary));
 }
 
 .location-header {
@@ -462,43 +741,74 @@ async function copyPrompt() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 10px 11px 10px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
   transition: background 0.15s ease;
+  color: var(--text-primary);
 }
 
-.location-header:hover { background: var(--bg-hover); }
+.location-header:hover { background: color-mix(in srgb, var(--bg-hover) 70%, transparent); }
+
+.loc-pin {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--loc-color, var(--accent)) 58%, var(--border));
+  background:
+    radial-gradient(circle, var(--loc-color, var(--accent)) 0 4px, transparent 4px),
+    color-mix(in srgb, var(--loc-color, var(--accent)) 12%, var(--bg-primary));
+}
+
+.loc-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
 
 .loc-name {
-  flex: 1;
-  text-align: left;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loc-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .loc-type-badge {
   font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-primary);
-  padding: 1px 6px;
+  color: color-mix(in srgb, var(--loc-color, var(--accent)) 82%, var(--text-primary));
+  background: color-mix(in srgb, var(--loc-color, var(--accent)) 10%, var(--bg-primary));
+  padding: 2px 7px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--loc-color, var(--accent)) 28%, var(--border));
+  white-space: nowrap;
 }
 
 .location-body {
-  padding: 10px 12px 12px;
+  padding: 11px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 42%, transparent);
 }
 
 .field-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -510,17 +820,22 @@ async function copyPrompt() {
 
 .text-input {
   width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  padding: 8px 9px;
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.text-input:focus { border-color: var(--accent); }
+.text-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
 
 .location-footer {
   display: flex;
@@ -533,8 +848,8 @@ async function copyPrompt() {
   gap: 4px;
   padding: 6px 12px;
   color: var(--danger);
-  background: transparent;
-  border: none;
+  background: color-mix(in srgb, var(--danger) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
   font-size: 12px;
   cursor: pointer;
   border-radius: 8px;
@@ -542,4 +857,23 @@ async function copyPrompt() {
 }
 
 .danger-btn-sm:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+
+@media (min-width: 420px) {
+  .field-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-actions {
+    width: auto;
+  }
+
+  .view-tabs {
+    flex-basis: auto;
+  }
+
+  .ai-actions .primary-btn-sm,
+  .ai-actions .toolbar-text-btn {
+    flex: 0 1 auto;
+  }
+}
 </style>

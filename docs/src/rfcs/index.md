@@ -2,6 +2,7 @@
 
 > 跨子系统、需要多人协作评审的方案。未定稿的公共载体。
 > **草案不陈述"已经落地"的当前实现事实。**
+> 查当前事实、当前主线、当前风险时，不要从这里开始，先看 [`../code-map.md`](../code-map.md)、[`../known-issues.md`](../known-issues.md)、[`../../PLAN.md`](../../PLAN.md)。
 
 ## 目录结构
 
@@ -48,6 +49,8 @@ docs/src/rfcs/
 
 ## 索引
 
+### 当前仍会引用的 accepted RFC
+
 | Slug | 标题 | 状态 | 负责人 | 最后更新 |
 | --- | --- | --- | --- | --- |
 | [perf-profiling/](./perf-profiling/) | 地图生成管线分阶段计时基础设施 | accepted | @Recoletas | 2026-06-01 |
@@ -55,9 +58,15 @@ docs/src/rfcs/
 | [azgaar-pipeline/](./azgaar-pipeline/) | Azgaar 风格地图管线重写（06-08 后已恢复模板语义） | accepted / amended | @Recoletas | 2026-06-08 |
 | [engine-oss-replacements/](./engine-oss-replacements/) | 引擎 5 处自造基础设施替换为成熟 OSS 库（模板删除说明已过期） | accepted / amended | @Recoletas | 2026-06-08 |
 
+### 使用规则
+
+- `accepted` RFC 只在需要实现背景、设计边界或 superseded 关系时再看。
+- 如果 RFC 页首带 `<!-- canonical-source -->`，表示它仍是该专题的规范性设计来源之一；但当前运行事实仍以 `code-map.md`、`known-issues.md`、`test-status.md` 为准。
+- 发现 accepted RFC 和当前事实冲突时，优先补页首“当前实现注记”或迁结论到 ADR / facts 文档，不要直接把历史正文伪装成现状。
+
 ## 既有材料如何迁入
 
-- [`../superpowers/specs/`](https://github.com/Recoletas/Pinax/tree/main/docs/superpowers/specs) 中"已接受且仍生效"的 → 迁到 [`decisions/`](../decisions/)
-- `../superpowers/specs/` 中"未定稿但需要公共评审"的 → 迁到 `rfcs/`
-- [`../superpowers/plans/`](https://github.com/Recoletas/Pinax/tree/main/docs/superpowers/plans) 中"对应未完成实施" → 迁到 `rfcs/<slug>/implementation.md`
-- 旧的 [`../plan/*`](https://github.com/Recoletas/Pinax/tree/main/docs/plan) 中以方案 / 对比为主的文档 → 迁到 `rfcs/` 或 `decisions/`
+- `../superpowers/specs/` 中“已接受且仍生效”的 → 迁到 [`decisions/`](../decisions/) 或保留为带 `<!-- canonical-source -->` 的 accepted RFC
+- `../superpowers/specs/` 中“未定稿但需要公共评审”的 → 迁到 `rfcs/`
+- `../superpowers/plans/` 中“对应未完成实施”的 → 迁到 `rfcs/<slug>/implementation.md`
+- 旧的 `../plan/*` 中以方案 / 对比为主的文档 → 迁到 `rfcs/` 或 `decisions/`

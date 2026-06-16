@@ -140,14 +140,12 @@
             <label>Mem0 API Key</label>
             <div class="api-key-input">
               <input
-                :type="showMem0Key ? 'text' : 'password'"
+                type="password"
                 v-model="mem0Settings.apiKey"
                 class="input"
                 placeholder="m0-xxxxxxxxxxxxx"
+                autocomplete="off"
               />
-              <button class="toggle-visibility" @click="showMem0Key = !showMem0Key">
-                {{ showMem0Key ? '隐藏' : '显示' }}
-              </button>
             </div>
           </div>
 
@@ -211,7 +209,6 @@ const emit = defineEmits(['close'])
 
 const activeTab = ref('general')
 const showApiKey = ref(false)
-const showMem0Key = ref(false)
 const isInitializing = ref(true)
 const mem0TestResult = ref(null)
 const mem0Testing = ref(false)

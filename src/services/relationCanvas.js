@@ -5,6 +5,11 @@ export function listRelationCanvasCards() {
   return Array.isArray(stored) ? stored : []
 }
 
+function readStoredList(key) {
+  const stored = getItem(key)
+  return Array.isArray(stored) ? stored : []
+}
+
 export function findAssetCanvasCard(assetId) {
   if (!assetId) return null
   return listRelationCanvasCards().find((card) => card.assetId === assetId) || null
@@ -57,4 +62,100 @@ export function ensureAssetCanvasCardWithExtra(asset, extraFields) {
     }
   }
   return card
+}
+
+export function deleteAssetCanvasReferences(assetId) {
+  const normalizedAssetId = String(assetId || '').trim()
+  if (!normalizedAssetId) {
+    return {
+      removedCards: [],
+      removedEdges: 0,
+      removedOutlineItems: 0,
+      removedTimelineItems: 0,
+      dissolvedPiles: 0
+    }
+  }
+
+  const cards = listRelationCanvasCards()
+  const removedCards = cards.filter((card) => card.assetId === normalizedAssetId)
+  const removedCardIds = new Set(removedCards.map((card) => card.id).filter(Boolean))
+  const timeline = readStoredList(STORAGE_KEYS.PROSE_TIMELINE_V1)
+
+  if (removedCardIds.size === 0) {
+    const nextTimeline = timeline.filter((item) => item?.assetId !== normalizedAssetId)
+    if (nextTimeline.length !== timeline.length) {
+      setItem(STORAGE_KEYS.PROSE_TIMELINE_V1, nextTimeline)
+    }
+
+    return {
+      removedCards: [],
+      removedEdges: 0,
+      removedOutlineItems: 0,
+      removedTimelineItems: timeline.length - nextTimeline.length,
+      dissolvedPiles: 0
+    }
+  }
+
+  const rawNextCards = cards.filter((card) => !removedCardIds.has(card.id))
+  const piles = readStoredList(STORAGE_KEYS.PROSE_PILES_V1)
+  const dissolvedPileIds = new Set()
+  const nextPiles = []
+
+  piles.forEach((pile) => {
+    const cardIds = Array.isArray(pile?.cardIds) ? pile.cardIds : []
+    const nextCardIds = cardIds.filter((cardId) => !removedCardIds.has(cardId))
+    const wasAffected = nextCardIds.length !== cardIds.length
+
+    if (!wasAffected) {
+      nextPiles.push(pile)
+      return
+    }
+
+    if (nextCardIds.length >= 2) {
+      nextPiles.push({ ...pile, cardIds: nextCardIds })
+      return
+    }
+
+    if (pile?.pileId) {
+      dissolvedPileIds.add(pile.pileId)
+    }
+  })
+
+  const nextCards = rawNextCards.map((card) => (
+    dissolvedPileIds.has(card.pileId)
+      ? { ...card, pileId: null }
+      : card
+  ))
+
+  const edges = readStoredList(STORAGE_KEYS.PROSE_EDGES_V1)
+  const nextEdges = edges.filter((edge) => (
+    !removedCardIds.has(edge?.sourceId) && !removedCardIds.has(edge?.targetId)
+  ))
+
+  const outline = readStoredList(STORAGE_KEYS.PROSE_OUTLINE_V1)
+  const nextOutline = outline.filter((item) => (
+    !removedCardIds.has(item?.cardId) && !dissolvedPileIds.has(item?.pileId)
+  ))
+
+  const nextTimeline = timeline.filter((item) => {
+    if (item?.assetId === normalizedAssetId) return false
+    if (removedCardIds.has(item?.cardId) || removedCardIds.has(item?.focusCardId)) return false
+    if (dissolvedPileIds.has(item?.pileId)) return false
+    if (Array.isArray(item?.cardIds) && item.cardIds.some((cardId) => removedCardIds.has(cardId))) return false
+    return true
+  })
+
+  setItem(STORAGE_KEYS.PROSE_CARDS_V1, nextCards)
+  setItem(STORAGE_KEYS.PROSE_EDGES_V1, nextEdges)
+  setItem(STORAGE_KEYS.PROSE_OUTLINE_V1, nextOutline)
+  setItem(STORAGE_KEYS.PROSE_TIMELINE_V1, nextTimeline)
+  setItem(STORAGE_KEYS.PROSE_PILES_V1, nextPiles)
+
+  return {
+    removedCards,
+    removedEdges: edges.length - nextEdges.length,
+    removedOutlineItems: outline.length - nextOutline.length,
+    removedTimelineItems: timeline.length - nextTimeline.length,
+    dissolvedPiles: dissolvedPileIds.size
+  }
 }

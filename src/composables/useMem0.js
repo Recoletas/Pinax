@@ -117,7 +117,7 @@ export function useMem0(config = {}) {
 
   // 计算属性
   const isConfigured = computed(() => {
-    return Boolean(apiUrl && userId)
+    return Boolean(String(apiUrl || '').trim() && String(userId || '').trim() && String(apiKey || '').trim())
   })
 
   /**

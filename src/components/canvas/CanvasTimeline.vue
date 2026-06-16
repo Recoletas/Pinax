@@ -119,7 +119,8 @@ import { ref } from 'vue'
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 86%, var(--text-muted));
+  background: color-mix(in srgb, var(--surface-panel) 88%, var(--bg-primary));
 }
 
 .outline-header {
@@ -128,7 +129,8 @@ import { ref } from 'vue'
   align-items: flex-start;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, var(--bg-primary));
+  background: color-mix(in srgb, var(--surface-raised) 80%, var(--surface-panel));
   flex-shrink: 0;
 }
 
@@ -168,7 +170,7 @@ import { ref } from 'vue'
   height: 22px;
   padding: 0 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--surface-panel));
   color: var(--text-secondary);
   font-size: 10px;
   line-height: 1;
@@ -245,37 +247,40 @@ import { ref } from 'vue'
 
 /* Director mode timeline view */
 .timeline-view {
-  padding: 6px;
+  padding: 8px 10px 10px;
+  min-height: 0;
+  background: color-mix(in srgb, var(--bg-primary) 22%, transparent);
 }
 
 .timeline-track {
   display: grid;
-  gap: 1px;
+  gap: 5px;
   overflow-y: auto;
   padding: 2px;
   max-height: 220px;
 }
 
 .timeline-card {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 6px;
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 6px;
+  padding: 5px 6px;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   position: relative;
   min-width: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-primary) 70%, transparent);
 }
 
 .timeline-card:hover {
-  background: var(--bg-hover);
-  border-color: transparent;
+  background: color-mix(in srgb, var(--surface-raised) 86%, var(--bg-hover));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
 }
 
 .timeline-card.active {
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
-  box-shadow: none;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .timeline-card.dragging {
@@ -296,12 +301,15 @@ import { ref } from 'vue'
 
 .timeline-index {
   width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
   flex-shrink: 0;
 }
 
@@ -377,9 +385,12 @@ import { ref } from 'vue'
 
 .timeline-empty {
   text-align: center;
-  padding: 14px 10px;
+  padding: 18px 10px;
   font-size: 12px;
   color: var(--text-muted);
   width: 100%;
+  border: 1px dashed color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-soft) 62%, transparent);
 }
 </style>

@@ -1,13 +1,24 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
 import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
+import ThemeAssets from './components/theme/ThemeAssets.vue'
+import { useGameStore } from './stores/gameStore'
+import { useThemeStore } from './stores/themeStore.js'
 
 const { initTheme } = useTheme()
+const themeStore = useThemeStore()
+themeStore.initTheme()
 const route = useRoute()
+const gameStore = useGameStore()
 const generationMetaNotice = ref('')
+const hasUserActionMessages = computed(() => {
+  return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
+})
+const isExperienceEntryTransition = computed(() => route.name === 'experience' && !hasUserActionMessages.value)
+const showGlobalMemoryIndicator = computed(() => !route.meta?.hideGlobalMemory && !isExperienceEntryTransition.value)
 let noticeTimer = null
 
 useViewportHeight()
@@ -53,7 +64,6 @@ function handleGenerationMeta(event) {
 }
 
 onMounted(() => {
-  initTheme()
   window.addEventListener('ai-generation-meta', handleGenerationMeta)
   syncDocumentTitle()
 })
@@ -73,13 +83,14 @@ watch(
 
 <template>
   <div class="app-root">
+    <ThemeAssets />
     <router-view />
     <transition name="meta-toast-fade">
       <div v-if="generationMetaNotice" class="generation-meta-toast">
         {{ generationMetaNotice }}
       </div>
     </transition>
-    <MemoryIndicator />
+    <MemoryIndicator v-if="showGlobalMemoryIndicator" />
   </div>
 </template>
 

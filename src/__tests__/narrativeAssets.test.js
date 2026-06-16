@@ -3,10 +3,12 @@ import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
   createNarrativeAsset,
+  deleteNarrativeAsset,
   getAssetKindExplanation,
   getAssetKindLabel,
   getAssetSourceDetail,
   getAssetSourceLabel,
+  listActiveNarrativeAssets,
   listNarrativeAssets,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
@@ -95,6 +97,27 @@ describe('narrativeAssets', () => {
     expect(updated).toHaveLength(2)
     expect(listNarrativeAssets({ status: 'inbox' })).toHaveLength(0)
     expect(listNarrativeAssets({ status: 'archived' })).toHaveLength(2)
+  })
+
+  it('lists only active inbox and accepted assets for material sidebar views', () => {
+    const inbox = addNarrativeAsset({ content: '待处理素材', kind: 'inspiration', status: 'inbox' })
+    const accepted = addNarrativeAsset({ content: '采纳素材', kind: 'event', status: 'accepted' })
+    addNarrativeAsset({ content: '归档素材', kind: 'draft-prose', status: 'archived' })
+    addNarrativeAsset({ content: '拒绝素材', kind: 'worldbook-draft', status: 'rejected' })
+
+    expect(listActiveNarrativeAssets().map((asset) => asset.id)).toEqual([accepted.id, inbox.id])
+  })
+
+  it('permanently deletes an asset instead of archiving it', () => {
+    const first = addNarrativeAsset({ content: '要删除的素材', kind: 'inspiration' })
+    const second = addNarrativeAsset({ content: '保留的素材', kind: 'event' })
+
+    const deleted = deleteNarrativeAsset(first.id)
+
+    expect(deleted?.id).toBe(first.id)
+    expect(listNarrativeAssets({ status: null }).map((asset) => asset.id)).toEqual([second.id])
+    expect(deleteNarrativeAsset(first.id)).toBeNull()
+    expect(deleteNarrativeAsset('')).toBeNull()
   })
 
   it('falls back invalid kind and exposes labels', () => {

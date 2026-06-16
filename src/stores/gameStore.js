@@ -1,10 +1,17 @@
 import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, buildContextMessage, recordMemory } from '../services/api'
 import { runGenerationStreamTask } from '../services/generationService'
+import {
+  formatAdventureStoryboardSeedContent,
+  generateAdventureProseDraft,
+  generateAdventureStoryboardDraft
+} from '../services/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import { buildScopedMemoryContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
+import { addNarrativeAsset } from '../services/narrativeAssets'
+import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useWorldStore } from './worldStore'
 
@@ -31,6 +38,93 @@ const DEFAULT_WRITING_TIME = {
   year: '',
   month: '',
   day: ''
+}
+
+const DEFAULT_ADVENTURE_STATE = {
+  goals: [],
+  encounteredCharacters: [],
+  factionRelations: {},
+  keyChoices: [],
+  plotJournal: [],
+  adventureTriggers: {
+    prose: null,
+    storyboard: null
+  },
+  adventureTriggerHistory: []
+}
+
+const PLOT_JOURNAL_TURN_INTERVAL = 8
+const PLOT_JOURNAL_MAX_SUMMARY_CHARS = 420
+const ADVENTURE_TRIGGER_COOLDOWN_MS = 3000
+const ADVENTURE_TRIGGER_WINDOW_MS = 60 * 1000
+const ADVENTURE_TRIGGER_MAX_PER_WINDOW = 2
+
+function normalizeTextValue(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function buildStableRuntimeId(prefix, value, fallback = 'item') {
+  const token = normalizeTextValue(value).slice(0, 24) || fallback
+  return `${prefix}_${token}`
+}
+
+function normalizeNumber(value, fallback = 0) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function compactPlotJournalSummary(messages = []) {
+  const structuredSummary = buildHeuristicContextSummary(messages, {
+    maxSummaryChars: PLOT_JOURNAL_MAX_SUMMARY_CHARS
+  })
+  const sections = structuredSummary
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  let currentSection = ''
+  const plotEvents = []
+  const playerActions = []
+  const unresolved = []
+
+  for (const line of sections) {
+    const headingMatch = line.match(/^【(.+?)】$/)
+    if (headingMatch) {
+      currentSection = headingMatch[1]
+      continue
+    }
+    if (!line.startsWith('- ')) continue
+    const content = normalizeTextValue(line.slice(2))
+    if (!content) continue
+
+    if (currentSection === '剧情进展') {
+      plotEvents.push(content)
+    } else if (currentSection === '玩家意图/行动') {
+      playerActions.push(content)
+    } else if (currentSection === '未解决线索') {
+      unresolved.push(content)
+    }
+  }
+
+  const parts = []
+  if (plotEvents.length > 0) {
+    parts.push(`剧情：${plotEvents.slice(0, 3).join('；')}`)
+  }
+  if (playerActions.length > 0) {
+    parts.push(`行动：${playerActions.slice(-2).join('；')}`)
+  }
+  if (unresolved.length > 0) {
+    parts.push(`未决：${unresolved.slice(0, 2).join('；')}`)
+  }
+
+  const compact = normalizeTextValue(parts.join(' '))
+  if (compact) {
+    return compact.length > PLOT_JOURNAL_MAX_SUMMARY_CHARS
+      ? `${compact.slice(0, PLOT_JOURNAL_MAX_SUMMARY_CHARS - 1)}…`
+      : compact
+  }
+
+  return normalizeTextValue(structuredSummary).slice(0, PLOT_JOURNAL_MAX_SUMMARY_CHARS)
 }
 
 function normalizeWorldMapState(raw = {}) {
@@ -61,6 +155,212 @@ function normalizeWritingTime(raw = {}) {
   }
 }
 
+function normalizeGoals(raw = []) {
+  if (!Array.isArray(raw)) return []
+
+  const seen = new Set()
+  const goals = []
+
+  for (const item of raw) {
+    const title = normalizeTextValue(item?.title || item?.label || item)
+    if (!title || seen.has(title)) continue
+    seen.add(title)
+    goals.push({
+      id: normalizeTextValue(item?.id) || buildStableRuntimeId('goal', title, 'goal'),
+      title,
+      status: normalizeTextValue(item?.status) || 'active',
+      source: normalizeTextValue(item?.source) || 'runtime',
+      updatedAt: Number(item?.updatedAt || item?.createdAt || Date.now())
+    })
+  }
+
+  return goals.slice(0, 6)
+}
+
+function normalizeEncounteredCharacters(raw = []) {
+  if (!Array.isArray(raw)) return []
+
+  const seen = new Set()
+  const characters = []
+
+  for (const item of raw) {
+    const name = normalizeTextValue(item?.name || item)
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    characters.push({
+      id: normalizeTextValue(item?.id) || buildStableRuntimeId('char', name, 'character'),
+      name,
+      source: normalizeTextValue(item?.source) || 'runtime',
+      firstSeenAt: Number(item?.firstSeenAt || item?.lastSeenAt || Date.now()),
+      lastSeenAt: Number(item?.lastSeenAt || item?.firstSeenAt || Date.now())
+    })
+  }
+
+  return characters.slice(0, 12)
+}
+
+function normalizeFactionRelations(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+
+  return Object.entries(raw).reduce((acc, [key, value]) => {
+    const name = normalizeTextValue(key)
+    const numeric = Number(value)
+    if (!name || !Number.isFinite(numeric)) return acc
+    acc[name] = Math.max(-100, Math.min(100, Math.round(numeric)))
+    return acc
+  }, {})
+}
+
+function normalizeKeyChoices(raw = []) {
+  if (!Array.isArray(raw)) return []
+
+  const seen = new Set()
+  const choices = []
+
+  for (const item of raw) {
+    const label = normalizeTextValue(item?.label || item?.title || item?.detail || item)
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    choices.push({
+      id: normalizeTextValue(item?.id) || buildStableRuntimeId('choice', label, 'choice'),
+      label,
+      source: normalizeTextValue(item?.source) || 'runtime',
+      createdAt: Number(item?.createdAt || item?.updatedAt || Date.now())
+    })
+  }
+
+  return choices.slice(-10)
+}
+
+function normalizePlotJournal(raw = []) {
+  if (!Array.isArray(raw)) return []
+
+  return raw
+    .map((item, index) => {
+      const summary = normalizeTextValue(item?.summary || item?.content || '')
+      if (!summary) return null
+      return {
+        id: normalizeTextValue(item?.id) || buildStableRuntimeId('journal', item?.chapterId || String(index + 1), 'journal'),
+        chapterId: normalizeTextValue(item?.chapterId || `chapter-${index + 1}`),
+        summary,
+        participants: Array.isArray(item?.participants) ? item.participants.map(normalizeTextValue).filter(Boolean) : [],
+        locations: Array.isArray(item?.locations) ? item.locations.map(normalizeTextValue).filter(Boolean) : [],
+        keyChoices: Array.isArray(item?.keyChoices) ? item.keyChoices.map(normalizeTextValue).filter(Boolean) : [],
+        unresolvedHooks: Array.isArray(item?.unresolvedHooks) ? item.unresolvedHooks.map(normalizeTextValue).filter(Boolean) : [],
+        sourceMessageIds: Array.isArray(item?.sourceMessageIds) ? item.sourceMessageIds : [],
+        sourceStartIndex: normalizeNumber(item?.sourceStartIndex, 0),
+        sourceEndIndex: normalizeNumber(item?.sourceEndIndex, 0),
+        createdAt: normalizeNumber(item?.createdAt, Date.now())
+      }
+    })
+    .filter(Boolean)
+    .slice(-8)
+}
+
+function normalizeAdventureTriggerShot(raw = {}, index = 0) {
+  const shotType = normalizeTextValue(raw?.shotType || raw?.shotSize || 'medium')
+  const cameraMovement = normalizeTextValue(raw?.cameraMovement || raw?.camera || 'fixed')
+  return {
+    shotId: normalizeTextValue(raw?.shotId || String(index + 1)) || String(index + 1),
+    sequence: normalizeNumber(raw?.sequence, index + 1),
+    sourceText: normalizeTextValue(raw?.sourceText || raw?.content || ''),
+    content: normalizeTextValue(raw?.content || raw?.sourceText || ''),
+    shotType: shotType || 'medium',
+    shotSize: shotType || 'medium',
+    cameraMovement: cameraMovement || 'fixed',
+    camera: cameraMovement || 'fixed',
+    duration: Math.max(1, normalizeNumber(raw?.duration, 3)),
+    visual: normalizeTextValue(raw?.visual || raw?.tone || ''),
+    dialogue: normalizeTextValue(raw?.dialogue || ''),
+    sound: normalizeTextValue(raw?.sound || ''),
+    transition: normalizeTextValue(raw?.transition || 'cut') || 'cut',
+    notes: normalizeTextValue(raw?.notes || ''),
+    emotion: normalizeTextValue(raw?.emotion || ''),
+    scene: normalizeTextValue(raw?.scene || '')
+  }
+}
+
+function normalizeAdventureTriggerDraft(raw = null, type = 'prose') {
+  if (!raw || typeof raw !== 'object') return null
+
+  const normalizedType = type === 'storyboard' ? 'storyboard' : 'prose'
+  const status = normalizeTextValue(raw?.status || 'ready') || 'ready'
+  const draft = {
+    type: normalizedType,
+    chapterId: normalizeTextValue(raw?.chapterId || ''),
+    sourcePlotId: normalizeTextValue(raw?.sourcePlotId || raw?.chapterId || ''),
+    title: normalizeTextValue(raw?.title || ''),
+    summary: normalizeTextValue(raw?.summary || ''),
+    error: normalizeTextValue(raw?.error || ''),
+    assetId: normalizeTextValue(raw?.assetId || ''),
+    storyboardDocumentId: normalizeTextValue(raw?.storyboardDocumentId || ''),
+    storyboardVersionId: normalizeTextValue(raw?.storyboardVersionId || ''),
+    generatedAt: normalizeNumber(raw?.generatedAt, 0),
+    updatedAt: normalizeNumber(raw?.updatedAt, Date.now()),
+    acceptedAt: normalizeNumber(raw?.acceptedAt, 0),
+    status: ['generating', 'ready', 'accepted', 'error'].includes(status) ? status : 'ready',
+    sourceMessageIds: Array.isArray(raw?.sourceMessageIds) ? raw.sourceMessageIds : []
+  }
+
+  if (normalizedType === 'storyboard') {
+    draft.shots = Array.isArray(raw?.shots)
+      ? raw.shots.map((shot, index) => normalizeAdventureTriggerShot(shot, index)).filter((shot) => shot.sourceText || shot.content)
+      : []
+  } else {
+    draft.content = normalizeTextValue(raw?.content || '')
+  }
+
+  return draft
+}
+
+function normalizeAdventureTriggerHistory(raw = []) {
+  if (!Array.isArray(raw)) return []
+
+  return raw
+    .map((item) => {
+      const createdAt = normalizeNumber(item?.createdAt, 0)
+      if (!createdAt) return null
+      const type = normalizeTextValue(item?.type || '')
+      return {
+        type: type === 'storyboard' ? 'storyboard' : 'prose',
+        createdAt
+      }
+    })
+    .filter(Boolean)
+    .slice(-12)
+}
+
+function normalizeAdventureTriggersState(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  return {
+    prose: normalizeAdventureTriggerDraft(source?.prose, 'prose'),
+    storyboard: normalizeAdventureTriggerDraft(source?.storyboard, 'storyboard')
+  }
+}
+
+function normalizeAdventureState(raw = {}) {
+  return {
+    goals: normalizeGoals(raw?.goals),
+    encounteredCharacters: normalizeEncounteredCharacters(raw?.encounteredCharacters),
+    factionRelations: normalizeFactionRelations(raw?.factionRelations),
+    keyChoices: normalizeKeyChoices(raw?.keyChoices),
+    plotJournal: normalizePlotJournal(raw?.plotJournal),
+    adventureTriggers: normalizeAdventureTriggersState(raw?.adventureTriggers),
+    adventureTriggerHistory: normalizeAdventureTriggerHistory(raw?.adventureTriggerHistory),
+    adventureTriggerCooldownUntil: normalizeNumber(raw?.adventureTriggerCooldownUntil, 0)
+  }
+}
+
+function getWorldbookEntryNames(worldbook, type, limit = 20) {
+  const normalizedType = normalizeTextValue(type).toLowerCase()
+  const entries = Array.isArray(worldbook?.entries) ? worldbook.entries : []
+  return entries
+    .filter((entry) => normalizeTextValue(entry?.type).toLowerCase() === normalizedType)
+    .map((entry) => normalizeTextValue(entry?.name || entry?.keys?.[0]))
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
 function createEmptySessionRuntime() {
   return {
     messages: [],
@@ -83,7 +383,15 @@ function createEmptySessionRuntime() {
     dialogueCharacter: null,
     activeMechanism: null,
     mechanismContext: null,
-    milestoneEvent: null
+    milestoneEvent: null,
+    goals: [],
+    encounteredCharacters: [],
+    factionRelations: {},
+    keyChoices: [],
+    plotJournal: [],
+    adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
+    adventureTriggerHistory: [],
+    adventureTriggerCooldownUntil: 0
   }
 }
 
@@ -133,6 +441,15 @@ export const useGameStore = defineStore('game', {
     writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
     writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
     activities: [],
+    goals: [],
+    encounteredCharacters: [],
+    factionRelations: {},
+    keyChoices: [],
+    plotJournal: [],
+    adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
+    adventureTriggerHistory: [],
+    adventureTriggerCooldownUntil: 0,
+    adventureTriggerPendingType: null,
     npcRelations: {},
     discoveredPlaces: [],
     completedQuests: [],
@@ -272,6 +589,361 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
     },
 
+    setGoals(nextGoals) {
+      this.goals = normalizeGoals(nextGoals)
+      this.saveCurrentSession()
+    },
+
+    upsertGoal(goal) {
+      const next = normalizeGoals([...(this.goals || []), goal])
+      this.goals = next
+      this.saveCurrentSession()
+    },
+
+    addEncounteredCharacter(character) {
+      const incoming = normalizeEncounteredCharacters([...(this.encounteredCharacters || []), character])
+      this.encounteredCharacters = incoming
+      this.saveCurrentSession()
+    },
+
+    setFactionRelation(name, value) {
+      const key = normalizeTextValue(name)
+      if (!key) return
+      this.factionRelations = normalizeFactionRelations({
+        ...(this.factionRelations || {}),
+        [key]: value
+      })
+      this.saveCurrentSession()
+    },
+
+    recordKeyChoice(choice) {
+      this.keyChoices = normalizeKeyChoices([...(this.keyChoices || []), choice])
+      this.saveCurrentSession()
+    },
+
+    appendPlotJournal(entry) {
+      this.plotJournal = normalizePlotJournal([...(this.plotJournal || []), entry])
+      this.saveCurrentSession()
+    },
+
+    setAdventureTriggerDraft(type, draft) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      this.adventureTriggers = {
+        ...(this.adventureTriggers || cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null })),
+        [triggerType]: normalizeAdventureTriggerDraft(draft, triggerType)
+      }
+      this.saveCurrentSession()
+      return this.adventureTriggers[triggerType]
+    },
+
+    clearAdventureTriggerDraft(type) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      this.adventureTriggers = {
+        ...(this.adventureTriggers || cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null })),
+        [triggerType]: null
+      }
+      this.saveCurrentSession()
+    },
+
+    latestPlotJournalEntry() {
+      return this.plotJournal?.[this.plotJournal.length - 1] || null
+    },
+
+    getAdventureTriggerState(type, nowInput = Date.now()) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      const latestEntry = this.latestPlotJournalEntry()
+      const draft = this.adventureTriggers?.[triggerType] || null
+      const now = normalizeNumber(nowInput, Date.now())
+      const recentHistory = (this.adventureTriggerHistory || [])
+        .filter((item) => now - Number(item?.createdAt || 0) <= ADVENTURE_TRIGGER_WINDOW_MS)
+      const usesRemaining = Math.max(0, ADVENTURE_TRIGGER_MAX_PER_WINDOW - recentHistory.length)
+      const cooldownRemainingMs = Math.max(0, Number(this.adventureTriggerCooldownUntil || 0) - now)
+      const hasDraftForLatestEntry = Boolean(draft && latestEntry && draft.sourcePlotId === (latestEntry.id || latestEntry.chapterId))
+      const isAccepted = Boolean(hasDraftForLatestEntry && draft?.status === 'accepted')
+      const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1000)
+      let blockReason = ''
+
+      if (!latestEntry?.summary) {
+        blockReason = '当前剧情还不足以生成草稿'
+      } else if (this.adventureTriggerPendingType === triggerType) {
+        blockReason = 'AI 正在处理草稿，请稍候'
+      } else if (cooldownRemainingMs > 0) {
+        blockReason = `按钮冷却中，请在 ${cooldownRemainingSeconds} 秒后重试`
+      } else if (usesRemaining <= 0) {
+        blockReason = '本分钟触发次数已达上限，请稍后再试'
+      } else if (isAccepted) {
+        blockReason = '这段剧情的草稿已保存'
+      }
+
+      return {
+        type: triggerType,
+        latestEntry,
+        draft,
+        isReady: Boolean(latestEntry?.summary),
+        isGenerating: this.adventureTriggerPendingType === triggerType,
+        isAccepted,
+        cooldownRemainingMs,
+        cooldownRemainingSeconds,
+        usesRemaining,
+        blockReason,
+        canGenerate: Boolean(latestEntry?.summary) && this.adventureTriggerPendingType !== triggerType && cooldownRemainingMs === 0 && usesRemaining > 0 && !isAccepted,
+        hasDraftForLatestEntry
+      }
+    },
+
+    registerAdventureTriggerUsage(type) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      const now = Date.now()
+      const history = normalizeAdventureTriggerHistory([
+        ...(this.adventureTriggerHistory || []).filter((item) => now - Number(item?.createdAt || 0) <= ADVENTURE_TRIGGER_WINDOW_MS),
+        { type: triggerType, createdAt: now }
+      ])
+      this.adventureTriggerHistory = history
+      this.adventureTriggerCooldownUntil = now + ADVENTURE_TRIGGER_COOLDOWN_MS
+      this.saveCurrentSession()
+    },
+
+    buildAdventureTriggerTitle(type, plotEntry) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      const chapterId = normalizeTextValue(plotEntry?.chapterId || '')
+      if (triggerType === 'storyboard') {
+        return chapterId ? `${chapterId} 分镜草稿` : '冒险分镜草稿'
+      }
+      return chapterId ? `${chapterId} 章节草稿` : '冒险章节草稿'
+    },
+
+    async generateAdventureTriggerDraft(type) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      const triggerState = this.getAdventureTriggerState(triggerType)
+      if (!triggerState.isReady || !triggerState.latestEntry) {
+        throw new Error('当前剧情还不足以生成草稿')
+      }
+      if (triggerState.isGenerating) {
+        throw new Error('AI 正在处理草稿，请稍候')
+      }
+      if (triggerState.cooldownRemainingMs > 0) {
+        throw new Error('按钮冷却中，请稍后再试')
+      }
+      if (triggerState.usesRemaining <= 0) {
+        throw new Error('本分钟触发次数已达上限，请稍后再试')
+      }
+
+      this.loadApiSettings()
+      this.adventureTriggerPendingType = triggerType
+      const plotEntry = triggerState.latestEntry
+      const title = this.buildAdventureTriggerTitle(triggerType, plotEntry)
+
+      this.setAdventureTriggerDraft(triggerType, {
+        type: triggerType,
+        title,
+        chapterId: plotEntry.chapterId,
+        sourcePlotId: plotEntry.id || plotEntry.chapterId,
+        summary: plotEntry.summary,
+        sourceMessageIds: plotEntry.sourceMessageIds || [],
+        updatedAt: Date.now(),
+        generatedAt: Date.now(),
+        status: 'generating',
+        ...(triggerType === 'storyboard' ? { shots: [] } : { content: '' })
+      })
+
+      try {
+        const worldStore = useWorldStore()
+        const payload = {
+          worldbook: worldStore.activeWorldbook,
+          runtimeState: this.getRuntimeSnapshot(),
+          chatHistory: this.chatHistory,
+          plotEntry,
+          settings: this.apiSettings,
+          sessionTitle: findSession(this.sessions, this.currentSessionId)?.title || ''
+        }
+
+        const result = triggerType === 'storyboard'
+          ? await generateAdventureStoryboardDraft(payload)
+          : await generateAdventureProseDraft(payload)
+
+        if (!result?.success) {
+          throw new Error(triggerType === 'storyboard' ? '整理分镜失败，请稍后重试' : '章节草稿生成失败，请稍后重试')
+        }
+
+        this.registerAdventureTriggerUsage(triggerType)
+        return this.setAdventureTriggerDraft(triggerType, {
+          type: triggerType,
+          title,
+          chapterId: plotEntry.chapterId,
+          sourcePlotId: plotEntry.id || plotEntry.chapterId,
+          summary: plotEntry.summary,
+          sourceMessageIds: plotEntry.sourceMessageIds || [],
+          generatedAt: Date.now(),
+          updatedAt: Date.now(),
+          status: 'ready',
+          ...(triggerType === 'storyboard'
+            ? { shots: result.shots || [] }
+            : { content: result.content || '' })
+        })
+      } catch (error) {
+        this.setAdventureTriggerDraft(triggerType, {
+          type: triggerType,
+          title,
+          chapterId: plotEntry.chapterId,
+          sourcePlotId: plotEntry.id || plotEntry.chapterId,
+          summary: plotEntry.summary,
+          sourceMessageIds: plotEntry.sourceMessageIds || [],
+          generatedAt: Date.now(),
+          updatedAt: Date.now(),
+          status: 'error',
+          error: error?.message || '草稿生成失败',
+          ...(triggerType === 'storyboard' ? { shots: [] } : { content: '' })
+        })
+        throw error
+      } finally {
+        this.adventureTriggerPendingType = null
+      }
+    },
+
+    async acceptAdventureTriggerDraft(type) {
+      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
+      const draft = this.adventureTriggers?.[triggerType]
+      if (!draft || draft.status !== 'ready') {
+        throw new Error('当前没有可采纳的草稿')
+      }
+
+      const plotEntry = this.latestPlotJournalEntry()
+      const projectId = this.worldId || resolveActiveWorldbookId() || null
+      const sourceMessageIds = Array.isArray(draft.sourceMessageIds) ? draft.sourceMessageIds : []
+
+      if (triggerType === 'storyboard') {
+        const asset = addNarrativeAsset({
+          title: draft.title || this.buildAdventureTriggerTitle('storyboard', plotEntry),
+          content: formatAdventureStoryboardSeedContent(draft),
+          kind: 'storyboard-seed',
+          projectId,
+          status: 'inbox',
+          source: {
+            type: 'experience-session',
+            id: this.currentSessionId || '',
+            messageIds: sourceMessageIds
+          }
+        })
+
+        const storyboard = saveValidatedStoryboardVersion({
+          projectId,
+          source: {
+            sourceType: 'narrative-asset',
+            sourceId: asset.id,
+            title: asset.title
+          },
+          shots: draft.shots || [],
+          taskType: 'adventure.trigger.storyboard',
+          parameters: {
+            chapterId: draft.chapterId || '',
+            sessionId: this.currentSessionId || '',
+            sourcePlotId: draft.sourcePlotId || ''
+          }
+        })
+
+        const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
+          ...draft,
+          status: 'accepted',
+          assetId: asset.id,
+          storyboardDocumentId: storyboard.document.id,
+          storyboardVersionId: storyboard.version.versionId,
+          acceptedAt: Date.now(),
+          updatedAt: Date.now()
+        })
+        return {
+          type: triggerType,
+          draft: acceptedDraft,
+          asset,
+          storyboard
+        }
+      }
+
+      const asset = addNarrativeAsset({
+        title: draft.title || this.buildAdventureTriggerTitle('prose', plotEntry),
+        content: draft.content || '',
+        kind: 'draft-prose',
+        projectId,
+        status: 'inbox',
+        source: {
+          type: 'experience-session',
+          id: this.currentSessionId || '',
+          messageIds: sourceMessageIds
+        }
+      })
+
+      const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
+        ...draft,
+        status: 'accepted',
+        assetId: asset.id,
+        acceptedAt: Date.now(),
+        updatedAt: Date.now()
+      })
+      return {
+        type: triggerType,
+        draft: acceptedDraft,
+        asset
+      }
+    },
+
+    dismissAdventureTriggerDraft(type) {
+      this.clearAdventureTriggerDraft(type)
+    },
+
+    buildPlotJournalEntry() {
+      const history = Array.isArray(this.chatHistory) ? this.chatHistory : []
+      const bodyMessages = history.filter((message) => message?.role === 'user' || message?.role === 'assistant')
+      const lastEntry = this.plotJournal?.[this.plotJournal.length - 1] || null
+      const sourceStartIndex = normalizeNumber(lastEntry?.sourceEndIndex, 0)
+      const pendingMessages = bodyMessages.slice(sourceStartIndex)
+      const assistantTurns = pendingMessages.filter((message) => message.role === 'assistant').length
+
+      if (assistantTurns < PLOT_JOURNAL_TURN_INTERVAL) {
+        return null
+      }
+
+      const summary = compactPlotJournalSummary(pendingMessages)
+      if (!summary) {
+        return null
+      }
+
+      const chapterNumber = (this.plotJournal?.length || 0) + 1
+      const participants = normalizeEncounteredCharacters(this.encounteredCharacters)
+        .slice(-4)
+        .map((character) => character.name)
+      const locations = [
+        this.worldMapState?.currentCountry,
+        this.worldMapState?.currentCity,
+        this.worldMapState?.currentScene
+      ].map(normalizeTextValue).filter(Boolean)
+      const keyChoices = normalizeKeyChoices(this.keyChoices)
+        .slice(-3)
+        .map((choice) => choice.label)
+      const unresolvedHooks = normalizeGoals(this.goals)
+        .filter((goal) => goal.status !== 'completed')
+        .slice(0, 3)
+        .map((goal) => goal.title)
+
+      return {
+        chapterId: `chapter-${chapterNumber}`,
+        summary,
+        participants,
+        locations,
+        keyChoices,
+        unresolvedHooks,
+        sourceMessageIds: pendingMessages.map((_, index) => `chat-${sourceStartIndex + index + 1}`),
+        sourceStartIndex,
+        sourceEndIndex: bodyMessages.length,
+        createdAt: Date.now()
+      }
+    },
+
+    maybeAppendPlotJournalEntry() {
+      const entry = this.buildPlotJournalEntry()
+      if (!entry) return null
+      this.appendPlotJournal(entry)
+      return entry
+    },
+
     // --- 会话管理 ---
     loadSessions() {
       const raw = getItem(STORAGE_KEYS.WRITING_SESSIONS)
@@ -280,6 +952,17 @@ export const useGameStore = defineStore('game', {
 
     saveSessions() {
       setItem(STORAGE_KEYS.WRITING_SESSIONS, this.sessions)
+    },
+
+    getLatestSessionForWorldbook(worldbookId) {
+      if (!worldbookId) return null
+      const target = worldbookId
+      const sorted = [...this.sessions].sort(
+        (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
+      )
+      return (
+        sorted.find((s) => (s.worldbookId || s.worldId) === target) || null
+      )
     },
 
     createSession(options = {}) {
@@ -358,6 +1041,16 @@ export const useGameStore = defineStore('game', {
       this.writingTime = normalizeWritingTime(session.worldState?.time || runtimeState.writingTime || DEFAULT_WRITING_TIME)
       this.worldMapState = normalizeWorldMapState(session.worldState?.worldMap || runtimeState.worldMapState || DEFAULT_WORLD_MAP_STATE)
       this.activities = cloneState(session.worldState?.activities || runtimeState.activities || [], [])
+      const adventureState = normalizeAdventureState(runtimeState)
+      this.goals = adventureState.goals
+      this.encounteredCharacters = adventureState.encounteredCharacters
+      this.factionRelations = adventureState.factionRelations
+      this.keyChoices = adventureState.keyChoices
+      this.plotJournal = adventureState.plotJournal
+      this.adventureTriggers = cloneState(adventureState.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers)
+      this.adventureTriggerHistory = cloneState(adventureState.adventureTriggerHistory, [])
+      this.adventureTriggerCooldownUntil = adventureState.adventureTriggerCooldownUntil || 0
+      this.adventureTriggerPendingType = null
       // 同时恢复 playerCharacter
       this.playerCharacter = {
         name: runtimeState.playerCharacter?.name || this.writingCharacter?.name || 'User',
@@ -432,6 +1125,14 @@ export const useGameStore = defineStore('game', {
         quests: cloneState(this.quests, []),
         flags: cloneState(this.flags, {}),
         activities: cloneState(this.activities, []),
+        goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
+        encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
+        factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
+        keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
+        plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal),
+        adventureTriggers: cloneState(this.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers),
+        adventureTriggerHistory: cloneState(this.adventureTriggerHistory, []),
+        adventureTriggerCooldownUntil: this.adventureTriggerCooldownUntil,
         npcRelations: cloneState(this.npcRelations, {}),
         discoveredPlaces: cloneState(this.discoveredPlaces, []),
         completedQuests: cloneState(this.completedQuests, []),
@@ -888,6 +1589,9 @@ export const useGameStore = defineStore('game', {
 
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
+        const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
+        const isInitGeneration = this._isRegenerating ? false : !hasAssistantHistory
+
         const worldbookContext = buildWorldbookContext({
           worldbook,
           chatHistory: this.chatHistory,
@@ -896,11 +1600,17 @@ export const useGameStore = defineStore('game', {
             writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
             worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
             activities: cloneState(this.activities, []),
+            goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
+            encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
+            factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
+            keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
+            plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal),
             playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '', gender: '', age: '' }),
             dialogueCharacter: cloneState(this.dialogueCharacter, null)
           },
           tokenBudget: 2000,
-          scanDepth: 3
+          scanDepth: 3,
+          includeStarterEntries: isInitGeneration
         })
         this.lastWorldbookContext = worldbookContext
         const worldBookMsg = worldbookContext.messages[0] || null
@@ -911,7 +1621,12 @@ export const useGameStore = defineStore('game', {
           time: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
           location: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
           scene: null,
-          activities: cloneState(this.activities, [])
+          activities: cloneState(this.activities, []),
+          goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
+          encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
+          factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
+          keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
+          plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal)
         }
 
         // 注入写作上下文（对话模式时传入对话角色）
@@ -971,10 +1686,6 @@ export const useGameStore = defineStore('game', {
         // 使用流式 API
         let fullContent = ''
 
-        // 判断是否为初始化生成（只有当 chatHistory 完全没有 user/assistant 消息时才初始化）
-        const hasExistingHistory = this.chatHistory.some(m => m.role === 'user' || m.role === 'assistant')
-        // 强制：如果 _isRegenerating 为 true，绝对不触发初始化
-        const isInitGeneration = this._isRegenerating ? false : !hasExistingHistory
         const maxTokens = isInitGeneration ? 1500 : 800
 
         await runGenerationStreamTask({
@@ -1092,6 +1803,12 @@ export const useGameStore = defineStore('game', {
 
       // 提取活动事件
       this.extractActivityEvents(content)
+
+      // 轻状态：目标 / 已遇角色 / 关键选择 / 阵营关系
+      this.extractAdventureState(content)
+
+      // 剧情日志：每累计约 8 轮 assistant 回复，压成 1 条可写回的摘要
+      this.maybeAppendPlotJournalEntry()
     },
 
     // 提取时间变化
@@ -1388,6 +2105,82 @@ export const useGameStore = defineStore('game', {
       this.saveWritingActivities(activities.slice(-20))
     },
 
+    extractAdventureState(content) {
+      const text = String(content || '')
+      if (!text.trim()) return
+
+      this.extractGoalState(text)
+      this.extractEncounteredCharacters(text)
+      this.extractKeyChoices(text)
+      this.extractFactionRelations(text)
+    },
+
+    extractGoalState(content) {
+      const goalPatterns = [
+        /(?:目标|任务目标|当前目标)[：:\s]+([^。！？\n]{4,40})/,
+        /(?:你需要|你必须|你得)([^。！？\n]{4,36})/
+      ]
+
+      for (const pattern of goalPatterns) {
+        const match = content.match(pattern)
+        const title = normalizeTextValue(match?.[1])
+        if (!title) continue
+        this.upsertGoal({
+          title,
+          source: 'ai-extract',
+          status: /完成|达成|解决/.test(content) ? 'completed' : 'active',
+          updatedAt: Date.now()
+        })
+        return
+      }
+    },
+
+    extractEncounteredCharacters(content) {
+      const worldStore = useWorldStore()
+      const candidates = getWorldbookEntryNames(worldStore.activeWorldbook, 'character', 24)
+      for (const name of candidates) {
+        if (!name || !content.includes(name)) continue
+        this.addEncounteredCharacter({
+          name,
+          source: 'worldbook-match',
+          lastSeenAt: Date.now()
+        })
+      }
+    },
+
+    extractKeyChoices(content) {
+      const choicePatterns = [
+        /(?:你决定|你选择|最终决定|最后选择)([^。！？\n]{3,36})/,
+        /(?:答应了|拒绝了|站在了)([^。！？\n]{3,36})/
+      ]
+
+      for (const pattern of choicePatterns) {
+        const match = content.match(pattern)
+        const label = normalizeTextValue(match?.[0] || match?.[1])
+        if (!label) continue
+        this.recordKeyChoice({
+          label,
+          source: 'ai-extract',
+          createdAt: Date.now()
+        })
+      }
+    },
+
+    extractFactionRelations(content) {
+      const worldStore = useWorldStore()
+      const factions = getWorldbookEntryNames(worldStore.activeWorldbook, 'organization', 20)
+      for (const name of factions) {
+        if (!name || !content.includes(name)) continue
+        let delta = 0
+        if (new RegExp(`${name}.{0,12}(信任|支持|帮助|保护)`).test(content)) delta += 8
+        if (new RegExp(`${name}.{0,12}(怀疑|敌视|威胁|施压|逼迫)`).test(content)) delta -= 8
+        if (delta !== 0) {
+          const current = Number(this.factionRelations?.[name] || 0)
+          this.setFactionRelation(name, current + delta)
+        }
+      }
+    },
+
     resetGameState() {
       this.resetRuntimeState()
     },
@@ -1403,6 +2196,15 @@ export const useGameStore = defineStore('game', {
       this.quests = runtime.quests
       this.flags = runtime.flags
       this.activities = runtime.activities
+      this.goals = runtime.goals
+      this.encounteredCharacters = runtime.encounteredCharacters
+      this.factionRelations = runtime.factionRelations
+      this.keyChoices = runtime.keyChoices
+      this.plotJournal = runtime.plotJournal
+      this.adventureTriggers = runtime.adventureTriggers
+      this.adventureTriggerHistory = runtime.adventureTriggerHistory
+      this.adventureTriggerCooldownUntil = runtime.adventureTriggerCooldownUntil
+      this.adventureTriggerPendingType = null
       this.npcRelations = runtime.npcRelations
       this.discoveredPlaces = runtime.discoveredPlaces
       this.completedQuests = runtime.completedQuests

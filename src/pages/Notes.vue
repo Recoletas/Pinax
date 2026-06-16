@@ -1,41 +1,47 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
-    <!-- 顶部标题栏 -->
-    <header class="title-bar">
-      <div class="title-left">
-        <button class="icon-btn" @click="goBack" title="返回">
+    <WorkbenchPageHero
+      kicker="Material Library"
+      title="素材"
+      :description="notesHeroDescription"
+    >
+      <template #back>
+        <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-        <span class="app-title">素材</span>
-      </div>
-      <div class="title-right">
-        <div class="status-indicator" :class="saveStatus">
-          <span class="status-dot"></span>
-          <span class="status-text">{{ statusText }}</span>
-          <span class="status-divider" v-if="saveStatus !== 'saving'">·</span>
-          <span class="status-count" v-if="saveStatus !== 'saving'">{{ wordCount.toLocaleString() }} 字</span>
+      </template>
+      <template #meta>
+        <div class="workbench-hero-meta-list">
+          <span class="workbench-hero-chip accent">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <span class="workbench-hero-chip">{{ chapters.length }} 条素材</span>
+          <span v-if="selectedAssetSummary" class="workbench-hero-chip">{{ selectedAssetSummary }}</span>
+          <span v-if="checkedAssetIds.length" class="workbench-hero-chip">{{ checkedAssetIds.length }} 项已勾选</span>
         </div>
-        <button class="toolbar-text-btn" type="button" @click.stop="goToWriting" title="返回写作">
-          写作
-        </button>
-        <button class="toolbar-text-btn" type="button" @click="createNewNote" title="新建素材">
-          新素材
-        </button>
-        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-          <span class="theme-icon">
-            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-            </svg>
-          </span>
-          <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
-        </button>
-      </div>
-    </header>
+      </template>
+      <template #actions>
+        <div class="workbench-hero-actions-row">
+          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="goToWriting" title="返回写作">
+            写作
+          </button>
+          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
+            新素材
+          </button>
+          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+            <span class="theme-icon">
+              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+              </svg>
+            </span>
+            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+          </button>
+        </div>
+      </template>
+    </WorkbenchPageHero>
 
     <div class="content-area">
       <!-- 左侧边栏：素材 -->
@@ -57,10 +63,20 @@
           </div>
         </div>
         <div class="book-list" v-show="!isRightCollapsed">
-          <div class="material-transfer-bar">
-            <button class="transfer-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
-            <button class="transfer-btn" type="button" :disabled="checkedAssetIds.length === 0" @click="importCheckedToCanvas">导勾选</button>
-            <button class="transfer-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
+          <div class="material-selection-bar" :class="{ active: checkedAssetIds.length > 0 }">
+            <template v-if="checkedAssetIds.length === 0">
+              <button class="selection-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
+              <button class="selection-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
+            </template>
+            <template v-else>
+              <div class="selection-summary">已选 {{ checkedAssetIds.length }} 项</div>
+              <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
+                <button class="selection-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
+                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
+                <button class="selection-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
+              </div>
+            </template>
           </div>
           <div v-if="groupedChapters.length === 0" class="empty-hint">
             暂无素材，点击上方 + 新建
@@ -135,11 +151,6 @@
                   <option value="reference-image">参考图</option>
                 </select>
               </label>
-              <div class="asset-status-control" role="group" aria-label="素材状态">
-                <button :class="{ active: selectedAsset?.status === 'inbox' }" type="button" @click="setSelectedAssetState('inbox')">待处理</button>
-                <button :class="{ active: selectedAsset?.status === 'accepted' }" type="button" @click="setSelectedAssetState('accepted')">采纳</button>
-                <button :class="{ active: selectedAsset?.status === 'archived' }" type="button" @click="setSelectedAssetState('archived')">归档</button>
-              </div>
               <button class="asset-canvas-primary" type="button" @click="importCurrentToCanvas">
                 {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
               </button>
@@ -273,13 +284,14 @@
       </div>
     </Transition>
 
-    <!-- 创作顾问悬浮按钮 -->
-    <button class="advisor-fab" @click="openAdvisor" title="打开创作顾问">
-      <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="5"></circle>
-        <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
-      </svg>
-    </button>
+    <GmPersonaLauncher
+      kicker="素材顾问"
+      title="先收一条线索，再决定导向哪里"
+      body="我先看当前素材、状态和画布去向，再帮你判断该采纳、导画布还是继续扩。"
+      caption="虚构集"
+      captionHint="素材入口"
+      @open="openAdvisor"
+    />
 
     <AdvisorPanel
       :isOpen="advisorOpen"
@@ -318,16 +330,24 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
+import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
+import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   addNarrativeAsset,
+  deleteNarrativeAsset,
   getAssetKindLabel,
-  listNarrativeAssets,
-  setNarrativeAssetStatus,
+  listActiveNarrativeAssets,
+  setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
-import { ensureAssetCanvasCard, ensureAssetCanvasCardWithExtra, findAssetCanvasCard } from '../services/relationCanvas'
+import {
+  deleteAssetCanvasReferences,
+  ensureAssetCanvasCard,
+  ensureAssetCanvasCardWithExtra,
+  findAssetCanvasCard
+} from '../services/relationCanvas'
 import { generateProfessionalInfoForAsset } from '../services/professionalInfoGenerator'
 
 const router = useRouter()
@@ -447,6 +467,18 @@ const statusText = computed(() => {
     default: return ''
   }
 })
+const selectedAssetSummary = computed(() => {
+  if (!selectedAsset.value) return ''
+  const title = String(selectedAsset.value.title || '无标题素材').trim()
+  return `${getAssetKindLabel(selectedAsset.value.kind)} · ${title}`
+})
+const notesHeroDescription = computed(() => {
+  if (!selectedAsset.value) {
+    return '素材页现在是整理台而不是工具条。左侧继续做分组与批量处理，顶部只保留当前状态和跨页出口。'
+  }
+  const canvasState = isAssetOnCanvas(selectedAsset.value.id) ? '已入画布' : '未入画布'
+  return `当前素材是 ${selectedAssetSummary.value || '未命名素材'}，${canvasState}。可以从这里决定导入画布、改类型，或继续写成更完整的片段。`
+})
 
 function goBack() {
   saveCurrentChapter()
@@ -485,9 +517,9 @@ async function handleAskAdvisor(input) {
 }
 
 function loadNotes(preferredChapterId = '') {
-  chapters.value = listNarrativeAssets({ status: null })
+  chapters.value = listActiveNarrativeAssets()
     .sort((a, b) => {
-      const rank = { accepted: 0, inbox: 1, archived: 2, rejected: 3 }
+      const rank = { accepted: 0, inbox: 1 }
       const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
       if (diff !== 0) return diff
       return Number(b.createdAt || 0) - Number(a.createdAt || 0)
@@ -615,13 +647,17 @@ function toggleCheckedAsset(assetId) {
     : [...checkedAssetIds.value, assetId]
 }
 
+function getCheckedAssets() {
+  const checked = new Set(checkedAssetIds.value)
+  return chapters.value.filter((asset) => checked.has(asset.id))
+}
+
 function importCurrentToCanvas() {
   openSelectedAssetInCanvas()
 }
 
 function importCheckedToCanvas() {
-  chapters.value
-    .filter((asset) => checkedAssetIds.value.includes(asset.id))
+  getCheckedAssets()
     .forEach((asset) => ensureAssetCanvasCard(asset))
   canvasImportRevision.value += 1
   checkedAssetIds.value = []
@@ -640,11 +676,21 @@ function setSelectedAssetKind(kind) {
   loadNotes(selectedAsset.value.id)
 }
 
-function setSelectedAssetState(status) {
-  if (!selectedAsset.value) return
+function setCheckedAssetsState(status) {
+  const targets = getCheckedAssets()
+  if (targets.length === 0) return
   saveCurrentChapter()
-  setNarrativeAssetStatus(selectedAsset.value.id, status)
-  loadNotes(selectedAsset.value.id)
+  const targetIds = targets.map((asset) => asset.id)
+  setNarrativeAssetsStatus(targetIds, status)
+  checkedAssetIds.value = []
+
+  const targetSet = new Set(targetIds)
+  const selectedId = selectedChapterId.value
+  const hidesFromActiveList = status === 'archived' || status === 'rejected'
+  const nextId = hidesFromActiveList && targetSet.has(selectedId)
+    ? chapters.value.find((asset) => !targetSet.has(asset.id))?.id || null
+    : selectedId || targetIds[0] || null
+  loadNotes(nextId)
 }
 
 function getAssetKindColor(kind) {
@@ -718,8 +764,57 @@ function deleteChapter(chapterId) {
   if (selectedChapterId.value === chapterId) {
     saveCurrentChapter()
   }
-  const nextId = chapters.value.find((item) => item.id !== chapterId)?.id || null
-  setNarrativeAssetStatus(chapterId, 'archived')
+
+  const asset = chapters.value.find((item) => item.id === chapterId)
+  const ok = typeof window === 'undefined' || typeof window.confirm !== 'function'
+    ? true
+    : window.confirm(`删除素材「${asset?.title || '无标题素材'}」？如果它已导入画布，对应节点、连线和时间轴引用也会移除。`)
+  if (!ok) return
+
+  const nextId = selectedChapterId.value === chapterId
+    ? chapters.value.find((item) => item.id !== chapterId)?.id || null
+    : selectedChapterId.value
+  const deleted = deleteNarrativeAsset(chapterId)
+  if (deleted) {
+    deleteAssetCanvasReferences(chapterId)
+    checkedAssetIds.value = checkedAssetIds.value.filter((id) => id !== chapterId)
+    canvasImportRevision.value += 1
+  }
+  loadNotes(nextId)
+}
+
+function deleteCheckedAssets() {
+  const targets = getCheckedAssets()
+  if (targets.length === 0) return
+
+  saveCurrentChapter()
+  const titles = targets
+    .slice(0, 3)
+    .map((asset) => `「${asset.title || '无标题素材'}」`)
+    .join('、')
+  const preview = titles ? `（${titles}${targets.length > 3 ? ' 等' : ''}）` : ''
+  const ok = typeof window === 'undefined' || typeof window.confirm !== 'function'
+    ? true
+    : window.confirm(`删除选中的 ${targets.length} 个素材${preview}？如果它们已导入画布，对应节点、连线和时间轴引用也会移除。`)
+  if (!ok) return
+
+  const targetIds = new Set(targets.map((asset) => asset.id))
+  const nextId = targetIds.has(selectedChapterId.value)
+    ? chapters.value.find((asset) => !targetIds.has(asset.id))?.id || null
+    : selectedChapterId.value
+  let deletedCount = 0
+
+  targetIds.forEach((assetId) => {
+    const deleted = deleteNarrativeAsset(assetId)
+    if (!deleted) return
+    deleteAssetCanvasReferences(assetId)
+    deletedCount += 1
+  })
+
+  checkedAssetIds.value = []
+  if (deletedCount > 0) {
+    canvasImportRevision.value += 1
+  }
   loadNotes(nextId)
 }
 
@@ -1325,66 +1420,6 @@ function stopResizeRight() {
   overflow: hidden;
 }
 
-/* 标题栏 */
-.advisor-fab {
-  position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 40%, transparent);
-  z-index: 200;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.advisor-fab:hover {
-  transform: scale(1.06);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
-.title-bar {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.title-left .app-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.title-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.title-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .icon-btn {
   width: 32px;
   height: 32px;
@@ -1419,45 +1454,6 @@ function stopResizeRight() {
 .book-selector:focus {
   outline: none;
   border-color: var(--accent);
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  background: var(--bg-tertiary);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-}
-
-.status-indicator.saving .status-dot {
-  background: var(--warning);
-}
-
-.status-indicator.unsaved .status-dot {
-  background: var(--danger);
-}
-
-.status-text {
-  color: var(--text-secondary);
-}
-
-.status-divider {
-  color: var(--text-muted);
-  margin: 0 4px;
-}
-
-.status-count {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .theme-toggle {
@@ -1641,14 +1637,42 @@ function stopResizeRight() {
   padding: 8px;
 }
 
-.material-transfer-bar {
+.material-selection-bar {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   margin-bottom: 8px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
 }
 
-.transfer-btn {
+.material-selection-bar.active {
+  grid-template-columns: minmax(0, 1fr);
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+.selection-summary {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.selection-action-btn {
+  min-width: 0;
   height: 28px;
   padding: 0 4px;
   border: 1px solid var(--border);
@@ -1657,14 +1681,33 @@ function stopResizeRight() {
   color: var(--text-secondary);
   font-size: 11px;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.transfer-btn:hover:not(:disabled) {
+.selection-action-btn.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.selection-action-btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+  color: var(--danger);
+}
+
+.selection-action-btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.transfer-btn:disabled {
+.selection-action-btn.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.selection-action-btn:disabled {
   opacity: 0.42;
   cursor: not-allowed;
 }
@@ -2079,30 +2122,6 @@ function stopResizeRight() {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 12px;
-}
-
-.asset-status-control {
-  display: inline-flex;
-  height: 28px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-primary);
-}
-
-.asset-status-control button {
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 0 8px;
-  cursor: pointer;
-}
-
-.asset-status-control button.active {
-  background: var(--accent);
-  color: var(--accent-text);
 }
 
 .asset-canvas-primary {

@@ -104,7 +104,7 @@
 **可能原因**：
 
 1. **provider 慢**。DeepSeek / OpenAI 通常 2-5 秒；自建 Ollama 看硬件；Groq 标称快但限速
-2. **prompt 长**。世界书条目很多、扫描深度设置很大，prompt 会很长。**解决**：进 **世界书 → 高级设置** 调小扫描深度
+2. **prompt 长**。世界书条目很多、扫描深度设置很大，prompt 会很长。**解决**：进 **设定 → 高级设置** 调小扫描深度
 3. **流式输出没启用**。默认是流式（一边写一边返回），如果你看到的是整段一把出来，说明反代 buffer 了。看 [05-deployment.md](./05-deployment.md) 的"SSE 流被缓冲"那一节
 
 ## 切换世界后旧世界的数据还在
@@ -113,7 +113,7 @@
 
 **这是预期的**。世界书是**多本共存**的，切换世界只切换激活的那一本。所有世界书都还在。
 
-要删除某本世界书：进 **世界书 → 高级设置**，在分组 / 条目管理里操作。
+要删除某本世界书：进 **设定 → 高级设置**，在分组 / 条目管理里操作。
 
 ## 数据丢了 / 想恢复
 
@@ -140,10 +140,10 @@
    location.reload();
    ```
 
-3. 重新填 API key（key 不在备份里 —— 上面那个 JSON 不包含敏感字段的意识是对的；如果你手贱把 key 也备份了，确保文件存在安全的地方）
+3. 如果你导出的是完整 localStorage，里面可能已经包含 API key；确认备份文件存放位置安全。只想迁移内容数据的话，按 [04-configuration.md](./04-configuration.md) 里的“去敏版备份”处理。
 
 ## 还有问题
 
-去 GitHub 仓库开 issue：[github.com/Recoletas/Wrias/issues](https://github.com/Recoletas/Wrias/issues)
+去 GitHub 仓库开 issue：[github.com/Recoletas/Pinax/issues](https://github.com/Recoletas/Pinax/issues)
 
 issue 模板会问你：项目版本（`git rev-parse HEAD`）、Node 版本、浏览器、控制台报错。**别**把 API key 贴在 issue 里。

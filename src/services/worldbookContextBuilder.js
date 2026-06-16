@@ -2,6 +2,15 @@ import { summarizeStructuredSettings } from './settingPanelSchema'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
+const DEFAULT_STARTER_ENTRY_LIMITS = {
+  location: 3,
+  organization: 3,
+  event: 3,
+  quest: 2,
+  character: 2,
+  item: 1,
+  lore: 1
+}
 
 export const ENTRY_TYPE_PRIORITY = {
   rule: 1,
@@ -78,14 +87,95 @@ function collectScanText(chatHistory = [], runtimeState = {}, scanDepth = DEFAUL
     if (activity?.title) runtimeParts.push(String(activity.title))
   }
 
+  const goals = Array.isArray(runtimeState?.goals) ? runtimeState.goals : []
+  for (const goal of goals.slice(0, 4)) {
+    if (goal?.title) runtimeParts.push(String(goal.title))
+  }
+
+  const encounteredCharacters = Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : []
+  for (const character of encounteredCharacters.slice(-6)) {
+    if (character?.name) runtimeParts.push(String(character.name))
+  }
+
+  const keyChoices = Array.isArray(runtimeState?.keyChoices) ? runtimeState.keyChoices : []
+  for (const choice of keyChoices.slice(-5)) {
+    if (choice?.label) runtimeParts.push(String(choice.label))
+  }
+
+  const factionRelations = runtimeState?.factionRelations && typeof runtimeState.factionRelations === 'object'
+    ? runtimeState.factionRelations
+    : {}
+  for (const [name, score] of Object.entries(factionRelations)) {
+    const normalizedName = String(name || '').trim()
+    if (!normalizedName) continue
+    runtimeParts.push(normalizedName)
+    if (Number.isFinite(Number(score))) {
+      runtimeParts.push(`${normalizedName} ${Number(score) >= 15 ? '友好' : Number(score) <= -15 ? '紧张' : '观望'}`)
+    }
+  }
+
+  const plotJournal = Array.isArray(runtimeState?.plotJournal) ? runtimeState.plotJournal : []
+  for (const item of plotJournal.slice(-2)) {
+    if (item?.summary) runtimeParts.push(String(item.summary))
+    for (const participant of Array.isArray(item?.participants) ? item.participants : []) {
+      const name = String(participant || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const locationName of Array.isArray(item?.locations) ? item.locations : []) {
+      const name = String(locationName || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const choice of Array.isArray(item?.keyChoices) ? item.keyChoices : []) {
+      const label = String(choice || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+    for (const hook of Array.isArray(item?.unresolvedHooks) ? item.unresolvedHooks : []) {
+      const label = String(hook || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+  }
+
   return [...parts, ...runtimeParts].join('\n').toLowerCase()
+}
+
+function starterEntryLimits(limits = {}) {
+  return {
+    ...DEFAULT_STARTER_ENTRY_LIMITS,
+    ...(limits && typeof limits === 'object' ? limits : {})
+  }
+}
+
+function collectStarterEntries(rawEntries = [], seenIds = new Set(), limits = {}) {
+  const normalizedLimits = starterEntryLimits(limits)
+  const counts = Object.fromEntries(Object.keys(normalizedLimits).map(type => [type, 0]))
+  const starters = []
+
+  for (const rawEntry of rawEntries) {
+    const entry = normalizeEntry(rawEntry)
+    if (!entry || seenIds.has(entry.id)) continue
+    const limit = normalizedLimits[entry.type]
+    if (!limit || counts[entry.type] >= limit) continue
+
+    starters.push({
+      ...entry,
+      matchReason: 'starter',
+      matchedKeys: [],
+      matchedKeysLabel: '开局'
+    })
+    seenIds.add(entry.id)
+    counts[entry.type] += 1
+  }
+
+  return starters
 }
 
 export function matchWorldbookEntries({
   worldbook,
   chatHistory = [],
   runtimeState = {},
-  scanDepth = DEFAULT_SCAN_DEPTH
+  scanDepth = DEFAULT_SCAN_DEPTH,
+  includeStarterEntries = false,
+  starterEntryLimits: starterLimits = {}
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -141,6 +231,10 @@ export function matchWorldbookEntries({
     }
   }
 
+  if (includeStarterEntries) {
+    matchedEntries.push(...collectStarterEntries(worldbook.entries, seenIds, starterLimits))
+  }
+
   return matchedEntries.sort((a, b) => {
     const modeDelta = (a.matchReason === 'constant' ? 0 : 1) - (b.matchReason === 'constant' ? 0 : 1)
     if (modeDelta !== 0) return modeDelta
@@ -155,7 +249,9 @@ export function buildWorldbookContext({
   chatHistory = [],
   runtimeState = {},
   tokenBudget = DEFAULT_TOKEN_BUDGET,
-  scanDepth = DEFAULT_SCAN_DEPTH
+  scanDepth = DEFAULT_SCAN_DEPTH,
+  includeStarterEntries = false,
+  starterEntryLimits = {}
 } = {}) {
   const warnings = []
 
@@ -178,7 +274,9 @@ export function buildWorldbookContext({
     worldbook,
     chatHistory,
     runtimeState,
-    scanDepth
+    scanDepth,
+    includeStarterEntries,
+    starterEntryLimits
   })
 
   if (matchedEntries.length === 0) {

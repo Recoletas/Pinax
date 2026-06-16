@@ -41,6 +41,7 @@ export const ASSET_KINDS = [
 ]
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
+export const ACTIVE_ASSET_STATUSES = ['inbox', 'accepted']
 
 export function listNarrativeAssets({ status = null, projectId = undefined, kind = null, sourceType = null, sourceId = null } = {}) {
   const stored = getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
@@ -53,6 +54,11 @@ export function listNarrativeAssets({ status = null, projectId = undefined, kind
     .filter((asset) => !sourceType || asset.source?.type === sourceType)
     .filter((asset) => !sourceId || asset.source?.id === sourceId)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+}
+
+export function listActiveNarrativeAssets(filters = {}) {
+  return listNarrativeAssets({ ...filters, status: null })
+    .filter((asset) => ACTIVE_ASSET_STATUSES.includes(asset.status))
 }
 
 export function createNarrativeAsset(input = {}) {
@@ -113,6 +119,18 @@ export function updateNarrativeAsset(assetId, patch = {}) {
 
 export function setNarrativeAssetStatus(assetId, status) {
   return updateNarrativeAsset(assetId, { status })
+}
+
+export function deleteNarrativeAsset(assetId) {
+  const normalizedId = normalizeText(assetId)
+  if (!normalizedId) return null
+
+  const current = listNarrativeAssets({ status: null })
+  const deleted = current.find((asset) => asset.id === normalizedId) || null
+  if (!deleted) return null
+
+  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, current.filter((asset) => asset.id !== normalizedId))
+  return deleted
 }
 
 export function setNarrativeAssetsStatus(assetIds = [], status) {

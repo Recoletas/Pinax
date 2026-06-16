@@ -87,3 +87,49 @@ export async function generateSettingFieldDraft(options) {
     content: normalizeDraft(result.parsed || result.content)
   }
 }
+
+// 整 section 批量：串行 + cooperative abort。
+//   - signal?.aborted 只在 await 之后检查 → 丢弃结果 + 停止后续字段
+//   - 不取消 in-flight `runGenerationTask`（避免穿透 scope）
+//   - 单字段失败不阻塞后续字段；用 results Map 区分 ok / reason
+export async function generateSettingSectionDraft({ sectionKey, worldbook, userBrief = '', signal = null, onProgress = null } = {}) {
+  const section = getSettingSection(sectionKey)
+  if (!section) return new Map()
+
+  const results = new Map()
+  const fields = section.fields
+
+  for (let i = 0; i < fields.length; i++) {
+    if (signal?.aborted) {
+      results.set(fields[i].key, { ok: false, reason: 'aborted', index: i })
+      break
+    }
+    const field = fields[i]
+    onProgress?.({ index: i, total: fields.length, field })
+    try {
+      const draft = await generateSettingFieldDraft({
+        worldbook,
+        sectionKey,
+        fieldKey: field.key,
+        userBrief
+      })
+      if (signal?.aborted) {
+        results.set(field.key, { ok: false, reason: 'aborted', index: i })
+        break
+      }
+      if (!draft.ok) {
+        results.set(field.key, { ok: false, reason: draft.reason || '生成失败', index: i })
+      } else {
+        results.set(field.key, { ok: true, content: draft.content, fieldLabel: field.label, index: i })
+      }
+    } catch (e) {
+      if (signal?.aborted) {
+        results.set(field.key, { ok: false, reason: 'aborted', index: i })
+        break
+      }
+      results.set(field.key, { ok: false, reason: e?.message || '生成失败', index: i })
+    }
+  }
+
+  return results
+}

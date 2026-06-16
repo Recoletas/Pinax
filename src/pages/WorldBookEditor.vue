@@ -104,7 +104,7 @@
           </div>
         </section>
 
-        <StructuredSettingsPanel
+        <StructuredSettingsWorkspace
           v-if="editorTab === 'structured'"
           :worldbook="activeWorldbook"
         />
@@ -493,7 +493,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
-import StructuredSettingsPanel from '../components/worldbook/StructuredSettingsPanel.vue'
+import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 
 const router = useRouter()
 const worldStore = useWorldStore()

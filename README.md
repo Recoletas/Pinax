@@ -1,116 +1,87 @@
-# WriterHelper / Text Game Framework
+# Pinax
 
-中文创作为核心的前后端分离项目。Vue 3 + Vite 前端，Express 后端，用户数据全部存在浏览器 localStorage。整合了体验（文字冒险）、世界书（设定数据库）、写作（小说章节）、素材（叙事片段）、散文画布（节点-边-时间轴）这一条完整工作流。
+Pinax 正在向一个**角色化 AI GM 驱动的网页文字冒险工作台**迁移。
+当前稳定执行骨架仍是：
 
-**想用这个框架写小说 / 做文字游戏？** 看 [说明书](docs/user-manual/README.md)。
+```text
+选择世界
+  -> 开始冒险
+  -> 沉淀剧情日志和素材
+  -> 写成作品
+  -> 整理成分镜或继续扩展世界
+```
 
-**想改源码 / 二次开发？** 直接看下面的快速开始 + 开发脚本表。
+也就是说：**产品外壳开始换，底层主链继续沿用 `playable-worldbook`。**
 
 ## 快速开始
 
 ```bash
-git clone <仓库地址>
+git clone <Pinax 仓库地址>
 cd text-game-framework
 npm install
 
-# 终端 1：起后端（端口 3001）
+# 终端 1：起后端（3001）
 npm run server
 
-# 终端 2：起前端（端口 5173）
+# 终端 2：起前端（5173）
 npm run dev
 ```
 
-浏览器开 http://localhost:5173 。第一次进入会引导你配 LLM API key，详见说明书的 [快速开始](docs/user-manual/01-quickstart.md)。
+打开 `http://localhost:5173` 后：
 
-公网部署到自己的服务器？看 [说明书 → 部署到公网](docs/user-manual/05-deployment.md)。
+1. 右上角 **设置** 填 LLM API key
+2. 进入 **体验**
+3. 先 **导入种子世界**
+4. 回到体验页点 **进入这个世界**
+5. 开始输入行动
 
-## 它能做什么
+更完整的用户流程看 [docs/user-manual/README.md](docs/user-manual/README.md)。
 
-- **体验** —— 文字冒险，AI 主持，状态栏、机制面板、里程碑
-- **世界书** —— 设定数据库，关键词触发注入 prompt。预设 / 文本 / AI 说明三种导入方式
-- **结构化设定** —— 朝代 / 角色 / 地点的字段化卡片
-- **世界地图** —— Voronoi 程序生成，地形、气候、生物群系、文化圈、势力范围
-- **小说写作** —— 书 / 章管理，AI 扩展 / 改写 / 续写，章节分镜导出
-- **素材** —— 写作中产生的金句和重要事件，带情绪标签
-- **散文画布** —— 节点-边-时间轴，把素材排成分镜版本
-- **图片生成** —— 侧栏 AI 生图，绑多个 provider
-- **顾问** —— OpenClaw 驱动的章节体检
+## 文档入口
 
-详细功能介绍 + 四个典型工作流：看 [说明书 → 功能与工作流](docs/user-manual/03-features.md)。
+- 当前计划：[docs/PLAN.md](docs/PLAN.md)
+- 产品方向：[docs/plan/character-driven-arc.md](docs/plan/character-driven-arc.md)
+- 执行骨架：[docs/plan/playable-worldbook-roadmap.md](docs/plan/playable-worldbook-roadmap.md)
+- 并行分工：[docs/plan/playable-worldbook-parallel-plan.md](docs/plan/playable-worldbook-parallel-plan.md)
+- 近期变化：[docs/LOG.md](docs/LOG.md)
+- 项目文档导航：[docs/README.md](docs/README.md)
+- 代码 owning surface：[docs/src/code-map.md](docs/src/code-map.md)
+- 已知风险：[docs/src/known-issues.md](docs/src/known-issues.md)
 
-## 关键技术点
+## 主要工作区
 
-- **密钥模型** —— 用户的 LLM / Mem0 API key 只存在各自浏览器的 `localStorage`，服务器不落盘。详见 [说明书 → 部署到公网](docs/user-manual/05-deployment.md) 的"密钥模型"
-- **公网部署** —— 服务器**无鉴权**对所有人开放 `/api/*`。设计取舍详见上面那一节
-- **AI 安全** —— 所有 `v-html` 入口都过 DOMPurify（`src/utils/sanitize.js`）
+- **体验**：进入世界、进行 AI GM 冒险
+- **设定**：快速导入、高级设置、结构化设定、世界地图
+- **写作**：章节管理、扩写、改写、续写
+- **素材**：剧情片段和灵感真源
+- **画布**：素材关系、时间轴、分镜编排
 
 ## 开发脚本
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm run dev` | 启动前端开发服务器（Vite，5173） |
-| `npm run server` | 启动 Express 后端（3001） |
+| `npm run dev` | 启动前端开发服务器 |
+| `npm run server` | 启动 Express 后端 |
 | `npm run test` | Vitest 监听模式 |
 | `npm run test:run` | 一次性跑所有测试 |
-| `npm run test:arch` | 只跑架构守护测试 |
+| `npm run test:arch` | 只跑架构守卫测试 |
 | `npm run build` | 生产构建到 `dist/` |
-| `npm run preview` | 预览构建产物 |
-| `npm run lint` | ESLint（`src/` 下 `.js` 和 `.vue`） |
-| `npm run verify` | `test:run` + `build`，发布前跑一遍 |
-| `npm start` | PM2 启动（生产环境） |
-| `npm run stop` | PM2 停止 |
+| `npm run docs:dev` | 本地启动 VitePress 文档站 |
+| `npm run docs:build` | 构建 VitePress 文档站 |
+| `npm run verify` | `test:run` + `build` |
+| `npm start` | PM2 启动生产服务 |
+| `npm run stop` | PM2 停止生产服务 |
 
-## 项目结构
+## 仓库结构
 
-```
-text-game-framework/
-├─ docs/                       # 计划、规范、日志
-│  ├─ user-manual/             # 用户向中文说明书
-│  ├─ guides/                  # 单点深入指南
-│  ├─ operations/              # 运维排障（维护者用）
-│  ├─ engineering/             # 开发者规约
-│  └─ superpowers/             # 设计稿与实施计划
-├─ server/                     # Express 后端
-│  ├─ index.js
-│  ├─ routes/                  # advisor / chat / config / events / game / generate / openclaw / preferences
-│  ├─ services/                # memoryService / openclawService / eventEngine / stateManager / timeSystem / advisorTaskService
-│  └─ data/                    # worlds / events / npcs 的 JSON
-├─ src/                        # Vue 3 前端
-│  ├─ components/              # 通用组件（含 ImageGenRail）
-│  ├─ composables/             # useStorage / useApiSettings / useMem0 / useAdvisor / ...
-│  ├─ pages/                   # 业务页面
-│  ├─ router/                  # 路由
-│  ├─ services/                # 业务服务（api / generation / promptRegistry / ...）
-│  ├─ stores/                  # Pinia store（gameStore / worldStore / geographyStore / ...）
-│  ├─ views/                   # 欢迎页
-│  └─ __tests__/               # Vitest
-├─ deploy/                     # nginx 配置 + 一键安装脚本
-├─ ecosystem.config.js         # PM2 配置
-├─ vite.config.js
-└─ package.json
-```
+- `src/`：Vue 前端
+- `server/`：Express 后端
+- `docs/`：用户手册、开发文档、计划、日志
+- `deploy/`：部署模板和脚本
+- `ecosystem.config.js`：PM2 配置
 
-## 数据持久化
+## 数据与部署边界
 
-- **用户数据**全在 `localStorage`。备份和键名清单：说明书 [04-configuration.md](docs/user-manual/04-configuration.md) 的"localStorage 键都在存什么"那一节
-- **后端静态数据**：`server/data/worlds`（五个预设世界）+ `server/data/events`（事件 JSON）
-
-## 公网部署
-
-最简版流程：
-
-1. 服务器装 Node.js 20 + nginx + PM2
-2. `npm ci && npm run build`
-3. `pm2 start ecosystem.config.js`
-4. 配 nginx（参考 `deploy/nginx-pinax.conf`），记得关 access log 里的请求体，加 rate limit
-5. HTTPS 用 Let's Encrypt
-
-完整版（含密钥模型、轮换、监控、nginx 坑）：[说明书 → 部署到公网](docs/user-manual/05-deployment.md)。
-
-## 文档导航
-
-- 用户向：[说明书](docs/user-manual/README.md)
-- 运维：[docs/operations/troubleshooting.md](docs/operations/troubleshooting.md)
-- 开发者规约：[docs/engineering/development-standards.md](docs/engineering/development-standards.md)
-- 内部计划：[docs/PLAN.md](docs/PLAN.md) / [docs/LOG.md](docs/LOG.md)
-- 设计稿：[docs/superpowers/](docs/superpowers/)（specs / plans / notes）
+- 用户级 API key 默认存浏览器 `localStorage`，不是服务器配置。
+- 服务端接收并转发这些 key，但不提供仓库内持久化的用户密钥存储。
+- 公网部署默认是开放模型，必须自己处理反向代理日志、限流和 HTTPS。

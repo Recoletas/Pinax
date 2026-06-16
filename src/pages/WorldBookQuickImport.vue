@@ -2,52 +2,257 @@
   <div class="quick-page">
     <header class="quick-hero">
       <div class="hero-left">
-        <h1>设定 · 快速导入</h1>
-        <p>
-          这是快速工作流入口：用预设、小说段落或一句说明，生成可执行的世界书草案。
-          条目精修、注入参数与批量改动请在高级设置中处理。
-        </p>
+        <h1>选择一个世界</h1>
+        <p class="hero-deck">从一个已有设定的世界进入体验，再把经历写回章节、素材和分镜。</p>
+
+        <div class="hero-path" aria-label="主线路径">
+          <span>选择世界</span>
+          <span>开始冒险</span>
+          <span>写成作品</span>
+        </div>
+
+        <div class="hero-signal-board" aria-label="入口摘要">
+          <span><strong>1</strong> 默认世界</span>
+          <span><strong>3</strong> 开场切口</span>
+          <span><strong>AI GM</strong> 直接开场</span>
+        </div>
+
+        <div v-if="featuredPreset" class="hero-worldline">
+          <span>默认世界</span>
+          <strong>{{ featuredPreset.name }}</strong>
+          <em>{{ featuredPreset.genreLabel }}</em>
+        </div>
       </div>
+
       <div class="hero-actions">
-        <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <button class="primary-btn" @click="openAdvancedEditor">进入高级设置</button>
+        <button class="ghost-btn" @click="openExperience">继续当前冒险</button>
+        <button class="primary-btn" @click="featuredPreset && enterPresetWorld(featuredPreset)">开始冒险</button>
       </div>
     </header>
-
-    <section class="status-row">
-      <div class="status-chip">当前世界书数量：{{ worldbooksIndex.length }}</div>
-      <div class="status-chip" v-if="activeWorldbookName">当前激活：{{ activeWorldbookName }}</div>
-    </section>
 
     <section v-if="errorMessage" class="feedback error">{{ errorMessage }}</section>
     <section v-if="successMessage" class="feedback success">{{ successMessage }}</section>
     <section v-if="infoMessage" class="feedback info">{{ infoMessage }}</section>
 
     <section class="quick-grid">
-      <article class="card">
-        <div class="card-head">
-          <h2>一键预设</h2>
-          <span>标准基线，开箱可用</span>
+      <article class="card world-start-card" v-if="featuredPreset">
+        <div class="world-kicker">
+          <span>默认世界入口</span>
+          <strong>先开始，再决定是否更换世界</strong>
         </div>
 
-        <div class="preset-list">
-          <div class="preset-item" v-for="preset in presets" :key="preset.id">
-            <div class="preset-main">
-              <strong>{{ preset.name }}</strong>
-              <p>{{ preset.description }}</p>
-              <div class="preset-tags">
-                <span class="tag">{{ preset.genreLabel }}</span>
-                <span class="tag">{{ preset.entries.length }} 条目</span>
+        <section class="world-feature-card">
+          <div class="world-feature-copy">
+            <span class="world-genre">{{ featuredPreset.genreLabel }}</span>
+            <h2>{{ featuredPreset.name }}</h2>
+            <p class="world-standfirst">{{ featuredPreset.description }}</p>
+
+            <div class="world-ledger-line" aria-label="世界规模摘要">
+              <span><strong>{{ countPresetEntries(featuredPreset, 'event') }}</strong> 事件</span>
+              <span><strong>{{ countPresetEntries(featuredPreset, 'organization') }}</strong> 势力</span>
+              <span><strong>{{ countPresetEntries(featuredPreset, 'location') }}</strong> 地点</span>
+            </div>
+
+            <div class="world-hook">
+              <span>开场困境</span>
+              <strong>{{ featuredPreset.openingHook }}</strong>
+            </div>
+
+            <div class="world-pressure-row" aria-label="进入前就能感到的压力">
+              <span v-for="item in featuredPressureRow" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                {{ item.detail }}
+              </span>
+            </div>
+
+            <div class="world-dossier" aria-label="世界任务档案">
+              <div>
+                <span>任务代号</span>
+                <strong>雾潮前夜</strong>
+              </div>
+              <div>
+                <span>当前阶段</span>
+                <strong>第一幕 · 证据争夺</strong>
+              </div>
+              <div>
+                <span>写回出口</span>
+                <strong>章节 / 素材 / 分镜</strong>
               </div>
             </div>
-            <button class="ghost-btn" :disabled="creating" @click="importPreset(preset)">
-              {{ creating ? '创建中...' : '一键导入' }}
+
+            <div class="world-adventure-route" aria-label="冒险推进路径">
+              <span>抵达现场</span>
+              <span>找到证词</span>
+              <span>被迫站队</span>
+              <span>写成章节</span>
+            </div>
+
+            <div class="world-action-hooks" aria-label="开局行动">
+              <button
+                v-for="(action, actionIndex) in featuredActionHooks"
+                :key="action.id"
+                type="button"
+                class="world-action-card"
+                :disabled="creating"
+                @click="enterPresetWorld(featuredPreset, action)"
+              >
+                <em>{{ String(actionIndex + 1).padStart(2, '0') }}</em>
+                <span>{{ action.label }}</span>
+                <strong>{{ action.title }}</strong>
+                <small>{{ action.detail }}</small>
+              </button>
+            </div>
+
+            <div class="world-scene-board">
+              <div class="scene-lane">
+                <span>第一现场</span>
+                <strong>{{ featuredLocationNames[0] || '未知地点' }}</strong>
+              </div>
+              <div class="scene-lane">
+                <span>主要阻力</span>
+                <strong>{{ featuredFactionNames[0] || '本地势力' }}</strong>
+              </div>
+              <div class="scene-lane">
+                <span>异常事件</span>
+                <strong>{{ featuredEventNames[0] || '异常事件' }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="world-feature-panel">
+            <div class="world-role-card">
+              <span>你的开局身份</span>
+              <strong>临时调查者</strong>
+              <small>AI GM 会把你直接放进第一个冲突现场。</small>
+            </div>
+            <div class="world-map-card" aria-hidden="true">
+              <div class="fog-orbit"></div>
+              <div class="fog-route"></div>
+              <span class="map-pin is-main">{{ featuredLocationNames[0] || '主城' }}</span>
+              <span class="map-pin is-port">{{ featuredLocationNames[1] || '码头' }}</span>
+              <span class="map-pin is-wall">{{ featuredLocationNames[2] || '灰墙' }}</span>
+              <div class="map-readout">
+                <strong>72h</strong>
+                <span>雾潮窗口</span>
+              </div>
+            </div>
+
+            <div class="world-threat-meter" aria-label="今晚的局势强度">
+              <div v-for="meter in featuredThreatMeters" :key="meter.label">
+                <span>{{ meter.label }}</span>
+                <strong>{{ meter.value }}</strong>
+                <i :style="{ '--value': meter.width }"></i>
+              </div>
+            </div>
+            <div class="world-stat">
+              <strong>{{ countPresetEntries(featuredPreset, 'event') }}</strong>
+              <span>可触发事件</span>
+            </div>
+            <div class="world-stat">
+              <strong>{{ countPresetEntries(featuredPreset, 'organization') }}</strong>
+              <span>势力</span>
+            </div>
+            <div class="world-stat">
+              <strong>{{ countPresetEntries(featuredPreset, 'location') }}</strong>
+              <span>地点</span>
+            </div>
+
+            <div class="world-pressure-stack" aria-label="进入后会先付出的代价">
+              <span v-for="item in featuredPressureStack" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                {{ item.detail }}
+              </span>
+            </div>
+
+            <div class="world-brief-list" aria-label="进入后会先遇到">
+              <div>
+                <span>第一道压力</span>
+                <strong>王室要求黎明前给出答案</strong>
+              </div>
+              <div>
+                <span>第二道压力</span>
+                <strong>行会要求先封存港口账簿</strong>
+              </div>
+              <div>
+                <span>第三道压力</span>
+                <strong>难民掌握第一手证词</strong>
+              </div>
+            </div>
+
+            <button class="primary-btn world-enter-btn" :disabled="creating" @click="enterPresetWorld(featuredPreset)">
+              {{ creating ? '创建中...' : '开始冒险' }}
+            </button>
+          </div>
+        </section>
+
+        <div class="world-exit-strip" v-if="featuredPreset.creativeExits?.length">
+          <span>玩完后写回：</span>
+          <strong v-for="exit in featuredPreset.creativeExits" :key="exit">{{ exit }}</strong>
+        </div>
+
+        <div class="world-shelf">
+          <button
+            type="button"
+            class="world-shelf-toggle"
+            :aria-expanded="showWorldShelf"
+            @click="showWorldShelf = !showWorldShelf"
+          >
+            <span>{{ showWorldShelf ? '收起更多世界' : '查看更多世界' }}</span>
+            <strong>{{ secondaryPresets.length }} 个备用世界</strong>
+          </button>
+
+          <div class="world-branch-grid" v-if="showWorldShelf && secondaryPresets.length">
+            <button
+              v-for="preset in secondaryPresets"
+              :key="preset.id"
+              class="world-mini-card"
+              :disabled="creating"
+              @click="enterPresetWorld(preset)"
+            >
+              <span>{{ preset.genreLabel }}</span>
+              <strong>{{ preset.name }}</strong>
+              <small>{{ preset.openingHook }}</small>
             </button>
           </div>
         </div>
+
+        <section class="legacy-presets">
+          <button
+            type="button"
+            class="legacy-summary"
+            :aria-expanded="showLegacyArchive"
+            @click="showLegacyArchive = !showLegacyArchive"
+          >
+            <span>查看旧预设归档</span>
+            <strong>{{ rpgWorldbookPresets.length }} 个 RPG 预设适配</strong>
+          </button>
+          <div class="legacy-preset-list" v-if="showLegacyArchive">
+            <div class="legacy-preset-item" v-for="preset in rpgWorldbookPresets" :key="preset.id">
+              <div>
+                <strong>{{ preset.name }}</strong>
+                <span>{{ preset.genreLabel }} · {{ preset.sourceWorldShape.locations }} 地点 · {{ preset.sourceWorldShape.randomEncounters }} 随机事件</span>
+              </div>
+              <button class="ghost-btn small" :disabled="creating" @click="importPreset(preset)">
+                导入
+              </button>
+            </div>
+          </div>
+        </section>
       </article>
 
-      <article class="card">
+      <section class="custom-world-gate">
+        <button
+          type="button"
+          class="custom-world-toggle"
+          :aria-expanded="showCustomTools"
+          @click="showCustomTools = !showCustomTools"
+        >
+          <span>{{ showCustomTools ? '收起自定义入口' : '导入或生成自己的世界' }}</span>
+          <strong>小说片段 / 说明生成 / 高级编辑</strong>
+        </button>
+      </section>
+
+      <article class="card" v-if="showCustomTools">
         <div class="card-head">
           <h2>小说段落导入</h2>
           <span>AI 优先，失败自动回退本地提炼</span>
@@ -214,7 +419,7 @@
         </div>
       </section>
 
-      <article class="card">
+      <article class="card" v-if="showCustomTools">
         <div class="card-head">
           <h2>说明随机生成</h2>
           <span>AI 根据输入生成世界书草案</span>
@@ -391,12 +596,55 @@ import {
   tryAiGenerateWorldbookJsonFromBrief
 } from '../services/worldbookImportGeneration'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import { rpgWorldbookPresets } from '../services/rpgWorldbookPresets'
+import { seedWorldbookPresets as presets } from '../services/seedWorldbookPresets'
+import {
+  buildPlayableWorldActionHooks,
+  savePlayableWorldEntryIntent
+} from '../services/playableWorldEntry'
 
 const router = useRouter()
 const worldStore = useWorldStore()
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbookName = computed(() => worldStore.activeWorldbook?.name || '')
+const featuredPreset = computed(() => presets[0] || null)
+const secondaryPresets = computed(() => presets.slice(1, 3))
+const featuredLocationNames = computed(() => getPresetEntryNames(featuredPreset.value, 'location').slice(0, 3))
+const featuredFactionNames = computed(() => getPresetEntryNames(featuredPreset.value, 'organization').slice(0, 3))
+const featuredEventNames = computed(() => getPresetEntryNames(featuredPreset.value, 'event').slice(0, 3))
+const featuredActionHooks = computed(() => buildPlayableWorldActionHooks(featuredPreset.value))
+const featuredCreativeExits = computed(() => Array.isArray(featuredPreset.value?.creativeExits) ? featuredPreset.value.creativeExits.slice(0, 3) : [])
+const featuredPressureRow = computed(() => {
+  const [firstFaction = '王室', secondFaction = '行会'] = featuredFactionNames.value
+  return [
+    { title: '黎明前', detail: '先拿到第一条可验证证据' },
+    { title: firstFaction, detail: '会要求你先交出判断' },
+    { title: secondFaction, detail: '会要求你先封存账本' }
+  ]
+})
+const featuredThreatMeters = computed(() => {
+  const [firstFaction = '王室', secondFaction = '行会'] = featuredFactionNames.value
+  return [
+    { label: '时间窗口', value: '黎明前', width: '84%' },
+    { label: '站队压力', value: `${firstFaction} / ${secondFaction}`, width: '76%' },
+    { label: '写回出口', value: featuredCreativeExits.value.slice(0, 2).join(' · ') || '章节 · 分镜', width: '68%' }
+  ]
+})
+const featuredPressureStack = computed(() => [
+  {
+    title: '第一现场',
+    detail: `${featuredLocationNames.value[0] || '主城'} 会先给你证据，不会先给你真相。`
+  },
+  {
+    title: '第一代价',
+    detail: `${featuredFactionNames.value[0] || '第一个势力'} 与 ${featuredFactionNames.value[1] || '第二个势力'} 都会逼你先站队。`
+  },
+  {
+    title: '第一出口',
+    detail: `${featuredCreativeExits.value.slice(0, 2).join('、') || '章节、分镜'} 会直接接住这一段冒险。`
+  }
+])
 
 const creating = ref(false)
 const generatingNovel = ref(false)
@@ -408,6 +656,9 @@ const conflictMode = ref('rename')
 const novelSegments = ref([])
 const editingSegmentIndex = ref(-1)
 const editingEntryIndex = ref(-1)
+const showWorldShelf = ref(false)
+const showLegacyArchive = ref(false)
+const showCustomTools = ref(false)
 
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -589,6 +840,23 @@ function isConstraintType(typeValue) {
   return CONSTRAINT_TYPES.has(normalizeEntryType(typeValue))
 }
 
+function countPresetEntries(preset, typeValue) {
+  const targetType = normalizeEntryType(typeValue)
+  return Array.isArray(preset?.entries)
+    ? preset.entries.filter(entry => normalizeEntryType(entry?.type) === targetType).length
+    : 0
+}
+
+function getPresetEntryNames(preset, typeValue) {
+  const targetType = normalizeEntryType(typeValue)
+  return Array.isArray(preset?.entries)
+    ? preset.entries
+      .filter(entry => normalizeEntryType(entry?.type) === targetType)
+      .map(entry => normalizeText(entry?.name))
+      .filter(Boolean)
+    : []
+}
+
 function inferConstraintTypeFromSignals({ name = '', content = '', keys = [] } = {}) {
   const keyList = Array.isArray(keys) ? keys : []
   const corpus = [name, content, ...keyList]
@@ -654,8 +922,11 @@ function ensureEntryContent(type, name, content) {
 }
 
 function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
-  const modeText = normalizeText(rawEntry?.mode || '').toLowerCase()
-  const explicitMode = rawEntry?.constant === true
+  const injectionSource = rawEntry?.injection && typeof rawEntry.injection === 'object'
+    ? rawEntry.injection
+    : {}
+  const modeText = normalizeText(rawEntry?.mode || injectionSource.mode || '').toLowerCase()
+  const explicitMode = rawEntry?.constant === true || injectionSource.mode === 'constant'
     ? 'constant'
     : (modeText === 'constant' ? 'constant' : (modeText === 'selective' || rawEntry?.selective === true ? 'selective' : ''))
 
@@ -665,10 +936,10 @@ function resolveInjectionPolicy(rawEntry, type, name, content, keys = []) {
 
   return {
     mode,
-    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability, 100, 0, 100),
-    cooldown: clampNumber(rawEntry?.cooldown, 0, 0, 9999),
-    depth: clampNumber(rawEntry?.depth, depthFallback, 1, 99),
-    excludeRecursion: Boolean(rawEntry?.excludeRecursion)
+    probability: mode === 'constant' ? 100 : clampNumber(rawEntry?.probability ?? injectionSource.probability, 100, 0, 100),
+    cooldown: clampNumber(rawEntry?.cooldown ?? injectionSource.cooldown, 0, 0, 9999),
+    depth: clampNumber(rawEntry?.depth ?? injectionSource.depth, depthFallback, 1, 99),
+    excludeRecursion: Boolean(rawEntry?.excludeRecursion ?? injectionSource.excludeRecursion)
   }
 }
 
@@ -745,51 +1016,6 @@ const entryTypeOptions = [
   { value: 'lore', label: '设定' },
   { value: 'quest', label: '任务' },
   { value: 'event', label: '事件' }
-]
-
-const presets = [
-  {
-    id: 'preset-fantasy',
-    name: '奇幻调查基线',
-    genreLabel: '奇幻冒险',
-    description: '覆盖主城、机构、关键角色、关键道具与主线危机，可作为首轮约束基线。',
-    entries: [
-      createSeedEntry('location', '暮湾主城', ['暮湾', '主城'], '港雾常年笼罩的贸易主城，夜晚会响起无来源的钟声。', '地理'),
-      createSeedEntry('location', '银藤学院', ['银藤学院', '法师学院'], '培养探索者与记录官的学院，地下藏有古代观测仪。', '地理'),
-      createSeedEntry('character', '伊薇队长', ['伊薇', '队长'], '城防调查队长，信奉先证据后判断，与你关系复杂但可靠。', '角色'),
-      createSeedEntry('item', '风蚀罗盘', ['罗盘', '风蚀罗盘'], '能够在异常雾潮中定位安全路径，但每次使用会损耗刻度。', '道具'),
-      createSeedEntry('event', '钟楼停摆事件', ['钟楼停摆', '停摆'], '城中钟楼在三日前停摆，引发港区谣言与恐慌。', '事件'),
-      createSeedEntry('lore', '雾潮契约', ['雾潮契约', '契约'], '旧时代签订的禁令：不得在雾潮之夜燃放高频火光。', '设定')
-    ]
-  },
-  {
-    id: 'preset-urban',
-    name: '都市悬疑基线',
-    genreLabel: '都市现实',
-    description: '包含机构、人物网络、案件锚点与证据道具，适合推进推理和关系线。',
-    entries: [
-      createSeedEntry('location', '北岸传媒大厦', ['北岸传媒', '大厦'], '新闻与公关中心，内部流传一份不能公开的旧档案。', '地理'),
-      createSeedEntry('character', '沈述记者', ['沈述', '记者'], '调查记者，擅长追踪资金流，嘴硬心软。', '角色'),
-      createSeedEntry('character', '周岚律师', ['周岚', '律师'], '商业诉讼专家，知晓多家企业的隐秘协议。', '角色'),
-      createSeedEntry('event', '凌晨坠楼案', ['坠楼案', '凌晨案'], '看似意外的坠楼事件，留下了被篡改的监控时间轴。', '事件'),
-      createSeedEntry('item', '缺页笔记本', ['笔记本', '缺页'], '受害者遗留笔记，本应记录线索的几页被完整裁走。', '道具'),
-      createSeedEntry('lore', '三层信息网', ['信息网', '三层'], '本城消息传播分公开、半公开、暗线三层，互相嵌套。', '设定')
-    ]
-  },
-  {
-    id: 'preset-scifi',
-    name: '星际远征基线',
-    genreLabel: '科幻星际',
-    description: '覆盖舰队、前哨站、协定约束与风险事件，适合硬科幻任务流开局。',
-    entries: [
-      createSeedEntry('location', '赫利俄斯前哨站', ['前哨站', '赫利俄斯'], '位于边境轨道的补给站，长期受微陨石风暴干扰。', '地理'),
-      createSeedEntry('character', '林霁舰长', ['林霁', '舰长'], '远征舰指挥官，强调程序与纪律，但对平民保持克制。', '角色'),
-      createSeedEntry('item', '折跃芯簇', ['折跃芯簇', '芯簇'], '维持短距折跃稳定的核心组件，库存稀缺。', '道具'),
-      createSeedEntry('event', '静默区失联', ['静默区', '失联'], '三支巡检小队进入静默区后全部失联，仅返还空白日志。', '事件'),
-      createSeedEntry('lore', '联邦协定 17-B', ['17-B', '协定'], '禁止在未知信号源附近启用全频广播，以免触发回声干扰。', '设定'),
-      createSeedEntry('quest', '回收黑匣任务', ['黑匣', '回收任务'], '需在 72 小时内回收失联舰的黑匣，避免航线被封锁。', '任务')
-    ]
-  }
 ]
 
 const randomInput = reactive({
@@ -934,7 +1160,7 @@ function normalizeGeneratedEntry(rawEntry, index = 0) {
   const type = inferEntryType(rawType, name, rawEntry?.content || rawEntry?.description || '', keys)
   const content = ensureEntryContent(type, name, rawEntry?.content || rawEntry?.description || `${name}相关设定。`)
   const keysSecondary = normalizeKeywords(rawEntry?.keysSecondary || rawEntry?.secondary || rawEntry?.keysecondary)
-  const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || defaultGroupByType(type)) || null
+  const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || rawEntry?.injection?.group || defaultGroupByType(type)) || null
   const injection = resolveInjectionPolicy(rawEntry, type, name, content, keys)
 
   return {
@@ -1404,35 +1630,41 @@ async function generateFromNovelText() {
   generatingNovel.value = true
 
   try {
+    const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
     const chapters = detectChapters(sourceText)
+    let aiFallbackReason = ''
+
+    if (novelInput.useAiFirst) {
+      const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
+      if (aiResult.ok && aiResult.payload) {
+        novelSegments.value = []
+        expandedSegmentIndex.value = -1
+        pendingImport.value = buildPendingPayload(aiResult.payload)
+        setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
+        return
+      }
+      aiFallbackReason = normalizeText(aiResult.reason)
+    }
+
     if (chapters.length > 1) {
       const segments = buildSegmentedEntries(chapters)
       novelSegments.value = segments
+      pendingImport.value = null
       expandedSegmentIndex.value = 0
-      setWorldbookInfo(`检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`)
+      const fallbackInfo = `检测到 ${chapters.length} 个章节/段落，已生成分段预览。可逐段编辑后导入。`
+      setWorldbookInfo(aiFallbackReason ? `${aiFallbackReason} ${fallbackInfo}` : fallbackInfo)
     } else {
-      const targetCount = clampNumber(novelInput.targetCount, 10, 3, 30)
       const fallbackEntries = buildEntriesFromParagraphs(sourceText, targetCount)
-      let payload = buildPendingPayload({
+      const payload = buildPendingPayload({
         name: novelInput.name || createAutoWorldbookName('小说提炼世界书'),
         description: '由小说段落快速提炼生成，可在高级设置继续精修。',
         sourceLabel: '本地智能提炼（回退）',
         entries: fallbackEntries
       })
 
-      if (novelInput.useAiFirst) {
-        const aiResult = await tryAiExtractEntries(sourceText, targetCount, novelInput.name)
-        if (aiResult.ok && aiResult.payload) {
-          payload = buildPendingPayload(aiResult.payload)
-          setWorldbookInfo('已完成 AI 提炼，可直接导入或继续调整。')
-        } else if (aiResult.reason) {
-          setWorldbookInfo(aiResult.reason)
-        }
-      } else {
-        setWorldbookInfo('已使用本地智能提炼生成预览。')
-      }
-
+      novelSegments.value = []
       pendingImport.value = payload
+      setWorldbookInfo(aiFallbackReason || '已使用本地智能提炼生成预览。')
     }
   } catch (error) {
     setWorldbookError(`生成预览失败：${error?.message || '未知错误'}`)
@@ -1719,20 +1951,48 @@ async function importPreset(preset) {
   clearFeedback()
 
   try {
+    const openingHook = normalizeText(preset.openingHook)
+    const worldDescription = [
+      preset.worldDescription,
+      openingHook ? `开场困境：${openingHook}` : ''
+    ].filter(Boolean).join('\n\n')
     const payload = buildPendingPayload({
       name: createAutoWorldbookName(preset.name),
       description: preset.description,
+      worldDescription,
+      writingStyle: preset.writingStyle,
+      forbidden: preset.forbidden,
       sourceLabel: `一键预设：${preset.name}`,
-      entries: preset.entries
+      entries: preset.entries,
+      groups: preset.groups
     })
 
     const created = await createWorldbookFromPayload(payload)
     pendingImport.value = payload
     setWorldbookSuccess(`已创建预设世界书：${created?.name || '新世界书'}。`)
+    return created
   } catch (error) {
     setWorldbookError(`预设导入失败：${error?.message || '未知错误'}`)
+    return null
   } finally {
     creating.value = false
+  }
+}
+
+async function enterPresetWorld(preset, action = null) {
+  const created = await importPreset(preset)
+  if (created) {
+    const resolvedAction = action || buildPlayableWorldActionHooks(preset)[0]
+    if (resolvedAction) {
+      savePlayableWorldEntryIntent({
+        worldbookId: created.id,
+        worldbookName: created.name,
+        presetId: preset.id,
+        presetName: preset.name,
+        action: resolvedAction
+      })
+    }
+    router.push({ name: 'opening' })
   }
 }
 
@@ -1745,44 +2005,150 @@ function clearPendingImport() {
 <style scoped>
 .quick-page {
   min-height: var(--app-viewport-height, 100vh);
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   background:
-    radial-gradient(130% 120% at 100% 0%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 86%, #ffffff 14%) 0%, var(--bg-primary) 40%);
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, transparent), var(--bg-primary)),
+    repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-primary) 98%, transparent) 0 32px,
+      color-mix(in srgb, var(--border) 18%, transparent) 32px 33px
+    );
   color: var(--text-primary);
 }
 
 .quick-hero {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 88%, #ffffff 12%);
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 22px;
+  padding: clamp(18px, 2.6vw, 28px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 98%, transparent), color-mix(in srgb, var(--bg-primary) 94%, transparent)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 24px,
+      color-mix(in srgb, var(--border) 10%, transparent) 24px 25px
+    );
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+  box-shadow: var(--shadow-floating);
 }
 
 .hero-left h1 {
-  margin: 0 0 8px;
-  font-size: 20px;
+  margin: 4px 0 12px;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: clamp(38px, 5vw, 64px);
+  line-height: 0.94;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-wrap: balance;
 }
 
-.hero-left p {
+.hero-kicker {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 36%, var(--border));
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: color-mix(in srgb, var(--accent-amber-light) 72%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--accent-amber) 78%, var(--text-primary));
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-deck {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--text-secondary);
-  max-width: 760px;
+  max-width: 32ch;
 }
 
 .hero-actions {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.hero-path {
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.hero-path span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hero-signal-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.hero-signal-board span {
+  min-height: 50px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.hero-signal-board strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.hero-worldline {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hero-worldline span {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hero-worldline strong {
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 650;
+}
+
+.hero-worldline em {
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
 }
 
 .status-row {
@@ -1827,14 +2193,14 @@ function clearPendingImport() {
 
 .quick-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 16px;
+  padding: 14px;
   background: color-mix(in srgb, var(--bg-secondary) 93%, #ffffff 7%);
   display: flex;
   flex-direction: column;
@@ -1865,38 +2231,797 @@ function clearPendingImport() {
   color: var(--text-muted);
 }
 
-.preset-list {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
+.world-start-card {
+  grid-column: 1 / -1;
+  padding: clamp(18px, 2.6vw, 28px);
+  gap: 18px;
+  overflow: hidden;
+  position: relative;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 98%, transparent), color-mix(in srgb, var(--bg-primary) 95%, transparent)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 28px,
+      color-mix(in srgb, var(--border) 8%, transparent) 28px 29px
+    );
+  box-shadow: var(--shadow-elevated);
 }
 
-.preset-item {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
+.world-start-card::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 80px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent-light) 10%, transparent));
+}
+
+.world-start-card::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  pointer-events: none;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.world-kicker {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-  background: var(--bg-primary);
+  gap: 8px;
+  align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
-.preset-main strong {
+.world-kicker span {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.world-kicker strong {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.world-feature-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: clamp(14px, 2vw, 22px);
+  position: relative;
+  z-index: 1;
+}
+
+.world-feature-copy {
+  min-width: 0;
+}
+
+.world-genre {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-amber) 18%, var(--bg-primary));
+  color: color-mix(in srgb, var(--accent-amber) 70%, var(--text-primary));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.world-feature-copy h2 {
+  margin: 0;
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: clamp(38px, 7vw, 72px);
+  line-height: 0.94;
+  font-weight: 650;
+  letter-spacing: 0;
+  max-width: 760px;
+  text-wrap: balance;
+}
+
+.world-standfirst {
+  margin: 12px 0 0;
+  max-width: 34ch;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.world-ledger-line {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.world-ledger-line span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.world-ledger-line strong {
+  margin-right: 5px;
+  color: var(--text-primary);
   font-size: 13px;
 }
 
-.preset-main p {
-  margin: 5px 0 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+.world-dossier {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.preset-tags {
+.world-dossier div {
+  min-height: 68px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 16px;
+  padding: 11px;
   display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+}
+
+.world-dossier span {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.world-dossier strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.world-scene-board {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scene-lane {
+  min-height: 92px;
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+}
+
+.scene-lane span {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scene-lane strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.world-hook {
+  margin-top: 16px;
+  padding: 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 26%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent-amber-light) 36%, var(--bg-secondary));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+}
+
+.world-hook span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.world-hook strong {
+  color: var(--text-primary);
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.world-pressure-row {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.world-pressure-row span {
+  min-height: 46px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 18%, var(--border));
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-rose-light) 24%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 86%, transparent));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.world-pressure-row strong {
+  color: color-mix(in srgb, var(--accent-rose) 74%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-adventure-route {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+}
+
+.world-adventure-route span {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.world-adventure-route span:first-child {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-light) 68%, transparent);
+}
+
+.world-adventure-route span:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 84%, transparent);
+}
+
+.world-action-hooks {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.world-action-card {
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 16px;
+  padding: 14px 16px 14px 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.world-action-card em {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.world-action-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow: var(--shadow-floating);
+  background: color-mix(in srgb, var(--accent-light) 20%, var(--bg-secondary));
+}
+
+.world-action-card:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.world-action-card span {
+  width: fit-content;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
+}
+
+.world-action-card strong {
+  color: var(--text-primary);
+  font-size: 17px;
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
+}
+
+.world-action-card small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  position: relative;
+  z-index: 1;
+}
+
+.world-feature-panel {
+  align-self: stretch;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.world-map-card {
+  grid-column: 1 / -1;
+  min-height: 230px;
+  border: 1px solid color-mix(in srgb, var(--accent-teal) 24%, var(--border));
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 30%, color-mix(in srgb, var(--accent-amber) 24%, transparent) 0 8px, transparent 9px),
+    radial-gradient(circle at 70% 42%, color-mix(in srgb, var(--accent) 22%, transparent) 0 7px, transparent 8px),
+    radial-gradient(circle at 52% 76%, color-mix(in srgb, var(--accent-teal) 30%, transparent) 0 9px, transparent 10px),
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-primary) 86%, var(--accent-teal-light)), color-mix(in srgb, var(--bg-secondary) 84%, transparent));
+}
+
+.world-map-card::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--text-muted) 26%, transparent);
+  transform: rotate(-12deg) scaleX(1.15);
+}
+
+.fog-orbit {
+  position: absolute;
+  inset: 34px 26px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 24%, transparent);
+  transform: rotate(18deg);
+}
+
+.fog-route {
+  position: absolute;
+  left: 25%;
+  top: 36%;
+  width: 46%;
+  height: 34%;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 0 0 0 72px;
+  transform: rotate(-12deg);
+}
+
+.map-pin {
+  position: absolute;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: var(--shadow-floating);
+}
+
+.map-pin.is-main {
+  left: 12%;
+  top: 20%;
+}
+
+.map-pin.is-port {
+  right: 12%;
+  top: 35%;
+}
+
+.map-pin.is-wall {
+  left: 42%;
+  bottom: 16%;
+}
+
+.map-readout {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 36%, var(--border));
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--accent-amber-light) 56%, var(--bg-secondary)), color-mix(in srgb, var(--bg-primary) 88%, transparent));
+}
+
+.map-readout strong {
+  color: var(--text-primary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.map-readout span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.world-threat-meter {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 20%, var(--border));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-amber-light) 24%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 88%, transparent));
+}
+
+.world-threat-meter div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.world-threat-meter span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.world-threat-meter strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-threat-meter i {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border) 64%, transparent);
+  position: relative;
+}
+
+.world-threat-meter i::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--value);
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, var(--accent-teal), var(--accent-amber), var(--accent-rose));
+}
+
+.world-role-card {
+  grid-column: 1 / -1;
+  border: 1px solid color-mix(in srgb, var(--accent-teal) 22%, var(--border));
+  border-radius: 18px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--accent-teal-light) 54%, var(--bg-primary));
+}
+
+.world-role-card span,
+.world-role-card small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.world-role-card strong {
+  display: block;
+  margin: 4px 0 7px;
+  color: var(--text-primary);
+  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'STSong', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.world-pressure-stack {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.world-pressure-stack span {
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 18%, var(--border));
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-rose-light) 34%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 84%, transparent));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.world-pressure-stack strong {
+  color: color-mix(in srgb, var(--accent-rose) 72%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1;
+}
+
+.world-brief-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.world-brief-list div {
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.world-brief-list span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.world-brief-list strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.world-stat {
+  min-width: 0;
+  padding: 10px 6px;
+  border-radius: 12px;
+  text-align: center;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-tertiary));
+}
+
+.world-stat strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.world-stat span {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.world-enter-btn {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 42px;
+  border-radius: 999px;
+}
+
+.world-exit-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
   flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 18%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+}
+
+.world-exit-strip span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.world-exit-strip strong {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--accent-amber-light) 70%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--accent-amber) 76%, var(--text-primary));
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.world-shelf,
+.custom-world-gate {
+  position: relative;
+  z-index: 1;
+}
+
+.world-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.world-shelf-toggle,
+.custom-world-toggle,
+.legacy-summary {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 18px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.world-shelf-toggle:hover,
+.custom-world-toggle:hover,
+.legacy-summary:hover,
+.world-mini-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--accent-light));
+}
+
+.world-shelf-toggle span,
+.custom-world-toggle span,
+.legacy-summary span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.world-shelf-toggle strong,
+.custom-world-toggle strong,
+.legacy-summary strong {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.custom-world-gate {
+  grid-column: 1 / -1;
+}
+
+.world-branch-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.world-mini-card {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 18px;
+  padding: 14px;
+  text-align: left;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.world-mini-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.world-mini-card span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.world-mini-card strong {
+  display: block;
+  font-size: 14px;
+}
+
+.world-mini-card small {
+  display: block;
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.legacy-presets {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legacy-preset-list {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.legacy-preset-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+}
+
+.legacy-preset-item:last-child {
+  border-bottom: none;
+}
+
+.legacy-preset-item div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.legacy-preset-item strong {
+  font-size: 13px;
+}
+
+.legacy-preset-item span {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .tag {
@@ -2340,11 +3465,16 @@ label {
 
 .primary-btn,
 .ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border);
   border-radius: 8px;
   height: 34px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -2368,7 +3498,7 @@ label {
 .ghost-btn.small {
   height: 26px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ghost-btn.danger {
@@ -2572,6 +3702,10 @@ label {
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .world-start-card {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 860px) {
@@ -2583,8 +3717,37 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .world-feature-card,
+  .world-branch-grid,
+  .world-action-hooks,
+  .world-scene-board,
+  .world-dossier,
+  .world-pressure-row,
+  .hero-signal-board,
+  .world-adventure-route {
+    grid-template-columns: 1fr;
+  }
+
+  .world-adventure-route {
+    border-radius: 18px;
+  }
+
+  .world-adventure-route span:not(:last-child)::after {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 1px;
+  }
+
+  .world-feature-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .quick-hero {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    align-items: flex-start;
   }
 
   .preview-summary {

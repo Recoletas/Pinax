@@ -4,6 +4,11 @@
   --z-floating-rail: 220;
   --z-floating-dock: 240;
   --z-floating-action: 260;
+  --z-stage-decor: 2;
+  --z-stage-hero: 5;
+  --z-stage-cta: 6;
+  --hero-placeholder-gradient: linear-gradient(180deg, #2a0d12 0%, #1a0809 100%);
+  --z-mechanism-notice: 248;
 }
 
 @supports (height: 100dvh) {
@@ -32,96 +37,128 @@
 }
 .spin { animation: spin 1s linear infinite; }
 
+/* Self-hosted display font (LXGW WenKai v1.522, OFL 1.1) — moved to
+   src/styles/themes/kao.css; the token is gated by variant loading. */
+:root {
+  --font-serif: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  --font-sans: "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Global SVG <defs> for archive-folio filters. Any element with
+   `filter: url(#pinax-paper-tear)` will get the torn-edge displacement. */
+.pinax-svg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 /* Light Theme (default) */
 :root {
-  --bg-primary: #f3f3f3;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #e8e8e8;
-  --bg-hover: #e5e5e5;
-  --text-primary: #1a1a1a;
-  --text-secondary: #5a5a5a;
-  --text-muted: #8a8a8a;
+  --bg-primary: #f3eee6;
+  --bg-secondary: #fbf8f2;
+  --bg-tertiary: #e5ddd0;
+  --bg-hover: #ddd4c7;
+  --text-primary: #211a15;
+  --text-secondary: #5d5247;
+  --text-muted: #8d7f70;
 
-  /* Primary accent - Blue */
-  --accent: #0078d4;
-  --accent-hover: #106ebe;
-  --accent-light: rgba(0, 120, 212, 0.1);
+  --accent: #b84b35;
+  --accent-hover: #a2402d;
+  --accent-light: rgba(184, 75, 53, 0.1);
   --accent-text: #ffffff;
 
-  /* Secondary accents */
-  --accent-purple: #8b5cf6;
-  --accent-purple-light: rgba(139, 92, 246, 0.12);
-  --accent-teal: #14b8a6;
-  --accent-teal-light: rgba(20, 184, 166, 0.12);
-  --accent-amber: #f59e0b;
-  --accent-amber-light: rgba(245, 158, 11, 0.12);
-  --accent-rose: #f43f5e;
-  --accent-rose-light: rgba(244, 63, 94, 0.12);
-  --accent-emerald: #10b981;
-  --accent-emerald-light: rgba(16, 185, 129, 0.12);
+  --accent-purple: #6f61cb;
+  --accent-purple-light: rgba(111, 97, 203, 0.12);
+  --accent-teal: #0d8b7b;
+  --accent-teal-light: rgba(13, 139, 123, 0.12);
+  --accent-amber: #c7891f;
+  --accent-amber-light: rgba(199, 137, 31, 0.12);
+  --accent-rose: #b95567;
+  --accent-rose-light: rgba(185, 85, 103, 0.12);
+  --accent-emerald: #2d9978;
+  --accent-emerald-light: rgba(45, 153, 120, 0.12);
+
+  --hairline-soft: rgba(122, 111, 96, 0.18);
+  --hairline-accent: rgba(183, 138, 52, 0.40);
+  --hairline-rose: rgba(147, 75, 87, 0.40);
+  --fs-display: clamp(120px, 18vw, 220px);
+  --fs-mono: 10px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --spacing-rhythm: 8px;
 
   /* Semantic colors */
-  --success: #107c10;
-  --warning: #ca5010;
-  --danger: #d13438;
-  --info: #0891b2;
+  --success: #277f63;
+  --warning: #b37213;
+  --danger: #c3484d;
+  --info: #0b88a2;
 
   /* Borders & Shadows */
-  --border: #e0e0e0;
-  --border-strong: #c8c8c8;
-  --shadow: rgba(0, 0, 0, 0.08);
-  --shadow-md: rgba(0, 0, 0, 0.12);
+  --border: #d6cdc0;
+  --border-strong: #c4b7a5;
+  --shadow: rgba(21, 16, 10, 0.08);
+  --shadow-md: rgba(21, 16, 10, 0.14);
   --surface-raised: color-mix(in srgb, var(--bg-secondary) 88%, #ffffff 12%);
   --surface-soft: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
   --surface-panel: color-mix(in srgb, var(--bg-primary) 90%, var(--bg-secondary));
   --surface-overlay: color-mix(in srgb, #000 22%, transparent);
-  --shadow-floating: 0 10px 24px color-mix(in srgb, #000 14%, transparent);
-  --shadow-elevated: 0 22px 54px color-mix(in srgb, #000 26%, transparent);
+  --shadow-floating: 0 14px 30px color-mix(in srgb, #000 12%, transparent);
+  --shadow-elevated: 0 26px 58px color-mix(in srgb, #000 20%, transparent);
 
   /* Gradient accents */
-  --gradient-primary: linear-gradient(135deg, #0078d4 0%, #8b5cf6 100%);
-  --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #f43f5e 100%);
-  --gradient-cool: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%);
+  --gradient-primary: linear-gradient(135deg, #b84b35 0%, #6f61cb 100%);
+  --gradient-warm: linear-gradient(135deg, #c7891f 0%, #b95567 100%);
+  --gradient-cool: linear-gradient(135deg, #0d8b7b 0%, #0b88a2 100%);
 }
 
 /* Dark Theme */
 .theme-dark {
-  --bg-primary: #1f1f1f;
-  --bg-secondary: #282828;
-  --bg-tertiary: #333333;
-  --bg-hover: #3a3a3a;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-muted: #6a6a6a;
+  --bg-primary: #151210;
+  --bg-secondary: #1d1916;
+  --bg-tertiary: #29231f;
+  --bg-hover: #332b26;
+  --text-primary: #f5eee4;
+  --text-secondary: #b8ab9b;
+  --text-muted: #7d7165;
 
-  /* Primary accent - Cyan */
-  --accent: #4fc3f7;
-  --accent-hover: #29b6f6;
-  --accent-light: rgba(79, 195, 247, 0.15);
-  --accent-text: #0d1117;
+  --accent: #ff855f;
+  --accent-hover: #ff9574;
+  --accent-light: rgba(255, 133, 95, 0.15);
+  --accent-text: #120f0c;
 
-  /* Secondary accents - brighter for dark mode */
-  --accent-purple: #a78bfa;
-  --accent-purple-light: rgba(167, 139, 250, 0.15);
-  --accent-teal: #2dd4bf;
-  --accent-teal-light: rgba(45, 212, 191, 0.15);
-  --accent-amber: #fbbf24;
-  --accent-amber-light: rgba(251, 191, 36, 0.15);
-  --accent-rose: #fb7185;
-  --accent-rose-light: rgba(251, 113, 133, 0.15);
-  --accent-emerald: #34d399;
-  --accent-emerald-light: rgba(52, 211, 153, 0.15);
+  --accent-purple: #9b8af2;
+  --accent-purple-light: rgba(155, 138, 242, 0.15);
+  --accent-teal: #4ad4c0;
+  --accent-teal-light: rgba(74, 212, 192, 0.15);
+  --accent-amber: #f0ba54;
+  --accent-amber-light: rgba(240, 186, 84, 0.15);
+  --accent-rose: #e48193;
+  --accent-rose-light: rgba(228, 129, 147, 0.15);
+  --accent-emerald: #5bc9a3;
+  --accent-emerald-light: rgba(91, 201, 163, 0.15);
+
+  --hairline-soft: rgba(216, 198, 174, 0.18);
+  --hairline-accent: rgba(216, 171, 84, 0.42);
+  --hairline-rose: rgba(203, 122, 136, 0.40);
+  --fs-display: clamp(120px, 18vw, 220px);
+  --fs-mono: 10px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --spacing-rhythm: 8px;
 
   /* Semantic colors */
-  --success: #6ccb5f;
-  --warning: #fce100;
-  --danger: #ff6b6b;
-  --info: #22d3ee;
+  --success: #73c9a9;
+  --warning: #f0ba54;
+  --danger: #f0878b;
+  --info: #5dc7de;
 
-  --border: #3a3a3a;
-  --border-strong: #4a4a4a;
-  --shadow: rgba(0, 0, 0, 0.3);
-  --shadow-md: rgba(0, 0, 0, 0.4);
+  --border: #3a312b;
+  --border-strong: #4a3e37;
+  --shadow: rgba(0, 0, 0, 0.34);
+  --shadow-md: rgba(0, 0, 0, 0.46);
   --surface-raised: color-mix(in srgb, var(--bg-secondary) 84%, #101010 16%);
   --surface-soft: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
   --surface-panel: color-mix(in srgb, var(--bg-primary) 86%, var(--bg-secondary));
@@ -130,9 +167,9 @@
   --shadow-elevated: 0 24px 56px color-mix(in srgb, #000 56%, transparent);
 
   /* Gradient accents */
-  --gradient-primary: linear-gradient(135deg, #4fc3f7 0%, #a78bfa 100%);
-  --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #fb7185 100%);
-  --gradient-cool: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+  --gradient-primary: linear-gradient(135deg, #ff855f 0%, #9b8af2 100%);
+  --gradient-warm: linear-gradient(135deg, #f0ba54 0%, #e48193 100%);
+  --gradient-cool: linear-gradient(135deg, #4ad4c0 0%, #5dc7de 100%);
 }
 
 * {
@@ -142,7 +179,7 @@
 }
 
 body {
-  font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', sans-serif;
+  font-family: 'Segoe UI Variable', 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
@@ -324,20 +361,23 @@ body {
 
 /* Page route transitions */
 .page-route-enter-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  will-change: opacity, transform;
 }
 
 .page-route-leave-active {
-  transition: opacity 0.15s ease;
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  will-change: opacity, transform;
 }
 
 .page-route-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(4px) scale(0.995);
 }
 
 .page-route-leave-to {
   opacity: 0;
+  transform: translateY(-2px) scale(0.998);
 }
 
 .modal-fade-enter-active,
@@ -365,6 +405,7 @@ body {
   .page-route-enter-active,
   .page-route-leave-active {
     transition: opacity 0.01s ease;
+    will-change: auto;
   }
 
   .page-route-enter-from {
