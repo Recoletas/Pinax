@@ -18,7 +18,7 @@
 
 ## Goals
 
-1. **G1** Notes.vue 在 `.theme-kao` 下视觉升级为"档案册":editor-main 由 `FolioSurface variant="paper"` 装裱,sidebar 顶部加 `CharacterPortrait narrator`,toolbar 4 `selection-action-btn` 替换为 4 `BookmarkButton size="micro"`,新增 `ArchiveStrip` 3 entry collage tile
+1. **G1** Notes.vue 在 `.theme-kao` 下视觉升级为"档案册":editor-main 由 `FolioSurface variant="paper"` 装裱,sidebar 顶部加 `CharacterPortrait narrator`,toolbar 4 `selection-action-btn` 加 `.material-action-btn` kao 视觉 class(保留 raw `<button>` 元素以满足 uiPolish L77-80 字面量契约),新增 `ArchiveStrip` 3 entry collage tile
 2. **G2** uiPolish test 0 破坏(4 个硬契约:`material-selection-bar` + 4 click handler + 文案 / `<Transition modal-fade>` / `<GmPersonaLauncher>`(无 `.advisor-fab`)/ `<WorkbenchPageHero>` + `'Material Library'`),新增 5 条 Notes.vue kao 契约(`<BookmarkButton` ≥ 4 / `<ArchiveStrip` ≥ 1 / `<FolioSurface variant="paper">` ≥ 1 / `<CharacterPortrait pose-id="narrator"` ≥ 1 / scoped CSS 行数 ≤ 700)
 3. **G3** Notes.vue scoped CSS 从 1338 行精简到 ≤ 700 行(同步瘦身 -50%),功能逻辑 0 改动(66 function / 27 ref / 5 computed 全部保留,narrativeAssets / relationCanvas / professionalInfoGenerator 3 service 调用签名不变)
 4. **G4** `.theme-legacy` variant 下 Notes.vue 走精简后的工具壳 fallback,**theme-system 0 破坏**,`<AppearanceControls>` 4-radio 切换 0 改动
@@ -75,28 +75,31 @@
 | Component | 用途 | Props |
 |---|---|---|
 | `FolioSurface` | editor-main + modal 装裱 | `variant="paper"` `decorated` |
-| `BookmarkButton` × 4 | 替换 4 `selection-action-btn` | `size="micro"` `variant`(primary/secondary/secondary/tertiary = 导入/采纳/归档/删除) `@click` + 文案保留字面量 |
 | `ArchiveStrip` | 3 entry collage tile | `:items="archiveStripItems"` `:image="firstImageDataUrl"` |
 | `CharacterPortrait` | sidebar 顶部 narrator | `poseId="narrator"` `size="thumb"` `caption="档案员"` |
+| raw `<button>` × 4 | `.material-selection-bar` 内 4 batch action(导入/采纳/归档/删除) | `class="selection-action-btn material-action-btn"` 保留 uiPolish L77-80 字面量(`@click` + 文案 + `</button>`),新增 `.material-action-btn` CSS class 提供 kao 视觉(paper-soft bg + gold border + 18px hard-offset + 0 radius);**BookmarkButton component 不重用**(其 label 包 `<span>` 跟 uiPolish L77-80 字面量冲突) |
 | `WorkbenchPageHero` / `GmPersonaLauncher` / `ImageGenRail` / `AdvisorPanel` | 已有(不动) | — |
 | `<Transition name="modal-fade">` | modal 入场 | uiPolish L61 锁 |
 
 ### CSS 新增(进 `src/styles/themes/kao.css`,gated by `.theme-kao`)
 
-3 个新 utility:
+4 个新 utility / class:
+- `.material-action-btn`:4 batch action 按钮的 kao 视觉(paper-soft bg + gold border + 18px hard-offset shadow + 0 radius + 12px hover filter);跟 `.selection-action-btn` 共存(uiPolish L77-80 锁 button 元素字面量,class 名不锁)
+- `.material-bookmark-toolbar`:4 batch action 按钮容器(`grid-template-columns: repeat(4, 1fr)` + paper-soft bg + hairline border)
 - `.material-entry-card`:撕边 entry 缩略(`aspect-ratio: 3/4` + clip-path polygon + 4px hard-offset shadow)
-- `.material-bookmark-toolbar`:4 BookmarkButton 容器(`grid-template-columns: repeat(4, 1fr)`)
 - `.material-tear-svg`:撕边 SVG `<defs>` 容器(width: 0; height: 0; feTurbulence + feDisplacementMap seed=7,跟 WelcomeView 一致)
 
 `main.css` 0 改动(per `feedback_dont_overwrite_user_tuned_values.md`)。
 
-### Notes.vue scoped CSS 改造目标(1338 → ≤ 700 行)
+### Notes.vue scoped CSS 改造目标(1338 → ≤ 700 行,容忍 ±10% 即 700-770 行 OK)
 
-**保留**: `.books-sidebar` / `.editor-main` / `.editor-textarea` / `.asset-toolbar` / `.material-group` / `.book-item` / `.modal` / `.find-replace-bar` / `.name-gen-panel` / `.context-menu`
+**保留**: `.books-sidebar` / `.editor-main` / `.editor-textarea` / `.asset-toolbar` / `.material-group` / `.book-item` / `.modal` / `.find-replace-bar` / `.name-gen-panel` / `.context-menu` / `.selection-action-btn`(保留 class 名作为基类,新 `.material-action-btn` 叠加)
 
-**删除(scope-out → 跟 kao.css 合并)**: `.theme-toggle` / `.toolbar-text-btn` / `.selection-action-btn` / `.add-btn.prominent/btn-new` / `.tool-btn` / `.mode-switch` / `.asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`(改 ≤ 2px 或 0)
+**删除(scope-out → 跟 kao.css 合并)**: `.theme-toggle` / `.toolbar-text-btn` / `.add-btn.prominent/btn-new` / `.tool-btn` / `.mode-switch` / `.asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`(改 ≤ 2px 或 0)
 
 **`.theme-legacy` fallback**:scoped CSS 全部保留(精简后 700 行),kao.css 不 gate 时 scoped 生效,跟现有 legacy 风格一致
+
+**CSS 行数 target + tolerance**:Phase C 验收时 ≤ 700 行 hard fail,701-770 行软警告(允许 ±10%),≥ 800 行 trigger follow-up Phase D 调整
 
 ### Data flow(state / props / events)
 
@@ -112,7 +115,7 @@
 
 | Phase | 目标 | 风险 |
 |---|---|---|
-| **Phase A** — CSS token + 4 kao 组件 import + scoped CSS 瘦身 | Notes.vue `<script setup>` import FolioSurface / BookmarkButton / ArchiveStrip / CharacterPortrait;template 内 4 selection-action-btn 的 class 名换成 `bookmark-button is-bookmark bookmark-button--size-micro`,但保留 `@click` + 文案字面量;scoped CSS 大量删除(`toolbar-text-btn` / `selection-action-btn` / `add-btn.prominent/btn-new` / `tool-btn` / `mode-switch` / `asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`);template 主体结构不动 | 模板主体结构不动,只在已有 button 上换 class 名 + 新增 import;视觉仅 .is-* utility 切换 |
+| **Phase A** — CSS token + 3 kao 组件 import + scoped CSS 瘦身 + 新 CSS class | Notes.vue `<script setup>` import FolioSurface / ArchiveStrip / CharacterPortrait(BookmarkButton 不重用,见 R3-A);template 内 4 `<button class="selection-action-btn">` 改为 `<button class="selection-action-btn material-action-btn">`(保留 uiPolish L77-80 字面量);scoped CSS 大量删除(`toolbar-text-btn` / `add-btn.prominent/btn-new` / `tool-btn` / `mode-switch` / `asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`);kao.css 新增 4 个 utility / class;template 主体结构不动 | 模板主体结构不动,只在已有 button 上加新 class 名 + 新增 import;视觉切换主要靠 kao.css 新 utility + .selection-action-btn 视觉改写 |
 | **Phase B** — Template 重排 | editor-main 包 FolioSurface;sidebar 顶部加 CharacterPortrait;toolbar 4 selection-action-btn → 4 BookmarkButton;ArchiveStrip 3 collage tile 嵌入 | layout 大改,test 重点验证 |
 | **Phase C** — 1 次手动截图 + 验收 | 跑 uiPolish + notes + narrativeAssets 全测;记录截图到 STATUS.md | 无代码风险,纯验证 |
 
@@ -150,7 +153,8 @@
 | **R5**: narrator label "在场叙述者" 长期贴切度弱 | 短期 ship,长期 user 手画 archive-keeper(5B v0.2) | label 不在 uiPolish 契约,可后续替换 |
 | **R6**: uiPolish L532 锁 WelcomeView 82px default 不影响 material | uiPolish L532 只锁 WelcomeView,Notes.vue 无 size 限制 | 若 W 后续同构改造需 W 单独 spec |
 | **R7**: 撕边 SVG filter inline 复制产生代码重复 | 短期接受,长期 follow-up extract `<TornEdgeFilter>` 共享 | 同步维护两份 `<defs>` |
-| **R8**: uiPolish test 新增 5 条 Notes 契约 + 1 条 CSS 行数守护 | spec G2 已列 5 条测试名;Phase B 同步加 | uiPolish test 是 spec 的 sibling,需协调 |
+| **R8**: uiPolish test 新增 5 条 Notes 契约 + 1 条 CSS 行数守护 | spec G2 已列 5 条测试名;Phase B 同步加 | uiPolish test 是 spec 契约的实现载体,需在 Phase B 同步加 5 条 contract test |
+| **R11**: BookmarkButton component 跟 uiPolish L77-80 字面量冲突 | 不重用 BookmarkButton,4 batch action 改用 raw `<button>` + 新 `.material-action-btn` class(见 R3-A) | 视觉少 BookmarkButton 的 index span "01" "02" "03" "04" 装饰,但对 workbench 工具栏更简洁 |
 | **R9**: "PPT 平面块"风险(per `feedback_visual_integration_not_illustration.md` 7 次反馈) — 严禁 translucent + soft shadow + 矩形老路 | 18px hard-offset shadow + FolioSurface 撕角 + textarea clip-path polygon 微撕角 + 0 radius + 4 .is-* utility 全部走 kao 视觉,不用 rgba(0,0,0,0.05-0.15) soft shadow | 视觉最终还是要 user 1 次手动截图确认(Phase C);若仍"平面块",follow-up Phase D 调整 |
 | **R10**: 5C v3.14 ship 后 19 个 uiPolish test failures 教训(测试按 animation name 写导致过期) | G2 的 5 条新契约按 **behavior** 写(`element exists` / `class contains`),不按 animation name 写(不锁 `artBreathe` / `wallpaperMist` 等) | 仍需 Phase B 实跑验证 5 条新契约不会随 kao.css 演进而漂移 |
 
@@ -165,4 +169,9 @@
   - **Issue C** [ambiguity]: Phase A 描述"0 template 结构改"太绝对 — 澄清"template 主体结构不动,只在已有 button 上换 class 名 + 新增 import"
   - **Issue D** [ambiguity]: G2 "新增 5 条 Notes.vue kao 契约"没说具体哪 5 条 — 列出 5 条具体契约(`<BookmarkButton` ≥ 4 / `<ArchiveStrip` ≥ 1 / `<FolioSurface variant="paper">` ≥ 1 / `<CharacterPortrait pose-id="narrator"` ≥ 1 / scoped CSS ≤ 700 行)
   - **Issue E** [memory cross-check]: Risks 没引用 `feedback_visual_integration_not_illustration.md` 7 次 PPT 平面块反馈 + 5C v3.14 19 failures 教训 — 加 R9 + R10
+- 2026-06-17 round 3 multi-dimensional self-review(fix 4 issues):
+  - **Issue R3-A [CRITICAL architecture]**: BookmarkButton component 渲染 label 时包 `<span class="bookmark-button__label">`,跟 uiPolish L77-80 字面量 `@click="...">导入</button>` 冲突。**决策**: 4 batch action 不重用 BookmarkButton component,改用 raw `<button>` + 新 `.material-action-btn` class,保留 uiPolish 字面量。Component 复用表删除 BookmarkButton × 4 行,新增 raw button + .material-action-btn 行;CSS 新增从 3 → 4(.material-action-btn 替换原 size=micro/variant 想法);G1 措辞调整;Phase A 实施步骤细化;加 R11。
+  - **Issue R3-B [ambiguity]**: CSS 行数 ≤ 700 软/硬阈值不明 — 加 "≤ 700 hard fail,701-770 软警告 ±10%,≥ 800 trigger follow-up"
+  - **Issue R3-C [phrasing]**: R8 "uiPolish test 是 spec 的 sibling" 表述不准 — 改为 "uiPolish test 是 spec 契约的实现载体"
+  - **Issue R3-D [consistency]**: BookmarkButton variant 映射(导入=primary 等)在 R3-A 后失效 — 删除;Component 表第 2 行原 BookmarkButton 整段移除
 - 等 user review → Approved → writing-plans skill
