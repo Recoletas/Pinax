@@ -278,7 +278,7 @@
     z-index: var(--z-stage-cta);
   }
 
-  .theme-kao .folio-surface--paper {
+  .theme-kao .writing-page .folio-surface--paper {
     z-index: var(--z-stage-decor);
   }
 

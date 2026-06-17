@@ -778,10 +778,10 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
     )
   })
 
-  it('kao.css exposes .theme-kao .folio-surface--paper with z-index: var(--z-stage-decor) (back plane)', () => {
+  it('kao.css exposes .theme-kao .writing-page .folio-surface--paper with z-index: var(--z-stage-decor) (back plane, scoped to writing page to avoid leaking to Experience.vue:60)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     expect(kaoCss).toMatch(
-      /\.theme-kao\s+\.folio-surface--paper\s*\{[^}]*z-index:\s*var\(--z-stage-decor\)/s,
+      /\.theme-kao\s+\.writing-page\s+\.folio-surface--paper\s*\{[^}]*z-index:\s*var\(--z-stage-decor\)/s,
     )
   })
 
