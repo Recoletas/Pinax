@@ -6,7 +6,7 @@
 
 ## 重点
 
-1. **Notes.vue 从"工具壳"切到 kao archive-folio 档案册**:保留 66 个 function + 27 ref + 5 computed 全部行为,仅替换视觉壳层 + 引入 4 个 kao 组件 + 1 个 CharacterPortrait 立绘
+1. **Notes.vue 从"工具壳"切到 kao archive-folio 档案册**:保留 66 个 function + 27 ref + 5 computed 全部行为,仅替换视觉壳层 + 引入 3 个 kao 组件(FolioSurface / ArchiveStrip / CharacterPortrait)+ 1 个 CharacterPortrait 立绘
 2. **uiPolish 硬契约 0 破坏**:保留 `material-selection-bar` 4 按钮 + `WorkbenchPageHero` + `GmPersonaLauncher` + `modal-fade` transition + ImageGenRail `@save-to-material` 钩子
 3. **kao.css gated by `.theme-kao`,legacy variant fallback 走精简后的 scoped CSS**:theme-system 不破坏,新增视觉仅在 kao variant 下生效
 
@@ -36,7 +36,7 @@
 
 ## Approach
 
-**核心策略**:保留全部功能逻辑 + 替换视觉壳层 + 引入 4 kao 组件 + 1 CharacterPortrait,实现 kao-ui-direction §7.4 "资料册/相片夹/索引页" 语义。Composition 走 WelcomeView 兄弟方案(2 个 AskUserQuestion 选项已确认):两栏 layout(sidebar + editor-main),archive strip 作为 entry 缩略嵌入 editor-main 内部,不做 split-pane 三栏。视觉基准对齐 WelcomeView 已 ship 的 18px hard-offset shadow + BookmarkButton `size=micro`(40px)避免挤掉 textarea,跟 WelcomeView 3 BookmarkButton 82px default 区分(material 是 toolbar 按钮,不是首页 CTA)。
+**核心策略**:保留全部功能逻辑 + 替换视觉壳层 + 引入 3 kao 组件(FolioSurface / ArchiveStrip / CharacterPortrait)+ 1 新 CSS class(`.material-action-btn`),实现 kao-ui-direction §7.4 "资料册/相片夹/索引页" 语义。Composition 走 WelcomeView 兄弟方案(2 个 AskUserQuestion 选项已确认):两栏 layout(sidebar + editor-main),archive strip 作为 entry 缩略嵌入 editor-main 内部,不做 split-pane 三栏。视觉基准对齐 WelcomeView 已 ship 的 18px hard-offset shadow,BookmarkButton component **不重用**(R3-A 决定) — 4 batch action 改用 raw `<button>` + `.material-action-btn` class 避免 uiPolish L77-80 字面量冲突。
 
 ## Architecture
 
@@ -50,13 +50,14 @@
 │  .books-     │  .editor-main (FolioSurface variant="paper"           │
 │  sidebar     │  decorated="true")                                     │
 │  ┌────────┐  │  ┌─────────────────────────────────────────────────┐  │
-│  │narrator│  │  │ toolbar: 4 × BookmarkButton size="micro"        │  │
-│  │Character│ │  │   variant=primary/secondary/secondary/          │  │
-│  │Portrait │  │  │   tertiary = 导入/采纳/归档/删除                  │  │
-│  │size=thumb│ │  │   @click=importCheckedToCanvas /                 │  │
-│  │caption= │  │  │   setCheckedAssetsState('accepted'/'archived')   │  │
-│  │"档案员"│  │  │   / deleteCheckedAssets                           │  │
-│  │256x192 │  │  ├─────────────────────────────────────────────────┤  │
+│  │narrator│  │  │ toolbar: 4 × raw <button>                       │  │
+│  │Character│ │  │   class="selection-action-btn material-action-btn"│  │
+│  │Portrait │  │  │   @click=importCheckedToCanvas /                 │  │
+│  │size=thumb│ │  │   setCheckedAssetsState('accepted'/'archived')   │  │
+│  │caption= │  │  │   / deleteCheckedAssets > 导入/采纳/归档/删除    │  │
+│  │"档案员"│  │  │   (kao 视觉由 .material-action-btn 提供,           │  │
+│  │256x192 │  │  │    BookmarkButton component 不重用,R3-A)         │  │
+│  └────────┘  │  ├─────────────────────────────────────────────────┤  │
 │  └────────┘  │  │ .title-row: title + 字数 chip + 3 mode switch    │  │
 │              │  ├─────────────────────────────────────────────────┤  │
 │  7 .material- │  │ <ArchiveStrip :items="archiveStripItems"          │  │
@@ -116,7 +117,7 @@
 | Phase | 目标 | 风险 |
 |---|---|---|
 | **Phase A** — CSS token + 3 kao 组件 import + scoped CSS 瘦身 + 新 CSS class | Notes.vue `<script setup>` import FolioSurface / ArchiveStrip / CharacterPortrait(BookmarkButton 不重用,见 R3-A);template 内 4 `<button class="selection-action-btn">` 改为 `<button class="selection-action-btn material-action-btn">`(保留 uiPolish L77-80 字面量);scoped CSS 大量删除(`toolbar-text-btn` / `add-btn.prominent/btn-new` / `tool-btn` / `mode-switch` / `asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`);kao.css 新增 4 个 utility / class;template 主体结构不动 | 模板主体结构不动,只在已有 button 上加新 class 名 + 新增 import;视觉切换主要靠 kao.css 新 utility + .selection-action-btn 视觉改写 |
-| **Phase B** — Template 重排 | editor-main 包 FolioSurface;sidebar 顶部加 CharacterPortrait;toolbar 4 selection-action-btn → 4 BookmarkButton;ArchiveStrip 3 collage tile 嵌入 | layout 大改,test 重点验证 |
+| **Phase B** — Template 重排 | editor-main 包 FolioSurface;sidebar 顶部加 CharacterPortrait;ArchiveStrip 3 collage tile 嵌入 editor-main(在 title-row 下方);modal 包 FolioSurface variant=paper | layout 大改,test 重点验证 |
 | **Phase C** — 1 次手动截图 + 验收 | 跑 uiPolish + notes + narrativeAssets 全测;记录截图到 STATUS.md | 无代码风险,纯验证 |
 
 ### Acceptance bar(per kao-ui-direction §11)
@@ -124,7 +125,7 @@
 1. "首页首屏一眼看上去不是 dashboard" — Notes editor-main FolioSurface 装裱"翻开页"视觉成立 ✓
 2. "册页/拼贴/书签语法切到" — FolioSurface + ArchiveStrip + BookmarkButton ✓
 3. "serif/sans 分工" — editor Iowan Old Style serif + UI Inter sans ✓
-4. "CTA 有独特形体" — 4 BookmarkButton clip-path + skewX + 18px hard-offset ✓
+4. "CTA 有独特形体" — 4 `.material-action-btn` 提供 18px hard-offset + gold border + paper-soft bg(BookmarkButton 不重用,但视觉仍满足 kao CTA 形体标准,见 R3-A) ✓
 5. "相同语法在 2+ 处成立" — WelcomeView + AppShell 已 ship,Notes 是第 3 处 ✓
 
 ## Self-Application
@@ -174,4 +175,10 @@
   - **Issue R3-B [ambiguity]**: CSS 行数 ≤ 700 软/硬阈值不明 — 加 "≤ 700 hard fail,701-770 软警告 ±10%,≥ 800 trigger follow-up"
   - **Issue R3-C [phrasing]**: R8 "uiPolish test 是 spec 的 sibling" 表述不准 — 改为 "uiPolish test 是 spec 契约的实现载体"
   - **Issue R3-D [consistency]**: BookmarkButton variant 映射(导入=primary 等)在 R3-A 后失效 — 删除;Component 表第 2 行原 BookmarkButton 整段移除
+- 2026-06-17 round 4 verification + consistency sweep(fix 4 issues):
+  - **Issue R4-A [CRITICAL consistency]**: §1 Layout ascii L53-58 还写 `BookmarkButton size="micro"`,跟 Component 表 L80 "BookmarkButton 不重用" 矛盾 — ascii 框改为 `4 × raw <button> class="selection-action-btn material-action-btn"`,加 "(kao 视觉由 .material-action-btn 提供,BookmarkButton component 不重用,R3-A)" 说明
+  - **Issue R4-B [consistency]**: Approach L39 还说 "BookmarkButton size=micro"(R3-A 后失效)— 重写为"BookmarkButton component 不重用 (R3-A 决定) — 4 batch action 改用 raw <button> + .material-action-btn class 避免 uiPolish L77-80 字面量冲突"
+  - **Issue R4-C [consistency]**: Acceptance bar L127 "4 BookmarkButton clip-path + skewX + 18px hard-offset" 跟 L80 矛盾 — 改为 "4 .material-action-btn 提供 18px hard-offset + gold border + paper-soft bg(BookmarkButton 不重用,但视觉仍满足 kao CTA 形体标准,见 R3-A)"
+  - **Issue R4-D [consistency]**: 重点 L9 说"引入 4 个 kao 组件",跟 R3-A 后 3 个 kao 组件矛盾 — 改为"引入 3 个 kao 组件"
+  - **Issue R4-E [scope refinement]**: Phase B 描述还提"toolbar 4 selection-action-btn → 4 BookmarkButton"(R3-A 后失效)— 改为"modal 包 FolioSurface variant=paper"
 - 等 user review → Approved → writing-plans skill
