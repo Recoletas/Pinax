@@ -17,16 +17,24 @@ describe('ui polish contract', () => {
     expect(mainCss).toMatch(/\.modal-scale-enter-active,\s*\.modal-scale-leave-active/);
   })
 
-  it('exposes the archive-folio utilities and mounts them across the core chrome surfaces', () => {
+  it('exposes the archive-folio utilities in kao.css (gated by .theme-kao, NOT in main.css) and mounts them across the core chrome surfaces', () => {
+    // 5C v3.15+: theme-system clean-separation — the archive-folio
+    // utility classes (`.is-folio`, `.is-bookmark`, `.is-archive-strip`)
+    // live in src/styles/themes/kao.css gated by `.theme-kao`. They
+    // must NOT be in main.css (would leak into the legacy variant).
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
     const mainCss = readProjectFile('src/styles/main.css')
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
     const appShell = readProjectFile('src/layouts/AppShell.vue')
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
-    expect(mainCss).toContain('.is-folio')
-    expect(mainCss).toContain('.is-bookmark')
-    expect(mainCss).toContain('.is-archive-strip')
+    expect(kaoCss).toContain('.is-folio')
+    expect(kaoCss).toContain('.is-bookmark')
+    expect(kaoCss).toContain('.is-archive-strip')
+    // Theme-system contract: main.css must NOT contain kao-only utilities.
+    expect(mainCss).not.toMatch(/is-archive-paper/)
+    expect(mainCss).not.toMatch(/is-archive-prop/)
     expect(welcomeView).toContain('<PosterStage')
     expect(welcomeView).toContain('<FolioSurface')
     expect(welcomeView).toContain('<BookmarkButton')
@@ -256,13 +264,20 @@ describe('welcome + experience pass 2 — z-index tokens and isolation', () => {
     expect(welcomeView).toMatch(/\.welcome-stage-poster\s*\{[\s\S]*?isolation:\s*isolate;[\s\S]*?\}/)
   })
 
-  it('exposes .is-archive-prop utility with 3 modifiers in main.css', () => {
+  it('exposes .is-archive-prop utility with 3 modifiers in kao.css (NOT in main.css)', () => {
+    // 5C v3.15+ theme-system clean-separation — the archive-prop
+    // utility (base + 3 modifiers: tape / fold / stain) lives in
+    // src/styles/themes/kao.css gated by `.theme-kao`. The main.css
+    // must NOT contain these (would leak into the legacy variant).
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
     const mainCss = readProjectFile('src/styles/main.css')
 
-    expect(mainCss).toContain('.is-archive-prop')
-    expect(mainCss).toContain('.is-archive-prop--tape')
-    expect(mainCss).toContain('.is-archive-prop--fold')
-    expect(mainCss).toContain('.is-archive-prop--stain')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--tape\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--fold\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.is-archive-prop--stain\b/)
+    expect(mainCss).not.toMatch(/is-archive-paper/)
+    expect(mainCss).not.toMatch(/is-archive-prop/)
   })
 
   it('replaces hardcoded mechanism-notice z-index with --z-mechanism-notice token', () => {

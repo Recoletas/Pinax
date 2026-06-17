@@ -31,36 +31,42 @@ function walkVueCssJs(dir, acc = []) {
   return acc
 }
 
-describe('CTA slant (5C v3 P1.D) — OpeningPage .stage-command base', () => {
-  it('declares --command-tilt: -12deg inside the .stage-command rule (P5r primary grammar)', () => {
+describe('CTA slant (5C v3.15+ upright stamp) — OpeningPage .stage-command base', () => {
+  it('declares --command-tilt in the 5C v3.15+ upright-stamp band (-3deg..3deg) inside the .stage-command rule', () => {
     const sfc = readProjectFile('src/pages/OpeningPage.vue')
 
-    // Pin the base .stage-command rule block (selector must be exactly
-    // ".stage-command", not "X .stage-command"). Look for a rule whose
-    // selector line starts with `.stage-command {` (not preceded by
-    // another class).
+    // Pin the base .stage-command rule block. 5C v3.15+ uses an
+    // upright stamp grammar (small tilt -3deg..3deg), replacing the
+    // earlier v3 P1.D P5r-14° grammar. The user/linter is actively
+    // iterating the exact value, so we test the band rather than a
+    // specific number.
     const ruleMatch = sfc.match(/^[ \t]*\.stage-command\s*\{[\s\S]*?\n\}/m)
     expect(ruleMatch).not.toBeNull()
     const rule = ruleMatch?.[0] ?? ''
-
-    expect(rule).toMatch(/--command-tilt:\s*-12deg/)
+    const tiltMatch = rule.match(/--command-tilt:\s*(-?\d+(?:\.\d+)?)deg/)
+    expect(tiltMatch, '.stage-command must declare --command-tilt').not.toBeNull()
+    const value = Number(tiltMatch?.[1])
+    expect(value).toBeGreaterThanOrEqual(-3)
+    expect(value).toBeLessThanOrEqual(3)
   })
 })
 
-describe('CTA slant (5C v3 P1.D) — OpeningPage .stage-command--secondary', () => {
-  it('declares --command-tilt at -12deg (unified) OR -10deg (mild variation)', () => {
+describe('CTA slant (5C v3.15+ upright stamp) — OpeningPage .stage-command--secondary', () => {
+  it('declares --command-tilt in the 5C v3.15+ upright-stamp band (-3deg..3deg) for .stage-command--secondary', () => {
     const sfc = readProjectFile('src/pages/OpeningPage.vue')
 
-    // Pin the secondary rule block and confirm the tilt is in the
-    // accepted amplitude range (-10 to -12). Accept either -12deg
-    // (fully unified) or -10deg (mild primary/secondary asymmetry
-    // within the P5r band). Selector must be exactly
-    // ".stage-command--secondary".
+    // Pin the secondary rule block. 5C v3.15+ secondary shares the
+    // same upright-stamp band as the base (the v3.15+ design uses a
+    // smaller secondary + scale(0.84) for visual layering rather than
+    // a different tilt angle).
     const ruleMatch = sfc.match(/^[ \t]*\.stage-command--secondary\s*\{[\s\S]*?\n\}/m)
     expect(ruleMatch).not.toBeNull()
     const rule = ruleMatch?.[0] ?? ''
-
-    expect(rule).toMatch(/--command-tilt:\s*-(?:10|12)deg/)
+    const tiltMatch = rule.match(/--command-tilt:\s*(-?\d+(?:\.\d+)?)deg/)
+    expect(tiltMatch, '.stage-command--secondary must declare --command-tilt').not.toBeNull()
+    const value = Number(tiltMatch?.[1])
+    expect(value).toBeGreaterThanOrEqual(-3)
+    expect(value).toBeLessThanOrEqual(3)
   })
 })
 
@@ -105,8 +111,8 @@ describe('CTA slant (5C v3 P1.D) — BookmarkButton consumer', () => {
   })
 })
 
-describe('CTA slant (5C v3 P1.D) — repo-wide invariant', () => {
-  it('no source file in src/components/folio/ or src/pages/ declares a --command-tilt outside -10deg..-12deg', () => {
+describe('CTA slant (5C v3.15+ upright stamp) — repo-wide invariant', () => {
+  it('no source file in src/components/folio/ or src/pages/ declares a --command-tilt outside the 5C v3.15+ upright-stamp band (-3deg..3deg)', () => {
     const root = resolve(process.cwd())
     const targets = [
       join(root, 'src/components/folio'),
@@ -114,9 +120,10 @@ describe('CTA slant (5C v3 P1.D) — repo-wide invariant', () => {
     ]
     const files = targets.flatMap((dir) => walkVueCssJs(dir))
 
-    // Walk every .vue / .css / .js file under both dirs and collect
-    // every --command-tilt declaration. Anything outside the P5r band
-    // fails the contract with a clear, named message.
+    // 5C v3.15+ band: small upright-stamp tilts (-3deg..3deg). The
+    // legacy/ subdir is excluded — those files are frozen pre-kao
+    // snapshots and may carry older -3deg / +2deg from the
+    // 4e779d2 boundary.
     const offenders = []
     const declRe = /--command-tilt:\s*(-?\d+(?:\.\d+)?)deg/g
     for (const file of files) {
@@ -124,8 +131,7 @@ describe('CTA slant (5C v3 P1.D) — repo-wide invariant', () => {
       let match
       while ((match = declRe.exec(source)) !== null) {
         const value = Number(match[1])
-        if (value < -12 || value > -10) {
-          // Compute line number for the offender for fast triage.
+        if (value < -3 || value > 3) {
           const upto = source.slice(0, match.index)
           const line = upto.split('\n').length
           const rel = file.replace(root + '/', '')
@@ -136,7 +142,7 @@ describe('CTA slant (5C v3 P1.D) — repo-wide invariant', () => {
 
     expect(
       offenders,
-      `All --command-tilt values must sit in the P5r -10..-12 band.\nOffenders:\n  ${offenders.join('\n  ')}`,
+      `All --command-tilt values must sit in the 5C v3.15+ upright-stamp band (-3deg..3deg).\nOffenders:\n  ${offenders.join('\n  ')}`,
     ).toEqual([])
   })
 })

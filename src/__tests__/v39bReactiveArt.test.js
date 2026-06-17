@@ -42,14 +42,17 @@ describe('5C v3.9b — Arknights reactive art patterns', () => {
     expect(mouseTiltSource).toMatch(/tiltY/)
   })
 
-  it('CharacterBackdrop runs a continuous breathing keyframe (3s, whole-art)', () => {
-    // v3.12: v3.10's `faceBreathe` (top-30% anchored, 1.5%) was replaced
-    // by v3.11's `artBreathe` (whole-art, 4% on 50% 60%) and v3.12
-    // bumps it to 6% amplitude with a 3s period (50% larger, 33%
-    // faster) so the motion is impossible to miss. Duration below is
-    // updated to the v3.12 contract.
-    expect(backdropSource).toMatch(/@keyframes\s+artBreathe/)
-    expect(backdropSource).toMatch(/animation:\s*artBreathe\s+3s/)
+  it('CharacterBackdrop runs dynamic-wallpaper overlays (wallpaperMist 14s) instead of whole-art breathing', () => {
+    // 5C v3.15+ supersedes the v3.10-v3.12 whole-art breathing
+    // (`faceBreathe` → `artBreathe`) with localized dynamic-wallpaper
+    // overlays on the CharacterBackdrop's ::before / ::after pseudo
+    // elements (wallpaperMist / wallpaperGrain / wallpaperLight). The
+    // image itself stays fixed; the mist / grain / light layers move.
+    expect(backdropSource).toMatch(/@keyframes\s+wallpaperMist\b/)
+    expect(backdropSource).toMatch(/animation:\s*wallpaperMist\s+14s/)
+    // Old whole-art motion is fully retired (no artBreathe, no artDrift).
+    expect(backdropSource).not.toMatch(/@keyframes\s+artBreathe\b/)
+    expect(backdropSource).not.toMatch(/@keyframes\s+artDrift\b/)
   })
 
   it('CharacterBackdrop runs a status underline pulse keyframe (1.5s) on the kicker', () => {
