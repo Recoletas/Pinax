@@ -145,4 +145,49 @@
     filter: blur(2px);
     box-shadow: none;
   }
+
+  /* N5C: material-action-btn - batch action button with kao visual */
+  .material-action-btn {
+    background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+    border-radius: 0;
+    box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+    color: var(--archive-ink);
+    transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+  }
+  .material-action-btn:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-gold) 24%, transparent);
+    filter: brightness(1.04);
+  }
+
+  /* N5C: material-bookmark-toolbar - 4-button grid container */
+  .material-bookmark-toolbar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
+    background: color-mix(in srgb, var(--archive-paper-soft) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+    border-radius: 0;
+  }
+
+  /* N5C: material-entry-card - torn-edge entry thumbnail (3/4 aspect) */
+  .material-entry-card {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    background: var(--archive-paper-soft);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+    clip-path: polygon(0 6%, 4% 0, 96% 2%, 100% 8%, 98% 94%, 92% 100%, 4% 96%, 0 90%);
+    box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  }
+
+  /* N5C: material-tear-svg - SVG defs container for torn edge filter */
+  .material-tear-svg {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
 }
