@@ -732,3 +732,29 @@ describe('ui polish — Phase 1C Writing page kao surface', () => {
     expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*flex-direction:\s*column/)
   })
 })
+
+// W3 Phase 1C v2: Writing visual emergence — commit 1 (drop-cap)
+// 3 contracts: drop-cap rule exists, uses --font-display, uses --archive-gold.
+describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
+  it('kao.css exposes .theme-kao .editor-preview > p:first-of-type::first-letter drop-cap rule (CSS ::first-letter on first CJK/Latin paragraph char)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.editor-preview\s+>\s+p:first-of-type::first-letter\s*\{/)
+  })
+
+  it('drop-cap rule uses var(--font-display) (LXGW WenKai via token, not hardcoded family)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Scope: only the ::first-letter block must reference --font-display.
+    // The pattern matches the ::first-letter selector followed by a brace + content + --font-display.
+    expect(kaoCss).toMatch(
+      /::first-letter\s*\{[^}]*font-family:\s*var\(--font-display\)/s,
+    )
+  })
+
+  it('drop-cap rule uses --archive-gold (token-aware color, not hardcoded hex)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // The ::first-letter block must reference --archive-gold in text-shadow OR background.
+    expect(kaoCss).toMatch(
+      /::first-letter\s*\{[^}]*var\(--archive-gold\)/s,
+    )
+  })
+})

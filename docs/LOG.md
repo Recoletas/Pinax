@@ -38,6 +38,26 @@ Deferred（按重要性排序，不在本 commit）：
 - `git diff --check` 通过。
 - 无 `Co-Authored-By` footer。
 
+## 2026-06-17 - Writing 页 W3 visual emergence commit 1 (drop-cap)
+
+状态：W3 3 commit ship gate 第 1/3 完成（`70bb601`，未推送）
+
+结果摘要：
+- 修了 v2 ship 后 user 反馈的"和原来差别不大感觉"。v2 是 surface swap(组件 + token 层),没动视觉层。W3 是视觉涌现层(立体感 + drop-cap + 慢呼吸 + 侧栏活),按 5C v3.12 涌现经验拆 3 atomic commit。
+- 本 commit:drop-cap 手稿页招牌。kao.css 加 1 条 `.theme-kao .editor-preview > p:first-of-type::first-letter` 规则(3 行 LXGW WenKai 金色 180 度 gold→rose gradient initial)+ 1 个 reduced-motion a11y 守卫 block(commits 2/3 共享)。
+- Writing.vue 0 template change(纯 :first-of-type 选择器),0 新组件,0 新依赖,所有 CSS gated by .theme-kao 不泄漏给 legacy。
+- 3 个新 uiPolish 契约(selector pattern / --font-display token / --archive-gold token),全绿。
+- R1(CJK-only)按 spec 关闭:drop-cap 对任意首字(CJK 或 Latin)起作用,两者都读为金色 initial。
+
+验证：
+- `npm run test:run` 通过(109 files / 765 tests,+0 regression)。
+- 4-contract gate(60/60)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- `prefers-reduced-motion: reduce` 守卫建立(本 commit 用不到但 commit 2/3 复用)。
+- 无 `Co-Authored-By` footer。
+- 手动截图复盘通过(drop-cap 视觉合 user 期望)。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口
