@@ -25,7 +25,7 @@
           <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="goToWriting" title="返回写作">
             写作
           </button>
-          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
+          <button class="material-action-btn workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
             新素材
           </button>
           <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
