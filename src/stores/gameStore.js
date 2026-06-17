@@ -13,6 +13,7 @@ import { buildMem0MemoryContext } from '../services/memorySync'
 import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { debounce, flushPending } from '../composables/useDebounce'
 import { useWorldStore } from './worldStore'
 
 const DEFAULT_WORLD_MAP_STATE = {
@@ -421,6 +422,31 @@ function resolveActiveWorldbookId() {
 function findSession(sessions, id) {
   if (!id || !Array.isArray(sessions)) return null
   return sessions.find((session) => session.id === id) || null
+}
+
+// Per-store-instance debouncer for saveSessions (Pinax Tier 1 #11).
+// WeakMap so the debouncer is garbage-collected with the store instance.
+// 500ms trailing-only merge; 5+ writes per AI reply cycle collapse to 1.
+const saveSessionDebouncers = new WeakMap()
+
+function getSaveSessionsDebouncer(store) {
+  if (!saveSessionDebouncers.has(store)) {
+    saveSessionDebouncers.set(store, debounce(() => {
+      setItem(STORAGE_KEYS.WRITING_SESSIONS, store.sessions)
+    }, 500, { leading: false, trailing: true }))
+  }
+  return saveSessionDebouncers.get(store)
+}
+
+// 3-event unload flush (guarded: SSR / Node tests have no window/document).
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flushPending)
+  window.addEventListener('pagehide', flushPending)
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) flushPending()
+    })
+  }
 }
 
 export const useGameStore = defineStore('game', {
@@ -951,7 +977,13 @@ export const useGameStore = defineStore('game', {
     },
 
     saveSessions() {
-      setItem(STORAGE_KEYS.WRITING_SESSIONS, this.sessions)
+      getSaveSessionsDebouncer(this)()
+    },
+
+    flushSaveSessions() {
+      const debounced = saveSessionDebouncers.get(this)
+      if (debounced) debounced.flush()
+      else setItem(STORAGE_KEYS.WRITING_SESSIONS, this.sessions)
     },
 
     getLatestSessionForWorldbook(worldbookId) {
