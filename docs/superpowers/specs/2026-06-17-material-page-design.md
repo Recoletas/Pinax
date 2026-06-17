@@ -58,7 +58,7 @@
 │  │"档案员"│  │  │   (kao 视觉由 .material-action-btn 提供,           │  │
 │  │256x192 │  │  │    BookmarkButton component 不重用,R3-A)         │  │
 │  └────────┘  │  ├─────────────────────────────────────────────────┤  │
-│  └────────┘  │  │ .title-row: title + 字数 chip + 3 mode switch    │  │
+│              │  │ .title-row: title + 字数 chip + 3 mode switch    │  │
 │              │  ├─────────────────────────────────────────────────┤  │
 │  7 .material- │  │ <ArchiveStrip :items="archiveStripItems"          │  │
 │  group 折叠  │  │   :image="firstImageDataUrl" /> (3 collage tile) │  │
@@ -181,4 +181,6 @@
   - **Issue R4-C [consistency]**: Acceptance bar L127 "4 BookmarkButton clip-path + skewX + 18px hard-offset" 跟 L80 矛盾 — 改为 "4 .material-action-btn 提供 18px hard-offset + gold border + paper-soft bg(BookmarkButton 不重用,但视觉仍满足 kao CTA 形体标准,见 R3-A)"
   - **Issue R4-D [consistency]**: 重点 L9 说"引入 4 个 kao 组件",跟 R3-A 后 3 个 kao 组件矛盾 — 改为"引入 3 个 kao 组件"
   - **Issue R4-E [scope refinement]**: Phase B 描述还提"toolbar 4 selection-action-btn → 4 BookmarkButton"(R3-A 后失效)— 改为"modal 包 FolioSurface variant=paper"
+- 2026-06-17 round 5 verification(fix 1 issue):
+  - **Issue R5-A [consistency]**: ascii 框 L60-61 重复 `└────────┘`(R4 fix 引入)— 删除 L61 重复的 sidebar 块结束符,保留 L60 正确的 sidebar/editor 边界符
 - 等 user review → Approved → writing-plans skill
