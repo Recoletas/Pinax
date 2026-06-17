@@ -19,10 +19,10 @@
 ## Goals
 
 1. **G1** Notes.vue 在 `.theme-kao` 下视觉升级为"档案册":editor-main 由 `FolioSurface variant="paper"` 装裱,sidebar 顶部加 `CharacterPortrait narrator`,toolbar 4 `selection-action-btn` 替换为 4 `BookmarkButton size="micro"`,新增 `ArchiveStrip` 3 entry collage tile
-2. **G2** uiPolish test 0 破坏(4 个硬契约:`material-selection-bar` + 4 click handler + 文案 / `<Transition modal-fade>` / `<GmPersonaLauncher>`(无 `.advisor-fab`)/ `<WorkbenchPageHero>` + `'Material Library'`),新增 5 条 Notes.vue kao 契约 + 1 条 scoped CSS 行数守护
+2. **G2** uiPolish test 0 破坏(4 个硬契约:`material-selection-bar` + 4 click handler + 文案 / `<Transition modal-fade>` / `<GmPersonaLauncher>`(无 `.advisor-fab`)/ `<WorkbenchPageHero>` + `'Material Library'`),新增 5 条 Notes.vue kao 契约(`<BookmarkButton` ≥ 4 / `<ArchiveStrip` ≥ 1 / `<FolioSurface variant="paper">` ≥ 1 / `<CharacterPortrait pose-id="narrator"` ≥ 1 / scoped CSS 行数 ≤ 700)
 3. **G3** Notes.vue scoped CSS 从 1338 行精简到 ≤ 700 行(同步瘦身 -50%),功能逻辑 0 改动(66 function / 27 ref / 5 computed 全部保留,narrativeAssets / relationCanvas / professionalInfoGenerator 3 service 调用签名不变)
 4. **G4** `.theme-legacy` variant 下 Notes.vue 走精简后的工具壳 fallback,**theme-system 0 破坏**,`<AppearanceControls>` 4-radio 切换 0 改动
-5. **G5** 1 次手动截图 `/materials` route,记录到 `docs/STATUS.md` Recently done,验证 4 个 kao-ui-direction §11 acceptance bar 视觉成立(档案册非工作台 / 4 .is-* utility / serif-sans 分工 / BookmarkButton 独特 CTA / 第 3 处 kao 语法成立)
+5. **G5** 1 次手动截图 `/materials` route,记录到 `docs/STATUS.md` Recently done,验证 5 个 kao-ui-direction §11 acceptance bar 视觉成立(档案册非工作台 / 4 .is-* utility / serif-sans 分工 / BookmarkButton 独特 CTA / 第 3 处 kao 语法成立)
 
 ## Non-Goals
 
@@ -49,18 +49,18 @@
 ├──────────────┬───────────────────────────────────────────────────────┤
 │  .books-     │  .editor-main (FolioSurface variant="paper"           │
 │  sidebar     │  decorated="true")                                     │
-│              │  ┌─────────────────────────────────────────────────┐  │
-│  ┌────────┐  │  │ .asset-toolbar / .material-bookmark-toolbar:     │  │
-│  │narrator│  │  │   4 × <BookmarkButton size="micro"              │  │
-│  │Character│ │  │   variant="primary/tertiary/secondary"            │  │
-│  │Portrait │  │  │   @click=importCheckedToCanvas /                 │  │
-│  │size=thumb│ │  │   setCheckedAssetsState('accepted'/'archived')   │  │
-│  │caption="档案员"│  │   / deleteCheckedAssets > 导入/采纳/归档/删除│  │
-│  └────────┘  │  ├─────────────────────────────────────────────────┤  │
-│  7 .material- │  │ .title-row: title + 字数 chip + 3 mode switch    │  │
-│  group 折叠  │  ├─────────────────────────────────────────────────┤  │
-│              │  │ <ArchiveStrip :items="archiveStripItems"          │  │
-│              │  │   :image="firstImageDataUrl" /> (3 collage tile) │  │
+│  ┌────────┐  │  ┌─────────────────────────────────────────────────┐  │
+│  │narrator│  │  │ toolbar: 4 × BookmarkButton size="micro"        │  │
+│  │Character│ │  │   variant=primary/secondary/secondary/          │  │
+│  │Portrait │  │  │   tertiary = 导入/采纳/归档/删除                  │  │
+│  │size=thumb│ │  │   @click=importCheckedToCanvas /                 │  │
+│  │caption= │  │  │   setCheckedAssetsState('accepted'/'archived')   │  │
+│  │"档案员"│  │  │   / deleteCheckedAssets                           │  │
+│  │256x192 │  │  ├─────────────────────────────────────────────────┤  │
+│  └────────┘  │  │ .title-row: title + 字数 chip + 3 mode switch    │  │
+│              │  ├─────────────────────────────────────────────────┤  │
+│  7 .material- │  │ <ArchiveStrip :items="archiveStripItems"          │  │
+│  group 折叠  │  │   :image="firstImageDataUrl" /> (3 collage tile) │  │
 │              │  ├─────────────────────────────────────────────────┤  │
 │              │  │ textarea.editor-textarea (clip-path polygon      │  │
 │              │  │ 微撕角,0 radius + 18px hard-offset shadow)       │  │
@@ -112,7 +112,7 @@
 
 | Phase | 目标 | 风险 |
 |---|---|---|
-| **Phase A** — CSS token + 4 kao 组件 import | Notes.vue import FolioSurface / BookmarkButton / ArchiveStrip / CharacterPortrait;scoped CSS 大幅瘦身;0 template 结构改 | 模板几乎不动,视觉仅 .is-* utility 切换 |
+| **Phase A** — CSS token + 4 kao 组件 import + scoped CSS 瘦身 | Notes.vue `<script setup>` import FolioSurface / BookmarkButton / ArchiveStrip / CharacterPortrait;template 内 4 selection-action-btn 的 class 名换成 `bookmark-button is-bookmark bookmark-button--size-micro`,但保留 `@click` + 文案字面量;scoped CSS 大量删除(`toolbar-text-btn` / `selection-action-btn` / `add-btn.prominent/btn-new` / `tool-btn` / `mode-switch` / `asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`);template 主体结构不动 | 模板主体结构不动,只在已有 button 上换 class 名 + 新增 import;视觉仅 .is-* utility 切换 |
 | **Phase B** — Template 重排 | editor-main 包 FolioSurface;sidebar 顶部加 CharacterPortrait;toolbar 4 selection-action-btn → 4 BookmarkButton;ArchiveStrip 3 collage tile 嵌入 | layout 大改,test 重点验证 |
 | **Phase C** — 1 次手动截图 + 验收 | 跑 uiPolish + notes + narrativeAssets 全测;记录截图到 STATUS.md | 无代码风险,纯验证 |
 
@@ -150,11 +150,19 @@
 | **R5**: narrator label "在场叙述者" 长期贴切度弱 | 短期 ship,长期 user 手画 archive-keeper(5B v0.2) | label 不在 uiPolish 契约,可后续替换 |
 | **R6**: uiPolish L532 锁 WelcomeView 82px default 不影响 material | uiPolish L532 只锁 WelcomeView,Notes.vue 无 size 限制 | 若 W 后续同构改造需 W 单独 spec |
 | **R7**: 撕边 SVG filter inline 复制产生代码重复 | 短期接受,长期 follow-up extract `<TornEdgeFilter>` 共享 | 同步维护两份 `<defs>` |
-| **R8**: uiPolish test 新增 5 条 Notes 契约 + 1 条 CSS 行数守护 | spec G2 已列 5+1 测试名;Phase B 同步加 | uiPolish test 是 spec 的 sibling,需协调 |
+| **R8**: uiPolish test 新增 5 条 Notes 契约 + 1 条 CSS 行数守护 | spec G2 已列 5 条测试名;Phase B 同步加 | uiPolish test 是 spec 的 sibling,需协调 |
+| **R9**: "PPT 平面块"风险(per `feedback_visual_integration_not_illustration.md` 7 次反馈) — 严禁 translucent + soft shadow + 矩形老路 | 18px hard-offset shadow + FolioSurface 撕角 + textarea clip-path polygon 微撕角 + 0 radius + 4 .is-* utility 全部走 kao 视觉,不用 rgba(0,0,0,0.05-0.15) soft shadow | 视觉最终还是要 user 1 次手动截图确认(Phase C);若仍"平面块",follow-up Phase D 调整 |
+| **R10**: 5C v3.14 ship 后 19 个 uiPolish test failures 教训(测试按 animation name 写导致过期) | G2 的 5 条新契约按 **behavior** 写(`element exists` / `class contains`),不按 animation name 写(不锁 `artBreathe` / `wallpaperMist` 等) | 仍需 Phase B 实跑验证 5 条新契约不会随 kao.css 演进而漂移 |
 
 ---
 
 ## 评审记录
 
 - 2026-06-17 初稿 — 由 Claude 基于 3 个并行 subagent(Notes.vue 实现 / spec-plan 调研 / 视觉资产)+ 8 个核心文件亲自读 + 5+5 轮 self-review 撰写
+- 2026-06-17 round 2 self-review(fix 5 issues):
+  - **Issue A** [internal consistency]: §1 Layout ascii 还写 `primary/tertiary/secondary`,§2 表已改 `primary/secondary/secondary/tertiary` — ascii 框同步
+  - **Issue B** [ambiguity]: G5 说"4 个" acceptance bar,实际 §11 列 5 条 — 改"5 个"
+  - **Issue C** [ambiguity]: Phase A 描述"0 template 结构改"太绝对 — 澄清"template 主体结构不动,只在已有 button 上换 class 名 + 新增 import"
+  - **Issue D** [ambiguity]: G2 "新增 5 条 Notes.vue kao 契约"没说具体哪 5 条 — 列出 5 条具体契约(`<BookmarkButton` ≥ 4 / `<ArchiveStrip` ≥ 1 / `<FolioSurface variant="paper">` ≥ 1 / `<CharacterPortrait pose-id="narrator"` ≥ 1 / scoped CSS ≤ 700 行)
+  - **Issue E** [memory cross-check]: Risks 没引用 `feedback_visual_integration_not_illustration.md` 7 次 PPT 平面块反馈 + 5C v3.14 19 failures 教训 — 加 R9 + R10
 - 等 user review → Approved → writing-plans skill
