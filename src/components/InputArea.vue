@@ -200,6 +200,7 @@ import { ref, computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { buildContextMessage } from '../services/api'
 import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
+import { estimateTokens } from '../composables/useTokenEstimate'
 
 const emit = defineEmits(['send'])
 const gameStore = useGameStore()
@@ -313,13 +314,6 @@ function addNewDialogueCharacter() {
 
 function deleteDialogueCharacter(id) {
   gameStore.deleteDialogueCharacter(id)
-}
-
-function estimateTokens(text) {
-  if (!text) return 0
-  const chinese = (text.match(/[一-龥]/g) || []).length
-  const english = (text.match(/[a-zA-Z]/g) || []).length
-  return Math.ceil(chinese * 1.5 + english / 1.3)
 }
 
 const contextMsg = computed(() => buildContextMessage(gameStore.dialogueCharacter, {

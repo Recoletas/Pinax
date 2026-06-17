@@ -17,6 +17,7 @@ import {
   PERSPECTIVE_PRESETS,
   getNarrativeStyle
 } from './promptRegistry'
+import { estimateTokens } from '../composables/useTokenEstimate'
 
 /**
  * 构建改写提示词
@@ -104,9 +105,9 @@ export async function rewriteText(text, options = {}) {
     temperature = 0.7
   } = options
 
-  // 估算输出 token：原文长度 * 1.2（允许 20% 变化）* 2（中文约 2 字/token）
+  // 估算输出 token：原文 token * 1.2（允许 20% 变化）
   const estimatedTokens = Math.min(
-    Math.ceil(text.length * 1.2 * 2),
+    Math.ceil(estimateTokens(text) * 1.2),
     maxTokens
   )
 

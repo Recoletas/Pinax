@@ -1,4 +1,5 @@
 import { summarizeStructuredSettings } from './settingPanelSchema'
+import { estimateTokens } from '../composables/useTokenEstimate'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
@@ -254,18 +255,24 @@ export function buildWorldbookContext({
   starterEntryLimits = {}
 } = {}) {
   const warnings = []
+  // token-based budget: maxChars is a worst-case ASCII upper bound
+  // (1 / 0.3 ≈ 3.33 chars/token); budget CHECK uses estimateTokens()
+  const effectiveBudget = Number(tokenBudget) || DEFAULT_TOKEN_BUDGET
+  const maxChars = Math.max(800, Math.ceil(effectiveBudget / 0.3))
+  const emptyBudgetReport = {
+    tokenBudget,
+    maxChars,
+    usedChars: 0,
+    usedTokens: 0,
+    truncatedEntries: 0
+  }
 
   if (!worldbook) {
     warnings.push('no-worldbook')
     return {
       messages: [],
       matchedEntries: [],
-      budgetReport: {
-        tokenBudget,
-        maxChars: tokenBudget * 2,
-        usedChars: 0,
-        truncatedEntries: 0
-      },
+      budgetReport: emptyBudgetReport,
       warnings
     }
   }
@@ -284,19 +291,14 @@ export function buildWorldbookContext({
     return {
       messages: [],
       matchedEntries,
-      budgetReport: {
-        tokenBudget,
-        maxChars: tokenBudget * 2,
-        usedChars: 0,
-        truncatedEntries: 0
-      },
+      budgetReport: { ...emptyBudgetReport },
       warnings
     }
   }
 
   const parts = []
   let usedChars = 0
-  const maxChars = Math.max(800, Math.floor(Number(tokenBudget) || DEFAULT_TOKEN_BUDGET) * 2)
+  let usedTokens = 0
   let truncatedEntries = 0
 
   parts.push(`【世界书：${worldbook.name || '未命名世界书'}】`)
@@ -306,6 +308,7 @@ export function buildWorldbookContext({
     const text = `\n\n【世界设定】\n${worldDesc}`
     parts.push(text)
     usedChars += text.length
+    usedTokens += estimateTokens(text)
   }
 
   const writingStyle = String(worldbook.writingStyle || '').trim()
@@ -313,6 +316,7 @@ export function buildWorldbookContext({
     const text = `\n\n【写作风格】\n${writingStyle}`
     parts.push(text)
     usedChars += text.length
+    usedTokens += estimateTokens(text)
   }
 
   const forbidden = String(worldbook.forbidden || '').trim()
@@ -320,6 +324,7 @@ export function buildWorldbookContext({
     const text = `\n\n【禁止内容】\n${forbidden}`
     parts.push(text)
     usedChars += text.length
+    usedTokens += estimateTokens(text)
   }
 
   const examples = String(worldbook.examples || '').trim()
@@ -327,14 +332,16 @@ export function buildWorldbookContext({
     const text = `\n\n【示例文本】\n${examples}`
     parts.push(text)
     usedChars += text.length
+    usedTokens += estimateTokens(text)
   }
 
   const structuredSummary = summarizeStructuredSettings(worldbook.structuredSettings)
   if (structuredSummary) {
     const text = `\n\n【结构化设定】\n${structuredSummary}`
-    if (usedChars + text.length <= maxChars) {
+    if (usedTokens + estimateTokens(text) <= effectiveBudget) {
       parts.push(text)
       usedChars += text.length
+      usedTokens += estimateTokens(text)
     } else {
       warnings.push('structured-settings-truncated')
     }
@@ -344,13 +351,14 @@ export function buildWorldbookContext({
 
   for (const entry of matchedEntries) {
     const entryText = `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
-    if (usedChars + entryText.length > maxChars) {
+    if (usedTokens + estimateTokens(entryText) > effectiveBudget) {
       truncatedEntries += 1
       warnings.push(`truncated:${entry.name}`)
       continue
     }
     parts.push(entryText)
     usedChars += entryText.length
+    usedTokens += estimateTokens(entryText)
   }
 
   parts.push('\n\n⚠️ 重要约束：')

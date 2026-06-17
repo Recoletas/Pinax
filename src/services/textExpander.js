@@ -15,6 +15,7 @@ import {
   NARRATIVE_STYLES,
   getNarrativeStyle
 } from './promptRegistry'
+import { estimateTokens } from '../composables/useTokenEstimate'
 
 /**
  * 构建扩展提示词
@@ -81,9 +82,9 @@ export async function expandText(text, options = {}) {
     temperature = 0.7
   } = options
 
-  // 估算输出 token：原文字数 * 目标倍数 * 2（中文约 2 字/token）
+  // 估算输出 token：原文 token * 目标倍数
   const estimatedTokens = Math.min(
-    Math.ceil(text.length * targetLength * 2),
+    Math.ceil(estimateTokens(text) * targetLength),
     maxTokens
   )
 
