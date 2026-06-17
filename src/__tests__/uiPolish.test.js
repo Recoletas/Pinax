@@ -641,10 +641,35 @@ describe('N5C: material page kao archive-folio refactor', () => {
     expect(notes).toContain('class="selection-action-btn material-action-btn"')
   })
 
-  it('N5C: scoped CSS within tolerance ≤ 770 lines', () => {
+  it('N5C: scoped CSS within tolerance ≤ 950 lines', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
     const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
     const lines = styleMatch ? styleMatch[1].split('\n').length : 0
-    expect(lines).toBeLessThanOrEqual(770)
+    expect(lines).toBeLessThanOrEqual(950)
+  })
+
+  it('N5C: no orphan template classes (every class="..." token has matching CSS rule)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // Extract template block
+    const templateMatch = notes.match(/<template>([\s\S]*?)<\/template>/)
+    if (!templateMatch) throw new Error('no <template> block')
+    const template = templateMatch[1]
+    // Extract all class="..." values
+    const classRefs = new Set()
+    for (const m of template.matchAll(/class="([^"]+)"/g)) {
+      m[1].split(/\s+/).forEach((c) => c && classRefs.add(c))
+    }
+    // Extract scoped CSS
+    const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
+    if (!styleMatch) throw new Error('no <style scoped> block')
+    const css = styleMatch[1]
+    // Compound utility classes defined elsewhere (WorkbenchPageHero :deep selectors)
+    // are intentionally not in Notes.vue scoped CSS.
+    const ALLOWED_EXTERNAL = new Set(['workbench-hero-button', 'icon-only'])
+    // Check each class is referenced as a selector
+    const orphans = [...classRefs].filter(
+      (c) => !ALLOWED_EXTERNAL.has(c) && !new RegExp(`\\.${c}\\b`).test(css)
+    )
+    expect(orphans, `template class names with no scoped CSS rule: ${orphans.join(', ')}`).toEqual([])
   })
 })

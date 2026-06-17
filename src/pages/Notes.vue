@@ -462,6 +462,10 @@ const archiveStripItems = computed(() => {
     .slice(0, 3)
     .map((a) => ({ label: a.title || '无标题', position: 'center' }))
 })
+// N5C: when user picks an asset, switch ArchiveStrip to that asset's kind
+watch(() => selectedAsset.value?.kind, (k) => {
+  if (k) currentKindForArchiveStrip.value = k
+})
 const firstImageDataUrl = computed(() => {
   const ref = chapters.value.find((a) => a.image?.data)
   return ref?.image?.data || ''
@@ -1976,6 +1980,212 @@ function stopResizeRight() {
   flex: 1;
 }
 
+/* 主题切换 + 工具栏文字按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.theme-toggle:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-text-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-text-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+/* 侧栏 + 新建按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.add-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.add-btn.prominent {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+}
+
+.add-btn.prominent:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.add-btn.btn-new {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+  border-radius: 6px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-btn.btn-new:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-text);
+}
+
+.add-btn.btn-new svg {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+
+/* 画布操作按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.asset-canvas-primary {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.asset-canvas-primary:hover {
+  background: var(--accent-hover);
+}
+
+.asset-canvas-secondary {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.asset-canvas-secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.asset-canvas-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 模式切换 + 工具按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  gap: 2px;
+}
+
+.mode-switch .tool-btn {
+  height: 24px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.mode-switch .tool-btn.active {
+  border-color: var(--accent);
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  height: 26px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.tool-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-primary);
+}
+
+.tool-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.tool-btn.sm {
+  padding: 4px 8px;
+  height: 24px;
+  background: var(--bg-primary);
+}
+
+.tool-btn.close {
+  color: var(--text-muted);
+  background: var(--bg-primary);
+}
+
+.tool-btn.close:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-primary);
+}
 
 .editor-textarea {
   flex: 1;
