@@ -11,15 +11,16 @@ function readProjectFile(path) {
 describe('stereo migration — character-art skeleton + real (pass 5B commit: ship gate)', () => {
   it('characterArt.js exposes 6 real poses with status="real" (3 character + 3 scene)', () => {
     expect(Array.isArray(characterArt)).toBe(true)
-    expect(characterArt).toHaveLength(6)
+    expect(characterArt).toHaveLength(7)
 
     const realEntries = characterArt.filter((entry) => entry.status === 'real')
     expect(realEntries).toHaveLength(6)
 
     const characterIds = ['opening-cover', 'narrator', 'speaker-thumb']
     const sceneIds = ['opening-scene-01', 'opening-scene-02', 'opening-scene-03']
+    const writingIds = ['writing-sidekick']
     const actualIds = characterArt.map((entry) => entry.id).sort()
-    expect(actualIds).toEqual([...characterIds, ...sceneIds].sort())
+    expect(actualIds).toEqual([...characterIds, ...sceneIds, ...writingIds].sort())
 
     for (const entry of characterArt) {
       expect(entry).toHaveProperty('id')
@@ -118,5 +119,28 @@ describe('stereo migration — page wiring (pass 5A commit 2 + 5C refactor)', ()
     const experience = readProjectFile('src/pages/Experience.vue')
     const matches = experience.match(/v-if="hasSelectedWorldbook"/g) || []
     expect(matches).toHaveLength(0)
+  })
+
+  it('Writing.vue sidebar footer mounts CharacterPortrait pose-id="writing-sidekick" (kao archive-folio chapter-side pose-D stub)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    // The sidebar footer must host a CharacterPortrait bound to a registered poseId.
+    // pose-D ("半身侧视 · 静默批注") per character-driven-arc.md:133.
+    expect(writing).toMatch(/<CharacterPortrait[\s\S]*?pose-id="writing-sidekick"[\s\S]*?\/>/)
+    // Must be inside the books-sidebar FolioSurface (the chapter list rail, not the editor).
+    // Source uses <FolioSurface as="aside" class="books-sidebar writing-sidebar"> because
+    // the FolioSurface component renders the actual <aside> tag via <component :is="as">.
+    const sidebarSection = writing.match(
+      /<FolioSurface[^>]*as="aside"[^>]*class="books-sidebar[^"]*"[\s\S]*?<\/FolioSurface>/,
+    )
+    expect(sidebarSection).not.toBeNull()
+    expect(sidebarSection?.[0] ?? '').toContain('CharacterPortrait')
+  })
+
+  it('characterArt.js exposes 1 writing-sidekick stub pose (Writing page 侧栏 pose-D 半身体侧视 占位)', () => {
+    const entry = characterArt.find((e) => e.id === 'writing-sidekick')
+    expect(entry).toBeDefined()
+    expect(entry).toMatchObject({ status: 'stub', label: expect.any(String) })
+    expect(typeof entry.src).toBe('string')
+    expect(entry.src).not.toBe('')
   })
 })

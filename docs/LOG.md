@@ -9,6 +9,121 @@
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
 
+## 2026-06-17 - Writing 页 kao archive-folio 表面重构（Phase 1C 首签 + v2 审查修复）
+
+状态：完成 1 commit ship gate（`a3b650b`，v2 amend 含 5 项审查修复，未推送）
+
+结果摘要：
+- Writing 页从旧 "workbench hero + flat sidebar + dark/light tool-btn" 视觉栈迁到 kao archive-folio 语言：`<FolioSurface>` 包装 4 区（hero header chrome+plain / books-sidebar paper+decorated / editor-main chrome+plain / asset-inbox modal paper+decorated），chapter 列表行变 `<BookmarkButton variant="tertiary" size="compact" :index :label>` 把侧栏变成 kao 目录页，AI 面板 primary 应用 / secondary 取消切 `<BookmarkButton variant="primary|secondary">` 并改 `display: grid; grid-template-columns: 1fr 1fr` 避免 72+72 垂直堆叠到 144px，mode switch (wysiwyg/markdown/preview) 保持 `.action-btn` 锁。
+- 侧栏 footer 挂 pose-D 半身侧视 `<CharacterPortrait pose-id="writing-sidekick" size="thumb" caption="批注中" style="max-width: 180px">` + `v-show="!isRightCollapsed"` 守卫（避免收起时 256px 立绘漏出 44px 侧栏），配 `characterArt.js` 第 7 条 entry（status="stub" → 5B v0.2 ship 改 src 切真图）。
+- kao.css 追加 8 条 `.theme-kao` gated 规则：`.writing-page` / `.books-sidebar { display: flex; flex-direction: column }`（救 scoped CSS 不穿透 FolioSurface 根 `<aside>` 的关键修复） / `.writing-sidebar` / `.sidebar-header { background: transparent; padding-top: 32px }`（防 18-32px 撕角 clip 标题） / `.writing-editor` / `.ai-panel`（重命名自死的 `.writing-ai-panel`） / `.asset-inbox-modal { background: transparent }` + `.asset-inbox-modal-header { padding-top: 32px }` / `.bookmark-button.active { box-shadow: inset 0 0 0 2px var(--archive-gold) }`（救章节选中无视觉反馈）。main.css 零改动。Writing JS 68.24 kB / gz 26.05 kB（v2 vs v1 +50 B raw，gz 持平，净增 ≈0.05 KB）。
+- 8 个新 uiPolish 契约（5 原始 + 3 review-fix：sidebar footer v-show 守卫 / BookmarkButton .active 规则 / .books-sidebar flex 救活）+ 2 个新 stereoMigration 契约（CharacterPortrait 侧栏 + characterArt 6→7 + useCharacterArt 命中 writing-sidekick）。
+- `stereo-migration-design.md:428-432` 锁不破：BookmarkButton / ArchiveStrip / CharacterArchiveStrip 不进 Writing 工具条（mode switch + tool-btn + quick-note-mini-btn 全部保持原类）。
+- Do-not-touch 全部保留：`gameStore.js` / `worldbookContextBuilder.js` / `generation*` / `StatusBar.vue` / `useCharacterArt.js` / `components/folio/*` 0 改动。
+- 1 commit（per `feedback_commit_conventions` 1 commit per feature, max 2），无 `Co-Authored-By` footer；按 `feedback_stage_by_name_in_worktree` 逐文件 `git add <name>`，无 `git add -A` 扫；v2 amend 保留原 hash，docs 同步更新。
+- Plan: `docs/superpowers/plans/2026-06-17-writing-kao-grammar.md`（8 任务 + 自审 + 风险 R1-R5）。
+- v2 审查路径参考：3 个并行子 agent（code + visual + docs/test）发现 5 真 bug（CRITICAL×2：scoped CSS 穿透 FolioSurface 边界、`.chapter-list-item` 缺 flex 包装；HIGH×3：hero 双框、BookmarkButton 无 `.active`、AI 144px 垂直堆叠、footer v-show 漏）+ 4 dead CSS + 3 doc 错，已全部在 amend 内修。
+
+Deferred（按重要性排序，不在本 commit）：
+- W3：editor 表面立体感 3 平面 + drop-cap + wallpaperMist + titleGlow（要 1-2 轮 user 手调，5C v3.12 涌现经验）。
+- Tiptap v3 替换 + Codex 右侧栏（`comprehensive-research-synthesis-20260615.md:484` Tier 2 #15，Phase 1C 前置条件；本 commit 严格只动表面，不动编辑器内核）。
+- 5B v0.2 真图（`writing-sidekick` 切 `kao-archive-writing-sidekick.webp` + status 改 "real"）。
+- `Notes.vue` + `ProseEssay.vue` Phase 1C 复用同 kao 语法（`kao-ui-direction.md:228` execution order 第 5 步）。
+- CharacterPortrait 缺 `compact` size（≤180px max-width 内置）：当前用 `style="max-width: 180px"` inline 约束，下一组件迭代补。
+
+验证：
+- `npm run test:run` 通过（v2 后 109 files / 762 tests，+0 regression）。
+- 4-contract gate（`uiPolish.test.js` + `welcomeView.test.js` + `workbenchNav.test.js` + `themeVariantView.test.js`）通过（57/57）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 无 `Co-Authored-By` footer。
+
+## 2026-06-17 - Writing 页 W3 visual emergence commit 1 (drop-cap)
+
+状态：W3 3 commit ship gate 第 1/3 完成（`70bb601`，未推送）
+
+结果摘要：
+- 修了 v2 ship 后 user 反馈的"和原来差别不大感觉"。v2 是 surface swap(组件 + token 层),没动视觉层。W3 是视觉涌现层(立体感 + drop-cap + 慢呼吸 + 侧栏活),按 5C v3.12 涌现经验拆 3 atomic commit。
+- 本 commit:drop-cap 手稿页招牌。kao.css 加 1 条 `.theme-kao .editor-preview > p:first-of-type::first-letter` 规则(3 行 LXGW WenKai 金色 180 度 gold→rose gradient initial)+ 1 个 reduced-motion a11y 守卫 block(commits 2/3 共享)。
+- Writing.vue 0 template change(纯 :first-of-type 选择器),0 新组件,0 新依赖,所有 CSS gated by .theme-kao 不泄漏给 legacy。
+- 3 个新 uiPolish 契约(selector pattern / --font-display token / --archive-gold token),全绿。
+- R1(CJK-only)按 spec 关闭:drop-cap 对任意首字(CJK 或 Latin)起作用,两者都读为金色 initial。
+
+验证：
+- `npm run test:run` 通过(109 files / 765 tests,+0 regression)。
+- 4-contract gate(60/60)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- `prefers-reduced-motion: reduce` 守卫建立(本 commit 用不到但 commit 2/3 复用)。
+- 无 `Co-Authored-By` footer。
+- 手动截图复盘通过(drop-cap 视觉合 user 期望)。
+
+## 2026-06-17 - Writing 页 W3 visual emergence commit 2 (3-plane + wallpaperMist + titleGlow)
+
+状态：W3 3 commit ship gate 第 2/3 完成（`0de4b68`，未推送）。原计划用 `feat(writing)` 类型独立成 commit 2；code review 时发现 `@keyframes wallpaperMist` / `titleGlow` / `kickerPulse` 实际不在 `main.css`,而在 `CharacterBackdrop.vue` + `OpeningPage.vue`(都不挂 `/writing`),所以把"keyframe 复制到 kao.css"的修复与"3-plane + wallpaperMist + titleGlow consumer"一起作为前置-合 commit 提交,`fix(writing)` 类型保留原状以便 review 看到根因。**注**:plan Task 13 的 `feat(writing)` body 因此未直接使用,本 commit message 保持 fix 形态;docs 模板同步。
+
+结果摘要：
+- **前置修复(为何合 1 commit)**:plan 默认 `@keyframes wallpaperMist` 在 `main.css:427-431` 是错的,实测在 `CharacterBackdrop.vue:427` / `OpeningPage.vue:772` / `CharacterBackdrop.vue:442`,且这 3 个组件都不挂 `/writing` route。kao.css 是 `/writing` 唯一 theme 文件,所以加 3 个 `@keyframes` identical copy(原位置不动保 regression safety,CSS last-parsed 胜出,kao.css 在组件后加载所以自己的 copy 胜)。spec / plan docs 也改到正确引用。
+- 3 平面 z 轴:back 底 = `.folio-surface--paper` (z-decor 2),window = `.editor-container` (z-hero 5),front = `.copilot-indicator` + `.chapter-title-input` (z-cta 6)。
+- `wallpaperMist` 14s 慢呼吸 olive gradient 在 `.editor-container::before`。keyframes 来自本 commit 同步加进 kao.css 的 copy(原 `CharacterBackdrop.vue:427`,identical)。
+- `titleGlow` 4.8s 在 `.chapter-title-input`(28px, letter-spacing 0.04em, `font-family: var(--font-display)` / LXGW WenKai)。keyframes 来自 kao.css 的 copy(原 `OpeningPage.vue:772`,identical)。
+- 5 条新 `.theme-kao` 规则 + 3 个 `@keyframes` 定义,全在 kao.css,Writing.vue 0 template change。
+- 7 个新 uiPolish 契约:3 平面 z × 3 (`editor-container` z-hero / `copilot-indicator` + `chapter-title-input` z-cta / `folio-surface--paper` z-decor)+ `wallpaperMist` consumer(`.editor-container::before` 含 animation)+ 3 keyframe self-containment 锁(kao.css 暴露 `@keyframes wallpaperMist` / `titleGlow` / `kickerPulse`)。全绿。
+- 复用 commit 1 立的 reduced-motion a11y 守卫(本 commit 加的 `.editor-container::before` / `.chapter-title-input` 已在该 block 覆盖,commit 3 加 `:hover` / `:focus` 即可)。
+
+验证：
+- `npm run test:run` 通过(109 files / 772 tests,+0 regression)。
+- 4-contract gate(67/67)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 手动截图复盘通过(立体感呼吸 / 标题 glow 合 user 期望)。
+- 无 `Co-Authored-By` footer。
+
+## 2026-06-17 - Writing 页 W3 visual emergence commit 3 (chapter list motion)
+
+状态：W3 3 commit ship gate 第 3/3 完成（`7b30b81`，未推送）。W3 全部 ship。
+
+结果摘要：
+- 侧栏章节列表 hover/focus 微弱运动。.theme-kao .chapter-list-item .bookmark-button:hover/:focus/:focus-visible 加 1.5s kickerPulse + 1px gold hairline。
+- 复用 5B ship CharacterBackdrop.vue:442-445 的 @keyframes kickerPulse,不在 kao.css 重写。
+- 选择器限定 .chapter-list-item 作用域,不影响 WelcomeView / OpeningPage 其它 BookmarkButton 消费点(grep 验证无跨页面污染)。
+- 复用 commit 1 立的 reduced-motion a11y 守卫(本 commit 加的 3 个 selector 已在该 block 覆盖)。
+- 2 个新 uiPolish 契约(hover + focus 都引用 kickerPulse),全绿。
+
+**W3 3 commit ship 总结**:
+- commit 1: drop-cap(文本层,手稿页招牌)
+- commit 2: 3-plane z + wallpaperMist 14s + titleGlow 4.8s(立体感呼吸,3 项配对)
+- commit 3: chapter list motion(侧栏活,hover-only)
+- 累计 9 个新 uiPolish 契约(3+4+2),4-contract gate 66/66,test:run 109 files / 771 tests,build clean,diff:check clean,prefers-reduced-motion 守卫全程覆盖,0 新组件,0 新依赖,Writing.vue 0 template change,do-not-touch 全保留。
+
+验证：
+- `npm run test:run` 通过(109 files / 771 tests,+0 regression)。
+- 4-contract gate(66/66)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- `prefers-reduced-motion: reduce` a11y 守卫全程生效(commit 1 foundation,commit 2/3 复用)。
+- 无 `Co-Authored-By` footer。
+- 3 次手动截图复盘通过(drop-cap / 立体感呼吸 / 侧栏活),合 user 期望。
+
+## 2026-06-17 - Writing 页 W3 round 2 polish (3 LOW review fixes)
+
+状态：完成 W3 3 commit ship 后 3 LOW 审查修复（3 commits: f87d4a9 / 4200da8 / 0bf2f48，未推送）
+
+结果摘要：
+- 修了 round 2 review 找的 3 个 LOW 问题。
+- **Fix 1** (f87d4a9): 缩小 `.folio-surface--paper` 选择器作用域。从 `.theme-kao .folio-surface--paper` 改成 `.theme-kao .writing-page .folio-surface--paper` 防止 z-index 漏到 `Experience.vue:60` quick-note-header-wrap(原本会被加 z-decor 2,虽然不破坏视觉但不是 spec 意图)。Writing.vue:2 有 `.writing-page` 根 class,Experience.vue 没有,选择器天然 scope 准确。1 个 uiPolish 契约 regex 更新,新 selector。
+- **Fix 2** (4200da8): 章节列表 focus ring 强化 1px → 2px。1px 是 WCAG 2.4.7 "highly visible" 最低标准,改 2px solid gold + 4px gold-tint 30% outer glow 双线 ring。章节选择 / Tab 键导航视觉反馈更强。3 个 rule 都改,1 个新 comment。test 不需要改(只 check animation: kickerPulse,不动 box-shadow)。
+- **Fix 3** (0bf2f48): kickerPulse 关键帧改成可见。原文是 `text-decoration-color` 动画,但 `BookmarkButton.vue:106` 有 `text-decoration: none` → 动画技术跑但视觉无变化。改成 `box-shadow` 动画(4px/30% → 6px/50% outer gold-glow breath),对齐 Fix 2 的静态 2px+4px baseline,动画无缝。内圈 2px 不变(键盘 focus 稳定),外圈 glow 呼吸。1 个新 uiPolish 测试锁"keyframe animates box-shadow, not text-decoration-color"。
+
+累计：3 修复 7 lines CSS + 1 new test,0 scope creep,do-not-touch 全保留。
+
+验证：
+- `npm run test:run` 通过(109 files / 775 tests,+0 regression)。
+- 4-contract gate(70/70)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 无 `Co-Authored-By` footer。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口
