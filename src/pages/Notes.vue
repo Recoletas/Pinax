@@ -273,6 +273,7 @@
     <Transition name="modal-fade">
       <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
         <Transition name="modal-scale" appear>
+          <FolioSurface variant="paper" decorated as="div">
           <div class="modal">
             <div class="modal-header">
               <h3>新建素材</h3>
@@ -297,6 +298,7 @@
               <button class="btn-primary" @click="confirmCreateNote" :disabled="!newNoteTitle.trim()">创建</button>
             </div>
           </div>
+          </FolioSurface>
         </Transition>
       </div>
     </Transition>
