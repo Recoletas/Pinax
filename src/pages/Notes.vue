@@ -65,16 +65,16 @@
         <div class="book-list" v-show="!isRightCollapsed">
           <div class="material-selection-bar" :class="{ active: checkedAssetIds.length > 0 }">
             <template v-if="checkedAssetIds.length === 0">
-              <button class="selection-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
-              <button class="selection-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
+              <button class="selection-action-btn material-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
+              <button class="selection-action-btn material-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
             </template>
             <template v-else>
               <div class="selection-summary">已选 {{ checkedAssetIds.length }} 项</div>
               <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
-                <button class="selection-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
-                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
-                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
-                <button class="selection-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
+                <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
+                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
+                <button class="selection-action-btn material-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
               </div>
             </template>
           </div>
