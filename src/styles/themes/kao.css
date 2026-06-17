@@ -316,6 +316,26 @@
      here). When commits 2/3 add wallpaperMist / titleGlow /
      chapter list motion to those elements, no extension of this
      block is needed — the selectors are already gated. */
+  /* Chapter list motion — hover/focus only (default static).
+     Reuses @keyframes kickerPulse 1.5s defined in
+     CharacterBackdrop.vue:442-445 (5B ship); not redefined.
+     Scoped to .chapter-list-item so it doesn't leak to other
+     BookmarkButton consumers (WelcomeView / OpeningPage).
+     Selectors are split into per-pseudo blocks so each rule's
+     { ... } body is matched by the W3 uiPolish contract regex. */
+  .theme-kao .chapter-list-item .bookmark-button:hover {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 1px var(--archive-gold);
+  }
+  .theme-kao .chapter-list-item .bookmark-button:focus {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 1px var(--archive-gold);
+  }
+  .theme-kao .chapter-list-item .bookmark-button:focus-visible {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 1px var(--archive-gold);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .theme-kao .editor-container::before,
     .theme-kao .chapter-title-input,

@@ -813,4 +813,18 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     expect(kaoCss).toMatch(/@keyframes\s+kickerPulse\s*\{/)
   })
+
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:hover with animation: kickerPulse (5B-ship keyframe reused)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:hover\s*\{[^}]*animation:\s*kickerPulse/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:focus with animation: kickerPulse (a11y keyboard nav parity)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:focus\s*\{[^}]*animation:\s*kickerPulse/s,
+    )
+  })
 })

@@ -79,6 +79,32 @@ Deferred（按重要性排序，不在本 commit）：
 - 手动截图复盘通过(立体感呼吸 / 标题 glow 合 user 期望)。
 - 无 `Co-Authored-By` footer。
 
+## 2026-06-17 - Writing 页 W3 visual emergence commit 3 (chapter list motion)
+
+状态：W3 3 commit ship gate 第 3/3 完成（`7b30b81`，未推送）。W3 全部 ship。
+
+结果摘要：
+- 侧栏章节列表 hover/focus 微弱运动。.theme-kao .chapter-list-item .bookmark-button:hover/:focus/:focus-visible 加 1.5s kickerPulse + 1px gold hairline。
+- 复用 5B ship CharacterBackdrop.vue:442-445 的 @keyframes kickerPulse,不在 kao.css 重写。
+- 选择器限定 .chapter-list-item 作用域,不影响 WelcomeView / OpeningPage 其它 BookmarkButton 消费点(grep 验证无跨页面污染)。
+- 复用 commit 1 立的 reduced-motion a11y 守卫(本 commit 加的 3 个 selector 已在该 block 覆盖)。
+- 2 个新 uiPolish 契约(hover + focus 都引用 kickerPulse),全绿。
+
+**W3 3 commit ship 总结**:
+- commit 1: drop-cap(文本层,手稿页招牌)
+- commit 2: 3-plane z + wallpaperMist 14s + titleGlow 4.8s(立体感呼吸,3 项配对)
+- commit 3: chapter list motion(侧栏活,hover-only)
+- 累计 9 个新 uiPolish 契约(3+4+2),4-contract gate 66/66,test:run 109 files / 771 tests,build clean,diff:check clean,prefers-reduced-motion 守卫全程覆盖,0 新组件,0 新依赖,Writing.vue 0 template change,do-not-touch 全保留。
+
+验证：
+- `npm run test:run` 通过(109 files / 771 tests,+0 regression)。
+- 4-contract gate(66/66)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- `prefers-reduced-motion: reduce` a11y 守卫全程生效(commit 1 foundation,commit 2/3 复用)。
+- 无 `Co-Authored-By` footer。
+- 3 次手动截图复盘通过(drop-cap / 立体感呼吸 / 侧栏活),合 user 期望。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口
