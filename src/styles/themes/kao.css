@@ -323,17 +323,21 @@
      BookmarkButton consumers (WelcomeView / OpeningPage).
      Selectors are split into per-pseudo blocks so each rule's
      { ... } body is matched by the W3 uiPolish contract regex. */
+  /* Double-line focus ring (a11y WCAG 2.4.7 "highly visible" focus):
+     2px solid gold inner ring + 4px gold-tint outer glow (30% opacity).
+     W3 round 2 review #2 — 1px ring was at the very bottom of acceptable;
+     strengthened to double-line for better keyboard-nav visibility. */
   .theme-kao .chapter-list-item .bookmark-button:hover {
     animation: kickerPulse 1.5s ease-in-out infinite alternate;
-    box-shadow: 0 0 0 1px var(--archive-gold);
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
   }
   .theme-kao .chapter-list-item .bookmark-button:focus {
     animation: kickerPulse 1.5s ease-in-out infinite alternate;
-    box-shadow: 0 0 0 1px var(--archive-gold);
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
   }
   .theme-kao .chapter-list-item .bookmark-button:focus-visible {
     animation: kickerPulse 1.5s ease-in-out infinite alternate;
-    box-shadow: 0 0 0 1px var(--archive-gold);
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {
