@@ -253,9 +253,17 @@
       filter: drop-shadow(0 11px 22px color-mix(in srgb, #000 34%, transparent));
     }
   }
+  /* W3 round 2 review #3 — kickerPulse now animates box-shadow (a
+     visible "breathing" gold-glow on hover/focus), not text-decoration-color
+     (which was a no-op: BookmarkButton.vue:106 has text-decoration: none).
+     Inner 2px gold ring stays constant (stable keyboard focus); outer
+     4px/30% glow grows to 6px/50% on the alternate cycle. The chapter-list
+     rules' static box-shadow (0 0 0 2px gold, 0 0 0 4px 30% — round 2
+     fix #2) matches the `from` value below, so the animation is seamless
+     (no jump when the animation starts/ends). */
   @keyframes kickerPulse {
-    from { text-decoration-color: color-mix(in srgb, var(--accent-rose) 60%, transparent); }
-    to   { text-decoration-color: color-mix(in srgb, var(--accent-rose) 100%, transparent); }
+    from { box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent); }
+    to   { box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 6px color-mix(in srgb, var(--archive-gold) 50%, transparent); }
   }
 
   /* Writing editor — 3-plane z-axis + ambient motion (立体感呼吸).

@@ -814,17 +814,27 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
     expect(kaoCss).toMatch(/@keyframes\s+kickerPulse\s*\{/)
   })
 
-  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:hover with animation: kickerPulse (5B-ship keyframe reused)', () => {
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:hover with animation: kickerPulse (keyframe now animates visible box-shadow gold-glow, not text-decoration-color no-op)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     expect(kaoCss).toMatch(
       /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:hover\s*\{[^}]*animation:\s*kickerPulse/s,
     )
   })
 
-  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:focus with animation: kickerPulse (a11y keyboard nav parity)', () => {
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:focus with animation: kickerPulse (a11y keyboard nav parity; keyframe now animates visible box-shadow gold-glow)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     expect(kaoCss).toMatch(
       /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:focus\s*\{[^}]*animation:\s*kickerPulse/s,
     )
+  })
+
+  it('kickerPulse keyframe body animates box-shadow (not text-decoration-color, which was a no-op on consumers with text-decoration: none) — W3 round 2 review #3', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Match the @keyframes kickerPulse { ... } block (non-greedy)
+    const match = kaoCss.match(/@keyframes\s+kickerPulse\s*\{([\s\S]*?)\}/)
+    expect(match).not.toBeNull()
+    const body = match[1]
+    expect(body).toMatch(/box-shadow:/)
+    expect(body).not.toMatch(/text-decoration-color/)
   })
 })
