@@ -105,6 +105,25 @@ Deferred（按重要性排序，不在本 commit）：
 - 无 `Co-Authored-By` footer。
 - 3 次手动截图复盘通过(drop-cap / 立体感呼吸 / 侧栏活),合 user 期望。
 
+## 2026-06-17 - Writing 页 W3 round 2 polish (3 LOW review fixes)
+
+状态：完成 W3 3 commit ship 后 3 LOW 审查修复（3 commits: f87d4a9 / 4200da8 / 0bf2f48，未推送）
+
+结果摘要：
+- 修了 round 2 review 找的 3 个 LOW 问题。
+- **Fix 1** (f87d4a9): 缩小 `.folio-surface--paper` 选择器作用域。从 `.theme-kao .folio-surface--paper` 改成 `.theme-kao .writing-page .folio-surface--paper` 防止 z-index 漏到 `Experience.vue:60` quick-note-header-wrap(原本会被加 z-decor 2,虽然不破坏视觉但不是 spec 意图)。Writing.vue:2 有 `.writing-page` 根 class,Experience.vue 没有,选择器天然 scope 准确。1 个 uiPolish 契约 regex 更新,新 selector。
+- **Fix 2** (4200da8): 章节列表 focus ring 强化 1px → 2px。1px 是 WCAG 2.4.7 "highly visible" 最低标准,改 2px solid gold + 4px gold-tint 30% outer glow 双线 ring。章节选择 / Tab 键导航视觉反馈更强。3 个 rule 都改,1 个新 comment。test 不需要改(只 check animation: kickerPulse,不动 box-shadow)。
+- **Fix 3** (0bf2f48): kickerPulse 关键帧改成可见。原文是 `text-decoration-color` 动画,但 `BookmarkButton.vue:106` 有 `text-decoration: none` → 动画技术跑但视觉无变化。改成 `box-shadow` 动画(4px/30% → 6px/50% outer gold-glow breath),对齐 Fix 2 的静态 2px+4px baseline,动画无缝。内圈 2px 不变(键盘 focus 稳定),外圈 glow 呼吸。1 个新 uiPolish 测试锁"keyframe animates box-shadow, not text-decoration-color"。
+
+累计：3 修复 7 lines CSS + 1 new test,0 scope creep,do-not-touch 全保留。
+
+验证：
+- `npm run test:run` 通过(109 files / 775 tests,+0 regression)。
+- 4-contract gate(70/70)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 无 `Co-Authored-By` footer。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口
