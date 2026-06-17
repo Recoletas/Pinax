@@ -200,6 +200,13 @@
               </div>
             </div>
 
+            <!-- N5C: 3 entry collage tile -->
+            <ArchiveStrip
+              :items="archiveStripItems"
+              :image="firstImageDataUrl"
+              aria-label="素材缩略目录"
+            />
+
             <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
               <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
               <div class="image-asset-meta">
@@ -341,6 +348,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
+import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -438,6 +446,24 @@ const groupedChapters = computed(() => assetKindOrder
     items: chapters.value.filter((asset) => asset.kind === kind)
   }))
   .filter((group) => group.items.length > 0))
+
+// N5C: ArchiveStrip 3 entry collage state
+const currentKindForArchiveStrip = ref(null)
+const archiveStripItems = computed(() => {
+  const kind = currentKindForArchiveStrip.value
+    || chapters.value.find((a) => a.status === 'accepted' || a.status === 'inbox')?.kind
+    || chapters.value[0]?.kind
+    || null
+  if (!kind) return []
+  return chapters.value
+    .filter((a) => a.kind === kind)
+    .slice(0, 3)
+    .map((a) => ({ label: a.title || '无标题', position: 'center' }))
+})
+const firstImageDataUrl = computed(() => {
+  const ref = chapters.value.find((a) => a.image?.data)
+  return ref?.image?.data || ''
+})
 const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 
