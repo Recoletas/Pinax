@@ -1,10 +1,11 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
-    <WorkbenchPageHero
-      kicker="Writing Desk"
-      title="写作"
-      :description="writingHeroDescription"
-    >
+    <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
+      <WorkbenchPageHero
+        kicker="Writing Desk"
+        title="写作"
+        :description="writingHeroDescription"
+      >
       <template #back>
         <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -59,10 +60,11 @@
         </div>
       </template>
     </WorkbenchPageHero>
+    </FolioSurface>
 
     <div class="content-area">
       <!-- 左侧边栏：作品导航 -->
-      <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
+      <FolioSurface as="aside" variant="paper" :decorated="true" class="books-sidebar writing-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
         <div class="sidebar-header">
           <span class="sidebar-title">作品</span>
           <div class="sidebar-actions">
@@ -112,12 +114,17 @@
             <div
               v-for="(chapter, index) in chapters"
               :key="chapter.id"
-              :class="['chapter-item', { active: selectedChapterId === chapter.id }]"
-              @click="selectChapter(chapter.id)"
+              class="chapter-list-item"
             >
-              <span class="chapter-num">{{ index + 1 }}</span>
-              <span class="chapter-title">{{ chapter.title || '无标题章节' }}</span>
-              <span class="chapter-words">{{ chapter.wordCount || 0 }}</span>
+              <BookmarkButton
+                variant="tertiary"
+                size="compact"
+                :index="String(index + 1).padStart(2, '0')"
+                :label="chapter.title || '无标题章节'"
+                :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'}`"
+                :class="{ active: selectedChapterId === chapter.id }"
+                @click="selectChapter(chapter.id)"
+              />
               <button class="delete-btn" @click.stop="deleteChapter(chapter.id)" title="删除章节">×</button>
             </div>
             <div v-if="chapters.length === 0" class="empty-hint">
@@ -125,13 +132,21 @@
             </div>
           </div>
         </template>
-      </aside>
+        <footer v-show="!isRightCollapsed" class="writing-sidebar__footer">
+          <CharacterPortrait
+            pose-id="writing-sidekick"
+            size="thumb"
+            caption="批注中"
+            style="max-width: 180px"
+          />
+        </footer>
+      </FolioSurface>
 
       <!-- 左侧分隔栏 -->
       <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
-      <main class="editor-main">
+      <FolioSurface as="main" variant="chrome" :decorated="false" class="editor-main writing-editor">
         <template v-if="!selectedBookId">
           <div class="empty-state">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
@@ -384,8 +399,22 @@
                       <div class="ai-result-header">
                         <span>结果预览</span>
                         <div class="ai-result-actions">
-                          <button class="ai-result-btn" @click="applyAiResult">应用</button>
-                          <button class="ai-result-btn secondary" @click="aiResult = ''">取消</button>
+                          <BookmarkButton
+                            variant="primary"
+                            size="compact"
+                            :index="'01'"
+                            label="应用"
+                            :aria-label="`应用 AI 改写到正文`"
+                            @click="applyAiResult"
+                          />
+                          <BookmarkButton
+                            variant="secondary"
+                            size="compact"
+                            :index="'02'"
+                            label="取消"
+                            :aria-label="`取消 AI 改写`"
+                            @click="aiResult = ''"
+                          />
                         </div>
                       </div>
                       <div class="ai-result-content">{{ aiResult }}</div>
@@ -538,7 +567,7 @@
         <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
       </div>
       </template>
-      </main>
+      </FolioSurface>
     </div>
 
     <ImageGenRail
@@ -555,7 +584,7 @@
     <Transition name="modal-fade">
       <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
         <Transition name="modal-scale" appear>
-          <section class="asset-inbox-modal">
+          <FolioSurface as="article" variant="paper" :decorated="true" class="asset-inbox-modal writing-asset-inbox">
             <header class="asset-inbox-modal-header">
               <div>
                 <div class="asset-inbox-modal-kicker">写作素材</div>
@@ -665,7 +694,7 @@
                 </div>
               </aside>
             </div>
-          </section>
+          </FolioSurface>
         </Transition>
       </div>
     </Transition>
@@ -748,6 +777,9 @@ import ImageGenRail from '../components/ImageGenRail.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
+import FolioSurface from '../components/folio/FolioSurface.vue'
+import BookmarkButton from '../components/folio/BookmarkButton.vue'
+import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
@@ -3215,6 +3247,11 @@ function stopResizeRight() {
   flex: 1;
 }
 
+.writing-sidebar__footer {
+  padding: 12px 8px;
+  border-top: 1px solid var(--hairline-soft);
+}
+
 .books-sidebar[style*='44px'] .sidebar-title {
   display: none;
 }
@@ -3271,58 +3308,18 @@ function stopResizeRight() {
   color: var(--text-muted);
 }
 
-.chapter-item {
+.chapter-list-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border: 1px solid transparent;
+  align-items: stretch;
+  gap: 4px;
 }
 
-.chapter-item:hover {
-  background: var(--bg-hover);
-}
-
-.chapter-item.active {
-  background: var(--accent-light);
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.chapter-num {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 20px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.chapter-item.active .chapter-num {
-  color: var(--accent);
-}
-
-.chapter-title {
+.chapter-list-item .bookmark-button {
   flex: 1;
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-.chapter-item.active .chapter-title {
-  color: var(--accent);
-}
-
-.chapter-words {
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.chapter-item .delete-btn,
+.chapter-list-item .delete-btn,
 .book-item .delete-btn {
   opacity: 0;
   width: 20px;
@@ -3337,16 +3334,16 @@ function stopResizeRight() {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  align-self: center;
   transition: all 0.15s;
-  margin-left: auto;
 }
 
-.chapter-item:hover .delete-btn,
+.chapter-list-item:hover .delete-btn,
 .book-item:hover .delete-btn {
   opacity: 1;
 }
 
-.chapter-item .delete-btn:hover,
+.chapter-list-item .delete-btn:hover,
 .book-item .delete-btn:hover {
   background: rgba(239, 68, 68, 0.15);
   color: var(--danger);
@@ -4206,7 +4203,8 @@ function stopResizeRight() {
 }
 
 .ai-result-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
 }
 

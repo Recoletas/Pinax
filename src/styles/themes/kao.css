@@ -145,4 +145,69 @@
     filter: blur(2px);
     box-shadow: none;
   }
+
+  /* Writing page — 手稿页 / 正文页 surface grammar (kao archive-folio).
+     All rules gated by .theme-kao; legacy variant is untouched.
+     References --archive-* tokens defined above + --hairline-* from main.css. */
+  .theme-kao .writing-page {
+    color: var(--archive-ink);
+    background: var(--archive-paper-soft);
+  }
+
+  /* Sidebar (.books-sidebar / .writing-sidebar) — rescue layout that
+     Writing.vue's scoped CSS can no longer reach because the <aside>
+     is now rendered by FolioSurface (its root is in FolioSurface.vue's
+     scope, not Writing.vue's). Without this, sidebar children stack
+     as block elements and `.chapter-list { flex: 1 }` is dead. */
+  .theme-kao .books-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .theme-kao .writing-sidebar {
+    border-right: 1px solid var(--hairline-soft);
+  }
+
+  /* sidebar-header — drop the legacy `var(--surface-raised)` band and
+     add 32px top padding so the FolioSurface decorated `::after`
+     notch (18-32px top corners, per FolioSurface.vue:54-58) doesn't
+     clip the "作品" title or action buttons. */
+  .theme-kao .sidebar-header {
+    background: transparent;
+    border-bottom: 1px solid var(--hairline-soft);
+    padding-top: 32px;
+  }
+
+  .theme-kao .writing-editor {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 88%, var(--archive-paper-strong)) 100%);
+  }
+
+  /* AI panel (`.ai-panel` inside editor-main). Previously named
+     `.writing-ai-panel` but no DOM element carried that class — the
+     actual AI panel is `<div class="ai-panel">` at Writing.vue:339. */
+  .theme-kao .ai-panel {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent) 0%, color-mix(in srgb, var(--archive-paper) 84%, transparent) 100%);
+    border: 1px solid var(--hairline-soft);
+  }
+
+  /* Asset-inbox modal — drop legacy panel background + add 32px top
+     padding so the FolioSurface decorated `::after` notch doesn't
+     clip the modal header. */
+  .theme-kao .asset-inbox-modal {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .theme-kao .asset-inbox-modal-header {
+    padding-top: 32px;
+  }
+
+  /* BookmarkButton active state — BookmarkButton.vue has no `.active`
+     rule, so the chapter list `:class="{ active: ... }"` binding is
+     visually dead. Asymmetric gold ring on the active row. */
+  .theme-kao .bookmark-button.active {
+    box-shadow: inset 0 0 0 2px var(--archive-gold);
+  }
 }

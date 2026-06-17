@@ -9,6 +9,35 @@
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
 
+## 2026-06-17 - Writing 页 kao archive-folio 表面重构（Phase 1C 首签 + v2 审查修复）
+
+状态：完成 1 commit ship gate（`a3b650b`，v2 amend 含 5 项审查修复，未推送）
+
+结果摘要：
+- Writing 页从旧 "workbench hero + flat sidebar + dark/light tool-btn" 视觉栈迁到 kao archive-folio 语言：`<FolioSurface>` 包装 4 区（hero header chrome+plain / books-sidebar paper+decorated / editor-main chrome+plain / asset-inbox modal paper+decorated），chapter 列表行变 `<BookmarkButton variant="tertiary" size="compact" :index :label>` 把侧栏变成 kao 目录页，AI 面板 primary 应用 / secondary 取消切 `<BookmarkButton variant="primary|secondary">` 并改 `display: grid; grid-template-columns: 1fr 1fr` 避免 72+72 垂直堆叠到 144px，mode switch (wysiwyg/markdown/preview) 保持 `.action-btn` 锁。
+- 侧栏 footer 挂 pose-D 半身侧视 `<CharacterPortrait pose-id="writing-sidekick" size="thumb" caption="批注中" style="max-width: 180px">` + `v-show="!isRightCollapsed"` 守卫（避免收起时 256px 立绘漏出 44px 侧栏），配 `characterArt.js` 第 7 条 entry（status="stub" → 5B v0.2 ship 改 src 切真图）。
+- kao.css 追加 8 条 `.theme-kao` gated 规则：`.writing-page` / `.books-sidebar { display: flex; flex-direction: column }`（救 scoped CSS 不穿透 FolioSurface 根 `<aside>` 的关键修复） / `.writing-sidebar` / `.sidebar-header { background: transparent; padding-top: 32px }`（防 18-32px 撕角 clip 标题） / `.writing-editor` / `.ai-panel`（重命名自死的 `.writing-ai-panel`） / `.asset-inbox-modal { background: transparent }` + `.asset-inbox-modal-header { padding-top: 32px }` / `.bookmark-button.active { box-shadow: inset 0 0 0 2px var(--archive-gold) }`（救章节选中无视觉反馈）。main.css 零改动。Writing JS 68.24 kB / gz 26.05 kB（v2 vs v1 +50 B raw，gz 持平，净增 ≈0.05 KB）。
+- 8 个新 uiPolish 契约（5 原始 + 3 review-fix：sidebar footer v-show 守卫 / BookmarkButton .active 规则 / .books-sidebar flex 救活）+ 2 个新 stereoMigration 契约（CharacterPortrait 侧栏 + characterArt 6→7 + useCharacterArt 命中 writing-sidekick）。
+- `stereo-migration-design.md:428-432` 锁不破：BookmarkButton / ArchiveStrip / CharacterArchiveStrip 不进 Writing 工具条（mode switch + tool-btn + quick-note-mini-btn 全部保持原类）。
+- Do-not-touch 全部保留：`gameStore.js` / `worldbookContextBuilder.js` / `generation*` / `StatusBar.vue` / `useCharacterArt.js` / `components/folio/*` 0 改动。
+- 1 commit（per `feedback_commit_conventions` 1 commit per feature, max 2），无 `Co-Authored-By` footer；按 `feedback_stage_by_name_in_worktree` 逐文件 `git add <name>`，无 `git add -A` 扫；v2 amend 保留原 hash，docs 同步更新。
+- Plan: `docs/superpowers/plans/2026-06-17-writing-kao-grammar.md`（8 任务 + 自审 + 风险 R1-R5）。
+- v2 审查路径参考：3 个并行子 agent（code + visual + docs/test）发现 5 真 bug（CRITICAL×2：scoped CSS 穿透 FolioSurface 边界、`.chapter-list-item` 缺 flex 包装；HIGH×3：hero 双框、BookmarkButton 无 `.active`、AI 144px 垂直堆叠、footer v-show 漏）+ 4 dead CSS + 3 doc 错，已全部在 amend 内修。
+
+Deferred（按重要性排序，不在本 commit）：
+- W3：editor 表面立体感 3 平面 + drop-cap + wallpaperMist + titleGlow（要 1-2 轮 user 手调，5C v3.12 涌现经验）。
+- Tiptap v3 替换 + Codex 右侧栏（`comprehensive-research-synthesis-20260615.md:484` Tier 2 #15，Phase 1C 前置条件；本 commit 严格只动表面，不动编辑器内核）。
+- 5B v0.2 真图（`writing-sidekick` 切 `kao-archive-writing-sidekick.webp` + status 改 "real"）。
+- `Notes.vue` + `ProseEssay.vue` Phase 1C 复用同 kao 语法（`kao-ui-direction.md:228` execution order 第 5 步）。
+- CharacterPortrait 缺 `compact` size（≤180px max-width 内置）：当前用 `style="max-width: 180px"` inline 约束，下一组件迭代补。
+
+验证：
+- `npm run test:run` 通过（v2 后 109 files / 762 tests，+0 regression）。
+- 4-contract gate（`uiPolish.test.js` + `welcomeView.test.js` + `workbenchNav.test.js` + `themeVariantView.test.js`）通过（57/57）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 无 `Co-Authored-By` footer。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口

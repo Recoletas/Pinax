@@ -616,3 +616,119 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
   })
 })
+
+// Phase 1C: Writing page kao archive-folio surface (2026-06-17 plan)
+// 5 + 3 review-fix contracts: FolioSurface 4-zone wiring, chapter list
+// BookmarkButton, AI panel primary/secondary, kao.css selector gating,
+// mode-switch lock, sidebar collapse v-show, BookmarkButton .active,
+// kao.css .theme-kao .ai-panel (renamed from .writing-ai-panel).
+describe('ui polish — Phase 1C Writing page kao surface', () => {
+  it('Writing.vue wraps 4 surfaces in <FolioSurface> (hero header / books-sidebar / editor-main / asset-inbox modal) — kao archive-folio zone grammar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // 4 surfaces wrapped: WorkbenchPageHero (header) + books-sidebar (aside) + editor-main (main) + asset inbox modal (article)
+    const folioMatches = writing.match(/<FolioSurface[^>]*>/g) || []
+    expect(folioMatches.length).toBeGreaterThanOrEqual(4)
+
+    // hero uses chrome + plain (decorated=false because WorkbenchPageHero
+    // has its own ::before + border-bottom, double-frame is wrong)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="header"[^>]*variant="chrome"[^>]*decorated="false"/)
+    // sidebar uses paper + decorated (full folio spine)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="aside"[^>]*variant="paper"[^>]*decorated="true"/)
+    // editor-main uses chrome + plain (the editor surface itself gets the paper tint via .writing-editor rule, not the folio chrome)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="main"[^>]*variant="chrome"[^>]*decorated="false"/)
+    // inbox modal uses paper + decorated
+    expect(writing).toMatch(/<FolioSurface[^>]*as="article"[^>]*variant="paper"[^>]*decorated="true"/)
+  })
+
+  it('Writing.vue chapter list rows render as <BookmarkButton variant="tertiary" size="compact" index label> — kao 目录页 grammar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // chapter list: each row is a BookmarkButton --tertiary --compact
+    // must appear inside the chapter list (not the book list — books stay .action-btn)
+    const chapterListSection = writing.match(
+      /<div\s+class="chapter-list"[\s\S]*?<\/div>\s*<\/aside>/,
+    )
+    expect(chapterListSection).not.toBeNull()
+    const chapterList = chapterListSection?.[0] ?? ''
+
+    // At least 1 BookmarkButton --tertiary --compact for the chapter list
+    expect(chapterList).toMatch(
+      /<BookmarkButton[^>]*variant="tertiary"[^>]*size="compact"[^>]*\/>/,
+    )
+    // Each chapter BookmarkButton must expose index (number) + label (title)
+    expect(chapterList).toMatch(/:index="chapter\.num|padStart|chapterIndex|chapterNumber/)
+  })
+
+  it('Writing.vue AI panel primary action renders as <BookmarkButton variant="primary" label="应用 …"> + secondary as <BookmarkButton variant="secondary">', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // 1 BookmarkButton --primary in the AI panel (应用)
+    expect(writing).toMatch(/<BookmarkButton[^>]*variant="primary"[^>]*label="[\s\S]*?应用/)
+    // 1 BookmarkButton --secondary in the AI panel (拒收 / 取消 / 不应用)
+    expect(writing).toMatch(/<BookmarkButton[^>]*variant="secondary"[^>]*label="[\s\S]*?(拒收|取消|不应用)/)
+  })
+
+  it('kao.css exposes .theme-kao .writing-page / .writing-sidebar / .writing-editor / .ai-panel selectors — all writing surface rules live in kao.css, not main.css', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    const mainCss = readProjectFile('src/styles/main.css')
+
+    // kao.css has the writing-* surface rules + .ai-panel all gated by .theme-kao
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-page\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-sidebar\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-editor\b/)
+    // .ai-panel replaces the dead .writing-ai-panel selector (rename: no DOM
+    // element had `class="writing-ai-panel"`, the actual AI panel is
+    // `<div class="ai-panel">` at Writing.vue:339).
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.ai-panel\b/)
+    // The renamed-away selector must NOT still exist
+    expect(kaoCss).not.toMatch(/\.theme-kao\s+\.writing-ai-panel\b/)
+
+    // main.css must NOT carry writing-* surface rules (kao-only territory)
+    expect(mainCss).not.toMatch(/^\.writing-page\b/m)
+    expect(mainCss).not.toMatch(/^\.writing-sidebar\b/m)
+    expect(mainCss).not.toMatch(/^\.writing-editor\b/m)
+    expect(mainCss).not.toMatch(/^\.ai-panel\b/m)
+  })
+
+  it('Writing.vue AI panel mode switch (wysiwyg/markdown/preview) stays .action-btn — stereo-migration lock: BookmarkButton does not enter the tool-mode toolbar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // The mode switch (.mode-switch) must not contain a BookmarkButton
+    const modeSwitch = writing.match(
+      /<div\s+class="mode-switch"[\s\S]*?<\/div>/,
+    )
+    expect(modeSwitch).not.toBeNull()
+    expect(modeSwitch?.[0] ?? '').not.toContain('<BookmarkButton')
+  })
+
+  // --- review-fix contracts (2026-06-17 v2 amend) ---
+
+  it('Writing.vue books-sidebar footer is v-show gated by !isRightCollapsed (review-fix: CharacterPortrait 256px must not leak when sidebar is 44px collapsed)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    // The CharacterPortrait mount in the sidebar footer must be inside v-show="!isRightCollapsed".
+    const footer = writing.match(
+      /<footer[^>]*class="writing-sidebar__footer"[\s\S]*?<\/footer>/,
+    )
+    expect(footer).not.toBeNull()
+    expect(footer?.[0] ?? '').toContain('v-show="!isRightCollapsed"')
+    expect(footer?.[0] ?? '').toContain('CharacterPortrait')
+    // CharacterPortrait must carry a max-width style attribute to constrain 256px → ≤180px
+    expect(footer?.[0] ?? '').toMatch(/style="[^"]*max-width:\s*180px/)
+  })
+
+  it('kao.css exposes .theme-kao .bookmark-button.active rule (review-fix: chapter list active class was visually dead — BookmarkButton.vue has no .active state)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.bookmark-button\.active\s*\{/)
+  })
+
+  it('kao.css rescues .theme-kao .books-sidebar flex layout (review-fix: scoped CSS can no longer reach the FolioSurface root <aside>, so flex/column must live in kao.css)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // .books-sidebar is the root <aside> rendered by FolioSurface.vue, so
+    // Writing.vue's scoped CSS for `.books-sidebar { display: flex; flex-direction: column }`
+    // doesn't reach it. kao.css owns this rule (gated by .theme-kao).
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*display:\s*flex/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*flex-direction:\s*column/)
+  })
+})

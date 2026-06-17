@@ -13,4 +13,5 @@ export const characterArt = [
   { id: 'opening-scene-01',  src: kaoArchiveOpeningScene01,   status: 'real', label: '01 边界小镇' },
   { id: 'opening-scene-02',  src: kaoArchiveOpeningScene02,   status: 'real', label: '02 废墟灯塔' },
   { id: 'opening-scene-03',  src: kaoArchiveOpeningScene03,   status: 'real', label: '03 塔内档案室' },
+  { id: 'writing-sidekick',  src: stubSilhouette,             status: 'stub', label: '批注者' },
 ]
