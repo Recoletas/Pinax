@@ -58,6 +58,27 @@ Deferred（按重要性排序，不在本 commit）：
 - 无 `Co-Authored-By` footer。
 - 手动截图复盘通过(drop-cap 视觉合 user 期望)。
 
+## 2026-06-17 - Writing 页 W3 visual emergence commit 2 (3-plane + wallpaperMist + titleGlow)
+
+状态：W3 3 commit ship gate 第 2/3 完成（`0de4b68`，未推送）。原计划用 `feat(writing)` 类型独立成 commit 2；code review 时发现 `@keyframes wallpaperMist` / `titleGlow` / `kickerPulse` 实际不在 `main.css`,而在 `CharacterBackdrop.vue` + `OpeningPage.vue`(都不挂 `/writing`),所以把"keyframe 复制到 kao.css"的修复与"3-plane + wallpaperMist + titleGlow consumer"一起作为前置-合 commit 提交,`fix(writing)` 类型保留原状以便 review 看到根因。**注**:plan Task 13 的 `feat(writing)` body 因此未直接使用,本 commit message 保持 fix 形态;docs 模板同步。
+
+结果摘要：
+- **前置修复(为何合 1 commit)**:plan 默认 `@keyframes wallpaperMist` 在 `main.css:427-431` 是错的,实测在 `CharacterBackdrop.vue:427` / `OpeningPage.vue:772` / `CharacterBackdrop.vue:442`,且这 3 个组件都不挂 `/writing` route。kao.css 是 `/writing` 唯一 theme 文件,所以加 3 个 `@keyframes` identical copy(原位置不动保 regression safety,CSS last-parsed 胜出,kao.css 在组件后加载所以自己的 copy 胜)。spec / plan docs 也改到正确引用。
+- 3 平面 z 轴:back 底 = `.folio-surface--paper` (z-decor 2),window = `.editor-container` (z-hero 5),front = `.copilot-indicator` + `.chapter-title-input` (z-cta 6)。
+- `wallpaperMist` 14s 慢呼吸 olive gradient 在 `.editor-container::before`。keyframes 来自本 commit 同步加进 kao.css 的 copy(原 `CharacterBackdrop.vue:427`,identical)。
+- `titleGlow` 4.8s 在 `.chapter-title-input`(28px, letter-spacing 0.04em, `font-family: var(--font-display)` / LXGW WenKai)。keyframes 来自 kao.css 的 copy(原 `OpeningPage.vue:772`,identical)。
+- 5 条新 `.theme-kao` 规则 + 3 个 `@keyframes` 定义,全在 kao.css,Writing.vue 0 template change。
+- 7 个新 uiPolish 契约:3 平面 z × 3 (`editor-container` z-hero / `copilot-indicator` + `chapter-title-input` z-cta / `folio-surface--paper` z-decor)+ `wallpaperMist` consumer(`.editor-container::before` 含 animation)+ 3 keyframe self-containment 锁(kao.css 暴露 `@keyframes wallpaperMist` / `titleGlow` / `kickerPulse`)。全绿。
+- 复用 commit 1 立的 reduced-motion a11y 守卫(本 commit 加的 `.editor-container::before` / `.chapter-title-input` 已在该 block 覆盖,commit 3 加 `:hover` / `:focus` 即可)。
+
+验证：
+- `npm run test:run` 通过(109 files / 772 tests,+0 regression)。
+- 4-contract gate(67/67)通过。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+- 手动截图复盘通过(立体感呼吸 / 标题 glow 合 user 期望)。
+- 无 `Co-Authored-By` footer。
+
 ## 2026-06-11 - Welcome / Experience Pass 2 视觉与版式收口
 
 状态：完成本轮收口

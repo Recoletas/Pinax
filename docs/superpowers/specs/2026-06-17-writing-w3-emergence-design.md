@@ -37,9 +37,7 @@ After commit `5768475` (v2 ship) landed, the user reported the visual felt "和�
 | Docs | `STATUS.md` + `LOG.md` | 1 entry per commit (Recently done + permanent log) |
 
 **Key reuses**:
-- `@keyframes wallpaperMist 14s` already defined in `main.css:427-431` (5C ship) — W3 just adds a `.theme-kao .editor-container::before` consumer, no new keyframe
-- `@keyframes titleGlow 4.8s` already defined in `main.css:457-460` (5C ship) — W3 just adds a `.theme-kao .chapter-title-input` consumer
-- `@keyframes kickerPulse 1.5s` already defined in `CharacterBackdrop.vue:442-445` (5B ship) — W3 just adds a `.theme-kao .chapter-list-item .bookmark-button:hover` consumer
+- `@keyframes wallpaperMist` defined in `CharacterBackdrop.vue:427` (5B ship); `@keyframes titleGlow` defined in `OpeningPage.vue:772`; `@keyframes kickerPulse` defined in `CharacterBackdrop.vue:442`. W3 commit 2+3 add identical copies to kao.css (W3 self-containment) so /writing route can use them without depending on kao components that aren't mounted on /writing.
 - `--z-stage-decor / --z-stage-hero / --z-stage-cta` tokens already defined in `main.css:7-9`
 
 ## 4. Per-commit design

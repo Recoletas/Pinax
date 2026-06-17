@@ -28,10 +28,7 @@
 - `src/composables/useCharacterArt.js`
 - `src/components/folio/*`
 
-**Reused keyframes** (no new keyframe definitions in this plan):
-- `@keyframes wallpaperMist 14s ease-in-out infinite alternate` — defined in `main.css:427-431` (5C ship)
-- `@keyframes titleGlow 4.8s ease-in-out infinite alternate` — defined in `main.css:457-460` (5C ship)
-- `@keyframes kickerPulse 1.5s ease-in-out infinite alternate` — defined in `CharacterBackdrop.vue:442-445` (5B ship)
+**Reused keyframes**: `@keyframes wallpaperMist` defined in `CharacterBackdrop.vue:427` (5B ship); `@keyframes titleGlow` defined in `OpeningPage.vue:772`; `@keyframes kickerPulse` defined in `CharacterBackdrop.vue:442`. W3 commit 2+3 add identical copies to kao.css (W3 self-containment) so /writing route can use them without depending on kao components that aren't mounted on /writing.
 
 **Existing target classes** (no template change):
 - `.editor-preview` (Writing.vue:518-520) — markdown preview container

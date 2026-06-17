@@ -757,4 +757,60 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
       /::first-letter\s*\{[^}]*var\(--archive-gold\)/s,
     )
   })
+
+  it('kao.css exposes .theme-kao .editor-container with z-index: var(--z-stage-hero) (window plane)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Match the .editor-container block + z-index: var(--z-stage-hero) within it.
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.editor-container\s*\{[^}]*z-index:\s*var\(--z-stage-hero\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .copilot-indicator AND .chapter-title-input with z-index: var(--z-stage-cta) (front plane)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // copilot-indicator
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.copilot-indicator\s*\{[^}]*z-index:\s*var\(--z-stage-cta\)/s,
+    )
+    // chapter-title-input (also a front-plane element)
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-title-input\s*\{[^}]*z-index:\s*var\(--z-stage-cta\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .folio-surface--paper with z-index: var(--z-stage-decor) (back plane)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.folio-surface--paper\s*\{[^}]*z-index:\s*var\(--z-stage-decor\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .editor-container::before with animation: wallpaperMist (5C-ship keyframe reused)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.editor-container::before\s*\{[^}]*animation:\s*wallpaperMist/s,
+    )
+  })
+
+  // W3 commit 2 critical bug fix: keyframe self-containment. The original
+  // @keyframes wallpaperMist / titleGlow / kickerPulse are NOT in main.css
+  // — they live in CharacterBackdrop.vue:427, OpeningPage.vue:772, and
+  // CharacterBackdrop.vue:442 respectively. None of those components is
+  // mounted on /writing, so kao.css must own identical copies for the
+  // .theme-kao consumers to animate. The 3 contracts below lock this.
+
+  it('kao.css exposes @keyframes wallpaperMist (W3 self-containment; also defined in CharacterBackdrop.vue:427 for CharacterBackdrop\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+wallpaperMist\s*\{/)
+  })
+
+  it('kao.css exposes @keyframes titleGlow (W3 self-containment; also defined in OpeningPage.vue:772 for OpeningPage\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+titleGlow\s*\{/)
+  })
+
+  it('kao.css exposes @keyframes kickerPulse (W3 self-containment; also defined in CharacterBackdrop.vue:442 for CharacterBackdrop\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+kickerPulse\s*\{/)
+  })
 })

@@ -233,6 +233,83 @@
     text-transform: none !important;
   }
 
+  /* W3 self-containment: kao.css is loaded for /writing route, but the
+     keyframes (wallpaperMist, titleGlow, kickerPulse) were originally
+     defined in CharacterBackdrop.vue / OpeningPage.vue, neither of
+     which is mounted on /writing. We copy identical definitions here
+     so /writing can use them. The original definitions in those
+     components are kept untouched (regression safety for /experience
+     legacy mode). CSS uses the last-parsed definition; kao.css is
+     loaded after the components, so its copies win on /writing. */
+  @keyframes wallpaperMist {
+    from { transform: translate3d(-2%, -1%, 0); opacity: 0.36; }
+    to   { transform: translate3d(2%, 1%, 0); opacity: 0.55; }
+  }
+  @keyframes titleGlow {
+    from {
+      filter: drop-shadow(0 8px 15px color-mix(in srgb, #000 24%, transparent));
+    }
+    to {
+      filter: drop-shadow(0 11px 22px color-mix(in srgb, #000 34%, transparent));
+    }
+  }
+  @keyframes kickerPulse {
+    from { text-decoration-color: color-mix(in srgb, var(--accent-rose) 60%, transparent); }
+    to   { text-decoration-color: color-mix(in srgb, var(--accent-rose) 100%, transparent); }
+  }
+
+  /* Writing editor — 3-plane z-axis + ambient motion (立体感呼吸).
+     back = folio 底 (z-decor), window = editor (z-hero),
+     front = copilot pill + chapter title glow (z-cta).
+     Tokens --z-stage-* come from main.css:7-9 (5A ship). */
+  .theme-kao .editor-container {
+    position: relative;
+    z-index: var(--z-stage-hero);
+    isolation: isolate;
+  }
+
+  .theme-kao .copilot-indicator {
+    position: relative;
+    z-index: var(--z-stage-cta);
+  }
+
+  .theme-kao .chapter-title-input {
+    position: relative;
+    z-index: var(--z-stage-cta);
+  }
+
+  .theme-kao .folio-surface--paper {
+    z-index: var(--z-stage-decor);
+  }
+
+  /* wallpaperMist consumer — 14s slow breath on editor surface.
+     Keyframe defined here in kao.css for W3 self-containment
+     (also defined in CharacterBackdrop.vue:427 for that
+     component's own use; both are identical). */
+  .theme-kao .editor-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(118deg, transparent 0 60%, color-mix(in srgb, var(--archive-olive) 8%, transparent) 60.2% 66%, transparent 66.2%);
+    animation: wallpaperMist 14s ease-in-out infinite alternate;
+    pointer-events: none;
+    opacity: 0.5;
+    z-index: -1;
+  }
+
+  /* titleGlow consumer — 4.8s title breath for chapter title input.
+     Keyframe defined here in kao.css for W3 self-containment
+     (also defined in OpeningPage.vue:772 for that page's own
+     use; both are identical). */
+  .theme-kao .chapter-title-input {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    font-size: 28px;
+    color: var(--archive-ink);
+    animation: titleGlow 4.8s ease-in-out infinite alternate;
+  }
+
   /* Reduced-motion a11y guard — foundation. This block pre-lists
      all 5 future animation selectors from commits 1-3 (commit 1
      drop-cap has no animation, but the pattern is established
