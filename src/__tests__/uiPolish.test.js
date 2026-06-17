@@ -615,4 +615,33 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(woff2.size).toBeLessThan(1_000_000) // under vite 1MB hard cap
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
   })
+
+  it('N5C: uses FolioSurface to wrap editor-main kao visual', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<FolioSurface')
+    expect(notes).toContain('variant="paper"')
+  })
+
+  it('N5C: uses ArchiveStrip for entry collage', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<ArchiveStrip')
+  })
+
+  it('N5C: uses CharacterPortrait narrator in sidebar top', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<CharacterPortrait')
+    expect(notes).toContain('pose-id="narrator"')
+  })
+
+  it('N5C: uses .material-action-btn class for batch actions', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="selection-action-btn material-action-btn"')
+  })
+
+  it('N5C: scoped CSS within tolerance ≤ 770 lines', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
+    const lines = styleMatch ? styleMatch[1].split('\n').length : 0
+    expect(lines).toBeLessThanOrEqual(770)
+  })
 })
