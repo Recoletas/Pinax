@@ -68,17 +68,17 @@ describe('face-rotation (5C v3 P1.B) — face region DOM', () => {
     useSceneBackground().setScene('opening-cover')
   })
 
-  it('renders a .character-backdrop__face-region element with 30%-top clip-path', () => {
+  it('does not render .character-backdrop__face-region when react is none', () => {
     const wrapper = mount(CharacterBackdrop, {
       props: { src: '' },
     })
     const faceRegion = wrapper.find('.character-backdrop__face-region')
-    expect(faceRegion.exists()).toBe(true)
+    expect(faceRegion.exists()).toBe(false)
   })
 
-  it('face region is positioned after .character-backdrop__art in the DOM order', () => {
+  it('renders face region after .character-backdrop__art when react is active', () => {
     const wrapper = mount(CharacterBackdrop, {
-      props: { src: '' },
+      props: { src: '', react: 'choice-a' },
     })
     const root = wrapper.find('.character-backdrop')
     const html = root.html()

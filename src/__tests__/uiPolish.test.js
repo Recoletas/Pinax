@@ -430,14 +430,16 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     )
   })
 
-  it('Only OpeningPage.vue owns stage-command BookmarkButton usages and they use size="micro"', () => {
+  it('Only OpeningPage.vue owns stage-command BookmarkButton usages and they are no longer micro stamps', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     const experienceMatches = experience.match(/size="micro"/g) || []
     const openingMatches = openingPage.match(/size="micro"/g) || []
     expect(experienceMatches.length).toBe(0)
-    expect(openingMatches.length).toBe(2)
+    expect(openingMatches.length).toBe(0)
+    expect(openingPage).toContain('class="action-btn stage-command stage-command--primary"')
+    expect(openingPage).toContain('class="action-btn stage-command stage-command--secondary"')
   })
 
   it('Experience.vue no longer owns left-stage entry buttons after opening route extraction', () => {
@@ -453,44 +455,40 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     expect(openingPage).toContain('async function sendOpeningAction')
   })
 
-  it('OpeningPage.vue .stage-command base remains a micro action tab, not a large bookmark block', () => {
+  it('OpeningPage.vue .stage-command base is a full-size opening action', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     const baseRule =
       openingPage.match(/^[ \t]*\.stage-command\s*\{[^}]*\}/m)?.[0] || ''
-    expect(baseRule).toMatch(/min-height:\s*40px/)
-    expect(baseRule).toMatch(/min-width:\s*144px/)
-    expect(baseRule).toMatch(/grid-template-columns:\s*38px\s+minmax\(0,\s*1fr\)/)
-    expect(baseRule).not.toMatch(/min-height:\s*62px/)
-    expect(baseRule).not.toMatch(/min-width:\s*216px/)
-    expect(baseRule).not.toMatch(/grid-template-columns:\s*68px/)
+    expect(baseRule).toMatch(/min-height:\s*88px/)
+    expect(baseRule).toMatch(/min-width:\s*264px/)
+    expect(baseRule).toMatch(/grid-template-columns:\s*64px\s+minmax\(0,\s*1fr\)/)
+    expect(baseRule).toMatch(/scale\(1\.14\)/)
+    expect(baseRule).not.toMatch(/min-height:\s*40px/)
+    expect(baseRule).not.toMatch(/min-width:\s*144px/)
   })
 
-  it('OpeningPage.vue .stage-command--compact remains a smaller opening-action tab', () => {
+  it('OpeningPage.vue .stage-command--compact is not used by the opening action buttons', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     const compactRule =
       openingPage.match(/^[ \t]*\.stage-command--compact\s*\{[^}]*\}/m)?.[0] || ''
-    expect(compactRule).toMatch(/min-height:\s*28px/)
-    expect(compactRule).toMatch(/min-width:\s*88px/)
-    expect(compactRule).toMatch(/grid-template-columns:\s*24px\s+minmax\(0,\s*1fr\)/)
-    expect(compactRule).not.toMatch(/min-height:\s*50px/)
-    expect(compactRule).not.toMatch(/min-height:\s*36px/)
-    expect(compactRule).not.toMatch(/min-height:\s*32px/)
-    expect(compactRule).not.toMatch(/min-width:\s*100%/)
+    expect(openingPage).not.toMatch(/stage-command--compact stage-command--primary/)
+    expect(openingPage).not.toMatch(/stage-command--compact stage-command--secondary/)
+    expect(compactRule).toMatch(/min-height:\s*54px/)
+    expect(compactRule).toMatch(/min-width:\s*160px/)
   })
 
-  it('OpeningPage.vue opening action stage buttons keep the same micro width', () => {
+  it('OpeningPage.vue opening action stage buttons keep a readable mobile width', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     const openingRule =
       openingPage.match(/^[ \t]*\.opening-action-actions \.stage-command\s*\{[^}]*\}/m)?.[0] || ''
-    expect(openingRule).toMatch(/width:\s*88px/)
-    expect(openingRule).toMatch(/min-width:\s*88px/)
-    expect(openingRule).toMatch(/flex:\s*0\s+0\s+88px/)
-    expect(openingRule).not.toMatch(/min-width:\s*180px/)
-    expect(openingRule).not.toMatch(/min-width:\s*144px/)
-    expect(openingRule).not.toMatch(/min-width:\s*112px/)
+    expect(openingRule).toMatch(/width:\s*138px/)
+    expect(openingRule).toMatch(/min-width:\s*138px/)
+    expect(openingRule).toMatch(/min-height:\s*52px/)
+    expect(openingRule).toMatch(/flex:\s*0\s+0\s+138px/)
+    expect(openingRule).not.toMatch(/width:\s*88px/)
     expect(openingRule).not.toMatch(/flex:\s*1\s+1\s+180px/)
   })
 
@@ -578,13 +576,16 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(html).toMatch(/family=ZCOOL\+XiaoWei/)
   })
 
-  it('routes the OpeningPage title block through var(--font-display), not raw Iowan', () => {
+  it('renders the OpeningPage title as embedded serif glyphs on the art', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     const titleBlock = openingPage.match(/\.opening-title-block\s+strong\s*\{[\s\S]*?\n\}/)?.[0] || ''
-    expect(titleBlock).toContain('font-family: var(--font-display)')
-    // Defensive: the title block must NOT regress to the raw Iowan stack
-    expect(titleBlock).not.toMatch(/font-family:\s*"Iowan Old Style"/)
+    expect(openingPage).toContain('class="opening-embedded-title"')
+    expect(openingPage).toContain('class="opening-embedded-title__glyph"')
+    expect(titleBlock).toMatch(/font-family:\s*"Iowan Old Style"/)
+    expect(titleBlock).toMatch(/mix-blend-mode:\s*soft-light/)
+    expect(titleBlock).toMatch(/perspective\(900px\) rotateY\(-16deg\) rotateZ\(2deg\) skewX\(-5deg\)/)
+    expect(openingPage).toMatch(/\.opening-title-block\s*\{[\s\S]*?rotateZ\(var\(--opening-copy-arc\)\)[\s\S]*?skewX\(var\(--opening-copy-skew\)\)/)
   })
 
   it('ships the subset WOFF2 + OFL license on disk (size under 1 MB)', () => {

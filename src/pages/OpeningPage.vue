@@ -36,7 +36,17 @@
             </div>
 
             <div class="opening-title-block">
-              <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '还没有选中世界' }}</strong>
+              <strong class="opening-embedded-title" :aria-label="embeddedTitleText">
+                <span
+                  v-for="glyph in embeddedTitleGlyphs"
+                  :key="glyph.key"
+                  class="opening-embedded-title__glyph"
+                  aria-hidden="true"
+                  :style="glyph.style"
+                >
+                  {{ glyph.char }}
+                </span>
+              </strong>
               <p v-if="hasSelectedWorldbook && playableWorldDeck">{{ playableWorldDeck }}</p>
               <p v-else>先选择一个世界，再从开场页进入当前冒险。</p>
             </div>
@@ -164,6 +174,26 @@ function onSceneSelect(poseId) {
 const playableWorldTitle = computed(() => {
   if (!hasSelectedWorldbook.value) return ''
   return activeWorldbook.value?.name || '未命名世界'
+})
+const embeddedTitleText = computed(() => hasSelectedWorldbook.value ? playableWorldTitle.value : '还没有选中世界')
+const embeddedTitleGlyphs = computed(() => {
+  const chars = Array.from(embeddedTitleText.value || '')
+  const center = (chars.length - 1) / 2
+  return chars.map((char, index) => {
+    const offset = index - center
+    const lift = Math.abs(offset) * Math.abs(offset) * 1.72 + Math.max(0, offset) * 4.2
+    const rotate = offset * 2.55
+    const depth = Math.abs(offset) * 0.04
+    return {
+      char,
+      key: `${char}-${index}`,
+      style: {
+        '--glyph-y': `${lift.toFixed(2)}px`,
+        '--glyph-rotate': `${rotate.toFixed(2)}deg`,
+        '--glyph-depth': depth.toFixed(2),
+      },
+    }
+  })
 })
 const playableWorldGenre = computed(() => {
   if (!hasSelectedWorldbook.value) return ''
@@ -372,6 +402,11 @@ function getActiveEntryNames(typeValue, limit = 3) {
   position: relative;
   isolation: isolate;
   color: var(--text-primary);
+  --opening-copy-arc: 5deg;
+  --opening-copy-skew: -8deg;
+  --opening-rail-slope: -8deg;
+  --opening-surface-shadow: -2px 4px 14px color-mix(in srgb, #000 48%, transparent);
+  --opening-surface-glow: 1px -1px 0 color-mix(in srgb, var(--archive-gold) 20%, transparent);
 }
 
 /* 5C v3.7: drop the panel chrome — text and tiles sit directly on the
@@ -410,9 +445,11 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: grid;
   align-items: center;
   justify-items: end;
-  gap: 9px;
-  width: min(318px, 34vw);
-  padding-left: 20px;
+  gap: 12px;
+  width: min(354px, 35vw);
+  padding-left: 24px;
+  transform: perspective(1000px) rotateZ(var(--opening-rail-slope)) rotateY(-8deg) skewX(-7deg);
+  transform-origin: top right;
 }
 
 .opening-toolbar__actions::before {
@@ -441,7 +478,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
 .opening-world-card,
 .opening-rail-btn {
   position: relative;
-  width: min(318px, 100%);
+  width: min(342px, 100%);
   color: var(--archive-paper);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
   background:
@@ -450,7 +487,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
     color-mix(in srgb, var(--archive-ink) 42%, transparent);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(12px) saturate(1.08);
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  clip-path: polygon(3% 0, 96% 0, 100% 15%, 94% 100%, 0 86%, 7% 18%);
 }
 
 .opening-world-card::before,
@@ -467,6 +504,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: grid;
   gap: 4px;
   padding: 10px 12px 12px;
+  transform: translateX(2px) rotateZ(1.5deg);
 }
 
 .opening-world-card__eyebrow,
@@ -512,6 +550,14 @@ function getActiveEntryNames(typeValue, limit = 3) {
   transition: transform 180ms ease, border-color 180ms ease, filter 180ms ease;
 }
 
+.opening-rail-btn:nth-of-type(1) {
+  transform: translate(-22px, 4px) rotateZ(1deg);
+}
+
+.opening-rail-btn:nth-of-type(2) {
+  transform: translate(-4px, 10px) rotateZ(2deg) scaleX(0.94);
+}
+
 .opening-rail-btn::after {
   content: attr(data-rail-index);
   display: inline-flex;
@@ -549,7 +595,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
 }
 
 .opening-rail-btn:hover {
-  transform: translateX(-6px);
+  transform: translate(-28px, 8px) rotateZ(1deg);
   border-color: color-mix(in srgb, var(--archive-gold) 62%, transparent);
   filter: brightness(1.05);
 }
@@ -571,9 +617,9 @@ function getActiveEntryNames(typeValue, limit = 3) {
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.78fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 30px;
-  padding: 88px 40px 40px;
+  padding: 112px 28px 40px;
   pointer-events: none;
   z-index: 1;
 }
@@ -621,6 +667,9 @@ function getActiveEntryNames(typeValue, limit = 3) {
   box-shadow: none;
   color: var(--text-primary);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  width: min(900px, 56vw);
+  transform: translate(-10px, 34px);
+  transform-origin: 8% 18%;
 }
 
 .opening-copy h1, .opening-copy h2, .opening-copy h3, .opening-copy strong {
@@ -661,26 +710,72 @@ function getActiveEntryNames(typeValue, limit = 3) {
 
 .opening-title-block {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  max-width: min(880px, 55vw);
+  transform-origin: left top;
+  transform: perspective(1200px) rotateZ(var(--opening-copy-arc)) rotateY(-11deg) skewX(var(--opening-copy-skew));
+}
+
+.opening-title-block p,
+.opening-briefing {
+  transform: perspective(1000px) rotateY(-6deg) translateY(14px) rotateZ(1.2deg);
+  transform-origin: left center;
+  mix-blend-mode: screen;
 }
 
 .opening-title-block strong {
   position: relative;
   max-width: 8ch;
+  display: inline-flex;
+  align-items: flex-start;
+  width: fit-content;
   color: var(--archive-paper);
   font-family: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
   font-size: clamp(48px, 6.5vw, 96px);
   font-style: italic;
   font-weight: 760;
   line-height: 0.92;
-  letter-spacing: 0.02em;
-  transform: skewX(-4deg);
-  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
+  letter-spacing: -0.015em;
+  transform: perspective(900px) rotateY(-16deg) rotateZ(2deg) skewX(-5deg);
+  transform-origin: 12% 58%;
+  mix-blend-mode: soft-light;
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--archive-paper) 38%, transparent);
+  text-shadow:
+    0 1px 0 color-mix(in srgb, #000 54%, transparent),
+    var(--opening-surface-shadow),
+    var(--opening-surface-glow);
+  filter: drop-shadow(0 10px 18px color-mix(in srgb, #000 30%, transparent));
+  opacity: 0.96;
   animation: titleGlow 4.8s ease-in-out infinite alternate;
 }
+
+.opening-title-block strong::before {
+  content: "";
+  position: absolute;
+  inset: -0.08em -0.14em -0.06em -0.12em;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 24% 46%, color-mix(in srgb, var(--archive-paper) 11%, transparent), transparent 58%),
+    linear-gradient(105deg, transparent 0 18%, color-mix(in srgb, var(--archive-gold) 9%, transparent) 38% 58%, transparent 74% 100%);
+  border-radius: 48% 42% 54% 40%;
+  transform: rotate(3deg) skewX(-6deg);
+  mix-blend-mode: screen;
+  opacity: 0.62;
+}
+
+.opening-embedded-title__glyph {
+  display: inline-block;
+  transform: translateY(var(--glyph-y)) rotate(var(--glyph-rotate)) scale(calc(1 - var(--glyph-depth)));
+  transform-origin: 50% 70%;
+}
+
 @keyframes titleGlow {
-  from { text-shadow: 0 0 8px rgba(0,0,0,0.5), 0 0 12px rgba(0,0,0,0.3); }
-  to   { text-shadow: 0 0 20px rgba(0,0,0,0.7), 0 0 40px rgba(0,0,0,0.5); }
+  from {
+    filter: drop-shadow(0 8px 15px color-mix(in srgb, #000 24%, transparent));
+  }
+  to {
+    filter: drop-shadow(0 11px 22px color-mix(in srgb, #000 34%, transparent));
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .opening-title-block strong {
@@ -695,19 +790,27 @@ function getActiveEntryNames(typeValue, limit = 3) {
   font-size: 16px;
   font-weight: 400;
   line-height: 1.58;
-  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7), 0 0 32px rgba(0, 0, 0, 0.5);
+  max-width: 58ch;
+  text-shadow:
+    0 1px 0 color-mix(in srgb, #000 54%, transparent),
+    var(--opening-surface-shadow),
+    0 0 20px color-mix(in srgb, var(--archive-paper) 12%, transparent);
 }
 
 .opening-briefing {
   display: grid;
   gap: 14px;
   padding-top: 16px;
+  max-width: min(780px, 50vw);
+  margin-left: 4px;
 }
 
 .opening-mission {
   display: grid;
   gap: 6px;
   padding-bottom: 12px;
+  transform: translateY(18px) rotateZ(2.4deg);
+  transform-origin: left center;
 }
 
 .opening-mission span,
@@ -719,7 +822,9 @@ function getActiveEntryNames(typeValue, limit = 3) {
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  text-shadow:
+    0 1px 0 color-mix(in srgb, #000 54%, transparent),
+    var(--opening-surface-shadow);
 }
 
 .opening-mission strong {
@@ -738,6 +843,8 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
+  transform: translateY(34px) rotateZ(3.4deg) skewX(-6deg);
+  transform-origin: left center;
 }
 
 .opening-pressure-grid div,
@@ -754,35 +861,100 @@ function getActiveEntryNames(typeValue, limit = 3) {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  text-shadow:
+    0 1px 0 color-mix(in srgb, #000 54%, transparent),
+    var(--opening-surface-shadow);
 }
 
 /* 5C v3.7: drop the panel chrome — same treatment as .opening-copy.
    The scene strip (CharacterArchiveStrip) sits directly on the art. */
 .opening-scene {
-  display: grid;
-  gap: 14px;
-  align-content: end;
+  position: absolute;
+  right: clamp(-86px, -3.2vw, -34px);
+  bottom: -86px;
+  width: min(720px, 39vw);
+  height: 270px;
+  display: block;
   padding: 0;
+  margin: 0;
   background: transparent;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   color: var(--text-primary);
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  transform: perspective(1100px) rotateZ(-5deg) rotateY(13deg);
+  transform-origin: right bottom;
+  overflow: visible;
+}
+
+.opening-scene :deep(.character-archive-strip) {
+  position: absolute;
+  inset: auto 0 0 auto;
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: none;
+}
+
+.opening-scene :deep(.character-archive-strip__tile) {
+  position: absolute;
+  bottom: 0;
+  width: 34%;
+  min-height: 210px;
+  overflow: hidden;
+  clip-path: polygon(10% 18%, 100% 0, 92% 100%, 0 86%);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 46%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 42%, transparent);
+  box-shadow: 0 16px 34px color-mix(in srgb, #000 42%, transparent);
+  transform-origin: 50% 100%;
+}
+
+.opening-scene :deep(.character-archive-strip__tile:nth-child(1)) {
+  left: 7%;
+  transform: translateY(112px) rotateZ(-10deg) scale(0.66);
+  z-index: 1;
+}
+
+.opening-scene :deep(.character-archive-strip__tile:nth-child(2)) {
+  left: 33%;
+  transform: translateY(48px) rotateZ(-2deg) scale(0.9);
+  z-index: 3;
+}
+
+.opening-scene :deep(.character-archive-strip__tile:nth-child(3)) {
+  left: 61%;
+  transform: translateY(102px) rotateZ(9deg) scale(0.66);
+  z-index: 2;
+}
+
+.opening-scene :deep(.character-archive-strip__switcher.is-active) {
+  transform: translateY(10px) rotateZ(-2deg) scale(1.02);
+}
+
+.opening-scene :deep(.character-archive-strip__kicker) {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 7px;
+  padding: 4px 0 0;
+  color: color-mix(in srgb, var(--archive-gold) 84%, var(--archive-paper));
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, #000 62%, transparent));
+  text-shadow: 0 1px 8px color-mix(in srgb, #000 80%, transparent);
 }
 
 /* 5C v3.7: postage-stamp row floats bottom-center of the page on the
    art, no longer nested inside the (gone) copy panel. */
 .opening-action-actions {
   position: absolute;
-  bottom: 38px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: clamp(132px, 15vh, 218px);
+  left: clamp(92px, 7.4vw, 190px);
+  transform: perspective(980px) rotateX(12deg) rotateY(-19deg) rotateZ(-8deg);
+  transform-origin: left center;
   display: flex;
   flex: 0 0 auto;
   flex-wrap: nowrap;
-  gap: 18px;
+  gap: 0;
   z-index: 3;
 }
 
@@ -795,10 +967,10 @@ function getActiveEntryNames(typeValue, limit = 3) {
 /* 5C v3.7: .stage-command becomes a postage stamp — notched clip-path,
    solid cream paper, tilted + skewed, hard 2px offset shadow. */
 .stage-command {
-  --command-tilt: -12deg;
+  --command-tilt: -1deg;
   position: relative;
-  min-width: 210px;
-  min-height: 72px;
+  min-width: 264px;
+  min-height: 88px;
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
   align-items: stretch;
@@ -808,17 +980,23 @@ function getActiveEntryNames(typeValue, limit = 3) {
   color: var(--archive-paper);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
   border-radius: 0;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
-  transform: rotate(var(--command-tilt)) skewX(-2deg);
+  clip-path: polygon(0 8%, 78% 0, 100% 20%, 90% 100%, 10% 84%, 0 68%);
+  transform: rotate(var(--command-tilt)) scale(1.14);
   box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 88%, #000), 0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
 .stage-command--secondary {
-  --command-tilt: -10deg;
+  --command-tilt: 2deg;
+  margin: -8px 0 0 -18px;
+  min-width: 224px;
+  min-height: 68px;
+  grid-template-columns: 54px minmax(0, 1fr);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 94%, transparent) 0 66%, color-mix(in srgb, var(--archive-olive) 70%, var(--archive-olive-strong)) 66% 100%);
   color: var(--archive-ink);
-  transform: rotate(var(--command-tilt)) skewX(-2deg);
+  clip-path: polygon(6% 0, 100% 14%, 94% 82%, 18% 100%, 0 78%, 8% 18%);
+  transform: rotate(var(--command-tilt)) scale(0.84);
+  transform-origin: left center;
 }
 
 .stage-command--compact {
@@ -867,6 +1045,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   .opening-toolbar__actions {
     width: min(460px, 100%);
     justify-items: stretch;
+    transform: perspective(900px) rotateZ(-3deg) skewX(-3deg);
   }
 
   .opening-world-card,
@@ -879,9 +1058,19 @@ function getActiveEntryNames(typeValue, limit = 3) {
     gap: 20px;
   }
 
-  .opening-copy,
+  .opening-copy {
+    width: min(100%, 720px);
+  }
+
+  .opening-title-block {
+    max-width: min(100%, 720px);
+  }
+
   .opening-scene {
-    padding: 0;
+    right: 18px;
+    bottom: -72px;
+    width: min(560px, 76vw);
+    height: 220px;
   }
 }
 
@@ -898,6 +1087,22 @@ function getActiveEntryNames(typeValue, limit = 3) {
 
   .opening-orbit {
     padding: 76px 14px 14px;
+  }
+
+  .opening-copy,
+  .opening-title-block,
+  .opening-title-block p,
+  .opening-briefing,
+  .opening-pressure-grid,
+  .opening-toolbar__actions {
+    transform: none;
+  }
+
+  .opening-copy,
+  .opening-title-block,
+  .opening-briefing {
+    max-width: 100%;
+    width: 100%;
   }
 
   .opening-pressure-grid,
@@ -922,12 +1127,37 @@ function getActiveEntryNames(typeValue, limit = 3) {
     width: 100%;
   }
 
+  .opening-scene {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    height: 160px;
+    margin-top: 18px;
+    transform: none;
+  }
+
+  .opening-scene :deep(.character-archive-strip__tile) {
+    min-height: 128px;
+  }
+
   .opening-action-actions .stage-command {
     width: 138px;
     min-width: 138px;
     min-height: 52px;
     grid-template-columns: 42px minmax(0, 1fr);
     flex: 0 0 138px;
+  }
+
+  .opening-action-actions {
+    left: 14px;
+    bottom: 18px;
+    transform: rotateZ(-5deg);
+  }
+
+  .stage-command,
+  .stage-command--secondary {
+    transform: none;
   }
 
   .stage-command :deep(.stage-command__index) {

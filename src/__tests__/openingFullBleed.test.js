@@ -49,7 +49,7 @@ describe('5C v3.5 — /opening full-bleed (no card frame)', () => {
     expect(src).toMatch(/\.opening-orbit\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;/)
   })
 
-  it('Test 8: .opening-orbit has padding: 88px 40px 40px (top reserves toolbar space)', () => {
-    expect(src).toMatch(/padding:\s*88px 40px 40px/)
+  it('Test 8: .opening-orbit has direct-aligned padding that drops copy onto the window plane', () => {
+    expect(src).toMatch(/padding:\s*112px 28px 40px/)
   })
 })

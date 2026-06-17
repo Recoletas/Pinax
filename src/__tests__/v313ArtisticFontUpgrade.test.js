@@ -6,10 +6,10 @@ function readProjectFile(path) {
   return readFileSync(resolve(process.cwd(), path), 'utf-8')
 }
 
-// 5C v3.14 — v3.13 的 "黄油体 + text-stroke + brush 下划线" 反馈太
-// "装饰 / 廉价" (font 怪 + 金色 shimmer 太快)。v3.14 把字体回退到 v3.12
-// baseline (ZCOOL XiaoWei 唯一字体), 删 text-stroke + brush underline,
-// 把 titleShimmer 4s linear 改成 10s ease-in-out (premium timing)。
+// 5C v3.14+ — v3.13 的 "黄油体 + brush 下划线" 反馈太
+// "装饰 / 廉价"。Current opening polish keeps ZCOOL XiaoWei as the
+// global signature font, but renders the /opening title as an embedded
+// Iowan serif glyph mark with a light text stroke instead of shimmer text.
 describe('5C v3.14 — revert v3.13 artification + slow premium shimmer', () => {
   it('index.html loads only ZCOOL XiaoWei (QingKe HuangYou removed)', () => {
     const indexHtml = readProjectFile('index.html')
@@ -28,20 +28,24 @@ describe('5C v3.14 — revert v3.13 artification + slow premium shimmer', () => 
     expect(mainCss).not.toMatch(/ZCOOL QingKe HuangYou/)
   })
 
-  it('OpeningPage.vue has no -webkit-text-stroke and no brush ::after on the title', () => {
+  it('OpeningPage.vue uses embedded serif glyphs and no brush ::after on the title', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
+    const titleRule = openingPage.match(/\.opening-title-block\s+strong\s*\{[\s\S]*?\n\}/)?.[0] || ''
 
-    // v3.13 artification removed
-    expect(openingPage).not.toContain('-webkit-text-stroke')
+    expect(openingPage).toContain('class="opening-embedded-title"')
+    expect(titleRule).toMatch(/font-family:\s*"Iowan Old Style"/)
+    expect(titleRule).toMatch(/-webkit-text-stroke/)
+    expect(titleRule).toMatch(/mix-blend-mode:\s*soft-light/)
     expect(openingPage).not.toMatch(/\.opening-title-block\s+strong::after\s*\{/)
   })
 
-  it('titleShimmer is 10s ease-in-out (premium timing, was 4s linear in v3.12)', () => {
+  it('does not use titleShimmer; title depth comes from glyph transforms and drop-shadow', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
+    const titleRule = openingPage.match(/\.opening-title-block\s+strong\s*\{[\s\S]*?\n\}/)?.[0] || ''
+    const glyphRule = openingPage.match(/\.opening-embedded-title__glyph\s*\{[\s\S]*?\n\}/)?.[0] || ''
 
-    // Slow, eased shimmer (premium feel — was 4s linear in v3.12)
-    expect(openingPage).toMatch(/titleShimmer\s+10s\s+ease-in-out\s+infinite/)
-    // Old v3.12 4s linear timing is gone
-    expect(openingPage).not.toMatch(/titleShimmer\s+4s\s+linear/)
+    expect(openingPage).not.toMatch(/@keyframes\s+titleShimmer\b/)
+    expect(titleRule).toMatch(/drop-shadow/)
+    expect(glyphRule).toMatch(/translateY\(var\(--glyph-y\)\) rotate\(var\(--glyph-rotate\)\)/)
   })
 })

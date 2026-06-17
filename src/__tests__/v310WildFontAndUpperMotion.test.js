@@ -14,9 +14,9 @@ function readProjectFile(path) {
 //     strokes) replaces Liu Jian Mao Cao / Long Cang / Ma Shan Zheng
 //     as the only Google Fonts primary; the old calligraphic CJK
 //     fonts are dropped from the Google Fonts stylesheet
-//   - motion upgrade: face-region breathing replaced by WHOLE-art
-//     breathing (6% amplitude on the outer .character-backdrop__art,
-//     3s period) + horizontal ±10px drift on the inner art-bg (4s)
+//   - motion upgrade: face-region/whole-art breathing replaced by
+//     localized wallpaper overlays (mist, grain, light) so only parts
+//     of the background move.
 //
 // These tests verify the v3.10 STRUCTURAL guarantees still hold:
 //   - Google Fonts preconnect + stylesheet are wired (with ZCOOL
@@ -24,9 +24,7 @@ function readProjectFile(path) {
 //   - LXGW WenKai @font-face still ships (last-resort fallback)
 //   - The dust-motes utility still ships and is reduced-motion gated
 //   - The OpeningPage still mounts .dust-motes inside CharacterBackdrop
-//   - Some form of breathing animation is still on the art (now whole-art
-//     rather than face-region; see v311WholeArtMotionAndBolderFont.test.js
-//     for the v3.12-specific contract)
+//   - Some visible background motion remains without moving the whole art
 describe('5C v3.10 wild font + upper-half motion (carried forward into v3.12)', () => {
   it('loads ZCOOL XiaoWei from Google Fonts CDN in index.html', () => {
     const indexHtml = readProjectFile('index.html')
@@ -71,18 +69,14 @@ describe('5C v3.10 wild font + upper-half motion (carried forward into v3.12)', 
     expect(openingPage).toContain('<div class="dust-motes" aria-hidden="true">')
   })
 
-  it('keeps a breathing animation on the art (whole-art now, was face-region in v3.10)', () => {
+  it('keeps visible motion through localized wallpaper overlays, not whole-art breathing', () => {
     const characterBackdrop = readProjectFile('src/components/folio/CharacterBackdrop.vue')
 
-    // v3.12: the face-region breathing was replaced by whole-art
-    // breathing on the outer .character-backdrop__art layer.
-    expect(characterBackdrop).toMatch(/@keyframes\s+artBreathe\b/)
-    // Whole-art 6% amplitude (was 4% in v3.11, 3% in v3.10)
-    expect(characterBackdrop).toContain('scale(1.06)')
-    // The outer art layer carries the animation, anchored lower so the
-    // upper half "rises" more visibly (50% 60% instead of v3.10's 50% 30%)
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperMist\b/)
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperGrain\b/)
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperLight\b/)
+    expect(characterBackdrop).not.toMatch(/@keyframes\s+artBreathe\b/)
+    expect(characterBackdrop).not.toMatch(/@keyframes\s+artDrift\b/)
     expect(characterBackdrop).toContain('transform-origin: 50% 60%')
-    // Applied to the outer .character-backdrop__art (whole-art motion)
-    expect(characterBackdrop).toMatch(/character-backdrop__art\s*\{[\s\S]*?artBreathe/s)
   })
 })

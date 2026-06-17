@@ -7,8 +7,10 @@ function readProjectFile(path) {
 }
 
 // 5C v3.12 — ZCOOL XiaoWei 签名体 (signature style with connected
-// strokes) + 不可不见的上半屏动态 (art breathing 6% / drift ±10px /
-// title shimmer / title glow / kicker 1.5s).
+// strokes) + 不可不见的上半屏动态.
+// Current opening polish keeps visible motion but moves it to localized
+// wallpaper overlays, and changes the title from shimmer text into a
+// serif glyph mark embedded into the background curve.
 // Source-string contract tests: read the project files, assert the
 // expected CSS / preload markers exist (and the old Liu Jian Mao Cao
 // is gone).
@@ -32,32 +34,35 @@ describe('5C v3.12 signature font + visible motion', () => {
     expect(mainCss).toMatch(/--font-serif:\s*"ZCOOL XiaoWei"[\s\S]*?;/)
   })
 
-  it('bumps art breathing amplitude to 6% via @keyframes artBreathe', () => {
+  it('keeps visible motion through dynamic-wallpaper overlays instead of artBreathe', () => {
     const characterBackdrop = readProjectFile('src/components/folio/CharacterBackdrop.vue')
 
-    // Whole-art breathing keyframe
-    expect(characterBackdrop).toMatch(/@keyframes\s+artBreathe\b/)
-    // 6% amplitude (vs v3.11's 4% — 50% bigger)
-    expect(characterBackdrop).toContain('scale(1.06)')
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperMist\b/)
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperGrain\b/)
+    expect(characterBackdrop).toMatch(/@keyframes\s+wallpaperLight\b/)
+    expect(characterBackdrop).not.toMatch(/@keyframes\s+artBreathe\b/)
   })
 
-  it('widens art horizontal drift to ±10px via @keyframes artDrift', () => {
+  it('does not reintroduce whole-art horizontal drift via @keyframes artDrift', () => {
     const characterBackdrop = readProjectFile('src/components/folio/CharacterBackdrop.vue')
+    const artBgRule = characterBackdrop.match(/\.character-backdrop__art-bg\s*\{[\s\S]*?\n\}/)?.[0] || ''
 
-    // Horizontal drift keyframe
-    expect(characterBackdrop).toMatch(/@keyframes\s+artDrift\b/)
-    // ±10px horizontal motion (vs v3.11's ±4px — 2.5x bigger)
-    expect(characterBackdrop).toContain('translateX(-10px)')
-    expect(characterBackdrop).toContain('translateX(10px)')
+    expect(characterBackdrop).not.toMatch(/@keyframes\s+artDrift\b/)
+    expect(artBgRule).not.toMatch(/animation:\s*artDrift/)
   })
 
-  it('adds a moving title shimmer via @keyframes titleShimmer + background-clip', () => {
+  it('renders the opening title as embedded curved serif glyphs, not masked shimmer text (5C v3.15+ stronger wall perspective)', () => {
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
+    const titleRule = openingPage.match(/\.opening-title-block\s+strong\s*\{[\s\S]*?\n\}/)?.[0] || ''
+    const glyphRule = openingPage.match(/\.opening-embedded-title__glyph\s*\{[\s\S]*?\n\}/)?.[0] || ''
 
-    // Title shimmer keyframe (sweeping gold highlight across the text)
-    expect(openingPage).toMatch(/@keyframes\s+titleShimmer\b/)
-    // The title strong element uses background-clip: text to mask the
-    // gradient onto the glyphs (otherwise the gradient renders behind)
-    expect(openingPage).toContain('background-clip: text')
+    expect(openingPage).toContain('embeddedTitleGlyphs')
+    expect(titleRule).toContain('"Iowan Old Style"')
+    expect(titleRule).toMatch(/font-style:\s*italic/)
+    expect(titleRule).toMatch(/perspective\(900px\) rotateY\(-16deg\) rotateZ\(2deg\) skewX\(-5deg\)/)
+    expect(titleRule).toMatch(/mix-blend-mode:\s*soft-light/)
+    expect(glyphRule).toMatch(/translateY\(var\(--glyph-y\)\) rotate\(var\(--glyph-rotate\)\)/)
+    expect(openingPage).not.toMatch(/@keyframes\s+titleShimmer\b/)
+    expect(titleRule).not.toContain('background-clip: text')
   })
 })

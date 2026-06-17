@@ -38,22 +38,21 @@ describe('5C v3.7 — /opening panel drop + postage-stamp button', () => {
     expect(copyRule).not.toMatch(/box-shadow:\s*6px\s+6px\s+0\b/)
   })
 
-  it('Test 3: .opening-title-block strong has the text-shadow halo for legibility on art', () => {
-    // Cream text on dark art needs a dark halo. The hero title gets the
-    // 0 0 12px / 0 0 32px stack from the spec. Locate the .opening-title-block
-    // strong rule and confirm text-shadow + 0 0 12px both appear in it.
+  it('Test 3: .opening-title-block strong has embedded shadowing for legibility on art', () => {
+    // Cream text on dark art needs a dark embedded shadow. Current title
+    // uses a pressed text-shadow + drop-shadow instead of the older halo.
     const titleStrongRule = src.match(/\.opening-title-block\s+strong\s*\{[\s\S]*?\}/)?.[0] || ''
     expect(titleStrongRule).toMatch(/text-shadow:/)
-    expect(titleStrongRule).toMatch(/0 0 12px/)
+    expect(titleStrongRule).toMatch(/var\(--opening-surface-shadow\)/)
+    expect(titleStrongRule).toMatch(/drop-shadow/)
   })
 
-  it('Test 4: .stage-command carries the postage-stamp clip-path (notched corners)', () => {
-    // Postage stamp signature: clip-path polygon with 8px notches on all
-    // 4 corners (top-right, bottom-right, bottom-left). The 6-point
-    // polygon from the spec must appear on the .stage-command rule.
+  it('Test 4: .stage-command carries an irregular foreground shard clip-path', () => {
+    // Current opening actions are perspective foreground shards, not
+    // regular postage rectangles.
     const stageCommandRule = src.match(/\.stage-command\s*\{[\s\S]*?\}/)?.[0] || ''
     expect(stageCommandRule).toMatch(
-      /clip-path:\s*polygon\(0 0,\s*calc\(100% - 8px\) 0,\s*100% 8px,\s*100% 100%,\s*8px 100%,\s*0 calc\(100% - 8px\)\)/
+      /clip-path:\s*polygon\(0 8%,\s*78% 0,\s*100% 20%,\s*90% 100%,\s*10% 84%,\s*0 68%\)/
     )
   })
 })
