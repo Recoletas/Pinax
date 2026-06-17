@@ -62,6 +62,14 @@
             </button>
           </div>
         </div>
+
+        <!-- N5C: narrator 立绘形象 (档案员) -->
+        <CharacterPortrait
+          pose-id="narrator"
+          size="thumb"
+          caption="档案员"
+        />
+
         <div class="book-list" v-show="!isRightCollapsed">
           <div class="material-selection-bar" :class="{ active: checkedAssetIds.length > 0 }">
             <template v-if="checkedAssetIds.length === 0">
@@ -333,6 +341,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
+import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
