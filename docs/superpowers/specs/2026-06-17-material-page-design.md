@@ -88,7 +88,7 @@
 - `.material-action-btn`:4 batch action 按钮的 kao 视觉(paper-soft bg + gold border + 18px hard-offset shadow + 0 radius + 12px hover filter);跟 `.selection-action-btn` 共存(uiPolish L77-80 锁 button 元素字面量,class 名不锁)
 - `.material-bookmark-toolbar`:4 batch action 按钮容器(`grid-template-columns: repeat(4, 1fr)` + paper-soft bg + hairline border)
 - `.material-entry-card`:撕边 entry 缩略(`aspect-ratio: 3/4` + clip-path polygon + 4px hard-offset shadow)
-- `.material-tear-svg`:撕边 SVG `<defs>` 容器(width: 0; height: 0; feTurbulence + feDisplacementMap seed=7,跟 WelcomeView 一致)
+- `.material-tear-svg`:撕边 SVG **CSS 定位 wrapper**(width: 0; height: 0; pointer-events: none; position: absolute)— 只负责把 `<svg>` 元素藏起来不占 layout。**实际的 SVG `<defs>` 块(含 feTurbulence + feDisplacementMap seed=7)在 Phase B 模板里 inline**(跟 WelcomeView PosterStage 模式一致),不进 kao.css
 
 `main.css` 0 改动(per `feedback_dont_overwrite_user_tuned_values.md`)。
 
