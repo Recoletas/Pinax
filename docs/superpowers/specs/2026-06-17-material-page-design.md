@@ -75,7 +75,7 @@
 | Component | 用途 | Props |
 |---|---|---|
 | `FolioSurface` | editor-main + modal 装裱 | `variant="paper"` `decorated` |
-| `BookmarkButton` × 4 | 替换 4 `selection-action-btn` | `size="micro"` `variant`(primary/tertiary/secondary/secondary) `@click` + 文案保留字面量 |
+| `BookmarkButton` × 4 | 替换 4 `selection-action-btn` | `size="micro"` `variant`(primary/secondary/secondary/tertiary = 导入/采纳/归档/删除) `@click` + 文案保留字面量 |
 | `ArchiveStrip` | 3 entry collage tile | `:items="archiveStripItems"` `:image="firstImageDataUrl"` |
 | `CharacterPortrait` | sidebar 顶部 narrator | `poseId="narrator"` `size="thumb"` `caption="档案员"` |
 | `WorkbenchPageHero` / `GmPersonaLauncher` / `ImageGenRail` / `AdvisorPanel` | 已有(不动) | — |
