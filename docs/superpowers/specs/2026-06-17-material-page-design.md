@@ -117,7 +117,7 @@
 | Phase | 目标 | 风险 |
 |---|---|---|
 | **Phase A** — CSS token + 3 kao 组件 import + scoped CSS 瘦身 + 新 CSS class | Notes.vue `<script setup>` import FolioSurface / ArchiveStrip / CharacterPortrait(BookmarkButton 不重用,见 R3-A);template 内 4 `<button class="selection-action-btn">` 改为 `<button class="selection-action-btn material-action-btn">`(保留 uiPolish L77-80 字面量);scoped CSS 大量删除(`toolbar-text-btn` / `add-btn.prominent/btn-new` / `tool-btn` / `mode-switch` / `asset-canvas-primary/secondary` / 4 个 1-6px rgba box-shadow / `border-radius: 4/6/8px`);kao.css 新增 4 个 utility / class;template 主体结构不动 | 模板主体结构不动,只在已有 button 上加新 class 名 + 新增 import;视觉切换主要靠 kao.css 新 utility + .selection-action-btn 视觉改写 |
-| **Phase B** — Template 重排 | editor-main 包 FolioSurface;sidebar 顶部加 CharacterPortrait;ArchiveStrip 3 collage tile 嵌入 editor-main(在 title-row 下方);modal 包 FolioSurface variant=paper | layout 大改,test 重点验证 |
+| **Phase B** — Template 重排 | 5 个具体改动点: ① editor-main 容器改 `<FolioSurface variant="paper" decorated="true">` 包内容;② sidebar header 与分組列表之间插入 `<CharacterPortrait pose-id="narrator" size="thumb" caption="档案员" />`;③ editor-main title-row 下方插入 `<ArchiveStrip :items="archiveStripItems" :image="firstImageDataUrl" />`;④ 新建素材 modal `<div class="modal">` 改 `<FolioSurface variant="paper" decorated>`;⑤ `<button class="toolbar-text-btn prominent" @click="createNewNote" title="新建素材">新素材</button>` 改 `<button class="material-action-btn" @click="createNewNote" title="新建素材">新素材</button>` | layout 大改,test 重点验证 |
 | **Phase C** — 1 次手动截图 + 验收 | 跑 uiPolish + notes + narrativeAssets 全测;记录截图到 STATUS.md | 无代码风险,纯验证 |
 
 ### Acceptance bar(per kao-ui-direction §11)
@@ -156,6 +156,7 @@
 | **R7**: 撕边 SVG filter inline 复制产生代码重复 | 短期接受,长期 follow-up extract `<TornEdgeFilter>` 共享 | 同步维护两份 `<defs>` |
 | **R8**: uiPolish test 新增 5 条 Notes 契约 + 1 条 CSS 行数守护 | spec G2 已列 5 条测试名;Phase B 同步加 | uiPolish test 是 spec 契约的实现载体,需在 Phase B 同步加 5 条 contract test |
 | **R11**: BookmarkButton component 跟 uiPolish L77-80 字面量冲突 | 不重用 BookmarkButton,4 batch action 改用 raw `<button>` + 新 `.material-action-btn` class(见 R3-A) | 视觉少 BookmarkButton 的 index span "01" "02" "03" "04" 装饰,但对 workbench 工具栏更简洁 |
+| **R12**: WelcomeView 视觉基准漂移(per cross-page review)— STATUS.md L33 显示 WelcomeView 还在 wip worktree 推进,可能跟 spec 假设的"已 ship 18px hard-offset"有出入 | Phase B 实装前先 `cd wip/map-realism-render-docs-20260608 && git fetch origin main && git log --oneline -5 src/views/WelcomeView.vue` 看 WelcomeView HEAD 实际 ship 状态;若 18px 漂移,Phase B 跟 WelcomeView HEAD 一致即可;visual-first 不是 spec-first(per `feedback_visual_quality_beyond_architecture.md`) | 若 WelcomeView 改 18px → 20px 或加新 .is-* utility,material 视觉基准同步漂移;但 spec 引用的是视觉**模式**(18px hard-offset + FolioSurface 撕角 + 0 radius)不是具体数值,模式稳定即可 |
 | **R9**: "PPT 平面块"风险(per `feedback_visual_integration_not_illustration.md` 7 次反馈) — 严禁 translucent + soft shadow + 矩形老路 | 18px hard-offset shadow + FolioSurface 撕角 + textarea clip-path polygon 微撕角 + 0 radius + 4 .is-* utility 全部走 kao 视觉,不用 rgba(0,0,0,0.05-0.15) soft shadow | 视觉最终还是要 user 1 次手动截图确认(Phase C);若仍"平面块",follow-up Phase D 调整 |
 | **R10**: 5C v3.14 ship 后 19 个 uiPolish test failures 教训(测试按 animation name 写导致过期) | G2 的 5 条新契约按 **behavior** 写(`element exists` / `class contains`),不按 animation name 写(不锁 `artBreathe` / `wallpaperMist` 等) | 仍需 Phase B 实跑验证 5 条新契约不会随 kao.css 演进而漂移 |
 
@@ -183,4 +184,7 @@
   - **Issue R4-E [scope refinement]**: Phase B 描述还提"toolbar 4 selection-action-btn → 4 BookmarkButton"(R3-A 后失效)— 改为"modal 包 FolioSurface variant=paper"
 - 2026-06-17 round 5 verification(fix 1 issue):
   - **Issue R5-A [consistency]**: ascii 框 L60-61 重复 `└────────┘`(R4 fix 引入)— 删除 L61 重复的 sidebar 块结束符,保留 L60 正确的 sidebar/editor 边界符
+- 2026-06-17 round 6 cross-page 只读 review(fix 2 issues):
+  - **Issue R6-A [concern]**: WelcomeView 还在 wip worktree 推进(STATUS.md L33),spec 假设"已 ship 18px hard-offset"可能漂移 — 加 R12 mitigation: Phase B 实装前先看 WelcomeView HEAD,跟 WelcomeView HEAD 一致即可;spec 引用视觉模式不是具体数值
+  - **Issue R6-B [scope refinement]**: Phase B "template 重排"描述太模糊,writing-plans skill 输出 plan 需要具体改动点 — 列 5 个具体 template 改动点(editor-main FolioSurface 包 / sidebar 顶部 CharacterPortrait / ArchiveStrip 嵌入 / modal FolioSurface / 新素材按钮 .material-action-btn)
 - 等 user review → Approved → writing-plans skill
