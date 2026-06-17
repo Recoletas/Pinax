@@ -124,6 +124,7 @@
       <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
+      <FolioSurface variant="paper" decorated>
       <main class="editor-main">
         <template v-if="!selectedChapterId">
           <div class="empty-state">
@@ -250,6 +251,7 @@
       </div>
       </template>
       </main>
+      </FolioSurface>
     </div>
 
     <!-- 新建素材弹窗 -->
@@ -331,6 +333,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
+import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
