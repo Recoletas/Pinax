@@ -616,6 +616,9 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
   })
 
+})
+
+describe('N5C: material page kao archive-folio refactor', () => {
   it('N5C: uses FolioSurface to wrap editor-main kao visual', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
     expect(notes).toContain('<FolioSurface')
