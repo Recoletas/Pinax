@@ -11,6 +11,11 @@ import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import { buildScopedMemoryContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
 import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
+import {
+  RUNTIME_EVENT_LIMIT,
+  capRuntimeEvents,
+  createRuntimeEvent
+} from '../services/runtimeEvents'
 import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -393,7 +398,8 @@ function createEmptySessionRuntime() {
     plotJournal: [],
     adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
     adventureTriggerHistory: [],
-    adventureTriggerCooldownUntil: 0
+    adventureTriggerCooldownUntil: 0,
+    runtimeEvents: []
   }
 }
 
@@ -518,6 +524,9 @@ export const useGameStore = defineStore('game', {
     lastWorldbookContext: null,
     lastMemoryContext: '',
     lastContextLedger: null,
+
+    // 运行时事件侧车 (v1 append-only, ≤200 events per session)
+    runtimeEvents: [],
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -1105,6 +1114,10 @@ export const useGameStore = defineStore('game', {
       this.dialogueMode = !!runtimeState.dialogueMode
       this.dialogueCharacter = cloneState(runtimeState.dialogueCharacter || null, null)
       this.aiCharacter = cloneState(runtimeState.aiCharacter || this.aiCharacter, { name: 'Assistant', avatar: '' })
+      this.runtimeEvents = capRuntimeEvents(
+        Array.isArray(runtimeState.runtimeEvents) ? runtimeState.runtimeEvents : [],
+        RUNTIME_EVENT_LIMIT
+      )
       this.worldId = session.worldbookId || session.worldId || this.worldId || ''
       this.isPlaying = true
       this.saveSessions()
@@ -1179,8 +1192,19 @@ export const useGameStore = defineStore('game', {
         playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '' }),
         aiCharacter: cloneState(this.aiCharacter, { name: 'Assistant', avatar: '' }),
         dialogueMode: this.dialogueMode,
-        dialogueCharacter: cloneState(this.dialogueCharacter, null)
+        dialogueCharacter: cloneState(this.dialogueCharacter, null),
+        runtimeEvents: capRuntimeEvents(
+          Array.isArray(this.runtimeEvents) ? this.runtimeEvents : [],
+          RUNTIME_EVENT_LIMIT
+        )
       }
+    },
+
+    appendRuntimeEvent(input = {}) {
+      const event = createRuntimeEvent(input || {})
+      const current = Array.isArray(this.runtimeEvents) ? this.runtimeEvents : []
+      this.runtimeEvents = capRuntimeEvents(current.concat([event]), RUNTIME_EVENT_LIMIT)
+      return event
     },
 
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
@@ -1511,6 +1535,14 @@ export const useGameStore = defineStore('game', {
         })
       }
       this.chatHistory.push({ role: 'user', content: text })
+      this.appendRuntimeEvent({
+        type: 'turn',
+        source: 'user',
+        payload: {
+          preview: String(text || '').slice(0, 200),
+          hidden: !!hidden
+        }
+      })
       this.saveCurrentSession()
 
       if (this.useAI) {
@@ -1798,6 +1830,16 @@ export const useGameStore = defineStore('game', {
 
         // 更新 chatHistory
         this.chatHistory.push({ role: 'assistant', content: fullContent });
+
+        // 追加运行时事件侧车 (v1: capped append-only envelope)
+        this.appendRuntimeEvent({
+          type: 'turn',
+          source: 'assistant',
+          payload: {
+            preview: String(fullContent || '').slice(0, 200),
+            messageIndex
+          }
+        })
 
         // 保存当前会话
         if (this.currentSessionId) {
@@ -2300,6 +2342,7 @@ export const useGameStore = defineStore('game', {
       this.lastError = null
       this.quickNoteImportMode = false
       this.quickNoteSelectedMessageIndexes = []
+      this.runtimeEvents = Array.isArray(runtime.runtimeEvents) ? runtime.runtimeEvents : []
     },
 
     resetGlobalWritingAssets() {
