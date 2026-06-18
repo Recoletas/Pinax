@@ -26,6 +26,13 @@
     - Last touched: YYYY-MM-DD HH:MM TZ
     - Do not touch: ... (optional, only when there are specific files/areas to avoid)
 -->
+- Owner/session: Codex orchestrator + external Claude CLI workers
+  Worktree: /home/recoletas/jiuguan/text-game-framework plus per-worker worktrees under /home/recoletas/jiuguan/worktrees
+  Branch: main + planned worker branches for nova runtime foundation
+  Scope: `docs/superpowers/specs/2026-06-18-nova-runtime-foundation-design.md`, `docs/superpowers/plans/2026-06-18-nova-runtime-foundation.md`, `src/services/{contextLedger,runtimeEvents,memoryCandidates}.js`, `src/services/worldbookContextBuilder.js`, `src/stores/gameStore.js`, focused tests
+  Intent: Execute Nova-inspired runtime foundation using Codex as architect/integrator and Claude CLI as parallel implementation workers; keep `/opening` and `/experience` UI routes untouched.
+  Last touched: 2026-06-18 15:09 CST
+  Do not touch: `src/pages/OpeningPage.vue`, `src/pages/Experience.vue`, route ownership, Nova clone under `/tmp/nova-research`
 - Owner/session: user
   Worktree: /home/recoletas/jiuguan/text-game-framework
   Branch: wip/map-realism-render-docs-20260608
