@@ -10,6 +10,7 @@ import { buildHeuristicContextSummary, compressChatHistory } from '../services/c
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import { buildScopedMemoryContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
+import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
 import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -516,6 +517,7 @@ export const useGameStore = defineStore('game', {
     inlineEvents: [],           // [{ type, text, data, messageId }]
     lastWorldbookContext: null,
     lastMemoryContext: '',
+    lastContextLedger: null,
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -1690,6 +1692,45 @@ export const useGameStore = defineStore('game', {
         this.lastMemoryContext = memoryContext
         const memoryMsg = memoryContext ? { role: 'system', content: memoryContext } : null
 
+        let generationLedger = createContextLedger({
+          sessionId: this.currentSessionId || '',
+          worldbookId: this.worldId || worldbook?.id || ''
+        })
+        if (contextMsg) {
+          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
+            message: contextMsg,
+            source: 'runtime',
+            title: '写作上下文',
+            purpose: 'runtime-context',
+            limit: 1
+          }))
+        }
+        if (memoryMsg) {
+          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
+            message: memoryMsg,
+            source: 'memory',
+            title: '已确认记忆',
+            purpose: 'memory-context',
+            limit: 1
+          }))
+        }
+        const recentChatContent = this.chatHistory
+          .slice(-6)
+          .map((message) => `${message?.role || 'unknown'}: ${String(message?.content || '').trim()}`)
+          .filter(Boolean)
+          .join('\n')
+        if (recentChatContent) {
+          generationLedger = appendContextLedgerPart(generationLedger, {
+            source: 'chat',
+            title: '最近会话',
+            purpose: 'recent-chat',
+            content: recentChatContent,
+            included: true,
+            limit: 6
+          })
+        }
+        this.lastContextLedger = mergeContextLedgers(worldbookContext.contextLedger, generationLedger)
+
         // 构建消息序列：世界书 + 写作上下文 + 聊天历史
         let messagesToSend = [...this.chatHistory]
         if (worldBookMsg) {
@@ -2253,6 +2294,8 @@ export const useGameStore = defineStore('game', {
       this.dialogueCharacter = runtime.dialogueCharacter
       this.inlineEvents = []
       this.lastWorldbookContext = null
+      this.lastMemoryContext = ''
+      this.lastContextLedger = null
       this.isLoading = false
       this.lastError = null
       this.quickNoteImportMode = false

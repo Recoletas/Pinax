@@ -184,11 +184,77 @@ describe('worldbookContextBuilder', () => {
     expect(result.messages).toHaveLength(0)
     expect(result.matchedEntries).toHaveLength(0)
     expect(result.warnings).toContain('no-matched-entries')
+    expect(result.contextLedger.parts[0]).toMatchObject({
+      source: 'worldbook',
+      purpose: 'worldbook-empty',
+      included: false,
+      warning: 'no-matched-entries'
+    })
   })
 
   it('describes warning codes for preview', () => {
     expect(describeWorldbookWarning('no-worldbook')).toContain('世界书')
     expect(describeWorldbookWarning('no-matched-entries')).toContain('命中')
+  })
+
+  it('returns a skipped ledger part when no worldbook is active', () => {
+    const result = buildWorldbookContext({ worldbook: null })
+
+    expect(result.messages).toEqual([])
+    expect(result.contextLedger.parts[0]).toMatchObject({
+      source: 'worldbook',
+      purpose: 'worldbook-empty',
+      included: false,
+      warning: 'no-worldbook'
+    })
+  })
+
+  it('records included and truncated worldbook entries in the context ledger without raw content fields', () => {
+    const longContent = '林舟知道钟楼密室的细节。'.repeat(80)
+    const result = buildWorldbookContext({
+      worldbook: {
+        id: 'wb-ledger',
+        name: '账本世界书',
+        entries: [
+          {
+            id: 'constant-rule',
+            name: '常驻短规则',
+            type: 'rule',
+            content: '守规则。',
+            keys: [],
+            injection: { mode: 'constant' }
+          },
+          {
+            id: 'long-character',
+            name: '林舟长条目',
+            type: 'character',
+            content: longContent,
+            keys: ['林舟']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '我看见林舟。' }],
+      tokenBudget: 80
+    })
+
+    const included = result.contextLedger.parts.find((part) => part.entryId === 'constant-rule')
+    const truncated = result.contextLedger.parts.find((part) => part.entryId === 'long-character')
+
+    expect(included).toMatchObject({
+      purpose: 'worldbook-entry',
+      included: true,
+      truncated: false
+    })
+    expect(truncated).toMatchObject({
+      purpose: 'worldbook-entry-truncated',
+      included: false,
+      truncated: true,
+      warning: 'truncated:林舟长条目'
+    })
+    expect(truncated.preview.length).toBeLessThanOrEqual(120)
+    expect(truncated).not.toHaveProperty('content')
+    expect(result.messages[0].content).toContain('常驻短规则')
+    expect(result.messages[0].content).not.toContain(longContent)
   })
 
   it('includes concise structured settings before matched entries', () => {

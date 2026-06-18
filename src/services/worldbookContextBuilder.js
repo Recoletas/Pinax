@@ -1,5 +1,6 @@
 import { summarizeStructuredSettings } from './settingPanelSchema'
 import { estimateTokens } from '../composables/useTokenEstimate'
+import { appendContextLedgerPart, createContextLedger } from './contextLedger'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
@@ -255,6 +256,9 @@ export function buildWorldbookContext({
   starterEntryLimits = {}
 } = {}) {
   const warnings = []
+  let contextLedger = createContextLedger({
+    worldbookId: worldbook?.id || ''
+  })
   // token-based budget: maxChars is a worst-case ASCII upper bound
   // (1 / 0.3 ≈ 3.33 chars/token); budget CHECK uses estimateTokens()
   const effectiveBudget = Number(tokenBudget) || DEFAULT_TOKEN_BUDGET
@@ -269,11 +273,20 @@ export function buildWorldbookContext({
 
   if (!worldbook) {
     warnings.push('no-worldbook')
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: 'No active worldbook',
+      purpose: 'worldbook-empty',
+      content: 'No active worldbook was available for this generation.',
+      included: false,
+      warning: 'no-worldbook'
+    })
     return {
       messages: [],
       matchedEntries: [],
       budgetReport: emptyBudgetReport,
-      warnings
+      warnings,
+      contextLedger
     }
   }
 
@@ -288,11 +301,20 @@ export function buildWorldbookContext({
 
   if (matchedEntries.length === 0) {
     warnings.push('no-matched-entries')
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: worldbook.name || 'Worldbook',
+      purpose: 'worldbook-empty',
+      content: 'No worldbook entries matched the current chat/runtime scan.',
+      included: false,
+      warning: 'no-matched-entries'
+    })
     return {
       messages: [],
       matchedEntries,
       budgetReport: { ...emptyBudgetReport },
-      warnings
+      warnings,
+      contextLedger
     }
   }
 
@@ -309,6 +331,14 @@ export function buildWorldbookContext({
     parts.push(text)
     usedChars += text.length
     usedTokens += estimateTokens(text)
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: worldbook.name || '世界设定',
+      purpose: 'worldbook-summary',
+      content: worldDesc,
+      included: true,
+      limit: effectiveBudget
+    })
   }
 
   const writingStyle = String(worldbook.writingStyle || '').trim()
@@ -317,6 +347,14 @@ export function buildWorldbookContext({
     parts.push(text)
     usedChars += text.length
     usedTokens += estimateTokens(text)
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: '写作风格',
+      purpose: 'worldbook-summary',
+      content: writingStyle,
+      included: true,
+      limit: effectiveBudget
+    })
   }
 
   const forbidden = String(worldbook.forbidden || '').trim()
@@ -325,6 +363,14 @@ export function buildWorldbookContext({
     parts.push(text)
     usedChars += text.length
     usedTokens += estimateTokens(text)
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: '禁止内容',
+      purpose: 'worldbook-summary',
+      content: forbidden,
+      included: true,
+      limit: effectiveBudget
+    })
   }
 
   const examples = String(worldbook.examples || '').trim()
@@ -333,6 +379,14 @@ export function buildWorldbookContext({
     parts.push(text)
     usedChars += text.length
     usedTokens += estimateTokens(text)
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: '示例文本',
+      purpose: 'worldbook-summary',
+      content: examples,
+      included: true,
+      limit: effectiveBudget
+    })
   }
 
   const structuredSummary = summarizeStructuredSettings(worldbook.structuredSettings)
@@ -342,8 +396,26 @@ export function buildWorldbookContext({
       parts.push(text)
       usedChars += text.length
       usedTokens += estimateTokens(text)
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '结构化设定',
+        purpose: 'structured-settings',
+        content: structuredSummary,
+        included: true,
+        limit: effectiveBudget
+      })
     } else {
       warnings.push('structured-settings-truncated')
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '结构化设定',
+        purpose: 'structured-settings',
+        content: structuredSummary,
+        included: false,
+        truncated: true,
+        limit: effectiveBudget,
+        warning: 'structured-settings-truncated'
+      })
     }
   }
 
@@ -354,11 +426,31 @@ export function buildWorldbookContext({
     if (usedTokens + estimateTokens(entryText) > effectiveBudget) {
       truncatedEntries += 1
       warnings.push(`truncated:${entry.name}`)
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: entry.name,
+        purpose: 'worldbook-entry-truncated',
+        content: entry.content,
+        included: false,
+        truncated: true,
+        limit: effectiveBudget,
+        entryId: entry.id,
+        warning: `truncated:${entry.name}`
+      })
       continue
     }
     parts.push(entryText)
     usedChars += entryText.length
     usedTokens += estimateTokens(entryText)
+    contextLedger = appendContextLedgerPart(contextLedger, {
+      source: 'worldbook',
+      title: entry.name,
+      purpose: 'worldbook-entry',
+      content: entry.content,
+      included: true,
+      limit: effectiveBudget,
+      entryId: entry.id
+    })
   }
 
   parts.push('\n\n⚠️ 重要约束：')
@@ -382,7 +474,8 @@ export function buildWorldbookContext({
       usedChars,
       truncatedEntries
     },
-    warnings
+    warnings,
+    contextLedger
   }
 }
 

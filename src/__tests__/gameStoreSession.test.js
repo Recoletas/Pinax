@@ -8,6 +8,7 @@ import { listNarrativeAssets } from '../services/narrativeAssets'
 import { runGenerationTask, runGenerationStreamTask } from '../services/generationService'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import { listStoryboardDocuments } from '../services/storyboardStore'
+import { buildContextMessage } from '../services/api'
 
 vi.mock('../services/api', () => ({
   default: {
@@ -31,6 +32,8 @@ describe('gameStore sessions', () => {
     setActivePinia(createPinia())
     vi.mocked(runGenerationTask).mockReset()
     vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(buildContextMessage).mockReset()
+    vi.mocked(buildContextMessage).mockReturnValue(null)
     vi.spyOn(console, 'debug').mockImplementation(() => {})
   })
 
@@ -415,6 +418,66 @@ describe('gameStore sessions', () => {
     expect(memoryMessage?.content).not.toContain('其他作品记忆')
     expect(memoryMessage?.content).not.toContain('待确认记忆')
     expect(gameStore.lastMemoryContext).toBe(memoryMessage?.content)
+  })
+
+  it('stores a bounded context ledger without changing generation message order', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = {
+      id: 'project-ledger',
+      name: 'Ledger World',
+      entries: [{
+        id: 'rule-1',
+        name: '常驻规则',
+        type: 'rule',
+        content: '所有线索必须有代价。',
+        keys: [],
+        injection: { mode: 'constant' }
+      }]
+    }
+
+    vi.mocked(buildContextMessage).mockReturnValue({
+      role: 'system',
+      content: '【写作上下文】角色在钟楼。'
+    })
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '账本测试', worldbookId: 'project-ledger' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你站在钟楼下。' },
+      { role: 'user', content: '继续。' }
+    ]
+
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify([
+      createMemoryCandidate({
+        content: '玩家已经拿到铜钥匙。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active'
+      })
+    ]))
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const sentMessages = vi.mocked(runGenerationStreamTask).mock.calls[0][0].baseMessages
+    expect(sentMessages[0].content).toContain('【写作上下文】')
+    expect(sentMessages[1].content).toContain('【已确认记忆】')
+    expect(sentMessages[2].content).toContain('【世界书：Ledger World】')
+    expect(sentMessages[3]).toEqual({ role: 'system', content: '你是叙述者。' })
+
+    const sources = new Set(gameStore.lastContextLedger.parts.map((part) => part.source))
+    expect(sources.has('worldbook')).toBe(true)
+    expect(sources.has('runtime')).toBe(true)
+    expect(sources.has('memory')).toBe(true)
+    expect(sources.has('chat')).toBe(true)
+    expect(gameStore.lastContextLedger.parts.every((part) => !Object.prototype.hasOwnProperty.call(part, 'content'))).toBe(true)
+    expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
   })
 
   it('starts playable seed worlds with starter worldbook context on narrative init', async () => {
