@@ -673,3 +673,225 @@ describe('N5C: material page kao archive-folio refactor', () => {
     expect(orphans, `template class names with no scoped CSS rule: ${orphans.join(', ')}`).toEqual([])
   })
 })
+
+// Phase 1C: Writing page kao archive-folio surface (2026-06-17 plan)
+// 5 + 3 review-fix contracts: FolioSurface 4-zone wiring, chapter list
+// BookmarkButton, AI panel primary/secondary, kao.css selector gating,
+// mode-switch lock, sidebar collapse v-show, BookmarkButton .active,
+// kao.css .theme-kao .ai-panel (renamed from .writing-ai-panel).
+describe('ui polish — Phase 1C Writing page kao surface', () => {
+  it('Writing.vue wraps 4 surfaces in <FolioSurface> (hero header / books-sidebar / editor-main / asset-inbox modal) — kao archive-folio zone grammar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // 4 surfaces wrapped: WorkbenchPageHero (header) + books-sidebar (aside) + editor-main (main) + asset inbox modal (article)
+    const folioMatches = writing.match(/<FolioSurface[^>]*>/g) || []
+    expect(folioMatches.length).toBeGreaterThanOrEqual(4)
+
+    // hero uses chrome + plain (decorated=false because WorkbenchPageHero
+    // has its own ::before + border-bottom, double-frame is wrong)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="header"[^>]*variant="chrome"[^>]*decorated="false"/)
+    // sidebar uses paper + decorated (full folio spine)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="aside"[^>]*variant="paper"[^>]*decorated="true"/)
+    // editor-main uses chrome + plain (the editor surface itself gets the paper tint via .writing-editor rule, not the folio chrome)
+    expect(writing).toMatch(/<FolioSurface[^>]*as="main"[^>]*variant="chrome"[^>]*decorated="false"/)
+    // inbox modal uses paper + decorated
+    expect(writing).toMatch(/<FolioSurface[^>]*as="article"[^>]*variant="paper"[^>]*decorated="true"/)
+  })
+
+  it('Writing.vue chapter list rows render as <BookmarkButton variant="tertiary" size="compact" index label> — kao 目录页 grammar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // chapter list: each row is a BookmarkButton --tertiary --compact
+    // must appear inside the chapter list (not the book list — books stay .action-btn)
+    const chapterListSection = writing.match(
+      /<div\s+class="chapter-list"[\s\S]*?<\/div>\s*<\/aside>/,
+    )
+    expect(chapterListSection).not.toBeNull()
+    const chapterList = chapterListSection?.[0] ?? ''
+
+    // At least 1 BookmarkButton --tertiary --compact for the chapter list
+    expect(chapterList).toMatch(
+      /<BookmarkButton[^>]*variant="tertiary"[^>]*size="compact"[^>]*\/>/,
+    )
+    // Each chapter BookmarkButton must expose index (number) + label (title)
+    expect(chapterList).toMatch(/:index="chapter\.num|padStart|chapterIndex|chapterNumber/)
+  })
+
+  it('Writing.vue AI panel primary action renders as <BookmarkButton variant="primary" label="应用 …"> + secondary as <BookmarkButton variant="secondary">', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // 1 BookmarkButton --primary in the AI panel (应用)
+    expect(writing).toMatch(/<BookmarkButton[^>]*variant="primary"[^>]*label="[\s\S]*?应用/)
+    // 1 BookmarkButton --secondary in the AI panel (拒收 / 取消 / 不应用)
+    expect(writing).toMatch(/<BookmarkButton[^>]*variant="secondary"[^>]*label="[\s\S]*?(拒收|取消|不应用)/)
+  })
+
+  it('kao.css exposes .theme-kao .writing-page / .writing-sidebar / .writing-editor / .ai-panel selectors — all writing surface rules live in kao.css, not main.css', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    const mainCss = readProjectFile('src/styles/main.css')
+
+    // kao.css has the writing-* surface rules + .ai-panel all gated by .theme-kao
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-page\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-sidebar\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-editor\b/)
+    // .ai-panel replaces the dead .writing-ai-panel selector (rename: no DOM
+    // element had `class="writing-ai-panel"`, the actual AI panel is
+    // `<div class="ai-panel">` at Writing.vue:339).
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.ai-panel\b/)
+    // The renamed-away selector must NOT still exist
+    expect(kaoCss).not.toMatch(/\.theme-kao\s+\.writing-ai-panel\b/)
+
+    // main.css must NOT carry writing-* surface rules (kao-only territory)
+    expect(mainCss).not.toMatch(/^\.writing-page\b/m)
+    expect(mainCss).not.toMatch(/^\.writing-sidebar\b/m)
+    expect(mainCss).not.toMatch(/^\.writing-editor\b/m)
+    expect(mainCss).not.toMatch(/^\.ai-panel\b/m)
+  })
+
+  it('Writing.vue AI panel mode switch (wysiwyg/markdown/preview) stays .action-btn — stereo-migration lock: BookmarkButton does not enter the tool-mode toolbar', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // The mode switch (.mode-switch) must not contain a BookmarkButton
+    const modeSwitch = writing.match(
+      /<div\s+class="mode-switch"[\s\S]*?<\/div>/,
+    )
+    expect(modeSwitch).not.toBeNull()
+    expect(modeSwitch?.[0] ?? '').not.toContain('<BookmarkButton')
+  })
+
+  // --- review-fix contracts (2026-06-17 v2 amend) ---
+
+  it('Writing.vue books-sidebar footer is v-show gated by !isRightCollapsed (review-fix: CharacterPortrait 256px must not leak when sidebar is 44px collapsed)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    // The CharacterPortrait mount in the sidebar footer must be inside v-show="!isRightCollapsed".
+    const footer = writing.match(
+      /<footer[^>]*class="writing-sidebar__footer"[\s\S]*?<\/footer>/,
+    )
+    expect(footer).not.toBeNull()
+    expect(footer?.[0] ?? '').toContain('v-show="!isRightCollapsed"')
+    expect(footer?.[0] ?? '').toContain('CharacterPortrait')
+    // CharacterPortrait must carry a max-width style attribute to constrain 256px → ≤180px
+    expect(footer?.[0] ?? '').toMatch(/style="[^"]*max-width:\s*180px/)
+  })
+
+  it('kao.css exposes .theme-kao .bookmark-button.active rule (review-fix: chapter list active class was visually dead — BookmarkButton.vue has no .active state)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.bookmark-button\.active\s*\{/)
+  })
+
+  it('kao.css rescues .theme-kao .books-sidebar flex layout (review-fix: scoped CSS can no longer reach the FolioSurface root <aside>, so flex/column must live in kao.css)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // .books-sidebar is the root <aside> rendered by FolioSurface.vue, so
+    // Writing.vue's scoped CSS for `.books-sidebar { display: flex; flex-direction: column }`
+    // doesn't reach it. kao.css owns this rule (gated by .theme-kao).
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*display:\s*flex/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*flex-direction:\s*column/)
+  })
+})
+
+// W3 Phase 1C v2: Writing visual emergence — commit 1 (drop-cap)
+// 3 contracts: drop-cap rule exists, uses --font-display, uses --archive-gold.
+describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
+  it('kao.css exposes .theme-kao .editor-preview > p:first-of-type::first-letter drop-cap rule (CSS ::first-letter on first CJK/Latin paragraph char)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.editor-preview\s+>\s+p:first-of-type::first-letter\s*\{/)
+  })
+
+  it('drop-cap rule uses var(--font-display) (LXGW WenKai via token, not hardcoded family)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Scope: only the ::first-letter block must reference --font-display.
+    // The pattern matches the ::first-letter selector followed by a brace + content + --font-display.
+    expect(kaoCss).toMatch(
+      /::first-letter\s*\{[^}]*font-family:\s*var\(--font-display\)/s,
+    )
+  })
+
+  it('drop-cap rule uses --archive-gold (token-aware color, not hardcoded hex)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // The ::first-letter block must reference --archive-gold in text-shadow OR background.
+    expect(kaoCss).toMatch(
+      /::first-letter\s*\{[^}]*var\(--archive-gold\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .editor-container with z-index: var(--z-stage-hero) (window plane)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Match the .editor-container block + z-index: var(--z-stage-hero) within it.
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.editor-container\s*\{[^}]*z-index:\s*var\(--z-stage-hero\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .copilot-indicator AND .chapter-title-input with z-index: var(--z-stage-cta) (front plane)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // copilot-indicator
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.copilot-indicator\s*\{[^}]*z-index:\s*var\(--z-stage-cta\)/s,
+    )
+    // chapter-title-input (also a front-plane element)
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-title-input\s*\{[^}]*z-index:\s*var\(--z-stage-cta\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .writing-page .folio-surface--paper with z-index: var(--z-stage-decor) (back plane, scoped to writing page to avoid leaking to Experience.vue:60)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.writing-page\s+\.folio-surface--paper\s*\{[^}]*z-index:\s*var\(--z-stage-decor\)/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .editor-container::before with animation: wallpaperMist (5C-ship keyframe reused)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.editor-container::before\s*\{[^}]*animation:\s*wallpaperMist/s,
+    )
+  })
+
+  // W3 commit 2 critical bug fix: keyframe self-containment. The original
+  // @keyframes wallpaperMist / titleGlow / kickerPulse are NOT in main.css
+  // — they live in CharacterBackdrop.vue:427, OpeningPage.vue:772, and
+  // CharacterBackdrop.vue:442 respectively. None of those components is
+  // mounted on /writing, so kao.css must own identical copies for the
+  // .theme-kao consumers to animate. The 3 contracts below lock this.
+
+  it('kao.css exposes @keyframes wallpaperMist (W3 self-containment; also defined in CharacterBackdrop.vue:427 for CharacterBackdrop\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+wallpaperMist\s*\{/)
+  })
+
+  it('kao.css exposes @keyframes titleGlow (W3 self-containment; also defined in OpeningPage.vue:772 for OpeningPage\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+titleGlow\s*\{/)
+  })
+
+  it('kao.css exposes @keyframes kickerPulse (W3 self-containment; also defined in CharacterBackdrop.vue:442 for CharacterBackdrop\'s own use)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(/@keyframes\s+kickerPulse\s*\{/)
+  })
+
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:hover with animation: kickerPulse (keyframe now animates visible box-shadow gold-glow, not text-decoration-color no-op)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:hover\s*\{[^}]*animation:\s*kickerPulse/s,
+    )
+  })
+
+  it('kao.css exposes .theme-kao .chapter-list-item .bookmark-button:focus with animation: kickerPulse (a11y keyboard nav parity; keyframe now animates visible box-shadow gold-glow)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.chapter-list-item\s+\.bookmark-button:focus\s*\{[^}]*animation:\s*kickerPulse/s,
+    )
+  })
+
+  it('kickerPulse keyframe body animates box-shadow (not text-decoration-color, which was a no-op on consumers with text-decoration: none) — W3 round 2 review #3', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Match the @keyframes kickerPulse { ... } block (non-greedy)
+    const match = kaoCss.match(/@keyframes\s+kickerPulse\s*\{([\s\S]*?)\}/)
+    expect(match).not.toBeNull()
+    const body = match[1]
+    expect(body).toMatch(/box-shadow:/)
+    expect(body).not.toMatch(/text-decoration-color/)
+  })
+})

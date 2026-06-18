@@ -4,6 +4,9 @@ import {
   batchUpdateMemoryCandidateScope,
   batchArchiveMemoryCandidates,
   buildScopedMemoryContext,
+  buildScopedMemoryRecallContext,
+  rankScopedActiveMemoryCandidates,
+  MEMORY_RECALL_PREVIEW_LIMIT,
   archiveMemoryCandidate,
   confirmMemoryCandidate,
   createMemoryContentHash,
@@ -562,5 +565,261 @@ describe('memoryCandidates', () => {
     expect(context).toContain('主角刚拿到铜钥匙。')
     expect(context).not.toContain('其他作品的资料')
     expect(context).not.toContain('待确认内容')
+  })
+
+  it('ranks query-matched active memories before unrelated active memories in recall metadata', () => {
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-global-1',
+        content: '作者偏好短句。',
+        scope: 'global-author',
+        scopeId: 'author-1',
+        kind: 'author-preference',
+        status: 'active',
+        confidence: 0.5,
+        updatedAt: 1
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-match',
+        content: '主角在旧书店遇见了林舟。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 10
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-unrelated',
+        content: '潮盐行会发出警告。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 20
+      }),
+      createMemoryCandidate({
+        id: 'mem-project-match',
+        content: '旧书店是作品的中心场景。',
+        scope: 'project',
+        scopeId: 'project-1',
+        kind: 'project-fact',
+        status: 'active',
+        confidence: 0.4,
+        updatedAt: 5
+      }),
+      createMemoryCandidate({
+        id: 'mem-pending',
+        content: '未确认线索：旧书店的密室。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'pending',
+        updatedAt: 100
+      }),
+      createMemoryCandidate({
+        id: 'mem-rejected',
+        content: '旧书店其实不存在。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'rejected',
+        updatedAt: 100
+      }),
+      createMemoryCandidate({
+        id: 'mem-stale',
+        content: '旧书店之前关门了。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'stale',
+        updatedAt: 100
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    const ranked = rankScopedActiveMemoryCandidates({
+      authorId: 'author-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      query: '旧书店 林舟',
+      limitPerScope: 4
+    })
+
+    const sessionItems = ranked.items.filter((item) => item.scope === 'session')
+    const projectItems = ranked.items.filter((item) => item.scope === 'project')
+
+    expect(ranked.queryTerms).toEqual(expect.arrayContaining(['旧书店', '林舟']))
+    expect(sessionItems[0].id).toBe('mem-session-match')
+    expect(sessionItems[0].score).toBeGreaterThan(sessionItems.find((item) => item.id === 'mem-session-unrelated').score)
+    expect(projectItems.find((item) => item.id === 'mem-project-match').score).toBeGreaterThan(0)
+    expect(ranked.items.find((item) => item.id === 'mem-pending')).toBeUndefined()
+    expect(ranked.items.find((item) => item.id === 'mem-rejected')).toBeUndefined()
+    expect(ranked.items.find((item) => item.id === 'mem-stale')).toBeUndefined()
+    expect(ranked.items.every((item) => item.preview.length <= MEMORY_RECALL_PREVIEW_LIMIT + 1)).toBe(true)
+    expect(ranked.items.every((item) => !('content' in item))).toBe(true)
+  })
+
+  it('breaks ties using confidence and recency for ranked recall metadata', () => {
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-older-higher-confidence',
+        content: '主角在钟楼密室寻找铜钥匙。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 1
+      }),
+      createMemoryCandidate({
+        id: 'mem-newer-lower-confidence',
+        content: '主角在钟楼密室发现铜钥匙的线索。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.4,
+        updatedAt: 99
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    const ranked = rankScopedActiveMemoryCandidates({
+      authorId: '',
+      projectId: '',
+      sessionId: 'session-1',
+      query: '钟楼 密室 铜钥匙',
+      limitPerScope: 4
+    })
+
+    const sessionItems = ranked.items.filter((item) => item.scope === 'session')
+    expect(sessionItems[0].id).toBe('mem-older-higher-confidence')
+    expect(sessionItems[0].confidence).toBeGreaterThan(sessionItems[1].confidence)
+  })
+
+  it('returns bounded recall context with included/excluded items per scope cap', () => {
+    const records = []
+    for (let index = 0; index < 6; index += 1) {
+      records.push(createMemoryCandidate({
+        id: `mem-session-${index}`,
+        content: `钟楼线索 ${index}：调查员在钟楼顶层继续调查铜钥匙去向。`,
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.6,
+        updatedAt: 100 - index
+      }))
+    }
+    records.push(createMemoryCandidate({
+      id: 'mem-pending-recall',
+      content: '钟楼线索：未确认的猜测。',
+      scope: 'session',
+      scopeId: 'session-1',
+      kind: 'plot-event',
+      status: 'pending',
+      updatedAt: 999
+    }))
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    const recall = buildScopedMemoryRecallContext({
+      projectId: '',
+      sessionId: 'session-1',
+      query: '钟楼 铜钥匙 调查员',
+      limitPerScope: 4,
+      maxItemChars: 32
+    })
+
+    expect(recall.content).toContain('【已确认记忆】')
+    expect(recall.included).toHaveLength(4)
+    expect(recall.excluded).toHaveLength(2)
+    expect(recall.items).toHaveLength(6)
+    expect(recall.includedCount).toBe(4)
+    expect(recall.contentChars).toBe(recall.content.length)
+    expect(recall.included.every((item) => item.included === true)).toBe(true)
+    expect(recall.excluded.every((item) => item.included === false && item.skipReason === 'per-scope-cap')).toBe(true)
+    expect(recall.included.every((item) => item.preview.length <= MEMORY_RECALL_PREVIEW_LIMIT + 1)).toBe(true)
+    expect(recall.included.every((item) => !('content' in item))).toBe(true)
+    expect(recall.excluded.every((item) => !('content' in item))).toBe(true)
+    // pending memory must never enter recall metadata
+    expect(recall.items.find((item) => item.id === 'mem-pending-recall')).toBeUndefined()
+  })
+
+  it('returns an empty recall context when only non-active memories match', () => {
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-pending',
+        content: '未确认：钟楼有暗道。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'pending'
+      }),
+      createMemoryCandidate({
+        id: 'mem-rejected',
+        content: '钟楼是禁区。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'rejected'
+      }),
+      createMemoryCandidate({
+        id: 'mem-stale',
+        content: '钟楼已经坍塌。',
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'stale'
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    const recall = buildScopedMemoryRecallContext({
+      projectId: '',
+      sessionId: 'session-1',
+      query: '钟楼',
+      limitPerScope: 4,
+      maxItemChars: 180
+    })
+
+    expect(recall.content).toBe('')
+    expect(recall.included).toEqual([])
+    expect(recall.excluded).toEqual([])
+    expect(recall.items).toEqual([])
+    expect(recall.includedCount).toBe(0)
+  })
+
+  it('preserves maxItemChars=180 truncation in buildScopedMemoryContext compatibility wrapper', () => {
+    const longContent = '钟楼调查员' + '非常'.repeat(120) + '。'
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-long',
+        content: longContent,
+        scope: 'session',
+        scopeId: 'session-1',
+        kind: 'plot-event',
+        status: 'active',
+        skipCompaction: true
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    const context = buildScopedMemoryContext({
+      projectId: '',
+      sessionId: 'session-1',
+      maxItemChars: 180
+    })
+
+    // The line for this memory must include up to ~180 chars from the content,
+    // proving the compatibility wrapper still applies maxItemChars, not the
+    // smaller 120-char preview limit.
+    expect(context).toContain('当前会话记忆：')
+    const lineMatch = context.match(/- 剧情事件：([\s\S]+)$/u)
+    expect(lineMatch).not.toBeNull()
+    const body = lineMatch[1]
+    expect(body.length).toBeGreaterThan(120)
+    expect(body.length).toBeLessThanOrEqual(181) // 180 + ellipsis
   })
 })

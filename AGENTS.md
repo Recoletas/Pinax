@@ -37,6 +37,15 @@ When the user requests multi-agent workflow on a non-trivial feature:
 
 For small fixes / single-step tasks, do not force this split.
 
+### External Claude CLI worker pattern
+When the user explicitly asks to use Claude as a sub-agent or to run broad parallel implementation:
+- Codex remains the high-level architect, context keeper, integration owner, and final verifier.
+- Prefer assigning most implementation work to Claude Code CLI workers with concrete scopes, file ownership, tests, and expected output.
+- Local Claude CLI path discovered on this machine: `/home/recoletas/.nvm/versions/node/v20.20.2/bin/claude` (`2.1.153`, Node `v20.20.2`).
+- For bounded non-interactive worker calls, prefer `claude --bare -p --output-format json`; plain `claude -p` can load much more project context and cost more.
+- Use isolated git worktrees or disjoint write sets for parallel Claude workers. Do not let multiple workers edit the same files unless Codex is intentionally doing a merge/integration pass.
+- Ask Claude workers to self-review and fix their own slice before Codex reviews. Codex must still run project verification before reporting success.
+
 ## Hard rules — 触发条件 → 必调 skill
 | 触发 | Skill |
 |---|---|

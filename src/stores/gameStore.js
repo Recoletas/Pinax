@@ -8,8 +8,14 @@ import {
 } from '../services/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
-import { buildScopedMemoryContext } from '../services/memoryCandidates'
+import { buildScopedMemoryContext, buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
+import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
+import {
+  RUNTIME_EVENT_LIMIT,
+  capRuntimeEvents,
+  createRuntimeEvent
+} from '../services/runtimeEvents'
 import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -392,7 +398,8 @@ function createEmptySessionRuntime() {
     plotJournal: [],
     adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
     adventureTriggerHistory: [],
-    adventureTriggerCooldownUntil: 0
+    adventureTriggerCooldownUntil: 0,
+    runtimeEvents: []
   }
 }
 
@@ -516,6 +523,12 @@ export const useGameStore = defineStore('game', {
     inlineEvents: [],           // [{ type, text, data, messageId }]
     lastWorldbookContext: null,
     lastMemoryContext: '',
+    lastContextLedger: null,
+    // 排名后的本地记忆召回元数据，可被 lastContextLedger / debug UI 复用。
+    lastMemoryRecall: null,
+
+    // 运行时事件侧车 (v1 append-only, ≤200 events per session)
+    runtimeEvents: [],
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -1103,6 +1116,10 @@ export const useGameStore = defineStore('game', {
       this.dialogueMode = !!runtimeState.dialogueMode
       this.dialogueCharacter = cloneState(runtimeState.dialogueCharacter || null, null)
       this.aiCharacter = cloneState(runtimeState.aiCharacter || this.aiCharacter, { name: 'Assistant', avatar: '' })
+      this.runtimeEvents = capRuntimeEvents(
+        Array.isArray(runtimeState.runtimeEvents) ? runtimeState.runtimeEvents : [],
+        RUNTIME_EVENT_LIMIT
+      )
       this.worldId = session.worldbookId || session.worldId || this.worldId || ''
       this.isPlaying = true
       this.saveSessions()
@@ -1177,8 +1194,19 @@ export const useGameStore = defineStore('game', {
         playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '' }),
         aiCharacter: cloneState(this.aiCharacter, { name: 'Assistant', avatar: '' }),
         dialogueMode: this.dialogueMode,
-        dialogueCharacter: cloneState(this.dialogueCharacter, null)
+        dialogueCharacter: cloneState(this.dialogueCharacter, null),
+        runtimeEvents: capRuntimeEvents(
+          Array.isArray(this.runtimeEvents) ? this.runtimeEvents : [],
+          RUNTIME_EVENT_LIMIT
+        )
       }
+    },
+
+    appendRuntimeEvent(input = {}) {
+      const event = createRuntimeEvent(input || {})
+      const current = Array.isArray(this.runtimeEvents) ? this.runtimeEvents : []
+      this.runtimeEvents = capRuntimeEvents(current.concat([event]), RUNTIME_EVENT_LIMIT)
+      return event
     },
 
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
@@ -1509,6 +1537,14 @@ export const useGameStore = defineStore('game', {
         })
       }
       this.chatHistory.push({ role: 'user', content: text })
+      this.appendRuntimeEvent({
+        type: 'turn',
+        source: 'user',
+        payload: {
+          preview: String(text || '').slice(0, 200),
+          hidden: !!hidden
+        }
+      })
       this.saveCurrentSession()
 
       if (this.useAI) {
@@ -1664,19 +1700,31 @@ export const useGameStore = defineStore('game', {
         // 注入写作上下文（对话模式时传入对话角色）
         // 小说体验模式下排除时间信息，避免 AI 每次都强调时间
         const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true, contextDetail })
-        const localMemoryContext = buildScopedMemoryContext({
-          projectId: this.worldId || worldbook?.id || '',
-          sessionId: this.currentSessionId || '',
-          limitPerScope: 4,
-          maxItemChars: 180
-        })
         const memoryQuery = [
           worldBookMsg?.content || '',
           contextMsg?.content || '',
           ...this.chatHistory.slice(-6).map((message) => String(message?.content || '').trim())
         ].filter(Boolean).join('\n')
 
+        // 排名后的本地已确认记忆召回：使用同一个 memoryQuery 排序。
+        // Mem0 仅在本地召回为空时兜底。
+        const memoryRecall = buildScopedMemoryRecallContext({
+          projectId: this.worldId || worldbook?.id || '',
+          sessionId: this.currentSessionId || '',
+          query: memoryQuery,
+          limitPerScope: 4,
+          maxItemChars: 180
+        })
+        // 兼容旧调用方：保留 buildScopedMemoryContext 的字符串接口。
+        const localMemoryContext = memoryRecall.content || buildScopedMemoryContext({
+          projectId: this.worldId || worldbook?.id || '',
+          sessionId: this.currentSessionId || '',
+          limitPerScope: 4,
+          maxItemChars: 180
+        })
+
         let memoryContext = localMemoryContext
+        let memoryRecallSource = 'local-ranked'
         if (!memoryContext) {
           memoryContext = await buildMem0MemoryContext({
             currentSituation: memoryQuery,
@@ -1685,10 +1733,63 @@ export const useGameStore = defineStore('game', {
             limitPerScope: 4,
             maxItemChars: 180
           })
+          memoryRecallSource = memoryContext ? 'mem0-fallback' : 'none'
         }
 
         this.lastMemoryContext = memoryContext
+        this.lastMemoryRecall = {
+          query: memoryQuery,
+          source: memoryRecallSource,
+          includedCount: memoryRecall.includedCount,
+          excludedCount: memoryRecall.excluded.length,
+          totalItems: memoryRecall.items.length,
+          contentChars: memoryRecall.contentChars,
+          queryTerms: memoryRecall.queryTerms,
+          items: memoryRecall.items,
+          included: memoryRecall.included,
+          excluded: memoryRecall.excluded,
+          counts: memoryRecall.counts
+        }
         const memoryMsg = memoryContext ? { role: 'system', content: memoryContext } : null
+
+        let generationLedger = createContextLedger({
+          sessionId: this.currentSessionId || '',
+          worldbookId: this.worldId || worldbook?.id || ''
+        })
+        if (contextMsg) {
+          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
+            message: contextMsg,
+            source: 'runtime',
+            title: '写作上下文',
+            purpose: 'runtime-context',
+            limit: 1
+          }))
+        }
+        if (memoryMsg) {
+          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
+            message: memoryMsg,
+            source: 'memory',
+            title: '已确认记忆',
+            purpose: 'memory-context',
+            limit: 1
+          }))
+        }
+        const recentChatContent = this.chatHistory
+          .slice(-6)
+          .map((message) => `${message?.role || 'unknown'}: ${String(message?.content || '').trim()}`)
+          .filter(Boolean)
+          .join('\n')
+        if (recentChatContent) {
+          generationLedger = appendContextLedgerPart(generationLedger, {
+            source: 'chat',
+            title: '最近会话',
+            purpose: 'recent-chat',
+            content: recentChatContent,
+            included: true,
+            limit: 6
+          })
+        }
+        this.lastContextLedger = mergeContextLedgers(worldbookContext.contextLedger, generationLedger)
 
         // 构建消息序列：世界书 + 写作上下文 + 聊天历史
         let messagesToSend = [...this.chatHistory]
@@ -1757,6 +1858,16 @@ export const useGameStore = defineStore('game', {
 
         // 更新 chatHistory
         this.chatHistory.push({ role: 'assistant', content: fullContent });
+
+        // 追加运行时事件侧车 (v1: capped append-only envelope)
+        this.appendRuntimeEvent({
+          type: 'turn',
+          source: 'assistant',
+          payload: {
+            preview: String(fullContent || '').slice(0, 200),
+            messageIndex
+          }
+        })
 
         // 保存当前会话
         if (this.currentSessionId) {
@@ -2253,10 +2364,14 @@ export const useGameStore = defineStore('game', {
       this.dialogueCharacter = runtime.dialogueCharacter
       this.inlineEvents = []
       this.lastWorldbookContext = null
+      this.lastMemoryContext = ''
+      this.lastContextLedger = null
+      this.lastMemoryRecall = null
       this.isLoading = false
       this.lastError = null
       this.quickNoteImportMode = false
       this.quickNoteSelectedMessageIndexes = []
+      this.runtimeEvents = Array.isArray(runtime.runtimeEvents) ? runtime.runtimeEvents : []
     },
 
     resetGlobalWritingAssets() {

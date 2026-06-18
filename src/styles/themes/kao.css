@@ -146,48 +146,215 @@
     box-shadow: none;
   }
 
-  /* N5C: material-action-btn - batch action button with kao visual */
-  .material-action-btn {
-    background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
-    border-radius: 0;
-    box-shadow: 18px 18px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  /* Writing page — 手稿页 / 正文页 surface grammar (kao archive-folio).
+     All rules gated by .theme-kao; legacy variant is untouched.
+     References --archive-* tokens defined above + --hairline-* from main.css. */
+  .theme-kao .writing-page {
     color: var(--archive-ink);
-    transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
-  }
-  .material-action-btn:hover:not(:disabled) {
-    transform: translate(-2px, -2px);
-    box-shadow: 22px 22px 0 color-mix(in srgb, var(--archive-gold) 24%, transparent);
-    filter: brightness(1.04);
-  }
-
-  /* N5C: material-bookmark-toolbar - 4-button grid container */
-  .material-bookmark-toolbar {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    padding: 8px;
-    background: color-mix(in srgb, var(--archive-paper-soft) 70%, transparent);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
-    border-radius: 0;
-  }
-
-  /* N5C: material-entry-card - torn-edge entry thumbnail (3/4 aspect) */
-  .material-entry-card {
-    position: relative;
-    aspect-ratio: 3 / 4;
-    overflow: hidden;
     background: var(--archive-paper-soft);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
-    clip-path: polygon(0 6%, 4% 0, 96% 2%, 100% 8%, 98% 94%, 92% 100%, 4% 96%, 0 90%);
-    box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
   }
 
-  /* N5C: material-tear-svg - SVG defs container for torn edge filter */
-  .material-tear-svg {
+  /* Sidebar (.books-sidebar / .writing-sidebar) — rescue layout that
+     Writing.vue's scoped CSS can no longer reach because the <aside>
+     is now rendered by FolioSurface (its root is in FolioSurface.vue's
+     scope, not Writing.vue's). Without this, sidebar children stack
+     as block elements and `.chapter-list { flex: 1 }` is dead. */
+  .theme-kao .books-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .theme-kao .writing-sidebar {
+    border-right: 1px solid var(--hairline-soft);
+  }
+
+  /* sidebar-header — drop the legacy `var(--surface-raised)` band and
+     add 32px top padding so the FolioSurface decorated `::after`
+     notch (18-32px top corners, per FolioSurface.vue:54-58) doesn't
+     clip the "作品" title or action buttons. */
+  .theme-kao .sidebar-header {
+    background: transparent;
+    border-bottom: 1px solid var(--hairline-soft);
+    padding-top: 32px;
+  }
+
+  .theme-kao .writing-editor {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 88%, var(--archive-paper-strong)) 100%);
+  }
+
+  /* AI panel (`.ai-panel` inside editor-main). Previously named
+     `.writing-ai-panel` but no DOM element carried that class — the
+     actual AI panel is `<div class="ai-panel">` at Writing.vue:339. */
+  .theme-kao .ai-panel {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent) 0%, color-mix(in srgb, var(--archive-paper) 84%, transparent) 100%);
+    border: 1px solid var(--hairline-soft);
+  }
+
+  /* Asset-inbox modal — drop legacy panel background + add 32px top
+     padding so the FolioSurface decorated `::after` notch doesn't
+     clip the modal header. */
+  .theme-kao .asset-inbox-modal {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .theme-kao .asset-inbox-modal-header {
+    padding-top: 32px;
+  }
+
+  /* BookmarkButton active state — BookmarkButton.vue has no `.active`
+     rule, so the chapter list `:class="{ active: ... }"` binding is
+     visually dead. Asymmetric gold ring on the active row. */
+  .theme-kao .bookmark-button.active {
+    box-shadow: inset 0 0 0 2px var(--archive-gold);
+  }
+
+  /* Writing editor — 首段 drop-cap (手稿页招牌).
+     Targets the first character of the first paragraph in `.editor-preview`.
+     Uses ::first-letter so the gradient + LXGW WenKai applies to any
+     first char (CJK or Latin); both read as gold initial per R1
+     acceptance in spec §4 commit 1. */
+  .theme-kao .editor-preview > p:first-of-type::first-letter {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(48px, 6.5vw, 96px);
+    line-height: 0.85;
+    float: left;
+    margin: 4px 8px 0 0;
+    background: linear-gradient(180deg, var(--archive-gold) 0%, var(--archive-rose) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 24px color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    /* LXGW WenKai + theme baseline may force uppercase; explicitly
+       neutralise to keep the drop-cap char in its original case */
+    text-transform: none !important;
+  }
+
+  /* W3 self-containment: kao.css is loaded for /writing route, but the
+     keyframes (wallpaperMist, titleGlow, kickerPulse) were originally
+     defined in CharacterBackdrop.vue / OpeningPage.vue, neither of
+     which is mounted on /writing. We copy identical definitions here
+     so /writing can use them. The original definitions in those
+     components are kept untouched (regression safety for /experience
+     legacy mode). CSS uses the last-parsed definition; kao.css is
+     loaded after the components, so its copies win on /writing. */
+  @keyframes wallpaperMist {
+    from { transform: translate3d(-2%, -1%, 0); opacity: 0.36; }
+    to   { transform: translate3d(2%, 1%, 0); opacity: 0.55; }
+  }
+  @keyframes titleGlow {
+    from {
+      filter: drop-shadow(0 8px 15px color-mix(in srgb, #000 24%, transparent));
+    }
+    to {
+      filter: drop-shadow(0 11px 22px color-mix(in srgb, #000 34%, transparent));
+    }
+  }
+  /* W3 round 2 review #3 — kickerPulse now animates box-shadow (a
+     visible "breathing" gold-glow on hover/focus), not text-decoration-color
+     (which was a no-op: BookmarkButton.vue:106 has text-decoration: none).
+     Inner 2px gold ring stays constant (stable keyboard focus); outer
+     4px/30% glow grows to 6px/50% on the alternate cycle. The chapter-list
+     rules' static box-shadow (0 0 0 2px gold, 0 0 0 4px 30% — round 2
+     fix #2) matches the `from` value below, so the animation is seamless
+     (no jump when the animation starts/ends). */
+  @keyframes kickerPulse {
+    from { box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent); }
+    to   { box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 6px color-mix(in srgb, var(--archive-gold) 50%, transparent); }
+  }
+
+  /* Writing editor — 3-plane z-axis + ambient motion (立体感呼吸).
+     back = folio 底 (z-decor), window = editor (z-hero),
+     front = copilot pill + chapter title glow (z-cta).
+     Tokens --z-stage-* come from main.css:7-9 (5A ship). */
+  .theme-kao .editor-container {
+    position: relative;
+    z-index: var(--z-stage-hero);
+    isolation: isolate;
+  }
+
+  .theme-kao .copilot-indicator {
+    position: relative;
+    z-index: var(--z-stage-cta);
+  }
+
+  .theme-kao .chapter-title-input {
+    position: relative;
+    z-index: var(--z-stage-cta);
+  }
+
+  .theme-kao .writing-page .folio-surface--paper {
+    z-index: var(--z-stage-decor);
+  }
+
+  /* wallpaperMist consumer — 14s slow breath on editor surface.
+     Keyframe defined here in kao.css for W3 self-containment
+     (also defined in CharacterBackdrop.vue:427 for that
+     component's own use; both are identical). */
+  .theme-kao .editor-container::before {
+    content: "";
     position: absolute;
-    width: 0;
-    height: 0;
+    inset: 0;
+    background: linear-gradient(118deg, transparent 0 60%, color-mix(in srgb, var(--archive-olive) 8%, transparent) 60.2% 66%, transparent 66.2%);
+    animation: wallpaperMist 14s ease-in-out infinite alternate;
     pointer-events: none;
+    opacity: 0.5;
+    z-index: -1;
+  }
+
+  /* titleGlow consumer — 4.8s title breath for chapter title input.
+     Keyframe defined here in kao.css for W3 self-containment
+     (also defined in OpeningPage.vue:772 for that page's own
+     use; both are identical). */
+  .theme-kao .chapter-title-input {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    font-size: 28px;
+    color: var(--archive-ink);
+    animation: titleGlow 4.8s ease-in-out infinite alternate;
+  }
+
+  /* Reduced-motion a11y guard — foundation. This block pre-lists
+     all 5 future animation selectors from commits 1-3 (commit 1
+     drop-cap has no animation, but the pattern is established
+     here). When commits 2/3 add wallpaperMist / titleGlow /
+     chapter list motion to those elements, no extension of this
+     block is needed — the selectors are already gated. */
+  /* Chapter list motion — hover/focus only (default static).
+     Reuses @keyframes kickerPulse 1.5s defined in
+     CharacterBackdrop.vue:442-445 (5B ship); not redefined.
+     Scoped to .chapter-list-item so it doesn't leak to other
+     BookmarkButton consumers (WelcomeView / OpeningPage).
+     Selectors are split into per-pseudo blocks so each rule's
+     { ... } body is matched by the W3 uiPolish contract regex. */
+  /* Double-line focus ring (a11y WCAG 2.4.7 "highly visible" focus):
+     2px solid gold inner ring + 4px gold-tint outer glow (30% opacity).
+     W3 round 2 review #2 — 1px ring was at the very bottom of acceptable;
+     strengthened to double-line for better keyboard-nav visibility. */
+  .theme-kao .chapter-list-item .bookmark-button:hover {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  }
+  .theme-kao .chapter-list-item .bookmark-button:focus {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  }
+  .theme-kao .chapter-list-item .bookmark-button:focus-visible {
+    animation: kickerPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .theme-kao .editor-container::before,
+    .theme-kao .chapter-title-input,
+    .theme-kao .chapter-list-item .bookmark-button:hover,
+    .theme-kao .chapter-list-item .bookmark-button:focus,
+    .theme-kao .chapter-list-item .bookmark-button:focus-visible {
+      animation: none;
+    }
   }
 }

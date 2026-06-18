@@ -8,6 +8,7 @@ import { listNarrativeAssets } from '../services/narrativeAssets'
 import { runGenerationTask, runGenerationStreamTask } from '../services/generationService'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import { listStoryboardDocuments } from '../services/storyboardStore'
+import { buildContextMessage } from '../services/api'
 
 vi.mock('../services/api', () => ({
   default: {
@@ -31,6 +32,8 @@ describe('gameStore sessions', () => {
     setActivePinia(createPinia())
     vi.mocked(runGenerationTask).mockReset()
     vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(buildContextMessage).mockReset()
+    vi.mocked(buildContextMessage).mockReturnValue(null)
     vi.spyOn(console, 'debug').mockImplementation(() => {})
   })
 
@@ -417,6 +420,214 @@ describe('gameStore sessions', () => {
     expect(gameStore.lastMemoryContext).toBe(memoryMessage?.content)
   })
 
+  it('stores a bounded context ledger without changing generation message order', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = {
+      id: 'project-ledger',
+      name: 'Ledger World',
+      entries: [{
+        id: 'rule-1',
+        name: '常驻规则',
+        type: 'rule',
+        content: '所有线索必须有代价。',
+        keys: [],
+        injection: { mode: 'constant' }
+      }]
+    }
+
+    vi.mocked(buildContextMessage).mockReturnValue({
+      role: 'system',
+      content: '【写作上下文】角色在钟楼。'
+    })
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '账本测试', worldbookId: 'project-ledger' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你站在钟楼下。' },
+      { role: 'user', content: '继续。' }
+    ]
+
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify([
+      createMemoryCandidate({
+        content: '玩家已经拿到铜钥匙。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active'
+      })
+    ]))
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const sentMessages = vi.mocked(runGenerationStreamTask).mock.calls[0][0].baseMessages
+    expect(sentMessages[0].content).toContain('【写作上下文】')
+    expect(sentMessages[1].content).toContain('【已确认记忆】')
+    expect(sentMessages[2].content).toContain('【世界书：Ledger World】')
+    expect(sentMessages[3]).toEqual({ role: 'system', content: '你是叙述者。' })
+
+    const sources = new Set(gameStore.lastContextLedger.parts.map((part) => part.source))
+    expect(sources.has('worldbook')).toBe(true)
+    expect(sources.has('runtime')).toBe(true)
+    expect(sources.has('memory')).toBe(true)
+    expect(sources.has('chat')).toBe(true)
+    expect(gameStore.lastContextLedger.parts.every((part) => !Object.prototype.hasOwnProperty.call(part, 'content'))).toBe(true)
+    expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
+  })
+
+  it('exposes ranked local recall metadata with bounded previews and excludes pending memories', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '钟楼调查', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你来到旧书店门口，钟楼就在街角。' },
+      { role: 'user', content: '我进入旧书店寻找铜钥匙。' }
+    ]
+
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-project-bookstore',
+        content: '旧书店在西街尽头，是钟楼调查的起点。',
+        scope: 'project',
+        scopeId: 'project-1',
+        kind: 'project-fact',
+        status: 'active',
+        confidence: 0.5,
+        updatedAt: 5
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-key',
+        content: '主角在钟楼顶层拿到了铜钥匙。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 10
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-unrelated',
+        content: '潮盐行会在城门外集合。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 20
+      }),
+      createMemoryCandidate({
+        id: 'mem-other-project',
+        content: '另一部作品的旧书店线索。',
+        scope: 'project',
+        scopeId: 'project-2',
+        kind: 'project-fact',
+        status: 'active'
+      }),
+      createMemoryCandidate({
+        id: 'mem-pending',
+        content: '未确认：钟楼顶层还有密室。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'pending'
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
+
+    expect(memoryMessage?.content).toContain('旧书店在西街尽头')
+    expect(memoryMessage?.content).toContain('钟楼顶层拿到了铜钥匙')
+    expect(memoryMessage?.content).not.toContain('另一部作品')
+    expect(memoryMessage?.content).not.toContain('未确认')
+
+    const recall = gameStore.lastMemoryRecall
+    expect(recall).not.toBeNull()
+    expect(recall.source).toBe('local-ranked')
+    expect(recall.includedCount).toBe(3)
+    expect(recall.excludedCount).toBe(0)
+    expect(recall.totalItems).toBe(3)
+    expect(recall.included.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'mem-project-bookstore',
+      'mem-session-key',
+      'mem-session-unrelated'
+    ]))
+    // query terms should be derived from the local query
+    expect(recall.queryTerms).toEqual(expect.arrayContaining(['旧书店', '铜钥匙', '钟楼']))
+    // score must reflect query match count
+    const sessionKey = recall.included.find((item) => item.id === 'mem-session-key')
+    const sessionUnrelated = recall.included.find((item) => item.id === 'mem-session-unrelated')
+    expect(sessionKey.score).toBeGreaterThan(sessionUnrelated.score)
+    // bounded preview: at most preview-limit + ellipsis
+    const PREVIEW_LIMIT = 120
+    for (const item of recall.included) {
+      expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
+      const sourceContent = records.find((record) => record.id === item.id).content
+      if (sourceContent.length > PREVIEW_LIMIT) {
+        // long content must be truncated with an ellipsis marker
+        expect(item.preview).not.toBe(sourceContent)
+        expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
+      } else {
+        // short content can be shown in full
+        expect(item.preview).toBe(sourceContent)
+      }
+    }
+    // no raw unbounded content field
+    expect(JSON.stringify(recall)).not.toContain('另一部作品')
+    expect(JSON.stringify(recall)).not.toContain('未确认')
+  })
+
+  it('falls back to Mem0 only when local recall returns no content and still records audit metadata', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '空记忆会话', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你抵达一座陌生的小城。' },
+      { role: 'user', content: '我去找一间旧书店。' }
+    ]
+
+    // No memory candidates at all → empty local recall.
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
+    // Either no memory message (Mem0 also empty) or Mem0-supplied context.
+    const recall = gameStore.lastMemoryRecall
+    expect(recall).not.toBeNull()
+    expect(recall.includedCount).toBe(0)
+    expect(recall.totalItems).toBe(0)
+    expect(['mem0-fallback', 'none']).toContain(recall.source)
+    if (memoryMessage) {
+      expect(memoryMessage.content).toContain('【已确认记忆】')
+    }
+  })
+
   it('starts playable seed worlds with starter worldbook context on narrative init', async () => {
     const preset = seedWorldbookPresets[0]
     const worldStore = useWorldStore()
@@ -456,5 +667,110 @@ describe('gameStore sessions', () => {
     expect(worldbookMessage?.content).toContain('钟楼停摆事件')
     expect(worldbookMessage?.content).toContain('黎明前的钟楼调查')
     expect(gameStore.lastWorldbookContext.matchedEntries.some((entry) => entry.matchReason === 'starter')).toBe(true)
+  })
+
+  it('appends and persists capped runtime events across save and load', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '钟楼调查' })
+
+    const event = gameStore.appendRuntimeEvent({
+      type: 'turn',
+      source: 'user',
+      payload: { preview: '先去钟楼', hidden: false }
+    })
+
+    expect(event).not.toBeNull()
+    expect(event.v).toBe(1)
+    expect(event.branchId).toBe('main')
+    expect(event.type).toBe('turn')
+    expect(event.source).toBe('user')
+    expect(event.payload.preview).toBe('先去钟楼')
+    expect(gameStore.runtimeEvents).toHaveLength(1)
+
+    gameStore.saveCurrentSession()
+    gameStore.resetRuntimeState()
+    expect(gameStore.runtimeEvents).toEqual([])
+
+    gameStore.loadSession(session.id)
+    expect(gameStore.runtimeEvents).toHaveLength(1)
+    expect(gameStore.runtimeEvents[0].id).toBe(event.id)
+    expect(gameStore.runtimeEvents[0].v).toBe(1)
+    expect(gameStore.runtimeEvents[0].branchId).toBe('main')
+    expect(gameStore.sessions[0].runtimeState.runtimeEvents).toHaveLength(1)
+    expect(gameStore.sessions[0].runtimeState.runtimeEvents[0].payload.preview).toBe('先去钟楼')
+  })
+
+  it('caps runtime events at 200 and keeps the latest events in saved snapshots', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '钟楼调查' })
+
+    for (let index = 0; index < 205; index += 1) {
+      gameStore.appendRuntimeEvent({
+        type: 'turn',
+        source: 'user',
+        payload: { preview: `evt-${index}` }
+      })
+    }
+
+    expect(gameStore.runtimeEvents).toHaveLength(200)
+    expect(gameStore.runtimeEvents[0].payload.preview).toBe('evt-5')
+    expect(gameStore.runtimeEvents[199].payload.preview).toBe('evt-204')
+
+    gameStore.saveCurrentSession()
+    expect(gameStore.sessions[0].runtimeState.runtimeEvents).toHaveLength(200)
+    expect(gameStore.sessions[0].runtimeState.runtimeEvents[199].payload.preview).toBe('evt-204')
+
+    gameStore.resetRuntimeState()
+    gameStore.loadSession(session.id)
+    expect(gameStore.runtimeEvents).toHaveLength(200)
+    expect(gameStore.runtimeEvents[0].payload.preview).toBe('evt-5')
+    expect(gameStore.runtimeEvents[199].payload.preview).toBe('evt-204')
+  })
+
+  it('records user and assistant turn events as a sidecar without changing generation prompts', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '钟楼调查', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'user', content: '继续。' }
+    ]
+    gameStore.runtimeEvents = []
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks, baseMessages }) => {
+      callbacks?.onChunk?.({ content: '暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: '暮湾钟楼仍然沉默。' })
+      return { content: '暮湾钟楼仍然沉默。', baseMessages }
+    })
+
+    await gameStore.sendAction('先去钟楼')
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    expect(sentMessages).toBeDefined()
+
+    const sources = gameStore.runtimeEvents.map((event) => event.source)
+    expect(sources).toContain('user')
+    expect(sources).toContain('assistant')
+
+    const userEvent = gameStore.runtimeEvents.find((event) => event.source === 'user')
+    const assistantEvent = gameStore.runtimeEvents.find((event) => event.source === 'assistant')
+    expect(userEvent.type).toBe('turn')
+    expect(userEvent.payload.preview).toBe('先去钟楼')
+    expect(userEvent.payload.hidden).toBe(false)
+    expect(assistantEvent.type).toBe('turn')
+    expect(assistantEvent.payload.preview).toBe('暮湾钟楼仍然沉默。')
+    expect(typeof assistantEvent.payload.messageIndex).toBe('number')
+
+    // Generation prompt must remain sidecar-free (no runtime-event leakage).
+    expect(sentMessages.every((message) => !message.content?.includes('runtime'))).toBe(true)
   })
 })
