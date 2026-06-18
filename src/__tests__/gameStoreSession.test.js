@@ -480,6 +480,154 @@ describe('gameStore sessions', () => {
     expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
   })
 
+  it('exposes ranked local recall metadata with bounded previews and excludes pending memories', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '钟楼调查', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你来到旧书店门口，钟楼就在街角。' },
+      { role: 'user', content: '我进入旧书店寻找铜钥匙。' }
+    ]
+
+    const records = [
+      createMemoryCandidate({
+        id: 'mem-project-bookstore',
+        content: '旧书店在西街尽头，是钟楼调查的起点。',
+        scope: 'project',
+        scopeId: 'project-1',
+        kind: 'project-fact',
+        status: 'active',
+        confidence: 0.5,
+        updatedAt: 5
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-key',
+        content: '主角在钟楼顶层拿到了铜钥匙。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 10
+      }),
+      createMemoryCandidate({
+        id: 'mem-session-unrelated',
+        content: '潮盐行会在城门外集合。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'active',
+        confidence: 0.9,
+        updatedAt: 20
+      }),
+      createMemoryCandidate({
+        id: 'mem-other-project',
+        content: '另一部作品的旧书店线索。',
+        scope: 'project',
+        scopeId: 'project-2',
+        kind: 'project-fact',
+        status: 'active'
+      }),
+      createMemoryCandidate({
+        id: 'mem-pending',
+        content: '未确认：钟楼顶层还有密室。',
+        scope: 'session',
+        scopeId: session.id,
+        kind: 'plot-event',
+        status: 'pending'
+      })
+    ]
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
+
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
+
+    expect(memoryMessage?.content).toContain('旧书店在西街尽头')
+    expect(memoryMessage?.content).toContain('钟楼顶层拿到了铜钥匙')
+    expect(memoryMessage?.content).not.toContain('另一部作品')
+    expect(memoryMessage?.content).not.toContain('未确认')
+
+    const recall = gameStore.lastMemoryRecall
+    expect(recall).not.toBeNull()
+    expect(recall.source).toBe('local-ranked')
+    expect(recall.includedCount).toBe(3)
+    expect(recall.excludedCount).toBe(0)
+    expect(recall.totalItems).toBe(3)
+    expect(recall.included.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'mem-project-bookstore',
+      'mem-session-key',
+      'mem-session-unrelated'
+    ]))
+    // query terms should be derived from the local query
+    expect(recall.queryTerms).toEqual(expect.arrayContaining(['旧书店', '铜钥匙', '钟楼']))
+    // score must reflect query match count
+    const sessionKey = recall.included.find((item) => item.id === 'mem-session-key')
+    const sessionUnrelated = recall.included.find((item) => item.id === 'mem-session-unrelated')
+    expect(sessionKey.score).toBeGreaterThan(sessionUnrelated.score)
+    // bounded preview: at most preview-limit + ellipsis
+    const PREVIEW_LIMIT = 120
+    for (const item of recall.included) {
+      expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
+      const sourceContent = records.find((record) => record.id === item.id).content
+      if (sourceContent.length > PREVIEW_LIMIT) {
+        // long content must be truncated with an ellipsis marker
+        expect(item.preview).not.toBe(sourceContent)
+        expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
+      } else {
+        // short content can be shown in full
+        expect(item.preview).toBe(sourceContent)
+      }
+    }
+    // no raw unbounded content field
+    expect(JSON.stringify(recall)).not.toContain('另一部作品')
+    expect(JSON.stringify(recall)).not.toContain('未确认')
+  })
+
+  it('falls back to Mem0 only when local recall returns no content and still records audit metadata', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '空记忆会话', worldbookId: 'project-1' })
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '你抵达一座陌生的小城。' },
+      { role: 'user', content: '我去找一间旧书店。' }
+    ]
+
+    // No memory candidates at all → empty local recall.
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onComplete?.({ content: '' })
+      return { content: '' }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
+    const sentMessages = streamTask.baseMessages
+    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
+    // Either no memory message (Mem0 also empty) or Mem0-supplied context.
+    const recall = gameStore.lastMemoryRecall
+    expect(recall).not.toBeNull()
+    expect(recall.includedCount).toBe(0)
+    expect(recall.totalItems).toBe(0)
+    expect(['mem0-fallback', 'none']).toContain(recall.source)
+    if (memoryMessage) {
+      expect(memoryMessage.content).toContain('【已确认记忆】')
+    }
+  })
+
   it('starts playable seed worlds with starter worldbook context on narrative init', async () => {
     const preset = seedWorldbookPresets[0]
     const worldStore = useWorldStore()

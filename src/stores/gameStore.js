@@ -8,7 +8,7 @@ import {
 } from '../services/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
-import { buildScopedMemoryContext } from '../services/memoryCandidates'
+import { buildScopedMemoryContext, buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
 import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
 import {
@@ -524,6 +524,8 @@ export const useGameStore = defineStore('game', {
     lastWorldbookContext: null,
     lastMemoryContext: '',
     lastContextLedger: null,
+    // 排名后的本地记忆召回元数据，可被 lastContextLedger / debug UI 复用。
+    lastMemoryRecall: null,
 
     // 运行时事件侧车 (v1 append-only, ≤200 events per session)
     runtimeEvents: [],
@@ -1698,19 +1700,31 @@ export const useGameStore = defineStore('game', {
         // 注入写作上下文（对话模式时传入对话角色）
         // 小说体验模式下排除时间信息，避免 AI 每次都强调时间
         const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true, contextDetail })
-        const localMemoryContext = buildScopedMemoryContext({
-          projectId: this.worldId || worldbook?.id || '',
-          sessionId: this.currentSessionId || '',
-          limitPerScope: 4,
-          maxItemChars: 180
-        })
         const memoryQuery = [
           worldBookMsg?.content || '',
           contextMsg?.content || '',
           ...this.chatHistory.slice(-6).map((message) => String(message?.content || '').trim())
         ].filter(Boolean).join('\n')
 
+        // 排名后的本地已确认记忆召回：使用同一个 memoryQuery 排序。
+        // Mem0 仅在本地召回为空时兜底。
+        const memoryRecall = buildScopedMemoryRecallContext({
+          projectId: this.worldId || worldbook?.id || '',
+          sessionId: this.currentSessionId || '',
+          query: memoryQuery,
+          limitPerScope: 4,
+          maxItemChars: 180
+        })
+        // 兼容旧调用方：保留 buildScopedMemoryContext 的字符串接口。
+        const localMemoryContext = memoryRecall.content || buildScopedMemoryContext({
+          projectId: this.worldId || worldbook?.id || '',
+          sessionId: this.currentSessionId || '',
+          limitPerScope: 4,
+          maxItemChars: 180
+        })
+
         let memoryContext = localMemoryContext
+        let memoryRecallSource = 'local-ranked'
         if (!memoryContext) {
           memoryContext = await buildMem0MemoryContext({
             currentSituation: memoryQuery,
@@ -1719,9 +1733,23 @@ export const useGameStore = defineStore('game', {
             limitPerScope: 4,
             maxItemChars: 180
           })
+          memoryRecallSource = memoryContext ? 'mem0-fallback' : 'none'
         }
 
         this.lastMemoryContext = memoryContext
+        this.lastMemoryRecall = {
+          query: memoryQuery,
+          source: memoryRecallSource,
+          includedCount: memoryRecall.includedCount,
+          excludedCount: memoryRecall.excluded.length,
+          totalItems: memoryRecall.items.length,
+          contentChars: memoryRecall.contentChars,
+          queryTerms: memoryRecall.queryTerms,
+          items: memoryRecall.items,
+          included: memoryRecall.included,
+          excluded: memoryRecall.excluded,
+          counts: memoryRecall.counts
+        }
         const memoryMsg = memoryContext ? { role: 'system', content: memoryContext } : null
 
         let generationLedger = createContextLedger({
@@ -2338,6 +2366,7 @@ export const useGameStore = defineStore('game', {
       this.lastWorldbookContext = null
       this.lastMemoryContext = ''
       this.lastContextLedger = null
+      this.lastMemoryRecall = null
       this.isLoading = false
       this.lastError = null
       this.quickNoteImportMode = false

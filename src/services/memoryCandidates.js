@@ -487,29 +487,290 @@ export function buildScopedMemoryContext({
   limitPerScope = 4,
   maxItemChars = 180
 } = {}) {
-  const memories = listScopedActiveMemoryCandidates({
+  const recall = buildScopedMemoryRecallContext({
     authorId,
     projectId,
     sessionId,
-    limitPerScope
+    query: '',
+    limitPerScope,
+    maxItemChars
   })
+  return recall.content
+}
 
-  if (!memories.length) return ''
+export const MEMORY_RECALL_PREVIEW_LIMIT = 120
 
-  const maxChars = Math.max(60, Math.floor(Number(maxItemChars) || 180))
-  const lines = ['【已确认记忆】以下内容来自用户确认过的记忆，只在相关时使用，不要主动复述。']
+export function rankScopedActiveMemoryCandidates({
+  authorId = '',
+  projectId = '',
+  sessionId = '',
+  query = '',
+  limitPerScope = 4
+} = {}) {
+  const limit = Math.max(1, Math.floor(Number(limitPerScope) || 4))
+  const active = listMemoryCandidates({ status: 'active' })
+  const normalizedQuery = normalizeText(query).toLowerCase()
+  const queryTerms = tokenizeRecallQuery(normalizedQuery)
 
+  // Build per-scope filtered list (same rules as listScopedActiveMemoryCandidates)
+  const perScope = {}
   for (const section of MEMORY_CONTEXT_SECTIONS) {
-    const scoped = memories.filter((candidate) => candidate.scope === section.scope)
-    if (!scoped.length) continue
+    perScope[section.scope] = active
+      .filter((candidate) => candidate.scope === section.scope)
+      .filter((candidate) => {
+        if (section.scope === 'global-author') {
+          return !normalizeText(authorId) || !candidate.scopeId || candidate.scopeId === normalizeText(authorId)
+        }
+        if (section.scope === 'project') {
+          return Boolean(normalizeText(projectId)) && candidate.scopeId === normalizeText(projectId)
+        }
+        return Boolean(normalizeText(sessionId)) && candidate.scopeId === normalizeText(sessionId)
+      })
+  }
 
-    lines.push(`\n${section.label}：`)
-    for (const memory of scoped) {
-      const content = truncateText(memory.content, maxChars)
-      lines.push(`- ${getMemoryKindLabel(memory.kind)}：${content}`)
+  // Rank and limit per scope
+  const ranked = []
+  for (const section of MEMORY_CONTEXT_SECTIONS) {
+    const scopedCandidates = perScope[section.scope]
+    if (!scopedCandidates.length) continue
+
+    const scored = scopedCandidates
+      .map((candidate) => ({
+        candidate,
+        score: scoreMemoryCandidate(candidate, queryTerms)
+      }))
+      .sort((a, b) => {
+        if (b.score.matchedTerms !== a.score.matchedTerms) {
+          return b.score.matchedTerms - a.score.matchedTerms
+        }
+        if (b.score.confidence !== a.score.confidence) {
+          return b.score.confidence - a.score.confidence
+        }
+        return Number(b.candidate.updatedAt || b.candidate.createdAt || 0)
+          - Number(a.candidate.updatedAt || a.candidate.createdAt || 0)
+      })
+      .slice(0, limit)
+
+    for (const entry of scored) {
+      const content = normalizeText(entry.candidate.content)
+      ranked.push({
+        id: entry.candidate.id,
+        scope: entry.candidate.scope,
+        scopeId: entry.candidate.scopeId,
+        kind: entry.candidate.kind,
+        score: entry.score.matchedTerms,
+        confidence: entry.score.confidence,
+        matchedTerms: entry.score.matchedTerms,
+        queryTerms: queryTerms.length,
+        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
+        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
+        contentChars: content.length,
+        included: true
+      })
     }
   }
 
+  return {
+    query: normalizedQuery,
+    queryTerms,
+    items: ranked,
+    counts: {
+      eligible: active.length,
+      perScope: Object.fromEntries(
+        MEMORY_CONTEXT_SECTIONS.map((section) => [section.scope, perScope[section.scope].length])
+      )
+    }
+  }
+}
+
+export function buildScopedMemoryRecallContext({
+  authorId = '',
+  projectId = '',
+  sessionId = '',
+  query = '',
+  limitPerScope = 4,
+  maxItemChars = 180
+} = {}) {
+  const limit = Math.max(1, Math.floor(Number(limitPerScope) || 4))
+  const maxChars = Math.max(60, Math.floor(Number(maxItemChars) || 180))
+  const normalizedQuery = normalizeText(query).toLowerCase()
+  const queryTerms = tokenizeRecallQuery(normalizedQuery)
+
+  const active = listMemoryCandidates({ status: 'active' })
+  const filtered = filterCandidatesByScope(active, { authorId, projectId, sessionId })
+
+  // Score + sort within each scope, take top `limit`
+  const included = []
+  const excluded = []
+  for (const section of MEMORY_CONTEXT_SECTIONS) {
+    const scoped = filtered.filter((candidate) => candidate.scope === section.scope)
+    if (!scoped.length) continue
+
+    const ranked = scoped
+      .map((candidate) => ({
+        candidate,
+        score: scoreMemoryCandidate(candidate, queryTerms)
+      }))
+      .sort((a, b) => {
+        if (b.score.matchedTerms !== a.score.matchedTerms) {
+          return b.score.matchedTerms - a.score.matchedTerms
+        }
+        if (b.score.confidence !== a.score.confidence) {
+          return b.score.confidence - a.score.confidence
+        }
+        return Number(b.candidate.updatedAt || b.candidate.createdAt || 0)
+          - Number(a.candidate.updatedAt || a.candidate.createdAt || 0)
+      })
+
+    const winners = ranked.slice(0, limit)
+    const losers = ranked.slice(limit)
+    for (const entry of winners) {
+      const content = normalizeText(entry.candidate.content)
+      included.push({
+        id: entry.candidate.id,
+        scope: entry.candidate.scope,
+        scopeId: entry.candidate.scopeId,
+        kind: entry.candidate.kind,
+        score: entry.score.matchedTerms,
+        confidence: entry.score.confidence,
+        matchedTerms: entry.score.matchedTerms,
+        queryTerms: queryTerms.length,
+        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
+        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
+        contentChars: content.length,
+        // 内部使用：构造上下文文本时不丢失原始内容；审计元数据仅依赖 preview。
+        _content: content,
+        included: true
+      })
+    }
+    for (const entry of losers) {
+      const content = normalizeText(entry.candidate.content)
+      excluded.push({
+        id: entry.candidate.id,
+        scope: entry.candidate.scope,
+        scopeId: entry.candidate.scopeId,
+        kind: entry.candidate.kind,
+        score: entry.score.matchedTerms,
+        confidence: entry.score.confidence,
+        matchedTerms: entry.score.matchedTerms,
+        queryTerms: queryTerms.length,
+        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
+        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
+        contentChars: content.length,
+        _content: content,
+        included: false,
+        skipReason: 'per-scope-cap'
+      })
+    }
+  }
+
+  const items = [...included, ...excluded]
+  const content = buildMemoryContextText(included, maxChars)
+
+  return {
+    content,
+    items,
+    included,
+    excluded,
+    query: normalizedQuery,
+    queryTerms,
+    totalItems: items.length,
+    includedCount: included.length,
+    contentChars: content.length,
+    counts: {
+      eligible: active.length,
+      included: included.length,
+      excluded: excluded.length
+    }
+  }
+}
+
+function filterCandidatesByScope(candidates, { authorId, projectId, sessionId } = {}) {
+  const normalizedAuthorId = normalizeText(authorId)
+  const normalizedProjectId = normalizeText(projectId)
+  const normalizedSessionId = normalizeText(sessionId)
+  return (Array.isArray(candidates) ? candidates : []).filter((candidate) => {
+    if (!candidate || candidate.status !== 'active') return false
+    if (candidate.scope === 'global-author') {
+      return !normalizedAuthorId || !candidate.scopeId || candidate.scopeId === normalizedAuthorId
+    }
+    if (candidate.scope === 'project') {
+      return Boolean(normalizedProjectId) && candidate.scopeId === normalizedProjectId
+    }
+    if (candidate.scope === 'session') {
+      return Boolean(normalizedSessionId) && candidate.scopeId === normalizedSessionId
+    }
+    return false
+  })
+}
+
+function scoreMemoryCandidate(candidate, queryTerms = []) {
+  const confidence = Number(candidate?.confidence)
+  const safeConfidence = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.5
+  if (!queryTerms.length) {
+    return { matchedTerms: 0, confidence: safeConfidence }
+  }
+
+  const haystack = normalizeText(candidate?.content).toLowerCase()
+  let matchedTerms = 0
+  for (const term of queryTerms) {
+    if (term && haystack.includes(term)) matchedTerms += 1
+  }
+  return { matchedTerms, confidence: safeConfidence }
+}
+
+function tokenizeRecallQuery(query) {
+  if (!query) return []
+  const seen = new Set()
+  const tokens = []
+  const addToken = (raw) => {
+    const token = String(raw || '').trim().toLowerCase()
+    if (!token || token.length < 2 || token.length > 8) return
+    if (/^[\d.]+$/.test(token)) return
+    if (seen.has(token)) return
+    seen.add(token)
+    tokens.push(token)
+  }
+
+  const rawString = String(query)
+  const chunks = rawString.split(/[\s,，。！？、；：,.!?;:"'“”‘’（）()\[\]{}<>《》\n\r\t/]+/u)
+  for (const chunk of chunks) {
+    const cleaned = String(chunk || '').trim()
+    if (!cleaned) continue
+    addToken(cleaned)
+    if (/[一-鿿]/.test(cleaned) && cleaned.length >= 2) {
+      for (let index = 0; index < cleaned.length - 1; index += 1) {
+        addToken(cleaned.slice(index, index + 2))
+      }
+      for (let index = 0; index < cleaned.length - 2; index += 1) {
+        addToken(cleaned.slice(index, index + 3))
+      }
+    }
+  }
+
+  return tokens.slice(0, 256)
+}
+
+function buildMemoryRecallPreview(content, limit = MEMORY_RECALL_PREVIEW_LIMIT) {
+  const text = normalizeText(content).replace(/\s+/g, ' ')
+  if (!text) return ''
+  if (text.length <= limit) return text
+  return `${text.slice(0, limit)}…`
+}
+
+function buildMemoryContextText(items, maxChars) {
+  if (!items.length) return ''
+  const lines = ['【已确认记忆】以下内容来自用户确认过的记忆，只在相关时使用，不要主动复述。']
+  for (const section of MEMORY_CONTEXT_SECTIONS) {
+    const scoped = items.filter((item) => item.scope === section.scope)
+    if (!scoped.length) continue
+    lines.push(`\n${section.label}：`)
+    for (const item of scoped) {
+      const text = item._content || item.preview
+      const truncated = text.length > maxChars ? `${text.slice(0, maxChars)}…` : text
+      lines.push(`- ${getMemoryKindLabel(item.kind)}：${truncated}`)
+    }
+  }
   return lines.join('\n')
 }
 
