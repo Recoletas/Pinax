@@ -9,6 +9,26 @@
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
 
+## 2026-06-18 - Nova-inspired runtime foundation
+
+状态：完成 3 feature commits on `main`（`e4bd36f` / `cc8ffd6` / `3bae14b`），前置文档 commit `2717848`。
+
+结果摘要：
+- 新增 bounded context ledger：`contextLedger.js` 只存 source/title/purpose/chars/tokens/preview/included/truncated 等元数据，不存完整 prompt；`worldbookContextBuilder` 所有返回路径带 `contextLedger`，记录 no-worldbook/no-match/included/truncated worldbook sections；`gameStore.lastContextLedger` 聚合 worldbook/runtime/memory/recent-chat 账本，保持 `messagesToSend` 顺序和内容不变。
+- 新增 runtime event envelope：`runtimeEvents.js` 定义 v1 envelope、state-op/path allowlist、display_event 默认 non-contextual、200 条 cap；`gameStore` 持久化 `runtimeEvents` sidecar，保存/加载/重置会话均兼容旧 `messages/runtimeState`。
+- 新增 ranked local memory recall：`memoryCandidates.js` 增加 `rankScopedActiveMemoryCandidates` / `buildScopedMemoryRecallContext`，只召回 active confirmed memories，按 query match/confidence/recency 排序并返回 bounded preview metadata；`gameStore.lastMemoryRecall` 暴露召回审计，Mem0 fallback 仅在本地 recall 为空时触发。
+- 外部 Claude CLI worker 流程沉淀：`AGENTS.md` 记录 `/home/recoletas/.nvm/versions/node/v20.20.2/bin/claude`、`--bare -p --output-format json`、Codex 架构/集成/验收 + Claude 并行实施模式；Codex 个人记忆写入 `/home/recoletas/.codex/memories/claude_parallel_workflow.md`。
+
+验证：
+- focused runtime/context/memory suite 通过（5 files / 66 tests）。
+- `npm run test:run` 通过（111 files / 802 tests）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
+备注：
+- `OpeningPage.vue`、`Experience.vue`、`MemoryIndicator.vue` 未改。
+- 仍有用户先前留下的未跟踪截图 `docs/demo/n5c-material-page-20260617_002.png`，本轮未触碰。
+
 ## 2026-06-17 - Writing 页 kao archive-folio 表面重构（Phase 1C 首签 + v2 审查修复）
 
 状态：完成 1 commit ship gate（`a3b650b`，v2 amend 含 5 项审查修复，未推送）
