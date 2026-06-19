@@ -1,2 +1,2 @@
-/* legacy variant — un-styled baseline (5C v3.x merge cleanup)
- * Spec §3.3: legacy intentionally ships with no chrome of its own. */
+/* 5C revisit: legacy = blue-white SaaS. */
+:root.theme-legacy{--bg-primary:#f5f8fc;--bg-secondary:#fff;--accent:#2563eb;--text-primary:#0f172a;--border:#cbd5e1;}
