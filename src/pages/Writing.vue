@@ -1,65 +1,47 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
     <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
-      <WorkbenchPageHero
-        kicker="Writing Desk"
-        title="写作"
-        :description="writingHeroDescription"
-      >
-      <template #back>
-        <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-          </svg>
-        </button>
-      </template>
-      <template #inline>
-        <div class="workbench-hero-input-group">
-          <select
-            v-model="selectedBookId"
-            class="book-selector workbench-hero-inline-select"
-            @change="handleHeroBookChange"
-          >
-            <option value="">选择书籍...</option>
-            <option v-for="book in books" :key="book.id" :value="book.id">
-              {{ book.title }}
-            </option>
-          </select>
+      <div class="manuscript-top">
+        <div class="manuscript-top__left">
+          <button class="manuscript-top__back" @click="goBack" title="返回" aria-label="返回">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
+            </svg>
+          </button>
+          <div class="manuscript-top__book">
+            <span class="manuscript-top__no">No.</span>
+            <select
+              v-model="selectedBookId"
+              class="manuscript-top__book-select"
+              aria-label="选择书籍"
+              @change="handleHeroBookChange"
+            >
+              <option value="">未选书</option>
+              <option v-for="book in books" :key="book.id" :value="book.id">
+                {{ book.title }}
+              </option>
+            </select>
+          </div>
+          <span v-if="selectedChapterSummary" class="manuscript-top__chapter">
+            {{ selectedChapterSummary }}
+          </span>
         </div>
-      </template>
-      <template #meta>
-        <div class="workbench-hero-meta-list">
-          <span class="workbench-hero-chip accent">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
-          <span class="workbench-hero-chip">{{ books.length }} 本书 / {{ chapters.length }} 章</span>
-          <span v-if="selectedChapterSummary" class="workbench-hero-chip">{{ selectedChapterSummary }}</span>
-          <span v-if="writingQuickNoteLabel" class="workbench-hero-chip">{{ writingQuickNoteLabel }}</span>
-        </div>
-      </template>
-      <template #actions>
-        <div class="workbench-hero-actions-row">
-          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">
-            收件箱
-          </button>
-          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">
-            素材库
-          </button>
-          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">
-            章节分镜
-          </button>
-          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-            <span class="theme-icon">
-              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-              </svg>
-              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-              </svg>
-            </span>
-            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
+
+        <div class="manuscript-top__right">
+          <span class="manuscript-top__chip">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <button class="manuscript-top__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
+          <button class="manuscript-top__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
+          <button class="manuscript-top__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
+          <button class="manuscript-top__mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
+            <svg v-if="isDark" width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+            </svg>
+            <svg v-else width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+            </svg>
           </button>
         </div>
-      </template>
-    </WorkbenchPageHero>
+      </div>
     </FolioSurface>
 
     <div class="content-area">
@@ -776,7 +758,6 @@ import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRe
 import ImageGenRail from '../components/ImageGenRail.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
-import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
@@ -1010,19 +991,6 @@ const selectedChapterSummary = computed(() => {
   const title = String(chapter.title || '无标题章节').trim()
   const count = Number(chapter.wordCount || 0)
   return `${title} · ${count.toLocaleString()} 字`
-})
-const writingQuickNoteLabel = computed(() => {
-  const text = String(quickNoteStatus.value || '').trim()
-  return text || ''
-})
-const writingHeroDescription = computed(() => {
-  if (!selectedBookId.value) {
-    return '先选一本书，左侧继续管理作品和章节；上方只保留当前稿件状态、素材入口和分镜出口。'
-  }
-  if (!selectedChapterId.value) {
-    return `当前聚焦《${selectedBookSummary.value || '未命名书籍'}》，下一步是选章或开新章，再进入正文工作面。`
-  }
-  return `当前正在处理 ${selectedChapterSummary.value || '章节正文'}。素材收件箱、素材库和章节分镜都从这里出入，不再单独挤成工具栏。`
 })
 
 function handleHeroBookChange() {
@@ -2672,6 +2640,117 @@ function stopResizeRight() {
 </script>
 
 <style scoped>
+/* W4: manuscript-top — legacy variant fallback (kao variant rules live
+   in kao.css .theme-kao block; legacy uses generic SaaS chrome). Kept
+   scoped here so Writing.vue remains the single owner. */
+.manuscript-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  min-height: 44px;
+}
+.manuscript-top__left,
+.manuscript-top__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.manuscript-top__left { flex: 1 1 auto; }
+.manuscript-top__back {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.manuscript-top__back:hover {
+  color: var(--accent);
+  border-color: var(--border);
+}
+.manuscript-top__book {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px 3px;
+  border-left: 2px solid var(--accent);
+  border-right: 1px solid var(--border);
+}
+.manuscript-top__no {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.manuscript-top__book-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.manuscript-top__chapter {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-secondary);
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 32ch;
+}
+.manuscript-top__chip {
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  white-space: nowrap;
+}
+.manuscript-top__tab {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 4px 2px 5px;
+  cursor: pointer;
+}
+.manuscript-top__tab:hover:not(:disabled) {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.manuscript-top__tab:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.manuscript-top__mode {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.manuscript-top__mode:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .writing-page {
   height: var(--app-viewport-height, 100vh);
   min-height: var(--app-viewport-height, 100vh);

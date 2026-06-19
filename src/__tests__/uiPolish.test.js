@@ -225,7 +225,7 @@ describe('ui polish contract', () => {
     expect(personaLauncher).toContain("caption: {\n    type: String,\n    default: '虚构集'")
   })
 
-  it('uses the shared workbench page hero across the editor surfaces while Experience keeps only its work/session shell', () => {
+  it('uses the shared workbench page hero across the editor surfaces while Experience keeps only its work/session shell, and Writing V2 top replaces WorkbenchPageHero with manuscript-top strip', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const writing = readProjectFile('src/pages/Writing.vue')
     const notes = readProjectFile('src/pages/Notes.vue')
@@ -237,14 +237,52 @@ describe('ui polish contract', () => {
     expect(experience).toContain('class="game-layout"')
     expect(experience).toContain('class="game-main-shell"')
     expect(experience).toContain('class="sidebar-head-copy"')
-    expect(writing).toContain('<WorkbenchPageHero')
-    expect(writing).toContain('Writing Desk')
+    // W4: Writing V2 顶部切片 — 移除 WorkbenchPageHero + SaaS toolbar, 替换为手稿页顶栏 manuscript-top.
+    // 保留 8 个功能控件 (返回 / 选择书 / 章节名 / 状态+字数 / 收件箱 / 素材库 / 分镜 / 亮暗切换),
+    // 不再出现 "Writing Desk" 英文 kicker, 不再出现 "当前正在处理..." 长说明, 不再出现 writingHeroDescription 引用.
+    expect(writing).not.toContain('<WorkbenchPageHero')
+    expect(writing).not.toContain('Writing Desk')
+    expect(writing).not.toContain('writingHeroDescription')
+    expect(writing).not.toContain('当前正在处理')
+    expect(writing).not.toContain('素材收件箱、素材库和章节分镜都从这里出入')
+    expect(writing).toContain('class="manuscript-top"')
+    expect(writing).toContain('class="manuscript-top__book"')
+    expect(writing).toContain('class="manuscript-top__chapter"')
+    expect(writing).toContain('class="manuscript-top__chip"')
+    expect(writing).toContain('class="manuscript-top__tab"')
+    expect(writing).toContain('class="manuscript-top__mode"')
+    // 功能保留 — 8 个控件:
+    expect(writing).toContain('@click="goBack"')
+    expect(writing).toContain('v-model="selectedBookId"')
+    expect(writing).toContain('@click.stop="openAssetInbox"')
+    expect(writing).toContain('@click.stop="openMaterialsPage"')
+    expect(writing).toContain('@click.stop="exportChapterStoryboardDraft"')
+    expect(writing).toContain('@click="toggleTheme"')
+    // Notes / ProseEssay 仍用 WorkbenchPageHero (out-of-scope for W4):
     expect(notes).toContain('<WorkbenchPageHero')
     expect(notes).toContain('Material Library')
     expect(proseEssay).toContain('<WorkbenchPageHero')
     expect(proseEssay).toContain('Storyboard Canvas')
     expect(workbenchHero).toContain('class="workbench-page-hero"')
     expect(workbenchHero).toContain('class="workbench-page-hero__title"')
+  })
+
+  it('W4: manuscript-top has .theme-kao gated CSS in kao.css and legacy fallback in Writing.vue scoped style', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    const writing = readProjectFile('src/pages/Writing.vue')
+
+    // kao variant — uses --archive-* tokens, LXGW WenKai display font
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__back\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__book\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__book-select\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__chapter\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__chip\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__tab\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__mode\s*\{/)
+    // legacy variant — uses --text-*/--border/--accent in Writing.vue scoped CSS
+    expect(writing).toMatch(/\.manuscript-top\s*\{/)
+    expect(writing).toMatch(/\.manuscript-top__tab\s*\{/)
   })
 })
 

@@ -429,6 +429,161 @@
     letter-spacing: 0.08em;
   }
 
+  /* W4: manuscript-top — 手稿页顶栏 (Writing V2 顶部视觉切片).
+     Replaces the previous WorkbenchPageHero SaaS toolbar. Three-region
+     strip (left: back / book select / chapter; right: status chip +
+     3 收件箱/素材库/分镜 tabs + theme toggle). Visual grammar:
+     - 纸面 paper-soft bg, no gradient
+     - 1px hairline-soft bottom border (页脚纸条切边)
+     - 章节名用 italic LXGW WenKai + 低声量灰色 (像 manuscript 边注)
+     - tab 用透明 bg + archive-ink-soft 文案, hover 时浮现 gold-tint
+     - No SaaS hero kicker / description / marketing copy */
+  .theme-kao .manuscript-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 24px 11px;
+    background: var(--archive-paper-soft);
+    border-bottom: 1px solid var(--hairline-soft);
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    min-height: 44px;
+  }
+
+  .theme-kao .manuscript-top__left,
+  .theme-kao .manuscript-top__right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .theme-kao .manuscript-top__left {
+    flex: 1 1 auto;
+  }
+
+  .theme-kao .manuscript-top__back {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--archive-ink-soft);
+    border: 1px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+  .theme-kao .manuscript-top__back:hover {
+    color: var(--archive-gold);
+    border-color: color-mix(in srgb, var(--archive-gold) 36%, transparent);
+    background: color-mix(in srgb, var(--archive-paper-strong) 30%, transparent);
+  }
+
+  .theme-kao .manuscript-top__book {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 2px 6px 3px;
+    border-left: 2px solid var(--archive-gold);
+    border-right: 1px solid var(--hairline-soft);
+  }
+
+  .theme-kao .manuscript-top__no {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--archive-ink-soft);
+    text-transform: uppercase;
+  }
+
+  .theme-kao .manuscript-top__book-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    font-size: 13px;
+    line-height: 1.2;
+    padding: 0 14px 0 2px;
+    cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--archive-ink-soft) 50%),
+                      linear-gradient(135deg, var(--archive-ink-soft) 50%, transparent 50%);
+    background-position: calc(100% - 6px) 50%, calc(100% - 2px) 50%;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+  }
+  .theme-kao .manuscript-top__book-select:focus {
+    outline: none;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  }
+
+  .theme-kao .manuscript-top__chapter {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--archive-ink-soft);
+    padding-left: 10px;
+    border-left: 1px solid var(--hairline-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 32ch;
+  }
+
+  .theme-kao .manuscript-top__chip {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--archive-ink-soft);
+    padding: 2px 8px;
+    border: 1px solid var(--hairline-soft);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--archive-paper) 50%, transparent);
+    white-space: nowrap;
+  }
+
+  .theme-kao .manuscript-top__tab {
+    font-family: var(--font-display);
+    font-size: 12px;
+    color: var(--archive-ink-soft);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    padding: 4px 2px 5px;
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease;
+    letter-spacing: 0.02em;
+  }
+  .theme-kao .manuscript-top__tab:hover:not(:disabled) {
+    color: var(--archive-gold);
+    border-bottom-color: var(--archive-gold);
+  }
+  .theme-kao .manuscript-top__tab:disabled {
+    color: color-mix(in srgb, var(--archive-ink-soft) 50%, transparent);
+    cursor: not-allowed;
+  }
+
+  .theme-kao .manuscript-top__mode {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--hairline-soft);
+    border-radius: 50%;
+    color: var(--archive-ink-soft);
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease;
+  }
+  .theme-kao .manuscript-top__mode:hover {
+    color: var(--archive-gold);
+    border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  }
+
+
   @media (prefers-reduced-motion: reduce) {
     .theme-kao .editor-container::before,
     .theme-kao .chapter-title-input,
