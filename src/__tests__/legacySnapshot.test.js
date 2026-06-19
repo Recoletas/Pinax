@@ -50,6 +50,12 @@ describe('legacy snapshot files exist', () => {
     const content = readFileSync(abs, 'utf8').trim()
     expect(content.length).toBeLessThan(200)
   })
+
+  it('ThemeAssets loads the legacy blue-white palette chunk', () => {
+    const abs = resolve(ROOT, 'src/components/theme/ThemeAssets.vue')
+    const content = readFileSync(abs, 'utf8')
+    expect(content).toContain("legacy: () => import('../../styles/themes/legacy.css')")
+  })
 })
 
 describe('legacy snapshot integrity (frozen content)', () => {

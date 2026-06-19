@@ -5,14 +5,12 @@ import { useThemeStore } from '../../stores/themeStore.js'
 const themeStore = useThemeStore()
 let injectedPreload = null
 
-// legacy is the un-styled baseline — main.css provides the base tokens,
-// and there's no archive-folio chrome or LXGW @font-face for that
-// variant, so no CSS chunk needs to load. kao IS statically imported
-// from main.js (see Fixup 1), but we still record it here so the
-// dynamic syncAssets() contract is symmetric across both branches.
+// legacy carries the map-era blue-white palette in a tiny gated CSS chunk.
+// It still does not preload LXGW or archive-folio chrome; the chunk only
+// restores the classic tokens when <html> has theme-legacy.
 const VARIANT_CSS = {
   kao: () => import('../../styles/themes/kao.css'),
-  legacy: null,
+  legacy: () => import('../../styles/themes/legacy.css'),
 }
 
 const FONT_HREF = '/src/assets/fonts/LXGWWenKai-Regular.woff2' // Vite resolves at build
@@ -42,9 +40,8 @@ async function syncAssets(variant) {
   // see the <link> as soon as the variant changes.
   if (variant === 'kao') injectFontPreload()
   else removeFontPreload()
-  // Only await a CSS chunk if the variant has one. legacy is null
-  // (un-styled baseline); kao is statically preloaded by main.js but the
-  // dynamic import here is still a no-op if Vite has already injected it.
+  // Load the variant CSS chunk. Selectors are gated by .theme-kao or
+  // .theme-legacy because Vite-injected CSS remains after switching.
   const loader = VARIANT_CSS[variant]
   if (loader) await loader()
 }

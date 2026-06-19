@@ -7,8 +7,8 @@ const themeStore = useThemeStore()
 const OPTIONS = [
   { variant: 'kao', colorScheme: 'light', label: 'Kao · 亮色', testId: 'appearance-kao-light' },
   { variant: 'kao', colorScheme: 'dark', label: 'Kao · 暗色', testId: 'appearance-kao-dark' },
-  { variant: 'legacy', colorScheme: 'light', label: 'Legacy · 亮色', testId: 'appearance-legacy-light' },
-  { variant: 'legacy', colorScheme: 'dark', label: 'Legacy · 暗色', testId: 'appearance-legacy-dark' },
+  { variant: 'legacy', colorScheme: 'light', label: '经典 · 亮色', testId: 'appearance-legacy-light' },
+  { variant: 'legacy', colorScheme: 'dark', label: '经典 · 暗色', testId: 'appearance-legacy-dark' },
 ]
 
 const current = computed(() =>

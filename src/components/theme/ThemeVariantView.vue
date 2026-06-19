@@ -15,7 +15,7 @@ const RESOLVERS = {
     kao: () => import('../../pages/OpeningPage.vue'),
     // pre-kao had no standalone /opening route — opening UI lived in /experience.
     // Legacy variant thus aliases to the legacy Experience view so users who
-    // pick "Legacy · 暗色" and land on /opening see the pre-kao behavior,
+    // pick "经典 · 暗色" and land on /opening see the pre-kao behavior,
     // not the kao OpeningPage by mistake.
     legacy: () => import('../../pages/legacy/Experience.vue'),
   },

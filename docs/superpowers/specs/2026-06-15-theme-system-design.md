@@ -284,11 +284,11 @@ Controls:
 外观
 ○ Kao · 亮色
 ○ Kao · 暗色
-○ Legacy · 亮色
-○ Legacy · 暗色
+○ 经典 · 亮色
+○ 经典 · 暗色
 ```
 
-Each option calls `setVariant()` then `setColorScheme()`. Radio semantics must be keyboard accessible.
+Each option calls `setAppearance()`. Radio semantics must be keyboard accessible.
 
 UI positioning answers:
 
@@ -419,4 +419,4 @@ Additional v1.1 fixups (post-review, see `feat/theme-system-20260615` branch log
 - FOUC: `kao.css` is also statically imported by `src/main.js` (commit `06c75bb`) so the default-variant CSS ships in the initial paint.
 - Drawer a11y: Escape-to-close + focus return added to `src/layouts/AppShell.vue` (commit `1db6541`).
 - Atomic UI: `themeStore.setAppearance(v, s)` replaces the old `setVariant + setColorScheme` pair from the AppearanceControls radio click (commit `a31445e`).
-- Empty legacy chunk: `legacy.css` is the un-styled baseline and is no longer dynamically imported (commit `0413d7f`).
+- Classic palette fix: `legacy.css` is a tiny dynamically imported chunk restoring the map-era blue-white tokens (`#0078d4`, `#106ebe`, `#f3f3f3`) for the `经典` variant.

@@ -568,8 +568,8 @@ function handleSelectPanel(routeName) {
   }
 }
 
-/* archive-folio chrome overrides — gated by .theme-kao so the legacy
-   variant (un-styled baseline) does not inherit these visuals.
+/* archive-folio chrome overrides — gated by .theme-kao so the classic
+   blue-white legacy variant does not inherit these visuals.
    The .app-shell scoped styles below remain the source for shared
    layout/positioning; only the kao-specific archive visual language
    is conditional. */

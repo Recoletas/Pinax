@@ -85,4 +85,16 @@ describe('AppearanceControls click behavior', () => {
     expect(checked[0].element.value).toBe('appearance-legacy-dark')
     wrapper.unmount()
   })
+
+  it('labels the legacy variant as 经典, not Legacy', () => {
+    const store = useThemeStore()
+    store.initTheme()
+    const wrapper = mount(AppearanceControls)
+
+    expect(wrapper.text()).toContain('经典 · 亮色')
+    expect(wrapper.text()).toContain('经典 · 暗色')
+    expect(wrapper.text()).not.toContain('Legacy ·')
+
+    wrapper.unmount()
+  })
 })
