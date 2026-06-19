@@ -396,6 +396,39 @@
     pointer-events: none;
   }
 
+
+  /* N5C-A: material-group-spine — left-edge 档案 tab ribbon. The inline
+     style on the element provides the kind color; this rule adds the
+     archive paper edge (subtle shadow + hairline) so the tab feels
+     attached to the paper, not floating. */
+  .theme-kao .material-group-spine {
+    box-shadow: 1px 0 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+
+  /* N5C-A: material-group-number — 目录 roman prefix. */
+  .theme-kao .material-group-number {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+  }
+
+  /* N5C-A: material-selection-stamp — batch-mode header stamp.
+     Wraps the "已选 N 项 · 批量" line with dashed gold rails + paper tint. */
+  .theme-kao .material-selection-stamp {
+    background: color-mix(in srgb, var(--archive-paper) 32%, transparent);
+    border-top-color: color-mix(in srgb, var(--archive-gold) 38%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  }
+  .theme-kao .material-selection-stamp-tick {
+    background: var(--archive-gold);
+    opacity: 0.45;
+  }
+  .theme-kao .material-selection-stamp-text {
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .theme-kao .editor-container::before,
     .theme-kao .chapter-title-input,

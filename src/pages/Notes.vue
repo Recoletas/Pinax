@@ -77,7 +77,11 @@
               <button class="selection-action-btn material-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
             </template>
             <template v-else>
-              <div class="selection-summary">已选 {{ checkedAssetIds.length }} 项</div>
+              <div class="material-selection-stamp">
+                <span class="material-selection-stamp-tick" aria-hidden="true"></span>
+                <span class="material-selection-stamp-text">已选 {{ checkedAssetIds.length }} 项 · 批量</span>
+                <span class="material-selection-stamp-tick" aria-hidden="true"></span>
+              </div>
               <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
                 <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
                 <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
@@ -89,14 +93,20 @@
           <div v-if="groupedChapters.length === 0" class="empty-hint">
             暂无素材，点击上方 + 新建
           </div>
-          <div v-for="group in groupedChapters" :key="group.kind" class="material-group">
+          <div v-for="(group, idx) in groupedChapters" :key="group.kind" class="material-group">
             <button class="material-group-header" type="button" @click="toggleAssetKindGroup(group.kind)">
+              <span class="material-group-spine" :style="{ background: group.color }" :title="group.label" aria-hidden="true"></span>
               <span class="material-group-header-left">
-                <span class="material-group-color" :style="{ background: group.color }" :title="group.label"></span>
+                <span class="material-group-number">{{ groupIndexLabel(idx) }}</span>
                 <span class="material-group-title">{{ group.label }}</span>
                 <span class="material-group-count">{{ group.items.length }}</span>
               </span>
-              <span class="material-group-toggle">{{ isAssetKindCollapsed(group.kind) ? '›' : '⌄' }}</span>
+              <span class="material-group-toggle" aria-hidden="true">
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path v-if="isAssetKindCollapsed(group.kind)" d="M3 1.5L6 4.5L3 7.5"/>
+                  <path v-else d="M1.5 3L4.5 6L7.5 3"/>
+                </svg>
+              </span>
             </button>
             <div v-show="!isAssetKindCollapsed(group.kind)" class="material-group-list">
               <div
@@ -646,6 +656,11 @@ function toggleAssetKindGroup(kind) {
     ...collapsedAssetKinds.value,
     [kind]: !collapsedAssetKinds.value[kind]
   }
+}
+
+const GROUP_INDEX_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
+function groupIndexLabel(idx) {
+  return GROUP_INDEX_ROMAN[idx] || String(idx + 1).padStart(2, '0')
 }
 
 function openSelectedAssetInCanvas() {
@@ -1690,10 +1705,62 @@ function stopResizeRight() {
   flex-shrink: 0;
 }
 
+.material-group-spine {
+  width: 3px;
+  align-self: stretch;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.material-group-number {
+  font-size: 10px;
+  font-style: italic;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 16px;
+  text-align: right;
+}
+
+.material-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.material-group-toggle svg {
+  display: block;
+}
+
 .material-group-list {
   margin-top: 2px;
   display: grid;
   gap: 2px;
+}
+
+.material-selection-stamp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 4px;
+  margin-bottom: 4px;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+
+.material-selection-stamp-tick {
+  flex: 1;
+  height: 1px;
+  background: var(--text-muted);
+  opacity: 0.45;
+}
+
+.material-selection-stamp-text {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .books-sidebar[style*='44px'] .sidebar-title {
