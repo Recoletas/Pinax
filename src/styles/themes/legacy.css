@@ -1,2 +1,2 @@
-/* 5C revisit: legacy = blue-white SaaS. */
-:root.theme-legacy{--bg-primary:#f5f8fc;--bg-secondary:#fff;--accent:#2563eb;--text-primary:#0f172a;--border:#cbd5e1;}
+/* 5C: legacy = map-era blue-white. */
+:root.theme-legacy{--bg-primary:#f3f3f3;--bg-secondary:#fff;--accent:#0078d4;--accent-hover:#106ebe;--text-primary:#1a1a1a;--border:#cbd5e1;}
