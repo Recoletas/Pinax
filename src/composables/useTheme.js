@@ -11,5 +11,9 @@ export function useTheme() {
     initTheme() {
       store.initTheme()
     },
+    isKao: computed(() => store.variant === 'kao'),
+    setVariant(v) {
+      store.setVariant(v)
+    },
   }
 }

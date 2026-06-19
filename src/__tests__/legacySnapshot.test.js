@@ -20,7 +20,7 @@ const LEGACY_FILES = [
 // also hashes the header) and update the entry below.
 const LEGACY_VUE_HASHES = {
   'src/views/legacy/WelcomeView.vue':
-    'de1e6244cad3dcf07aef3a7861a4a0f5a4aad50761194004c7d21c1f84236169',
+    'ed6287f07546010985c7d956cab16aa4fc5e63a6e62617674d82eca3a6b8f92f',
   'src/pages/legacy/OpeningPage.vue':
     '9021942a718051252e693e11971b08324cf8c63e817c3fff945b0da5c293478c',
   'src/pages/legacy/Experience.vue':

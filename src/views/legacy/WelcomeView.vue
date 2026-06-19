@@ -16,7 +16,7 @@
         <span class="welcome-appmark">Pinax</span>
       </div>
       <div class="welcome-chrome-right">
-        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+        <button class="theme-toggle" data-test="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
               <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -27,6 +27,24 @@
           </span>
           <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
         </button>
+        <div class="variant-toggle" role="group" aria-label="主题版本">
+          <button
+            type="button"
+            class="variant-toggle__option"
+            :class="{ 'is-active': isKao }"
+            data-test="variant-kao"
+            :aria-pressed="isKao"
+            @click="setVariant('kao')"
+          >现代</button>
+          <button
+            type="button"
+            class="variant-toggle__option"
+            :class="{ 'is-active': !isKao }"
+            data-test="variant-legacy"
+            :aria-pressed="!isKao"
+            @click="setVariant('legacy')"
+          >经典</button>
+        </div>
       </div>
     </header>
 
@@ -116,7 +134,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../../composables/useTheme'
 import { ACTIVITY_ITEMS } from '../../config/workbenchNav'
 
-const { isDark, toggleTheme } = useTheme()
+const { isDark, toggleTheme, isKao, setVariant } = useTheme()
 const route = useRoute()
 const router = useRouter()
 const currentPath = computed(() => route.path || '/')
@@ -249,6 +267,39 @@ function handleEnter(item) {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.variant-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 3px 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.variant-toggle__option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 3px 10px;
+  min-height: 22px;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.variant-toggle__option.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.variant-toggle__option:hover:not(.is-active) {
+  color: var(--text-primary);
 }
 
 .welcome-layout {
