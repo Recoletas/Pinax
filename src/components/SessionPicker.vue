@@ -2,7 +2,7 @@
   <div class="session-picker">
     <div class="picker-header">
       <span class="picker-title">选择会话</span>
-      <button class="new-btn" @click="handleCreate">
+      <button class="new-btn" :disabled="busy" @click="handleCreate">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v14M5 12h14"/>
         </svg>
@@ -14,7 +14,7 @@
       <div
         v-for="session in sortedSessions"
         :key="session.id"
-        :class="['session-item', { active: session.id === currentSessionId }]"
+        :class="['session-item', { active: session.id === currentSessionId, 'is-busy': busy }]"
         @click="handleSelect(session)"
       >
         <div class="item-body">
@@ -26,7 +26,7 @@
             <span class="item-date">{{ formatDate(session.updatedAt) }}</span>
           </div>
         </div>
-        <button class="item-delete" @click.stop="handleDelete(session)" title="删除">
+        <button class="item-delete" :disabled="busy" @click.stop="handleDelete(session)" title="删除">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -36,7 +36,7 @@
 
     <div v-else class="empty-state">
       <p>暂无保存的会话</p>
-      <button class="new-btn" @click="handleCreate">创建第一个会话</button>
+      <button class="new-btn" :disabled="busy" @click="handleCreate">创建第一个会话</button>
     </div>
   </div>
 </template>
@@ -47,6 +47,9 @@ import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
 const emit = defineEmits(['select', 'create', 'delete'])
+const props = defineProps({
+  busy: { type: Boolean, default: false },
+})
 
 const sessions = computed(() => gameStore.sessions || [])
 const currentSessionId = computed(() => gameStore.currentSessionId)
@@ -72,14 +75,17 @@ function getPreview(session) {
 }
 
 function handleSelect(session) {
+  if (props.busy) return
   emit('select', session)
 }
 
 function handleCreate() {
+  if (props.busy) return
   emit('create')
 }
 
 function handleDelete(session) {
+  if (props.busy) return
   if (confirm(`删除"${session.title || '未命名会话'}"？`)) {
     emit('delete', session)
   }
@@ -158,6 +164,12 @@ function handleDelete(session) {
 .session-item.active {
   background: var(--accent-light);
   border-color: var(--accent);
+}
+
+.session-item.is-busy {
+  pointer-events: none;
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .item-body {

@@ -9,6 +9,20 @@
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
 
+## 2026-06-19 - Worktree cleanup and main absorption
+
+状态：完成当前 main 清理、吸收和本地分支收口。
+
+结果摘要：
+- 从旧 `feat/n5c-material-archive-folio` 吸收最终有用状态：`Notes.vue` 素材页 archive-folio 重构、N5C `uiPolish` 契约和最终验收截图 `docs/demo/n5c-material-page-merged-20260618_001.png`；未吸收中间重复截图。
+- 从旧 `feat/5c-experience-push` 只吸收低风险功能修复：`Experience.vue` 优先恢复当前 active worldbook 对应的最新会话，`SessionPicker` 支持 busy 禁用态，Experience 会话选择/新建/删除加 `isStarting` + `try/finally` 防重复点击。
+- 未吸收 `61d569a` radical opening encounter 实验：该 commit 含未完成 template hooks、未接入 Welcome/router 的 slash wipe 和 broad opening/experience rewrite；按新视觉 workflow 判定不适合无最新 direct/截图约束直接进 main。
+- 清理 stale 本地结构：删除 worktree `/home/recoletas/jiuguan/worktrees/5c-experience`，删除本地分支 `feat/5c-experience-push`、`feat/n5c-material-archive-folio`、`main-tmp`；保留 `server-version`。
+
+验证：
+- `npm run test:run -- src/__tests__/uiPolish.test.js` 通过（67 tests）。
+- `npm run verify:full` 通过（Vitest + Vite build + `git diff --check` + VitePress docs build + visual-verification）。
+
 ## 2026-06-19 - Codex / Claude 协作与视觉对齐流程固化
 
 状态：文档规则已落盘，供后续多 agent 与前端视觉任务复用。

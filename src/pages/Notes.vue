@@ -25,7 +25,7 @@
           <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="goToWriting" title="返回写作">
             写作
           </button>
-          <button class="toolbar-text-btn prominent workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
+          <button class="material-action-btn workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
             新素材
           </button>
           <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
@@ -62,19 +62,27 @@
             </button>
           </div>
         </div>
+
+        <!-- N5C: narrator 立绘形象 (档案员) -->
+        <CharacterPortrait
+          pose-id="narrator"
+          size="thumb"
+          caption="档案员"
+        />
+
         <div class="book-list" v-show="!isRightCollapsed">
           <div class="material-selection-bar" :class="{ active: checkedAssetIds.length > 0 }">
             <template v-if="checkedAssetIds.length === 0">
-              <button class="selection-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
-              <button class="selection-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
+              <button class="selection-action-btn material-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
+              <button class="selection-action-btn material-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
             </template>
             <template v-else>
               <div class="selection-summary">已选 {{ checkedAssetIds.length }} 项</div>
               <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
-                <button class="selection-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
-                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
-                <button class="selection-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
-                <button class="selection-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
+                <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
+                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
+                <button class="selection-action-btn material-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
               </div>
             </template>
           </div>
@@ -124,6 +132,7 @@
       <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
 
       <!-- 主编辑区 -->
+      <FolioSurface variant="paper" decorated>
       <main class="editor-main">
         <template v-if="!selectedChapterId">
           <div class="empty-state">
@@ -191,6 +200,13 @@
               </div>
             </div>
 
+            <!-- N5C: 3 entry collage tile -->
+            <ArchiveStrip
+              :items="archiveStripItems"
+              :image="firstImageDataUrl"
+              aria-label="素材缩略目录"
+            />
+
             <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
               <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
               <div class="image-asset-meta">
@@ -250,12 +266,14 @@
       </div>
       </template>
       </main>
+      </FolioSurface>
     </div>
 
     <!-- 新建素材弹窗 -->
     <Transition name="modal-fade">
       <div v-if="showNewNoteModal" class="modal-overlay" @click.self="showNewNoteModal = false">
         <Transition name="modal-scale" appear>
+          <FolioSurface variant="paper" decorated as="div">
           <div class="modal">
             <div class="modal-header">
               <h3>新建素材</h3>
@@ -280,6 +298,7 @@
               <button class="btn-primary" @click="confirmCreateNote" :disabled="!newNoteTitle.trim()">创建</button>
             </div>
           </div>
+          </FolioSurface>
         </Transition>
       </div>
     </Transition>
@@ -331,6 +350,9 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
+import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
+import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
+import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
@@ -426,6 +448,28 @@ const groupedChapters = computed(() => assetKindOrder
     items: chapters.value.filter((asset) => asset.kind === kind)
   }))
   .filter((group) => group.items.length > 0))
+
+// N5C: ArchiveStrip 3 entry collage state
+const currentKindForArchiveStrip = ref(null)
+const archiveStripItems = computed(() => {
+  const kind = currentKindForArchiveStrip.value
+    || chapters.value.find((a) => a.status === 'accepted' || a.status === 'inbox')?.kind
+    || chapters.value[0]?.kind
+    || null
+  if (!kind) return []
+  return chapters.value
+    .filter((a) => a.kind === kind)
+    .slice(0, 3)
+    .map((a) => ({ label: a.title || '无标题', position: 'center' }))
+})
+// N5C: when user picks an asset, switch ArchiveStrip to that asset's kind
+watch(() => selectedAsset.value?.kind, (k) => {
+  if (k) currentKindForArchiveStrip.value = k
+})
+const firstImageDataUrl = computed(() => {
+  const ref = chapters.value.find((a) => a.image?.data)
+  return ref?.image?.data || ''
+})
 const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 
@@ -1439,66 +1483,6 @@ function stopResizeRight() {
   color: var(--text-primary);
 }
 
-.book-selector {
-  height: 32px;
-  padding: 0 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  min-width: 160px;
-}
-
-.book-selector:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.theme-toggle:hover {
-  background: var(--surface-raised);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.theme-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toolbar-text-btn {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-soft);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.toolbar-text-btn:hover {
-  background: var(--surface-raised);
-  color: var(--text-primary);
-}
 
 /* 内容区域 */
 .content-area {
@@ -1575,63 +1559,8 @@ function stopResizeRight() {
   letter-spacing: 0.5px;
 }
 
-.add-btn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
 
-.add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.add-btn.prominent {
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-}
-
-.add-btn.prominent:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.add-btn.btn-new {
-  width: 28px;
-  height: 28px;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-  border-radius: 6px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.add-btn.btn-new:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--accent-text);
-}
-
-.add-btn.btn-new svg {
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-}
-
-.book-list,
-.chapter-list {
+.book-list {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
@@ -1843,81 +1772,6 @@ function stopResizeRight() {
   font-size: 9px;
 }
 
-.book-status-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.book-status-dot.status-accepted {
-  background: #34a853;
-}
-
-.book-status-dot.status-inbox {
-  background: #7c92ff;
-}
-
-.book-status-dot.status-archived {
-  background: #9ca3af;
-}
-
-.book-status-dot.status-rejected {
-  background: #ef4444;
-}
-
-.chapter-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 7px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.chapter-item:hover {
-  background: var(--bg-hover);
-}
-
-.chapter-item.active {
-  background: var(--accent-light);
-}
-
-.chapter-num {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 20px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.chapter-item.active .chapter-num {
-  color: var(--accent);
-}
-
-.chapter-title {
-  flex: 1;
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chapter-item.active .chapter-title {
-  color: var(--accent);
-}
-
-.chapter-words {
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.chapter-item .delete-btn,
 .book-item .delete-btn {
   opacity: 0;
   width: 20px;
@@ -1936,12 +1790,10 @@ function stopResizeRight() {
   margin-left: auto;
 }
 
-.chapter-item:hover .delete-btn,
 .book-item:hover .delete-btn {
   opacity: 1;
 }
 
-.chapter-item .delete-btn:hover,
 .book-item .delete-btn:hover {
   background: rgba(239, 68, 68, 0.15);
   color: var(--danger);
@@ -2124,6 +1976,112 @@ function stopResizeRight() {
   font-size: 12px;
 }
 
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* 主题切换 + 工具栏文字按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.theme-toggle:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-text-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-text-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+/* 侧栏 + 新建按钮 (N5C C1 fix: restored from cc5c0d8^) */
+.add-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.add-btn.prominent {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+}
+
+.add-btn.prominent:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.add-btn.btn-new {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+  border-radius: 6px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-btn.btn-new:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-text);
+}
+
+.add-btn.btn-new svg {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+
+/* 画布操作按钮 (N5C C1 fix: restored from cc5c0d8^) */
 .asset-canvas-primary {
   height: 28px;
   padding: 0 12px;
@@ -2160,23 +2118,7 @@ function stopResizeRight() {
   cursor: not-allowed;
 }
 
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.toolbar-sep {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-  margin: 0 2px;
-}
-
-.toolbar-spacer {
-  flex: 1;
-}
-
+/* 模式切换 + 工具按钮 (N5C C1 fix: restored from cc5c0d8^) */
 .mode-switch {
   display: inline-flex;
   align-items: center;
@@ -2245,303 +2187,6 @@ function stopResizeRight() {
   background: var(--bg-primary);
 }
 
-.font-selector {
-  height: 26px;
-  padding: 0 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.font-selector:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-/* 字体面板 */
-.font-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  min-width: 180px;
-  z-index: 100;
-}
-
-.fp-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.fp-row:last-child {
-  margin-bottom: 0;
-}
-
-.fp-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 24px;
-  flex-shrink: 0;
-}
-
-.fp-select {
-  flex: 1;
-  height: 24px;
-  padding: 0 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.fp-select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.fp-btns {
-  display: flex;
-  gap: 3px;
-}
-
-.fp-size-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.fp-size-val {
-  font-size: 11px;
-  color: var(--text-secondary);
-  min-width: 36px;
-  text-align: center;
-}
-
-.fp-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
-.fp-select.sm {
-  height: 22px;
-  font-size: 11px;
-  padding: 0 4px;
-  min-width: 70px;
-}
-
-.selection-toolbar {
-  position: fixed;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.16);
-  z-index: 1200;
-}
-
-.fp-btn {
-  min-width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  padding: 0 6px;
-}
-
-.fp-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.fp-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-
-/* 取名面板 */
-.name-gen-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  min-width: 180px;
-  z-index: 100;
-}
-
-.ng-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.ng-row:last-child {
-  margin-bottom: 0;
-}
-
-.ng-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 24px;
-  flex-shrink: 0;
-}
-
-.ng-btns {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-}
-
-.ng-btn {
-  padding: 3px 7px;
-  font-size: 11px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.ng-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.ng-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-
-.ng-input {
-  flex: 1;
-  height: 24px;
-  padding: 0 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 11px;
-}
-
-.ng-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.ng-input.ng-sm {
-  width: 80px;
-  flex: none;
-}
-
-.ng-results {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-.ng-result-item {
-  padding: 5px 6px;
-  font-size: 12px;
-  color: var(--text-primary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.ng-result-item:hover {
-  background: var(--bg-hover);
-}
-
-.ng-result-item:active {
-  background: var(--accent-light);
-}
-
-.ng-name-pair {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.ng-cn {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-/* 查找替换栏 */
-.find-replace-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.find-input {
-  height: 26px;
-  padding: 0 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-  min-width: 120px;
-}
-
-.find-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.fr-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
-.find-count {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 50px;
-  text-align: center;
-}
-
 .editor-textarea {
   flex: 1;
   padding: 24px;
@@ -2587,12 +2232,6 @@ function stopResizeRight() {
 
 .editor-textarea::placeholder {
   color: var(--text-muted);
-}
-
-.editor-textarea:empty::before {
-  content: attr(data-placeholder);
-  color: var(--text-muted);
-  pointer-events: none;
 }
 
 /* Modal */
@@ -2675,12 +2314,6 @@ function stopResizeRight() {
 
 .input:focus {
   border-color: var(--accent);
-}
-
-.input.textarea {
-  min-height: 80px;
-  resize: vertical;
-  line-height: 1.5;
 }
 
 .modal-footer {

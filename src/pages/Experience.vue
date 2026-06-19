@@ -38,6 +38,7 @@
       </aside>
       <SessionPicker
         v-else
+        :busy="isStarting"
         @select="handleSessionSelect"
         @create="handleSessionCreate"
         @delete="handleSessionDelete"
@@ -295,6 +296,7 @@ const hasUserActionMessages = computed(() => {
 })
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
+const isStarting = ref(false)
 
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
@@ -303,9 +305,14 @@ onMounted(async () => {
   gameStore.loadSessions()
 
   const activeSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-  const latestStoredSession = !activeSession && Array.isArray(gameStore.sessions) && gameStore.sessions.length
+  const targetWorldbookId = worldStore.activeWorldbookId || ''
+  const allLatestSession = !activeSession && Array.isArray(gameStore.sessions) && gameStore.sessions.length
     ? [...gameStore.sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
     : null
+  const worldbookLatestSession = !activeSession && targetWorldbookId
+    ? gameStore.getLatestSessionForWorldbook(targetWorldbookId)
+    : null
+  const latestStoredSession = worldbookLatestSession || allLatestSession
   let loadedExistingSession = false
 
   if (activeSession) {
@@ -511,41 +518,33 @@ function handleMilestoneClose() {
 
 // 会话选择处理
 async function handleSessionSelect(session) {
-  gameStore.loadSession(session.id)
-  // 设置世界书选择
-  selectedWorldbookId.value = session.worldbookId || session.worldId || ''
-  if (selectedWorldbookId.value) {
-    await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-  }
-  showSessionPicker.value = false
-  if (!gameStore.messages || gameStore.messages.length === 0) {
-    await gameStore.initGame()
+  if (isStarting.value) return
+  try {
+    isStarting.value = true
+    gameStore.loadSession(session.id)
+    // 设置世界书选择
+    selectedWorldbookId.value = session.worldbookId || session.worldId || ''
+    if (selectedWorldbookId.value) {
+      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+    }
+    showSessionPicker.value = false
+    if (!gameStore.messages || gameStore.messages.length === 0) {
+      await gameStore.initGame()
+    }
+  } finally {
+    isStarting.value = false
   }
 }
 
 async function handleSessionCreate() {
-  const worldbookId = selectedWorldbookId.value || ''
-  if (!worldbookId) {
-    openWorldbookQuickImport()
-    return
-  }
-  gameStore.createSession({
-    worldbookId,
-    inheritRuntimeState: false
-  })
-  if (worldbookId) {
-    await worldStore.setActiveWorldbook(worldbookId)
-  }
-  selectedWorldbookId.value = worldbookId
-  showSessionPicker.value = false
-  await gameStore.initGame()
-}
-
-async function handleSessionDelete(session) {
-  gameStore.deleteSession(session.id)
-  // 如果删除后没有会话了，自动创建一个新会话
-  if (gameStore.sessions.length === 0) {
-    const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
+  if (isStarting.value) return
+  try {
+    isStarting.value = true
+    const worldbookId = selectedWorldbookId.value || ''
+    if (!worldbookId) {
+      openWorldbookQuickImport()
+      return
+    }
     gameStore.createSession({
       worldbookId,
       inheritRuntimeState: false
@@ -556,10 +555,36 @@ async function handleSessionDelete(session) {
     selectedWorldbookId.value = worldbookId
     showSessionPicker.value = false
     await gameStore.initGame()
-    return
+  } finally {
+    isStarting.value = false
   }
-  if (gameStore.currentSessionId === null) {
-    showSessionPicker.value = true
+}
+
+async function handleSessionDelete(session) {
+  if (isStarting.value) return
+  try {
+    isStarting.value = true
+    gameStore.deleteSession(session.id)
+    // 如果删除后没有会话了，自动创建一个新会话
+    if (gameStore.sessions.length === 0) {
+      const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
+      gameStore.createSession({
+        worldbookId,
+        inheritRuntimeState: false
+      })
+      if (worldbookId) {
+        await worldStore.setActiveWorldbook(worldbookId)
+      }
+      selectedWorldbookId.value = worldbookId
+      showSessionPicker.value = false
+      await gameStore.initGame()
+      return
+    }
+    if (gameStore.currentSessionId === null) {
+      showSessionPicker.value = true
+    }
+  } finally {
+    isStarting.value = false
   }
 }
 

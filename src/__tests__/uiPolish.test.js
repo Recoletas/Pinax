@@ -363,12 +363,13 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     )
   })
 
-  it('OpeningPage.vue session setup uses getLatestSessionForWorldbook (not just currentSessionId find)', () => {
+  it('OpeningPage and Experience.vue both prefer getLatestSessionForWorldbook for session restore', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     expect(openingPage).toMatch(/getLatestSessionForWorldbook\s*\(/)
-    expect(experience).not.toMatch(/getLatestSessionForWorldbook\s*\(/)
+    expect(experience).toMatch(/getLatestSessionForWorldbook\s*\(/)
+    expect(experience).toMatch(/worldbookLatestSession\s*\|\|\s*allLatestSession/)
     // Old buggy predicate (find by currentSessionId) is gone from the find branch
     expect(openingPage).not.toMatch(
       /session\.id\s*===\s*gameStore\.currentSessionId\s*\?\s*gameStore\.sessions\.find/,
@@ -419,16 +420,31 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     expect(experience).not.toContain('await ensureWorldAdventureSession({ initIfEmpty: false })')
   })
 
-  it('OpeningPage ensureWorldAdventureSession guards against double-click via isStarting ref with try/finally', () => {
+  it('OpeningPage and Experience.vue both guard session actions against double-click via isStarting ref with try/finally', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const openingPage = readProjectFile('src/pages/OpeningPage.vue')
 
     expect(openingPage).toContain('isStarting')
-    expect(experience).not.toContain('isStarting')
+    expect(experience).toContain('isStarting')
     // try/finally pattern: lock acquired at start, released in finally
     expect(openingPage).toMatch(
       /try\s*\{[\s\S]*?isStarting\.value\s*=\s*true[\s\S]*?finally\s*\{[\s\S]*?isStarting\.value\s*=\s*false/,
     )
+    expect(experience).toMatch(
+      /try\s*\{[\s\S]*?isStarting\.value\s*=\s*true[\s\S]*?finally\s*\{[\s\S]*?isStarting\.value\s*=\s*false/,
+    )
+  })
+
+  it('SessionPicker exposes busy state to disable session lifecycle controls', () => {
+    const sessionPicker = readProjectFile('src/components/SessionPicker.vue')
+    const experience = readProjectFile('src/pages/Experience.vue')
+
+    expect(sessionPicker).toMatch(/defineProps\(\s*\{[\s\S]*?busy:\s*\{\s*type:\s*Boolean,\s*default:\s*false\s*\}/)
+    expect(sessionPicker).toMatch(/<button class="new-btn"[^>]*:disabled="busy"/)
+    expect(sessionPicker).toMatch(/<button class="item-delete"[^>]*:disabled="busy"/)
+    expect(sessionPicker).toMatch(/'is-busy':\s*busy/)
+    expect(sessionPicker).toMatch(/\.session-item\.is-busy\s*\{[\s\S]*?pointer-events:\s*none[\s\S]*?opacity:\s*0\.5/)
+    expect(experience).toMatch(/<SessionPicker[\s\S]*?:busy="isStarting"[\s\S]*?\/>/)
   })
 
   it('BookmarkButton accepts size prop with 3 values and adds --size-micro class', () => {
@@ -614,6 +630,56 @@ describe('ui polish — LXGW WenKai display font on OpeningPage hero', () => {
     expect(woff2.size).toBeGreaterThan(100_000) // sanity: not truncated
     expect(woff2.size).toBeLessThan(1_000_000) // under vite 1MB hard cap
     expect(license.size).toBeGreaterThan(1_000) // OFL 1.1 license is ~4 KB
+  })
+})
+
+describe('N5C: material page kao archive-folio refactor', () => {
+  it('N5C: uses FolioSurface to wrap editor-main kao visual', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<FolioSurface')
+    expect(notes).toContain('variant="paper"')
+  })
+
+  it('N5C: uses ArchiveStrip for entry collage', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<ArchiveStrip')
+  })
+
+  it('N5C: uses CharacterPortrait narrator in sidebar top', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<CharacterPortrait')
+    expect(notes).toContain('pose-id="narrator"')
+  })
+
+  it('N5C: uses .material-action-btn class for batch actions', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="selection-action-btn material-action-btn"')
+  })
+
+  it('N5C: scoped CSS within tolerance <= 950 lines', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
+    const lines = styleMatch ? styleMatch[1].split('\n').length : 0
+    expect(lines).toBeLessThanOrEqual(950)
+  })
+
+  it('N5C: no orphan template classes in Notes scoped CSS', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const templateMatch = notes.match(/<template>([\s\S]*?)<\/template>/)
+    if (!templateMatch) throw new Error('no <template> block')
+    const classRefs = new Set()
+    for (const m of templateMatch[1].matchAll(/class="([^"]+)"/g)) {
+      m[1].split(/\s+/).forEach((className) => className && classRefs.add(className))
+    }
+
+    const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
+    if (!styleMatch) throw new Error('no <style scoped> block')
+    const css = styleMatch[1]
+    const allowedExternal = new Set(['workbench-hero-button', 'icon-only'])
+    const orphans = [...classRefs].filter(
+      (className) => !allowedExternal.has(className) && !new RegExp(`\\.${className}\\b`).test(css),
+    )
+    expect(orphans, `template class names with no scoped CSS rule: ${orphans.join(', ')}`).toEqual([])
   })
 })
 
