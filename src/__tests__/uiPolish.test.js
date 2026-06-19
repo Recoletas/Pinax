@@ -225,7 +225,7 @@ describe('ui polish contract', () => {
     expect(personaLauncher).toContain("caption: {\n    type: String,\n    default: '虚构集'")
   })
 
-  it('uses the shared workbench page hero across the editor surfaces while Experience keeps only its work/session shell, and Writing V2 top replaces WorkbenchPageHero with manuscript-top strip', () => {
+  it('keeps Experience shell-only and replaces Writing/Notes hero copy with compact manuscript-top strips', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const writing = readProjectFile('src/pages/Writing.vue')
     const notes = readProjectFile('src/pages/Notes.vue')
@@ -258,9 +258,14 @@ describe('ui polish contract', () => {
     expect(writing).toContain('@click.stop="openMaterialsPage"')
     expect(writing).toContain('@click.stop="exportChapterStoryboardDraft"')
     expect(writing).toContain('@click="toggleTheme"')
-    // Notes / ProseEssay 仍用 WorkbenchPageHero (out-of-scope for W4):
-    expect(notes).toContain('<WorkbenchPageHero')
-    expect(notes).toContain('Material Library')
+    // Notes follows the same compact top-strip direction: no English kicker,
+    // no explanatory hero copy, just status and page actions.
+    expect(notes).not.toContain('<WorkbenchPageHero')
+    expect(notes).not.toContain('Material Library')
+    expect(notes).not.toContain('notesHeroDescription')
+    expect(notes).not.toContain('素材页现在是整理台')
+    expect(notes).toContain('class="manuscript-top material-top"')
+    expect(notes).toContain('class="material-top__count"')
     expect(proseEssay).toContain('<WorkbenchPageHero')
     expect(proseEssay).toContain('Storyboard Canvas')
     expect(workbenchHero).toContain('class="workbench-page-hero"')
@@ -694,14 +699,16 @@ describe('N5C: material page kao archive-folio refactor', () => {
     expect(notes).toContain('class="selection-action-btn material-action-btn"')
   })
 
-  it('N5C: scoped CSS within tolerance <= 1000 lines', () => {
+  it('N5C: scoped CSS within tolerance <= 1080 lines', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
     const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
     const lines = styleMatch ? styleMatch[1].split('\n').length : 0
     // N5C ship was 721; N5C-A (tab spine + roman number + selection stamp)
     // adds ~50 lines for the 档案索引 polish. 1000 gives headroom for
-    // future small enhancements without churn.
-    expect(lines).toBeLessThanOrEqual(1000)
+    // future small enhancements without churn. N5C-B removes WorkbenchPageHero
+    // from Notes and adds a self-owned compact material-top fallback instead of
+    // depending on Writing.vue scoped CSS, so the ceiling moves by ~80 lines.
+    expect(lines).toBeLessThanOrEqual(1080)
   })
 
   it('N5C: no orphan template classes in Notes scoped CSS', () => {
@@ -716,7 +723,22 @@ describe('N5C: material page kao archive-folio refactor', () => {
     const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
     if (!styleMatch) throw new Error('no <style scoped> block')
     const css = styleMatch[1]
-    const allowedExternal = new Set(['workbench-hero-button', 'icon-only'])
+    const allowedExternal = new Set([
+      'workbench-hero-button',
+      'icon-only',
+      'writing-page__hero',
+      'manuscript-top',
+      'material-top',
+      'manuscript-top__left',
+      'manuscript-top__back',
+      'manuscript-top__book',
+      'manuscript-top__no',
+      'manuscript-top__chapter',
+      'manuscript-top__right',
+      'manuscript-top__chip',
+      'manuscript-top__tab',
+      'manuscript-top__mode',
+    ])
     const orphans = [...classRefs].filter(
       (className) => !allowedExternal.has(className) && !new RegExp(`\\.${className}\\b`).test(css),
     )
@@ -984,15 +1006,16 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
 })
 
 describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right sidebar → 现场档案夹)', () => {
-  it('Experience.vue owns the kao sidebar archive-binder override instead of escaping into kao.css', () => {
+  it('Experience.vue owns the kao sidebar archive-binder override without scoped :global leakage', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar\s*\{[^}]*var\(--archive-gold\)/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar\s*\{[^}]*var\(--archive-gold\)/s,
     )
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar::before\s*\{[^}]*repeating-linear-gradient/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar::before\s*\{[^}]*repeating-linear-gradient/s,
     )
+    expect(experience).not.toContain(':global(.theme-kao)')
     expect(kaoCss).not.toMatch(/\.theme-kao\s+\.sidebar\s*\{/)
     expect(kaoCss).not.toContain('Experience V2')
   })
@@ -1000,42 +1023,42 @@ describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right si
   it('Experience.vue exposes kao sidebar-head rule with archive paper + clip-path: none', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-head\s*\{[^}]*clip-path:\s*none/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-head\s*\{[^}]*clip-path:\s*none/s,
     )
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-head\s*\{[^}]*var\(--archive-paper-soft\)/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-head\s*\{[^}]*var\(--archive-paper-soft\)/s,
     )
   })
 
   it('Experience.vue exposes kao sidebar-head::before with "卷宗" half-stripped index badge', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-head::before\s*\{[^}]*content:\s*"卷宗"/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-head::before\s*\{[^}]*content:\s*"卷宗"/s,
     )
     // Half-stripped effect: the badge uses the same archive paper as the head body,
     // so the gold hairline appears to "break" through the top edge of the card.
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-head::before\s*\{[^}]*top:\s*-8px/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-head::before\s*\{[^}]*top:\s*-8px/s,
     )
   })
 
   it('Experience.vue exposes kao sidebar-section rule with archive paper + clip-path: none', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-section\s*\{[^}]*clip-path:\s*none/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*clip-path:\s*none/s,
     )
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-section\s*\{[^}]*var\(--archive-paper\)/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*var\(--archive-paper\)/s,
     )
   })
 
   it('Experience.vue exposes kao sidebar-toggle rule with archive paper + clip-path: none', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-toggle\s*\{[^}]*clip-path:\s*none/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-toggle\s*\{[^}]*clip-path:\s*none/s,
     )
     expect(experience).toMatch(
-      /:global\(\.theme-kao\)\s+\.sidebar-toggle\s*\{[^}]*var\(--archive-paper\)/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-toggle\s*\{[^}]*var\(--archive-paper\)/s,
     )
   })
 

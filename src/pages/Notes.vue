@@ -1,47 +1,44 @@
 <template>
   <div class="writing-page" @click="onGlobalClick">
-    <WorkbenchPageHero
-      kicker="Material Library"
-      title="素材"
-      :description="notesHeroDescription"
-    >
-      <template #back>
-        <button class="icon-btn workbench-hero-button icon-only" @click="goBack" title="返回">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+    <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
+      <div class="manuscript-top material-top">
+        <div class="manuscript-top__left">
+          <button class="manuscript-top__back" @click="goBack" title="返回" aria-label="返回">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
           </svg>
         </button>
-      </template>
-      <template #meta>
-        <div class="workbench-hero-meta-list">
-          <span class="workbench-hero-chip accent">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
-          <span class="workbench-hero-chip">{{ chapters.length }} 条素材</span>
-          <span v-if="selectedAssetSummary" class="workbench-hero-chip">{{ selectedAssetSummary }}</span>
-          <span v-if="checkedAssetIds.length" class="workbench-hero-chip">{{ checkedAssetIds.length }} 项已勾选</span>
+          <div class="manuscript-top__book">
+            <span class="manuscript-top__no">素材</span>
+            <span class="material-top__count">{{ chapters.length }} 条</span>
+          </div>
+          <span v-if="selectedAssetSummary" class="manuscript-top__chapter">
+            {{ selectedAssetSummary }}
+          </span>
+          <span v-else-if="checkedAssetIds.length" class="manuscript-top__chapter">
+            已选 {{ checkedAssetIds.length }} 项
+          </span>
         </div>
-      </template>
-      <template #actions>
-        <div class="workbench-hero-actions-row">
-          <button class="toolbar-text-btn workbench-hero-button" type="button" @click.stop="goToWriting" title="返回写作">
+
+        <div class="manuscript-top__right">
+          <span class="manuscript-top__chip">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <button class="manuscript-top__tab" type="button" @click.stop="goToWriting" title="返回写作">
             写作
           </button>
-          <button class="material-action-btn workbench-hero-button" type="button" @click="createNewNote" title="新建素材">
+          <button class="manuscript-top__tab" type="button" @click="createNewNote" title="新建素材">
             新素材
           </button>
-          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-            <span class="theme-icon">
-              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <button class="manuscript-top__mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
+              <svg v-if="isDark" width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
               </svg>
-              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <svg v-else width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
               </svg>
-            </span>
-            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
           </button>
         </div>
-      </template>
-    </WorkbenchPageHero>
+      </div>
+    </FolioSurface>
 
     <div class="content-area">
       <!-- 左侧边栏：素材 -->
@@ -364,7 +361,6 @@ import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
-import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   addNarrativeAsset,
@@ -525,13 +521,6 @@ const selectedAssetSummary = computed(() => {
   if (!selectedAsset.value) return ''
   const title = String(selectedAsset.value.title || '无标题素材').trim()
   return `${getAssetKindLabel(selectedAsset.value.kind)} · ${title}`
-})
-const notesHeroDescription = computed(() => {
-  if (!selectedAsset.value) {
-    return '素材页现在是整理台而不是工具条。左侧继续做分组与批量处理，顶部只保留当前状态和跨页出口。'
-  }
-  const canvasState = isAssetOnCanvas(selectedAsset.value.id) ? '已入画布' : '未入画布'
-  return `当前素材是 ${selectedAssetSummary.value || '未命名素材'}，${canvasState}。可以从这里决定导入画布、改类型，或继续写成更完整的片段。`
 })
 
 function goBack() {
@@ -2444,5 +2433,85 @@ function stopResizeRight() {
   height: 1px;
   background: var(--border);
   margin: 6px 0;
+}
+
+.material-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 24px 11px 64px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.material-top .manuscript-top__left,
+.material-top .manuscript-top__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.material-top .manuscript-top__left {
+  flex: 1 1 auto;
+}
+
+.material-top .manuscript-top__back,
+.material-top .manuscript-top__mode {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.material-top .manuscript-top__book {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent);
+}
+
+.material-top .manuscript-top__no {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.material-top .manuscript-top__chapter {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.material-top .manuscript-top__chip,
+.material-top .manuscript-top__tab {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.material-top .manuscript-top__tab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.material-top__count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 </style>
