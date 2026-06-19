@@ -396,7 +396,6 @@
     pointer-events: none;
   }
 
-
   /* N5C-A: material-group-spine — left-edge 档案 tab ribbon. The inline
      style on the element provides the kind color; this rule adds the
      archive paper edge (subtle shadow + hairline) so the tab feels
@@ -582,7 +581,6 @@
     color: var(--archive-gold);
     border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
   }
-
 
   @media (prefers-reduced-motion: reduce) {
     .theme-kao .editor-container::before,

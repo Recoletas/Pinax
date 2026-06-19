@@ -982,3 +982,75 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
     expect(body).not.toMatch(/text-decoration-color/)
   })
 })
+
+describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right sidebar → 现场档案夹)', () => {
+  it('Experience.vue owns the kao sidebar archive-binder override instead of escaping into kao.css', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar\s*\{[^}]*var\(--archive-gold\)/s,
+    )
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar::before\s*\{[^}]*repeating-linear-gradient/s,
+    )
+    expect(kaoCss).not.toMatch(/\.theme-kao\s+\.sidebar\s*\{/)
+    expect(kaoCss).not.toContain('Experience V2')
+  })
+
+  it('Experience.vue exposes kao sidebar-head rule with archive paper + clip-path: none', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-head\s*\{[^}]*clip-path:\s*none/s,
+    )
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-head\s*\{[^}]*var\(--archive-paper-soft\)/s,
+    )
+  })
+
+  it('Experience.vue exposes kao sidebar-head::before with "卷宗" half-stripped index badge', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-head::before\s*\{[^}]*content:\s*"卷宗"/s,
+    )
+    // Half-stripped effect: the badge uses the same archive paper as the head body,
+    // so the gold hairline appears to "break" through the top edge of the card.
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-head::before\s*\{[^}]*top:\s*-8px/s,
+    )
+  })
+
+  it('Experience.vue exposes kao sidebar-section rule with archive paper + clip-path: none', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-section\s*\{[^}]*clip-path:\s*none/s,
+    )
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-section\s*\{[^}]*var\(--archive-paper\)/s,
+    )
+  })
+
+  it('Experience.vue exposes kao sidebar-toggle rule with archive paper + clip-path: none', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-toggle\s*\{[^}]*clip-path:\s*none/s,
+    )
+    expect(experience).toMatch(
+      /:global\(\.theme-kao\)\s+\.sidebar-toggle\s*\{[^}]*var\(--archive-paper\)/s,
+    )
+  })
+
+  it('Experience.vue keeps the 3 functional sidebar sections (StatusBar / GeographyPanel / QuestLog) and 收起/展开 toggle — archive binder is visual-only, no functional regression', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toContain('<StatusBar')
+    expect(experience).toContain('<GeographyPanel')
+    expect(experience).toContain('<QuestLog')
+    expect(experience).toContain('sidebarCollapsed = !sidebarCollapsed')
+    // Quick-note toggle uses Vue's .stop modifier; match the function name, not the verbatim @click string.
+    expect(experience).toMatch(/toggleQuickNoteWorkspace/)
+  })
+
+  it('Experience.vue still has no <WorkbenchPageHero> (Phase 1C lock: right sidebar is the only chrome, no dashboard hero on /experience)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).not.toContain('<WorkbenchPageHero')
+  })
+})

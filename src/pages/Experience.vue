@@ -1595,6 +1595,89 @@ function quickNoteWordCount(text) {
   box-shadow: none;
 }
 
+:global(.theme-kao) .sidebar {
+  position: relative;
+  width: 248px;
+  padding: 18px 14px 18px 22px;
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  border-radius: 0;
+  clip-path: none;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
+}
+
+:global(.theme-kao) .sidebar::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 18px;
+  bottom: 18px;
+  width: 1px;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--archive-gold) 64%, transparent) 0 3px,
+      transparent 3px 7px
+    );
+  pointer-events: none;
+}
+
+:global(.theme-kao) .sidebar-head {
+  position: relative;
+  padding: 16px 16px 14px;
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  clip-path: none;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
+}
+
+:global(.theme-kao) .sidebar-head::before {
+  content: "卷宗";
+  position: absolute;
+  top: -8px;
+  left: 14px;
+  z-index: 1;
+  padding: 0 6px;
+  background: var(--archive-paper);
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+}
+
+:global(.theme-kao) .sidebar-head-copy span {
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  letter-spacing: 0.18em;
+}
+
+:global(.theme-kao) .sidebar-head-copy strong {
+  color: var(--archive-ink);
+}
+
+:global(.theme-kao) .sidebar-toggle {
+  background: var(--archive-paper);
+  border-color: color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
+  clip-path: none;
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+:global(.theme-kao) .sidebar-toggle:hover {
+  color: var(--archive-olive-strong);
+  border-color: var(--archive-gold);
+}
+
+:global(.theme-kao) .sidebar-section {
+  position: relative;
+  padding: 14px;
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 20%, transparent);
+  clip-path: none;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-ink) 6%, transparent);
+}
+
 .quick-notes-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
   background: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
