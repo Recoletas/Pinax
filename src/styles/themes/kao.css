@@ -348,8 +348,11 @@
     box-shadow: 0 0 0 2px var(--archive-gold), 0 0 0 4px color-mix(in srgb, var(--archive-gold) 30%, transparent);
   }
 
-  /* N5C: material-action-btn - batch action button with kao visual */
-  .material-action-btn {
+  /* N5C: material-action-btn - batch action button with kao visual.
+     Wrapped in .theme-kao prefix to beat Vue scoped CSS specificity
+     (0,2,0 vs scoped 0,1,1 for `.selection-action-btn[data-v-Notes_xxx]`)
+     so gold border + 0 radius + paper-soft bg override scoped defaults. */
+  .theme-kao .material-action-btn {
     background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
     border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
     border-radius: 0;
@@ -357,14 +360,14 @@
     color: var(--archive-ink);
     transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
   }
-  .material-action-btn:hover:not(:disabled) {
+  .theme-kao .material-action-btn:hover:not(:disabled) {
     transform: translate(-2px, -2px);
     box-shadow: 22px 22px 0 color-mix(in srgb, var(--archive-gold) 24%, transparent);
     filter: brightness(1.04);
   }
 
   /* N5C: material-bookmark-toolbar - 4-button grid container */
-  .material-bookmark-toolbar {
+  .theme-kao .material-bookmark-toolbar {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
@@ -375,7 +378,7 @@
   }
 
   /* N5C: material-entry-card - torn-edge entry thumbnail (3/4 aspect) */
-  .material-entry-card {
+  .theme-kao .material-entry-card {
     position: relative;
     aspect-ratio: 3 / 4;
     overflow: hidden;
@@ -386,7 +389,7 @@
   }
 
   /* N5C: material-tear-svg - SVG defs container for torn edge filter */
-  .material-tear-svg {
+  .theme-kao .material-tear-svg {
     position: absolute;
     width: 0;
     height: 0;
