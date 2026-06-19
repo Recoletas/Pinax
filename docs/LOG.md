@@ -9,6 +9,20 @@
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
 
+## 2026-06-19 - Codex / Claude 协作与视觉对齐流程固化
+
+状态：文档规则已落盘，供后续多 agent 与前端视觉任务复用。
+
+结果摘要：
+- 新增 [engineering/agent-orchestration-workflow.md](./engineering/agent-orchestration-workflow.md)：明确 Codex 是主控台 / 架构师 / 集成者 / 验收者，Claude worker 是异步工人；规定 worker brief、看板、summary 限长、worktree 隔离和上下文保护。
+- 新增 [engineering/visual-alignment-workflow.md](./engineering/visual-alignment-workflow.md)：规定 direct 红线语义、视觉硬约束、小切片 prototype、截图验收、1-5 分反馈格式，以及何时该由 Codex 亲自精修。
+- 更新 `AGENTS.md`：把关键项提升为 agent 硬约束，包括不得让 Claude 反向调用 Codex、不得把完整 Claude 日志塞进 Codex 上下文、多 worker 必须维护看板、视觉任务必须先转硬约束并截图验收。
+- 更新文档导航与开发规范入口。
+
+验证：
+- `npm run verify:full` 通过（Vitest + Vite build + `git diff --check` + VitePress docs build + visual-verification）。
+- agent-maintenance symlink / SKILL frontmatter 检查通过。
+
 ## 2026-06-18 - Nova-inspired runtime foundation
 
 状态：完成 3 feature commits on `main`（`e4bd36f` / `cc8ffd6` / `3bae14b`），前置文档 commit `2717848`。

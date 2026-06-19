@@ -26,6 +26,8 @@
 | [demo/border-kingdom-adventure.md](./demo/border-kingdom-adventure.md) | 边境王国 demo case：手测执行稿、小说样例、分镜节点 |
 | [content-review/border-kingdom-ui-reference.md](./content-review/border-kingdom-ui-reference.md) | 入口 UI 参考与信息优先级约束 |
 | [engineering/development-standards.md](./engineering/development-standards.md) | 开发与 UI 基线 |
+| [engineering/agent-orchestration-workflow.md](./engineering/agent-orchestration-workflow.md) | Codex / Claude 分工、worker 看板、上下文保护和验收规则 |
+| [engineering/visual-alignment-workflow.md](./engineering/visual-alignment-workflow.md) | direct 标注、视觉切片、截图评分和前端视觉对齐流程 |
 | [operations/troubleshooting.md](./operations/troubleshooting.md) | 运维与故障定位 |
 | [superpowers/README.md](./superpowers/README.md) | 设计草案 / 执行计划 / agent 基础设施材料；不是当前事实入口 |
 

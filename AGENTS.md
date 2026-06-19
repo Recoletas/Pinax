@@ -45,6 +45,11 @@ When the user explicitly asks to use Claude as a sub-agent or to run broad paral
 - For bounded non-interactive worker calls, prefer `claude --bare -p --output-format json`; plain `claude -p` can load much more project context and cost more.
 - Use isolated git worktrees or disjoint write sets for parallel Claude workers. Do not let multiple workers edit the same files unless Codex is intentionally doing a merge/integration pass.
 - Ask Claude workers to self-review and fix their own slice before Codex reviews. Codex must still run project verification before reporting success.
+- For multi-worker tasks, maintain a task board such as `docs/agent-runs/current.md` with worker id, worktree, scope, status, and output summary path.
+- Claude worker output must be reduced to short summary files, screenshots, diffs, and test results. Codex should not ingest full Claude logs or long research dumps unless debugging a worker failure.
+- Do not let Claude call Codex as an implementation or verification sub-agent. Codex is the orchestrator and final verifier.
+- For visual UI work, follow [docs/engineering/visual-alignment-workflow.md](./docs/engineering/visual-alignment-workflow.md): convert user annotations into hard constraints, work in small visual slices, require screenshots, and avoid broad page rewrites before direction is visually approved.
+- Detailed orchestration rules live in [docs/engineering/agent-orchestration-workflow.md](./docs/engineering/agent-orchestration-workflow.md).
 
 ## Hard rules — 触发条件 → 必调 skill
 | 触发 | Skill |

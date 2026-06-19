@@ -81,3 +81,9 @@
 1. 更新对应分区文档。
 2. 追加 `LOG.md` 里程碑记录。
 3. 必要时调整 `PLAN.md` 阶段目标描述。
+
+## 7. Agent 协作与视觉对齐
+
+- Codex / Claude 分工、worker brief、看板、summary 和上下文保护规则见 [agent-orchestration-workflow.md](./agent-orchestration-workflow.md)。
+- 前端视觉任务的 direct 标注语义、小切片 prototype、截图评分和视觉硬约束见 [visual-alignment-workflow.md](./visual-alignment-workflow.md)。
+- 视觉方向未被截图证明前，不进入整页重构或多 worker 混改。
