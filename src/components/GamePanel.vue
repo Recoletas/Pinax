@@ -486,51 +486,41 @@ summary .arrow {
   background: var(--accent-hover);
 }
 
-/* Kao record-book overrides — convert chat list into a "卷次条目流"
-   (ledger entry stream). Avatar becomes a 0-radius square stamp, body
-   moves to "manuscript line" with a role-stamp kicker header, and
-   the whole entry gets a left marginalia 序号 (entry number) + a thin
-   gold hairline divider. No template change — the avatar-column still
-   holds the avatar element, the msg-column still holds the body; we
-   only restyle the layout, sizes, fonts, and the dividers between
-   entries. Scoped CSS specificity 0,2,1 (theme-kao .x[data-v-xxx])
-   beats the default 0,1,1 of the tool-feel rules above. */
+/* Kao record-book overrides — turn the chat list into a "案卷本页"
+   (a record book page, not a spreadsheet row stream). The 序号 (#01)
+   marginalia is dropped: row numbers read like table cells. Instead,
+   each entry has a top-right 时刻 marginalia (small italic time, like
+   a page timestamp) and an inline role kicker at the start of the body
+   (我 / 旁白 / 系统) so user vs assistant is visually distinct without
+   a separate header row. Dividers only appear at role-change
+   transitions (user→assistant or assistant→user), so consecutive
+   same-role entries flow continuously. Line-height drops from 1.85 to
+   1.65 for a tighter page rhythm. The chat-container is a flowing
+   single column — no grid, no marginalia column, no avatar column.
+   Scoped CSS specificity 0,2,1 (theme-kao .x[data-v-xxx]) beats the
+   default 0,1,1 of the tool-feel rules above. */
 .theme-kao .chat-container {
   background: transparent;
-  padding: 6px 0 12px;
+  padding: 8px 0 14px;
   gap: 0;
 }
 
 .theme-kao .msg-item {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px 4px 16px 4px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  display: block;
+  padding: 8px 32px 10px 4px;
+  position: relative;
 }
 
-.theme-kao .msg-item:last-child {
-  border-bottom: none;
+.theme-kao .msg-item + .msg-item.user,
+.theme-kao .msg-item + .msg-item.assistant {
+  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  padding-top: 12px;
 }
 
-.theme-kao .msg-item::before {
-  content: "#" counter(record-entry, decimal-leading-zero);
-  counter-increment: record-entry;
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 400;
-  font-style: italic;
-  letter-spacing: 0.1em;
-  color: color-mix(in srgb, var(--archive-ink) 44%, transparent);
-  text-align: right;
+.theme-kao .msg-item.user + .msg-item.user,
+.theme-kao .msg-item.assistant + .msg-item.assistant {
+  border-top: none;
   padding-top: 4px;
-  align-self: start;
-  grid-column: 1;
-  grid-row: 1 / span 2;
-}
-
-.theme-kao .chat-container {
-  counter-reset: record-entry;
 }
 
 .theme-kao .avatar-column {
@@ -542,44 +532,85 @@ summary .arrow {
 }
 
 .theme-kao .msg-column {
-  display: contents;
+  display: block;
 }
 
 .theme-kao .msg-header {
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .theme-kao .display-name {
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 10px;
-  font-style: normal;
-  letter-spacing: 0.22em;
+  font-size: 9px;
+  font-style: italic;
+  letter-spacing: 0.02em;
   text-transform: none;
-  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 38%, transparent);
 }
 
 .theme-kao .msg-time {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-ink) 38%, transparent);
+}
+
+/* Inline role kicker at the start of the body. Reads like a signature:
+   "我 · 我试着把码头边的缆绳拉紧..." or "旁白 · 雾里的灯一盏一盏灭下去...".
+   Different ink per role so the eye can scan user / assistant at a
+   glance — user is olive (the protagonist's voice), assistant is rose
+   (the narrator's voice), system is gold (the archivist). */
+.theme-kao .msg-item.user .text-main::before {
+  content: "我 · ";
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 76%, transparent);
+}
+
+.theme-kao .msg-item.assistant .text-main::before {
+  content: "旁白 · ";
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-rose) 80%, transparent);
+}
+
+.theme-kao .msg-item.compression-complete .text-main::before {
+  content: "档案员 · ";
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-gold) 84%, transparent);
 }
 
 .theme-kao .text-main {
   font-family: var(--font-display);
   font-size: 14px;
-  line-height: 1.85;
+  line-height: 1.65;
   color: var(--archive-ink);
   letter-spacing: 0.02em;
 }
 
 .theme-kao .thought-wrapper {
   max-width: 100%;
-  margin: 8px 0 10px;
+  margin: 6px 0 8px;
 }
 
 .theme-kao details {
@@ -591,15 +622,15 @@ summary .arrow {
 .theme-kao summary {
   font-family: var(--font-display);
   font-size: 10px;
-  letter-spacing: 0.18em;
-  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 50%, transparent);
 }
 
 .theme-kao .thought-body {
   font-family: var(--font-display);
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.6;
   border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 22%, transparent);
   color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 40%, transparent);

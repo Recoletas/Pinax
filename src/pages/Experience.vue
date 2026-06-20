@@ -2062,9 +2062,34 @@ function quickNoteWordCount(text) {
   font-family: var(--font-display);
   font-size: 9px;
   font-weight: 400;
-  letter-spacing: 0.22em;
-  color: color-mix(in srgb, var(--archive-ink) 52%, transparent);
-  margin: 0 0 8px;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-ink) 40%, transparent);
+  margin: 0 0 6px;
   text-transform: none;
+}
+
+/* UI-E4A: dedupe right-rail section labels.
+   The dossier-stamp kicker above is the canonical first-read title
+   ("卷宗一 · 在场人物" etc.). The internal sub-panel header text
+   in StatusBar (.status-header text), GeographyPanel (.panel-kicker +
+   .panel-heading), and QuestLog (.panel-header > span text) duplicates
+   the same field name and competes for visual weight. In kao mode we
+   hide the redundant text and let the dossier-stamp own the title.
+   Functional sub-elements (avatars, time row, count badge, expand
+   icons) all stay visible — only the decorative title text is removed.
+   The .game-page scope keeps this from leaking to ProseEssay /
+   Settings / Character which also use .panel-header but are not
+   mounted under .game-page. Same pattern as the dossier-stamp rule
+   above: no scoped global, no broad deep selector, no layer-override
+   keyword. */
+.theme-kao .game-page .status-header > span:last-child {
+  display: none;
+}
+.theme-kao .game-page .geo-title-block {
+  display: none;
+}
+.theme-kao .game-page .panel-header > span:not(.count-badge) {
+  display: none;
 }
 </style>

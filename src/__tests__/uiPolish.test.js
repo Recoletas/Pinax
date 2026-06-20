@@ -270,7 +270,7 @@ describe('ui polish contract', () => {
     expect(writing).toMatch(/class="wall__folder"/)
     expect(writing).toMatch(/class="wall__shelf-roll"/)
     expect(writing).toMatch(/class="wall__dossier"/)
-    expect(writing).toMatch(/class="wall__pin-cnr wall__pin-cnr--tl"/)
+    expect(writing).toMatch(/class="wall__dossier-tape wall__dossier-tape--left"/)
     expect(writing).toMatch(/class="wall__dossier-head"/)
     expect(writing).toMatch(/class="wall__dossier-num"/)
     expect(writing).toMatch(/class="wall__dossier-title"/)
@@ -280,7 +280,6 @@ describe('ui polish contract', () => {
     expect(writing).toMatch(/class="wall__pin-cta"/)
     expect(writing).toMatch(/class="wall__dossier-portrait"/)
     expect(writing).toMatch(/class="wall__steel-pin wall__steel-pin--tl"/)
-    expect(writing).toMatch(/class="wall__pin-cnr wall__pin-cnr--tl"/)
     expect(writing).toMatch(/class="wall__floor"/)
 
     // 8 functional controls still wired (anti-micro-tweak gate).
@@ -957,12 +956,14 @@ describe('ui polish — UI-W3 Writing Pinax Wall composition polish (3 structura
     const block = dossierBlock?.[0] ?? ''
     expect(block).toMatch(/class="wall__dossier-tape wall__dossier-tape--left"/)
     expect(block).toMatch(/class="wall__dossier-tape wall__dossier-tape--right"/)
-    // Tape comes BEFORE the 4 corner pins in template order (tape anchors
-    // dossier to cork; corner pins anchor dossier to its own surface)
+    // W4: 4 corner pins removed — tape strips are the sole dossier-to-cork
+    // anchor now. The dossier block must contain tape but NOT corner pins.
+    expect(block).not.toContain('wall__pin-cnr')
+    expect(block).toMatch(/class="wall__dossier-head"/)
     const leftTapeIdx = block.indexOf('wall__dossier-tape--left')
-    const firstCornerPinIdx = block.indexOf('wall__pin-cnr')
+    const headIdx = block.indexOf('wall__dossier-head')
     expect(leftTapeIdx).toBeGreaterThan(-1)
-    expect(firstCornerPinIdx).toBeGreaterThan(leftTapeIdx)
+    expect(headIdx).toBeGreaterThan(leftTapeIdx)
   })
 
   it('Writing.vue shelf rail anchors with rolled scroll + sticky note + label (3 child elements)', () => {
@@ -1352,16 +1353,24 @@ describe('ui polish — UI-N2 Notes Archive Drawer composition', () => {
     expect(notes).toContain('--card-tilt')
   })
 
-  it('UI-N2: empty-archive is a 12-cell dashed grid + tilted blank card (object narrative, not centered SVG + button)', () => {
+  it('UI-N4: empty-archive is a complete cabinet blueprint (7 kind cells + 5 generic slots + stamp + footer + memo card)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    // 12 cells via v-for="n in 12"
-    expect(notes).toContain('v-for="n in 12"')
-    expect(notes).toContain('class="empty-archive__cell"')
+    // 7 kind cells via v-for="(kind, idx) in assetKindOrder"
+    expect(notes).toContain('v-for="(kind, idx) in assetKindOrder"')
+    expect(notes).toContain('class="empty-archive__cell empty-archive__cell--kind"')
+    expect(notes).toContain('class="empty-archive__cell empty-archive__cell--empty"')
+    // Kind cell structure: roman + label
+    expect(notes).toContain('class="empty-archive__cell-roman"')
+    expect(notes).toContain('class="empty-archive__cell-label"')
+    // Stamp + footer + memo card
+    expect(notes).toContain('class="empty-archive__stamp"')
+    expect(notes).toContain('class="empty-archive__footer"')
     expect(notes).toContain('class="empty-archive__card"')
-    expect(notes).toContain('class="empty-archive__tape"')
     expect(notes).toContain('class="empty-archive__title"')
     expect(notes).toMatch(/empty-archive__cta/)
-    // No more centered-SVG empty-state
+    // 5 候补格
+    expect(notes).toMatch(/v-for="n in 5"/)
+    // No centered-SVG empty-state
     expect(notes).not.toMatch(/<svg[^>]*class="empty-icon"/)
   })
 
@@ -1456,22 +1465,39 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     )
   })
 
-  it('UI-E3: GamePanel message stream is a ledger entry flow, not a SaaS chat list (# marginalia + role-stamp + paper body, no avatar circle)', () => {
+  it('UI-E3 p2: GamePanel message stream is a record-book page, not a spreadsheet row — no 序号 row numbers, no avatar circle, inline role kicker (我 / 旁白 / 档案员), 时刻 as top-right marginalia, sparse dividers only at role changes', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Avatar column / avatar hidden in kao mode
+    // Avatar column / avatar hidden in kao mode (no SaaS chat avatar circle)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.avatar-column\s*\{[^}]*display:\s*none/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.tavern-avatar\s*\{[^}]*display:\s*none/s)
-    // 序号 marginalia via CSS counter on .msg-item::before
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item::before\s*\{[^}]*counter-increment:\s*record-entry/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container\s*\{[^}]*counter-reset:\s*record-entry/s)
-    // .msg-item is grid 44px 1fr (序号 col + body col), not flex
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*grid/s)
-    // .text-main uses LXGW WenKai display font
+    // 序号 counter was dropped (no more "row number" feel). Assert absence.
+    expect(gamePanel).not.toMatch(/counter-increment:\s*record-entry/)
+    expect(gamePanel).not.toMatch(/counter-reset:\s*record-entry/)
+    // msg-item is no longer a grid (no marginalia column); flowing single column
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*grid/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*block/s)
+    // 时刻 marginalia: msg-header is now absolute-positioned top-right
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*position:\s*absolute/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*top:\s*8px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*right:\s*4px/s)
+    // display-name / msg-time are 9px italic (margin note weight, not header weight)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*9px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-style:\s*italic/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-size:\s*9px/s)
+    // Inline role kicker at start of body — 我 for user, 旁白 for assistant, 档案员 for system
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*content:\s*"我\s*·\s*"/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*content:\s*"旁白\s*·\s*"/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s+\.text-main::before\s*\{[^}]*content:\s*"档案员\s*·\s*"/s)
+    // Role kicker uses different ink per role (olive / rose / gold)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*var\(--archive-olive-strong\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*var\(--archive-rose\)/s)
+    // Sparse dividers: dotted gold between role changes, none between same-role
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\+\s*\.msg-item\.user[\s\S]*?border-top:\s*1px dotted/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s*\+\s*\.msg-item\.user[\s\S]*?border-top:\s*none/s)
+    // Tighter line-height for better reading rhythm (down from 1.85)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.6[5-9]/s)
+    // LXGW WenKai display font for body
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
-    // .display-name is a small role-stamp kicker (10px letter-spacing 0.22em)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*10px/s)
-    // Each entry has a thin gold hairline divider
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*border-bottom:\s*1px solid\s+color-mix\(in srgb, var\(--archive-gold\)\s+18%, transparent\)/s)
   })
 
   it('UI-E3: internal modals (StatusBar 时间设定 / 角色详情, QuestLog 查看 / 记入) are dossier 抽屉, not 圆角 SaaS dialog', () => {
@@ -1505,6 +1531,76 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
       const impCount = (content.match(/!important/g) || []).length
       expect(impCount, f + ' has new !important').toBe(0)
     }
+  })
+})
+
+// UI-E4A: right-rail label dedupe (2026-06-20 plan)
+// The .sidebar-section::before dossier-stamp kicker is the canonical
+// first-read title. The internal sub-panel header text in StatusBar /
+// GeographyPanel / QuestLog duplicates the same field name. In kao
+// mode we hide the redundant text and let the dossier-stamp own the
+// title. Functional sub-elements (avatars, time row, count badge,
+// expand icons) all stay visible.
+describe('ui polish — UI-E4A Experience right-rail label dedupe', () => {
+  it('UI-E4A: Experience.vue exposes 3 dedupe rules in the kao block — status-header text / geo-title-block / panel-header text', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    // Dedupe the 3 duplicate-text containers under .theme-kao .game-page scope.
+    // .status-header > span:last-child  = StatusBar 在场人物 text
+    // .geo-title-block                  = GeographyPanel 案卷索引 + 地点卡
+    // .panel-header > span:not(.count-badge) = QuestLog 事件卷 text (count kept)
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.status-header\s*>\s*span:last-child\s*\{[^}]*display:\s*none/s,
+    )
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.geo-title-block\s*\{[^}]*display:\s*none/s,
+    )
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.panel-header\s*>\s*span:not\(\.count-badge\)\s*\{[^}]*display:\s*none/s,
+    )
+  })
+
+  it('UI-E4A: dedupe rules do NOT use :global(.theme-kao), :deep(), !important, or random hex', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    // Find each of the 3 dedupe selector bodies and check them individually.
+    // A selector body is `.theme-kao ... { ... }` — match each one with a
+    // g-flag regex so we can iterate over all 3.
+    const selectorBodies = experience.match(/\.theme-kao[^}]*?display:\s*none[^}]*?\}/g) || []
+    // The 3 dedupe selectors + the dossier-stamp ::before (display: block) +
+    // the .sidebar-section + .sidebar-section::before rules in the kao block
+    // will match. We only care about the 3 dedupe selectors that have
+    // display: none. The dossier-stamp has display: block, so it won't match.
+    const dedupeBodies = selectorBodies.filter((b) => /display:\s*none/.test(b))
+    expect(dedupeBodies.length).toBeGreaterThanOrEqual(3)
+    for (const body of dedupeBodies) {
+      expect(body).not.toMatch(/:global/)
+      expect(body).not.toMatch(/:deep/)
+      expect(body).not.toMatch(/!important/)
+      expect(body).not.toMatch(/#[0-9a-fA-F]{3,6}/)
+    }
+  })
+
+  it('UI-E4A: functional sub-elements stay visible — StatusBar avatar, GeographyPanel count, QuestLog count-badge', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const geography = readProjectFile('src/components/geography/GeographyPanel.vue')
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    // StatusBar: avatar-mini / current-time / compact-profile all present
+    expect(statusBar).toContain('class="avatar-mini"')
+    expect(statusBar).toContain('class="current-time"')
+    expect(statusBar).toContain('class="compact-profile"')
+    // GeographyPanel: .geo-count (count badge) is the only child of .geo-header
+    // that we keep — verify it's not removed.
+    expect(geography).toContain('class="geo-count"')
+    expect(geography).toContain('class="section overview-card"')
+    // QuestLog: count-badge stays visible (display:none only on text spans)
+    expect(questLog).toContain('class="count-badge"')
+    expect(questLog).toContain('class="adventure-summary"')
+  })
+
+  it('UI-E4A: 3 dossier-stamp data attributes remain on the 3 sidebar sections (dossier-stamp is the canonical label, not removed)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toContain('data-dossier-stamp="卷宗一 · 在场人物"')
+    expect(experience).toContain('data-dossier-stamp="卷宗二 · 地点卡"')
+    expect(experience).toContain('data-dossier-stamp="卷宗三 · 事件卷"')
   })
 })
 
@@ -1561,11 +1657,20 @@ describe('ui polish — UI-N3 Notes Archive Drawer dark-mode uniformity', () => 
     expect(css).toMatch(/\.theme-kao\s+\.archive-pin\s*\{[\s\S]*?padding:\s*4px/)
   })
 
-  it('UI-N3: empty-archive card shrinks to 300px width so 12-cell drawer grid breathes; cells opacity bumped to 0.5', () => {
+  it('UI-N4: empty-archive card moves to left-center (left: 32%, width: 260px); kind cells have --cell-color tab + roman + label', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toMatch(/\.empty-archive__card\s*\{[\s\S]*?width:\s*300px/)
+    expect(notes).toMatch(/\.empty-archive__card\s*\{[\s\S]*?width:\s*260px/)
+    expect(notes).toMatch(/\.empty-archive__card\s*\{[\s\S]*?left:\s*32%/)
+    // Kind cell template uses --cell-color style binding
+    expect(notes).toMatch(/--cell-color['"]?\s*:\s*getAssetKindColor/)
+    // kao.css has separate kind/empty variant rules
     const css = readProjectFile('src/styles/themes/kao.css')
-    expect(css).toMatch(/\.theme-kao\s+\.empty-archive__cell\s*\{[\s\S]*?opacity:\s*0\.5/)
+    expect(css).toMatch(/\.theme-kao\s+\.empty-archive__cell--kind\s*\{/)
+    expect(css).toMatch(/\.theme-kao\s+\.empty-archive__cell--empty\s*\{/)
+    // Token-only — no raw hex inside kind cell rule body
+    const ruleMatch = css.match(/\.theme-kao\s+\.empty-archive__cell--kind\s*\{[^}]*\}/)
+    expect(ruleMatch).not.toBeNull()
+    expect(ruleMatch?.[0]).not.toMatch(/#[0-9a-fA-F]{3,6}/)
   })
 
   it('UI-N3: hard constraint — no new scoped :global(.theme-kao), no new !important, no broad :deep(*) in Notes.vue', () => {

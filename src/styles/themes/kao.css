@@ -1100,24 +1100,10 @@
     opacity: 0.5;
   }
 
-  /* Corner pins — small steel-pin SVG dots at 4 corners of dossier. */
-  .theme-kao .wall__pin-cnr {
-    position: absolute;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 32% 32%,
-      color-mix(in srgb, var(--archive-paper-soft) 70%, transparent) 0 2px,
-      color-mix(in srgb, var(--archive-ink) 80%, transparent) 4px 100%);
-    box-shadow:
-      0 1px 2px color-mix(in srgb, var(--archive-ink) 60%, transparent),
-      0 0 0 1px color-mix(in srgb, var(--archive-ink) 30%, transparent);
-    z-index: 2;
-  }
-  .theme-kao .wall__pin-cnr--tl { top: 6px; left: 6px; }
-  .theme-kao .wall__pin-cnr--tr { top: 6px; right: 6px; }
-  .theme-kao .wall__pin-cnr--bl { bottom: 6px; left: 6px; }
-  .theme-kao .wall__pin-cnr--br { bottom: 6px; right: 6px; }
+  /* W4: corner pins removed — 4 pin dots at dossier corners were redundant
+     with the 2 W3 dossier-tape strips that anchor the dossier to the cork
+     above. Removing them declutters the dossier perimeter so the editor
+     (the textarea inside) reads as the wall's main artifact. */
 
   /* Dossier header — chapter index badge + red horizontal title rule. */
   .theme-kao .wall__dossier-head {
@@ -1151,15 +1137,9 @@
   .theme-kao .wall__dossier-title:focus {
     box-shadow: inset 0 -1px 0 var(--archive-gold);
   }
-  .theme-kao .wall__dossier-watermark {
-    font-family: var(--font-display);
-    font-size: 11px;
-    color: color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink));
-    letter-spacing: 0.18em;
-    transform: rotate(-3deg);
-    border: 1px solid currentColor;
-    padding: 2px 6px;
-  }
+  /* W4: dossier watermark (rose "DRAFT" stamp) removed — competed visually
+     with the cork's red "已签" stamp above and added no new information
+     beyond the "in-progress" state the cork stamp already conveys. */
 
   /* Dossier body — editor area. The textarea sits over the ruled
      lines (z-index above ::after pseudo) with transparent bg so
@@ -1313,8 +1293,12 @@
       4px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
       0 8px 18px color-mix(in srgb, var(--archive-ink) 24%, transparent);
     padding: 18px 14px 14px;
-    width: 220px;
-    min-height: 300px;
+    /* W4: portrait card shrunk 220px → 192px so the center dossier wins
+       the visual focus contest (3-column grid: shelf 248 + dossier 1fr
+       + portrait 192). 28px recovery goes back to the dossier body
+       (more room for the writing surface). */
+    width: 192px;
+    min-height: 280px;
     margin-bottom: 0;
     display: flex;
     flex-direction: column;
@@ -1343,7 +1327,11 @@
   }
   .theme-kao .wall__dossier-portrait .character-portrait {
     margin-top: 36px;
-    max-width: 192px;
+    max-width: 164px;
+    /* W4: portrait recedes so the center dossier wins attention.
+       0.78 opacity keeps the image recognizable but demotes it from
+       "main element" to "contextual annotation". */
+    opacity: 0.78;
   }
   .theme-kao .wall__dossier-portrait .character-portrait__caption {
     font-family: var(--font-display);
@@ -1722,17 +1710,66 @@
   }
   .theme-kao .reading-deck > * { position: relative; z-index: 1; }
 
-  /* empty-archive 空档案柜 */
-  .theme-kao .empty-archive__cell {
-    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
-    opacity: 0.5;
+  /* UI-N4 empty-archive：完整柜面蓝图
+     7 类 kind cell 各带 kind 色 tab + roman + label；
+     5 候补格 dashed outline；档案员印章 top-right；footer 状态 */
+  .theme-kao .empty-archive__cell--kind {
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--cell-color, var(--archive-gold)) 18%, var(--archive-paper-soft)) 0%,
+        var(--archive-paper-soft) 22%,
+        var(--archive-paper-soft) 100%);
+    border: 1px solid color-mix(in srgb, var(--cell-color, var(--archive-gold)) 55%, transparent);
+    box-shadow:
+      inset 3px 0 0 var(--cell-color, var(--archive-gold)),
+      2px 2px 0 color-mix(in srgb, var(--archive-ink) 10%, transparent);
+    opacity: 1;
+  }
+  .theme-kao .empty-archive__cell--kind:hover {
+    background: var(--archive-paper);
+    box-shadow:
+      inset 3px 0 0 var(--cell-color, var(--archive-gold)),
+      3px 3px 0 color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  }
+  .theme-kao .empty-archive__cell--empty {
+    border: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+    background: transparent;
+    opacity: 0.55;
+  }
+  .theme-kao .empty-archive__cell-roman {
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    font-weight: 600;
+  }
+  .theme-kao .empty-archive__cell-label {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+    text-transform: uppercase;
+  }
+  .theme-kao .empty-archive__stamp {
+    color: var(--archive-ink);
+    border-color: color-mix(in srgb, var(--archive-gold) 55%, transparent);
+    background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+    font-family: var(--font-display);
+    border-radius: 0;
+  }
+  .theme-kao .empty-archive__stamp svg circle:last-child {
+    fill: var(--archive-gold);
+  }
+  .theme-kao .empty-archive__footer {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+    font-weight: 600;
   }
   .theme-kao .empty-archive__card {
-    background: var(--archive-paper-strong);
-    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-soft) 0%,
+        color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 100%);
+    border-color: color-mix(in srgb, var(--archive-gold) 75%, transparent);
     box-shadow:
-      6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+      6px 6px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 24%, transparent);
   }
   .theme-kao .empty-archive__tape {
     background: color-mix(in srgb, var(--archive-paper) 70%, transparent);

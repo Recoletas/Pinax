@@ -119,10 +119,6 @@
       <section class="wall__dossier" aria-label="章节正文卷宗">
         <span class="wall__dossier-tape wall__dossier-tape--left" aria-hidden="true"></span>
         <span class="wall__dossier-tape wall__dossier-tape--right" aria-hidden="true"></span>
-        <span class="wall__pin-cnr wall__pin-cnr--tl" aria-hidden="true"></span>
-        <span class="wall__pin-cnr wall__pin-cnr--tr" aria-hidden="true"></span>
-        <span class="wall__pin-cnr wall__pin-cnr--bl" aria-hidden="true"></span>
-        <span class="wall__pin-cnr wall__pin-cnr--br" aria-hidden="true"></span>
 
         <header class="wall__dossier-head">
           <span class="wall__dossier-num">{{ chapterNumberLabel }}</span>
@@ -134,7 +130,6 @@
             @input="onTitleChange"
             aria-label="章节标题"
           />
-          <span v-if="selectedChapterId" class="wall__dossier-watermark">DRAFT</span>
         </header>
 
         <template v-if="!selectedBookId">

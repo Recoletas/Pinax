@@ -133,17 +133,49 @@
       <!-- 中：阅读台 (Reading Deck) -->
       <FolioSurface variant="paper" decorated>
         <section class="reading-deck">
-          <!-- 空档案柜：12 抽屉格 + 倾斜空白卡 -->
+          <!-- UI-N4 空档案柜：完整柜面蓝图，7 类 + 5 候补格 + 档案员印章 + 状态 footer -->
           <template v-if="!selectedChapterId">
             <div class="empty-archive">
               <div class="empty-archive__grid" aria-hidden="true">
-                <span v-for="n in 12" :key="n" class="empty-archive__cell"></span>
+                <!-- 7 类抽屉格 -->
+                <span
+                  v-for="(kind, idx) in assetKindOrder"
+                  :key="'k-' + kind"
+                  class="empty-archive__cell empty-archive__cell--kind"
+                  :style="{ '--cell-color': getAssetKindColor(kind) }"
+                >
+                  <span class="empty-archive__cell-roman">{{ groupIndexLabel(idx) }}</span>
+                  <span class="empty-archive__cell-label">{{ getAssetKindLabel(kind) }}</span>
+                </span>
+                <!-- 5 候补扩展格 -->
+                <span
+                  v-for="n in 5"
+                  :key="'e-' + n"
+                  class="empty-archive__cell empty-archive__cell--empty"
+                  aria-hidden="true"
+                ></span>
               </div>
+
+              <!-- 档案员值班中 印章 -->
+              <div class="empty-archive__stamp" aria-label="档案员值班">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.4" opacity="0.75"/>
+                  <circle cx="7" cy="7" r="1.6" fill="currentColor"/>
+                </svg>
+                <span>档案员 · 值班中</span>
+              </div>
+
+              <!-- 中央 memo 卡 -->
               <div class="empty-archive__card">
                 <span class="empty-archive__tape" aria-hidden="true"></span>
                 <p class="empty-archive__title">本卷尚无条目</p>
-                <p class="empty-archive__desc">档案员值班中，等你的第一条线索。</p>
+                <p class="empty-archive__desc">左侧 7 类抽屉等候第一条卷宗。</p>
                 <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建第一条线索</button>
+              </div>
+
+              <!-- 状态 footer -->
+              <div class="empty-archive__footer">
+                <span>档案柜 · 7 类 · 12 格 · 等候中</span>
               </div>
             </div>
           </template>
@@ -2848,48 +2880,109 @@ function syncSelectionCommandState() {
   position: relative;
 }
 
-/* 空档案柜 */
+/* UI-N4 空档案柜：完整柜面蓝图（不再是"空 + 中央一张卡"，而是"7 类 + 5 候补格 + 档案员印章 + footer 状态"）。
+   结构在，资产没到位 —— empty but complete。 */
 .empty-archive {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   position: relative;
-  padding: 32px;
-  min-height: 420px;
+  padding: 0;
+  min-height: 460px;
+  overflow: hidden;
 }
 
 .empty-archive__grid {
-  position: absolute;
-  inset: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-rows: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  padding: 32px 56px;
-  pointer-events: none;
+  gap: 12px;
+  padding: 56px 32px 60px;
+  width: 100%;
+  height: 100%;
+  /* UI-N4: grid 占满 reading-deck 内空，4×3 覆盖到右侧边缘，消除 right side void */
 }
 
 .empty-archive__cell {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  position: relative;
+  padding: 0;
+  min-height: 0;
+  /* UI-N4: 移除旧的 border / opacity 让 kao.css 接管（@layer kao 优先级低于 scoped） */
+}
+
+.empty-archive__cell-roman {
+  display: block;
+  padding: 6px 0 0 10px;
+  font-size: 13px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.empty-archive__cell-label {
+  display: block;
+  padding: 0 10px 6px 10px;
+  margin-top: auto;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+
+.empty-archive__stamp {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
   border: 1px dashed currentColor;
-  opacity: 0.32;
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  z-index: 3;
+}
+
+.empty-archive__footer {
+  position: absolute;
+  bottom: 18px;
+  left: 32px;
+  right: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .empty-archive__card {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 32%;
+  transform: translate(-50%, -50%) rotate(-3deg);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  width: 300px;
-  max-width: 86%;
-  padding: 36px 24px 28px;
+  width: 260px;
+  max-width: 70%;
+  padding: 32px 22px 24px;
   text-align: center;
-  background: var(--archive-paper-strong);
+  z-index: 4;
+  background: var(--bg-secondary);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
-  transform: rotate(-3deg);
-  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  box-shadow:
+    6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
 }
 
 .empty-archive__tape {
