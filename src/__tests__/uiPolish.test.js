@@ -939,6 +939,76 @@ describe('ui polish — UI-W2 Writing page Pinax Wall composition', () => {
   })
 })
 
+describe('ui polish — UI-W3 Writing Pinax Wall composition polish (3 structural moves, anti-micro-tweak)', () => {
+  it('Writing.vue unscoped <style> block pushes .wall__cork padding-left past the fixed hamburger at desktop (>=1000px)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    const unscopedBlocks = writing.match(/<style>([\s\S]*?)<\/style>/g) || []
+    expect(unscopedBlocks.length).toBeGreaterThan(0)
+    const hasDesktopPadding = unscopedBlocks.some((b) =>
+      /@media\s*\(min-width:\s*1000px\)\s*\{[\s\S]*?\.theme-kao\s+\.wall__cork\s*\{[^}]*padding-left:\s*80px/.test(b),
+    )
+    expect(hasDesktopPadding).toBe(true)
+  })
+
+  it('Writing.vue exposes 2 tape strips (.wall__dossier-tape--left / --right) inside .wall__dossier to visually pin the manuscript to the cork above', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    const dossierBlock = writing.match(/<section[^>]*class="wall__dossier"[\s\S]*?<\/section>/)
+    expect(dossierBlock).not.toBeNull()
+    const block = dossierBlock?.[0] ?? ''
+    expect(block).toMatch(/class="wall__dossier-tape wall__dossier-tape--left"/)
+    expect(block).toMatch(/class="wall__dossier-tape wall__dossier-tape--right"/)
+    // Tape comes BEFORE the 4 corner pins in template order (tape anchors
+    // dossier to cork; corner pins anchor dossier to its own surface)
+    const leftTapeIdx = block.indexOf('wall__dossier-tape--left')
+    const firstCornerPinIdx = block.indexOf('wall__pin-cnr')
+    expect(leftTapeIdx).toBeGreaterThan(-1)
+    expect(firstCornerPinIdx).toBeGreaterThan(leftTapeIdx)
+  })
+
+  it('Writing.vue shelf rail anchors with rolled scroll + sticky note + label (3 child elements)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    const rollBlock = writing.match(/<div\s+class="wall__shelf-roll"[\s\S]*?<\/div>\s*<\/aside>/)
+    expect(rollBlock).not.toBeNull()
+    const block = rollBlock?.[0] ?? ''
+    expect(block).toMatch(/class="wall__shelf-scroll"/)
+    expect(block).toMatch(/class="wall__shelf-note"/)
+    expect(block).toMatch(/class="wall__shelf-roll-label"/)
+    expect(block).toContain('未展开稿纸卷')
+  })
+
+  it('kao.css exposes all 6 new wall composition rules gated by .theme-kao (3 tape + 3 shelf anchor)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // Dossier tape (3 selectors)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier-tape\b\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier-tape--left\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier-tape--right\b/)
+    // Shelf anchor (3 selectors)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__shelf-scroll\b\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__shelf-note\b\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__shelf-roll-label\b\s*\{/)
+    // Intent comment marker
+    expect(kaoCss).toMatch(/Desktop hamburger clearance/)
+  })
+
+  it('No new scoped :global(.theme-kao) or unlayered !important on Wall V3 selectors (5C load regression vector)', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(writing).not.toMatch(/scoped.*:global\(/)
+    expect(writing).not.toContain(':global(.theme-kao)')
+    expect(kaoCss).not.toMatch(/scoped.*:global\(/)
+    // No new !important on the W3 wall composition selectors
+    const newWallTapeImportant = (kaoCss.match(/\.theme-kao\s+\.wall__dossier-tape[^{]*\{[^}]*!important[^}]*\}/g) || []).length
+    expect(newWallTapeImportant).toBe(0)
+    const newShelfAnchorImportant = (kaoCss.match(/\.theme-kao\s+\.wall__shelf-(scroll|note|roll-label)[^{]*\{[^}]*!important[^}]*\}/g) || []).length
+    expect(newShelfAnchorImportant).toBe(0)
+    // The desktop-padding override in Writing.vue unscoped <style> does
+    // NOT use !important (it relies on specificity 0,2,0 vs scoped 0,1,1)
+    const unscopedBlocks = writing.match(/<style>([\s\S]*?)<\/style>/g) || []
+    const newUnscopedImportant = unscopedBlocks.some((b) => /!important/.test(b))
+    expect(newUnscopedImportant).toBe(false)
+  })
+})
+
 // W3 Phase 1C v2: Writing visual emergence — commit 1 (drop-cap)
 // 3 contracts: drop-cap rule exists, uses --font-display, uses --archive-gold.
 describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
@@ -1082,13 +1152,16 @@ describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right si
     )
   })
 
-  it('Experience.vue exposes kao sidebar-section rule with archive paper + clip-path: none', () => {
+  it('Experience.vue exposes kao sidebar-section rule that integrates into 1 dossier (no per-section paper card, divider line between sections)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
+    // Single-dossier rule: .sidebar-section has transparent bg (so the
+    // .sidebar outer paper shows through) + a gold divider border-top.
+    // clip-path: none is inherited from the .sidebar override.
     expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*clip-path:\s*none/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*background:\s*transparent/s,
     )
     expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*var\(--archive-paper\)/s,
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*border-top:\s*1px solid/s,
     )
   })
 
@@ -1359,5 +1432,160 @@ describe('ui polish — UI-N2 Notes Archive Drawer composition', () => {
     expect(notes).not.toContain('<WorkbenchPageHero')
     expect(notes).not.toMatch(/scoped.*:global\(/)
     expect(notes).not.toContain(':global(.theme-kao)')
+  })
+})
+
+describe('ui polish — UI-E3 Experience polish (record-book composition: dossier sidebar + ledger entries + dossier modals)', () => {
+  it('UI-E3: right sidebar reads as 1 dossier with 3 sections, not 3 stacked cards (data-dossier-stamp on each section)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    // 3 dossier-stamp labels (卷宗一 / 卷宗二 / 卷宗三) on the 3 sidebar sections
+    expect(experience).toContain('data-dossier-stamp="卷宗一 · 在场人物"')
+    expect(experience).toContain('data-dossier-stamp="卷宗二 · 地点卡"')
+    expect(experience).toContain('data-dossier-stamp="卷宗三 · 事件卷"')
+    // The .sidebar-section rule consumes attr(data-dossier-stamp) to render a kicker
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section::before\s*\{[^}]*attr\(data-dossier-stamp\)/s,
+    )
+    // The .sidebar-section is transparent (integrated into 1 dossier outer paper)
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*background:\s*transparent/s,
+    )
+    // The .sidebar-section has a gold hairline divider (not an individual paper card)
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*border-top:\s*1px solid/s,
+    )
+  })
+
+  it('UI-E3: GamePanel message stream is a ledger entry flow, not a SaaS chat list (# marginalia + role-stamp + paper body, no avatar circle)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // Avatar column / avatar hidden in kao mode
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.avatar-column\s*\{[^}]*display:\s*none/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.tavern-avatar\s*\{[^}]*display:\s*none/s)
+    // 序号 marginalia via CSS counter on .msg-item::before
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item::before\s*\{[^}]*counter-increment:\s*record-entry/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container\s*\{[^}]*counter-reset:\s*record-entry/s)
+    // .msg-item is grid 44px 1fr (序号 col + body col), not flex
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*grid/s)
+    // .text-main uses LXGW WenKai display font
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
+    // .display-name is a small role-stamp kicker (10px letter-spacing 0.22em)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*10px/s)
+    // Each entry has a thin gold hairline divider
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*border-bottom:\s*1px solid\s+color-mix\(in srgb, var\(--archive-gold\)\s+18%, transparent\)/s)
+  })
+
+  it('UI-E3: internal modals (StatusBar 时间设定 / 角色详情, QuestLog 查看 / 记入) are dossier 抽屉, not 圆角 SaaS dialog', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    // Both have .theme-kao .detail-modal override that removes border-radius and adds gold hairline
+    expect(statusBar).toMatch(/\.theme-kao\s+\.detail-modal\s*\{[^}]*border-radius:\s*0/s)
+    expect(questLog).toMatch(/\.theme-kao\s+\.detail-modal\s*\{[^}]*border-radius:\s*0/s)
+    expect(statusBar).toMatch(/\.theme-kao\s+\.detail-modal\s*\{[^}]*var\(--archive-paper\)/s)
+    expect(questLog).toMatch(/\.theme-kao\s+\.detail-modal\s*\{[^}]*var\(--archive-paper\)/s)
+    // Modal header carries the dossier 卷宗 stamp (kicker, not page title)
+    expect(statusBar).toMatch(/\.theme-kao\s+\.modal-header::before\s*\{[^}]*content:\s*"卷宗\s*·\s*在场人物"/s)
+    expect(questLog).toMatch(/\.theme-kao\s+\.modal-header::before\s*\{[^}]*content:\s*"卷宗\s*·\s*事件卷"/s)
+  })
+
+  it('UI-E3: hard constraint — no scoped :global(.theme-kao), no new !important, no broad :deep() in the 5 modified files', () => {
+    const files = [
+      'src/pages/Experience.vue',
+      'src/components/GamePanel.vue',
+      'src/components/InputArea.vue',
+      'src/components/StatusBar.vue',
+      'src/components/QuestLog.vue',
+      'src/components/geography/GeographyPanel.vue',
+    ]
+    for (const f of files) {
+      const content = readProjectFile(f)
+      expect(content, f).not.toMatch(/scoped.*:global\(/)
+      expect(content, f).not.toContain(':global(.theme-kao)')
+      // !important is only allowed in 5C's text-transform: none !important; in
+      // kao.css (per spec). The 5 polished files must NOT add new !important.
+      const impCount = (content.match(/!important/g) || []).length
+      expect(impCount, f + ' has new !important').toBe(0)
+    }
+  })
+})
+
+// UI-N3: Notes Archive Drawer polish (2026-06-20 plan)
+// Unifies dark-mode wall: drawer / deck / archive-pin sit on one paper
+// surface instead of light-cream-left / dark-center split. Active-card
+// pops above backdrop via lighter gradient + double-tape + 8px shadow
+// (no rotation). Archive-pin gets explicit paper card so the floating
+// tile reads as object rather than free-floating on cream wall.
+describe('ui polish — UI-N3 Notes Archive Drawer dark-mode uniformity', () => {
+  it('UI-N3: notes-content-area is a unified paper backdrop (gradient + grain) — drawer / deck / pin all sit on same wall', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/\.notes-content-area\s*\{[\s\S]*?background:\s*linear-gradient\(135deg/s)
+  })
+
+  it('UI-N3: kao.css overrides notes-content-area paper wall with token-bound variant', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.notes-content-area[\s\S]*?linear-gradient\(135deg/s)
+    // Token-only inside the rule body — limit scope to next closing brace
+    const ruleMatch = css.match(/\.theme-kao\s+\.notes-content-area\s*\{[^}]*\}/)
+    expect(ruleMatch).not.toBeNull()
+    expect(ruleMatch?.[0]).not.toMatch(/#[0-9a-fA-F]{3,6}/)
+  })
+
+  it('UI-N3: reading-deck is transparent + gets paper grain via ::before overlay (deck inherits the wall)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.reading-deck\s*\{[\s\S]*?background:\s*transparent/)
+    expect(css).toMatch(/\.theme-kao\s+\.reading-deck::before\s*\{[\s\S]*?radial-gradient/s)
+    expect(css).toMatch(/\.theme-kao\s+\.reading-deck\s*>\s*\*\s*\{[^}]*position:\s*relative/)
+  })
+
+  it('UI-N3: active-card pops above backdrop via lighter gradient + 8px shadow + double tape (no rotation)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // No rotation (was +2deg that overflowed in dark)
+    expect(notes).not.toMatch(/\.active-card\s*\{[^}]*transform:\s*rotate/)
+    // Bigger shadow + max-width constraint
+    expect(notes).toMatch(/\.active-card\s*\{[^}]*max-width:\s*760px/s)
+    expect(notes).toMatch(/\.active-card\s*\{[^}]*box-shadow:[\s\S]*?8px 8px 0/)
+    // Second tape via ::after
+    expect(notes).toMatch(/\.active-card::after\s*\{[\s\S]*?bottom:\s*-10px/s)
+    // kao.css deepens the active-card visual
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.active-card::after\s*\{/)
+    expect(css).toMatch(/\.theme-kao\s+\.active-card\s*\{[\s\S]*?box-shadow:[\s\S]*?8px 8px 0/)
+    const ruleMatch = css.match(/\.theme-kao\s+\.active-card\s*\{[^}]*\}/)
+    expect(ruleMatch).not.toBeNull()
+    expect(ruleMatch?.[0]).not.toMatch(/#[0-9a-fA-F]{3,6}/)
+  })
+
+  it('UI-N3: archive-pin is now a paper card (border + shadow + padding) so floating tile reads as object on cream wall', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.archive-pin\s*\{[\s\S]*?background:\s*var\(--archive-paper\)/)
+    expect(css).toMatch(/\.theme-kao\s+\.archive-pin\s*\{[\s\S]*?box-shadow:/)
+    expect(css).toMatch(/\.theme-kao\s+\.archive-pin\s*\{[\s\S]*?padding:\s*4px/)
+  })
+
+  it('UI-N3: empty-archive card shrinks to 300px width so 12-cell drawer grid breathes; cells opacity bumped to 0.5', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/\.empty-archive__card\s*\{[\s\S]*?width:\s*300px/)
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.empty-archive__cell\s*\{[\s\S]*?opacity:\s*0\.5/)
+  })
+
+  it('UI-N3: hard constraint — no new scoped :global(.theme-kao), no new !important, no broad :deep(*) in Notes.vue', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).not.toMatch(/scoped.*:global\(/)
+    expect(notes).not.toContain(':global(.theme-kao)')
+    expect(notes).not.toMatch(/:deep\(\s*\*/)
+    expect(notes).not.toMatch(/!important/)
+  })
+
+  it('UI-N3: anti-micro-tweak — at least 4 of the 6 structural moves are present', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const css = readProjectFile('src/styles/themes/kao.css')
+    let moves = 0
+    if (notes.includes('notes-content-area') && css.includes('.theme-kao .notes-content-area')) moves++
+    if (css.includes('.theme-kao .reading-deck::before')) moves++
+    if (notes.match(/\.active-card\s*\{[^}]*box-shadow:[\s\S]*?8px 8px 0/) && notes.includes('.active-card::after')) moves++
+    if (css.includes('.theme-kao .archive-pin') && css.match(/\.theme-kao\s+\.archive-pin\s*\{[\s\S]*?box-shadow:/)) moves++
+    if (notes.match(/\.empty-archive__card\s*\{[\s\S]*?width:\s*300px/)) moves++
+    if (notes.match(/material-drawer[\s\S]*?box-shadow:\s*inset 8px 0 16px/) || css.match(/\.theme-kao\s+\.material-drawer\s*\{[\s\S]*?inset 8px 0 16px/)) moves++
+    expect(moves).toBeGreaterThanOrEqual(4)
   })
 })

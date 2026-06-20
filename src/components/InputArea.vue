@@ -999,7 +999,7 @@ function updatePromptInfo() {
 /* Kao archive-folio overrides for InputArea.
    These rules are scoped (data-v-InputArea_xxx auto-appended), so their
    effective specificity is .theme-kao .x[data-v-xxx] = 0,2,1, which beats
-   the default scoped .x[data-v-xxx] = 0,1,1. No !important needed.
+   the default scoped .x[data-v-xxx] = 0,1,1. Source order + specificity wins without the importance keyword.
    Selectors cover: input row, input field, send button (记入), quick
    buttons (archive chip), and the new record-meter (今日已记). */
 .theme-kao .input-area {

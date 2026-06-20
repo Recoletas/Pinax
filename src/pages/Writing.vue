@@ -108,11 +108,17 @@
           <button class="wall__shelf-pin-btn" type="button" @click="createNewChapter" :disabled="!selectedBookId" title="新建章节">+ 新章</button>
         </div>
 
-        <div class="wall__shelf-roll" aria-hidden="true"></div>
+        <div class="wall__shelf-roll" aria-hidden="true">
+          <div class="wall__shelf-scroll"></div>
+          <div class="wall__shelf-note"></div>
+          <span class="wall__shelf-roll-label">未展开稿纸卷</span>
+        </div>
       </aside>
 
       <!-- 中：卷宗稿纸（中央主线） -->
       <section class="wall__dossier" aria-label="章节正文卷宗">
+        <span class="wall__dossier-tape wall__dossier-tape--left" aria-hidden="true"></span>
+        <span class="wall__dossier-tape wall__dossier-tape--right" aria-hidden="true"></span>
         <span class="wall__pin-cnr wall__pin-cnr--tl" aria-hidden="true"></span>
         <span class="wall__pin-cnr wall__pin-cnr--tr" aria-hidden="true"></span>
         <span class="wall__pin-cnr wall__pin-cnr--bl" aria-hidden="true"></span>
@@ -4898,5 +4904,21 @@ function stopResizeRight() {
     grid-template-columns: 1fr;
   }
 
+}
+</style>
+
+<style>
+/* UI-W3 Pinax Wall polish — unscoped override block.
+   The base .wall__cork padding is set in this file's <style scoped> block
+   (specificity 0,1,1 with data-v-xxx). kao.css holds .theme-kao .wall__cork
+   inside @layer kao, which loses to unlayered scoped CSS regardless of
+   selector specificity (CSS Cascade Level 5 §6.4.4). The fix is to add
+   the desktop padding-left as an unscoped rule at the end of this file,
+   which loads AFTER the scoped block — same pattern Experience.vue
+   uses for its 6-field record-folio. Selector specificity 0,2,0 wins. */
+@media (min-width: 1000px) {
+  .theme-kao .wall__cork {
+    padding-left: 80px;
+  }
 }
 </style>

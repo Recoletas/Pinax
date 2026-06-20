@@ -485,4 +485,133 @@ summary .arrow {
 .tavern-btn.primary:hover {
   background: var(--accent-hover);
 }
+
+/* Kao record-book overrides — convert chat list into a "卷次条目流"
+   (ledger entry stream). Avatar becomes a 0-radius square stamp, body
+   moves to "manuscript line" with a role-stamp kicker header, and
+   the whole entry gets a left marginalia 序号 (entry number) + a thin
+   gold hairline divider. No template change — the avatar-column still
+   holds the avatar element, the msg-column still holds the body; we
+   only restyle the layout, sizes, fonts, and the dividers between
+   entries. Scoped CSS specificity 0,2,1 (theme-kao .x[data-v-xxx])
+   beats the default 0,1,1 of the tool-feel rules above. */
+.theme-kao .chat-container {
+  background: transparent;
+  padding: 6px 0 12px;
+  gap: 0;
+}
+
+.theme-kao .msg-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 4px 16px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
+}
+
+.theme-kao .msg-item:last-child {
+  border-bottom: none;
+}
+
+.theme-kao .msg-item::before {
+  content: "#" counter(record-entry, decimal-leading-zero);
+  counter-increment: record-entry;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--archive-ink) 44%, transparent);
+  text-align: right;
+  padding-top: 4px;
+  align-self: start;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.theme-kao .chat-container {
+  counter-reset: record-entry;
+}
+
+.theme-kao .avatar-column {
+  display: none;
+}
+
+.theme-kao .tavern-avatar {
+  display: none;
+}
+
+.theme-kao .msg-column {
+  display: contents;
+}
+
+.theme-kao .msg-header {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 30%, transparent);
+}
+
+.theme-kao .display-name {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.22em;
+  text-transform: none;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+}
+
+.theme-kao .msg-time {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+}
+
+.theme-kao .text-main {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--archive-ink);
+  letter-spacing: 0.02em;
+}
+
+.theme-kao .thought-wrapper {
+  max-width: 100%;
+  margin: 8px 0 10px;
+}
+
+.theme-kao details {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  border-radius: 0;
+}
+
+.theme-kao summary {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+}
+
+.theme-kao .thought-body {
+  font-family: var(--font-display);
+  font-size: 12px;
+  line-height: 1.7;
+  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 40%, transparent);
+}
+
+.theme-kao .icon-btn {
+  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+  border-radius: 0;
+}
+
+.theme-kao .icon-btn:hover {
+  background: color-mix(in srgb, var(--archive-gold) 12%, transparent);
+  color: var(--archive-olive-strong);
+}
 </style>

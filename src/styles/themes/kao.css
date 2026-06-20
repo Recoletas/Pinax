@@ -916,23 +916,20 @@
     position: relative;
     margin-top: auto;
     align-self: stretch;
-    height: 36px;
+    height: 48px;
     background:
-      radial-gradient(ellipse at 14px 50%, var(--archive-paper-soft) 0 12px, transparent 13px),
-      linear-gradient(180deg, var(--archive-paper-soft), var(--archive-paper));
-    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
-    box-shadow: 0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 14%) 0%,
+        color-mix(in srgb, var(--archive-ink) 22%, var(--archive-paper-strong)) 100%);
+    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 26%, transparent);
+    box-shadow:
+      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 24%, transparent),
+      0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
   }
+  /* Old "未展开稿纸卷" text moved to <span class="wall__shelf-roll-label"> inside the
+     roll. Keeping ::after empty so the text isn't duplicated. */
   .theme-kao .wall__shelf-roll::after {
-    content: "未展开稿纸卷";
-    position: absolute;
-    left: 36px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-family: var(--font-display);
-    font-size: 10px;
-    color: var(--archive-ink-soft);
-    letter-spacing: 0.12em;
+    content: none;
   }
 
   /* Chapter folder card — 88px tall kraft card with index tab on
@@ -1406,6 +1403,155 @@
     }
   }
 
+  /* UI-W3: Pinax Wall composition polish — 3 structural moves
+     (anti-micro-tweak). Each rule is a new named visual element, not
+     a color/spacing tweak of existing rules.
+
+     (A) Desktop cork-board left padding — clear the AppShell fixed
+         hamburger (46px at left:16px, z-index 90) so "PROJECT · PINAX"
+         is no longer hidden behind the menu button. Desktop only
+         (>=1000px); mobile/tablet keeps the existing layout.
+
+     (B) Dossier tape strips — two pieces of masking tape that visually
+         pin the dossier to the cork-board above. Reads as "the
+         manuscript was just torn from the cork-board". Replaces the
+         disconnected corner-pin look (4 pins inside the card) with a
+         visible cross-component relationship.
+
+     (C) Shelf anchor objects — when the chapter stack is empty, the
+         shelf rail is now anchored by a rolled manuscript scroll +
+         a sticky note instead of just a text label. Visible at any
+         chapter count, so the wall never reads as "empty rail". */
+
+  /* (A) Desktop hamburger clearance. */
+  @media (min-width: 1000px) {
+    .theme-kao .wall__cork {
+      padding-left: 80px;
+    }
+  }
+
+  /* (B) Dossier tape — masking paper tape bridging cork-board and
+     dossier. Two strips, opposite rotations, semi-opaque paper-soft
+     so the cork-board shows through faintly underneath. */
+  .theme-kao .wall__dossier-tape {
+    position: absolute;
+    top: -14px;
+    width: 96px;
+    height: 26px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 78%, transparent) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 64%, transparent) 100%);
+    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 28%, transparent);
+    z-index: 4;
+    opacity: 0.92;
+    pointer-events: none;
+  }
+  .theme-kao .wall__dossier-tape::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(90deg,
+        transparent 0 4px,
+        color-mix(in srgb, var(--archive-ink) 6%, transparent) 4px 5px);
+    mix-blend-mode: multiply;
+    opacity: 0.5;
+  }
+  .theme-kao .wall__dossier-tape--left {
+    left: 18%;
+    transform: rotate(-5deg);
+  }
+  .theme-kao .wall__dossier-tape--right {
+    right: 18%;
+    transform: rotate(4deg);
+  }
+
+  /* (C) Shelf anchor — rolled manuscript + sticky note. These objects
+     live at the bottom of the shelf so the left rail is never empty.
+     Replaces the previous "未展开稿纸卷" text-only label. */
+  .theme-kao .wall__shelf-scroll {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 8px;
+    bottom: 8px;
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-soft) 0%,
+        var(--archive-paper) 50%,
+        var(--archive-paper-strong) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 20%, transparent);
+  }
+  .theme-kao .wall__shelf-scroll::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    bottom: -4px;
+    width: 10px;
+    transform: translateX(-50%);
+    background:
+      linear-gradient(180deg,
+        var(--archive-rose) 0%,
+        color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink)) 100%);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  }
+  .theme-kao .wall__shelf-note {
+    position: absolute;
+    right: 18px;
+    bottom: 6px;
+    width: 64px;
+    height: 22px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 92%, var(--archive-gold-soft)) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink)) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    transform: rotate(-7deg);
+    box-shadow:
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 26%, transparent);
+  }
+  .theme-kao .wall__shelf-note::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    width: 6px;
+    height: 6px;
+    transform: translateX(-50%) rotate(45deg);
+    background: inherit;
+    border: inherit;
+    border-bottom: none;
+    border-right: none;
+  }
+  .theme-kao .wall__shelf-roll-label {
+    position: absolute;
+    left: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-ink) 78%, var(--archive-paper-soft));
+    z-index: 1;
+    pointer-events: none;
+  }
+  .theme-kao .wall__shelf-roll {
+    /* The position:relative is set on the base .wall__shelf-roll rule above
+       (line 915); this block is a no-op kept as a marker that the roll is
+       the anchor container for .wall__shelf-scroll / .wall__shelf-note /
+       .wall__shelf-roll-label children. */
+  }
+
   /* UI-N2: Notes Archive Drawer 视觉覆写
      All rules gated by .theme-kao so legacy variant keeps the neutral
      scoped-CSS baseline. References --archive-* tokens defined above. */
@@ -1419,11 +1565,13 @@
   .theme-kao .material-drawer {
     background:
       linear-gradient(90deg,
-        color-mix(in srgb, var(--archive-paper-strong) 88%, transparent) 0%,
-        var(--archive-paper-soft) 60%,
-        var(--archive-paper) 100%);
-    border-right: 1px solid var(--archive-gold);
-    box-shadow: inset 6px 0 12px color-mix(in srgb, var(--archive-ink) 16%, transparent);
+        color-mix(in srgb, var(--archive-paper-strong) 92%, transparent) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 70%, var(--archive-paper-soft)) 60%,
+        color-mix(in srgb, var(--archive-paper-soft) 80%, var(--archive-paper)) 100%);
+    border-right: 1px solid color-mix(in srgb, var(--archive-gold) 70%, transparent);
+    box-shadow:
+      inset 8px 0 16px color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      1px 0 0 color-mix(in srgb, var(--archive-gold) 18%, transparent);
   }
 
   /* keeper-corner 值班档案员 */
@@ -1543,14 +1691,41 @@
     opacity: 0.45;
   }
 
-  /* reading-deck 阅读台 */
+  /* UI-N3: unified paper wall — drawer / deck / pin all sit on this surface
+     so dark mode no longer splits into "light cream drawer + dark center gap" */
+  .theme-kao .notes-content-area {
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 80%, var(--archive-paper-strong)) 100%),
+      radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--archive-gold) 10%, transparent) 0 1px, transparent 2px),
+      radial-gradient(circle at 67% 78%, color-mix(in srgb, var(--archive-ink) 8%, transparent) 0 1px, transparent 2px);
+    background-size: auto, 11px 11px, 15px 15px;
+  }
+
+  /* reading-deck 阅读台 — 透出 backdrop + subtle paper grain */
   .theme-kao .reading-deck {
     background: transparent;
   }
+  .theme-kao .reading-deck::before {
+    content: '';
+    position: absolute;
+    inset: 24px 28px 20px;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 24% 30%, color-mix(in srgb, var(--archive-gold) 9%, transparent) 0 1px, transparent 2px),
+      radial-gradient(circle at 72% 70%, color-mix(in srgb, var(--archive-ink) 6%, transparent) 0 1px, transparent 2px);
+    background-size: 13px 13px, 17px 17px;
+    mix-blend-mode: multiply;
+    opacity: 0.55;
+    z-index: 0;
+  }
+  .theme-kao .reading-deck > * { position: relative; z-index: 1; }
 
   /* empty-archive 空档案柜 */
   .theme-kao .empty-archive__cell {
     border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
+    opacity: 0.5;
   }
   .theme-kao .empty-archive__card {
     background: var(--archive-paper-strong);
@@ -1574,13 +1749,21 @@
     font-style: italic;
   }
 
-  /* active-card 被推上来的卡 */
+  /* active-card 被推上来的卡 — paper-soft 之上再浮一层亮调，
+     让 card 跟 backdrop 拉开 tone 差；阴影 + inset gold ring + 双胶带 */
   .theme-kao .active-card {
-    background: var(--archive-paper-soft);
-    border-color: color-mix(in srgb, var(--archive-gold) 70%, transparent);
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-soft) 0%,
+        color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 100%);
+    border-color: color-mix(in srgb, var(--archive-gold) 75%, transparent);
     box-shadow:
-      6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 18%, transparent);
+      8px 8px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  }
+  .theme-kao .active-card::after {
+    color: var(--archive-ink-soft);
+    border-color: color-mix(in srgb, var(--archive-gold) 70%, transparent);
   }
   .theme-kao .active-card__tape {
     background: color-mix(in srgb, var(--archive-paper) 70%, transparent);
@@ -1610,9 +1793,16 @@
   .theme-kao .archive-pin {
     transform: rotate(-3deg) translateX(8px);
     transform-origin: bottom right;
+    background: var(--archive-paper);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    box-shadow:
+      4px 4px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    padding: 4px;
   }
   .theme-kao .archive-pin__nail {
     color: var(--archive-gold);
+    filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--archive-ink) 50%, transparent));
   }
 
   /* drawer-empty hint */

@@ -1129,4 +1129,141 @@ function deleteActivity() {
     grid-template-columns: 1fr;
   }
 }
+
+/* Kao record-book overrides — internal modals (查看事件卷 / 记入事件)
+   become "翻开的案卷第 N 页" (a dossier drawer page), not SaaS settings
+   dialog. 0 圆角 + 1px gold hairline + paper-soft + dossier 卷宗 stamp
+   in the header. Scoped CSS specificity 0,2,1 beats tool-feel 0,1,1. */
+.theme-kao .detail-modal {
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  font-family: var(--font-display);
+  color: var(--archive-ink);
+}
+
+.theme-kao .modal-header {
+  background: var(--archive-paper-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: var(--archive-ink);
+  padding: 12px 18px 10px;
+  position: relative;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.theme-kao .modal-header::before {
+  content: "卷宗 · 事件卷";
+  position: absolute;
+  top: -8px;
+  left: 16px;
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  background: var(--archive-paper);
+  padding: 0 6px;
+  z-index: 1;
+}
+
+.theme-kao .modal-body {
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.theme-kao .modal-footer {
+  background: var(--archive-paper-soft);
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+}
+
+.theme-kao .modal-footer .btn,
+.theme-kao .modal-footer .btn.primary,
+.theme-kao .modal-footer .tavern-btn,
+.theme-kao .modal-footer .tavern-btn.primary {
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  color: var(--archive-ink);
+  border-radius: 0;
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.theme-kao .modal-footer .btn.primary,
+.theme-kao .modal-footer .tavern-btn.primary {
+  background: var(--archive-olive);
+  border-color: var(--archive-olive-strong);
+  color: var(--archive-paper-soft);
+}
+
+.theme-kao .modal-footer .btn.primary:hover,
+.theme-kao .modal-footer .tavern-btn.primary:hover {
+  background: var(--archive-olive-strong);
+}
+
+.theme-kao .modal-footer .btn:hover,
+.theme-kao .modal-footer .tavern-btn:hover {
+  background: color-mix(in srgb, var(--archive-paper-strong) 40%, var(--archive-paper));
+  color: var(--archive-olive-strong);
+}
+
+.theme-kao .modal-body .btn,
+.theme-kao .modal-body .tavern-btn {
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: var(--archive-ink);
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.theme-kao .modal-body .btn:hover,
+.theme-kao .modal-body .tavern-btn:hover {
+  background: color-mix(in srgb, var(--archive-paper-strong) 40%, var(--archive-paper));
+  border-color: var(--archive-gold);
+}
+
+.theme-kao .modal-body input,
+.theme-kao .modal-body select,
+.theme-kao .modal-body textarea {
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  border-radius: 0;
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.theme-kao .modal-body input::placeholder,
+.theme-kao .modal-body textarea::placeholder {
+  color: color-mix(in srgb, var(--archive-ink) 44%, transparent);
+  font-style: italic;
+}
+
+.theme-kao .modal-body label {
+  color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.theme-kao .close-btn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  border-radius: 0;
+}
+
+.theme-kao .close-btn:hover {
+  color: var(--archive-gold);
+  border-color: var(--archive-gold);
+}
+
+.theme-kao .modal-overlay,
+.theme-kao .detail-overlay {
+  background: color-mix(in srgb, var(--archive-ink) 30%, transparent);
+}
 </style>

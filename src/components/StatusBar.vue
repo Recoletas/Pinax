@@ -791,4 +791,115 @@ function saveCharacter() {
 
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-hover); }
+
+/* Kao record-book overrides — internal modals (时间设置 / 角色详情)
+   become "翻开的案卷第 N 页" (a dossier drawer page), not SaaS settings
+   dialog. 0 圆角 + 1px gold hairline + paper-soft + dossier 卷宗 stamp
+   in the header. Scoped CSS specificity 0,2,1 beats tool-feel 0,1,1. */
+.theme-kao .detail-modal {
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  font-family: var(--font-display);
+  color: var(--archive-ink);
+}
+
+.theme-kao .modal-header {
+  background: var(--archive-paper-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: var(--archive-ink);
+  padding: 12px 18px 10px;
+  position: relative;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.theme-kao .modal-header::before {
+  content: "卷宗 · 在场人物";
+  position: absolute;
+  top: -8px;
+  left: 16px;
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  background: var(--archive-paper);
+  padding: 0 6px;
+  z-index: 1;
+}
+
+.theme-kao .modal-body {
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.theme-kao .detail-section {
+  background: transparent;
+  border: none;
+}
+
+.theme-kao .detail-section label,
+.theme-kao .detail-section span {
+  color: color-mix(in srgb, var(--archive-ink) 80%, transparent);
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.theme-kao .detail-section input,
+.theme-kao .detail-section select,
+.theme-kao .detail-section textarea {
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  border-radius: 0;
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.theme-kao .modal-footer {
+  background: var(--archive-paper-soft);
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+}
+
+.theme-kao .modal-footer .btn,
+.theme-kao .modal-footer .btn.primary {
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  color: var(--archive-ink);
+  border-radius: 0;
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.theme-kao .modal-footer .btn.primary {
+  background: var(--archive-olive);
+  border-color: var(--archive-olive-strong);
+  color: var(--archive-paper-soft);
+}
+
+.theme-kao .modal-footer .btn.primary:hover {
+  background: var(--archive-olive-strong);
+  border-color: var(--archive-olive-strong);
+}
+
+.theme-kao .modal-footer .btn:hover {
+  background: color-mix(in srgb, var(--archive-paper-strong) 40%, var(--archive-paper));
+  color: var(--archive-olive-strong);
+}
+
+.theme-kao .close-btn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  border-radius: 0;
+}
+
+.theme-kao .close-btn:hover {
+  color: var(--archive-gold);
+  border-color: var(--archive-gold);
+}
 </style>

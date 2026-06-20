@@ -2525,6 +2525,14 @@ function syncSelectionCommandState() {
   display: flex;
   flex: 1;
   overflow: hidden;
+  /* UI-N3 unified paper wall — drawer / deck / archive-pin all sit on
+     this surface so dark mode doesn't split into "light cream drawer +
+     dark center gap". Archive tokens stay cream in both light/dark,
+     so this wall is the constant visual ground. */
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 0%,
+      color-mix(in srgb, var(--archive-paper) 80%, var(--archive-paper-strong)) 100%);
 }
 
 .material-drawer {
@@ -2874,9 +2882,9 @@ function syncSelectionCommandState() {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  width: 380px;
-  max-width: 90%;
-  padding: 44px 28px 32px;
+  width: 300px;
+  max-width: 86%;
+  padding: 36px 24px 28px;
   text-align: center;
   background: var(--archive-paper-strong);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
@@ -2918,12 +2926,29 @@ function syncSelectionCommandState() {
   flex-direction: column;
   flex: 1;
   gap: 14px;
+  max-width: 760px;
+  margin: 8px auto 4px;
   padding: 28px 28px 16px;
-  background: var(--archive-paper-soft);
+  /* UI-N3: no background here — @layer kao lets kao.css .theme-kao
+     .active-card own the paper-soft gradient + gold ring. Scoped
+     fallback (no bg) keeps legacy variant undecorated. */
   border: 1px solid color-mix(in srgb, var(--archive-gold) 70%, transparent);
-  transform: rotate(2deg);
-  transform-origin: top center;
-  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  box-shadow:
+    8px 8px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+}
+
+.active-card::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%) rotate(-2deg);
+  width: 80px;
+  height: 18px;
+  border: 1px dashed currentColor;
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .active-card__tape {

@@ -58,13 +58,13 @@
           </button>
         </div>
         <template v-if="!sidebarCollapsed">
-          <div class="sidebar-section">
+          <div class="sidebar-section" data-dossier-stamp="卷宗一 · 在场人物">
             <StatusBar />
           </div>
-          <div class="sidebar-section">
+          <div class="sidebar-section" data-dossier-stamp="卷宗二 · 地点卡">
             <GeographyPanel />
           </div>
-          <div class="sidebar-section">
+          <div class="sidebar-section" data-dossier-stamp="卷宗三 · 事件卷">
             <QuestLog />
           </div>
         </template>
@@ -1854,7 +1854,7 @@ function quickNoteWordCount(text) {
    original tool-feel scoped rules also have 0,1,1 and source-order ties
    go to whoever was loaded last. Putting the .theme-kao override as
    .theme-kao .game-page .xxx (specificity 0,3,0 in scoped's 0,1,1 world)
-   wins regardless. No :global, no !important, no :deep. */
+   wins regardless. No scoped :global, no unlayered importance keyword, no :deep. */
 .theme-kao .game-page .record-folio {
   position: relative;
   display: block;
@@ -1962,12 +1962,14 @@ function quickNoteWordCount(text) {
 .theme-kao .game-page .sidebar {
   position: relative;
   width: 248px;
-  padding: 18px 14px 18px 22px;
+  padding: 0 0 0 22px;
   background: var(--archive-paper);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
   border-radius: 0;
   clip-path: none;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
+  display: flex;
+  flex-direction: column;
 }
 
 .theme-kao .game-page .sidebar::before {
@@ -1988,11 +1990,12 @@ function quickNoteWordCount(text) {
 
 .theme-kao .game-page .sidebar-head {
   position: relative;
-  padding: 16px 16px 14px;
+  padding: 16px 14px 14px;
   background: var(--archive-paper-soft);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
   clip-path: none;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
+  box-shadow: none;
 }
 
 .theme-kao .game-page .sidebar-head::before {
@@ -2033,12 +2036,35 @@ function quickNoteWordCount(text) {
   border-color: var(--archive-gold);
 }
 
+/* Sidebar sections — single dossier with 3 sections (人物 / 地点 / 事件)
+   instead of 3 stacked cards. Each section is a "翻开的案卷页" of the
+   same dossier — no individual border, no per-section padding gap, just
+   a thin gold hairline divider between sections. The dossier outer
+   border (on .sidebar) provides the framing; sections read as one
+   continuous record binder, not 3 separate widgets. */
 .theme-kao .game-page .sidebar-section {
   position: relative;
-  padding: 14px;
-  background: var(--archive-paper);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 20%, transparent);
+  padding: 14px 14px 16px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
   clip-path: none;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-ink) 6%, transparent);
+  box-shadow: none;
+}
+
+.theme-kao .game-page .sidebar-section:first-child {
+  border-top: none;
+}
+
+.theme-kao .game-page .sidebar-section::before {
+  content: attr(data-dossier-stamp);
+  display: block;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--archive-ink) 52%, transparent);
+  margin: 0 0 8px;
+  text-transform: none;
 }
 </style>
