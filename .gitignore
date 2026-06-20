@@ -60,6 +60,8 @@ Thumbs.db
 .claude/*
 .superpowers/
 skills-lock.json
+docs/agent-runs/**/*.claude.json
+docs/agent-runs/**/pids.txt
 
 # Shared project skills (re-include shim subpaths)
 !.agents/skills/
