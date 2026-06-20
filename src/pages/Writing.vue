@@ -1,18 +1,23 @@
 <template>
-  <div class="writing-page" @click="onGlobalClick">
-    <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
-      <div class="manuscript-top">
-        <div class="manuscript-top__left">
-          <button class="manuscript-top__back" @click="goBack" title="返回" aria-label="返回">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-            </svg>
-          </button>
-          <div class="manuscript-top__book">
-            <span class="manuscript-top__no">No.</span>
+  <div class="writing-page wall" @click="onGlobalClick">
+    <!-- 墙顶线脚 — 28px, 深胡桃木 + 烫金刻字项目名 + 返回按钮 -->
+    <div class="wall__molding">
+      <div class="wall__molding-rule"></div>
+    </div>
+
+    <!-- 软木公告板 — 188px, 项目身份 + 4 枚图钉 + 印章 + 4 个功能 tab + 丝带 -->
+    <div class="wall__cork">
+      <div class="wall__project">
+        <span class="wall__project-mark">PROJECT · PINAX</span>
+        <h1 class="wall__project-title">{{ projectTitle }}</h1>
+        <div class="wall__project-meta">
+          <span><b>{{ books.length }}</b>本书</span>
+          <span><b>{{ chapters.length }}</b>章节</span>
+          <span v-if="selectedChapterSummary"><b>{{ selectedChapterSummary }}</b></span>
+          <span v-if="selectedBookId">
             <select
               v-model="selectedBookId"
-              class="manuscript-top__book-select"
+              class="wall__book-select"
               aria-label="选择书籍"
               @change="handleHeroBookChange"
             >
@@ -21,133 +26,140 @@
                 {{ book.title }}
               </option>
             </select>
-          </div>
-          <span v-if="selectedChapterSummary" class="manuscript-top__chapter">
-            {{ selectedChapterSummary }}
           </span>
         </div>
-
-        <div class="manuscript-top__right">
-          <span class="manuscript-top__chip">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
-          <button class="manuscript-top__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
-          <button class="manuscript-top__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
-          <button class="manuscript-top__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
-          <button class="manuscript-top__mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
-            <svg v-if="isDark" width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
-            </svg>
-          </button>
-        </div>
       </div>
-    </FolioSurface>
 
-    <div class="content-area">
-      <!-- 左侧边栏：作品导航 -->
-      <FolioSurface as="aside" variant="paper" :decorated="true" class="books-sidebar writing-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
-        <div class="sidebar-header">
-          <span class="sidebar-title">作品</span>
-          <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开书籍' : '收起书籍'">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path v-if="isRightCollapsed" d="M8 2L4 6l4 4V2z"/>
-                <path v-else d="M4 2l4 4-4 4V2z"/>
-              </svg>
-            </button>
-            <button class="add-btn btn-new" @click="createNewBook" title="新建书籍" :disabled="isRightCollapsed">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 0v14M0 7h14"/>
-              </svg>
-            </button>
-          </div>
+      <div class="wall__pins" aria-label="章节状态图钉">
+        <div
+          v-for="(pin, idx) in chapterPinStrip"
+          :key="`${pin.label}-${idx}`"
+          class="wall__pin"
+          :title="pin.label"
+        >
+          <span class="wall__pin-dot" :style="{ '--pin-color': pin.color }"></span>
+          <span class="wall__pin-num">{{ pin.num }}</span>
         </div>
-        <div class="book-list" v-show="!isRightCollapsed">
-          <div
-            v-for="book in books"
-            :key="book.id"
-            :class="['book-item', { active: selectedBookId === book.id }]"
-            @click="selectBook(book.id)"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" class="book-icon">
-              <path d="M2 2h5.5v12H2V2zm6 0h6v12H8V2z"/>
-            </svg>
-            <div class="book-info">
-              <span class="book-title">{{ book.title }}</span>
-              <span class="book-meta">{{ book.chapters?.length || 0 }} 章</span>
-            </div>
-            <button class="delete-btn" @click.stop="deleteBook(book.id)" title="删除书籍">×</button>
-          </div>
-          <div v-if="books.length === 0" class="empty-hint">
-            暂无书籍，点击上方 + 新建
-          </div>
+        <div class="wall__ribbon" aria-hidden="true"></div>
+      </div>
+
+      <div class="wall__stamp" aria-label="保存状态印章">
+        <span class="wall__stamp-state">{{ stampStateText }}</span>
+        <span v-if="saveStatus !== 'saving'" class="wall__stamp-meta">{{ wordCount.toLocaleString() }} 字</span>
+        <span v-else class="wall__stamp-meta">盖印中</span>
+      </div>
+
+      <div class="wall__tabs">
+        <button class="wall__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
+        <button class="wall__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
+        <button class="wall__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
+        <button class="wall__back" type="button" @click="goBack" title="返回首页" aria-label="返回">
+          ← 返回
+        </button>
+        <button class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
+          <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
+          </svg>
+          <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 + 220px 墙钉角色档案卡 -->
+    <main class="wall__main">
+      <!-- 左：5 层书架 + 章节档案夹 + 底部卷轴 -->
+      <aside class="wall__shelf" aria-label="章节书架">
+        <div class="wall__shelf-board" aria-hidden="true"></div>
+
+        <div
+          v-for="book in books.slice(0, 4)"
+          :key="book.id"
+          class="wall__folder"
+          :class="{ 'is-active': selectedBookId === book.id }"
+          :style="{ '--folder-pin': chapterPinColor(book.chapters?.length || 0) }"
+          @click="selectBook(book.id)"
+          role="button"
+          :aria-label="`书 ${book.title}`"
+        >
+          <span class="wall__folder-tab">书</span>
+          <span class="wall__folder-title">{{ book.title }}</span>
+          <span class="wall__folder-meta">{{ book.chapters?.length || 0 }} 章 · {{ chapterWordTotal(book) }} 字</span>
         </div>
-        <template v-if="selectedBookId">
-          <div class="sidebar-header chapter-header">
-            <span class="sidebar-title">章节</span>
-            <button class="add-btn btn-new" @click="createNewChapter" title="新建章节" :disabled="isRightCollapsed">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 0v14M0 7h14"/>
-              </svg>
-            </button>
-          </div>
-          <div class="chapter-list" v-show="!isRightCollapsed">
-            <div
-              v-for="(chapter, index) in chapters"
-              :key="chapter.id"
-              class="chapter-list-item"
-            >
-              <BookmarkButton
-                variant="tertiary"
-                size="compact"
-                :index="String(index + 1).padStart(2, '0')"
-                :label="chapter.title || '无标题章节'"
-                :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'}`"
-                :class="{ active: selectedChapterId === chapter.id }"
-                @click="selectChapter(chapter.id)"
-              />
-              <button class="delete-btn" @click.stop="deleteChapter(chapter.id)" title="删除章节">×</button>
-            </div>
-            <div v-if="chapters.length === 0" class="empty-hint">
-              暂无章节，点击 + 添加
-            </div>
-          </div>
-        </template>
-        <footer v-show="!isRightCollapsed" class="writing-sidebar__footer">
-          <CharacterPortrait
-            pose-id="writing-sidekick"
-            size="thumb"
-            caption="批注中"
-            style="max-width: 180px"
+
+        <div
+          v-for="(chapter, index) in chapters.slice(0, 6)"
+          :key="chapter.id"
+          class="wall__folder"
+          :class="{ 'is-active': selectedChapterId === chapter.id }"
+          :style="{ '--folder-pin': chapterPinColor(chapter.wordCount || 0) }"
+          @click="selectChapter(chapter.id)"
+          role="button"
+          :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'}`"
+        >
+          <span class="wall__folder-tab">{{ String(index + 1).padStart(2, '0') }}</span>
+          <span class="wall__folder-title">{{ chapter.title || '无标题章节' }}</span>
+          <span class="wall__folder-meta">{{ (chapter.wordCount || 0).toLocaleString() }} 字</span>
+        </div>
+
+        <div class="wall__shelf-actions">
+          <button class="wall__shelf-pin-btn" type="button" @click="createNewBook" title="新建书籍">+ 新书</button>
+          <button class="wall__shelf-pin-btn" type="button" @click="createNewChapter" :disabled="!selectedBookId" title="新建章节">+ 新章</button>
+        </div>
+
+        <div class="wall__shelf-roll" aria-hidden="true"></div>
+      </aside>
+
+      <!-- 中：卷宗稿纸（中央主线） -->
+      <section class="wall__dossier" aria-label="章节正文卷宗">
+        <span class="wall__pin-cnr wall__pin-cnr--tl" aria-hidden="true"></span>
+        <span class="wall__pin-cnr wall__pin-cnr--tr" aria-hidden="true"></span>
+        <span class="wall__pin-cnr wall__pin-cnr--bl" aria-hidden="true"></span>
+        <span class="wall__pin-cnr wall__pin-cnr--br" aria-hidden="true"></span>
+
+        <header class="wall__dossier-head">
+          <span class="wall__dossier-num">{{ chapterNumberLabel }}</span>
+          <input
+            v-model="currentChapterTitle"
+            type="text"
+            class="wall__dossier-title"
+            placeholder="章节标题"
+            @input="onTitleChange"
+            aria-label="章节标题"
           />
-        </footer>
-      </FolioSurface>
+          <span v-if="selectedChapterId" class="wall__dossier-watermark">DRAFT</span>
+        </header>
 
-      <!-- 左侧分隔栏 -->
-      <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
-
-      <!-- 主编辑区 -->
-      <FolioSurface as="main" variant="chrome" :decorated="false" class="editor-main writing-editor">
         <template v-if="!selectedBookId">
-          <div class="empty-state">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
-              <path d="M6 6h18v36H6V6zm24 0h12v36H30V6zM12 12h6v4h-6v-4zm0 8h12v4H12v-4zm0 8h10v4H12v-4z"/>
-            </svg>
-            <p class="empty-title">选择或创建书籍</p>
-            <p class="empty-desc">从右侧选择一本书籍开始写作</p>
-            <button class="btn-primary" @click="createNewBook">新建书籍</button>
+          <div class="wall__dossier-empty">
+            <div class="wall__empty-draft">
+              <div class="wall__empty-line" style="--w: 64%; --indent: 0"></div>
+              <div class="wall__empty-line" style="--w: 78%; --indent: 0"></div>
+              <div class="wall__empty-line" style="--w: 50%; --indent: 0"></div>
+            </div>
+            <div class="wall__empty-stamp" aria-hidden="true">未开卷</div>
+            <div class="wall__empty-clip">书架空空，先在左侧钉一本新书</div>
+            <div class="wall__empty-actions">
+              <button class="wall__pin-cta" type="button" @click="createNewBook">钉一本新书</button>
+              <button class="wall__pin-cta wall__pin-cta--ghost" type="button" @click="goBack">回到入口</button>
+            </div>
           </div>
         </template>
 
         <template v-else-if="!selectedChapterId">
-          <div class="empty-state">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
-              <path d="M8 8h32v32H8V8zm4 4v24h24V12H12zm4 4h16v2H16v-2zm0 6h16v2H16v-2zm0 6h10v2H16v-2z"/>
-            </svg>
-            <p class="empty-title">选择或创建章节</p>
-            <p class="empty-desc">从左侧目录中选择一个章节开始编辑</p>
-            <button class="btn-primary" @click="createNewChapter">新建章节</button>
+          <div class="wall__dossier-empty">
+            <div class="wall__empty-draft">
+              <div class="wall__empty-line" style="--w: 72%; --indent: 0"></div>
+              <div class="wall__empty-line" style="--w: 84%; --indent: 0"></div>
+              <div class="wall__empty-line" style="--w: 40%; --indent: 0"></div>
+            </div>
+            <div class="wall__empty-stamp" aria-hidden="true">未完</div>
+            <div class="wall__empty-clip">继续：选定章节开始落笔</div>
+            <div class="wall__empty-actions">
+              <button class="wall__pin-cta" type="button" @click="createNewChapter">开新章节</button>
+              <button class="wall__pin-cta wall__pin-cta--ghost" type="button" @click="goBack">回到入口</button>
+            </div>
           </div>
         </template>
 
@@ -164,62 +176,23 @@
               <kbd>Tab</kbd> 采纳 · <kbd>Esc</kbd> 忽略
             </span>
             <div class="copilot-actions">
-              <button
-                v-if="copilotVisible"
-                type="button"
-                class="copilot-action"
-                @mousedown.prevent
-                @click.stop="acceptCopilotSuggestion"
-              >采纳</button>
-              <button
-                v-if="copilotVisible"
-                type="button"
-                class="copilot-action"
-                @mousedown.prevent
-                @click.stop="retryCopilotSuggestion"
-              >重试</button>
-              <button
-                type="button"
-                class="copilot-action secondary"
-                @mousedown.prevent
-                @click.stop="copilotCancel"
-              >{{ copilotGenerating ? '停止' : '忽略' }}</button>
+              <button v-if="copilotVisible" type="button" class="copilot-action" @mousedown.prevent @click.stop="acceptCopilotSuggestion">采纳</button>
+              <button v-if="copilotVisible" type="button" class="copilot-action" @mousedown.prevent @click.stop="retryCopilotSuggestion">重试</button>
+              <button type="button" class="copilot-action secondary" @mousedown.prevent @click.stop="copilotCancel">{{ copilotGenerating ? '停止' : '忽略' }}</button>
             </div>
           </div>
 
-          <div class="editor-header">
-            <!-- 编辑工具栏 -->
+          <div class="wall__dossier-body">
             <div class="editor-toolbar">
               <div class="toolbar-group">
-                <button class="tool-btn" @click="autoFormat" title="一键排版">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M1 2h12v1.5H1V2zm0 4h12v1.5H1V6zm0 4h8v1.5H1v-1.5z"/>
-                  </svg>
-                  排版
-                </button>
-                <button class="tool-btn" @click="insertSeparator" title="插入分隔线">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M1 7h12" stroke="currentColor" stroke-width="1.5"/>
-                    <circle cx="7" cy="7" r="2" fill="currentColor"/>
-                  </svg>
-                  分隔
-                </button>
+                <button class="tool-btn" @click="autoFormat" title="一键排版">排版</button>
+                <button class="tool-btn" @click="insertSeparator" title="插入分隔线">分隔</button>
               </div>
-
               <div class="toolbar-sep"></div>
-
               <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M2 2h10v2H2V2zm1 3h8v7H3V5zm0 0l2 6h4l2-6"/>
-                  </svg>
-                  字体
-                </button>
-
-                <!-- 字体面板 -->
+                <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">字体</button>
                 <div class="font-panel" v-if="showFontPanel" @click.stop>
-                  <div class="fp-row">
-                    <span class="fp-label">字体</span>
+                  <div class="fp-row"><span class="fp-label">字体</span>
                     <select class="fp-select" v-model="editorFont">
                       <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
                       <option value="'SimSun', serif">宋体</option>
@@ -229,65 +202,43 @@
                       <option value="system-ui, sans-serif">系统默认</option>
                     </select>
                   </div>
-                  <div class="fp-row">
-                    <span class="fp-label">大小</span>
+                  <div class="fp-row"><span class="fp-label">大小</span>
                     <div class="fp-size-btns">
                       <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小">A-</button>
                       <span class="fp-size-val">{{ editorFontSize }}</span>
                       <button class="fp-btn" @click="adjustFontSize(1)" title="放大">A+</button>
                     </div>
                   </div>
-                  <div class="fp-row">
-                    <span class="fp-label">样式</span>
+                  <div class="fp-row"><span class="fp-label">样式</span>
                     <div class="fp-btns">
-                      <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold" title="加粗">
-                        <strong>B</strong>
-                      </button>
-                      <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic" title="斜体">
-                        <em>I</em>
-                      </button>
-                      <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline" title="下划线">
-                        <u>U</u>
-                      </button>
+                      <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold"><strong>B</strong></button>
+                      <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic"><em>I</em></button>
+                      <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline"><u>U</u></button>
                     </div>
                   </div>
                 </div>
-
-                <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M7 1a3 3 0 100 6 3 3 0 000-6zm-5 12l1-4h8l1 4H2z"/>
-                  </svg>
-                  取名
-                </button>
-
-                <!-- 取名面板 -->
+                <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">取名</button>
                 <div class="name-gen-panel" v-if="showNameGen" @click.stop>
-                  <div class="ng-row">
-                    <span class="ng-label">类型</span>
+                  <div class="ng-row"><span class="ng-label">类型</span>
                     <div class="ng-btns">
                       <button :class="['ng-btn', { active: nameType === 'character' }]" @click="nameType = 'character'">人物</button>
                       <button :class="['ng-btn', { active: nameType === 'place' }]" @click="nameType = 'place'">地点</button>
                     </div>
                   </div>
-                  <div class="ng-row">
-                    <span class="ng-label">风格</span>
+                  <div class="ng-row"><span class="ng-label">风格</span>
                     <div class="ng-btns">
                       <button :class="['ng-btn', { active: nameStyle === 'western' }]" @click="nameStyle = 'western'">西方</button>
                       <button :class="['ng-btn', { active: nameStyle === 'ancient' }]" @click="nameStyle = 'ancient'">古风</button>
                       <button :class="['ng-btn', { active: nameStyle === 'modern' }]" @click="nameStyle = 'modern'">现代</button>
                     </div>
                   </div>
-                  <div class="ng-row" v-if="nameType === 'character'">
-                    <span class="ng-label">姓氏</span>
+                  <div class="ng-row" v-if="nameType === 'character'"><span class="ng-label">姓氏</span>
                     <input v-model="fixedSurname" class="ng-input ng-sm" placeholder="可留空" />
                   </div>
-                  <div class="ng-row" v-if="nameType === 'character'">
-                    <span class="ng-label">名字</span>
+                  <div class="ng-row" v-if="nameType === 'character'"><span class="ng-label">名字</span>
                     <input v-model="fixedGivenName" class="ng-input ng-sm" placeholder="可留空" />
                   </div>
-                  <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">
-                    生成
-                  </button>
+                  <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">生成</button>
                   <div class="ng-results" v-if="generatedNames.length > 0">
                     <div class="ng-result-item" v-for="(item, idx) in generatedNames" :key="idx" @click="selectName(item)">
                       <span v-if="typeof item === 'string'">{{ item }}</span>
@@ -296,46 +247,26 @@
                   </div>
                 </div>
               </div>
-
               <div class="toolbar-sep"></div>
-
               <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <path d="M5 1a4 4 0 014 4c0 1.5-.8 2.8-2 3.5l3 3-1.5 1.5-3-3A4 4 0 115 1zm0 1.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
-                  </svg>
-                  查找
-                </button>
+                <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">查找</button>
               </div>
-
               <div class="toolbar-sep"></div>
-
               <div class="toolbar-group">
-                <button class="tool-btn ai-btn" :class="{ active: showAiPanel }" @click.stop="toggleAiPanel" title="AI 扩展/改写">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm1.5 10.5l-3-2 .5-.75 2.25 1.5 2.25-3 .75.5-2.75 3.75z"/>
-                  </svg>
-                  AI
-                </button>
-
-                <!-- AI 扩展/改写面板 -->
+                <button class="tool-btn ai-btn" :class="{ active: showAiPanel }" @click.stop="toggleAiPanel" title="AI 扩展/改写">AI</button>
                 <div class="ai-panel" v-if="showAiPanel" @click.stop>
                   <div class="ai-panel-tabs">
                     <button :class="['ai-tab', { active: aiPanelMode === 'expand' }]" @click="aiPanelMode = 'expand'">扩展</button>
                     <button :class="['ai-tab', { active: aiPanelMode === 'rewrite' }]" @click="aiPanelMode = 'rewrite'">改写</button>
                   </div>
-
                   <div class="ai-panel-body">
-                    <!-- 扩展模式 -->
                     <div v-if="aiPanelMode === 'expand'" class="ai-options">
-                      <div class="ai-row">
-                        <span class="ai-label">扩展模式</span>
+                      <div class="ai-row"><span class="ai-label">扩展模式</span>
                         <select class="ai-select" v-model="expandMode">
                           <option v-for="m in expansionModes" :key="m.value" :value="m.value">{{ m.label }}</option>
                         </select>
                       </div>
-                      <div class="ai-row">
-                        <span class="ai-label">叙事风格</span>
+                      <div class="ai-row"><span class="ai-label">叙事风格</span>
                         <select class="ai-select" v-model="narrativeStyle">
                           <option value="literary">文学性</option>
                           <option value="webnovel">网文风</option>
@@ -343,21 +274,15 @@
                           <option value="dramatic">戏剧性</option>
                         </select>
                       </div>
-                      <button class="tool-btn ai-action-btn" @click="doExpand" :disabled="aiProcessing || !selectedText">
-                        {{ aiProcessing ? '处理中...' : '扩展选中文字' }}
-                      </button>
+                      <button class="tool-btn ai-action-btn" @click="doExpand" :disabled="aiProcessing || !selectedText">{{ aiProcessing ? '处理中...' : '扩展选中文字' }}</button>
                     </div>
-
-                    <!-- 改写模式 -->
                     <div v-if="aiPanelMode === 'rewrite'" class="ai-options">
-                      <div class="ai-row">
-                        <span class="ai-label">改写模式</span>
+                      <div class="ai-row"><span class="ai-label">改写模式</span>
                         <select class="ai-select" v-model="rewriteMode">
                           <option v-for="m in rewriteModes" :key="m.value" :value="m.value">{{ m.label }}</option>
                         </select>
                       </div>
-                      <div class="ai-row" v-if="rewriteMode === 'style'">
-                        <span class="ai-label">叙事风格</span>
+                      <div class="ai-row" v-if="rewriteMode === 'style'"><span class="ai-label">叙事风格</span>
                         <select class="ai-select" v-model="narrativeStyle">
                           <option value="literary">文学性</option>
                           <option value="webnovel">网文风</option>
@@ -365,62 +290,32 @@
                           <option value="dramatic">戏剧性</option>
                         </select>
                       </div>
-                      <div class="ai-row" v-if="rewriteMode === 'tone'">
-                        <span class="ai-label">语气</span>
+                      <div class="ai-row" v-if="rewriteMode === 'tone'"><span class="ai-label">语气</span>
                         <select class="ai-select" v-model="rewriteTone">
                           <option v-for="t in tonePresets" :key="t.value" :value="t.value">{{ t.label }}</option>
                         </select>
                       </div>
-                      <button class="tool-btn ai-action-btn" @click="doRewrite" :disabled="aiProcessing || !selectedText">
-                        {{ aiProcessing ? '处理中...' : '改写选中文字' }}
-                      </button>
+                      <button class="tool-btn ai-action-btn" @click="doRewrite" :disabled="aiProcessing || !selectedText">{{ aiProcessing ? '处理中...' : '改写选中文字' }}</button>
                     </div>
-
-                    <!-- 结果预览 -->
                     <div v-if="aiResult" class="ai-result">
                       <div class="ai-result-header">
                         <span>结果预览</span>
                         <div class="ai-result-actions">
-                          <BookmarkButton
-                            variant="primary"
-                            size="compact"
-                            :index="'01'"
-                            label="应用"
-                            :aria-label="`应用 AI 改写到正文`"
-                            @click="applyAiResult"
-                          />
-                          <BookmarkButton
-                            variant="secondary"
-                            size="compact"
-                            :index="'02'"
-                            label="取消"
-                            :aria-label="`取消 AI 改写`"
-                            @click="aiResult = ''"
-                          />
+                          <BookmarkButton variant="primary" size="compact" :index="'01'" label="应用" :aria-label="`应用 AI 改写到正文`" @click="applyAiResult" />
+                          <BookmarkButton variant="secondary" size="compact" :index="'02'" label="取消" :aria-label="`取消 AI 改写`" @click="aiResult = ''" />
                         </div>
                       </div>
                       <div class="ai-result-content">{{ aiResult }}</div>
                     </div>
-
-                    <div v-if="!selectedText" class="ai-hint">
-                      请先在编辑器中选择要处理的文字
-                    </div>
+                    <div v-if="!selectedText" class="ai-hint">请先在编辑器中选择要处理的文字</div>
                   </div>
                 </div>
               </div>
-
               <div class="toolbar-spacer"></div>
-
               <div class="mode-switch">
-                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">
-                  编辑
-                </button>
-                <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">
-                  Markdown
-                </button>
-                <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">
-                  预览
-                </button>
+                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
+                <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown">Markdown</button>
+                <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
               </div>
             </div>
 
@@ -451,106 +346,90 @@
               </div>
             </section>
 
-            <!-- 查找替换栏 -->
             <div class="find-replace-bar" v-if="showFindReplace" @click.stop>
-              <input
-                v-model="findText"
-                class="find-input"
-                placeholder="查找..."
-                @keydown.enter="findNext"
-              />
+              <input v-model="findText" class="find-input" placeholder="查找..." @keydown.enter="findNext" />
               <button class="tool-btn sm" @click="findPrev">↑</button>
               <button class="tool-btn sm" @click="findNext">↓</button>
               <span class="find-count" v-if="findResults.length > 0">{{ findCurrent + 1 }}/{{ findResults.length }}</span>
               <span class="find-count" v-else-if="findText">无匹配</span>
               <div class="fr-divider"></div>
-              <input
-                v-model="replaceText"
-                class="find-input"
-                placeholder="替换为..."
-              />
+              <input v-model="replaceText" class="find-input" placeholder="替换为..." />
               <button class="tool-btn sm" @click="replaceOne">单处</button>
               <button class="tool-btn sm" @click="replaceAll">全部</button>
               <button class="tool-btn sm close" @click="showFindReplace = false">×</button>
             </div>
 
-            <div class="title-row">
-              <input
-                v-model="currentChapterTitle"
-                type="text"
-                class="chapter-title-input"
-                placeholder="章节标题"
-                @input="onTitleChange"
-              />
-              <div class="editor-stats">
-                <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
-                <span class="stat-divider">|</span>
-                <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
+            <div class="editor-container" v-if="editorMode === 'wysiwyg'">
+              <div class="editor-ghost-layer" v-if="copilotVisible && copilotSuggestion" :style="editorTypographyStyle" aria-hidden="true">
+                <div class="editor-ghost-scroll" :style="copilotGhostScrollStyle">
+                  <span>{{ copilotGhostBefore }}</span><span class="ghost-text">{{ copilotSuggestion }}</span><span>{{ copilotGhostAfter }}</span>
+                </div>
               </div>
-            </div>
-          </div>
-
-          <!-- 编辑器容器（含 Ghost Text） -->
-          <div class="editor-container" v-if="editorMode === 'wysiwyg'">
-            <div
-              class="editor-ghost-layer"
-              v-if="copilotVisible && copilotSuggestion"
-              :style="editorTypographyStyle"
-              aria-hidden="true"
-            >
-              <div class="editor-ghost-scroll" :style="copilotGhostScrollStyle">
-                <span>{{ copilotGhostBefore }}</span><span class="ghost-text">{{ copilotSuggestion }}</span><span>{{ copilotGhostAfter }}</span>
-              </div>
+              <textarea
+                v-model="markdownContent"
+                class="wall__dossier-textarea prose-textarea"
+                :class="{ 'with-copilot-ghost': copilotVisible && copilotSuggestion }"
+                placeholder="开始写作..."
+                ref="editorRef"
+                :style="editorTypographyStyle"
+                @input="onMarkdownInput"
+                @keydown="onTextAreaKeydown"
+                @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+                @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+                @scroll="onEditorScroll"
+              ></textarea>
             </div>
             <textarea
+              v-if="editorMode === 'markdown'"
               v-model="markdownContent"
-              class="editor-textarea prose-textarea"
-              :class="{ 'with-copilot-ghost': copilotVisible && copilotSuggestion }"
-              placeholder="开始写作..."
-              ref="editorRef"
-              :style="editorTypographyStyle"
+              class="wall__dossier-textarea markdown-textarea"
+              placeholder="开始写作（Markdown）..."
               @input="onMarkdownInput"
               @keydown="onTextAreaKeydown"
-              @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-              @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-              @scroll="onEditorScroll"
             ></textarea>
+            <div
+              v-if="editorMode === 'preview'"
+              class="wall__dossier-textarea editor-preview"
+              v-html="previewHtml"
+            ></div>
+
+            <div class="dossier-footer">
+              <span class="dossier-footer-stat">{{ wordCount.toLocaleString() }} 字</span>
+              <span class="dossier-footer-stat-divider">·</span>
+              <span class="dossier-footer-stat">{{ charCount.toLocaleString() }} 字符</span>
+              <span class="dossier-footer-stat-divider">·</span>
+              <span class="dossier-footer-stat">修订 {{ revisionLabel }}</span>
+            </div>
           </div>
-          <textarea
-            v-if="editorMode === 'markdown'"
-            v-model="markdownContent"
-            class="editor-textarea markdown-textarea"
-            placeholder="开始写作（Markdown）..."
-            @input="onMarkdownInput"
-            @keydown="onTextAreaKeydown"
-          ></textarea>
-          <div
-            v-if="editorMode === 'preview'"
-            class="editor-textarea editor-preview"
-            v-html="previewHtml"
-          ></div>
 
+          <!-- 右键菜单 -->
+          <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }" @click.stop>
+            <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
+            <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
+            <div class="ctx-divider"></div>
+            <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
+            <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
+            <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
+            <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
+            <div class="ctx-divider"></div>
+            <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
+          </div>
+        </template>
+      </section>
 
-      <!-- 右键菜单 -->
-      <div
-        v-if="contextMenu.show"
-        class="context-menu"
-        :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-        @click.stop
-      >
-        <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
-        <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
-        <div class="ctx-divider"></div>
-        <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
-        <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
-        <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
-        <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
-        <div class="ctx-divider"></div>
-        <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
-      </div>
-      </template>
-      </FolioSurface>
-    </div>
+      <!-- 右：墙钉角色档案卡 (220×300) -->
+      <aside class="wall__dossier-portrait" aria-label="角色档案卡">
+        <span class="wall__steel-pin wall__steel-pin--tl" aria-hidden="true"></span>
+        <span class="wall__steel-pin wall__steel-pin--tr" aria-hidden="true"></span>
+        <CharacterPortrait
+          pose-id="writing-sidekick"
+          size="thumb"
+          caption="批注中"
+        />
+      </aside>
+    </main>
+
+    <div class="wall__floor" aria-hidden="true"></div>
 
     <ImageGenRail
       storage-key="writing_image_library_v1"
@@ -992,6 +871,62 @@ const selectedChapterSummary = computed(() => {
   const count = Number(chapter.wordCount || 0)
   return `${title} · ${count.toLocaleString()} 字`
 })
+
+// UI-W2: Pinax Wall computeds. project title derives from selected book
+// or default "未命名作品"; pin strip encodes chapter status (gold=已完稿,
+// olive=在写, rose=草稿, ink=未动) for the cork-board color band.
+const projectTitle = computed(() => {
+  const book = books.value.find((item) => item.id === selectedBookId.value)
+  return book?.title || '未命名作品'
+})
+
+const chapterPinStrip = computed(() => {
+  const palette = [
+    { color: 'var(--archive-gold)', label: '已完稿' },
+    { color: 'var(--archive-olive)', label: '在写' },
+    { color: 'var(--archive-rose)', label: '草稿' },
+    { color: 'var(--archive-ink-soft)', label: '未动' }
+  ]
+  return chapters.value.slice(0, 4).map((chapter, index) => {
+    const count = Number(chapter.wordCount || 0)
+    let color = palette[3].color
+    let label = palette[3].label
+    if (count >= 3000) { color = palette[0].color; label = palette[0].label }
+    else if (count >= 500) { color = palette[1].color; label = palette[1].label }
+    else if (count > 0) { color = palette[2].color; label = palette[2].label }
+    return { num: String(index + 1).padStart(2, '0'), color, label }
+  })
+})
+
+const stampStateText = computed(() => {
+  if (saveStatus.value === 'saving') return '盖印中'
+  if (saveStatus.value === 'unsaved') return '待签'
+  return '已签'
+})
+
+const chapterNumberLabel = computed(() => {
+  const idx = chapters.value.findIndex((item) => item.id === selectedChapterId.value)
+  if (idx < 0) return 'No.'
+  return String(idx + 1).padStart(2, '0')
+})
+
+const revisionLabel = computed(() => {
+  const stamp = new Date().toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return stamp
+})
+
+function chapterPinColor(count) {
+  const c = Number(count || 0)
+  if (c >= 3000) return 'var(--archive-gold)'
+  if (c >= 500) return 'var(--archive-olive)'
+  if (c > 0) return 'var(--archive-rose)'
+  return 'var(--archive-ink-soft)'
+}
+
+function chapterWordTotal(book) {
+  const list = Array.isArray(book?.chapters) ? book.chapters : []
+  return list.reduce((sum, c) => sum + (Number(c.wordCount || 0) || 0), 0).toLocaleString()
+}
 
 function handleHeroBookChange() {
   if (!selectedBookId.value) return
@@ -2749,6 +2684,292 @@ function stopResizeRight() {
 .manuscript-top__mode:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* UI-W2: Pinax Wall — legacy variant fallback (kao variant rules live
+   in kao.css .theme-kao block; legacy uses generic chrome). Kept
+   scoped here so Writing.vue remains the single owner. */
+.wall {
+  background: var(--bg-primary);
+}
+.wall__molding {
+  height: 28px;
+  background: linear-gradient(180deg, var(--surface-panel), var(--bg-secondary));
+  border-bottom: 1px solid var(--border);
+}
+.wall__cork {
+  padding: 16px 24px;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border);
+}
+.wall__project {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wall__project-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.wall__project-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wall__book-select {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.wall__pins {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.wall__pin-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wall__stamp {
+  align-self: end;
+  padding: 6px 12px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 8px;
+}
+.wall__tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  align-items: center;
+}
+.wall__tab {
+  padding: 6px 14px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-right: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wall__tab:hover:not(:disabled) { color: var(--accent); }
+.wall__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
+.wall__back {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wall__tab--mode {
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.wall__main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 248px 1fr 220px;
+  gap: 24px;
+  padding: 24px 28px;
+  overflow: auto;
+  min-height: 0;
+}
+.wall__shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+.wall__folder {
+  position: relative;
+  min-width: 0;
+  padding: 10px 12px 10px 48px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wall__folder.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
+  border-color: var(--accent);
+}
+.wall__folder-title {
+  display: block;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wall__folder-meta {
+  display: block;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wall__shelf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wall__shelf-pin-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.wall__shelf-pin-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+.wall__dossier {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  min-height: 460px;
+}
+.wall__dossier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 14px;
+}
+.wall__dossier-num {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.wall__dossier-title {
+  flex: 1;
+  font-size: 22px;
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+}
+.wall__dossier-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.wall__dossier-textarea {
+  flex: 1;
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  resize: none;
+  min-height: 280px;
+}
+.wall__dossier-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.wall__dossier-portrait {
+  width: 220px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 16px;
+  align-self: end;
+}
+.wall__dossier-empty {
+  padding: 32px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wall__empty-stamp {
+  align-self: end;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.wall__empty-clip {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wall__pin-cta {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.wall__pin-cta--ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.dossier-footer {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.wall__floor {
+  height: 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
 }
 
 .writing-page {

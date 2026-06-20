@@ -121,19 +121,18 @@ describe('stereo migration — page wiring (pass 5A commit 2 + 5C refactor)', ()
     expect(matches).toHaveLength(0)
   })
 
-  it('Writing.vue sidebar footer mounts CharacterPortrait pose-id="writing-sidekick" (kao archive-folio chapter-side pose-D stub)', () => {
+  it('Writing.vue wall dossier card mounts CharacterPortrait pose-id="writing-sidekick" (kao archive-folio chapter-side pose-D stub)', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
-    // The sidebar footer must host a CharacterPortrait bound to a registered poseId.
+    // The wall dossier card must host a CharacterPortrait bound to a registered poseId.
     // pose-D ("半身侧视 · 静默批注") per character-driven-arc.md:133.
     expect(writing).toMatch(/<CharacterPortrait[\s\S]*?pose-id="writing-sidekick"[\s\S]*?\/>/)
-    // Must be inside the books-sidebar FolioSurface (the chapter list rail, not the editor).
-    // Source uses <FolioSurface as="aside" class="books-sidebar writing-sidebar"> because
-    // the FolioSurface component renders the actual <aside> tag via <component :is="as">.
-    const sidebarSection = writing.match(
-      /<FolioSurface[^>]*as="aside"[^>]*class="books-sidebar[^"]*"[\s\S]*?<\/FolioSurface>/,
+    // UI-W2 moved the sidekick from the old books-sidebar footer into the
+    // wall dossier card so it is attached to the editing-room wall.
+    const portraitSection = writing.match(
+      /<aside class="wall__dossier-portrait"[\s\S]*?<\/aside>/,
     )
-    expect(sidebarSection).not.toBeNull()
-    expect(sidebarSection?.[0] ?? '').toContain('CharacterPortrait')
+    expect(portraitSection).not.toBeNull()
+    expect(portraitSection?.[0] ?? '').toContain('CharacterPortrait')
   })
 
   it('characterArt.js exposes 1 writing-sidekick stub pose (Writing page 侧栏 pose-D 半身体侧视 占位)', () => {

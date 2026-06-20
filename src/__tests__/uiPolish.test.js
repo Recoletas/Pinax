@@ -73,13 +73,17 @@ describe('ui polish contract', () => {
   it('keeps material bulk actions in the checked-selection toolbar', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
 
-    expect(notes).toContain('class="material-selection-bar"')
+    // UI-N2: material-selection-bar is gone — the batch stamp now lives in
+    // material-selection-stamp inside the drawer. The 4 functional buttons
+    // must still exist with the same @click handlers (functional contract).
+    expect(notes).toContain('class="material-selection-stamp"')
     expect(notes).toContain('@click="importCheckedToCanvas">导入</button>')
     expect(notes).toContain('@click="setCheckedAssetsState(\'accepted\')">采纳</button>')
     expect(notes).toContain('@click="setCheckedAssetsState(\'archived\')">归档</button>')
     expect(notes).toContain('@click="deleteCheckedAssets">删除</button>')
     expect(notes).not.toContain('class="asset-status-control"')
     expect(notes).not.toContain('function setSelectedAssetState')
+    expect(notes).not.toContain('class="material-selection-bar"')
   })
 
   it('keeps the playable-worldbook entry path visible before heavy editor exits', () => {
@@ -225,41 +229,71 @@ describe('ui polish contract', () => {
     expect(personaLauncher).toContain("caption: {\n    type: String,\n    default: '虚构集'")
   })
 
-  it('keeps Experience shell-only and replaces Writing/Notes hero copy with compact manuscript-top strips', () => {
+  it('UI-W2: Writing page is composed as Pinax Wall — cork-board band + shelf + dossier sheet + wall-attached character card, no SaaS toolbar', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const writing = readProjectFile('src/pages/Writing.vue')
     const notes = readProjectFile('src/pages/Notes.vue')
     const proseEssay = readProjectFile('src/pages/ProseEssay.vue')
     const workbenchHero = readProjectFile('src/components/workbench/WorkbenchPageHero.vue')
 
+    // Experience contract unchanged.
     expect(experience).not.toContain('<WorkbenchPageHero')
     expect(experience).not.toContain('class="experience-stage-band"')
     expect(experience).toContain('class="game-layout"')
     expect(experience).toContain('class="game-main-shell"')
     expect(experience).toContain('class="sidebar-head-copy"')
-    // W4: Writing V2 顶部切片 — 移除 WorkbenchPageHero + SaaS toolbar, 替换为手稿页顶栏 manuscript-top.
-    // 保留 8 个功能控件 (返回 / 选择书 / 章节名 / 状态+字数 / 收件箱 / 素材库 / 分镜 / 亮暗切换),
-    // 不再出现 "Writing Desk" 英文 kicker, 不再出现 "当前正在处理..." 长说明, 不再出现 writingHeroDescription 引用.
+
+    // UI-W2: Writing = 编辑室资料墙 (Pinax Wall). Top is a 216px wall
+    // (28px molding + 188px cork-board), main is 3-zone grid (shelf +
+    // dossier + portrait card). No SaaS hero, no WorkbenchPageHero, no
+    // manuscript-top strip, no Writing Desk kicker, no 长说明.
     expect(writing).not.toContain('<WorkbenchPageHero')
     expect(writing).not.toContain('Writing Desk')
+    expect(writing).not.toContain('class="manuscript-top"')
     expect(writing).not.toContain('writingHeroDescription')
     expect(writing).not.toContain('当前正在处理')
-    expect(writing).not.toContain('素材收件箱、素材库和章节分镜都从这里出入')
-    expect(writing).toContain('class="manuscript-top"')
-    expect(writing).toContain('class="manuscript-top__book"')
-    expect(writing).toContain('class="manuscript-top__chapter"')
-    expect(writing).toContain('class="manuscript-top__chip"')
-    expect(writing).toContain('class="manuscript-top__tab"')
-    expect(writing).toContain('class="manuscript-top__mode"')
-    // 功能保留 — 8 个控件:
+    expect(writing).not.toContain('class="content-area"')
+    expect(writing).not.toContain('class="editor-main writing-editor"')
+    expect(writing).not.toContain('class="books-sidebar writing-sidebar"')
+
+    // Wall structure: molding + cork-board + main 3-zone + floor
+    expect(writing).toMatch(/class="wall__molding"/)
+    expect(writing).toMatch(/class="wall__cork"/)
+    expect(writing).toMatch(/class="wall__pins"/)
+    expect(writing).toMatch(/class="wall__pin"/)
+    expect(writing).toMatch(/class="wall__pin-dot"/)
+    expect(writing).toMatch(/class="wall__stamp"/)
+    expect(writing).toMatch(/class="wall__ribbon"/)
+    expect(writing).toMatch(/class="wall__tabs"/)
+    expect(writing).toMatch(/class="wall__main"/)
+    expect(writing).toMatch(/class="wall__shelf"/)
+    expect(writing).toMatch(/class="wall__folder"/)
+    expect(writing).toMatch(/class="wall__shelf-roll"/)
+    expect(writing).toMatch(/class="wall__dossier"/)
+    expect(writing).toMatch(/class="wall__pin-cnr wall__pin-cnr--tl"/)
+    expect(writing).toMatch(/class="wall__dossier-head"/)
+    expect(writing).toMatch(/class="wall__dossier-num"/)
+    expect(writing).toMatch(/class="wall__dossier-title"/)
+    expect(writing).toMatch(/class="wall__dossier-empty"/)
+    expect(writing).toMatch(/class="wall__empty-stamp"/)
+    expect(writing).toMatch(/class="wall__empty-clip"/)
+    expect(writing).toMatch(/class="wall__pin-cta"/)
+    expect(writing).toMatch(/class="wall__dossier-portrait"/)
+    expect(writing).toMatch(/class="wall__steel-pin wall__steel-pin--tl"/)
+    expect(writing).toMatch(/class="wall__pin-cnr wall__pin-cnr--tl"/)
+    expect(writing).toMatch(/class="wall__floor"/)
+
+    // 8 functional controls still wired (anti-micro-tweak gate).
     expect(writing).toContain('@click="goBack"')
     expect(writing).toContain('v-model="selectedBookId"')
     expect(writing).toContain('@click.stop="openAssetInbox"')
     expect(writing).toContain('@click.stop="openMaterialsPage"')
     expect(writing).toContain('@click.stop="exportChapterStoryboardDraft"')
     expect(writing).toContain('@click="toggleTheme"')
-    // Notes follows the same compact top-strip direction: no English kicker,
-    // no explanatory hero copy, just status and page actions.
+    expect(writing).toContain('@click="createNewBook"')
+    expect(writing).toContain('@click="createNewChapter"')
+
+    // Notes still follows its own direction (out of UI-W2 scope).
     expect(notes).not.toContain('<WorkbenchPageHero')
     expect(notes).not.toContain('Material Library')
     expect(notes).not.toContain('notesHeroDescription')
@@ -272,22 +306,37 @@ describe('ui polish contract', () => {
     expect(workbenchHero).toContain('class="workbench-page-hero__title"')
   })
 
-  it('W4: manuscript-top has .theme-kao gated CSS in kao.css and legacy fallback in Writing.vue scoped style', () => {
+  it('UI-W2: Pinax Wall has .theme-kao gated CSS in kao.css and legacy fallback in Writing.vue scoped style', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     const writing = readProjectFile('src/pages/Writing.vue')
 
-    // kao variant — uses --archive-* tokens, LXGW WenKai display font
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__back\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__book\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__book-select\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__chapter\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__chip\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__tab\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.manuscript-top__mode\s*\{/)
+    // kao variant — uses --archive-* tokens
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__molding\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__cork\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__pin\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__stamp\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__main\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__shelf\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__folder\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier-portrait\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__pin-cta\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__empty-stamp\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__steel-pin\s*\{/)
+
     // legacy variant — uses --text-*/--border/--accent in Writing.vue scoped CSS
-    expect(writing).toMatch(/\.manuscript-top\s*\{/)
-    expect(writing).toMatch(/\.manuscript-top__tab\s*\{/)
+    expect(writing).toMatch(/\.wall__main\s*\{/)
+    expect(writing).toMatch(/\.wall__dossier\s*\{/)
+    expect(writing).toMatch(/\.wall__dossier-portrait\s*\{/)
+
+    // No scoped :global(.theme-kao) rule (anti-pattern from earlier round)
+    expect(writing).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(writing).not.toMatch(/:deep\(\.theme-kao\)/)
+    // No new !important declarations in UI-W2 scoped CSS additions
+    // (pre-existing chapter-outline-kind / .with-copilot-ghost rules remain
+    //  unchanged from Phase 1C — they are not part of the Wall refactor).
+    expect(writing).not.toMatch(/\.wall__[a-z_-]*\s*\{[^}]*!important/)
+    expect(writing).not.toMatch(/\.wall__steel-pin[^}]*!important/)
   })
 })
 
@@ -703,12 +752,13 @@ describe('N5C: material page kao archive-folio refactor', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
     const styleMatch = notes.match(/<style scoped>([\s\S]*?)<\/style>/)
     const lines = styleMatch ? styleMatch[1].split('\n').length : 0
-    // N5C ship was 721; N5C-A (tab spine + roman number + selection stamp)
-    // adds ~50 lines for the 档案索引 polish. 1000 gives headroom for
-    // future small enhancements without churn. N5C-B removes WorkbenchPageHero
-    // from Notes and adds a self-owned compact material-top fallback instead of
-    // depending on Writing.vue scoped CSS, so the ceiling moves by ~80 lines.
-    expect(lines).toBeLessThanOrEqual(1080)
+    // N5C ship was 721. N5C-A added ~50 lines. UI-N2 (Archive Drawer) is a
+    // structural refactor: replaces 260px sidebar + editor-main with
+    // material-drawer + reading-deck + active-card + empty-archive + archive-pin.
+    // Net add ~530 lines of structural scaffolding (display/position/sizing),
+    // all visual styling lives in kao.css. Ceiling moves to 1700 with explicit
+    // acceptance that drawer/deck composition owns the rest.
+    expect(lines).toBeLessThanOrEqual(1700)
   })
 
   it('N5C: no orphan template classes in Notes scoped CSS', () => {
@@ -745,23 +795,22 @@ describe('N5C: material page kao archive-folio refactor', () => {
     expect(orphans, `template class names with no scoped CSS rule: ${orphans.join(', ')}`).toEqual([])
   })
 
-  it('N5C-A: material-group-header has tab-spine element with kind color binding (档案 tab ribbon)', () => {
+  it('N5C-A: drawer-handle has spine element with kind color binding (档案 tab ribbon)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toMatch(/<span\s+class="material-group-spine"[^>]*:style="\{\s*background:\s*group\.color\s*\}"[^>]*>/)
+    expect(notes).toMatch(/<span\s+class="drawer-handle__spine"[^>]*:style="\{\s*background:\s*group\.color\s*\}"[^>]*>/)
   })
 
-  it('N5C-A: material-group-number renders roman index via groupIndexLabel(idx)', () => {
+  it('N5C-A: drawer-handle__roman renders roman index via groupIndexLabel(idx)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toContain('class="material-group-number"')
+    expect(notes).toContain('class="drawer-handle__roman"')
     expect(notes).toMatch(/\{\{\s*groupIndexLabel\(idx\)\s*\}\}/)
     expect(notes).toContain('function groupIndexLabel')
     expect(notes).toMatch(/GROUP_INDEX_ROMAN\s*=\s*\[['"]I['"]/)
   })
 
-  it('N5C-A: material-group-toggle uses SVG chevron (no text ›/⌄ chars)', () => {
+  it('N5C-A: drawer-handle__chevron uses SVG chevron (no text ›/⌄ chars)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toMatch(/<span\s+class="material-group-toggle"[^>]*>[\s\S]*?<svg[^>]*>/)
-    expect(notes).not.toMatch(/material-group-toggle["'][^>]*>\s*\{\{\s*isAssetKindCollapsed[^}]+\}\}\s*<\/span>/)
+    expect(notes).toMatch(/<span\s+class="drawer-handle__chevron"[^>]*>[\s\S]*?<svg[^>]*>/)
   })
 
   it('N5C-A: material-selection-stamp wraps the checked-count summary with tick rails', () => {
@@ -773,94 +822,85 @@ describe('N5C: material page kao archive-folio refactor', () => {
     expect(notes).not.toMatch(/<div\s+class="selection-summary">/)
   })
 
-  it('N5C-A: kao.css adds variant-specific tab-spine + selection-stamp overrides', () => {
+  it('N5C-A: kao.css adds variant-specific drawer-handle + selection-stamp overrides', () => {
     const css = readProjectFile('src/styles/themes/kao.css')
-    expect(css).toContain('.theme-kao .material-group-spine')
-    expect(css).toContain('.theme-kao .material-group-number')
+    expect(css).toContain('.theme-kao .drawer-handle')
+    expect(css).toContain('.theme-kao .drawer-handle__roman')
+    expect(css).toContain('.theme-kao .drawer-handle__title')
     expect(css).toContain('.theme-kao .material-selection-stamp')
     expect(css).toContain('.theme-kao .material-selection-stamp-tick')
     expect(css).toContain('.theme-kao .material-selection-stamp-text')
   })
 })
 
-// Phase 1C: Writing page kao archive-folio surface (2026-06-17 plan)
-// 5 + 3 review-fix contracts: FolioSurface 4-zone wiring, chapter list
-// BookmarkButton, AI panel primary/secondary, kao.css selector gating,
-// mode-switch lock, sidebar collapse v-show, BookmarkButton .active,
-// kao.css .theme-kao .ai-panel (renamed from .writing-ai-panel).
-describe('ui polish — Phase 1C Writing page kao surface', () => {
-  it('Writing.vue wraps 4 surfaces in <FolioSurface> (hero header / books-sidebar / editor-main / asset-inbox modal) — kao archive-folio zone grammar', () => {
+// UI-W2: Writing page Pinax Wall composition (2026-06-20 plan)
+// Replaces Phase 1C contracts that assumed WorkbenchPageHero + 4-zone
+// FolioSurface wrapping. The new architecture is a wall (molding +
+// cork-board) + 3-zone main (shelf + dossier + wall-attached portrait).
+// FolioSurface is no longer used for the page structure itself.
+describe('ui polish — UI-W2 Writing page Pinax Wall composition', () => {
+  it('Writing.vue is a single wall root (no FolioSurface wrap for page chrome; modal may still use it)', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
 
-    // 4 surfaces wrapped: WorkbenchPageHero (header) + books-sidebar (aside) + editor-main (main) + asset inbox modal (article)
-    const folioMatches = writing.match(/<FolioSurface[^>]*>/g) || []
-    expect(folioMatches.length).toBeGreaterThanOrEqual(4)
+    // No FolioSurface in the page chrome — wall / shelf / dossier are
+    // semantic custom elements, not FolioSurface variants.
+    const heroFolio = writing.match(/<FolioSurface[^>]*class="writing-page__hero"/)
+    expect(heroFolio).toBeNull()
+    const sidebarFolio = writing.match(/<FolioSurface[^>]*class="books-sidebar writing-sidebar"/)
+    expect(sidebarFolio).toBeNull()
+    const mainFolio = writing.match(/<FolioSurface[^>]*class="editor-main writing-editor"/)
+    expect(mainFolio).toBeNull()
 
-    // hero uses chrome + plain (decorated=false because WorkbenchPageHero
-    // has its own ::before + border-bottom, double-frame is wrong)
-    expect(writing).toMatch(/<FolioSurface[^>]*as="header"[^>]*variant="chrome"[^>]*decorated="false"/)
-    // sidebar uses paper + decorated (full folio spine)
-    expect(writing).toMatch(/<FolioSurface[^>]*as="aside"[^>]*variant="paper"[^>]*decorated="true"/)
-    // editor-main uses chrome + plain (the editor surface itself gets the paper tint via .writing-editor rule, not the folio chrome)
-    expect(writing).toMatch(/<FolioSurface[^>]*as="main"[^>]*variant="chrome"[^>]*decorated="false"/)
-    // inbox modal uses paper + decorated
-    expect(writing).toMatch(/<FolioSurface[^>]*as="article"[^>]*variant="paper"[^>]*decorated="true"/)
+    // Wall root class on .writing-page
+    expect(writing).toMatch(/<div\s+class="writing-page wall"/)
+    // Main is a plain <main> tag, not FolioSurface
+    expect(writing).toMatch(/<main\s+class="wall__main"/)
   })
 
-  it('Writing.vue chapter list rows render as <BookmarkButton variant="tertiary" size="compact" index label> — kao 目录页 grammar', () => {
+  it('Writing.vue chapter shelf renders chapter folders as <div class="wall__folder"> with index tab + title + wordcount (folder grammar, not list-item grammar)', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
 
-    // chapter list: each row is a BookmarkButton --tertiary --compact
-    // must appear inside the chapter list (not the book list — books stay .action-btn)
-    const chapterListSection = writing.match(
-      /<div\s+class="chapter-list"[\s\S]*?<\/div>\s*<\/aside>/,
+    const shelfSection = writing.match(
+      /<aside\s+class="wall__shelf"[\s\S]*?<\/aside>/,
     )
-    expect(chapterListSection).not.toBeNull()
-    const chapterList = chapterListSection?.[0] ?? ''
+    expect(shelfSection).not.toBeNull()
+    const shelf = shelfSection?.[0] ?? ''
 
-    // At least 1 BookmarkButton --tertiary --compact for the chapter list
-    expect(chapterList).toMatch(
-      /<BookmarkButton[^>]*variant="tertiary"[^>]*size="compact"[^>]*\/>/,
-    )
-    // Each chapter BookmarkButton must expose index (number) + label (title)
-    expect(chapterList).toMatch(/:index="chapter\.num|padStart|chapterIndex|chapterNumber/)
+    // At least 1 wall__folder with is-active possible (v-bind :class)
+    expect(shelf).toMatch(/class="wall__folder"/)
+    // Each chapter folder has tab + title + meta spans
+    expect(shelf).toMatch(/class="wall__folder-tab"/)
+    expect(shelf).toMatch(/class="wall__folder-title"/)
+    expect(shelf).toMatch(/class="wall__folder-meta"/)
+    // No list-item / chapter-list-item grammar
+    expect(shelf).not.toContain('class="chapter-list-item"')
+    expect(shelf).not.toContain('class="book-item"')
   })
 
-  it('Writing.vue AI panel primary action renders as <BookmarkButton variant="primary" label="应用 …"> + secondary as <BookmarkButton variant="secondary">', () => {
+  it('Writing.vue dossier empty state uses .wall__dossier-empty (red stamp + paperclip note + pin-style CTAs) — NOT .empty-state SaaS card', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
 
-    // 1 BookmarkButton --primary in the AI panel (应用)
+    expect(writing).toMatch(/class="wall__dossier-empty"/)
+    expect(writing).toMatch(/class="wall__empty-stamp"/)
+    expect(writing).toMatch(/class="wall__empty-clip"/)
+    expect(writing).toMatch(/class="wall__pin-cta"/)
+    // The legacy SaaS empty-state is gone
+    expect(writing).not.toContain('class="empty-state"')
+    expect(writing).not.toContain('class="empty-icon"')
+    expect(writing).not.toContain('class="empty-title"')
+    expect(writing).not.toContain('class="empty-desc"')
+  })
+
+  it('Writing.vue AI panel primary action still renders as <BookmarkButton variant="primary" label="应用 …"> + secondary as <BookmarkButton variant="secondary">', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+
     expect(writing).toMatch(/<BookmarkButton[^>]*variant="primary"[^>]*label="[\s\S]*?应用/)
-    // 1 BookmarkButton --secondary in the AI panel (拒收 / 取消 / 不应用)
     expect(writing).toMatch(/<BookmarkButton[^>]*variant="secondary"[^>]*label="[\s\S]*?(拒收|取消|不应用)/)
   })
 
-  it('kao.css exposes .theme-kao .writing-page / .writing-sidebar / .writing-editor / .ai-panel selectors — all writing surface rules live in kao.css, not main.css', () => {
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
-    const mainCss = readProjectFile('src/styles/main.css')
-
-    // kao.css has the writing-* surface rules + .ai-panel all gated by .theme-kao
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-page\b/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-sidebar\b/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.writing-editor\b/)
-    // .ai-panel replaces the dead .writing-ai-panel selector (rename: no DOM
-    // element had `class="writing-ai-panel"`, the actual AI panel is
-    // `<div class="ai-panel">` at Writing.vue:339).
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.ai-panel\b/)
-    // The renamed-away selector must NOT still exist
-    expect(kaoCss).not.toMatch(/\.theme-kao\s+\.writing-ai-panel\b/)
-
-    // main.css must NOT carry writing-* surface rules (kao-only territory)
-    expect(mainCss).not.toMatch(/^\.writing-page\b/m)
-    expect(mainCss).not.toMatch(/^\.writing-sidebar\b/m)
-    expect(mainCss).not.toMatch(/^\.writing-editor\b/m)
-    expect(mainCss).not.toMatch(/^\.ai-panel\b/m)
-  })
-
-  it('Writing.vue AI panel mode switch (wysiwyg/markdown/preview) stays .action-btn — stereo-migration lock: BookmarkButton does not enter the tool-mode toolbar', () => {
+  it('Writing.vue mode switch (wysiwyg/markdown/preview) stays .action-btn / .tool-btn — BookmarkButton does not enter the tool-mode toolbar', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
 
-    // The mode switch (.mode-switch) must not contain a BookmarkButton
     const modeSwitch = writing.match(
       /<div\s+class="mode-switch"[\s\S]*?<\/div>/,
     )
@@ -868,34 +908,34 @@ describe('ui polish — Phase 1C Writing page kao surface', () => {
     expect(modeSwitch?.[0] ?? '').not.toContain('<BookmarkButton')
   })
 
-  // --- review-fix contracts (2026-06-17 v2 amend) ---
-
-  it('Writing.vue books-sidebar footer is v-show gated by !isRightCollapsed (review-fix: CharacterPortrait 256px must not leak when sidebar is 44px collapsed)', () => {
+  it('Writing.vue CharacterPortrait is mounted in the wall-attached right dossier card (NOT in a books-sidebar footer)', () => {
     const writing = readProjectFile('src/pages/Writing.vue')
-    // The CharacterPortrait mount in the sidebar footer must be inside v-show="!isRightCollapsed".
-    const footer = writing.match(
-      /<footer[^>]*class="writing-sidebar__footer"[\s\S]*?<\/footer>/,
+
+    // Portrait sits inside .wall__dossier-portrait (right wall zone)
+    const portraitCard = writing.match(
+      /<aside[^>]*class="wall__dossier-portrait"[\s\S]*?<\/aside>/,
     )
-    expect(footer).not.toBeNull()
-    expect(footer?.[0] ?? '').toContain('v-show="!isRightCollapsed"')
-    expect(footer?.[0] ?? '').toContain('CharacterPortrait')
-    // CharacterPortrait must carry a max-width style attribute to constrain 256px → ≤180px
-    expect(footer?.[0] ?? '').toMatch(/style="[^"]*max-width:\s*180px/)
+    expect(portraitCard).not.toBeNull()
+    expect(portraitCard?.[0] ?? '').toContain('CharacterPortrait')
+    // Steel pins on the portrait card (2 pins)
+    const steelPins = portraitCard?.[0]?.match(/class="wall__steel-pin/g) || []
+    expect(steelPins.length).toBeGreaterThanOrEqual(2)
+
+    // The legacy books-sidebar footer is gone
+    expect(writing).not.toContain('class="writing-sidebar__footer"')
+    expect(writing).not.toContain('class="books-sidebar writing-sidebar"')
   })
 
-  it('kao.css exposes .theme-kao .bookmark-button.active rule (review-fix: chapter list active class was visually dead — BookmarkButton.vue has no .active state)', () => {
+  it('kao.css exposes .theme-kao .wall / .wall__cork / .wall__main / .wall__dossier / .wall__folder selectors — Wall rules all live in kao.css (legacy variant falls back in scoped CSS)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.bookmark-button\.active\s*\{/)
-  })
 
-  it('kao.css rescues .theme-kao .books-sidebar flex layout (review-fix: scoped CSS can no longer reach the FolioSurface root <aside>, so flex/column must live in kao.css)', () => {
-    const kaoCss = readProjectFile('src/styles/themes/kao.css')
-    // .books-sidebar is the root <aside> rendered by FolioSurface.vue, so
-    // Writing.vue's scoped CSS for `.books-sidebar { display: flex; flex-direction: column }`
-    // doesn't reach it. kao.css owns this rule (gated by .theme-kao).
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*display:\s*flex/)
-    expect(kaoCss).toMatch(/\.theme-kao\s+\.books-sidebar\s*\{[^}]*flex-direction:\s*column/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall\b/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__cork\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__main\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__folder\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__dossier-portrait\s*\{/)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.wall__pin-cta\s*\{/)
   })
 })
 
@@ -1075,5 +1115,249 @@ describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right si
   it('Experience.vue still has no <WorkbenchPageHero> (Phase 1C lock: right sidebar is the only chrome, no dashboard hero on /experience)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).not.toContain('<WorkbenchPageHero')
+  })
+})
+
+describe('ui polish — UI-E2: Experience Site Record Book (Phase 1C slice B: main area 6-field record header + input de-SaaS + sidebar labels)', () => {
+  // 1) Main area has a 6-field record header (案号 / 卷次 / 当下时间 / 在场人物 / 当前地点 / 当前任务)
+  it('Experience.vue exposes a record-folio section with 6 fields and a band (现场记录本 header)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toContain('class="record-folio"')
+    expect(experience).toContain('record-folio__band')
+    expect(experience).toContain('record-folio__grid')
+    for (const kicker of ['案号', '卷次', '当下时间', '在场人物', '当前地点', '当前任务']) {
+      expect(experience).toContain(kicker)
+    }
+  })
+
+  it('Experience.vue 6-field record reads from existing gameStore fields (no new store fields)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    // 6 computed properties reading existing gameStore data
+    expect(experience).toMatch(/recordCaseNo.*=.*computed/)
+    expect(experience).toMatch(/recordVolume.*=.*computed/)
+    expect(experience).toMatch(/recordTime.*=.*computed/)
+    expect(experience).toMatch(/recordCharacters.*=.*computed/)
+    expect(experience).toMatch(/recordLocation.*=.*computed/)
+    expect(experience).toMatch(/recordObjective.*=.*computed/)
+    // Sources (must be from existing gameStore, not new fields)
+    expect(experience).toMatch(/gameStore\.currentSessionId/)
+    expect(experience).toMatch(/gameStore\.sessions/)
+    expect(experience).toMatch(/gameStore\.writingTime/)
+    expect(experience).toMatch(/gameStore\.encounteredCharacters/)
+    expect(experience).toMatch(/gameStore\.worldMapState/)
+    expect(experience).toMatch(/gameStore\.goals/)
+  })
+
+  it('Experience.vue exposes the record-folio visual rules in the .theme-kao unscoped block (no :global, no !important, no :deep)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.record-folio\s*\{[^}]*var\(--archive-paper-soft\)/s,
+    )
+    expect(experience).toMatch(
+      /\.theme-kao\s+\.game-page\s+\.record-folio__grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/s,
+    )
+    // Hard constraints — none of these forbidden patterns in the record-folio block
+    const recordFolioBlock = experience.match(/\.theme-kao\s+\.game-page\s+\.record-folio[\s\S]*?\n}/)
+    expect(recordFolioBlock).not.toBeNull()
+    const block = recordFolioBlock[0]
+    expect(block).not.toContain(':global')
+    expect(block).not.toContain(':deep')
+    expect(block).not.toContain('!important')
+  })
+
+  // 2) InputArea: 发送 → 记入 + remove token ring
+  it('InputArea.vue replaces 发送 with 记入 (record-book verb) and removes the context-usage-mini token ring', () => {
+    const inputArea = readProjectFile('src/components/InputArea.vue')
+    expect(inputArea).toContain('>记入<')
+    expect(inputArea).not.toContain('>发送<')
+    // The 发送 button still has the .send-btn class but the visible text is 记入
+    // Token ring gone from template
+    expect(inputArea).not.toContain('context-usage-mini')
+    // New record-meter chip in template
+    expect(inputArea).toContain('record-meter')
+  })
+
+  it('InputArea.vue scoped CSS overrides the input + send-btn in kao mode (0 radius, paper-soft, gold hairline) without !important', () => {
+    const inputArea = readProjectFile('src/components/InputArea.vue')
+    expect(inputArea).toMatch(/\.theme-kao\s+\.input\s*\{[^}]*border-bottom:\s*1px solid/s)
+    expect(inputArea).toMatch(/\.theme-kao\s+\.send-btn\s*\{[^}]*var\(--archive-paper\)/s)
+    expect(inputArea).toMatch(/\.theme-kao\s+\.record-meter\s*\{[^}]*var\(--archive-paper-soft\)/s)
+    // No !important in kao block
+    const kaoBlock = inputArea.match(/\.theme-kao\s+\.input-area[\s\S]*?\n}/)
+    expect(kaoBlock).not.toBeNull()
+    expect(kaoBlock[0]).not.toContain('!important')
+  })
+
+  // 3) Sidebar section labels: 角色 → 在场人物, 地理环境 → 地点卡, 重要活动 → 事件卷
+  it('StatusBar.vue header label is 在场人物 (no more 角色, no more User placeholder)', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    expect(statusBar).toContain('在场人物')
+    // The default character name in display is 主角 (not 你 / User).
+    expect(statusBar).toContain("if (!raw || raw === 'User') return '主角'")
+    expect(statusBar).toContain('{{ playerName[0] }}')
+  })
+
+  it('GeographyPanel.vue header is 案卷索引 + 地点卡 (no more 体验上下文, no more 地理环境, no more 顶级/已描述)', () => {
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    expect(geo).toContain('案卷索引')
+    expect(geo).toContain('地点卡')
+    expect(geo).not.toContain('体验上下文')
+    expect(geo).not.toContain('>地理环境<')
+    // 3 stat labels (text nodes, not wrapped in ><)
+    expect(geo).toMatch(/卷号\s*<\/span>/)
+    expect(geo).toMatch(/从属\s*<\/span>/)
+    expect(geo).toMatch(/已记\s*<\/span>/)
+    expect(geo).not.toMatch(/顶级\s*<\/span>/)
+    expect(geo).not.toMatch(/已描述\s*<\/span>/)
+  })
+
+  it('QuestLog.vue header is 事件卷 (no more 重要活动, no more Adventure Exit, no more 本段冒险总结, no more 记录活动)', () => {
+    const quest = readProjectFile('src/components/QuestLog.vue')
+    expect(quest).toContain('>事件卷<')
+    expect(quest).not.toContain('>重要活动<')
+    expect(quest).not.toContain('Adventure Exit')
+    expect(quest).toContain('本卷推进出口')
+    expect(quest).toContain('本段事件总结')
+    expect(quest).not.toContain('本段冒险总结')
+    expect(quest).toContain('记入事件')
+    expect(quest).not.toContain('>记录活动<')
+    expect(quest).toContain('整理成我的版本')
+    expect(quest).toContain('整理成事件分镜')
+    expect(quest).not.toContain('整理成分镜')
+    expect(quest).not.toContain('写成我的版本')
+  })
+
+  // 4) Global hard-constraint: no scoped :global(.theme-kao) in any of the modified files
+  it('No scoped :global(.theme-kao) anywhere in the 4 modified files (the 5C v3.6 /experience load regression vector)', () => {
+    const files = [
+      'src/pages/Experience.vue',
+      'src/components/InputArea.vue',
+      'src/components/StatusBar.vue',
+      'src/components/QuestLog.vue',
+    ]
+    for (const f of files) {
+      const content = readProjectFile(f)
+      expect(content, f).not.toMatch(/scoped.*:global\(/)
+      expect(content, f).not.toContain(':global(.theme-kao)')
+    }
+  })
+})
+
+// UI-N2: Notes Archive Drawer (2026-06-20 plan)
+// Replaces the sidebar + editor-main skeleton with material-drawer +
+// reading-deck + active-card + empty-archive + archive-pin. Functional
+// contracts preserved; structural moves = drawer/card catalog (left)
+// + reading deck / active card (center) + empty cabinet (empty state)
+// + page-flip navigation + batch stamp at drawer top.
+describe('ui polish — UI-N2 Notes Archive Drawer composition', () => {
+  it('UI-N2: Notes.vue material-drawer + reading-deck + archive-pin replace sidebar + editor-main (archive cabinet, not CMS)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+
+    // New structural regions
+    expect(notes).toContain('<aside class="material-drawer">')
+    expect(notes).toContain('class="keeper-corner"')
+    expect(notes).toContain('class="drawer-units"')
+    expect(notes).toContain('class="drawer-handle"')
+    expect(notes).toContain('class="reading-deck"')
+    expect(notes).toContain('class="active-card"')
+    expect(notes).toContain('class="empty-archive"')
+    expect(notes).toContain('class="archive-pin"')
+    // Old CMS skeleton removed
+    expect(notes).not.toContain('class="sidebar books-sidebar"')
+    expect(notes).not.toContain('class="editor-main"')
+    expect(notes).not.toContain('class="empty-state"')
+    expect(notes).not.toContain('class="resize-handle"')
+    expect(notes).not.toContain('class="asset-toolbar"')
+  })
+
+  it('UI-N2: drawer-units render one drawer-unit per kind with handle + index-cards (7-class catalog, not accordion)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/<div\s+v-for="\(group,\s*idx\)\s+in\s+groupedChapters"[^>]*class="material-group|drawer-unit"/)
+    // index-card is the rendered item class inside drawer-body
+    expect(notes).toMatch(/<button[^>]*class="index-card"/)
+    // Each index-card has kind-color tilt via --card-tilt style binding
+    expect(notes).toContain('--card-tilt')
+  })
+
+  it('UI-N2: empty-archive is a 12-cell dashed grid + tilted blank card (object narrative, not centered SVG + button)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // 12 cells via v-for="n in 12"
+    expect(notes).toContain('v-for="n in 12"')
+    expect(notes).toContain('class="empty-archive__cell"')
+    expect(notes).toContain('class="empty-archive__card"')
+    expect(notes).toContain('class="empty-archive__tape"')
+    expect(notes).toContain('class="empty-archive__title"')
+    expect(notes).toMatch(/empty-archive__cta/)
+    // No more centered-SVG empty-state
+    expect(notes).not.toMatch(/<svg[^>]*class="empty-icon"/)
+  })
+
+  it('UI-N2: archive-pin wraps ArchiveStrip + gold nail SVG (bottom-right floating, not in editor-header)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="archive-pin"')
+    expect(notes).toContain('class="archive-pin__nail"')
+    // ArchiveStrip is now inside archive-pin (not inside editor-header)
+    expect(notes).toMatch(/<aside\s+class="archive-pin"[\s\S]*?<ArchiveStrip[\s\S]*?<\/aside>/)
+    // editor-header is gone (was the old toolbar block above the textarea)
+    expect(notes).not.toContain('class="editor-header"')
+  })
+
+  it('UI-N2: page-controls provide prev/next navigation on the active card (reading-deck page-flip)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="page-controls"')
+    expect(notes).toContain('class="page-controls__btn"')
+    expect(notes).toContain('@click="goPrevAsset"')
+    expect(notes).toContain('@click="goNextAsset"')
+    expect(notes).toContain('function goPrevAsset')
+    expect(notes).toContain('function goNextAsset')
+    expect(notes).toContain('const currentAssetIndex')
+    expect(notes).toContain('const canGoPrev')
+    expect(notes).toContain('const canGoNext')
+  })
+
+  it('UI-N2: material-selection-stamp lives inside material-drawer (batch ticket attached to drawer, not standalone toolbar)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/<aside\s+class="material-drawer"[\s\S]*?class="material-selection-stamp"[\s\S]*?<\/aside>/)
+  })
+
+  it('UI-N2: kao.css exposes drawer + reading-deck + empty-archive + archive-pin visual overrides (variant-gated)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // drawer
+    expect(css).toContain('.theme-kao .material-drawer')
+    expect(css).toContain('.theme-kao .keeper-corner')
+    expect(css).toContain('.theme-kao .drawer-units')
+    expect(css).toContain('.theme-kao .drawer-handle')
+    expect(css).toContain('.theme-kao .index-card')
+    expect(css).toContain('.theme-kao .index-card.is-selected')
+    // center
+    expect(css).toContain('.theme-kao .reading-deck')
+    expect(css).toContain('.theme-kao .active-card')
+    expect(css).toContain('.theme-kao .deck-toolbar')
+    expect(css).toContain('.theme-kao .page-controls')
+    // empty + archive-pin
+    expect(css).toContain('.theme-kao .empty-archive__cell')
+    expect(css).toContain('.theme-kao .empty-archive__card')
+    expect(css).toContain('.theme-kao .archive-pin')
+    // manuscript-top spine gold override
+    expect(css).toMatch(/\.theme-kao\s+\.manuscript-top__book[\s\S]*?border-left-color:\s*var\(--archive-gold\)/)
+  })
+
+  it('UI-N2: anti-micro-tweak gate — at least 4 of the 6 structural moves are present', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    let structuralMoves = 0
+    if (notes.includes('material-drawer') && notes.includes('drawer-units')) structuralMoves++
+    if (notes.includes('keeper-corner') && notes.match(/CharacterPortrait[^>]*caption="档案员 · 值班中"/)) structuralMoves++
+    if (notes.includes('empty-archive') && notes.includes('empty-archive__grid')) structuralMoves++
+    if (notes.includes('page-controls') && notes.includes('goPrevAsset')) structuralMoves++
+    if (notes.includes('reading-deck') && notes.includes('active-card')) structuralMoves++
+    if (notes.includes('archive-pin') && notes.match(/<aside\s+class="archive-pin"/)) structuralMoves++
+    expect(structuralMoves).toBeGreaterThanOrEqual(4)
+  })
+
+  it('UI-N2: hard constraint — no WorkbenchPageHero on Notes, no scoped :global(.theme-kao)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).not.toContain('<WorkbenchPageHero')
+    expect(notes).not.toMatch(/scoped.*:global\(/)
+    expect(notes).not.toContain(':global(.theme-kao)')
   })
 })

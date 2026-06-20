@@ -47,12 +47,12 @@ describe('QuestLog adventure summary', () => {
     expect(summary.text()).toContain('林舟、苔娜')
 
     const triggerPanel = wrapper.get('[data-test="adventure-trigger-panel"]')
-    expect(triggerPanel.text()).toContain('本段冒险总结')
+    expect(triggerPanel.text()).toContain('本段事件总结')
     expect(triggerPanel.text()).toContain('阿离在钟楼顶层与林舟对质后')
     expect(triggerPanel.text()).toContain('地点')
     expect(triggerPanel.text()).toContain('东境 / 青石城')
-    expect(wrapper.get('[data-test="trigger-prose-generate"]').text()).toContain('写成我的版本')
-    expect(wrapper.get('[data-test="trigger-storyboard-generate"]').text()).toContain('整理成分镜')
+    expect(wrapper.get('[data-test="trigger-prose-generate"]').text()).toContain('整理成我的版本')
+    expect(wrapper.get('[data-test="trigger-storyboard-generate"]').text()).toContain('整理成事件分镜')
 
     wrapper.unmount()
   })

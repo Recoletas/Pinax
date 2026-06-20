@@ -10,6 +10,39 @@
     <div class="game-layout">
       <div class="game-main-shell" v-if="!showSessionPicker">
         <div class="game-main">
+          <section class="record-folio" aria-label="案卷记录本">
+            <div class="record-folio__band">
+              <span class="record-folio__band-kicker">案卷</span>
+              <strong class="record-folio__band-case">第 {{ recordVolume }} 次 · {{ recordCaseNo }}</strong>
+              <span class="record-folio__band-status">开卷</span>
+            </div>
+            <div class="record-folio__grid">
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">案号</span>
+                <strong class="record-folio__value">{{ recordCaseNo }}</strong>
+              </div>
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">卷次</span>
+                <strong class="record-folio__value">第 {{ recordVolume }} 次</strong>
+              </div>
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">当下时间</span>
+                <strong class="record-folio__value">{{ recordTime }}</strong>
+              </div>
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">在场人物</span>
+                <strong class="record-folio__value">{{ recordCharacters }}</strong>
+              </div>
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">当前地点</span>
+                <strong class="record-folio__value">{{ recordLocation }}</strong>
+              </div>
+              <div class="record-folio__cell">
+                <span class="record-folio__kicker">当前任务</span>
+                <strong class="record-folio__value">{{ recordObjective }}</strong>
+              </div>
+            </div>
+          </section>
           <GamePanel @show-inline-detail="handleInlineDetail" />
           <InputArea @send="handleSend" />
         </div>
@@ -297,6 +330,67 @@ const hasUserActionMessages = computed(() => {
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
+
+// Record-folio 6-field header — pure display, no new store fields.
+// Each computed reads existing gameStore state and degrades to "未登记" /
+// "未进入" when the underlying data is empty. This is the empty-state
+// surface: the folio band is rendered before any user message exists,
+// so the user sees a filled record-book waiting for the first entry.
+const recordCaseNo = computed(() => {
+  const id = gameStore.currentSessionId || gameStore.worldId || 'pending-record'
+  let hash = 0
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i)
+    hash |= 0
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0').slice(0, 8)
+  return hex.toUpperCase()
+})
+
+const recordVolume = computed(() => {
+  const sessions = gameStore.sessions || []
+  if (sessions.length === 0) return 1
+  return Math.max(1, sessions.length)
+})
+
+const recordTime = computed(() => {
+  const t = gameStore.writingTime
+  if (!t) return '未登记'
+  const parts = []
+  if (t.eraName) parts.push(String(t.eraName))
+  if (t.year) parts.push(String(t.year))
+  if (t.month) parts.push(String(t.month) + '月')
+  if (t.day) parts.push(String(t.day) + '日')
+  return parts.length ? parts.join(' · ') : '未登记'
+})
+
+const recordCharacters = computed(() => {
+  const chars = gameStore.encounteredCharacters || []
+  if (chars.length === 0) return '未登记'
+  const names = chars
+    .map((c) => (c && (c.name || c.label)) ? String(c.name || c.label) : '')
+    .filter(Boolean)
+  if (names.length === 0) return '未登记'
+  if (names.length <= 3) return names.join(' · ')
+  return names.slice(0, 3).join(' · ') + ' 等 ' + names.length + ' 位'
+})
+
+const recordLocation = computed(() => {
+  const m = gameStore.worldMapState
+  if (!m) return '未进入'
+  const parts = []
+  if (m.currentCountry) parts.push(String(m.currentCountry))
+  if (m.currentCity) parts.push(String(m.currentCity))
+  if (m.currentScene) parts.push(String(m.currentScene))
+  return parts.length ? parts.join(' · ') : '未进入'
+})
+
+const recordObjective = computed(() => {
+  const goals = gameStore.goals || []
+  const active = goals.find((g) => g && g.status === 'active' && (g.title || g.label))
+  if (active) return String(active.title || active.label)
+  return '未登记'
+})
 
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
@@ -1752,6 +1846,119 @@ function quickNoteWordCount(text) {
 </style>
 
 <style>
+/* Record-folio — 现场记录本 6 件套 + 案卷带
+   Lives OUTSIDE the scoped <style> block as a .theme-kao-gated unscoped
+   block. This is the same pattern as the existing .theme-kao .game-page
+   .sidebar / .sidebar-head / .sidebar-section rules below. Vue's scoped
+   style attribute (data-v-xxx) would add 0,1,1 specificity, but the
+   original tool-feel scoped rules also have 0,1,1 and source-order ties
+   go to whoever was loaded last. Putting the .theme-kao override as
+   .theme-kao .game-page .xxx (specificity 0,3,0 in scoped's 0,1,1 world)
+   wins regardless. No :global, no !important, no :deep. */
+.theme-kao .game-page .record-folio {
+  position: relative;
+  display: block;
+  padding: 14px 16px 16px;
+  margin: 0;
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+  border-radius: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 12%, transparent);
+  font-family: var(--font-display);
+  color: var(--archive-ink);
+}
+
+.theme-kao .game-page .record-folio__band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 10px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.theme-kao .game-page .record-folio__band-kicker {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+}
+
+.theme-kao .game-page .record-folio__band-case {
+  flex: 1 1 auto;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--archive-ink);
+  font-style: italic;
+}
+
+.theme-kao .game-page .record-folio__band-status {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 90%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 50%, transparent);
+}
+
+.theme-kao .game-page .record-folio__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.theme-kao .game-page .record-folio__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  border-radius: 0;
+  min-height: 48px;
+}
+
+.theme-kao .game-page .record-folio__kicker {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+  text-transform: none;
+}
+
+.theme-kao .game-page .record-folio__value {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--archive-ink);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+@media (max-width: 980px) {
+  .theme-kao .game-page .record-folio__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .theme-kao .game-page .record-folio__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .theme-kao .game-page .record-folio {
+    padding: 10px 12px 12px;
+  }
+}
+
 .theme-kao .game-page .sidebar {
   position: relative;
   width: 248px;

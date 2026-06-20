@@ -63,6 +63,10 @@
     mix-blend-mode: multiply;
   }
 
+  .theme-kao.theme-dark .is-folio {
+    mix-blend-mode: normal;
+  }
+
   .theme-kao .is-bookmark {
     border-radius: 0;
     box-shadow: none;
@@ -582,13 +586,1057 @@
     border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
   }
 
+  /* ─────────────────────────────────────────────────────────────
+     UI-W2: Pinax Wall — Writing page composition grammar.
+     Whole page reads as an editing-room wall: cork-board top band
+     carrying project identity + chapter-color pins + status stamp;
+     left shelf with stacked chapter folders (current one pulled
+     24px), center dossier sheet (kraft paper + ruled lines + red
+     margin rule + corner-pinned), right wall-attached character
+     dossier with two steel pins. No SaaS toolbar / no generic white
+     card center / no central floating decoration.
+     All rules gated by .theme-kao so legacy variant keeps its own
+     chrome. Tokens reference existing --archive-* + --hairline-*.
+     ───────────────────────────────────────────────────────────── */
+
+  /* Wall root: warm plaster background (cream-paper gradient), floor
+     molding bottom. Replaces flat --bg-primary on .writing-page. */
+  .theme-kao .wall {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 78%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper-strong)) 70%,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 8%) 100%);
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Wall grain — faint vertical "plaster" stripes + horizontal floor
+     shadow. Pure CSS, no bitmap. 0.06 opacity so it reads as wall
+     texture, not as a pattern fill. */
+  .theme-kao .wall::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(90deg,
+        transparent 0 23px,
+        color-mix(in srgb, var(--archive-ink) 4%, transparent) 23px 24px),
+      linear-gradient(180deg, transparent 0 92%, color-mix(in srgb, var(--archive-ink) 12%, transparent) 100%);
+    mix-blend-mode: multiply;
+    opacity: 0.5;
+    z-index: 0;
+  }
+
+  /* Wall zones — stacked vertically. y=0..28 molding,
+     y=28..216 cork-board, y=216..744 main, y=744..800 floor. */
+  .theme-kao .wall__molding {
+    position: relative;
+    z-index: 1;
+    height: 28px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 12%) 0%,
+        color-mix(in srgb, var(--archive-ink) 24%, var(--archive-paper-strong)) 100%);
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 38%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
+      0 2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  }
+  .theme-kao .wall__molding-rule {
+    position: absolute;
+    left: 0; right: 0; bottom: -3px;
+    height: 3px;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-ink) 36%, transparent),
+      transparent);
+    pointer-events: none;
+  }
+
+  /* Cork-board strip — speckled brown background + 4 chapter-color
+     pins + project name + status stamp + ribbon bookmark. */
+  .theme-kao .wall__cork {
+    position: relative;
+    z-index: 1;
+    height: 188px;
+    padding: 18px 28px 16px;
+    background:
+      radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--archive-gold) 14%, transparent) 0 1.5px, transparent 3px),
+      radial-gradient(circle at 64% 78%, color-mix(in srgb, var(--archive-ink) 18%, transparent) 0 1.5px, transparent 3px),
+      radial-gradient(circle at 38% 58%, color-mix(in srgb, var(--archive-rose) 12%, transparent) 0 1.5px, transparent 3px),
+      radial-gradient(circle at 84% 30%, color-mix(in srgb, var(--archive-olive) 14%, transparent) 0 1.5px, transparent 3px),
+      linear-gradient(135deg,
+        color-mix(in srgb, #c8a26a 88%, var(--archive-ink)) 0%,
+        color-mix(in srgb, #b78a52 92%, var(--archive-ink)) 100%);
+    background-size: 11px 11px, 13px 13px, 17px 17px, 19px 19px, 100% 100%;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 12px 24px;
+    align-items: start;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
+      0 6px 0 color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  }
+
+  /* Project identity row — gold serif title (XiaoWei / LXGW) + meta. */
+  .theme-kao .wall__project {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .theme-kao .wall__project-mark {
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    color: color-mix(in srgb, var(--archive-ink) 60%, var(--archive-paper-soft));
+    text-transform: uppercase;
+  }
+  .theme-kao .wall__project-title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 30px;
+    line-height: 1.04;
+    color: color-mix(in srgb, var(--archive-ink) 84%, var(--archive-paper-soft));
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 30%, transparent);
+    margin: 0;
+  }
+  .theme-kao .wall__project-meta {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    color: color-mix(in srgb, var(--archive-ink) 70%, var(--archive-paper-soft));
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .theme-kao .wall__project-meta b {
+    font-family: var(--font-display);
+    font-weight: 400;
+    color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-paper-soft));
+    font-size: 13px;
+    margin-right: 4px;
+  }
+
+  /* Pin code — 4 chapter-state pins (状态色编码: gold=已完稿,
+     olive=在写, rose=草稿, ink=未动). Each pin is a 12px circle with
+     1px highlight + 2px shadow + chapter index label below. */
+  .theme-kao .wall__pins {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding-top: 4px;
+  }
+  .theme-kao .wall__pin {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 28px;
+  }
+  .theme-kao .wall__pin-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--pin-color, var(--archive-gold));
+    box-shadow:
+      inset -2px -2px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
+      inset 1px 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 2px 3px color-mix(in srgb, var(--archive-ink) 40%, transparent);
+  }
+  .theme-kao .wall__pin-num {
+    font-family: var(--font-display);
+    font-size: 10px;
+    color: color-mix(in srgb, var(--archive-ink) 70%, var(--archive-paper-soft));
+    letter-spacing: 0.06em;
+  }
+
+  /* Status stamp — round ink seal showing 保存状态. Rotated -6deg,
+     placed bottom-right of cork. Replaces SaaS "save status" toast. */
+  .theme-kao .wall__stamp {
+    align-self: end;
+    justify-self: end;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--archive-rose) 90%, transparent);
+    color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(-6deg);
+    font-family: var(--font-display);
+    text-align: center;
+    background:
+      radial-gradient(circle at 30% 30%, transparent 0 6px, color-mix(in srgb, var(--archive-rose) 14%, transparent) 8px 100%);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-rose) 30%, transparent),
+      0 1px 2px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+    letter-spacing: 0.08em;
+    line-height: 1.05;
+  }
+  .theme-kao .wall__stamp-state {
+    font-size: 13px;
+    font-weight: 400;
+  }
+  .theme-kao .wall__stamp-meta {
+    font-size: 9px;
+    margin-top: 2px;
+    opacity: 0.85;
+  }
+
+  /* Ribbon bookmark — hangs from top-right of cork, real ribbon
+     triangle tail. Replaces SaaS ribbon icon. */
+  .theme-kao .wall__ribbon {
+    position: absolute;
+    top: 0;
+    right: 36px;
+    width: 36px;
+    height: 96px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-rose) 88%, var(--archive-ink)) 0%,
+        color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink)) 100%);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  }
+
+  /* Status tabs row — bottom edge of cork, 4 text tabs (收件箱 /
+     素材库 / 分镜 / theme). Styled as index-card tabs pinned on cork,
+     NOT as horizontal toolbar. */
+  .theme-kao .wall__tabs {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-top: 4px;
+    padding-left: 8px;
+  }
+  .theme-kao .wall__tab {
+    appearance: none;
+    background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+    color: var(--archive-ink);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    border-bottom: none;
+    border-right: none;
+    padding: 6px 14px 7px;
+    font-family: var(--font-display);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease;
+    position: relative;
+    margin-right: -1px;
+  }
+  .theme-kao .wall__tab:first-child {
+    border-left: none;
+  }
+  .theme-kao .wall__tab:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent);
+    color: var(--archive-olive-strong);
+  }
+  .theme-kao .wall__tab:disabled {
+    color: color-mix(in srgb, var(--archive-ink-soft) 50%, transparent);
+    cursor: not-allowed;
+  }
+  .theme-kao .wall__tab--mode {
+    margin-left: auto;
+    border-right: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .theme-kao .wall__back {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: color-mix(in srgb, var(--archive-ink) 78%, var(--archive-paper-soft));
+    font-family: var(--font-display);
+    font-size: 13px;
+    padding: 0 6px 0 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .theme-kao .wall__back:hover {
+    color: var(--archive-gold-soft);
+  }
+
+  /* ─── Wall main: 3-zone grid (shelf / dossier / portrait). ─── */
+  .theme-kao .wall__main {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 248px 1fr 220px;
+    gap: 24px;
+    padding: 28px 28px 24px;
+    min-height: 528px;
+  }
+
+  /* Shelf — stacked chapter folders. Each is a kraft card with
+     index tab + title + wordcount + bottom notch (folder pocket). */
+  .theme-kao .wall__shelf {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+    background:
+      repeating-linear-gradient(180deg,
+        transparent 0 96px,
+        color-mix(in srgb, var(--archive-ink) 8%, transparent) 96px 97px);
+  }
+  .theme-kao .wall__shelf-board {
+    position: absolute;
+    left: -10px;
+    right: -10px;
+    top: 0;
+    bottom: 36px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 90%, var(--archive-ink) 10%) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 78%, var(--archive-ink) 22%) 100%);
+    z-index: -1;
+    box-shadow:
+      inset 0 2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
+      4px 0 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+  .theme-kao .wall__shelf-roll {
+    position: relative;
+    margin-top: auto;
+    align-self: stretch;
+    height: 36px;
+    background:
+      radial-gradient(ellipse at 14px 50%, var(--archive-paper-soft) 0 12px, transparent 13px),
+      linear-gradient(180deg, var(--archive-paper-soft), var(--archive-paper));
+    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    box-shadow: 0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  }
+  .theme-kao .wall__shelf-roll::after {
+    content: "未展开稿纸卷";
+    position: absolute;
+    left: 36px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-display);
+    font-size: 10px;
+    color: var(--archive-ink-soft);
+    letter-spacing: 0.12em;
+  }
+
+  /* Chapter folder card — 88px tall kraft card with index tab on
+     left, title + wordcount on body. Active folder pulls right 24px
+     and casts a heavier shadow (visual "drawn from shelf"). */
+  .theme-kao .wall__folder {
+    position: relative;
+    height: 88px;
+    min-width: 0;
+    padding: 12px 12px 10px 48px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 96%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 92%, var(--archive-ink) 8%) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
+      2px 2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .theme-kao .wall__folder-tab {
+    position: absolute;
+    left: 6px;
+    top: 12px;
+    bottom: 12px;
+    width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 11px;
+    color: color-mix(in srgb, var(--archive-ink) 88%, var(--archive-paper-soft));
+    background: color-mix(in srgb, var(--archive-paper-strong) 80%, var(--archive-ink));
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  }
+  .theme-kao .wall__folder-title {
+    font-family: var(--font-display);
+    font-size: 14px;
+    line-height: 1.15;
+    color: var(--archive-ink);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .theme-kao .wall__folder-meta {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    color: var(--archive-ink-soft);
+    display: flex;
+    min-width: 0;
+    gap: 8px;
+    align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .theme-kao .wall__folder-meta::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    background: var(--folder-pin, var(--archive-ink-soft));
+    border-radius: 50%;
+    box-shadow: inset -1px -1px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  }
+
+  .theme-kao .wall__folder:hover {
+    transform: translateX(4px);
+    background: color-mix(in srgb, var(--archive-paper-strong) 92%, var(--archive-paper));
+  }
+  .theme-kao .wall__folder.is-active {
+    transform: translateX(24px);
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 8%) 100%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      6px 6px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  }
+  .theme-kao .wall__folder.is-active::after {
+    content: "已展开";
+    position: absolute;
+    top: -10px;
+    right: -6px;
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: var(--archive-gold-soft);
+    background: var(--archive-ink);
+    padding: 2px 6px;
+    letter-spacing: 0.12em;
+    transform: rotate(2deg);
+  }
+
+  /* New-book / new-chapter — pin-style "+" buttons on shelf board. */
+  .theme-kao .wall__shelf-actions {
+    display: flex;
+    gap: 8px;
+    padding: 8px 4px 4px;
+    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
+    margin-top: 8px;
+  }
+  .theme-kao .wall__shelf-pin-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px dashed color-mix(in srgb, var(--archive-ink) 36%, transparent);
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .theme-kao .wall__shelf-pin-btn:hover {
+    color: var(--archive-olive-strong);
+    border-color: var(--archive-olive);
+    border-style: solid;
+  }
+
+  /* Dossier sheet — central kraft paper with red margin rule, ruled
+     horizontal lines, top chapter index + stamp, optional corner
+     pins (4 corners when content present). */
+  .theme-kao .wall__dossier {
+    position: relative;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper-strong)) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 8px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      0 14px 24px color-mix(in srgb, var(--archive-ink) 22%, transparent);
+    padding: 22px 28px 24px 56px;
+    min-height: 460px;
+    overflow: hidden;
+  }
+  /* Red margin rule (稿纸红线) — vertical line at 44px from left. */
+  .theme-kao .wall__dossier::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 44px;
+    width: 1px;
+    background: color-mix(in srgb, var(--archive-rose) 56%, transparent);
+    pointer-events: none;
+  }
+  /* Horizontal ruled lines — repeating gradient at line-height 30px. */
+  .theme-kao .wall__dossier::after {
+    content: "";
+    position: absolute;
+    inset: 64px 12px 12px 56px;
+    background:
+      repeating-linear-gradient(180deg,
+        transparent 0 29px,
+        color-mix(in srgb, var(--archive-olive) 18%, transparent) 29px 30px);
+    pointer-events: none;
+    opacity: 0.5;
+  }
+
+  /* Corner pins — small steel-pin SVG dots at 4 corners of dossier. */
+  .theme-kao .wall__pin-cnr {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 32%,
+      color-mix(in srgb, var(--archive-paper-soft) 70%, transparent) 0 2px,
+      color-mix(in srgb, var(--archive-ink) 80%, transparent) 4px 100%);
+    box-shadow:
+      0 1px 2px color-mix(in srgb, var(--archive-ink) 60%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+    z-index: 2;
+  }
+  .theme-kao .wall__pin-cnr--tl { top: 6px; left: 6px; }
+  .theme-kao .wall__pin-cnr--tr { top: 6px; right: 6px; }
+  .theme-kao .wall__pin-cnr--bl { bottom: 6px; left: 6px; }
+  .theme-kao .wall__pin-cnr--br { bottom: 6px; right: 6px; }
+
+  /* Dossier header — chapter index badge + red horizontal title rule. */
+  .theme-kao .wall__dossier-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 2px solid color-mix(in srgb, var(--archive-ink) 36%, transparent);
+  }
+  .theme-kao .wall__dossier-num {
+    font-family: var(--font-display);
+    font-size: 32px;
+    line-height: 1;
+    color: var(--archive-ink);
+    letter-spacing: 0.04em;
+  }
+  .theme-kao .wall__dossier-title {
+    flex: 1;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 24px;
+    color: var(--archive-ink);
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+  }
+  .theme-kao .wall__dossier-title:focus {
+    box-shadow: inset 0 -1px 0 var(--archive-gold);
+  }
+  .theme-kao .wall__dossier-watermark {
+    font-family: var(--font-display);
+    font-size: 11px;
+    color: color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink));
+    letter-spacing: 0.18em;
+    transform: rotate(-3deg);
+    border: 1px solid currentColor;
+    padding: 2px 6px;
+  }
+
+  /* Dossier body — editor area. The textarea sits over the ruled
+     lines (z-index above ::after pseudo) with transparent bg so
+     the ruled paper shows through. */
+  .theme-kao .wall__dossier-body {
+    position: relative;
+    z-index: 1;
+    min-height: 320px;
+  }
+  .theme-kao .wall__dossier-textarea {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    font-size: 17px;
+    line-height: 30px;
+    width: 100%;
+    min-height: 320px;
+    resize: none;
+    padding: 0 12px 0 4px;
+  }
+  .theme-kao .wall__dossier-textarea:focus {
+    box-shadow: none;
+  }
+
+  /* Dossier empty state — half-page manuscript with handwritten
+     dotted lines (3 lines visible) + "未完" ink stamp + red paperclip
+     note. Replaces white-card-plus-button SaaS pattern. */
+  .theme-kao .wall__dossier-empty {
+    position: relative;
+    z-index: 1;
+    padding: 24px 12px 32px;
+  }
+  .theme-kao .wall__empty-draft {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  .theme-kao .wall__empty-line {
+    height: 6px;
+    background:
+      radial-gradient(circle, color-mix(in srgb, var(--archive-ink) 42%, transparent) 1px, transparent 1.5px) 0 50% / 8px 6px repeat-x;
+    width: var(--w, 80%);
+    margin-left: var(--indent, 0);
+  }
+  .theme-kao .wall__empty-stamp {
+    position: absolute;
+    top: 38px;
+    right: 56px;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--archive-rose) 76%, transparent);
+    color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.18em;
+    transform: rotate(-8deg);
+    background:
+      radial-gradient(circle at 30% 30%, transparent 0 4px, color-mix(in srgb, var(--archive-rose) 14%, transparent) 6px 100%);
+  }
+  .theme-kao .wall__empty-clip {
+    position: absolute;
+    top: 96px;
+    right: 24px;
+    width: 132px;
+    padding: 8px 12px 10px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, #c9333f 88%, var(--archive-ink)), color-mix(in srgb, #9a2632 90%, var(--archive-ink)));
+    color: var(--archive-paper-soft);
+    font-family: var(--font-display);
+    font-size: 11px;
+    line-height: 1.4;
+    transform: rotate(2deg);
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
+      0 3px 5px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+    z-index: 2;
+  }
+  .theme-kao .wall__empty-clip::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    top: -8px;
+    height: 8px;
+    border: 2px solid color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+  }
+  .theme-kao .wall__empty-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+    padding-left: 8px;
+  }
+  .theme-kao .wall__pin-cta {
+    appearance: none;
+    background: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
+    color: var(--archive-paper-soft);
+    border: none;
+    padding: 10px 16px 11px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    cursor: pointer;
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 40%, transparent),
+      0 4px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent);
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .theme-kao .wall__pin-cta::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--archive-gold-soft);
+    box-shadow:
+      inset -1px -1px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
+      0 0 4px color-mix(in srgb, var(--archive-gold-soft) 60%, transparent);
+  }
+  .theme-kao .wall__pin-cta--ghost {
+    background: transparent;
+    color: var(--archive-ink);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 32%, transparent);
+    box-shadow: none;
+  }
+  .theme-kao .wall__pin-cta--ghost::before {
+    background: var(--archive-rose);
+  }
+
+  /* Wall-attached character dossier — 220×300 kraft card pinned to
+     wall with 2 steel pins. Replaces floating character card. */
+  .theme-kao .wall__dossier-portrait {
+    position: relative;
+    align-self: end;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 92%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 92%, var(--archive-ink) 8%) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 24%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
+      4px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      0 8px 18px color-mix(in srgb, var(--archive-ink) 24%, transparent);
+    padding: 18px 14px 14px;
+    width: 220px;
+    min-height: 300px;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .theme-kao .wall__dossier-portrait::before {
+    content: "档案 / CONFIDENTIAL";
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: color-mix(in srgb, var(--archive-rose) 80%, var(--archive-ink));
+    letter-spacing: 0.24em;
+  }
+  .theme-kao .wall__dossier-portrait::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 36px;
+    width: 18px;
+    height: 4px;
+    background: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+    box-shadow:
+      0 8px 0 color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  }
+  .theme-kao .wall__dossier-portrait .character-portrait {
+    margin-top: 36px;
+    max-width: 192px;
+  }
+  .theme-kao .wall__dossier-portrait .character-portrait__caption {
+    font-family: var(--font-display);
+    font-size: 11px;
+    color: var(--archive-ink-soft);
+    letter-spacing: 0.06em;
+    text-align: center;
+  }
+
+  /* Steel pin — small circle with inner highlight, used at 4 corners
+     of dossier + 2 top corners of portrait card. */
+  .theme-kao .wall__steel-pin {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 32%,
+      color-mix(in srgb, var(--archive-paper-soft) 60%, transparent) 0 3px,
+      color-mix(in srgb, var(--archive-ink) 84%, transparent) 5px 100%);
+    box-shadow:
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 60%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+    z-index: 3;
+  }
+  .theme-kao .wall__steel-pin--tl { top: -6px; left: -6px; transform: rotate(-12deg); }
+  .theme-kao .wall__steel-pin--tr { top: -6px; right: -6px; transform: rotate(8deg); }
+
+  /* Floor molding — bottom 56px. */
+  .theme-kao .wall__floor {
+    position: relative;
+    z-index: 1;
+    height: 56px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-ink) 22%, var(--archive-paper-strong)) 0%,
+        color-mix(in srgb, var(--archive-ink) 38%, var(--archive-paper-strong)) 100%);
+    box-shadow:
+      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
+      0 -6px 12px color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+
+  /* Responsive — collapse to 1-column at 980px. */
+  @media (max-width: 980px) {
+    .theme-kao .wall__main {
+      grid-template-columns: 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+    .theme-kao .wall__dossier-portrait {
+      width: 100%;
+      flex-direction: row;
+      align-items: center;
+    }
+    .theme-kao .wall__cork {
+      height: auto;
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* UI-N2: Notes Archive Drawer 视觉覆写
+     All rules gated by .theme-kao so legacy variant keeps the neutral
+     scoped-CSS baseline. References --archive-* tokens defined above. */
+
+  /* manuscript-top__book spine gold (was blue accent — 1980s editor relic) */
+  .theme-kao .manuscript-top__book {
+    border-left-color: var(--archive-gold);
+  }
+
+  /* Material-drawer 档案柜本体 — 木纹暗影 + paper 颗粒 */
+  .theme-kao .material-drawer {
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, transparent) 0%,
+        var(--archive-paper-soft) 60%,
+        var(--archive-paper) 100%);
+    border-right: 1px solid var(--archive-gold);
+    box-shadow: inset 6px 0 12px color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  }
+
+  /* keeper-corner 值班档案员 */
+  .theme-kao .keeper-corner {
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-strong) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 60%, var(--archive-paper-soft)) 100%);
+    border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  }
+  .theme-kao .keeper-corner__label,
+  .theme-kao .keeper-corner__count {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+  }
+  .theme-kao .keeper-corner__add {
+    color: var(--archive-ink-soft);
+    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  }
+  .theme-kao .keeper-corner__add:hover {
+    color: var(--archive-gold);
+    border-color: var(--archive-gold);
+  }
+
+  /* drawer-units 抽屉盒 */
+  .theme-kao .drawer-units {
+    background:
+      radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--archive-gold) 12%, transparent) 0 1px, transparent 2px),
+      radial-gradient(circle at 67% 78%, color-mix(in srgb, var(--archive-ink) 9%, transparent) 0 1px, transparent 2px);
+    background-size: 9px 9px, 13px 13px;
+    mix-blend-mode: multiply;
+  }
+
+  /* drawer-unit 单元 */
+  .theme-kao .drawer-unit {
+    border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  }
+
+  /* drawer-handle 把手 */
+  .theme-kao .drawer-handle {
+    color: var(--archive-ink);
+    background: transparent;
+    border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  }
+  .theme-kao .drawer-handle:hover {
+    background: color-mix(in srgb, var(--archive-gold) 8%, transparent);
+  }
+  .theme-kao .drawer-handle__roman {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+  }
+  .theme-kao .drawer-handle__title {
+    color: var(--archive-ink);
+  }
+  .theme-kao .drawer-handle__count {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .drawer-handle__chevron {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .drawer-unit.is-collapsed .drawer-handle__chevron {
+    transform: rotate(0deg);
+  }
+
+  /* index-card 索引卡 */
+  .theme-kao .index-card {
+    background: var(--archive-paper-soft);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    color: var(--archive-ink);
+    box-shadow: 2px 2px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
+  }
+  .theme-kao .index-card:hover {
+    border-color: var(--archive-gold);
+    box-shadow: 3px 3px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+  .theme-kao .index-card.is-selected {
+    border-color: var(--archive-gold);
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-soft) 0%,
+        color-mix(in srgb, var(--archive-gold) 10%, var(--archive-paper-soft)) 100%);
+    box-shadow:
+      inset 0 0 0 1px var(--archive-gold),
+      4px 4px 0 color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  }
+  .theme-kao .index-card.is-checked {
+    border-color: var(--archive-rose);
+    box-shadow:
+      inset 0 0 0 1px var(--archive-rose),
+      3px 3px 0 color-mix(in srgb, var(--archive-rose) 22%, transparent);
+  }
+  .theme-kao .index-card__canvas-mark {
+    color: var(--archive-rose);
+  }
+  .theme-kao .index-card__delete {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .index-card__delete:hover {
+    color: var(--archive-rose);
+  }
+
+  /* material-selection-stamp 票根 */
+  .theme-kao .material-selection-stamp {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper) 38%, transparent) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 50%, transparent) 100%);
+    border-top-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  }
+  .theme-kao .material-selection-stamp-text {
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+  }
+  .theme-kao .material-selection-stamp-tick {
+    background: var(--archive-gold);
+    opacity: 0.45;
+  }
+
+  /* reading-deck 阅读台 */
+  .theme-kao .reading-deck {
+    background: transparent;
+  }
+
+  /* empty-archive 空档案柜 */
+  .theme-kao .empty-archive__cell {
+    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  }
+  .theme-kao .empty-archive__card {
+    background: var(--archive-paper-strong);
+    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
+    box-shadow:
+      6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  }
+  .theme-kao .empty-archive__tape {
+    background: color-mix(in srgb, var(--archive-paper) 70%, transparent);
+    border-color: color-mix(in srgb, var(--archive-gold) 70%, transparent);
+  }
+  .theme-kao .empty-archive__title {
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+  }
+  .theme-kao .empty-archive__desc {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+
+  /* active-card 被推上来的卡 */
+  .theme-kao .active-card {
+    background: var(--archive-paper-soft);
+    border-color: color-mix(in srgb, var(--archive-gold) 70%, transparent);
+    box-shadow:
+      6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  }
+  .theme-kao .active-card__tape {
+    background: color-mix(in srgb, var(--archive-paper) 70%, transparent);
+    border-color: color-mix(in srgb, var(--archive-gold) 70%, transparent);
+  }
+  .theme-kao .active-card .chapter-title-input {
+    color: var(--archive-ink);
+  }
+  .theme-kao .deck-toolbar {
+    border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    background: color-mix(in srgb, var(--archive-paper) 50%, var(--archive-paper-soft));
+  }
+  .theme-kao .page-controls__btn {
+    color: var(--archive-ink-soft);
+    border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  }
+  .theme-kao .page-controls__btn:hover:not(:disabled) {
+    color: var(--archive-gold);
+    border-color: var(--archive-gold);
+  }
+  .theme-kao .page-controls__count {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+  }
+
+  /* archive-pin 右下浮卡（archive-strip 的钉住版）*/
+  .theme-kao .archive-pin {
+    transform: rotate(-3deg) translateX(8px);
+    transform-origin: bottom right;
+  }
+  .theme-kao .archive-pin__nail {
+    color: var(--archive-gold);
+  }
+
+  /* drawer-empty hint */
+  .theme-kao .drawer-empty {
+    color: var(--archive-ink-soft);
+    font-family: var(--font-display);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .theme-kao .editor-container::before,
     .theme-kao .chapter-title-input,
     .theme-kao .chapter-list-item .bookmark-button:hover,
     .theme-kao .chapter-list-item .bookmark-button:focus,
-    .theme-kao .chapter-list-item .bookmark-button:focus-visible {
+    .theme-kao .chapter-list-item .bookmark-button:focus-visible,
+    .theme-kao .wall__folder,
+    .theme-kao .wall__folder:hover,
+    .theme-kao .wall__folder.is-active,
+    .theme-kao .index-card,
+    .theme-kao .index-card:hover,
+    .theme-kao .index-card.is-selected,
+    .theme-kao .archive-pin {
       animation: none;
+      transition: none;
+      transform: none;
     }
   }
 }

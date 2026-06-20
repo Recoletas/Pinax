@@ -1,7 +1,7 @@
 <template>
   <section class="quest-log">
     <header class="panel-header">
-      <span>重要活动</span>
+      <span>事件卷</span>
       <span v-if="activities.length > 0" class="count-badge">{{ activities.length }}</span>
     </header>
 
@@ -20,8 +20,8 @@
     >
       <div class="trigger-header">
         <div>
-          <div class="trigger-kicker">Adventure Exit</div>
-          <h3 class="trigger-title">本段冒险总结</h3>
+          <div class="trigger-kicker">本卷推进出口</div>
+          <h3 class="trigger-title">本段事件总结</h3>
         </div>
       </div>
       <p class="trigger-summary">{{ latestPlotEntry.summary }}</p>
@@ -139,8 +139,8 @@
     </button>
 
     <div class="inline-actions">
-      <button type="button" class="mini-btn" @click="showDetail = true" :disabled="activities.length === 0">查看记录</button>
-      <button type="button" class="mini-btn primary" @click="openAddModal">记录活动</button>
+      <button type="button" class="mini-btn" @click="showDetail = true" :disabled="activities.length === 0">查看事件卷</button>
+      <button type="button" class="mini-btn primary" @click="openAddModal">记入事件</button>
     </div>
 
     <div v-if="showDetail" class="detail-overlay" @click.self="showDetail = false">
@@ -190,7 +190,7 @@
     <div v-if="showEditor" class="detail-overlay" @click.self="closeModal">
       <div class="detail-modal">
         <div class="modal-header">
-          <span>{{ editingActivity ? '编辑活动' : '记录活动' }}</span>
+          <span>{{ editingActivity ? '编辑事件' : '记入事件' }}</span>
           <button type="button" class="close-btn" @click="closeModal" aria-label="关闭">×</button>
         </div>
 
@@ -202,7 +202,7 @@
               v-model="editTitle"
               type="text"
               class="name-input"
-              placeholder="描述这个重要活动..."
+              placeholder="描述这个事件..."
             />
           </div>
 
@@ -384,7 +384,7 @@ function getGenerateLabel(type) {
   if (state?.isGenerating) {
     return type === 'storyboard' ? '分镜整理中' : '正文生成中'
   }
-  return type === 'storyboard' ? '整理成分镜' : '写成我的版本'
+  return type === 'storyboard' ? '整理成事件分镜' : '整理成我的版本'
 }
 
 function isGenerateDisabled(type) {

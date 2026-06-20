@@ -10,7 +10,7 @@
         </button>
           <div class="manuscript-top__book">
             <span class="manuscript-top__no">素材</span>
-            <span class="material-top__count">{{ chapters.length }} 条</span>
+            <span class="material-top__count">{{ chapters.length }} 卷 · {{ groupedChapters.length }} 类</span>
           </div>
           <span v-if="selectedAssetSummary" class="manuscript-top__chapter">
             {{ selectedAssetSummary }}
@@ -40,240 +40,252 @@
       </div>
     </FolioSurface>
 
-    <div class="content-area">
-      <!-- 左侧边栏：素材 -->
-      <aside class="sidebar books-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
-        <div class="sidebar-header">
-          <span class="sidebar-title">素材</span>
-          <div class="sidebar-actions">
-            <button class="icon-btn side-toggle" @click="toggleRightSidebar" :title="isRightCollapsed ? '展开素材' : '收起素材'">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <path v-if="isRightCollapsed" d="M8 2L4 6l4 4V2z"/>
-                <path v-else d="M4 2l4 4-4 4V2z"/>
+    <div class="content-area notes-content-area">
+      <!-- 左：档案抽屉 (Archive Drawer) -->
+      <aside class="material-drawer">
+        <!-- 值班档案员 -->
+        <section class="keeper-corner">
+          <span class="keeper-corner__label">值班档案员</span>
+          <div class="keeper-corner__portrait">
+            <CharacterPortrait
+              pose-id="narrator"
+              size="thumb"
+              caption="档案员 · 值班中"
+            />
+          </div>
+          <div class="keeper-corner__pin">
+            <span class="keeper-corner__count">{{ chapters.length }} 卷</span>
+            <button class="keeper-corner__add" @click="createNewNote" title="新建素材" aria-label="新建素材">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M6 1V11M1 6H11"/>
               </svg>
             </button>
-            <button class="add-btn btn-new" @click="createNewNote" title="新建素材" :disabled="isRightCollapsed">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 0v14M0 7h14"/>
-              </svg>
-            </button>
           </div>
-        </div>
+        </section>
 
-        <!-- N5C: narrator 立绘形象 (档案员) -->
-        <CharacterPortrait
-          pose-id="narrator"
-          size="thumb"
-          caption="档案员"
-        />
-
-        <div class="book-list" v-show="!isRightCollapsed">
-          <div class="material-selection-bar" :class="{ active: checkedAssetIds.length > 0 }">
-            <template v-if="checkedAssetIds.length === 0">
-              <button class="selection-action-btn material-action-btn" type="button" :disabled="!selectedAsset" @click="importCurrentToCanvas">导当前</button>
-              <button class="selection-action-btn material-action-btn" type="button" :disabled="chapters.length === 0" @click="importAllToCanvas">全导入</button>
-            </template>
-            <template v-else>
-              <div class="material-selection-stamp">
-                <span class="material-selection-stamp-tick" aria-hidden="true"></span>
-                <span class="material-selection-stamp-text">已选 {{ checkedAssetIds.length }} 项 · 批量</span>
-                <span class="material-selection-stamp-tick" aria-hidden="true"></span>
-              </div>
-              <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
-                <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
-                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
-                <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
-                <button class="selection-action-btn material-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
-              </div>
-            </template>
-          </div>
-          <div v-if="groupedChapters.length === 0" class="empty-hint">
-            暂无素材，点击上方 + 新建
-          </div>
-          <div v-for="(group, idx) in groupedChapters" :key="group.kind" class="material-group">
-            <button class="material-group-header" type="button" @click="toggleAssetKindGroup(group.kind)">
-              <span class="material-group-spine" :style="{ background: group.color }" :title="group.label" aria-hidden="true"></span>
-              <span class="material-group-header-left">
-                <span class="material-group-number">{{ groupIndexLabel(idx) }}</span>
-                <span class="material-group-title">{{ group.label }}</span>
-                <span class="material-group-count">{{ group.items.length }}</span>
-              </span>
-              <span class="material-group-toggle" aria-hidden="true">
-                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <!-- 7 类抽屉盒 -->
+        <div class="drawer-units">
+          <section v-for="(group, idx) in groupedChapters" :key="group.kind" class="drawer-unit" :class="{ 'is-collapsed': isAssetKindCollapsed(group.kind) }">
+            <button class="drawer-handle" type="button" @click="toggleAssetKindGroup(group.kind)" :aria-expanded="!isAssetKindCollapsed(group.kind)">
+              <span class="drawer-handle__spine" :style="{ background: group.color }" aria-hidden="true"></span>
+              <span class="drawer-handle__roman">{{ groupIndexLabel(idx) }}</span>
+              <span class="drawer-handle__title">{{ group.label }}</span>
+              <span class="drawer-handle__count">{{ group.items.length }}</span>
+              <span class="drawer-handle__chevron" aria-hidden="true">
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                   <path v-if="isAssetKindCollapsed(group.kind)" d="M3 1.5L6 4.5L3 7.5"/>
                   <path v-else d="M1.5 3L4.5 6L7.5 3"/>
                 </svg>
               </span>
             </button>
-            <div v-show="!isAssetKindCollapsed(group.kind)" class="material-group-list">
-              <div
-                v-for="note in group.items"
+            <div v-show="!isAssetKindCollapsed(group.kind)" class="drawer-body">
+              <button
+                v-for="(note, i) in group.items"
                 :key="note.id"
-                :class="['book-item', { active: selectedChapterId === note.id }]"
+                class="index-card"
+                :class="{
+                  'is-selected': selectedChapterId === note.id,
+                  'is-checked': checkedAssetIds.includes(note.id)
+                }"
+                :style="{ '--card-tilt': (i % 2 === 0 ? -4 : 3) + 'deg' }"
                 @click="selectChapter(note.id)"
               >
                 <input
-                  class="book-check"
+                  class="index-card__check"
                   type="checkbox"
                   :checked="checkedAssetIds.includes(note.id)"
                   :aria-label="`选择 ${note.title || '无标题素材'}`"
                   @click.stop
                   @change="toggleCheckedAsset(note.id)"
                 />
-                <span class="book-kind-dot" :style="{ background: getAssetKindColor(note.kind) }"></span>
-                <div class="book-info">
-                  <span class="book-title">{{ note.title || '无标题素材' }}</span>
-                  <span class="book-meta">
-                    {{ getAssetStatusLabel(note.status) }}
-                  </span>
+                <div class="index-card__body">
+                  <span class="index-card__title">{{ note.title || '无标题素材' }}</span>
+                  <span class="index-card__meta">{{ getAssetStatusLabel(note.status) }}</span>
                 </div>
-                <span v-if="isAssetOnCanvas(note.id)" class="canvas-linked" title="已入画布">✓</span>
-                <button class="delete-btn" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
-              </div>
+                <span v-if="isAssetOnCanvas(note.id)" class="index-card__canvas-mark" title="已入画布">✓</span>
+                <button class="index-card__delete" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
+              </button>
             </div>
+          </section>
+          <div v-if="groupedChapters.length === 0" class="drawer-empty">
+            <span class="drawer-empty__text">抽屉全空 · 等待卷宗</span>
           </div>
         </div>
+
+        <!-- 票根（batch 态） -->
+        <Transition name="modal-fade">
+          <div v-if="checkedAssetIds.length > 0" class="material-selection-stamp">
+            <div class="material-selection-stamp__rail">
+              <span class="material-selection-stamp-tick" aria-hidden="true"></span>
+              <span class="material-selection-stamp-text">已选 {{ checkedAssetIds.length }} 项 · 批量</span>
+              <span class="material-selection-stamp-tick" aria-hidden="true"></span>
+            </div>
+            <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
+              <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+              <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
+              <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
+              <button class="selection-action-btn material-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
+            </div>
+          </div>
+        </Transition>
       </aside>
 
-      <!-- 左侧分隔栏 -->
-      <div class="resize-handle" v-if="!isRightCollapsed" @mousedown="startResizeRight"></div>
-
-      <!-- 主编辑区 -->
+      <!-- 中：阅读台 (Reading Deck) -->
       <FolioSurface variant="paper" decorated>
-      <main class="editor-main">
-        <template v-if="!selectedChapterId">
-          <div class="empty-state">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor" class="empty-icon">
-              <path d="M8 6h32v36H8V6zm6 8h20v2H14v-2zm0 7h20v2H14v-2zm0 7h14v2H14v-2z"/>
-            </svg>
-            <p class="empty-title">选择或创建素材</p>
-            <p class="empty-desc">从右侧选择一条素材开始编辑</p>
-            <button class="btn-primary" @click="createNewNote">新建素材</button>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="editor-header">
-            <div class="asset-toolbar">
-              <label class="asset-control">
-                <span>类型</span>
-                <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
-                  <option value="inspiration">灵感</option>
-                  <option value="draft-prose">正文候选</option>
-                  <option value="event">剧情事件</option>
-                  <option value="character-fact">人物事实</option>
-                  <option value="worldbook-draft">世界书草稿</option>
-                  <option value="storyboard-seed">分镜种子</option>
-                  <option value="reference-image">参考图</option>
-                </select>
-              </label>
-              <button class="asset-canvas-primary" type="button" @click="importCurrentToCanvas">
-                {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
-              </button>
-              <button
-                v-if="selectedAsset"
-                class="asset-canvas-secondary"
-                type="button"
-                :disabled="isGeneratingProfessionalInfo"
-                @click="generateAndImportToCanvas">
-                {{ isGeneratingProfessionalInfo ? '生成中...' : '生成专业信息' }}
-              </button>
-              <div class="toolbar-spacer"></div>
-              <div class="mode-switch">
-                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">
-                  编辑
-                </button>
-                <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">
-                  Markdown
-                </button>
-                <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">
-                  预览
-                </button>
+        <section class="reading-deck">
+          <!-- 空档案柜：12 抽屉格 + 倾斜空白卡 -->
+          <template v-if="!selectedChapterId">
+            <div class="empty-archive">
+              <div class="empty-archive__grid" aria-hidden="true">
+                <span v-for="n in 12" :key="n" class="empty-archive__cell"></span>
+              </div>
+              <div class="empty-archive__card">
+                <span class="empty-archive__tape" aria-hidden="true"></span>
+                <p class="empty-archive__title">本卷尚无条目</p>
+                <p class="empty-archive__desc">档案员值班中，等你的第一条线索。</p>
+                <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建第一条线索</button>
               </div>
             </div>
+          </template>
 
-            <div class="title-row">
-              <input
-                v-model="currentChapterTitle"
-                type="text"
-                class="chapter-title-input"
-                placeholder="素材标题"
-                @input="onTitleChange"
-              />
-              <div class="editor-stats">
-                <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
-                <span class="stat-divider">|</span>
-                <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
+          <!-- 阅读台：被推上来的卡 -->
+          <template v-else>
+            <article class="active-card">
+              <span class="active-card__tape" aria-hidden="true"></span>
+              <div class="active-card__header">
+                <input
+                  v-model="currentChapterTitle"
+                  type="text"
+                  class="chapter-title-input"
+                  placeholder="素材标题"
+                  @input="onTitleChange"
+                />
+                <div class="active-card__stats">
+                  <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
+                  <span class="stat-divider">|</span>
+                  <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
+                </div>
               </div>
-            </div>
-
-            <!-- N5C: 3 entry collage tile -->
-            <ArchiveStrip
-              :items="archiveStripItems"
-              :image="firstImageDataUrl"
-              aria-label="素材缩略目录"
-            />
-
-            <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
-              <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
-              <div class="image-asset-meta">
-                <span>参考图</span>
-                <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
+              <div class="deck-toolbar">
+                <label class="asset-control">
+                  <span>类型</span>
+                  <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
+                    <option value="inspiration">灵感</option>
+                    <option value="draft-prose">正文候选</option>
+                    <option value="event">剧情事件</option>
+                    <option value="character-fact">人物事实</option>
+                    <option value="worldbook-draft">世界书草稿</option>
+                    <option value="storyboard-seed">分镜种子</option>
+                    <option value="reference-image">参考图</option>
+                  </select>
+                </label>
+                <button class="material-action-btn deck-toolbar__btn" type="button" @click="importCurrentToCanvas">
+                  {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
+                </button>
+                <button
+                  v-if="selectedAsset"
+                  class="material-action-btn deck-toolbar__btn"
+                  type="button"
+                  :disabled="isGeneratingProfessionalInfo"
+                  @click="generateAndImportToCanvas"
+                >
+                  {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
+                </button>
+                <div class="deck-toolbar__spacer"></div>
+                <div class="mode-switch">
+                  <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
+                  <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">Markdown</button>
+                  <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
+                </div>
               </div>
-            </div>
-          </div>
+              <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
+                <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
+                <div class="image-asset-meta">
+                  <span>参考图</span>
+                  <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
+                </div>
+              </div>
+              <textarea
+                v-if="editorMode === 'wysiwyg'"
+                v-model="markdownContent"
+                class="editor-textarea prose-textarea"
+                placeholder="开始记录..."
+                ref="editorRef"
+                :style="{
+                  fontFamily: editorFont,
+                  fontSize: editorFontSize,
+                  fontWeight: editorBold ? 'bold' : 'normal',
+                  fontStyle: editorItalic ? 'italic' : 'normal',
+                  textDecoration: editorUnderline ? 'underline' : 'none'
+                }"
+                @input="onMarkdownInput"
+                @keydown="onTextAreaKeydown"
+              ></textarea>
+              <textarea
+                v-if="editorMode === 'markdown'"
+                v-model="markdownContent"
+                class="editor-textarea markdown-textarea"
+                placeholder="开始记录（Markdown）..."
+                @input="onMarkdownInput"
+                @keydown="onTextAreaKeydown"
+              ></textarea>
+              <div
+                v-if="editorMode === 'preview'"
+                class="editor-textarea editor-preview"
+                v-html="previewHtml"
+              ></div>
+              <div class="page-controls">
+                <button class="page-controls__btn" type="button" :disabled="!canGoPrev" @click="goPrevAsset" title="上一张">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6.5 1.5L3 5l3.5 3.5"/>
+                  </svg>
+                  上一张
+                </button>
+                <span class="page-controls__count">共 {{ chapters.length }} 卷 · 第 {{ currentAssetIndex + 1 }} 张</span>
+                <button class="page-controls__btn" type="button" :disabled="!canGoNext" @click="goNextAsset" title="下一张">
+                  下一张
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3.5 1.5L7 5l-3.5 3.5"/>
+                  </svg>
+                </button>
+              </div>
+            </article>
+          </template>
 
-          <textarea
-            v-if="editorMode === 'wysiwyg'"
-            v-model="markdownContent"
-            class="editor-textarea prose-textarea"
-            placeholder="开始记录..."
-            ref="editorRef"
-            :style="{
-              fontFamily: editorFont,
-              fontSize: editorFontSize,
-              fontWeight: editorBold ? 'bold' : 'normal',
-              fontStyle: editorItalic ? 'italic' : 'normal',
-              textDecoration: editorUnderline ? 'underline' : 'none'
-            }"
-            @input="onMarkdownInput"
-            @keydown="onTextAreaKeydown"
-          ></textarea>
-          <textarea
-            v-if="editorMode === 'markdown'"
-            v-model="markdownContent"
-            class="editor-textarea markdown-textarea"
-            placeholder="开始记录（Markdown）..."
-            @input="onMarkdownInput"
-            @keydown="onTextAreaKeydown"
-          ></textarea>
+          <!-- 右键菜单 -->
           <div
-            v-if="editorMode === 'preview'"
-            class="editor-textarea editor-preview"
-            v-html="previewHtml"
-          ></div>
-
-
-      <!-- 右键菜单 -->
-      <div
-        v-if="contextMenu.show"
-        class="context-menu"
-        :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-        @click.stop
-      >
-        <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
-        <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
-        <div class="ctx-divider"></div>
-        <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
-        <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
-        <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
-        <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
-        <div class="ctx-divider"></div>
-        <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
-      </div>
-      </template>
-      </main>
+            v-if="contextMenu.show"
+            class="context-menu"
+            :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+            @click.stop
+          >
+            <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
+            <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
+            <div class="ctx-divider"></div>
+            <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
+            <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
+            <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
+            <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
+            <div class="ctx-divider"></div>
+            <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
+          </div>
+        </section>
       </FolioSurface>
+
+      <!-- 右下：ArchiveStrip 浮卡 (被图钉钉住) -->
+      <aside class="archive-pin" aria-label="最近素材贴片" v-if="chapters.length > 0">
+        <span class="archive-pin__nail" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="3" fill="currentColor"/>
+            <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4" opacity="0.55"/>
+          </svg>
+        </span>
+        <ArchiveStrip
+          :items="archiveStripItems"
+          :image="firstImageDataUrl"
+          aria-label="素材缩略目录"
+        />
+      </aside>
     </div>
 
     <!-- 新建素材弹窗 -->
@@ -397,10 +409,6 @@ const checkedAssetIds = ref([])
 const canvasImportRevision = ref(0)
 const collapsedAssetKinds = ref({})
 
-const rightWidth = ref(210)
-const isRightCollapsed = ref(false)
-const resizing = ref(null)
-const minWidth = 150
 const selectedText = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
@@ -476,8 +484,24 @@ const firstImageDataUrl = computed(() => {
   const ref = chapters.value.find((a) => a.image?.data)
   return ref?.image?.data || ''
 })
-const collapsedSidebarWidth = 44
-const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
+// N2: page-flip navigation for active card (reading deck prev/next).
+const currentAssetIndex = computed(() => {
+  if (!selectedChapterId.value) return -1
+  return chapters.value.findIndex((a) => a.id === selectedChapterId.value)
+})
+const canGoPrev = computed(() => currentAssetIndex.value > 0)
+const canGoNext = computed(() => {
+  const i = currentAssetIndex.value
+  return i >= 0 && i < chapters.value.length - 1
+})
+function goPrevAsset() {
+  const i = currentAssetIndex.value
+  if (i > 0) selectChapter(chapters.value[i - 1].id)
+}
+function goNextAsset() {
+  const i = currentAssetIndex.value
+  if (i >= 0 && i < chapters.value.length - 1) selectChapter(chapters.value[i + 1].id)
+}
 
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -1128,10 +1152,6 @@ function clearSelectionStyle() {
   onContentChange()
 }
 
-function toggleRightSidebar() {
-  isRightCollapsed.value = !isRightCollapsed.value
-}
-
 function adjustFontSize(delta) {
   const sizes = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30]
   const currentStr = editorFontSize.value
@@ -1432,26 +1452,6 @@ function syncSelectionCommandState() {
   } catch {
     // ignore unsupported environments
   }
-}
-
-function startResizeRight(e) {
-  if (isRightCollapsed.value) return
-  resizing.value = 'right'
-  document.addEventListener('mousemove', onResizeRight)
-  document.addEventListener('mouseup', stopResizeRight)
-  e.preventDefault()
-}
-
-function onResizeRight(e) {
-  if (resizing.value !== 'right') return
-  const newWidth = Math.max(190, Math.min(420, e.clientX))
-  rightWidth.value = newWidth
-}
-
-function stopResizeRight() {
-  resizing.value = null
-  document.removeEventListener('mousemove', onResizeRight)
-  document.removeEventListener('mouseup', stopResizeRight)
 }
 
 </script>
@@ -2465,10 +2465,10 @@ function stopResizeRight() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
   border-radius: 999px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  background: var(--archive-paper-soft);
+  color: var(--archive-ink-soft);
   cursor: pointer;
 }
 
@@ -2477,11 +2477,11 @@ function stopResizeRight() {
   align-items: baseline;
   gap: 8px;
   padding-left: 10px;
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--archive-gold);
 }
 
 .material-top .manuscript-top__no {
-  color: var(--text-primary);
+  color: var(--archive-ink);
   font-size: 13px;
   font-weight: 700;
 }
@@ -2491,14 +2491,14 @@ function stopResizeRight() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-secondary);
+  color: var(--archive-ink-soft);
   font-size: 12px;
   font-style: italic;
 }
 
 .material-top .manuscript-top__chip,
 .material-top .manuscript-top__tab {
-  color: var(--text-secondary);
+  color: var(--archive-ink-soft);
   font-size: 12px;
 }
 
@@ -2509,9 +2509,535 @@ function stopResizeRight() {
 }
 
 .material-top__count {
-  color: var(--text-secondary);
+  color: var(--archive-ink-soft);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   UI-N2: Notes Archive Drawer 局部骨架
+   视觉由 kao.css 中 .theme-kao .material-drawer 等规则覆写
+   ============================================================ */
+
+.notes-content-area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.material-drawer {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.keeper-corner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 16px 12px 12px;
+}
+
+.keeper-corner__label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--archive-ink-soft);
+}
+
+.keeper-corner__portrait {
+  width: 180px;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.keeper-corner__pin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 12px 0;
+}
+
+.keeper-corner__count {
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  color: var(--archive-ink-soft);
+}
+
+.keeper-corner__add {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  background: transparent;
+  cursor: pointer;
+  color: var(--archive-ink-soft);
+}
+
+.keeper-corner__add:hover {
+  color: var(--accent);
+}
+
+.drawer-units {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+
+.drawer-unit {
+  margin: 0 0 10px;
+}
+
+.drawer-handle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--archive-ink);
+}
+
+.drawer-handle__spine {
+  width: 4px;
+  align-self: stretch;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.drawer-handle__roman {
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  min-width: 18px;
+  color: var(--archive-ink-soft);
+}
+
+.drawer-handle__title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawer-handle__count {
+  font-size: 11px;
+  color: var(--archive-ink-soft);
+}
+
+.drawer-handle__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--archive-ink-soft);
+}
+
+.drawer-handle__chevron svg {
+  display: block;
+}
+
+.drawer-body {
+  display: grid;
+  gap: 7px;
+  padding: 2px 12px 6px;
+}
+
+.index-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  background: var(--archive-paper-soft);
+  cursor: pointer;
+  text-align: left;
+  color: var(--archive-ink);
+  transform: rotate(var(--card-tilt, 0deg));
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.index-card:hover {
+  transform: rotate(0deg) translateY(-1px);
+}
+
+.index-card.is-selected {
+  border-color: var(--archive-gold);
+  background: color-mix(in srgb, var(--archive-gold) 10%, var(--archive-paper-soft));
+  transform: rotate(0deg) translateY(-1px);
+}
+
+.index-card.is-checked {
+  border-color: var(--archive-rose);
+}
+
+.index-card__check {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--archive-gold);
+}
+
+.index-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.index-card__title {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.index-card__meta {
+  font-size: 10px;
+  margin-top: 1px;
+  color: var(--archive-ink-soft);
+}
+
+.index-card__canvas-mark {
+  font-size: 10px;
+  color: var(--archive-rose);
+}
+
+.index-card__delete {
+  opacity: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--archive-ink-soft);
+}
+
+.index-card:hover .index-card__delete {
+  opacity: 1;
+}
+
+.index-card__delete:hover {
+  color: var(--danger);
+}
+
+.drawer-empty {
+  padding: 18px 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--archive-ink-soft);
+  font-style: italic;
+}
+
+/* 票根 (batch 态) 离开 book-list 后在 drawer 顶部贴 */
+.material-selection-stamp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 44%, transparent);
+  flex-shrink: 0;
+}
+
+.material-selection-stamp__rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.material-selection-stamp-tick {
+  flex: 1;
+  height: 1px;
+  background: var(--archive-gold);
+  opacity: 0.45;
+}
+
+.material-selection-stamp-text {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--archive-ink);
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.selection-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.selection-action-btn {
+  min-width: 0;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-radius: 0;
+  background: var(--archive-paper-soft);
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-action-btn.primary {
+  border-color: var(--archive-gold);
+  color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-gold) 14%, var(--archive-paper-soft));
+}
+
+.selection-action-btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+  color: var(--danger);
+}
+
+.selection-action-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.selection-action-btn.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.selection-action-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* 中央阅读台 */
+.reading-deck {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 28px 32px 24px;
+  overflow: auto;
+  position: relative;
+}
+
+/* 空档案柜 */
+.empty-archive {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 32px;
+  min-height: 420px;
+}
+
+.empty-archive__grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 32px 56px;
+  pointer-events: none;
+}
+
+.empty-archive__cell {
+  border: 1px dashed currentColor;
+  opacity: 0.32;
+}
+
+.empty-archive__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 380px;
+  max-width: 90%;
+  padding: 44px 28px 32px;
+  text-align: center;
+  background: var(--archive-paper-strong);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  transform: rotate(-3deg);
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+}
+
+.empty-archive__tape {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  width: 96px;
+  height: 20px;
+  border: 1px dashed currentColor;
+  opacity: 0.5;
+}
+
+.empty-archive__title {
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--archive-ink);
+}
+
+.empty-archive__desc {
+  font-size: 12px;
+  color: var(--archive-ink-soft);
+}
+
+.empty-archive__cta {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+/* 被推上来的卡 */
+.active-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 14px;
+  padding: 28px 28px 16px;
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 70%, transparent);
+  transform: rotate(2deg);
+  transform-origin: top center;
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+}
+
+.active-card__tape {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-1deg);
+  width: 110px;
+  height: 22px;
+  border: 1px dashed currentColor;
+  opacity: 0.5;
+}
+
+.active-card__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.active-card__stats {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.active-card .chapter-title-input {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: none;
+  color: var(--archive-ink);
+  outline: none;
+  padding: 4px 0;
+}
+
+.active-card .chapter-title-input::placeholder {
+  color: var(--archive-ink-soft);
+  font-style: italic;
+}
+
+.deck-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  flex-wrap: wrap;
+  background: color-mix(in srgb, var(--archive-paper) 50%, var(--archive-paper-soft));
+}
+
+.deck-toolbar__spacer {
+  flex: 1;
+}
+
+.deck-toolbar__btn {
+  font-size: 11px;
+  height: 26px;
+}
+
+.page-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 0 4px;
+}
+
+.page-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--archive-ink-soft);
+}
+
+.page-controls__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.page-controls__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-controls__count {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--archive-ink-soft);
+}
+
+/* 右下浮卡 */
+.archive-pin {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 260px;
+  z-index: 5;
+}
+
+.archive-pin__nail {
+  position: absolute;
+  top: -6px;
+  left: 14px;
+  z-index: 2;
+  color: var(--accent);
+  pointer-events: none;
 }
 </style>

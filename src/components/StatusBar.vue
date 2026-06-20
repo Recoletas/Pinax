@@ -6,7 +6,7 @@
           <path d="M7 7a2 2 0 100-4 2 2 0 000 4zM3 13c0-2 1.5-3 4-3s4 1 4 3H3z"/>
         </svg>
       </span>
-      <span>角色</span>
+      <span>在场人物</span>
     </div>
 
     <!-- 当前时间显示 -->
@@ -30,10 +30,10 @@
     <div class="compact-profile" @click="showDetail = true">
       <div class="avatar-mini">
         <img v-if="playerAvatar" :src="playerAvatar" class="avatar" />
-        <div v-else class="avatar-placeholder">{{ (playerName || '你')[0] }}</div>
+        <div v-else class="avatar-placeholder">{{ playerName[0] }}</div>
       </div>
       <div class="profile-info">
-        <div class="character-name">{{ playerName || '未命名' }}</div>
+        <div class="character-name">{{ playerName }}</div>
         <div class="mood-compact">
           <div class="mood-bar">
             <div class="mood-fill" :style="{ width: moodPercent + '%', background: moodGradient }"></div>
@@ -352,7 +352,14 @@ function hexToRgb(hex) {
 
 const moodPercent = computed(() => moodIntensity.value)
 
-const playerName = computed(() => editingName.value || gameStore.playerCharacter?.name || '未命名')
+const playerName = computed(() => {
+  // Pure display: if the user hasn't picked a custom name (still the
+  // "User" default from gameStore.init), surface 主角 instead so the
+  // record book doesn't read as a SaaS "User" placeholder.
+  const raw = editingName.value || gameStore.playerCharacter?.name || ''
+  if (!raw || raw === 'User') return '主角'
+  return raw
+})
 const playerAvatar = computed(() => gameStore.playerCharacter?.avatar || '')
 const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.age || '-')
 const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')

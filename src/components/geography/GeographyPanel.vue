@@ -2,16 +2,16 @@
   <div class="geography-panel">
     <header class="geo-header">
       <div class="geo-title-block">
-        <span class="panel-kicker">体验上下文</span>
-        <h2 class="panel-heading">地理环境</h2>
+        <span class="panel-kicker">案卷索引</span>
+        <h2 class="panel-heading">地点卡</h2>
       </div>
       <span class="geo-count" aria-label="地点数量">{{ locations.length }}</span>
     </header>
 
-    <div class="geo-stat-strip" aria-label="地理环境概览">
-      <span><strong>{{ locationStats.root }}</strong> 顶级</span>
+    <div class="geo-stat-strip" aria-label="地点卷统计">
+      <span><strong>{{ locationStats.root }}</strong> 卷号</span>
       <span><strong>{{ locationStats.linked }}</strong> 从属</span>
-      <span><strong>{{ locationStats.described }}</strong> 已描述</span>
+      <span><strong>{{ locationStats.described }}</strong> 已记</span>
     </div>
 
     <!-- Overview -->

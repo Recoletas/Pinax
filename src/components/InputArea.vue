@@ -174,16 +174,14 @@
         @click="handleSend"
         :disabled="gameStore.isLoading || !inputText.trim()"
       >
-        <span v-if="!gameStore.isLoading">发送</span>
+        <span v-if="!gameStore.isLoading">记入</span>
         <span v-else class="loading-spinner"></span>
       </button>
-      <!-- 上下文用量指示 -->
-      <div class="context-usage-mini" @click="handleCompress" title="压缩上下文">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/>
-          <path :d="contextArc" :stroke="contextColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-        <span class="usage-text">{{ totalTokens }}</span>
+      <!-- 今日已记 N 段 (取代 token 圆环) -->
+      <div class="record-meter" :title="`今日已记 ${loggedTodayCount} 段`">
+        <span class="record-meter__kicker">已记</span>
+        <strong class="record-meter__value">{{ loggedTodayCount }}</strong>
+        <span class="record-meter__unit">段</span>
       </div>
 
       <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
@@ -347,6 +345,13 @@ const historyTokens = computed(() => {
 const inputTokens = computed(() => estimateTokens(inputText.value))
 
 const totalTokens = computed(() => contextTokens.value + historyTokens.value + inputTokens.value)
+
+// 已记段数 (取代 token 圆环 — 纯 display,统计 user 消息)
+const loggedTodayCount = computed(() => {
+  return (gameStore.messages || []).filter(
+    (m) => (m.role || m.type) === 'user'
+  ).length
+})
 
 // 上下文用量圆弧
 const contextArc = computed(() => {
@@ -768,29 +773,6 @@ function updatePromptInfo() {
   font-size: 13px;
 }
 
-.context-usage-mini {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  height: 34px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-  user-select: none;
-}
-.context-usage-mini:hover { border-color: var(--accent); color: var(--accent); }
-
-.usage-text {
-  font-size: 11px;
-  font-weight: 500;
-  min-width: 24px;
-  text-align: right;
-}
-
 .info-btn {
   width: 34px;
   height: 34px;
@@ -1013,4 +995,161 @@ function updatePromptInfo() {
 }
 .add-char-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .add-char-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Kao archive-folio overrides for InputArea.
+   These rules are scoped (data-v-InputArea_xxx auto-appended), so their
+   effective specificity is .theme-kao .x[data-v-xxx] = 0,2,1, which beats
+   the default scoped .x[data-v-xxx] = 0,1,1. No !important needed.
+   Selectors cover: input row, input field, send button (记入), quick
+   buttons (archive chip), and the new record-meter (今日已记). */
+.theme-kao .input-area {
+  background: transparent;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  border-radius: 0;
+  padding: 10px 14px 12px;
+}
+
+.theme-kao .input-row {
+  gap: 0;
+  align-items: stretch;
+}
+
+.theme-kao .input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 48%, transparent);
+  border-radius: 0;
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  padding: 8px 4px;
+}
+
+.theme-kao .input:focus {
+  outline: none;
+  border-bottom-color: var(--archive-gold);
+}
+
+.theme-kao .input::placeholder {
+  color: color-mix(in srgb, var(--archive-ink) 44%, transparent);
+  font-style: italic;
+}
+
+.theme-kao .send-btn {
+  background: var(--archive-paper);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 44%, transparent);
+  border-radius: 0;
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  padding: 6px 18px;
+  margin-left: 10px;
+}
+
+.theme-kao .send-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--archive-paper-strong) 40%, var(--archive-paper));
+  border-color: var(--archive-gold);
+  color: var(--archive-olive-strong);
+}
+
+.theme-kao .send-btn:disabled {
+  opacity: 0.5;
+  background: var(--archive-paper-soft);
+  color: color-mix(in srgb, var(--archive-ink) 36%, transparent);
+}
+
+.theme-kao .quick-actions {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.theme-kao .quick-btn {
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  border-radius: 0;
+  color: color-mix(in srgb, var(--archive-ink) 76%, transparent);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+}
+
+.theme-kao .quick-btn:first-child { border-radius: 0; }
+.theme-kao .quick-btn:last-child { border-radius: 0; }
+.theme-kao .quick-btn:only-child { border-radius: 0; }
+.theme-kao .quick-btn:hover {
+  background: color-mix(in srgb, var(--archive-paper-strong) 50%, var(--archive-paper));
+  color: var(--archive-olive-strong);
+  border-color: var(--archive-gold);
+}
+.theme-kao .quick-btn:active {
+  background: color-mix(in srgb, var(--archive-gold) 12%, var(--archive-paper));
+}
+
+.theme-kao .record-meter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: 10px;
+  padding: 4px 10px;
+  height: auto;
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  border-radius: 0;
+  color: var(--archive-ink);
+  cursor: default;
+  user-select: none;
+  font-family: var(--font-display);
+}
+
+.theme-kao .record-meter__kicker {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+}
+
+.theme-kao .record-meter__value {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--archive-olive-strong);
+}
+
+.theme-kao .record-meter__unit {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+}
+
+.theme-kao .info-btn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  border-radius: 0;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  width: 28px;
+  height: 28px;
+  margin-left: 8px;
+}
+
+.theme-kao .info-btn:hover {
+  color: var(--archive-gold);
+  border-color: var(--archive-gold);
+}
+
+@media (max-width: 640px) {
+  .theme-kao .input-area {
+    padding: 8px 10px 10px;
+  }
+  .theme-kao .send-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .theme-kao .record-meter {
+    margin-left: 6px;
+    padding: 3px 6px;
+  }
+}
 </style>
