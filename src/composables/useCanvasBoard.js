@@ -53,6 +53,8 @@ import { computed, isRef, ref } from 'vue'
  *   layoutItems: () => Array<object>,
  *   styleFor: (item:object) => object,
  *   setPosition: (id:string, x:number, y:number) => void,
+ *   bringToFront: (id:string) => void,
+ *   focusedZId: import('vue').Ref<string|null>,
  * }}
  */
 export function useCanvasBoard(options) {
@@ -66,6 +68,11 @@ export function useCanvasBoard(options) {
 
   const draggingId = ref(null)
   const isDragging = computed(() => draggingId.value !== null)
+
+  // UI-N9: focused item gets z-index 10 (above default 1) so clicking
+  // a slip naturally surfaces it above its siblings. We do NOT mutate
+  // positions for this — just an in-memory ordering ref.
+  const focusedZId = ref(null)
 
   // UI-N6F2: dual-mode positions accessors.
   // isRef(positions) → ref path: read/write positions.value
@@ -91,9 +98,17 @@ export function useCanvasBoard(options) {
     setPositionsMapEntry(id, Math.max(0, x), Math.max(0, y))
   }
 
+  function bringToFront(id) {
+    if (!id) return
+    focusedZId.value = id
+  }
+
   function onItemDragStart(item, e) {
     if (!item?.id) return
     draggingId.value = item.id
+    // UI-N9: dragging always brings the item to the front (above any
+    // sibling that might overlap). The user's eye follows the cursor.
+    focusedZId.value = item.id
     if (e?.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move'
       try {
@@ -192,11 +207,14 @@ export function useCanvasBoard(options) {
   }
 
   function styleFor(item) {
+    // UI-N9: focused / dragging item sits at z-index 10 so it visually
+    // surfaces above siblings; everything else stays at the default 1.
+    const isFocused = focusedZId.value === item.id || draggingId.value === item.id
     return {
       position: 'absolute',
       left: item.x + 'px',
       top: item.y + 'px',
-      zIndex: item.zIndex || 1,
+      zIndex: isFocused ? 10 : (item.zIndex || 1),
     }
   }
 
@@ -211,5 +229,7 @@ export function useCanvasBoard(options) {
     layoutItems,
     styleFor,
     setPosition,
+    bringToFront,
+    focusedZId,
   }
 }

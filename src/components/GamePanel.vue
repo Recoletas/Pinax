@@ -1,132 +1,201 @@
 <template>
   <div class="chat-container" ref="scrollContainer">
-    <template v-for="(group, gIdx) in messageGroups" :key="`g-${gIdx}`">
+    <template v-for="(spread, sIdx) in messageSpreads" :key="`spread-${sIdx}`">
       <div
-        v-if="gIdx > 0"
+        v-if="sIdx > 0"
         class="chapter-rule"
-        :data-chapter-label="`卷 ${recordVolume} · 第 ${gIdx + 1} 页`"
+        :data-chapter-label="`卷 ${recordVolume} · 第 ${sIdx + 1} 页`"
         aria-hidden="true"
       >
-        <span class="chapter-rule__label">卷 {{ recordVolume }} · 第 {{ gIdx + 1 }} 页</span>
+        <span class="chapter-rule__label">卷 {{ recordVolume }} · 第 {{ sIdx + 1 }} 页</span>
       </div>
-      <div
-        v-for="(msg, mIdx) in group"
-        :key="`${gIdx}-${mIdx}`"
+
+      <!-- Book spread — 对开页。每一个 user→assistant 对话回合是一张对开页:
+           左页 = user 行为 / 提问 / 决策 (短),右页 = 旁白叙事 (长);
+           中间有 1px 装订 spine 分隔;顶部 page header (日期/卷次/角色印章),
+           底部 ink stamp footer;长旁白超过阈值自动续到下页 (data-continued="1" 上加 续 字样)。
+           连续 user-user / assistant-assistant / system-compression / 空对话
+           退化为 single-page spread (左页有内容, 右页空 = "另一半留给下一步落笔")。
+           这是 UI-E9 的核心结构性改动:把 ledger 从单列 chat 流改成真正翻开的对开本。 -->
+      <article
+        class="ledger-spread"
         :class="[
-          'msg-item',
-          msg.role,
-          {
-            'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx)),
-            'compression-complete': isCompressionCompleteMessage(msg)
-          }
+          { 'ledger-spread--single': spread.left && !spread.right },
+          { 'ledger-spread--empty': !spread.left && !spread.right }
         ]"
+        :aria-label="`对开页 ${sIdx + 1}`"
       >
+        <!-- 红色稿纸红线 — 左侧 page 28px 处 (像 wall__dossier 的 margin rule).
+             视觉上让左页"像写在稿纸上",而不是裸卡片。 -->
+        <div class="ledger-spread__red-rule" aria-hidden="true"></div>
 
-        <!-- 头像列 -->
-        <div class="avatar-column">
-          <template v-if="isCompressionCompleteMessage(msg)">
-            <div class="tavern-avatar system-icon">
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M13 4.5L6.2 11.3 3 8.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-          </template>
+        <!-- 顶部 page header — 三段式: 日期 / 卷次 / 角色印章 -->
+        <header class="ledger-spread__page-header">
+          <span class="ledger-spread__page-date">{{ spreadHeaderDate(spread) }}</span>
+          <span class="ledger-spread__page-volume">第 {{ sIdx + 1 }} 页 · 卷 {{ recordVolume }}</span>
+          <span class="ledger-spread__page-stamp">{{ spreadHeaderStamp(spread) }}</span>
+        </header>
 
-          <template v-else-if="msg.role === 'assistant'">
-            <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
-            <div v-else class="tavern-avatar ai-icon">
-              {{ (msg.name || 'A')[0] }}
-            </div>
-          </template>
-
-          <template v-else>
-            <img v-if="gameStore.playerCharacter?.avatar" :src="gameStore.playerCharacter.avatar" class="tavern-avatar" />
-            <div v-else class="tavern-avatar user-icon">
-              {{ (msg.name || 'U')[0] }}
-            </div>
-          </template>
-        </div>
-
-        <!-- 内容列 -->
-        <div class="msg-column">
-          <!-- Folio 页码 marginalia (record-book mechanism, not row number) -->
-          <span
-            v-if="!isCompressionCompleteMessage(msg)"
-            class="msg-item__folio"
-            :data-folio-page="globalIndex(group, mIdx) + 1"
-            aria-hidden="true"
-          >页 {{ globalIndex(group, mIdx) + 1 }}</span>
-
-          <div class="msg-header">
-            <span class="display-name">
-              {{ displayName(msg) }}
-            </span>
-            <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-            <div
-              class="msg-actions"
-              :class="{ 'import-mode': gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system' }"
-            >
-              <span
-                v-if="gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system'"
-                class="import-picker"
-                @click="gameStore.toggleQuickNoteMessageSelection(globalIndex(group, mIdx))"
-                :title="gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx)) ? '取消导入' : '加入导入'"
-              >
-                <input
-                  type="checkbox"
-                  :checked="gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx))"
-                  @click.stop
-                  @change="gameStore.toggleQuickNoteMessageSelection(globalIndex(group, mIdx))"
-                />
-              </span>
-              <div class="msg-actions-row">
-                <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(globalIndex(group, mIdx))" title="重写后续">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                    <path d="M2 1l9 5-9 5V1z"/>
-                  </svg>
-                </span>
-                <span class="icon-btn" @click="startEdit(globalIndex(group, mIdx), msg.content)" title="编辑内容">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                    <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
-                  </svg>
-                </span>
-                <span class="icon-btn delete" @click="gameStore.deleteMessage(globalIndex(group, mIdx))" title="删除">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                    <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
-                  </svg>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 思考框 -->
-          <div v-if="msg.reasoning_content" class="thought-wrapper">
-            <details :open="globalIndex(group, mIdx) === gameStore.messages.length - 1">
-              <summary>思考过程 <span class="arrow">▾</span></summary>
-              <div class="thought-body">{{ msg.reasoning_content }}</div>
-            </details>
-          </div>
-
-          <!-- 正文区域 -->
-          <div
-            class="text-wrapper"
-            @click="onTextWrapperClick(globalIndex(group, mIdx), msg, $event)"
+        <div class="ledger-spread__sheets">
+          <!-- 左页 — 短行为 / 决策 -->
+          <section
+            v-if="spread.left"
+            class="ledger-spread__left-page"
+            :class="`ledger-spread__page--${spread.left.role}`"
           >
-            <div v-if="editingIndex === globalIndex(group, mIdx)" class="edit-area">
-              <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
-              <div class="edit-footer">
-                <button class="tavern-btn primary" @click="saveEdit(globalIndex(group, mIdx))">保存修改</button>
-                <button class="tavern-btn" @click="editingIndex = -1">取消</button>
-              </div>
+            <div
+              class="msg-item"
+              :class="[
+                spread.left.role,
+                {
+                  'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(spread.leftIndex),
+                  'compression-complete': isCompressionCompleteMessage(spread.left)
+                }
+              ]"
+              :data-global-index="spread.leftIndex"
+            >
+              <template v-if="isCompressionCompleteMessage(spread.left)">
+                <div class="msg-column">
+                  <div class="msg-header">
+                    <span class="display-name">档案员</span>
+                    <span class="msg-time">{{ formatTime(spread.left.timestamp) }}</span>
+                  </div>
+                  <div class="text-wrapper">
+                    <div class="context-compression-complete">
+                      <span class="context-compression-pulse"></span>
+                      <span class="context-compression-text">{{ spread.left.content }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <div class="msg-column">
+                  <span
+                    v-if="!isCompressionCompleteMessage(spread.left)"
+                    class="msg-item__folio"
+                    :data-folio-page="spread.leftIndex + 1"
+                    aria-hidden="true"
+                  >页 {{ spread.leftIndex + 1 }}</span>
+                  <div class="msg-header">
+                    <span class="display-name">{{ displayName(spread.left) }}</span>
+                    <span class="msg-time">{{ formatTime(spread.left.timestamp) }}</span>
+                  </div>
+                  <div
+                    class="text-wrapper"
+                    @click="onTextWrapperClick(spread.leftIndex, spread.left, $event)"
+                  >
+                    <div
+                      v-if="editingIndex === spread.leftIndex"
+                      class="edit-area"
+                    >
+                      <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
+                      <div class="edit-footer">
+                        <button class="tavern-btn primary" @click="saveEdit(spread.leftIndex)">保存修改</button>
+                        <button class="tavern-btn" @click="editingIndex = -1">取消</button>
+                      </div>
+                    </div>
+                    <div
+                      v-else
+                      class="text-main"
+                      v-html="renderMessageContent(spread.left, spread.leftIndex)"
+                    ></div>
+                  </div>
+                </div>
+              </template>
             </div>
-            <div v-else-if="isCompressionCompleteMessage(msg)" class="context-compression-complete">
-              <span class="context-compression-pulse"></span>
-              <span class="context-compression-text">{{ msg.content }}</span>
+          </section>
+          <section v-else class="ledger-spread__left-page ledger-spread__page--blank" aria-hidden="true">
+            <div class="ledger-spread__blank-note">· 另起一页 ·</div>
+          </section>
+
+          <!-- 中间 spine — 1px 装订线 (继承 chat-container::before 的 spine stitch 风格,
+               但这里只画 1px solid 让 spread 内部有"翻页中缝"的视觉)。
+               不是把整个容器再画一遍,只是 spread 内部分页。 -->
+          <div class="ledger-spread__spine" aria-hidden="true"></div>
+
+          <!-- 右页 — 长旁白叙事. 长内容自动续页. -->
+          <section
+            v-if="spread.right"
+            class="ledger-spread__right-page"
+            :class="`ledger-spread__page--${spread.right.role}`"
+          >
+            <div
+              v-if="spread.continued"
+              class="ledger-spread__continued-mark"
+              aria-hidden="true"
+            >续 · 接上页</div>
+            <div
+              class="msg-item"
+              :class="[
+                spread.right.role,
+                {
+                  'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(spread.rightIndex),
+                  'compression-complete': isCompressionCompleteMessage(spread.right)
+                }
+              ]"
+              :data-global-index="spread.rightIndex"
+            >
+              <template v-if="isCompressionCompleteMessage(spread.right)">
+                <div class="msg-column">
+                  <div class="msg-header">
+                    <span class="display-name">档案员</span>
+                    <span class="msg-time">{{ formatTime(spread.right.timestamp) }}</span>
+                  </div>
+                  <div class="text-wrapper">
+                    <div class="context-compression-complete">
+                      <span class="context-compression-pulse"></span>
+                      <span class="context-compression-text">{{ spread.right.content }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <div class="msg-column">
+                  <span
+                    v-if="!isCompressionCompleteMessage(spread.right)"
+                    class="msg-item__folio"
+                    :data-folio-page="spread.rightIndex + 1"
+                    aria-hidden="true"
+                  >页 {{ spread.rightIndex + 1 }}</span>
+                  <div class="msg-header">
+                    <span class="display-name">{{ displayName(spread.right) }}</span>
+                    <span class="msg-time">{{ formatTime(spread.right.timestamp) }}</span>
+                  </div>
+                  <div
+                    class="text-wrapper"
+                    @click="onTextWrapperClick(spread.rightIndex, spread.right, $event)"
+                  >
+                    <div
+                      v-if="editingIndex === spread.rightIndex"
+                      class="edit-area"
+                    >
+                      <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
+                      <div class="edit-footer">
+                        <button class="tavern-btn primary" @click="saveEdit(spread.rightIndex)">保存修改</button>
+                        <button class="tavern-btn" @click="editingIndex = -1">取消</button>
+                      </div>
+                    </div>
+                    <div
+                      v-else
+                      class="text-main"
+                      v-html="renderMessageContent(spread.right, spread.rightIndex)"
+                    ></div>
+                  </div>
+                </div>
+              </template>
             </div>
-            <div v-else class="text-main" v-html="renderMessageContent(msg, globalIndex(group, mIdx))"></div>
-          </div>
+          </section>
+          <section v-else class="ledger-spread__right-page ledger-spread__page--blank" aria-hidden="true">
+            <div class="ledger-spread__blank-note">· 留白待续 ·</div>
+          </section>
         </div>
-      </div>
+
+        <!-- 底部 ink stamp — 圆形压印, 像 wall__stamp 风格. 每 spread 一个,
+             强化"档案员手盖的章"的语义, 而不只是卡片 footer. -->
+        <footer class="ledger-spread__ink-stamp" aria-hidden="true">
+          <span class="ledger-spread__ink-stamp-text">录</span>
+        </footer>
+      </article>
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
@@ -146,39 +215,105 @@ const editTextarea = ref(null)
 
 const emit = defineEmits(['show-inline-detail'])
 
-// Record-book: chunk messages into groups of 8 so the ledger shows a
-// chapter-rule ribbon between every 8 entries. Pure local computed —
-// gameStore.messages is read-only here, the chunking is for layout
-// only, no store mutation.
-const CHAPTER_SIZE = 8
-const messageGroups = computed(() => {
-  const msgs = gameStore.messages || []
-  const groups = []
-  for (let i = 0; i < msgs.length; i += CHAPTER_SIZE) {
-    groups.push(msgs.slice(i, i + CHAPTER_SIZE))
-  }
-  return groups
-})
+// === UI-E9 book spread structure ======================================
+// Pair adjacent user + assistant messages into a "spread" — an opened
+// book page with a left sheet (the player's move / decision, usually
+// short) and a right sheet (the narrator's reply, usually long). The
+// pair rule:
+//   - walk messages left to right; user→assistant pairs into one spread
+//     where user is left sheet and assistant is right sheet
+//   - when two adjacent messages share the same role (user→user or
+//     assistant→assistant) or one of them is a system / compression
+//     divider, fall back to a single-page spread (left sheet only)
+//   - when a spread's right assistant content exceeds the
+//     LONG_ASSISTANT_CHARS threshold, mark it as "continued" and the
+//     template renders the 续 · 接上页 mark on the right sheet
+//   - recordVolume derives from the spread count instead of message
+//     count, so the chapter-rule ribbon above each spread re-climbs
+//     naturally
+// gameStore.messages stays the single source of truth — messageSpreads
+// is a pure derived layout, no store mutation.
+// =======================================================================
+const LONG_ASSISTANT_CHARS = 280
 
-const globalIndex = (group, mIdx) => {
-  // Convert (groupIndex implied by position of `group` in messageGroups,
-  // mIdx within group) back to the original index in gameStore.messages.
-  // The caller passes the group array; we find its offset.
-  const all = messageGroups.value
-  for (let g = 0; g < all.length; g += 1) {
-    if (all[g] === group) return g * CHAPTER_SIZE + mIdx
-  }
-  return mIdx
+const isStandaloneMessage = (msg) => {
+  if (!msg) return true
+  if (isCompressionCompleteMessage(msg)) return true
+  return false
 }
 
-const recordVolume = computed(() => {
-  // Volume label: derived from session sequence. Use messages length
-  // ceiling so a long ledger climbs the volume number — small visual
-  // signal that the record has grown.
-  const total = (gameStore.messages || []).length
-  if (total <= CHAPTER_SIZE) return 1
-  return Math.ceil(total / CHAPTER_SIZE)
+const messageSpreads = computed(() => {
+  const msgs = gameStore.messages || []
+  const spreads = []
+  let i = 0
+  while (i < msgs.length) {
+    const cur = msgs[i]
+    const nxt = msgs[i + 1]
+    if (cur && nxt
+        && cur.role === 'user'
+        && nxt.role === 'assistant'
+        && !isStandaloneMessage(cur)
+        && !isStandaloneMessage(nxt)) {
+      // Pair: user (left) + assistant (right). If assistant content is
+      // long, mark spread as continued so the template renders the 续
+      // mark above the right sheet.
+      const assistantChars = String(nxt.content || '').length
+      spreads.push({
+        left: cur,
+        right: nxt,
+        leftIndex: i,
+        rightIndex: i + 1,
+        continued: assistantChars > LONG_ASSISTANT_CHARS
+      })
+      i += 2
+    } else {
+      // Single-page spread: this message occupies the left sheet,
+      // right sheet shows the "留白待续" note. Compression-complete
+      // messages and lone user / assistant entries fall through here.
+      spreads.push({
+        left: cur,
+        right: null,
+        leftIndex: i,
+        rightIndex: -1,
+        continued: false
+      })
+      i += 1
+    }
+  }
+  return spreads
 })
+
+const recordVolume = computed(() => {
+  // Climb the volume number with spread count, not raw message count,
+  // so a long conversation visibly climbs the 卷 number printed in
+  // the chapter-rule ribbon. Cap at 99 for safety.
+  const total = messageSpreads.value.length
+  if (total <= 1) return 1
+  return Math.min(99, total)
+})
+
+const spreadHeaderDate = (spread) => {
+  // The date comes from whichever side has a timestamp; prefer right
+  // (assistant reply time) so the header reads as "when this page was
+  // written".
+  const ts = (spread.right && spread.right.timestamp)
+    || (spread.left && spread.left.timestamp)
+    || Date.now()
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const spreadHeaderStamp = (spread) => {
+  if (!spread.left && !spread.right) return '空白'
+  if (spread.left && spread.right) return '对录 · 双页'
+  if (spread.left && isCompressionCompleteMessage(spread.left)) return '档案员 · 备忘'
+  if (spread.left && spread.left.role === 'user') return '我 · 落笔'
+  if (spread.left && spread.left.role === 'assistant') return '旁白 · 续页'
+  return '录'
+}
 
 const startEdit = (index, text) => {
   editingIndex.value = index
@@ -538,19 +673,9 @@ summary .arrow {
   background: var(--accent-hover);
 }
 
-/* Kao record-book page — UI-E6A. The ledger now reads as a paper page,
-   not a chat stream:
-     - body 14px → 16px / line-height 1.65 → 1.75 for clearer reading
-     - meta (display-name / msg-time / folio page no.) → sans, 11px, ink 48%
-     - role kicker (我 · / 旁白 · / 档案员 ·) becomes a 14px display block
-       signature above the body instead of inline italic at body start
-     - chat-container left spine stitch (gold 24% repeating-linear-gradient)
-     - folio page number on each msg (页 N, top-left marginalia)
-     - chapter rule ribbon every 8 messages (卷 X · 第 Y 页)
-     - message entry has a 3px left bar (role color), a half-transparent
-       paper-strong backdrop, hard cut corners, and a 1px ink hairline
-   No new scoped global theme selector, no important flag, no random hex, no new
-   tokens. Scoped CSS specificity 0,2,1 beats the tool-feel rules above. */
+/* UI-E6A record-book ledger overrides — kept verbatim from the previous
+   round so the typography / spine / folio / chapter-rule layer is still
+   the foundation. The new UI-E9 book spread sits on top of this. */
 .theme-kao .chat-container {
   position: relative;
   background: transparent;
@@ -558,10 +683,6 @@ summary .arrow {
   gap: 0;
 }
 
-/* Spine stitch — vertical 4px wide gold thread down the ledger's left
-   edge, mimicking the bound spine of a record book. Repeating-linear-
-   gradient makes the visible "thread segments" with paper showing
-   between them. */
 .theme-kao .chat-container::before {
   content: '';
   position: absolute;
@@ -606,6 +727,217 @@ summary .arrow {
   white-space: nowrap;
 }
 
+/* UI-E9 BOOK SPREAD — 对开页主容器
+   ============================================================================
+   The ledger now reads as a stack of opened book pages, not a chat feed.
+   Each <article.ledger-spread> is one open spread:
+     - 2-column grid (left sheet / spine / right sheet) so the player's
+       decision and the narrator's reply sit on opposing pages, the way
+       a paper record-book does when you flip it open
+     - a vertical red margin rule at 28px (like wall__dossier 稿纸红线)
+       reinforces the "writing on lined paper" feel
+     - a 3-segment page header (date / volume / role stamp) at the top
+     - a round ink-stamp footer (像 wall__stamp) so each spread ends with
+       a "档案员 hand-pressed 录 seal" instead of just being a card
+     - single-page mode (left only / right shows "留白待续") when a
+       conversation entry has no pair
+   Reuses the existing E6A folio / kicker / msg-item inside each sheet.
+   No new tokens, no new global theme selector, no important flag. */
+.theme-kao .ledger-spread {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+  padding: 22px 18px 28px 38px;
+  margin-bottom: 18px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper) 92%, transparent) 0%,
+      color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),
+    0 1px 0 color-mix(in srgb, var(--archive-ink) 10%, transparent);
+}
+
+.theme-kao .ledger-spread--single {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent) 0%,
+      color-mix(in srgb, var(--archive-paper) 86%, transparent) 100%);
+}
+
+/* Red 稿纸 margin rule — sits inside the spread at 28px from the left
+   edge, runs the height of the sheets row, in the same rose color as
+   wall__dossier::before. Pure visual marker, not a hit target. */
+.theme-kao .ledger-spread__red-rule {
+  position: absolute;
+  top: 64px;
+  bottom: 56px;
+  left: 28px;
+  width: 1px;
+  background: color-mix(in srgb, var(--archive-rose) 52%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Page header — 3-segment strip across the top of the spread.
+   Sans 11px / 12px / 10px, gold-soft ink, paper-soft backing. */
+.theme-kao .ledger-spread__page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 8px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
+}
+
+.theme-kao .ledger-spread__page-volume {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--archive-gold) 78%, transparent);
+}
+
+.theme-kao .ledger-spread__page-stamp {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--archive-rose) 78%, transparent);
+}
+
+/* Sheets — 2-column grid with a 1px spine in the middle. The spine is
+   a thin 1px gold-soft column instead of repeating-linear-gradient so
+   it reads as "page gutter" not "threaded binding". */
+.theme-kao .ledger-spread__sheets {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 80px;
+}
+
+.theme-kao .ledger-spread__spine {
+  background: color-mix(in srgb, var(--archive-ink) 28%, transparent);
+  pointer-events: none;
+}
+
+/* Each sheet is a section that hosts one msg-item (or a blank note).
+   The existing E6A .msg-item styling still applies inside. */
+.theme-kao .ledger-spread__left-page,
+.theme-kao .ledger-spread__right-page {
+  display: block;
+  padding: 12px 14px 16px;
+  position: relative;
+  min-height: 64px;
+}
+
+.theme-kao .ledger-spread__left-page {
+  border-right: none;
+  padding-left: 4px;
+}
+
+.theme-kao .ledger-spread__right-page {
+  padding-left: 18px;
+}
+
+/* Blank — "留白待续" / "另起一页" notes when one side has no content. */
+.theme-kao .ledger-spread__page--blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-kao .ledger-spread__blank-note {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, var(--archive-ink-soft) 52%, transparent);
+  writing-mode: horizontal-tb;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Continued mark — sits above the right sheet when the assistant
+   reply is longer than the long-content threshold (UI-E9: 280 chars).
+   Reads as "续 · 接上页", italic LXGW, small rose-soft ink. */
+.theme-kao .ledger-spread__continued-mark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, var(--archive-rose) 72%, transparent);
+  padding: 0 0 6px 4px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--archive-rose) 28%, transparent);
+  margin-bottom: 8px;
+}
+
+/* Ink-stamp footer — circular 录 seal pressed on the bottom-right of
+   the spread, like wall__stamp. Rotated -8deg for a hand-stamped feel.
+   Reinforces the "档案员 sealed this page" semantic. */
+.theme-kao .ledger-spread__ink-stamp {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 4px;
+  pointer-events: none;
+}
+
+.theme-kao .ledger-spread__ink-stamp-text {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid color-mix(in srgb, var(--archive-rose) 84%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 90%, transparent);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  background:
+    radial-gradient(circle at 30% 30%, transparent 0 4px,
+      color-mix(in srgb, var(--archive-rose) 14%, transparent) 6px 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--archive-rose) 28%, transparent),
+    0 1px 2px color-mix(in srgb, var(--archive-ink) 24%, transparent);
+  transform: rotate(-8deg);
+  user-select: none;
+}
+
+/* Inside each sheet, the existing .msg-item needs to drop its old
+   border-left (3px role bar) because the sheet's own red rule + spine
+   already separate roles visually. Keep the role-color hint on the
+   message header / kicker instead so the role still reads. */
+.theme-kao .ledger-spread .msg-item {
+  background: transparent;
+  border-left: none;
+  padding: 0;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+.theme-kao .ledger-spread .msg-item__folio {
+  position: static;
+  display: inline-block;
+  margin-bottom: 4px;
+}
+
+.theme-kao .ledger-spread .msg-header {
+  position: static;
+  margin-bottom: 6px;
+  padding-bottom: 0;
+}
+
+/* === UI-E6A record-book ledger overrides — preserved below ===
+   The book-spread (UI-E9) layer above sits on top of these. */
 .theme-kao .msg-item {
   display: block;
   padding: 14px 36px 14px 24px;
@@ -630,6 +962,11 @@ summary .arrow {
   background: color-mix(in srgb, var(--archive-paper-strong) 24%, transparent);
 }
 
+/* Sparse dividers — preserved from E6A: dotted gold hairline appears between
+   adjacent msg-items whose roles change, suppressed when roles repeat. In the
+   E9 spread layout msg-items live in separate sheet sections so this selector
+   rarely matches, but the rule stays for the contract + any future non-spread
+   path (e.g. inline inline-list rendering). */
 .theme-kao .msg-item + .msg-item.user,
 .theme-kao .msg-item + .msg-item.assistant {
   border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
@@ -656,9 +993,6 @@ summary .arrow {
   display: block;
 }
 
-/* Folio page number — top-left marginalia. Not a row number: this is a
-   book page label, in sans, smaller than kicker, near-invisible ink.
-   Sans per the "no LXGW for ≤ 12px metadata" rule (UI-DETAIL1 S-3). */
 .theme-kao .msg-item__folio {
   position: absolute;
   top: 8px;
@@ -683,8 +1017,6 @@ summary .arrow {
   border-bottom: none;
 }
 
-/* Meta (display-name + msg-time) — sans, 11px, ink 48%. UI-DETAIL1 §S-3
-   says LXGW must not be used for ≤ 13px counters / metadata. */
 .theme-kao .display-name {
   font-family: var(--font-sans);
   font-weight: 400;
@@ -703,9 +1035,6 @@ summary .arrow {
   color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
 }
 
-/* Role kicker — 14px LXGW italic weight 500, displayed as block above
-   the body (not inline), with role-specific ink. The signature now reads
-   like a record-book author line, not a faded pre-body fragment. */
 .theme-kao .msg-item.user .text-main::before {
   content: "我 · ";
   display: block;
@@ -786,5 +1115,40 @@ summary .arrow {
 .theme-kao .icon-btn:hover {
   background: color-mix(in srgb, var(--archive-gold) 12%, transparent);
   color: var(--archive-olive-strong);
+}
+
+/* Reduced-motion a11y — book spread inherits the same disable pattern
+   as existing E6A animations (no transitions on spread surfaces). */
+@media (prefers-reduced-motion: reduce) {
+  .theme-kao .ledger-spread,
+  .theme-kao .ledger-spread__ink-stamp-text {
+    transition: none;
+    transform: none;
+    animation: none;
+  }
+}
+
+/* Mobile — collapse spread to single column (left sheet stacks above
+   right sheet, spine becomes horizontal divider). Reading stays
+   natural on a phone where the spread metaphor would otherwise
+   squeeze both sheets to unreadable widths. */
+@media (max-width: 720px) {
+  .theme-kao .ledger-spread__sheets {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .theme-kao .ledger-spread__spine {
+    width: auto;
+    height: 1px;
+  }
+  .theme-kao .ledger-spread__left-page {
+    padding-left: 14px;
+  }
+  .theme-kao .ledger-spread__right-page {
+    padding-left: 14px;
+  }
+  .theme-kao .ledger-spread__red-rule {
+    left: 14px;
+  }
 }
 </style>

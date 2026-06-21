@@ -5,48 +5,39 @@
       <div class="wall__molding-rule"></div>
     </div>
 
-    <!-- 软木公告板 — 188px, 项目身份 + 4 枚图钉 + 印章 + 4 个功能 tab + 丝带 -->
+    <!-- 软木顶栏 — 单行 64-80px 功能薄条: 书选择 / 章节状态点 / 保存状态 / 4 个功能 tab + 返回 + 主题 -->
     <div class="wall__cork">
-      <div class="wall__project">
-        <span class="wall__project-mark">PROJECT · PINAX</span>
-        <h1 class="wall__project-title">{{ projectTitle }}</h1>
-        <div class="wall__project-meta">
-          <span><b>{{ books.length }}</b>本书</span>
-          <span><b>{{ chapters.length }}</b>章节</span>
-          <span v-if="selectedChapterSummary"><b>{{ selectedChapterSummary }}</b></span>
-          <span v-if="selectedBookId">
-            <select
-              v-model="selectedBookId"
-              class="wall__book-select"
-              aria-label="选择书籍"
-              @change="handleHeroBookChange"
-            >
-              <option value="">未选书</option>
-              <option v-for="book in books" :key="book.id" :value="book.id">
-                {{ book.title }}
-              </option>
-            </select>
-          </span>
-        </div>
-      </div>
+      <label class="wall__book-pill" :class="{ 'is-empty': !selectedBookId }">
+        <span class="wall__book-pill-mark" aria-hidden="true">书</span>
+        <select
+          v-model="selectedBookId"
+          class="wall__book-select"
+          aria-label="选择书籍"
+          @change="handleHeroBookChange"
+        >
+          <option value="">未选书</option>
+          <option v-for="book in books" :key="book.id" :value="book.id">
+            {{ book.title }}
+          </option>
+        </select>
+        <svg class="wall__book-pill-arrow" width="8" height="5" viewBox="0 0 8 5" fill="currentColor" aria-hidden="true">
+          <path d="M0 0h8L4 5z"/>
+        </svg>
+      </label>
 
-      <div class="wall__pins" aria-label="章节状态图钉">
-        <div
+      <div class="wall__pins" aria-label="章节状态">
+        <span
           v-for="(pin, idx) in chapterPinStrip"
           :key="`${pin.label}-${idx}`"
-          class="wall__pin"
-          :title="pin.label"
-        >
-          <span class="wall__pin-dot" :style="{ '--pin-color': pin.color }"></span>
-          <span class="wall__pin-num">{{ pin.num }}</span>
-        </div>
-        <div class="wall__ribbon" aria-hidden="true"></div>
+          class="wall__pin-dot"
+          :title="`${pin.label} · ${pin.num}`"
+          :style="{ '--pin-color': pin.color }"
+        ></span>
       </div>
 
-      <div class="wall__stamp" aria-label="保存状态印章">
-        <span class="wall__stamp-state">{{ stampStateText }}</span>
-        <span v-if="saveStatus !== 'saving'" class="wall__stamp-meta">{{ wordCount.toLocaleString() }} 字</span>
-        <span v-else class="wall__stamp-meta">盖印中</span>
+      <div class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态 · ${wordCount.toLocaleString()} 字`">
+        <span class="wall__save-chip-state">{{ stampStateText }}</span>
+        <span class="wall__save-chip-meta">{{ wordCount.toLocaleString() }} 字</span>
       </div>
 
       <div class="wall__tabs">
@@ -2699,62 +2690,115 @@ function stopResizeRight() {
   border-bottom: 1px solid var(--border);
 }
 .wall__cork {
-  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  max-height: 72px;
+  padding: 8px 16px;
   background: var(--surface-soft);
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
-.wall__project {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.wall__book-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 8px 4px 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
+    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
 }
-.wall__project-title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.wall__project-meta {
-  display: flex;
-  gap: 12px;
+.wall__book-pill-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--font-display);
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  border-right: 1px solid var(--border);
+  border-radius: 3px 0 0 3px;
+  margin-right: 2px;
+  align-self: stretch;
 }
 .wall__book-select {
+  appearance: none;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px 6px;
+  border: none;
+  outline: none;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
+  font-family: var(--font-display);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.wall__book-pill-arrow {
+  flex-shrink: 0;
+  margin-left: 4px;
+  color: var(--text-secondary);
 }
 .wall__pins {
-  display: flex;
-  gap: 10px;
-  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .wall__pin-dot {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--pin-color, var(--accent));
+  box-shadow:
+    inset -1px -1px 0 color-mix(in srgb, var(--text-primary) 24%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 28%, transparent);
 }
-.wall__stamp {
-  align-self: end;
-  padding: 6px 12px;
-  border: 2px solid var(--accent);
-  border-radius: 6px;
-  font-size: 12px;
+.wall__save-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--accent) 8%);
+  font-size: 11px;
+  color: var(--text-primary);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 70%, white),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 20%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
+  white-space: nowrap;
+}
+.wall__save-chip.is-saving {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.wall__save-chip-state {
+  font-family: var(--font-display);
+  font-weight: 500;
   color: var(--accent);
-  margin-top: 8px;
+}
+.wall__save-chip-meta {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 .wall__tabs {
-  display: flex;
-  gap: 0;
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+  display: inline-flex;
   align-items: center;
+  gap: 0;
+  margin-left: auto;
+  padding-left: 0;
+  border-top: none;
+  margin-top: 0;
 }
 .wall__tab {
   padding: 6px 14px;
@@ -2764,17 +2808,36 @@ function stopResizeRight() {
   cursor: pointer;
   font-size: 12px;
   color: var(--text-secondary);
+  font-family: var(--font-display);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
+    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent),
+    0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
-.wall__tab:hover:not(:disabled) { color: var(--accent); }
+.wall__tab:hover:not(:disabled) {
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.wall__tab:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
+    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
+}
 .wall__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
 .wall__back {
-  margin-left: auto;
+  margin-left: 0;
   background: transparent;
   border: none;
   padding: 6px 8px;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-secondary);
+  font-family: var(--font-display);
+}
+.wall__back:hover {
+  color: var(--accent);
+  transform: translateY(-1px);
 }
 .wall__tab--mode {
   border-radius: 50%;
@@ -2782,6 +2845,7 @@ function stopResizeRight() {
   height: 28px;
   padding: 0;
   border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   margin-left: 8px;
   display: inline-flex;
   align-items: center;

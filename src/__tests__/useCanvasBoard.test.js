@@ -373,3 +373,84 @@ describe('UI-N6F2: useCanvasBoard — shared invariants', () => {
     expect(observed).toEqual({ x: 7, y: 14 })
   })
 })
+
+// ─── UI-N9: bringToFront + focusedZId + styleFor z-index ───────────────
+
+describe('UI-N9: useCanvasBoard — bringToFront + focusedZId (z-index management)', () => {
+  it('bringToFront sets focusedZId.value to the given id', () => {
+    const board = useCanvasBoard({
+      boardRef: ref(null),
+      items: ref([{ id: 'card-1' }, { id: 'card-2' }]),
+      positions: reactive({}),
+    })
+
+    expect(board.focusedZId.value).toBeNull()
+    board.bringToFront('card-2')
+    expect(board.focusedZId.value).toBe('card-2')
+    board.bringToFront('card-1')
+    expect(board.focusedZId.value).toBe('card-1')
+  })
+
+  it('bringToFront is a no-op when id is falsy', () => {
+    const board = useCanvasBoard({
+      boardRef: ref(null),
+      items: ref([{ id: 'card-1' }]),
+      positions: reactive({}),
+    })
+
+    board.bringToFront(null)
+    board.bringToFront('')
+    board.bringToFront(undefined)
+    expect(board.focusedZId.value).toBeNull()
+  })
+
+  it('styleFor returns zIndex 10 for the focused item, 1 for others', () => {
+    const board = useCanvasBoard({
+      boardRef: ref(null),
+      items: ref([{ id: 'card-1' }, { id: 'card-2' }, { id: 'card-3' }]),
+      positions: reactive({}),
+    })
+
+    // Force layoutItems first so items get x/y assigned
+    void board.layoutItems()
+
+    board.bringToFront('card-2')
+    const laid = board.layoutItems()
+    const byId = Object.fromEntries(laid.map((i) => [i.id, i]))
+
+    expect(board.styleFor(byId['card-2']).zIndex).toBe(10)
+    expect(board.styleFor(byId['card-1']).zIndex).toBe(1)
+    expect(board.styleFor(byId['card-3']).zIndex).toBe(1)
+  })
+
+  it('onItemDragStart auto-brings the dragged item to the front', () => {
+    const board = useCanvasBoard({
+      boardRef: ref(null),
+      items: ref([{ id: 'card-1' }, { id: 'card-2' }]),
+      positions: reactive({}),
+    })
+
+    board.bringToFront('card-1')
+    expect(board.focusedZId.value).toBe('card-1')
+
+    board.onItemDragStart({ id: 'card-2' }, fakeDragEvent())
+    expect(board.focusedZId.value).toBe('card-2')
+  })
+
+  it('onItemDragStart also sets draggingId so styleFor returns zIndex 10 for the in-flight drag', () => {
+    const board = useCanvasBoard({
+      boardRef: ref(fakeBoard()),
+      items: ref([{ id: 'card-1' }, { id: 'card-2' }]),
+      positions: reactive({}),
+    })
+
+    void board.layoutItems()
+    board.onItemDragStart({ id: 'card-1' }, fakeDragEvent())
+    const laid = board.layoutItems()
+    const byId = Object.fromEntries(laid.map((i) => [i.id, i]))
+
+    // The dragged card is at z=10 (top), the other is at z=1 (bottom).
+    expect(board.styleFor(byId['card-1']).zIndex).toBe(10)
+    expect(board.styleFor(byId['card-2']).zIndex).toBe(1)
+  })
+})
