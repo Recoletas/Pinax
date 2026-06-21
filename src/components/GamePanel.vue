@@ -1,121 +1,139 @@
 <template>
   <div class="chat-container" ref="scrollContainer">
-    <div
-      v-for="(msg, index) in gameStore.messages"
-      :key="index"
-      :class="[
-        'msg-item',
-        msg.role,
-        {
-          'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(index),
-          'compression-complete': isCompressionCompleteMessage(msg)
-        }
-      ]"
-    >
-
-      <!-- 头像列 -->
-      <div class="avatar-column">
-        <template v-if="isCompressionCompleteMessage(msg)">
-          <div class="tavern-avatar system-icon">
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M13 4.5L6.2 11.3 3 8.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-        </template>
-
-        <template v-else-if="msg.role === 'assistant'">
-          <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
-          <div v-else class="tavern-avatar ai-icon">
-            {{ (msg.name || 'A')[0] }}
-          </div>
-        </template>
-
-        <template v-else>
-          <img v-if="gameStore.playerCharacter?.avatar" :src="gameStore.playerCharacter.avatar" class="tavern-avatar" />
-          <div v-else class="tavern-avatar user-icon">
-            {{ (msg.name || 'U')[0] }}
-          </div>
-        </template>
+    <template v-for="(group, gIdx) in messageGroups" :key="`g-${gIdx}`">
+      <div
+        v-if="gIdx > 0"
+        class="chapter-rule"
+        :data-chapter-label="`卷 ${recordVolume} · 第 ${gIdx + 1} 页`"
+        aria-hidden="true"
+      >
+        <span class="chapter-rule__label">卷 {{ recordVolume }} · 第 {{ gIdx + 1 }} 页</span>
       </div>
+      <div
+        v-for="(msg, mIdx) in group"
+        :key="`${gIdx}-${mIdx}`"
+        :class="[
+          'msg-item',
+          msg.role,
+          {
+            'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx)),
+            'compression-complete': isCompressionCompleteMessage(msg)
+          }
+        ]"
+      >
 
-      <!-- 内容列 -->
-      <div class="msg-column">
-        <div class="msg-header">
-          <span class="display-name">
-            {{ displayName(msg) }}
-          </span>
-          <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-          <div
-            class="msg-actions"
-            :class="{ 'import-mode': gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system' }"
-          >
-            <span
-              v-if="gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system'"
-              class="import-picker"
-              @click="gameStore.toggleQuickNoteMessageSelection(index)"
-              :title="gameStore.quickNoteSelectedMessageIndexes.includes(index) ? '取消导入' : '加入导入'"
-            >
-              <input
-                type="checkbox"
-                :checked="gameStore.quickNoteSelectedMessageIndexes.includes(index)"
-                @click.stop
-                @change="gameStore.toggleQuickNoteMessageSelection(index)"
-              />
+        <!-- 头像列 -->
+        <div class="avatar-column">
+          <template v-if="isCompressionCompleteMessage(msg)">
+            <div class="tavern-avatar system-icon">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M13 4.5L6.2 11.3 3 8.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </template>
+
+          <template v-else-if="msg.role === 'assistant'">
+            <img v-if="gameStore.aiCharacter?.avatar" :src="gameStore.aiCharacter.avatar" class="tavern-avatar" />
+            <div v-else class="tavern-avatar ai-icon">
+              {{ (msg.name || 'A')[0] }}
+            </div>
+          </template>
+
+          <template v-else>
+            <img v-if="gameStore.playerCharacter?.avatar" :src="gameStore.playerCharacter.avatar" class="tavern-avatar" />
+            <div v-else class="tavern-avatar user-icon">
+              {{ (msg.name || 'U')[0] }}
+            </div>
+          </template>
+        </div>
+
+        <!-- 内容列 -->
+        <div class="msg-column">
+          <!-- Folio 页码 marginalia (record-book mechanism, not row number) -->
+          <span
+            v-if="!isCompressionCompleteMessage(msg)"
+            class="msg-item__folio"
+            :data-folio-page="globalIndex(group, mIdx) + 1"
+            aria-hidden="true"
+          >页 {{ globalIndex(group, mIdx) + 1 }}</span>
+
+          <div class="msg-header">
+            <span class="display-name">
+              {{ displayName(msg) }}
             </span>
-            <div class="msg-actions-row">
-              <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(index)" title="重写后续">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M2 1l9 5-9 5V1z"/>
-                </svg>
+            <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
+            <div
+              class="msg-actions"
+              :class="{ 'import-mode': gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system' }"
+            >
+              <span
+                v-if="gameStore.quickNoteImportMode && (msg.role || msg.type) !== 'system'"
+                class="import-picker"
+                @click="gameStore.toggleQuickNoteMessageSelection(globalIndex(group, mIdx))"
+                :title="gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx)) ? '取消导入' : '加入导入'"
+              >
+                <input
+                  type="checkbox"
+                  :checked="gameStore.quickNoteSelectedMessageIndexes.includes(globalIndex(group, mIdx))"
+                  @click.stop
+                  @change="gameStore.toggleQuickNoteMessageSelection(globalIndex(group, mIdx))"
+                />
               </span>
-              <span class="icon-btn" @click="startEdit(index, msg.content)" title="编辑内容">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
-                </svg>
-              </span>
-              <span class="icon-btn delete" @click="gameStore.deleteMessage(index)" title="删除">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
-                </svg>
-              </span>
+              <div class="msg-actions-row">
+                <span v-if="msg.role === 'user'" class="icon-btn execute" @click="gameStore.regenerateFrom(globalIndex(group, mIdx))" title="重写后续">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M2 1l9 5-9 5V1z"/>
+                  </svg>
+                </span>
+                <span class="icon-btn" @click="startEdit(globalIndex(group, mIdx), msg.content)" title="编辑内容">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
+                  </svg>
+                </span>
+                <span class="icon-btn delete" @click="gameStore.deleteMessage(globalIndex(group, mIdx))" title="删除">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
+                  </svg>
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- 思考框 -->
-        <div v-if="msg.reasoning_content" class="thought-wrapper">
-          <details :open="index === gameStore.messages.length - 1">
-            <summary>思考过程 <span class="arrow">▾</span></summary>
-            <div class="thought-body">{{ msg.reasoning_content }}</div>
-          </details>
-        </div>
+          <!-- 思考框 -->
+          <div v-if="msg.reasoning_content" class="thought-wrapper">
+            <details :open="globalIndex(group, mIdx) === gameStore.messages.length - 1">
+              <summary>思考过程 <span class="arrow">▾</span></summary>
+              <div class="thought-body">{{ msg.reasoning_content }}</div>
+            </details>
+          </div>
 
-        <!-- 正文区域 -->
-        <div
-          class="text-wrapper"
-          @click="onTextWrapperClick(index, msg, $event)"
-        >
-          <div v-if="editingIndex === index" class="edit-area">
-            <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
-            <div class="edit-footer">
-              <button class="tavern-btn primary" @click="saveEdit(index)">保存修改</button>
-              <button class="tavern-btn" @click="editingIndex = -1">取消</button>
+          <!-- 正文区域 -->
+          <div
+            class="text-wrapper"
+            @click="onTextWrapperClick(globalIndex(group, mIdx), msg, $event)"
+          >
+            <div v-if="editingIndex === globalIndex(group, mIdx)" class="edit-area">
+              <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
+              <div class="edit-footer">
+                <button class="tavern-btn primary" @click="saveEdit(globalIndex(group, mIdx))">保存修改</button>
+                <button class="tavern-btn" @click="editingIndex = -1">取消</button>
+              </div>
             </div>
+            <div v-else-if="isCompressionCompleteMessage(msg)" class="context-compression-complete">
+              <span class="context-compression-pulse"></span>
+              <span class="context-compression-text">{{ msg.content }}</span>
+            </div>
+            <div v-else class="text-main" v-html="renderMessageContent(msg, globalIndex(group, mIdx))"></div>
           </div>
-          <div v-else-if="isCompressionCompleteMessage(msg)" class="context-compression-complete">
-            <span class="context-compression-pulse"></span>
-            <span class="context-compression-text">{{ msg.content }}</span>
-          </div>
-          <div v-else class="text-main" v-html="renderMessageContent(msg, index)"></div>
         </div>
       </div>
-    </div>
+    </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
 
@@ -127,6 +145,40 @@ const editText = ref('')
 const editTextarea = ref(null)
 
 const emit = defineEmits(['show-inline-detail'])
+
+// Record-book: chunk messages into groups of 8 so the ledger shows a
+// chapter-rule ribbon between every 8 entries. Pure local computed —
+// gameStore.messages is read-only here, the chunking is for layout
+// only, no store mutation.
+const CHAPTER_SIZE = 8
+const messageGroups = computed(() => {
+  const msgs = gameStore.messages || []
+  const groups = []
+  for (let i = 0; i < msgs.length; i += CHAPTER_SIZE) {
+    groups.push(msgs.slice(i, i + CHAPTER_SIZE))
+  }
+  return groups
+})
+
+const globalIndex = (group, mIdx) => {
+  // Convert (groupIndex implied by position of `group` in messageGroups,
+  // mIdx within group) back to the original index in gameStore.messages.
+  // The caller passes the group array; we find its offset.
+  const all = messageGroups.value
+  for (let g = 0; g < all.length; g += 1) {
+    if (all[g] === group) return g * CHAPTER_SIZE + mIdx
+  }
+  return mIdx
+}
+
+const recordVolume = computed(() => {
+  // Volume label: derived from session sequence. Use messages length
+  // ceiling so a long ledger climbs the volume number — small visual
+  // signal that the record has grown.
+  const total = (gameStore.messages || []).length
+  if (total <= CHAPTER_SIZE) return 1
+  return Math.ceil(total / CHAPTER_SIZE)
+})
 
 const startEdit = (index, text) => {
   editingIndex.value = index
@@ -486,41 +538,110 @@ summary .arrow {
   background: var(--accent-hover);
 }
 
-/* Kao record-book overrides — turn the chat list into a "案卷本页"
-   (a record book page, not a spreadsheet row stream). The 序号 (#01)
-   marginalia is dropped: row numbers read like table cells. Instead,
-   each entry has a top-right 时刻 marginalia (small italic time, like
-   a page timestamp) and an inline role kicker at the start of the body
-   (我 / 旁白 / 系统) so user vs assistant is visually distinct without
-   a separate header row. Dividers only appear at role-change
-   transitions (user→assistant or assistant→user), so consecutive
-   same-role entries flow continuously. Line-height drops from 1.85 to
-   1.65 for a tighter page rhythm. The chat-container is a flowing
-   single column — no grid, no marginalia column, no avatar column.
-   Scoped CSS specificity 0,2,1 (theme-kao .x[data-v-xxx]) beats the
-   default 0,1,1 of the tool-feel rules above. */
+/* Kao record-book page — UI-E6A. The ledger now reads as a paper page,
+   not a chat stream:
+     - body 14px → 16px / line-height 1.65 → 1.75 for clearer reading
+     - meta (display-name / msg-time / folio page no.) → sans, 11px, ink 48%
+     - role kicker (我 · / 旁白 · / 档案员 ·) becomes a 14px display block
+       signature above the body instead of inline italic at body start
+     - chat-container left spine stitch (gold 24% repeating-linear-gradient)
+     - folio page number on each msg (页 N, top-left marginalia)
+     - chapter rule ribbon every 8 messages (卷 X · 第 Y 页)
+     - message entry has a 3px left bar (role color), a half-transparent
+       paper-strong backdrop, hard cut corners, and a 1px ink hairline
+   No new scoped global theme selector, no important flag, no random hex, no new
+   tokens. Scoped CSS specificity 0,2,1 beats the tool-feel rules above. */
 .theme-kao .chat-container {
+  position: relative;
   background: transparent;
-  padding: 8px 0 14px;
+  padding: 18px 0 24px 24px;
   gap: 0;
+}
+
+/* Spine stitch — vertical 4px wide gold thread down the ledger's left
+   edge, mimicking the bound spine of a record book. Repeating-linear-
+   gradient makes the visible "thread segments" with paper showing
+   between them. */
+.theme-kao .chat-container::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--archive-gold) 24%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+  pointer-events: none;
+}
+
+.theme-kao .chapter-rule {
+  position: relative;
+  display: block;
+  margin: 18px 12px 14px 4px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    color-mix(in srgb, var(--archive-gold) 32%, transparent) 14%,
+    color-mix(in srgb, var(--archive-gold) 32%, transparent) 86%,
+    transparent 100%
+  );
+}
+
+.theme-kao .chapter-rule__label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--archive-paper);
+  padding: 0 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--archive-gold) 76%, transparent);
+  white-space: nowrap;
 }
 
 .theme-kao .msg-item {
   display: block;
-  padding: 8px 32px 10px 4px;
+  padding: 14px 36px 14px 24px;
   position: relative;
+  background: color-mix(in srgb, var(--archive-paper-strong) 18%, transparent);
+  border-left: 3px solid var(--archive-gold);
+  border-radius: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
+  margin-bottom: 4px;
+}
+
+.theme-kao .msg-item.user {
+  border-left-color: var(--archive-olive-strong);
+}
+
+.theme-kao .msg-item.assistant {
+  border-left-color: var(--archive-gold);
+}
+
+.theme-kao .msg-item.compression-complete {
+  border-left-color: var(--archive-rose);
+  background: color-mix(in srgb, var(--archive-paper-strong) 24%, transparent);
 }
 
 .theme-kao .msg-item + .msg-item.user,
 .theme-kao .msg-item + .msg-item.assistant {
   border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
-  padding-top: 12px;
+  margin-top: 14px;
+  padding-top: 18px;
 }
 
 .theme-kao .msg-item.user + .msg-item.user,
 .theme-kao .msg-item.assistant + .msg-item.assistant {
   border-top: none;
-  padding-top: 4px;
+  margin-top: 2px;
+  padding-top: 6px;
 }
 
 .theme-kao .avatar-column {
@@ -535,75 +656,96 @@ summary .arrow {
   display: block;
 }
 
+/* Folio page number — top-left marginalia. Not a row number: this is a
+   book page label, in sans, smaller than kicker, near-invisible ink.
+   Sans per the "no LXGW for ≤ 12px metadata" rule (UI-DETAIL1 S-3). */
+.theme-kao .msg-item__folio {
+  position: absolute;
+  top: 8px;
+  left: 24px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
+  pointer-events: none;
+}
+
 .theme-kao .msg-header {
   position: absolute;
   top: 8px;
-  right: 4px;
+  right: 8px;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
 }
 
+/* Meta (display-name + msg-time) — sans, 11px, ink 48%. UI-DETAIL1 §S-3
+   says LXGW must not be used for ≤ 13px counters / metadata. */
 .theme-kao .display-name {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 400;
-  font-size: 9px;
+  font-size: 11px;
   font-style: italic;
   letter-spacing: 0.02em;
   text-transform: none;
-  color: color-mix(in srgb, var(--archive-ink) 38%, transparent);
+  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
 }
 
 .theme-kao .msg-time {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-style: italic;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-ink) 38%, transparent);
+  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
 }
 
-/* Inline role kicker at the start of the body. Reads like a signature:
-   "我 · 我试着把码头边的缆绳拉紧..." or "旁白 · 雾里的灯一盏一盏灭下去...".
-   Different ink per role so the eye can scan user / assistant at a
-   glance — user is olive (the protagonist's voice), assistant is rose
-   (the narrator's voice), system is gold (the archivist). */
+/* Role kicker — 14px LXGW italic weight 500, displayed as block above
+   the body (not inline), with role-specific ink. The signature now reads
+   like a record-book author line, not a faded pre-body fragment. */
 .theme-kao .msg-item.user .text-main::before {
   content: "我 · ";
+  display: block;
+  margin-bottom: 6px;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 76%, transparent);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 80%, transparent);
 }
 
 .theme-kao .msg-item.assistant .text-main::before {
   content: "旁白 · ";
+  display: block;
+  margin-bottom: 6px;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-rose) 80%, transparent);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-rose) 84%, transparent);
 }
 
 .theme-kao .msg-item.compression-complete .text-main::before {
   content: "档案员 · ";
+  display: block;
+  margin-bottom: 6px;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-gold) 84%, transparent);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-gold) 88%, transparent);
 }
 
 .theme-kao .text-main {
   font-family: var(--font-display);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 16px;
+  line-height: 1.75;
   color: var(--archive-ink);
   letter-spacing: 0.02em;
 }
@@ -620,19 +762,19 @@ summary .arrow {
 }
 
 .theme-kao summary {
-  font-family: var(--font-display);
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: 11px;
   letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+  color: color-mix(in srgb, var(--archive-ink-soft) 64%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 50%, transparent);
 }
 
 .theme-kao .thought-body {
   font-family: var(--font-display);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.65;
   border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  color: color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 40%, transparent);
 }
 

@@ -757,7 +757,10 @@ describe('N5C: material page kao archive-folio refactor', () => {
     // Net add ~530 lines of structural scaffolding (display/position/sizing),
     // all visual styling lives in kao.css. Ceiling moves to 1700 with explicit
     // acceptance that drawer/deck composition owns the rest.
-    expect(lines).toBeLessThanOrEqual(1700)
+    // UI-N6 (pinned slips) adds ~50 lines of structural CSS for the slip card,
+    // kind-color tab, focus ring, and a 980px mobile fallback. Bumping ceiling
+    // to 1750 to accommodate the new feature without forcing micro-trim.
+    expect(lines).toBeLessThanOrEqual(1750)
   })
 
   it('N5C: no orphan template classes in Notes scoped CSS', () => {
@@ -1465,7 +1468,7 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     )
   })
 
-  it('UI-E3 p2: GamePanel message stream is a record-book page, not a spreadsheet row — no 序号 row numbers, no avatar circle, inline role kicker (我 / 旁白 / 档案员), 时刻 as top-right marginalia, sparse dividers only at role changes', () => {
+  it('UI-E3 p2: GamePanel message stream is a record-book page, not a spreadsheet row — no 序号 row numbers, no avatar circle, role kicker (我 / 旁白 / 档案员), 时刻 as top-right marginalia, sparse dividers only at role changes', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
     // Avatar column / avatar hidden in kao mode (no SaaS chat avatar circle)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.avatar-column\s*\{[^}]*display:\s*none/s)
@@ -1476,15 +1479,17 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     // msg-item is no longer a grid (no marginalia column); flowing single column
     expect(gamePanel).not.toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*grid/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*display:\s*block/s)
-    // 时刻 marginalia: msg-header is now absolute-positioned top-right
+    // 时刻 marginalia: msg-header is now absolute-positioned top-right (UI-E6A: right 8px)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*position:\s*absolute/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*top:\s*8px/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*right:\s*4px/s)
-    // display-name / msg-time are 9px italic (margin note weight, not header weight)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*9px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-header\s*\{[^}]*right:\s*8px/s)
+    // Meta (display-name / msg-time) are sans 11px italic (no LXGW for ≤ 13px meta per UI-DETAIL1 §S-3)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*11px/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-style:\s*italic/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-size:\s*9px/s)
-    // Inline role kicker at start of body — 我 for user, 旁白 for assistant, 档案员 for system
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-size:\s*11px/s)
+    // Role kicker at start of body — 我 / 旁白 / 档案员 (UI-E6A: now display:block above body)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*content:\s*"我\s*·\s*"/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*content:\s*"旁白\s*·\s*"/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s+\.text-main::before\s*\{[^}]*content:\s*"档案员\s*·\s*"/s)
@@ -1494,8 +1499,8 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     // Sparse dividers: dotted gold between role changes, none between same-role
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\+\s*\.msg-item\.user[\s\S]*?border-top:\s*1px dotted/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s*\+\s*\.msg-item\.user[\s\S]*?border-top:\s*none/s)
-    // Tighter line-height for better reading rhythm (down from 1.85)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.6[5-9]/s)
+    // Body line-height in readable range (1.65 - 1.8, UI-E6A: 1.75)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.(7[0-9]|6[5-9])/s)
     // LXGW WenKai display font for body
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
   })
@@ -1692,5 +1697,229 @@ describe('ui polish — UI-N3 Notes Archive Drawer dark-mode uniformity', () => 
     if (notes.match(/\.empty-archive__card\s*\{[\s\S]*?width:\s*300px/)) moves++
     if (notes.match(/material-drawer[\s\S]*?box-shadow:\s*inset 8px 0 16px/) || css.match(/\.theme-kao\s+\.material-drawer\s*\{[\s\S]*?inset 8px 0 16px/)) moves++
     expect(moves).toBeGreaterThanOrEqual(4)
+  })
+})
+
+// UI-N6 — Notes pinned material slips (贴板纸, 自由拖拽, 占满右侧空白)
+// 不重写 Notes 为画布, 只在 active-card 周围加 1-3 张 pinned slips.
+// 拖拽逻辑从 ProseEssay 抽到 useCanvasBoard composable, Notes 调用.
+// ProseEssay 自身不迁移 (留 P3+).
+describe('ui polish — UI-N6 Notes pinned material slips', () => {
+  it('UI-N6: useCanvasBoard composable exists at src/composables/useCanvasBoard.js with 6 handler + 2 layout names', () => {
+    const composable = readProjectFile('src/composables/useCanvasBoard.js')
+    expect(composable).toMatch(/export function useCanvasBoard/)
+    // 6 handler
+    expect(composable).toMatch(/onItemDragStart/)
+    expect(composable).toMatch(/onItemDragOver/)
+    expect(composable).toMatch(/onItemDragEnd/)
+    expect(composable).toMatch(/onBoardDragOver/)
+    expect(composable).toMatch(/onBoardDrop/)
+    // 2 layout helpers
+    expect(composable).toMatch(/layoutItems/)
+    expect(composable).toMatch(/styleFor/)
+  })
+
+  it('UI-N6: Notes.vue imports + invokes useCanvasBoard (composable wired, not duplicated inline)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/import\s*\{[^}]*useCanvasBoard[^}]*\}\s*from\s*['"]\.\.\/composables\/useCanvasBoard['"]/)
+    expect(notes).toMatch(/useCanvasBoard\(/)
+  })
+
+  it('UI-N6: Notes.vue declares pinnedSlipIds ref + pinnedSlipPositions reactive + MAX_PINNED_SLIPS = 3', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/const\s+pinnedSlipIds\s*=\s*ref\(/)
+    expect(notes).toMatch(/const\s+pinnedSlipPositions\s*=\s*reactive\(/)
+    expect(notes).toMatch(/MAX_PINNED_SLIPS\s*=\s*3/)
+  })
+
+  it('UI-N6: Notes.vue defines togglePinSlip / unpinSlip / isPinned / load+save prefs methods', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/function\s+togglePinSlip/)
+    expect(notes).toMatch(/function\s+unpinSlip/)
+    expect(notes).toMatch(/function\s+isPinned/)
+    expect(notes).toMatch(/function\s+loadNotesPinnedSlipsPref/)
+    expect(notes).toMatch(/function\s+saveNotesPinnedSlipsPref/)
+    expect(notes).toMatch(/NOTES_PINNED_SLIPS_KEY\s*=\s*['"]pinax_notes_pinned_slips_v1['"]/)
+    // 持久化接进 onMounted
+    expect(notes).toMatch(/loadNotesPinnedSlipsPref\(\)/)
+  })
+
+  it('UI-N6: reading-deck v-else contains v-for pinned-slip with draggable + 6 drag/drop handlers', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // v-for 渲染 pinned-slip
+    expect(notes).toMatch(/<div[^>]*v-for="slip in layoutItems"/)
+    expect(notes).toMatch(/class="pinned-slip"/)
+    expect(notes).toMatch(/draggable="true"/)
+    // dragstart / dragover / dragend 在 pinned-slip 上
+    expect(notes).toMatch(/@dragstart="onItemDragStart\(slip,\s*\$event\)"/)
+    expect(notes).toMatch(/@dragend="onItemDragEnd"/)
+    expect(notes).toMatch(/@dragover\.prevent="onItemDragOver\(slip,\s*\$event\)"/)
+    // reading-deck wall-level drop handlers
+    expect(notes).toMatch(/@dragover\.prevent="onBoardDragOver\(\$event\)"/)
+    expect(notes).toMatch(/@drop="onBoardDrop\(\$event\)"/)
+    expect(notes).toMatch(/ref="boardRef"/)
+  })
+
+  it('UI-N6: deck-toolbar has a pin toggle button (钉到板 / 已钉) wired to togglePinSlip', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/@click="togglePinSlip\(selectedAsset\.id\)"/)
+    expect(notes).toMatch(/class="material-action-btn deck-toolbar__btn deck-toolbar__btn--pin"/)
+    expect(notes).toMatch(/钉到板|已钉/)
+  })
+
+  it('UI-N6: kao.css exposes .theme-kao .pinned-slip with token-only rule body (no raw hex)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\s+\.pinned-slip\s*\{/)
+    const ruleMatch = css.match(/\.theme-kao\s+\.pinned-slip\s*\{[^}]*\}/)
+    expect(ruleMatch).not.toBeNull()
+    expect(ruleMatch?.[0]).not.toMatch(/#[0-9a-fA-F]{3,6}/)
+  })
+
+  it('UI-N6: kao.css has .theme-kao.theme-dark .pinned-slip override (M1 dark void fix)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/\.theme-kao\.theme-dark\s+\.pinned-slip\s*\{/)
+  })
+
+  it('UI-N6: kao.css has reduced-motion guard on .pinned-slip (a11y baseline)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    const reduceBlock = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\n\}/)
+    expect(reduceBlock, 'prefers-reduced-motion reduce block should exist').toBeTruthy()
+    expect(reduceBlock?.[0]).toMatch(/\.theme-kao\s+\.pinned-slip/)
+  })
+
+  it('UI-N6: hard constraint — no new scoped :global(.theme-kao), no new !important, no broad :deep(*) in Notes.vue or useCanvasBoard.js', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const composable = readProjectFile('src/composables/useCanvasBoard.js')
+    expect(notes).not.toContain(':global(.theme-kao)')
+    expect(notes).not.toMatch(/:deep\(\s*\*/)
+    expect(notes).not.toMatch(/!important/)
+    expect(composable).not.toContain(':global(.theme-kao)')
+    expect(composable).not.toMatch(/:deep\(\s*\*/)
+    expect(composable).not.toMatch(/!important/)
+  })
+
+  it('UI-N6: does not break existing UI-N2/N3/N4 contracts — material-drawer / active-card / archive-pin / reading-deck / page-controls / empty-archive all still rendered', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('<aside class="material-drawer">')
+    expect(notes).toContain('class="active-card"')
+    expect(notes).toContain('<aside class="archive-pin"')
+    expect(notes).toContain('class="reading-deck"')
+    expect(notes).toContain('class="empty-archive"')
+    expect(notes).toContain('class="page-controls"')
+  })
+
+  it('UI-N6: Notes.vue scoped CSS adds @media (max-width: 980px) .pinned-slip fallback (mobile stacking)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/@media\s*\(max-width:\s*980px\)[\s\S]*?\.pinned-slip\s*\{/)
+  })
+})
+
+// UI-E6A: Experience ledger readable record-book typography + page
+// mechanisms (2026-06-21 plan). Supersedes E3 p2 marginalia weights and
+// adds spine stitch / folio page no. / chapter rule / message backdrop
+// / kicker-on-block — all purely visual; no store / service change.
+describe('ui polish — UI-E6A Experience ledger readable record-book', () => {
+  it('UI-E6A: body text bumped to 16px / line-height 1.75 for clear reading, LXGW retained', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*16px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.75/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*color:\s*var\(--archive-ink\)/s)
+  })
+
+  it('UI-E6A: meta (display-name / msg-time / folio page no.) uses sans, not LXGW (UI-DETAIL1 §S-3 rule)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // display-name + msg-time are sans 11px italic
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*font-size:\s*11px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*font-size:\s*11px/s)
+    // folio page no. uses sans 11px italic with archive-ink-soft ink (60%)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item__folio\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item__folio\s*\{[^}]*font-size:\s*11px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item__folio\s*\{[^}]*var\(--archive-ink-soft\)/s)
+  })
+
+  it('UI-E6A: role kicker is a display-block signature above the body (not inline), 14px LXGW weight 500, role-tinted ink', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // All 3 role kickers are display: block (above the body, not inline at body start)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*display:\s*block/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*display:\s*block/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s+\.text-main::before\s*\{[^}]*display:\s*block/s)
+    // All 3 kickers: 14px, weight 500, LXGW
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*font-size:\s*14px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*font-weight:\s*500/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*var\(--font-display\)/s)
+    // Kicker content
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*"我\s*·\s*"/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*"旁白\s*·\s*"/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s+\.text-main::before\s*\{[^}]*"档案员\s*·\s*"/s)
+    // Role ink: olive 80% / rose 84% / gold 88% (slightly punched up from E3 p2)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s+\.text-main::before\s*\{[^}]*archive-olive-strong\)\s*80%/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s+\.text-main::before\s*\{[^}]*archive-rose\)\s*84%/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s+\.text-main::before\s*\{[^}]*archive-gold\)\s*88%/s)
+  })
+
+  it('UI-E6A: chat-container has 4px spine stitch (gold 24% repeating-linear-gradient) on left edge', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // chat-container is positioned so the ::before stitch anchors correctly
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container\s*\{[^}]*position:\s*relative/s)
+    // ::before stitch exists, 4px wide, archive-gold 24% repeating-linear-gradient
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container::before\s*\{[^}]*width:\s*4px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container::before\s*\{[^}]*repeating-linear-gradient/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chat-container::before\s*\{[^}]*archive-gold\)\s*24%/s)
+  })
+
+  it('UI-E6A: each msg-item has a 3px role-color left bar, half-transparent paper-strong backdrop, hard cut corners, 1px ink hairline', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // msg-item baseline (assistant default = gold) + role variants
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*border-left:\s*3px solid var\(--archive-gold\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*border-radius:\s*0/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*archive-paper-strong\)\s*18%/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*box-shadow:\s*0\s*1px\s*0[^}]*archive-ink\)\s*12%/s)
+    // role variants
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s*\{[^}]*border-left-color:\s*var\(--archive-olive-strong\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.assistant\s*\{[^}]*border-left-color:\s*var\(--archive-gold\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s*\{[^}]*border-left-color:\s*var\(--archive-rose\)/s)
+  })
+
+  it('UI-E6A: chapter rule ribbon between message groups — 1px gradient with centered 卷 X · 第 Y 页 label', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // .chapter-rule has 1px gradient gold ribbon
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule\s*\{[^}]*background:\s*linear-gradient/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule\s*\{[^}]*archive-gold\)\s*32%/s)
+    // .chapter-rule__label centered with paper bg + gold ink
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*background:\s*var\(--archive-paper\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*archive-gold\)\s*76%/s)
+  })
+
+  it('UI-E6A: GamePanel.vue implements messageGroups computed chunking messages by 8 + recordVolume + globalIndex helper', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // messageGroups computed exists, chunks by 8 (CHAPTER_SIZE)
+    expect(gamePanel).toContain('const CHAPTER_SIZE')
+    expect(gamePanel).toMatch(/CHAPTER_SIZE\s*=\s*8/)
+    expect(gamePanel).toContain('messageGroups')
+    // recordVolume exists for chapter label
+    expect(gamePanel).toContain('recordVolume')
+    // globalIndex helper
+    expect(gamePanel).toContain('globalIndex')
+    // Template uses messageGroups + globalIndex
+    expect(gamePanel).toContain('v-for="(group, gIdx) in messageGroups"')
+    expect(gamePanel).toContain('class="chapter-rule"')
+    expect(gamePanel).toContain('class="msg-item__folio"')
+  })
+
+  it('UI-E6A: hard constraint — no new scoped :global(.theme-kao), no new !important, no broad :deep() in GamePanel.vue', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    expect(gamePanel).not.toContain(':global(.theme-kao)')
+    expect(gamePanel).not.toMatch(/:deep\(\s*\*/)
+    const impCount = (gamePanel.match(/!important/g) || []).length
+    expect(impCount).toBe(0)
+    // No random hex literals inside the kao block: scan just the
+    // .theme-kao ...} range and assert no #RGB inside it.
+    const kaoBlock = gamePanel.match(/\.theme-kao[\s\S]*?\n\}/g) || []
+    const kaoText = kaoBlock.join('\n')
+    expect(kaoText).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })
 })

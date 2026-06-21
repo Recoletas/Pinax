@@ -1842,6 +1842,69 @@
     filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--archive-ink) 50%, transparent));
   }
 
+  /* UI-N6: Pinned material slips — 贴板纸, 自由拖拽, 占满右侧空白 */
+  .theme-kao .pinned-slip {
+    background: var(--archive-paper-soft);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 55%, transparent);
+    box-shadow:
+      5px 5px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 24%, transparent);
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .theme-kao .pinned-slip:hover {
+    transform: translateY(-1px) rotate(-0.5deg);
+    box-shadow:
+      6px 6px 0 color-mix(in srgb, var(--archive-ink) 26%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  }
+  .theme-kao .pinned-slip.is-dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+  }
+  .theme-kao .pinned-slip.is-active {
+    background: var(--archive-paper);
+    box-shadow:
+      6px 6px 0 color-mix(in srgb, var(--archive-rose) 32%, transparent),
+      inset 0 0 0 2px var(--archive-gold);
+  }
+  .theme-kao .pinned-slip__title {
+    color: var(--archive-ink);
+  }
+  .theme-kao .pinned-slip__preview {
+    color: color-mix(in srgb, var(--archive-ink) 75%, transparent);
+  }
+  .theme-kao .pinned-slip__stat {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .pinned-slip__kind {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .pinned-slip__unpin {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .pinned-slip__unpin:hover {
+    color: var(--archive-rose);
+  }
+  /* 钉按钮高亮 (钉住态) */
+  .theme-kao .deck-toolbar__btn--pin.is-pinned {
+    color: var(--archive-paper);
+    background: var(--archive-gold);
+    border-color: var(--archive-gold);
+  }
+  /* 暗态硬化: 不让 slip 在 dark 下消失 (解决 M1 暗态 void follow-up) */
+  .theme-kao.theme-dark .pinned-slip {
+    background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper));
+    border-color: color-mix(in srgb, var(--archive-gold) 65%, transparent);
+    box-shadow:
+      5px 5px 0 color-mix(in srgb, var(--archive-ink) 36%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  }
+  .theme-kao.theme-dark .pinned-slip__preview {
+    color: color-mix(in srgb, var(--archive-ink) 85%, transparent);
+  }
+
   /* drawer-empty hint */
   .theme-kao .drawer-empty {
     color: var(--archive-ink-soft);
@@ -1860,7 +1923,9 @@
     .theme-kao .index-card,
     .theme-kao .index-card:hover,
     .theme-kao .index-card.is-selected,
-    .theme-kao .archive-pin {
+    .theme-kao .archive-pin,
+    .theme-kao .pinned-slip,
+    .theme-kao .pinned-slip:hover {
       animation: none;
       transition: none;
       transform: none;

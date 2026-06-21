@@ -132,7 +132,7 @@
 
       <!-- 中：阅读台 (Reading Deck) -->
       <FolioSurface variant="paper" decorated>
-        <section class="reading-deck">
+        <section class="reading-deck" ref="boardRef" @dragover.prevent="onBoardDragOver($event)" @drop="onBoardDrop($event)">
           <!-- UI-N4 空档案柜：完整柜面蓝图，7 类 + 5 候补格 + 档案员印章 + 状态 footer -->
           <template v-if="!selectedChapterId">
             <div class="empty-archive">
@@ -223,6 +223,22 @@
                 >
                   {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
                 </button>
+                <button
+                  v-if="selectedAsset"
+                  class="material-action-btn deck-toolbar__btn deck-toolbar__btn--pin"
+                  type="button"
+                  :class="{ 'is-pinned': isPinned(selectedAsset.id) }"
+                  :disabled="pinnedSlipIds.length >= MAX_PINNED_SLIPS && !isPinned(selectedAsset.id)"
+                  :title="isPinned(selectedAsset.id) ? '从板面取下' : '钉到主卡旁边'"
+                  :aria-label="isPinned(selectedAsset.id) ? '从板面取下' : '钉到主卡旁边'"
+                  @click="togglePinSlip(selectedAsset.id)"
+                >
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+                    <path d="M5.5 1v6M3.5 5.5L5.5 7l2-1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="5.5" cy="9" r="1" fill="currentColor"/>
+                  </svg>
+                  <span>{{ isPinned(selectedAsset.id) ? '已钉' : '钉到板' }}</span>
+                </button>
                 <div class="deck-toolbar__spacer"></div>
                 <div class="mode-switch">
                   <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
@@ -282,6 +298,38 @@
                 </button>
               </div>
             </article>
+
+            <!-- UI-N6: 钉住的素材 slip (浮在 active-card 之上, 自由拖拽) -->
+            <div
+              v-for="slip in layoutItems"
+              :key="slip.id"
+              class="pinned-slip"
+              :class="{ 'is-active': selectedChapterId === slip.id, 'is-dragging': draggingId === slip.id }"
+              :style="styleFor(slip)"
+              :data-slip-id="slip.id"
+              draggable="true"
+              @dragstart="onItemDragStart(slip, $event)"
+              @dragover.prevent="onItemDragOver(slip, $event)"
+              @dragend="onItemDragEnd"
+              @click="selectChapter(slip.id)"
+              @keydown.enter="selectChapter(slip.id)"
+              tabindex="0"
+              role="button"
+              :aria-label="`已钉素材 ${slip.title || '无标题'}`"
+            >
+              <span class="pinned-slip__tab" :style="{ background: getAssetKindColor(slip.kind) }" aria-hidden="true"></span>
+              <span class="pinned-slip__kind">{{ getAssetKindLabel(slip.kind) }}</span>
+              <h4 class="pinned-slip__title">{{ slip.title || '无标题素材' }}</h4>
+              <p class="pinned-slip__preview">{{ (slip.preview || slip.content || '').slice(0, 80) }}<template v-if="(slip.preview || slip.content || '').length > 80">…</template></p>
+              <span class="pinned-slip__stat">{{ (slip.content || '').length }} 字</span>
+              <button
+                class="pinned-slip__unpin"
+                type="button"
+                @click.stop="unpinSlip(slip.id)"
+                title="取下"
+                aria-label="取下此钉"
+              >×</button>
+            </div>
           </template>
 
           <!-- 右键菜单 -->
@@ -392,13 +440,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
+import { useCanvasBoard } from '../composables/useCanvasBoard'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
@@ -441,6 +490,42 @@ const checkedAssetIds = ref([])
 const canvasImportRevision = ref(0)
 const collapsedAssetKinds = ref({})
 
+// UI-N6: Pinned material slips — 1-3 张素材钉在主卡旁边, 自由拖拽
+const MAX_PINNED_SLIPS = 3
+const pinnedSlipIds = ref([])
+const pinnedSlipPositions = reactive({})
+const boardRef = ref(null)
+const NOTES_PINNED_SLIPS_KEY = 'pinax_notes_pinned_slips_v1'
+
+// 钉住素材的资产 (pinned = 用户主动钉, 跟 selectedChapterId 解耦)
+const pinnedSlipAssets = computed(() => {
+  return pinnedSlipIds.value
+    .map((id) => chapters.value.find((a) => a.id === id))
+    .filter(Boolean)
+})
+
+// useCanvasBoard 提供 6 个 drag/drop handler + layoutItems + styleFor
+// items 走 computed, positions 走 reactive (持久化到 localStorage)
+const {
+  draggingId,
+  isDragging,
+  onItemDragStart,
+  onItemDragOver,
+  onItemDragEnd,
+  onBoardDragOver,
+  onBoardDrop,
+  layoutItems: layoutItemsFn,
+  styleFor
+} = useCanvasBoard({
+  boardRef,
+  items: pinnedSlipAssets,
+  positions: pinnedSlipPositions
+})
+
+// 包装成 computed, 避免模板里 v-for="slip in layoutItems()" 每次渲染
+// 都调用函数返回新数组导致的无限循环
+const layoutItems = computed(() => layoutItemsFn())
+
 const selectedText = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
@@ -472,6 +557,7 @@ let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
+  loadNotesPinnedSlipsPref()
   loadNotes(String(route.query.assetId || ''))
 })
 
@@ -743,6 +829,81 @@ async function generateAndImportToCanvas() {
 function isAssetOnCanvas(assetId) {
   canvasImportRevision.value
   return Boolean(findAssetCanvasCard(assetId))
+}
+
+// UI-N6: Pinned slip methods
+function isPinned(assetId) {
+  return pinnedSlipIds.value.includes(assetId)
+}
+
+function togglePinSlip(assetId) {
+  if (!assetId) return
+  if (pinnedSlipIds.value.includes(assetId)) {
+    unpinSlip(assetId)
+    return
+  }
+  // 满了: 弹最旧一张
+  let nextIds = pinnedSlipIds.value
+  if (nextIds.length >= MAX_PINNED_SLIPS) {
+    const oldest = nextIds[0]
+    nextIds = nextIds.filter((id) => id !== oldest)
+    delete pinnedSlipPositions[oldest]
+  }
+  nextIds = [...nextIds, assetId]
+  // 首次钉: 给一个默认右上错位位置, 避免重叠
+  if (!pinnedSlipPositions[assetId]) {
+    const idx = nextIds.length - 1
+    const defaults = [
+      { x: 32, y: 32 },
+      { x: 32, y: 200 },
+      { x: 280, y: 32 }
+    ]
+    pinnedSlipPositions[assetId] = defaults[idx] || defaults[0]
+  }
+  pinnedSlipIds.value = nextIds
+  saveNotesPinnedSlipsPref()
+}
+
+function unpinSlip(assetId) {
+  pinnedSlipIds.value = pinnedSlipIds.value.filter((id) => id !== assetId)
+  delete pinnedSlipPositions[assetId]
+  saveNotesPinnedSlipsPref()
+}
+
+function loadNotesPinnedSlipsPref() {
+  try {
+    const raw = localStorage.getItem(NOTES_PINNED_SLIPS_KEY)
+    if (!raw) return
+    const data = JSON.parse(raw)
+    if (Array.isArray(data?.ids)) {
+      pinnedSlipIds.value = data.ids
+        .filter((id) => typeof id === 'string')
+        .slice(0, MAX_PINNED_SLIPS)
+    }
+    if (data?.positions && typeof data.positions === 'object') {
+      for (const [id, pos] of Object.entries(data.positions)) {
+        if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+          pinnedSlipPositions[id] = { x: pos.x, y: pos.y }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Notes] pinned slips prefs load failed:', err)
+  }
+}
+
+function saveNotesPinnedSlipsPref() {
+  try {
+    localStorage.setItem(
+      NOTES_PINNED_SLIPS_KEY,
+      JSON.stringify({
+        ids: pinnedSlipIds.value,
+        positions: { ...pinnedSlipPositions }
+      })
+    )
+  } catch (err) {
+    console.warn('[Notes] pinned slips prefs save failed:', err)
+  }
 }
 
 function toggleCheckedAsset(assetId) {
@@ -3157,5 +3318,52 @@ function syncSelectionCommandState() {
   z-index: 2;
   color: var(--accent);
   pointer-events: none;
+}
+
+/* UI-N6: Pinned material slips — 贴板纸, 在 reading-deck 内绝对定位 */
+.pinned-slip {
+  position: absolute; width: 220px; min-height: 120px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 12px 10px 22px;
+  cursor: grab; user-select: none; z-index: 4;
+}
+.pinned-slip:active { cursor: grabbing; }
+.pinned-slip:focus-visible {
+  outline: 2px solid var(--archive-gold, var(--accent));
+  outline-offset: 2px;
+}
+.pinned-slip__tab { position: absolute; top: 0; left: 0; width: 6px; height: 100%; }
+.pinned-slip__kind,
+.pinned-slip__title,
+.pinned-slip__preview { font-family: var(--font-display); margin: 0; }
+.pinned-slip__kind {
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--archive-ink-soft, var(--text-secondary));
+}
+.pinned-slip__title {
+  font-size: 13px; font-weight: 600;
+  color: var(--archive-ink, var(--text-primary));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pinned-slip__preview {
+  font-size: 11px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+.pinned-slip__stat {
+  font-size: 9px; font-style: italic; letter-spacing: 0.06em;
+  align-self: flex-end;
+}
+.pinned-slip__unpin {
+  position: absolute; top: 4px; right: 4px;
+  width: 18px; height: 18px; border: none; background: transparent;
+  cursor: pointer; font-size: 14px; line-height: 1;
+  border-radius: 0; padding: 0;
+}
+@media (max-width: 980px) {
+  .pinned-slip {
+    position: relative; width: 100%;
+    left: auto; top: auto; transform: none; margin-top: 12px;
+  }
 }
 </style>
