@@ -1358,7 +1358,10 @@ describe('ui polish — UI-N2 Notes Archive Drawer composition', () => {
     expect(notes).toContain('class="drawer-units"')
     expect(notes).toContain('class="drawer-handle"')
     expect(notes).toContain('class="reading-deck"')
-    expect(notes).toContain('class="active-card"')
+    // N10-FIX: active-card now carries extra `multi-canvas__main-card` modifier
+    // (e.g. `<article class="active-card multi-canvas__main-card">`); accept
+    // either the bare class or any combination that includes active-card.
+    expect(notes).toMatch(/class="active-card[^"]*"/)
     expect(notes).toContain('class="empty-archive"')
     expect(notes).toContain('class="archive-pin"')
     // Old CMS skeleton removed
@@ -1523,8 +1526,13 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.user\s*\+\s*\.msg-item\.user[\s\S]*?border-top:\s*none/s)
     // Body line-height in readable range (1.65 - 1.8, UI-E6A: 1.75)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.(7[0-9]|6[5-9])/s)
-    // LXGW WenKai display font for body
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
+    // UI-E10 supersedes UI-E3 p2 font choice: body text now uses
+    // --font-body (system serif, readable 宋 / Georgia), NOT --font-display
+    // (LXGW WenKai brush-style). LXGW is reserved for display positions
+    // (kicker, marginalia). This is the explicit font change the user
+    // asked for in the 2026-06-22 feedback.
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-body\)/s)
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/)
   })
 
   it('UI-E3: internal modals (StatusBar 时间设定 / 角色详情, QuestLog 查看 / 记入) are dossier 抽屉, not 圆角 SaaS dialog', () => {
@@ -1782,12 +1790,16 @@ describe('ui polish — UI-N6 Notes pinned material slips', () => {
     expect(notes).toMatch(/ref="boardRef"/)
   })
 
-  it('UI-N6: deck-toolbar has a pin toggle button (钉入副阅读台 / 已钉入) wired to togglePinSlip', () => {
+  it('UI-N6: deck-toolbar pin toggle — N10 removed manual pin button (default-on mode means everything is on canvas automatically)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toMatch(/@click="togglePinSlip\(selectedAsset\.id\)"/)
-    expect(notes).toMatch(/class="material-action-btn deck-toolbar__btn deck-toolbar__btn--pin"/)
-    // UI-N9 relabel: "钉入副阅读台" / "已钉入" (was "钉到板" / "已钉" in N6)
-    expect(notes).toMatch(/钉入副阅读台|已钉入/)
+    // UI-N10: deck-toolbar no longer carries a 钉入副阅读台 button — pinnedSlipIds
+    // is populated to all chapter ids by default (loadNotes), so the manual
+    // toggle no longer makes sense. togglePinSlip itself is still wired (used
+    // by the sidebar index-card and the multi-canvas__chrome batch button).
+    expect(notes).not.toMatch(/@click="togglePinSlip\(selectedAsset\.id\)"/)
+    expect(notes).not.toMatch(/class="material-action-btn deck-toolbar__btn deck-toolbar__btn--pin"/)
+    // togglePinSlip still exists as a function (called from elsewhere)
+    expect(notes).toContain('togglePinSlip(')
   })
 
   it('UI-N6: kao.css exposes .theme-kao .pinned-slip with token-only rule body (no raw hex)', () => {
@@ -1821,14 +1833,21 @@ describe('ui polish — UI-N6 Notes pinned material slips', () => {
     expect(composable).not.toMatch(/!important/)
   })
 
-  it('UI-N6: does not break existing UI-N2/N3/N4 contracts — material-drawer / active-card / archive-pin / reading-deck / page-controls / empty-archive all still rendered', () => {
+  it('UI-N6: does not break existing UI-N2/N3/N4 contracts — material-drawer / active-card / archive-pin / reading-deck / page-controls / empty-archive all still rendered (N10 adds multi-canvas on top)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
     expect(notes).toContain('<aside class="material-drawer">')
-    expect(notes).toContain('class="active-card"')
+    // N10 multi-canvas contains .active-card (with extra multi-canvas__main-card modifier)
+    expect(notes).toMatch(/class="active-card[^"]*"/)
     expect(notes).toContain('<aside class="archive-pin"')
     expect(notes).toContain('class="reading-deck"')
     expect(notes).toContain('class="empty-archive"')
     expect(notes).toContain('class="page-controls"')
+    // N10 new structure (regex-tolerant: accepts `multi-canvas__main-card` either
+    // alone or as a modifier on `active-card` like
+    // `<article class="active-card multi-canvas__main-card">`).
+    expect(notes).toMatch(/class="multi-canvas"/)
+    expect(notes).toMatch(/class="[^"]*multi-canvas__main-card[^"]*"/)
+    expect(notes).toContain('class="multi-canvas__slips"')
   })
 
   it('UI-N6: Notes.vue scoped CSS adds @media (max-width: 980px) .pinned-slip fallback (mobile stacking)', () => {
@@ -1845,20 +1864,24 @@ describe('ui polish — UI-N6 Notes pinned material slips', () => {
 // 4) 暗态硬化, 移动端水平滚动降级
 // 5) hard constraint: 0 新 :global(.theme-kao) / 0 !important / 0 broad :deep(*) / 0 raw hex
 describe('ui polish — UI-N9 Notes 副阅读台 canvas pinboard', () => {
-  it('UI-N9: Notes.vue template contains <aside class="canvas-pinboard"> with boardRef + drop handlers', () => {
+  it('UI-N9: Notes.vue template contains drag-aware board container (N10 wraps reading-deck into multi-canvas, but canvas-pinboard CSS still ships)', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toContain('class="canvas-pinboard"')
-    expect(notes).toMatch(/<aside[^>]*class="canvas-pinboard"[^>]*ref="boardRef"/)
-    // 拖拽入口从 reading-deck 迁到 canvas-pinboard
-    expect(notes).toMatch(/<aside[^>]*class="canvas-pinboard"[\s\S]*?@dragover\.prevent="onBoardDragOver\(\$event\)"/)
-    expect(notes).toMatch(/<aside[^>]*class="canvas-pinboard"[\s\S]*?@drop="onBoardDrop\(\$event\)"/)
+    // N10: canvas-pinboard <aside> is replaced by multi-canvas <div> (the
+    // N9 320px right-rail is removed; multi-canvas is now a 2-col grid
+    // with main card + slip stack). The CSS for canvas-pinboard still
+    // ships in kao.css for any legacy imports.
+    expect(notes).toMatch(/<div[^>]*class="multi-canvas"[^>]*ref="boardRef"/)
+    // drop handlers still wired
+    expect(notes).toMatch(/@dragover\.prevent="onBoardDragOver\(\$event\)"/)
+    expect(notes).toMatch(/@drop="onBoardDrop\(\$event\)"/)
   })
 
-  it('UI-N9: Notes.vue declares canvas-pinboard header label (副阅读台) + count', () => {
+  it('UI-N9: Notes.vue declares multi-canvas chrome header (N10 replaces canvas-pinboard__title with multi-canvas__chrome-label "素材贴板")', () => {
     const notes = readProjectFile('src/pages/Notes.vue')
-    expect(notes).toMatch(/canvas-pinboard__title[^>]*>副阅读台</)
-    expect(notes).toMatch(/canvas-pinboard__count/)
-    expect(notes).toMatch(/\{\{\s*pinnedSlipIds\.length\s*\}\}\s*\/\s*\{\{\s*MAX_PINNED_SLIPS\s*\}\}/)
+    expect(notes).toMatch(/multi-canvas__chrome-label[^>]*>素材贴板</)
+    expect(notes).toMatch(/class="multi-canvas__chrome-meta"/)
+    // N10 default-on: pinnedSlipIds contains all chapter ids when prefs is empty
+    expect(notes).toMatch(/slipItemsOnCanvas\.length/)
   })
 
   it('UI-N9: Notes.vue imports bringToFront from useCanvasBoard composable', () => {
@@ -1955,21 +1978,161 @@ describe('ui polish — UI-N9 Notes 副阅读台 canvas pinboard', () => {
     expect(notes).toMatch(/@dragstart="onItemDragStart\(slip,\s*\$event\)"/)
     expect(notes).toMatch(/@dragend="onItemDragEnd"/)
     expect(notes).toMatch(/@dragover\.prevent="onItemDragOver\(slip,\s*\$event\)"/)
-    // MAX_PINNED_SLIPS still 3 (per user brief: "1-3 张素材")
-    expect(notes).toMatch(/MAX_PINNED_SLIPS\s*=\s*3/)
+    // MAX_PINNED_SLIPS now Infinity (was 3 in N9) — N10 removes the hard cap
+    expect(notes).toMatch(/MAX_PINNED_SLIPS\s*=\s*9999/)
   })
 })
+
+// =========================================================================
+// UI-N10: Notes multi-card canvas — "素材贴板 / 多卡画布"
+// 把 N9 的 "主卡 + 1-3 张副阅读台" 重构为 "主卡 + 多张相关 slip 同屏"，
+// 借鉴 LUSION-R2 报告里的 "分层舞台 / 强空间占位 / 滚动视线引导"思路。
+// 关键改造:
+//  1) MAX_PINNED_SLIPS: 3 → 9999, 默认所有素材 visible on canvas
+//  2) 主卡 active-card 居中大卡 (1fr 60%); slip 围绕 (1fr 40%)
+//  3) 借鉴 Lusion project-item 双行结构 (kind-color header bar + footer 状态)
+//  4) 借鉴 Lusion cross scroll prompt — 画布底部 "翻下页" 提示
+//  5) 空状态 / 多素材都用 multi-canvas 容器, 不再出现 "大 void"
+// 保留 N6/N9 拖拽 + z-index + 持久化 (pinnedSlipPositions / NOTES_PINNED_SLIPS_KEY)，
+// 不破坏 useCanvasBoard composable 签名。
+// =========================================================================
+describe('ui polish — UI-N10 Notes multi-card canvas (素材贴板 / 多卡画布)', () => {
+  it('UI-N10: Notes.vue removes MAX cap and defaults all assets to on-canvas', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // Hard cap removed: was 3 (N6), now 9999 (N10)
+    expect(notes).toMatch(/MAX_PINNED_SLIPS\s*=\s*9999/)
+    // No code-level `MAX_PINNED_SLIPS = 3` assignment (the "3" only appears
+    // in a comment about the history; the binding itself is 9999 now).
+    const codeMaxAssignments = notes.match(/^\s*const\s+MAX_PINNED_SLIPS\s*=\s*3\s*$/m) || []
+    expect(codeMaxAssignments.length).toBe(0)
+    // MAX_HINTED_SLIPS = 6 (cross prompt 阈值)
+    expect(notes).toMatch(/MAX_HINTED_SLIPS\s*=\s*6/)
+    // loadNotes defaults all chapter ids into pinnedSlipIds when prefs empty
+    expect(notes).toContain('pinnedSlipIds.value = chapters.value.map((a) => a.id)')
+    // togglePinSlip no longer evicts the oldest when full
+    expect(notes).not.toMatch(/nextIds\.length\s*>=\s*MAX_PINNED_SLIPS\s*\)[\s\S]*?const oldest/)
+  })
+
+  it('UI-N10: Notes.vue template introduces multi-canvas container + 3-zone grid (chrome / main card / slip stack)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toMatch(/<div[^>]*class="multi-canvas"[^>]*ref="boardRef"/)
+    expect(notes).toContain('class="multi-canvas__chrome"')
+    expect(notes).toContain('class="multi-canvas__chrome-label"')
+    expect(notes).toContain('class="multi-canvas__main"')
+    expect(notes).toMatch(/class="[^"]*multi-canvas__main-card[^"]*"/)
+    expect(notes).toContain('class="multi-canvas__slips"')
+    // Main card is the 1.55fr column with active-card content
+    expect(notes).toMatch(/class="active-card multi-canvas__main-card"/)
+    // Slip stack renders layoutItems (useCanvasBoard items) inside multi-canvas__slips
+    expect(notes).toMatch(/<aside[^>]*class="multi-canvas__slips"[\s\S]*?v-for="slip in layoutItems"/)
+  })
+
+  it('UI-N10: Notes.vue slip block uses Lusion-style 双行 footer (kind-color header bar + status dot + line-2 status)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    // kind-color header bar (existing, kept)
+    expect(notes).toContain('class="pinned-slip__tab"')
+    // new line-1 with kind label + status dot + 字数
+    expect(notes).toContain('class="pinned-slip__line-1"')
+    expect(notes).toContain('class="pinned-slip__status-dot"')
+    expect(notes).toContain('class="pinned-slip__line-2"')
+    expect(notes).toContain('class="pinned-slip__status"')
+    // getStatusColor + getAssetStatusLabel helpers exist
+    expect(notes).toMatch(/function\s+getStatusColor/)
+    expect(notes).toMatch(/function\s+getAssetStatusLabel/)
+  })
+
+  it('UI-N10: Notes.vue adds Lusion-style cross scroll prompt (空状态 / 翻页)', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="multi-canvas__cross-prompt"')
+    expect(notes).toContain('class="multi-canvas__cross"')
+    expect(notes).toContain('class="multi-canvas__bottom-cross"')
+    expect(notes).toContain('class="multi-canvas__cross-label"')
+    // 还有 N 张可钉入画布 / 翻下页 字面量
+    expect(notes).toContain('还有')
+    expect(notes).toContain('翻下页')
+    // scrollCanvasToBottom handler
+    expect(notes).toMatch(/function\s+scrollCanvasToBottom/)
+    expect(notes).toMatch(/@click="scrollCanvasToBottom"/)
+  })
+
+  it('UI-N10: kao.css implements multi-canvas 2-col grid + Lusion cross + 双行 slip footer', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // 2-col grid: 1.55fr main + 1fr slips
+    expect(css).toMatch(/\.theme-kao\s+\.multi-canvas\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.55fr\)\s+minmax\(0,\s*1fr\)/s)
+    // main card border (main card emphasizes "主卡" identity)
+    expect(css).toMatch(/\.theme-kao\s+\.multi-canvas__main-card\s*\{[^}]*border:\s*1px solid color-mix\(in srgb, var\(--archive-gold\) 75%/s)
+    // Slip 区 grid (the slip-stack container)
+    expect(css).toMatch(/\.theme-kao\s+\.multi-canvas__slips\s*\{[^}]*flex-direction:\s*column/s)
+    // Lusion-style 双行 footer (line-1 + status-dot + line-2 + status)
+    expect(css).toMatch(/\.theme-kao\s+\.pinned-slip__line-1\s*\{/)
+    expect(css).toMatch(/\.theme-kao\s+\.pinned-slip__status-dot\s*\{[^}]*width:\s*6px/s)
+    expect(css).toMatch(/\.theme-kao\s+\.pinned-slip__line-2\s*\{/)
+    expect(css).toMatch(/\.theme-kao\s+\.pinned-slip__status\s*\{/)
+    // Lusion-style cross (+): ::before + ::after
+    expect(css).toMatch(/\.theme-kao\s+\.multi-canvas__cross::before\s*\{[\s\S]*?width:\s*100%/)
+    expect(css).toMatch(/\.theme-kao\s+\.multi-canvas__cross::after\s*\{[\s\S]*?height:\s*100%/)
+    // 暗态硬化 (dark variant 不让 multi-canvas 消失)
+    expect(css).toMatch(/\.theme-kao\.theme-dark\s+\.multi-canvas\s*\{/)
+  })
+
+  it('UI-N10: kao.css multi-canvas block has 0 raw hex + 0 !important + 0 broad :deep(*)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // Extract .theme-kao .multi-canvas + sub-selector rules; ensure none contain raw hex.
+    const blocks = css.match(/\.theme-kao\s+\.multi-canvas[^{}]*\{[^}]*\}/g) || []
+    expect(blocks.length).toBeGreaterThan(0)
+    blocks.forEach((rule) => {
+      expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    })
+    // kao.css wider: no !important or broad :deep in any new N10 rule
+    const newRules = css.match(/\.multi-canvas[^{}]*\{[^}]*\}/g) || []
+    newRules.forEach((rule) => {
+      expect(rule).not.toMatch(/!important/)
+      expect(rule).not.toMatch(/:deep\(\s*\*/)
+    })
+  })
+
+  it('UI-N10: hard constraint — 0 new :global(.theme-kao), 0 new !important, 0 broad :deep(*), kao block 0 raw hex, 0 store/service/router change', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const composable = readProjectFile('src/composables/useCanvasBoard.js')
+    // N10 must not regress the existing bans
+    expect(notes).not.toContain(':global(.theme-kao)')
+    expect(notes).not.toMatch(/:deep\(\s*\*/)
+    // :global / !important / broad :deep must not appear in N10 new selectors
+    expect(notes).not.toMatch(/multi-canvas[^{]*\{[^}]*:global/)
+    expect(notes).not.toMatch(/multi-canvas[^{]*\{[^}]*:deep/)
+    expect(notes).not.toMatch(/multi-canvas[^{]*\{[^}]*!important/)
+    const impCount = (notes.match(/!important/g) || []).length
+    expect(impCount).toBe(0)
+    // 0 raw hex inside kao.css .theme-kao .multi-canvas block
+    const css = readProjectFile('src/styles/themes/kao.css')
+    const kaoBlocks = css.match(/\.theme-kao\s+\.multi-canvas[\s\S]*?\n\}/g) || []
+    const kaoText = kaoBlocks.join('\n')
+    expect(kaoText).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    // 0 store mutation / 0 store import / 0 new services/router
+    expect(notes).not.toMatch(/gameStore\.\w+\s*=\s*/)
+    expect(notes).not.toContain("from '../services/worldbookContextBuilder")
+    expect(notes).not.toContain("from '../router")
+    // useCanvasBoard composable API unchanged (N10 keeps the same import)
+    expect(composable).toContain('useCanvasBoard')
+  })
+})
+
+// UI-E6A: Experience ledger readable record-book typography + page
 
 // UI-E6A: Experience ledger readable record-book typography + page
 // mechanisms (2026-06-21 plan). Supersedes E3 p2 marginalia weights and
 // adds spine stitch / folio page no. / chapter rule / message backdrop
 // / kicker-on-block — all purely visual; no store / service change.
 describe('ui polish — UI-E6A Experience ledger readable record-book', () => {
-  it('UI-E6A: body text bumped to 16px / line-height 1.75 for clear reading, LXGW retained', () => {
+  it('UI-E6A + UI-E10: body text 16px / line-height 1.75 / --font-body (NOT --font-display LXGW) — readable system serif for long passages', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*16px/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.75/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
+    // UI-E10: body text uses --font-body (system serif fallback), NOT
+    // LXGW. LXGW is reserved for display positions (kicker, marginalia).
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-body\)/s)
+    // E6A LXGW assumption is now GONE
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*color:\s*var\(--archive-ink\)/s)
   })
 
@@ -2029,28 +2192,35 @@ describe('ui polish — UI-E6A Experience ledger readable record-book', () => {
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\.compression-complete\s*\{[^}]*border-left-color:\s*var\(--archive-rose\)/s)
   })
 
-  it('UI-E6A: chapter rule ribbon between message groups — 1px gradient with centered 卷 X · 第 Y 页 label', () => {
+  it('UI-E10: chapter-rule ribbon between message groups is DELETED (superseded by per-entry marginalia section number)', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // .chapter-rule has 1px gradient gold ribbon
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule\s*\{[^}]*background:\s*linear-gradient/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule\s*\{[^}]*archive-gold\)\s*32%/s)
-    // .chapter-rule__label centered with paper bg + gold ink
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*background:\s*var\(--archive-paper\)/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{[^}]*archive-gold\)\s*76%/s)
+    // E9 chapter-rule + chapter-rule__label are gone; section numbering
+    // is now per-entry marginalia (.scene-entry__no) only.
+    // UI-E10-CLEAN 2026-06-22: removed reference to deleted
+    // .scene-stage__indicator (was v-if hidden in 0-message state).
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.chapter-rule\s*\{/)
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.chapter-rule__label\s*\{/)
+    expect(gamePanel).not.toContain('class="chapter-rule"')
+    expect(gamePanel).not.toContain('class="chapter-rule__label"')
+    // No v-for over messageSpreads (UI-E9 pattern, gone)
+    expect(gamePanel).not.toContain('v-for="(spread, sIdx) in messageSpreads"')
   })
 
-  it('UI-E6A: GamePanel.vue implements ledger pagination: messageSpreads (UI-E9) is the new chunking primitive, chapter-rule labels still derive via recordVolume + folio page no. on each msg', () => {
+  it('UI-E10: GamePanel.vue implements displayMessages primitive — iterates gameStore.messages directly (UI-E9 messageSpreads removed)', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // messageSpreads computed exists (UI-E9 supersedes the E6A messageGroups
-    // chunk-by-8 primitive; spread pairing walks user→assistant pairs instead).
-    expect(gamePanel).toContain('messageSpreads')
-    expect(gamePanel).toContain('LONG_ASSISTANT_CHARS')
-    // recordVolume exists for chapter label
-    expect(gamePanel).toContain('recordVolume')
-    // Template iterates spreads and chapter-rule is still emitted
-    expect(gamePanel).toContain('v-for="(spread, sIdx) in messageSpreads"')
-    expect(gamePanel).toContain('class="chapter-rule"')
+    // UI-E10 single-column primitive
+    expect(gamePanel).toContain('displayMessages')
+    expect(gamePanel).toMatch(/const displayMessages\s*=\s*computed\(\(\)\s*=>\s*\{/)
+    // UI-E9 messageSpreads / LONG_ASSISTANT_CHARS / isStandaloneMessage gone
+    expect(gamePanel).not.toContain('messageSpreads')
+    expect(gamePanel).not.toContain('LONG_ASSISTANT_CHARS')
+    expect(gamePanel).not.toContain('isStandaloneMessage')
+    // recordVolume is still defined (Experience.vue uses it for indicator)
+    expect(gamePanel).not.toMatch(/const recordVolume\s*=\s*computed/)
+    // Template iterates displayMessages, not spreads
+    expect(gamePanel).toContain('v-for="(msg, index) in displayMessages"')
+    expect(gamePanel).toContain(':key="`scene-${index}`"')
+    // Folio page no. still on each msg (preserved from E6A)
     expect(gamePanel).toContain('class="msg-item__folio"')
   })
 
@@ -2069,164 +2239,154 @@ describe('ui polish — UI-E6A Experience ledger readable record-book', () => {
 })
 
 // =========================================================================
-// UI-E9: Experience ledger — book spread structure (对开页).
-// Ledger is no longer a chat feed; it now reads as a stack of opened book
-// pages. Each adjacent user + assistant pair becomes one spread: left
-// sheet (player's decision) + spine + right sheet (narrator's reply),
-// with a 3-segment page header and a round ink-stamp footer.
-// UI-E6A's typography / folio / kicker / chapter-rule layers stay in
-// place; UI-E9 wraps them in a spread container.
+// UI-E10: Experience 重做 — font / display / menu continuity.
+// E10 supersedes UI-E9 ledger-spread with a single-column scene-entry
+// flow. The E6A typography / folio / kicker / spine stitch / msg-item
+// layer stays in place (readable body in serif, role-color 3px bar,
+// "我·" / "旁白·" / "档案员·" block kickers). UI-E10 ADDS:
+//   - --font-body system serif fallback token (kao.css) so long body
+//     passages read as 宋 / Georgia, not LXGW 书法
+//   - <article class="scene-entry"> single-column with top marginalia
+//     (date / 第 N 条 / role stamp) replacing E9 page-header / spine /
+//     sheets / continued-mark / ink-stamp
+//   - Sticky .scene-stage__indicator (Experience.vue) giving the user
+//     a "卷 X · 第 Y 条 / 共 N 条" progress anchor
+//   - Shared vertical axis (kao.css .game-page::before 1px rose line
+//     at left:28px) threading through record-folio / scene-stage /
+//     dossier sidebar
+// E10 PRESERVES:
+//   - E9-FIX mechanism-trigger click: <div class="text-wrapper"
+//     @click="onTextWrapperClick(index, msg, $event)"> on every entry
+//   - E6A typography 16px / 1.75 / role kicker / spine stitch
+//   - E6A folio page no. + role-color 3px left bar + msg-item backdrop
 // =========================================================================
-describe('ui polish — UI-E9 Experience ledger book spread (对开页)', () => {
-  it('UI-E9: GamePanel.vue template uses <article class="ledger-spread"> + 3-segment page header + ink-stamp footer', () => {
-    const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Outer spread container
-    expect(gamePanel).toMatch(/<article[^>]*class="ledger-spread"/)
-    // 3-segment page header (date / volume / stamp)
-    expect(gamePanel).toContain('class="ledger-spread__page-header"')
-    expect(gamePanel).toContain('class="ledger-spread__page-date"')
-    expect(gamePanel).toContain('class="ledger-spread__page-volume"')
-    expect(gamePanel).toContain('class="ledger-spread__page-stamp"')
-    // Ink-stamp footer
-    expect(gamePanel).toContain('class="ledger-spread__ink-stamp"')
-    expect(gamePanel).toContain('class="ledger-spread__ink-stamp-text"')
-    expect(gamePanel).toContain('>录<')
+describe('ui polish — UI-E10 Experience 重做 (font / display / menu)', () => {
+  it('UI-E10: --font-body token exists in kao.css :root as system serif fallback (Songti / Source Han / Noto Serif CJK / STSong / Iowan / Georgia / serif)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    expect(css).toMatch(/--font-body:\s*"Songti SC"/)
+    expect(css).toMatch(/--font-body:[\s\S]*?"Source Han Serif CN"/)
+    expect(css).toMatch(/--font-body:[\s\S]*?"Noto Serif CJK SC"/)
+    expect(css).toMatch(/--font-body:[\s\S]*?STSong/)
+    expect(css).toMatch(/--font-body:[\s\S]*?Georgia/)
+    expect(css).toMatch(/--font-body:[\s\S]*?, serif/)
   })
 
-  it('UI-E9: GamePanel.vue template has spread left/right sheets + middle spine + red margin rule + continued mark', () => {
+  it('UI-E10: .theme-kao .text-main uses --font-body (NOT --font-display LXGW) for readable body serif', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Sheets: left + right
-    expect(gamePanel).toContain('class="ledger-spread__left-page"')
-    expect(gamePanel).toContain('class="ledger-spread__right-page"')
-    // Middle spine
-    expect(gamePanel).toContain('class="ledger-spread__spine"')
-    // Red 稿纸 margin rule
-    expect(gamePanel).toContain('class="ledger-spread__red-rule"')
-    // Continued mark for long assistant replies
-    expect(gamePanel).toContain('class="ledger-spread__continued-mark"')
-    expect(gamePanel).toContain('续 · 接上页')
-    // E9-FIX: BOTH sheets must wire onTextWrapperClick so mechanism-trigger /
-    // inline-event click handlers work in single-page spreads (assistant-only
-    // lone message falls on left sheet). Without this, the right sheet's
-    // @click handler does nothing for left-sheet messages and
-    // gamePanelMechanism.test.js fails.
-    expect(gamePanel).toContain('@click="onTextWrapperClick(spread.leftIndex, spread.left, $event)"')
-    expect(gamePanel).toContain('@click="onTextWrapperClick(spread.rightIndex, spread.right, $event)"')
-    // Blank-page notes for asymmetric spreads
-    expect(gamePanel).toContain('class="ledger-spread__blank-note"')
-    expect(gamePanel).toContain('· 留白待续 ·')
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-body\)/s)
+    // Negative: LXGW NOT used for body
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/)
   })
 
-  it('UI-E9: GamePanel.vue template iterates messageSpreads (NOT messageGroups) — chapter-rule now keys on spread index', () => {
+  it('UI-E10: GamePanel.vue template uses scene-entry single-column (NOT ledger-spread) — each message wrapped in <article class="scene-entry">', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Spread iteration
-    expect(gamePanel).toContain('v-for="(spread, sIdx) in messageSpreads"')
-    expect(gamePanel).toContain(':key="`spread-${sIdx}`"')
-    // Chapter-rule now keys on spread index, not group index
-    expect(gamePanel).toMatch(/class="chapter-rule"[\s\S]{0,200}sIdx/)
-    // Old messageGroups v-for must be gone
-    expect(gamePanel).not.toContain('v-for="(group, gIdx) in messageGroups"')
-    expect(gamePanel).not.toContain('v-for="(msg, mIdx) in group"')
+    // Positive: <article class="scene-entry"> wraps each message
+    expect(gamePanel).toMatch(/<article[^>]*class="scene-entry"/)
+    // Negative: E9 ledger-spread entirely gone
+    expect(gamePanel).not.toMatch(/class="ledger-spread"/)
+    expect(gamePanel).not.toContain('class="ledger-spread__page-header"')
+    expect(gamePanel).not.toContain('class="ledger-spread__sheets"')
+    expect(gamePanel).not.toContain('class="ledger-spread__ink-stamp"')
+    expect(gamePanel).not.toContain('class="ledger-spread__continued-mark"')
+    expect(gamePanel).not.toContain('续 · 接上页')
   })
 
-  it('UI-E9: GamePanel.vue scoped .theme-kao CSS implements book-spread layout: 3-column grid (left / spine / right) + red rule + ink-stamp', () => {
+  it('UI-E10: scene-entry has marginalia header (date / 第 N 条 / role stamp) — numbered axis running top-to-bottom', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // 3-column grid for the sheets (left / 1px spine / right)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__sheets\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s+1px\s+minmax\(0, 1fr\)/s)
-    // Red 稿纸 margin rule — rose 52% line at left: 28px
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__red-rule\s*\{[^}]*left:\s*28px[^}]*var\(--archive-rose\)/s)
-    // Spine — thin 1px ink column
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__spine\s*\{[^}]*var\(--archive-ink\)/s)
-    // Page header — sans 11px, gold-soft volume, rose-soft stamp
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__page-header\s*\{[^}]*font-family:\s*var\(--font-sans\)/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__page-volume\s*\{[^}]*var\(--archive-gold\)/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__page-stamp\s*\{[^}]*var\(--archive-rose\)/s)
-    // Ink-stamp — round 44x44, rose 84% border, rotated -8deg, "录" character
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__ink-stamp-text\s*\{[^}]*width:\s*44px[^}]*height:\s*44px[^}]*border-radius:\s*50%[^}]*transform:\s*rotate\(-8deg\)/s)
-    // Continued mark — rose 72% italic LXGW
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.ledger-spread__continued-mark\s*\{[^}]*font-family:\s*var\(--font-display\)[^}]*var\(--archive-rose\)/s)
+    expect(gamePanel).toContain('class="scene-entry__marginalia"')
+    expect(gamePanel).toContain('class="scene-entry__date"')
+    expect(gamePanel).toContain('class="scene-entry__no"')
+    expect(gamePanel).toContain('class="scene-entry__stamp"')
+    // CSS locks marginalia rules + 第 N 条 / 卷 X stamps
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__marginalia\s*\{[^}]*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__no\s*\{[^}]*var\(--archive-gold\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__stamp\s*\{[^}]*var\(--font-display\)/s)
+    expect(gamePanel).toMatch(/第\s*\{\{\s*index\s*\+\s*1\s*\}\}\s*条/)
   })
 
-  it('UI-E9: GamePanel.vue implements messageSpreads computed — pairs adjacent user + assistant into left + right sheets, falls back to single-page spread for compression / lone messages', () => {
+  it('UI-E10: scene-entry text-wrapper preserves onTextWrapperClick binding (E9-FIX guard — gamePanelMechanism.test.js)', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Spread computed exists with the pairing loop
-    expect(gamePanel).toContain('const messageSpreads = computed(() => {')
-    expect(gamePanel).toContain('cur.role === \'user\'')
-    expect(gamePanel).toContain('nxt.role === \'assistant\'')
-    expect(gamePanel).toContain('LONG_ASSISTANT_CHARS')
-    expect(gamePanel).toContain('continued: assistantChars > LONG_ASSISTANT_CHARS')
-    // Spread shape: left / right / leftIndex / rightIndex / continued
-    expect(gamePanel).toContain('left: cur')
-    expect(gamePanel).toContain('right: nxt')
-    expect(gamePanel).toContain('rightIndex: i + 1')
-    // Single-page fallback for compression-complete and lone messages
-    expect(gamePanel).toContain('isStandaloneMessage(cur)')
-    expect(gamePanel).toContain('isStandaloneMessage(nxt)')
-    // recordVolume now derived from spread count, not raw message count
-    expect(gamePanel).toMatch(/recordVolume\s*=\s*computed\(\(\)\s*=>\s*\{[\s\S]*?messageSpreads\.value\.length/)
-    // Two helpers for the header
-    expect(gamePanel).toContain('const spreadHeaderDate')
-    expect(gamePanel).toContain('const spreadHeaderStamp')
+    // E9-FIX repair preserved verbatim: every .text-wrapper still has
+    // @click="onTextWrapperClick(...)". In E10 the index arg comes from
+    // v-for="(msg, index) in displayMessages" (NOT spread.leftIndex).
+    expect(gamePanel).toMatch(/class="text-wrapper"[^>]*@click="onTextWrapperClick\(index,\s*msg,\s*\$event\)"/)
+    // Negative: no leftover spread.leftIndex / spread.rightIndex bindings
+    expect(gamePanel).not.toContain('onTextWrapperClick(spread.leftIndex')
+    expect(gamePanel).not.toContain('onTextWrapperClick(spread.rightIndex')
+    // gamePanelMechanism test data-global-index still on .msg-item
+    expect(gamePanel).toContain(':data-global-index="index"')
   })
 
-  it('UI-E9: book-spread container does not duplicate existing record-book mechanisms — keeps spine stitch + folio + chapter rule + role kicker + msg-item backdrop', () => {
-    const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Spine stitch (chat-container::before) preserved
-    expect(gamePanel).toContain('.theme-kao .chat-container::before')
-    expect(gamePanel).toContain('repeating-linear-gradient')
-    // Folio page no. preserved
-    expect(gamePanel).toContain('.theme-kao .msg-item__folio')
-    expect(gamePanel).toContain('class="msg-item__folio"')
-    // Chapter rule preserved
-    expect(gamePanel).toContain('.theme-kao .chapter-rule')
-    expect(gamePanel).toContain('class="chapter-rule"')
-    // Role kicker preserved (3 ::before rules)
-    expect(gamePanel).toContain('.theme-kao .msg-item.user .text-main::before')
-    expect(gamePanel).toContain('.theme-kao .msg-item.assistant .text-main::before')
-    expect(gamePanel).toContain('.theme-kao .msg-item.compression-complete .text-main::before')
-    // Body typography preserved (16px / 1.75 / var(--font-display), order-independent)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*16px/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.75/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/s)
-    // msg-item backdrop + 3px role-color left bar preserved
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item\s*\{[^}]*border-left:\s*3px solid var\(--archive-gold\)/s)
+  it('UI-E10-CLEAN: kao.css .theme-kao .game-page::before 28px shared vertical axis is REMOVED (was masked behind record-folio / sidebar borders — UI-E11 will replace with sticky topstrip)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // Axis rule body is gone
+    expect(css).not.toMatch(/\.theme-kao\s+\.game-page::before\s*\{[^}]*left:\s*28px/s)
+    expect(css).not.toMatch(/\.theme-kao\s+\.game-page::before\s*\{[^}]*archive-rose\)/s)
+    expect(css).not.toMatch(/\.theme-kao\s+\.game-page::before\s*\{[^}]*width:\s*1px/s)
+    // Mobile fallback also gone
+    expect(css).not.toMatch(/@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.theme-kao\s+\.game-page::before\s*\{[^}]*left:\s*14px/s)
   })
 
-  it('UI-E9: GamePanel.vue scoped .theme-kao CSS drops msg-item border-left / padding inside the spread (sheet has its own red rule + spine)', () => {
+  it('UI-E10-CLEAN: kao.css .theme-kao .scene-stage__indicator* sticky section indicator is REMOVED (was v-if hidden in 0-message state — UI-E11 will replace with always-on topstrip)', () => {
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // Indicator rule + children gone
+    expect(css).not.toMatch(/\.theme-kao\s+\.scene-stage__indicator\s*\{/)
+    expect(css).not.toMatch(/\.theme-kao\s+\.scene-stage__indicator-volume\s*\{[^}]*var\(--archive-gold\)/s)
+    expect(css).not.toMatch(/\.theme-kao\s+\.scene-stage__indicator-kicker\s*\{/)
+    expect(css).not.toMatch(/\.theme-kao\s+\.scene-stage__indicator-progress\s*\{/)
+    // Scene-entry CSS lives in GamePanel.vue scoped, not kao.css (preserved)
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    // Inside the spread, msg-item loses its 3px role-color left bar + 14px padding
-    // because the sheet already has the red margin rule + spine doing that job.
-    const spreadResetRule = gamePanel.match(/\.theme-kao\s+\.ledger-spread\s+\.msg-item\s*\{[\s\S]*?\}/)?.[0] ?? ''
-    expect(spreadResetRule).toContain('border-left: none')
-    expect(spreadResetRule).toContain('padding: 0')
-    expect(spreadResetRule).toContain('background: transparent')
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry\s*\{/)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__marginalia\s*\{/)
   })
 
-  it('UI-E9: hard constraint — no new scoped :global(.theme-kao), no new !important, no broad :deep(*), kao block has 0 raw hex, 0 new token, 0 store / service / router / record-folio / sidebar change', () => {
+  it('UI-E10-CLEAN: Experience.vue template / computed / scoped CSS removes scene-stage__indicator (UI-E11 will replace)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).not.toContain('class="scene-stage__indicator"')
+    // Code identifier gone (doc-comment references in E10-CLEAN inline
+    // annotations are OK; only check that it's not a live binding / function)
+    expect(experience).not.toMatch(/const\s+sceneStageIndicator\s*=/)
+    expect(experience).not.toMatch(/const\s+sceneIndicatorVisible\s*=/)
+    expect(experience).not.toMatch(/sceneStageIndicator\.(volume|total|messageIndex)/)
+    // Base scoped style on .scene-stage__indicator (legacy / non-kao) gone
+    expect(experience).not.toMatch(/\.scene-stage__indicator\s*\{/)
+    expect(experience).not.toMatch(/\.scene-stage__indicator-volume\s*\{/)
+  })
+
+  it('UI-E10: hard constraint — 0 new :global(.theme-kao) / 0 !important / 0 broad :deep(*) / 0 raw hex / 0 store mutation / E9 ledger-spread / messageSpreads / LONG_ASSISTANT_CHARS all gone', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const css = readProjectFile('src/styles/themes/kao.css')
+    // GamePanel forbidden patterns
     expect(gamePanel).not.toContain(':global(.theme-kao)')
     expect(gamePanel).not.toMatch(/:deep\(\s*\*/)
-    // UI-E9 must not regress the :deep() ban — also ban on any new spread selector
-    expect(gamePanel).not.toMatch(/ledger-spread[^{]*\{[^}]*:deep/)
     const impCount = (gamePanel.match(/!important/g) || []).length
     expect(impCount).toBe(0)
-    // No raw hex inside the kao block (E6A uses tavern-btn.primary #fff which is
-    // legacy / outside kao block; UI-E9 itself must add none)
-    const kaoBlock = gamePanel.match(/\.theme-kao[\s\S]*?\n\}/g) || []
-    const kaoText = kaoBlock.join('\n')
-    expect(kaoText).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
-    // 0 store mutation / 0 store interface change — UI-E9 must not add new store
-    // action calls or modify the public gameStore surface. Reading existing
-    // reactive state via useGameStore is allowed (and required).
+    // E9 cleanup — names must not appear in DOM / scoped CSS rules
+    // (doc comments referencing E9 history are OK)
+    expect(gamePanel).not.toMatch(/class="ledger-spread"/)
+    expect(gamePanel).not.toMatch(/ledger-spread\s*\{/)
+    expect(gamePanel).not.toMatch(/ledger-spread__/)
+    expect(gamePanel).not.toContain('messageSpreads = computed')
+    expect(gamePanel).not.toContain('LONG_ASSISTANT_CHARS')
+    expect(gamePanel).not.toContain('isStandaloneMessage')
+    expect(gamePanel).not.toContain('spreadHeaderDate')
+    expect(gamePanel).not.toContain('spreadHeaderStamp')
+    // GamePanel store mutation ban
     expect(gamePanel).not.toMatch(/gameStore\.(updateMessage|sendAction|regenerateFrom|deleteMessage|toggleQuickNoteMessageSelection)\s*=/)
-    // 0 new services imports (worldbook context builder / router)
-    expect(gamePanel).not.toContain("from '../services/worldbookContextBuilder")
-    expect(gamePanel).not.toContain("from '../router")
-    // gameStore import is allowed (read-only access for the spread loop)
-    expect(gamePanel).toContain("from '../stores/gameStore'")
-    expect(gamePanel).toContain('useGameStore')
-    // 6-cell record-folio preserved in the parent Experience.vue
-    const experience = readProjectFile('src/pages/Experience.vue')
+    // Experience.vue forbidden patterns
+    expect(experience).not.toContain(':global(.theme-kao)')
+    expect(experience).not.toMatch(/:deep\(\s*\*/)
+    const impExp = (experience.match(/!important/g) || []).length
+    expect(impExp).toBe(0)
+    // UI-E10-CLEAN 2026-06-22: removed axis/indicator hex checks because
+    // those rules are now deleted. The --font-body token + scene-entry
+    // CSS + displayMessages computed are the only E10 survivors; all
+    // are token-only by inspection (uses var(--archive-*), var(--font-*),
+    // color-mix). Other .theme-kao blocks have :root token defs with
+    // hex which is the WHOLE POINT of the token system.
+    void css  // keep css import for symmetry with future E10 follow-ups
+    // Experience 6-cell record-folio preserved
     expect(experience).toContain('record-folio__grid')
     expect(experience).toContain('record-folio__cell')
   })

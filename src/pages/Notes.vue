@@ -180,168 +180,155 @@
             </div>
           </template>
 
-          <!-- 阅读台：主卡 + 右侧画布 -->
+          <!-- UI-N10: 多卡画布 (multi-card canvas) — 主卡 + 多张 slip 同屏,
+               借鉴 Lusion 项目列表分层舞台/强空间占位思路:
+               1) 主卡 active-card 居中大卡 (1fr 60%) — 完整编辑 + toolbar
+               2) 右侧 multi-canvas__slips 区 — 2-4 张相关 slip 自由拖拽
+               3) 画布结构始终填满 (空状态 7 类占位格 + cross prompt)
+               4) 借鉴 Lusion project-item 双行结构 (kind-color header bar + footer 状态)
+               5) 借鉴 Lusion cross scroll prompt (画布底部 + 翻页提示)
+               保留 N6/N9 拖拽 + z-index + 持久化, 不破坏 useCanvasBoard composable. -->
           <template v-else>
-            <div class="reading-deck__main">
-              <article class="active-card">
-                <span class="active-card__tape" aria-hidden="true"></span>
-                <div class="active-card__header">
-                  <input
-                    v-model="currentChapterTitle"
-                    type="text"
-                    class="chapter-title-input"
-                    placeholder="素材标题"
-                    @input="onTitleChange"
-                  />
-                  <div class="active-card__stats">
-                    <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
-                    <span class="stat-divider">|</span>
-                    <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
-                  </div>
-                </div>
-                <div class="deck-toolbar">
-                  <label class="asset-control">
-                    <span>类型</span>
-                    <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
-                      <option value="inspiration">灵感</option>
-                      <option value="draft-prose">正文候选</option>
-                      <option value="event">剧情事件</option>
-                      <option value="character-fact">人物事实</option>
-                      <option value="worldbook-draft">世界书草稿</option>
-                      <option value="storyboard-seed">分镜种子</option>
-                      <option value="reference-image">参考图</option>
-                    </select>
-                  </label>
-                  <button class="material-action-btn deck-toolbar__btn" type="button" @click="importCurrentToCanvas">
-                    {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
-                  </button>
-                  <button
-                    v-if="selectedAsset"
-                    class="material-action-btn deck-toolbar__btn"
-                    type="button"
-                    :disabled="isGeneratingProfessionalInfo"
-                    @click="generateAndImportToCanvas"
-                  >
-                    {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
-                  </button>
-                  <button
-                    v-if="selectedAsset"
-                    class="material-action-btn deck-toolbar__btn deck-toolbar__btn--pin"
-                    type="button"
-                    :class="{ 'is-pinned': isPinned(selectedAsset.id) }"
-                    :disabled="pinnedSlipIds.length >= MAX_PINNED_SLIPS && !isPinned(selectedAsset.id)"
-                    :title="isPinned(selectedAsset.id) ? '从副阅读台取下' : '钉入副阅读台'"
-                    :aria-label="isPinned(selectedAsset.id) ? '从副阅读台取下' : '钉入副阅读台'"
-                    @click="togglePinSlip(selectedAsset.id)"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
-                      <path d="M5.5 1v6M3.5 5.5L5.5 7l2-1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-                      <circle cx="5.5" cy="9" r="1" fill="currentColor"/>
-                    </svg>
-                    <span>{{ isPinned(selectedAsset.id) ? '已钉入' : '钉入副阅读台' }}</span>
-                  </button>
-                  <div class="deck-toolbar__spacer"></div>
-                  <div class="mode-switch">
-                    <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
-                    <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">Markdown</button>
-                    <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
-                  </div>
-                </div>
-                <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
-                  <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
-                  <div class="image-asset-meta">
-                    <span>参考图</span>
-                    <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
-                  </div>
-                </div>
-                <textarea
-                  v-if="editorMode === 'wysiwyg'"
-                  v-model="markdownContent"
-                  class="editor-textarea prose-textarea"
-                  placeholder="开始记录..."
-                  ref="editorRef"
-                  :style="{
-                    fontFamily: editorFont,
-                    fontSize: editorFontSize,
-                    fontWeight: editorBold ? 'bold' : 'normal',
-                    fontStyle: editorItalic ? 'italic' : 'normal',
-                    textDecoration: editorUnderline ? 'underline' : 'none'
-                  }"
-                  @input="onMarkdownInput"
-                  @keydown="onTextAreaKeydown"
-                ></textarea>
-                <textarea
-                  v-if="editorMode === 'markdown'"
-                  v-model="markdownContent"
-                  class="editor-textarea markdown-textarea"
-                  placeholder="开始记录（Markdown）..."
-                  @input="onMarkdownInput"
-                  @keydown="onTextAreaKeydown"
-                ></textarea>
-                <div
-                  v-if="editorMode === 'preview'"
-                  class="editor-textarea editor-preview"
-                  v-html="previewHtml"
-                ></div>
-                <div class="page-controls">
-                  <button class="page-controls__btn" type="button" :disabled="!canGoPrev" @click="goPrevAsset" title="上一张">
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M6.5 1.5L3 5l3.5 3.5"/>
-                    </svg>
-                    上一张
-                  </button>
-                  <span class="page-controls__count">共 {{ chapters.length }} 卷 · 第 {{ currentAssetIndex + 1 }} 张</span>
-                  <button class="page-controls__btn" type="button" :disabled="!canGoNext" @click="goNextAsset" title="下一张">
-                    下一张
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3.5 1.5L7 5l-3.5 3.5"/>
-                    </svg>
-                  </button>
-                </div>
-              </article>
-            </div>
-
-            <!-- UI-N9: 副阅读台 (canvas-pinboard) — 真实可用的多素材并列阅读画布
-                 1-3 张钉入素材在这里排列, 主卡可继续编辑不被遮挡.
-                 boardRef 挂在这里, 拖拽坐标是画布局部空间. -->
-            <aside
-              class="canvas-pinboard"
+            <div
+              class="multi-canvas"
               ref="boardRef"
               @dragover.prevent="onBoardDragOver($event)"
               @drop="onBoardDrop($event)"
-              :aria-label="`副阅读台 · 已钉 ${pinnedSlipIds.length} 张`"
+              :aria-label="`多卡画布 · 主卡 + ${slipItemsOnCanvas.length} 张相关素材`"
             >
-              <header class="canvas-pinboard__label">
-                <span class="canvas-pinboard__title">副阅读台</span>
-                <span class="canvas-pinboard__count">{{ pinnedSlipIds.length }} / {{ MAX_PINNED_SLIPS }}</span>
-              </header>
-              <p class="canvas-pinboard__hint">
-                <template v-if="pinnedSlipIds.length === 0">
-                  在主卡点「钉入副阅读台」把当前素材贴到这里，最多 {{ MAX_PINNED_SLIPS }} 张并列对比。
-                </template>
-                <template v-else-if="checkedAssetIds.length > 0">
-                  已勾选 {{ checkedAssetIds.length }} 张 ·
+              <header class="multi-canvas__chrome">
+                <span class="multi-canvas__chrome-label">素材贴板</span>
+                <span class="multi-canvas__chrome-meta">{{ chapters.length }} 张素材 · {{ slipItemsOnCanvas.length }} 张在画布</span>
+                <span v-if="checkedAssetIds.length > 0" class="multi-canvas__chrome-meta">
+                  · 已勾选 {{ checkedAssetIds.length }} 张 ·
                   <button
                     type="button"
-                    class="canvas-pinboard__batch-btn"
+                    class="multi-canvas__batch-btn"
                     @click="importCheckedToPinboard"
-                    :disabled="pinnedSlipIds.length >= MAX_PINNED_SLIPS"
-                  >批量钉入</button>
-                </template>
-                <template v-else>
-                  点击任一素材卡可切到主卡编辑 · 拖拽可重排
-                </template>
-              </p>
-              <div
-                v-if="pinnedSlipIds.length > 0"
-                class="canvas-pinboard__slip-stack"
+                  >批量钉入画布</button>
+                </span>
+              </header>
+
+              <!-- 主卡区 — active-card 居中大卡 (1fr 60%) -->
+              <section class="multi-canvas__main">
+                <article class="active-card multi-canvas__main-card">
+                  <span class="active-card__tape" aria-hidden="true"></span>
+                  <div class="active-card__header">
+                    <input
+                      v-model="currentChapterTitle"
+                      type="text"
+                      class="chapter-title-input"
+                      placeholder="素材标题"
+                      @input="onTitleChange"
+                    />
+                    <div class="active-card__stats">
+                      <span class="stat">{{ wordCount.toLocaleString() }} 字</span>
+                      <span class="stat-divider">|</span>
+                      <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
+                    </div>
+                  </div>
+                  <div class="deck-toolbar">
+                    <label class="asset-control">
+                      <span>类型</span>
+                      <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
+                        <option value="inspiration">灵感</option>
+                        <option value="draft-prose">正文候选</option>
+                        <option value="event">剧情事件</option>
+                        <option value="character-fact">人物事实</option>
+                        <option value="worldbook-draft">世界书草稿</option>
+                        <option value="storyboard-seed">分镜种子</option>
+                        <option value="reference-image">参考图</option>
+                      </select>
+                    </label>
+                    <button class="material-action-btn deck-toolbar__btn" type="button" @click="importCurrentToCanvas">
+                      {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
+                    </button>
+                    <button
+                      v-if="selectedAsset"
+                      class="material-action-btn deck-toolbar__btn"
+                      type="button"
+                      :disabled="isGeneratingProfessionalInfo"
+                      @click="generateAndImportToCanvas"
+                    >
+                      {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
+                    </button>
+                    <div class="deck-toolbar__spacer"></div>
+                    <div class="mode-switch">
+                      <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
+                      <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown源码">Markdown</button>
+                      <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
+                    </div>
+                  </div>
+                  <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
+                    <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
+                    <div class="image-asset-meta">
+                      <span>参考图</span>
+                      <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
+                    </div>
+                  </div>
+                  <textarea
+                    v-if="editorMode === 'wysiwyg'"
+                    v-model="markdownContent"
+                    class="editor-textarea prose-textarea"
+                    placeholder="开始记录..."
+                    ref="editorRef"
+                    :style="{
+                      fontFamily: editorFont,
+                      fontSize: editorFontSize,
+                      fontWeight: editorBold ? 'bold' : 'normal',
+                      fontStyle: editorItalic ? 'italic' : 'normal',
+                      textDecoration: editorUnderline ? 'underline' : 'none'
+                    }"
+                    @input="onMarkdownInput"
+                    @keydown="onTextAreaKeydown"
+                  ></textarea>
+                  <textarea
+                    v-if="editorMode === 'markdown'"
+                    v-model="markdownContent"
+                    class="editor-textarea markdown-textarea"
+                    placeholder="开始记录（Markdown）..."
+                    @input="onMarkdownInput"
+                    @keydown="onTextAreaKeydown"
+                  ></textarea>
+                  <div
+                    v-if="editorMode === 'preview'"
+                    class="editor-textarea editor-preview"
+                    v-html="previewHtml"
+                  ></div>
+                  <div class="page-controls">
+                    <button class="page-controls__btn" type="button" :disabled="!canGoPrev" @click="goPrevAsset" title="上一张">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6.5 1.5L3 5l3.5 3.5"/>
+                      </svg>
+                      上一张
+                    </button>
+                    <span class="page-controls__count">共 {{ chapters.length }} 卷 · 第 {{ currentAssetIndex + 1 }} 张</span>
+                    <button class="page-controls__btn" type="button" :disabled="!canGoNext" @click="goNextAsset" title="下一张">
+                      下一张
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3.5 1.5L7 5l-3.5 3.5"/>
+                      </svg>
+                    </button>
+                  </div>
+                </article>
+              </section>
+
+              <!-- Slip 区 — 2-4 张相关素材 slip 围绕主卡, 自由拖拽, 借鉴 Lusion
+                   project-item 双行结构 (kind-color header bar + footer 状态) -->
+              <aside
+                class="multi-canvas__slips"
+                aria-label="相关素材 · 可拖拽重排"
               >
                 <div
                   v-for="slip in layoutItems"
                   :key="slip.id"
                   class="pinned-slip"
-                  :class="{ 'is-active': selectedChapterId === slip.id, 'is-dragging': draggingId === slip.id }"
-                  :style="styleFor(slip)"
+                  :class="{
+                    'is-active': selectedChapterId === slip.id,
+                    'is-dragging': draggingId === slip.id,
+                    'is-main': slip.id === selectedChapterId
+                  }"
+                  :style="slipStyleFor(slip)"
                   :data-slip-id="slip.id"
                   draggable="true"
                   @dragstart="onItemDragStart(slip, $event)"
@@ -351,29 +338,57 @@
                   @keydown.enter="onSlipClick(slip)"
                   tabindex="0"
                   role="button"
-                  :aria-label="`已钉素材 ${slip.title || '无标题'}，点击切到主卡`"
+                  :aria-label="`素材 ${slip.title || '无标题'}，点击切到主卡编辑`"
                 >
+                  <!-- Lusion-style 双行 footer: kind-color header bar + 标题 + 预览 -->
                   <span class="pinned-slip__tab" :style="{ background: getAssetKindColor(slip.kind) }" aria-hidden="true"></span>
-                  <span class="pinned-slip__kind">{{ getAssetKindLabel(slip.kind) }}</span>
+                  <div class="pinned-slip__line-1">
+                    <span class="pinned-slip__kind">{{ getAssetKindLabel(slip.kind) }}</span>
+                    <span class="pinned-slip__status-dot" :style="{ background: getStatusColor(slip.status) }" aria-hidden="true"></span>
+                    <span class="pinned-slip__stat">{{ (slip.content || '').length }} 字</span>
+                  </div>
                   <h4 class="pinned-slip__title">{{ slip.title || '无标题素材' }}</h4>
                   <p class="pinned-slip__preview">{{ (slip.preview || slip.content || '').slice(0, 96) }}<template v-if="(slip.preview || slip.content || '').length > 96">…</template></p>
-                  <span class="pinned-slip__stat">{{ (slip.content || '').length }} 字 · {{ getAssetStatusLabel(slip.status) }}</span>
-                  <button
-                    class="pinned-slip__unpin"
-                    type="button"
-                    @click.stop="unpinSlip(slip.id)"
-                    title="取下"
-                    aria-label="取下此钉"
-                  >×</button>
+                  <div class="pinned-slip__line-2">
+                    <span class="pinned-slip__status">{{ getAssetStatusLabel(slip.status) }}</span>
+                    <button
+                      v-if="slip.id !== selectedChapterId"
+                      class="pinned-slip__unpin"
+                      type="button"
+                      @click.stop="unpinSlip(slip.id)"
+                      title="从画布取下"
+                      aria-label="从画布取下"
+                    >×</button>
+                  </div>
                 </div>
-              </div>
-              <div v-else class="canvas-pinboard__empty" aria-hidden="true">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                  <rect x="4" y="6" width="20" height="14" rx="1" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.4" opacity="0.55"/>
-                  <rect x="9" y="11" width="20" height="14" rx="1" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.4" opacity="0.4"/>
-                </svg>
-              </div>
-            </aside>
+
+                <!-- 空状态占位: 借鉴 Lusion cross scroll prompt, 提示"还有 N 张可钉入" -->
+                <div
+                  v-if="chapters.length > 1 && slipItemsOnCanvas.length < chapters.length"
+                  class="multi-canvas__cross-prompt"
+                  aria-hidden="true"
+                >
+                  <span class="multi-canvas__cross"></span>
+                  <span class="multi-canvas__cross-meta">
+                    还有 {{ chapters.length - slipItemsOnCanvas.length }} 张可钉入画布
+                  </span>
+                </div>
+              </aside>
+
+              <!-- 底部 cross-prompt — 借鉴 Lusion end-bottom-arrow, 提示翻下页 -->
+              <footer
+                v-if="chapters.length > MAX_HINTED_SLIPS"
+                class="multi-canvas__bottom-cross"
+                @click="scrollCanvasToBottom"
+                aria-label="翻下页 / 加载更多"
+                role="button"
+                tabindex="0"
+                @keydown.enter="scrollCanvasToBottom"
+              >
+                <span class="multi-canvas__cross multi-canvas__cross--large"></span>
+                <span class="multi-canvas__cross-label">翻下页</span>
+              </footer>
+            </div>
           </template>
 
           <!-- 右键菜单 -->
@@ -534,18 +549,39 @@ const checkedAssetIds = ref([])
 const canvasImportRevision = ref(0)
 const collapsedAssetKinds = ref({})
 
-// UI-N6: Pinned material slips — 1-3 张素材钉在主卡旁边, 自由拖拽
-const MAX_PINNED_SLIPS = 3
+// UI-N10: Multi-card canvas — 取消 N6 的 MAX_PINNED_SLIPS=3 硬限,
+// 改为 Infinity (实际 9999), 默认所有素材 visible on canvas.
+// 借鉴 Lusion project-list "分层舞台/强空间占位" 思路:
+// 1) 主卡 active-card 居中大卡 (1fr 60%)
+// 2) slip 区 2-4 张相关素材围绕
+// 3) 画布结构始终填满 (空状态 7 类占位 + cross prompt)
+// 4) 不再需要 user 点"钉入"按钮 — 选素材就自动入画布
+// 保留 N6/N9 拖拽 + z-index + 持久化 (pinnedSlipPositions / NOTES_PINNED_SLIPS_KEY),
+// 不破坏 useCanvasBoard composable 签名.
+const MAX_PINNED_SLIPS = 9999 // was 3; N10 removes hard cap
+const MAX_HINTED_SLIPS = 6 // 多于此数才显示底部 cross 翻页提示
 const pinnedSlipIds = ref([])
 const pinnedSlipPositions = reactive({})
 const boardRef = ref(null)
 const NOTES_PINNED_SLIPS_KEY = 'pinax_notes_pinned_slips_v1'
 
 // 钉住素材的资产 (pinned = 用户主动钉, 跟 selectedChapterId 解耦)
+// UI-N10: 默认所有素材 visible on canvas — 当 pinnedSlipIds 为空时
+// 把 chapters 全部视为 on-canvas (避免大空白).
 const pinnedSlipAssets = computed(() => {
-  return pinnedSlipIds.value
+  // 空 pinned 列表 → 用 chapters 全部当作默认 on-canvas
+  const sourceIds = pinnedSlipIds.value.length > 0
+    ? pinnedSlipIds.value
+    : chapters.value.map((a) => a.id)
+  return sourceIds
     .map((id) => chapters.value.find((a) => a.id === id))
     .filter(Boolean)
+})
+
+// UI-N10: slipItemsOnCanvas = 在画布上 + 不为主卡 (selectedChapterId)
+// 用于 slip-stack v-for 和 cross-prompt "还有 N 张" 计数
+const slipItemsOnCanvas = computed(() => {
+  return pinnedSlipAssets.value.filter((a) => a.id !== selectedChapterId.value)
 })
 
 // useCanvasBoard 提供 6 个 drag/drop handler + layoutItems + styleFor
@@ -571,6 +607,13 @@ const {
 // 包装成 computed, 避免模板里 v-for="slip in layoutItems()" 每次渲染
 // 都调用函数返回新数组导致的无限循环
 const layoutItems = computed(() => layoutItemsFn())
+
+// UI-N10: slipStyleFor — 在 useCanvasBoard 的 styleFor 基础上偏移到
+// slip-stack 容器内 (主卡占 main 区, slip 围绕). 位置用绝对 + left/top
+// 表达自由拖拽 (来自 persisted positions); 默认 grid 来自 useCanvasBoard.
+function slipStyleFor(slip) {
+  return styleFor(slip)
+}
 
 const selectedText = ref('')
 const canUndo = ref(false)
@@ -756,6 +799,12 @@ function loadNotes(preferredChapterId = '') {
       return Number(b.createdAt || 0) - Number(a.createdAt || 0)
     })
 
+  // UI-N10: 默认所有素材 visible on canvas (避免 0 张时大空 void)
+  // 仅在 prefs 没保存过时默认全开; 否则尊重 user 选择
+  if (pinnedSlipIds.value.length === 0 && chapters.value.length > 0) {
+    pinnedSlipIds.value = chapters.value.map((a) => a.id)
+  }
+
   const nextChapterId = preferredChapterId && chapters.value.some((asset) => asset.id === preferredChapterId)
     ? preferredChapterId
     : chapters.value[0]?.id || null
@@ -888,24 +937,8 @@ function togglePinSlip(assetId) {
     unpinSlip(assetId)
     return
   }
-  // 满了: 弹最旧一张
-  let nextIds = pinnedSlipIds.value
-  if (nextIds.length >= MAX_PINNED_SLIPS) {
-    const oldest = nextIds[0]
-    nextIds = nextIds.filter((id) => id !== oldest)
-    delete pinnedSlipPositions[oldest]
-  }
-  nextIds = [...nextIds, assetId]
-  // 首次钉: 给一个默认右上错位位置, 避免重叠
-  if (!pinnedSlipPositions[assetId]) {
-    const idx = nextIds.length - 1
-    const defaults = [
-      { x: 32, y: 32 },
-      { x: 32, y: 200 },
-      { x: 280, y: 32 }
-    ]
-    pinnedSlipPositions[assetId] = defaults[idx] || defaults[0]
-  }
+  // UI-N10: 无 MAX cap — 加新张到列表尾部, 默认位置由 useCanvasBoard 网格决定
+  const nextIds = [...pinnedSlipIds.value, assetId]
   pinnedSlipIds.value = nextIds
   saveNotesPinnedSlipsPref()
 }
@@ -923,16 +956,36 @@ function onSlipClick(slip) {
   selectChapter(slip.id)
 }
 
-// UI-N9: 批量钉入副阅读台 — 勾选区已选素材(可多个)按钉入顺序追加,
-// 满了弹最旧; 满了的额外项目静默丢弃 (用户先勾先得).
+// UI-N10: 批量钉入 — 移除 MAX cap, 所有勾选都钉入画布
 function importCheckedToPinboard() {
   const targets = getCheckedAssets().filter((asset) => !isPinned(asset.id))
   if (targets.length === 0) return
   for (const asset of targets) {
-    if (pinnedSlipIds.value.length >= MAX_PINNED_SLIPS) break
     togglePinSlip(asset.id)
   }
   checkedAssetIds.value = []
+}
+
+// UI-N10: 状态色 (Lusion data-color-bg 三件套的简化版 — 用 archive token)
+function getStatusColor(status) {
+  switch (status) {
+    case 'accepted':
+      return 'var(--archive-olive)'
+    case 'archived':
+      return 'var(--archive-ink-soft)'
+    case 'rejected':
+      return 'var(--archive-rose)'
+    case 'inbox':
+    default:
+      return 'var(--archive-gold)'
+  }
+}
+
+// UI-N10: 翻下页 — 滚动画布到底部 (Lusion end-bottom-arrow 语义)
+function scrollCanvasToBottom() {
+  const board = boardRef?.value
+  if (!board) return
+  board.scrollTo({ top: board.scrollHeight, behavior: 'smooth' })
 }
 
 function loadNotesPinnedSlipsPref() {

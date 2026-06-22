@@ -43,6 +43,11 @@
               </div>
             </div>
           </section>
+          <!-- UI-E10-CLEAN: .scene-stage__indicator sticky indicator deleted
+               2026-06-22 — was v-if gated on sceneIndicatorVisible (total > 0),
+               so the orientation the user needed in 0-message empty state
+               was missing. UI-E11 (workstation) replaces with an always-on
+               topstrip. -->
           <GamePanel @show-inline-detail="handleInlineDetail" />
           <InputArea @send="handleSend" />
         </div>
@@ -327,6 +332,11 @@ const showExperienceWorkChrome = computed(() => hasUserActionMessages.value)
 const hasUserActionMessages = computed(() => {
   return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
 })
+
+// UI-E10: sticky scene-stage indicator data — counts messages and derives
+// UI-E10-CLEAN: sceneStageIndicator + sceneIndicatorVisible computeds deleted
+// 2026-06-22 — sticky indicator above the ledger is gone (template + CSS);
+// UI-E11 (workstation) replaces with an always-on topstrip section anchor.
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
@@ -903,6 +913,10 @@ function quickNoteWordCount(text) {
 /* 5C v3.5: page-level pseudo-element overlays (diagonal accent + vertical
    hatch) are intentionally removed. The CharacterBackdrop is the page
    background; the page-level gradient stack that muted the art is gone. */
+
+/* UI-E10-CLEAN: .scene-stage__indicator scoped rules deleted 2026-06-22
+   (legacy fallback for the indicator above the ledger). Indicator template
+   + computed + kao.css override all removed in this commit. */
 
 .game-layout {
   position: relative;
