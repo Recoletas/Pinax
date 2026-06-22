@@ -2347,3 +2347,171 @@ describe('ui polish — UI-W9 Writing top thin functional bar (demote cork to 64
     expect(writing).toContain('wordCount.toLocaleString()')
   })
 })
+
+/* =========================================================================
+   UI-W10: Writing 编辑灯 / desk lamp 记忆点 + 三层墙面景深
+   (结构级变化, 不是阴影微调 — 灯 SVG + 光锥 radial gradient 重建写作页景深)
+   ========================================================================= */
+describe('UI-W10: Writing desk lamp memory point + 3-layer wall depth', () => {
+  describe('lamp SVG 存在 (structural)', () => {
+    it('UI-W10-S1: Writing.vue 在 wall__lamp + SVG 灯组 (DOM 在 cork 之后)', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      // 灯 DOM 位置: wall__cork 后面出现, wall__main 前面出现
+      // (避免 cork stacking context 遮盖灯)
+      const corkEnd = writing.indexOf('wall__cork')
+      const lampStart = writing.indexOf('wall__lamp"')
+      const mainStart = writing.indexOf('wall__main')
+      expect(corkEnd).toBeGreaterThan(-1)
+      expect(lampStart).toBeGreaterThan(corkEnd)
+      expect(mainStart).toBeGreaterThan(lampStart)
+      // SVG 灯组存在
+      expect(writing).toContain('class="wall__lamp-svg"')
+      expect(writing).toContain('viewBox="0 0 180 180"')
+    })
+
+    it('UI-W10-S2: SVG 包含灯臂 + 灯罩 + 灯泡辉光 4 件套 (180×180 viewBox)', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      // 灯臂 (line stroke — 2 段摇臂)
+      expect(writing).toMatch(/<line[^>]*x1="148"[^>]*y1="2"[^>]*x2="108"[^>]*y2="68"/)
+      expect(writing).toMatch(/<line[^>]*x1="108"[^>]*y1="68"[^>]*x2="88"[^>]*y2="92"/)
+      // 灯罩 (path 截锥)
+      expect(writing).toMatch(/<path d="M68 90 L108 90 L120 140 L56 140 Z"/)
+      // 灯泡辉光 (ellipse — 灯罩底缘暖色)
+      expect(writing).toMatch(/<ellipse[^>]*cx="88"[^>]*cy="143"[^>]*rx="34"[^>]*ry="7"/)
+    })
+
+    it('UI-W10-S3: wall__lamp-cone 暖色光锥存在 (非装饰必有)', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      expect(writing).toContain('class="wall__lamp-cone"')
+      expect(writing).toContain('aria-hidden="true"')
+    })
+  })
+
+  describe('lamp CSS 存在 (kao.css)', () => {
+    it('UI-W10-C1: kao.css 暴露 .theme-kao .wall__lamp 容器 (180×180, 右上角)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const lampRule = css.match(/\.theme-kao\s+\.wall__lamp\s*\{[^}]*\}/)
+      expect(lampRule).not.toBeNull()
+      const body = lampRule[0]
+      expect(body).toMatch(/position:\s*absolute/)
+      expect(body).toMatch(/right:\s*64px/)
+      expect(body).toMatch(/width:\s*180px/)
+      expect(body).toMatch(/height:\s*180px/)
+      expect(body).toMatch(/z-index:\s*5/)
+      // 灯本体投影 (filter drop-shadow) — 让灯有重量感
+      expect(body).toMatch(/filter:\s*drop-shadow/)
+    })
+
+    it('UI-W10-C2: .theme-kao .wall__lamp-cone 是暖色径向光 (radial-gradient + archive-gold)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const rule = css.match(/\.theme-kao\s+\.wall__lamp-cone\s*\{[^}]*\}/)
+      expect(rule).not.toBeNull()
+      const body = rule[0]
+      expect(body).toMatch(/radial-gradient/)
+      expect(body).toMatch(/var\(--archive-gold\)/)
+      // pointer-events: none (不阻挡编辑)
+      expect(body).toMatch(/pointer-events:\s*none/)
+      // z-index 在 cork 之上, dossier 之下
+      expect(body).toMatch(/z-index:\s*2/)
+      // mix-blend-mode multiply 让光锥叠加而非覆盖
+      expect(body).toMatch(/mix-blend-mode:\s*multiply/)
+    })
+
+    it('UI-W10-C3: lamp CSS 0 raw hex (全 token via color-mix)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      // 提取所有 wall__lamp / wall__lamp-cone / wall__lamp-svg rule body
+      const matches = [
+        ...css.matchAll(/\.theme-kao\s+\.wall__lamp(?:-(?:svg|cone))?\s*\{[^}]*\}/g),
+      ]
+      for (const m of matches) {
+        expect(m[0]).not.toMatch(/#[0-9a-fA-F]{3,6}\b/)
+      }
+    })
+  })
+
+  describe('3-layer 景深 (cork + molding 退后, dossier 前景)', () => {
+    it('UI-W10-D1: .wall__cork 在 lamp cone 之下 (z-index < 2)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const corkRule = css.match(/\.theme-kao\s+\.wall__cork\s*\{[^}]*\}/)
+      expect(corkRule).not.toBeNull()
+      // cork 仍是 z-index: 1 (中景)
+      expect(corkRule[0]).toMatch(/z-index:\s*1/)
+    })
+
+    it('UI-W10-D2: .wall__molding 仍是 z-index: 1 (背景), 不被 lamp 抢占', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const moldingRule = css.match(/\.theme-kao\s+\.wall__molding\s*\{[^}]*\}/)
+      expect(moldingRule).not.toBeNull()
+      expect(moldingRule[0]).toMatch(/z-index:\s*1/)
+    })
+
+    it('UI-W10-D3: .wall__lamp z-index 高于 cork (前景 lamp, 中景 cork)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const lampRule = css.match(/\.theme-kao\s+\.wall__lamp\s*\{[^}]*\}/)
+      expect(lampRule).not.toBeNull()
+      expect(lampRule[0]).toMatch(/z-index:\s*5/)
+    })
+  })
+
+  describe('冗余顶部不回归 (UI-W9 baseline preserved)', () => {
+    it('UI-W10-R1: Writing.vue 仍无 PROJECT · PINAX / h1 wall__project-title / wall__pin-num / 76x76 wall__stamp', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      expect(writing).not.toMatch(/wall__project-mark/)
+      expect(writing).not.toMatch(/wall__project-title/)
+      expect(writing).not.toMatch(/wall__project-meta/)
+      expect(writing).not.toMatch(/wall__pin-num/)
+      expect(writing).not.toMatch(/wall__ribbon/)
+      expect(writing).not.toMatch(/wall__stamp/)
+    })
+
+    it('UI-W10-R2: kao.css 仍无 .wall__project* / .wall__pin-num / .wall__stamp / .wall__ribbon 旧规则', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__project-mark/)
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__project-title/)
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__project-meta/)
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__pin-num/)
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__stamp\b/)
+      expect(css).not.toMatch(/\.theme-kao\s+\.wall__ribbon/)
+    })
+
+    it('UI-W10-R3: cork 高度仍是 64-80px 单行 (W9 顶栏降级 baseline)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      const corkRule = css.match(/\.theme-kao\s+\.wall__cork\s*\{[^}]*\}/)
+      expect(corkRule).not.toBeNull()
+      expect(corkRule[0]).toMatch(/min-height:\s*64px/)
+      expect(corkRule[0]).toMatch(/max-height:\s*80px/)
+    })
+  })
+
+  describe('硬约束 (UI-W10 forbidden patterns)', () => {
+    it('UI-W10-H1: 0 new :global(.theme-kao), 0 new broad :deep(*) in Writing.vue / kao.css', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      const css = readProjectFile('src/styles/themes/kao.css')
+      expect(writing).not.toContain(':global(.theme-kao)')
+      expect(css).not.toMatch(/scoped.*:global\(/)
+      expect(writing).not.toMatch(/:deep\(\s*\)/)
+    })
+
+    it('UI-W10-H1b: kao.css lamp rules 0 !important (W10 新增干净)', () => {
+      const css = readProjectFile('src/styles/themes/kao.css')
+      // 仅检查 W10 新增的 lamp 相关 rule 内不含 !important
+      const lampRules = [
+        ...css.matchAll(/\.theme-kao\s+\.wall__lamp(?:-(?:svg|cone))?\s*\{[^}]*\}/g),
+      ]
+      expect(lampRules.length).toBeGreaterThanOrEqual(2)
+      for (const m of lampRules) {
+        expect(m[0]).not.toMatch(/!important/)
+      }
+    })
+
+    it('UI-W10-H2: 0 fake 人物剪影 (lamp SVG 不应是"人形")', () => {
+      const writing = readProjectFile('src/pages/Writing.vue')
+      // lamp SVG 只含 line / path / ellipse / circle / rect — 没有 figure / person / silhouette
+      const lampSection = writing.match(/<div class="wall__lamp"[\s\S]*?<\/div>\s*<\/div>/)
+      expect(lampSection).not.toBeNull()
+      const svgInner = lampSection[0]
+      expect(svgInner).not.toMatch(/person|silhouette|character-portrait|figure/i)
+      expect(svgInner).not.toMatch(/<\s*image[^>]+xlink/)
+    })
+  })
+})

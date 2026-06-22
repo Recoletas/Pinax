@@ -58,6 +58,54 @@
       </div>
     </div>
 
+    <!-- UI-W10: 编辑灯 / desk lamp — 编辑室记忆点.
+         lamp 放在 cork 之后、main 之前, 确保 z-index 在 cork 之上不被遮.
+         lamp + lamp-cone 都放在 writing-page 顶层, position: absolute
+         以 writing-page 为定位上下文. -->
+    <div class="wall__lamp" aria-hidden="true">
+      <svg class="wall__lamp-svg" width="180" height="180" viewBox="0 0 180 180" fill="none">
+        <!-- 金属摇臂: 2 段, 从 molding (右上) 接到灯头. 倾斜 60° 角. -->
+        <line x1="148" y1="2" x2="108" y2="68" stroke="var(--archive-ink-soft)"
+              stroke-width="3" stroke-linecap="round"/>
+        <line x1="108" y1="68" x2="88" y2="92" stroke="var(--archive-ink-soft)"
+              stroke-width="3" stroke-linecap="round"/>
+        <!-- 灯罩 (截锥): 顶部 36px 宽, 底部 76px 宽, 高 50px. 暖色亮边 -->
+        <path d="M68 90 L108 90 L120 140 L56 140 Z"
+              fill="var(--archive-ink)"
+              stroke="var(--archive-gold)"
+              stroke-width="2.5" stroke-linejoin="round"/>
+        <!-- 灯罩装饰条纹 (类似金属百叶) -->
+        <line x1="64" y1="106" x2="112" y2="106" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
+        <line x1="62" y1="118" x2="114" y2="118" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
+        <line x1="60" y1="130" x2="116" y2="130" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
+        <!-- 灯罩高光 (顶反射弧) -->
+        <path d="M70 92 L106 92" stroke="var(--archive-paper-soft)"
+              stroke-width="1.5" opacity="0.7"/>
+        <!-- 灯泡辉光 (灯罩底缘强暖色) — 这是"开灯"的关键视觉. -->
+        <ellipse cx="88" cy="143" rx="34" ry="7"
+                 fill="var(--archive-gold)" opacity="0.85"/>
+        <ellipse cx="88" cy="143" rx="26" ry="4.5"
+                 fill="var(--archive-paper-soft)" opacity="0.95"/>
+        <!-- 灯罩顶部金属环 (装饰细节) -->
+        <rect x="80" y="80" width="16" height="6"
+              fill="var(--archive-ink-soft)"/>
+        <rect x="80" y="80" width="16" height="2"
+              fill="var(--archive-gold)" opacity="0.7"/>
+        <!-- 摇臂关节 -->
+        <circle cx="108" cy="68" r="4.5"
+                fill="var(--archive-ink-soft)"/>
+        <circle cx="108" cy="68" r="2"
+                fill="var(--archive-gold)" opacity="0.7"/>
+        <!-- 灯头底部悬挂线 (从灯罩接到灯泡) -->
+        <line x1="88" y1="90" x2="88" y2="142" stroke="var(--archive-ink-soft)" stroke-width="0.8" opacity="0.4"/>
+      </svg>
+    </div>
+
+    <!-- UI-W10: 编辑灯光锥 — 从灯罩位置发出的暖色径向光, 照亮中央 dossier.
+         pointer-events: none 不阻挡编辑. mix-blend-mode: multiply
+         叠加在 cork + dossier 上方. 暗态自动通过 kao token 翻转. -->
+    <div class="wall__lamp-cone" aria-hidden="true"></div>
+
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 + 220px 墙钉角色档案卡 -->
     <main class="wall__main">
       <!-- 左：5 层书架 + 章节档案夹 + 底部卷轴 -->
