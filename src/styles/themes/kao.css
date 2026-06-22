@@ -154,6 +154,7 @@
      All rules gated by .theme-kao; legacy variant is untouched.
      References --archive-* tokens defined above + --hairline-* from main.css. */
   .theme-kao .writing-page {
+    position: relative;
     color: var(--archive-ink);
     background: var(--archive-paper-soft);
   }
@@ -652,6 +653,63 @@
       color-mix(in srgb, var(--archive-ink) 36%, transparent),
       transparent);
     pointer-events: none;
+  }
+
+  /* UI-W10: 编辑灯 / desk lamp — 编辑室资料墙的"工作灯"记忆点.
+     灯头从 molding 右上角悬挂, 摇臂 + 截锥灯罩 + 灯泡辉光. 与
+     wall__lamp-cone (下方光锥 radial gradient) 配对组成景深叙事:
+     背景 molding 暗 / 中景 cork 棕 / 前景 dossier 被工作灯照亮.
+
+     位置: writing-page 是 relative 定位上下文 (writing-page 内层 flex
+     都是 relative), lamp 用 right + top 锚定到右上角 0,0. lamp DOM
+     位置在 cork 之后, 所以 z-index 在 cork 之上 (后者 stacking context
+     创建了"挡板"效果, 必须靠 DOM 顺序 + z-index 才能跳出). */
+  .theme-kao .wall__lamp {
+    position: absolute;
+    top: -12px;
+    right: 64px;
+    width: 180px;
+    height: 180px;
+    z-index: 5;
+    pointer-events: none;
+    filter: drop-shadow(3px 5px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent));
+  }
+  .theme-kao .wall__lamp-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* UI-W10: 编辑灯光锥 — 从灯罩位置发出的暖色径向光, 照亮中央 dossier.
+     pointer-events: none 不阻挡编辑交互. 与 lamp 同源, 暗态自动
+     通过 kao token 翻转 (var(--archive-gold) 自动跟随 theme). */
+  .theme-kao .wall__lamp-cone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 2;
+    /* 光锥中心 ≈ lamp 灯罩位置 (right ~120px from edge, top ~80px)
+       向下扩散, 椭圆覆盖中央 dossier 区, 边缘透明.
+       第二层是边缘暗角 (远离灯的区域自然变暗) — 强化景深. */
+    background:
+      radial-gradient(
+        ellipse 720px 620px at 73% 6%,
+        color-mix(in srgb, var(--archive-gold) 22%, transparent) 0%,
+        color-mix(in srgb, var(--archive-gold) 14%, transparent) 22%,
+        color-mix(in srgb, var(--archive-gold) 8%, transparent) 44%,
+        color-mix(in srgb, var(--archive-gold) 4%, transparent) 65%,
+        transparent 88%
+      ),
+      radial-gradient(
+        ellipse at 50% 50%,
+        transparent 35%,
+        color-mix(in srgb, var(--archive-ink) 7%, transparent) 70%,
+        color-mix(in srgb, var(--archive-ink) 12%, transparent) 100%
+      );
+    mix-blend-mode: multiply;
   }
 
   /* UI-W9: Writing top thin functional bar — single-row flex 64-80px.
