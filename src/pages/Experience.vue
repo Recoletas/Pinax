@@ -22,6 +22,16 @@
       </aside>
       <main v-if="!showSessionPicker" class="ws-center-stage" aria-label="记录流">
         <section class="ws-topstrip" aria-label="案卷进度条">
+          <!-- UI-E12-W2: page title — small kicker at the top-left of
+               the workstation, ties the menu drawer caption ("体验")
+               to the page itself so the menu → page handoff has
+               visual continuity. Same grid row as the 5 metadata
+               cells; kaocss pagetitle column has 1px gold rule on
+               the right to separate it from the cells. -->
+          <div class="ws-topstrip__pagetitle">
+            <span class="ws-topstrip__pagetitle-kicker">体验</span>
+            <span class="ws-topstrip__pagetitle-name">Experience</span>
+          </div>
           <div class="ws-topstrip__cell">
             <span class="ws-topstrip__kicker">卷</span>
             <span class="ws-topstrip__value">{{ meta.currentVolume }}</span>
@@ -36,11 +46,18 @@
           </div>
           <div class="ws-topstrip__cell">
             <span class="ws-topstrip__kicker">第 N 条</span>
-            <span class="ws-topstrip__value">{{ meta.currentSection }}</span>
+            <!-- UI-E12-FIX1: honest placeholder when 0-state.
+                 useWorkstationMeta exposes the real count (0 when
+                 empty); this template gates the value on meta.isEmpty
+                 so the topstrip never shows fake "1/1" / "1/0"
+                 counts. The W1 Math.max(1, …) padding that produced
+                 "1/1" was reverted; this is the contract for "no fake
+                 1/1 in 0-state". -->
+            <span class="ws-topstrip__value">{{ meta.isEmpty ? '—' : meta.currentSection }}</span>
           </div>
           <div class="ws-topstrip__cell">
             <span class="ws-topstrip__kicker">共 M 条</span>
-            <span class="ws-topstrip__value">{{ meta.totalCount }}</span>
+            <span class="ws-topstrip__value">{{ meta.isEmpty ? '—' : meta.totalCount }}</span>
           </div>
           <div class="ws-topstrip__progress" aria-label="5-section 进度">
             <span
@@ -64,6 +81,16 @@
         <InputArea @send="handleSend" />
       </main>
       <aside v-if="!showSessionPicker" class="ws-right-rail" aria-label="右栏档案">
+        <!-- UI-E12-W1: dossier tab strip — the 3 ws-section below share
+             this single tab strip at the top so the right rail reads
+             as ONE dossier binder with 3 sections, not 3 unrelated
+             cards. Labels are visual-only (no click handler in W1; E13
+             can add tab switching). -->
+        <header class="ws-right-rail__tab-strip" aria-label="卷宗导航">
+          <span class="ws-right-rail__tab is-active" data-tab="卷宗一">卷宗一</span>
+          <span class="ws-right-rail__tab" data-tab="卷宗二">卷宗二</span>
+          <span class="ws-right-rail__tab" data-tab="卷宗三">卷宗三</span>
+        </header>
         <div class="ws-section" data-dossier-stamp="卷宗一 · 在场人物">
           <StatusBar />
         </div>
@@ -356,14 +383,32 @@ const isStarting = ref(false)
 //   (currentVolume / caseNo / currentTask / currentSection / totalCount).
 //   No store mutation — useWorkstationMeta reads gameStore fields only.
 
-// UI-E11-A: PLAN-QA Fix #2 — handle quick-action CTA emits from GamePanel
-// 0-state hero (续写 / 速记 / 切场景). v0 wires only 'note' to the existing
-// quickNoteOpen flow (per the QA fix recommendation). 'continue' and 'scene'
-// are v0 no-ops; future slices (out of scope for E11-A) will wire them to
-// gameStore action / scene-summary flows without re-editing GamePanel.vue.
+// UI-E11-A + UI-E12-W1: handle quick-action CTA emits from GamePanel
+// 0-state hero (续写 / 速记 / 切场景). v0 wired only 'note' to the
+// existing quickNoteOpen flow (per E11-A PLAN-QA Fix #2). UI-E12-W1
+// now wires 'continue' (focus the workstation input) and 'scene'
+// (scroll chat to top so the user can review earlier scene context)
+// so all 3 CTA from the 0-state hero are functional. Uses DOM
+// querySelector on .input (InputArea.vue L163) and .chat-container
+// (GamePanel.vue L2) — no store mutation, no router change.
 function handleQuickAction(action) {
   if (action === 'note') {
     quickNoteOpen.value = true
+    return
+  }
+  if (action === 'continue') {
+    const input = document.querySelector('.ws-center-stage .input')
+    if (input && typeof input.focus === 'function') {
+      input.focus()
+    }
+    return
+  }
+  if (action === 'scene') {
+    const chat = document.querySelector('.ws-center-stage .chat-container')
+    if (chat && typeof chat.scrollTo === 'function') {
+      chat.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    return
   }
 }
 
@@ -1050,6 +1095,11 @@ function quickNoteWordCount(text) {
   font-weight: 600;
 }
 
+/* UI-E12-F: quick-note input bumped 13 → 14px / 1.65 → 1.7 for
+   readable product feel. Scoped CSS is the source of truth for
+   the quick-note workspace (separate from workstation center
+   stage); kept out of kao.css because the workspace is a modal,
+   not a page column. */
 .quick-note-workspace-input {
   flex: 1;
   min-height: 240px;
@@ -1059,8 +1109,8 @@ function quickNoteWordCount(text) {
   background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
   color: var(--text-primary);
   padding: 12px;
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.7;
   outline: none;
 }
 
@@ -1118,8 +1168,11 @@ function quickNoteWordCount(text) {
 }
 
 .quick-note-message-preview {
-  font-size: 12px;
-  line-height: 1.45;
+  /* UI-E12-F: bumped 12 → 13px / 1.45 → 1.55 so the dialogue
+     preview row in the quick-note workspace reads as a usable
+     product preview, not as a faint label. */
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--text-secondary);
 }
 

@@ -46,6 +46,18 @@ export function useWorkstationMeta() {
     return '未登记'
   })
 
+  // UI-E12-FIX1: currentSection is the index of the latest message
+  // (= totalCount in this append-only chat, since there's no
+  // "scrolling back to old messages" — the chat always shows the
+  // newest entry). FIX1 reverted the previous W1 Math.max(1, …)
+  // padding (which made 0-state show a misleading "第 1 条" with no
+  // actual message at index 1) back to bare `return totalCount`,
+  // so the composable exposes the real count (0 when empty). The
+  // Experience.vue topstrip template now uses `meta.isEmpty` to
+  // gate the value display, showing honest "—" placeholders when
+  // isEmpty instead of fake "1/1" counts. The comment matches the
+  // code (was previously inconsistent: comment said "= totalCount"
+  // but code did `Math.max(1, totalCount)`).
   const currentSection = computed(() => {
     return totalCount.value
   })

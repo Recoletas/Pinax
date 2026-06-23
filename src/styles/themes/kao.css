@@ -2401,6 +2401,12 @@
      the new flex column container and InputArea (`.input-area`) sticks
      to the bottom instead of being pushed out of the viewport. */
 
+  /* UI-E12-W2: ws-topstrip page-title continuity (inside @layer kao).
+     The hamburger z-index bump is OUTSIDE the @layer wrap (see end
+     of file) because unlayered rules win over @layer rules at the
+     same importance. ws-topstrip padding-left 80px + pagetitle
+     rules are safe inside @layer (no AppShell.vue competing rule). */
+
   .theme-kao .ws-layout {
     position: relative;
     z-index: 1;
@@ -2408,7 +2414,15 @@
     display: grid;
     grid-template-columns: 260px 1fr 300px;
     gap: 14px;
-    padding: 14px 16px 16px;
+    /* UI-E12-FIX1: padding-left 64px so the left rail kicker text
+       (which starts at rail-padding 14 + ws-layout-padding 16 = 30px
+       from viewport left at 1280) is not covered by the fixed
+       46px-wide hamburger (z-index 260, top:16 left:16, ends at
+       62px from viewport left). 64px is the safe gap; matches the
+       hamburger width + 18px breathing room. ws-topstrip already
+       had padding-left 80px (W2) so it was safe; this brings the
+       rest of the workstation into the same clearance. */
+    padding: 14px 16px 16px 64px;
     max-width: 1420px;
     margin: 0 auto;
     width: 100%;
@@ -2427,6 +2441,12 @@
     .theme-kao .ws-layout {
       grid-template-columns: 1fr;
       gap: 10px;
+      /* UI-E12-FIX1: mobile hamburger is 46px wide at top:12 left:12,
+         ends at 58px. Drop ws-layout padding-left to 12px so the
+         workstation doesn't waste a 60px+ column on the left. The
+         ws-topstrip mobile rule (above) already handles its own
+         56px left padding to clear the hamburger. */
+      padding: 14px 12px 16px;
     }
   }
 
@@ -2434,23 +2454,107 @@
     position: sticky;
     top: 0;
     z-index: var(--z-floating-dock, 240);
-    height: 80px;
+    min-height: 80px;
     display: grid;
-    grid-template-columns: repeat(5, 1fr) auto;
+    /* UI-E12-W2: prepend auto-width pagetitle column so the page
+       title sits at the top-left and the 5 metadata cells share the
+       rest. padding-left 80px clears the fixed hamburger (top:16
+       left:16 width:46 + safe gap), mirroring Writing's
+       .wall__cork { padding-left: 80px } (kao.css L1510-1512). */
+    grid-template-columns: auto repeat(5, 1fr) auto;
     gap: 14px;
     align-items: center;
-    padding: 10px 16px;
+    padding: 10px 16px 10px 80px;
     background: var(--archive-paper);
     border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
     box-shadow: 0 6px 18px color-mix(in srgb, var(--archive-ink) 8%, transparent);
     font-family: var(--font-sans);
   }
 
+  /* UI-E12-W2: page title — small kicker at the top-left of the
+     workstation, ties the menu drawer caption ("体验") to the
+     page itself so the menu → page handoff has visual continuity.
+     Stacked kicker (体验, sans 9px) + name (EXPERIENCE, sans
+     10px letter-spacing 0.18em) reads as one signature mark. */
+  .theme-kao .ws-topstrip__pagetitle {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding-right: 14px;
+    margin-right: 6px;
+    border-right: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+    min-width: 0;
+  }
+  .theme-kao .ws-topstrip__pagetitle-kicker {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--archive-ink);
+    line-height: 1.1;
+  }
+  .theme-kao .ws-topstrip__pagetitle-name {
+    font-family: var(--font-sans);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    text-transform: uppercase;
+    line-height: 1;
+  }
+
   @media (max-width: 980px) {
+    /* UI-E12-FIX2: 640 mobile — switch the workstation from a
+       3-column grid to a SIMPLE VERTICAL STACK so 5 cells + progress
+       + anchor never wrap unpredictably. No more dense / complex
+       grid; just `display: flex; flex-direction: column; gap: 6px;`
+       and each topstrip child takes its own row. Same for the
+       left-rail narrator — show as a compact 1-line bar above
+       topstrip instead of a horizontal scroll row that collides
+       with the topstrip below. 6 vertical sections at 640:
+         1. left-rail (compact 1-line bar)
+         2. topstrip (pagetitle / 5 cells stacked / progress / anchor)
+         3. center stage (chat-container)
+         4. input area
+         5. right-rail (sections)
+       Order locked by ws-layout grid-template-rows: 1fr repeat(5, auto);
+       so each section gets its own row at mobile, no overlap. */
     .theme-kao .ws-topstrip {
+      min-height: 0;
       height: auto;
-      grid-template-columns: repeat(3, 1fr);
-      grid-auto-rows: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .theme-kao .ws-topstrip__pagetitle {
+      border-right: none;
+      border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
+      padding: 0 0 6px;
+      margin: 0 0 2px;
+      width: 100%;
+    }
+    .theme-kao .ws-topstrip__cell {
+      width: 100%;
+      border-right: none;
+      border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 14%, transparent);
+    }
+    .theme-kao .ws-topstrip__cell:last-of-type {
+      border-bottom: none;
+    }
+    .theme-kao .ws-topstrip__progress {
+      width: 100%;
+    }
+    .theme-kao .ws-topstrip__anchor {
+      margin: 4px 0 0;
+    }
+    /* Disable W2 stagger animation at mobile (the simple flex column
+       doesn't need the cascade). */
+    .theme-kao .ws-topstrip__cell:nth-child(2),
+    .theme-kao .ws-topstrip__cell:nth-child(3),
+    .theme-kao .ws-topstrip__cell:nth-child(4),
+    .theme-kao .ws-topstrip__cell:nth-child(5) {
+      animation: none;
     }
   }
 
@@ -2465,10 +2569,23 @@
   }
 
   @media (max-width: 980px) {
+    /* UI-E12-FIX2: at 640 mobile, the left rail narrator becomes a
+       compact 1-line bar (kicker only, brief hidden). Avoids the
+       portrait + brief pushing the topstrip down on phones. The
+       kicker still tells the user "this is the experience
+       workstation" without taking vertical space. */
     .theme-kao .ws-left-rail {
+      display: flex;
       flex-direction: row;
-      overflow-x: auto;
-      overflow-y: hidden;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      min-height: 36px;
+      overflow: hidden;
+    }
+    /* Hide the brief paragraph at mobile so the rail is 1-line. */
+    .theme-kao .ws-left-rail__brief {
+      display: none;
     }
   }
 
@@ -2479,18 +2596,37 @@
     min-height: 0;
     background: var(--archive-paper);
     border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+    /* UI-E12-W1: page-edge treatment so the center record surface reads
+       as a bound ledger page rather than a flat fill-in form. The
+       3px gold left spine acts as the binding edge; the 1px inset
+       gold hairline acts as the page-edge top rule. Both colors come
+       from --archive-gold via color-mix, no raw hex. */
+    border-left: 3px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
     overflow: hidden;
   }
 
   /* PLAN-QA Fix #4: ws-center-stage children — GamePanel's .chat-container
      was height: 100% under E10, but inside a flex column that pushes
      InputArea (the next sibling) off-screen. Override so the chat scrolls
-     within available space and InputArea sticks to the bottom. */
+     within available space and InputArea sticks to the bottom.
+     UI-E12-W1: add repeating-linear-gradient ruled-paper lines (32px
+     row height, archive-ink 4% hairline). background-attachment:
+     local keeps the lines fixed to the scroll position so the ruler
+     appears to scroll with content — gives the empty state a real
+     "workbench ruled paper" surface and gives the filled state a
+     subtle baseline rhythm without adding weight. */
   .theme-kao .ws-center-stage > .chat-container {
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
     overflow-y: auto;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0 31px,
+      color-mix(in srgb, var(--archive-ink) 4%, transparent) 31px 32px
+    );
+    background-attachment: local;
   }
 
   .theme-kao .ws-center-stage > .input-area,
@@ -2507,7 +2643,51 @@
     gap: 0;
     background: var(--archive-paper);
     border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    /* UI-E12-W1: dossier metaphor — 3px gold left spine acts as the
+       binder edge so the right rail reads as ONE dossier binder, not
+       3 unrelated cards. Same approach as ws-center-stage's left spine
+       (kao.css L2568-2570). No raw hex, color-mix only. */
+    border-left: 3px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
     overflow-y: auto;
+  }
+
+  /* UI-E12-W1: dossier tab strip — small kicker row at the top of the
+     right rail that names the 3 卷宗 sections so the eye reads "1 binder
+     with 3 tabs" instead of "3 stacked cards". DISPLAY LXGW at 10px for
+     a brush signature on the active tab; sans 9px for inactive tabs.
+     The .is-active tab carries a 2px gold underline as the "current
+     binder section" mark. Visual-only in W1 (no click handler); E13
+     can wire tab switching if needed. */
+  .theme-kao .ws-right-rail__tab-strip {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  }
+  .theme-kao .ws-right-rail__tab {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 8px 6px 7px;
+    font-family: var(--font-sans);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+    border-right: 1px dotted color-mix(in srgb, var(--archive-gold) 18%, transparent);
+    border-bottom: 2px solid transparent;
+    cursor: default;
+  }
+  .theme-kao .ws-right-rail__tab:last-child {
+    border-right: none;
+  }
+  .theme-kao .ws-right-rail__tab.is-active {
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--archive-ink);
+    border-bottom-color: var(--archive-gold);
+    background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
   }
 
   @media (max-width: 980px) {
@@ -2534,39 +2714,46 @@
     border-right: none;
   }
 
+  /* UI-E12-F: small topstrip value / case switched from --font-display
+     (LXGW brush) to --font-body (Songti serif). The brush face is too
+     dense at 14px to read as data values; the italic + gold color still
+     marks the case position as a kicker without forcing brush at small
+     size. Kickers below the labels remain sans at 10px (META), per
+     E12-F contract #1. */
   .theme-kao .ws-topstrip__kicker {
     font-family: var(--font-sans);
-    font-size: 9px;
-    font-weight: 400;
-    letter-spacing: 0.18em;
-    color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
     text-transform: uppercase;
   }
 
   .theme-kao .ws-topstrip__value {
-    font-family: var(--font-display);
-    font-size: 14px;
+    font-family: var(--font-body);
+    font-size: 15px;
     font-weight: 500;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     color: var(--archive-ink);
     font-variant-numeric: tabular-nums;
+    line-height: 1.25;
   }
 
   .theme-kao .ws-topstrip__case {
-    font-family: var(--font-display);
-    font-size: 14px;
+    font-family: var(--font-body);
+    font-size: 15px;
     font-weight: 500;
-    letter-spacing: 0.04em;
-    color: var(--archive-ink);
+    letter-spacing: 0.03em;
+    color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive));
     font-style: italic;
+    line-height: 1.25;
   }
 
-  .theme-kao .ws-topstrip__meta {
-    font-family: var(--font-sans);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
-  }
+  /* UI-E12-W1: .ws-topstrip__meta removed — no template match in
+     Experience.vue (topstrip uses __kicker / __value / __case /
+     __progress / __anchor; no __meta element). Was dead CSS
+     consuming 6 lines + falsely implying a meta label slot that
+     the workstation never ships. */
 
   /* 5-cell progress bar — one cell per section axis:
      开卷 / 当前 / 在场 / 发生 / 落笔. Filled cells represent the
@@ -2614,9 +2801,13 @@
      the right rail reads as one continuous record binder. */
   .theme-kao .ws-section {
     position: relative;
-    padding: 14px 14px 16px;
+    padding: 16px 14px 18px;
     background: transparent;
-    border-top: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    /* UI-E12-W1: per-section divider becomes dashed — paired with the
+       top tab strip + shared left spine (kao.css L2582-2584 + L2596+),
+       the dashed divider reads as "section break inside one binder"
+       rather than "wall between 3 separate cards". */
+    border-top: 1px dashed color-mix(in srgb, var(--archive-ink) 22%, transparent);
   }
 
   .theme-kao .ws-section:first-child {
@@ -2646,46 +2837,188 @@
      defaults here are layered (Vue scoped CSS wins on specificity for
      overlapping properties). */
 
-  /* DISPLAY layer — ws-right-rail section title (卷宗一/二/三 stamp
-     container's font treatment for the implied header position). */
-  .theme-kao .ws-right-rail__section-title {
-    font-family: var(--font-display);
+  /* UI-E12-W1: .ws-right-rail__section-title removed — no template
+     match in Experience.vue (right rail uses data-dossier-stamp
+     attribute + .ws-section::before for the 卷宗一/二/三 stamp;
+     no <h3 class="ws-right-rail__section-title"> element exists).
+     Was dead CSS consuming 8 lines + falsely implying an explicit
+     section-title slot that the workstation never ships. */
+
+  /* BODY layer — ws-left-rail kicker (在场档案员 · 旁白 GM label) +
+     brief (topstripAnchor description paragraph, Experience.vue L19-20).
+     UI-E12-F: kicker 11 → 12px and brief 14 → 15px / 1.6 → 1.65 for
+     readability at 1280 and 640. Both still use --font-body (Songti
+     serif) per E12-F contract #2. */
+  .theme-kao .ws-left-rail__kicker {
+    font-family: var(--font-body);
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.1em;
-    color: var(--archive-ink);
-  }
-
-  /* BODY layer — ws-left-rail kicker (在场档案员 · 旁白 GM label) +
-     brief (topstripAnchor description paragraph, Experience.vue L19-20). */
-  .theme-kao .ws-left-rail__kicker {
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
   }
   .theme-kao .ws-left-rail__brief {
     font-family: var(--font-body);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 400;
-    line-height: 1.6;
+    line-height: 1.65;
     color: var(--archive-ink);
   }
 
-  /* INTERACTIVE layer — buttons (sans 13px) + textarea (body 14px).
-     Scoped to .ws-layout so global .theme-kao button rules don't
-     pollute floating components (modals, dropdowns, drawers). */
+  /* INTERACTIVE layer — buttons (sans 13px, weight 500) + textarea
+     (body 14px). Scoped to .ws-layout so global .theme-kao button
+     rules don't pollute floating components (modals, dropdowns,
+     drawers). UI-E12-F: bump button font-weight to 500 for product-
+     feel readability (without going SaaS-bold), and pin sans so
+     workstation buttons never inherit --font-display (contract #3). */
   .theme-kao .ws-layout button {
     font-family: var(--font-sans);
     font-size: 13px;
+    font-weight: 500;
   }
   .theme-kao .ws-layout .action-btn {
     font-family: var(--font-sans);
     font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
   }
   .theme-kao .ws-layout textarea {
     font-family: var(--font-body);
     font-size: 14px;
+    line-height: 1.65;
   }
+
+  /* UI-E12-F: workstation .action-btn dimension bump. The .action-btn
+     in Experience.vue scoped CSS already gives a bookmark clip-path +
+     paper-soft bg + box-shadow. Here we add a workstation-only
+     inset highlight so the button reads as a 3D object in the
+     workstation context (rather than a flat label). Selectors scoped
+     to .ws-layout so floating rails/menus stay untouched. No raw
+     hex in kao.css per E12-F contract (UI-N10 sweep): the
+     .action-btn.primary gold gradient stays in Experience.vue
+     scoped CSS where the pre-existing primary-gradient tokens
+     live. */
+  .theme-kao .ws-layout .action-btn {
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),
+      0 4px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      0 8px 14px color-mix(in srgb, var(--archive-ink) 24%, transparent);
+  }
+  .theme-kao .ws-layout .action-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 70%, transparent),
+      0 5px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      0 10px 18px color-mix(in srgb, var(--archive-ink) 26%, transparent);
+  }
+  .theme-kao .ws-layout .action-btn:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 2px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      0 4px 8px color-mix(in srgb, var(--archive-ink) 22%, transparent);
+  }
+
+  /* UI-E12-W2: .game-page background override in kao mode.
+     Experience.vue scoped CSS gives .game-page a SaaS accent-rose
+     + accent-amber radial halo at the top (lines 870-873). In kao
+     mode that halo is jarring: the workstation top is archive
+     paper but the page below has rose / amber tint. Replace with
+     a 2-stop archive paper gradient that flows from the shell
+     into the page so the menu → page boundary is continuous.
+     kao.css specificity 0,2,0 > scoped CSS 0,1,1, so this wins
+     without !important. */
+  .theme-kao .game-page {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 100%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 94%, var(--archive-paper-strong)) 60%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 6%) 100%);
+  }
+
+  /* UI-E12-W2: wsLayoutEnter animation — settle-in ritual for the
+     menu → page handoff. LXGW inspired: a brief fade + 6px lift
+     over 420ms, replaced the hard cut that read as "page just
+     appeared". Easing curve matches the LXGW spread-curve used
+     elsewhere in the kao layer. Reduced-motion override is
+     mandatory per a11y convention. */
+  @keyframes wsLayoutEnter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .theme-kao .ws-layout {
+    animation: wsLayoutEnter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  /* Subtle stagger on topstrip cells so the 5 cells + progress
+     appear in sequence (no jarring single-frame fill). Total
+     stagger 4 * 30ms = 120ms, well under 420ms total animation. */
+  .theme-kao .ws-topstrip__cell:nth-child(2),
+  .theme-kao .ws-topstrip__cell:nth-child(3),
+  .theme-kao .ws-topstrip__cell:nth-child(4),
+  .theme-kao .ws-topstrip__cell:nth-child(5) {
+    animation: wsLayoutEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .theme-kao .ws-topstrip__cell:nth-child(2) { animation-delay: 60ms; }
+  .theme-kao .ws-topstrip__cell:nth-child(3) { animation-delay: 90ms; }
+  .theme-kao .ws-topstrip__cell:nth-child(4) { animation-delay: 120ms; }
+  .theme-kao .ws-topstrip__cell:nth-child(5) { animation-delay: 150ms; }
+  /* Reduced-motion a11y — disable both the layout enter and the
+     cell stagger so users with motion sensitivity see the final
+     state immediately. */
+  @media (prefers-reduced-motion: reduce) {
+    .theme-kao .ws-layout,
+    .theme-kao .ws-topstrip__cell {
+      animation: none;
+    }
+  }
+}
+
+/* UI-E12-W2: shell-hamburger override (UNLAYERED).
+   The fixed hamburger (.shell-nav-trigger, z-index 90) sat BELOW
+   ws-topstrip (z-index 240), so the button was covered by the
+   topstrip on /experience and read as a leftover sticker. Bump
+   hamburger to z-index 260 (above --z-mechanism-notice 248) and
+   apply kao visual so the button looks part of the workstation,
+   not a SaaS sticker.
+
+   WHY OUTSIDE @layer kao: the @layer CSS Cascade rule says
+   unlayered styles win over layered styles at the same importance
+   level. AppShell.vue scoped CSS (`.shell-nav-trigger[data-v-xxx]`)
+   is unlayered, so a same-or-higher specificity rule inside
+   @layer kao would still lose. Placing this override OUTSIDE
+   the @layer wrap (in the implicit unlayered priority) restores
+   the expected specificity-vs-source-order win. Scoped to
+   .theme-kao so the rule is still kao-only. 0 AppShell.vue
+   structural change. */
+.theme-kao .app-shell .shell-nav-trigger {
+  z-index: 260;
+  border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--archive-paper-soft) 100%, var(--archive-paper)),
+      color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised)));
+  color: var(--archive-ink);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),
+    0 6px 14px color-mix(in srgb, var(--archive-ink) 16%, transparent);
+}
+.theme-kao .app-shell .shell-nav-trigger:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+  color: var(--archive-olive-strong);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--archive-paper) 94%, var(--surface-raised)),
+      color-mix(in srgb, var(--archive-paper-strong) 88%, var(--surface-raised)));
+}
+.theme-kao .app-shell .shell-nav-trigger:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),
+    0 0 0 2px var(--archive-gold),
+    0 6px 14px color-mix(in srgb, var(--archive-ink) 18%, transparent);
 }

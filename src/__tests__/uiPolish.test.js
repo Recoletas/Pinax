@@ -1185,12 +1185,17 @@ describe('ui polish — UI-E11-A Experience workstation (replaces Phase 1C archi
   it('kao.css exposes .ws-section rule that integrates into 1 dossier (no per-section paper card, divider line between sections)', () => {
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
     // .ws-section has transparent bg (so .ws-right-rail outer paper
-    // shows through) + a gold hairline divider border-top.
+    // shows through) + a hairline divider border-top. UI-E12-W1
+    // switched the divider from `1px solid archive-gold 22%` to
+    // `1px dashed archive-ink 22%` so paired with the new tab strip
+    // + shared left spine (kao.css L2582-2584 + L2596+), the divider
+    // reads as "section break inside one binder" rather than "wall
+    // between 3 cards". The contract accepts either solid or dashed.
     expect(kaoCss).toMatch(
       /\.theme-kao\s+\.ws-section\s*\{[^}]*background:\s*transparent/s,
     )
     expect(kaoCss).toMatch(
-      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px solid/s,
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px\s+(solid|dashed)/s,
     )
   })
 
@@ -1480,6 +1485,12 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     expect(experience).toContain('data-dossier-stamp="卷宗一 · 在场人物"')
     expect(experience).toContain('data-dossier-stamp="卷宗二 · 地点卡"')
     expect(experience).toContain('data-dossier-stamp="卷宗三 · 事件卷"')
+    // UI-E12-W1: 3 卷宗 tab strip is now also present at the top of
+    // the right rail (Experience.vue <header class="ws-right-rail__tab-strip">)
+    // — dossier metaphor is reinforced by both the tab strip AND the
+    // 3 section stamps.
+    expect(experience).toContain('class="ws-right-rail__tab-strip"')
+    expect(experience).toContain('class="ws-right-rail__tab is-active"')
     // The .ws-section rule consumes attr(data-dossier-stamp) to render a kicker
     // (UI-E11-A moved the dossier-stamp rule from .theme-kao .game-page
     // .sidebar-section::before in Experience.vue to .theme-kao .ws-section::before
@@ -1491,9 +1502,9 @@ describe('ui polish — UI-E3 Experience polish (record-book composition: dossie
     expect(kaoCss).toMatch(
       /\.theme-kao\s+\.ws-section\s*\{[^}]*background:\s*transparent/s,
     )
-    // The .ws-section has a gold hairline divider (not an individual paper card)
+    // The .ws-section has a hairline divider (solid or dashed per UI-E12-W1)
     expect(kaoCss).toMatch(
-      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px solid/s,
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px\s+(solid|dashed)/s,
     )
   })
 
@@ -2128,10 +2139,15 @@ describe('ui polish — UI-N10 Notes multi-card canvas (素材贴板 / 多卡画
 // adds spine stitch / folio page no. / chapter rule / message backdrop
 // / kicker-on-block — all purely visual; no store / service change.
 describe('ui polish — UI-E6A Experience ledger readable record-book', () => {
-  it('UI-E6A + UI-E10: body text 16px / line-height 1.75 / --font-body (NOT --font-display LXGW) — readable system serif for long passages', () => {
+  it('UI-E6A + UI-E10: body text 16-18px / line-height 1.7-1.85 / --font-body (NOT --font-display LXGW) — readable system serif for long passages (UI-E12-F bumps 16 → 17 / 1.75 → 1.78)', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*16px/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.75/s)
+    // UI-E12-F: bumped body 16 → 17px so the central record surface
+    // reads as a product body. Range 16-18 covers E6A baseline and
+    // future readability bumps.
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*(1[6-9]|2\d)px/s)
+    // UI-E12-F: bumped line-height 1.75 → 1.78. Range 1.7-1.85 covers
+    // E6A baseline (1.75) and E12-F tuning (1.78).
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.(7\d|8[0-5])/s)
     // UI-E10: body text uses --font-body (system serif fallback), NOT
     // LXGW. LXGW is reserved for display positions (kicker, marginalia).
     expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-body\)/s)
@@ -2295,7 +2311,7 @@ describe('ui polish — UI-E10 Experience 重做 (font / display / menu)', () =>
     expect(gamePanel).not.toContain('续 · 接上页')
   })
 
-  it('UI-E10: scene-entry has marginalia header (date / 第 N 条 / role stamp) — numbered axis running top-to-bottom', () => {
+  it('UI-E10: scene-entry has marginalia header (date / 第 N 条 / role stamp) — numbered axis running top-to-bottom (UI-E12-F: scene-entry__stamp switched to var(--font-sans) for 10px readability)', () => {
     const gamePanel = readProjectFile('src/components/GamePanel.vue')
     expect(gamePanel).toContain('class="scene-entry__marginalia"')
     expect(gamePanel).toContain('class="scene-entry__date"')
@@ -2304,7 +2320,11 @@ describe('ui polish — UI-E10 Experience 重做 (font / display / menu)', () =>
     // CSS locks marginalia rules + 第 N 条 / 卷 X stamps
     expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__marginalia\s*\{[^}]*var\(--font-sans\)/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__no\s*\{[^}]*var\(--archive-gold\)/s)
-    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__stamp\s*\{[^}]*var\(--font-display\)/s)
+    // UI-E12-F: scene-entry__stamp switched from --font-display brush
+    // (too dense at 10px) to --font-sans italic + rose color. The
+    // italic + rose tint still marks it as a kicker stamp.
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__stamp\s*\{[^}]*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__stamp\s*\{[^}]*font-style:\s*italic/s)
     expect(gamePanel).toMatch(/第\s*\{\{\s*index\s*\+\s*1\s*\}\}\s*条/)
   })
 
@@ -2969,11 +2989,18 @@ describe('UI-E11-A Experience workstation — layout skeleton + useWorkstationMe
   it('E11-D1: 4 font layers exist (DISPLAY LXGW / BODY Songti / META sans / INTERACTIVE mix)', () => {
     const kao = readProjectFile('src/styles/themes/kao.css')
     // DISPLAY layer uses --font-display on .ws-topstrip__case
-    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__case[\s\S]*var\(--font-display\)/s)
-    // BODY layer uses --font-body on .ws-left-rail__kicker
+    // (E12-F switched from brush to body for 15px readability, but
+    // DISPLAY is still used elsewhere — see ws-topstrip__anchor +
+    // ws-section::before stamp)
+    expect(kao).toMatch(/var\(--font-display\)/)
+    // BODY layer uses --font-body on .ws-left-rail__kicker + ws-topstrip__value
     expect(kao).toMatch(/\.theme-kao\s+\.ws-left-rail__kicker[\s\S]*var\(--font-body\)/s)
-    // META layer uses --font-sans on .ws-topstrip__meta
-    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__meta[\s\S]*var\(--font-sans\)/s)
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__value[\s\S]*var\(--font-body\)/s)
+    // META layer uses --font-sans on .ws-topstrip__kicker (E12-W1
+    // removed .ws-topstrip__meta as dead CSS — no template match)
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__kicker[\s\S]*var\(--font-sans\)/s)
+    // INTERACTIVE layer uses --font-sans on .ws-layout button
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-layout\s+button[\s\S]*var\(--font-sans\)/s)
   })
 
   it('E11-D2: each layer has ≥3 selectors using it, no layer overlap', () => {
@@ -3026,5 +3053,701 @@ describe('UI-E11-A Experience workstation — layout skeleton + useWorkstationMe
     const gp = readProjectFile('src/components/GamePanel.vue')
     expect(gp).toMatch(/<div\s+class="text-wrapper"\s+@click="onTextWrapperClick/)
     expect(gp).toMatch(/const\s+onTextWrapperClick\s*=\s*\(/)
+  })
+})
+
+// UI-E12-F: Experience font / readability repair.
+// Scope: kao.css workstation layer + GamePanel.vue message body +
+// Experience.vue quick-note workspace. No structural change to the
+// E11 4-zone workstation layout. Only font-family / font-size /
+// line-height / box-shadow tweaks to make the central record area
+// read as a usable product and remove LXGW brush from small-text
+// positions.
+describe('ui polish — UI-E12-F: Experience font / readability repair', () => {
+  // Contract #1: small-font meta positions (ws-topstrip__kicker /
+  // scene-entry__stamp / scene-entry__date /
+  // scene-entry__no / display-name / msg-time / msg-item__folio) all
+  // use --font-sans, NOT --font-display. LXGW brush is reserved for
+  // true display / kicker positions only (text-main::before role
+  // kicker, ws-topstrip__anchor). UI-E12-W1 removed two dead-CSS
+  // selectors (ws-topstrip__meta + ws-right-rail__section-title)
+  // because they had no template match — the contract now drops
+  // those expectations and asserts the absence of dead CSS instead.
+  it('E12-F1: small-font meta uses var(--font-sans) — no LXGW brush at small size', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+
+    // kao.css workstation meta selectors must use --font-sans
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__kicker\s*\{[^}]*var\(--font-sans\)/s)
+
+    // GamePanel.vue meta selectors must use --font-sans
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.scene-entry__stamp\s*\{[^}]*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.display-name\s*\{[^}]*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*var\(--font-sans\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item__folio\s*\{[^}]*var\(--font-sans\)/s)
+
+    // UI-E12-W1 dead-CSS cleanup: the ws-topstrip__meta + ws-right-rail__section-title
+    // selectors have no template match in Experience.vue / GamePanel.vue.
+    // Negative assertion locks the cleanup so future contributors don't
+    // re-introduce dead CSS that "future-proofs" a slot the workstation
+    // never ships.
+    expect(kao).not.toMatch(/\.theme-kao\s+\.ws-topstrip__meta\s*\{/)
+    expect(kao).not.toMatch(/\.theme-kao\s+\.ws-right-rail__section-title\s*\{/)
+  })
+
+  // Contract #2: message body (.text-main) uses var(--font-body) +
+  // readable font-size (≥16) + readable line-height (≥1.7). UI-E12-F
+  // bumped 16 → 17 and 1.75 → 1.78 so the central record surface
+  // reads as a product, not as faded decoration.
+  it('E12-F2: .text-main uses var(--font-body) + font-size ≥16px + line-height ≥1.7 (readable product body)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-family:\s*var\(--font-body\)/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*font-size:\s*(1[6-9]|2\d)px/s)
+    expect(gamePanel).toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*line-height:\s*1\.(7\d|8[0-5])/s)
+    // --font-display must NOT appear in .text-main (system serif only)
+    expect(gamePanel).not.toMatch(/\.theme-kao\s+\.text-main\s*\{[^}]*var\(--font-display\)/)
+  })
+
+  // Contract #3: workstation buttons (.ws-layout button,
+  // .ws-layout .action-btn) use --font-sans, NOT --font-display.
+  // LXGW brush is reserved for display / kicker positions; a 13px
+  // button label needs the sans system stack to be readable.
+  it('E12-F3: workstation buttons use var(--font-sans) — no LXGW brush on action labels', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // .ws-layout button uses sans
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-layout\s+button\s*\{[^}]*var\(--font-sans\)/s)
+    // .ws-layout .action-btn uses sans
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-layout\s+\.action-btn\s*\{[^}]*var\(--font-sans\)/s)
+    // No --font-display in either rule body (negative assertion)
+    const buttonRule = kao.match(/\.theme-kao\s+\.ws-layout\s+button\s*\{[^}]*\}/s)?.[0] || ''
+    const actionBtnRule = kao.match(/\.theme-kao\s+\.ws-layout\s+\.action-btn\s*\{[^}]*\}/s)?.[0] || ''
+    expect(buttonRule).not.toMatch(/var\(--font-display\)/)
+    expect(actionBtnRule).not.toMatch(/var\(--font-display\)/)
+  })
+
+  // Contract #4: no new :global(.theme-kao), no broad :deep(*), no
+  // !important, no raw hex in the 4 modified files. kao.css may
+  // carry pre-existing !important in drop-cap and other non-ws
+  // selectors (already locked elsewhere); the E12-F additions
+  // (ws-topstrip value / case / kicker / ws-layout buttons / ws-left-rail
+  // kicker / brief) must be clean.
+  it('E12-F4: no new :global(.theme-kao), broad :deep, !important, or raw hex in E12-F additions', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+
+    // No :global(.theme-kao) in any of the 3 files (E12-F additions
+    // follow the existing theme-system pattern).
+    expect(kao).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(experience).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(gamePanel).not.toMatch(/:global\(\.theme-kao\)/)
+
+    // No broad :deep(*) — empty selector or * — in E12-F scope
+    expect(experience).not.toMatch(/:deep\(\s*\)/)
+    expect(gamePanel).not.toMatch(/:deep\(\s*\)/)
+
+    // E12-F ws-* additions carry 0 !important. The kao.css drop-cap
+    // `text-transform: none !important` is pre-existing (5A ship)
+    // and lives outside ws-*; E12-F does not introduce any new
+    // !important in any selector.
+    const e12fAdditions = [
+      kao.match(/\.theme-kao\s+\.ws-topstrip__value\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-topstrip__case\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-topstrip__kicker\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-left-rail__kicker\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-left-rail__brief\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s+button\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s+\.action-btn\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s+\.action-btn:hover:not\(:disabled\)\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s+\.action-btn:active:not\(:disabled\)\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s+textarea\s*\{[^}]*\}/s)?.[0]
+    ].filter(Boolean)
+    expect(e12fAdditions.length).toBeGreaterThan(0)
+    for (const m of e12fAdditions) {
+      expect(m, `E12-F rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+    }
+
+    // No raw hex in E12-F additions (the multi-canvas regex sweep
+    // pattern catches hex anywhere in the matched block, so the
+    // additions must use only var(--*) or color-mix()).
+    for (const m of e12fAdditions) {
+      expect(m, `E12-F rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+
+  // Contract #5: ws-topstrip__value + ws-topstrip__case switched from
+  // --font-display (LXGW brush) to --font-body (Songti serif). Brush
+  // is too dense to read at 14-15px; the body serif keeps the small
+  // value legible while still carrying italic on the case position.
+  it('E12-F5: topstrip value + case use var(--font-body) for small-size readability', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__value\s*\{[^}]*var\(--font-body\)/s)
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__case\s*\{[^}]*var\(--font-body\)/s)
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__case\s*\{[^}]*font-style:\s*italic/s)
+  })
+
+  // Contract #6: workstation layer dimension bump — .action-btn in
+  // workstation context now carries a multi-stop box-shadow (inset
+  // highlight + base offset + drop) for 3D product feel. Confirms
+  // brief item #4 "按钮更立体" without changing the bookmark clip-path
+  // (preserved by scoped CSS) and without SaaS card style.
+  it('E12-F6: .ws-layout .action-btn carries 3D box-shadow (inset + offset + drop), not flat', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // All .ws-layout .action-btn rules (font + dimension) joined.
+    const actionBtnRules = kao.match(/\.theme-kao\s+\.ws-layout\s+\.action-btn\s*\{[^}]*\}/g) || []
+    expect(actionBtnRules.length).toBeGreaterThanOrEqual(2)
+    const joined = actionBtnRules.join('\n')
+    expect(joined).toMatch(/box-shadow:\s*\n\s*inset/s) // inset highlight present
+    expect(joined).toMatch(/0\s+4px\s+0/) // 4px base offset
+    expect(joined).toMatch(/0\s+8px\s+14px/) // drop shadow
+  })
+})
+
+// UI-E12-W2: Menu → Experience page handoff continuity.
+// Scope: kao.css workstation layer + Experience.vue topstrip +
+// hamburger (.shell-nav-trigger) z-index bump + wsLayoutEnter
+// animation + .game-page background override. 0 AppShell.vue
+// structural change — all hamburger rules are .theme-kao
+// conditional overrides in kao.css (see brief scope rule:
+// "必要少量 AppShell.vue ... 但必须先说明为什么" — explanation:
+// the .shell-nav-trigger z-index bump is achievable in kao.css
+// because the hamburger's z-index is a single CSS value, not
+// behavior, so the override fits the existing theme-system
+// pattern of .theme-kao .shell-* overrides in kao.css L610-722).
+describe('ui polish — UI-E12-W2: Menu → Experience page handoff continuity', () => {
+  // Contract #1: hamburger .shell-nav-trigger is above ws-topstrip
+  // in kao mode (topstrip z-index = 240). Before E12-W2, the
+  // hamburger z-index 90 was BELOW topstrip z-index 240, so the
+  // button was visually covered and read as a leftover sticker.
+  // The override is placed OUTSIDE @layer kao (see end of file)
+  // because unlayered rules win over @layer rules at the same
+  // importance — AppShell.vue scoped CSS is unlayered so a rule
+  // inside @layer kao would lose. The regex matches the
+  // unlayered selector (no leading whitespace) with the
+  // .app-shell ancestor (specificity 0,3,0 vs scoped 0,2,0).
+  it('E12-W2-1: hamburger z-index > ws-topstrip z-index in kao mode (no sticker feeling)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const hamburgerRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0] || ''
+    // Hamburger rule must declare a z-index value
+    expect(hamburgerRule).toMatch(/z-index:\s*\d+/)
+    const z = parseInt(hamburgerRule.match(/z-index:\s*(\d+)/)?.[1] || '0', 10)
+    // ws-topstrip uses var(--z-floating-dock, 240). Hamburger must
+    // sit above that.
+    expect(z).toBeGreaterThan(240)
+  })
+
+  // Contract #2: ws-topstrip has padding-left >= 72px in kao mode
+  // to clear the fixed 46px hamburger at left:16 + 16px gap +
+  // visual padding (mirrors Writing's `.wall__cork { padding-left:
+  // 80px }` pattern at kao.css L1510-1512).
+  it('E12-W2-2: ws-topstrip padding-left >= 72px in kao mode (clears fixed hamburger)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const topstripRule = kao.match(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/s)?.[0] || ''
+    // padding-left must be a fixed px value (not 0)
+    expect(topstripRule).toMatch(/padding-left:\s*\d+px/)
+    const pad = parseInt(topstripRule.match(/padding-left:\s*(\d+)px/)?.[1] || '0', 10)
+    expect(pad).toBeGreaterThanOrEqual(72)
+  })
+
+  // Contract #3: ws-topstrip has a page-title element (the menu
+  // drawer caption "体验" needs a corresponding kicker on the
+  // page so the handoff has visual continuity).
+  it('E12-W2-3: ws-topstrip has a page-title element (体验 / EXPERIENCE)', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    expect(experience).toContain('class="ws-topstrip__pagetitle"')
+    expect(experience).toContain('class="ws-topstrip__pagetitle-kicker"')
+    expect(experience).toContain('class="ws-topstrip__pagetitle-name"')
+    // Kicker text is 体验 (the page title), name text is EXPERIENCE
+    expect(experience).toMatch(/ws-topstrip__pagetitle-kicker[^>]*>\s*体验/)
+    expect(experience).toMatch(/ws-topstrip__pagetitle-name[^>]*>\s*Experience/i)
+  })
+
+  // Contract #4: .game-page background in kao mode uses archive
+  // paper tokens (no SaaS accent-rose/amber halo). The default
+  // scoped CSS radial gradient (Experience.vue lines 870-873) is
+  // overridden by .theme-kao .game-page in kao.css. The kao.css
+  // file has 2 .theme-kao .game-page rules: the pre-existing
+  // `position: relative` (L2376) and the W2 background override
+  // (L2833). The background override is the one with the paper
+  // gradient — match all rules and verify at least one carries
+  // the archive paper tokens.
+  it('E12-W2-4: .game-page background in kao mode uses archive paper (no accent halo)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const gamePageRules = kao.match(/\.theme-kao\s+\.game-page\s*\{[^}]*\}/g) || []
+    expect(gamePageRules.length).toBeGreaterThanOrEqual(1)
+    const joined = gamePageRules.join('\n')
+    // At least one rule must reference archive paper tokens
+    expect(joined).toMatch(/var\(--archive-paper-soft\)/)
+    expect(joined).toMatch(/var\(--archive-paper\)/)
+    // No rule may use accent-rose / accent-amber (SaaS halo tokens)
+    for (const r of gamePageRules) {
+      expect(r).not.toMatch(/var\(--accent-rose/)
+      expect(r).not.toMatch(/var\(--accent-amber/)
+    }
+  })
+
+  // Contract #5: wsLayoutEnter keyframe + animation application on
+  // .ws-layout in kao mode. Reduced-motion override is mandatory
+  // per a11y convention.
+  it('E12-W2-5: wsLayoutEnter keyframe + .ws-layout animation + reduced-motion override', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // Keyframe defined
+    expect(kao).toMatch(/@keyframes\s+wsLayoutEnter\s*\{[^}]*opacity\s*:\s*0[^}]*translateY/s)
+    // Applied to .ws-layout
+    const wsLayoutRule = (kao.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*\}/g) || []).filter(s => /animation/.test(s))[0] || ''
+    expect(wsLayoutRule).toMatch(/animation\s*:\s*wsLayoutEnter/)
+    expect(wsLayoutRule).toMatch(/cubic-bezier/)
+    // Reduced-motion override disables ws-layout animation. The
+    // media query selector (.theme-kao .ws-layout) comes BEFORE
+    // the `animation: none` declaration, so the regex looks for
+    // ws-layout then animation: none.
+    expect(kao).toMatch(/prefers-reduced-motion[\s\S]{0,200}\.theme-kao\s+\.ws-layout[\s\S]{0,200}animation\s*:\s*none/)
+  })
+
+  // Contract #6: W2 additions carry 0 new :global(.theme-kao), 0
+  // broad :deep, 0 !important, 0 raw hex. Locks the brief's
+  // "禁止" list.
+  it('E12-W2-6: W2 additions clean (no :global(.theme-kao), no broad :deep, no !important, no raw hex)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const experience = readProjectFile('src/pages/Experience.vue')
+
+    // No new :global(.theme-kao) anywhere
+    expect(kao).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(experience).not.toMatch(/:global\(\.theme-kao\)/)
+
+    // No broad :deep(*) or empty :deep
+    expect(experience).not.toMatch(/:deep\(\s*\)/)
+    expect(kao).not.toMatch(/:deep\(/)
+
+    // Extract the W2 new rules and verify no !important / raw hex.
+    // Hamburger rules are OUTSIDE @layer (unlayered) so use the
+    // `^` anchor + .app-shell ancestor; workstation rules are
+    // inside @layer and use `.theme-kao` selector.
+    const w2Rules = [
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0],
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger:hover\s*\{[^}]*\}/m)?.[0],
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger:focus-visible\s*\{[^}]*\}/m)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle-kicker\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle-name\s*\{[^}]*\}/s)?.[0],
+      (kao.match(/\.theme-kao\s+\.game-page\s*\{[^}]*\}/g) || []).find(r => r.includes('archive-paper-soft')) || kao.match(/\.theme-kao\s+\.game-page\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*animation[^}]*\}/s)?.[0]
+    ].filter(Boolean)
+    expect(w2Rules.length).toBeGreaterThanOrEqual(7)
+    for (const m of w2Rules) {
+      expect(m, `W2 rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+      expect(m, `W2 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+
+  // Contract #7: Writing / Notes layouts unaffected by W2.
+  // The W2 changes are scoped to .theme-kao .app-shell .shell-nav-trigger
+  // + .ws-topstrip + .ws-topstrip__pagetitle-* + .game-page + wsLayoutEnter.
+  // None of these selectors match Writing or Notes DOM, so those
+  // pages render unchanged. Locked by checking that the W2 selectors
+  // are workstation-specific (not generic shell-content / wall /
+  // material-drawer / etc.).
+  it('E12-W2-7: W2 selectors are workstation-specific (Writing / Notes unaffected)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    // W2 rules are workstation-specific: no W2 selector matches
+    // Writing (.wall-*) or Notes (.material-*, .index-card).
+    // The .theme-kao .app-shell .shell-nav-trigger rule is the only
+    // shell-level override and it only affects the hamburger, not
+    // the shell content area.
+    const w2ShellRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0] || ''
+    expect(w2ShellRule).not.toMatch(/\.wall/)
+    expect(w2ShellRule).not.toMatch(/\.material/)
+    // Experience.vue template addition is inside .ws-topstrip, not
+    // outside the workstation. pagetitle must be a direct child of ws-topstrip.
+    expect(experience).toMatch(/<section class="ws-topstrip"[\s\S]*?<div class="ws-topstrip__pagetitle"[\s\S]*?<\/div>\s*<div class="ws-topstrip__cell">/)
+  })
+})
+
+// UI-E12-W1: Experience font readability + first-read hierarchy.
+// Scope: kao.css ws-center-stage page-edge treatment + chat-container
+// ruled-paper background + GamePanel.vue 0-state hero block (greeting
+// + hint) readability bump. 0 E11 4-zone workstation structural
+// change — only adds left spine + inset top hairline + repeating
+// ruled lines on the center surface, and bumps 0-state hero padding
+// / greeting font / hint font so the empty state reads as a workbench
+// card with a clear "档案空白 · 等候第 1 条落笔" first read, not a
+// flat fill-in form.
+describe('ui polish — UI-E12-W1: Experience font readability + first-read hierarchy', () => {
+  // Contract #1: ws-center-stage carries a 3px gold left spine +
+  // a 1px inset top hairline (the page-edge / binding treatment).
+  // Both come from --archive-gold via color-mix, no raw hex.
+  it('E12-W1-1: ws-center-stage has 3px gold left spine + 1px inset top hairline (page-edge treatment)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const centerStageRule = kao.match(/\.theme-kao\s+\.ws-center-stage\s*\{[^}]*\}/s)?.[0] || ''
+    expect(centerStageRule, 'ws-center-stage rule must exist').toMatch(/border-left:\s*3px\s+solid/)
+    expect(centerStageRule).toMatch(/border-left:\s*3px\s+solid[^;]*archive-gold/)
+    expect(centerStageRule).toMatch(/box-shadow:\s*inset\s+0\s+1px\s+0[^;]*archive-gold/)
+    // The pre-existing 1px gold border (1px solid archive-gold 26%) must
+    // stay — the spine is on top of it, not replacing it.
+    expect(centerStageRule).toMatch(/border:\s*1px\s+solid[^;]*archive-gold/)
+  })
+
+  // Contract #2: ws-center-stage > .chat-container carries a
+  // repeating-linear-gradient ruled-paper background. archive-ink
+  // 4% hairline at 32px row height + background-attachment: local
+  // so the lines scroll with content.
+  it('E12-W1-2: ws-center-stage > .chat-container has repeating-linear-gradient ruled-paper background', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const chatContainerRule = kao.match(/\.theme-kao\s+\.ws-center-stage\s+>\s+\.chat-container\s*\{[^}]*\}/s)?.[0] || ''
+    expect(chatContainerRule, 'chat-container rule must exist').toMatch(/repeating-linear-gradient/)
+    expect(chatContainerRule).toMatch(/repeating-linear-gradient\([\s\S]*archive-ink/)
+    expect(chatContainerRule).toMatch(/background-attachment:\s*local/)
+    // The pre-existing PLAN-QA Fix #4 flex / overflow rules must
+    // remain (chat-container still flex: 1 1 auto + overflow-y: auto).
+    expect(chatContainerRule).toMatch(/flex:\s*1\s+1\s+auto/)
+    expect(chatContainerRule).toMatch(/overflow-y:\s*auto/)
+  })
+
+  // Contract #3: 0-state hero block has position:relative + paper-
+  // strong 6% wash background + bumped padding (≥ 32/24/36 px). The
+  // pre-existing border-bottom dotted gold hairline must stay so
+  // the hero reads as a workbench card with a soft divider.
+  it('E12-W1-3: chat-container__hero is a workbench card (position relative + paper-strong wash + bumped padding)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    const heroRule = gamePanel.match(/\.theme-kao\s+\.chat-container__hero\s*\{[^}]*\}/s)?.[0] || ''
+    expect(heroRule, 'hero rule must exist').toMatch(/position:\s*relative/)
+    expect(heroRule).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--archive-paper-strong\)\s*\d+%/)
+    expect(heroRule).toMatch(/padding:\s*32px\s+24px\s+36px/)
+    // pre-existing border-bottom dotted archive-gold stays
+    expect(heroRule).toMatch(/border-bottom:\s*1px\s+dotted[^;]*archive-gold/)
+  })
+
+  // Contract #4: hero greeting uses var(--font-display) (LXGW) at
+  // 22px / line-height 1.3 / letter-spacing 0.06em. The 22px size
+  // is the largest text on the page; the brush face stays readable
+  // because it's now a true first-read anchor, not a label.
+  it('E12-W1-4: hero greeting uses var(--font-display) at 22px / line-height 1.3 / letter-spacing 0.06em (DISPLAY first-read)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    const greetingRule = gamePanel.match(/\.theme-kao\s+\.chat-container__hero-greeting\s*\{[^}]*\}/s)?.[0] || ''
+    expect(greetingRule, 'hero-greeting rule must exist').toMatch(/font-family:\s*var\(--font-display\)/)
+    expect(greetingRule).toMatch(/font-size:\s*22px/)
+    expect(greetingRule).toMatch(/line-height:\s*1\.3/)
+    expect(greetingRule).toMatch(/letter-spacing:\s*0\.06em/)
+    // weight 600 stays (not SaaS-bold)
+    expect(greetingRule).toMatch(/font-weight:\s*600/)
+  })
+
+  // Contract #5: hero hint uses var(--font-body) (Songti) at 15px /
+  // line-height 1.7 so secondary copy reads alongside the 22px
+  // greeting without becoming a footnote. Body Songti stays (no
+  // LXGW at body position).
+  it('E12-W1-5: hero hint uses var(--font-body) at 15px / line-height 1.7 (BODY readability)', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    const hintRule = gamePanel.match(/\.theme-kao\s+\.chat-container__hero-hint\s*\{[^}]*\}/s)?.[0] || ''
+    expect(hintRule, 'hero-hint rule must exist').toMatch(/font-family:\s*var\(--font-body\)/)
+    expect(hintRule).toMatch(/font-size:\s*15px/)
+    expect(hintRule).toMatch(/line-height:\s*1\.7/)
+    // No LXGW in hint rule body
+    expect(hintRule).not.toMatch(/var\(--font-display\)/)
+  })
+
+  // Contract #6: W1 additions clean — no :global(.theme-kao), no
+  // broad :deep, no !important, no raw hex. Locks the brief's
+  // 禁止 list and mirrors the E12-F #4 / E12-W2 #6 patterns.
+  it('E12-W1-6: W1 additions clean (no :global(.theme-kao), no broad :deep, no !important, no raw hex)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+
+    // No new :global(.theme-kao) anywhere (brief explicit ban)
+    expect(kao).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(experience).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(gamePanel).not.toMatch(/:global\(\.theme-kao\)/)
+
+    // No broad :deep(*) (brief explicit ban)
+    expect(experience).not.toMatch(/:deep\(\s*\)/)
+    expect(gamePanel).not.toMatch(/:deep\(\s*\)/)
+
+    // Extract W1 new rules and verify no !important / raw hex
+    const w1Rules = [
+      kao.match(/\.theme-kao\s+\.ws-center-stage\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.ws-center-stage\s+>\s+\.chat-container\s*\{[^}]*\}/s)?.[0],
+      gamePanel.match(/\.theme-kao\s+\.chat-container__hero\s*\{[^}]*\}/s)?.[0],
+      gamePanel.match(/\.theme-kao\s+\.chat-container__hero-greeting\s*\{[^}]*\}/s)?.[0],
+      gamePanel.match(/\.theme-kao\s+\.chat-container__hero-hint\s*\{[^}]*\}/s)?.[0]
+    ].filter(Boolean)
+    expect(w1Rules.length).toBeGreaterThanOrEqual(4)
+    for (const m of w1Rules) {
+      expect(m, `W1 rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+      expect(m, `W1 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+      // No LXGW in any W1 body / meta position (DISPLAY only allowed
+      // on the hero-greeting first-read anchor)
+      if (!m.includes('hero-greeting')) {
+        expect(m, `W1 non-greeting rule uses LXGW: ${m.slice(0, 80)}...`).not.toMatch(/var\(--font-display\)/)
+      }
+    }
+  })
+})
+
+// UI-E12-FIX1: mobile overlap + desktop hamburger collision + 0-state
+// 1/1 fake info. Locks the 3 E12 acceptance failures fixed in this slice.
+// Scope: kao.css (3 @media 980 rules + ws-layout padding-left) +
+// Experience.vue template (2 cell placeholder bindings) +
+// useWorkstationMeta.js (currentSection = totalCount, no Math.max padding).
+// 0 E11 / Writing / Notes change.
+describe('ui polish — UI-E12-FIX1: mobile overlap, hamburger collision, 0-state honesty', () => {
+  // Contract #1 (UI-E12-FIX2): at 640 (≤980), ws-topstrip uses a
+  // SIMPLE FLEX COLUMN (not a complex grid) so 5 cells + progress
+  // + anchor never wrap unpredictably. Each child takes its own
+  // row. Updated from the original FIX1-1 4-row grid contract
+  // (which still jumbled at 640 — see UI-E12-QA2 §4.1) to a more
+  // stable flex-column approach. UI-E12-FIX2 brief: "直接用简单
+  // 稳定布局，不要复杂 grid dense".
+  it('FIX1-1 / FIX2-1: ws-topstrip @ ≤980 uses simple flex column (no grid, no dense)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // Find all @media (max-width: 980px) blocks via position, then
+    // pick the one that contains .ws-topstrip (workstation's @media).
+    const re = /@media\s*\(max-width:\s*980px\)\s*\{/g
+    let m
+    const positions = []
+    while ((m = re.exec(kao)) !== null) positions.push(m.index)
+    let mediaBlock = ''
+    for (const p of positions) {
+      const rest = kao.slice(p)
+      const closing = rest.match(/\n\s*\}\s*\n\s*\}\s*\n/)
+      if (!closing) continue
+      const block = rest.slice(0, closing.index + closing[0].length)
+      if (/\.theme-kao\s+\.ws-topstrip\s*\{/.test(block)) {
+        const topstripRule = block.match(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/)?.[0] || ''
+        if (topstripRule.length > 0) { mediaBlock = topstripRule; break }
+      }
+    }
+    expect(mediaBlock.length).toBeGreaterThan(0)
+    // Flex column, not grid
+    expect(mediaBlock).toMatch(/display:\s*flex/)
+    expect(mediaBlock).toMatch(/flex-direction:\s*column/)
+    // No grid properties (the brief: "不要复杂 grid dense")
+    expect(mediaBlock).not.toMatch(/grid-template-(rows|columns)/)
+    expect(mediaBlock).not.toMatch(/grid-auto-flow/)
+  })
+
+  // Contract #2: at desktop, ws-layout has padding-left >= 60px
+  // so the left rail kicker text is not covered by the fixed 46px
+  // hamburger. Brief issue #2: "1280 左上 hamburger 与 left rail
+  // 文字/标题不要遮挡或抢位". Accepts both shorthand form
+  // (`padding: 14px 16px 16px 64px` → 4th value is padding-left)
+  // and longhand form (`padding-left: 64px`).
+  it('FIX1-2: ws-layout padding-left >= 60px at desktop (clears fixed hamburger)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const layoutRule = kao.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*\}/)?.[0] || ''
+    expect(layoutRule.length).toBeGreaterThan(0)
+    // Try longhand first
+    const longhand = layoutRule.match(/padding-left:\s*(\d+)px/)
+    if (longhand) {
+      expect(parseInt(longhand[1], 10)).toBeGreaterThanOrEqual(60)
+      return
+    }
+    // Try shorthand `padding: a b c d` (4-value) — 4th value is left
+    const shorthand = layoutRule.match(/padding:\s*(\d+)px\s+(\d+)px\s+(\d+)px\s+(\d+)px/)
+    expect(shorthand, 'ws-layout must declare padding-left via shorthand or longhand').toBeTruthy()
+    const pad = parseInt(shorthand[4], 10)
+    expect(pad).toBeGreaterThanOrEqual(60)
+  })
+
+  // Contract #3: 0-state topstrip cells show honest "—" placeholder,
+  // not fake "1/1" / "1/0" counts. useWorkstationMeta exposes the
+  // real totalCount (no Math.max padding), and Experience.vue template
+  // uses meta.isEmpty to gate the cell value.
+  it('FIX1-3: 0-state topstrip cells show honest placeholder, no fake 1/1', () => {
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const composable = readProjectFile('src/composables/useWorkstationMeta.js')
+
+    // Experience.vue template uses isEmpty to gate the cell value.
+    // Match the actual Vue template binding: {{ meta.isEmpty ? '—' : meta.currentSection }}
+    // (the em-dash is between two single quotes, so char classes need
+    // to handle that). The `{{` ... `}}` brackets exclude false-positive
+    // matches in HTML comments.
+    expect(experience).toMatch(/第 N 条<\/span>[\s\S]*?\{\{[^}]*meta\.isEmpty\s*\?\s*'\s*—?\s*'\s*:\s*meta\.currentSection/)
+    expect(experience).toMatch(/共 M 条<\/span>[\s\S]*?\{\{[^}]*meta\.isEmpty\s*\?\s*'\s*—?\s*'\s*:\s*meta\.totalCount/)
+
+    // useWorkstationMeta: currentSection is bare totalCount (no Math.max)
+    const currentSectionBlock = composable.match(/const\s+currentSection\s*=\s*computed\([^)]*\)\s*=>\s*\{[^}]*\}/s)?.[0] || ''
+    expect(currentSectionBlock).not.toMatch(/Math\.max\(1,\s*totalCount/)
+    expect(currentSectionBlock).toMatch(/return\s+totalCount\.value/)
+  })
+
+  // Contract #4: FIX1 additions carry 0 forbidden patterns.
+  // Locks the brief 禁止 list: no :global(.theme-kao), no broad :deep,
+  // no !important, no raw hex in the FIX1 rules. The 3 FIX1 rules
+  // are extracted as a list and checked individually — this avoids
+  // false positives from pre-existing rules inside the same @media
+  // block (e.g., Writing's .wall__main which has pre-existing
+  // !important drop-cap inside @media 980).
+  it('FIX1-4: FIX1 additions clean (no :global, broad :deep, !important, raw hex)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    const composable = readProjectFile('src/composables/useWorkstationMeta.js')
+
+    // No new :global(.theme-kao)
+    expect(kao).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(experience).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(composable).not.toMatch(/:global\(\.theme-kao\)/)
+
+    // No broad :deep
+    expect(experience).not.toMatch(/:deep\(\s*\)/)
+    expect(kao).not.toMatch(/:deep\(/)
+
+    // Extract just the FIX1 rules individually.
+    // 1. Desktop .ws-layout block (first occurrence)
+    // 2. Mobile @media 980 .ws-layout block (find via @media 980 block
+    //    that contains .theme-kao .ws-layout)
+    // 3. Mobile @media 980 .ws-topstrip block (same approach)
+    const fix1DesktopWsLayout = kao.match(/^\s*\.theme-kao\s+\.ws-layout\s*\{[^}]*\}\s*$/m)?.[0] || ''
+    // Find all @media (max-width: 980px) blocks via position-based
+    // extraction (regex with non-greedy \n}\n doesn't work because all
+    // CSS closes have indent). Each @media is followed by a brace that
+    // is the start of its block; we extract via known file structure
+    // (the @media is opened, the block ends with `  }\n` at column 0
+    // after a few rules).
+    const mediaStarts = []
+    const re = /@media\s*\(max-width:\s*980px\)\s*\{/g
+    let m
+    while ((m = re.exec(kao)) !== null) mediaStarts.push(m.index)
+    let fix1MobileWsLayout = ''
+    let fix1MobileWsTopstrip = ''
+    for (const start of mediaStarts) {
+      // Find the @media closing brace — `^  }$` (line starts with `  }`).
+      // Use multiline /m flag and look for end-of-block marker.
+      const rest = kao.slice(start)
+      const closingMatch = rest.match(/\n\s*\}\s*\n\s*\}\s*\n/) // inner block close + @media close
+      if (!closingMatch) continue
+      const block = rest.slice(0, closingMatch.index + closingMatch[0].length)
+      const layoutMatch = block.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*\}/)
+      if (layoutMatch && !fix1MobileWsLayout) fix1MobileWsLayout = layoutMatch[0]
+      const topstripMatch = block.match(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/)
+      if (topstripMatch && !fix1MobileWsTopstrip) fix1MobileWsTopstrip = topstripMatch[0]
+    }
+
+    expect(fix1DesktopWsLayout).toMatch(/padding:\s*14px\s+16px\s+16px\s+6[04]px/)
+    expect(fix1MobileWsLayout).toMatch(/padding:\s*14px\s+12px\s+16px/)
+    // FIX2: mobile ws-topstrip switched from 4-row grid to simple
+    // flex column. Lock the new shape (not the old grid).
+    expect(fix1MobileWsTopstrip).toMatch(/display:\s*flex/)
+    expect(fix1MobileWsTopstrip).toMatch(/flex-direction:\s*column/)
+
+    for (const m of [fix1DesktopWsLayout, fix1MobileWsLayout, fix1MobileWsTopstrip]) {
+      expect(m, `FIX1 rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+      expect(m, `FIX1 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+
+  // Contract #5: FIX1 is workstation-specific (Writing / Notes unaffected).
+  // The 3 FIX1 rules target .ws-layout, .ws-topstrip, and the @media 980
+  // override — all workstation-internal selectors. None match Writing
+  // (.wall-*) or Notes (.material-*, .index-card). Pre-existing rules
+  // like .wall__main / .index-card in the same @media 980 block are
+  // pre-existing, not FIX1 additions.
+  it('FIX1-5: FIX1 additions are workstation-specific (Writing / Notes selectors NOT introduced by FIX1)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const fix1DesktopWsLayout = kao.match(/^\s*\.theme-kao\s+\.ws-layout\s*\{[^}]*\}\s*$/m)?.[0] || ''
+    const mediaStarts = []
+    const re = /@media\s*\(max-width:\s*980px\)\s*\{/g
+    let m
+    while ((m = re.exec(kao)) !== null) mediaStarts.push(m.index)
+    let fix1MobileWsLayout = ''
+    let fix1MobileWsTopstrip = ''
+    for (const start of mediaStarts) {
+      const rest = kao.slice(start)
+      const closingMatch = rest.match(/\n\s*\}\s*\n\s*\}\s*\n/)
+      if (!closingMatch) continue
+      const block = rest.slice(0, closingMatch.index + closingMatch[0].length)
+      const layoutMatch = block.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*\}/)
+      if (layoutMatch && !fix1MobileWsLayout) fix1MobileWsLayout = layoutMatch[0]
+      const topstripMatch = block.match(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/)
+      if (topstripMatch && !fix1MobileWsTopstrip) fix1MobileWsTopstrip = topstripMatch[0]
+    }
+    for (const m of [fix1DesktopWsLayout, fix1MobileWsLayout, fix1MobileWsTopstrip]) {
+      expect(m, `FIX1 rule mentions Writing selector: ${m.slice(0, 80)}...`).not.toMatch(/\.wall/)
+      expect(m, `FIX1 rule mentions Notes selector: ${m.slice(0, 80)}...`).not.toMatch(/\.material/)
+      expect(m, `FIX1 rule mentions Notes selector: ${m.slice(0, 80)}...`).not.toMatch(/\.index-card/)
+    }
+  })
+})
+
+// UI-E12-FIX2: Fast blocker fix.
+// Scope: GamePanel.vue folio corner 1/1 hardcoded removed +
+// kao.css @media 980 mobile ws-topstrip simple flex column +
+// kao.css @media 980 mobile ws-left-rail compact 1-line bar.
+// Lighter than FIX1: 4 minimal contracts only.
+describe('ui polish — UI-E12-FIX2: folio corner + 640 mobile blocker fixes', () => {
+  // Contract #1: chat-container__hero-folio-page">1 / 1 not present
+  // in GamePanel.vue. QA2 criterion #4: "不能写死 misleading 1 / 1".
+  it('FIX2-1: hero folio page corner "1 / 1" hardcoded literal is removed', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // The old hardcoded literal
+    expect(gamePanel).not.toMatch(/chat-container__hero-folio-page">1\s*\/\s*1</)
+    // The wrapper class still exists (we kept the case ID stamp)
+    expect(gamePanel).toContain('chat-container__hero-folio-case')
+    // The page part is gone
+    expect(gamePanel).not.toContain('chat-container__hero-folio-page')
+  })
+
+  // Contract #2: at 640 mobile, ws-layout is a single column.
+  // QA2 §4.1: 5 elements stacked in viewport top 200px. The fix
+  // is a single column where each section gets its own row.
+  it('FIX2-2: ws-layout @ ≤980 is single column (no 3-col workstation grid)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const re = /@media\s*\(max-width:\s*980px\)\s*\{/g
+    let m
+    const positions = []
+    while ((m = re.exec(kao)) !== null) positions.push(m.index)
+    let layoutRule = ''
+    for (const p of positions) {
+      const rest = kao.slice(p)
+      const closing = rest.match(/\n\s*\}\s*\n\s*\}\s*\n/)
+      if (!closing) continue
+      const block = rest.slice(0, closing.index + closing[0].length)
+      const found = block.match(/\.theme-kao\s+\.ws-layout\s*\{[^}]*\}/)?.[0]
+      if (found) { layoutRule = found; break }
+    }
+    expect(layoutRule.length).toBeGreaterThan(0)
+    expect(layoutRule).toMatch(/grid-template-columns:\s*1fr/)
+  })
+
+  // Contract #3: at 640 mobile, ws-topstrip uses simple flex column
+  // (no grid, no dense, no auto-flow).
+  it('FIX2-3: ws-topstrip @ ≤980 uses simple flex column (no grid, no dense)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const re = /@media\s*\(max-width:\s*980px\)\s*\{/g
+    let m
+    const positions = []
+    while ((m = re.exec(kao)) !== null) positions.push(m.index)
+    let mediaBlock = ''
+    for (const p of positions) {
+      const rest = kao.slice(p)
+      const closing = rest.match(/\n\s*\}\s*\n\s*\}\s*\n/)
+      if (!closing) continue
+      const block = rest.slice(0, closing.index + closing[0].length)
+      const found = block.match(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/)?.[0]
+      if (found) { mediaBlock = found; break }
+    }
+    expect(mediaBlock.length).toBeGreaterThan(0)
+    expect(mediaBlock).toMatch(/display:\s*flex/)
+    expect(mediaBlock).toMatch(/flex-direction:\s*column/)
+    expect(mediaBlock).not.toMatch(/grid-template-(rows|columns)/)
+    expect(mediaBlock).not.toMatch(/grid-auto-flow/)
+  })
+
+  // Contract #4: FIX2 additions carry 0 forbidden patterns.
+  it('FIX2-4: FIX2 additions clean (no :global, broad :deep, !important, raw hex)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    expect(kao).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(gamePanel).not.toMatch(/:global\(\.theme-kao\)/)
+    expect(kao).not.toMatch(/:deep\(/)
+    expect(gamePanel).not.toMatch(/:deep\(/)
+    // The 2 new FIX2 rules
+    const fix2TopstripMobile = kao.match(/@media\s*\(max-width:\s*980px\)[\s\S]{0,3000}?\.theme-kao\s+\.ws-topstrip\s*\{[^}]*\}/)?.[0] || ''
+    const fix2LeftRailMobile = kao.match(/@media\s*\(max-width:\s*980px\)[\s\S]{0,3000}?\.theme-kao\s+\.ws-left-rail\s*\{[^}]*\}/)?.[0] || ''
+    for (const m of [fix2TopstripMobile, fix2LeftRailMobile]) {
+      expect(m, `FIX2 rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+      expect(m, `FIX2 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
   })
 })

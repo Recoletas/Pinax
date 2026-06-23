@@ -12,6 +12,18 @@
       class="chat-container__hero"
       aria-label="档案空白引导"
     >
+      <!-- UI-E12-FIX2: folio corner simplified to case ID only.
+           QA2 flagged the previous "1 / 1" hardcoded page index as
+           misleading in 0-state (no real message at page 1). The page
+           index was never wired to currentSection / totalCount, so the
+           template showed a literal that didn't match the comment.
+           The cleanest fix is to drop the page part entirely and keep
+           only the case ID stamp (the visually informative part).
+           The case ID is derived from session / world ID, not from the
+           message count, so it's always honest. -->
+      <span class="chat-container__hero-folio" aria-hidden="true">
+        <span class="chat-container__hero-folio-case">{{ caseNoShort }}</span>
+      </span>
       <div class="chat-container__hero-portrait">
         <CharacterPortrait pose-id="narrator" size="hero" caption="在场档案员" />
       </div>
@@ -139,8 +151,17 @@ const editTextarea = ref(null)
 // Per E11-PLAN-QA Fix #2: action='note' opens quick-note workspace;
 // 'continue' / 'scene' are v0 stubs (no-op) that the parent can later
 // wire to gameStore action in a follow-up slice without re-editing
-// GamePanel.vue.
+// GamePanel.vue. UI-E12-W1 wires continue + scene in Experience.vue.
 const emit = defineEmits(['show-inline-detail', 'quick-action'])
+
+// UI-E12-W1: hero folio corner — short case ID (first 6 chars of
+// gameStore.worldId / currentSessionId, fallback to "pending-record")
+// shown in the top-right stamp of the 0-state hero block. Pure
+// computed, no store mutation.
+const caseNoShort = computed(() => {
+  const id = gameStore.currentSessionId || gameStore.worldId || 'pending-record'
+  return id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase() || 'PENDNG'
+})
 
 // === UI-E10 scene-entry structure =====================================
 // Replaces UI-E9 book spread: each message becomes one <article
@@ -632,11 +653,16 @@ summary .arrow {
   font-variant-numeric: tabular-nums;
 }
 
+/* UI-E12-F: scene-entry__stamp switched from --font-display (LXGW
+   brush) to --font-sans. The brush face is too dense to read at
+   10px; sans keeps the role stamp legible while the italic + rose
+   color still mark it as a kicker. Bumped 10 → 11px for product-
+   feel readability at 1280 and 640. */
 .theme-kao .scene-entry__stamp {
   flex: 0 0 auto;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-style: italic;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   color: color-mix(in srgb, var(--archive-rose) 80%, transparent);
 }
@@ -785,11 +811,13 @@ summary .arrow {
   /* UI-E10: body text reads in system serif (Songti / Source Han Serif /
      Noto Serif CJK / STSong / Georgia), NOT LXGW. LXGW is reserved for
      display positions only (chapter title, kicker signature, marginalia
-     stamps, scene-entry__stamp). Long passages on body text become
-     readable serif; decorative positions keep the brush-style signature. */
+     stamps). UI-E12-F: bumped 16 → 17px so the central record surface
+     reads as a product body (not as faded decoration); contract #2
+     pins font-family var(--font-body) + font-size ≥16 + line-height
+     ≥1.7. Letter-spacing 0.02em preserves CJK rhythm. */
   font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.75;
+  font-size: 17px;
+  line-height: 1.78;
   color: var(--archive-ink);
   letter-spacing: 0.02em;
 }
@@ -860,17 +888,22 @@ summary .arrow {
   }
 }
 
-/* UI-E11-B: 0-state hero block — narrator portrait + greeting + 3 quick
-   action CTA. Shows only when displayMessages.length === 0 (v-if above).
-   Layout: 2-column grid 240px portrait + 1fr prompt block. Mobile collapses
-   to 1 column via the 760px media query below. All colors via
-   var(--archive-*) tokens, no raw hex. Border-bottom dotted archive-gold
-   acts as a section divider without being a hard horizontal rule. */
+/* UI-E11-B + UI-E12-W1: 0-state hero block — narrator portrait + greeting
+   + 3 quick action CTA. Shows only when displayMessages.length === 0
+   (v-if above). Layout: 2-column grid 240px portrait + 1fr prompt block.
+   Mobile collapses to 1 column via the 760px media query below. All
+   colors via var(--archive-*) tokens, no raw hex. Border-bottom dotted
+   archive-gold acts as a section divider without being a hard horizontal
+   rule. UI-E12-W1: padding bumped 22/18/28 → 32/24/36 + paper-strong
+   6% wash + position:relative so the empty state reads as a workbench
+   card with a page corner, not as a flat fill-in form. */
 .theme-kao .chat-container__hero {
+  position: relative;
   display: grid;
   grid-template-columns: 240px 1fr;
-  gap: 18px;
-  padding: 22px 18px 28px;
+  gap: 22px;
+  padding: 32px 24px 36px;
+  background: color-mix(in srgb, var(--archive-paper-strong) 6%, transparent);
   border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
 }
 .theme-kao .chat-container__hero-portrait {
@@ -881,22 +914,32 @@ summary .arrow {
 .theme-kao .chat-container__hero-prompt {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   justify-content: center;
 }
+/* UI-E12-W1: hero greeting bumped 18 → 22px so the empty-state first
+   read hits harder. DISPLAY LXGW still reserved for kicker positions;
+   22px is the largest text on the page so it can carry the brush face
+   without losing readability. Letter-spacing 0.04 → 0.06em lets the
+   brush strokes breathe at the larger size. No LXGW in body (text-main
+   stays 17px Songti per E12-F contract #2). */
 .theme-kao .chat-container__hero-greeting {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
   color: var(--archive-ink);
 }
+/* UI-E12-W1: hero hint 14 → 15px / 1.65 → 1.7 so the secondary copy
+   reads alongside the 22px greeting without feeling like a footnote.
+   Still BODY Songti (not DISPLAY) per font-layer contract. */
 .theme-kao .chat-container__hero-hint {
   margin: 0;
   font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 15px;
+  line-height: 1.7;
   color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
 }
 .theme-kao .chat-container__hero-actions {
@@ -905,9 +948,40 @@ summary .arrow {
   flex-wrap: wrap;
 }
 
+/* UI-E12-W1: hero folio corner — top-right stamp showing the
+   short case ID only (no page index, see UI-E12-FIX2). Positioned
+   absolutely on the hero block (which has position: relative).
+   Sans 9px so it reads as a small ledger mark, not a heading.
+   archive-ink 50% so it doesn't compete with the 22px greeting. */
+.theme-kao .chat-container__hero-folio {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 760px) {
   .theme-kao .chat-container__hero {
     grid-template-columns: 1fr;
   }
+}
+
+/* UI-E12-W1: dark-mode hero wash override. The default hero wash is
+   paper-strong 6% on light mode, which gives the empty state a
+   "raised card" feel against the page background. In dark mode
+   paper-strong resolves to a warmer cream that competes with the
+   page's archive-paper-deep bg — the wash disappears. Switch to
+   paper-soft 8% (cooler, slightly bluer) so the wash contrast inverts
+   correctly and the hero still reads as a raised card. */
+.theme-kao.theme-dark .chat-container__hero {
+  background: color-mix(in srgb, var(--archive-paper-soft) 8%, transparent);
 }
 </style>
