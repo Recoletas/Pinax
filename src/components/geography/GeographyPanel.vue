@@ -8,7 +8,18 @@
       <span class="geo-count" aria-label="地点数量">{{ locations.length }}</span>
     </header>
 
-    <div class="geo-stat-strip" aria-label="地点卷统计">
+    <!-- UI-E11-C: 0-data stat strip placeholder — 当没有地点时, 显示 dashed
+         placeholder + inline hint (档案员批注风格), 不再是 0 0 0 堆叠 -->
+    <div
+      v-if="locations.length === 0"
+      class="geo-stat-strip geo-stat-strip--empty"
+      aria-label="无地点卷"
+    >
+      <span class="geo-stat-strip--hint">暂无卷宗</span>
+      <span class="geo-stat-strip--hint">地点是档案柜的目录</span>
+      <span class="geo-stat-strip--hint">点 + 添加第一条</span>
+    </div>
+    <div v-else class="geo-stat-strip" aria-label="地点卷统计">
       <span><strong>{{ locationStats.root }}</strong> 卷号</span>
       <span><strong>{{ locationStats.linked }}</strong> 从属</span>
       <span><strong>{{ locationStats.described }}</strong> 已记</span>
@@ -371,6 +382,18 @@ async function copyPrompt() {
   font-size: 13px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+}
+
+/* UI-E11-C: 0-data 状态 placeholder — dashed outline + muted hint */
+.geo-stat-strip--empty {
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+.geo-stat-strip--hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  letter-spacing: 0.04em;
 }
 
 .section { margin: 0; }

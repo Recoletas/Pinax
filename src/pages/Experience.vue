@@ -7,75 +7,75 @@
       :tint-strength="58"
       :blur="2"
     />
-    <div class="game-layout">
-      <div class="game-main-shell" v-if="!showSessionPicker">
-        <div class="game-main">
-          <section class="record-folio" aria-label="案卷记录本">
-            <div class="record-folio__band">
-              <span class="record-folio__band-kicker">案卷</span>
-              <strong class="record-folio__band-case">第 {{ recordVolume }} 次 · {{ recordCaseNo }}</strong>
-              <span class="record-folio__band-status">开卷</span>
-            </div>
-            <div class="record-folio__grid">
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">案号</span>
-                <strong class="record-folio__value">{{ recordCaseNo }}</strong>
-              </div>
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">卷次</span>
-                <strong class="record-folio__value">第 {{ recordVolume }} 次</strong>
-              </div>
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">当下时间</span>
-                <strong class="record-folio__value">{{ recordTime }}</strong>
-              </div>
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">在场人物</span>
-                <strong class="record-folio__value">{{ recordCharacters }}</strong>
-              </div>
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">当前地点</span>
-                <strong class="record-folio__value">{{ recordLocation }}</strong>
-              </div>
-              <div class="record-folio__cell">
-                <span class="record-folio__kicker">当前任务</span>
-                <strong class="record-folio__value">{{ recordObjective }}</strong>
-              </div>
-            </div>
-          </section>
-          <!-- UI-E10-CLEAN: .scene-stage__indicator sticky indicator deleted
-               2026-06-22 — was v-if gated on sceneIndicatorVisible (total > 0),
-               so the orientation the user needed in 0-message empty state
-               was missing. UI-E11 (workstation) replaces with an always-on
-               topstrip. -->
-          <GamePanel @show-inline-detail="handleInlineDetail" />
-          <InputArea @send="handleSend" />
+    <!-- UI-E11-A: workstation 4-section composition.
+         ws-layout (grid: 260px 1fr 300px) replaces UI-E10 game-layout +
+         record-folio band. 4 sections share one topstrip as the
+         section anchor, replacing the deleted 28px shared vertical
+         axis (E10-CLEAN 2026-06-22) and the scene-stage__indicator
+         sticky bar. -->
+    <div class="ws-layout">
+      <aside v-if="!showSessionPicker" class="ws-left-rail" aria-label="在场档案员">
+        <div class="ws-left-rail__hero">
+          <span class="ws-left-rail__kicker">在场档案员 · 旁白 GM</span>
+          <p class="ws-left-rail__brief">{{ meta.topstripAnchor }}</p>
         </div>
-      </div>
-      <aside v-if="!showSessionPicker" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-        <div class="sidebar-head">
-          <div class="sidebar-head-copy">
-            <span>情报</span>
-            <strong>{{ hasSelectedWorldbook ? playableWorldTitle : '未选择世界' }}</strong>
+      </aside>
+      <main v-if="!showSessionPicker" class="ws-center-stage" aria-label="记录流">
+        <section class="ws-topstrip" aria-label="案卷进度条">
+          <div class="ws-topstrip__cell">
+            <span class="ws-topstrip__kicker">卷</span>
+            <span class="ws-topstrip__value">{{ meta.currentVolume }}</span>
           </div>
-          <button class="sidebar-toggle" type="button" @click="sidebarCollapsed = !sidebarCollapsed">
-            {{ sidebarCollapsed ? '展开' : '收起' }}
-          </button>
+          <div class="ws-topstrip__cell">
+            <span class="ws-topstrip__kicker">案号</span>
+            <span class="ws-topstrip__case">{{ meta.caseNo }}</span>
+          </div>
+          <div class="ws-topstrip__cell">
+            <span class="ws-topstrip__kicker">当前任务</span>
+            <span class="ws-topstrip__value">{{ meta.currentTask }}</span>
+          </div>
+          <div class="ws-topstrip__cell">
+            <span class="ws-topstrip__kicker">第 N 条</span>
+            <span class="ws-topstrip__value">{{ meta.currentSection }}</span>
+          </div>
+          <div class="ws-topstrip__cell">
+            <span class="ws-topstrip__kicker">共 M 条</span>
+            <span class="ws-topstrip__value">{{ meta.totalCount }}</span>
+          </div>
+          <div class="ws-topstrip__progress" aria-label="5-section 进度">
+            <span
+              v-for="n in 5"
+              :key="n"
+              class="ws-topstrip__progress-cell"
+              :class="{ 'is-filled': n <= Math.min(meta.totalCount, 5) }"
+            ></span>
+          </div>
+          <p class="ws-topstrip__anchor">{{ meta.topstripAnchor }}</p>
+        </section>
+        <!-- UI-E10-CLEAN: .scene-stage__indicator sticky indicator deleted
+             2026-06-22 — was v-if gated on sceneIndicatorVisible (total > 0),
+             so the orientation the user needed in 0-message empty state
+             was missing. UI-E11 (workstation) replaces with an always-on
+             topstrip. -->
+        <GamePanel
+          @show-inline-detail="handleInlineDetail"
+          @quick-action="handleQuickAction"
+        />
+        <InputArea @send="handleSend" />
+      </main>
+      <aside v-if="!showSessionPicker" class="ws-right-rail" aria-label="右栏档案">
+        <div class="ws-section" data-dossier-stamp="卷宗一 · 在场人物">
+          <StatusBar />
         </div>
-        <template v-if="!sidebarCollapsed">
-          <div class="sidebar-section" data-dossier-stamp="卷宗一 · 在场人物">
-            <StatusBar />
-          </div>
-          <div class="sidebar-section" data-dossier-stamp="卷宗二 · 地点卡">
-            <GeographyPanel />
-          </div>
-          <div class="sidebar-section" data-dossier-stamp="卷宗三 · 事件卷">
-            <QuestLog />
-          </div>
-        </template>
+        <div class="ws-section" data-dossier-stamp="卷宗二 · 地点卡">
+          <GeographyPanel />
+        </div>
+        <div class="ws-section" data-dossier-stamp="卷宗三 · 事件卷">
+          <QuestLog />
+        </div>
       </aside>
       <SessionPicker
-        v-else
+        v-if="showSessionPicker"
         :busy="isStarting"
         @select="handleSessionSelect"
         @create="handleSessionCreate"
@@ -313,12 +313,19 @@ import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composabl
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
+import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const router = useRouter()
 const { resolveArt } = useCharacterArt()
 const speakerThumbSrc = computed(() => resolveArt({ poseId: 'speaker-thumb' }).src)
+// UI-E11-A: workstation topstrip / left rail / right rail all read from
+// this single source of truth. Replaces the 6 record-folio computeds
+// (recordCaseNo / recordVolume / recordTime / recordCharacters /
+// recordLocation / recordObjective) that previously drove the deleted
+// 6-cell record-folio band.
+const meta = useWorkstationMeta()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
@@ -341,66 +348,24 @@ const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
 
-// Record-folio 6-field header — pure display, no new store fields.
-// Each computed reads existing gameStore state and degrades to "未登记" /
-// "未进入" when the underlying data is empty. This is the empty-state
-// surface: the folio band is rendered before any user message exists,
-// so the user sees a filled record-book waiting for the first entry.
-const recordCaseNo = computed(() => {
-  const id = gameStore.currentSessionId || gameStore.worldId || 'pending-record'
-  let hash = 0
-  for (let i = 0; i < id.length; i++) {
-    hash = ((hash << 5) - hash) + id.charCodeAt(i)
-    hash |= 0
+// Record-folio 6-field header REMOVED 2026-06-23 (UI-E11-A):
+//   recordCaseNo / recordVolume / recordTime / recordCharacters /
+//   recordLocation / recordObjective computeds were the empty-state
+//   surface for the deleted 6-cell record-folio band. The 5 derived
+//   values they exposed are now provided by useWorkstationMeta
+//   (currentVolume / caseNo / currentTask / currentSection / totalCount).
+//   No store mutation — useWorkstationMeta reads gameStore fields only.
+
+// UI-E11-A: PLAN-QA Fix #2 — handle quick-action CTA emits from GamePanel
+// 0-state hero (续写 / 速记 / 切场景). v0 wires only 'note' to the existing
+// quickNoteOpen flow (per the QA fix recommendation). 'continue' and 'scene'
+// are v0 no-ops; future slices (out of scope for E11-A) will wire them to
+// gameStore action / scene-summary flows without re-editing GamePanel.vue.
+function handleQuickAction(action) {
+  if (action === 'note') {
+    quickNoteOpen.value = true
   }
-  const hex = Math.abs(hash).toString(16).padStart(8, '0').slice(0, 8)
-  return hex.toUpperCase()
-})
-
-const recordVolume = computed(() => {
-  const sessions = gameStore.sessions || []
-  if (sessions.length === 0) return 1
-  return Math.max(1, sessions.length)
-})
-
-const recordTime = computed(() => {
-  const t = gameStore.writingTime
-  if (!t) return '未登记'
-  const parts = []
-  if (t.eraName) parts.push(String(t.eraName))
-  if (t.year) parts.push(String(t.year))
-  if (t.month) parts.push(String(t.month) + '月')
-  if (t.day) parts.push(String(t.day) + '日')
-  return parts.length ? parts.join(' · ') : '未登记'
-})
-
-const recordCharacters = computed(() => {
-  const chars = gameStore.encounteredCharacters || []
-  if (chars.length === 0) return '未登记'
-  const names = chars
-    .map((c) => (c && (c.name || c.label)) ? String(c.name || c.label) : '')
-    .filter(Boolean)
-  if (names.length === 0) return '未登记'
-  if (names.length <= 3) return names.join(' · ')
-  return names.slice(0, 3).join(' · ') + ' 等 ' + names.length + ' 位'
-})
-
-const recordLocation = computed(() => {
-  const m = gameStore.worldMapState
-  if (!m) return '未进入'
-  const parts = []
-  if (m.currentCountry) parts.push(String(m.currentCountry))
-  if (m.currentCity) parts.push(String(m.currentCity))
-  if (m.currentScene) parts.push(String(m.currentScene))
-  return parts.length ? parts.join(' · ') : '未进入'
-})
-
-const recordObjective = computed(() => {
-  const goals = gameStore.goals || []
-  const active = goals.find((g) => g && g.status === 'active' && (g.title || g.label))
-  if (active) return String(active.title || active.label)
-  return '未登记'
-})
+}
 
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
@@ -910,79 +875,6 @@ function quickNoteWordCount(text) {
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* 5C v3.5: page-level pseudo-element overlays (diagonal accent + vertical
-   hatch) are intentionally removed. The CharacterBackdrop is the page
-   background; the page-level gradient stack that muted the art is gone. */
-
-/* UI-E10-CLEAN: .scene-stage__indicator scoped rules deleted 2026-06-22
-   (legacy fallback for the indicator above the ledger). Indicator template
-   + computed + kao.css override all removed in this commit. */
-
-.game-layout {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  display: flex;
-  gap: 14px;
-  padding: 14px 16px 16px;
-  max-width: 1420px;
-  margin: 0 auto;
-  width: 100%;
-  overflow: hidden;
-}
-
-.game-main-shell {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 18px 18px 20px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  clip-path: polygon(0 18px, 24px 0, calc(100% - 44px) 0, 100% 42px, 100% 100%, 0 100%);
-  background:
-    linear-gradient(155deg, color-mix(in srgb, var(--surface-panel) 96%, #040405 4%) 0%, color-mix(in srgb, var(--surface-raised) 88%, #000 12%) 100%);
-  box-shadow: var(--shadow-floating);
-  overflow: hidden;
-}
-
-.game-main-shell::before {
-  content: '';
-  position: absolute;
-  inset: 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 14%, transparent);
-  clip-path: polygon(0 12px, 16px 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
-  pointer-events: none;
-}
-
-.sidebar {
-  width: 248px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  flex-shrink: 0;
-  transition: width 0.2s ease;
-}
-
-.sidebar.collapsed {
-  width: 40px;
-  overflow: visible;
-}
-
-.sidebar-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  clip-path: polygon(0 14px, 18px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
-  background:
-    linear-gradient(142deg, color-mix(in srgb, var(--surface-panel) 94%, #060607 6%), color-mix(in srgb, var(--surface-raised) 90%, transparent));
-  box-shadow: var(--shadow-floating);
-}
-
 .sidebar-head-copy {
   min-width: 0;
   display: grid;
@@ -1002,45 +894,6 @@ function quickNoteWordCount(text) {
   line-height: 1.2;
   letter-spacing: 0;
   color: var(--text-primary);
-}
-
-.sidebar-toggle {
-  width: 30px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  clip-path: polygon(0 8px, 10px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 10px) 100%, 0 100%);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-muted);
-  align-self: flex-end;
-  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.sidebar-toggle:hover {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-  transform: translateY(-1px);
-}
-
-.sidebar-section {
-  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  clip-path: polygon(0 14px, 18px 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
-  padding: 14px;
-  box-shadow: var(--shadow-floating);
-}
-
-.game-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  overflow: hidden;
 }
 
 /* Pass 3: warm-gold multiply overlay — uses its own DOM element to avoid cascade collision with kao blade ::after above */
@@ -1395,24 +1248,6 @@ function quickNoteWordCount(text) {
 }
 
 @media (max-width: 980px) {
-  .game-layout {
-    width: min(100%, calc(100% - 28px));
-  }
-
-  .game-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: static;
-    top: auto;
-    max-height: none;
-  }
-
-  .game-main-shell,
-  .sidebar {
-    padding: 12px;
-  }
 
   .quick-notes-rail {
     top: auto;
@@ -1456,10 +1291,6 @@ function quickNoteWordCount(text) {
 }
 
 @media (max-width: 640px) {
-  .game-layout {
-    width: min(100%, calc(100% - 20px));
-    margin-top: 14px;
-  }
 
   .sidebar-head-copy strong {
     font-size: 20px;
@@ -1627,80 +1458,12 @@ function quickNoteWordCount(text) {
   cursor: not-allowed;
 }
 
-.game-layout {
-  width: min(1440px, calc(100% - 40px));
-  gap: 18px;
-  padding: 18px 0 22px;
-}
-
-.game-main-shell {
-  padding: 18px 18px 20px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, var(--border));
-  clip-path: polygon(0 20px, 24px 0, calc(100% - 36px) 0, 100% 36px, 100% 100%, 0 100%);
-  border-radius: 0;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0%, color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)) 100%);
-  box-shadow:
-    0 26px 40px color-mix(in srgb, #000 12%, transparent),
-    14px 14px 0 color-mix(in srgb, var(--archive-olive-strong) 8%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent);
-}
-
-.game-main-shell::before {
-  inset: 12px;
-  border-color: color-mix(in srgb, var(--archive-gold) 10%, transparent);
-  clip-path: polygon(0 14px, 18px 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
-  border-radius: 0;
-}
-
-.sidebar {
-  width: 264px;
-  padding: 18px 18px 20px;
-  border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--archive-paper) 8%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 94%, #0f201d), color-mix(in srgb, var(--archive-photo) 94%, #17302c));
-  box-shadow:
-    0 24px 34px color-mix(in srgb, #000 16%, transparent),
-    14px 14px 0 color-mix(in srgb, #000 10%, transparent);
-}
-
-.sidebar-head {
-  padding: 0 0 14px;
-  border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
-  clip-path: none;
-  background: transparent;
-  box-shadow: none;
-}
-
 .sidebar-head-copy span {
   color: color-mix(in srgb, var(--archive-gold-soft) 84%, var(--archive-paper));
 }
 
 .sidebar-head-copy strong {
   color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
-}
-
-.sidebar-toggle {
-  border-color: color-mix(in srgb, var(--archive-paper) 16%, transparent);
-  background: color-mix(in srgb, #fff 6%, transparent);
-  color: color-mix(in srgb, var(--archive-paper-soft) 88%, #fff);
-}
-
-.sidebar-toggle:hover {
-  border-color: color-mix(in srgb, var(--archive-gold) 36%, transparent);
-  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
-  background: color-mix(in srgb, var(--archive-gold) 10%, transparent);
-}
-
-.sidebar-section {
-  padding: 14px 0 0;
-  border: none;
-  border-top: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
-  clip-path: none;
-  background: transparent;
-  box-shadow: none;
 }
 
 .quick-notes-btn {
@@ -1714,92 +1477,12 @@ function quickNoteWordCount(text) {
   color: var(--archive-olive-strong);
 }
 
-@media (max-width: 980px) {
-  .game-layout {
-    width: min(100%, calc(100% - 28px));
-  }
-
-  .sidebar {
-    width: 100%;
-  }
-}
-
-@media (max-width: 640px) {
-  .game-layout {
-    width: min(100%, calc(100% - 20px));
-  }
-}
-
 @media (max-width: 760px) {
   .action-btn {
     height: 28px;
     padding: 0 10px;
     font-size: 11px;
   }
-}
-
-/* Experience redo: folio spread, fewer frames */
-
-.game-layout {
-  width: min(1440px, calc(100% - 40px));
-  gap: 18px;
-  padding: 18px 0 22px;
-}
-
-.game-main-shell {
-  /* 5C v3.6: p5r Confidant panel — solid paper + 0 radius + 1px ink 3
-     sides + 4px rose left hinge + 6px hard-offset ink shadow (no blur).
-     Replaces v3.5 translucent + backdrop-filter + soft shadow (the
-     "modern dashboard glass card" that the user said has no 3D feel). */
-  padding: 18px 18px 20px;
-  background: var(--archive-paper);
-  border-radius: 0;
-  border-top: 1px solid var(--archive-ink);
-  border-right: 1px solid var(--archive-ink);
-  border-bottom: 1px solid var(--archive-ink);
-  border-left: 4px solid var(--accent-rose);
-  box-shadow: 6px 6px 0 color-mix(in srgb, var(--archive-ink) 88%, transparent);
-  color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-}
-
-.game-main-shell h1, .game-main-shell h2, .game-main-shell h3, .game-main-shell strong {
-  color: var(--archive-ink);
-  text-shadow: 1px 1px 0 color-mix(in srgb, var(--archive-paper) 60%, transparent);
-}
-
-.game-main-shell p, .game-main-shell span, .game-main-shell li {
-  color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-ink-soft));
-}
-
-.game-main-shell::before {
-  inset: 12px;
-  border-color: color-mix(in srgb, var(--archive-gold) 10%, transparent);
-  clip-path: polygon(0 12px, 16px 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 0 100%);
-  border-radius: 0;
-}
-
-.sidebar {
-  width: 252px;
-  padding: 18px 16px 18px;
-  border: none;
-  border-radius: 0;
-  clip-path: polygon(0 16px, 18px 0, 100% 0, 100% calc(100% - 20px), calc(100% - 18px) 100%, 0 100%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 6%, transparent), transparent 16%),
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 95%, #0f201d), color-mix(in srgb, var(--archive-photo) 94%, #17302c));
-  box-shadow:
-    0 24px 34px color-mix(in srgb, #000 16%, transparent),
-    12px 12px 0 color-mix(in srgb, #000 10%, transparent);
-}
-
-.sidebar-head {
-  padding: 0 0 12px;
-  border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
-  clip-path: none;
-  background: transparent;
-  box-shadow: none;
 }
 
 .sidebar-head-copy span {
@@ -1815,27 +1498,6 @@ function quickNoteWordCount(text) {
   font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
   font-size: 18px;
   line-height: 1.1;
-}
-
-.sidebar-toggle {
-  border-color: color-mix(in srgb, var(--archive-paper) 16%, transparent);
-  background: color-mix(in srgb, #fff 6%, transparent);
-  color: color-mix(in srgb, var(--archive-paper-soft) 88%, #fff);
-}
-
-.sidebar-toggle:hover {
-  border-color: color-mix(in srgb, var(--archive-gold) 36%, transparent);
-  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
-  background: color-mix(in srgb, var(--archive-gold) 10%, transparent);
-}
-
-.sidebar-section {
-  padding: 14px 0 0;
-  border: none;
-  border-top: 1px solid color-mix(in srgb, var(--archive-paper) 10%, transparent);
-  clip-path: none;
-  background: transparent;
-  box-shadow: none;
 }
 
 .quick-notes-btn {
@@ -1860,172 +1522,6 @@ function quickNoteWordCount(text) {
 </style>
 
 <style>
-/* Record-folio — 现场记录本 6 件套 + 案卷带
-   Lives OUTSIDE the scoped <style> block as a .theme-kao-gated unscoped
-   block. This is the same pattern as the existing .theme-kao .game-page
-   .sidebar / .sidebar-head / .sidebar-section rules below. Vue's scoped
-   style attribute (data-v-xxx) would add 0,1,1 specificity, but the
-   original tool-feel scoped rules also have 0,1,1 and source-order ties
-   go to whoever was loaded last. Putting the .theme-kao override as
-   .theme-kao .game-page .xxx (specificity 0,3,0 in scoped's 0,1,1 world)
-   wins regardless. No scoped :global, no unlayered importance keyword, no :deep. */
-.theme-kao .game-page .record-folio {
-  position: relative;
-  display: block;
-  padding: 14px 16px 16px;
-  margin: 0;
-  background: var(--archive-paper-soft);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
-  border-radius: 0;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 12%, transparent);
-  font-family: var(--font-display);
-  color: var(--archive-ink);
-}
-
-.theme-kao .game-page .record-folio__band {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 0 10px;
-  margin: 0 0 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-
-.theme-kao .game-page .record-folio__band-kicker {
-  display: inline-block;
-  padding: 1px 6px;
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.18em;
-  color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
-  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
-}
-
-.theme-kao .game-page .record-folio__band-case {
-  flex: 1 1 auto;
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  color: var(--archive-ink);
-  font-style: italic;
-}
-
-.theme-kao .game-page .record-folio__band-status {
-  display: inline-block;
-  padding: 1px 8px;
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.16em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 90%, transparent);
-  background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 50%, transparent);
-}
-
-.theme-kao .game-page .record-folio__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.theme-kao .game-page .record-folio__cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  background: var(--archive-paper);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  border-radius: 0;
-  min-height: 48px;
-}
-
-.theme-kao .game-page .record-folio__kicker {
-  font-size: 9px;
-  font-weight: 400;
-  letter-spacing: 0.2em;
-  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
-  text-transform: none;
-}
-
-.theme-kao .game-page .record-folio__value {
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: var(--archive-ink);
-  line-height: 1.25;
-  word-break: break-word;
-}
-
-@media (max-width: 980px) {
-  .theme-kao .game-page .record-folio__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .theme-kao .game-page .record-folio__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .theme-kao .game-page .record-folio {
-    padding: 10px 12px 12px;
-  }
-}
-
-.theme-kao .game-page .sidebar {
-  position: relative;
-  width: 248px;
-  padding: 0 0 0 22px;
-  background: var(--archive-paper);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
-  border-radius: 0;
-  clip-path: none;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
-  display: flex;
-  flex-direction: column;
-}
-
-.theme-kao .game-page .sidebar::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  top: 18px;
-  bottom: 18px;
-  width: 1px;
-  background:
-    repeating-linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--archive-gold) 64%, transparent) 0 3px,
-      transparent 3px 7px
-    );
-  pointer-events: none;
-}
-
-.theme-kao .game-page .sidebar-head {
-  position: relative;
-  padding: 16px 14px 14px;
-  background: var(--archive-paper-soft);
-  border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
-  clip-path: none;
-  box-shadow: none;
-}
-
-.theme-kao .game-page .sidebar-head::before {
-  content: "卷宗";
-  position: absolute;
-  top: -8px;
-  left: 14px;
-  z-index: 1;
-  padding: 0 6px;
-  background: var(--archive-paper);
-  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.16em;
-}
 
 .theme-kao .game-page .sidebar-head-copy span {
   color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
@@ -2034,53 +1530,6 @@ function quickNoteWordCount(text) {
 
 .theme-kao .game-page .sidebar-head-copy strong {
   color: var(--archive-ink);
-}
-
-.theme-kao .game-page .sidebar-toggle {
-  background: var(--archive-paper);
-  border-color: color-mix(in srgb, var(--archive-gold) 32%, transparent);
-  color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
-  clip-path: none;
-  font-family: var(--font-display);
-  letter-spacing: 0.08em;
-}
-
-.theme-kao .game-page .sidebar-toggle:hover {
-  color: var(--archive-olive-strong);
-  border-color: var(--archive-gold);
-}
-
-/* Sidebar sections — single dossier with 3 sections (人物 / 地点 / 事件)
-   instead of 3 stacked cards. Each section is a "翻开的案卷页" of the
-   same dossier — no individual border, no per-section padding gap, just
-   a thin gold hairline divider between sections. The dossier outer
-   border (on .sidebar) provides the framing; sections read as one
-   continuous record binder, not 3 separate widgets. */
-.theme-kao .game-page .sidebar-section {
-  position: relative;
-  padding: 14px 14px 16px;
-  background: transparent;
-  border: none;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  clip-path: none;
-  box-shadow: none;
-}
-
-.theme-kao .game-page .sidebar-section:first-child {
-  border-top: none;
-}
-
-.theme-kao .game-page .sidebar-section::before {
-  content: attr(data-dossier-stamp);
-  display: block;
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 400;
-  font-style: italic;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-ink) 40%, transparent);
-  margin: 0 0 6px;
-  text-transform: none;
 }
 
 /* UI-E4A: dedupe right-rail section labels.

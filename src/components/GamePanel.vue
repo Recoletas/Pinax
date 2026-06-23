@@ -1,5 +1,31 @@
 <template>
   <div class="chat-container" ref="scrollContainer">
+    <!-- UI-E11-B: 0-state hero block. v-if gated on displayMessages.length === 0
+         so once the first message lands, the hero disappears and the
+         conversation takes the full column. CharacterPortrait narrator
+         (5B v0.1 ship 立绘, kaov-archive-narrator.webp 144KB) shows in
+         240px left column; greeting + 3 quick action CTA (续写 / 速记 /
+         切场景) right column. Each CTA emits('quick-action', id) — parent
+         Experience.vue handles the action (per E11-PLAN-QA Fix #2). -->
+    <section
+      v-if="displayMessages.length === 0"
+      class="chat-container__hero"
+      aria-label="档案空白引导"
+    >
+      <div class="chat-container__hero-portrait">
+        <CharacterPortrait pose-id="narrator" size="hero" caption="在场档案员" />
+      </div>
+      <div class="chat-container__hero-prompt">
+        <p class="chat-container__hero-greeting">档案空白 · 等候第 1 条落笔</p>
+        <p class="chat-container__hero-hint">在下方的输入区记录你的第 1 步行动, 或从以下开始:</p>
+        <div class="chat-container__hero-actions">
+          <button class="action-btn primary" type="button" @click="$emit('quick-action', 'continue')">续写</button>
+          <button class="action-btn" type="button" @click="$emit('quick-action', 'note')">速记</button>
+          <button class="action-btn" type="button" @click="$emit('quick-action', 'scene')">切场景</button>
+        </div>
+      </div>
+    </section>
+
     <!-- UI-E10: scene-entry single-column record stream.
          Each message becomes one <article class="scene-entry"> with:
            - top marginalia (date / section no / role stamp) — gives a
@@ -99,6 +125,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
+import CharacterPortrait from './folio/CharacterPortrait.vue'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
@@ -107,7 +134,13 @@ const editingIndex = ref(-1)
 const editText = ref('')
 const editTextarea = ref(null)
 
-const emit = defineEmits(['show-inline-detail'])
+// UI-E11-B: emit('quick-action') added so Experience.vue (parent
+// workstation composition) can listen for 续写 / 速记 / 切场景 CTA.
+// Per E11-PLAN-QA Fix #2: action='note' opens quick-note workspace;
+// 'continue' / 'scene' are v0 stubs (no-op) that the parent can later
+// wire to gameStore action in a follow-up slice without re-editing
+// GamePanel.vue.
+const emit = defineEmits(['show-inline-detail', 'quick-action'])
 
 // === UI-E10 scene-entry structure =====================================
 // Replaces UI-E9 book spread: each message becomes one <article
@@ -824,6 +857,57 @@ summary .arrow {
   }
   .theme-kao .scene-entry__no {
     font-size: 11px;
+  }
+}
+
+/* UI-E11-B: 0-state hero block — narrator portrait + greeting + 3 quick
+   action CTA. Shows only when displayMessages.length === 0 (v-if above).
+   Layout: 2-column grid 240px portrait + 1fr prompt block. Mobile collapses
+   to 1 column via the 760px media query below. All colors via
+   var(--archive-*) tokens, no raw hex. Border-bottom dotted archive-gold
+   acts as a section divider without being a hard horizontal rule. */
+.theme-kao .chat-container__hero {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 18px;
+  padding: 22px 18px 28px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
+}
+.theme-kao .chat-container__hero-portrait {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.theme-kao .chat-container__hero-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+}
+.theme-kao .chat-container__hero-greeting {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--archive-ink);
+}
+.theme-kao .chat-container__hero-hint {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
+}
+.theme-kao .chat-container__hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .theme-kao .chat-container__hero {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -11,6 +11,18 @@
         <p class="summary-value">{{ item.value }}</p>
       </article>
     </section>
+    <!-- UI-E11-C: 0-data inline hint — 当 summaryItems 全空 (无 goal / 无 choice / 无 character),
+         显示档案员批注风格 inline hint, 不再是 0 stat 堆叠 -->
+    <section
+      v-else
+      class="adventure-summary adventure-summary--empty"
+      aria-label="无摘要"
+    >
+      <article class="summary-card summary-card--hint">
+        <div class="summary-label">暂无摘要</div>
+        <p class="summary-value summary-value--hint">推进冒险后会生成目标 / 选择 / 已遇角色摘要</p>
+      </article>
+    </section>
 
     <section
       v-if="latestPlotEntry"
@@ -135,7 +147,8 @@
       </svg>
     </button>
     <button v-else type="button" class="empty-state" @click="openAddModal">
-      点击记录第一个活动
+      <span class="empty-state-kicker">事件卷 · 空白</span>
+      <span class="empty-state-copy">记录第一次冒险事件 · 时间 / 类型 / 关联活动</span>
     </button>
 
     <div class="inline-actions">
@@ -768,6 +781,34 @@ function deleteActivity() {
   border-radius: 10px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, transparent), color-mix(in srgb, var(--bg-tertiary) 94%, transparent));
+}
+
+/* UI-E11-C: 0-data 状态 — summary 空 + empty state 拆分 */
+.summary-card--hint {
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+.summary-value--hint {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.empty-state {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  /* override the .empty-state horizontal-center defined above */
+  justify-content: flex-start;
+}
+.empty-state-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.empty-state-copy {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .summary-label {

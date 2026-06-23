@@ -2389,4 +2389,303 @@
      from total > 0), so the indicator was invisible in the 0-message
      empty state where the user needed orientation most. UI-E11 will
      replace with an always-on topstrip section anchor. */
+
+  /* UI-E11-A: Experience workstation 4-section composition (topstrip /
+     left rail / center stage / right rail). Replaces UI-E10 record-folio
+     band + scene-stage + dossier sidebar stack which produced a blank
+     central paper surface in 0-message state. 4 sections share one
+     sticky topstrip as the section anchor, eliminating the need for
+     the deleted 28px shared vertical axis (UI-E10-CLEAN 2026-06-22).
+     PLAN-QA Fix #4: ws-center-stage child flex rules added so the
+     existing .chat-container (height: 100% from E10) flex-grows inside
+     the new flex column container and InputArea (`.input-area`) sticks
+     to the bottom instead of being pushed out of the viewport. */
+
+  .theme-kao .ws-layout {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 260px 1fr 300px;
+    gap: 14px;
+    padding: 14px 16px 16px;
+    max-width: 1420px;
+    margin: 0 auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  @media (max-width: 1280px) {
+    .theme-kao .ws-layout {
+      grid-template-columns: 220px 1fr 280px;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .theme-kao .ws-layout {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+  }
+
+  .theme-kao .ws-topstrip {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-floating-dock, 240);
+    height: 80px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 16px;
+    background: var(--archive-paper);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+    font-family: var(--font-sans);
+  }
+
+  @media (max-width: 980px) {
+    .theme-kao .ws-topstrip {
+      height: auto;
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: auto;
+    }
+  }
+
+  .theme-kao .ws-left-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    background: var(--archive-paper-soft);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    overflow-y: auto;
+  }
+
+  @media (max-width: 980px) {
+    .theme-kao .ws-left-rail {
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+  }
+
+  .theme-kao .ws-center-stage {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--archive-paper);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+    overflow: hidden;
+  }
+
+  /* PLAN-QA Fix #4: ws-center-stage children — GamePanel's .chat-container
+     was height: 100% under E10, but inside a flex column that pushes
+     InputArea (the next sibling) off-screen. Override so the chat scrolls
+     within available space and InputArea sticks to the bottom. */
+  .theme-kao .ws-center-stage > .chat-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .theme-kao .ws-center-stage > .input-area,
+  .theme-kao .ws-center-stage > textarea,
+  .theme-kao .ws-center-stage > form,
+  .theme-kao .ws-center-stage > .action-row {
+    flex-shrink: 0;
+    align-self: stretch;
+  }
+
+  .theme-kao .ws-right-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--archive-paper);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    overflow-y: auto;
+  }
+
+  @media (max-width: 980px) {
+    .theme-kao .ws-right-rail {
+      flex-direction: column;
+    }
+  }
+
+  /* UI-E11-A: topstrip — 5 metadata cells + 5-cell progress bar.
+     The topstrip is the single section anchor (replaces E10-CLEAN's
+     deleted 28px shared vertical axis + scene-stage__indicator). Each
+     cell carries a sans 9px kicker + a display 14px value; the 5-cell
+     progress bar shows the current narrative state as filled gold cells. */
+
+  .theme-kao .ws-topstrip__cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 8px;
+    border-right: 1px solid color-mix(in srgb, var(--archive-gold) 16%, transparent);
+  }
+
+  .theme-kao .ws-topstrip__cell:last-of-type {
+    border-right: none;
+  }
+
+  .theme-kao .ws-topstrip__kicker {
+    font-family: var(--font-sans);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+    text-transform: uppercase;
+  }
+
+  .theme-kao .ws-topstrip__value {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--archive-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .theme-kao .ws-topstrip__case {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--archive-ink);
+    font-style: italic;
+  }
+
+  .theme-kao .ws-topstrip__meta {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  }
+
+  /* 5-cell progress bar — one cell per section axis:
+     开卷 / 当前 / 在场 / 发生 / 落笔. Filled cells represent the
+     current narrative state. Total count fills progressively. */
+  .theme-kao .ws-topstrip__progress {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    width: 200px;
+    padding: 4px;
+    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  }
+
+  .theme-kao .ws-topstrip__progress-cell {
+    height: 12px;
+    background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
+    transition: background 0.2s ease;
+  }
+
+  .theme-kao .ws-topstrip__progress-cell.is-filled {
+    background: color-mix(in srgb, var(--archive-gold) 78%, transparent);
+    border-color: var(--archive-gold);
+  }
+
+  /* Topstrip anchor text — always-on section indicator. In 0-state the
+     Vue template renders "档案空白 · 卷 1 · 等候第 1 条" (B2 contract);
+     here we set the typographic treatment so the italic rose anchor
+     reads as a single continuity mark, not as a status badge. */
+  .theme-kao .ws-topstrip__anchor {
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-style: italic;
+    letter-spacing: 0.06em;
+    color: color-mix(in srgb, var(--archive-rose) 84%, transparent);
+  }
+
+  /* UI-E11-A: ws-section — right rail dossier section container.
+     Replaces the OLD .theme-kao .game-page .sidebar-section (E2/E4A
+     archive-binder). Each .ws-section in the right rail shows one
+     dossier stamp (卷宗一/二/三) and one sub-component
+     (StatusBar / GeographyPanel / QuestLog). Sections share the
+     ws-right-rail outer paper; per-section borders are minimal so
+     the right rail reads as one continuous record binder. */
+  .theme-kao .ws-section {
+    position: relative;
+    padding: 14px 14px 16px;
+    background: transparent;
+    border-top: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  }
+
+  .theme-kao .ws-section:first-child {
+    border-top: none;
+  }
+
+  .theme-kao .ws-section::before {
+    content: attr(data-dossier-stamp);
+    display: block;
+    font-family: var(--font-display);
+    font-size: 9px;
+    font-style: italic;
+    letter-spacing: 0.02em;
+    color: color-mix(in srgb, var(--archive-ink) 40%, transparent);
+    margin: 0 0 6px;
+  }
+
+  /* UI-E11-W3: 4-layer font layering (Task 8 of W3 cleanup).
+     DISPLAY=LXGW brush for case / kicker / stamp / section title (10-14px).
+     BODY=Songti/Georgia for 正文 / kicker / section number (12-18px).
+     META=sans for 案号 / 角色名 / 时间 / stat (10-11px).
+     INTERACTIVE=sans 13px for buttons, body for textarea.
+     Per E11-PLAN-QA Fix #3: button rules scoped to .ws-layout so they
+     don't leak to floating components (modal, dropdown, etc.).
+     Note: scene-entry__stamp / display-name / msg-time / text-main are
+     also styled in GamePanel.vue scoped CSS; the workstation-level
+     defaults here are layered (Vue scoped CSS wins on specificity for
+     overlapping properties). */
+
+  /* DISPLAY layer — ws-right-rail section title (卷宗一/二/三 stamp
+     container's font treatment for the implied header position). */
+  .theme-kao .ws-right-rail__section-title {
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    color: var(--archive-ink);
+  }
+
+  /* BODY layer — ws-left-rail kicker (在场档案员 · 旁白 GM label) +
+     brief (topstripAnchor description paragraph, Experience.vue L19-20). */
+  .theme-kao .ws-left-rail__kicker {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  }
+  .theme-kao .ws-left-rail__brief {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.6;
+    color: var(--archive-ink);
+  }
+
+  /* INTERACTIVE layer — buttons (sans 13px) + textarea (body 14px).
+     Scoped to .ws-layout so global .theme-kao button rules don't
+     pollute floating components (modals, dropdowns, drawers). */
+  .theme-kao .ws-layout button {
+    font-family: var(--font-sans);
+    font-size: 13px;
+  }
+  .theme-kao .ws-layout .action-btn {
+    font-family: var(--font-sans);
+    font-size: 13px;
+  }
+  .theme-kao .ws-layout textarea {
+    font-family: var(--font-body);
+    font-size: 14px;
+  }
 }

@@ -33,22 +33,20 @@ describe('5C v3.5 — /experience full-bleed (no card frame)', () => {
     expect(src).not.toMatch(/\.game-page::after/)
   })
 
-  it('Test 3: .game-main-shell uses solid var(--archive-paper) panel (5C v3.6 p5r Confidant, not v3.5 translucent)', () => {
-    // Experience.vue has multiple .game-main-shell rules (legacy passes
-    // remain). The LAST rule wins in cascade order, so we check the
-    // final active rule.
-    const matches = [...src.matchAll(/\.game-main-shell\s*\{[\s\S]*?\}/g)]
-    const shellRule = matches.length ? matches[matches.length - 1][0] : ''
-    expect(shellRule).toMatch(/background:\s*var\(--archive-paper\)/)
-    expect(shellRule).not.toMatch(/rgba\(248,\s*243,\s*233/)
+  it('Test 3: .ws-center-stage uses solid var(--archive-paper) panel (UI-E11-A replaces .game-main-shell)', () => {
+    // UI-E11-A workstation layout: .ws-center-stage is the center column
+    // (1fr grid cell of .ws-layout). It carries the solid archive-paper
+    // panel that the OLD .game-main-shell provided in 5C v3.6.
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-center-stage\s*\{[^}]*var\(--archive-paper\)/s)
   })
 
-  it('Test 4: .game-main-shell uses 4px rose hinge + 6px hard-offset shadow, no backdrop-filter (5C v3.6 p5r Confidant)', () => {
-    const matches = [...src.matchAll(/\.game-main-shell\s*\{[\s\S]*?\}/g)]
-    const shellRule = matches.length ? matches[matches.length - 1][0] : ''
-    expect(shellRule).toMatch(/border-left:\s*4px\s+solid\s+var\(--accent-rose\)/)
-    expect(shellRule).toMatch(/box-shadow:\s*6px\s+6px\s+0\b/)
-    expect(shellRule).not.toMatch(/backdrop-filter:/)
+  it('Test 4: .ws-center-stage (workstation layout) — no v3.5 translucent backdrop-filter, no 4px rose hinge (those were OLD .game-main-shell P5R Confidant visual choices superseded by the workstation 4-section grid)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const rule = kao.match(/\.theme-kao\s+\.ws-center-stage\s*\{[\s\S]*?\}/)
+    expect(rule).not.toBeNull()
+    expect(rule[0]).not.toMatch(/backdrop-filter:/)
+    expect(rule[0]).not.toMatch(/border-left:\s*4px\s+solid\s+var\(--accent-rose\)/)
   })
 
   it('Test 5: <CharacterBackdrop> is rendered inside the .game-page wrapper (DOM order)', () => {

@@ -9,8 +9,31 @@
       <span>在场人物</span>
     </div>
 
+    <!-- UI-E11-C: 0-data 时间 inline hint — 不再是空 stat 堆叠.
+         当 currentEraName + year/month/day 全空时, 显示档案员批注风格 inline hint,
+         提示 user 点击展开时间设置 (跟 record-book "未登记" 语义一致). -->
+    <div
+      v-if="isTimeEmpty"
+      class="current-time current-time--empty"
+      @click="showTimeDetail = true"
+    >
+      <div class="time-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 1a5 5 0 110 10A5 5 0 017 2z"/>
+          <path d="M7 4v3l2 2"/>
+        </svg>
+      </div>
+      <div class="time-info">
+        <span class="time-era">未登记 · 空白</span>
+        <span class="time-value time-value--hint">点击设定纪年与时间</span>
+      </div>
+      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
+      </svg>
+    </div>
+
     <!-- 当前时间显示 -->
-    <div class="current-time" @click="showTimeDetail = true">
+    <div v-else class="current-time" @click="showTimeDetail = true">
       <div class="time-icon">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
           <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 1a5 5 0 110 10A5 5 0 017 2z"/>
@@ -27,7 +50,28 @@
     </div>
 
     <!-- 角色概览 - 点击打开详情 -->
-    <div class="compact-profile" @click="showDetail = true">
+    <!-- UI-E11-C: 0-data 角色 inline hint — 当 playerName='主角' default AND 0 traits AND 0 description AND mood=50 (default),
+         显示"未登记角色"inline hint, 不再是空 stat 堆叠. -->
+    <div
+      v-if="isCharacterEmpty"
+      class="compact-profile compact-profile--empty"
+      @click="showDetail = true"
+    >
+      <div class="avatar-mini">
+        <div class="avatar-placeholder avatar-placeholder--hint">·</div>
+      </div>
+      <div class="profile-info">
+        <div class="character-name character-name--hint">未登记角色</div>
+        <div class="mood-compact">
+          <span class="mood-label mood-label--hint">点击设定主角名 / 心境 / 性格</span>
+        </div>
+      </div>
+      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <div v-else class="compact-profile" @click="showDetail = true">
       <div class="avatar-mini">
         <img v-if="playerAvatar" :src="playerAvatar" class="avatar" />
         <div v-else class="avatar-placeholder">{{ playerName[0] }}</div>
@@ -364,6 +408,23 @@ const playerAvatar = computed(() => gameStore.playerCharacter?.avatar || '')
 const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.age || '-')
 const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')
 
+// UI-E11-C: 0-data inline hint gates. Truthy 0 data -> show inline hint
+// instead of empty stat stacks. Both functions stay pure reads of existing
+// reactive state — no store mutation.
+const isTimeEmpty = computed(() => {
+  return !currentEraName.value
+    && !currentYear.value
+    && !currentMonth.value
+    && !currentDay.value
+})
+const isCharacterEmpty = computed(() => {
+  const hasName = !!(editingName.value || gameStore.playerCharacter?.name)
+  const hasAvatar = !!playerAvatar.value
+  const hasTraits = characterTraits.value.length > 0
+  const hasDescription = !!(editingName.value && String(gameStore.writingCharacter?.description || '').trim())
+  return !hasName && !hasAvatar && !hasTraits && !hasDescription && moodIntensity.value === 50
+})
+
 onMounted(() => {
   syncCharacterData()
   syncTimeData()
@@ -547,6 +608,38 @@ function saveCharacter() {
   cursor: pointer; transition: all 0.15s;
 }
 .compact-profile:hover { background: var(--bg-hover); }
+
+/* UI-E11-C: 0-data inline hint — 当档案为空时,显示 dashed outline +
+   字符色调 hint, 而不是 SaaS stat 卡片堆叠 */
+.current-time--empty,
+.compact-profile--empty {
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+.current-time--empty:hover,
+.compact-profile--empty:hover {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+.time-value--hint {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.character-name--hint {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.avatar-placeholder--hint {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.mood-label--hint {
+  font-style: italic;
+  color: var(--text-muted);
+}
 
 .avatar-mini { flex-shrink: 0; }
 

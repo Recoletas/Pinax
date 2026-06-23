@@ -173,8 +173,10 @@ describe('ui polish contract', () => {
     expect(experience).not.toContain('class="playable-world-scene-status"')
     expect(experience).not.toContain('<strong>入口</strong>')
     expect(experience).not.toContain('<strong>出口</strong>')
-    expect(experience).toContain('class="game-main-shell"')
-    expect(experience).toContain('class="sidebar-head-copy"')
+    // UI-E11-A: game-main-shell / sidebar-head-copy replaced by ws-* in
+    // workstation layout.
+    expect(experience).toContain('class="ws-layout"')
+    expect(experience).toContain('class="ws-right-rail"')
     expect(experience).not.toContain('label="开局"')
     expect(experience).not.toContain('label="改写"')
     expect(experience).not.toContain('从这里开局')
@@ -239,9 +241,11 @@ describe('ui polish contract', () => {
     // Experience contract unchanged.
     expect(experience).not.toContain('<WorkbenchPageHero')
     expect(experience).not.toContain('class="experience-stage-band"')
-    expect(experience).toContain('class="game-layout"')
-    expect(experience).toContain('class="game-main-shell"')
-    expect(experience).toContain('class="sidebar-head-copy"')
+    // UI-E11-A: game-layout / game-main-shell / sidebar-head-copy replaced
+    // by ws-layout / ws-center-stage / ws-right-rail in the workstation layout.
+    expect(experience).toContain('class="ws-layout"')
+    expect(experience).toContain('class="ws-center-stage"')
+    expect(experience).toContain('class="ws-right-rail"')
 
     // UI-W2: Writing = 编辑室资料墙 (Pinax Wall). Top is a 216px wall
     // (28px molding + 188px cork-board), main is 3-zone grid (shelf +
@@ -1141,127 +1145,123 @@ describe('ui polish — W3 Writing visual emergence (drop-cap)', () => {
   })
 })
 
-describe('ui polish — Experience V2 archive binder (Phase 1C slice A: right sidebar → 现场档案夹)', () => {
-  it('Experience.vue owns the kao sidebar archive-binder override without scoped :global leakage', () => {
+// UI-E11-A: Phase 1C archive-binder describe block was repurposed. The
+// "right sidebar reads as 1 dossier with 3 sections" semantics is now
+// served by the .ws-right-rail + 3 .ws-section stamps (in
+// src/pages/Experience.vue template + src/styles/themes/kao.css). The
+// 6 contracts below verify the NEW workstation architecture replaces
+// the OLD archive-binder pattern.
+describe('ui polish — UI-E11-A Experience workstation (replaces Phase 1C archive binder)', () => {
+  it('kao.css owns the ws-right-rail rules (workstation replaces .theme-kao .game-page .sidebar in Experience.vue unscoped)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const kaoCss = readProjectFile('src/styles/themes/kao.css')
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar\s*\{[^}]*var\(--archive-gold\)/s,
+    // NEW: ws-right-rail in kao.css with archive-gold border
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-right-rail\s*\{[^}]*color-mix\(in srgb,\s*var\(--archive-gold\)/s,
     )
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar::before\s*\{[^}]*repeating-linear-gradient/s,
-    )
+    // No scoped :global in Experience.vue
     expect(experience).not.toContain(':global(.theme-kao)')
+    // E11-E1: kao.css must not have a .theme-kao .sidebar rule (without .game-page)
     expect(kaoCss).not.toMatch(/\.theme-kao\s+\.sidebar\s*\{/)
-    expect(kaoCss).not.toContain('Experience V2')
   })
 
-  it('Experience.vue exposes kao sidebar-head rule with archive paper + clip-path: none', () => {
+  it('kao.css exposes ws-right-rail with paper bg + gold border (replaces sidebar-head clip-path: none rule)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-right-rail\s*\{[^}]*var\(--archive-paper\)/s,
+    )
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-right-rail\s*\{[^}]*color-mix\(in srgb,\s*var\(--archive-gold\)/s,
+    )
+  })
+
+  it('Experience.vue template mounts 3 .ws-section stamps (replaces sidebar-section dossier stamps)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-head\s*\{[^}]*clip-path:\s*none/s,
+    expect(experience).toContain('data-dossier-stamp="卷宗一 · 在场人物"')
+    expect(experience).toContain('data-dossier-stamp="卷宗二 · 地点卡"')
+    expect(experience).toContain('data-dossier-stamp="卷宗三 · 事件卷"')
+  })
+
+  it('kao.css exposes .ws-section rule that integrates into 1 dossier (no per-section paper card, divider line between sections)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // .ws-section has transparent bg (so .ws-right-rail outer paper
+    // shows through) + a gold hairline divider border-top.
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*background:\s*transparent/s,
     )
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-head\s*\{[^}]*var\(--archive-paper-soft\)/s,
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px solid/s,
     )
   })
 
-  it('Experience.vue exposes kao sidebar-head::before with "卷宗" half-stripped index badge', () => {
-    const experience = readProjectFile('src/pages/Experience.vue')
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-head::before\s*\{[^}]*content:\s*"卷宗"/s,
+  it('kao.css exposes .ws-topstrip__case with archive-ink + italic (replaces sidebar-toggle kao rule)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-topstrip__case\s*\{[^}]*var\(--archive-ink\)/s,
     )
-    // Half-stripped effect: the badge uses the same archive paper as the head body,
-    // so the gold hairline appears to "break" through the top edge of the card.
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-head::before\s*\{[^}]*top:\s*-8px/s,
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-topstrip__case\s*\{[^}]*font-style:\s*italic/s,
     )
   })
 
-  it('Experience.vue exposes kao sidebar-section rule that integrates into 1 dossier (no per-section paper card, divider line between sections)', () => {
-    const experience = readProjectFile('src/pages/Experience.vue')
-    // Single-dossier rule: .sidebar-section has transparent bg (so the
-    // .sidebar outer paper shows through) + a gold divider border-top.
-    // clip-path: none is inherited from the .sidebar override.
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*background:\s*transparent/s,
-    )
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*border-top:\s*1px solid/s,
-    )
-  })
-
-  it('Experience.vue exposes kao sidebar-toggle rule with archive paper + clip-path: none', () => {
-    const experience = readProjectFile('src/pages/Experience.vue')
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-toggle\s*\{[^}]*clip-path:\s*none/s,
-    )
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-toggle\s*\{[^}]*var\(--archive-paper\)/s,
-    )
-  })
-
-  it('Experience.vue keeps the 3 functional sidebar sections (StatusBar / GeographyPanel / QuestLog) and 收起/展开 toggle — archive binder is visual-only, no functional regression', () => {
+  it('Experience.vue keeps the 3 functional right-rail components (StatusBar / GeographyPanel / QuestLog) — workstation layout is functional-only, no visual regression', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).toContain('<StatusBar')
     expect(experience).toContain('<GeographyPanel')
     expect(experience).toContain('<QuestLog')
-    expect(experience).toContain('sidebarCollapsed = !sidebarCollapsed')
-    // Quick-note toggle uses Vue's .stop modifier; match the function name, not the verbatim @click string.
+    // Quick-note toggle still wired
     expect(experience).toMatch(/toggleQuickNoteWorkspace/)
+    // UI-E11-A: workstation layout removed the sidebar collapse toggle
+    // (E4A archive-binder visual feature). E4A visual archive-binder
+    // is superseded; ws-right-rail is always 300px wide.
+    expect(experience).not.toContain('sidebarCollapsed = !sidebarCollapsed')
   })
 
-  it('Experience.vue still has no <WorkbenchPageHero> (Phase 1C lock: right sidebar is the only chrome, no dashboard hero on /experience)', () => {
+  it('Experience.vue still has no <WorkbenchPageHero> (Phase 1C lock: workstation right rail is the only chrome, no dashboard hero on /experience)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     expect(experience).not.toContain('<WorkbenchPageHero')
   })
 })
 
-describe('ui polish — UI-E2: Experience Site Record Book (Phase 1C slice B: main area 6-field record header + input de-SaaS + sidebar labels)', () => {
-  // 1) Main area has a 6-field record header (案号 / 卷次 / 当下时间 / 在场人物 / 当前地点 / 当前任务)
-  it('Experience.vue exposes a record-folio section with 6 fields and a band (现场记录本 header)', () => {
+describe('ui polish — UI-E2: Experience Site Record Book (Phase 1C slice B — superseded by UI-E11-A workstation)', () => {
+  // 1) Main area has a workstation topstrip (卷 / 案号 / 当前任务 / 第N条 / 共M条)
+  //    The OLD 6-field record-folio is superseded by the 5-cell ws-topstrip +
+  //    useWorkstationMeta composable (which derives the same data from
+  //    gameStore, 0 store mutation).
+  it('Experience.vue exposes a ws-topstrip with 5 metadata cells (replaces 6-field record-folio)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
-    expect(experience).toContain('class="record-folio"')
-    expect(experience).toContain('record-folio__band')
-    expect(experience).toContain('record-folio__grid')
-    for (const kicker of ['案号', '卷次', '当下时间', '在场人物', '当前地点', '当前任务']) {
+    expect(experience).toContain('class="ws-topstrip"')
+    expect(experience).toContain('ws-topstrip__cell')
+    for (const kicker of ['卷', '案号', '当前任务', '第 N 条', '共 M 条']) {
       expect(experience).toContain(kicker)
     }
   })
 
-  it('Experience.vue 6-field record reads from existing gameStore fields (no new store fields)', () => {
-    const experience = readProjectFile('src/pages/Experience.vue')
-    // 6 computed properties reading existing gameStore data
-    expect(experience).toMatch(/recordCaseNo.*=.*computed/)
-    expect(experience).toMatch(/recordVolume.*=.*computed/)
-    expect(experience).toMatch(/recordTime.*=.*computed/)
-    expect(experience).toMatch(/recordCharacters.*=.*computed/)
-    expect(experience).toMatch(/recordLocation.*=.*computed/)
-    expect(experience).toMatch(/recordObjective.*=.*computed/)
+  it('useWorkstationMeta composable reads from existing gameStore fields (no new store fields)', () => {
+    const meta = readProjectFile('src/composables/useWorkstationMeta.js')
+    // 5 computed exports + 2 helpers
+    expect(meta).toMatch(/currentVolume.*=.*computed/)
+    expect(meta).toMatch(/caseNo.*=.*computed/)
+    expect(meta).toMatch(/currentTask.*=.*computed/)
+    expect(meta).toMatch(/currentSection.*=.*computed/)
+    expect(meta).toMatch(/totalCount.*=.*computed/)
     // Sources (must be from existing gameStore, not new fields)
-    expect(experience).toMatch(/gameStore\.currentSessionId/)
-    expect(experience).toMatch(/gameStore\.sessions/)
-    expect(experience).toMatch(/gameStore\.writingTime/)
-    expect(experience).toMatch(/gameStore\.encounteredCharacters/)
-    expect(experience).toMatch(/gameStore\.worldMapState/)
-    expect(experience).toMatch(/gameStore\.goals/)
+    expect(meta).toMatch(/gameStore\.currentSessionId/)
+    expect(meta).toMatch(/gameStore\.sessions/)
+    expect(meta).toMatch(/gameStore\.goals/)
+    expect(meta).toMatch(/gameStore\.messages/)
   })
 
-  it('Experience.vue exposes the record-folio visual rules in the .theme-kao unscoped block (no :global, no !important, no :deep)', () => {
-    const experience = readProjectFile('src/pages/Experience.vue')
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.record-folio\s*\{[^}]*var\(--archive-paper-soft\)/s,
-    )
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.record-folio__grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/s,
-    )
-    // Hard constraints — none of these forbidden patterns in the record-folio block
-    const recordFolioBlock = experience.match(/\.theme-kao\s+\.game-page\s+\.record-folio[\s\S]*?\n}/)
-    expect(recordFolioBlock).not.toBeNull()
-    const block = recordFolioBlock[0]
-    expect(block).not.toContain(':global')
-    expect(block).not.toContain(':deep')
-    expect(block).not.toContain('!important')
+  it('kao.css owns the workstation layout rules (ws-topstrip + ws-layout) — no scoped :global, no !important, no :deep', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // UI-E11-A ws-topstrip / ws-layout are the new section anchor
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.ws-layout\s*\{[^}]*display:\s*grid/s)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.ws-topstrip\s*\{[^}]*position:\s*sticky/s)
+    // Hard constraints — strip /* */ comments first, then check the live CSS
+    // (raw hex check is covered by E11-F1 contract separately)
+    const liveCss = kaoCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(liveCss).not.toMatch(/:global\(/)
+    expect(liveCss).not.toMatch(/:deep\(/)
   })
 
   // 2) InputArea: 发送 → 记入 + remove token ring
@@ -1473,23 +1473,27 @@ describe('ui polish — UI-N2 Notes Archive Drawer composition', () => {
 })
 
 describe('ui polish — UI-E3 Experience polish (record-book composition: dossier sidebar + ledger entries + dossier modals)', () => {
-  it('UI-E3: right sidebar reads as 1 dossier with 3 sections, not 3 stacked cards (data-dossier-stamp on each section)', () => {
+  it('UI-E3: right rail reads as 1 dossier with 3 ws-section stamps (workstation layout — replaces sidebar-section)', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
-    // 3 dossier-stamp labels (卷宗一 / 卷宗二 / 卷宗三) on the 3 sidebar sections
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // 3 dossier-stamp labels (卷宗一 / 卷宗二 / 卷宗三) on the 3 ws-section
     expect(experience).toContain('data-dossier-stamp="卷宗一 · 在场人物"')
     expect(experience).toContain('data-dossier-stamp="卷宗二 · 地点卡"')
     expect(experience).toContain('data-dossier-stamp="卷宗三 · 事件卷"')
-    // The .sidebar-section rule consumes attr(data-dossier-stamp) to render a kicker
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section::before\s*\{[^}]*attr\(data-dossier-stamp\)/s,
+    // The .ws-section rule consumes attr(data-dossier-stamp) to render a kicker
+    // (UI-E11-A moved the dossier-stamp rule from .theme-kao .game-page
+    // .sidebar-section::before in Experience.vue to .theme-kao .ws-section::before
+    // in kao.css so the workstation layout owns the dossier-stamp grammar).
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-section::before\s*\{[^}]*attr\(data-dossier-stamp\)/s,
     )
-    // The .sidebar-section is transparent (integrated into 1 dossier outer paper)
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*background:\s*transparent/s,
+    // The .ws-section is transparent (integrated into 1 dossier outer paper)
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*background:\s*transparent/s,
     )
-    // The .sidebar-section has a gold hairline divider (not an individual paper card)
-    expect(experience).toMatch(
-      /\.theme-kao\s+\.game-page\s+\.sidebar-section\s*\{[^}]*border-top:\s*1px solid/s,
+    // The .ws-section has a gold hairline divider (not an individual paper card)
+    expect(kaoCss).toMatch(
+      /\.theme-kao\s+\.ws-section\s*\{[^}]*border-top:\s*1px solid/s,
     )
   })
 
@@ -2386,9 +2390,9 @@ describe('ui polish — UI-E10 Experience 重做 (font / display / menu)', () =>
     // color-mix). Other .theme-kao blocks have :root token defs with
     // hex which is the WHOLE POINT of the token system.
     void css  // keep css import for symmetry with future E10 follow-ups
-    // Experience 6-cell record-folio preserved
-    expect(experience).toContain('record-folio__grid')
-    expect(experience).toContain('record-folio__cell')
+    // UI-E11-A: Experience 6-cell record-folio replaced by ws-topstrip
+    expect(experience).toContain('class="ws-topstrip"')
+    expect(experience).toContain('ws-topstrip__cell')
   })
 })
 
@@ -2673,5 +2677,354 @@ describe('UI-W10: Writing desk lamp memory point + 3-layer wall depth', () => {
       expect(svgInner).not.toMatch(/person|silhouette|character-portrait|figure/i)
       expect(svgInner).not.toMatch(/<\s*image[^>]+xlink/)
     })
+  })
+})
+
+// =========================================================================
+// UI-E11-B: GamePanel 中央 stage hero / 0-state
+// E11-B (Composition W2) adds narrator portrait + 3 quick action CTA
+// to GamePanel.vue, gated on displayMessages.length === 0. Preserves
+// displayMessages single-column + E9-FIX onTextWrapperClick click.
+// E11-B contracts: hero present, 3 CTA present, v-if gate correct,
+// hard constraint (no new forbidden patterns + E10 ship preserved).
+// =========================================================================
+describe('ui polish — UI-E11-B GamePanel 中央 stage hero / 0-state', () => {
+  it('E11-B1: GamePanel.vue has CharacterPortrait narrator hero in 0-state (size="hero" + caption="在场档案员")', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // CharacterPortrait import declared
+    expect(gamePanel).toMatch(/import\s+CharacterPortrait\s+from\s+['"]\.\/folio\/CharacterPortrait\.vue['"]/)
+    // Hero block mounted with narrator pose + hero size
+    expect(gamePanel).toMatch(/<CharacterPortrait\s+pose-id="narrator"\s+size="hero"/)
+    expect(gamePanel).toMatch(/caption="在场档案员"/)
+    // Hero wrapper class present
+    expect(gamePanel).toContain('class="chat-container__hero"')
+    expect(gamePanel).toContain('class="chat-container__hero-portrait"')
+    expect(gamePanel).toContain('class="chat-container__hero-prompt"')
+    expect(gamePanel).toContain('class="chat-container__hero-greeting"')
+    expect(gamePanel).toContain('class="chat-container__hero-hint"')
+  })
+
+  it('E11-B2: 3 quick action CTA present (续写 / 速记 / 切场景) — each emits("quick-action", id) on click', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // 续写 / 速记 / 切场景 in hero actions block, each emit("quick-action", <id>)
+    expect(gamePanel).toMatch(/<button[^>]*class="action-btn primary"[^>]*@click="\$emit\('quick-action',\s*'continue'\)"/)
+    expect(gamePanel).toMatch(/<button[^>]*class="action-btn"[^>]*@click="\$emit\('quick-action',\s*'note'\)"/)
+    expect(gamePanel).toMatch(/<button[^>]*class="action-btn"[^>]*@click="\$emit\('quick-action',\s*'scene'\)"/)
+    // Visible labels
+    expect(gamePanel).toContain('>续写<')
+    expect(gamePanel).toContain('>速记<')
+    expect(gamePanel).toContain('>切场景<')
+    // defineEmits declares quick-action (alongside existing show-inline-detail)
+    expect(gamePanel).toMatch(/defineEmits\(\[\s*['"]show-inline-detail['"]\s*,\s*['"]quick-action['"]\s*\]\)/)
+  })
+
+  it('E11-B3: hero block v-if gated on displayMessages.length === 0 (0-state only) — hides when first message lands', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // v-if on hero section matches length === 0
+    expect(gamePanel).toMatch(/<section[^>]*v-if="displayMessages\.length\s*===\s*0"[^>]*class="chat-container__hero"/)
+    // v-for over displayMessages is unchanged (still drives the record stream)
+    expect(gamePanel).toMatch(/<template\s+v-for="\(msg,\s*index\)\s+in\s+displayMessages"/)
+  })
+
+  it('E11-B4: hard constraint — 0 new :global(.theme-kao) / 0 !important / 0 broad :deep(*) / 0 raw hex in new E11-B CSS; E10 displayMessages + E9-FIX mechanism click + --font-body preserved', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // E11-B forbidden patterns (negative)
+    expect(gamePanel).not.toContain(':global(.theme-kao)')
+    expect(gamePanel).not.toMatch(/:deep\(\s*\*/)
+    // No new !important (existing E6A textarea !important on textarea may exist
+    // but is pre-existing; E11-B CSS itself must not introduce any)
+    const e11Block = gamePanel.match(/\.theme-kao\s+\.chat-container__hero[\s\S]*?@media[\s\S]*?\}\s*\}/)
+    if (e11Block) {
+      expect(e11Block[0]).not.toMatch(/!important/)
+      expect(e11Block[0]).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+    // E10 + E9-FIX preservation
+    expect(gamePanel).toMatch(/const\s+displayMessages\s*=\s*computed\(/)
+    expect(gamePanel).toContain('v-for="(msg, index) in displayMessages"')
+    expect(gamePanel).toMatch(/class="text-wrapper"\s+@click="onTextWrapperClick\(/)
+    expect(gamePanel).toMatch(/const\s+onTextWrapperClick\s*=\s*\(/)
+    // --font-body on .text-main preserved (E10 keep)
+    expect(gamePanel).toMatch(/\.text-main\s*\{[^}]*var\(--font-body\)/s)
+    // E9 ledger-spread / chapter-rule / scene-stage__indicator NOT re-added
+    expect(gamePanel).not.toMatch(/class="ledger-spread"/)
+    expect(gamePanel).not.toContain('class="chapter-rule"')
+    expect(gamePanel).not.toMatch(/class="scene-stage__indicator"/)
+    expect(gamePanel).not.toMatch(/class="record-folio"/)
+  })
+})
+
+// =========================================================================
+// UI-E11-C: Right-rail workstation section empty states + responsive fallback.
+// 改造前: 3 section (在场人物 / 地点 / 剧情) 0-data 时显示空 stat 堆叠
+// 改造后: 0-data 时显示 inline hint (档案员批注风格 dashed + italic),
+//        不再是 0 0 0 堆叠; 980/640 responsive fallback 收紧 padding +
+//        给 sidebar section 加 max-height.
+// 不改 Experience.vue layout 主体 (那是 E11-IMPL-A/B ws-layout scope);
+// 只动 sidebar section 内部 + 3 个 right-rail 组件 (StatusBar /
+// GeographyPanel / QuestLog) + kao.css theme overrides.
+// =========================================================================
+describe('ui polish — UI-E11-C: right-rail section empty states + responsive fallback', () => {
+  it('UI-E11-C: StatusBar 0-data 时间 inline hint (dashed + italic + 未登记) — 不再是空 stat 堆叠', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    // 0-data 模板分支:current-time--empty + time-value--hint
+    expect(statusBar).toMatch(/v-if="isTimeEmpty"[\s\S]*?class="current-time current-time--empty"/)
+    expect(statusBar).toContain('class="time-value time-value--hint"')
+    expect(statusBar).toContain('未登记')
+    expect(statusBar).toContain('点击设定纪年与时间')
+    // computed gate
+    expect(statusBar).toContain('const isTimeEmpty = computed(() => {')
+    expect(statusBar).toMatch(/isTimeEmpty[\s\S]*?!currentEraName\.value[\s\S]*?!currentYear\.value/)
+    // scoped CSS 锁 hint 样式
+    expect(statusBar).toMatch(/\.current-time--empty[\s\S]*?border:\s*1px dashed/)
+    expect(statusBar).toContain('.time-value--hint')
+  })
+
+  it('UI-E11-C: StatusBar 0-data 角色 inline hint (未登记角色 + 设定主角名) — 不再是空 stat 卡片', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    expect(statusBar).toMatch(/v-if="isCharacterEmpty"[\s\S]*?class="compact-profile compact-profile--empty"/)
+    expect(statusBar).toContain('未登记角色')
+    expect(statusBar).toContain('点击设定主角名')
+    // computed gate — based on no name + no avatar + no traits + no description + mood=50 default
+    expect(statusBar).toContain('const isCharacterEmpty = computed(() => {')
+    // CSS hint modifier
+    expect(statusBar).toMatch(/\.compact-profile--empty[\s\S]*?border:\s*1px dashed/)
+    expect(statusBar).toContain('.character-name--hint')
+    expect(statusBar).toContain('.avatar-placeholder--hint')
+  })
+
+  it('UI-E11-C: GeographyPanel 0-data stat-strip 替换为 placeholder hint (dashed + 3 段 italic 提示)', () => {
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    // 模板分支:locations.length === 0 时换 geo-stat-strip--empty + 3 个 --hint span
+    expect(geo).toMatch(/v-if="locations\.length === 0"[\s\S]*?class="geo-stat-strip geo-stat-strip--empty"/)
+    expect(geo).toMatch(/class="geo-stat-strip--hint"/)
+    expect(geo).toContain('暂无卷宗')
+    expect(geo).toContain('地点是档案柜的目录')
+    expect(geo).toContain('点 + 添加第一条')
+    // CSS placeholder
+    expect(geo).toMatch(/\.geo-stat-strip--empty[\s\S]*?border:\s*1px dashed/)
+  })
+
+  it('UI-E11-C: QuestLog 0-data summary inline hint (暂无摘要) + empty-state kicker+copy 双行', () => {
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    // summaryItems.length === 0 时, 显示 adventure-summary--empty + summary-card--hint
+    expect(questLog).toMatch(/v-else[\s\S]*?class="adventure-summary adventure-summary--empty"/)
+    expect(questLog).toContain('summary-card--hint')
+    expect(questLog).toContain('暂无摘要')
+    // 0-activity empty-state 双行 hint
+    expect(questLog).toContain('class="empty-state-kicker"')
+    expect(questLog).toContain('class="empty-state-copy"')
+    expect(questLog).toContain('事件卷 · 空白')
+    expect(questLog).toContain('记录第一次冒险事件')
+    // CSS
+    expect(questLog).toMatch(/\.summary-card--hint[\s\S]*?border:\s*1px dashed/)
+    expect(questLog).toContain('.summary-value--hint')
+  })
+
+  it('UI-E11-C: Experience.vue responsive 980/640 — ws-layout collapses to 1fr (workstation layout — replaces sidebar section padding/max-height)', () => {
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+    // 980px media query — ws-layout collapses to 1 column (left rail folds up,
+    // right rail folds down)
+    expect(kaoCss).toMatch(/@media\s*\(max-width:\s*980px\)\s*\{[\s\S]*?\.ws-layout\s*\{[\s\S]*?grid-template-columns:\s*1fr/s)
+    // 980px media query — ws-topstrip height auto + 3-col grid for narrow viewports
+    expect(kaoCss).toMatch(/@media\s*\(max-width:\s*980px\)[\s\S]*?\.ws-topstrip\s*\{[\s\S]*?height:\s*auto/s)
+  })
+
+  it('UI-E11-C: 3 个右栏组件都保持 functional dossier 语义 (header + content + footer), 不破坏原有 modal/handler wiring', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    // StatusBar 保留 detail modal + time modal
+    expect(statusBar).toContain('showDetail')
+    expect(statusBar).toContain('showTimeDetail')
+    // GeographyPanel 保留 toolbar + view tabs + addLocation
+    expect(geo).toContain('addLocation')
+    expect(geo).toContain('view === \'map\'')
+    // QuestLog 保留 trigger panel + showDetail + showEditor
+    expect(questLog).toContain('showDetail')
+    expect(questLog).toContain('showEditor')
+    // 3 个组件都还 import + use gameStore
+    expect(statusBar).toContain("from '../stores/gameStore'")
+    expect(questLog).toContain("from '../stores/gameStore'")
+    // GeographyPanel 用 geography store (不是 gameStore)
+    expect(geo).toContain("useGeographyStore")
+  })
+
+  it('UI-E11-C: hard constraint — 0 new :global(.theme-kao), 0 new !important, 0 new broad :deep(*), 0 store mutation, 0 store interface change', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    const experience = readProjectFile('src/pages/Experience.vue')
+    for (const f of [statusBar, geo, questLog, experience]) {
+      expect(f).not.toContain(':global(.theme-kao)')
+      expect(f).not.toMatch(/:deep\(\s*\*/)
+    }
+    // 0 new !important anywhere in my 4 files
+    expect(statusBar).not.toMatch(/!important/)
+    expect(geo).not.toMatch(/!important/)
+    expect(questLog).not.toMatch(/!important/)
+    // 0 store mutation in N11-C scope. E4A baseline ships with fallback
+    // assignments in StatusBar / QuestLog (`if (typeof saveXxx === 'function') gameStore.X = nextX`).
+    // N11-C added no new mutation line — verified via `git diff HEAD src/components/StatusBar.vue`
+    // and `git diff HEAD src/components/QuestLog.vue` showing only template +
+    // computed additions, no new `gameStore.X = Y` line. We assert GeographyPanel
+    // 0 mutation (N11-C only added 1 template branch + 1 CSS rule, no script change).
+    expect(geo).not.toMatch(/geoStore\.\w+\s*=\s*[^=]/)
+    // 0 new service / router / other-store import in N11-C scope
+    // (existing gameStore import is allowed — read-only data access).
+    expect(questLog).not.toContain("from '../services/")
+    expect(geo).not.toContain("from '../services/")
+  })
+})
+
+// =========================================================================
+// UI-E11-A: Experience workstation — layout skeleton + useWorkstationMeta
+// Scope: Tasks 0-3 + 4 + 5 of docs/superpowers/plans/2026-06-22-experience-workstation.md
+//   (Window 1 Foundation + Task 4 topstrip CSS + Task 5 template rewrite)
+// Out of scope: Task 6 (GamePanel hero) / Task 7 (right rail internals) /
+//   Task 8 (4-layer font rules) / Task 9 (delete old sidebar CSS) — D1/D2
+//   contracts intentionally remain red until W3 Cleanup window.
+// =========================================================================
+describe('UI-E11-A Experience workstation — layout skeleton + useWorkstationMeta', () => {
+  // §A workstation composition (4 contracts)
+  it('E11-A1: Experience.vue template has ws-layout root with 4 sections', () => {
+    const exp = readProjectFile('src/pages/Experience.vue')
+    // Root: <div class="ws-layout"> replaces <div class="game-layout">
+    expect(exp).toMatch(/<div\s+class="ws-layout">/)
+    // 4 ws-* sections. Allow optional v-if between tag and class (the 3
+    // aside/main are gated on !showSessionPicker so SessionPicker can
+    // replace them when no session is selected).
+    expect(exp).toMatch(/<section\s+class="ws-topstrip"/)
+    expect(exp).toMatch(/<aside[\s\S]*?class="ws-left-rail"/)
+    expect(exp).toMatch(/<main[\s\S]*?class="ws-center-stage"/)
+    expect(exp).toMatch(/<aside[\s\S]*?class="ws-right-rail"/)
+  })
+
+  it('E11-A2: ws-layout grid-template-columns is "260px 1fr 300px" in kao.css', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-layout\s*\{[\s\S]*grid-template-columns:\s*260px\s+1fr\s+300px;/s)
+  })
+
+  it('E11-A3: ws-topstrip has position: sticky and height ~80px', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip\s*\{[\s\S]*position:\s*sticky/s)
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip\s*\{[\s\S]*height:\s*80px/s)
+  })
+
+  it('E11-A4: ws-right-rail has 3 sections with data-dossier-stamp attribute', () => {
+    const exp = readProjectFile('src/pages/Experience.vue')
+    // Allow optional v-if between <aside and class= (SessionPicker replaces
+    // the ws-right-rail when no session is selected).
+    expect(exp).toMatch(/<aside[\s\S]*?class="ws-right-rail"/)
+    expect(exp).toMatch(/卷宗一\s*·\s*在场人物/)
+    expect(exp).toMatch(/卷宗二\s*·\s*地点卡/)
+    expect(exp).toMatch(/卷宗三\s*·\s*事件卷/)
+  })
+
+  // §B topstrip anchor (3 contracts)
+  it('E11-B1: useWorkstationMeta composable exports 5 fields', () => {
+    const comp = readProjectFile('src/composables/useWorkstationMeta.js')
+    expect(comp).toMatch(/export\s+function\s+useWorkstationMeta\s*\(\s*\)/)
+    expect(comp).toMatch(/currentVolume/)
+    expect(comp).toMatch(/caseNo/)
+    expect(comp).toMatch(/currentTask/)
+    expect(comp).toMatch(/currentSection/)
+    expect(comp).toMatch(/totalCount/)
+  })
+
+  it('E11-B2: ws-topstrip shows 0-state anchor (档案空白 · 卷 N · 等候第 1 条) when totalCount === 0', () => {
+    // Anchor text surfaces in Experience.vue template (rendered from
+    // useWorkstationMeta().topstripAnchor). The string is a template literal
+    // with `${currentVolume}` interpolation, so the literal regex matches the
+    // fixed prefix + suffix parts that survive interpolation. We verify both
+    // the rendered form in useWorkstationMeta.js AND the template usage.
+    const meta = readProjectFile('src/composables/useWorkstationMeta.js')
+    expect(meta).toMatch(/档案空白\s*·\s*卷\s*\$\{[^}]+\}\s*·\s*等候第\s*1\s*条/)
+    const exp = readProjectFile('src/pages/Experience.vue')
+    // Template renders the anchor via meta.topstripAnchor inside ws-topstrip
+    expect(exp).toMatch(/ws-topstrip__anchor"[^>]*>\s*\{\{\s*meta\.topstripAnchor\s*\}\}/)
+  })
+
+  it('E11-B3: 5-cell progress bar renders one filled cell per currentSection', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    expect(kao).toMatch(/\.ws-topstrip__progress-cell\.is-filled/)
+    expect(kao).toMatch(/grid-template-columns:\s*repeat\(5,\s*1fr\)/)
+  })
+
+  // §C 0-state hero (2 contracts — already ship'd via E11-B contracts
+  // L2687-2750; C1/C2 here are belt-and-suspenders mirrors, expected green.)
+  it('E11-C1: GamePanel has CharacterPortrait narrator hero in 0-state', () => {
+    const gp = readProjectFile('src/components/GamePanel.vue')
+    expect(gp).toMatch(/<CharacterPortrait\s+pose-id="narrator"\s+size="hero"/)
+  })
+
+  it('E11-C2: 3 quick action buttons (续写 / 速记 / 切场景) present in GamePanel', () => {
+    const gp = readProjectFile('src/components/GamePanel.vue')
+    expect(gp).toMatch(/>续写</)
+    expect(gp).toMatch(/>速记</)
+    expect(gp).toMatch(/>切场景</)
+  })
+
+  // §D font layering (2 contracts — OUT OF SCOPE for UI-E11-A; expected red
+  // until W3 Cleanup window adds Task 8 4-layer font rules.)
+  it('E11-D1: 4 font layers exist (DISPLAY LXGW / BODY Songti / META sans / INTERACTIVE mix)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // DISPLAY layer uses --font-display on .ws-topstrip__case
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__case[\s\S]*var\(--font-display\)/s)
+    // BODY layer uses --font-body on .ws-left-rail__kicker
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-left-rail__kicker[\s\S]*var\(--font-body\)/s)
+    // META layer uses --font-sans on .ws-topstrip__meta
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__meta[\s\S]*var\(--font-sans\)/s)
+  })
+
+  it('E11-D2: each layer has ≥3 selectors using it, no layer overlap', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const displayCount = (kao.match(/var\(--font-display\)/g) || []).length
+    const bodyCount = (kao.match(/var\(--font-body\)/g) || []).length
+    const sansCount = (kao.match(/var\(--font-sans\)/g) || []).length
+    expect(displayCount).toBeGreaterThanOrEqual(3)
+    expect(bodyCount).toBeGreaterThanOrEqual(3)
+    expect(sansCount).toBeGreaterThanOrEqual(3)
+  })
+
+  // §E delete verify (1 contract)
+  it('E11-E1: 0 references to .record-folio / .sidebar (old) in kao.css + Experience.vue', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const exp = readProjectFile('src/pages/Experience.vue')
+    expect(kao).not.toMatch(/\.theme-kao\s+\.sidebar\s*\{/)
+    expect(kao).not.toMatch(/\.theme-kao\s+\.record-folio/)
+    expect(exp).not.toMatch(/class="record-folio"/)
+    expect(exp).not.toMatch(/class="sidebar"/)
+  })
+
+  // §F forbidden patterns (1 contract, hard gate).
+  // F1 narrowed to only check NEW ws-* rules. The pre-existing W3 round-2
+  // drop-cap `text-transform: none !important;` (kao.css:248) is preserved
+  // per W3 review #3 — flagging it as a regression would force a needless
+  // revert of the W3 polish.
+  it('E11-F1: NEW ws-* rules 0 !important / 0 new :global(.theme-kao) / 0 broad :deep(*); 0 broad :deep(*) anywhere in Experience.vue', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const exp = readProjectFile('src/pages/Experience.vue')
+    // 0 new :global(.theme-kao) anywhere
+    expect(kao.match(/:global\(\.theme-kao\)/g) || []).toHaveLength(0)
+    // 0 broad :deep(*) anywhere
+    expect(kao).not.toMatch(/:deep\(\s*\)/)
+    expect(exp).not.toMatch(/:deep\(\s*\)/)
+    // NEW ws-* rules (only the workstation rules added in this worker) carry
+    // 0 !important. Pre-existing W3 !important in non-ws-* rules is preserved.
+    const wsRules = kao.match(/\.theme-kao\s+\.ws-[^{}]*\{[^}]*\}/g) || []
+    expect(wsRules.length).toBeGreaterThan(0)
+    for (const m of wsRules) {
+      expect(m, `ws-* rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
+    }
+  })
+
+  // §G E9-FIX preservation (1 contract, hard gate).
+  // G1 regex adjusted to match the codebase's arrow-function form
+  // (`const onTextWrapperClick = (`). The plan's literal `function onTextWrapperClick(`
+  // would never match the codebase, which uses `<script setup>` + arrow functions.
+  it('E11-G1: E9-FIX mechanism-trigger click handler preserved in GamePanel', () => {
+    const gp = readProjectFile('src/components/GamePanel.vue')
+    expect(gp).toMatch(/<div\s+class="text-wrapper"\s+@click="onTextWrapperClick/)
+    expect(gp).toMatch(/const\s+onTextWrapperClick\s*=\s*\(/)
   })
 })
