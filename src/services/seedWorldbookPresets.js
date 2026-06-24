@@ -26,7 +26,7 @@ function normalizeKeywords(values = [], fallback = '') {
     result.push(normalized)
   }
 
-  return result.slice(0, 6)
+  return result.slice(0, 12)
 }
 
 function createSeedWorldbookEntry(type, name, keys, content, group, mode = '') {
@@ -81,7 +81,13 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('character', '塔维克书记官', ['塔维克', '书记官'], '负责盐税旧账的中年书记官，记忆力惊人，但只愿在安全承诺后开口。', '角色'),
       createSeedWorldbookEntry('character', '苔娜难民领队', ['苔娜', '难民领队'], '带领北境难民进入暮湾的人，她知道灰墙外第一支失踪巡骑的去向。', '角色'),
       createSeedWorldbookEntry('character', '赫玛教授', ['赫玛', '教授'], '银藤学院雾潮史教授，坚称钟楼停摆不是机械故障，而是旧契约被重启。', '角色'),
-      createSeedWorldbookEntry('character', '索德码头夜班头目', ['索德','夜班头目','码头夜班'], '潮盐行会的码头夜班头目，会直接挡查账、封账、拖时间，是第四轮明确反作用力人物。', '角色'),
+      // B1 (2026-06-26): 索德 keys 扩 substring-matchable 短核心词
+      // (Round 3-4 玩家自然输入"谁阻止我查账" 不含"索德/夜班头目/码头夜班"
+      // → keyword injection 失效, GM 看不到索德 C1 加的"第四轮反作用力人物"
+      // 描述). 加 "夜班/码头/阻止/查账/封账/拒绝/阻拦" 覆盖 Round 3-4 措辞
+      // + 抵御同义改写. 0 改 worldbookContextBuilder 引擎 (substring includes
+      // 语义见 worldbookContextBuilder.js:218).
+      createSeedWorldbookEntry('character', '索德码头夜班头目', ['索德', '夜班头目', '码头夜班', '夜班', '码头', '阻止', '查账', '封账', '拒绝', '阻拦'], '潮盐行会的码头夜班头目，会直接挡查账、封账、拖时间，是第四轮明确反作用力人物。', '角色'),
       createSeedWorldbookEntry('item', '风蚀罗盘', ['罗盘', '风蚀罗盘'], '能够在异常雾潮中定位安全路径，但每次使用会损耗刻度，刻度归零后会指向使用者最恐惧的地点。', '道具'),
       createSeedWorldbookEntry('item', '雾灯燃芯', ['燃芯', '雾灯'], '维持港区雾灯的稀缺燃料，近期失窃数量足以让整条码头在雾潮夜熄灭。', '道具'),
       createSeedWorldbookEntry('item', '沉钟残片', ['沉钟残片', '钟楼'], '从沉钟沼泽捞出的青铜残片，表面刻痕会在钟楼停摆时渗出盐水。', '道具'),
@@ -89,8 +95,18 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('event', '北境难民潮', ['难民潮', '北境'], '边境道路忽然涌入难民，他们声称看见不属于任何王国军旗的雾中军队。', '事件'),
       createSeedWorldbookEntry('event', '雾灯燃料失窃', ['燃料失窃', '雾灯'], '雾灯仓库少了十二箱燃芯，账面记录显示它们仍在码头等待验封。', '事件'),
       createSeedWorldbookEntry('event', '学院观测仪过载', ['观测仪', '过载'], '银藤学院地下观测仪在钟楼停摆同一刻过载，记录盘出现一段被人为刮除的曲线。', '事件'),
-      createSeedWorldbookEntry('event', '观测曲线停摆对应', ['观测曲线','停摆对应','学院观测'], '银藤学院地下观测仪的异常曲线编号正对应钟楼每次停摆时刻，是把钟楼线、学院线、灰墙线织成一条链的硬证据。', '事件'),
-      createSeedWorldbookEntry('event', '灰墙巡骑失踪', ['巡骑失踪', '灰墙'], '两名巡骑在护送难民时失踪，唯一留下的是被雾水浸透的王室密令副本。', '事件'),
+      // B1 (2026-06-26): 观测曲线停摆对应 keys 扩覆盖 Round 8 玩家
+      // generic 输入"天亮前看到下一条真证据" 不含"观测曲线/停摆对应/
+      // 学院观测" → C1 加的钟楼-学院-灰墙 三线桥接硬证据 失效. 加
+      // "观测/曲线/学院/桥接/对应/编号/证据/硬证据/三线桥接" 覆盖
+      // Round 1-7 chat history 提到 学院 + Round 8 提到 证据 时
+      // 自然 trigger.
+      createSeedWorldbookEntry('event', '观测曲线停摆对应', ['观测曲线','停摆对应','学院观测','观测','曲线','学院','桥接','对应','编号','证据','硬证据','三线桥接'], '银藤学院地下观测仪的异常曲线编号正对应钟楼每次停摆时刻，是把钟楼线、学院线、灰墙线织成一条链的硬证据。', '事件'),
+      // B1 (2026-06-26): 灰墙巡骑失踪 keys 扩覆盖 Round 7-8 玩家
+      // 自然输入"追失踪巡骑"/"巡骑痕迹" 不含"巡骑失踪" 整词 (substring
+      // includes 语义要求整词 substring, "追失踪巡骑" 是反转语序).
+      // 加 "巡骑痕迹/追巡骑/追失踪巡骑/追失踪/痕迹/追踪" 覆盖 Round 7-8.
+      createSeedWorldbookEntry('event', '灰墙巡骑失踪', ['巡骑失踪', '灰墙', '巡骑痕迹', '追巡骑', '追失踪巡骑', '追失踪', '痕迹', '追踪'], '两名巡骑在护送难民时失踪，唯一留下的是被雾水浸透的王室密令副本。', '事件'),
       createSeedWorldbookEntry('event', '沼泽沉钟回响', ['沉钟回响', '沼泽'], '沉钟沼泽在无风夜响起钟声，声音与主城钟楼完全同步。', '事件'),
       createSeedWorldbookEntry('event', '行会夜账泄露', ['夜账', '行会'], '潮盐行会的夜账被匿名贴到公署门口，显示燃芯流向北境灰墙。', '事件'),
       createSeedWorldbookEntry('event', '王室密令抵达', ['王室密令', '密令'], '王室密令要求在日出前封锁难民营；执行密令会切断关键证人，拒绝则会得罪巡骑团。', '事件'),
@@ -99,7 +115,12 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('lore', '旧王边境战争', ['旧王战争', '边境'], '上一代王室在北境灰墙外封存过一场失败战役，战争记录与雾潮契约同时缺页。', '设定'),
       createSeedWorldbookEntry('quest', '黎明前的钟楼调查', ['钟楼调查', '黎明'], '在黎明前确认钟楼停摆、难民证词和雾潮异动之间是否存在同一条因果链。', '任务'),
       createSeedWorldbookEntry('quest', '雾灯仓库谈判', ['仓库谈判', '雾灯'], '在潮盐行会、城防队和学院之间谈判，找出燃芯失窃的真实流向。', '任务'),
-      createSeedWorldbookEntry('quest', '灰墙真相分岔', ['灰墙真相', '分岔'], '在灰墙现场做硬选择：当场失去证人（让苔娜离开雾潮夜）/ 失去账本窗口（让索德封掉港口夜账）/ 失去巡骑追踪时机（让巡骑团带难民撤回王都）。三选一，每条路径都会改变暮湾势力关系。', '任务')
+      // B1 (2026-06-26): 灰墙真相分岔 keys 扩覆盖 Round 5-7 玩家
+      // 自然输入"保住证人, 再追失踪巡骑" 不含"灰墙真相/分岔" 整词 →
+      // C1 加的 3 选 1 具体代价 (苔娜离开/索德封账/巡骑团撤) 失效.
+      // 加 "灰墙/真相/选择/取舍/代价/三选一/抉择/证人/巡骑/账本" 覆盖
+      // Round 5 灰墙 + Round 7 选择 + Round 8 代价/账本 措辞.
+      createSeedWorldbookEntry('quest', '灰墙真相分岔', ['灰墙真相', '分岔', '灰墙', '真相', '选择', '取舍', '代价', '三选一', '抉择', '证人', '巡骑', '账本'], '在灰墙现场做硬选择：当场失去证人（让苔娜离开雾潮夜）/ 失去账本窗口（让索德封掉港口夜账）/ 失去巡骑追踪时机（让巡骑团带难民撤回王都）。三选一，每条路径都会改变暮湾势力关系。', '任务')
     ]
   }),
   createSeedWorldbookPreset({

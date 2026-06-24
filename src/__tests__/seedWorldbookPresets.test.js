@@ -4,6 +4,27 @@ import {
   seedWorldbookPresets,
   summarizeSeedWorldbookQuality
 } from '../services/seedWorldbookPresets'
+import { matchWorldbookEntries } from '../services/worldbookContextBuilder'
+
+function borderKingdomPreset() {
+  const preset = seedWorldbookPresets.find(preset => preset.id === 'preset-border-kingdom-fogtide')
+  return {
+    ...preset,
+    entries: preset.entries.map((entry, index) => ({
+      id: `seed-entry-${index}`,
+      ...entry
+    }))
+  }
+}
+
+function matchedNamesFor(text) {
+  return matchWorldbookEntries({
+    worldbook: borderKingdomPreset(),
+    chatHistory: [{ role: 'user', content: text }],
+    scanDepth: 1,
+    includeStarterEntries: false
+  }).map(entry => entry.name)
+}
 
 describe('seedWorldbookPresets', () => {
   it('keeps the three promoted seed worlds at Stage 2 playable-worldbook quality', () => {
@@ -44,5 +65,12 @@ describe('seedWorldbookPresets', () => {
         '任务'
       ]))
     }
+  })
+
+  it('keeps border-kingdom B1 keyword fixes reachable from natural player wording', () => {
+    expect(matchedNamesFor('谁阻止我查账')).toContain('索德码头夜班头目')
+    expect(matchedNamesFor('灰墙 三选一 代价')).toContain('灰墙真相分岔')
+    expect(matchedNamesFor('天亮前看到下一条真证据 观测')).toContain('观测曲线停摆对应')
+    expect(matchedNamesFor('追失踪巡骑')).toContain('灰墙巡骑失踪')
   })
 })
