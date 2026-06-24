@@ -3086,13 +3086,178 @@ describe('ui polish — UI-E12-F: Experience font / readability repair', () => {
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-time\s*\{[^}]*var\(--font-sans\)/s)
     expect(gamePanel).toMatch(/\.theme-kao\s+\.msg-item__folio\s*\{[^}]*var\(--font-sans\)/s)
 
-    // UI-E12-W1 dead-CSS cleanup: the ws-topstrip__meta + ws-right-rail__section-title
-    // selectors have no template match in Experience.vue / GamePanel.vue.
-    // Negative assertion locks the cleanup so future contributors don't
-    // re-introduce dead CSS that "future-proofs" a slot the workstation
-    // never ships.
-    expect(kao).not.toMatch(/\.theme-kao\s+\.ws-topstrip__meta\s*\{/)
+    // V1 (2026-06-25): .ws-topstrip__meta is now a real flex wrapper
+    // in Experience.vue (V1-B two-band layout) and gets a kao.css rule
+    // that drives the cell-stack + 5-cell-progress inline flow. The
+    // ws-right-rail__section-title selector remains a dead rule
+    // (E12-W1 cleanup) — no template match.
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-topstrip__meta\s*\{/)
     expect(kao).not.toMatch(/\.theme-kao\s+\.ws-right-rail__section-title\s*\{/)
+  })
+
+  // V1 (2026-06-25) visual contracts. Locks the four-unifications
+  // (clip-path / border concentration / uppercase + letter-spacing /
+  // skewX index) so a follow-up worker can't silently re-introduce
+  // the old 5-clip-path / 6-border-tier / forced-caps language.
+  describe('V1: 体验页四统一视觉契约', () => {
+    it('V1-C: clip-path only on .shell-menu-btn; every other chip / tab / button is plain', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const kao = readProjectFile('src/styles/themes/kao.css')
+      // 5 selectors that USED to have clip-path and must NOT anymore.
+      // The 4 kept clip-paths (shell-menu-btn, shell-drawer, shell-drawer__close,
+      // and one harmless ::after clip in the kao character) are NOT in
+      // the chip / tab / button family.
+      expect(appShell).not.toMatch(/\.shell-tab\s*\{[^}]*clip-path/s)
+      expect(appShell).not.toMatch(/\.shell-meta-chip\s*\{[^}]*clip-path/s)
+      expect(appShell).not.toMatch(/\.shell-storage-chip\s*\{[^}]*clip-path/s)
+      expect(kao).not.toMatch(/\.ws-topstrip__settings-link\s*\{[^}]*clip-path/s)
+      expect(kao).not.toMatch(/\.ws-topstrip__session-chip\s*\{[^}]*clip-path/s)
+      // The kept clip-path is on the hamburger only.
+      expect(appShell).toMatch(/\.shell-menu-btn\s*\{[^}]*clip-path/s)
+    })
+
+    it('V1-D + V3: chip / cell borders are archive-rose 22% (stamp) or var(--hairline-soft) (divider); no archive-gold X% border', () => {
+      const kao = readProjectFile('src/styles/themes/kao.css')
+      // V3 stamp language: ws-topstrip__settings-link now uses
+      // archive-rose 22% border instead of var(--border) — the chip
+      // is a stamp, not a panel.
+      const settingsRule = kao.match(/\.theme-kao\s+\.ws-topstrip__settings-link\s*\{[^}]*\}/s)?.[0] || ''
+      expect(settingsRule).toMatch(/border:\s*1px\s+solid\s+color-mix\(in srgb,\s*var\(--archive-rose\)\s+22%,\s*var\(--border\)\)/)
+      expect(settingsRule).not.toMatch(/archive-gold\s+\d+%/)
+      // Same stamp border for session chip.
+      const sessionRule = kao.match(/\.theme-kao\s+\.ws-topstrip__session-chip\s*\{[^}]*\}/s)?.[0] || ''
+      expect(sessionRule).toMatch(/border:\s*1px\s+solid\s+color-mix\(in srgb,\s*var\(--archive-rose\)\s+22%,\s*var\(--border\)\)/)
+      expect(sessionRule).not.toMatch(/archive-gold\s+\d+%/)
+      // ws-topstrip__cell border-right stays var(--hairline-soft) (panel divider tier).
+      const cellRule = kao.match(/\.theme-kao\s+\.ws-topstrip__cell\s*\{[^}]*border-right:\s*1px\s+solid\s+var\(--hairline-soft\)[^}]*\}/s)?.[0] || ''
+      expect(cellRule).not.toMatch(/archive-gold\s+\d+%/)
+    })
+
+    it('V1-E: no text-transform:uppercase on .shell-tab__label / .shell-meta-chip / .ws-topstrip__settings-link', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const kao = readProjectFile('src/styles/themes/kao.css')
+      const tabLabel = appShell.match(/\.shell-tab__label\s*\{[^}]*\}/s)?.[0] || ''
+      const metaChip = appShell.match(/\.shell-meta-chip\s*\{[^}]*\}/s)?.[0] || ''
+      const settingsLink = kao.match(/\.ws-topstrip__settings-link\s*\{[^}]*\}/s)?.[0] || ''
+      expect(tabLabel).not.toMatch(/text-transform:\s*uppercase/)
+      expect(metaChip).not.toMatch(/text-transform:\s*uppercase/)
+      expect(settingsLink).not.toMatch(/text-transform:\s*uppercase/)
+    })
+
+    it('V1-E: no skewX(16deg) on .shell-tab__index — numeric serial, not a tilted label', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const indexRule = appShell.match(/\.shell-tab__index\s*\{[^}]*\}/s)?.[0] || ''
+      expect(indexRule).not.toMatch(/skewX/)
+    })
+
+    it('V1-A: Experience.vue no longer renders <CharacterBackdrop> (OpeningPage owns the parallax)', () => {
+      const experience = readProjectFile('src/pages/Experience.vue')
+      // Strip HTML comments + JS line comments + CSS block comments —
+      // the V1-A explanatory comments contain the literal string
+      // "<CharacterBackdrop>" but the template / script / style no
+      // longer mount or import the component.
+      const stripped = experience
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      expect(stripped).not.toMatch(/<CharacterBackdrop\b/)
+      // CharacterBackdrop.vue + useCharacterArt are still imported
+      // nowhere in Experience.vue; the composable is unused here.
+      expect(stripped).not.toMatch(/import\s+CharacterBackdrop/)
+      expect(stripped).not.toMatch(/resolveArt\s*\(\s*\{[^}]*poseId:\s*'speaker-thumb'/)
+    })
+  })
+
+  // V3 (2026-06-25) visual contracts. Locks the archive-folio
+  // signature stamp language so a follow-up worker can't silently
+  // regress to SaaS chrome (slide-bar indicator, rounded chips,
+  // dashed dividers gone, paper-fiber mast replaced by blur).
+  describe('V3: mast archive-folio signature', () => {
+    it('V3-A: .shell-tab-indicator element + CSS rule are GONE (active = stamp, not slide bar)', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      expect(appShell).not.toMatch(/<span[^>]*class="shell-tab-indicator"/)
+      // The standalone .shell-tab-indicator {…} rule should not exist
+      // as its own selector (we still allow it inside kao overrides
+      // that may keep a residual declaration; but V3 removes them all).
+      const standalone = appShell.match(/\n\.shell-tab-indicator\s*\{[^}]*\}/s)?.[0] || ''
+      expect(standalone).toBe('')
+    })
+
+    it('V3-B: active .shell-tab shows archive-rose ◆ ::before stamp; inactive tab has empty ::before', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const stampRule = appShell.match(/\.shell-tab\.active::before\s*\{[^}]*\}/s)?.[0] || ''
+      expect(stampRule).toMatch(/content:\s*"◆"/)
+      // Stamp color is archive-rose, NOT accent (accent = SaaS highlight).
+      expect(stampRule).toMatch(/var\(--archive-rose\)|--accent-rose/)
+      // The base .shell-tab::before is empty (display: none) so non-
+      // active tabs render no stamp.
+      const baseRule = appShell.match(/\.shell-tab::before\s*\{[^}]*\}/s)?.[0] || ''
+      expect(baseRule).toMatch(/content:\s*""/)
+    })
+
+    it('V3-C: shell-tab__index uses var(--font-display) (LXGW brush); roman numerals Ⅰ-Ⅴ in AppShell.vue script', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const indexRule = appShell.match(/\.shell-tab__index\s*\{[^}]*\}/s)?.[0] || ''
+      expect(indexRule).toMatch(/font-family:\s*var\(--font-display/)
+      // Roman numeral array exists in the script.
+      expect(appShell).toMatch(/ROMAN_ACTIVITY_STAMPS\s*=\s*\[['"']Ⅰ['"]/)
+      expect(appShell).toMatch(/['"]Ⅴ['"]/)
+      // Template binds the roman mark (not padStart).
+      expect(appShell).toMatch(/ROMAN_ACTIVITY_STAMPS\[index\]/)
+      expect(appShell).not.toMatch(/String\(index\s*\+\s*1\)\.padStart/)
+    })
+
+    it('V3-D: mast chips (shell-meta-chip / shell-storage-chip / ws-topstrip__settings-link / ws-topstrip__session-chip) all have border-radius: 0', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const kao = readProjectFile('src/styles/themes/kao.css')
+      const metaChip = appShell.match(/\.shell-meta-chip\s*\{[^}]*\}/s)?.[0] || ''
+      const storageChip = appShell.match(/\.shell-storage-chip\s*\{[^}]*\}/s)?.[0] || ''
+      const settingsLink = kao.match(/\.ws-topstrip__settings-link\s*\{[^}]*\}/s)?.[0] || ''
+      const sessionChip = kao.match(/\.ws-topstrip__session-chip\s*\{[^}]*\}/s)?.[0] || ''
+      expect(metaChip).toMatch(/border-radius:\s*0/)
+      expect(storageChip).toMatch(/border-radius:\s*0/)
+      expect(settingsLink).toMatch(/border-radius:\s*0/)
+      expect(sessionChip).toMatch(/border-radius:\s*0/)
+    })
+
+    it('V3-E: .shell-mast drops backdrop-filter: blur(18px) (SaaS glass bar removed)', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      // Strip CSS block comments first — the V3 docstring above the
+      // .shell-mast rule explicitly mentions "backdrop-filter:blur" as
+      // the thing being removed; the comment shouldn't count as a
+      // violation of the no-blur rule.
+      const stripped = appShell.replace(/\/\*[\s\S]*?\*\//g, '')
+      expect(stripped).not.toMatch(/\.shell-mast\s*\{[^}]*backdrop-filter:\s*blur/s)
+    })
+
+    it('V3-F: kao .shell-mast has paper-fiber speckle layer (.shell-mast::before with 3-stop radial-gradient)', () => {
+      const kao = readProjectFile('src/styles/themes/kao.css')
+      const mastBeforeRule = kao.match(/\.theme-kao\s+\.app-shell\s+\.shell-mast::before\s*\{[^}]*\}/s)?.[0] || ''
+      expect(mastBeforeRule).toMatch(/radial-gradient\(circle at 18% 22%/)
+      expect(mastBeforeRule).toMatch(/radial-gradient\(circle at 67% 78%/)
+      expect(mastBeforeRule).toMatch(/radial-gradient\(circle at 38% 52%/)
+      // Speckle layer is multiply + opacity ≤0.4 so it doesn't dominate.
+      expect(mastBeforeRule).toMatch(/mix-blend-mode:\s*multiply/)
+    })
+
+    it('V3-G: tabs share tear-edge dashed dividers (border-left: 1px dashed; first-child: none)', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const tabRule = appShell.match(/\.shell-tab\s*\{[^}]*\}/s)?.[0] || ''
+      expect(tabRule).toMatch(/border-left:\s*1px\s+dashed/)
+      // First child has no border-left (no leading dashed stub).
+      const firstChildRule = appShell.match(/\.shell-tab:first-child\s*\{[^}]*\}/s)?.[0] || ''
+      expect(firstChildRule).toMatch(/border-left:\s*none/)
+    })
+
+    it('V3-H: mast chips use ink-dot stamp ::before (· in archive-rose, hover promotes to bold)', () => {
+      const appShell = readProjectFile('src/layouts/AppShell.vue')
+      const metaChipBefore = appShell.match(/\.shell-meta-chip::before\s*\{[^}]*\}/s)?.[0] || ''
+      const metaChipHoverBefore = appShell.match(/\.shell-meta-chip:hover::before\s*\{[^}]*\}/s)?.[0] || ''
+      expect(metaChipBefore).toMatch(/content:\s*"·"/)
+      expect(metaChipBefore).toMatch(/var\(--archive-rose\)|--accent-rose/)
+      // Hover promotes the dot — bold weight or full archive-rose color.
+      expect(metaChipHoverBefore).toMatch(/font-weight:\s*900/)
+    })
   })
 
   // Contract #2: message body (.text-main) uses var(--font-body) +
@@ -3550,21 +3715,22 @@ describe('ui polish — UI-E12-FIX1: mobile overlap, hamburger collision, 0-stat
     expect(pad).toBeGreaterThanOrEqual(60)
   })
 
-  // Contract #3: 0-state topstrip cells show honest "—" placeholder,
-  // not fake "1/1" / "1/0" counts. useWorkstationMeta exposes the
-  // real totalCount (no Math.max padding), and Experience.vue template
-  // uses meta.isEmpty to gate the cell value.
-  it('FIX1-3: 0-state topstrip cells show honest placeholder, no fake 1/1', () => {
+  // Contract #3: 0-state topstrip hides the 4 noisy cells (卷 / 案号 /
+  // 第 N 条 / 共 M 条) entirely via v-if="!meta.isEmpty", so no fake
+  // placeholder rendering is needed — the cells just don't appear in
+  // 0-state. The 当 N 条 / 共 M 条 values are still bound to meta.currentSection
+  // / meta.totalCount (no Math.max padding in useWorkstationMeta).
+  it('FIX1-3: 0-state topstrip hides the 4 noisy cells entirely, no fake 1/1', () => {
     const experience = readProjectFile('src/pages/Experience.vue')
     const composable = readProjectFile('src/composables/useWorkstationMeta.js')
 
-    // Experience.vue template uses isEmpty to gate the cell value.
-    // Match the actual Vue template binding: {{ meta.isEmpty ? '—' : meta.currentSection }}
-    // (the em-dash is between two single quotes, so char classes need
-    // to handle that). The `{{` ... `}}` brackets exclude false-positive
-    // matches in HTML comments.
-    expect(experience).toMatch(/第 N 条<\/span>[\s\S]*?\{\{[^}]*meta\.isEmpty\s*\?\s*'\s*—?\s*'\s*:\s*meta\.currentSection/)
-    expect(experience).toMatch(/共 M 条<\/span>[\s\S]*?\{\{[^}]*meta\.isEmpty\s*\?\s*'\s*—?\s*'\s*:\s*meta\.totalCount/)
+    // V1-B: each of the 4 v-if-hideable cells is gated by
+    // `v-if="!meta.isEmpty"`. In 0-state the cells never render; in
+    // full-state the cell is bound directly to the meta value (no
+    // ternary placeholder needed).
+    expect(experience).toContain('v-if="!meta.isEmpty"')
+    expect(experience).toMatch(/第 N 条<\/span>[\s\S]*?\{\{\s*meta\.currentSection\s*\}\}/)
+    expect(experience).toMatch(/共 M 条<\/span>[\s\S]*?\{\{\s*meta\.totalCount\s*\}\}/)
 
     // useWorkstationMeta: currentSection is bare totalCount (no Math.max)
     const currentSectionBlock = composable.match(/const\s+currentSection\s*=\s*computed\([^)]*\)\s*=>\s*\{[^}]*\}/s)?.[0] || ''

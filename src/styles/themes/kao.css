@@ -2456,19 +2456,52 @@
     z-index: var(--z-floating-dock, 240);
     min-height: 80px;
     display: grid;
-    /* UI-E12-W2: prepend auto-width pagetitle column so the page
-       title sits at the top-left and the 5 metadata cells share the
-       rest. padding-left 80px clears the fixed hamburger (top:16
-       left:16 width:46 + safe gap), mirroring Writing's
-       .wall__cork { padding-left: 80px } (kao.css L1510-1512). */
-    grid-template-columns: auto repeat(5, 1fr) auto;
-    gap: 14px;
+    /* V1-B (2026-06-25): two-band layout — left band holds pagetitle
+       + 0/5 metadata cells + 5-cell progress bar; right band holds
+       settings + session actions. Replaces the old
+       `auto repeat(5, 1fr) auto` single-row grid that crammed 8
+       cells into one line. The 4 hidden cells (卷/案号/第N条/共M条)
+       v-if hide in 0-state, so the left band collapses to pagetitle
+       + 当前任务 + progress. The 5-cell progress bar / session chip
+       / settings link are preserved (functional contract). */
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
     align-items: center;
-    padding: 10px 16px 10px 80px;
+    padding-top: 10px;
+    padding-right: 16px;
+    padding-bottom: 10px;
+    padding-left: 80px;
     background: var(--archive-paper);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    border: 1px solid var(--border);
     box-shadow: 0 6px 18px color-mix(in srgb, var(--archive-ink) 8%, transparent);
     font-family: var(--font-sans);
+  }
+
+  /* V1-B: left band — pagetitle + metadata group (cells + progress). */
+  .theme-kao .ws-topstrip__main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  /* V1-B: metadata group inside the left band. flex-row so cells +
+     progress line up next to pagetitle, wrapping on narrow viewports. */
+  .theme-kao .ws-topstrip__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  /* V1-B: right band — settings link + session chip. Compact cluster
+     that stays reachable in both 0-state and full-state. */
+  .theme-kao .ws-topstrip__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
 
   /* UI-E12-W2: page title — small kicker at the top-left of the
@@ -2482,7 +2515,7 @@
     gap: 8px;
     padding-right: 14px;
     margin-right: 6px;
-    border-right: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+    border-right: 1px solid var(--hairline-soft);
     min-width: 0;
   }
   .theme-kao .ws-topstrip__pagetitle-kicker {
@@ -2493,58 +2526,91 @@
     color: var(--archive-ink);
     line-height: 1.1;
   }
+  /* V1-E (2026-06-25): drop text-transform:uppercase. Experience as
+     a 10-character Latin signature mark still reads fine as a Latin
+     string; the original E12-W2 rule "9px + letter-spacing 0.22em +
+     uppercase" was visually too wide for the 80px pagetitle column.
+     Keep letter-spacing so the English signature still scans as a
+     mark, drop uppercase to read as the actual word. */
   .theme-kao .ws-topstrip__pagetitle-name {
     font-family: var(--font-sans);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
     color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-    text-transform: uppercase;
     line-height: 1;
   }
 
-  /* UI-E14-U2: settings chip inside ws-topstrip pagetitle.
-     Same clip-path chip language as shell-meta-chip, anchored
-     at the topstrip level so the user can reach StructuredSettings
-     from the adventure surface without opening the drawer. */
+  /* V3 (2026-06-25): ws-topstrip chips adopt the mast chip stamp
+     language. transparent background + archive-rose 22% border +
+     archive-rose ink-dot prefix. border-radius:0 (档案册硬切角).
+     Replaces V1's grey-rect SaaS chip. */
   .theme-kao .ws-topstrip__settings-link {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    min-height: 24px;
-    padding: 2px 10px;
-    margin-left: 10px;
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, var(--border));
-    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%);
-    background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
-    color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink));
+    min-height: 26px;
+    padding: 2px 12px 2px 18px;
+    border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+    border-radius: 0;
+    background: transparent;
+    color: var(--archive-ink);
     font-family: var(--font-sans);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 500;
     text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.16s ease, color 0.16s ease;
+  }
+  .theme-kao .ws-topstrip__settings-link::before {
+    content: "·";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    line-height: 1;
+    color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
+    transition: color 0.16s ease, font-weight 0.16s ease;
   }
   .theme-kao .ws-topstrip__settings-link:hover {
-    border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
-    color: var(--archive-olive-strong);
-    background: color-mix(in srgb, var(--archive-paper-strong) 92%, var(--surface-raised));
+    border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
+    color: var(--archive-ink);
+  }
+  .theme-kao .ws-topstrip__settings-link:hover::before {
+    color: var(--archive-rose);
+    font-weight: 900;
   }
 
   /* UI-E14-U6: session chip inside ws-topstrip — current session name
-     + switch button so users can change sessions without the drawer. */
+     + switch button so users can change sessions without the drawer.
+     V3: same stamp language as settings-link; 切换 button keeps
+     the inner button styling but with archive-rose 22% border. */
   .theme-kao .ws-topstrip__session-chip {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 10px;
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 20%, transparent);
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
+    padding: 4px 14px 4px 22px;
+    border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+    border-radius: 0;
+    background: transparent;
     white-space: nowrap;
   }
+  .theme-kao .ws-topstrip__session-chip::before {
+    content: "·";
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    line-height: 1;
+    color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
+    transition: color 0.16s ease, font-weight 0.16s ease;
+  }
   .theme-kao .ws-topstrip__session-chip-label {
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--archive-ink);
     max-width: 140px;
     overflow: hidden;
@@ -2553,19 +2619,19 @@
   .theme-kao .ws-topstrip__session-chip-btn {
     height: 22px;
     padding: 0 8px;
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
-    color: color-mix(in srgb, var(--archive-olive) 64%, var(--archive-ink));
-    font-size: 10px;
-    font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+    border-radius: 0;
+    background: transparent;
+    color: var(--archive-ink);
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
+    transition: border-color 0.16s ease, color 0.16s ease;
   }
   .theme-kao .ws-topstrip__session-chip-btn:hover {
-    border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--border));
-    color: var(--archive-olive-strong);
-    background: color-mix(in srgb, var(--archive-paper-strong) 88%, var(--surface-raised));
+    border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
+    color: var(--archive-ink);
   }
 
   @media (max-width: 980px) {
@@ -2584,17 +2650,35 @@
          5. right-rail (sections)
        Order locked by ws-layout grid-template-rows: 1fr repeat(5, auto);
        so each section gets its own row at mobile, no overlap. */
+    /* V1-B (2026-06-25): two-band topstrip collapses to a single
+       vertical stack at ≤980px so the meta cells + progress + actions
+       each get their own row instead of squashing horizontally.
+       V1-D: archive-gold 18% / 14% border → var(--hairline-soft). */
     .theme-kao .ws-topstrip {
       min-height: 0;
       height: auto;
       padding: 10px 12px;
       display: flex;
       flex-direction: column;
+      gap: 8px;
+    }
+    .theme-kao .ws-topstrip__main {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .theme-kao .ws-topstrip__meta {
+      flex-direction: column;
+      align-items: stretch;
       gap: 6px;
+    }
+    .theme-kao .ws-topstrip__actions {
+      width: 100%;
+      justify-content: flex-end;
     }
     .theme-kao .ws-topstrip__pagetitle {
       border-right: none;
-      border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 18%, transparent);
+      border-bottom: 1px solid var(--hairline-soft);
       padding: 0 0 6px;
       margin: 0 0 2px;
       width: 100%;
@@ -2602,7 +2686,7 @@
     .theme-kao .ws-topstrip__cell {
       width: 100%;
       border-right: none;
-      border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 14%, transparent);
+      border-bottom: 1px dotted var(--hairline-soft);
     }
     .theme-kao .ws-topstrip__cell:last-of-type {
       border-bottom: none;
@@ -2772,12 +2856,14 @@
      cell carries a sans 9px kicker + a display 14px value; the 5-cell
      progress bar shows the current narrative state as filled gold cells. */
 
+  /* V1-D (2026-06-25): cell border-right: archive-gold 16% → var(--hairline-soft).
+     Cells use the same single inner-divider token as pagetitle. */
   .theme-kao .ws-topstrip__cell {
     display: flex;
     flex-direction: column;
     gap: 2px;
     padding: 4px 8px;
-    border-right: 1px solid color-mix(in srgb, var(--archive-gold) 16%, transparent);
+    border-right: 1px solid var(--hairline-soft);
   }
 
   .theme-kao .ws-topstrip__cell:last-of-type {
@@ -2789,19 +2875,19 @@
      dense at 14px to read as data values; the italic + gold color still
      marks the case position as a kicker without forcing brush at small
      size. Kickers below the labels remain sans at 10px (META), per
-     E12-F contract #1. */
+     E12-F contract #1. V1-E: drop text-transform:uppercase + letter-spacing
+     0.16em; the cells now read as compact data cells (卷 / 案号 / 当前任务
+     / 第N条 / 共M条 are all CJK, not abbreviations). */
   .theme-kao .ws-topstrip__kicker {
     font-family: var(--font-sans);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.16em;
     color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-    text-transform: uppercase;
   }
 
   .theme-kao .ws-topstrip__value {
     font-family: var(--font-body);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0.02em;
     color: var(--archive-ink);
@@ -2811,7 +2897,7 @@
 
   .theme-kao .ws-topstrip__case {
     font-family: var(--font-body);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0.03em;
     color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive));
@@ -2823,11 +2909,15 @@
      Experience.vue (topstrip uses __kicker / __value / __case /
      __progress / __anchor; no __meta element). Was dead CSS
      consuming 6 lines + falsely implying a meta label slot that
-     the workstation never ships. */
+     the workstation never ships. V1-B re-introduces a non-CSS
+     __meta wrapper in Experience.vue (the flex container around
+     the 5 cells + progress) so no CSS rule needs to exist for it. */
 
   /* 5-cell progress bar — one cell per section axis:
      开卷 / 当前 / 在场 / 发生 / 落笔. Filled cells represent the
-     current narrative state. Total count fills progressively. */
+     current narrative state. Total count fills progressively.
+     V1-D: archive-gold 22% border → var(--border); filled cell
+     border-color → var(--accent) (single accent tier). */
   .theme-kao .ws-topstrip__progress {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -2835,19 +2925,19 @@
     width: 200px;
     padding: 4px;
     background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    border: 1px solid var(--border);
   }
 
   .theme-kao .ws-topstrip__progress-cell {
     height: 12px;
     background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
+    border: 1px solid var(--border);
     transition: background 0.2s ease;
   }
 
   .theme-kao .ws-topstrip__progress-cell.is-filled {
-    background: color-mix(in srgb, var(--archive-gold) 78%, transparent);
-    border-color: var(--archive-gold);
+    background: var(--accent);
+    border-color: var(--accent);
   }
 
   /* Topstrip anchor text — always-on section indicator. In 0-state the
@@ -3223,7 +3313,47 @@
    rule is still kao-only. */
 .theme-kao .app-shell .shell-mast {
   z-index: 260;
+  /* V3 (2026-06-25): mast paper-fiber baseline. Drop the SaaS
+     translucent gradient wash + box-shadow, replace with a flat
+     archive-paper surface + 1px archive-gold 14% bottom edge so
+     the mast reads as paper, not as a floating glass bar. The
+     speckle layer sits on top via .shell-mast::before. */
+  background: var(--archive-paper-soft);
+  border-bottom-color: color-mix(in srgb, var(--archive-gold) 14%, transparent);
+  box-shadow: none;
+  position: relative;
 }
+
+/* V3: paper-fiber speckle overlay on the mast. Reuses the same
+   3-stop radial-gradient layer as the .is-archive-paper ::before
+   at kao.css L109-122 — gold + ink + rose specks — but applied to
+   the entire mast strip so the topbar reads as the same paper as
+   the page below. mix-blend-mode: multiply + opacity 0.32 keeps
+   it subtle; pointer-events: none so clicks land on the mast
+   content. */
+.theme-kao .app-shell .shell-mast::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--archive-gold) 14%, transparent) 0 1px, transparent 2px),
+    radial-gradient(circle at 67% 78%, color-mix(in srgb, var(--archive-ink) 12%, transparent) 0 1px, transparent 2px),
+    radial-gradient(circle at 38% 52%, color-mix(in srgb, var(--archive-rose) 10%, transparent) 0 1px, transparent 2px);
+  background-size: 7px 7px, 11px 11px, 13px 13px;
+  mix-blend-mode: multiply;
+  opacity: 0.32;
+  z-index: 0;
+}
+
+/* V3: mast content (tabbar / brand / meta) sits on top of the
+   speckle layer. Bump z-index so the ::before doesn't intercept
+   clicks. */
+.theme-kao .app-shell .shell-mast > * {
+  position: relative;
+  z-index: 1;
+}
+
 .theme-kao .app-shell .shell-mast .shell-menu-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
   background:

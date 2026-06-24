@@ -13,11 +13,17 @@ import { useStorageHealth } from '../composables/useStorageHealth'
 const route = useRoute()
 const router = useRouter()
 
+/* V3 (2026-06-25): roman numeral stamps for the 5 activity tabs.
+   ACTIVITY_ITEMS is fixed at 5 entries (workbenchNav.js), so the
+   map is hard-coded; if the count grows beyond Ⅹ we can extend or
+   switch to toRoman() but for now the archive folio language wants
+   hand-picked Ⅰ-Ⅴ marks, not generic 01-05 sans numerals. */
+const ROMAN_ACTIVITY_STAMPS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ']
+
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
 const drawerCloseRef = ref(null)
 const tabbarRef = ref(null)
-const indicatorStyle = ref({ transform: 'translateX(0px)', width: '0px' })
 
 const currentActivityKey = computed(() => resolveActivityKey(route))
 const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
@@ -34,28 +40,6 @@ const settingsPopup = useSettingsPopup()
 function openSettings(section) {
   settingsPopup.open(section)
 }
-
-// Re-measure the active tab and slide the indicator. Runs on activity
-// change and on window resize (desktop: tab widths shift when the mast
-// reflows; mobile: tabbar becomes an overflow-x scroller so we need to
-// account for scrollLeft too).
-function updateTabIndicator() {
-  const bar = tabbarRef.value
-  if (!bar) return
-  const activeBtn = bar.querySelector('.shell-tab.active')
-  if (!activeBtn) {
-    indicatorStyle.value = { transform: 'translateX(0px)', width: '0px' }
-    return
-  }
-  indicatorStyle.value = {
-    transform: `translateX(${activeBtn.offsetLeft - bar.scrollLeft}px)`,
-    width: `${activeBtn.offsetWidth}px`,
-  }
-}
-
-watch(currentActivityKey, () => {
-  nextTick(updateTabIndicator)
-})
 
 watch(() => route.fullPath, () => {
   drawerOpen.value = false
@@ -91,21 +75,12 @@ function closeDrawer() {
   drawerOpen.value = false
 }
 
-function handleTabbarScroll() {
-  updateTabIndicator()
-}
-
 onMounted(() => {
   document.addEventListener('keydown', handleDrawerKeydown)
-  tabbarRef.value?.addEventListener('scroll', handleTabbarScroll, { passive: true })
-  window.addEventListener('resize', updateTabIndicator)
-  nextTick(updateTabIndicator)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleDrawerKeydown)
-  tabbarRef.value?.removeEventListener('scroll', handleTabbarScroll)
-  window.removeEventListener('resize', updateTabIndicator)
 })
 
 function handleSelectActivity(activityKey) {
@@ -168,14 +143,9 @@ function handleSelectPanel(routeName) {
             type="button"
             @click="handleSelectActivity(item.key)"
           >
-            <span class="shell-tab__index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span class="shell-tab__index" aria-hidden="true">{{ ROMAN_ACTIVITY_STAMPS[index] || '·' }}</span>
             <span class="shell-tab__label">{{ item.label }}</span>
           </button>
-          <span
-            class="shell-tab-indicator"
-            aria-hidden="true"
-            :style="indicatorStyle"
-          ></span>
         </nav>
 
         <div class="shell-mast__meta">
@@ -312,6 +282,12 @@ function handleSelectPanel(routeName) {
   box-shadow: 0 14px 24px color-mix(in srgb, #000 12%, transparent);
 }
 
+/* V3 (2026-06-25): mast paper-fiber baseline. Drops the SaaS
+   backdrop-filter:blur(18px) (translucent / glassy top-bar) and
+   replaces it with a flat archive-paper surface. The kao theme
+   adds the speckle layer on top via ::before; legacy theme keeps
+   the simple 2-stop gradient with no blur. The mast now reads as
+   paper, not as a floating glass bar. */
 .shell-mast {
   position: sticky;
   top: 0;
@@ -325,7 +301,6 @@ function handleSelectPanel(routeName) {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, transparent), color-mix(in srgb, var(--surface-panel) 94%, transparent));
-  backdrop-filter: blur(18px);
   box-shadow: 0 10px 26px color-mix(in srgb, #000 8%, transparent);
 }
 
@@ -413,100 +388,111 @@ function handleSelectPanel(routeName) {
   letter-spacing: 0.04em;
 }
 
+/* V3 (2026-06-25): tabs share tear-edge dashed dividers instead of
+   a Material-style gap. gap:0 + border-left:1px dashed archive-gold
+   on every tab except :first-child gives a paper-tear signature
+   between activities. The kao theme re-colors the dash to
+   archive-rose / archive-gold per variant. */
 .shell-tabbar {
   min-width: 0;
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 8px;
-  position: relative;
+  gap: 0;
 }
 
-/* Tab indicator: 2px bar that slides under the active tab when
-   currentActivityKey changes. Width matches the active tab's
-   offsetWidth; position uses offsetLeft - scrollLeft so it tracks
-   correctly on the mobile (≤1040px) horizontal-scroll tabbar. */
-.shell-tab-indicator {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--accent) 84%, transparent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
-  pointer-events: none;
-  transition:
-    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    width 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform, width;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shell-tab-indicator {
-    transition: none;
-  }
-}
-
-/* V1-C (2026-06-25): drop the arrow clip-path; tab is a plain
-   rectangle now. The .shell-tab-indicator element (separately JS-
-   positioned) still slides under the active tab as the 2px active
-   indicator, so no border-bottom on .shell-tab is needed. V1-D:
-   archive-gold X% border → var(--border) (panel tier). */
+/* V3: plain rectangle tab with tear-edge dashed divider (border-left
+   1px dashed archive-gold 18%); active state shows the archive-rose
+   ◆ stamp via ::before. background stays transparent in both states
+   — the stamp is the only signal, matching the archive folio rule
+   "no background highlight, mark via stamp + ink color". */
 .shell-tab {
+  position: relative;
   min-height: 40px;
-  padding: 0 12px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: none;
+  border-left: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.shell-tab:first-child {
+  border-left: none;
 }
 
 .shell-tab:hover {
-  border-color: var(--border);
   background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
   color: var(--text-primary);
 }
 
 .shell-tab.active {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--accent-light) 14%, transparent);
+  background: transparent;
   color: var(--text-primary);
 }
 
-/* V1-E: drop skewX(16deg) on .shell-tab__index — the old number
-   block was a tilted label, the new index is a small numeric tab
-   that reads as a serial. */
+/* V3: active tab gets the archive-rose ◆ stamp prefix. The
+   pseudo-element is invisible on inactive tabs and only renders
+   on .shell-tab.active. aria-hidden on the index span + the
+   pseudo-element means screen readers still rely on the tab's
+   aria-selected state, not the visual mark. */
+.shell-tab::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  opacity: 0;
+  margin-right: 0;
+  transition: opacity 0.16s ease, width 0.16s ease, margin-right 0.16s ease;
+}
+
+.shell-tab.active::before {
+  content: "◆";
+  opacity: 1;
+  width: auto;
+  margin-right: 4px;
+  font-size: 9px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--accent-rose) 82%, transparent);
+}
+
+/* V3: roman numeral stamp on .shell-tab__index — LXGW brush via
+   var(--font-display) instead of V1's sans mono. No skewX (V1
+   removed it), no tabular-nums (roman numerals don't align). */
 .shell-tab__index {
   display: inline-block;
-  min-width: 18px;
+  min-width: 14px;
   text-align: center;
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
+  letter-spacing: 0;
 }
 
 .shell-tab.active .shell-tab__index {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
-/* V1-E: drop text-transform:uppercase + letter-spacing 0.08em on
-   .shell-tab__label. The 5 labels (体验/写作/素材/设定/画布) are
-   Chinese and should read as Chinese, not forced-caps. The active
-   state is already conveyed by .shell-tab.active background +
-   .shell-tab-indicator slide bar + .shell-tab__index accent. */
+/* V3: inactive label at 500 weight, active label at 600 — the
+   weight bump is the typographic "ink stamp" without changing the
+   background. No underline, no glow, no clip-path; archive folio
+   language stays in ink. */
 .shell-tab__label {
   display: inline-flex;
   align-items: center;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
+}
+
+.shell-tab.active .shell-tab__label {
+  font-weight: 600;
 }
 
 .shell-mast__meta {
@@ -514,51 +500,88 @@ function handleSelectPanel(routeName) {
   justify-content: flex-end;
 }
 
-/* V1-C (2026-06-25): drop the arrow clip-path. Meta chip is a plain
-   rounded chip now (border-radius 6px). V1-D: accent 28% border →
-   var(--border); the meta chip's accent identity moves to background
-   fill only (accent-light 18% wash). V1-E: drop text-transform:uppercase
-   + letter-spacing 0.1em; the chip text is the user-set popup section
-   name (设置 / 存储 90% etc.) and should not be forced caps. */
+/* V3 (2026-06-25): mast chips (设置 / 存储 / 切换) move to the
+   archive-rose ink-dot stamp language. transparent background +
+   1px solid archive-rose 22% border + ::before `·` ink dot in
+   archive-rose. hover promotes the dot to a solid mark + lifts
+   the border to archive-rose 40%. border-radius: 0 (档案册硬切角).
+   Replaces V1's rounded-grey-rect SaaS chip language. */
 .shell-meta-chip {
-  min-height: 34px;
-  padding: 0 14px;
+  position: relative;
+  min-height: 32px;
+  padding: 0 12px 0 18px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-light) 18%, var(--surface-raised));
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.shell-meta-chip::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--accent-rose) 60%, transparent);
+  transition: color 0.16s ease, font-weight 0.16s ease;
 }
 
 .shell-meta-chip:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent-light) 26%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--accent-rose) 40%, var(--border));
+  color: var(--text-primary);
 }
 
-/* V1-C (2026-06-25): drop the arrow clip-path on storage chip (same
-   shape language as shell-meta-chip; both are status chips in the
-   mast meta cluster). border-radius 6px. V1-D: accent 36% border →
-   var(--border); warning / critical still escalate to var(--danger)
-   via existing classes. V1-E: drop letter-spacing 0.06em. */
+.shell-meta-chip:hover::before {
+  color: var(--accent-rose);
+  font-weight: 900;
+}
+
+/* V3: storage chip — same stamp language as shell-meta-chip. */
 .shell-storage-chip {
-  min-height: 34px;
-  padding: 0 12px;
+  position: relative;
+  min-height: 32px;
+  padding: 0 12px 0 18px;
   margin-right: 8px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-light) 22%, var(--surface-raised));
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.shell-storage-chip::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--accent-rose) 60%, transparent);
+  transition: color 0.16s ease, font-weight 0.16s ease;
+}
+
+.shell-storage-chip:hover {
+  border-color: color-mix(in srgb, var(--accent-rose) 40%, var(--border));
+}
+
+.shell-storage-chip:hover::before {
+  color: var(--accent-rose);
+  font-weight: 900;
 }
 
 .shell-storage-chip.warning {
@@ -732,16 +755,20 @@ function handleSelectPanel(routeName) {
 
   .shell-tab {
     min-width: max-content;
-    padding: 0 12px 0 0;
+    padding: 0 12px;
   }
 
+  /* V3 (2026-06-25): roman numeral stamp stays visible at ≤760px so
+     the archive folio language reads on mobile. Old behavior hid the
+     index and let the labels stand alone; that read as plain text
+     tabs. With the LXGW Ⅰ-Ⅴ mark + small font + reduced letter-
+     spacing, the row fits the mast width without overflow. */
   .shell-tab__index {
-    display: none;
+    font-size: 11px;
   }
 
   .shell-tab__label {
-    padding-left: 0;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .shell-brand-route strong {
@@ -809,16 +836,14 @@ function handleSelectPanel(routeName) {
   opacity: 0.62;
 }
 
-.theme-kao .shell-mast {
-  min-height: 68px;
-  padding: 10px 18px;
-  border-bottom-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff), color-mix(in srgb, var(--archive-paper) 94%, var(--surface-panel)));
-  backdrop-filter: blur(10px);
-  box-shadow: 0 12px 24px color-mix(in srgb, #000 8%, transparent);
-}
-
+/* V3 (2026-06-25): the .theme-kao .shell-mast overrides that used to
+   sit here were redundant — kao.css owns the kao mast baseline now
+   (V3 paper-fiber: flat archive-paper surface + 1px archive-gold
+   14% bottom edge + ::before speckle overlay; no backdrop-filter, no
+   box-shadow). The legacy ::before paper-grain overlay that was
+   here is now ALSO owned by kao.css (the same 3-stop radial-gradient
+   speckle layer used by .is-archive-paper is shared with the mast).
+   Keeping a redundant rule here would re-introduce the SaaS blur. */
 .theme-kao .shell-mast::before {
   background:
     linear-gradient(116deg, transparent 0 68%, color-mix(in srgb, var(--archive-gold) 10%, transparent) 68.2% 72%, transparent 72.2%),
@@ -855,59 +880,72 @@ function handleSelectPanel(routeName) {
   color: var(--archive-ink-soft);
 }
 
-/* V1-C/D/E (2026-06-25): drop archive-gold X% border; tab is plain
-   rectangle with var(--border) and the .shell-tab-indicator slide
-   bar handles the active mark. Chinese label reads at 13px sans. */
+/* V3 (2026-06-25): kao archive-folio overrides for the mast tab /
+   chip stamp language. The .shell-tab-indicator slide bar is GONE
+   (V3 deletes V2's 2px accent bar — replaced by the archive-rose
+   ◆ ::before stamp on active tabs). Tabs read as paper-tear
+   dashed dividers (border-left 1px dashed archive-gold 18%) +
+   roman numeral stamp + ink-dot chip language. */
 .theme-kao .shell-tabbar {
-  gap: 8px;
+  gap: 0;
 }
 
 .theme-kao .shell-tab {
   min-height: 38px;
-  border-color: var(--border);
+  border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
   background: transparent;
   color: var(--archive-ink-soft);
 }
 
 .theme-kao .shell-tab:hover {
-  border-color: var(--border);
   background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
   color: var(--archive-ink);
 }
 
 .theme-kao .shell-tab.active {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--archive-paper) 94%, transparent);
+  background: transparent;
   color: var(--archive-ink);
 }
 
+/* V3: active tab's archive-rose ◆ stamp. Uses --archive-rose (the
+   kao pink-ink stamp color) instead of --accent (the SaaS blue) so
+   the mark reads as an archive-folio stamp, not a SaaS highlight. */
+.theme-kao .shell-tab.active::before {
+  color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
+}
+
 .theme-kao .shell-tab__index {
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
   color: var(--archive-ink-soft);
 }
 
 .theme-kao .shell-tab.active .shell-tab__index {
-  color: var(--archive-olive-strong);
+  color: var(--archive-ink);
 }
 
 .theme-kao .shell-tab__label {
   font-size: 13px;
 }
 
-.theme-kao .shell-tab-indicator {
-  background: var(--archive-olive-strong);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--archive-olive) 36%, transparent);
+/* V3: meta chip uses archive-rose 22% border + ink-dot prefix in
+   archive-rose. Replaces V1's grey-rectangle-with-accent language. */
+.theme-kao .shell-meta-chip {
+  border-color: color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  background: transparent;
+  color: var(--archive-ink);
 }
 
-/* V1-C/D (2026-06-25): meta chip drops archive-olive 24% border, now
-   uses var(--border) + accent-tinted background. */
-.theme-kao .shell-meta-chip {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
-  color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
+.theme-kao .shell-meta-chip::before {
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
 }
 
 .theme-kao .shell-meta-chip:hover {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
+  color: var(--archive-ink);
+}
+
+.theme-kao .shell-meta-chip:hover::before {
+  color: var(--archive-rose);
 }
 
 .theme-kao .shell-overlay {
