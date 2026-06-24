@@ -85,7 +85,7 @@
               <span class="welcome-stage-haze"></span>
             </div>
 
-            <aside v-if="featuredPreset" class="welcome-world-chip" aria-label="默认世界入口">
+            <aside v-if="showFeaturedPreset" class="welcome-world-chip" aria-label="默认世界入口">
               <span class="welcome-world-chip__genre">{{ featuredPreset.genreLabel }}</span>
               <strong class="welcome-world-chip__name">{{ featuredPreset.name }}</strong>
             </aside>
@@ -133,83 +133,83 @@
               </ol>
             </div>
 
+            <div
+              v-else
+              class="welcome-onboarding-done"
+              role="status"
+              aria-label="已就绪"
+            >
+              <span class="welcome-onboarding-done__check" aria-hidden="true">✓</span>
+              <span class="welcome-onboarding-done__line">已就绪 · 可以开始</span>
+            </div>
+
+            <section
+              v-if="hasSessions && lastSession"
+              class="welcome-recent-session"
+              role="region"
+              aria-label="最近会话续接"
+            >
+              <header class="welcome-recent-session__head">
+                <span class="welcome-recent-session__kicker" aria-hidden="true">·</span>
+                <span class="welcome-recent-session__label">最近会话</span>
+                <span v-if="lastSession.worldbookName" class="welcome-recent-session__world">
+                  · {{ lastSession.worldbookName }}
+                </span>
+              </header>
+              <strong class="welcome-recent-session__title">{{ lastSession.title || '未命名会话' }}</strong>
+              <p class="welcome-recent-session__meta">
+                <span>{{ formatTimestamp(lastSession.updatedAt) }}</span>
+                <span class="welcome-recent-session__sep" aria-hidden="true">·</span>
+                <span>{{ lastSession.messageCount }} 条</span>
+                <template v-if="lastSession.volumeLabel">
+                  <span class="welcome-recent-session__sep" aria-hidden="true">·</span>
+                  <span>{{ lastSession.volumeLabel }}</span>
+                </template>
+              </p>
+              <button
+                type="button"
+                class="welcome-recent-session__enter"
+                @click="enterLastSession"
+                :aria-label="`进入最近会话：${lastSession.title || '未命名会话'}`"
+              >进入</button>
+            </section>
+
             <div class="welcome-command-stack">
               <BookmarkButton
-                to="/opening"
+                :key="primaryAction.key"
+                :to="primaryAction.to"
                 class="welcome-primary-link"
-                aria-label="进入世界入口"
-                index="01"
-                label="进入世界"
+                :aria-label="primaryAction.ariaLabel"
+                :index="primaryAction.index"
+                :label="primaryAction.label"
+                :variant="primaryAction.variant"
+                @click="handlePrimaryAction"
                 index-class="welcome-command-index"
                 label-class="welcome-command-label"
               />
 
               <BookmarkButton
-                to="/experience"
-                class="welcome-secondary-link"
-                aria-label="继续当前故事"
-                index="02"
-                label="继续"
-                variant="secondary"
+                v-for="action in secondaryActions"
+                :key="`secondary-${action.key}`"
+                :to="action.to"
+                :class="`welcome-secondary-link welcome-secondary-link--${action.key}`"
+                :aria-label="action.ariaLabel"
+                :index="action.index"
+                :label="action.label"
+                :variant="action.variant"
                 index-class="welcome-command-index"
                 label-class="welcome-command-label"
               />
 
               <BookmarkButton
-                to="/settings/worldbook"
-                class="welcome-tertiary-link"
-                aria-label="翻开新卷"
-                index="03"
-                label="新卷"
-                variant="tertiary"
-                compact
-                index-class="welcome-command-index"
-                label-class="welcome-command-label"
-              />
-
-              <BookmarkButton
-                to="/settings/structured"
-                class="welcome-quaternary-link"
-                aria-label="结构化设定"
-                index="04"
-                label="设定"
-                variant="tertiary"
-                compact
-                index-class="welcome-command-index"
-                label-class="welcome-command-label"
-              />
-
-              <BookmarkButton
-                to="/writing"
-                class="welcome-quinary-link"
-                aria-label="写作"
-                index="05"
-                label="写作"
-                variant="tertiary"
-                compact
-                index-class="welcome-command-index"
-                label-class="welcome-command-label"
-              />
-
-              <BookmarkButton
-                to="/materials"
-                class="welcome-senary-link"
-                aria-label="素材库"
-                index="06"
-                label="素材"
-                variant="tertiary"
-                compact
-                index-class="welcome-command-index"
-                label-class="welcome-command-label"
-              />
-
-              <BookmarkButton
-                to="/prose-essay"
-                class="welcome-septenary-link"
-                aria-label="画布"
-                index="07"
-                label="画布"
-                variant="tertiary"
+                v-for="action in tertiaryActions"
+                :key="`tertiary-${action.key}`"
+                :to="action.to"
+                :class="`welcome-tertiary-link welcome-tertiary-link--${action.key}`"
+                :aria-label="action.ariaLabel"
+                :index="action.index"
+                :label="action.label"
+                :variant="action.variant"
                 compact
                 index-class="welcome-command-index"
                 label-class="welcome-command-label"
@@ -238,6 +238,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
@@ -253,6 +254,7 @@ const { isDark, toggleTheme, isKao, setVariant } = useTheme()
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const settingsPopup = useSettingsPopup()
+const router = useRouter()
 
 const featuredPreset = computed(() => seedWorldbookPresets[0] || null)
 const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
@@ -267,6 +269,130 @@ const step2Done = computed(() => hasWorldbooks.value)
 const step3Done = computed(() => hasSessions.value)
 const allStepsDone = computed(() => step1Done.value && step2Done.value && step3Done.value)
 const isOnboarding = computed(() => !allStepsDone.value)
+
+/* V2 (W2 2026-06-26): state-aware 3-tier entry instead of 7 static buttons.
+   The Welcome page now picks 1 primary action based on what the user is
+   missing (key → world → session) and shows always-on secondary + tertiary
+   utility links. The previous 7-static-button layout forced every user
+   through every choice, which read as a feature wall rather than a
+   dashboard. 3 layers + 1 contextual recent-session card makes the page
+   act like a "where do I go from here" hub, not a settings index. */
+const welcomeState = computed(() => {
+  if (!hasApiKey.value) return 'setup'
+  if (!hasWorldbooks.value) return 'choose-world'
+  if (!hasSessions.value) return 'start'
+  return 'resume'
+})
+
+const primaryAction = computed(() => {
+  const state = welcomeState.value
+  if (state === 'setup') {
+    return {
+      key: 'primary-setup',
+      to: null,
+      label: '开始配置',
+      index: '01',
+      variant: 'primary',
+      ariaLabel: '开始配置 API Key（先决条件）'
+    }
+  }
+  if (state === 'choose-world') {
+    return {
+      key: 'primary-choose-world',
+      to: '/settings/worldbook',
+      label: '选择世界',
+      index: '01',
+      variant: 'primary',
+      ariaLabel: '选择世界书（API 已配置）'
+    }
+  }
+  if (state === 'start') {
+    return {
+      key: 'primary-start',
+      to: '/opening',
+      label: '开始冒险',
+      index: '01',
+      variant: 'primary',
+      ariaLabel: '开始冒险（世界书已选）'
+    }
+  }
+  return {
+    key: 'primary-resume',
+    to: '/experience',
+    label: '继续冒险',
+    index: '01',
+    variant: 'primary',
+    ariaLabel: '继续最近一次冒险'
+  }
+})
+
+function handlePrimaryAction() {
+  if (primaryAction.value.key === 'primary-setup') {
+    settingsPopup.open('ai')
+  }
+}
+
+const secondaryActions = computed(() => [
+  { key: 'new-world', to: '/settings/worldbook', label: '新世界', index: '02', variant: 'secondary', ariaLabel: '打开世界书快选（换 / 导入）' },
+  { key: 'writing', to: '/writing', label: '写作', index: '03', variant: 'secondary', ariaLabel: '打开写作工作台' },
+  { key: 'materials', to: '/materials', label: '素材', index: '04', variant: 'secondary', ariaLabel: '打开素材库' }
+])
+
+const tertiaryActions = computed(() => [
+  { key: 'settings', to: '/settings/structured', label: '设定', index: '05', variant: 'tertiary', ariaLabel: '结构化设定（结构化 / 世界书 / 存储）' },
+  { key: 'canvas', to: '/prose-essay', label: '画布', index: '06', variant: 'tertiary', ariaLabel: '画布（分镜 / 关系编排）' }
+])
+
+/* Recent session card — only shows when at least one session exists.
+   The 7-static layout always showed "继续" even when no session was
+   around; users would click and land in an empty adventure. Now the
+   "继续冒险" primary button and the recent-session card both require
+   hasSessions, and the recent-session card is the visible proof of
+   "I can resume this" rather than an empty promise. */
+const lastSession = computed(() => {
+  const list = Array.isArray(gameStore.sessions) ? gameStore.sessions : []
+  if (!list.length) return null
+  const sorted = [...list].sort((a, b) => {
+    const aTime = Number(a?.updatedAt || a?.createdAt || 0)
+    const bTime = Number(b?.updatedAt || b?.createdAt || 0)
+    return bTime - aTime
+  })
+  const session = sorted[0]
+  const worldbookId = session?.worldbookId || session?.worldId || ''
+  const worldbookEntry = (worldStore.worldbooksIndex || []).find((w) => w && w.id === worldbookId)
+  return {
+    id: String(session?.id || ''),
+    title: String(session?.title || '未命名会话'),
+    updatedAt: Number(session?.updatedAt || session?.createdAt || 0),
+    messageCount: Array.isArray(session?.messages)
+      ? session.messages.length
+      : (Array.isArray(session?.chatHistory) ? session.chatHistory.length : 0),
+    worldbookId,
+    worldbookName: worldbookEntry?.name || '',
+    volumeLabel: ''
+  }
+})
+
+const showFeaturedPreset = computed(() => {
+  return Boolean(featuredPreset.value) && !hasWorldbooks.value
+})
+
+function enterLastSession() {
+  router.push('/experience')
+}
+
+function formatTimestamp(ts) {
+  const t = Number(ts || 0)
+  if (!t) return '刚刚'
+  const diff = Date.now() - t
+  if (diff < 60 * 1000) return '刚刚'
+  if (diff < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diff / (60 * 1000)))} 分钟前`
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))} 小时前`
+  const d = new Date(t)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 const welcomeArchiveItems = [
   { label: '01', image: kaoReference, position: '18% 44%' },
   { label: '02', image: kaoReference, position: '54% 42%' },
@@ -964,6 +1090,131 @@ const welcomeArchiveItems = [
   }
 }
 
+/* V2 (W2 2026-06-26): completed-onboarding seal line. The 3-step
+   onboarding strip is gated by isOnboarding; once all 3 steps
+   complete, this 1-line seal stays in the same place so the page
+   doesn't read as "everything got hidden, where did the guide go".
+   archive-olive + ✓ glyph = "ready" stamp, not "you finished an
+   onboarding flow". */
+.welcome-onboarding-done {
+  position: relative;
+  margin: 0 16px;
+  padding: 8px 14px 8px 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 38%, var(--border));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+  color: color-mix(in srgb, var(--archive-olive-strong) 80%, var(--archive-ink));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.welcome-onboarding-done__check {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--archive-olive) 90%, var(--archive-ink));
+  font-size: 14px;
+  font-weight: 900;
+}
+.welcome-onboarding-done__line {
+  white-space: nowrap;
+}
+
+/* V2 (W2 2026-06-26): recent session card. V3 archive-folio stamp
+   language (transparent background + archive-rose 22% border + prefix
+   · ink dot) so the card reads as a binder card, not a SaaS tile.
+   Positioned above the command stack so users see "you can resume
+   here" before they read the action list. */
+.welcome-recent-session {
+  position: absolute;
+  right: clamp(24px, 3vw, 40px);
+  bottom: clamp(220px, 22vw, 280px);
+  z-index: var(--z-stage-cta);
+  width: min(360px, 32vw);
+  padding: 12px 14px 12px 22px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  box-shadow:
+    0 12px 22px color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--archive-paper) 60%, transparent);
+}
+.welcome-recent-session::before {
+  content: '·';
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  color: var(--archive-rose);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+.welcome-recent-session__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-ink-soft));
+}
+.welcome-recent-session__label {
+  color: color-mix(in srgb, var(--archive-rose) 78%, var(--archive-ink));
+}
+.welcome-recent-session__world {
+  color: color-mix(in srgb, var(--archive-olive) 70%, var(--archive-ink-soft));
+  font-weight: 700;
+}
+.welcome-recent-session__title {
+  color: var(--archive-ink);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 760;
+  letter-spacing: 0.01em;
+}
+.welcome-recent-session__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.welcome-recent-session__sep {
+  color: color-mix(in srgb, var(--archive-rose) 50%, transparent);
+}
+.welcome-recent-session__enter {
+  justify-self: end;
+  min-height: 28px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 46%, var(--border));
+  background: color-mix(in srgb, var(--archive-rose-light) 36%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 84%, var(--archive-ink));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.welcome-recent-session__enter:hover {
+  border-color: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-ink));
+  background: color-mix(in srgb, var(--archive-rose-light) 56%, transparent);
+  color: var(--archive-ink);
+}
+
 .welcome-poster-meta {
   position: absolute;
   left: clamp(34px, 4vw, 58px);
@@ -1188,6 +1439,13 @@ const welcomeArchiveItems = [
     bottom: 214px;
     width: min(300px, calc(100% - 56px));
   }
+
+  .welcome-recent-session {
+    right: 24px;
+    left: 24px;
+    bottom: 224px;
+    width: auto;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1273,6 +1531,12 @@ const welcomeArchiveItems = [
 
   .welcome-archive-strip {
     display: none;
+  }
+
+  .welcome-recent-session {
+    position: static;
+    width: auto;
+    margin: 8px 16px 0;
   }
 }
 </style>

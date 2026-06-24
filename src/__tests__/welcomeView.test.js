@@ -18,8 +18,14 @@ describe('welcome view redesign', () => {
     expect(welcomeView).toContain('class="welcome-poster-meta__brand">Pinax')
     expect(welcomeView).toContain('featuredPreset.name')
     expect(welcomeView).toContain('featuredPreset.genreLabel')
-    expect(welcomeView).toContain('aria-label="进入世界入口"')
-    expect(welcomeView).toContain('aria-label="继续当前故事"')
+    // W2 (2026-06-26): primary action is now state-aware. The literal
+    // "进入世界入口" / "继续当前故事" aria-labels are gone — they
+    // become 4 dynamic states (setup / choose-world / start / resume).
+    // The contract is the 4 dynamic labels exist in primaryAction.
+    expect(welcomeView).toMatch(/label:\s*['"]开始配置['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]选择世界['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]开始冒险['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]继续冒险['"]/)
     expect(welcomeView).toContain('<PosterStage')
     expect(welcomeView).toContain('<FolioSurface')
     expect(welcomeView).toContain('<BookmarkButton')
@@ -40,40 +46,43 @@ describe('welcome view redesign', () => {
     expect(welcomeView).not.toContain('Playable Worldbook')
   })
 
-  it('routes the poster CTAs through OpeningPage before the current adventure surface', () => {
+  it('routes the primary + secondary + tertiary actions through 3 layers (state-aware primary + 3 secondary + 2 tertiary)', () => {
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
 
-    const primaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-primary-link"[\s\S]*?\/>/)?.[0] || ''
-    const secondaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-secondary-link"[\s\S]*?\/>/)?.[0] || ''
-    const tertiaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-tertiary-link"[\s\S]*?\/>/)?.[0] || ''
-    const quaternaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-quaternary-link"[\s\S]*?\/>/)?.[0] || ''
+    // W2 (2026-06-26): the 7-static-button contract is gone. The
+    // welcomeCommandStack now renders 1 primary (state-aware) + 3
+    // secondary (新世界 / 写作 / 素材) + 2 tertiary (设定 / 画布).
+    // Verify the v-for loops exist and route the right targets.
 
-    expect(primaryCta).toContain('label="进入世界"')
-    expect(primaryCta).toContain('to="/opening"')
-    expect(secondaryCta).toContain('label="继续"')
-    expect(secondaryCta).toContain('to="/experience"')
-    expect(tertiaryCta).toContain('label="新卷"')
-    expect(tertiaryCta).toContain('to="/settings/worldbook"')
-    expect(quaternaryCta).toContain('label="设定"')
-    expect(quaternaryCta).toContain('to="/settings/structured"')
+    // Primary: state-aware, picked from primaryAction computed
+    expect(welcomeView).toMatch(/const\s+primaryAction\s*=\s*computed/)
+    expect(welcomeView).toContain(':to="primaryAction.to"')
+    expect(welcomeView).toContain(':label="primaryAction.label"')
+    expect(welcomeView).toContain(':aria-label="primaryAction.ariaLabel"')
+    expect(welcomeView).toContain('class="welcome-primary-link"')
 
-    const quinaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-quinary-link"[\s\S]*?\/>/)?.[0] || ''
-    const senaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-senary-link"[\s\S]*?\/>/)?.[0] || ''
-    const septenaryCta =
-      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-septenary-link"[\s\S]*?\/>/)?.[0] || ''
+    // Secondary actions: 3 always-on (新世界 / 写作 / 素材)
+    expect(welcomeView).toMatch(/const\s+secondaryActions\s*=\s*computed/)
+    expect(welcomeView).toMatch(/secondaryActions/)
+    expect(welcomeView).toMatch(/welcome-secondary-link--\$\{action\.key\}/)
+    expect(welcomeView).toMatch(/'new-world'/)
+    expect(welcomeView).toMatch(/'writing'/)
+    expect(welcomeView).toMatch(/'materials'/)
 
-    expect(quinaryCta).toContain('label="写作"')
-    expect(quinaryCta).toContain('to="/writing"')
-    expect(senaryCta).toContain('label="素材"')
-    expect(senaryCta).toContain('to="/materials"')
-    expect(septenaryCta).toContain('label="画布"')
-    expect(septenaryCta).toContain('to="/prose-essay"')
+    // Tertiary actions: 2 always-on (设定 / 画布)
+    expect(welcomeView).toMatch(/const\s+tertiaryActions\s*=\s*computed/)
+    expect(welcomeView).toMatch(/tertiaryActions/)
+    expect(welcomeView).toMatch(/welcome-tertiary-link--\$\{action\.key\}/)
+    expect(welcomeView).toMatch(/'settings'/)
+    expect(welcomeView).toMatch(/'canvas'/)
+
+    // 4 dynamic primary action states. Setup opens the shared settings
+    // popup on the AI tab; the other 3 states route to their work surfaces.
+    expect(welcomeView).toContain("to: null")
+    expect(welcomeView).toContain('settingsPopup.open(\'ai\')')
+    expect(welcomeView).toContain("to: '/settings/worldbook'")
+    expect(welcomeView).toContain("to: '/opening'")
+    expect(welcomeView).toContain("to: '/experience'")
   })
 })
 
@@ -159,15 +168,77 @@ describe('welcome view — first-run onboarding', () => {
     expect(welcomeView).toContain('hasSessions')
   })
 
-  it('7 BookmarkButtons still present alongside onboarding', () => {
+  it('renders 3-layer command stack (1 primary + 3 secondary + 2 tertiary BookmarkButtons)', () => {
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
 
+    // W2 (2026-06-26): 7 static buttons replaced by 3-layer v-for loops
+    // over computed arrays. The 3 visual class hooks (welcome-primary-link
+    // / welcome-secondary-link / welcome-tertiary-link) are still used as
+    // base classes — the welcome-secondary-link--{key} / --{key} modifier
+    // classes are visual offsets within the same layer.
     expect(welcomeView).toContain('class="welcome-primary-link"')
-    expect(welcomeView).toContain('class="welcome-secondary-link"')
-    expect(welcomeView).toContain('class="welcome-tertiary-link"')
-    expect(welcomeView).toContain('class="welcome-quaternary-link"')
-    expect(welcomeView).toContain('class="welcome-quinary-link"')
-    expect(welcomeView).toContain('class="welcome-senary-link"')
-    expect(welcomeView).toContain('class="welcome-septenary-link"')
+    expect(welcomeView).toMatch(/class="`welcome-secondary-link welcome-secondary-link/)
+    expect(welcomeView).toMatch(/class="`welcome-tertiary-link welcome-tertiary-link/)
+    // 3 + 2 = 5 v-for items; the old quaternary/quinary/senary/septenary
+    // index-style classes are no longer needed (replaced by --key modifier).
+    expect(welcomeView).not.toContain('class="welcome-quaternary-link"')
+    expect(welcomeView).not.toContain('class="welcome-quinary-link"')
+    expect(welcomeView).not.toContain('class="welcome-senary-link"')
+    expect(welcomeView).not.toContain('class="welcome-septenary-link"')
+  })
+})
+
+// V2 (W2 2026-06-26): state-aware surface — 3 new contracts.
+describe('welcome view — V2 state-aware surface (W2)', () => {
+  it('computes 4 welcomeState values from hasApiKey/hasWorldbooks/hasSessions', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    // welcomeState machine: setup / choose-world / start / resume
+    expect(welcomeView).toMatch(/const\s+welcomeState\s*=\s*computed/)
+    expect(welcomeView).toContain("return 'setup'")
+    expect(welcomeView).toContain("return 'choose-world'")
+    expect(welcomeView).toContain("return 'start'")
+    expect(welcomeView).toContain("return 'resume'")
+  })
+
+  it('renders the recent-session card only when hasSessions is true (no empty promise)', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    // The card is gated by v-if="hasSessions && lastSession" — not by
+    // static "show always", which is the previous broken contract.
+    expect(welcomeView).toContain('v-if="hasSessions && lastSession"')
+    expect(welcomeView).toContain('class="welcome-recent-session"')
+    expect(welcomeView).toContain('role="region"')
+    expect(welcomeView).toContain('aria-label="最近会话续接"')
+    expect(welcomeView).toContain('lastSession.title')
+    expect(welcomeView).toContain('lastSession.worldbookName')
+    expect(welcomeView).toContain('lastSession.messageCount')
+    expect(welcomeView).toContain('lastSession.updatedAt')
+    // Enter button reads "进入" + aria-label interpolates session title
+    expect(welcomeView).toMatch(/aria-label="`进入最近会话/)
+    expect(welcomeView).toContain('enterLastSession')
+    expect(welcomeView).toContain("router.push('/experience')")
+  })
+
+  it('shows the onboarding done seal when isOnboarding is false (no "page went blank" gap)', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    // After all 3 onboarding steps complete, the strip v-if="isOnboarding"
+    // hides. W2 adds a v-else done seal so the page doesn't read as empty.
+    expect(welcomeView).toContain('class="welcome-onboarding-done"')
+    expect(welcomeView).toContain('aria-label="已就绪"')
+    expect(welcomeView).toContain('已就绪 · 可以开始')
+    // archive-olive done color is used to mark completion
+    expect(welcomeView).toContain('var(--archive-olive)')
+  })
+
+  it('gates featuredPreset chip behind "no worldbook" state (not always-on)', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    // Old contract: v-if="featuredPreset" (always on)
+    // New contract: v-if="showFeaturedPreset" which is gated by !hasWorldbooks
+    expect(welcomeView).toContain('v-if="showFeaturedPreset"')
+    expect(welcomeView).not.toContain('v-if="featuredPreset"')
+    expect(welcomeView).toMatch(/const\s+showFeaturedPreset\s*=\s*computed/)
   })
 })

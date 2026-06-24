@@ -102,8 +102,11 @@ describe('ui polish contract', () => {
     expect(welcomeView).toContain('aria-label="默认世界入口"')
     expect(welcomeView).toContain('featuredPreset.name')
     expect(welcomeView).toContain('featuredPreset.genreLabel')
-    expect(welcomeView).toContain('aria-label="进入世界入口"')
-    expect(welcomeView).toContain('aria-label="继续当前故事"')
+    expect(welcomeView).toMatch(/const\s+welcomeState\s*=\s*computed/)
+    expect(welcomeView).toMatch(/label:\s*['"]开始配置['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]选择世界['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]开始冒险['"]/)
+    expect(welcomeView).toMatch(/label:\s*['"]继续冒险['"]/)
     expect(welcomeView).toContain('class="welcome-persona-note"')
     expect(welcomeView).toContain('class="welcome-dossier"')
     expect(welcomeView).toContain('class="welcome-briefing"')
@@ -658,15 +661,17 @@ describe('welcome + experience pass 4 — 1-click resume + micro button density'
     expect(experience).not.toContain('async function sendOpeningAction()')
   })
 
-  it('WelcomeView 3 BookmarkButton calls preserve 82px default (no size="compact|micro" anywhere)', () => {
+  it('WelcomeView state-aware BookmarkButton stack preserves non-micro buttons', () => {
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
 
     // No size="..." on any BookmarkButton in WelcomeView
     expect(welcomeView).not.toMatch(/size="(compact|micro)"/)
-    // compact boolean still present on the 3rd button (tertiary)
-    expect(welcomeView).toMatch(
-      /<BookmarkButton[\s\S]*?variant="tertiary"[\s\S]*?compact[\s\S]*?\/>/,
-    )
+    expect(welcomeView).toContain(':to="primaryAction.to"')
+    expect(welcomeView).toMatch(/v-for="action in secondaryActions"/)
+    expect(welcomeView).toMatch(/v-for="action in tertiaryActions"/)
+    expect(welcomeView).toContain('compact')
+    expect(welcomeView).toContain('class="welcome-recent-session"')
+    expect(welcomeView).toContain('class="welcome-onboarding-done"')
   })
 
   it('onMounted no-session fallback no longer forces users through SessionPicker', () => {
