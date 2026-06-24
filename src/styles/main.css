@@ -455,25 +455,32 @@ body {
   to   { transform: scale(1.02); }
 }
 
-/* Page route transitions */
+/* Page route transitions — enter soft-swells up from below (8px + scale 0.995),
+   leave pulls up and out (-6px). Below ~0.2s the route change reads as a
+   flash; at 0.28s enter + 0.16s leave (total ~0.44s in out-in mode) the
+   eye registers it as a transition without dragging the workbench. Easing
+   uses cubic-bezier(0.22, 1, 0.36, 1) — same curve as opening title
+   breathing — so mast and page share a motion vocabulary. */
 .page-route-enter-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
 
 .page-route-leave-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  transition: opacity 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
 
 .page-route-enter-from {
   opacity: 0;
-  transform: translateY(4px) scale(0.995);
+  transform: translateY(8px) scale(0.995);
 }
 
 .page-route-leave-to {
   opacity: 0;
-  transform: translateY(-2px) scale(0.998);
+  transform: translateY(-6px);
 }
 
 .modal-fade-enter-active,
@@ -483,6 +490,21 @@ body {
 
 .modal-fade-enter-from,
 .modal-fade-leave-to {
+  opacity: 0;
+}
+
+/* Caption micro fade — used by shell-brand-route <strong> when route
+   caption changes (e.g. 体验 → 写作). 0.18s enter only; on leave the
+   previous word disappears instantly so the new one can fade in without
+   stacking two fade layers. */
+.caption-fade-enter-active {
+  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.caption-fade-leave-active {
+  transition: opacity 0.01s ease;
+}
+.caption-fade-enter-from,
+.caption-fade-leave-to {
   opacity: 0;
 }
 

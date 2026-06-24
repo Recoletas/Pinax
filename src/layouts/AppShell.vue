@@ -16,6 +16,8 @@ const router = useRouter()
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
 const drawerCloseRef = ref(null)
+const tabbarRef = ref(null)
+const indicatorStyle = ref({ transform: 'translateX(0px)', width: '0px' })
 
 const currentActivityKey = computed(() => resolveActivityKey(route))
 const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
@@ -32,6 +34,28 @@ const settingsPopup = useSettingsPopup()
 function openSettings(section) {
   settingsPopup.open(section)
 }
+
+// Re-measure the active tab and slide the indicator. Runs on activity
+// change and on window resize (desktop: tab widths shift when the mast
+// reflows; mobile: tabbar becomes an overflow-x scroller so we need to
+// account for scrollLeft too).
+function updateTabIndicator() {
+  const bar = tabbarRef.value
+  if (!bar) return
+  const activeBtn = bar.querySelector('.shell-tab.active')
+  if (!activeBtn) {
+    indicatorStyle.value = { transform: 'translateX(0px)', width: '0px' }
+    return
+  }
+  indicatorStyle.value = {
+    transform: `translateX(${activeBtn.offsetLeft - bar.scrollLeft}px)`,
+    width: `${activeBtn.offsetWidth}px`,
+  }
+}
+
+watch(currentActivityKey, () => {
+  nextTick(updateTabIndicator)
+})
 
 watch(() => route.fullPath, () => {
   drawerOpen.value = false
@@ -67,12 +91,21 @@ function closeDrawer() {
   drawerOpen.value = false
 }
 
+function handleTabbarScroll() {
+  updateTabIndicator()
+}
+
 onMounted(() => {
   document.addEventListener('keydown', handleDrawerKeydown)
+  tabbarRef.value?.addEventListener('scroll', handleTabbarScroll, { passive: true })
+  window.addEventListener('resize', updateTabIndicator)
+  nextTick(updateTabIndicator)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleDrawerKeydown)
+  tabbarRef.value?.removeEventListener('scroll', handleTabbarScroll)
+  window.removeEventListener('resize', updateTabIndicator)
 })
 
 function handleSelectActivity(activityKey) {
@@ -117,11 +150,13 @@ function handleSelectPanel(routeName) {
             <span></span>
           </button>
           <div class="shell-brand-route">
-            <strong>{{ currentRouteCaption }}</strong>
+            <Transition name="caption-fade" mode="out-in">
+              <strong :key="currentRouteCaption">{{ currentRouteCaption }}</strong>
+            </Transition>
           </div>
         </div>
 
-        <nav class="shell-tabbar" role="tablist" aria-label="顶部活动导航">
+        <nav ref="tabbarRef" class="shell-tabbar" role="tablist" aria-label="顶部活动导航">
           <button
             v-for="(item, index) in ACTIVITY_ITEMS"
             :key="item.key"
@@ -136,6 +171,11 @@ function handleSelectPanel(routeName) {
             <span class="shell-tab__index">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="shell-tab__label">{{ item.label }}</span>
           </button>
+          <span
+            class="shell-tab-indicator"
+            aria-hidden="true"
+            :style="indicatorStyle"
+          ></span>
         </nav>
 
         <div class="shell-mast__meta">
@@ -379,66 +419,94 @@ function handleSelectPanel(routeName) {
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
 }
 
+/* Tab indicator: 2px bar that slides under the active tab when
+   currentActivityKey changes. Width matches the active tab's
+   offsetWidth; position uses offsetLeft - scrollLeft so it tracks
+   correctly on the mobile (≤1040px) horizontal-scroll tabbar. */
+.shell-tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--accent) 84%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
+  pointer-events: none;
+  transition:
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, width;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-tab-indicator {
+    transition: none;
+  }
+}
+
+/* V1-C (2026-06-25): drop the arrow clip-path; tab is a plain
+   rectangle now. The .shell-tab-indicator element (separately JS-
+   positioned) still slides under the active tab as the 2px active
+   indicator, so no border-bottom on .shell-tab is needed. V1-D:
+   archive-gold X% border → var(--border) (panel tier). */
 .shell-tab {
   min-height: 40px;
-  padding: 0 16px 0 0;
-  display: inline-grid;
-  grid-template-columns: 42px auto;
+  padding: 0 12px;
+  display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 10px 50%);
-  background: color-mix(in srgb, var(--surface-soft) 90%, transparent);
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease, color 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .shell-tab:hover {
-  transform: translateY(-1px) translateX(1px);
-  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
   color: var(--text-primary);
 }
 
 .shell-tab.active {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-light) 26%, var(--surface-soft)), color-mix(in srgb, var(--surface-raised) 92%, transparent));
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--accent-light) 14%, transparent);
   color: var(--text-primary);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
-    0 10px 18px color-mix(in srgb, #000 10%, transparent);
 }
 
+/* V1-E: drop skewX(16deg) on .shell-tab__index — the old number
+   block was a tilted label, the new index is a small numeric tab
+   that reads as a serial. */
 .shell-tab__index {
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  color: var(--text-muted);
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
   font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  transform: skewX(16deg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 
 .shell-tab.active .shell-tab__index {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent-light) 22%, transparent);
 }
 
+/* V1-E: drop text-transform:uppercase + letter-spacing 0.08em on
+   .shell-tab__label. The 5 labels (体验/写作/素材/设定/画布) are
+   Chinese and should read as Chinese, not forced-caps. The active
+   state is already conveyed by .shell-tab.active background +
+   .shell-tab-indicator slide bar + .shell-tab__index accent. */
 .shell-tab__label {
   display: inline-flex;
   align-items: center;
-  padding-left: 12px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .shell-mast__meta {
@@ -446,34 +514,49 @@ function handleSelectPanel(routeName) {
   justify-content: flex-end;
 }
 
+/* V1-C (2026-06-25): drop the arrow clip-path. Meta chip is a plain
+   rounded chip now (border-radius 6px). V1-D: accent 28% border →
+   var(--border); the meta chip's accent identity moves to background
+   fill only (accent-light 18% wash). V1-E: drop text-transform:uppercase
+   + letter-spacing 0.1em; the chip text is the user-set popup section
+   name (设置 / 存储 90% etc.) and should not be forced caps. */
 .shell-meta-chip {
   min-height: 34px;
   padding: 0 14px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   background: color-mix(in srgb, var(--accent-light) 18%, var(--surface-raised));
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
+.shell-meta-chip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-light) 26%, var(--surface-raised));
+}
+
+/* V1-C (2026-06-25): drop the arrow clip-path on storage chip (same
+   shape language as shell-meta-chip; both are status chips in the
+   mast meta cluster). border-radius 6px. V1-D: accent 36% border →
+   var(--border); warning / critical still escalate to var(--danger)
+   via existing classes. V1-E: drop letter-spacing 0.06em. */
 .shell-storage-chip {
   min-height: 34px;
   padding: 0 12px;
   margin-right: 8px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   background: color-mix(in srgb, var(--accent-light) 22%, var(--surface-raised));
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -772,49 +855,59 @@ function handleSelectPanel(routeName) {
   color: var(--archive-ink-soft);
 }
 
+/* V1-C/D/E (2026-06-25): drop archive-gold X% border; tab is plain
+   rectangle with var(--border) and the .shell-tab-indicator slide
+   bar handles the active mark. Chinese label reads at 13px sans. */
 .theme-kao .shell-tabbar {
-  gap: 10px;
+  gap: 8px;
 }
 
 .theme-kao .shell-tab {
   min-height: 38px;
-  border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
+  border-color: var(--border);
+  background: transparent;
   color: var(--archive-ink-soft);
 }
 
 .theme-kao .shell-tab:hover {
-  border-color: color-mix(in srgb, var(--archive-olive) 26%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 94%, transparent);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
   color: var(--archive-ink);
 }
 
 .theme-kao .shell-tab.active {
-  border-color: color-mix(in srgb, var(--archive-gold) 36%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff) 0 68%, color-mix(in srgb, var(--archive-gold) 24%, transparent) 68% 100%);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--archive-paper) 94%, transparent);
   color: var(--archive-ink);
 }
 
 .theme-kao .shell-tab__index {
-  background: color-mix(in srgb, var(--archive-paper) 92%, transparent);
   color: var(--archive-ink-soft);
 }
 
 .theme-kao .shell-tab.active .shell-tab__index {
-  color: var(--archive-paper-soft);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--archive-olive-strong) 92%, #15312d), color-mix(in srgb, var(--archive-photo) 90%, #22413c));
+  color: var(--archive-olive-strong);
 }
 
 .theme-kao .shell-tab__label {
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: 13px;
 }
 
+.theme-kao .shell-tab-indicator {
+  background: var(--archive-olive-strong);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--archive-olive) 36%, transparent);
+}
+
+/* V1-C/D (2026-06-25): meta chip drops archive-olive 24% border, now
+   uses var(--border) + accent-tinted background. */
 .theme-kao .shell-meta-chip {
-  border-color: color-mix(in srgb, var(--archive-olive) 24%, var(--border));
+  border-color: var(--border);
   background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
   color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
+}
+
+.theme-kao .shell-meta-chip:hover {
+  border-color: var(--accent);
 }
 
 .theme-kao .shell-overlay {
