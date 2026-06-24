@@ -577,6 +577,36 @@ function handleSelectPanel(routeName) {
 }
 
 @media (max-width: 760px) {
+  .shell-mast {
+    padding: 8px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .shell-tabbar {
+    overflow-x: auto;
+    padding-bottom: 2px;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .shell-tab {
+    min-width: max-content;
+    padding: 0 12px 0 0;
+  }
+
+  .shell-tab__index {
+    display: none;
+  }
+
+  .shell-tab__label {
+    padding-left: 0;
+    font-size: 11px;
+  }
+
+  .shell-brand-route strong {
+    font-size: 16px;
+  }
+
   .shell-nav-trigger {
     top: 12px;
     left: 12px;
@@ -593,6 +623,25 @@ function handleSelectPanel(routeName) {
   .shell-drawer__activity {
     border-right: none;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  }
+}
+
+@media (max-width: 480px) {
+  .shell-mast {
+    padding: 8px 10px;
+  }
+
+  .shell-tabbar {
+    display: none;
+  }
+
+  .shell-brand-route strong {
+    font-size: 14px;
+  }
+
+  .shell-meta-chip {
+    font-size: 10px;
+    padding: 0 10px;
   }
 }
 
