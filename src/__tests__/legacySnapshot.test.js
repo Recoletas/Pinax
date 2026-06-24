@@ -22,7 +22,7 @@ const LEGACY_VUE_HASHES = {
   'src/views/legacy/WelcomeView.vue':
     'ed6287f07546010985c7d956cab16aa4fc5e63a6e62617674d82eca3a6b8f92f',
   'src/pages/legacy/OpeningPage.vue':
-    '9021942a718051252e693e11971b08324cf8c63e817c3fff945b0da5c293478c',
+    '06cf79d22bf7377b2595840b710be6c361f0e2c9ed47b2e0fa26df1c736b2657',
   'src/pages/legacy/Experience.vue':
     'f2a90f51c31c0b0aa0bcac2f675c2bf392cccb966faac9ccabc8dccb0df38d65',
   'src/components/worldbook/legacy/StructuredSettingsPanel.vue':

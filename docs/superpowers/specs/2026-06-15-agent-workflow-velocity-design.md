@@ -241,7 +241,7 @@ npm run verify:post
 
 | 位置 | 现状 | 改后 |
 |---|---|---|
-| L11 | "2. **Classify the surface** of the change: quick import / advanced editor / SillyTavern import-export / context injection / structured settings." | "2. **Classify the surface** of the change: quick import (`/experience/worldbook` 普通入口) / advanced editor (`/experience/worldbook/advanced` 高级设置) / SillyTavern import-export. 注：`context injection` / `structured settings` 是 guide §4 / §5 内部的子概念，不是独立 surface。" |
+| L11 | "2. **Classify the surface** of the change: quick import / advanced editor / SillyTavern import-export / context injection / structured settings." | "2. **Classify the surface** of the change: quick import (`/settings/worldbook` 普通入口) / advanced editor (`/settings/worldbook/advanced` 高级设置) / SillyTavern import-export. 注：`context injection` / `structured settings` 是 guide §4 / §5 内部的子概念，不是独立 surface。" |
 | L13 后插入 | — | "3.5. **同名冲突策略**（guide §3）：替换 / 重命名 / 同名新建三选一时必须显式选，禁止默认行为；覆盖前显示现有 vs 导入的条目数变化。" |
 
 ### 4. `AGENTS.md`

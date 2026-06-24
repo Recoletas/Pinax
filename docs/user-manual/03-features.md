@@ -38,13 +38,13 @@
 - **里程碑** —— 弹窗时点"接受"或"忽略"
 - **换世界** —— 顶部栏可切换激活世界，或重新导入种子世界
 
-## 3. 设定（`/experience/worldbook` + `/experience/worldbook/advanced` + `/experience/settings/structured`）
+## 3. 设定（`/settings/worldbook` + `/settings/worldbook/advanced` + `/settings/structured`）
 
 这一组现在包含 3 个面：
 
-- **普通入口** `/experience/worldbook` —— 快速起盘，三种导入方式（预设 / 文本 / AI 说明）
-- **高级设置** `/experience/worldbook/advanced` —— 精细化维护：条目编辑、分组、SillyTavern 互通用
-- **结构化设定** `/experience/settings/structured` —— 字段化维护人物、地点、规则和创作约束
+- **普通入口** `/settings/worldbook` —— 快速起盘，三种导入方式（预设 / 文本 / AI 说明）
+- **高级设置** `/settings/worldbook/advanced` —— 精细化维护：条目编辑、分组、SillyTavern 互通用
+- **结构化设定** `/settings/structured` —— 字段化维护人物、地点、规则和创作约束
 
 主要动作：
 
@@ -55,7 +55,7 @@
 
 > 详细流程：[世界书工作流指南](../guides/worldbook-workflow.md)
 
-## 4. 世界地图（`/experience/world-map`）
+## 4. 世界地图（`/settings/world-map`）
 
 基于 Voronoi 的程序生成地图，能看到地形、气候、生物群系、文化圈、势力范围、道路网络。地图数据很大时（比如 Pangea 种子的整块大陆）生成会比较慢，这是正常的。
 

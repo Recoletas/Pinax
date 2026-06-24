@@ -279,7 +279,7 @@ async function onWorldbookChange() {
 }
 
 function openWorldbookQuickImport() {
-  router.push({ name: 'experience-worldbook' })
+  router.push({ name: 'settings-worldbook' })
 }
 
 function refreshOpeningIntent() {
@@ -341,7 +341,7 @@ async function sendOpeningAction() {
 function dismissOpeningActionCard() {
   openingCardDismissed.value = true
   clearPlayableWorldEntryIntent()
-  router.push({ name: 'experience-worldbook' })
+  router.push({ name: 'settings-worldbook' })
 }
 
 function getActiveEntryNames(typeValue, limit = 3) {

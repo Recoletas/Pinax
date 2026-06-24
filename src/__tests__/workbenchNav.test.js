@@ -20,7 +20,7 @@ describe('workbenchNav', () => {
     expect(ACTIVITY_ITEMS.find((item) => item.key === 'storyboard')?.defaultRouteName).toBe('prose-essay')
     expect(SIDE_PANELS.experience.items.map((item) => item.routeName)).toEqual([
       'opening',
-      'experience-worldbook',
+      'settings-worldbook',
       'experience'
     ])
   })
@@ -32,12 +32,12 @@ describe('workbenchNav', () => {
     })).toBe('experience')
 
     expect(resolveActivityKey({
-      name: 'experience-worldbook',
+      name: 'settings-worldbook',
       meta: { activityKey: 'experience' }
     })).toBe('experience')
 
     expect(resolveActivityKey({
-      name: 'experience-worldbook',
+      name: 'settings-worldbook',
       meta: { activityKey: 'worldbook' }
     })).toBe('worldbook')
 

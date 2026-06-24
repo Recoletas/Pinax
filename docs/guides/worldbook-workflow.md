@@ -4,10 +4,10 @@
 
 ## 1. 入口定位
 
-- 普通入口：`/experience/worldbook`
+- 普通入口：`/settings/worldbook`
   - 目标：快速起盘，低门槛导入。
   - 能力：预设导入、小说文本导入、AI 根据说明生成草案。
-- 高级设置：`/experience/worldbook/advanced`
+- 高级设置：`/settings/worldbook/advanced`
   - 目标：精细化维护与运营。
   - 能力：条目编辑、注入参数、分组管理、SillyTavern 导入导出。
 

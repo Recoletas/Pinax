@@ -48,21 +48,21 @@ const workbenchChildren = [
     }
   },
   {
-    path: 'experience/worldbook',
-    name: 'experience-worldbook',
+    path: 'settings/worldbook',
+    name: 'settings-worldbook',
     component: WorldBookQuickImport,
     meta: {
       immersiveShell: true,
       hideActivityBar: true,
       hideSidePanel: true,
       hideGlobalMemory: true,
-      activityKey: 'experience',
-      title: '体验 · 选择世界'
+      activityKey: 'worldbook',
+      title: '设定 · 快速导入'
     }
   },
   {
-    path: 'experience/worldbook/advanced',
-    name: 'experience-worldbook-advanced',
+    path: 'settings/worldbook/advanced',
+    name: 'settings-worldbook-advanced',
     component: WorldBookEditor,
     meta: {
       activityKey: 'worldbook',
@@ -70,8 +70,8 @@ const workbenchChildren = [
     }
   },
   {
-    path: 'experience/settings/structured',
-    name: 'experience-settings-structured',
+    path: 'settings/structured',
+    name: 'settings-structured',
     component: StructuredSettings,
     meta: {
       activityKey: 'worldbook',
@@ -79,8 +79,8 @@ const workbenchChildren = [
     }
   },
   {
-    path: 'experience/world-map',
-    name: 'experience-world-map',
+    path: 'settings/world-map',
+    name: 'settings-world-map',
     component: WorldMapPage,
     meta: {
       activityKey: 'worldbook',
@@ -126,6 +126,10 @@ const routes = [
   { path: '/materials', redirect: { name: 'materials' } },
   { path: '/notes', redirect: { name: 'materials' } },
   { path: '/poetry-lab', redirect: { name: 'prose-essay' } },
+  { path: '/experience/worldbook/advanced', redirect: { name: 'settings-worldbook-advanced' } },
+  { path: '/experience/worldbook', redirect: { name: 'settings-worldbook' } },
+  { path: '/experience/settings/structured', redirect: { name: 'settings-structured' } },
+  { path: '/experience/world-map', redirect: { name: 'settings-world-map' } },
   { path: '/prose-essay', redirect: { name: 'prose-essay' } }
 ]
 

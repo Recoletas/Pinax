@@ -1086,7 +1086,7 @@ function openExperience() {
 }
 
 function openAdvancedEditor() {
-  router.push({ name: 'experience-worldbook-advanced' })
+  router.push({ name: 'settings-worldbook-advanced' })
 }
 
 function openNovelFilePicker() {

@@ -937,7 +937,7 @@ function openExperience() {
 }
 
 function openQuickImport() {
-  router.push({ name: 'experience-worldbook' })
+  router.push({ name: 'settings-worldbook' })
 }
 
 async function selectWorldbook(worldbookId) {
