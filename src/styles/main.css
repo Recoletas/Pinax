@@ -455,32 +455,38 @@ body {
   to   { transform: scale(1.02); }
 }
 
-/* Page route transitions — enter soft-swells up from below (8px + scale 0.995),
-   leave pulls up and out (-6px). Below ~0.2s the route change reads as a
-   flash; at 0.28s enter + 0.16s leave (total ~0.44s in out-in mode) the
-   eye registers it as a transition without dragging the workbench. Easing
-   uses cubic-bezier(0.22, 1, 0.36, 1) — same curve as opening title
-   breathing — so mast and page share a motion vocabulary. */
+/* Page route transitions — direction-aware slide-in (V4 2026-06-26).
+   Enter slides 16px horizontally in the direction of motion plus a 4px
+   vertical settle, leave mirrors the same vector in 10px (the reverse
+   direction, so enter and leave read as a continuous page-swap instead
+   of two parallel motions). The horizontal sign comes from
+   --page-direction which AppShell.vue's @before-enter / @before-leave
+   hooks write onto the element just before each phase begins (+1 for
+   rightward enter, -1 for leftward enter; leave uses the negated
+   value so old page exits opposite of new page's entrance). 0.32s
+   enter + 0.18s leave keeps total motion under 0.5s in out-in mode,
+   matching the opening-titleBreathe curve so mast and page share a
+   single motion vocabulary. */
 .page-route-enter-active {
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
 
 .page-route-leave-active {
-  transition: opacity 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
 
 .page-route-enter-from {
   opacity: 0;
-  transform: translateY(8px) scale(0.995);
+  transform: translateX(calc(var(--page-direction, 1) * 16px)) translateY(4px);
 }
 
 .page-route-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateX(calc(var(--page-direction, 1) * 10px));
 }
 
 .modal-fade-enter-active,

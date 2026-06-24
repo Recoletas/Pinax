@@ -34,6 +34,51 @@ const isImmersiveShell = computed(() => Boolean(route.meta?.immersiveShell))
 const drawerHasPanel = computed(() => !hideSidePanel.value && panelItems.value.length > 1)
 const currentRouteCaption = computed(() => String(route.meta?.title || currentPanel.value.title || '工作区'))
 
+/* V4 (2026-06-26): direction-aware page-route transition. We resolve
+   the previous activity key before the route swap, then on the new
+   tick compute the horizontal sign from the ACTIVITY_ITEMS index
+   delta. Direction defaults to +1 (rightward enter) so the very
+   first navigation never reads as a leftward slide-in. The same
+   value feeds both before-enter (positive: page slides in from
+   right) and before-leave (negative of the same value: page slides
+   out toward the opposite side, so enter and leave mirror each
+   other instead of both moving the same way). Same-activity
+   navigation resets direction to 0 — only the vertical settle
+   plays, no horizontal displacement (sub-route swaps like
+   /experience → /opening should not pretend to be cross-section
+   moves). */
+const prevActivityKey = ref(currentActivityKey.value)
+const transitionDirection = ref(1)
+
+watch(currentActivityKey, (nextKey, previousKey) => {
+  if (nextKey === previousKey) {
+    transitionDirection.value = 0
+    return
+  }
+  const nextIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === nextKey)
+  const prevIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === previousKey)
+  const safeNext = nextIndex >= 0 ? nextIndex : 0
+  const safePrev = prevIndex >= 0 ? prevIndex : safeNext
+  if (safeNext === safePrev) {
+    transitionDirection.value = 0
+  } else {
+    transitionDirection.value = safeNext > safePrev ? 1 : -1
+  }
+  prevActivityKey.value = nextKey
+})
+
+function onPageBeforeEnter(el) {
+  if (el && el.style) {
+    el.style.setProperty('--page-direction', String(transitionDirection.value))
+  }
+}
+
+function onPageBeforeLeave(el) {
+  if (el && el.style) {
+    el.style.setProperty('--page-direction', String(-transitionDirection.value))
+  }
+}
+
 const storageHealth = useStorageHealth()
 const storageChipLabel = computed(() => `存储 ${storageHealth.percent.value}%`)
 const settingsPopup = useSettingsPopup()
@@ -227,7 +272,12 @@ function handleSelectPanel(routeName) {
 
     <main class="shell-content">
       <RouterView v-slot="{ Component, route: routeInfo }">
-        <transition name="page-route" mode="out-in">
+        <transition
+          name="page-route"
+          mode="out-in"
+          @before-enter="onPageBeforeEnter"
+          @before-leave="onPageBeforeLeave"
+        >
           <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
           <div v-else class="route-loading">
             <span class="route-loading-spinner"></span>
@@ -437,9 +487,15 @@ function handleSelectPanel(routeName) {
   color: var(--text-primary);
 }
 
-/* V3: active tab gets the archive-rose ◆ stamp prefix. The
-   pseudo-element is invisible on inactive tabs and only renders
-   on .shell-tab.active. aria-hidden on the index span + the
+/* V3 + V4 (2026-06-26): active tab gets the archive-rose ◆ stamp
+   prefix with a 0.2s cubic-bezier slide-down + fade-in. The
+   pseudo-element exists on every tab (always mounted, content
+   empty on inactive) so opacity + transform can transition
+   smoothly between states instead of mounting/unmounting the
+   glyph on every tab swap. translateY -4px → 0 gives the
+   impression of the stamp "settling" onto the tab as the user
+   activates it; reverse motion on deactivate reads as the
+   stamp lifting off. aria-hidden on the index span + the
    pseudo-element means screen readers still rely on the tab's
    aria-selected state, not the visual mark. */
 .shell-tab::before {
@@ -447,13 +503,18 @@ function handleSelectPanel(routeName) {
   display: inline-block;
   width: 0;
   opacity: 0;
+  transform: translateY(-4px);
   margin-right: 0;
-  transition: opacity 0.16s ease, width 0.16s ease, margin-right 0.16s ease;
+  transition: opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+              width 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+              margin-right 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .shell-tab.active::before {
   content: "◆";
   opacity: 1;
+  transform: translateY(0);
   width: auto;
   margin-right: 4px;
   font-size: 9px;
@@ -985,5 +1046,17 @@ function handleSelectPanel(routeName) {
 .theme-kao .shell-drawer__activity {
   border-right-color: color-mix(in srgb, var(--archive-gold) 14%, transparent);
   background: color-mix(in srgb, var(--archive-paper) 34%, transparent);
+}
+
+/* V4 (2026-06-26): reduced-motion must disable the stamp micro-
+   animation. The stamp still toggles content / opacity instantly,
+   but transform and the longer transitions fall back to near-zero
+   so vestibular-sensitive users never see the slide-in. The kao
+   archive-rose color override above keeps the stamp visible. */
+@media (prefers-reduced-motion: reduce) {
+  .shell-tab::before {
+    transition: opacity 0.01s ease, width 0.01s ease, margin-right 0.01s ease;
+    transform: none;
+  }
 }
 </style>
