@@ -4,10 +4,11 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
+import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import AppearanceControls from '../components/theme/AppearanceControls.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
+import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
-import { exportAllBackup } from '../utils/backupExport'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,25 +28,9 @@ const currentRouteCaption = computed(() => String(route.meta?.title || currentPa
 
 const storageHealth = useStorageHealth()
 const storageChipLabel = computed(() => `存储 ${storageHealth.percent.value}%`)
-const showStorageModal = ref(false)
-function openStorageModal() {
-  showStorageModal.value = true
-}
-function closeStorageModal() {
-  showStorageModal.value = false
-}
-function handleExportBackup() {
-  try {
-    exportAllBackup()
-  } catch (e) {
-    console.error('[AppShell] backup export failed:', e)
-  }
-}
-const storageTopKeys = computed(() => storageHealth.getTopKeys(10))
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+const settingsPopup = useSettingsPopup()
+function openSettings(section) {
+  settingsPopup.open(section)
 }
 
 watch(() => route.fullPath, () => {
@@ -159,48 +144,22 @@ function handleSelectPanel(routeName) {
             class="shell-storage-chip"
             :class="storageHealth.level.value"
             type="button"
-            :aria-label="`存储已用 ${storageHealth.percent.value}%，点击查看详情`"
-            @click="openStorageModal"
+            :aria-label="`存储已用 ${storageHealth.percent.value}%，点击查看存储详情`"
+            data-test="shell-storage-chip"
+            @click="openSettings('storage')"
           >{{ storageChipLabel }}</button>
-          <router-link class="shell-meta-chip" to="/settings/structured" aria-label="打开结构化设定">设定</router-link>
+          <button
+            class="shell-meta-chip"
+            type="button"
+            aria-label="打开设置"
+            data-test="shell-settings-chip"
+            @click="openSettings('appearance')"
+          >设置</button>
         </div>
       </header>
 
       <Transition name="modal-fade">
-        <div v-if="showStorageModal" class="storage-overlay" @click.self="closeStorageModal">
-          <div class="storage-modal" role="dialog" aria-modal="true" aria-label="存储健康详情">
-            <header class="storage-modal__head">
-              <h2>存储健康</h2>
-              <button class="storage-modal__close" type="button" aria-label="关闭" @click="closeStorageModal">×</button>
-            </header>
-            <div class="storage-modal__body">
-              <div class="storage-summary" :class="storageHealth.level.value">
-                <span class="storage-summary__pct">{{ storageHealth.percent.value }}%</span>
-                <span class="storage-summary__bar">
-                  <span class="storage-summary__fill" :style="{ width: `${Math.min(storageHealth.percent.value, 100)}%` }"></span>
-                </span>
-                <span class="storage-summary__hint">
-                  {{ storageHealth.isCritical.value ? '请立即导出备份并清理' : storageHealth.isWarning.value ? '建议导出备份' : '存储充足' }}
-                </span>
-              </div>
-              <table class="storage-table">
-                <thead>
-                  <tr><th>key</th><th>大小</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in storageTopKeys" :key="row.key">
-                    <td><code>{{ row.key }}</code></td>
-                    <td>{{ formatBytes(row.bytes) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <footer class="storage-modal__foot">
-              <button class="storage-modal__primary" type="button" @click="handleExportBackup">导出全部备份</button>
-              <button class="storage-modal__secondary" type="button" @click="closeStorageModal">关闭</button>
-            </footer>
-          </div>
-        </div>
+        <SettingsPopup v-if="settingsPopup.isOpen.value" />
       </Transition>
 
       <Transition name="modal-fade">
@@ -529,158 +488,6 @@ function handleSelectPanel(routeName) {
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 22%, var(--surface-raised));
   color: var(--danger);
-}
-
-.storage-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 95;
-  background: color-mix(in srgb, var(--ink) 50%, transparent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.storage-modal {
-  width: min(520px, 92vw);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  background: var(--surface-panel, var(--surface-raised));
-  color: var(--text-primary);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.storage-modal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.storage-modal__head h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.storage-modal__close {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  border-radius: 4px;
-}
-
-.storage-modal__body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.storage-summary {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.storage-summary__pct {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.storage-summary__bar {
-  height: 8px;
-  background: color-mix(in srgb, var(--border) 50%, transparent);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.storage-summary__fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-.storage-summary.warning .storage-summary__fill {
-  background: var(--danger);
-}
-.storage-summary.critical .storage-summary__fill {
-  background: var(--danger);
-}
-
-.storage-summary__hint {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.storage-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.storage-table th,
-.storage-table td {
-  text-align: left;
-  padding: 4px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-}
-
-.storage-table th {
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.storage-table code {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
-}
-
-.storage-modal__foot {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.storage-modal__primary,
-.storage-modal__secondary {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised, transparent);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.storage-modal__primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--surface-raised);
-}
-
-.storage-modal__primary:hover {
-  filter: brightness(1.08);
 }
 
 .shell-overlay {

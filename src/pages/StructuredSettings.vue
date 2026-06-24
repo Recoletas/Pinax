@@ -7,25 +7,7 @@
             <path d="M10 3L5 8l5 5V3z"/>
           </svg>
         </button>
-        <span class="title-text">设定</span>
-        <div class="title-tabs" role="tablist" aria-label="设定分区">
-          <button
-            class="title-tab"
-            :class="{ active: activeTab === 'worldbook' }"
-            role="tab"
-            :aria-selected="(activeTab === 'worldbook').toString()"
-            type="button"
-            @click="activeTab = 'worldbook'"
-          >世界书</button>
-          <button
-            class="title-tab"
-            :class="{ active: activeTab === 'ai' }"
-            role="tab"
-            :aria-selected="(activeTab === 'ai').toString()"
-            type="button"
-            @click="activeTab = 'ai'"
-          >AI 配置</button>
-        </div>
+        <span class="title-text">结构化设定</span>
         <select class="worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange">
           <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id">
             {{ wb.name }}
@@ -48,17 +30,12 @@
     </header>
 
     <div class="settings-body">
-      <div v-if="activeTab === 'worldbook'" class="tab-panel">
-        <StructuredSettingsWorkspace
-          v-if="activeWorldbook"
-          :worldbook="activeWorldbook"
-        />
-        <div v-else class="empty-state">
-          <p>请选择一个世界书开始编辑结构化设定</p>
-        </div>
-      </div>
-      <div v-if="activeTab === 'ai'" class="tab-panel">
-        <ApiSettingsPanel />
+      <StructuredSettingsWorkspace
+        v-if="activeWorldbook"
+        :worldbook="activeWorldbook"
+      />
+      <div v-else class="empty-state">
+        <p>请选择一个世界书开始编辑结构化设定</p>
       </div>
     </div>
   </div>
@@ -66,21 +43,16 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { useTheme } from '../composables/useTheme'
-import { useGameStore } from '../stores/gameStore'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
-import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
 
-const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
-const gameStore = useGameStore()
 const { isDark, toggleTheme } = useTheme()
 
 const selectedWorldbookId = ref('')
-const activeTab = ref('worldbook')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook)
@@ -110,12 +82,6 @@ async function createWorldbook() {
 }
 
 onMounted(async () => {
-  // Default to AI config tab if apiKey is empty (unconfigured)
-  const hasKey = Boolean(String(gameStore.apiSettings?.apiKey || '').trim())
-  if (route.query.tab === 'ai' || !hasKey) {
-    activeTab.value = 'ai'
-  }
-
   try {
     await worldStore.loadWorldbooksIndex()
     if (typeof worldStore.ensureActiveWorldbook === 'function') {
@@ -160,37 +126,6 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-}
-
-.title-tabs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin: 0 8px;
-}
-
-.title-tab {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.title-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.title-tab.active {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .worldbook-select {

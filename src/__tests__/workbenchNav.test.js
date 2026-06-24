@@ -16,7 +16,7 @@ describe('workbenchNav', () => {
     expect(SIDE_PANELS.materials.items).toHaveLength(1)
     expect(SIDE_PANELS.worldbook.items).toHaveLength(4)
     expect(SIDE_PANELS.storyboard.items).toHaveLength(1)
-    expect(ACTIVITY_ITEMS.find((item) => item.key === 'experience')?.defaultRouteName).toBe('opening')
+    expect(ACTIVITY_ITEMS.find((item) => item.key === 'experience')?.defaultRouteName).toBe('experience')
     expect(ACTIVITY_ITEMS.find((item) => item.key === 'storyboard')?.defaultRouteName).toBe('prose-essay')
     expect(SIDE_PANELS.experience.items.map((item) => item.routeName)).toEqual([
       'opening',

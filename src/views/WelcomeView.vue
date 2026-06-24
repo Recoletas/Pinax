@@ -104,11 +104,12 @@
               <ol class="welcome-onboarding__steps">
                 <li class="welcome-onboarding__step" :class="{ 'is-done': step1Done }">
                   <span class="welcome-onboarding__step-index">1</span>
-                  <router-link
+                  <button
+                    type="button"
                     class="welcome-onboarding__step-link"
-                    to="/settings/structured?tab=ai"
                     aria-label="步骤 1：配置 AI"
-                  >配置 AI</router-link>
+                    @click="openApiSettings"
+                  >配置 AI</button>
                   <span class="welcome-onboarding__step-status">{{ step1Done ? '✓' : '待配置' }}</span>
                 </li>
                 <li class="welcome-onboarding__step" :class="{ 'is-done': step2Done }">
@@ -240,6 +241,7 @@ import { computed } from 'vue'
 import { useTheme } from '../composables/useTheme'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
+import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
@@ -250,11 +252,15 @@ import kaoReference from '../../docs/demo/kao.jpg'
 const { isDark, toggleTheme, isKao, setVariant } = useTheme()
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
+const settingsPopup = useSettingsPopup()
 
 const featuredPreset = computed(() => seedWorldbookPresets[0] || null)
 const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
 const hasWorldbooks = computed(() => (worldStore.worldbooksIndex || []).length > 0)
 const hasSessions = computed(() => (gameStore.sessions || []).length > 0)
+function openApiSettings() {
+  settingsPopup.open('ai')
+}
 
 const step1Done = computed(() => hasApiKey.value)
 const step2Done = computed(() => hasWorldbooks.value)

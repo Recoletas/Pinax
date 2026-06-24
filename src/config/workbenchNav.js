@@ -6,7 +6,7 @@ export const ACTIVITY_ITEMS = [
     label: '体验',
     description: '沉浸式文字冒险',
     icon: 'compass',
-    defaultRouteName: 'opening'
+    defaultRouteName: 'experience'
   },
   {
     key: 'worldbook',

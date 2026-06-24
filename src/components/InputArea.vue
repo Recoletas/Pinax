@@ -7,7 +7,7 @@
       aria-label="未配置 API Key"
     >
       <span class="api-key-hint__text">未配置 API Key · AI 生成不可用</span>
-      <router-link class="api-key-hint__link" to="/settings/structured?tab=ai">点此配置</router-link>
+      <button type="button" class="api-key-hint__link" @click="openApiSettings">点此配置</button>
     </div>
     <div class="prompt-info" v-if="showPromptInfo">
       <div class="prompt-bar">
@@ -206,13 +206,18 @@
 import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
+import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
 import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
 import { estimateTokens } from '../composables/useTokenEstimate'
 
 const emit = defineEmits(['send'])
 const gameStore = useGameStore()
+const settingsPopup = useSettingsPopup()
 const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
+function openApiSettings() {
+  settingsPopup.open('ai')
+}
 const inputText = ref('')
 const showPromptInfo = ref(false)
 const showDetail = ref(false)

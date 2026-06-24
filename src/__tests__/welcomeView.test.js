@@ -119,11 +119,12 @@ describe('welcome view — first-run onboarding', () => {
     expect(welcomeView).toContain('首次启动 · 3 步就绪')
   })
 
-  it('step 1 links to AI config tab with correct conditions', () => {
+  it('step 1 opens the settings popup on the AI tab', () => {
     const welcomeView = readProjectFile('src/views/WelcomeView.vue')
 
     expect(welcomeView).toMatch(/步骤 1[^<]*配置 AI/)
-    expect(welcomeView).toContain('to="/settings/structured?tab=ai"')
+    expect(welcomeView).toContain('@click="openApiSettings"')
+    expect(welcomeView).toContain('settingsPopup.open(\'ai\')')
     expect(welcomeView).toContain('aria-label="步骤 1：配置 AI"')
     expect(welcomeView).toContain('step1Done')
     expect(welcomeView).toContain('hasApiKey')
