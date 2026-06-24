@@ -25,8 +25,8 @@
       </div>
 
       <div class="hero-actions">
-        <button class="ghost-btn" @click="openExperience">继续当前冒险</button>
-        <button class="primary-btn" @click="featuredPreset && enterPresetWorld(featuredPreset)">开始冒险</button>
+        <button class="ghost-btn" @click="openExperience">← 回到冒险</button>
+        <button class="primary-btn" @click="featuredPreset && enterPresetWorld(featuredPreset)">导入世界 · 开场</button>
       </div>
     </header>
 

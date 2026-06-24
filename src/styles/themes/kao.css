@@ -2530,6 +2530,44 @@
     background: color-mix(in srgb, var(--archive-paper-strong) 92%, var(--surface-raised));
   }
 
+  /* UI-E14-U6: session chip inside ws-topstrip — current session name
+     + switch button so users can change sessions without the drawer. */
+  .theme-kao .ws-topstrip__session-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 20%, transparent);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
+    white-space: nowrap;
+  }
+  .theme-kao .ws-topstrip__session-chip-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--archive-ink);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .theme-kao .ws-topstrip__session-chip-btn {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
+    color: color-mix(in srgb, var(--archive-olive) 64%, var(--archive-ink));
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .theme-kao .ws-topstrip__session-chip-btn:hover {
+    border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--border));
+    color: var(--archive-olive-strong);
+    background: color-mix(in srgb, var(--archive-paper-strong) 88%, var(--surface-raised));
+  }
+
   @media (max-width: 980px) {
     /* UI-E12-FIX2: 640 mobile — switch the workstation from a
        3-column grid to a SIMPLE VERTICAL STACK so 5 cells + progress

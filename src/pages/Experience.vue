@@ -75,6 +75,15 @@
               :class="{ 'is-filled': n <= Math.min(meta.totalCount, 5) }"
             ></span>
           </div>
+          <div class="ws-topstrip__session-chip" :title="sessionTitleTooltip">
+            <span class="ws-topstrip__session-chip-label">{{ currentSessionLabel }}</span>
+            <button
+              class="ws-topstrip__session-chip-btn"
+              type="button"
+              aria-label="切换会话"
+              @click="showSessionPicker = true"
+            >切换</button>
+          </div>
           <p class="ws-topstrip__anchor">{{ meta.topstripAnchor }}</p>
         </section>
         <!-- UI-E13-BIG1: local demo banner — shown when isDemoMode
@@ -406,6 +415,18 @@ const hasUserActionMessages = computed(() => {
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
+const currentSessionLabel = computed(() => {
+  const sid = gameStore.currentSessionId
+  if (!sid) return '无会话'
+  const s = gameStore.sessions.find(s => s.id === sid)
+  return s?.title || '未命名会话'
+})
+const sessionTitleTooltip = computed(() => {
+  const s = gameStore.sessions.find(s => s.id === gameStore.currentSessionId)
+  if (!s) return '切换或新建会话'
+  const count = gameStore.sessions.length
+  return `${s.title || '未命名会话'} · 共 ${count} 个会话`
+})
 
 // Record-folio 6-field header REMOVED 2026-06-23 (UI-E11-A):
 //   recordCaseNo / recordVolume / recordTime / recordCharacters /
