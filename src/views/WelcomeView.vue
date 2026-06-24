@@ -94,6 +94,44 @@
               <strong class="welcome-poster-meta__brand">Pinax</strong>
             </div>
 
+            <div
+              v-if="isOnboarding"
+              class="welcome-onboarding"
+              role="region"
+              aria-label="首次启动引导"
+            >
+              <span class="welcome-onboarding__kicker">首次启动 · 3 步就绪</span>
+              <ol class="welcome-onboarding__steps">
+                <li class="welcome-onboarding__step" :class="{ 'is-done': step1Done }">
+                  <span class="welcome-onboarding__step-index">1</span>
+                  <router-link
+                    class="welcome-onboarding__step-link"
+                    to="/settings/structured?tab=ai"
+                    aria-label="步骤 1：配置 AI"
+                  >配置 AI</router-link>
+                  <span class="welcome-onboarding__step-status">{{ step1Done ? '✓' : '待配置' }}</span>
+                </li>
+                <li class="welcome-onboarding__step" :class="{ 'is-done': step2Done }">
+                  <span class="welcome-onboarding__step-index">2</span>
+                  <router-link
+                    class="welcome-onboarding__step-link"
+                    to="/settings/worldbook"
+                    aria-label="步骤 2：选择世界"
+                  >选择世界</router-link>
+                  <span class="welcome-onboarding__step-status">{{ step2Done ? '✓' : '待选择' }}</span>
+                </li>
+                <li class="welcome-onboarding__step" :class="{ 'is-done': step3Done }">
+                  <span class="welcome-onboarding__step-index">3</span>
+                  <router-link
+                    class="welcome-onboarding__step-link"
+                    to="/opening"
+                    aria-label="步骤 3：开始开场"
+                  >开始开场</router-link>
+                  <span class="welcome-onboarding__step-status">{{ step3Done ? '✓' : '待开始' }}</span>
+                </li>
+              </ol>
+            </div>
+
             <div class="welcome-command-stack">
               <BookmarkButton
                 to="/opening"
@@ -200,6 +238,8 @@
 <script setup>
 import { computed } from 'vue'
 import { useTheme } from '../composables/useTheme'
+import { useGameStore } from '../stores/gameStore'
+import { useWorldStore } from '../stores/worldStore'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
@@ -208,8 +248,19 @@ import PosterStage from '../components/folio/PosterStage.vue'
 import kaoReference from '../../docs/demo/kao.jpg'
 
 const { isDark, toggleTheme, isKao, setVariant } = useTheme()
+const gameStore = useGameStore()
+const worldStore = useWorldStore()
 
 const featuredPreset = computed(() => seedWorldbookPresets[0] || null)
+const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
+const hasWorldbooks = computed(() => (worldStore.worldbooksIndex || []).length > 0)
+const hasSessions = computed(() => (gameStore.sessions || []).length > 0)
+
+const step1Done = computed(() => hasApiKey.value)
+const step2Done = computed(() => hasWorldbooks.value)
+const step3Done = computed(() => hasSessions.value)
+const allStepsDone = computed(() => step1Done.value && step2Done.value && step3Done.value)
+const isOnboarding = computed(() => !allStepsDone.value)
 const welcomeArchiveItems = [
   { label: '01', image: kaoReference, position: '18% 44%' },
   { label: '02', image: kaoReference, position: '54% 42%' },
@@ -807,6 +858,104 @@ const welcomeArchiveItems = [
   font-weight: 760;
   letter-spacing: 0.01em;
   color: var(--archive-ink);
+}
+
+.welcome-onboarding {
+  position: relative;
+  margin: 0 16px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper) 94%, var(--surface-raised));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--archive-ink) 6%, transparent);
+  display: grid;
+  gap: 8px;
+}
+
+.welcome-onboarding__kicker {
+  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink));
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.welcome-onboarding__steps {
+  display: flex;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.welcome-onboarding__step {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 2px 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.welcome-onboarding__step.is-done {
+  border-color: color-mix(in srgb, var(--archive-olive) 22%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 6%, transparent);
+  color: var(--archive-olive);
+}
+
+.welcome-onboarding__step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.welcome-onboarding__step.is-done .welcome-onboarding__step-index {
+  background: color-mix(in srgb, var(--archive-olive) 28%, transparent);
+  color: var(--archive-paper-soft);
+}
+
+.welcome-onboarding__step-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.welcome-onboarding__step-link:hover {
+  text-decoration: underline;
+}
+
+.welcome-onboarding__step-status {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.welcome-onboarding__step.is-done .welcome-onboarding__step-status {
+  color: var(--archive-olive);
+}
+
+@media (max-width: 760px) {
+  .welcome-onboarding__steps {
+    flex-direction: column;
+    gap: 6px;
+  }
 }
 
 .welcome-poster-meta {

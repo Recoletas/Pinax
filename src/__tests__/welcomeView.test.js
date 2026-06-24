@@ -108,3 +108,65 @@ describe('welcome view pass 2 — 6-tile staggered collage', () => {
     expect(welcomeView).not.toContain('welcome-collage-tile--c')
   })
 })
+
+describe('welcome view — first-run onboarding', () => {
+  it('renders onboarding strip with 3 steps and correct aria', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toContain('class="welcome-onboarding"')
+    expect(welcomeView).toContain('role="region"')
+    expect(welcomeView).toContain('aria-label="首次启动引导"')
+    expect(welcomeView).toContain('首次启动 · 3 步就绪')
+  })
+
+  it('step 1 links to AI config tab with correct conditions', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toMatch(/步骤 1[^<]*配置 AI/)
+    expect(welcomeView).toContain('to="/settings/structured?tab=ai"')
+    expect(welcomeView).toContain('aria-label="步骤 1：配置 AI"')
+    expect(welcomeView).toContain('step1Done')
+    expect(welcomeView).toContain('hasApiKey')
+  })
+
+  it('step 2 links to worldbook quick import', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toMatch(/步骤 2[^<]*选择世界/)
+    expect(welcomeView).toContain('to="/settings/worldbook"')
+    expect(welcomeView).toContain('aria-label="步骤 2：选择世界"')
+    expect(welcomeView).toContain('step2Done')
+  })
+
+  it('step 3 links to opening page', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toMatch(/步骤 3[^<]*开始开场/)
+    expect(welcomeView).toContain('to="/opening"')
+    expect(welcomeView).toContain('aria-label="步骤 3：开始开场"')
+    expect(welcomeView).toContain('step3Done')
+  })
+
+  it('onboarding is gated by isOnboarding (all 3 conditions)', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toContain('v-if="isOnboarding"')
+    expect(welcomeView).toContain('const isOnboarding = computed(() => !allStepsDone.value)')
+    expect(welcomeView).toContain('const allStepsDone = computed(() => step1Done.value && step2Done.value && step3Done.value)')
+    expect(welcomeView).toContain('hasApiKey')
+    expect(welcomeView).toContain('hasWorldbooks')
+    expect(welcomeView).toContain('hasSessions')
+  })
+
+  it('7 BookmarkButtons still present alongside onboarding', () => {
+    const welcomeView = readProjectFile('src/views/WelcomeView.vue')
+
+    expect(welcomeView).toContain('class="welcome-primary-link"')
+    expect(welcomeView).toContain('class="welcome-secondary-link"')
+    expect(welcomeView).toContain('class="welcome-tertiary-link"')
+    expect(welcomeView).toContain('class="welcome-quaternary-link"')
+    expect(welcomeView).toContain('class="welcome-quinary-link"')
+    expect(welcomeView).toContain('class="welcome-senary-link"')
+    expect(welcomeView).toContain('class="welcome-septenary-link"')
+  })
+})
