@@ -52,8 +52,21 @@
          No spine, no sheets, no ink-stamp, no continued-mark: the
          E9 double-page architecture is removed; the conversation reads
          as one continuous scene-record, with section numbering doing
-         the navigation work that the spread-pair visual once did. -->
+         the navigation work that the spread-pair visual once did.
+         UI-E13-BIG1: scene-prompt messages (msg.type === 'scene')
+         render as a horizontal divider above the next scene-entry so
+         the scene boundary reads as a chapter break, not a content
+         entry. Same data path (gameStore.messages), different visual. -->
     <template v-for="(msg, index) in displayMessages" :key="`scene-${index}`">
+      <div
+        v-if="msg.type === 'scene'"
+        class="scene-prompt"
+        :data-section-no="index + 1"
+        :aria-label="`场景提示 · ${msg.content}`"
+      >
+        <span class="scene-prompt__kicker">场景提示</span>
+        <span>{{ msg.content }}</span>
+      </div>
       <article
         class="scene-entry"
         :class="msg.role"

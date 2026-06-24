@@ -9,6 +9,17 @@
       <span>在场人物</span>
     </div>
 
+    <!-- UI-E13-BIG1: demo mode — show the local demo scene's
+         characters as "可推进状态" (not as "已发生剧情"). The names
+         come from useLocalDemo via useWorkstationMeta. Hidden when
+         the user has real messages / a real session. -->
+    <ul v-if="isDemoMode" class="demo-characters" aria-label="本场景在场人物">
+      <li v-for="char in meta.demoScene?.characters || []" :key="char.id" class="demo-character">
+        <span class="demo-character__name">{{ char.name }}</span>
+        <span class="demo-character__role">{{ char.role === 'narrator' ? '旁白' : '在场' }}</span>
+      </li>
+    </ul>
+
     <!-- UI-E11-C: 0-data 时间 inline hint — 不再是空 stat 堆叠.
          当 currentEraName + year/month/day 全空时, 显示档案员批注风格 inline hint,
          提示 user 点击展开时间设置 (跟 record-book "未登记" 语义一致). -->
@@ -290,8 +301,11 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { useWorkstationMeta } from '../composables/useWorkstationMeta'
 
 const gameStore = useGameStore()
+const meta = useWorkstationMeta()
+const isDemoMode = computed(() => meta.isDemoMode.value)
 const showDetail = ref(false)
 const showTimeDetail = ref(false)
 const activeTab = ref('info')

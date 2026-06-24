@@ -5,6 +5,22 @@
       <span v-if="activities.length > 0" class="count-badge">{{ activities.length }}</span>
     </header>
 
+    <!-- UI-E13-BIG1: demo mode — show the local demo scene's events as
+         honest placeholders. The current event is highlighted so the
+         user can see which step they're on. Hidden when real messages
+         exist (user has a real session). -->
+    <ul v-if="isDemoMode" class="demo-events" aria-label="本场景可触发事件">
+      <li
+        v-for="(event, idx) in meta.demoScene?.events || []"
+        :key="event.id"
+        class="demo-event"
+        :class="{ 'demo-event--current': idx === meta.demoEventIndex }"
+      >
+        <span class="demo-event__index">{{ idx + 1 }}.</span>
+        <span>{{ event.content }}</span>
+      </li>
+    </ul>
+
     <section v-if="summaryItems.length" class="adventure-summary" aria-label="冒险摘要">
       <article v-for="item in summaryItems" :key="item.label" class="summary-card">
         <div class="summary-label">{{ item.label }}</div>
@@ -278,8 +294,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { useWorkstationMeta } from '../composables/useWorkstationMeta'
 
 const gameStore = useGameStore()
+const meta = useWorkstationMeta()
+const isDemoMode = computed(() => meta.isDemoMode.value)
 
 const showDetail = ref(false)
 const showEditor = ref(false)

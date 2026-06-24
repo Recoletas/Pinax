@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
+import { useLocalDemo } from './useLocalDemo'
 
 // UI-E11-A: single source of truth for the workstation topstrip / left
 // rail / right rail section anchor. Replaces Experience.vue's 6
@@ -15,8 +16,16 @@ import { useGameStore } from '@/stores/gameStore'
 //   - left rail hero block reads currentTask for kicker text
 //   - right rail dossier sections read currentSection for active role
 //     highlight (user / narrator / archive-keeper)
+//
+// UI-E13-BIG1: extended with demoState so the right rail + topstrip
+// can show real local-demo scene (location / characters / events)
+// when no AI config exists. useLocalDemo is a sibling composable
+// (no store mutation); we just expose its current scene as a
+// computed here so right rail components don't have to call 2
+// composables.
 export function useWorkstationMeta() {
   const gameStore = useGameStore()
+  const demo = useLocalDemo()
 
   const totalCount = computed(() => {
     const msgs = gameStore.messages || []
@@ -39,7 +48,16 @@ export function useWorkstationMeta() {
     return hex.toUpperCase()
   })
 
+  // UI-E13-BIG1: currentTask now prefers the demo scene's title
+  // when the workstation is in demo mode. When the user has a real
+  // active goal (gameStore.goals), that wins. When neither, fall
+  // back to "未登记" (existing honest placeholder).
   const currentTask = computed(() => {
+    const demoMode = totalCount.value === 0
+    if (demoMode) {
+      const scene = demo.currentScene.value
+      if (scene && scene.title) return scene.title
+    }
     const goals = gameStore.goals || []
     const active = goals.find((g) => g && g.status === 'active' && (g.title || g.label))
     if (active) return String(active.title || active.label)
@@ -64,8 +82,30 @@ export function useWorkstationMeta() {
 
   const isEmpty = computed(() => totalCount.value === 0)
 
+  // UI-E13-BIG1: isDemoMode = true when no real messages yet.
+  // Experience.vue + right rail use this to decide whether to show
+  // the "本地演示场景" banner + demo state, or the real chat.
+  const isDemoMode = computed(() => totalCount.value === 0)
+
+  // UI-E13-BIG1: demo scene reference. Exposed so right rail can
+  // read characters / location / time / weather without re-calling
+  // useLocalDemo.
+  const demoScene = computed(() => demo.currentScene.value)
+  const demoEventsCount = computed(() => {
+    const scene = demo.currentScene.value
+    return scene && scene.events ? scene.events.length : 0
+  })
+  const demoEventIndex = demo.eventIndex
+  const demoSceneIndex = demo.sceneIndex
+  const demoCurrentEvent = computed(() => demo.currentEvent.value)
+
   const topstripAnchor = computed(() => {
-    if (isEmpty.value) return `档案空白 · 卷 ${currentVolume.value} · 等候第 1 条`
+    if (isEmpty.value) {
+      // UI-E13-BIG1: anchor reflects demo scene location in demo mode
+      const scene = demo.currentScene.value
+      if (scene) return `${scene.location} · 本地演示 ${demoEventIndex.value + 1}/${demoEventsCount.value}`
+      return `档案空白 · 卷 ${currentVolume.value} · 等候第 1 条`
+    }
     return `卷 ${currentVolume.value} · 第 ${currentSection.value} 条 / 共 ${totalCount.value} 条`
   })
 
@@ -76,6 +116,18 @@ export function useWorkstationMeta() {
     currentSection,
     totalCount,
     isEmpty,
+    isDemoMode,
+    demoScene,
+    demoEventsCount,
+    demoEventIndex,
+    demoSceneIndex,
+    demoCurrentEvent,
     topstripAnchor,
+    // Re-export applyLocalAction + buildEventMessage + reset for
+    // convenience so Experience.vue can call them via the meta
+    // composable.
+    applyLocalAction: demo.applyLocalAction,
+    buildEventMessage: demo.buildEventMessage,
+    resetDemo: demo.reset
   }
 }

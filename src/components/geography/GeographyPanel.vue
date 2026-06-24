@@ -8,6 +8,19 @@
       <span class="geo-count" aria-label="地点数量">{{ locations.length }}</span>
     </header>
 
+    <!-- UI-E13-BIG1: demo mode — show the local demo scene's
+         location / time / weather as an honest placeholder. Same
+         pattern as the section above (shows what the current scene
+         has, not a fake history). -->
+    <div v-if="isDemoMode" class="demo-scene" aria-label="本场景地点">
+      <div class="demo-scene__location">{{ meta.demoScene?.title || '未登记 · 空白' }}</div>
+      <div class="demo-scene__meta">
+        <span>{{ meta.demoScene?.timeOfDay || '' }}</span>
+        <span>·</span>
+        <span>{{ meta.demoScene?.weather || '' }}</span>
+      </div>
+    </div>
+
     <!-- UI-E11-C: 0-data stat strip placeholder — 当没有地点时, 显示 dashed
          placeholder + inline hint (档案员批注风格), 不再是 0 0 0 堆叠 -->
     <div
@@ -191,6 +204,7 @@ import { buildConceptMapPrompt, buildImageMapPrompt } from '../../services/ai/ge
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
 import { LOCATION_TYPES } from '../../config/geography-types'
+import { useWorkstationMeta } from '../../composables/useWorkstationMeta'
 import { sanitizeSvg } from '../../utils/sanitize'
 import LocationTreeMap from './LocationTreeMap.vue'
 
@@ -203,6 +217,8 @@ const svgContent = ref('')
 const imagePrompt = ref('')
 const copied = ref(false)
 const streaming = ref(false)
+const meta = useWorkstationMeta()
+const isDemoMode = computed(() => meta.isDemoMode.value)
 
 const locationStats = computed(() => {
   const items = locations.value || []

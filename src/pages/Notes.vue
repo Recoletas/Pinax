@@ -22,6 +22,9 @@
 
         <div class="manuscript-top__right">
           <span class="manuscript-top__chip">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
+          <button class="manuscript-top__tab" type="button" @click.stop="goToAdventure" title="回到冒险">
+            冒险
+          </button>
           <button class="manuscript-top__tab" type="button" @click.stop="goToWriting" title="返回写作">
             写作
           </button>
@@ -514,6 +517,7 @@ import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
+import { useGameStore } from '../stores/gameStore'
 import {
   addNarrativeAsset,
   deleteNarrativeAsset,
@@ -534,6 +538,7 @@ const router = useRouter()
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
+const gameStore = useGameStore()
 
 const chapters = ref([])
 const selectedChapterId = ref(null)
@@ -753,6 +758,16 @@ const selectedAssetSummary = computed(() => {
   const title = String(selectedAsset.value.title || '无标题素材').trim()
   return `${getAssetKindLabel(selectedAsset.value.kind)} · ${title}`
 })
+
+function goToAdventure() {
+  const hasSession = gameStore.currentSessionId
+    && gameStore.sessions.some(s => s.id === gameStore.currentSessionId)
+  if (hasSession) {
+    router.push({ name: 'experience' })
+  } else {
+    router.push({ name: 'opening' })
+  }
+}
 
 function goBack() {
   saveCurrentChapter()

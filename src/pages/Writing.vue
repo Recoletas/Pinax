@@ -44,6 +44,7 @@
         <button class="wall__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
         <button class="wall__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
         <button class="wall__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
+        <button class="wall__tab" type="button" @click.stop="goToAdventure" title="回到冒险">冒险</button>
         <button class="wall__back" type="button" @click="goBack" title="返回首页" aria-label="返回">
           ← 返回
         </button>
@@ -672,6 +673,7 @@ import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import { extractCopilotWindow, useCopilot } from '../composables/useCopilot'
 import { useWorldStore } from '../stores/worldStore'
+import { useGameStore } from '../stores/gameStore'
 import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -723,6 +725,7 @@ const {
   updateAdvisorResultStatus
 } = useAdvisor()
 const worldStore = useWorldStore()
+const gameStore = useGameStore()
 
 // AI Copilot 续写
 const {
@@ -971,6 +974,16 @@ function chapterWordTotal(book) {
 function handleHeroBookChange() {
   if (!selectedBookId.value) return
   selectBook(selectedBookId.value)
+}
+
+function goToAdventure() {
+  const hasSession = gameStore.currentSessionId
+    && gameStore.sessions.some(s => s.id === gameStore.currentSessionId)
+  if (hasSession) {
+    router.push({ name: 'experience' })
+  } else {
+    router.push({ name: 'opening' })
+  }
 }
 
 function goBack() {

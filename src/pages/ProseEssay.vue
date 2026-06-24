@@ -35,6 +35,9 @@
       </template>
       <template #actions>
         <div class="workbench-hero-actions-row">
+          <router-link class="theme-toggle workbench-hero-button" to="/materials" title="返回素材库" aria-label="返回素材库">
+            <span class="theme-label">素材库</span>
+          </router-link>
           <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
             <span class="theme-icon">
               <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
