@@ -1,5 +1,14 @@
 <template>
   <div class="input-area">
+    <div
+      v-if="!hasApiKey"
+      class="api-key-hint"
+      role="alert"
+      aria-label="未配置 API Key"
+    >
+      <span class="api-key-hint__text">未配置 API Key · AI 生成不可用</span>
+      <router-link class="api-key-hint__link" to="/settings/structured?tab=ai">点此配置</router-link>
+    </div>
     <div class="prompt-info" v-if="showPromptInfo">
       <div class="prompt-bar">
         <div class="prompt-segment context" :style="{ width: contextPercent + '%' }"></div>
@@ -195,6 +204,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { buildContextMessage } from '../services/api'
 import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
@@ -202,6 +212,7 @@ import { estimateTokens } from '../composables/useTokenEstimate'
 
 const emit = defineEmits(['send'])
 const gameStore = useGameStore()
+const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
 const inputText = ref('')
 const showPromptInfo = ref(false)
 const showDetail = ref(false)
@@ -391,6 +402,32 @@ function updatePromptInfo() {
 </script>
 
 <style scoped>
+.api-key-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+  border-radius: 4px;
+}
+
+.api-key-hint__link {
+  color: var(--accent);
+  text-decoration: none;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.api-key-hint__link:hover {
+  text-decoration: underline;
+}
+
 .input-area {
   display: flex;
   flex-direction: column;
