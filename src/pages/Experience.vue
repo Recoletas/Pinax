@@ -31,6 +31,14 @@
           <div class="ws-topstrip__pagetitle">
             <span class="ws-topstrip__pagetitle-kicker">体验</span>
             <span class="ws-topstrip__pagetitle-name">Experience</span>
+            <button
+              class="ws-topstrip__settings-link"
+              :disabled="!hasSelectedWorldbook"
+              :title="hasSelectedWorldbook ? '修改当前世界设定' : '先选择世界'"
+              :aria-disabled="(!hasSelectedWorldbook).toString()"
+              aria-label="打开结构化设定"
+              @click="router.push({ name: 'settings-structured' })"
+            >设定</button>
           </div>
           <div class="ws-topstrip__cell">
             <span class="ws-topstrip__kicker">卷</span>
@@ -68,6 +76,30 @@
             ></span>
           </div>
           <p class="ws-topstrip__anchor">{{ meta.topstripAnchor }}</p>
+        </section>
+        <!-- UI-E13-BIG1: local demo banner — shown when isDemoMode
+             (no real messages yet). Replaces the previous "AI 配置
+             不完整" empty error with a usable local state: 3-scene
+             script + 继续 / 切场景 buttons that don't depend on AI.
+             When the user clicks 继续, useLocalDemo.applyLocalAction
+             returns a synthetic event payload; Experience.vue calls
+             handleLocalDemoEvent to push it into gameStore.messages
+             so GamePanel re-renders the same chat surface. -->
+        <section
+          v-if="meta.isDemoMode"
+          class="ws-demo-banner"
+          aria-label="本地演示场景"
+        >
+          <div class="ws-demo-banner__head">
+            <span class="ws-demo-banner__kicker">本地演示</span>
+            <span class="ws-demo-banner__scene">{{ meta.demoScene.title }}</span>
+            <span class="ws-demo-banner__step">{{ meta.demoEventIndex + 1 }} / {{ meta.demoEventsCount }}</span>
+          </div>
+          <p class="ws-demo-banner__hint">未配置 AI, 切到本地手动推进。下方按钮不依赖网络, 仅改写 localStorage 与当前会话。</p>
+          <div class="ws-demo-banner__actions">
+            <button class="action-btn primary" type="button" @click="handleLocalDemoEvent('continue')">继续</button>
+            <button class="action-btn" type="button" @click="handleLocalDemoEvent('scene')">切场景</button>
+          </div>
         </section>
         <!-- UI-E10-CLEAN: .scene-stage__indicator sticky indicator deleted
              2026-06-22 — was v-if gated on sceneIndicatorVisible (total > 0),
@@ -386,29 +418,67 @@ const isStarting = ref(false)
 // UI-E11-A + UI-E12-W1: handle quick-action CTA emits from GamePanel
 // 0-state hero (续写 / 速记 / 切场景). v0 wired only 'note' to the
 // existing quickNoteOpen flow (per E11-A PLAN-QA Fix #2). UI-E12-W1
-// now wires 'continue' (focus the workstation input) and 'scene'
-// (scroll chat to top so the user can review earlier scene context)
-// so all 3 CTA from the 0-state hero are functional. Uses DOM
-// querySelector on .input (InputArea.vue L163) and .chat-container
-// (GamePanel.vue L2) — no store mutation, no router change.
+// wires 'continue' (focus the workstation input) and 'scene' (scroll
+// chat to top so the user can review earlier scene context).
+// UI-E13-BIG1: when isDemoMode, 'continue' / 'scene' now drive
+// useLocalDemo.applyLocalAction (local progression, no AI needed);
+// when real messages exist, fall back to the input-focus / scroll
+// behavior. This is the per-brief "≥1 button has real local
+// behavior" — both 继续 and 切场景 are real local.
 function handleQuickAction(action) {
   if (action === 'note') {
     quickNoteOpen.value = true
     return
   }
-  if (action === 'continue') {
-    const input = document.querySelector('.ws-center-stage .input')
-    if (input && typeof input.focus === 'function') {
-      input.focus()
+  if (action === 'continue' || action === 'scene') {
+    if (meta.isDemoMode) {
+      handleLocalDemoEvent(action)
+      return
     }
-    return
+    if (action === 'continue') {
+      const input = document.querySelector('.ws-center-stage .input')
+      if (input && typeof input.focus === 'function') {
+        input.focus()
+      }
+      return
+    }
+    if (action === 'scene') {
+      const chat = document.querySelector('.ws-center-stage .chat-container')
+      if (chat && typeof chat.scrollTo === 'function') {
+        chat.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+      return
+    }
   }
-  if (action === 'scene') {
-    const chat = document.querySelector('.ws-center-stage .chat-container')
-    if (chat && typeof chat.scrollTo === 'function') {
-      chat.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// UI-E13-BIG1: local demo event handler. Bridges useLocalDemo (which
+// doesn't know about gameStore) and gameStore.messages (which GamePanel
+// reads). The flow:
+//   1. user clicks 继续 / 切场景 in the demo banner
+//   2. applyLocalAction mutates useLocalDemo's sceneIndex / eventIndex
+//      (persisted to localStorage)
+//   3. buildEventMessage returns a synthetic event payload compatible
+//      with the chat surface (role + content + timestamp)
+//   4. gameStore.messages.push pushes it into the chat so GamePanel
+//      re-renders. This is a pure-append push, no store schema
+//      change (per E10 hard rules).
+function handleLocalDemoEvent(action) {
+  const event = meta.applyLocalAction(action)
+  if (!event) return
+  const msg = meta.buildEventMessage(event)
+  if (!msg) return
+  // gameStore doesn't have an explicit "append one message" method
+  // that doesn't trigger an AI request, so we do it through the
+  // existing save-current-session flow that handleSend uses. Read
+  // the in-memory array, push, and persist.
+  if (Array.isArray(gameStore.messages)) {
+    gameStore.messages.push(msg)
+    // Persist via the existing saveCurrentSession if it exists,
+    // otherwise rely on the next user action to trigger a save.
+    if (typeof gameStore.saveCurrentSession === 'function') {
+      try { gameStore.saveCurrentSession() } catch (e) { /* ignore */ }
     }
-    return
   }
 }
 
@@ -477,7 +547,7 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
 })
 
 function openWorldbookQuickImport() {
-  router.push({ name: 'experience-worldbook' })
+  router.push({ name: 'settings-worldbook' })
 }
 
 function collectGameContext() {

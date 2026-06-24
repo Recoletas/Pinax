@@ -92,18 +92,46 @@ function handleSelectPanel(routeName) {
     }"
   >
     <template v-if="!hideActivityBar">
-      <button
-        ref="drawerTriggerRef"
-        class="shell-menu-btn shell-nav-trigger"
-        type="button"
-        :aria-expanded="drawerOpen ? 'true' : 'false'"
-        aria-label="打开工作区导航"
-        @click="toggleDrawer"
-      >
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
+      <header class="shell-mast">
+        <div class="shell-mast__brand">
+          <button
+            ref="drawerTriggerRef"
+            class="shell-menu-btn"
+            type="button"
+            :aria-expanded="drawerOpen ? 'true' : 'false'"
+            aria-label="打开工作区导航"
+            @click="toggleDrawer"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div class="shell-brand-route">
+            <strong>{{ currentRouteCaption }}</strong>
+          </div>
+        </div>
+
+        <nav class="shell-tabbar" role="tablist" aria-label="顶部活动导航">
+          <button
+            v-for="(item, index) in ACTIVITY_ITEMS"
+            :key="item.key"
+            class="shell-tab"
+            :class="{ active: item.key === currentActivityKey }"
+            role="tab"
+            :aria-selected="(item.key === currentActivityKey).toString()"
+            :aria-label="item.label"
+            type="button"
+            @click="handleSelectActivity(item.key)"
+          >
+            <span class="shell-tab__index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span class="shell-tab__label">{{ item.label }}</span>
+          </button>
+        </nav>
+
+        <div class="shell-mast__meta">
+          <router-link class="shell-meta-chip" to="/settings/structured" aria-label="打开结构化设定">设定</router-link>
+        </div>
+      </header>
 
       <Transition name="modal-fade">
         <button

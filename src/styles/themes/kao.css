@@ -2503,6 +2503,33 @@
     line-height: 1;
   }
 
+  /* UI-E14-U2: settings chip inside ws-topstrip pagetitle.
+     Same clip-path chip language as shell-meta-chip, anchored
+     at the topstrip level so the user can reach StructuredSettings
+     from the adventure surface without opening the drawer. */
+  .theme-kao .ws-topstrip__settings-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 2px 10px;
+    margin-left: 10px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, var(--border));
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%);
+    background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
+    color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink));
+    font-family: var(--font-sans);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+  .theme-kao .ws-topstrip__settings-link:hover {
+    border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+    color: var(--archive-olive-strong);
+    background: color-mix(in srgb, var(--archive-paper-strong) 92%, var(--surface-raised));
+  }
+
   @media (max-width: 980px) {
     /* UI-E12-FIX2: 640 mobile — switch the workstation from a
        3-column grid to a SIMPLE VERTICAL STACK so 5 cells + progress
@@ -2547,6 +2574,11 @@
     }
     .theme-kao .ws-topstrip__anchor {
       margin: 4px 0 0;
+    }
+    /* UI-E13-BIG1: demo banner — keep paper-soft wash but reduce
+       padding to fit the mobile single-column stack. */
+    .theme-kao .ws-demo-banner {
+      padding: 8px 10px 10px;
     }
     /* Disable W2 stagger animation at mobile (the simple flex column
        doesn't need the cascade). */
@@ -2792,6 +2824,164 @@
     color: color-mix(in srgb, var(--archive-rose) 84%, transparent);
   }
 
+  /* UI-E13-BIG1: local demo banner — shown in demo mode (no real
+     messages yet). 1-line head + hint + 2 buttons. Same paper-soft
+     wash as ws-topstrip so it reads as part of the workstation
+     chrome, not a separate dialog. No raw hex. */
+  .theme-kao .ws-demo-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--archive-olive) 32%, transparent);
+  }
+  .theme-kao .ws-demo-banner__head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .theme-kao .ws-demo-banner__kicker {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--archive-olive-strong);
+  }
+  .theme-kao .ws-demo-banner__scene {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--archive-ink);
+  }
+  .theme-kao .ws-demo-banner__step {
+    margin-left: auto;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+  .theme-kao .ws-demo-banner__hint {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--archive-ink) 76%, transparent);
+  }
+  .theme-kao .ws-demo-banner__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* UI-E13-BIG1: scene-prompt message — horizontal divider that
+     marks a scene transition in the chat. Different from
+     .msg-item (which is a card) and from .compression-complete
+     (which is a pill). Pure divider so the scene boundary reads
+     as a chapter break, not a content entry. */
+  .theme-kao .scene-prompt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    margin: 8px 0 4px;
+    border-top: 1px dashed color-mix(in srgb, var(--archive-olive) 32%, transparent);
+    border-bottom: 1px dashed color-mix(in srgb, var(--archive-olive) 32%, transparent);
+    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
+  }
+  .theme-kao .scene-prompt__kicker {
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--archive-olive-strong);
+  }
+
+  /* UI-E13-BIG1: demo state blocks in right rail. Each rail section
+     shows a small honest placeholder when isDemoMode = true, listing
+     what the current demo scene has (characters / location / events).
+     All via archive-* tokens, no raw hex. */
+  .theme-kao .demo-characters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .theme-kao .demo-character {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 4px 6px;
+    background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--archive-olive) 50%, transparent);
+    font-family: var(--font-sans);
+    font-size: 12px;
+  }
+  .theme-kao .demo-character__name {
+    color: var(--archive-ink);
+    font-weight: 500;
+  }
+  .theme-kao .demo-character__role {
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .theme-kao .demo-scene {
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--archive-paper) 50%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--archive-olive) 50%, transparent);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--archive-ink);
+  }
+  .theme-kao .demo-scene__location {
+    font-weight: 500;
+    color: var(--archive-ink);
+  }
+  .theme-kao .demo-scene__meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+    font-size: 11px;
+  }
+  .theme-kao .demo-events {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .theme-kao .demo-event {
+    padding: 4px 6px;
+    background: color-mix(in srgb, var(--archive-paper) 50%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
+    line-height: 1.5;
+  }
+  .theme-kao .demo-event--current {
+    border-left-color: var(--archive-olive-strong);
+    background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+    color: var(--archive-ink);
+  }
+  .theme-kao .demo-event__index {
+    color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    margin-right: 6px;
+  }
+
   /* UI-E11-A: ws-section — right rail dossier section container.
      Replaces the OLD .theme-kao .game-page .sidebar-section (E2/E4A
      archive-binder). Each .ws-section in the right rail shows one
@@ -2978,25 +3168,25 @@
   }
 }
 
-/* UI-E12-W2: shell-hamburger override (UNLAYERED).
-   The fixed hamburger (.shell-nav-trigger, z-index 90) sat BELOW
-   ws-topstrip (z-index 240), so the button was covered by the
-   topstrip on /experience and read as a leftover sticker. Bump
-   hamburger to z-index 260 (above --z-mechanism-notice 248) and
-   apply kao visual so the button looks part of the workstation,
-   not a SaaS sticker.
+/* UI-E12-W2: shell-mast z-index overrides (UNLAYERED).
+   AppShell.vue .shell-mast is sticky at z-index 90, which sits
+   BELOW ws-topstrip (z-index 240). Bump mast to z-index 260
+   (above --z-mechanism-notice 248) and forward the hamburger
+   kao visual to .shell-mast .shell-menu-btn (the mast-integrated
+   trigger replaces the former fixed .shell-nav-trigger).
 
    WHY OUTSIDE @layer kao: the @layer CSS Cascade rule says
    unlayered styles win over layered styles at the same importance
-   level. AppShell.vue scoped CSS (`.shell-nav-trigger[data-v-xxx]`)
-   is unlayered, so a same-or-higher specificity rule inside
-   @layer kao would still lose. Placing this override OUTSIDE
-   the @layer wrap (in the implicit unlayered priority) restores
-   the expected specificity-vs-source-order win. Scoped to
-   .theme-kao so the rule is still kao-only. 0 AppShell.vue
-   structural change. */
-.theme-kao .app-shell .shell-nav-trigger {
+   level. AppShell.vue scoped CSS (`.shell-mast[data-v-xxx]`) is
+   unlayered, so a same-or-higher specificity rule inside @layer
+   kao would still lose. Placing this override OUTSIDE the @layer
+   wrap (in the implicit unlayered priority) restores the expected
+   specificity-vs-source-order win. Scoped to .theme-kao so the
+   rule is still kao-only. */
+.theme-kao .app-shell .shell-mast {
   z-index: 260;
+}
+.theme-kao .app-shell .shell-mast .shell-menu-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
   background:
     linear-gradient(135deg,
@@ -3007,7 +3197,7 @@
     inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),
     0 6px 14px color-mix(in srgb, var(--archive-ink) 16%, transparent);
 }
-.theme-kao .app-shell .shell-nav-trigger:hover {
+.theme-kao .app-shell .shell-mast .shell-menu-btn:hover {
   border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
   color: var(--archive-olive-strong);
   background:
@@ -3015,7 +3205,7 @@
       color-mix(in srgb, var(--archive-paper) 94%, var(--surface-raised)),
       color-mix(in srgb, var(--archive-paper-strong) 88%, var(--surface-raised)));
 }
-.theme-kao .app-shell .shell-nav-trigger:focus-visible {
+.theme-kao .app-shell .shell-mast .shell-menu-btn:focus-visible {
   outline: none;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 60%, transparent),

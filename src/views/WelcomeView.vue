@@ -117,11 +117,59 @@
               />
 
               <BookmarkButton
-                to="/experience/worldbook"
+                to="/settings/worldbook"
                 class="welcome-tertiary-link"
                 aria-label="翻开新卷"
                 index="03"
                 label="新卷"
+                variant="tertiary"
+                compact
+                index-class="welcome-command-index"
+                label-class="welcome-command-label"
+              />
+
+              <BookmarkButton
+                to="/settings/structured"
+                class="welcome-quaternary-link"
+                aria-label="结构化设定"
+                index="04"
+                label="设定"
+                variant="tertiary"
+                compact
+                index-class="welcome-command-index"
+                label-class="welcome-command-label"
+              />
+
+              <BookmarkButton
+                to="/writing"
+                class="welcome-quinary-link"
+                aria-label="写作"
+                index="05"
+                label="写作"
+                variant="tertiary"
+                compact
+                index-class="welcome-command-index"
+                label-class="welcome-command-label"
+              />
+
+              <BookmarkButton
+                to="/materials"
+                class="welcome-senary-link"
+                aria-label="素材库"
+                index="06"
+                label="素材"
+                variant="tertiary"
+                compact
+                index-class="welcome-command-index"
+                label-class="welcome-command-label"
+              />
+
+              <BookmarkButton
+                to="/prose-essay"
+                class="welcome-septenary-link"
+                aria-label="画布"
+                index="07"
+                label="画布"
                 variant="tertiary"
                 compact
                 index-class="welcome-command-index"

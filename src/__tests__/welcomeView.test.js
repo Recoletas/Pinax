@@ -49,13 +49,31 @@ describe('welcome view redesign', () => {
       welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-secondary-link"[\s\S]*?\/>/)?.[0] || ''
     const tertiaryCta =
       welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-tertiary-link"[\s\S]*?\/>/)?.[0] || ''
+    const quaternaryCta =
+      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-quaternary-link"[\s\S]*?\/>/)?.[0] || ''
 
     expect(primaryCta).toContain('label="进入世界"')
     expect(primaryCta).toContain('to="/opening"')
     expect(secondaryCta).toContain('label="继续"')
     expect(secondaryCta).toContain('to="/experience"')
     expect(tertiaryCta).toContain('label="新卷"')
-    expect(tertiaryCta).toContain('to="/experience/worldbook"')
+    expect(tertiaryCta).toContain('to="/settings/worldbook"')
+    expect(quaternaryCta).toContain('label="设定"')
+    expect(quaternaryCta).toContain('to="/settings/structured"')
+
+    const quinaryCta =
+      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-quinary-link"[\s\S]*?\/>/)?.[0] || ''
+    const senaryCta =
+      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-senary-link"[\s\S]*?\/>/)?.[0] || ''
+    const septenaryCta =
+      welcomeView.match(/<BookmarkButton[\s\S]*?class="welcome-septenary-link"[\s\S]*?\/>/)?.[0] || ''
+
+    expect(quinaryCta).toContain('label="写作"')
+    expect(quinaryCta).toContain('to="/writing"')
+    expect(senaryCta).toContain('label="素材"')
+    expect(senaryCta).toContain('to="/materials"')
+    expect(septenaryCta).toContain('label="画布"')
+    expect(septenaryCta).toContain('to="/prose-essay"')
   })
 })
 

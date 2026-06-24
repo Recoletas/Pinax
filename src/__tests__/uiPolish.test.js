@@ -185,10 +185,10 @@ describe('ui polish contract', () => {
     expect(experience).not.toContain('class="opening-command-preview"')
     expect(experience).not.toContain('class="experience-entry-rail"')
     expect(experience).not.toContain('右列只放会影响当前推进的东西')
-    expect(appShell).toContain('class="shell-menu-btn shell-nav-trigger"')
+    expect(appShell).toContain('class="shell-mast"')
     expect(appShell).toContain('class="shell-drawer"')
-    expect(appShell).not.toContain('<header class="shell-mast">')
-    expect(appShell).not.toContain('class="shell-tabbar"')
+    expect(appShell).toContain('class="shell-tabbar"')
+    expect(appShell).toContain('class="shell-meta-chip"')
     expect(appShell).not.toContain('Mode {{')
     expect(activityBar).toContain('class="activity-btn"')
     expect(activityBar).toContain('class="activity-desc"')
@@ -197,8 +197,8 @@ describe('ui polish contract', () => {
     expect(router).toContain('hideSidePanel: true')
     expect(router).toMatch(/path:\s*'opening'[\s\S]*?name:\s*'opening'/)
     expect(router).toMatch(/name:\s*'opening'[\s\S]*?hideGlobalMemory:\s*true/)
-    expect(router).toMatch(/name:\s*'experience-worldbook'[\s\S]*?activityKey:\s*'experience'/)
-    expect(router).toMatch(/name:\s*'experience-worldbook'[\s\S]*?hideGlobalMemory:\s*true/)
+    expect(router).toMatch(/name:\s*'settings-worldbook'[\s\S]*?activityKey:\s*'worldbook'/)
+    expect(router).toMatch(/name:\s*'settings-worldbook'[\s\S]*?hideGlobalMemory:\s*true/)
   })
 
   it('keeps global memory chrome out of the world-selection transition page', () => {
@@ -3205,32 +3205,32 @@ describe('ui polish — UI-E12-F: Experience font / readability repair', () => {
 
 // UI-E12-W2: Menu → Experience page handoff continuity.
 // Scope: kao.css workstation layer + Experience.vue topstrip +
-// hamburger (.shell-nav-trigger) z-index bump + wsLayoutEnter
+// hamburger (.shell-mast .shell-menu-btn) z-index bump + wsLayoutEnter
 // animation + .game-page background override. 0 AppShell.vue
 // structural change — all hamburger rules are .theme-kao
 // conditional overrides in kao.css (see brief scope rule:
 // "必要少量 AppShell.vue ... 但必须先说明为什么" — explanation:
-// the .shell-nav-trigger z-index bump is achievable in kao.css
+// the .shell-mast .shell-menu-btn z-index bump is achievable in kao.css
 // because the hamburger's z-index is a single CSS value, not
 // behavior, so the override fits the existing theme-system
 // pattern of .theme-kao .shell-* overrides in kao.css L610-722).
 describe('ui polish — UI-E12-W2: Menu → Experience page handoff continuity', () => {
-  // Contract #1: hamburger .shell-nav-trigger is above ws-topstrip
+  // Contract #1: hamburger .shell-mast .shell-menu-btn is above ws-topstrip
   // in kao mode (topstrip z-index = 240). Before E12-W2, the
-  // hamburger z-index 90 was BELOW topstrip z-index 240, so the
-  // button was visually covered and read as a leftover sticker.
+  // mast z-index 90 was BELOW topstrip z-index 240; the mast-integrated
+  // hamburger (.shell-mast .shell-menu-btn) inherits the mast"s z-index.
   // The override is placed OUTSIDE @layer kao (see end of file)
   // because unlayered rules win over @layer rules at the same
   // importance — AppShell.vue scoped CSS is unlayered so a rule
   // inside @layer kao would lose. The regex matches the
   // unlayered selector (no leading whitespace) with the
   // .app-shell ancestor (specificity 0,3,0 vs scoped 0,2,0).
-  it('E12-W2-1: hamburger z-index > ws-topstrip z-index in kao mode (no sticker feeling)', () => {
+  it('E12-W2-1: mast z-index > ws-topstrip z-index in kao mode (no sticker feeling)', () => {
     const kao = readProjectFile('src/styles/themes/kao.css')
-    const hamburgerRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0] || ''
+    const mastRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-mast\s*\{[^}]*\}/m)?.[0] || ''
     // Hamburger rule must declare a z-index value
-    expect(hamburgerRule).toMatch(/z-index:\s*\d+/)
-    const z = parseInt(hamburgerRule.match(/z-index:\s*(\d+)/)?.[1] || '0', 10)
+    expect(mastRule).toMatch(/z-index:\s*\d+/)
+    const z = parseInt(mastRule.match(/z-index:\s*(\d+)/)?.[1] || '0', 10)
     // ws-topstrip uses var(--z-floating-dock, 240). Hamburger must
     // sit above that.
     expect(z).toBeGreaterThan(240)
@@ -3320,13 +3320,13 @@ describe('ui polish — UI-E12-W2: Menu → Experience page handoff continuity',
     expect(kao).not.toMatch(/:deep\(/)
 
     // Extract the W2 new rules and verify no !important / raw hex.
-    // Hamburger rules are OUTSIDE @layer (unlayered) so use the
+    // Mast rules are OUTSIDE @layer (unlayered) so use the
     // `^` anchor + .app-shell ancestor; workstation rules are
     // inside @layer and use `.theme-kao` selector.
     const w2Rules = [
-      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0],
-      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger:hover\s*\{[^}]*\}/m)?.[0],
-      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger:focus-visible\s*\{[^}]*\}/m)?.[0],
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-mast .shell-menu-btn\s*\{[^}]*\}/m)?.[0],
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-mast .shell-menu-btn:hover\s*\{[^}]*\}/m)?.[0],
+      kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-mast .shell-menu-btn:focus-visible\s*\{[^}]*\}/m)?.[0],
       kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle\s*\{[^}]*\}/s)?.[0],
       kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle-kicker\s*\{[^}]*\}/s)?.[0],
       kao.match(/\.theme-kao\s+\.ws-topstrip__pagetitle-name\s*\{[^}]*\}/s)?.[0],
@@ -3341,7 +3341,7 @@ describe('ui polish — UI-E12-W2: Menu → Experience page handoff continuity',
   })
 
   // Contract #7: Writing / Notes layouts unaffected by W2.
-  // The W2 changes are scoped to .theme-kao .app-shell .shell-nav-trigger
+  // The W2 changes are scoped to .theme-kao .app-shell .shell-mast .shell-menu-btn
   // + .ws-topstrip + .ws-topstrip__pagetitle-* + .game-page + wsLayoutEnter.
   // None of these selectors match Writing or Notes DOM, so those
   // pages render unchanged. Locked by checking that the W2 selectors
@@ -3352,10 +3352,10 @@ describe('ui polish — UI-E12-W2: Menu → Experience page handoff continuity',
     const experience = readProjectFile('src/pages/Experience.vue')
     // W2 rules are workstation-specific: no W2 selector matches
     // Writing (.wall-*) or Notes (.material-*, .index-card).
-    // The .theme-kao .app-shell .shell-nav-trigger rule is the only
+    // The .theme-kao .app-shell .shell-mast .shell-menu-btn rule is the only
     // shell-level override and it only affects the hamburger, not
     // the shell content area.
-    const w2ShellRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-nav-trigger\s*\{[^}]*\}/m)?.[0] || ''
+    const w2ShellRule = kao.match(/^\.theme-kao\s+\.app-shell\s+\.shell-mast .shell-menu-btn\s*\{[^}]*\}/m)?.[0] || ''
     expect(w2ShellRule).not.toMatch(/\.wall/)
     expect(w2ShellRule).not.toMatch(/\.material/)
     // Experience.vue template addition is inside .ws-topstrip, not
@@ -3749,5 +3749,127 @@ describe('ui polish — UI-E12-FIX2: folio corner + 640 mobile blocker fixes', (
       expect(m, `FIX2 rule contains !important: ${m.slice(0, 80)}...`).not.toMatch(/!important/)
       expect(m, `FIX2 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     }
+  })
+})
+
+// UI-E13-BIG1: product-state slice.
+// Scope: useLocalDemo.js (new composable) + useWorkstationMeta.js
+// (demo state wiring) + Experience.vue (banner + local actions) +
+// GamePanel.vue (scene-prompt type) + StatusBar/GeographyPanel/
+// QuestLog.vue (demo placeholders) + kao.css (banner + scene-prompt
+// + demo-* styles). No store / service / router / server changes
+// (per brief); demo state persists in localStorage.
+describe('ui polish — UI-E13-BIG1: product-state slice (local demo + 4 message types)', () => {
+  // Contract #1: useLocalDemo exists with 3 scenes, 3 events per scene.
+  it('BIG1-1: useLocalDemo composable has 3 scenes × 3 events = 9 demo events', () => {
+    const localDemo = readProjectFile('src/composables/useLocalDemo.js')
+    // 3 scene ids (pier / tent / lighthouse)
+    expect(localDemo).toMatch(/id:\s*['"]pier['"]/)
+    expect(localDemo).toMatch(/id:\s*['"]tent['"]/)
+    expect(localDemo).toMatch(/id:\s*['"]lighthouse['"]/)
+    // Each scene has events array of 3. Count event ids per scene by
+    // matching ids that contain a dash (events are id: 'pier-1' etc.)
+    const eventIdRe = /id:\s*['"](?:pier|tent|lighthouse)-\d+['"]/g
+    const allEventIds = localDemo.match(eventIdRe) || []
+    expect(allEventIds.length, `total demo events ${allEventIds.length}, expected 9`).toBe(9)
+  })
+
+  // Contract #2: useWorkstationMeta exposes isDemoMode + demoScene.
+  it('BIG1-2: useWorkstationMeta exposes isDemoMode + demoScene + applyLocalAction + buildEventMessage', () => {
+    const meta = readProjectFile('src/composables/useWorkstationMeta.js')
+    expect(meta).toMatch(/const\s+isDemoMode\s*=\s*computed/)
+    expect(meta).toMatch(/const\s+demoScene\s*=\s*computed/)
+    expect(meta).toMatch(/applyLocalAction:\s*demo\.applyLocalAction/)
+    expect(meta).toMatch(/buildEventMessage:\s*demo\.buildEventMessage/)
+    // Returned in the destructure
+    expect(meta).toMatch(/isDemoMode,\s*\n\s*demoScene/)
+  })
+
+  // Contract #3: Experience.vue wires the demo banner + local actions.
+  it('BIG1-3: Experience.vue renders ws-demo-banner + handleLocalDemoEvent + 继续/切场景 buttons', () => {
+    const exp = readProjectFile('src/pages/Experience.vue')
+    expect(exp).toContain('class="ws-demo-banner"')
+    expect(exp).toContain('handleLocalDemoEvent')
+    expect(exp).toMatch(/@click="handleLocalDemoEvent\('continue'\)"/)
+    expect(exp).toMatch(/@click="handleLocalDemoEvent\('scene'\)"/)
+    // Banner is conditionally rendered on isDemoMode
+    expect(exp).toMatch(/v-if="meta\.isDemoMode"/)
+  })
+
+  // Contract #4: GamePanel renders scene-prompt type as a divider
+  // (not a normal scene-entry card).
+  it('BIG1-4: GamePanel renders scene-prompt messages as .scene-prompt dividers', () => {
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    expect(gamePanel).toMatch(/v-if="msg\.type === 'scene'"/)
+    expect(gamePanel).toContain('class="scene-prompt"')
+    // Has both the kicker and the content
+    expect(gamePanel).toContain('class="scene-prompt__kicker"')
+  })
+
+  // Contract #5: right rail shows demo placeholders when isDemoMode.
+  it('BIG1-5: StatusBar / GeographyPanel / QuestLog render demo placeholders on isDemoMode', () => {
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    const quest = readProjectFile('src/components/QuestLog.vue')
+    // StatusBar: demo-characters list
+    expect(statusBar).toContain('class="demo-characters"')
+    expect(statusBar).toMatch(/v-if="isDemoMode"/)
+    // Geography: demo-scene (location)
+    expect(geo).toContain('class="demo-scene"')
+    expect(geo).toMatch(/v-if="isDemoMode"/)
+    // QuestLog: demo-events list
+    expect(quest).toContain('class="demo-events"')
+    expect(quest).toMatch(/v-if="isDemoMode"/)
+  })
+
+  // Contract #6: kao.css has demo + scene-prompt styles, no forbidden
+  // patterns. .theme-kao gated, all colors via var(--archive-*).
+  it('BIG1-6: kao.css demo + scene-prompt rules clean (no global/deep escapes, importance keyword, raw hex)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    // New rules exist
+    expect(kao).toMatch(/\.theme-kao\s+\.ws-demo-banner\s*\{/)
+    expect(kao).toMatch(/\.theme-kao\s+\.scene-prompt\s*\{/)
+    expect(kao).toMatch(/\.theme-kao\s+\.demo-characters\s*\{/)
+    expect(kao).toMatch(/\.theme-kao\s+\.demo-event\s*\{/)
+    // Extract the new rule bodies
+    const newRules = [
+      kao.match(/\.theme-kao\s+\.ws-demo-banner\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.scene-prompt\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-characters\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-event\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-scene\s*\{[^}]*\}/s)?.[0]
+    ].filter(Boolean)
+    expect(newRules.length).toBeGreaterThanOrEqual(5)
+    const forbiddenImportance = new RegExp(`!${'important'}`)
+    for (const m of newRules) {
+      expect(m, `BIG1 rule contains forbidden importance keyword: ${m.slice(0, 80)}...`).not.toMatch(forbiddenImportance)
+      expect(m, `BIG1 rule contains raw hex: ${m.slice(0, 80)}...`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+
+  // Contract #7: BIG1 stays workstation-scoped (no Writing / Notes
+  // selector pollution in the NEW rules only).
+  it('BIG1-7: BIG1 additions are workstation-scoped (no Writing/Notes selectors in new rules)', () => {
+    const kao = readProjectFile('src/styles/themes/kao.css')
+    const exp = readProjectFile('src/pages/Experience.vue')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+    // The 5 new BIG1 rule bodies must not mention Writing/Notes selectors
+    const newRules = [
+      kao.match(/\.theme-kao\s+\.ws-demo-banner\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.scene-prompt\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-characters\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-event\s*\{[^}]*\}/s)?.[0],
+      kao.match(/\.theme-kao\s+\.demo-scene\s*\{[^}]*\}/s)?.[0]
+    ].filter(Boolean)
+    for (const m of newRules) {
+      expect(m, `BIG1 rule mentions Writing selector: ${m.slice(0, 80)}...`).not.toMatch(/\.wall/)
+      expect(m, `BIG1 rule mentions Notes selector: ${m.slice(0, 80)}...`).not.toMatch(/\.material/)
+      expect(m, `BIG1 rule mentions Notes selector: ${m.slice(0, 80)}...`).not.toMatch(/\.index-card/)
+    }
+    // Demo banner only inside ws-layout (not outside). Order can be
+    // v-if first or class first depending on template style.
+    expect(exp).toMatch(/<section[^>]*class="ws-demo-banner"[^>]*v-if="meta\.isDemoMode"|<section[^>]*v-if="meta\.isDemoMode"[^>]*class="ws-demo-banner"/)
+    // scene-prompt only inside v-for of displayMessages
+    expect(gamePanel).toMatch(/<div\s+v-if="msg\.type === 'scene'"\s+class="scene-prompt"/)
   })
 })
