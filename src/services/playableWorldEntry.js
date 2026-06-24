@@ -54,7 +54,7 @@ export function extractPlayableOpeningHook(source) {
 }
 
 export function buildPlayableWorldActionHooks(source) {
-  const locations = getEntryNames(source, 'location', 4)
+  const locations = getEntryNames(source, 'location', 6)
   const factions = getEntryNames(source, 'organization', 4)
   const events = getEntryNames(source, 'event', 4)
   const quests = getEntryNames(source, 'quest', 3)
@@ -62,13 +62,15 @@ export function buildPlayableWorldActionHooks(source) {
   const openingHook = extractPlayableOpeningHook(source)
 
   const firstLocation = locations[0] || '第一个异常地点'
+  const clockTowerLocation = findEntryName(source, 'location', ['钟楼'], firstLocation)
+  const campLocation = findEntryName(source, 'location', ['难民营'], findEntryName(source, 'location', ['灰墙', '难民'], firstLocation))
   const accountLocation = findEntryName(
     source,
     'location',
     ['码头'],
     findEntryName(source, 'location', ['仓库', '账'], locations[1] || firstLocation)
   )
-  const testimonyLocation = findEntryName(source, 'location', ['灰墙', '难民'], locations[2] || locations[1] || firstLocation)
+  const testimonyLocation = campLocation !== firstLocation ? campLocation : (findEntryName(source, 'location', ['灰墙', '难民'], locations[2] || locations[1] || firstLocation))
   const firstFaction = factions[0] || '最先介入的势力'
   const secondFaction = factions[1] || firstFaction
   const firstEvent = events[0] || quests[0] || '开场异常'
@@ -82,13 +84,15 @@ export function buildPlayableWorldActionHooks(source) {
   const testimonyCharacter = findEntryName(source, 'character', ['苔娜', '难民', '证词'], '')
   const firstItem = items[0] || '关键线索'
 
+  const firstSceneDetail = `从「${firstEvent}」入手，要求 GM 给停摆时刻、值守记录和当晚失踪名单三类证据词。`
+
   return [
     {
       id: 'trace-first-evidence',
       label: '先去钟楼查痕迹',
-      title: firstLocation,
-      detail: `从「${firstEvent}」入手，把开场困境落到可验证的证据。`,
-      command: `我先前往${firstLocation}，调查${firstEvent}，并记录所有能验证的证据。${openingHook ? `我会特别留意：${openingHook}` : ''}`
+      title: clockTowerLocation,
+      detail: firstSceneDetail,
+      command: `我先前往${clockTowerLocation}，调查${firstEvent}，并要求 GM 给出三类证据词：停摆时刻、值守记录、失踪名单。${openingHook ? `我会特别留意：${openingHook}` : ''}`
     },
     {
       id: 'pressure-faction',
@@ -100,9 +104,9 @@ export function buildPlayableWorldActionHooks(source) {
     {
       id: 'follow-dangerous-lead',
       label: '找证人问雾军',
-      title: testimonyCharacter || firstItem,
+      title: testimonyLocation,
       detail: `沿着「${testimonyEvent}」追到「${testimonyLocation}」，让 GM 立刻给出代价。`,
-      command: `我去${testimonyLocation}${testimonyCharacter ? `找${testimonyCharacter}` : `追查${firstItem}`}，确认${testimonyEvent}的第一手证词；如果这会触发代价，我也要先看到代价是什么。`
+      command: `我去${testimonyLocation}${testimonyCharacter ? `找${testimonyCharacter}` : `追查${firstItem}`}，确认${testimonyEvent}的第一手证词；同时要求 GM 写出代价（失去证人 / 失去账本窗口 / 失去巡骑追踪时机三选一）。`
     }
   ]
 }

@@ -22,14 +22,19 @@ describe('playableWorldEntry', () => {
       'pressure-faction',
       'follow-dangerous-lead'
     ])
-    expect(actions[0].command).toContain('暮湾主城')
+    expect(actions[0].title).toBe('暮湾钟楼')
     expect(actions[0].label).toBe('先去钟楼查痕迹')
+    expect(actions[0].detail).toContain('停摆时刻')
+    expect(actions[0].detail).toContain('值守记录')
+    expect(actions[0].detail).toContain('失踪名单')
     expect(actions[1].label).toBe('夜访码头核夜账')
     expect(actions[1].command).toContain('灯痕码头')
     expect(actions[1].command).toContain('潮盐行会')
+    expect(actions[2].title).toBe('灰墙难民营')
     expect(actions[2].label).toBe('找证人问雾军')
-    expect(actions[2].command).toContain('北境灰墙')
+    expect(actions[2].command).toContain('灰墙难民营')
     expect(actions[2].command).toContain('苔娜难民领队')
+    expect(actions[2].command).toContain('失去证人')
     expect(actions.every((action) => action.command.length > 20)).toBe(true)
   })
 

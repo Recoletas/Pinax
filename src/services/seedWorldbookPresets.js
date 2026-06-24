@@ -59,7 +59,7 @@ export const seedWorldbookPresets = [
     writingStyle: '克制悬疑的边境奇幻语气，重视潮湿港雾、势力谈判、线索递进和人物谨慎判断。',
     forbidden: '不得无因推翻雾潮契约，不得让关键道具无限制解决所有危机，不得让王国势力无代价统一行动。',
     openingHook: '暮湾钟楼连续三夜停摆，北境难民带来“雾中军队”的消息，王室要求你在黎明前确认真相；行会则要求你先封存港口账簿。',
-    creativeExits: ['写成边境调查章节', '整理成王国势力分镜', '扩展新地点/行会'],
+    creativeExits: ['写成边境调查章节', '整理成王国势力分镜', '整理成三方证据卡'],
     entries: [
       createSeedWorldbookEntry('rule', '暮湾一致性规则', ['暮湾', '雾潮', '契约'], '雾潮、学院、城防队和旧时代契约之间的因果必须稳定；任何新线索都要能回扣已有异常和调查记录。', '硬约束', 'constant'),
       createSeedWorldbookEntry('style', '奇幻调查文风', ['调查文风', '线索', '雾港'], '叙事以谨慎调查、湿冷港雾和证据递进为主，避免突然变成无约束战斗爽文。', '文风约束', 'constant'),
@@ -69,7 +69,9 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('location', '北境灰墙', ['北境', '灰墙'], '王国北部旧防线，难民、巡骑和失踪商队都从这里进入暮湾，墙外雾声像军号。', '地理'),
       createSeedWorldbookEntry('location', '灯痕码头', ['灯痕码头', '码头'], '潮盐行会控制的主码头，雾灯燃料在此交接，夜间账本与船旗经常对不上。', '地理'),
       createSeedWorldbookEntry('location', '雾灯仓库', ['雾灯仓库', '雾灯'], '储存雾灯燃芯和盐税封条的仓库，守卫称有人从没有门的墙边离开。', '地理'),
+      createSeedWorldbookEntry('location', '暮湾钟楼', ['钟楼','值守室'], '钟楼内部值守室，停摆时刻的值守记录、失踪名单和当晚键位日志在此保管，是钟楼停摆事件的第一现场。', '地理'),
       createSeedWorldbookEntry('location', '沉钟沼泽', ['沉钟沼泽', '沉钟'], '旧王战争后被水淹没的钟塔遗址，雾潮夜会传出与暮湾钟楼相同的钟声。', '地理'),
+      createSeedWorldbookEntry('location', '灰墙难民营', ['灰墙难民营','难民营'], '灰墙外的临时营地，苔娜领导的难民互助会在此驻扎，雾中军队的目击证词和失踪巡骑线索在此收集。', '地理'),
       createSeedWorldbookEntry('organization', '潮盐行会', ['潮盐行会', '行会'], '控制港口盐税和雾灯燃料的商人组织，公开支持王室，私下与学院互相试探。', '组织'),
       createSeedWorldbookEntry('organization', '王家巡骑团', ['巡骑团', '王家巡骑'], '负责北境道路和难民营安全的军务组织，近期不断要求城防队交出调查权。', '组织'),
       createSeedWorldbookEntry('organization', '银藤学院评议会', ['学院评议会', '银藤'], '掌握雾潮观测资料的学术势力，愿意合作但拒绝交出地下仪器记录。', '组织'),
@@ -79,6 +81,7 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('character', '塔维克书记官', ['塔维克', '书记官'], '负责盐税旧账的中年书记官，记忆力惊人，但只愿在安全承诺后开口。', '角色'),
       createSeedWorldbookEntry('character', '苔娜难民领队', ['苔娜', '难民领队'], '带领北境难民进入暮湾的人，她知道灰墙外第一支失踪巡骑的去向。', '角色'),
       createSeedWorldbookEntry('character', '赫玛教授', ['赫玛', '教授'], '银藤学院雾潮史教授，坚称钟楼停摆不是机械故障，而是旧契约被重启。', '角色'),
+      createSeedWorldbookEntry('character', '索德码头夜班头目', ['索德','夜班头目','码头夜班'], '潮盐行会的码头夜班头目，会直接挡查账、封账、拖时间，是第四轮明确反作用力人物。', '角色'),
       createSeedWorldbookEntry('item', '风蚀罗盘', ['罗盘', '风蚀罗盘'], '能够在异常雾潮中定位安全路径，但每次使用会损耗刻度，刻度归零后会指向使用者最恐惧的地点。', '道具'),
       createSeedWorldbookEntry('item', '雾灯燃芯', ['燃芯', '雾灯'], '维持港区雾灯的稀缺燃料，近期失窃数量足以让整条码头在雾潮夜熄灭。', '道具'),
       createSeedWorldbookEntry('item', '沉钟残片', ['沉钟残片', '钟楼'], '从沉钟沼泽捞出的青铜残片，表面刻痕会在钟楼停摆时渗出盐水。', '道具'),
@@ -86,6 +89,7 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('event', '北境难民潮', ['难民潮', '北境'], '边境道路忽然涌入难民，他们声称看见不属于任何王国军旗的雾中军队。', '事件'),
       createSeedWorldbookEntry('event', '雾灯燃料失窃', ['燃料失窃', '雾灯'], '雾灯仓库少了十二箱燃芯，账面记录显示它们仍在码头等待验封。', '事件'),
       createSeedWorldbookEntry('event', '学院观测仪过载', ['观测仪', '过载'], '银藤学院地下观测仪在钟楼停摆同一刻过载，记录盘出现一段被人为刮除的曲线。', '事件'),
+      createSeedWorldbookEntry('event', '观测曲线停摆对应', ['观测曲线','停摆对应','学院观测'], '银藤学院地下观测仪的异常曲线编号正对应钟楼每次停摆时刻，是把钟楼线、学院线、灰墙线织成一条链的硬证据。', '事件'),
       createSeedWorldbookEntry('event', '灰墙巡骑失踪', ['巡骑失踪', '灰墙'], '两名巡骑在护送难民时失踪，唯一留下的是被雾水浸透的王室密令副本。', '事件'),
       createSeedWorldbookEntry('event', '沼泽沉钟回响', ['沉钟回响', '沼泽'], '沉钟沼泽在无风夜响起钟声，声音与主城钟楼完全同步。', '事件'),
       createSeedWorldbookEntry('event', '行会夜账泄露', ['夜账', '行会'], '潮盐行会的夜账被匿名贴到公署门口，显示燃芯流向北境灰墙。', '事件'),
@@ -95,7 +99,7 @@ export const seedWorldbookPresets = [
       createSeedWorldbookEntry('lore', '旧王边境战争', ['旧王战争', '边境'], '上一代王室在北境灰墙外封存过一场失败战役，战争记录与雾潮契约同时缺页。', '设定'),
       createSeedWorldbookEntry('quest', '黎明前的钟楼调查', ['钟楼调查', '黎明'], '在黎明前确认钟楼停摆、难民证词和雾潮异动之间是否存在同一条因果链。', '任务'),
       createSeedWorldbookEntry('quest', '雾灯仓库谈判', ['仓库谈判', '雾灯'], '在潮盐行会、城防队和学院之间谈判，找出燃芯失窃的真实流向。', '任务'),
-      createSeedWorldbookEntry('quest', '灰墙真相分岔', ['灰墙真相', '分岔'], '选择优先保护难民、执行王室密令或追踪失踪巡骑，每条路径都会改变暮湾势力关系。', '任务')
+      createSeedWorldbookEntry('quest', '灰墙真相分岔', ['灰墙真相', '分岔'], '在灰墙现场做硬选择：当场失去证人（让苔娜离开雾潮夜）/ 失去账本窗口（让索德封掉港口夜账）/ 失去巡骑追踪时机（让巡骑团带难民撤回王都）。三选一，每条路径都会改变暮湾势力关系。', '任务')
     ]
   }),
   createSeedWorldbookPreset({
