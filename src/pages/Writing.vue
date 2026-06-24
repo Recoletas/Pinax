@@ -132,12 +132,42 @@
           v-for="(chapter, index) in chapters.slice(0, 6)"
           :key="chapter.id"
           class="wall__folder"
-          :class="{ 'is-active': selectedChapterId === chapter.id }"
+          :class="{
+            'is-active': selectedChapterId === chapter.id,
+            'is-dragging': dragIndex === index,
+            'is-drop-target': dropTargetIndex === index && dropTargetIndex !== dragIndex
+          }"
           :style="{ '--folder-pin': chapterPinColor(chapter.wordCount || 0) }"
+          draggable="true"
           @click="selectChapter(chapter.id)"
+          @dragstart="onChapterDragStart($event, index)"
+          @dragover.prevent="onChapterDragOver($event, index)"
+          @dragleave="onChapterDragLeave(index)"
+          @drop="onChapterDrop($event, index)"
+          @dragend="onChapterDragEnd"
           role="button"
-          :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'}`"
+          :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'} · 拖拽排序`"
+          :aria-grabbed="dragIndex === index ? 'true' : 'false'"
+          :aria-dropeffect="dropTargetIndex === index ? 'move' : 'none'"
         >
+          <span class="wall__folder-move-stack" @click.stop>
+            <button
+              v-if="index > 0"
+              class="wall__folder-step wall__folder-step--up"
+              type="button"
+              @click="reorderChapter(index, index - 1)"
+              :aria-label="`第 ${index + 1} 章上移`"
+              title="上移"
+            >▴</button>
+            <button
+              v-if="index < chapters.length - 1"
+              class="wall__folder-step wall__folder-step--down"
+              type="button"
+              @click="reorderChapter(index, index + 1)"
+              :aria-label="`第 ${index + 1} 章下移`"
+              title="下移"
+            >▾</button>
+          </span>
           <span class="wall__folder-tab">{{ String(index + 1).padStart(2, '0') }}</span>
           <span class="wall__folder-title">{{ chapter.title || '无标题章节' }}</span>
           <span class="wall__folder-meta">{{ (chapter.wordCount || 0).toLocaleString() }} 字</span>
@@ -674,6 +704,7 @@ import { useAdvisor } from '../composables/useAdvisor'
 import { extractCopilotWindow, useCopilot } from '../composables/useCopilot'
 import { useWorldStore } from '../stores/worldStore'
 import { useGameStore } from '../stores/gameStore'
+import { useEditorHistory } from '../composables/useEditorHistory'
 import { expandText, getExpansionModes } from '../services/textExpander'
 import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
 import ImageGenRail from '../components/ImageGenRail.vue'
@@ -779,9 +810,39 @@ const rightWidth = ref(210)
 const isRightCollapsed = ref(false)
 const resizing = ref(null)
 const selectedText = ref('')
-const canUndo = ref(false)
-const canRedo = ref(false)
+const editorHistory = useEditorHistory()
+const canUndo = editorHistory.canUndo
+const canRedo = editorHistory.canRedo
 const contextMenu = ref({ show: false, x: 0, y: 0 })
+const dragIndex = ref(-1)
+const dropTargetIndex = ref(-1)
+function reorderChapter(fromIdx, toIdx) {
+  if (fromIdx < 0 || toIdx < 0 || fromIdx >= chapters.value.length || toIdx >= chapters.value.length) return
+  const list = [...chapters.value]
+  const [moved] = list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, moved)
+  chapters.value = list
+  saveChapters()
+}
+function onChapterDragStart(e, idx) {
+  dragIndex.value = idx
+  e.dataTransfer.effectAllowed = 'move'
+}
+function onChapterDragOver(e, idx) {
+  dropTargetIndex.value = idx
+}
+function onChapterDragLeave(_idx) {
+  dropTargetIndex.value = -1
+}
+function onChapterDrop(e, idx) {
+  dropTargetIndex.value = -1
+  if (dragIndex.value < 0 || dragIndex.value === idx) return
+  reorderChapter(dragIndex.value, idx)
+}
+function onChapterDragEnd() {
+  dragIndex.value = -1
+  dropTargetIndex.value = -1
+}
 const editorFont = ref("'Microsoft YaHei', sans-serif")
 const showFindReplace = ref(false)
 const findText = ref('')
@@ -1773,6 +1834,7 @@ function selectChapter(chapterId) {
     markdownContent.value = format === 'md' ? raw : htmlToMarkdown(raw)
     editorContent.value = markdownToHtml(markdownContent.value)
     chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
+    editorHistory.clear()
     nextTick(() => {
       if (editorRef.value) editorRef.value.value = markdownContent.value
     })
@@ -2097,6 +2159,10 @@ function toggleStyle(style) {
 }
 
 function applyStyleToSelection(style) {
+  // TODO(undo-redo): document.execCommand('bold'/'italic'/'underline') is
+  // a contenteditable-only API and does not work on textarea. Replace
+  // with markdown syntax wrapping (e.g. **text**, *text*, <u>text</u>)
+  // when the WYSIWYG mode is updated to a proper rich-text editor.
   if (editorMode.value !== 'wysiwyg') return
   const editor = editorRef.value
   if (!editor) return
@@ -2121,6 +2187,8 @@ function adjustSelectionFont(delta) {
 }
 
 function clearSelectionStyle() {
+  // TODO(undo-redo): document.execCommand('removeFormat') is contenteditable-only
+  // and does not work on textarea.
   if (editorMode.value !== 'wysiwyg') return
   const editor = editorRef.value
   if (!editor) return
@@ -2330,6 +2398,7 @@ function onEditorInput() {
 function onMarkdownInput() {
   if (editorMode.value === 'wysiwyg' && editorRef.value) {
     markdownContent.value = editorRef.value.value
+    editorHistory.push(editorRef.value)
   }
   syncCopilotCursorFromEditor()
   syncMarkdownToEditor()
@@ -2390,6 +2459,20 @@ function retryCopilotSuggestion() {
 }
 
 function onTextAreaKeydown(e) {
+  // Ctrl/Cmd+Z — undo
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+    e.preventDefault()
+    editorHistory.undo(e.target)
+    return
+  }
+  // Ctrl/Cmd+Shift+Z or Ctrl+Y — redo
+  if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') ||
+      ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'y')) {
+    e.preventDefault()
+    editorHistory.redo(e.target)
+    return
+  }
+
   // Tab 采纳 Copilot 建议
   if (e.key === 'Tab' && copilotVisible.value && copilotSuggestion.value) {
     e.preventDefault()
@@ -2438,8 +2521,11 @@ function ctxAction(action) {
   editor.focus()
 
   switch (action) {
-    case 'undo': document.execCommand('undo'); break
-    case 'redo': document.execCommand('redo'); break
+    case 'undo': editorHistory.undo(editorRef.value); break
+    case 'redo': editorHistory.redo(editorRef.value); break
+    // TODO(undo-redo): cut/copy/paste/delete below use document.execCommand
+    // which is deprecated and unreliable on textarea. Replace with
+    // native Clipboard API + direct textarea manipulation in a follow-up.
     case 'cut':
       document.execCommand('cut')
       selectedText.value = ''
