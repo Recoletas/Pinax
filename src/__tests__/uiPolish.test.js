@@ -2804,11 +2804,12 @@ describe('ui polish — UI-E11-C: right-rail section empty states + responsive f
     expect(statusBar).toContain('.time-value--hint')
   })
 
-  it('UI-E11-C: StatusBar 0-data 角色 inline hint (未登记角色 + 设定主角名) — 不再是空 stat 卡片', () => {
+  it('UI-E11-C: StatusBar 0-data 角色 inline hint (未登记角色 + 设定主角) — 不再是空 stat 卡片', () => {
     const statusBar = readProjectFile('src/components/StatusBar.vue')
     expect(statusBar).toMatch(/v-if="isCharacterEmpty"[\s\S]*?class="compact-profile compact-profile--empty"/)
     expect(statusBar).toContain('未登记角色')
-    expect(statusBar).toContain('点击设定主角名')
+    expect(statusBar).toContain('设定主角')
+    expect(statusBar).not.toContain('点击设定主角名 / 心境 / 性格')
     // computed gate — based on no name + no avatar + no traits + no description + mood=50 default
     expect(statusBar).toContain('const isCharacterEmpty = computed(() => {')
     // CSS hint modifier
@@ -2817,19 +2818,20 @@ describe('ui polish — UI-E11-C: right-rail section empty states + responsive f
     expect(statusBar).toContain('.avatar-placeholder--hint')
   })
 
-  it('UI-E11-C: GeographyPanel 0-data stat-strip 替换为 placeholder hint (dashed + 3 段 italic 提示)', () => {
+  it('UI-E11-C: GeographyPanel 0-data stat-strip 替换为 quiet placeholder hint (dashed + 1 段提示)', () => {
     const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
-    // 模板分支:locations.length === 0 时换 geo-stat-strip--empty + 3 个 --hint span
+    // 模板分支:locations.length === 0 时换 geo-stat-strip--empty + quiet hint
     expect(geo).toMatch(/v-if="locations\.length === 0"[\s\S]*?class="geo-stat-strip geo-stat-strip--empty"/)
     expect(geo).toMatch(/class="geo-stat-strip--hint"/)
-    expect(geo).toContain('暂无卷宗')
-    expect(geo).toContain('地点是档案柜的目录')
-    expect(geo).toContain('点 + 添加第一条')
+    expect(geo).toContain('暂无地点')
+    expect(geo).not.toContain('暂无卷宗')
+    expect(geo).not.toContain('地点是档案柜的目录')
+    expect(geo).not.toContain('点 + 添加第一条')
     // CSS placeholder
     expect(geo).toMatch(/\.geo-stat-strip--empty[\s\S]*?border:\s*1px dashed/)
   })
 
-  it('UI-E11-C: QuestLog 0-data summary inline hint (暂无摘要) + empty-state kicker+copy 双行', () => {
+  it('UI-E11-C: QuestLog 0-data summary inline hint (暂无摘要) + quiet empty-state 双行', () => {
     const questLog = readProjectFile('src/components/QuestLog.vue')
     // summaryItems.length === 0 时, 显示 adventure-summary--empty + summary-card--hint
     expect(questLog).toMatch(/v-else[\s\S]*?class="adventure-summary adventure-summary--empty"/)
@@ -2838,8 +2840,10 @@ describe('ui polish — UI-E11-C: right-rail section empty states + responsive f
     // 0-activity empty-state 双行 hint
     expect(questLog).toContain('class="empty-state-kicker"')
     expect(questLog).toContain('class="empty-state-copy"')
-    expect(questLog).toContain('事件卷 · 空白')
-    expect(questLog).toContain('记录第一次冒险事件')
+    expect(questLog).toContain('暂无事件')
+    expect(questLog).toContain('推进冒险后再记录关键变化')
+    expect(questLog).not.toContain('事件卷 · 空白')
+    expect(questLog).not.toContain('记录第一次冒险事件')
     // CSS
     expect(questLog).toMatch(/\.summary-card--hint[\s\S]*?border:\s*1px dashed/)
     expect(questLog).toContain('.summary-value--hint')
@@ -2898,6 +2902,76 @@ describe('ui polish — UI-E11-C: right-rail section empty states + responsive f
     // (existing gameStore import is allowed — read-only data access).
     expect(questLog).not.toContain("from '../services/")
     expect(geo).not.toContain("from '../services/")
+  })
+})
+
+// =========================================================================
+// UI-E17: Experience live codex rail.
+// User feedback 2026-06-25: the right rail should be an index, not three
+// always-open mini workspaces. Delete noisy empty copy and make 人物/地点/事件
+// manually expandable with small update badges.
+// =========================================================================
+describe('ui polish — UI-E17: Experience live codex rail', () => {
+  it('E17-A: Experience owns a compact live codex rail with three manually expandable sections', () => {
+    const exp = readProjectFile('src/pages/Experience.vue')
+    expect(exp).toContain('class="ws-live-codex"')
+    expect(exp).toContain('activeCodexSection')
+    expect(exp).toContain('function toggleCodexSection')
+    expect(exp).toContain('ws-codex-section--open')
+    expect(exp).toContain('ws-codex-section__new')
+    expect(exp).toMatch(/aria-label="现场索引"/)
+    expect(exp).toMatch(/人物[\s\S]*地点[\s\S]*事件/)
+  })
+
+  it('E17-B: right-rail components render through compact rail mode, keeping details behind manual expansion', () => {
+    const exp = readProjectFile('src/pages/Experience.vue')
+    expect(exp).toMatch(/<StatusBar[\s\S]*?rail-mode="compact"/)
+    expect(exp).toMatch(/<GeographyPanel[\s\S]*?rail-mode="compact"/)
+    expect(exp).toMatch(/<QuestLog[\s\S]*?rail-mode="compact"/)
+    expect(exp).not.toContain('data-dossier-stamp="地点卡"')
+    expect(exp).not.toContain('data-dossier-stamp="事件卷"')
+  })
+
+  it('E17-C: deletes noisy rail empty copy and keeps empty states quiet', () => {
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    const questLog = readProjectFile('src/components/QuestLog.vue')
+    const statusBar = readProjectFile('src/components/StatusBar.vue')
+    const gamePanel = readProjectFile('src/components/GamePanel.vue')
+
+    expect(geo).not.toContain('暂无卷宗')
+    expect(geo).not.toContain('地点是档案柜的目录')
+    expect(geo).not.toContain('点 + 添加第一条')
+    expect(questLog).not.toContain('事件卷 · 空白')
+    expect(questLog).not.toContain('记录第一次冒险事件')
+    expect(statusBar).not.toContain('点击设定主角名 / 心境 / 性格')
+    expect(gamePanel).not.toContain('右侧 dossier 会同步显示人物、地点和事件')
+  })
+
+  it('E17-D: GeographyPanel keeps heavy map/editor controls out of compact rail mode', () => {
+    const geo = readProjectFile('src/components/geography/GeographyPanel.vue')
+    expect(geo).toContain('railMode')
+    expect(geo).toMatch(/v-if="railMode === 'compact'"/)
+    expect(geo).toMatch(/v-else[\s\S]*class="section overview-card"/)
+    expect(geo).toMatch(/v-else[\s\S]*class="toolbar"/)
+    expect(geo).toContain('addLocation')
+    expect(geo).toContain('view === \'map\'')
+  })
+
+  it('E17-E: theme 2 owns the live codex rail visual rules in legacy.css', () => {
+    const legacyCss = readProjectFile('src/styles/themes/legacy.css')
+    const kaoCss = readProjectFile('src/styles/themes/kao.css')
+
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-right-rail\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-dossier-bar\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-live-codex\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-codex-section\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-codex-section--open\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-codex-section__new\s*\{/)
+    expect(legacyCss).toMatch(/\.theme-legacy\s+\.ws-section--compact\s*\{/)
+    expect(legacyCss).toMatch(/var\(--archive-olive-strong\)/)
+    expect(legacyCss).not.toMatch(/^\s*\.ws-live-codex\s*\{/m)
+    expect(legacyCss).not.toMatch(/^\s*\.ws-codex-section\s*\{/m)
+    expect(kaoCss).toMatch(/\.theme-kao\s+\.ws-live-codex\s*\{/)
   })
 })
 
@@ -4042,5 +4116,131 @@ describe('ui polish — UI-E13-BIG1: product-state slice (local demo + 4 message
     expect(exp).toMatch(/<section[^>]*class="ws-demo-banner"[^>]*v-if="meta\.isDemoMode"|<section[^>]*v-if="meta\.isDemoMode"[^>]*class="ws-demo-banner"/)
     // scene-prompt only inside v-for of displayMessages
     expect(gamePanel).toMatch(/<div\s+v-if="msg\.type === 'scene'"\s+class="scene-prompt"/)
+  })
+})
+
+describe('ui polish — UI-S17 worldbook page 1 屏极简 + kao 撕角', () => {
+  it('UI-S17: WorldBookQuickImport 删掉 9 个旧冗余元素', () => {
+    const page = readProjectFile('src/pages/WorldBookQuickImport.vue')
+    for (const oldEl of [
+      'hero-path',
+      'signal-board',
+      'world-pressure-row',
+      'world-pressure-stack',
+      'world-threat-meter',
+      'world-brief-list',
+      'world-exit-strip',
+      'legacy-presets',
+      'showCustomTools'
+    ]) {
+      expect(page, `S17 旧元素 ${oldEl} 应该删除`).not.toMatch(new RegExp(`\\b${oldEl.replace(/-/g, '[-_]')}\\b`))
+    }
+  })
+
+  it('UI-S17: 4 个新子组件都存在', () => {
+    expect(readProjectFile('src/components/workbench/WorldbookHeroCard.vue').length).toBeGreaterThan(0)
+    expect(readProjectFile('src/components/workbench/MyWorldbooksNav.vue').length).toBeGreaterThan(0)
+    expect(readProjectFile('src/components/workbench/WorldbookPresetGrid.vue').length).toBeGreaterThan(0)
+    expect(readProjectFile('src/components/workbench/WorldbookExtraActions.vue').length).toBeGreaterThan(0)
+  })
+
+  it('UI-S17: 撕角主壳含 clip-path polygon(0 24px, 26px 0, ...) + 3-D 阴影', () => {
+    const hero = readProjectFile('src/components/workbench/WorldbookHeroCard.vue')
+    expect(hero).toMatch(/clip-path:\s*polygon\(\s*0 24px,\s*26px 0/)
+    expect(hero).toMatch(/box-shadow:[\s\S]*?0 28px 60px[\s\S]*?archive-ink[\s\S]*?22px 22px 0/)
+  })
+
+  it('UI-S17: 罗马 I 88px italic + archive-rose 28% transparent + vertical-rl', () => {
+    const hero = readProjectFile('src/components/workbench/WorldbookHeroCard.vue')
+    expect(hero).toMatch(/font-size:\s*88px/)
+    expect(hero).toMatch(/archive-rose\)\s*28%/)
+    expect(hero).toMatch(/writing-mode:\s*vertical-rl/)
+  })
+
+  it('UI-S17: C·01 rose 章 1.5px border + -9deg rotate + opacity 0.82', () => {
+    const hero = readProjectFile('src/components/workbench/WorldbookHeroCard.vue')
+    expect(hero).toMatch(/border:\s*1\.5px solid color-mix\(in srgb, var\(--archive-rose\)\s*58%/)
+    expect(hero).toMatch(/transform:\s*rotate\(-9deg\)/)
+    expect(hero).toMatch(/opacity:\s*0\.82/)
+  })
+
+  it('UI-S17: 装订条 ::before 含 gold/olive/rose 三段渐变 + 撕角 clip-path', () => {
+    const hero = readProjectFile('src/components/workbench/WorldbookHeroCard.vue')
+    expect(hero).toMatch(/::before/)
+    expect(hero).toMatch(/linear-gradient\([\s\S]*?archive-gold[\s\S]*?archive-olive[\s\S]*?archive-rose/)
+  })
+
+  it('UI-S17: 1 行 2 个小按钮 label 严格匹配 + 0 forbidden pattern in new CSS', () => {
+    const page = readProjectFile('src/pages/WorldBookQuickImport.vue')
+    const hero = readProjectFile('src/components/workbench/WorldbookHeroCard.vue')
+    const nav = readProjectFile('src/components/workbench/MyWorldbooksNav.vue')
+    const grid = readProjectFile('src/components/workbench/WorldbookPresetGrid.vue')
+    const extra = readProjectFile('src/components/workbench/WorldbookExtraActions.vue')
+    for (const f of [page, hero, nav, grid, extra]) {
+      expect(f).not.toContain(':global')
+      expect(f).not.toMatch(/!important/)
+      expect(f.toLowerCase()).not.toMatch(/#[0-9a-f]{3,8}\b/)
+    }
+    expect(extra).toContain('>导入小说 / JSON<')
+    expect(extra).toContain('>AI 生成<')
+  })
+})
+
+describe('ui polish — editor source roundtrip: Writing capture + Notes provenance', () => {
+  it('EDITOR-SOURCE-1: Writing.vue exposes selection capture and writes routing metadata', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    expect(writing).toContain('data-test="capture-selection"')
+    expect(writing).toContain('createAssetFromSelection')
+    expect(writing).toContain('parseSelectionBackJump')
+    expect(writing).toContain("from: 'writing-selection'")
+    expect(writing).toContain('selectorOffset: String(snapshot.start)')
+    expect(writing).toContain('selectorLength: String(snapshot.end - snapshot.start)')
+  })
+
+  it('EDITOR-SOURCE-2: Notes.vue renders chapter source chip and routes back to Writing query contract', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    expect(notes).toContain('class="material-action-btn asset-source-chip"')
+    expect(notes).toMatch(/v-if="hasChapterSource"[\s\S]{0,500}@click="goToAssetSource"/)
+    expect(notes).toContain('sourceAssetId: asset.id')
+    expect(notes).toMatch(/query\.selectorOffset\s*=\s*offset/)
+    expect(notes).toMatch(/query\.selectorLength\s*=\s*length/)
+    expect(notes).toContain('insertAssetId: asset.id')
+  })
+
+  it('EDITOR-SOURCE-3: source chip CSS follows archive-folio constraints', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const chipRule = notes.match(/\.asset-source-chip\s*\{[^}]*\}/s)?.[0] || ''
+    const indexRule = notes.match(/\.asset-source-chip__index\s*\{[^}]*\}/s)?.[0] || ''
+    expect(chipRule.length).toBeGreaterThan(0)
+    expect(indexRule.length).toBeGreaterThan(0)
+    for (const rule of [chipRule, indexRule]) {
+      expect(rule).not.toMatch(/:global/)
+      expect(rule).not.toMatch(/!important/)
+      expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+
+  it('EDITOR-SOURCE-4: Writing.vue consumes insertAssetId query and inserts asset content', () => {
+    const writing = readProjectFile('src/pages/Writing.vue')
+    expect(writing).toContain('parseInsertBackQuery')
+    expect(writing).toContain('tryApplyPendingInsertBack')
+    expect(writing).toContain('performInsertAtChapter')
+    expect(writing).toContain('findChapterAcrossBooks')
+    expect(writing).toContain('spliceTextAt')
+    expect(writing).toContain('resolveInsertOffset')
+    // Insert-back must clear the URL query so reload does not re-insert.
+    expect(writing).toMatch(/pendingInsertBack\.value\s*=\s*null[\s\S]{0,200}router\.replace\(\{\s*query:\s*\{\}\s*\}\)/)
+    // Must persist the inserted content into the chapter (saveCurrentChapter).
+    expect(writing).toMatch(/performInsertAtChapter[\s\S]{0,400}saveCurrentChapter/)
+  })
+
+  it('EDITOR-SOURCE-5: insert-back route contract between Notes.vue and Writing.vue', () => {
+    const notes = readProjectFile('src/pages/Notes.vue')
+    const writing = readProjectFile('src/pages/Writing.vue')
+    // Notes fires insert-back with these exact keys
+    expect(notes).toContain('insertAssetId: asset.id')
+    expect(notes).toMatch(/name:\s*['"]writing['"][\s\S]{0,400}insertAssetId:\s*asset\.id/)
+    // Writing reads them by the same names
+    expect(writing).toContain('parseInsertBackQuery(route.query)')
   })
 })

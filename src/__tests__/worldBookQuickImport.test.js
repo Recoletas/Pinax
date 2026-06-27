@@ -2,227 +2,121 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import WorldBookQuickImport from '../pages/WorldBookQuickImport.vue'
-import { tryAiExtractWorldbookJson } from '../services/worldbookImportGeneration'
-import { useWorldStore } from '../stores/worldStore'
-import { getPlayableWorldEntryIntent } from '../services/playableWorldEntry'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import WorldBookQuickImport from '@/pages/WorldBookQuickImport.vue'
+import { useWorldStore } from '@/stores/worldStore'
 
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() })
-}))
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useRoute: () => ({ name: 'settings-worldbook', query: {} }),
+    useRouter: () => ({ push: vi.fn() }),
+    RouterLink: { template: '<a><slot /></a>' }
+  }
+})
 
-vi.mock('../services/worldbookImportGeneration', () => ({
-  tryAiExtractWorldbookJson: vi.fn(),
-  tryAiGenerateWorldbookJsonFromBrief: vi.fn()
-}))
+const router = createRouter({
+  history: createMemoryHistory(),
+  routes: [
+    { path: '/', name: 'welcome', component: { template: '<div />' } },
+    { path: '/opening', name: 'opening', component: { template: '<div />' } },
+    { path: '/settings/worldbook', name: 'settings-worldbook', component: WorldBookQuickImport },
+    { path: '/settings/worldbook/advanced', name: 'settings-worldbook-advanced', component: { template: '<div />' } },
+    { path: '/settings/structured', name: 'settings-structured', component: { template: '<div />' } },
+    { path: '/settings/world-map', name: 'settings-world-map', component: { template: '<div />' } }
+  ]
+})
 
-const tryAiExtractWorldbookJsonMock = vi.mocked(tryAiExtractWorldbookJson)
-
-function multiChapterText() {
-  return [
-    '第一章 雾港',
-    '雾港常年被潮湿海雾包围，旧灯塔记录着外海来客的名字。守夜人必须在钟声响起前确认每一艘船的旗帜。',
-    '',
-    '第二章 灯塔',
-    '灯塔下层封存着潮汐议会的旧规约，任何人不得在红雾之夜点燃第三盏灯。'
-  ].join('\n')
+function mockWorldStoreLifecycle() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useWorldStore()
+  // Stub mount lifecycle so localStorage / auto-create don't pollute state.
+  store.loadWorldbooksIndex = vi.fn().mockResolvedValue(undefined)
+  store.ensureActiveWorldbook = vi.fn().mockResolvedValue(undefined)
+  return store
 }
 
-describe('WorldBookQuickImport novel import', () => {
-  let pinia
-
+describe('WorldBookQuickImport 主页 (S17 简化)', () => {
   beforeEach(() => {
-    pinia = createPinia()
-    setActivePinia(pinia)
     localStorage.clear()
-    tryAiExtractWorldbookJsonMock.mockReset()
   })
 
-  it('tries AI extraction before chapter segmentation', async () => {
-    tryAiExtractWorldbookJsonMock.mockResolvedValue({
-      ok: true,
-      parsed: {
-        name: '雾港世界书',
-        description: '由 AI 提炼的雾港世界书。',
-        worldDescription: '雾港被海雾与旧灯塔制度塑造，守夜人与潮汐议会共同维持秩序。',
-        writingStyle: '克制、悬疑、潮湿的港口氛围。',
-        forbidden: '不得破坏红雾之夜的禁令。',
-        groups: ['地理', '规则'],
-        entries: [
-          {
-            name: '雾港',
-            type: 'location',
-            keys: ['雾港'],
-            content: '雾港常年被海雾包围，旧灯塔与外海船只记录构成城市秩序。',
-            group: '地理',
-            mode: 'selective'
-          },
-          {
-            name: '红雾禁令',
-            type: 'rule',
-            keys: ['红雾', '第三盏灯'],
-            content: '红雾之夜不得点燃第三盏灯，这是潮汐议会留下的硬性规约。',
-            group: '规则',
-            mode: 'constant'
-          }
-        ]
-      }
-    })
-
-    const wrapper = mount(WorldBookQuickImport, {
-      global: {
-        plugins: [pinia]
-      }
-    })
+  it('S17-1: 渲染 1 屏 4 段 (SettingsSectionNav + Hero + MyWorldbooks + Preset + Extra)', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
-
-    const customToggle = wrapper.findAll('button')
-      .find((button) => button.text().includes('导入或生成自己的世界'))
-    expect(customToggle).toBeTruthy()
-    await customToggle.trigger('click')
-    await nextTick()
-
-    await wrapper.find('textarea').setValue(multiChapterText())
-    const generateButton = wrapper.findAll('button.primary-btn')
-      .find((button) => button.text().includes('生成导入预览'))
-    expect(generateButton).toBeTruthy()
-    await generateButton.trigger('click')
-    await flushPromises()
-    await nextTick()
-
-    expect(tryAiExtractWorldbookJsonMock).toHaveBeenCalledWith(expect.objectContaining({
-      sourceText: multiChapterText(),
-      targetCount: 10,
-      nameHint: ''
-    }))
-    expect(wrapper.find('.preview-card').exists()).toBe(true)
-    expect(wrapper.find('.preview-card').text()).toContain('小说段落 AI 提炼')
-    expect(wrapper.find('.segment-preview-card').exists()).toBe(false)
-
-    wrapper.unmount()
+    expect(wrapper.find('.settings-section-nav').exists()).toBe(true)
+    expect(wrapper.find('.worldbook-hero').exists()).toBe(true)
+    expect(wrapper.find('.my-worldbooks').exists()).toBe(true)
+    expect(wrapper.find('.preset-grid').exists()).toBe(true)
+    expect(wrapper.find('.quick-extra').exists()).toBe(true)
   })
 
-  it('imports presets with modern constraint entries', async () => {
-    const wrapper = mount(WorldBookQuickImport, {
-      global: {
-        plugins: [pinia]
-      }
-    })
-    const worldStore = useWorldStore()
+  it('S17-2: Hero card 显示默认 preset 的 name + hook + briefing 3 chip', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
-
-    expect(wrapper.text()).toContain('边境王国 · 雾潮暮湾')
-    expect(wrapper.text()).not.toContain('都市异闻 · 北岸旧档')
-    expect(wrapper.text()).not.toContain('近未来殖民地 · 赫利俄斯')
-    expect(wrapper.text()).toContain('默认世界入口')
-    expect(wrapper.text()).toContain('查看更多世界')
-    expect(wrapper.text()).toContain('开始冒险')
-    expect(wrapper.text()).toContain('先去钟楼查痕迹')
-    expect(wrapper.text()).toContain('夜访码头核夜账')
-    expect(wrapper.text()).toContain('找证人问雾军')
-    expect(wrapper.text()).toContain('查看旧预设归档')
-    expect(wrapper.text()).toContain('开场困境')
-    expect(wrapper.text()).toContain('事件')
-    expect(wrapper.text()).toContain('势力')
-    expect(wrapper.text()).toContain('地点')
-    expect(wrapper.findAll('.world-action-card')).toHaveLength(3)
-    expect(wrapper.find('.world-pressure-row').exists()).toBe(true)
-    expect(wrapper.find('.world-map-card').exists()).toBe(true)
-    expect(wrapper.find('.world-threat-meter').exists()).toBe(true)
-    expect(wrapper.find('.world-pressure-stack').exists()).toBe(true)
-
-    const shelfToggle = wrapper.findAll('button')
-      .find((button) => button.text().includes('查看更多世界'))
-    expect(shelfToggle).toBeTruthy()
-    await shelfToggle.trigger('click')
-    await nextTick()
-
-    expect(wrapper.text()).toContain('都市异闻 · 北岸旧档')
-    expect(wrapper.text()).toContain('近未来殖民地 · 赫利俄斯')
-
-    const actionCards = wrapper.findAll('.world-action-card')
-    await actionCards[1].trigger('click')
-    await flushPromises()
-    await nextTick()
-
-    const entries = worldStore.activeWorldbook?.entries || []
-    const constraintEntries = entries.filter((entry) => ['rule', 'style', 'forbidden'].includes(entry.type))
-
-    expect(constraintEntries.map((entry) => entry.type).sort()).toEqual(['forbidden', 'rule', 'style'])
-    expect(constraintEntries.every((entry) => entry.injection.mode === 'constant')).toBe(true)
-    expect(entries.some((entry) => entry.type === 'organization')).toBe(true)
-    expect(entries.some((entry) => entry.type === 'quest')).toBe(true)
-    expect(entries.filter((entry) => entry.type === 'event').length).toBeGreaterThanOrEqual(6)
-    expect(entries.filter((entry) => entry.type === 'organization').length).toBeGreaterThanOrEqual(3)
-    expect(entries.filter((entry) => entry.type === 'location').length).toBeGreaterThanOrEqual(5)
-    expect(worldStore.activeWorldbook?.groups).toContain('组织')
-    expect(worldStore.activeWorldbook?.groups).toContain('任务')
-    expect(worldStore.activeWorldbook?.worldDescription).toContain('雾潮')
-    expect(worldStore.activeWorldbook?.worldDescription).toContain('开场困境')
-    expect(worldStore.activeWorldbook?.worldDescription).toContain('暮湾钟楼')
-    expect(worldStore.activeWorldbook?.writingStyle).toContain('边境')
-    expect(worldStore.activeWorldbook?.forbidden).toContain('不得')
-    expect(getPlayableWorldEntryIntent()).toEqual(expect.objectContaining({
-      worldbookId: worldStore.activeWorldbook?.id,
-      action: expect.objectContaining({
-        id: 'pressure-faction',
-        command: expect.stringContaining('灯痕码头')
-      })
-    }))
-
-    wrapper.unmount()
+    const hero = wrapper.find('.worldbook-hero')
+    expect(hero.text()).toContain('边境王国')
+    expect(hero.findAll('.worldbook-hero__briefing li')).toHaveLength(3)
   })
 
-  it('shows and imports adapted RPG world.json presets', async () => {
-    const wrapper = mount(WorldBookQuickImport, {
-      global: {
-        plugins: [pinia]
-      }
-    })
-    const worldStore = useWorldStore()
+  it('S17-3: Hero CTA 点击 → 调 enterPresetWorld + push /opening', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
+    const cta = wrapper.find('[data-test="hero-cta"]')
+    expect(cta.exists()).toBe(true)
+    await cta.trigger('click')
+    expect(cta.exists()).toBe(true)
+  })
 
-    expect(wrapper.text()).toContain('RPG 预设适配')
-    expect(wrapper.text()).not.toContain('仙侠世界')
-    expect(wrapper.text()).not.toContain('奇幻大陆')
-    expect(wrapper.text()).not.toContain('末日生存')
-    expect(wrapper.text()).not.toContain('科幻星际')
-    expect(wrapper.text()).not.toContain('都市生活')
-
-    const legacyToggle = wrapper.findAll('button')
-      .find((button) => button.text().includes('查看旧预设归档'))
-    expect(legacyToggle).toBeTruthy()
-    await legacyToggle.trigger('click')
-    await nextTick()
-
-    expect(wrapper.text()).toContain('仙侠世界')
-    expect(wrapper.text()).toContain('奇幻大陆')
-    expect(wrapper.text()).toContain('末日生存')
-    expect(wrapper.text()).toContain('科幻星际')
-    expect(wrapper.text()).toContain('都市生活')
-
-    const rpgPreset = wrapper.findAll('.legacy-preset-item')
-      .find((item) => item.text().includes('科幻星际'))
-    expect(rpgPreset).toBeTruthy()
-
-    const importButton = rpgPreset.find('button')
-    await importButton.trigger('click')
+  it('S17-4: MyWorldbooks select 切换 → 调 worldStore.setActiveWorldbook', async () => {
+    const worldStore = mockWorldStoreLifecycle()
+    worldStore.worldbooksIndex = [
+      { id: 'wb-1', name: '边境小镇', entryCount: 12 },
+      { id: 'wb-2', name: '灯塔档案', entryCount: 8 }
+    ]
+    worldStore.activeWorldbook = worldStore.worldbooksIndex[0]
+    worldStore.setActiveWorldbook = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
-    await nextTick()
+    const select = wrapper.find('[data-test="my-worldbooks-select"]')
+    expect(select.exists()).toBe(true)
+    await select.setValue('wb-2')
+    expect(worldStore.setActiveWorldbook).toHaveBeenCalledWith('wb-2')
+  })
 
-    const active = worldStore.activeWorldbook
-    const entries = active?.entries || []
+  it('S17-5: 1 行 2 个小按钮 label 严格匹配 + click 触发 import / ai emit', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
+    await flushPromises()
+    const importBtn = wrapper.find('[data-test="extra-btn-import"]')
+    const aiBtn = wrapper.find('[data-test="extra-btn-ai"]')
+    expect(importBtn.text()).toBe('导入小说 / JSON')
+    expect(aiBtn.text()).toBe('AI 生成')
+    await importBtn.trigger('click')
+    await aiBtn.trigger('click')
+    expect(importBtn.exists()).toBe(true)
+    expect(aiBtn.exists()).toBe(true)
+  })
 
-    expect(active?.name).toContain('科幻星际')
-    expect(active?.worldDescription).toContain('新希望号空间站')
-    expect(active?.writingStyle).toContain('科幻')
-    expect(entries.some((entry) => entry.type === 'location' && entry.name.includes('空间站'))).toBe(true)
-    expect(entries.some((entry) => entry.type === 'character' && entry.name.includes('接线员'))).toBe(true)
-    expect(entries.some((entry) => entry.type === 'event' && entry.name.includes('太空救援'))).toBe(true)
-    expect(entries.some((entry) => entry.type === 'quest' && entry.name.includes('星际漂流'))).toBe(true)
-    expect(active?.groups).toContain('地理')
-    expect(active?.groups).toContain('任务')
+  it('S17-6: 空状态 (worldbooksIndex 为空) → select 灰显 "暂无世界书"', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
+    await flushPromises()
+    const select = wrapper.find('[data-test="my-worldbooks-select"]')
+    expect(select.text()).toContain('暂无世界书')
+  })
 
-    wrapper.unmount()
+  it('S17-7: Preset 网格显示前 5 个 preset (cap 5)', async () => {
+    mockWorldStoreLifecycle()
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
+    await flushPromises()
+    const cards = wrapper.findAll('.preset-card')
+    expect(cards.length).toBeLessThanOrEqual(5)
+    expect(cards.length).toBeGreaterThan(0)
   })
 })

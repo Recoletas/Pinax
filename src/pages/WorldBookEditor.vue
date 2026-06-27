@@ -17,6 +17,8 @@
       </div>
     </header>
 
+    <SettingsSectionNav />
+
     <div class="editor-layout">
       <aside class="worldbook-pane">
         <div class="pane-title">设定</div>
@@ -479,6 +481,88 @@
             </div>
           </div>
         </section>
+
+        <section v-if="editorTab === 'create'" class="card" data-section="create">
+          <div class="card-head">
+            <h2>新建 / 导入世界书</h2>
+            <span>从小说片段提炼、AI 生成、覆盖已有世界书</span>
+          </div>
+
+          <div class="create-section" data-section="import">
+            <h3>从小说片段 / JSON 提炼</h3>
+            <label>
+              世界书名称
+              <input v-model.trim="createInput.name" class="text-input" type="text" placeholder="例如：风雪港调查案" />
+            </label>
+            <label>
+              粘贴小说片段
+              <textarea
+                v-model.trim="createInput.sourceText"
+                class="text-area"
+                rows="6"
+                placeholder="粘贴若干段正文、章节摘要或世界设定说明..."
+              ></textarea>
+            </label>
+            <div class="inline-controls">
+              <label class="compact-label">
+                目标条目数
+                <input v-model.number="createInput.targetCount" class="text-input compact" type="number" min="3" max="30" />
+              </label>
+              <label class="checkbox-line">
+                <input v-model="createInput.useAiFirst" type="checkbox" />
+                <span>优先尝试 AI 提炼</span>
+              </label>
+            </div>
+            <div v-if="createError" class="import-error">{{ createError }}</div>
+            <div v-if="createInfo" class="import-success">{{ createInfo }}</div>
+            <div class="card-actions">
+              <button class="primary-btn" :disabled="creatingWorldbook" @click="generateFromNovelText">生成导入预览</button>
+              <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearNovel">清空</button>
+            </div>
+            <div v-if="pendingImport" class="import-preview">
+              <div class="import-preview-head">
+                <strong>{{ pendingImport.name }}</strong>
+                <span>{{ pendingImport.sourceLabel }}</span>
+              </div>
+              <div class="import-meta-grid">
+                <div class="meta-item"><span>条目数</span><strong>{{ pendingImport.entries.length }}</strong></div>
+                <div class="meta-item"><span>分组数</span><strong>{{ pendingImport.groups.length }}</strong></div>
+              </div>
+              <div class="card-actions">
+                <button class="primary-btn" :disabled="creatingWorldbook" @click="confirmImport">导入为新世界书</button>
+                <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearPending">清空预览</button>
+              </div>
+            </div>
+          </div>
+
+          <hr class="create-divider" />
+
+          <div class="create-section" data-section="ai">
+            <h3>AI 生成世界书</h3>
+            <label>
+              风格
+              <select v-model="aiInput.genre" class="select-input">
+                <option v-for="opt in genreOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label>
+              世界书名称 (可选)
+              <input v-model.trim="aiInput.name" class="text-input" type="text" placeholder="例如：荒潮城守夜人" />
+            </label>
+            <label>
+              说明 / 核心梗概
+              <textarea
+                v-model.trim="aiInput.brief"
+                class="text-area"
+                rows="5"
+                placeholder="例如：蒸汽朋克港口城市，夜里会出现吞噬记忆的雾潮。"
+              ></textarea>
+            </label>
+            <div class="card-actions">
+              <button class="primary-btn" :disabled="generatingAi" @click="generateFromBrief">AI 生成预览</button>
+            </div>
+          </div>
+        </section>
       </section>
 
       <section class="editor-main empty" v-else>
@@ -489,13 +573,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import {
+  tryAiExtractEntries,
+  tryAiGenerateFromBrief,
+  buildPendingPayload,
+  createWorldbookFromPayload
+} from '../services/worldbookQuickImportHelpers'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
+import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 
 const router = useRouter()
+const route = useRoute()
 const worldStore = useWorldStore()
 
 const worldbookSearch = ref('')
@@ -532,8 +624,132 @@ const editorTabs = [
   { key: 'structured', label: '结构化设定' },
   { key: 'transfer', label: '导入导出' },
   { key: 'groups', label: '分组管理' },
-  { key: 'entries', label: '条目管理' }
+  { key: 'entries', label: '条目管理' },
+  { key: 'create', label: '新建 / 导入' }
 ]
+
+// ----- 新建 / 导入 create tab 状态 -----
+const createInput = reactive({
+  name: '',
+  sourceText: '',
+  targetCount: 10,
+  useAiFirst: true
+})
+const aiInput = reactive({
+  genre: 'fantasy',
+  name: '',
+  brief: '',
+  targetCount: 8
+})
+const creatingWorldbook = ref(false)
+const generatingAi = ref(false)
+const pendingImport = ref(null)
+const createError = ref('')
+const createInfo = ref('')
+
+const genreOptions = [
+  { value: 'fantasy', label: '奇幻冒险' },
+  { value: 'urban', label: '都市现实' },
+  { value: 'scifi', label: '科幻星际' },
+  { value: 'wuxia', label: '武侠仙侠' },
+  { value: 'apocalypse', label: '末日生存' }
+]
+
+async function generateFromNovelText() {
+  if (creatingWorldbook.value) return
+  createError.value = ''
+  createInfo.value = ''
+  const sourceText = String(createInput.sourceText || '').trim()
+  if (sourceText.length < 20) {
+    createError.value = '请至少粘贴一段有效文本（不少于 20 字）。'
+    return
+  }
+  creatingWorldbook.value = true
+  try {
+    const targetCount = Math.max(3, Math.min(30, createInput.targetCount || 10))
+    if (createInput.useAiFirst) {
+      const aiResult = await tryAiExtractEntries(sourceText, targetCount, createInput.name)
+      if (aiResult.ok && aiResult.payload) {
+        pendingImport.value = buildPendingPayload(aiResult.payload)
+        createInfo.value = '已完成 AI 提炼，可直接导入。'
+        return
+      }
+      createError.value = aiResult.reason || ''
+    }
+    const paragraphs = sourceText.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean).slice(0, 5)
+    const fallbackEntries = paragraphs.map((p, i) => ({
+      type: 'general', name: `提炼条目 ${i + 1}`, content: p.slice(0, 180), keys: []
+    }))
+    pendingImport.value = buildPendingPayload({
+      name: createInput.name || `提炼世界书 ${Date.now()}`,
+      worldDescription: sourceText.slice(0, 500),
+      sourceLabel: '本地提炼（回退）',
+      entries: fallbackEntries
+    })
+    createInfo.value = '已使用本地提炼生成预览。'
+  } catch (err) {
+    createError.value = `生成预览失败：${err?.message || '未知错误'}`
+  } finally {
+    creatingWorldbook.value = false
+  }
+}
+
+async function generateFromBrief() {
+  if (generatingAi.value) return
+  createError.value = ''
+  createInfo.value = ''
+  const brief = String(aiInput.brief || '').trim()
+  if (brief.length < 8) {
+    createError.value = '请先输入至少 8 字说明。'
+    return
+  }
+  generatingAi.value = true
+  try {
+    const targetCount = Math.max(3, Math.min(30, aiInput.targetCount || 8))
+    const genreLabel = genreOptions.find(o => o.value === aiInput.genre)?.label || '通用'
+    const aiResult = await tryAiGenerateFromBrief({
+      genre: aiInput.genre, brief, targetCount, nameHint: aiInput.name, genreLabel
+    })
+    if (!aiResult.ok || !aiResult.payload) {
+      createError.value = aiResult.reason || 'AI 生成失败。'
+      return
+    }
+    pendingImport.value = buildPendingPayload(aiResult.payload)
+    createInfo.value = '已生成预览，可直接导入。'
+  } catch (err) {
+    createError.value = `AI 生成失败：${err?.message || '未知错误'}`
+  } finally {
+    generatingAi.value = false
+  }
+}
+
+async function confirmImport() {
+  if (!pendingImport.value || creatingWorldbook.value) return
+  creatingWorldbook.value = true
+  try {
+    await createWorldbookFromPayload(worldStore, pendingImport.value)
+    createInfo.value = `已创建：${pendingImport.value.name}`
+    pendingImport.value = null
+    await router.push({ name: 'settings-worldbook' })
+  } catch (err) {
+    createError.value = `导入失败：${err?.message || '未知错误'}`
+  } finally {
+    creatingWorldbook.value = false
+  }
+}
+
+function clearNovel() {
+  createInput.sourceText = ''
+  createInput.name = ''
+  createError.value = ''
+  createInfo.value = ''
+  pendingImport.value = null
+}
+
+function clearPending() {
+  pendingImport.value = null
+  createError.value = ''
+}
 
 const worldbookForm = reactive({
   name: '',
@@ -705,6 +921,17 @@ watch(groupStats, (stats) => {
 
   if (!normalizeGroupName(groupMoveTarget.value)) {
     groupMoveTarget.value = names.find(name => name !== groupMoveSource.value) || ''
+  }
+}, { immediate: true })
+
+// ?section= query param 处理: 切到 create tab + scroll 到 section
+watch(() => route.query.section, async (section) => {
+  if (section === 'import' || section === 'ai' || section === 'new' || section === 'manage') {
+    editorTab.value = 'create'
+    await nextTick()
+    if (section === 'import' || section === 'ai') {
+      document.querySelector(`[data-section="${section}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }
 }, { immediate: true })
 
@@ -1725,6 +1952,42 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* ----- 新建 / 导入 create tab ----- */
+.create-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.create-section h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.create-divider {
+  margin: 14px 0 4px;
+  border: none;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.inline-controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.compact-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .meta-item {
