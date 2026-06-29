@@ -1,11 +1,6 @@
 <template>
   <div class="writing-page wall" @click="onGlobalClick">
-    <!-- 墙顶线脚 — 28px, 深胡桃木 + 烫金刻字项目名 + 返回按钮 -->
-    <div class="wall__molding">
-      <div class="wall__molding-rule"></div>
-    </div>
-
-    <!-- 软木顶栏 — 单行 64-80px 功能薄条: 书选择 / 章节状态点 / 保存状态 / 4 个功能 tab + 返回 + 主题 -->
+    <!-- 软木顶栏 — 单行 64-80px 功能薄条: 书选择 / 保存状态 / 4 个功能 tab + 返回 + 主题 -->
     <div class="wall__cork">
       <label class="wall__book-pill" :class="{ 'is-empty': !selectedBookId }">
         <span class="wall__book-pill-mark" aria-hidden="true">书</span>
@@ -25,19 +20,8 @@
         </svg>
       </label>
 
-      <div class="wall__pins" aria-label="章节状态">
-        <span
-          v-for="(pin, idx) in chapterPinStrip"
-          :key="`${pin.label}-${idx}`"
-          class="wall__pin-dot"
-          :title="`${pin.label} · ${pin.num}`"
-          :style="{ '--pin-color': pin.color }"
-        ></span>
-      </div>
-
-      <div class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态 · ${wordCount.toLocaleString()} 字`">
+      <div class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态`">
         <span class="wall__save-chip-state">{{ stampStateText }}</span>
-        <span class="wall__save-chip-meta">{{ wordCount.toLocaleString() }} 字</span>
       </div>
 
       <div class="wall__tabs">
@@ -59,64 +43,14 @@
       </div>
     </div>
 
-    <!-- UI-W10: 编辑灯 / desk lamp — 编辑室记忆点.
-         lamp 放在 cork 之后、main 之前, 确保 z-index 在 cork 之上不被遮.
-         lamp + lamp-cone 都放在 writing-page 顶层, position: absolute
-         以 writing-page 为定位上下文. -->
-    <div class="wall__lamp" aria-hidden="true">
-      <svg class="wall__lamp-svg" width="180" height="180" viewBox="0 0 180 180" fill="none">
-        <!-- 金属摇臂: 2 段, 从 molding (右上) 接到灯头. 倾斜 60° 角. -->
-        <line x1="148" y1="2" x2="108" y2="68" stroke="var(--archive-ink-soft)"
-              stroke-width="3" stroke-linecap="round"/>
-        <line x1="108" y1="68" x2="88" y2="92" stroke="var(--archive-ink-soft)"
-              stroke-width="3" stroke-linecap="round"/>
-        <!-- 灯罩 (截锥): 顶部 36px 宽, 底部 76px 宽, 高 50px. 暖色亮边 -->
-        <path d="M68 90 L108 90 L120 140 L56 140 Z"
-              fill="var(--archive-ink)"
-              stroke="var(--archive-gold)"
-              stroke-width="2.5" stroke-linejoin="round"/>
-        <!-- 灯罩装饰条纹 (类似金属百叶) -->
-        <line x1="64" y1="106" x2="112" y2="106" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
-        <line x1="62" y1="118" x2="114" y2="118" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
-        <line x1="60" y1="130" x2="116" y2="130" stroke="var(--archive-gold)" stroke-width="0.6" opacity="0.4"/>
-        <!-- 灯罩高光 (顶反射弧) -->
-        <path d="M70 92 L106 92" stroke="var(--archive-paper-soft)"
-              stroke-width="1.5" opacity="0.7"/>
-        <!-- 灯泡辉光 (灯罩底缘强暖色) — 这是"开灯"的关键视觉. -->
-        <ellipse cx="88" cy="143" rx="34" ry="7"
-                 fill="var(--archive-gold)" opacity="0.85"/>
-        <ellipse cx="88" cy="143" rx="26" ry="4.5"
-                 fill="var(--archive-paper-soft)" opacity="0.95"/>
-        <!-- 灯罩顶部金属环 (装饰细节) -->
-        <rect x="80" y="80" width="16" height="6"
-              fill="var(--archive-ink-soft)"/>
-        <rect x="80" y="80" width="16" height="2"
-              fill="var(--archive-gold)" opacity="0.7"/>
-        <!-- 摇臂关节 -->
-        <circle cx="108" cy="68" r="4.5"
-                fill="var(--archive-ink-soft)"/>
-        <circle cx="108" cy="68" r="2"
-                fill="var(--archive-gold)" opacity="0.7"/>
-        <!-- 灯头底部悬挂线 (从灯罩接到灯泡) -->
-        <line x1="88" y1="90" x2="88" y2="142" stroke="var(--archive-ink-soft)" stroke-width="0.8" opacity="0.4"/>
-      </svg>
-    </div>
-
-    <!-- UI-W10: 编辑灯光锥 — 从灯罩位置发出的暖色径向光, 照亮中央 dossier.
-         pointer-events: none 不阻挡编辑. mix-blend-mode: multiply
-         叠加在 cork + dossier 上方. 暗态自动通过 kao token 翻转. -->
-    <div class="wall__lamp-cone" aria-hidden="true"></div>
-
-    <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 + 220px 墙钉角色档案卡 -->
+    <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
     <main class="wall__main">
-      <!-- 左：5 层书架 + 章节档案夹 + 底部卷轴 -->
+      <!-- 左：5 层书架 + 章节档案夹 -->
       <aside class="wall__shelf" aria-label="章节书架">
-        <div class="wall__shelf-board" aria-hidden="true"></div>
-
         <div
           v-for="book in books.slice(0, 4)"
           :key="book.id"
-          class="wall__folder"
+          class="wall__folder wall__folder--book"
           :class="{ 'is-active': selectedBookId === book.id }"
           :style="{ '--folder-pin': chapterPinColor(book.chapters?.length || 0) }"
           @click="selectBook(book.id)"
@@ -131,7 +65,7 @@
         <div
           v-for="(chapter, index) in chapters.slice(0, 6)"
           :key="chapter.id"
-          class="wall__folder"
+          class="wall__folder wall__folder--chapter"
           :class="{
             'is-active': selectedChapterId === chapter.id,
             'is-dragging': dragIndex === index,
@@ -183,6 +117,8 @@
           <div class="wall__shelf-note"></div>
           <span class="wall__shelf-roll-label">未展开稿纸卷</span>
         </div>
+
+        <div class="wall__shelf-board" aria-hidden="true"></div>
       </aside>
 
       <!-- 中：卷宗稿纸（中央主线） -->
@@ -209,11 +145,8 @@
               <div class="wall__empty-line" style="--w: 78%; --indent: 0"></div>
               <div class="wall__empty-line" style="--w: 50%; --indent: 0"></div>
             </div>
-            <div class="wall__empty-stamp" aria-hidden="true">未开卷</div>
-            <div class="wall__empty-clip">书架空空，先在左侧钉一本新书</div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewBook">钉一本新书</button>
-              <button class="wall__pin-cta wall__pin-cta--ghost" type="button" @click="goBack">回到入口</button>
+              <button class="wall__pin-cta" type="button" @click="createNewBook">新建书</button>
             </div>
           </div>
         </template>
@@ -225,11 +158,8 @@
               <div class="wall__empty-line" style="--w: 84%; --indent: 0"></div>
               <div class="wall__empty-line" style="--w: 40%; --indent: 0"></div>
             </div>
-            <div class="wall__empty-stamp" aria-hidden="true">未完</div>
-            <div class="wall__empty-clip">继续：选定章节开始落笔</div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewChapter">开新章节</button>
-              <button class="wall__pin-cta wall__pin-cta--ghost" type="button" @click="goBack">回到入口</button>
+              <button class="wall__pin-cta" type="button" @click="createNewChapter">新建章节</button>
             </div>
           </div>
         </template>
@@ -317,6 +247,17 @@
                     </div>
                   </div>
                 </div>
+              </div>
+              <div class="toolbar-sep"></div>
+              <div class="toolbar-group">
+                <button
+                  class="tool-btn capture-selection-btn"
+                  type="button"
+                  :disabled="!canCaptureSelection"
+                  title="把选中的文字收为素材"
+                  data-test="capture-selection"
+                  @click="captureSelectionAsAsset"
+                >收为素材</button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
@@ -487,20 +428,7 @@
           </div>
         </template>
       </section>
-
-      <!-- 右：墙钉角色档案卡 (220×300) -->
-      <aside class="wall__dossier-portrait" aria-label="角色档案卡">
-        <span class="wall__steel-pin wall__steel-pin--tl" aria-hidden="true"></span>
-        <span class="wall__steel-pin wall__steel-pin--tr" aria-hidden="true"></span>
-        <CharacterPortrait
-          pose-id="writing-sidekick"
-          size="thumb"
-          caption="批注中"
-        />
-      </aside>
     </main>
-
-    <div class="wall__floor" aria-hidden="true"></div>
 
     <ImageGenRail
       storage-key="writing_image_library_v1"
@@ -673,7 +601,8 @@
       kicker="写作顾问"
       title="这段该收束、扩写还是换焦点"
       body="我先看当前章节和素材结构，再给你一个够轻、但能继续推进的写法。"
-      caption="虚构集"
+      avatarLabel="作"
+      caption="写作顾问"
       captionHint="写作入口"
       @open="openAdvisorFromAction"
     />
@@ -698,7 +627,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import { extractCopilotWindow, useCopilot } from '../composables/useCopilot'
@@ -712,7 +641,6 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
-import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
@@ -737,13 +665,23 @@ import {
   normalizeChapterOutlineItems,
   removeChapterOutlineItem
 } from '../services/chapterOutline'
-import { applyAdvisorReplacement } from '../services/advisorResultApplier'
+import { buildReferenceContext } from '../services/writingAgentReferences'
+import { applyAdvisorReplacement, applyWritingAgentAction } from '../services/advisorResultApplier'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import {
+  createAssetFromSelection,
+  parseInsertBackQuery,
+  parseSelectionBackJump,
+  resolveInsertOffset,
+  spliceTextAt
+} from '../services/writingSelectionCapture'
+import { wrapMarkdownSelection } from '../services/markdownWrap'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const router = useRouter()
+const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const {
   advisorOpen,
@@ -863,6 +801,13 @@ const editorUnderline = ref(false)
 const hasSelection = ref(false)
 const selectionFontSize = ref('16px')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
+const pendingBackJump = ref(null)
+const pendingInsertBack = ref(null)
+const canCaptureSelection = computed(() => Boolean(
+  selectedChapterId.value
+  && selectedText.value
+  && String(selectedText.value).trim()
+))
 const quickNoteStatus = ref('')
 const assetInboxOpen = ref(false)
 const assetInboxActiveId = ref('')
@@ -908,8 +853,12 @@ const shouldLockPageScroll = computed(() => {
 useBodyScrollLock(shouldLockPageScroll)
 
 onMounted(() => {
+  pendingBackJump.value = parseSelectionBackJump(route.query)
+  pendingInsertBack.value = parseInsertBackQuery(route.query)
   loadBooks()
   refreshAssetInbox()
+  if (pendingBackJump.value) tryApplyPendingBackJump()
+  if (pendingInsertBack.value) tryApplyPendingInsertBack()
 })
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
@@ -982,24 +931,6 @@ const selectedChapterSummary = computed(() => {
 const projectTitle = computed(() => {
   const book = books.value.find((item) => item.id === selectedBookId.value)
   return book?.title || '未命名作品'
-})
-
-const chapterPinStrip = computed(() => {
-  const palette = [
-    { color: 'var(--archive-gold)', label: '已完稿' },
-    { color: 'var(--archive-olive)', label: '在写' },
-    { color: 'var(--archive-rose)', label: '草稿' },
-    { color: 'var(--archive-ink-soft)', label: '未动' }
-  ]
-  return chapters.value.slice(0, 4).map((chapter, index) => {
-    const count = Number(chapter.wordCount || 0)
-    let color = palette[3].color
-    let label = palette[3].label
-    if (count >= 3000) { color = palette[0].color; label = palette[0].label }
-    else if (count >= 500) { color = palette[1].color; label = palette[1].label }
-    else if (count > 0) { color = palette[2].color; label = palette[2].label }
-    return { num: String(index + 1).padStart(2, '0'), color, label }
-  })
 })
 
 const stampStateText = computed(() => {
@@ -1269,6 +1200,16 @@ async function handleAskAdvisor(input) {
 }
 
 function applyAdvisorResult(result) {
+  // WA-C (2026-06-29): new multi-action path. If result carries a
+  // `actions: [...]` array (Writing Agent v1 protocol), iterate via
+  // applyWritingAgentAction. Else fall through to the legacy single-shot
+  // applyAdvisorReplacement path (mode === 'replace' from the old
+  // advisor flow). Both paths share the same editor focus / selection
+  // restoration pattern.
+  if (Array.isArray(result?.actions) && result.actions.length) {
+    return applyAgentActionsResult(result)
+  }
+
   const applied = applyAdvisorReplacement(markdownContent.value || '', result)
   if (!applied.ok) {
     updateAdvisorResultStatus(result?.id, 'stale', applied.message)
@@ -1291,6 +1232,132 @@ function applyAdvisorResult(result) {
     editorRef.value.setSelectionRange(applied.cursorPos, applied.cursorPos)
     syncCopilotCursorFromEditor()
   })
+}
+
+// WA-C: multi-action applier. Threads content + cursor between calls,
+// collects all side effects, applies them after the content is set.
+// Aborts (marks the result stale) if any action in the sequence fails —
+// partial application is the caller's choice (current implementation
+// leaves prior actions applied; future roll-back can be added without
+// changing the applier contract).
+function applyAgentActionsResult(result) {
+  let content = markdownContent.value || ''
+  const env = {
+    currentCursorPos: readCurrentEditorCursor(content),
+    now: Date.now()
+  }
+  const collected = []
+  const summary = []
+
+  for (let i = 0; i < result.actions.length; i++) {
+    const action = result.actions[i]
+    const applied = applyWritingAgentAction(content, action, env)
+    if (!applied.ok) {
+      updateAdvisorResultStatus(
+        result.id,
+        'stale',
+        `动作 ${i + 1}/${result.actions.length} 失败:${applied.message || applied.reason}`
+      )
+      return
+    }
+    content = applied.content
+    env.currentCursorPos = applied.cursorPos
+    if (Array.isArray(applied.sideEffects)) {
+      for (const se of applied.sideEffects) collected.push(se)
+    }
+  }
+
+  // All actions succeeded — apply content + side effects.
+  markdownContent.value = content
+  if (editorRef.value) {
+    editorRef.value.value = content
+  }
+  syncMarkdownToEditor()
+  onContentChange()
+
+  for (const se of collected) {
+    const msg = applyAgentSideEffect(se)
+    if (msg) summary.push(msg)
+  }
+
+  const detail = summary.length
+    ? `已应用 ${result.actions.length} 个动作:${summary.join('; ')}。`
+    : `已应用 ${result.actions.length} 个动作。`
+  updateAdvisorResultStatus(result.id, 'applied', detail)
+
+  nextTick(() => {
+    if (!editorRef.value) return
+    editorRef.value.focus()
+    editorRef.value.setSelectionRange(env.currentCursorPos, env.currentCursorPos)
+    syncCopilotCursorFromEditor()
+  })
+}
+
+// WA-C: side effect executor. Dispatch by `type` and call the
+// existing store/service helper. Returns a short human-readable
+// summary for the result status detail.
+function applyAgentSideEffect(se) {
+  if (!se || typeof se !== 'object' || !se.type) return null
+
+  if (se.type === 'add-outline-item') {
+    if (!se.item) return null
+    addAgentOutlineItem(se.item)
+    return `已添加纲要「${se.item.title || '未命名'}」`
+  }
+
+  if (se.type === 'create-asset') {
+    if (!se.asset) return null
+    try {
+      addNarrativeAsset(se.asset)
+      refreshAssetInbox()
+      return `已创建素材「${se.asset.title || '未命名'}」`
+    } catch (err) {
+      return `素材创建失败:${err?.message || '未知错误'}`
+    }
+  }
+
+  if (se.type === 'set-reference') {
+    if (se.assetId === null) {
+      copilotReferenceAsset.value = null
+      return '已清除引用素材'
+    }
+    const asset = findNarrativeAssetById(se.assetId)
+    if (!asset) return `引用素材 ${se.assetId} 不存在,已忽略`
+    copilotReferenceAsset.value = {
+      id: asset.id,
+      title: asset.title || '',
+      kind: asset.kind,
+      source: asset.source,
+      content: String(asset.content || '').trim()
+    }
+    return `已设为引用素材「${asset.title || asset.id}」`
+  }
+
+  return null
+}
+
+function addAgentOutlineItem(item) {
+  if (!item || !item.title) return
+  const next = [item, ...chapterOutlineItems.value]
+  chapterOutlineItems.value = normalizeChapterOutlineItems(next)
+  syncChapterOutlineToCurrentChapter()
+}
+
+function findNarrativeAssetById(assetId) {
+  if (!assetId) return null
+  try {
+    const all = listNarrativeAssets({ status: null })
+    return all.find((a) => a.id === assetId) || null
+  } catch {
+    return null
+  }
+}
+
+function readCurrentEditorCursor(content) {
+  if (!editorRef.value) return String(content || '').length
+  const start = Number(editorRef.value.selectionStart)
+  if (!Number.isFinite(start)) return String(content || '').length
+  return Math.max(0, Math.min(String(content || '').length, start))
 }
 
 function dismissAdvisorResult(result) {
@@ -1391,12 +1458,53 @@ function buildCopilotAssetContext(asset) {
 }
 
 function getCopilotContext() {
+  // WA-D: compose the agent's reference context under a single budget
+  // (outline gets its reserved slot, pinned asset always wins, ranked
+  // selected inbox entries fill the rest). Falls back to the legacy
+  // `extraContext` string shape only when there is no structured input
+  // (which can no longer happen — we always pass `references` now —
+  // but the legacy fallback stays as a safety net for older callers).
   const outlineContext = buildChapterOutlineContext(chapterOutlineItems.value)
-  const assetContext = buildCopilotAssetContext(copilotReferenceAsset.value)
+  const reference = buildReferenceContext({
+    referenceAsset: copilotReferenceAsset.value || null,
+    inboxAssets: inboxAssets.value || [],
+    selectedInboxIds: selectedInboxAssetIds.value || [],
+    outlineContext,
+    currentChapterId: selectedChapterId.value || null,
+    currentBookId: selectedBookId.value || null
+  })
 
   return {
     chapterTitle: currentChapterTitle.value,
-    extraContext: [outlineContext, assetContext].filter(Boolean).join('\n\n')
+    // Primary path: structured references (legacy useCopilot callers
+    // that only pass `extraContext` still work — see buildCopilotMessages).
+    references: {
+      referenceAsset: reference.referenceAsset
+        ? {
+            id: reference.referenceAsset.id,
+            kind: reference.referenceAsset.kind,
+            kindLabel: reference.referenceAsset.kindLabel,
+            title: reference.referenceAsset.title,
+            content: reference.referenceAsset.contentPreview,
+            source: null
+          }
+        : null,
+      inboxAssets: reference.inboxBlocks.map((block) => ({
+        id: block.id,
+        kind: block.kind,
+        kindLabel: block.kindLabel,
+        title: block.title,
+        content: block.contentPreview
+      })),
+      selectedInboxIds: selectedInboxAssetIds.value || [],
+      outlineContext,
+      currentChapterId: selectedChapterId.value || null,
+      currentBookId: selectedBookId.value || null
+    },
+    // Fallback for callers that still read extraContext (e.g. older
+    // copilot flows + manual debugging). Stable string under a char
+    // budget so it can't blow past the prompt.
+    extraContext: reference.contextText
   }
 }
 
@@ -2159,17 +2267,31 @@ function toggleStyle(style) {
 }
 
 function applyStyleToSelection(style) {
-  // TODO(undo-redo): document.execCommand('bold'/'italic'/'underline') is
-  // a contenteditable-only API and does not work on textarea. Replace
-  // with markdown syntax wrapping (e.g. **text**, *text*, <u>text</u>)
-  // when the WYSIWYG mode is updated to a proper rich-text editor.
-  if (editorMode.value !== 'wysiwyg') return
   const editor = editorRef.value
   if (!editor) return
   editor.focus()
-  if (style === 'bold') document.execCommand('bold')
-  if (style === 'italic') document.execCommand('italic')
-  if (style === 'underline') document.execCommand('underline')
+  const commandMap = {
+    bold: 'bold',
+    italic: 'italic',
+    underline: 'underline'
+  }
+  const command = commandMap[style]
+  if (!command) return
+  const selection = {
+    start: editor.selectionStart ?? markdownContent.value.length,
+    end: editor.selectionEnd ?? markdownContent.value.length
+  }
+  const result = wrapMarkdownSelection(markdownContent.value, selection, command)
+  if (!result.changed) return
+  markdownContent.value = result.text
+  syncMarkdownToEditor()
+  nextTick(() => {
+    const ta = editorRef.value
+    if (!ta) return
+    ta.focus()
+    ta.setSelectionRange(result.selection.start, result.selection.end)
+    selectedText.value = result.text.slice(result.selection.start, result.selection.end)
+  })
   onContentChange()
 }
 
@@ -2378,6 +2500,228 @@ function applyAiResult() {
   // 清空结果
   aiResult.value = ''
   showAiPanel.value = false
+}
+
+function captureSelectionAsAsset() {
+  if (!canCaptureSelection.value) return
+
+  const snapshot = getWritingSelectionSnapshot()
+  if (!snapshot.hasSelection || !selectedChapterId.value) return
+
+  const result = createAssetFromSelection({
+    chapterId: selectedChapterId.value,
+    content: snapshot.text,
+    offset: snapshot.start,
+    length: snapshot.end - snapshot.start,
+    snippet: snapshot.text,
+    projectId: selectedBookId.value || null
+  })
+
+  if (!result.ok) {
+    quickNoteStatus.value = result.message || '收为素材失败'
+    return
+  }
+
+  quickNoteStatus.value = '已收为素材 · 跳转素材页'
+  router.push({
+    name: 'materials',
+    query: {
+      assetId: result.assetId,
+      from: 'writing-selection',
+      chapterId: selectedChapterId.value,
+      selectorOffset: String(snapshot.start),
+      selectorLength: String(snapshot.end - snapshot.start)
+    }
+  })
+}
+
+function applyBackJumpToTextarea(jump) {
+  const ta = editorRef.value
+  if (!ta) return
+  const text = String(ta.value || markdownContent.value || '')
+  if (!text) return
+  const maxOffset = text.length
+  const start = Math.max(0, Math.min(maxOffset, Number(jump.offset) || 0))
+  const length = Math.max(0, Number(jump.length) || 0)
+  const end = Math.max(start, Math.min(maxOffset, start + length))
+  ta.focus()
+  try {
+    ta.setSelectionRange(start, end)
+  } catch {
+    return
+  }
+  const lineHeight = 28
+  const targetLine = text.slice(0, start).split('\n').length
+  if (typeof ta.scrollTop === 'number') {
+    ta.scrollTop = Math.max(0, (targetLine - 3) * lineHeight)
+  }
+  selectedText.value = text.slice(start, end)
+  syncCopilotCursorFromEditor()
+}
+
+function tryApplyPendingBackJump() {
+  const jump = pendingBackJump.value
+  if (!jump) return
+  const chapter = chapters.value.find((item) => item.id === jump.chapterId)
+  if (!chapter) {
+    pendingBackJump.value = null
+    return
+  }
+  if (selectedChapterId.value !== jump.chapterId) {
+    selectChapter(jump.chapterId)
+    nextTick(() => nextTick(() => {
+      applyBackJumpToTextarea(jump)
+      pendingBackJump.value = null
+      router.replace({ query: {} })
+    }))
+    return
+  }
+  nextTick(() => {
+    applyBackJumpToTextarea(jump)
+    pendingBackJump.value = null
+    router.replace({ query: {} })
+  })
+}
+
+watch(
+  () => chapters.value.length,
+  () => {
+    if (pendingBackJump.value) tryApplyPendingBackJump()
+    if (pendingInsertBack.value) tryApplyPendingInsertBack()
+  }
+)
+
+// Look up a chapter across every book in localStorage so the insert-back
+// query can target a chapter that lives outside the currently selected book
+// (the user may have left Writing on book B, opened Notes, then jumped back
+// to a chapter in book A).
+function findChapterAcrossBooks(chapterId) {
+  const cid = String(chapterId || '').trim()
+  if (!cid) return null
+  for (const book of books.value) {
+    const chapter = (Array.isArray(book.chapters) ? book.chapters : [])
+      .find((c) => c && c.id === cid)
+    if (chapter) return { book, chapter }
+  }
+  return null
+}
+
+// Switch the active book to the one containing the given chapter. Used by
+// insert-back when the target chapter is not in the currently selected book.
+// Mirrors openBook's behavior (saves the current chapter first) but jumps to
+// the specified chapter instead of always opening the first one.
+function openBookAtChapter(bookId, chapterId) {
+  saveCurrentChapter()
+  selectedBookId.value = bookId
+  const book = books.value.find((b) => b.id === bookId)
+  if (!book) return false
+  chapters.value = book.chapters || []
+  if (chapters.value.some((c) => c.id === chapterId)) {
+    selectChapter(chapterId)
+  } else if (chapters.value.length > 0) {
+    selectChapter(chapters.value[0].id)
+  }
+  saveChapters()
+  return true
+}
+
+// W1 (2026-06-27) editor source round-trip: handle ?chapterId=...&insertAssetId=...
+// fired by Notes.vue's `insertAssetBackToSource`. Loads the asset, finds the
+// chapter (potentially across books), inserts the asset's content at the
+// asset's original selectorOffset (or appends at chapter end as fallback),
+// saves the chapter, then clears the URL query to prevent re-insertion on
+// reload. Silently no-ops if the chapter or asset can't be found.
+function performInsertAtChapter(chapter, asset) {
+  const content = String(asset?.content || '').trim()
+  if (!content) {
+    quickNoteStatus.value = '素材内容为空,已取消插入'
+    return false
+  }
+  const currentText = String(markdownContent.value || '')
+  const offset = resolveInsertOffset({ chapterText: currentText, asset })
+  // If appending at the end and the chapter isn't empty, sandwich the asset
+  // with blank lines so the inserted prose reads as a fresh paragraph.
+  const needsSeparator = offset === currentText.length && currentText.length > 0
+    && !/\n\n$/.test(currentText)
+  const insertion = (needsSeparator ? '\n\n' : '') + content + (needsSeparator ? '\n' : '')
+  const result = spliceTextAt(currentText, insertion, offset)
+
+  markdownContent.value = result.text
+  syncMarkdownToEditor()
+  onContentChange()
+  saveCurrentChapter()
+
+  if (editorRef.value) {
+    nextTick(() => {
+      const ta = editorRef.value
+      if (!ta) return
+      ta.focus()
+      try {
+        ta.setSelectionRange(result.insertStart, result.insertEnd)
+      } catch {
+        // detached node — skip selection highlight, content is still saved
+      }
+      const lineHeight = 28
+      const targetLine = result.text.slice(0, result.insertStart).split('\n').length
+      if (typeof ta.scrollTop === 'number') {
+        ta.scrollTop = Math.max(0, (targetLine - 3) * lineHeight)
+      }
+      selectedText.value = result.text.slice(result.insertStart, result.insertEnd)
+      syncCopilotCursorFromEditor()
+    })
+  }
+
+  const where = offset === currentText.length ? '章节末尾' : `偏移 ${offset}`
+  quickNoteStatus.value = `已插入素材 · ${asset.title || '未命名'} (${where})`
+  return true
+}
+
+function tryApplyPendingInsertBack() {
+  const ins = pendingInsertBack.value
+  if (!ins) return
+
+  const found = findChapterAcrossBooks(ins.chapterId)
+  if (!found) {
+    // Silently ignore — spec: missing chapter is a no-op, not an error.
+    pendingInsertBack.value = null
+    router.replace({ query: {} })
+    return
+  }
+  const { book, chapter } = found
+
+  // Load the asset by id regardless of status; listNarrativeAssets with
+  // status=null returns all assets (no status filter applied).
+  const asset = listNarrativeAssets({ status: null })
+    .find((a) => a && a.id === ins.insertAssetId)
+  if (!asset) {
+    pendingInsertBack.value = null
+    router.replace({ query: {} })
+    quickNoteStatus.value = '素材已被删除,已取消插入'
+    return
+  }
+
+  const run = () => {
+    nextTick(() => nextTick(() => {
+      const ok = performInsertAtChapter(chapter, asset)
+      pendingInsertBack.value = null
+      router.replace({ query: {} })
+      return ok
+    }))
+  }
+
+  if (selectedBookId.value !== book.id) {
+    openBookAtChapter(book.id, chapter.id)
+    run()
+    return
+  }
+
+  if (selectedChapterId.value !== chapter.id) {
+    selectChapter(chapter.id)
+    run()
+    return
+  }
+
+  run()
 }
 
 function onContentChange() {
@@ -2831,11 +3175,6 @@ function stopResizeRight() {
 .wall {
   background: var(--bg-primary);
 }
-.wall__molding {
-  height: 28px;
-  background: linear-gradient(180deg, var(--surface-panel), var(--bg-secondary));
-  border-bottom: 1px solid var(--border);
-}
 .wall__cork {
   display: flex;
   align-items: center;
@@ -2870,7 +3209,7 @@ function stopResizeRight() {
   font-family: var(--font-display);
   font-size: 12px;
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  background: color-mix(in srgb, var(--archive-olive) 12%, var(--bg-secondary));
   border-right: 1px solid var(--border);
   border-radius: 3px 0 0 3px;
   margin-right: 2px;
@@ -2894,33 +3233,19 @@ function stopResizeRight() {
   margin-left: 4px;
   color: var(--text-secondary);
 }
-.wall__pins {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.wall__pin-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--pin-color, var(--accent));
-  box-shadow:
-    inset -1px -1px 0 color-mix(in srgb, var(--text-primary) 24%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 28%, transparent);
-}
 .wall__save-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border-radius: 12px;
-  border: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--accent) 8%);
+  border: 1px solid var(--archive-olive);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--archive-olive) 8%);
   font-size: 11px;
   color: var(--text-primary);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 70%, white),
-    inset 0 -1px 0 color-mix(in srgb, var(--accent) 20%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--archive-olive) 20%, transparent),
     0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
   white-space: nowrap;
 }
@@ -2931,13 +3256,11 @@ function stopResizeRight() {
 .wall__save-chip-state {
   font-family: var(--font-display);
   font-weight: 500;
-  color: var(--accent);
+  color: var(--archive-olive);
 }
-.wall__save-chip-meta {
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-variant-numeric: tabular-nums;
-}
+/* K2 (2026-06-27): wall__save-chip-meta removed — word count is no
+   longer duplicated in the top strip (it lives in the dossier footer
+   only). */
 .wall__tabs {
   display: inline-flex;
   align-items: center;
@@ -2962,7 +3285,7 @@ function stopResizeRight() {
     0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 .wall__tab:hover:not(:disabled) {
-  color: var(--accent);
+  color: var(--archive-olive);
   transform: translateY(-1px);
 }
 .wall__tab:active:not(:disabled) {
@@ -2983,7 +3306,7 @@ function stopResizeRight() {
   font-family: var(--font-display);
 }
 .wall__back:hover {
-  color: var(--accent);
+  color: var(--archive-olive);
   transform: translateY(-1px);
 }
 .wall__tab--mode {
@@ -3001,7 +3324,7 @@ function stopResizeRight() {
 .wall__main {
   flex: 1;
   display: grid;
-  grid-template-columns: 248px 1fr 220px;
+  grid-template-columns: 248px 1fr;
   gap: 24px;
   padding: 24px 28px;
   overflow: auto;
@@ -3010,7 +3333,7 @@ function stopResizeRight() {
 .wall__shelf {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   padding: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -3018,15 +3341,59 @@ function stopResizeRight() {
 .wall__folder {
   position: relative;
   min-width: 0;
-  padding: 10px 12px 10px 48px;
+  padding: 8px 12px 8px 48px;
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
 }
 .wall__folder.is-active {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--archive-olive) 12%, var(--surface-soft));
+  border-color: var(--archive-olive);
+}
+
+/* K2 (2026-06-25): book vs chapter visual differentiation — shrunk
+   heights + 4 visual axes (spine / fold / typography / color).
+   Books are volumes: taller (54px), gold 4px spine ribbon on left,
+   heavier bottom shadow, no fold corner, larger title (14px),
+   tab shows "书". Chapters are open index cards: shorter (44px),
+   28px spine tab, top-right 8px fold corner, lighter paper,
+   smaller title (12px), tab shows numeric 01/02/03. K2 also
+   tightened .wall__shelf gap 8px → 4px and trimmed folder min-
+   heights so book + chapters read as one tight stack instead of
+   a list of separate cards. */
+.wall__folder--book {
+  min-height: 54px;
+  padding: 7px 14px 7px 52px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary)) 0%,
+      var(--surface-soft) 100%);
+  border-radius: 2px 6px 6px 2px;
+  border-left-width: 4px;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--border) 60%, transparent),
+    inset 0 -3px 0 color-mix(in srgb, var(--border) 30%, transparent);
+}
+.wall__folder--book.is-active {
+  border-left-color: var(--archive-olive);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-olive) 14%, var(--bg-secondary)) 0%,
+      color-mix(in srgb, var(--archive-olive) 6%, var(--surface-soft)) 100%);
+}
+.wall__folder--chapter {
+  min-height: 44px;
+  padding: 5px 10px 5px 36px;
+  /* Folded top-right corner reads as an open index card */
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+  background: var(--bg-secondary);
+  border-radius: 0 0 0 3px;
+  border-left: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+}
+.wall__folder--chapter.is-active {
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--bg-secondary));
+  border-left-color: var(--archive-olive);
 }
 .wall__folder-title {
   display: block;
@@ -3038,15 +3405,80 @@ function stopResizeRight() {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* K7 (2026-06-27): folder-tab visualizes the spine. Book tab is
+   a darker kraft "spine label" (42px wide, gold border, 12px bold
+   serif). Chapter tab is a numeric index (28px wide, lighter, 10px
+   tabular-nums). Width + font + color all signal "book" vs
+   "chapter index" at a glance. */
+.wall__folder-tab {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", Georgia, serif);
+  letter-spacing: 0.04em;
+}
+.wall__folder--book .wall__folder-tab {
+  width: 42px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-gold-soft) 56%, transparent) 0%,
+      color-mix(in srgb, var(--archive-gold) 30%, transparent) 100%);
+  color: color-mix(in srgb, var(--archive-ink) 86%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--archive-ink) 32%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+}
+.wall__folder--chapter .wall__folder-tab {
+  width: 28px;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* K7 (2026-06-27): book title uses 14px (heavier), chapter title
+   uses 12px (lighter) — typography joins the height + spine + fold
+   signals so the two tiers read distinct without scanning the
+   whole row. */
+.wall__folder--book .wall__folder-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.wall__folder--chapter .wall__folder-title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
 .wall__folder-meta {
   display: block;
   min-width: 0;
   font-size: 11px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 1px;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* K7 (2026-06-27): book meta uses lighter weight (volume-level
+   stat); chapter meta gets a touch heavier + numeric prefix
+   hint via font-variant-numeric tabular alignment. */
+.wall__folder--book .wall__folder-meta {
+  font-weight: 400;
+  font-style: italic;
+}
+.wall__folder--chapter .wall__folder-meta {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .wall__shelf-actions {
   display: flex;
@@ -3063,32 +3495,163 @@ function stopResizeRight() {
   cursor: pointer;
 }
 .wall__shelf-pin-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--archive-olive);
+  border-color: var(--archive-olive);
   border-style: solid;
 }
+
+/* Paper-tactile shelf decorative — restored in K5 (2026-06-27).
+   The shelf has a wood-board backdrop + a rolled manuscript
+   underneath the folders (anchored by a sticky note). These are
+   the physical "this is an archive" cues that the writing page
+   needs; they are NOT industrial-collage decoration (lamp +
+   lamp-cone + CharacterPortrait portrait card stay deleted). */
+.wall__shelf-board {
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  top: 0;
+  bottom: 36px;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.wall__shelf-roll {
+  position: relative;
+  margin-top: auto;
+  align-self: stretch;
+  height: 48px;
+  border-top: 1px solid var(--border);
+}
+
+.wall__shelf-scroll {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 8px;
+  bottom: 8px;
+}
+
+.wall__shelf-note {
+  position: absolute;
+  right: 18px;
+  bottom: 6px;
+  width: 64px;
+  height: 22px;
+  transform: rotate(-7deg);
+}
+
+.wall__shelf-roll-label {
+  position: absolute;
+  left: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .wall__dossier {
   position: relative;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  padding: 24px 28px;
+  /* K2 (2026-06-27): dossier is paper-tactile in default theme. Token-only
+     colors (--archive-paper-soft / --archive-paper for the cream-blue
+     gradient, --archive-rose for the red margin rule, --archive-ink-soft
+     for ruled lines) so the dossier auto-picks up the blue-white dossier
+     palette. Drops the hardcoded warm hex so the page is no longer "暖色
+     in both variants". */
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 92%, #fff) 0%,
+      color-mix(in srgb, var(--archive-paper) 96%, #fff) 100%);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent),
+    inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent),
+    0 2px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
+  padding: 28px 28px 28px 56px;
   display: flex;
   flex-direction: column;
   overflow: auto;
   min-height: 460px;
 }
+/* Red margin rule on the left edge — 1px line ~56px from left, classic
+   manuscript paper marker. Sits in front of the bg, behind the text. */
+.wall__dossier::before {
+  content: "";
+  position: absolute;
+  left: 48px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--archive-rose) 50%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+/* Ruled horizontal lines — 28px line height matches body line-height. */
+.wall__dossier::after {
+  content: "";
+  position: absolute;
+  left: 56px;
+  right: 0;
+  top: 56px;
+  bottom: 28px;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 27px,
+    color-mix(in srgb, var(--archive-ink-soft) 22%, transparent) 27px 28px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Dossier tape — kraft masking-tape strip at top-left + top-right,
+   pinning the dossier visually to the cork above. Restored in K6. */
+.wall__dossier-tape {
+  position: absolute;
+  top: -10px;
+  width: 84px;
+  height: 22px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 80%, var(--archive-gold-soft)) 0%,
+      color-mix(in srgb, var(--archive-gold-soft) 70%, var(--archive-gold)) 100%);
+  border: 1px dashed color-mix(in srgb, var(--archive-ink) 36%, transparent);
+  transform: rotate(-3deg);
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--archive-ink) 22%, transparent);
+}
+.wall__dossier-tape::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px dashed color-mix(in srgb, var(--archive-ink) 24%, transparent);
+}
+.wall__dossier-tape--left {
+  left: 36px;
+}
+.wall__dossier-tape--right {
+  right: 36px;
+  transform: rotate(4deg);
+}
+
 .wall__dossier-head {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid var(--border);
-  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid color-mix(in srgb, var(--archive-ink-soft) 32%, transparent);
+  margin-bottom: 18px;
+  position: relative;
+  z-index: 2;
 }
 .wall__dossier-num {
   font-size: 28px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--archive-ink);
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
 }
 .wall__dossier-title {
   flex: 1;
@@ -3097,7 +3660,8 @@ function stopResizeRight() {
   background: transparent;
   border: none;
   outline: none;
-  color: var(--text-primary);
+  color: var(--archive-ink);
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
 }
 .wall__dossier-body {
   flex: 1;
@@ -3105,31 +3669,32 @@ function stopResizeRight() {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  position: relative;
+  z-index: 2;
 }
+/* K2 (2026-06-27): dossier-textarea is paper, not a SaaS box. No
+   border, no border-radius, no plain background — sits over the
+   ruled paper lines (transparent bg, ruled lines show through the
+   textarea area via ::after pseudo). Body uses serif display font +
+   28px line-height to align with ruled lines. Color uses --archive-ink
+   so it tracks the blue-white dossier palette in default theme. */
 .wall__dossier-textarea {
   flex: 1;
   width: 100%;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 16px;
-  font-family: 'Microsoft YaHei', sans-serif;
-  font-size: 16px;
-  line-height: 1.7;
-  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0 12px 0 0;
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 17px;
+  line-height: 28px;
+  color: var(--archive-ink);
   resize: none;
-  min-height: 280px;
+  min-height: 320px;
 }
 .wall__dossier-textarea:focus {
   outline: none;
-  border-color: var(--accent);
-}
-.wall__dossier-portrait {
-  width: 220px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  padding: 16px;
-  align-self: end;
+  box-shadow: none;
 }
 .wall__dossier-empty {
   padding: 32px 12px;
@@ -3137,38 +3702,14 @@ function stopResizeRight() {
   flex-direction: column;
   gap: 12px;
 }
-.wall__empty-stamp {
-  align-self: end;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  border: 2px solid var(--accent);
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-}
-.wall__empty-clip {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
 .wall__pin-cta {
-  background: var(--accent);
+  background: var(--archive-olive);
   color: var(--accent-text);
   border: none;
   padding: 10px 16px;
   font-size: 13px;
   cursor: pointer;
   border-radius: 6px;
-}
-.wall__pin-cta--ghost {
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border);
 }
 .dossier-footer {
   display: flex;
@@ -3178,10 +3719,16 @@ function stopResizeRight() {
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
-.wall__floor {
-  height: 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
+
+.capture-selection-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.capture-selection-btn:disabled:hover {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
+  color: var(--archive-ink-soft);
+  background: transparent;
 }
 
 .writing-page {
@@ -3970,18 +4517,22 @@ function stopResizeRight() {
   color: var(--border);
 }
 
-/* 编辑工具栏 */
+/* 编辑工具栏 — K2 (2026-06-25): re-bound to the dossier palette so
+   the toolbar reads as an inline archive strip (paper-soft base +
+   archive-ink-soft hairline + 0 圆角 + no SaaS card shadow), not a
+   detached SaaS control bar. The 1px dashed archive divider between
+   tool groups inherits the AppShell mast's "撕边虚线" signature so
+   the toolbar feels like an extension of the same archive chrome. */
 .editor-toolbar {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--bg-tertiary) 88%, var(--bg-primary));
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, var(--archive-paper));
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 26%, transparent);
+  border-radius: 2px;
   flex-shrink: 0;
   position: relative;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
   max-width: 940px;
   margin: 0 auto;
   width: 100%;
@@ -4149,10 +4700,10 @@ function stopResizeRight() {
 }
 
 .toolbar-sep {
-  width: 1px;
+  width: 0;
   height: 18px;
-  background: var(--border);
-  margin: 0 2px;
+  border-left: 1px dashed color-mix(in srgb, var(--archive-ink-soft) 36%, transparent);
+  margin: 0 6px;
 }
 
 .toolbar-spacer {
@@ -4163,9 +4714,9 @@ function stopResizeRight() {
   display: inline-flex;
   align-items: center;
   padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 30%, transparent);
+  border-radius: 2px;
+  background: transparent;
   gap: 2px;
 }
 
@@ -4174,10 +4725,13 @@ function stopResizeRight() {
   padding: 3px 10px;
   border: 1px solid transparent;
   box-shadow: none;
+  background: transparent;
 }
 
 .mode-switch .tool-btn.active {
-  border-color: var(--accent);
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
+  color: var(--archive-ink);
 }
 
 .tool-btn {
@@ -4186,28 +4740,26 @@ function stopResizeRight() {
   gap: 4px;
   padding: 4px 9px;
   height: 26px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
+  border-radius: 2px;
+  color: var(--archive-ink-soft);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .tool-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--bg-primary);
+  border-color: var(--archive-olive);
+  color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
 }
 
 .tool-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
+  border-color: var(--archive-olive);
+  color: var(--archive-ink);
 }
 
 .tool-btn.sm {
@@ -4578,20 +5130,30 @@ function stopResizeRight() {
   pointer-events: none;
 }
 
-/* AI 扩展/改写面板 */
+/* AI 扩展/改写面板 — K2 (2026-06-25): AI toggle re-bound to the
+   dossier palette (steel-olive + moon-silver gradient) so it sits
+   in the same archive family as the rest of the toolbar instead of
+   being a red/indigo SaaS block. The accent button is still a
+   slightly heavier 3D press so it reads as "the magic tool" but
+   the colour stays inside --archive-*. */
 .ai-btn {
-  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #6366f1));
-  border-color: var(--accent);
-  color: var(--accent-text);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--archive-olive) 24%, var(--archive-paper-soft)) 0%,
+    color-mix(in srgb, var(--archive-olive) 12%, var(--archive-paper-soft)) 100%);
+  border-color: var(--archive-olive);
+  color: var(--archive-ink);
+  font-weight: 600;
 }
 
 .ai-btn:hover {
-  background: linear-gradient(135deg, var(--accent-hover), color-mix(in srgb, var(--accent-hover) 80%, #4f46e5));
-  color: var(--accent-text);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--archive-olive) 36%, var(--archive-paper-soft)) 0%,
+    color-mix(in srgb, var(--archive-olive) 22%, var(--archive-paper-soft)) 100%);
+  color: var(--archive-ink);
 }
 
 .ai-btn.active {
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--archive-olive) 60%, transparent);
 }
 
 .ai-panel {

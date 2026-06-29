@@ -95,4 +95,140 @@ describe('useCopilot helpers', () => {
     expect(result.messages.at(-1).content).toContain('【参考素材】')
     expect(result.messages.at(-1).content).toContain('林舟必须在入城前发现信上的暗号')
   })
+
+  // WA-D: new structured `references` input — composed from
+  // referenceAsset + selected inbox + outline context under one budget.
+  it('accepts a structured references payload and composes the reference block', () => {
+    const result = buildCopilotMessages({
+      content: '林舟站在城门下，握紧了手里的信。她抬头看向远处。',
+      cursorPos: 19,
+      chapterTitle: '城门',
+      references: {
+        referenceAsset: {
+          id: 'a-pin',
+          kind: 'event',
+          kindLabel: '剧情事件',
+          title: '旧案线索',
+          content: '林舟必须在入城前发现信上的暗号。',
+          source: null
+        },
+        inboxAssets: [],
+        selectedInboxIds: [],
+        outlineContext: '',
+        currentChapterId: 'c-1',
+        currentBookId: 'b-1'
+      }
+    })
+
+    expect(result.messages.at(-1).content).toContain('【参考素材】')
+    expect(result.messages.at(-1).content).toContain('标题：旧案线索')
+    expect(result.messages.at(-1).content).toContain('类型：剧情事件')
+    expect(result.referenceContext).toContain('【参考素材】')
+    expect(result.referenceBudgetReport).not.toBeNull()
+    expect(result.referenceBudgetReport.assetBlocksIncluded).toBe(1)
+  })
+
+  it('references payload composes outline + pinned + inbox in prompt order', () => {
+    const result = buildCopilotMessages({
+      content: '黄昏时分。\n\n索德把钥匙放在桌上。',
+      cursorPos: 10,
+      chapterTitle: '灰墙',
+      references: {
+        referenceAsset: {
+          id: 'a-pin', kind: 'event', kindLabel: '剧情事件',
+          title: '钉素材', content: '钉素材内容。', source: null
+        },
+        inboxAssets: [{
+          id: 'a-inb', kind: 'inspiration', kindLabel: '灵感',
+          title: '收件箱素材', content: '收件箱素材内容。'
+        }],
+        selectedInboxIds: ['a-inb'],
+        outlineContext: '【章节纲要】\n1. 纲要条目',
+        currentChapterId: 'c-1',
+        currentBookId: 'b-1'
+      }
+    })
+
+    const userPrompt = result.messages.at(-1).content
+    const idxOutline = userPrompt.indexOf('【章节纲要】')
+    const idxRef = userPrompt.indexOf('【参考素材】')
+    const idxInbox = userPrompt.indexOf('【已选素材】')
+
+    expect(idxOutline).toBeGreaterThan(-1)
+    expect(idxRef).toBeGreaterThan(idxOutline)
+    expect(idxInbox).toBeGreaterThan(idxRef)
+    expect(result.referenceContext).toContain('钉素材')
+    expect(result.referenceContext).toContain('收件箱素材')
+  })
+
+  it('references payload trims inbox assets when the budget runs out', () => {
+    const inboxAssets = []
+    for (let i = 0; i < 6; i += 1) {
+      inboxAssets.push({
+        id: `a-${i}`,
+        kind: 'event',
+        kindLabel: '剧情事件',
+        title: `素材 ${i}`,
+        content: 'A'.repeat(200)
+      })
+    }
+    const result = buildCopilotMessages({
+      content: '黄昏时分。\n\n索德把钥匙放在桌上。',
+      cursorPos: 10,
+      chapterTitle: '灰墙',
+      references: {
+        referenceAsset: null,
+        inboxAssets,
+        selectedInboxIds: inboxAssets.map((a) => a.id),
+        outlineContext: '',
+        currentChapterId: 'c-1',
+        currentBookId: 'b-1',
+        budget: { totalChars: 360, perAssetChars: 100, outlineChars: 0 }
+      }
+    })
+
+    // 360 / 100 = at most 3 inbox blocks
+    expect(result.referenceBudgetReport.assetBlocksIncluded).toBeLessThanOrEqual(3)
+    expect(result.referenceBudgetReport.assetBlocksDropped).toBeGreaterThanOrEqual(3)
+    expect(result.referenceBudgetReport.overflowed).toBe(false)
+  })
+
+  it('prefers the new references payload over the legacy extraContext string when both are provided', () => {
+    const result = buildCopilotMessages({
+      content: '黄昏时分。\n\n索德把钥匙放在桌上。',
+      cursorPos: 10,
+      chapterTitle: '灰墙',
+      // Legacy string
+      extraContext: 'legacy-string-should-not-appear',
+      // New structured path wins
+      references: {
+        referenceAsset: {
+          id: 'a-pin', kind: 'event', kindLabel: '剧情事件',
+          title: '新路径素材', content: '新路径素材内容。', source: null
+        },
+        inboxAssets: [],
+        selectedInboxIds: [],
+        outlineContext: '',
+        currentChapterId: 'c-1',
+        currentBookId: 'b-1'
+      }
+    })
+
+    expect(result.messages.at(-1).content).toContain('新路径素材')
+    expect(result.messages.at(-1).content).not.toContain('legacy-string-should-not-appear')
+  })
+
+  it('falls back to the legacy extraContext string when no references payload is provided', () => {
+    const result = buildCopilotMessages({
+      content: '黄昏时分。\n\n索德把钥匙放在桌上。',
+      cursorPos: 10,
+      chapterTitle: '灰墙',
+      extraContext: 'legacy-fallback-string'
+    })
+
+    expect(result.referenceContext).toBe('legacy-fallback-string')
+    expect(result.referenceBudgetReport).toBeNull()
+    expect(result.messages.at(-1).content).toContain('【参考素材】')
+    expect(result.messages.at(-1).content).toContain('legacy-fallback-string')
+  })
 })

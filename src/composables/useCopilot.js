@@ -12,6 +12,7 @@ import { runGenerationTask } from '../services/generationService'
 import { getResolvedApiSettings } from '../services/api'
 import { useWorldStore } from '../stores/worldStore'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
+import { buildReferenceContext } from '../services/writingAgentReferences'
 import { getSystemTemplate } from '../services/promptRegistry'
 
 const DEFAULT_UPSTREAM = 900
@@ -209,12 +210,28 @@ export function buildCopilotMessages({
   cursorPos = 0,
   chapterTitle = '',
   extraContext = '',
+  references = null,
   worldbook = null,
   maxSuggestionLength = MAX_SUGGESTION_LENGTH,
   worldbookTokenBudget = DEFAULT_WORLDBOOK_TOKEN_BUDGET
 } = {}) {
   const contextWindow = extractCopilotWindow(content, cursorPos)
-  const referenceContext = normalizeCopilotExtraContext(extraContext)
+  // Reference resolution order:
+  //   1. `references` (new structured input — referenceAsset +
+  //      inboxAssets + selectedInboxIds + outlineContext) wins.
+  //   2. `extraContext` (legacy string) is the fallback path so
+  //      existing tests + manual callers don't break.
+  //   3. Both empty → no reference section in the prompt.
+  let referenceContext = ''
+  let referenceBudgetReport = null
+  if (references && typeof references === 'object') {
+    const result = buildReferenceContext(references)
+    referenceContext = result.contextText
+    referenceBudgetReport = result.budgetReport
+  } else {
+    referenceContext = normalizeCopilotExtraContext(extraContext)
+  }
+
   const template = getSystemTemplate('copilot')
   const worldbookResult = buildWorldbookContext({
     worldbook,
@@ -244,7 +261,16 @@ ${template.instruction}
     '只返回要插入「光标」处的正文，不要说“可以这样写/以下是/建议”。',
     '请补全：',
     '',
-    referenceContext ? `【参考素材】\n${referenceContext}` : '',
+    // When the new structured `references` path is used, the
+    // referenceContext already wraps the pinned asset in its own
+    // 【参考素材】 block. Adding another 【参考素材】 wrapper would
+    // mis-order the sections (ref before outline) and produce a
+    // confusing nested label. The legacy `extraContext` string path
+    // still gets the wrapper for backward compat — that's the only
+    // caller that benefits from it.
+    references && typeof references === 'object'
+      ? (referenceContext || '')
+      : (referenceContext ? `【参考素材】\n${referenceContext}` : ''),
     '【光标前】',
     contextWindow.before || '（空）',
     '',
@@ -260,7 +286,13 @@ ${template.instruction}
     ],
     matchedEntries: worldbookResult.matchedEntries,
     warnings: worldbookResult.warnings,
-    contextWindow
+    contextWindow,
+    // Reference context surface (new structured path). Callers using the
+    // legacy `extraContext` string get an empty string here. The full
+    // composed block is exposed so callers (e.g. WA-B envelope, the
+    // "从素材生成下一段" advisor task) can show / debug it.
+    referenceContext,
+    referenceBudgetReport
   }
 }
 

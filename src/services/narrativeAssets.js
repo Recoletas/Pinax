@@ -107,6 +107,7 @@ export function updateNarrativeAsset(assetId, patch = {}) {
       status: patch.status ? normalizeStatus(patch.status) : asset.status,
       title: patch.title !== undefined ? normalizeText(patch.title) : asset.title,
       content: patch.content !== undefined ? normalizeText(patch.content) : asset.content,
+      source: patch.source !== undefined ? normalizeSource(patch.source) : asset.source,
       updatedAt: now
     }
     return updated
@@ -190,12 +191,44 @@ export function getAssetSourceLabel(source = {}) {
 
 export function getAssetSourceDetail(source = {}) {
   const label = getAssetSourceLabel(source)
-  const sourceId = String(source?.id || '').trim()
   const messageCount = Array.isArray(source?.messageIds) ? source.messageIds.length : 0
+  const chapterId = source?.chapterId ? String(source.chapterId).trim() : ''
+  const sourceId = String(source?.id || '').trim()
+  const visibleId = chapterId || sourceId
   const parts = [label]
-  if (sourceId) parts.push(sourceId)
+  if (visibleId) parts.push(visibleId)
   if (messageCount > 0) parts.push(`${messageCount} 段`)
+  if (chapterId && source?.selectorOffset != null && source?.selectorLength != null) {
+    const start = Number(source.selectorOffset)
+    const length = Number(source.selectorLength)
+    if (Number.isFinite(start) && Number.isFinite(length) && length >= 0) {
+      parts.push(`${start}-${start + length}`)
+    }
+  }
   return parts.join(' · ')
+}
+
+export function isChapterSelectionSource(source = {}) {
+  if (!source || typeof source !== 'object') return false
+  if (source.type !== 'chapter') return false
+  if (!source.chapterId) return false
+  if (!String(source.chapterId).trim()) return false
+  return true
+}
+
+export function createChapterSelectionSource({ chapterId, offset, length, snippet } = {}) {
+  const text = String(chapterId || '').trim()
+  if (!text) {
+    throw new Error('createChapterSelectionSource 需要 chapterId')
+  }
+  return normalizeSource({
+    type: 'chapter',
+    id: text,
+    chapterId: text,
+    selectorOffset: offset,
+    selectorLength: length,
+    selectorSnippet: snippet
+  })
 }
 
 function normalizeKind(kind) {
@@ -206,12 +239,42 @@ function normalizeStatus(status) {
   return ASSET_STATUSES.includes(status) ? status : 'inbox'
 }
 
-function normalizeSource(source = {}) {
+function normalizeSource(source = null) {
+  const safe = source && typeof source === 'object' ? source : {}
   return {
-    type: source.type || 'manual',
-    id: source.id || '',
-    messageIds: Array.isArray(source.messageIds) ? source.messageIds : []
+    type: safe.type || 'manual',
+    id: safe.id || '',
+    messageIds: Array.isArray(safe.messageIds) ? safe.messageIds : [],
+    chapterId: normalizeChapterId(safe.chapterId),
+    selectorOffset: normalizeSelectorOffset(safe.selectorOffset),
+    selectorLength: normalizeSelectorLength(safe.selectorLength),
+    selectorSnippet: normalizeSelectorSnippet(safe.selectorSnippet)
   }
+}
+
+function normalizeChapterId(value) {
+  const text = String(value || '').trim()
+  return text || null
+}
+
+function normalizeSelectorOffset(value) {
+  if (value === null || value === undefined || value === '') return null
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 0) return null
+  return Math.floor(num)
+}
+
+function normalizeSelectorLength(value) {
+  if (value === null || value === undefined || value === '') return null
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 0) return null
+  return Math.floor(num)
+}
+
+function normalizeSelectorSnippet(value) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  return text.length > 60 ? text.slice(0, 60) : text
 }
 
 function normalizeImage(image = null) {

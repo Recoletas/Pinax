@@ -44,28 +44,12 @@
     </FolioSurface>
 
     <div class="content-area notes-content-area">
+      <!-- K3 (2026-06-27): notes-content-area 升为 3 列 grid —
+           drawer 260px / reading-deck 1fr / 副阅读台 340px.
+           副阅读台承担了原 archive-pin 浮卡的位置 + 角色 (列而非角落小标),
+           老的 archive-pin 浮卡被新列吞并 (类名沿用以满足既有 UI-N2 契约). -->
       <!-- 左：档案抽屉 (Archive Drawer) -->
       <aside class="material-drawer">
-        <!-- 值班档案员 -->
-        <section class="keeper-corner">
-          <span class="keeper-corner__label">值班档案员</span>
-          <div class="keeper-corner__portrait">
-            <CharacterPortrait
-              pose-id="narrator"
-              size="thumb"
-              caption="档案员 · 值班中"
-            />
-          </div>
-          <div class="keeper-corner__pin">
-            <span class="keeper-corner__count">{{ chapters.length }} 卷</span>
-            <button class="keeper-corner__add" @click="createNewNote" title="新建素材" aria-label="新建素材">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                <path d="M6 1V11M1 6H11"/>
-              </svg>
-            </button>
-          </div>
-        </section>
-
         <!-- 7 类抽屉盒 -->
         <div class="drawer-units">
           <section v-for="(group, idx) in groupedChapters" :key="group.kind" class="drawer-unit" :class="{ 'is-collapsed': isAssetKindCollapsed(group.kind) }">
@@ -159,26 +143,11 @@
                 ></span>
               </div>
 
-              <!-- 档案员值班中 印章 -->
-              <div class="empty-archive__stamp" aria-label="档案员值班">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.4" opacity="0.75"/>
-                  <circle cx="7" cy="7" r="1.6" fill="currentColor"/>
-                </svg>
-                <span>档案员 · 值班中</span>
-              </div>
-
               <!-- 中央 memo 卡 -->
               <div class="empty-archive__card">
                 <span class="empty-archive__tape" aria-hidden="true"></span>
-                <p class="empty-archive__title">本卷尚无条目</p>
-                <p class="empty-archive__desc">左侧 7 类抽屉等候第一条卷宗。</p>
-                <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建第一条线索</button>
-              </div>
-
-              <!-- 状态 footer -->
-              <div class="empty-archive__footer">
-                <span>档案柜 · 7 类 · 12 格 · 等候中</span>
+                <p class="empty-archive__title">尚无素材</p>
+                <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建第一条</button>
               </div>
             </div>
           </template>
@@ -200,22 +169,30 @@
               :aria-label="`多卡画布 · 主卡 + ${slipItemsOnCanvas.length} 张相关素材`"
             >
               <header class="multi-canvas__chrome">
-                <span class="multi-canvas__chrome-label">素材贴板</span>
-                <span class="multi-canvas__chrome-meta">{{ chapters.length }} 张素材 · {{ slipItemsOnCanvas.length }} 张在画布</span>
+                <span class="multi-canvas__chrome-label">素材</span>
+                <span class="multi-canvas__chrome-meta">第 {{ currentAssetIndex + 1 }} / {{ chapters.length }} 张 · 副阅读台 {{ sidekickItems.length }} 张</span>
                 <span v-if="checkedAssetIds.length > 0" class="multi-canvas__chrome-meta">
                   · 已勾选 {{ checkedAssetIds.length }} 张 ·
-                  <button
-                    type="button"
-                    class="multi-canvas__batch-btn"
-                    @click="importCheckedToPinboard"
-                  >批量钉入画布</button>
                 </span>
               </header>
 
-              <!-- 主卡区 — active-card 居中大卡 (1fr 60%) -->
+              <!-- K3 (2026-06-27): multi-canvas 简化为 1 列 (just main card).
+                   原 N6/N9/N10 multi-canvas__slips 已被副阅读台 (notes-sidekick)
+                   吸收 — 用户原话: "可以吸收纸条贴板/画布拖拽的构思".
+                   中央主卡保持 1 张 (K0 §6.1 锁), 右侧 2-4 张副阅读台取代
+                   原 1fr 拖拽列, 不再有 position:absolute 的 pinned-slip
+                   溢出到 副阅读台 列. 拖拽 + 持久化接口 (useCanvasBoard
+                   6 handlers + pinnedSlipPositions reactive) 仍保留,
+                   但 boardRef 现在绑定 main card 编辑区, 没视觉元素
+                   触发拖拽. 副阅读台 是真正的"右列 2-4 张"语义. -->
+              <!-- 主卡区 — active-card 居中大卡 (1fr 100%, K3 升为 1 列) -->
               <section class="multi-canvas__main">
                 <article class="active-card multi-canvas__main-card">
                   <span class="active-card__tape" aria-hidden="true"></span>
+                  <!-- K3c (2026-06-27): 稿纸横线 (ruled lines) 装饰,
+                       让 textarea 文字视觉上"写在稿纸上". 跟 ::before
+                       红线 + Writing.vue wall__dossier 同源. -->
+                  <div class="active-card__ruled-lines" aria-hidden="true"></div>
                   <div class="active-card__header">
                     <input
                       v-model="currentChapterTitle"
@@ -230,6 +207,17 @@
                       <span class="stat">{{ charCount.toLocaleString() }} 字符</span>
                     </div>
                   </div>
+                  <button
+                    v-if="hasChapterSource"
+                    type="button"
+                    class="material-action-btn asset-source-chip"
+                    :aria-label="`跳回来源章节 ${selectedAsset.source.chapterId}`"
+                    :title="selectedAsset.source.selectorSnippet ? `原文选区：${selectedAsset.source.selectorSnippet}` : `跳回章节 ${selectedAsset.source.chapterId}`"
+                    @click="goToAssetSource"
+                  >
+                    <span class="asset-source-chip__index" aria-hidden="true">◆</span>
+                    来源章节 · {{ sourceRangeLabel }}
+                  </button>
                   <div class="deck-toolbar">
                     <label class="asset-control">
                       <span>类型</span>
@@ -254,6 +242,16 @@
                       @click="generateAndImportToCanvas"
                     >
                       {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
+                    </button>
+                    <button
+                      v-if="hasChapterSource"
+                      type="button"
+                      class="material-action-btn deck-toolbar__btn"
+                      :aria-label="`把素材插回章节 ${selectedAsset.source.chapterId}`"
+                      :title="`跳到章节 ${selectedAsset.source.chapterId} 并插入本素材`"
+                      @click="insertAssetBackToSource"
+                    >
+                      插回来源章节
                     </button>
                     <div class="deck-toolbar__spacer"></div>
                     <div class="mode-switch">
@@ -316,81 +314,14 @@
                 </article>
               </section>
 
-              <!-- Slip 区 — 2-4 张相关素材 slip 围绕主卡, 自由拖拽, 借鉴 Lusion
-                   project-item 双行结构 (kind-color header bar + footer 状态) -->
-              <aside
-                class="multi-canvas__slips"
-                aria-label="相关素材 · 可拖拽重排"
-              >
-                <div
-                  v-for="slip in layoutItems"
-                  :key="slip.id"
-                  class="pinned-slip"
-                  :class="{
-                    'is-active': selectedChapterId === slip.id,
-                    'is-dragging': draggingId === slip.id,
-                    'is-main': slip.id === selectedChapterId
-                  }"
-                  :style="slipStyleFor(slip)"
-                  :data-slip-id="slip.id"
-                  draggable="true"
-                  @dragstart="onItemDragStart(slip, $event)"
-                  @dragover.prevent="onItemDragOver(slip, $event)"
-                  @dragend="onItemDragEnd"
-                  @click="onSlipClick(slip)"
-                  @keydown.enter="onSlipClick(slip)"
-                  tabindex="0"
-                  role="button"
-                  :aria-label="`素材 ${slip.title || '无标题'}，点击切到主卡编辑`"
-                >
-                  <!-- Lusion-style 双行 footer: kind-color header bar + 标题 + 预览 -->
-                  <span class="pinned-slip__tab" :style="{ background: getAssetKindColor(slip.kind) }" aria-hidden="true"></span>
-                  <div class="pinned-slip__line-1">
-                    <span class="pinned-slip__kind">{{ getAssetKindLabel(slip.kind) }}</span>
-                    <span class="pinned-slip__status-dot" :style="{ background: getStatusColor(slip.status) }" aria-hidden="true"></span>
-                    <span class="pinned-slip__stat">{{ (slip.content || '').length }} 字</span>
-                  </div>
-                  <h4 class="pinned-slip__title">{{ slip.title || '无标题素材' }}</h4>
-                  <p class="pinned-slip__preview">{{ (slip.preview || slip.content || '').slice(0, 96) }}<template v-if="(slip.preview || slip.content || '').length > 96">…</template></p>
-                  <div class="pinned-slip__line-2">
-                    <span class="pinned-slip__status">{{ getAssetStatusLabel(slip.status) }}</span>
-                    <button
-                      v-if="slip.id !== selectedChapterId"
-                      class="pinned-slip__unpin"
-                      type="button"
-                      @click.stop="unpinSlip(slip.id)"
-                      title="从画布取下"
-                      aria-label="从画布取下"
-                    >×</button>
-                  </div>
-                </div>
-
-                <!-- 空状态占位: 借鉴 Lusion cross scroll prompt, 提示"还有 N 张可钉入" -->
-                <div
-                  v-if="chapters.length > 1 && slipItemsOnCanvas.length < chapters.length"
-                  class="multi-canvas__cross-prompt"
-                  aria-hidden="true"
-                >
-                  <span class="multi-canvas__cross"></span>
-                  <span class="multi-canvas__cross-meta">
-                    还有 {{ chapters.length - slipItemsOnCanvas.length }} 张可钉入画布
-                  </span>
-                </div>
-              </aside>
-
-              <!-- 底部 cross-prompt — 借鉴 Lusion end-bottom-arrow, 提示翻下页 -->
-              <footer
-                v-if="chapters.length > MAX_HINTED_SLIPS"
-                class="multi-canvas__bottom-cross"
-                @click="scrollCanvasToBottom"
-                aria-label="翻下页 / 加载更多"
-                role="button"
-                tabindex="0"
-                @keydown.enter="scrollCanvasToBottom"
-              >
-                <span class="multi-canvas__cross multi-canvas__cross--large"></span>
-                <span class="multi-canvas__cross-label">翻下页</span>
-              </footer>
+              <!-- K3 (2026-06-27): multi-canvas__slips aside + bottom-cross 已删.
+                   原 N6/N9/N10 拖拽 1fr 列 由 副阅读台 (notes-sidekick)
+                   吸收, 见 src/pages/Notes.vue L383+ 副阅读台 aside.
+                   主卡 active-card 现在占满 reading-deck 宽度 (1fr),
+                   不再有 position:absolute 的 pinned-slip 溢出.
+                   useCanvasBoard 6 handlers 仍 wired 在 multi-canvas
+                   元素上 (boardRef), 兼容旧持久化 pinnedSlipPositions
+                   但没视觉元素触发 (no-op drag). -->
             </div>
           </template>
 
@@ -414,19 +345,58 @@
         </section>
       </FolioSurface>
 
-      <!-- 右下：ArchiveStrip 浮卡 (被图钉钉住) -->
-      <aside class="archive-pin" aria-label="最近素材贴片" v-if="chapters.length > 0">
+      <!-- 右：副阅读台 (K3 2026-06-27, 替代原 archive-pin 浮卡).
+           archive-pin 类名保留以满足 UI-N2 既有契约; 实际语义升级为
+           3rd-column 副阅读台 (notes-sidekick), 展示 2-4 张素材摘要.
+           旧"一次只看一个"被吸收: 选中态展示同类相关 (排除 active),
+           非选中态展示 4 张近期, 都可点击切换. 不实现真实拖拽 (如
+           N6/N9/N10 multi-canvas 那样), 只做视觉/交互骨架 -->
+      <aside class="archive-pin notes-sidekick" aria-label="副阅读台" v-if="chapters.length > 0">
         <span class="archive-pin__nail" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="7" cy="7" r="3" fill="currentColor"/>
             <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4" opacity="0.55"/>
           </svg>
         </span>
-        <ArchiveStrip
-          :items="archiveStripItems"
-          :image="firstImageDataUrl"
-          aria-label="素材缩略目录"
-        />
+        <header class="notes-sidekick__header">
+          <span class="notes-sidekick__title">副阅读台</span>
+          <span class="notes-sidekick__count">{{ sidekickItems.length }} 张 · 可点击</span>
+        </header>
+        <div class="notes-sidekick__list" role="list" aria-label="相关素材列表">
+          <button
+            v-for="asset in sidekickItems"
+            :key="asset.id"
+            type="button"
+            class="sidekick-slip"
+            :class="{ 'is-active': selectedChapterId === asset.id }"
+            :aria-label="`打开 ${asset.title || '无标题素材'}`"
+            :aria-current="selectedChapterId === asset.id ? 'true' : 'false'"
+            @click="selectChapter(asset.id)"
+            role="listitem"
+          >
+            <span class="sidekick-slip__tab" :style="{ background: getAssetKindColor(asset.kind) }" aria-hidden="true"></span>
+            <div class="sidekick-slip__line-1">
+              <span class="sidekick-slip__kind">{{ getAssetKindLabel(asset.kind) }}</span>
+              <span class="sidekick-slip__status-dot" :style="{ background: getStatusColor(asset.status) }" aria-hidden="true"></span>
+            </div>
+            <span class="sidekick-slip__title">{{ asset.title || '无标题素材' }}</span>
+            <span class="sidekick-slip__preview">{{ (asset.preview || asset.content || '').slice(0, 96) }}<template v-if="(asset.preview || asset.content || '').length > 96">…</template></span>
+            <div class="sidekick-slip__line-2">
+              <span class="sidekick-slip__status">{{ getAssetStatusLabel(asset.status) }}</span>
+              <span class="sidekick-slip__stat">{{ (asset.content || '').length }} 字</span>
+            </div>
+          </button>
+          <div v-if="sidekickItems.length === 0" class="notes-sidekick__empty" role="status">
+            暂无相关素材
+          </div>
+        </div>
+        <footer class="notes-sidekick__strip" aria-label="素材缩略目录">
+          <ArchiveStrip
+            :items="archiveStripItems"
+            :image="firstImageDataUrl"
+            aria-label="素材缩略目录"
+          />
+        </footer>
       </aside>
     </div>
 
@@ -468,7 +438,8 @@
       kicker="素材顾问"
       title="先收一条线索，再决定导向哪里"
       body="我先看当前素材、状态和画布去向，再帮你判断该采纳、导画布还是继续扩。"
-      caption="虚构集"
+      avatarLabel="材"
+      caption="素材顾问"
       captionHint="素材入口"
       @open="openAdvisor"
     />
@@ -589,6 +560,30 @@ const slipItemsOnCanvas = computed(() => {
   return pinnedSlipAssets.value.filter((a) => a.id !== selectedChapterId.value)
 })
 
+// K3 (2026-06-27): 副阅读台 (notes-sidekick) 显示列表.
+// 选中态 → 同类 (排除 active) 优先, 不足再补近期; 上限 4 张.
+// 非选中态 → 按 chapters 已有的 status-priority + recency 排序 (loadNotes
+// 已排序), 取前 4. 不实现真实拖拽, 只做点击切换 (selectChapter).
+// 跟 N10 multi-canvas__slips 的拖拽并行: 多卡画布保留 useCanvasBoard
+// 的 1.55fr 主卡 + 1fr slip 拖拽舞台; 副阅读台是右列静态列表, 提供
+// "一次能看到 2-4 张" 的快读, 跟"一次只能看一个"的中央主卡互补.
+const SIDEKICK_MAX_ITEMS = 4
+const sidekickItems = computed(() => {
+  if (chapters.value.length === 0) return []
+  const selectedId = selectedChapterId.value
+  const selected = selectedId
+    ? chapters.value.find((a) => a.id === selectedId)
+    : null
+  if (selected) {
+    const sameKind = chapters.value.filter((a) =>
+      a.id !== selectedId && a.kind === selected.kind)
+    const otherKind = chapters.value.filter((a) =>
+      a.id !== selectedId && a.kind !== selected.kind)
+    return [...sameKind, ...otherKind].slice(0, SIDEKICK_MAX_ITEMS)
+  }
+  return chapters.value.slice(0, SIDEKICK_MAX_ITEMS)
+})
+
 // useCanvasBoard 提供 6 个 drag/drop handler + layoutItems + styleFor
 // items 走 computed, positions 走 reactive (持久化到 localStorage)
 // UI-N9: 新增 bringToFront + focusedZId, 点击/拖拽时把 slip 浮到最上层
@@ -653,6 +648,9 @@ let titleTimeout = null
 onMounted(() => {
   loadNotesPinnedSlipsPref()
   loadNotes(String(route.query.assetId || ''))
+  // K3c (2026-06-27): 初始 auto-grow (loadNotes 触发 selectChapter,
+  // selectChapter 里已调 autoResizeTextarea, 这里是 belt-and-suspenders)
+  nextTick(() => autoResizeTextarea())
 })
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
@@ -759,6 +757,25 @@ const selectedAssetSummary = computed(() => {
   return `${getAssetKindLabel(selectedAsset.value.kind)} · ${title}`
 })
 
+const hasChapterSource = computed(() => {
+  const src = selectedAsset.value?.source
+  return Boolean(src && src.type === 'chapter' && src.chapterId)
+})
+
+const sourceRangeLabel = computed(() => {
+  const src = selectedAsset.value?.source
+  if (!src || src.type !== 'chapter' || !src.chapterId) return ''
+  const offset = Number(src.selectorOffset)
+  const length = Number(src.selectorLength)
+  if (Number.isFinite(offset) && Number.isFinite(length) && length > 0) {
+    return `${offset}-${offset + length}`
+  }
+  if (Number.isFinite(offset) && offset >= 0) {
+    return `${offset}+`
+  }
+  return String(src.chapterId)
+})
+
 function goToAdventure() {
   const hasSession = gameStore.currentSessionId
     && gameStore.sessions.some(s => s.id === gameStore.currentSessionId)
@@ -777,6 +794,41 @@ function goBack() {
 function goToWriting() {
   saveCurrentChapter()
   router.push({ name: 'writing' })
+}
+
+function goToAssetSource() {
+  const asset = selectedAsset.value
+  const src = asset?.source
+  if (!src || src.type !== 'chapter' || !src.chapterId) return
+  saveCurrentChapter()
+  const query = {
+    chapterId: src.chapterId,
+    sourceAssetId: asset.id
+  }
+  const offset = Number(src.selectorOffset)
+  const length = Number(src.selectorLength)
+  if (Number.isFinite(offset) && offset >= 0) query.selectorOffset = offset
+  if (Number.isFinite(length) && length > 0) query.selectorLength = length
+  router.push({ name: 'writing', query })
+}
+
+function insertAssetBackToSource() {
+  const asset = selectedAsset.value
+  const src = asset?.source
+  if (!src || src.type !== 'chapter' || !src.chapterId) return
+  saveCurrentChapter()
+  const query = {
+    chapterId: src.chapterId,
+    insertAssetId: asset.id
+  }
+  const offset = Number(src.selectorOffset)
+  const length = Number(src.selectorLength)
+  if (Number.isFinite(offset) && offset >= 0) query.selectorOffset = offset
+  if (Number.isFinite(length) && length > 0) query.selectorLength = length
+  router.push({
+    name: 'writing',
+    query
+  })
 }
 
 function getAssetWordCount(asset) {
@@ -848,6 +900,8 @@ function selectChapter(chapterId) {
     editorContent.value = markdownToHtml(markdownContent.value)
     nextTick(() => {
       if (editorRef.value) editorRef.value.value = markdownContent.value
+      // K3c (2026-06-27): 切换素材后重新 auto-grow, 让 height 跟新内容匹配
+      autoResizeTextarea()
     })
   }
 }
@@ -996,7 +1050,8 @@ function getStatusColor(status) {
   }
 }
 
-// UI-N10: 翻下页 — 滚动画布到底部 (Lusion end-bottom-arrow 语义)
+// K3b (2026-06-27): scrollCanvasToBottom 保留作 useCanvasBoard 兼容,
+// K3b 删了 multi-canvas__bottom-cross footer, 函数 no-op.
 function scrollCanvasToBottom() {
   const board = boardRef?.value
   if (!board) return
@@ -1577,8 +1632,21 @@ function onMarkdownInput() {
   if (editorMode.value === 'wysiwyg' && editorRef.value) {
     markdownContent.value = editorRef.value.value
   }
+  // K3c (2026-06-27): 自适应高度 (auto-grow) — 旧浏览器没 field-sizing: content,
+  // JS 兜底: 每次 input 重置 height=auto 然后读 scrollHeight 当 height.
+  autoResizeTextarea()
   syncMarkdownToEditor()
   onContentChange()
+}
+
+function autoResizeTextarea() {
+  const ta = editorRef.value
+  if (!ta) return
+  // 跳过 native field-sizing: content 支持的浏览器 (CSS 已接管)
+  const cs = window.getComputedStyle(ta)
+  if (cs.fieldSizing === 'content') return
+  ta.style.height = 'auto'
+  ta.style.height = ta.scrollHeight + 'px'
 }
 
 function onTextAreaKeydown(e) {
@@ -2569,25 +2637,40 @@ function syncSelectionCommandState() {
   background: var(--bg-primary);
 }
 
+/* K3c (2026-06-27): 素材 textarea 升为档案册 卷宗 视觉.
+   之前是 SaaS 圆角白底 textbox (flex: 1 + overflow-y: auto + 24px shadow),
+   用户反馈 "素材文字也不要是普通文本框" + "框大小固定了导致文字稍微
+   多一点就要滑滚轮, 明明下面还有很多空间, 做成自适应的". 修复:
+   1) background / border / shadow / border-radius 全删, 让
+      .active-card (卷宗) 透出; 视觉上 textarea 是"写在稿纸上的文字"
+   2) flex: 1 + overflow-y: auto 全删, 改 field-sizing: content
+      (modern auto-grow) + JS autoResizeTextarea fallback
+   3) 跟 active-card 稿纸横线 (30px repeating) 对齐, line-height 1.8 */
 .editor-textarea {
-  flex: 1;
-  padding: 24px;
-  width: min(940px, calc(100% - 48px));
-  margin: 20px auto 28px;
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 8px;
+  position: relative;
+  z-index: 2;  /* 盖在 .active-card__ruled-lines 装饰之上, 文字可读 */
+  width: 100%;
+  min-height: 240px;
+  padding: 4px 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.8;
-  color: var(--text-primary);
+  color: var(--archive-ink);
   resize: none;
   outline: none;
-  overflow-y: auto;
-  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
+  overflow: hidden;  /* K3c: 0 内部滚动条, auto-grow 让 height 跟内容 */
+  /* K3c: 现代浏览器原生 auto-grow (Chrome 123+ / Firefox 122+ / Safari 17.5+).
+     旧浏览器靠 JS autoResizeTextarea fallback. */
+  field-sizing: content;
 }
 
 .prose-textarea {
-  line-height: 1.9;
+  line-height: 1.8;  /* 跟 .active-card__ruled-lines 30px 横线对齐 (按 1.8×15=27 ≈ 30) */
 }
 
 .markdown-textarea {
@@ -2597,7 +2680,13 @@ function syncSelectionCommandState() {
 }
 
 .editor-preview {
-  overflow-y: auto;
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  min-height: 240px;
+  padding: 4px 0;
+  color: var(--archive-ink);
+  overflow: visible;
 }
 
 .editor-preview :deep(h1),
@@ -2848,10 +2937,13 @@ function syncSelectionCommandState() {
 
 .notes-content-area {
   position: relative;
-  display: flex;
+  display: grid;
+  /* K3 (2026-06-27): 3-col grid — drawer 260px / reading-deck 1fr /
+     副阅读台 340px. 副阅读台 替代原 archive-pin 浮卡, 升为正式列. */
+  grid-template-columns: 260px minmax(0, 1fr) 340px;
   flex: 1;
   overflow: hidden;
-  /* UI-N3 unified paper wall — drawer / deck / archive-pin all sit on
+  /* UI-N3 unified paper wall — drawer / deck / sidekick all sit on
      this surface so dark mode doesn't split into "light cream drawer +
      dark center gap". Archive tokens stay cream in both light/dark,
      so this wall is the constant visual ground. */
@@ -2869,59 +2961,10 @@ function syncSelectionCommandState() {
   overflow: hidden;
 }
 
-.keeper-corner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 16px 12px 12px;
-}
-
-.keeper-corner__label {
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-  color: var(--archive-ink-soft);
-}
-
-.keeper-corner__portrait {
-  width: 180px;
-  max-width: 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.keeper-corner__pin {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 6px 12px 0;
-}
-
-.keeper-corner__count {
-  font-size: 11px;
-  font-style: italic;
-  letter-spacing: 0.06em;
-  color: var(--archive-ink-soft);
-}
-
-.keeper-corner__add {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 60%, transparent);
-  background: transparent;
-  cursor: pointer;
-  color: var(--archive-ink-soft);
-}
-
-.keeper-corner__add:hover {
-  color: var(--accent);
-}
+/* K4 (2026-06-27): .keeper-corner block removed (decorative
+   档案员 role framing — CharacterPortrait + 卷数 + +号 add button).
+   The + add entry point is preserved in the top "新素材" tab + the
+   0-state "新建第一条" CTA. */
 
 .drawer-units {
   flex: 1;
@@ -3339,36 +3382,9 @@ function syncSelectionCommandState() {
   text-align: left;
 }
 
-.empty-archive__stamp {
-  position: absolute;
-  top: 16px;
-  right: 24px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 8px;
-  border: 1px dashed currentColor;
-  font-size: 11px;
-  font-style: italic;
-  letter-spacing: 0.06em;
-  z-index: 3;
-}
-
-.empty-archive__footer {
-  position: absolute;
-  bottom: 18px;
-  left: 32px;
-  right: 32px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.7;
-  pointer-events: none;
-  z-index: 1;
-}
+/* K4 (2026-06-27): .empty-archive__stamp (档案员 · 值班中 印章) +
+   .empty-archive__footer (档案柜 · 7 类 · 12 格 · 等候中) deleted —
+   decorative role framing. */
 
 .empty-archive__card {
   position: absolute;
@@ -3409,17 +3425,18 @@ function syncSelectionCommandState() {
   color: var(--archive-ink);
 }
 
-.empty-archive__desc {
-  font-size: 12px;
-  color: var(--archive-ink-soft);
-}
+/* .empty-archive__desc removed in K4 (2026-06-27) — the 0-state
+   card now shows only title + CTA, no extra explanation paragraph. */
 
 .empty-archive__cta {
   margin-top: 8px;
   font-size: 13px;
 }
 
-/* 被推上来的卡 */
+/* 被推上来的卡 (K3c 2026-06-27): 升为 archive-folio 卷宗 (纸感 + 红线
+   稿纸 + 30px 横线 + 撕角胶带). 文字直接写在 active-card 内部,
+   透明 textarea 让 ruled lines 透出. 跟 Writing.vue wall__dossier
+   视觉同源 (paper + 44px 红线 + 30px 横线 + tape). */
 .active-card {
   position: relative;
   display: flex;
@@ -3428,14 +3445,44 @@ function syncSelectionCommandState() {
   gap: 14px;
   max-width: 760px;
   margin: 8px auto 4px;
-  padding: 28px 28px 16px;
-  /* UI-N3: no background here — @layer kao lets kao.css .theme-kao
-     .active-card own the paper-soft gradient + gold ring. Scoped
-     fallback (no bg) keeps legacy variant undecorated. */
+  padding: 28px 28px 16px 60px;
+  /* 默认主题 (无 .theme-kao) 走 paper-soft 蓝白档案册底;
+     kao.css .theme-kao .active-card 接管暖色 + ruled lines 装饰. */
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)) 0%,
+      color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper-strong)) 100%);
   border: 1px solid color-mix(in srgb, var(--archive-gold) 70%, transparent);
   box-shadow:
     8px 8px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+}
+
+/* K3c: red margin rule (稿纸红线) — vertical line at 44px from left. */
+.active-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 44px;
+  width: 1px;
+  background: color-mix(in srgb, var(--archive-rose) 56%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* K3c: horizontal ruled lines (稿纸横线) — repeating gradient at
+   line-height 30px, behind textarea. */
+.active-card__ruled-lines {
+  position: absolute;
+  inset: 64px 12px 12px 60px;
+  background:
+    repeating-linear-gradient(180deg,
+      transparent 0 29px,
+      color-mix(in srgb, var(--archive-olive) 18%, transparent) 29px 30px);
+  pointer-events: none;
+  opacity: 0.45;
+  z-index: 0;
 }
 
 .active-card::after {
@@ -3548,22 +3595,212 @@ function syncSelectionCommandState() {
   color: var(--archive-ink-soft);
 }
 
-/* 右下浮卡 */
+/* K3 (2026-06-27): 副阅读台 (was 右下浮卡). archive-pin 类名保留
+   以满足既有 UI-N2 契约 (anti-micro-tweak 仍 5/5 命中), 但实际
+   角色从右下浮卡升为 notes-content-area 第 3 列, 容纳 2-4 张
+   素材摘要 (sidekick-slip) + 小 ArchiveStrip 缩略目录. */
 .archive-pin {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
-  width: 260px;
-  z-index: 5;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper) 86%, transparent) 0%,
+      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent) 100%);
+  overflow: hidden;
 }
 
+/* K3: 原本钉在浮卡左上角的图钉, 改为副阅读台 header 左上角装饰 */
 .archive-pin__nail {
   position: absolute;
-  top: -6px;
+  top: 14px;
   left: 14px;
   z-index: 2;
   color: var(--accent);
   pointer-events: none;
+}
+
+/* K3 (2026-06-27): 副阅读台 header — 标题 + 数量 */
+.notes-sidekick__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 16px 10px 36px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 45%, transparent);
+}
+
+.notes-sidekick__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--archive-ink);
+}
+
+.notes-sidekick__count {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  color: var(--archive-ink-soft);
+  white-space: nowrap;
+}
+
+/* K3: 副阅读台主体 — 2-4 张 sidekick-slip 列表 */
+.notes-sidekick__list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.notes-sidekick__empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--archive-ink-soft);
+  opacity: 0.7;
+}
+
+/* K3: 单张素材摘要 — 复刻 pinned-slip 双行 + status-dot 视觉,
+   但改成 button 语义 (点击切到主卡), 静态布局 (不拖拽) */
+.sidekick-slip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 10px 8px 18px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 45%, transparent);
+  background: var(--archive-paper-soft);
+  text-align: left;
+  cursor: pointer;
+  color: var(--archive-ink);
+  font-family: inherit;
+  font-size: inherit;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.sidekick-slip:hover {
+  border-color: var(--archive-gold);
+  background: color-mix(in srgb, var(--archive-gold) 8%, var(--archive-paper-soft));
+  transform: translateY(-1px);
+}
+
+.sidekick-slip.is-active {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 10%, var(--archive-paper-soft));
+}
+
+.asset-source-chip {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 12px;
+  height: 24px;
+}
+
+.asset-source-chip__index {
+  margin-right: 6px;
+  font-size: 9px;
+  opacity: 0.78;
+}
+
+.sidekick-slip:focus-visible {
+  outline: 2px solid var(--archive-gold);
+  outline-offset: 2px;
+}
+
+.sidekick-slip__tab {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+}
+
+.sidekick-slip__line-1,
+.sidekick-slip__line-2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidekick-slip__line-1 {
+  justify-content: space-between;
+}
+
+.sidekick-slip__line-2 {
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.sidekick-slip__kind {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--archive-ink-soft);
+}
+
+.sidekick-slip__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sidekick-slip__title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--archive-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidekick-slip__preview {
+  font-family: var(--font-display);
+  font-size: 11px;
+  line-height: 1.42;
+  color: var(--archive-ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sidekick-slip__status {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  color: var(--archive-ink-soft);
+}
+
+.sidekick-slip__stat {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-style: italic;
+  color: var(--archive-ink-soft);
+}
+
+/* K3: 副阅读台底部 — 小 ArchiveStrip 缩略目录 (保留 UI-N2 archive-pin
+   既有契约; 列底下的小图签, 不再是右下浮卡) */
+.notes-sidekick__strip {
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
+  padding: 10px 10px 12px;
+  background: color-mix(in srgb, var(--archive-paper) 78%, transparent);
 }
 
 /* UI-N6: Pinned material slips — 贴板纸, 在 canvas-pinboard 内绝对定位
@@ -3607,8 +3844,33 @@ function syncSelectionCommandState() {
   cursor: pointer; font-size: 14px; line-height: 1;
   border-radius: 0; padding: 0;
 }
+@media (max-width: 1100px) {
+  /* K3 (2026-06-27): 中等屏 副阅读台 收窄到 280px, 主阅读台留更多空间 */
+  .notes-content-area {
+    grid-template-columns: 240px minmax(0, 1fr) 280px;
+  }
+}
+
 @media (max-width: 980px) {
   /* 移动端: 副阅读台变成主卡下方的滚动条, slip 改为水平 stack. */
+  .notes-content-area {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .archive-pin {
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
+    max-height: 260px;
+  }
+  .notes-sidekick__list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 10px 10px 6px;
+  }
+  .sidekick-slip {
+    flex: 0 0 240px;
+  }
   .reading-deck:has(.canvas-pinboard) {
     flex-direction: column;
   }
