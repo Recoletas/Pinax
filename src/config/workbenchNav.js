@@ -13,7 +13,7 @@ export const ACTIVITY_ITEMS = [
     label: '设定',
     description: '结构化设定与世界书管理',
     icon: 'settings',
-    defaultRouteName: 'settings-structured'
+    defaultRouteName: 'settings-worldbook'
   },
   {
     key: 'writing',
@@ -73,6 +73,11 @@ export const SIDE_PANELS = {
     title: '设定',
     items: [
       {
+        routeName: 'settings-worldbook',
+        label: '世界书',
+        description: '预设、AI 提炼、随机生成入口'
+      },
+      {
         routeName: 'settings-structured',
         label: '结构化设定',
         description: '世界观、故事、角色与创作规则'
@@ -81,11 +86,6 @@ export const SIDE_PANELS = {
         routeName: 'settings-world-map',
         label: '世界地图',
         description: 'Voronoi 地图生成与编辑'
-      },
-      {
-        routeName: 'settings-worldbook',
-        label: '快速导入',
-        description: '预设、AI 提炼、随机生成入口'
       },
       {
         routeName: 'settings-worldbook-advanced',

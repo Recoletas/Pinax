@@ -18,10 +18,23 @@ describe('workbenchNav', () => {
     expect(SIDE_PANELS.storyboard.items).toHaveLength(1)
     expect(ACTIVITY_ITEMS.find((item) => item.key === 'experience')?.defaultRouteName).toBe('experience')
     expect(ACTIVITY_ITEMS.find((item) => item.key === 'storyboard')?.defaultRouteName).toBe('prose-essay')
+    // UI-S16 (2026-06-27): 设定 activity 默认入口改为世界书 (settings-worldbook),
+    // 跟左侧抽屉首项 / SettingsSectionNav 第 1 个 tab 保持一致. 旧默认
+    // settings-structured 已不再是 default, 但仍是 4 个 sub-page 之一.
+    expect(ACTIVITY_ITEMS.find((item) => item.key === 'worldbook')?.defaultRouteName).toBe('settings-worldbook')
     expect(SIDE_PANELS.experience.items.map((item) => item.routeName)).toEqual([
       'opening',
       'settings-worldbook',
       'experience'
+    ])
+  })
+
+  it('exposes the four settings sub-routes in drawer order with worldbook first', () => {
+    expect(SIDE_PANELS.worldbook.items.map((item) => item.routeName)).toEqual([
+      'settings-worldbook',
+      'settings-structured',
+      'settings-world-map',
+      'settings-worldbook-advanced'
     ])
   })
 
@@ -38,6 +51,21 @@ describe('workbenchNav', () => {
 
     expect(resolveActivityKey({
       name: 'settings-worldbook',
+      meta: { activityKey: 'worldbook' }
+    })).toBe('worldbook')
+
+    expect(resolveActivityKey({
+      name: 'settings-structured',
+      meta: { activityKey: 'worldbook' }
+    })).toBe('worldbook')
+
+    expect(resolveActivityKey({
+      name: 'settings-world-map',
+      meta: { activityKey: 'worldbook' }
+    })).toBe('worldbook')
+
+    expect(resolveActivityKey({
+      name: 'settings-worldbook-advanced',
       meta: { activityKey: 'worldbook' }
     })).toBe('worldbook')
 

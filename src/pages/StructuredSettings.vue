@@ -29,6 +29,8 @@
       </div>
     </header>
 
+    <SettingsSectionNav />
+
     <div class="settings-body">
       <StructuredSettingsWorkspace
         v-if="activeWorldbook"
@@ -47,6 +49,7 @@ import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { useTheme } from '../composables/useTheme'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
+import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 
 const router = useRouter()
 const worldStore = useWorldStore()

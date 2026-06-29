@@ -52,9 +52,6 @@ const workbenchChildren = [
     name: 'settings-worldbook',
     component: WorldBookQuickImport,
     meta: {
-      immersiveShell: true,
-      hideActivityBar: true,
-      hideSidePanel: true,
       hideGlobalMemory: true,
       activityKey: 'worldbook',
       title: '设定 · 快速导入'
