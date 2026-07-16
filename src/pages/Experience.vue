@@ -458,6 +458,15 @@ import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/n
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
+import {
+  applyOnlineNarrativeCompletion,
+  applyOnlineRuntimePatch,
+  buildOnlineRuntimePatch
+} from '../services/onlineExperienceBridge'
+
+const props = defineProps({
+  onlineSession: { type: Object, default: null }
+})
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
@@ -470,6 +479,8 @@ const router = useRouter()
 // 6-cell record-folio band.
 const meta = proxyRefs(useWorkstationMeta())
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
+const onlineRequestIds = new Set()
+let onlineUnsubscribers = []
 
 const selectedWorldbookId = ref('')
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
@@ -780,11 +791,15 @@ onMounted(async () => {
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
   }
+
+  bindOnlineSession()
 })
 
 onUnmounted(() => {
   window.removeEventListener('story-mechanism-ready', handleMechanismReady)
   clearMechanismNotice()
+  onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
+  onlineUnsubscribers = []
 })
 
 watch(() => worldStore.activeWorldbookId, (nextId) => {
@@ -1088,7 +1103,68 @@ const dialoguePanelMessages = computed(() => {
 
 async function handleSend(text, options = {}) {
   clearPlayableWorldEntryIntent()
+  if (props.onlineSession) {
+    if (!props.onlineSession.isConnected?.value) return
+    props.onlineSession.proposeAction?.(text)
+    return
+  }
   await gameStore.sendAction(text, options)
+}
+
+function bindOnlineSession() {
+  const adapter = props.onlineSession?.adapter
+  if (!adapter) return
+  onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
+  onlineUnsubscribers = [
+    adapter.onNarrativeRequested(handleOnlineNarrativeRequested),
+    adapter.onNarrativeCompleted((payload) => {
+      applyOnlineNarrativeCompletion(gameStore, payload)
+    }),
+    adapter.onRuntimePatchAccepted((payload) => {
+      applyOnlineRuntimePatch(gameStore, payload)
+    })
+  ]
+}
+
+async function handleOnlineNarrativeRequested(payload = {}, event = {}) {
+  if (!props.onlineSession?.isHost?.value) return
+  const requestEventId = String(event.id || payload.requestEventId || '').trim()
+  const actionText = String(payload.text || '').trim()
+  if (!requestEventId || !actionText || onlineRequestIds.has(requestEventId)) return
+  if (gameStore.messages.some((message) => message?.onlineRequestEventId === requestEventId)) return
+  onlineRequestIds.add(requestEventId)
+
+  try {
+    const messageStart = gameStore.messages.length
+    await gameStore.sendAction(actionText)
+    const generated = gameStore.messages
+      .slice(messageStart)
+      .findLast((message) => message?.role === 'assistant' && String(message?.content || '').trim())
+    if (!generated) {
+      onlineRequestIds.delete(requestEventId)
+      return
+    }
+
+    for (const message of gameStore.messages.slice(messageStart)) {
+      message.onlineRequestEventId = requestEventId
+    }
+    gameStore.saveCurrentSession?.()
+    const runtimePatch = buildOnlineRuntimePatch(gameStore.getRuntimeSnapshot?.() || {})
+    props.onlineSession.adapter.submitHostCompletion({
+      requestEventId,
+      actionText,
+      assistantMessage: {
+        role: 'assistant',
+        name: generated.name || '',
+        content: generated.content,
+        timestamp: generated.timestamp || Date.now()
+      },
+      createdAt: Date.now()
+    })
+    props.onlineSession.adapter.submitAcceptedRuntimePatch(runtimePatch)
+  } catch {
+    onlineRequestIds.delete(requestEventId)
+  }
 }
 
 function loadQuickNoteDraft() {

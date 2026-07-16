@@ -25,6 +25,7 @@ const MIN_DURATION = 1
 const MAX_DURATION = 60
 const MAX_PROMPT_CHARS = 4000
 const MAX_REFERENCES = 4
+const MAX_REFERENCE_IMAGE_CHARS = 3_000_000
 
 export function createMediaRouter(options = {}) {
   const logger = options.logger || console
@@ -129,6 +130,13 @@ export function createMediaRouter(options = {}) {
     }
   })
 
+  router.mediaRuntime = {
+    store,
+    registry,
+    runner,
+    shutdown: () => runner.shutdown()
+  }
+
   return router
 }
 
@@ -174,7 +182,9 @@ function validateCreateJobBody(body) {
   if (!ASPECT_RATIOS.has(aspectRatio)) {
     return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: `aspectRatio 必须是 ${Array.from(ASPECT_RATIOS).join(', ')} 之一` } }
   }
-  const sourceRefs = Array.isArray(input.sourceRefs) ? input.sourceRefs.slice(0, 20).map(String) : []
+  const sourceRefs = Array.isArray(input.sourceRefs)
+    ? input.sourceRefs.slice(0, 20).map(sanitizeSourceRef).filter(Boolean)
+    : []
   const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages.slice(0, MAX_REFERENCES) : []
   for (const reference of referenceImages) {
     if (!reference || typeof reference !== 'object') {
@@ -182,6 +192,9 @@ function validateCreateJobBody(body) {
     }
     if (typeof reference.data !== 'string' || !reference.data.startsWith('data:image/')) {
       return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'referenceImages 项必须是 data:image/ URL' } }
+    }
+    if (reference.data.length > MAX_REFERENCE_IMAGE_CHARS) {
+      return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: '单张参考图超过大小限制' } }
     }
   }
 
@@ -198,6 +211,21 @@ function validateCreateJobBody(body) {
       input: { prompt, durationSeconds: duration, aspectRatio, sourceRefs, referenceImages },
       providerConfig
     }
+  }
+}
+
+function sanitizeSourceRef(ref) {
+  if (typeof ref === 'string') return ref.slice(0, 240)
+  if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return null
+  const refType = String(ref.refType || ref.type || '').trim().slice(0, 80)
+  const refId = String(ref.refId || ref.id || '').trim().slice(0, 160)
+  if (!refType || !refId) return null
+  return {
+    refType,
+    refId,
+    projectId: ref.projectId == null ? null : String(ref.projectId).slice(0, 160),
+    version: ref.version == null ? null : String(ref.version).slice(0, 160),
+    excerpt: String(ref.excerpt || '').slice(0, 240)
   }
 }
 

@@ -33,6 +33,53 @@ import {
   inferToneFromEmotion
 } from '../types/director'
 
+export function buildStoryboardVideoJobInput(input = {}) {
+  const shots = Array.isArray(input.shots) ? input.shots : []
+  const durationSeconds = Math.max(1, Math.min(60, Math.round(
+    Number(input.durationSeconds) || shots.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0) || 5
+  )))
+  const prompt = shots
+    .map((shot, index) => `${index + 1}. ${String(shot?.content || shot?.description || '').trim()}`)
+    .filter((line) => !/^\d+\.\s*$/.test(line))
+    .join('\n')
+    .slice(0, 4000)
+  const referenceImages = shots
+    .flatMap((shot) => Array.isArray(shot?.imageReferences) ? shot.imageReferences : [])
+    .filter((reference) => typeof reference?.data === 'string' && reference.data.startsWith('data:image/'))
+    .slice(0, 4)
+    .map((reference) => ({ data: reference.data, mediaAssetId: reference.mediaAssetId || null }))
+  const sourceRefs = input.versionId
+    ? [{
+        refType: 'storyboard-shot',
+        refId: input.versionId,
+        projectId: input.projectId || null,
+        version: input.versionFingerprint || null,
+        excerpt: prompt.slice(0, 240)
+      }]
+    : []
+  for (const reference of referenceImages) {
+    if (!reference.mediaAssetId) continue
+    sourceRefs.push({
+      refType: 'image',
+      refId: reference.mediaAssetId,
+      projectId: input.projectId || null,
+      version: null,
+      excerpt: ''
+    })
+  }
+
+  return {
+    projectId: input.projectId || null,
+    input: {
+      prompt,
+      durationSeconds,
+      aspectRatio: input.aspectRatio || '16:9',
+      sourceRefs,
+      referenceImages
+    }
+  }
+}
+
 /**
  * 创建编导模式状态
  * @param {object} options - 配置选项

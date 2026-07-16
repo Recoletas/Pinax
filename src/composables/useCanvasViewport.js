@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, getCurrentInstance } from 'vue'
 
 /**
  * Pan / zoom / viewport state composable for canvas containers.
@@ -89,21 +89,23 @@ export function useCanvasViewport(options = {}) {
     }
   }
 
-  onMounted(() => {
-    _mounted = true
-    _containerEl = getContainerEl()
-    if (_containerEl) {
-      _connectResizeObserver(_containerEl)
-      containerWidth.value = Math.max(0, _containerEl.clientWidth || 0)
-      containerHeight.value = Math.max(0, _containerEl.clientHeight || 0)
-    }
-  })
+  if (getCurrentInstance()) {
+    onMounted(() => {
+      _mounted = true
+      _containerEl = getContainerEl()
+      if (_containerEl) {
+        _connectResizeObserver(_containerEl)
+        containerWidth.value = Math.max(0, _containerEl.clientWidth || 0)
+        containerHeight.value = Math.max(0, _containerEl.clientHeight || 0)
+      }
+    })
 
-  onBeforeUnmount(() => {
-    _mounted = false
-    _disconnectResizeObserver()
-    invalidateEdgeFlush()
-  })
+    onBeforeUnmount(() => {
+      _mounted = false
+      _disconnectResizeObserver()
+      invalidateEdgeFlush()
+    })
+  }
 
   return {
     zoom,

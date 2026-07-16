@@ -55,11 +55,15 @@ export function createProviderRegistry(options = {}) {
         id: entry.id,
         label: entry.label,
         capabilities: entry.capabilities,
-        configKeys: entry.publicConfigKeys.map((key) => ({
-          key,
-          secret: isSecretField(key),
-          label: humanizeLabel(key)
-        }))
+        configKeys: entry.publicConfigKeys.map((keySpec) => {
+          const { key, required } = parseConfigKey(keySpec)
+          return {
+            key,
+            required,
+            secret: isSecretField(key),
+            label: humanizeLabel(key)
+          }
+        })
       })
     }
     return out
@@ -76,7 +80,8 @@ export function createProviderRegistry(options = {}) {
       return { ok: false, error: { code: 'ERR_PROVIDER_UNKNOWN', message: `unknown provider: ${providerId}` } }
     }
     const configObj = config && typeof config === 'object' && !Array.isArray(config) ? config : {}
-    const required = entry.publicConfigKeys.filter((k) => !k.startsWith('?'))
+    const specs = entry.publicConfigKeys.map(parseConfigKey)
+    const required = specs.filter((item) => item.required).map((item) => item.key)
     const missing = required.filter((k) => !configObj[k] || (typeof configObj[k] === 'string' && !configObj[k].trim()))
     if (missing.length) {
       return {
@@ -87,7 +92,9 @@ export function createProviderRegistry(options = {}) {
         }
       }
     }
-    return { ok: true, sanitized: configObj }
+    const allowed = new Set(specs.map((item) => item.key))
+    const sanitized = Object.fromEntries(Object.entries(configObj).filter(([key]) => allowed.has(key)))
+    return { ok: true, sanitized }
   }
 
   /**
@@ -110,6 +117,14 @@ export function createProviderRegistry(options = {}) {
 
 export function isSecretField(key) {
   return SECRET_FIELDS.includes(String(key || '').trim())
+}
+
+function parseConfigKey(keySpec) {
+  const value = String(keySpec || '')
+  return {
+    key: value.startsWith('?') ? value.slice(1) : value,
+    required: !value.startsWith('?')
+  }
 }
 
 function humanizeLabel(key) {

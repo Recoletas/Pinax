@@ -65,27 +65,30 @@ const fixtureMapSemantics = {
 // ---------------------------------------------------------------------------
 
 describe('worldHistory/historyGenerator', () => {
-  it('同 seed 稳定：两次生成的输出逐字节一致', () => {
+  it('seed 决定输出且同 seed 稳定', () => {
+    {
     const a = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     const b = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     expect(JSON.stringify(a)).toBe(JSON.stringify(b))
-  })
+    }
 
-  it('不同 seed 产生不同的历史（否则说明 seed 没起作用）', () => {
+    {
     const a = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics, { seed: 'seed-a' })
     const b = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics, { seed: 'seed-b' })
     expect(JSON.stringify(a)).not.toBe(JSON.stringify(b))
+    }
   })
 
-  it('至少生成 8 个节点、不超过 12 个，且至少 3 个可玩', () => {
+  it('生成节点数量、可玩性和顶层结构完整', () => {
+    {
     const geo = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     expect(geo.nodes.length).toBeGreaterThanOrEqual(8)
     expect(geo.nodes.length).toBeLessThanOrEqual(12)
     const playable = geo.nodes.filter((n) => n.playable)
     expect(playable.length).toBeGreaterThanOrEqual(3)
-  })
+    }
 
-  it('输出携带顶层结构：seed / mapId / ages / nodes / links / entryBindings', () => {
+    {
     const geo = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     expect(geo.mapId).toBe('map-border-kingdom')
     expect(geo.seed).toBe('border-kingdom-2026')
@@ -93,9 +96,11 @@ describe('worldHistory/historyGenerator', () => {
     expect(geo.ages.length).toBeGreaterThan(0)
     expect(Array.isArray(geo.links)).toBe(true)
     expect(geo.entryBindings.length).toBe(geo.nodes.length)
+    }
   })
 
-  it('每个可玩节点都有 openingHook / actionHooks / mapBinding / entryIds', () => {
+  it('可玩节点字段完整且语义模板不会串味', () => {
+    {
     const geo = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     const playable = geo.nodes.filter((n) => n.playable)
     expect(playable.length).toBeGreaterThanOrEqual(3)
@@ -118,9 +123,9 @@ describe('worldHistory/historyGenerator', () => {
         expect(fixtureWorldbook.entries.some((e) => e.id === id)).toBe(true)
       }
     }
-  })
+    }
 
-  it('不同 semantic type 生成不同的 node type（模板不串味）', () => {
+    {
     const geo = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     const typesForSite = (siteId) =>
       new Set(geo.nodes.filter((n) => n.mapBinding.siteId === siteId).map((n) => n.type))
@@ -142,9 +147,11 @@ describe('worldHistory/historyGenerator', () => {
     // 具体锚点：trade hub 应出现税权类型，frontier 应出现巡骑失踪类型。
     expect(tradeTypes.has('tax-rights')).toBe(true)
     expect(frontierTypes.has('ranger-vanish')).toBe(true)
+    }
   })
 
-  it('输出可 JSON 序列化并无损往返', () => {
+  it('输出可无损序列化且语义别名规范化', () => {
+    {
     const geo = generateGeoHistory(fixtureWorldbook, fixtureMapSemantics)
     expect(() => JSON.stringify(geo)).not.toThrow()
     const roundTrip = JSON.parse(JSON.stringify(geo))
@@ -155,9 +162,9 @@ describe('worldHistory/historyGenerator', () => {
       expect(node).not.toHaveProperty('_siteId')
       expect(node).not.toHaveProperty('_order')
     }
-  })
+    }
 
-  it('semanticType 别名归一化：frontier/hostile/isolated 等映射到规范值', () => {
+    {
     expect(normalizeSemanticType('frontier')).toBe('frontierZone')
     expect(normalizeSemanticType('hostile')).toBe('hostileRegion')
     expect(normalizeSemanticType('isolated')).toBe('isolatedSite')
@@ -166,9 +173,11 @@ describe('worldHistory/historyGenerator', () => {
     expect(normalizeSemanticType('farmland')).toBe('fertileRegion')
     // 未知类型稳定回退到已知集合内。
     expect(SEMANTIC_TYPES).toContain(normalizeSemanticType('???'))
+    }
   })
 
-  it('别名站点也能被识别并生成对应模板节点', () => {
+  it('别名站点生成对应模板且不足时补齐变体', () => {
+    {
     const aliasSemantics = {
       mapId: 'map-alias',
       sites: [
@@ -181,9 +190,9 @@ describe('worldHistory/historyGenerator', () => {
     const hostileNodes = geo.nodes.filter((n) => n.mapBinding.siteId === 's2')
     expect(routeNodes.some((n) => n.type === 'ambush-set')).toBe(true)
     expect(hostileNodes.some((n) => n.type === 'great-disaster')).toBe(true)
-  })
+    }
 
-  it('站点/模板不足 8 时用变体补齐到 8 个节点', () => {
+    {
     const oneSite = {
       mapId: 'map-single',
       sites: [
@@ -195,9 +204,11 @@ describe('worldHistory/historyGenerator', () => {
     // 节点 id 全局唯一（变体不会撞 id）。
     const ids = geo.nodes.map((n) => n.id)
     expect(new Set(ids).size).toBe(ids.length)
+    }
   })
 
-  it('没有世界书条目时优雅降级：不抛错、结构完整、无可玩节点', () => {
+  it('无条目时降级且直接消费 W1 上游对象', () => {
+    {
     const geo = generateGeoHistory({ entries: [] }, fixtureMapSemantics)
     expect(geo.nodes.length).toBeGreaterThanOrEqual(8)
     for (const node of geo.nodes) {
@@ -208,9 +219,9 @@ describe('worldHistory/historyGenerator', () => {
       expect(node.actionHooks.length).toBeGreaterThanOrEqual(1)
     }
     expect(() => JSON.stringify(geo)).not.toThrow()
-  })
+    }
 
-  it('直接消费 W1 extractMapSemantics 的分类结果对象（真实上游形状）', () => {
+    {
     // W1 (mapSemantics.js) 输出：9 类各一个数组 + meta；site = { id, type, title, score, cellIds, markerIds, keywords }。
     const w1Result = {
       tradeHubs: [
@@ -261,6 +272,7 @@ describe('worldHistory/historyGenerator', () => {
     // 同 seed 稳定。
     const again = generateGeoHistory(fixtureWorldbook, w1Result, { seed: 'w1-seed', mapId: 'map-w1' })
     expect(JSON.stringify(geo)).toBe(JSON.stringify(again))
+    }
   })
 
   it('W1 空结果（makeEmptyResult 形状）优雅降级为空 geoHistory', () => {

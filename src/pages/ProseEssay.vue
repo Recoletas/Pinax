@@ -337,9 +337,18 @@
         <button v-if="currentMode === 'directing' && lastDirectorExportContext" type="button" @click="downloadDirectorMarkdown">下载分镜 Markdown</button>
         <button type="button" @click="exportToTxt">导出为 TXT</button>
         <button type="button" @click="exportToJson">导出完整关系网 JSON</button>
+        <button v-if="currentMode === 'directing'" type="button" @click="openStoryboardVideoPanel">视频生成</button>
         <button v-if="currentMode === 'directing'" type="button" @click="exportEditingPackage">导出剪辑包 ZIP</button>
       </div>
     </div>
+
+    <StoryboardVideoPanel
+      v-if="showStoryboardVideoPanel"
+      :context="storyboardVideoContext"
+      :stale="!directorStoryboardIsCurrent"
+      @close="showStoryboardVideoPanel = false"
+      @archived="handleStoryboardVideoArchived"
+    />
 
     <!-- 生图悬浮按钮 -->
     <aside class="image-gen-rail" aria-label="生图功能">
@@ -659,6 +668,7 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
 import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
+import StoryboardVideoPanel from '../components/media/StoryboardVideoPanel.vue'
 import {
   saveValidatedStoryboardVersion
 } from '../services/storyboardStore'
@@ -872,6 +882,8 @@ const edgeDeleteActive = ref(false)
 const linkSourceCardId = ref('')
 const edgeLinkDraft = ref(null)
 const showExportMenu = ref(false)
+const showStoryboardVideoPanel = ref(false)
+const storyboardVideoContext = ref(null)
 const cardWallRef = ref(null)
 const edgesSvgRef = ref(null)
 const apiSettings = ref(null)
@@ -900,6 +912,7 @@ const pointerDragStartX = ref(0)
 const pointerDragStartY = ref(0)
 const pointerDragCardStartX = ref(0)
 const pointerDragCardStartY = ref(0)
+let pointerDragOriginalPileId = null
 let _pointerDragMoved = false
 
 const viewport = useCanvasViewport({
@@ -2154,6 +2167,7 @@ function onCardPointerDown(event, card) {
   pointerDragStartY.value = event.clientY
   pointerDragCardStartX.value = card.x || 0
   pointerDragCardStartY.value = card.y || 0
+  pointerDragOriginalPileId = card.pileId || null
   _pointerDragMoved = false
 
   cardEl.addEventListener('pointermove', onPointerDragMove)
@@ -2180,7 +2194,6 @@ function onPointerDragMove(event) {
   card.x = pos.x
   card.y = pos.y
   updateConnectedEdges(card.id)
-  updateLayout()
 }
 
 function onPointerDragUp(event) {
@@ -2192,8 +2205,22 @@ function onPointerDragUp(event) {
   if (!pointerDragCard.value) return
   const card = pointerDragCard.value
   pointerDragCard.value = null
+  const originalPileId = pointerDragOriginalPileId
+  pointerDragOriginalPileId = null
 
   if (!_pointerDragMoved) return
+
+  if (originalPileId) {
+    const originalPile = piles.value.find(p => p.pileId === originalPileId)
+    if (originalPile) {
+      originalPile.cardIds = originalPile.cardIds.filter(id => id !== card.id)
+      if (originalPile.cardIds.length < 2) {
+        cards.value.forEach(c => { if (c.pileId === originalPileId) c.pileId = null })
+        piles.value = piles.value.filter(p => p.pileId !== originalPileId)
+      }
+    }
+    card.pileId = null
+  }
 
   const target = document.elementFromPoint(event.clientX, event.clientY)
   const targetCardEl = target?.closest?.('[data-card-id]')
@@ -2205,7 +2232,7 @@ function onPointerDragUp(event) {
       const targetPileId = targetCard.pileId
       if (targetPileId) {
         const pile = piles.value.find(p => p.pileId === targetPileId)
-        if (pile) pile.cardIds.push(card.id)
+        if (pile && !pile.cardIds.includes(card.id)) pile.cardIds.push(card.id)
         cards.value.forEach(c => { if (c.id === card.id) c.pileId = targetPileId })
       } else {
         const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
@@ -2216,18 +2243,6 @@ function onPointerDragUp(event) {
       }
       addTimeline('卡片加入牌堆')
     }
-  }
-
-  if (card.pileId) {
-    const pile = piles.value.find(p => p.pileId === card.pileId)
-    if (pile) {
-      pile.cardIds = pile.cardIds.filter(id => id !== card.id)
-      if (pile.cardIds.length < 2) {
-        cards.value.forEach(c => { if (c.pileId === pile.pileId) c.pileId = null })
-        piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
-      }
-    }
-    card.pileId = null
   }
 
   viewport.scheduleEdgeFlush()
@@ -2558,6 +2573,21 @@ function prepareDirectorStoryboardVersion() {
     directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
     return null
   }
+}
+
+function openStoryboardVideoPanel() {
+  showExportMenu.value = false
+  try {
+    storyboardVideoContext.value = getDirectorExportContext()
+    showStoryboardVideoPanel.value = true
+  } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
+  }
+}
+
+function handleStoryboardVideoArchived(asset) {
+  directorStoryboardStatus.value = `视频已归档，任务 ${String(asset?.generationJobId || '').slice(-6)}`
+  addTimeline('归档分镜视频')
 }
 
 function downloadDirectorMarkdown() {

@@ -3,7 +3,7 @@ export function createExperienceSessionAdapter(onlineRoom) {
 
   function onNarrativeRequested(callback) {
     const handler = (evt) => {
-      if (evt.type === 'narrative.requested') callback(evt.payload)
+      if (evt.type === 'narrative.requested') callback(evt.payload, evt)
     }
     const unsub = () => {
       const idx = subscriptions.indexOf(handler)
@@ -12,7 +12,7 @@ export function createExperienceSessionAdapter(onlineRoom) {
     subscriptions.push(handler)
     if (onlineRoom.events) {
       onlineRoom.events.forEach((evt) => {
-        if (evt.type === 'narrative.requested') callback(evt.payload)
+        if (evt.type === 'narrative.requested') callback(evt.payload, evt)
       })
     }
     return unsub
@@ -20,12 +20,12 @@ export function createExperienceSessionAdapter(onlineRoom) {
 
   function onNarrativeCompleted(callback) {
     const handler = (evt) => {
-      if (evt.type === 'narrative.completed') callback(evt.payload)
+      if (evt.type === 'narrative.completed') callback(evt.payload, evt)
     }
     subscriptions.push(handler)
     if (onlineRoom.events) {
       onlineRoom.events.forEach((evt) => {
-        if (evt.type === 'narrative.completed') callback(evt.payload)
+        if (evt.type === 'narrative.completed') callback(evt.payload, evt)
       })
     }
     return () => {
@@ -37,7 +37,7 @@ export function createExperienceSessionAdapter(onlineRoom) {
   function submitHostCompletion(result) {
     if (!onlineRoom.isHost || !onlineRoom.isHost.value) return false
     if (typeof onlineRoom.sendCommand === 'function') {
-      onlineRoom.sendCommand('narrative.completed', result)
+      onlineRoom.sendCommand('narrative.completed', { payload: result })
     }
     return true
   }
@@ -45,9 +45,35 @@ export function createExperienceSessionAdapter(onlineRoom) {
   function submitAcceptedRuntimePatch(patch) {
     if (!onlineRoom.isHost || !onlineRoom.isHost.value) return false
     if (typeof onlineRoom.sendCommand === 'function') {
-      onlineRoom.sendCommand('runtime.patch.accepted', patch)
+      onlineRoom.sendCommand('runtime.patch.accept', { payload: patch })
     }
     return true
+  }
+
+  function requestNarrative(payload) {
+    if (!onlineRoom.isHost?.value) return false
+    onlineRoom.sendCommand?.('narrative.request', { payload })
+    return true
+  }
+
+  function onActionSelected(callback) {
+    return subscribeTo('action.selected', callback)
+  }
+
+  function onRuntimePatchAccepted(callback) {
+    return subscribeTo('runtime.patch.accepted', callback)
+  }
+
+  function subscribeTo(type, callback) {
+    const handler = (evt) => {
+      if (evt.type === type) callback(evt.payload, evt)
+    }
+    subscriptions.push(handler)
+    onlineRoom.events?.forEach(handler)
+    return () => {
+      const idx = subscriptions.indexOf(handler)
+      if (idx >= 0) subscriptions.splice(idx, 1)
+    }
   }
 
   function handleEvent(evt) {
@@ -61,6 +87,9 @@ export function createExperienceSessionAdapter(onlineRoom) {
     onNarrativeCompleted,
     submitHostCompletion,
     submitAcceptedRuntimePatch,
+    requestNarrative,
+    onActionSelected,
+    onRuntimePatchAccepted,
     handleEvent
   }
 }

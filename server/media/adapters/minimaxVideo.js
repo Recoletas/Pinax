@@ -163,7 +163,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     poll,
     cancel,
     normalizeError,
-    publicConfigKeys: ['baseUrl', 'apiKey', 'model']
+    publicConfigKeys: ['?baseUrl', 'apiKey', '?model']
   }
 }
 

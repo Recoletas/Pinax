@@ -27,8 +27,8 @@ import {
   adaptAgentResultToLegacy
 } from '../services/agents/legacyAdapter'
 
-describe('agentContracts: task registry registration, validation, and legacy aliases', function () {
-  it('resolves canonical tasks, legacy aliases, and surface enumeration', function () {
+describe('agentContracts', function () {
+  it('covers task registry, context budget, result lifecycle, and legacy compatibility', function () {
     expect(getTask('worldbook.import.structure').surfaces).toContain('worldbook')
 
     for (var i = 0; i < Object.keys(LEGACY_ALIASES).length; i++) {
@@ -49,11 +49,6 @@ describe('agentContracts: task registry registration, validation, and legacy ali
 
     expect(getTasksBySurface('experience').length).toBe(3)
     expect(getTasksBySurface('writing').length).toBeGreaterThanOrEqual(7)
-  })
-})
-
-describe('agentContracts: context envelope budget clipping priority', function () {
-  it('keeps system/selection blocks, drops low-priority blocks with sourceRefs', function () {
     var envelope = buildContextEnvelope({ surface: 'writing', budget: { maxChars: 70 } })
 
     var env = addBlock(envelope, BLOCK_KINDS.SYSTEM, 'RULES: 保持语气。', { priority: 1000 })
@@ -77,11 +72,6 @@ describe('agentContracts: context envelope budget clipping priority', function (
     var text = toPromptText(clipped)
     expect(text).toContain('RULES')
     expect(text).toContain('SEL')
-  })
-})
-
-describe('agentContracts: result lifecycle stale/apply and legacy payload compatibility', function () {
-  it('full lifecycle pending→completed→stale plus legacy round-trip', function () {
     var pending = createPendingResult('writing.fix.selection', { baseRevision: 'rev-1' })
     expect(pending.status).toBe(RESULT_STATUSES.PENDING)
     expect(isActive(pending)).toBe(true)

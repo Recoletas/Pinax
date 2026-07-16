@@ -25,14 +25,14 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 7. Video MVP：分镜以已确认镜头版本提交服务端异步任务，支持 MiniMax、第二 direct provider 和受约束的自定义 API adapter。
 8. Online Experience：通过 `/experience/online/:roomSlug` 提供 URL 加入的多人冒险，采用服务端权威有序事件，不同步整个前端 store。
 
-## 当前并行执行包
+## 已完成执行包
 
-联机模式、Agent 基础契约、关系画布优化和视频任务网关已拆为五个可并行实现窗口，以及一个合并后执行的页面接线窗口：
+联机模式、Agent 基础契约、关系画布优化、视频任务网关和页面接线已按 A-F 窗口完成实现与集成：
 
 - [Online / Agents / Canvas / Video 执行包](./agent-runs/2026-07-16-online-agents-canvas-video/README.md)
 - [当前窗口任务板](./agent-runs/current.md)
 
-A-E 使用冻结契约和互斥文件所有权并行；F 只在 A-E 合并后开始。最终测试总量继续保持不超过 200，且不启动用户已有的 dev server。
+A-E 的结果已由 F 在恢复后的七月产品基线上整合，测试总量保持 200，未启动用户已有的 dev server。后续功能继续回到地理、历史融合与 Creative Graph 主线，不再扩展本执行包。
 
 ## 当前工程边界
 

@@ -3,7 +3,7 @@ import cors from 'cors'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname, join, resolve } from 'path'
 import gameRouter from './routes/game.js'
 import eventsRouter from './routes/events.js'
 import configRouter from './routes/config.js'
@@ -13,6 +13,7 @@ import preferencesRouter from './routes/preferences.js'
 import advisorRouter from './routes/advisor.js'
 import openclawRouter from './routes/openclaw.js'
 import roomsRouter from './routes/rooms.js'
+import createMediaRouter from './routes/media.js'
 import { setupWebSocket } from './realtime/wsHandler.js'
 import { startCleanupInterval, stopCleanupInterval } from './realtime/RoomRegistry.js'
 
@@ -30,19 +31,10 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Server] unhandledRejection:', reason)
 })
 
-process.on('SIGTERM', () => {
-  console.warn('[Server] received SIGTERM, shutting down')
-  stopCleanupInterval()
-})
-
-process.on('SIGINT', () => {
-  console.warn('[Server] received SIGINT, shutting down')
-  stopCleanupInterval()
-})
-
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '16mb' }))
 
+const mediaRouter = createMediaRouter()
 app.use(roomsRouter)
 app.use('/api/game', gameRouter)
 app.use('/api/events', eventsRouter)
@@ -52,6 +44,7 @@ app.use('/api/generate', generateRouter)
 app.use('/api/preferences', preferencesRouter)
 app.use('/api/advisor', advisorRouter)
 app.use('/api/openclaw', openclawRouter)
+app.use(mediaRouter)
 
 app.use(express.static(join(__dirname, '../dist')))
 
@@ -76,10 +69,34 @@ server.on('upgrade', (request, socket, head) => {
   }
 })
 
-startCleanupInterval()
+export function startServer(port = PORT) {
+  if (server.listening) return server
+  startCleanupInterval()
+  server.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`)
+  })
+  return server
+}
 
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`)
-})
+export async function stopServer() {
+  stopCleanupInterval()
+  mediaRouter.mediaRuntime?.shutdown?.()
+  for (const client of wss.clients) client.terminate()
+  await new Promise((resolveClose) => {
+    if (!server.listening) return resolveClose()
+    server.close(() => resolveClose())
+  })
+}
 
-export { app, server, wss }
+const isDirectRun = process.argv[1] && resolve(process.argv[1]) === resolve(__filename)
+if (isDirectRun) {
+  startServer()
+  const shutdown = async (signal) => {
+    console.warn(`[Server] received ${signal}, shutting down`)
+    await stopServer()
+  }
+  process.once('SIGTERM', () => { void shutdown('SIGTERM') })
+  process.once('SIGINT', () => { void shutdown('SIGINT') })
+}
+
+export { app, server, wss, mediaRouter }

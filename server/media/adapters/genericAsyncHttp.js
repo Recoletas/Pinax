@@ -230,11 +230,11 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     normalizeError,
     validate,
     publicConfigKeys: [
-      'baseUrl', 'apiKey', 'model',
-      'submitUrl', 'submitMethod', 'submitBodyTemplate', 'submitHeaders',
-      'statusUrl', 'statusMethod', 'statusHeaders', 'statusPath', 'statusField', 'progressPath', 'outputUrlPath',
-      'successStatuses', 'failureStatuses', 'runningStatuses',
-      'cancelUrl', 'cancelMethod', 'cancelHeaders'
+      '?baseUrl', '?apiKey', '?model',
+      'submitUrl', '?submitMethod', '?submitBodyTemplate', '?submitHeaders',
+      'statusUrl', '?statusMethod', '?statusHeaders', '?statusPath', '?statusField', '?progressPath', '?outputUrlPath',
+      '?successStatuses', '?failureStatuses', '?runningStatuses',
+      '?cancelUrl', '?cancelMethod', '?cancelHeaders'
     ]
   }
 }

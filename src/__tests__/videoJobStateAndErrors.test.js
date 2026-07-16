@@ -10,7 +10,7 @@ import {
 } from '../../server/media/GenerationJobStore.js'
 
 describe('videoJobStore state machine', () => {
-  it('runs the full state machine: queued→submitted→running→succeeded with illegal-transition rejection and cancel idempotency', () => {
+  it('covers the job state machine, storyboard input, and external result archive', async () => {
     const store = createJobStore()
 
     // 1. Happy path: queued → submitted → running → succeeded with terminal check.
@@ -85,5 +85,51 @@ describe('videoJobStore state machine', () => {
 
     // 7. JobNotFoundError surfaces for unknown ids.
     expect(() => store.getJob('job_missing')).toThrow(JobNotFoundError)
+    const directorModule = await import('../composables/useDirector.js')
+    expect(typeof directorModule.buildStoryboardVideoJobInput).toBe('function')
+
+    const input = directorModule.buildStoryboardVideoJobInput({
+      documentId: 'storyboard_doc_1',
+      versionId: 'storyboard_version_2',
+      versionFingerprint: 'fp_2',
+      projectId: 'world_1',
+      shots: [
+        {
+          sequence: 1,
+          content: '雾中的钟楼亮起一盏灯。',
+          duration: 4,
+          imageReferences: [{ mediaAssetId: 'img_1', data: 'data:image/png;base64,AAAA' }]
+        }
+      ]
+    })
+
+    expect(input.projectId).toBe('world_1')
+    expect(input.input.prompt).toContain('雾中的钟楼')
+    expect(input.input.durationSeconds).toBe(4)
+    expect(input.input.sourceRefs).toContainEqual(expect.objectContaining({
+      refType: 'storyboard-shot',
+      refId: 'storyboard_version_2',
+      version: 'fp_2'
+    }))
+    expect(input.input.referenceImages).toHaveLength(1)
+
+    const mediaModule = await import('../services/media/mediaAssetStore.js')
+    expect(typeof mediaModule.saveExternalMediaAsset).toBe('function')
+    const memory = new Map()
+    const storage = {
+      getItem: (key) => memory.get(key) || null,
+      setItem: (key, value) => memory.set(key, value)
+    }
+    const asset = mediaModule.saveExternalMediaAsset({
+      projectId: 'world_1',
+      kind: 'video',
+      purpose: 'storyboard-take',
+      generationJobId: 'job_1',
+      externalUrl: 'https://cdn.example.com/take.mp4',
+      sourceRefs: input.input.sourceRefs
+    }, { storage })
+
+    expect(asset.externalUrl).toBe('https://cdn.example.com/take.mp4')
+    expect(mediaModule.listMediaAssets({ kind: 'video' }, { storage })).toHaveLength(1)
   })
 })

@@ -7,8 +7,8 @@ import {
 } from '../services/canvasGeometry'
 import { useCanvasViewport } from '../composables/useCanvasViewport'
 
-describe('canvas: coordinate/zoom round-trip', () => {
-  it('screenToCanvas ↔ canvasToScreen round-trip with zoom, pan, and scroll', () => {
+describe('canvas optimization contracts', () => {
+  it('keeps coordinates finite and coalesces edge updates', async () => {
     const rect = { left: 200, top: 100, width: 800, height: 600 }
     // 100 nodes × 200 edges worth of point-pairs is just a loop;
     // the contract is stability, not absolute timing.
@@ -20,21 +20,11 @@ describe('canvas: coordinate/zoom round-trip', () => {
       expect(Math.abs(b.x - sx)).toBeLessThan(0.01)
       expect(Math.abs(b.y - sy)).toBeLessThan(0.01)
     }
-  })
-})
-
-describe('canvas: clamp/edge finite values', () => {
-  it('clampNodePosition never returns NaN/Infinity for degenerate inputs', () => {
     const pos = clampNodePosition(NaN, Infinity, -1, NaN, NaN, undefined)
     expect(Number.isFinite(pos.x)).toBe(true)
     expect(Number.isFinite(pos.y)).toBe(true)
     expect(pos.x).toBe(40)
     expect(pos.y).toBe(40)
-  })
-})
-
-describe('canvas: RAF edge flush coalescing', () => {
-  it('multiple scheduleEdgeFlush calls coalesce into a single onEdgeChange', async () => {
     const onEdgeChange = vi.fn()
     const vp = useCanvasViewport({ onEdgeChange, containerRef: ref(null) })
 

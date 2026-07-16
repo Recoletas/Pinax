@@ -1,6 +1,6 @@
-import { getRoomBySlug, createRoom, RoomMember } from './RoomRegistry.js'
+import { getRoomBySlug, createRoom } from './RoomRegistry.js'
 import { createEvent, getEventsSince, getSnapshot, isCommandDuplicate } from './RoomEventStore.js'
-import { validateNickname, validateMessage, validateActionText, checkMemberLimit, checkRateLimit, clearRateBucket, ERROR_CODES } from './validators.js'
+import { validateNickname, validateMessage, validateActionText, checkRateLimit, clearRateBucket, ERROR_CODES } from './validators.js'
 import { serialize, serverReady, roomJoined, eventAppend, snapshot, presenceSync, error, pong } from './serializer.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -118,7 +118,11 @@ function handleMessage (conn, raw) {
     case 'narrative.request':
       handleNarrativeRequest(conn, parsed)
       break
+    case 'narrative.completed':
+      handleNarrativeCompleted(conn, parsed)
+      break
     case 'runtime.patch.accept':
+    case 'runtime.patch.accepted':
       handleRuntimePatch(conn, parsed)
       break
     case 'room.snapshot.request':
@@ -145,13 +149,8 @@ function handleJoin (conn, msg) {
     return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '缺少房间标识'))
   }
 
-  if (!checkMemberLimit(room)) {
-    return conn.send(error(ERROR_CODES.ERR_ROOM_FULL, '房间已满'))
-  }
-
-  const member = new RoomMember({ nickname: nickValid.value, requestedRole: msg.requestedRole || 'member' })
-  const added = room.addMember(member)
-  if (!added) {
+  const member = room.claimMember({ nickname: nickValid.value, requestedRole: msg.requestedRole || 'member' })
+  if (!member) {
     return conn.send(error(ERROR_CODES.ERR_ROOM_FULL, '房间已满'))
   }
 
@@ -160,8 +159,8 @@ function handleJoin (conn, msg) {
   conn.memberId = member.id
   conn.lastHeartbeat = Date.now()
 
-  const evt = createEvent(room, 'room.member.joined', member.id, { nickname: member.nickname }, msg.commandId || null)
-  conn.send(roomJoined(room.id, member.id))
+  const evt = createEvent(room, 'room.member.joined', member.id, member.toJSON(), msg.commandId || null)
+  conn.send(roomJoined(room.id, member.id, getSnapshot(room)))
   conn.broadcastToRoom(eventAppend(room.id, evt))
   conn.broadcastPresence()
 
@@ -180,6 +179,7 @@ function handleLeave (conn) {
   if (!room || !conn.memberId) return
   const member = room.getMember(conn.memberId)
   const evt = createEvent(room, 'room.member.left', conn.memberId, {
+    id: conn.memberId,
     nickname: member?.nickname || 'unknown'
   }, null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
@@ -210,6 +210,7 @@ function handleActionPropose (conn, msg) {
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   const textValid = validateActionText(msg.text)
   if (!textValid.ok) return conn.send(error(ERROR_CODES.ERR_INVALID_ACTION, textValid.message))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
   const evt = createEvent(room, 'action.proposed', conn.memberId, { text: textValid.value, proposalId: 'prop_' + Date.now() }, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
@@ -218,6 +219,7 @@ function handleActionSelect (conn, msg) {
   const room = conn.room
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以执行此操作'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
   const evt = createEvent(room, 'action.selected', conn.memberId, { proposalId: msg.proposalId || '' }, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
@@ -225,6 +227,7 @@ function handleActionSelect (conn, msg) {
 function handleVoteCast (conn, msg) {
   const room = conn.room
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
   const evt = createEvent(room, 'vote.cast', conn.memberId, { proposalId: msg.proposalId || '' }, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
@@ -233,7 +236,17 @@ function handleNarrativeRequest (conn, msg) {
   const room = conn.room
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以执行此操作'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
   const evt = createEvent(room, 'narrative.requested', conn.memberId, msg.payload || {}, msg.commandId || null)
+  conn.broadcastToRoom(eventAppend(room.id, evt))
+}
+
+function handleNarrativeCompleted (conn, msg) {
+  const room = conn.room
+  if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
+  if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以提交叙事结果'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
+  const evt = createEvent(room, 'narrative.completed', conn.memberId, msg.payload || {}, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
 
@@ -241,6 +254,7 @@ function handleRuntimePatch (conn, msg) {
   const room = conn.room
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以执行此操作'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
   const evt = createEvent(room, 'runtime.patch.accepted', conn.memberId, msg.payload || {}, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }

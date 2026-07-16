@@ -1,5 +1,5 @@
 <template>
-  <section class="online-room" aria-label="联机房间">
+  <section class="online-room" :class="{ 'online-room--compact': compact }" aria-label="联机房间">
     <div class="online-room__header">
       <div class="online-room__title-row">
         <h1 class="online-room__slug" v-if="roomSlug">{{ roomSlug }}</h1>
@@ -121,7 +121,8 @@ const props = defineProps({
   proposals: { type: Array, default: () => [] },
   votes: { type: Object, default: () => ({}) },
   isHost: { type: Boolean, default: false },
-  isConnected: { type: Boolean, default: false }
+  isConnected: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['send-chat', 'vote', 'select-action', 'leave', 'copy-link'])
@@ -416,6 +417,39 @@ function leaveRoom() {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.online-room--compact {
+  border-left: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
+}
+
+.online-room--compact .online-room__body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(120px, auto) minmax(180px, 1fr);
+}
+
+.online-room--compact .online-room__sidebar {
+  max-height: 42vh;
+  border-right: 0;
+  border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
+}
+
+@media (max-width: 900px) {
+  .online-room--compact {
+    border-left: 0;
+    border-top: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
+  }
+
+  .online-room--compact .online-room__body {
+    grid-template-columns: minmax(180px, 34%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .online-room--compact .online-room__sidebar {
+    max-height: none;
+    border-right: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
+    border-bottom: 0;
+  }
 }
 
 .online-room__chat-messages {

@@ -1,6 +1,9 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
 import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
+import { Room } from '../../server/realtime/RoomRegistry.js'
+import { createEvent, getEventsSince, isCommandDuplicate } from '../../server/realtime/RoomEventStore.js'
+import { eventAppend, presenceSync, roomJoined } from '../../server/realtime/serializer.js'
 
 class MockWebSocket {
   constructor() {
@@ -54,7 +57,8 @@ describe('useOnlineRoom', () => {
     return room
   }
 
-  it('deduplicates events by id and seq', () => {
+  it('covers event replay, reconnect, host permissions, and protocol integration', async () => {
+    {
     const r = connectAndJoin('test-room', 'alice')
     mockWs._open()
 
@@ -86,9 +90,9 @@ describe('useOnlineRoom', () => {
     }
     mockWs._message({ type: 'event.append', payload: evt2 })
     expect(r.chatMessages).toHaveLength(1)
-  })
+    }
 
-  it('applies snapshot and reconnects with lastSeq', () => {
+    {
     const r = connectAndJoin('test-room', 'alice')
     mockWs._open()
 
@@ -131,9 +135,13 @@ describe('useOnlineRoom', () => {
 
     const joinCmd = ws2.sent.find((c) => c.type === 'room.join')
     expect(joinCmd.lastSeq).toBe(10)
-  })
+    }
 
-  it('restricts host controls to host members', () => {
+    vi.stubGlobal('WebSocket', function () {
+      mockWs = new MockWebSocket()
+      return mockWs
+    })
+    {
     const r = connectAndJoin('test-room', 'player1')
     mockWs._open()
 
@@ -163,5 +171,75 @@ describe('useOnlineRoom', () => {
     expect(r.isHost.value).toBe(true)
     expect(adapter.submitHostCompletion({ text: 'test' })).toBe(true)
     expect(adapter.submitAcceptedRuntimePatch({ patch: 'x' })).toBe(true)
+    }
+
+    {
+    const onlineModule = await import('../composables/useOnlineRoom')
+    expect(onlineModule.deriveWsUrl('atlas-room', {
+      protocol: 'https:',
+      host: 'pinax.example'
+    })).toBe('wss://pinax.example/ws/rooms')
+
+    const serverRoom = new Room({ slug: 'atlas-room', hostNickname: 'alice' })
+    const host = serverRoom.claimMember({ nickname: 'alice', requestedRole: 'member' })
+    expect(host.id).toBe(serverRoom.hostId)
+    expect(host.role).toBe('host')
+    expect(serverRoom.memberCount).toBe(1)
+
+    const first = createEvent(serverRoom, 'chat.message', host.id, { text: 'first' }, 'cmd_1')
+    const second = createEvent(serverRoom, 'chat.message', host.id, { text: 'second' }, 'cmd_2')
+    expect([first.seq, second.seq]).toEqual([1, 2])
+    expect(isCommandDuplicate(serverRoom, 'cmd_1')).toBe(true)
+    expect(getEventsSince(serverRoom, 1).map((event) => event.seq)).toEqual([2])
+
+    serverRoom.removeMember(host.id)
+    const rejoinedHost = serverRoom.claimMember({ nickname: 'alice' })
+    expect(rejoinedHost.role).toBe('host')
+    expect(serverRoom.hostId).toBe(rejoinedHost.id)
+
+    const eventMessage = JSON.parse(eventAppend(serverRoom.id, {
+      id: 'evt_1',
+      roomId: serverRoom.id,
+      seq: 1,
+      type: 'chat.message',
+      actorId: host.id,
+      payload: { text: 'hello' }
+    }))
+    expect(eventMessage.payload.type).toBe('chat.message')
+
+    const presenceMessage = JSON.parse(presenceSync(serverRoom.id, [host.toJSON()]))
+    expect(presenceMessage.payload.members[0].role).toBe('host')
+
+    const joinedMessage = JSON.parse(roomJoined(serverRoom.id, host.id, serverRoom.toSnapshot()))
+    expect(joinedMessage.payload.room.slug).toBe('atlas-room')
+    expect(joinedMessage.payload.memberId).toBe(host.id)
+
+    const bridgeModule = await import('../services/onlineExperienceBridge.js')
+    expect(typeof bridgeModule.buildOnlineRuntimePatch).toBe('function')
+    expect(typeof bridgeModule.applyOnlineNarrativeCompletion).toBe('function')
+
+    const fakeStore = {
+      messages: [],
+      chatHistory: [],
+      saveCurrentSession: vi.fn(),
+      rebuildChatHistory: vi.fn()
+    }
+    const completion = {
+      requestEventId: 'evt_request_1',
+      actionText: '推开钟楼的门',
+      assistantMessage: { role: 'assistant', content: '门轴发出低沉的回响。' }
+    }
+    expect(bridgeModule.applyOnlineNarrativeCompletion(fakeStore, completion)).toBe(true)
+    expect(bridgeModule.applyOnlineNarrativeCompletion(fakeStore, completion)).toBe(false)
+    expect(fakeStore.messages.map((message) => message.role)).toEqual(['user', 'assistant'])
+
+    const runtimePatch = bridgeModule.buildOnlineRuntimePatch({
+      writingCharacter: { name: '岚' },
+      writingTime: { year: '12' },
+      worldMapState: { currentScene: '钟楼' },
+      goals: [{ id: 'goal_1', title: '查明钟声' }]
+    })
+    expect(runtimePatch.paths).toEqual(['writingCharacter', 'writingTime', 'worldMapState', 'goals'])
+    }
   })
 })

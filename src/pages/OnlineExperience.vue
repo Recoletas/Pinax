@@ -52,7 +52,9 @@
       </div>
 
       <div v-else-if="roomSlug" class="online-page__room">
+        <Experience class="online-page__experience" :online-session="onlineSession" />
         <OnlineRoomPanel
+          compact
           :room-slug="roomSlug"
           :connection-state="connectionState"
           :error="error"
@@ -83,7 +85,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
+import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
 import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
+import Experience from './Experience.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,6 +96,7 @@ const roomSlug = computed(() => route.params.roomSlug || '')
 
 const {
   members,
+  events,
   chatMessages,
   proposals,
   votes,
@@ -103,9 +108,24 @@ const {
   joinRoom,
   leaveRoom,
   sendChat,
+  proposeAction,
+  sendCommand,
   castVote,
   selectAction
 } = useOnlineRoom()
+
+const sessionAdapter = createExperienceSessionAdapter({
+  events,
+  isHost,
+  sendCommand
+})
+const onlineSession = {
+  adapter: sessionAdapter,
+  isHost,
+  isConnected,
+  proposeAction
+}
+const dispatchedEventIds = new Set()
 
 const lobbyNickname = ref(nickname.value || '')
 const lobbyRoomSlug = ref('')
@@ -150,6 +170,10 @@ function onRoomVote(proposalId) {
 
 function onRoomSelectAction(proposalId) {
   selectAction(proposalId)
+  const proposal = proposals.find((item) => item.id === proposalId)
+  if (proposal) {
+    sessionAdapter.requestNarrative({ proposalId, text: proposal.text })
+  }
 }
 
 function onRoomLeave() {
@@ -169,6 +193,14 @@ watch(roomSlug, (newSlug) => {
     joinRoom(newSlug, lobbyNickname.value)
   }
 }, { immediate: true })
+
+watch(() => events.length, () => {
+  for (const event of events) {
+    if (!event?.id || dispatchedEventIds.has(event.id)) continue
+    dispatchedEventIds.add(event.id)
+    sessionAdapter.handleEvent(event)
+  }
+})
 
 onMounted(() => {
   if (!nickname.value && roomSlug.value) {
@@ -315,9 +347,21 @@ onMounted(() => {
 .online-page__room {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   position: relative;
+}
+
+.online-page__experience {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .online-page__room {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(420px, 1fr) minmax(260px, 42vh);
+  }
 }
 
 .online-page__overlay {

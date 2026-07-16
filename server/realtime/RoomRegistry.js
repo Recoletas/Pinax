@@ -61,8 +61,28 @@ export class Room {
     return member
   }
 
+  claimMember ({ nickname, requestedRole = 'member' }) {
+    const normalizedNickname = String(nickname || '').slice(0, 30)
+    const reservedHost = this.host
+    if (reservedHost && !reservedHost.socketId && reservedHost.nickname === normalizedNickname) {
+      return reservedHost
+    }
+    const shouldBecomeHost = !this.hostId || !this.host
+    const member = this.addMember(new RoomMember({
+      nickname: normalizedNickname,
+      requestedRole: shouldBecomeHost ? 'host' : requestedRole
+    }))
+    if (member && shouldBecomeHost) this.hostId = member.id
+    return member
+  }
+
   removeMember (memberId) {
+    const removedHost = memberId === this.hostId
     this.members.delete(memberId)
+    if (!removedHost) return
+    const successor = this.members.values().next().value || null
+    this.hostId = successor?.id || null
+    if (successor) successor.role = 'host'
   }
 
   getMember (memberId) {

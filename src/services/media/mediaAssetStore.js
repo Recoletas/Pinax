@@ -32,7 +32,8 @@ export function createMediaAsset(input = {}) {
     model: normalizeText(input.model),
     promptSnapshot: String(input.promptSnapshot || ''),
     generationParams: normalizeSerializableObject(input.generationParams),
-    storageRef: buildMediaStorageRef(id),
+    storageRef: normalizeText(input.storageRef) || buildMediaStorageRef(id),
+    externalUrl: normalizeNullableText(input.externalUrl),
     mimeType: normalizeText(input.mimeType) || 'application/octet-stream',
     width: normalizePositiveNumber(input.width),
     height: normalizePositiveNumber(input.height),
@@ -41,6 +42,20 @@ export function createMediaAsset(input = {}) {
     createdAt: normalizeTimestamp(input.createdAt, now),
     updatedAt: now
   }
+}
+
+export function saveExternalMediaAsset(input = {}, options = {}) {
+  const storage = resolveStorage(options.storage)
+  const externalUrl = normalizeText(input.externalUrl)
+  if (!/^https?:\/\//i.test(externalUrl)) throw new Error('外部媒体地址无效')
+  const asset = createMediaAsset({
+    ...input,
+    externalUrl,
+    storageRef: `external:${externalUrl}`
+  })
+  const current = readMetadata(storage)
+  writeMetadata(storage, [asset, ...current.filter((item) => item.id !== asset.id)])
+  return asset
 }
 
 export function listMediaAssets(filters = {}, options = {}) {

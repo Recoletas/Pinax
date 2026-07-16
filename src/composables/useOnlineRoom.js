@@ -1,4 +1,4 @@
-import { ref, reactive, computed, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onBeforeUnmount, getCurrentInstance } from 'vue'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
@@ -10,9 +10,13 @@ function nanoid() {
   return `cmd_${Date.now().toString(36)}_${(nextId++).toString(36)}`
 }
 
-function deriveWsUrl(roomSlug) {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}/ws?room=${encodeURIComponent(roomSlug)}`
+export function deriveWsUrl(_roomSlug, locationLike = window.location) {
+  const proto = locationLike.protocol === 'https:' ? 'wss' : 'ws'
+  return `${proto}://${locationLike.host}/ws/rooms`
+}
+
+function sequenceStorageKey(roomSlug) {
+  return `pinax.online.lastSeq.${String(roomSlug || '').trim()}`
 }
 
 function rememberSession(key, value) {
@@ -34,6 +38,7 @@ export function useOnlineRoom() {
   const error = ref(null)
   const lastSeq = ref(0)
   const nickname = ref(recallSession('pinax.online.nickname') || '')
+  const selfMemberId = ref('')
 
   const seenEventIds = new Set()
   let ws = null
@@ -45,8 +50,9 @@ export function useOnlineRoom() {
 
   const isConnected = computed(() => connectionState.value === 'connected')
   const isHost = computed(() => {
-    if (!room.value || !nickname.value) return false
-    const self = members.find((m) => m.nickname === nickname.value)
+    if (!room.value) return false
+    const self = members.find((m) => m.id === selfMemberId.value)
+      || members.find((m) => m.nickname === nickname.value)
     return self?.role === 'host'
   })
 
@@ -64,7 +70,7 @@ export function useOnlineRoom() {
     if (evt.id) seenEventIds.add(evt.id)
     if (evt.seq != null && evt.seq > lastSeq.value) {
       lastSeq.value = evt.seq
-      rememberSession('pinax.online.lastSeq', String(evt.seq))
+      rememberSession(sequenceStorageKey(roomSlug.value), String(evt.seq))
     }
   }
 
@@ -93,12 +99,13 @@ export function useOnlineRoom() {
         break
       }
       case 'chat.message': {
-        chatMessages.push(evt.payload)
+        const actor = members.find((member) => member.id === evt.actorId)
+        chatMessages.push({ ...evt.payload, actorId: evt.actorId, nickname: evt.payload?.nickname || actor?.nickname || '' })
         events.push(evt)
         break
       }
       case 'action.proposed': {
-        proposals.push(evt.payload)
+        proposals.push({ ...evt.payload, id: evt.payload?.id || evt.payload?.proposalId })
         events.push(evt)
         break
       }
@@ -138,7 +145,7 @@ export function useOnlineRoom() {
     }
     if (snapshot.lastSeq != null) {
       lastSeq.value = snapshot.lastSeq
-      rememberSession('pinax.online.lastSeq', String(snapshot.lastSeq))
+      rememberSession(sequenceStorageKey(roomSlug.value), String(snapshot.lastSeq))
     }
   }
 
@@ -237,9 +244,6 @@ export function useOnlineRoom() {
         clearTimeout(connectTimer)
         connectTimer = null
       }
-      setConnectionState('connected')
-      reconnectAttempts = 0
-
       sendCommand('room.join', {
         roomSlug: roomSlug.value,
         nickname: nickname.value,
@@ -261,25 +265,28 @@ export function useOnlineRoom() {
           applySnapshot(serverMsg.payload || serverMsg)
           break
         case 'event.append':
-          if (serverMsg.payload) processEvent(serverMsg.payload)
+          if (serverMsg.payload || serverMsg.event) processEvent(serverMsg.payload || serverMsg.event)
           break
         case 'presence.sync':
-          if (Array.isArray(serverMsg.payload?.members)) {
+          if (Array.isArray(serverMsg.payload?.members || serverMsg.members)) {
             members.splice(0, members.length)
-            serverMsg.payload.members.forEach((m) => members.push(m))
+            ;(serverMsg.payload?.members || serverMsg.members).forEach((m) => members.push(m))
           }
           break
         case 'room.joined':
+          selfMemberId.value = serverMsg.payload?.memberId || serverMsg.memberId || ''
           applySnapshot(serverMsg.payload || serverMsg)
+          reconnectAttempts = 0
+          setConnectionState('connected')
           break
         case 'error':
-          error.value = serverMsg.payload?.message || '服务端错误'
-          if (serverMsg.payload?.code === 'room.not.found') {
+          error.value = serverMsg.payload?.message || serverMsg.message || '服务端错误'
+          if ((serverMsg.payload?.code || serverMsg.code) === 4040) {
             setConnectionState('disconnected')
             error.value = '房间不存在或已销毁（进程内房间重启后失效）'
-          } else if (serverMsg.payload?.code === 'join.rejected') {
+          } else if ((serverMsg.payload?.code || serverMsg.code) === 4030) {
             setConnectionState('disconnected')
-            error.value = serverMsg.payload?.message || '加入被拒绝'
+            error.value = serverMsg.payload?.message || serverMsg.message || '加入被拒绝'
           }
           break
         case 'pong':
@@ -313,7 +320,7 @@ export function useOnlineRoom() {
       nickname.value = nick
       rememberSession('pinax.online.nickname', nick)
     }
-    const savedSeq = recallSession('pinax.online.lastSeq')
+    const savedSeq = recallSession(sequenceStorageKey(slug))
     if (savedSeq) lastSeq.value = Number(savedSeq)
     seenEventIds.clear()
     events.splice(0, events.length)
@@ -350,9 +357,11 @@ export function useOnlineRoom() {
     sendCommand('room.snapshot.request', { lastSeq: lastSeq.value })
   }
 
-  onBeforeUnmount(() => {
-    leaveRoom()
-  })
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      leaveRoom()
+    })
+  }
 
   return {
     roomSlug,
@@ -366,6 +375,7 @@ export function useOnlineRoom() {
     error,
     lastSeq,
     nickname,
+    selfMemberId,
     isConnected,
     isHost,
     joinRoom,

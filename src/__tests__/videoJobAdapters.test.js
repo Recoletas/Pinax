@@ -15,8 +15,9 @@ function jsonResponse(status, payload) {
   }
 }
 
-describe('MiniMax adapter error normalization + secret redaction', () => {
-  it('normalizes errors across 401/403/429/timeout/4xx/5xx/unknown AND redacts apiKey in error details', async () => {
+describe('video provider adapters', () => {
+  it('covers error hygiene, public config, and generic async completion', async () => {
+    {
     const SECRET = 'sk-supersecret-xyz'
     // 1. Table-driven adapter.normalizeError for every status class.
     const cases = [
@@ -70,11 +71,8 @@ describe('MiniMax adapter error normalization + secret redaction', () => {
     expect(redactSecrets('Authorization: Bearer abc.def.ghi')).not.toContain('abc.def.ghi')
     expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).toContain('<redacted>')
     expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).not.toContain(SECRET)
-  })
-})
-
-describe('providerRegistry public-surface secret hygiene', () => {
-  it('exposes only declared public keys and redacts secrets in logged config', () => {
+    }
+    {
     const registry = createProviderRegistry({ logger: { info() {}, error() {} } })
     registry.register({
       id: 'minimax-video',
@@ -101,11 +99,8 @@ describe('providerRegistry public-surface secret hygiene', () => {
 
     // redactSecrets handles structured strings the same way.
     expect(redactSecrets('token=abc.def Authorization: Bearer xyz')).toContain('<redacted>')
-  })
-})
-
-describe('genericAsyncHttp submit→poll→succeeded end-to-end', () => {
-  it('genericAsyncHttp submit→poll→succeeded returns parsed output url', async () => {
+    }
+    {
     const fetchImpl = vi.fn(async (url, init = {}) => {
       const method = String(init.method || 'GET').toUpperCase()
       if (method === 'POST' && url.includes('/jobs')) {
@@ -135,5 +130,6 @@ describe('genericAsyncHttp submit→poll→succeeded end-to-end', () => {
     const pollResult = await adapter.poll({ providerJobId: 'g_42' }, config)
     expect(pollResult.status).toBe('succeeded')
     expect(pollResult.outputs[0].url).toBe('https://cdn.example.com/g.mp4')
+    }
   })
 })
