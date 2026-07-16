@@ -21,12 +21,19 @@ const DEVICE_IDENTITY_PATH = process.env.OPENCLAW_DEVICE_IDENTITY_PATH
 
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
+import { validateServerTaskType } from './agentTaskAllowlist.js'
+
 const ADVISOR_TASK_INSTRUCTIONS = {
   'advisor.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
   'advisor.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
   'advisor.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
   'advisor.review.chapter': '任务：章节体检。输出 summary/issues/action，每段简洁。',
-  'advisor.continue.light': '任务：轻续一句。只给一条短建议。'
+  'advisor.continue.light': '任务：轻续一句。只给一条短建议。',
+  'writing.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
+  'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
+  'writing.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
+  'writing.chapter.health': '任务：章节体检。输出 summary/issues/action，每段简洁。',
+  'writing.continue.light': '任务：轻续一句。只给一条短建议。'
 }
 
 function readGatewayTokenFromConfig() {
@@ -45,9 +52,31 @@ function resolveGatewayToken() {
   return (process.env.OPENCLAW_GATEWAY_TOKEN || readGatewayTokenFromConfig() || '').trim()
 }
 
+function serializeContextBlocks(blocks) {
+  if (!Array.isArray(blocks)) return ''
+  return blocks
+    .filter((b) => b && typeof b === 'object' && !b.truncated)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    .map((b) => {
+      if (typeof b.content === 'string') return b.content.trim()
+      if (b.content && typeof b.content === 'object') {
+        const text = b.content.text || b.content.contextText || b.content.blockText || ''
+        return text ? String(text).trim() : ''
+      }
+      try { return JSON.stringify(b.content) } catch { return '' }
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function serializeContext(context) {
   if (typeof context === 'string') return context.trim()
   if (context == null) return ''
+
+  if (typeof context === 'object' && context.version != null && Array.isArray(context.blocks)) {
+    return serializeContextBlocks(context.blocks)
+  }
+
   if (typeof context === 'object') {
     try {
       return JSON.stringify(context, null, 2)
@@ -60,7 +89,9 @@ function serializeContext(context) {
 
 function normalizeTaskType(taskType) {
   const value = String(taskType || '').trim()
-  return value || 'advisor.review.chapter'
+  if (!value) return 'advisor.review.chapter'
+  const validation = validateServerTaskType(value)
+  return validation.valid ? validation.taskType : value
 }
 
 function getTaskInstruction(taskType) {

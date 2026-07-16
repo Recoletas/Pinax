@@ -1,4 +1,6 @@
 import api from './api'
+import { adaptLegacyContextToEnvelope } from './agents/legacyAdapter'
+import { clipContextEnvelope, toPromptText } from './agents/agentContextEnvelope'
 
 export const ADVISOR_TASK_TYPES = {
   selection: 'advisor.fix.selection',
@@ -102,4 +104,36 @@ export async function requestAdvisorAdvice({ context, question, taskType, scope,
     options
   })
   return taskResult.advice
+}
+
+export function buildAgentEnvelope({
+  context,
+  question,
+  taskType,
+  scope = '',
+  target = null,
+  options = {},
+  mode,
+  maxChars
+} = {}) {
+  const { envelope, resolvedTaskType } = adaptLegacyContextToEnvelope({
+    context,
+    question,
+    scope,
+    taskType,
+    target,
+    options,
+    mode
+  })
+
+  const clipped = maxChars != null
+    ? clipContextEnvelope(envelope, maxChars)
+    : envelope
+
+  return {
+    envelope: clipped,
+    taskType: resolvedTaskType,
+    question: normalizeQuestion(question),
+    promptText: toPromptText(clipped)
+  }
 }

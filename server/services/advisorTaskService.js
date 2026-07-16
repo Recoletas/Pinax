@@ -1,14 +1,32 @@
+import { validateServerTaskType, isNewEnvelopePayload } from './agentTaskAllowlist.js'
+
 export const ADVISOR_TASK_MODES = {
   'advisor.fix.selection': 'replace',
   'advisor.fix.paragraph': 'replace',
   'advisor.close.thread': 'closure',
   'advisor.review.chapter': 'review',
-  'advisor.continue.light': 'continue'
+  'advisor.continue.light': 'continue',
+  'writing.fix.selection': 'replace',
+  'writing.fix.paragraph': 'replace',
+  'writing.close.thread': 'closure',
+  'writing.chapter.health': 'review',
+  'writing.continue.light': 'continue'
+}
+
+export function validateAdvisorTaskType(taskType) {
+  const validation = validateServerTaskType(taskType)
+  if (!validation.valid) {
+    const value = String(taskType || '').trim()
+    return value || 'advisor.review.chapter'
+  }
+  return validation.taskType
 }
 
 export function normalizeAdvisorTaskType(taskType) {
   const value = String(taskType || '').trim()
-  return value || 'advisor.review.chapter'
+  if (!value) return 'advisor.review.chapter'
+  const validation = validateServerTaskType(value)
+  return validation.valid ? validation.taskType : value
 }
 
 function stripJsonFence(text) {
