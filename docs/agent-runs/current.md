@@ -1,5 +1,25 @@
 # Agent Runs
 
+## 2026-07-16 Round 2 Integration
+
+所有窗口固定基线为 `635a439038a16a3306ab9b30c45c4d3412250957`，不得从 `main`、旧 worktree 或 stash 开工。Codex 负责最终合并，worker 不修改共享状态文档。
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| R2-A | Manual agent | `/tmp/pinax-r2-entry` / `round2/visible-online-entry` | 联机常驻入口与路由可发现性 | ready | [prompt](./2026-07-16-round2-integration/prompt-a-entry.md) |
+| R2-B | Manual agent | `/tmp/pinax-r2-canvas` / `round2/canvas-video` | 视频入口可见性与画布拖拽状态机 | ready | [prompt](./2026-07-16-round2-integration/prompt-b-canvas-video.md) |
+| R2-C | Manual agent | `/tmp/pinax-r2-advisor` / `round2/advisor-lifecycle` | 顾问任务、结果生命周期和可应用状态 | ready | [prompt](./2026-07-16-round2-integration/prompt-c-advisor.md) |
+| R2-D | Manual agent | `/tmp/pinax-r2-comic` / `round2/comic-production` | Notes HTML 修复与漫画页级制作逻辑 | ready | [prompt](./2026-07-16-round2-integration/prompt-d-comic.md) |
+
+### Write Locks
+
+- R2-A: `src/config/workbenchNav.js`, `src/layouts/AppShell.vue`, `src/components/workbench/ActivityBar.vue`, `src/components/workbench/SidePanel.vue`
+- R2-B: `src/pages/ProseEssay.vue`, `src/components/canvas/`, `src/composables/useCanvasViewport.js`, `src/services/canvasGeometry.js`, `src/__tests__/canvasOptimization.test.js`
+- R2-C: `src/composables/useAdvisor.js`, `src/components/AdvisorPanel.vue`, `src/services/advisor*.js`, `src/services/agents/`, advisor-related existing tests
+- R2-D: `src/pages/Notes.vue`, `src/components/media/ComicPageEditor.vue`, `src/components/media/ComicPagePreview.vue`, `src/services/media/comic*.js`
+
+约束：不启动 dev server，不新增测试用例总数，不修改 `docs/STATUS.md`、`docs/PLAN.md`、`docs/LOG.md`、`AGENTS.md`、主 store 或其他窗口文件。每个 worker 必须自审、运行定向验证、提交 scoped commit，并写不超过 400 字的结果摘要。
+
 ## 2026-07-16 Online / Agents / Canvas / Video
 
 执行包 A-E 已回收并由 Codex 完成 F 集成。版本异常、恢复过程和最终接线记录在 F 结果中。
