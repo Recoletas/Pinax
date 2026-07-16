@@ -56,6 +56,11 @@ export const SIDE_PANELS = {
         routeName: 'experience',
         label: '当前冒险',
         description: '继续已进入的现场'
+      },
+      {
+        routeName: 'online-experience',
+        label: '联机',
+        description: '创建或加入联机房间'
       }
     ]
   },
