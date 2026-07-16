@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto'
 
-const MAX_EVENTS = 100
-
 export function createEvent (room, type, actorId, payload, commandId = null) {
   const event = {
     id: 'evt_' + randomUUID().slice(0, 12),
@@ -29,9 +27,4 @@ export function getSnapshot (room) {
 export function isCommandDuplicate (room, commandId) {
   if (!commandId) return false
   return room.events.some(e => e.commandId === commandId)
-}
-
-export function compactEvents (room) {
-  if (room.events.length <= MAX_EVENTS) return
-  room.events = room.events.slice(-MAX_EVENTS / 2)
 }

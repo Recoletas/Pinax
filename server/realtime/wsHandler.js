@@ -10,8 +10,7 @@ const connections = new Map()
 
 export function setupWebSocket (wss) {
   wss.on('connection', (socket) => {
-    const connId = socket._socketId || 'ws_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
-    let connState = null
+    const connId = 'ws_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
 
     const conn = {
       id: connId,
@@ -25,22 +24,21 @@ export function setupWebSocket (wss) {
         }
       },
       broadcastToRoom (data, excludeSelf = false) {
-        if (!connState || !connState.room) return
+        if (!this.room) return
         for (const [cid, other] of connections) {
           if (excludeSelf && cid === connId) continue
-          if (other.room?.id === connState.room.id) {
+          if (other.room?.id === this.room.id) {
             other.send(data)
           }
         }
       },
       broadcastPresence () {
-        if (!connState?.room) return
-        const members = Array.from(connState.room.members.values()).map(m => m.toJSON())
-        this.broadcastToRoom(presenceSync(connState.room.id, members))
+        if (!this.room) return
+        const members = Array.from(this.room.members.values()).map(m => m.toJSON())
+        this.broadcastToRoom(presenceSync(this.room.id, members))
       }
     }
     connections.set(connId, conn)
-    socket._conn = conn
 
     socket.send(serverReady(null))
 
@@ -48,9 +46,7 @@ export function setupWebSocket (wss) {
       const elapsed = Date.now() - conn.lastHeartbeat
       if (elapsed > HEARTBEAT_TIMEOUT_MS) {
         socket.terminate()
-        return
       }
-      conn.send(serialize({ type: 'pong', sentAt: Date.now() }))
     }, HEARTBEAT_INTERVAL_MS)
 
     socket.on('message', (raw) => {

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { getRoomBySlug, createRoom, listRooms } from '../realtime/RoomRegistry.js'
+import { validateNickname } from '../realtime/validators.js'
 
 const router = Router()
 
@@ -11,12 +12,16 @@ router.get('/api/rooms/:roomSlug', (req, res) => {
 
 router.post('/api/rooms', (req, res) => {
   const { slug, hostNickname } = req.body || {}
-  if (!slug || !hostNickname) {
-    return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: '缺少 roomSlug 或 nickname' })
+  if (!slug || typeof slug !== 'string' || slug.trim().length < 1) {
+    return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: '缺少房间标识' })
+  }
+  const nickValid = validateNickname(hostNickname)
+  if (!nickValid.ok) {
+    return res.status(400).json({ error: nickValid.error, message: nickValid.message })
   }
   const existing = getRoomBySlug(slug)
   if (existing) return res.status(409).json({ error: 'ERR_ROOM_EXISTS', message: '该 slug 已被占用' })
-  const room = createRoom({ slug, hostNickname })
+  const room = createRoom({ slug, hostNickname: nickValid.value })
   return res.status(201).json(room.toPublicSummary())
 })
 
