@@ -91,21 +91,24 @@
   --accent-emerald: #2d9978;
   --accent-emerald-light: rgba(45, 153, 120, 0.12);
 
-  /* Kao / archive-folio visual system */
-  --archive-paper: #f5ebdd;
-  --archive-paper-strong: #e8d9c3;
-  --archive-paper-soft: #fbf4e9;
-  --archive-ink: #241a15;
-  --archive-ink-soft: #5f5348;
-  --archive-olive: #2f6e64;
-  --archive-olive-strong: #173c37;
-  --archive-gold: #b78a34;
-  --archive-gold-soft: #e0ae68;
-  --archive-rose: #944f5b;
-  --archive-photo: #264944;
-  --hairline-soft: rgba(122, 111, 96, 0.18);
-  --hairline-accent: rgba(183, 138, 52, 0.40);
-  --hairline-rose: rgba(147, 75, 87, 0.40);
+  /* Kao / archive-folio visual system (default = blue-white dossier).
+     kao.css keeps a warm override gated by .theme-kao. Switching the
+     theme variant (.theme-legacy / .theme-kao) re-binds these tokens
+     to different palettes without touching page-level CSS. */
+  --archive-paper: #f3f6fb;
+  --archive-paper-strong: #e1e9f4;
+  --archive-paper-soft: #fbfdfe;
+  --archive-ink: #0f2236;
+  --archive-ink-soft: #4a637d;
+  --archive-olive: #1f4d7a;
+  --archive-olive-strong: #0d2c4d;
+  --archive-gold: #7d97b0;
+  --archive-gold-soft: #c1d2e4;
+  --archive-rose: #a23a4a;
+  --archive-photo: #1a3a5e;
+  --hairline-soft: rgba(74, 99, 125, 0.18);
+  --hairline-accent: rgba(125, 151, 176, 0.40);
+  --hairline-rose: rgba(162, 58, 74, 0.40);
   --fs-display: clamp(120px, 18vw, 220px);
   --fs-mono: 10px;
   --fs-sm: 12px;
@@ -162,21 +165,21 @@
   --accent-emerald: #5bc9a3;
   --accent-emerald-light: rgba(91, 201, 163, 0.15);
 
-  /* Kao / archive-folio visual system */
-  --archive-paper: #eee3d2;
-  --archive-paper-strong: #d8c6ae;
-  --archive-paper-soft: #f4e9d9;
-  --archive-ink: #17110d;
-  --archive-ink-soft: #c1b29e;
-  --archive-olive: #57a092;
-  --archive-olive-strong: #294c47;
-  --archive-gold: #d8ab54;
-  --archive-gold-soft: #f0c271;
-  --archive-rose: #cb7a88;
-  --archive-photo: #17322f;
-  --hairline-soft: rgba(216, 198, 174, 0.18);
-  --hairline-accent: rgba(216, 171, 84, 0.42);
-  --hairline-rose: rgba(203, 122, 136, 0.40);
+  /* Kao / archive-folio visual system (dark = blue-steel night-reading) */
+  --archive-paper: #11202e;
+  --archive-paper-strong: #1a2c3d;
+  --archive-paper-soft: #162636;
+  --archive-ink: #d8e3f0;
+  --archive-ink-soft: #8aa3bd;
+  --archive-olive: #4f8bc4;
+  --archive-olive-strong: #2b5d8f;
+  --archive-gold: #6c8caf;
+  --archive-gold-soft: #3d5a7a;
+  --archive-rose: #b04a5c;
+  --archive-photo: #0d1c2a;
+  --hairline-soft: rgba(138, 163, 189, 0.18);
+  --hairline-accent: rgba(108, 140, 175, 0.42);
+  --hairline-rose: rgba(176, 74, 92, 0.40);
   --fs-display: clamp(120px, 18vw, 220px);
   --fs-mono: 10px;
   --fs-sm: 12px;
@@ -679,11 +682,19 @@ body {
 .overflow-hidden { overflow: hidden; }
 .overflow-auto { overflow: auto; }
 
-/* RP Text Styles - for v-html injected content */
+/* RP Text Styles - for v-html injected content.
+   E19 (2026-06-27): all .rp-* rules re-bound to var(--archive-*)
+   tokens. No raw hex, no forced override flags, no purple/violet/magenta.
+   Themes (.theme-legacy / .theme-kao) layer their own token
+   rebindings on top; the global fallback uses default-mode archive
+   tokens (warm archive-folio palette) so unthemed contexts still
+   read as restrained dossier. Distinction is morphological
+   (italic / underline / size), not rainbow color.
+   Backgrounds are restricted to 4-8% tint hover states only. */
 .rp-dialogue {
-  color: color-mix(in srgb, var(--text-primary) 88%, #92400e);
   font-style: italic;
   font-weight: 600;
+  color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive-strong));
 }
 
 .rp-dialogue-quote {
@@ -692,71 +703,57 @@ body {
   color: inherit;
 }
 
-.rp-dialogue-quote-soft {
-  color: #0f766e;
-}
-
-.rp-dialogue-quote-warm {
-  color: #9a6a2f;
-}
-
+.rp-dialogue-quote-soft,
+.rp-dialogue-quote-warm,
 .rp-dialogue-quote-neutral {
-  color: #536274;
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
 }
 
-.theme-dark .rp-dialogue-quote {
-  color: inherit;
-}
-
-.theme-dark .rp-dialogue-quote-soft {
-  color: #5eead4;
-}
-
-.theme-dark .rp-dialogue-quote-warm {
-  color: #fbbf24;
-}
-
+.theme-dark .rp-dialogue-quote-soft,
+.theme-dark .rp-dialogue-quote-warm,
 .theme-dark .rp-dialogue-quote-neutral {
-  color: #93c5fd;
+  color: color-mix(in srgb, var(--archive-ink-soft) 92%, transparent);
 }
 
 .rp-action {
   font-style: italic;
-  color: #059669 !important;
   font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink) 86%, var(--archive-rose));
 }
 
 .rp-world-intro {
   font-style: italic;
-  color: #6d28d9 !important;
-  display: block;
-  padding: 8px 12px;
-  background: #f3e8ff;
-  border-radius: 6px;
-  border-left: 3px solid #7c3aed;
-  margin-bottom: 12px;
+  color: color-mix(in srgb, var(--archive-ink) 88%, var(--archive-olive));
 }
 
 .rp-thought {
-  color: #0891b2 !important;
-  font-style: italic !important;
+  font-style: italic;
   font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink-soft) 84%, transparent);
 }
 
 .rp-location {
-  color: #be123c !important;
   font-weight: 600;
+  text-decoration: underline dotted color-mix(in srgb, var(--archive-olive) 60%, transparent);
+  text-underline-offset: 3px;
+  color: var(--archive-olive-strong);
 }
 
 .rp-time {
-  color: #b45309 !important;
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--archive-ink-soft) 80%, transparent);
 }
 
 .rp-item {
-  color: #7c3aed !important;
   font-weight: 600;
+  text-decoration: underline solid color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  text-underline-offset: 3px;
+  color: var(--archive-rose);
+  cursor: pointer;
 }
 
 .rp-dialogue.clickable {
@@ -765,57 +762,56 @@ body {
 }
 
 .rp-dialogue.clickable:hover {
-  color: #7c2d12 !important;
-  text-shadow: 0 0 10px color-mix(in srgb, #f59e0b 20%, transparent);
+  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
+  text-shadow: 0 0 10px color-mix(in srgb, var(--archive-gold) 22%, transparent);
 }
 
 .rp-dialogue.mechanism-trigger {
-  color: #92400e !important;
   font-weight: 800;
-  text-shadow: 0 0 12px color-mix(in srgb, #f59e0b 26%, transparent);
+  color: color-mix(in srgb, var(--archive-olive-strong) 86%, var(--archive-ink));
+  text-shadow: 0 0 12px color-mix(in srgb, var(--archive-gold) 28%, transparent);
 }
 
 .rp-dialogue.mechanism-trigger::before {
   content: '◆';
   margin-right: 0.22em;
-  color: #d97706;
   font-style: normal;
+  color: var(--archive-rose);
 }
 
 .rp-dialogue.mechanism-trigger::after {
   content: ' 触发';
-  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.72em;
   font-style: normal;
   font-weight: 700;
-  color: #b45309;
   white-space: nowrap;
+  color: var(--archive-rose);
 }
 
 .theme-dark .rp-dialogue.mechanism-trigger {
-  color: #fbbf24 !important;
+  color: var(--archive-rose);
 }
 
 .theme-dark .rp-dialogue.clickable:hover {
-  color: #fbbf24 !important;
+  color: var(--archive-rose);
 }
 
 .rp-item.clickable {
   cursor: pointer;
-  transition: color 0.15s, text-shadow 0.15s;
+  transition: color 0.15s, background-color 0.15s;
 }
 
 .theme-dark .rp-item.clickable {
-  color: #a78bfa !important;
+  color: var(--archive-rose);
 }
 
 .rp-item.clickable:hover {
-  color: #6d28d9 !important;
-  text-shadow: 0 0 8px color-mix(in srgb, #7c3aed 18%, transparent);
+  background-color: color-mix(in srgb, var(--archive-rose) 8%, transparent);
 }
 
 .theme-dark .rp-item.clickable:hover {
-  color: #c4b5fd !important;
+  background-color: color-mix(in srgb, var(--archive-rose) 10%, transparent);
 }
 
 @media (max-width: 768px) {

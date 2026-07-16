@@ -138,6 +138,7 @@ import BookmarkButton from '../../components/folio/BookmarkButton.vue'
 import {
   buildPlayableWorldActionHooks,
   clearPlayableWorldEntryIntent,
+  consumePlayableWorldHistoryIntent,
   getPlayableWorldEntryIntent
 } from '../../services/playableWorldEntry'
 
@@ -316,6 +317,7 @@ async function ensureWorldAdventureSession({ initIfEmpty = true } = {}) {
         worldbookId,
         inheritRuntimeState: false,
       })
+      applyPlayableWorldHistoryPatch(getPlayableWorldEntryIntent())
     }
 
     if (initIfEmpty && (!gameStore.messages || gameStore.messages.length === 0)) {
@@ -325,6 +327,25 @@ async function ensureWorldAdventureSession({ initIfEmpty = true } = {}) {
     return true
   } finally {
     isStarting.value = false
+  }
+}
+
+function applyPlayableWorldHistoryPatch(intent) {
+  const patches = consumePlayableWorldHistoryIntent(intent)
+  if (!patches) return
+  if (patches.worldMapPatch) {
+    gameStore.saveWorldMapState({ ...gameStore.worldMapState, ...patches.worldMapPatch })
+  }
+  if (patches.plotJournalEntry) {
+    gameStore.appendPlotJournal(patches.plotJournalEntry)
+  }
+  if (patches.factionRelationsPatch) {
+    for (const [name, value] of Object.entries(patches.factionRelationsPatch)) {
+      gameStore.setFactionRelation(name, value)
+    }
+  }
+  if (patches.runtimeEvent) {
+    gameStore.appendRuntimeEvent(patches.runtimeEvent)
   }
 }
 

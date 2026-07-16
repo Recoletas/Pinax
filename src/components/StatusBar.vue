@@ -9,6 +9,37 @@
       <span>在场人物</span>
     </div>
 
+    <template v-if="railMode === 'compact' || railMode === 'codex'">
+      <div class="status-rail-summary">
+        <div class="status-rail-row">
+          <span>主角</span>
+          <strong>{{ isCharacterEmpty ? '未登记角色' : playerName }}</strong>
+        </div>
+        <p
+          v-if="(isCharacterEmpty || characterTraits.length === 0) && !characterGoal"
+          class="status-rail-hint"
+        >推进冒险后，会在这里补上主角的心境、性格或目标。</p>
+        <div v-else class="status-rail-trait">
+          <span v-if="characterTraits.length > 0">性格：{{ characterTraits.slice(0, 3).join(' / ') }}</span>
+          <span v-if="characterGoal">目标：{{ characterGoal.split('\n')[0].slice(0, 22) }}</span>
+        </div>
+        <ul v-if="isDemoMode" class="demo-characters" aria-label="本场景在场人物">
+          <li v-for="char in meta.demoScene?.characters || []" :key="char.id" class="demo-character">
+            <span class="demo-character__name">{{ char.name }}</span>
+            <span class="demo-character__role">{{ char.role === 'narrator' ? '旁白' : '在场' }}</span>
+          </li>
+        </ul>
+        <div class="status-rail-actions">
+          <button
+            type="button"
+            class="status-rail-detail-btn"
+            @click="emitOpenDetail"
+          >查看详情</button>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
     <!-- UI-E13-BIG1: demo mode — show the local demo scene's
          characters as "可推进状态" (not as "已发生剧情"). The names
          come from useLocalDemo via useWorkstationMeta. Hidden when
@@ -20,45 +51,17 @@
       </li>
     </ul>
 
-    <!-- UI-E11-C: 0-data 时间 inline hint — 不再是空 stat 堆叠.
-         当 currentEraName + year/month/day 全空时, 显示档案员批注风格 inline hint,
-         提示 user 点击展开时间设置 (跟 record-book "未登记" 语义一致). -->
-    <div
-      v-if="isTimeEmpty"
-      class="current-time current-time--empty"
-      @click="showTimeDetail = true"
-    >
-      <div class="time-icon">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 1a5 5 0 110 10A5 5 0 017 2z"/>
-          <path d="M7 4v3l2 2"/>
-        </svg>
-      </div>
-      <div class="time-info">
-        <span class="time-era">未登记 · 空白</span>
-        <span class="time-value time-value--hint">点击设定纪年与时间</span>
-      </div>
-      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
-        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
-      </svg>
-    </div>
-
-    <!-- 当前时间显示 -->
-    <div v-else class="current-time" @click="showTimeDetail = true">
-      <div class="time-icon">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 1a5 5 0 110 10A5 5 0 017 2z"/>
-          <path d="M7 4v3l2 2"/>
-        </svg>
-      </div>
-      <div class="time-info">
-        <span class="time-era">{{ currentEraName || '公元' }}</span>
-        <span class="time-value">{{ currentTimeDisplay }}</span>
-      </div>
-      <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
-        <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
-      </svg>
-    </div>
+    <!-- UI-E18-B round 3: 时间 row removed from FULL mode.
+         时间 is now its own 4th codex section (Experience.vue codexSections),
+         so the FULL mode character detail should not re-host a 时间 row.
+         Previously the time-empty inline hint (未登记 + 点此设...) opened
+         a TimeSettings overlay (Teleport to body, z-index 1000) — when the
+         FULL mode is mounted inside the codex detail drawer (z-index 2400),
+         the overlay ended up behind the drawer backdrop and was invisible /
+         unclickable, forcing the user to close the drawer. The user should
+         access time settings via the 时间 codex section's "查看" micro-CTA,
+         which opens TimeSettings in inline mode (no Teleport, no z-index
+         collision). -->
 
     <!-- 角色概览 - 点击打开详情 -->
     <!-- UI-E11-C: 0-data 角色 inline hint — 当 playerName='主角' default AND 0 traits AND 0 description AND mood=50 (default),
@@ -74,7 +77,7 @@
       <div class="profile-info">
         <div class="character-name character-name--hint">未登记角色</div>
         <div class="mood-compact">
-          <span class="mood-label mood-label--hint">点击设定主角名 / 心境 / 性格</span>
+          <span class="mood-label mood-label--hint">设定主角</span>
         </div>
       </div>
       <svg class="expand-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
@@ -100,67 +103,10 @@
         <path d="M2 3.5L5 6.5L8 3.5" stroke-width="1.5"/>
       </svg>
     </div>
+    </template>
 
-    <!-- 时间设置弹窗 -->
-    <div v-if="showTimeDetail" class="detail-overlay" @click.self="showTimeDetail = false">
-      <div class="detail-modal">
-        <div class="modal-header">
-          <span>时间设定</span>
-          <button class="close-btn" @click="showTimeDetail = false">×</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="detail-section">
-            <div class="section-title">历法体系</div>
-            <div class="era-presets">
-              <button
-                v-for="p in presetEras"
-                :key="p.id"
-                :class="['era-preset-btn', { active: currentEraId === p.id }]"
-                @click="selectEra(p)"
-              >
-                {{ p.name }}
-              </button>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="currentEraId !== 'gregorian'">
-            <div class="section-title">当前纪年</div>
-            <div class="era-display">
-              <input
-                v-model="editEraName"
-                type="text"
-                class="era-input"
-                placeholder="输入年号，如：康熙、令和、大正..."
-              />
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="section-title">当前时间</div>
-            <div class="time-inputs">
-              <div class="time-input-group">
-                <label>年</label>
-                <input v-model="editYear" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="year-input" placeholder="年份" />
-              </div>
-              <div class="time-input-group">
-                <label>月</label>
-                <input v-model="editMonth" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="month-input" placeholder="月份" />
-              </div>
-              <div class="time-input-group">
-                <label>日</label>
-                <input v-model="editDay" :type="currentEraId === 'gregorian' ? 'number' : 'text'" class="day-input" placeholder="日期" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button class="btn" @click="showTimeDetail = false">关闭</button>
-          <button class="btn primary" @click="saveTime">保存</button>
-        </div>
-      </div>
-    </div>
+    <!-- 时间设置弹窗 — E18-B 抽出为独立 TimeSettings.vue 组件 -->
+    <TimeSettings :open="showTimeDetail" @close="showTimeDetail = false" />
 
     <!-- 角色详情弹窗 -->
     <div v-if="showDetail" class="detail-overlay" @click.self="closeModal">
@@ -302,11 +248,27 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { useWorkstationMeta } from '../composables/useWorkstationMeta'
+import TimeSettings from './TimeSettings.vue'
+
+const props = defineProps({
+  railMode: {
+    type: String,
+    default: ''
+  }
+})
+
+const emit = defineEmits(['open-detail'])
+
+function emitOpenDetail() {
+  emit('open-detail', 'characters')
+}
 
 const gameStore = useGameStore()
 const meta = useWorkstationMeta()
 const isDemoMode = computed(() => meta.isDemoMode.value)
 const showDetail = ref(false)
+// showTimeDetail stays — other code paths (e.g. legacy SettingsPopup) can
+// still trigger the TimeSettings overlay modal via StatusBar.
 const showTimeDetail = ref(false)
 const activeTab = ref('info')
 const newTrait = ref('')
@@ -318,25 +280,6 @@ const editingGender = ref('')
 const editingAge = ref('')
 const importText = ref('')
 const importError = ref('')
-
-// Time settings
-const currentEraId = ref('custom')
-const currentEraName = ref('')
-const currentYear = ref(2024)
-const currentMonth = ref(1)
-const currentDay = ref(1)
-
-// Edit fields
-const editEraName = ref('')
-const editYear = ref(2024)
-const editMonth = ref(1)
-const editDay = ref(1)
-
-const presetEras = [
-  { id: 'custom', name: '自定义' },
-  { id: 'chinese', name: '年号' },
-  { id: 'gregorian', name: '公元' }
-]
 
 const moodOptions = [
   { value: 15, color: '#6b7280', label: '悲伤' },
@@ -378,18 +321,6 @@ const moodGradient = computed(() => {
   return color
 })
 
-const currentTimeDisplay = computed(() => {
-  // 如果没有时间信息，显示占位符
-  if (!currentYear.value && !currentMonth.value && !currentDay.value) {
-    return '点击设置时间'
-  }
-  const eraStr = currentEraName.value ? `${currentEraName.value} ` : ''
-  const year = currentYear.value || '?'
-  const month = currentMonth.value || '?'
-  const day = currentDay.value || '?'
-  return `${eraStr}${year}年${month}月${day}日`
-})
-
 function interpolateColor(color1, color2, ratio) {
   const c1 = hexToRgb(color1)
   const c2 = hexToRgb(color2)
@@ -423,14 +354,9 @@ const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.
 const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')
 
 // UI-E11-C: 0-data inline hint gates. Truthy 0 data -> show inline hint
-// instead of empty stat stacks. Both functions stay pure reads of existing
-// reactive state — no store mutation.
-const isTimeEmpty = computed(() => {
-  return !currentEraName.value
-    && !currentYear.value
-    && !currentMonth.value
-    && !currentDay.value
-})
+// instead of empty stat stacks. The time-empty gate moved out — time is
+// now its own 4th codex section (Experience.vue codexSections), so this
+// component only owns the character-empty hint.
 const isCharacterEmpty = computed(() => {
   const hasName = !!(editingName.value || gameStore.playerCharacter?.name)
   const hasAvatar = !!playerAvatar.value
@@ -441,7 +367,6 @@ const isCharacterEmpty = computed(() => {
 
 onMounted(() => {
   syncCharacterData()
-  syncTimeData()
 })
 
 function loadCharacterData() {
@@ -462,54 +387,8 @@ function syncCharacterData() {
   editingAge.value = data.age || ''
 }
 
-function loadTimeData() {
-  if (typeof gameStore.loadWritingTime === 'function') {
-    gameStore.loadWritingTime()
-  }
-  syncTimeData()
-}
-
-function syncTimeData() {
-  const data = gameStore.writingTime || {}
-  currentEraId.value = data.eraId || 'custom'
-  currentEraName.value = data.eraName || ''
-  currentYear.value = data.year || ''
-  currentMonth.value = data.month || ''
-  currentDay.value = data.day || ''
-  editEraName.value = currentEraName.value
-  editYear.value = currentYear.value
-  editMonth.value = currentMonth.value
-  editDay.value = currentDay.value
-}
-
 // Watch for store changes to update UI reactively
 watch(() => gameStore.writingCharacter, syncCharacterData, { deep: true })
-watch(() => gameStore.writingTime, syncTimeData, { deep: true })
-
-function saveTime() {
-  currentEraName.value = editEraName.value
-  currentYear.value = editYear.value || '1'
-  currentMonth.value = editMonth.value || '1'
-  currentDay.value = editDay.value || '1'
-
-  const nextTime = {
-    eraId: currentEraId.value,
-    eraName: currentEraName.value,
-    year: currentYear.value,
-    month: currentMonth.value,
-    day: currentDay.value
-  }
-  if (typeof gameStore.saveWritingTime === 'function') {
-    gameStore.saveWritingTime(nextTime)
-  } else {
-    gameStore.writingTime = nextTime
-  }
-  showTimeDetail.value = false
-}
-
-function selectEra(era) {
-  currentEraId.value = era.id
-}
 
 function closeModal() {
   showDetail.value = false
@@ -594,26 +473,10 @@ function saveCharacter() {
 
 .status-icon { display: flex; align-items: center; color: var(--accent); }
 
-/* 当前时间 */
-.current-time {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; background: var(--bg-tertiary);
-  border-radius: 6px; cursor: pointer; transition: all 0.15s;
-  margin-bottom: 10px;
-}
-.current-time:hover { background: var(--bg-hover); }
-
-.time-icon { color: var(--text-muted); display: flex; align-items: center; }
-
-.time-info { flex: 1; min-width: 0; }
-
-.time-era {
-  font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 1px;
-}
-
-.time-value {
-  font-size: 12px; color: var(--text-primary); display: block;
-}
+/* UI-E18-B round 3: 时间 row + 0-data hint CSS removed from FULL
+   mode — time is now its own 4th codex section in Experience.vue. Keep
+   .compact-profile--empty + .character-name--hint which are still wired
+   to 0-data inline hint. */
 
 /* 角色卡片 */
 .compact-profile {
@@ -625,19 +488,13 @@ function saveCharacter() {
 
 /* UI-E11-C: 0-data inline hint — 当档案为空时,显示 dashed outline +
    字符色调 hint, 而不是 SaaS stat 卡片堆叠 */
-.current-time--empty,
 .compact-profile--empty {
   border: 1px dashed var(--border);
   background: transparent;
 }
-.current-time--empty:hover,
 .compact-profile--empty:hover {
   background: var(--bg-hover);
   border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
-}
-.time-value--hint {
-  color: var(--text-muted);
-  font-style: italic;
 }
 .character-name--hint {
   color: var(--text-muted);
@@ -898,6 +755,100 @@ function saveCharacter() {
 
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-hover); }
+
+.status-rail-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.status-rail-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.status-rail-row span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.status-rail-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.status-rail-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+/* UI-E18: codex rail summary — 2-3 行精选摘要 (时间 / 主角 / 性格·目标)
+   + "查看详情" CTA. 卡片不可点 (无 hover pointer), 详情走 deliberate
+   "查看详情" 按钮 → emit('open-detail'). */
+.status-rail-hint {
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.status-rail-trait {
+  display: grid;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.status-rail-trait span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-rail-actions {
+  display: flex;
+}
+
+.status-rail-detail-btn {
+  width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s;
+}
+
+.status-rail-detail-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+}
 
 /* Kao record-book overrides — internal modals (时间设置 / 角色详情)
    become "翻开的案卷第 N 页" (a dossier drawer page), not SaaS settings

@@ -15,13 +15,16 @@ const RESOLVERS = {
     kao: () => import('../../pages/OpeningPage.vue'),
     // pre-kao had no standalone /opening route — opening UI lived in /experience.
     // Legacy variant thus aliases to the legacy Experience view so users who
-    // pick "经典 · 暗色" and land on /opening see the pre-kao behavior,
-    // not the kao OpeningPage by mistake.
+    // pick "主题2" (legacy variant) and land on /opening see the pre-kao
+    // behavior, not the kao OpeningPage by mistake.
     legacy: () => import('../../pages/legacy/Experience.vue'),
   },
   experience: {
     kao: () => import('../../pages/Experience.vue'),
-    legacy: () => import('../../pages/legacy/Experience.vue'),
+    // Theme 2 is now a blue-white archive skin for the current workbench,
+    // not the frozen pre-kao Experience snapshot. Keep the same component
+    // tree so migrated right-rail / dialogue fixes render in both themes.
+    legacy: () => import('../../pages/Experience.vue'),
   },
 }
 

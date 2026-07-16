@@ -51,7 +51,9 @@ export function useWorkstationMeta() {
   // UI-E13-BIG1: currentTask now prefers the demo scene's title
   // when the workstation is in demo mode. When the user has a real
   // active goal (gameStore.goals), that wins. When neither, fall
-  // back to "未登记" (existing honest placeholder).
+  // back to "暂无任务" (K2 2026-06-27: replaced the abstract
+  // "未登记" with a plain-fact statement — no more archived-fiction
+  // vocabulary in the workstation chrome).
   const currentTask = computed(() => {
     const demoMode = totalCount.value === 0
     if (demoMode) {
@@ -61,7 +63,7 @@ export function useWorkstationMeta() {
     const goals = gameStore.goals || []
     const active = goals.find((g) => g && g.status === 'active' && (g.title || g.label))
     if (active) return String(active.title || active.label)
-    return '未登记'
+    return '暂无任务'
   })
 
   // UI-E12-FIX1: currentSection is the index of the latest message
@@ -104,7 +106,11 @@ export function useWorkstationMeta() {
       // UI-E13-BIG1: anchor reflects demo scene location in demo mode
       const scene = demo.currentScene.value
       if (scene) return `${scene.location} · 本地演示 ${demoEventIndex.value + 1}/${demoEventsCount.value}`
-      return `档案空白 · 卷 ${currentVolume.value} · 等候第 1 条`
+      // K2 (2026-06-27): "档案空白 · 卷 N · 等候第 1 条" replaced
+      // with a plain-fact "暂无记录" — drop the archived-fiction
+      // "等候 / 空白" tone that read as a placeholder skit, not
+      // a product message.
+      return `暂无记录`
     }
     return `卷 ${currentVolume.value} · 第 ${currentSection.value} 条 / 共 ${totalCount.value} 条`
   })

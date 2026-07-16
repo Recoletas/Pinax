@@ -1,15 +1,14 @@
 # 文档导航
 
-> 先读方向，再读执行骨架，再按需打开专题计划。当前最重要的变化是：**`character-driven` 已经是已采纳方向，`playable-worldbook` 现在是执行骨架。**
+> 当前只维护一份产品级路线图。旧专题和 agent run 只作为研究、决策与验证证据。
 
 ## 先读这几份
 
 | 文档 | 用途 |
 | --- | --- |
-| [PLAN.md](./PLAN.md) | 当前方向、执行模型、冻结区和近期重点 |
-| [plan/character-driven-arc.md](./plan/character-driven-arc.md) | 已采纳的产品方向：角色化 AI GM |
-| [plan/playable-worldbook-roadmap.md](./plan/playable-worldbook-roadmap.md) | 迁移期执行骨架：runtime / content / trigger 主链 |
-| [plan/playable-worldbook-parallel-plan.md](./plan/playable-worldbook-parallel-plan.md) | 接下来并行分工与避冲突边界 |
+| [PLAN.md](./PLAN.md) | 当前工程边界与执行模型 |
+| [plan/pinax-integrated-product-roadmap.md](./plan/pinax-integrated-product-roadmap.md) | 当前唯一产品级路线图：设定、地理、历史、冒险、写作与视听输出 |
+| [STATUS.md](./STATUS.md) | 当前 session 状态、下一步和最近验证 |
 | [LOG.md](./LOG.md) | 近期用户可感知变化和文档定位调整 |
 | [src/code-map.md](./src/code-map.md) | 代码 owning surface，找行为负责人 |
 | [src/known-issues.md](./src/known-issues.md) | 当前风险、已知缺口和稳定限制 |
@@ -29,7 +28,6 @@
 | [engineering/agent-orchestration-workflow.md](./engineering/agent-orchestration-workflow.md) | Codex / Claude 分工、worker 看板、上下文保护和验收规则 |
 | [engineering/visual-alignment-workflow.md](./engineering/visual-alignment-workflow.md) | direct 标注、视觉切片、截图评分和前端视觉对齐流程 |
 | [operations/troubleshooting.md](./operations/troubleshooting.md) | 运维与故障定位 |
-| [superpowers/README.md](./superpowers/README.md) | 设计草案 / 执行计划 / agent 基础设施材料；不是当前事实入口 |
 
 ## 本地文档站
 
@@ -42,7 +40,6 @@ VitePress 源码位于 [src/](./src/)，入口页是 [src/index.md](./src/index.
 
 ## 维护规则
 
-- “方向”只在 `character-driven-arc.md` 里定。
-- “底层主链”只在 `playable-worldbook-roadmap.md` 里定。
-- “谁接下来改什么”只在 `playable-worldbook-parallel-plan.md` 里定。
-- 用户手册描述当前可用事实，不提前把未实现的新 UI 写成既成事实。
+- 产品优先级只在 `plan/pinax-integrated-product-roadmap.md` 里定。
+- 当前代码事实和风险分别回填 `src/` 文档与 `src/known-issues.md`。
+- 用户手册只描述当前可用事实，不把未实现能力写成既成事实。

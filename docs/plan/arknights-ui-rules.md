@@ -1,7 +1,7 @@
 # Arknights UI Design Language — Concrete CSS-Translatable Rules
 
 ## 1. Signature visual elements
-Arknights UI = **dark, low-saturation technical chrome (near-black + dark grey base) with a single warm orange-red accent (`#E60012`-ish) used as functional signal, not decoration**; character portrait is a **constant vertical presence** on the left rail (not a card, not framed — sits flush against the surface with a 1px hairline); the whole shell reads as **workbench / tactical console / 干员档案**, not marketing site. Evidence: `kao-ui-direction.md:13-19` names the visual anchor as "档案册 / 相片拼贴" (we are pulling a sibling direction, not the literal Kao look), and `character-driven-arc.md:82-88` (P5R anchor) + `character-driven-arc.md:120` (oklch deep blue-grey base) tell us we want a *technical* dark shell, not the Kao paper warmth.
+Arknights UI = **dark, low-saturation technical chrome (near-black + dark grey base) with a single warm orange-red accent (`#E60012`-ish) used as functional signal, not decoration**; character portrait is a **constant vertical presence** on the left rail (not a card, not framed — sits flush against the surface with a 1px hairline); the whole shell reads as **workbench / tactical console / 干员档案**, not marketing site. Evidence: `kao-ui-direction.md:13-19` names the visual anchor as "档案册 / 相片拼贴" (we are pulling a sibling direction, not the literal Kao look); this document is a visual comparison only, not an active product direction.
 
 ## 2. Color system
 - Base canvas: `#1A1A1F` (near-black, slight cool)
@@ -65,4 +65,4 @@ Arknights UI = **dark, low-saturation technical chrome (near-black + dark grey b
 8. **Surface layering**: panels = gradient `linear-gradient(180deg,#22232A,#1E1F26)`; never use `box-shadow`; raised state = `--raised` background swap.
 
 ## Research limitations
-Firecrawl returned 401 (auth) and WebSearch returned 400 in this environment, so live URL fetches failed. The hex values, sizing, and component patterns are drawn from documented public design analyses of HyperGryph's Arknights client and should be re-verified against current in-game screenshots before Phase 1B token lock-in, per `character-driven-arc.md:373-375` ("外部风格资料的最新版本核对 — 仍未验证").
+Firecrawl returned 401 (auth) and WebSearch returned 400 in this environment, so live URL fetches failed. The hex values, sizing, and component patterns are drawn from documented public design analyses of HyperGryph's Arknights client and should be re-verified before any future visual decision.

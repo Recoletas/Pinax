@@ -4,6 +4,7 @@ import {
   getSettingField,
   normalizeStructuredSettings
 } from '../services/settingPanelSchema'
+import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -23,6 +24,26 @@ function decodeStored(raw, fallback) {
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
+}
+
+/**
+ * 归一化 geoHistory 容器。
+ * - 缺失 / 空 → null（OpeningPage 可据此优雅隐藏历史节点区）。
+ * - 数组 → { nodes: [...] }。
+ * - 对象 → 保留全部生成器字段，仅把 nodes 强制成数组。
+ * 节点内部字段不裁剪：历史/地图窗口的生成器可自由扩展节点结构，
+ * 消费方（playableWorldEntry）按需容错读取。
+ */
+function normalizeGeoHistory(raw) {
+  const source = decodeStored(raw, null)
+  if (source == null) return null
+  if (Array.isArray(source)) {
+    const nodes = source.filter((node) => node && typeof node === 'object')
+    return { nodes }
+  }
+  if (typeof source !== 'object') return null
+  const nodes = ensureArray(decodeStored(source.nodes, [])).filter((node) => node && typeof node === 'object')
+  return { ...source, nodes }
 }
 
 function normalizeWorldbook(raw = {}) {
@@ -55,6 +76,8 @@ function normalizeWorldbook(raw = {}) {
     entries,
     entriesMap,
     groups: ensureArray(decodeStored(source.groups, [])),
+    // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
+    geoHistory: normalizeGeoHistory(source.geoHistory),
     structuredSettings: normalizeStructuredSettings(source.structuredSettings)
   }
 }
@@ -128,6 +151,10 @@ export const useWorldStore = defineStore('world', {
   },
 
   actions: {
+    getPlaceEntity(placeRef) {
+      return resolvePlaceEntity(this.activeWorldbook, placeRef)
+    },
+
     // ---------- 世界书 CRUD ----------
 
     async loadWorldbooksIndex() {
@@ -184,6 +211,8 @@ export const useWorldStore = defineStore('world', {
         entries: [],
         entriesMap: {}, // id -> entry 便于快速查找
         groups: [],
+        // 预设 / AI 生成 / 导入若已带地图历史则挂上；否则 null（不阻塞）。
+        geoHistory: normalizeGeoHistory(data.geoHistory),
         structuredSettings: normalizeStructuredSettings(data.structuredSettings)
       }
 

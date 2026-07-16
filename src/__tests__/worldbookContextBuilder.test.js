@@ -91,6 +91,42 @@ describe('worldbookContextBuilder', () => {
     expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['character-entry', 'goal-entry'])
   })
 
+  it('uses bounded player history signals without requiring the full history payload', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '灰墙世界书',
+        entries: [
+          {
+            id: 'history-location',
+            name: '灰墙',
+            type: 'location',
+            content: '灰墙旧税所仍然保存着雾历税册。',
+            keys: ['灰墙']
+          },
+          {
+            id: 'history-hook',
+            name: '税册去向',
+            type: 'quest',
+            content: '失踪税册牵连潮盐行会的旧账。',
+            keys: ['税册去向']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '继续调查。' }],
+      runtimeState: {
+        geoHistoryContext: {
+          summaries: ['林舟在灰墙留下税册线索。'],
+          participants: ['林舟'],
+          locations: ['灰墙'],
+          unresolvedHooks: ['税册去向'],
+          entryIds: []
+        }
+      }
+    })
+
+    expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['history-location', 'history-hook'])
+  })
+
   it('matches entries from rich plot journal fields and faction runtime state', () => {
     const result = buildWorldbookContext({
       worldbook: {
@@ -315,5 +351,193 @@ describe('worldbookContextBuilder', () => {
       expect(starterTypes.has('quest')).toBe(true)
       expect(starterEntries.length).toBeGreaterThanOrEqual(8)
     }
+  })
+
+  it('uses runtimeState.historyNode to surface participants / hooks / fact keywords', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '归档世界书',
+        entries: [
+          {
+            id: 'tower-entry',
+            name: '钟楼档案',
+            type: 'location',
+            content: '钟楼停摆后，城区按雾钟作息。',
+            keys: ['钟楼']
+          },
+          {
+            id: 'witness-entry',
+            name: '苔娜难民领队',
+            type: 'character',
+            content: '苔娜掌握灰墙真相分岔的第一手证词。',
+            keys: ['苔娜']
+          },
+          {
+            id: 'hook-entry',
+            name: '雾税账册',
+            type: 'quest',
+            content: '账册可能证明有人改写了雾税流向。',
+            keys: ['雾税账册']
+          },
+          {
+            id: 'noise-entry',
+            name: '无关条目',
+            type: 'general',
+            content: '跟历史节点无关的条目。',
+            keys: ['完全不相关']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '继续。' }],
+      runtimeState: {
+        historyNode: {
+          id: 'hn_archive_1',
+          title: '雾税账册追溯',
+          participants: ['苔娜'],
+          unresolvedHooks: ['雾税账册去向'],
+          priorFacts: ['钟楼停摆']
+        }
+      }
+    })
+
+    // sort: character (priority 4) < location (5) < quest (10) per ENTRY_TYPE_PRIORITY
+    expect(result.matchedEntries.map((entry) => entry.id)).toEqual([
+      'witness-entry',
+      'tower-entry',
+      'hook-entry'
+    ])
+  })
+
+  it('boosts historyEntryIds into the matched set with history matchReason', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '归档世界书',
+        entries: [
+          {
+            id: 'bound-entry',
+            name: '灰墙真相分岔档案',
+            type: 'quest',
+            content: '灰墙真相分岔档案描述。',
+            keys: ['灰墙档案']
+          },
+          {
+            id: 'noise-entry',
+            name: '无关条目',
+            type: 'general',
+            content: '无关内容。',
+            keys: ['无关']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '继续。' }],
+      runtimeState: {
+        // Empty chat history means no keyword matches; only the bound id should win.
+      },
+      historyEntryIds: ['bound-entry']
+    })
+
+    expect(result.matchedEntries).toHaveLength(1)
+    expect(result.matchedEntries[0]).toMatchObject({
+      id: 'bound-entry',
+      matchReason: 'history',
+      matchedKeysLabel: '历史节点绑定'
+    })
+  })
+
+  it('falls back to runtimeState.historyNode.entryIds when historyEntryIds option is omitted', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '归档世界书',
+        entries: [
+          {
+            id: 'fallback-entry',
+            name: '钟楼证据档案',
+            type: 'quest',
+            content: '证据档案内容。',
+            keys: ['钟楼证据']
+          }
+        ]
+      },
+      chatHistory: [],
+      runtimeState: {
+        historyNode: {
+          id: 'hn_archive_2',
+          entryIds: ['fallback-entry']
+        }
+      }
+    })
+
+    expect(result.matchedEntries).toHaveLength(1)
+    expect(result.matchedEntries[0]).toMatchObject({
+      id: 'fallback-entry',
+      matchReason: 'history'
+    })
+  })
+
+  it('orders history-bound entries before constants and keywords', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '排序世界书',
+        entries: [
+          {
+            id: 'keyword-entry',
+            name: '关键字条目',
+            type: 'general',
+            content: '普通条目',
+            keys: ['目标']
+          },
+          {
+            id: 'constant-entry',
+            name: '常驻条目',
+            type: 'general',
+            content: '常驻内容',
+            injection: { mode: 'constant' }
+          },
+          {
+            id: 'history-entry',
+            name: '历史绑定条目',
+            type: 'quest',
+            content: '历史绑定',
+            keys: ['目标']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '目标出现了' }],
+      historyEntryIds: ['history-entry']
+    })
+
+    expect(result.matchedEntries.map((entry) => entry.id)).toEqual([
+      'history-entry',
+      'constant-entry',
+      'keyword-entry'
+    ])
+  })
+
+  it('does not double-include an entry that is both history-bound and a keyword match', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        name: '归档世界书',
+        entries: [
+          {
+            id: 'overlap-entry',
+            name: '钟楼证据档案',
+            type: 'quest',
+            content: '档案内容',
+            keys: ['钟楼证据']
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '我去查钟楼证据。' }],
+      runtimeState: {
+        historyNode: {
+          id: 'hn_overlap',
+          entryIds: ['overlap-entry']
+        }
+      }
+    })
+
+    expect(result.matchedEntries).toHaveLength(1)
+    expect(result.matchedEntries[0].id).toBe('overlap-entry')
+    expect(result.matchedEntries[0].matchReason).toBe('history')
   })
 })

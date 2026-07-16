@@ -14,7 +14,11 @@
  *     narrativeAssets.js.
  */
 
-import { addNarrativeAsset, updateNarrativeAsset } from './narrativeAssets'
+import {
+  addNarrativeAsset,
+  findDuplicateNarrativeAsset,
+  updateNarrativeAsset
+} from './narrativeAssets'
 
 const MAX_SNIPPET = 240
 const MAX_TITLE = 24
@@ -80,15 +84,33 @@ export function createAssetFromSelection(input = {}) {
   const kind = input.kind || DEFAULT_KIND
   const status = input.status || DEFAULT_STATUS
   const projectId = input.projectId ?? null
+  const sourceRefs = [{
+    refType: 'chapter',
+    refId: chapterId,
+    projectId,
+    excerpt: cleanSnippet(snippet)
+  }]
 
   try {
+    const duplicate = findDuplicateNarrativeAsset({ content, projectId, sourceRefs })
+    if (duplicate) {
+      return {
+        ok: true,
+        assetId: duplicate.id,
+        asset: duplicate,
+        source: duplicate.source,
+        deduplicated: true
+      }
+    }
+
     const asset = addNarrativeAsset({
       title: cleanSnippet(snippet, MAX_TITLE) || '未命名素材',
       content,
       kind,
       status,
       projectId,
-      source: { type: 'chapter', id: chapterId, messageIds: [] }
+      source: { type: 'chapter', id: chapterId, messageIds: [] },
+      sourceRefs
     })
 
     const enrichedSource = buildSelectionSource({

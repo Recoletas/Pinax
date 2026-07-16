@@ -68,5 +68,5 @@ docs/src/rfcs/
 
 - `../superpowers/specs/` 中“已接受且仍生效”的 → 迁到 [`decisions/`](../decisions/) 或保留为带 `<!-- canonical-source -->` 的 accepted RFC
 - `../superpowers/specs/` 中“未定稿但需要公共评审”的 → 迁到 `rfcs/`
-- `../superpowers/plans/` 中“对应未完成实施”的 → 迁到 `rfcs/<slug>/implementation.md`
+- 旧执行计划中“对应未完成实施”的 → 迁到 `rfcs/<slug>/implementation.md`（历史 `plans/` 目录已删除）
 - 旧的 `../plan/*` 中以方案 / 对比为主的文档 → 迁到 `rfcs/` 或 `decisions/`

@@ -1,37 +1,26 @@
 # Agent Runs
 
-## Active
+## 2026-07-16 Online / Agents / Canvas / Video
 
-| ID | Owner | Worktree | Scope | Status | Output |
-| --- | --- | --- | --- | --- | --- |
-| UI-R0 | Claude CLI | main read-only | Cross-page visual research + reference decomposition | done | `docs/agent-runs/2026-06-19-ui-redesign-research/UI-R0.report.md` |
-| UI-W1 | Claude CLI | main read-only | Writing page radical visual direction | done | `docs/agent-runs/2026-06-19-ui-redesign-research/UI-W1.report.md` |
-| UI-N1 | Claude CLI | main read-only | Notes/material page radical visual direction | done | `docs/agent-runs/2026-06-19-ui-redesign-research/UI-N1.report.md` |
-| UI-E1 | Claude CLI | main read-only | Experience page radical visual direction | done | `docs/agent-runs/2026-06-19-ui-redesign-research/UI-E1.report.md` |
+执行包已编写，等待用户在独立 OpenCode / Claude Code 窗口启动；当前没有已确认运行中的 worker。
 
-## Locks
+| Window | 建议工具 | Scope | 状态 | Prompt / Result |
+|---|---|---|---|---|
+| A | Claude Code | 联机房间服务、RoomEvent、WS、重连与权限 | 待启动 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-a-online-server.md) |
+| B | OpenCode | 在线路由、房间 UI、WS 客户端与 session adapter | 待启动 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-b-online-client.md) |
+| C | Claude Code | Agent task/context/result 基础契约与 Advisor 兼容 | 待启动 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-c-agent-contracts.md) |
+| D | OpenCode | 关系画布视口、几何、连线调度与交互稳定性 | 待启动 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-d-canvas-optimization.md) |
+| E | Claude Code | 视频 GenerationJob、provider adapter、路由与客户端 | 待启动 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-e-video-gateway.md) |
+| F | Claude Code | A-E 合并后的体验/分镜接线、测试与文档收口 | 被 A-E 阻塞 | [prompt](./2026-07-16-online-agents-canvas-video/prompt-f-integration.md) |
 
-Do not edit code in this round. Workers are research/spec workers only.
+冻结契约、文件所有权、合并顺序和完成定义见 [执行包总览](./2026-07-16-online-agents-canvas-video/README.md)。A-E 必须使用不同 worktree 或分支；F 不得提前启动。最终测试总量仍需保持不超过 200。
 
-Do not touch:
-- `src/stores/gameStore.js`
-- `src/services/worldbookContextBuilder.js`
-- `src/services/generation*`
-- `server/`
-- `AGENTS.md`
-- `docs/STATUS.md`
+## 历史证据
 
-## Current Constraints
+最近仍与产品主线相关的证据：
 
-- The user rejected the previous round as "micro-tuning": the next direction must produce visible composition changes, not only smaller text or border tweaks.
-- The user specifically called out: Experience had a load regression; Writing still feels unchanged; Notes is only partly accepted and still had redundant top copy.
-- Codex synthesis is now written:
-  - `docs/superpowers/specs/2026-06-19-workbench-strong-visual-redesign-design.md`
-  - `docs/superpowers/plans/2026-06-19-workbench-strong-visual-redesign.md`
-- Current baseline screenshots:
-  - `docs/agent-runs/2026-06-19-ui-redesign-research/experience-baseline-1280.png`
-  - `docs/agent-runs/2026-06-19-ui-redesign-research/writing-baseline-1280.png`
-  - `docs/agent-runs/2026-06-19-ui-redesign-research/notes-baseline-1280.png`
-- Existing accepted but incomplete direction: archive/folio material language, restrained paper/olive/gold palette, real character art where available, no generic SaaS hero copy.
-- Hard visual workflow: translate vague taste feedback into measurable constraints: position, scale, angle, z-depth, material, content density, and screenshot acceptance.
-- Next implementation workers should be `UI-W2`, `UI-N2`, `UI-E2`, and read-only `UI-QA`; do not continue from the old micro-polish briefs.
+- `2026-07-01-geo-history/`：地理、历史、地图可靠性和编辑器恢复记录。
+- `2026-07-02-research/`：整合路线研究记录。
+- `2026-07-07-rpla-research/`：历史 / 地理 / 涌现相关研究记录。
+
+旧 UI 重构 run 保留在目录中作历史证据，但不再作为当前任务看板，也不应覆盖 `docs/STATUS.md` 和主路线图。

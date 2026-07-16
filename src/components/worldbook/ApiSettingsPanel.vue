@@ -48,6 +48,16 @@
             list="model-suggestions"
             placeholder="选择或手动输入模型名称..."
           />
+          <button
+            type="button"
+            class="reload-models-btn"
+            :disabled="isLoading || !apiSettings?.apiKey"
+            :title="isLoading ? '正在拉取...' : '重新拉取模型列表'"
+            aria-label="重新拉取模型列表"
+            @click="loadModels"
+          >
+            <span aria-hidden="true">⟳</span>
+          </button>
           <datalist id="model-suggestions">
             <option v-for="m in detectedModels" :key="m" :value="m"></option>
           </datalist>

@@ -11,6 +11,7 @@ const providers = [
   { id: 'ollama', name: 'Ollama (本地)', baseUrl: 'http://localhost:11434' },
   { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
   { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1' },
+  { id: 'MiniMax', name: 'MiniMax (Anthropic 兼容)', baseUrl: 'https://api.minimaxi.com/anthropic' },
   { id: 'custom', name: '自定义', baseUrl: '' }
 ]
 
@@ -61,6 +62,9 @@ export function useApiSettings() {
     // Settings are stored ONLY in the user's own browser localStorage.
     // There is no backend persistence — that was the historical leak path.
     saveToLocal()
+    window.dispatchEvent(new CustomEvent('pinax:api-settings-updated', {
+      detail: { settings: apiSettings.value }
+    }))
   }
 
   function applyProvider(providerId) {

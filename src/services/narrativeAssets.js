@@ -42,6 +42,22 @@ export const ASSET_KINDS = [
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
 export const ACTIVE_ASSET_STATUSES = ['inbox', 'accepted']
+export const CONTENT_REF_TYPES = [
+  'worldbook-entry',
+  'map-site',
+  'history-node',
+  'session-message',
+  'plot-journal',
+  'narrative-asset',
+  'canvas-card',
+  'chapter',
+  'storyboard-shot',
+  'comic-page',
+  'comic-panel',
+  'image',
+  'video',
+  'audio'
+]
 
 export function listNarrativeAssets({ status = null, projectId = undefined, kind = null, sourceType = null, sourceId = null } = {}) {
   const stored = getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
@@ -65,12 +81,15 @@ export function createNarrativeAsset(input = {}) {
   const now = Date.now()
   const content = normalizeText(input.content)
   const title = normalizeText(input.title) || buildAssetTitle(content)
+  const source = normalizeSource(input.source)
 
   return {
     id: input.id || `asset_${now}_${Math.random().toString(36).slice(2, 8)}`,
     schemaVersion: ASSET_SCHEMA_VERSION,
     projectId: input.projectId ?? null,
-    source: normalizeSource(input.source),
+    source,
+    sourceRefs: normalizeSourceRefs(input.sourceRefs, { source, projectId: input.projectId }),
+    contentHash: buildNarrativeAssetContentHash(content),
     kind: normalizeKind(input.kind),
     title,
     content,
@@ -81,16 +100,87 @@ export function createNarrativeAsset(input = {}) {
   }
 }
 
-export function addNarrativeAsset(input = {}) {
+export function addNarrativeAsset(input = {}, { dedupe = false } = {}) {
   const asset = createNarrativeAsset(input)
   if (!asset.content) {
     throw new Error('素材内容不能为空')
   }
 
   const current = listNarrativeAssets({ status: null })
+  if (dedupe) {
+    const duplicate = findDuplicateNarrativeAsset(asset, current)
+    if (duplicate) return duplicate
+  }
   const next = [asset, ...current]
   setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   return asset
+}
+
+export function normalizeContentRef(ref = {}, fallbackProjectId = null) {
+  if (!ref || typeof ref !== 'object') return null
+  const refType = normalizeText(ref.refType || ref.type)
+  const refId = normalizeText(ref.refId || ref.id)
+  if (!CONTENT_REF_TYPES.includes(refType) || !refId) return null
+
+  const normalized = {
+    refType,
+    refId,
+    projectId: normalizeProjectId(ref.projectId ?? fallbackProjectId),
+    version: normalizeRefVersion(ref.version),
+    excerpt: normalizeExcerpt(ref.excerpt)
+  }
+  return normalized
+}
+
+export function normalizeSourceRefs(refs = [], { source = null, projectId = null } = {}) {
+  const inputRefs = Array.isArray(refs) ? refs : []
+  const normalized = inputRefs
+    .map((ref) => normalizeContentRef(ref, projectId))
+    .filter(Boolean)
+
+  if (normalized.length === 0) {
+    normalized.push(...inferSourceRefs(source, projectId))
+  }
+
+  const seen = new Set()
+  return normalized.filter((ref) => {
+    const key = contentRefKey(ref)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 12)
+}
+
+export function buildNarrativeAssetContentHash(content = '') {
+  const normalized = normalizeText(content).replace(/\s+/g, ' ')
+  let hash = 2166136261
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
+
+export function findDuplicateNarrativeAsset(input = {}, assets = null) {
+  const contentHash = input.contentHash || buildNarrativeAssetContentHash(input.content)
+  const projectId = normalizeProjectId(input.projectId)
+  const sourceRefs = normalizeSourceRefs(input.sourceRefs, {
+    source: input.source,
+    projectId
+  })
+  if (sourceRefs.length === 0) return null
+
+  const candidates = Array.isArray(assets) ? assets : listNarrativeAssets({ status: null })
+  return candidates.find((asset) => {
+    if (!asset || asset.contentHash && asset.contentHash !== contentHash) return false
+    if (!asset.contentHash && buildNarrativeAssetContentHash(asset.content) !== contentHash) return false
+    if (normalizeProjectId(asset.projectId) !== projectId) return false
+    const existingRefs = normalizeSourceRefs(asset.sourceRefs, {
+      source: asset.source,
+      projectId: asset.projectId
+    })
+    return sourceRefs.some((ref) => existingRefs.some((existing) => contentRefKey(existing) === contentRefKey(ref)))
+  }) || null
 }
 
 export function updateNarrativeAsset(assetId, patch = {}) {
@@ -100,14 +190,24 @@ export function updateNarrativeAsset(assetId, patch = {}) {
 
   const next = current.map((asset) => {
     if (asset.id !== assetId) return asset
+    const content = patch.content !== undefined ? normalizeText(patch.content) : asset.content
+    const source = patch.source !== undefined ? normalizeSource(patch.source) : asset.source
+    const projectId = patch.projectId !== undefined ? patch.projectId : asset.projectId
     updated = {
       ...asset,
       ...patch,
+      projectId,
       kind: patch.kind ? normalizeKind(patch.kind) : asset.kind,
       status: patch.status ? normalizeStatus(patch.status) : asset.status,
       title: patch.title !== undefined ? normalizeText(patch.title) : asset.title,
-      content: patch.content !== undefined ? normalizeText(patch.content) : asset.content,
-      source: patch.source !== undefined ? normalizeSource(patch.source) : asset.source,
+      content,
+      source,
+      sourceRefs: patch.sourceRefs !== undefined || patch.source !== undefined || patch.projectId !== undefined
+        ? normalizeSourceRefs(patch.sourceRefs, { source, projectId })
+        : (Array.isArray(asset.sourceRefs) ? asset.sourceRefs : normalizeSourceRefs([], { source, projectId })),
+      contentHash: patch.content !== undefined
+        ? buildNarrativeAssetContentHash(content)
+        : (asset.contentHash || buildNarrativeAssetContentHash(content)),
       updatedAt: now
     }
     return updated
@@ -156,6 +256,52 @@ export function setNarrativeAssetsStatus(assetIds = [], status) {
     setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   }
   return updated
+}
+
+export function mergeNarrativeAssets(assetIds = [], { targetId = null, title = null, status = null } = {}) {
+  const ids = [...new Set(Array.isArray(assetIds) ? assetIds.map(normalizeText).filter(Boolean) : [])]
+  if (ids.length < 2) return null
+
+  const current = listNarrativeAssets({ status: null })
+  const byId = new Map(current.map((asset) => [asset.id, asset]))
+  const selected = ids.map((id) => byId.get(id)).filter(Boolean)
+  if (selected.length < 2) return null
+
+  const projectIds = new Set(selected.map((asset) => normalizeProjectId(asset.projectId)))
+  if (projectIds.size > 1) return null
+
+  const target = selected.find((asset) => asset.id === targetId) || selected[0]
+  const contentParts = []
+  const seenContent = new Set()
+  for (const asset of selected) {
+    const content = normalizeText(asset.content)
+    if (!content || seenContent.has(content)) continue
+    seenContent.add(content)
+    contentParts.push(content)
+  }
+  const mergedContent = contentParts.join('\n\n')
+  const sourceRefs = selected.flatMap((asset) => normalizeSourceRefs(asset.sourceRefs, {
+    source: asset.source,
+    projectId: asset.projectId
+  }))
+  const merged = {
+    ...target,
+    title: normalizeText(title) || target.title,
+    content: mergedContent,
+    sourceRefs: normalizeSourceRefs(sourceRefs, { projectId: target.projectId }),
+    contentHash: buildNarrativeAssetContentHash(mergedContent),
+    status: status ? normalizeStatus(status) : target.status,
+    updatedAt: Date.now()
+  }
+  const selectedIds = new Set(selected.map((asset) => asset.id))
+  const next = current
+    .map((asset) => asset.id === target.id ? merged : asset)
+    .filter((asset) => asset.id === target.id || !selectedIds.has(asset.id))
+  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
+  return {
+    asset: merged,
+    mergedIds: selected.filter((asset) => asset.id !== target.id).map((asset) => asset.id)
+  }
 }
 
 export function getAssetKindLabel(kind) {
@@ -252,6 +398,50 @@ function normalizeSource(source = null) {
   }
 }
 
+function inferSourceRefs(source = null, projectId = null) {
+  if (!source || typeof source !== 'object') return []
+  const type = normalizeText(source.type)
+  const id = normalizeText(source.id || source.chapterId)
+  if (type === 'chapter' && (source.chapterId || id)) {
+    return [normalizeContentRef({
+      refType: 'chapter',
+      refId: source.chapterId || id,
+      projectId,
+      excerpt: source.selectorSnippet
+    }, projectId)].filter(Boolean)
+  }
+  if (type === 'experience-session' && Array.isArray(source.messageIds)) {
+    return source.messageIds
+      .map((messageId) => normalizeContentRef({
+        refType: 'session-message',
+        refId: `${id || 'session'}:${normalizeText(messageId)}`,
+        projectId
+      }, projectId))
+      .filter(Boolean)
+  }
+  return []
+}
+
+function contentRefKey(ref) {
+  return [ref.refType, ref.refId, ref.projectId || '', ref.version ?? ''].join(':')
+}
+
+function normalizeProjectId(value) {
+  const text = normalizeText(value)
+  return text || null
+}
+
+function normalizeRefVersion(value) {
+  if (value === null || value === undefined || value === '') return null
+  const text = normalizeText(value)
+  return text || null
+}
+
+function normalizeExcerpt(value) {
+  const text = normalizeText(value).replace(/\s+/g, ' ')
+  return text ? text.slice(0, 240) : null
+}
+
 function normalizeChapterId(value) {
   const text = String(value || '').trim()
   return text || null
@@ -278,13 +468,17 @@ function normalizeSelectorSnippet(value) {
 }
 
 function normalizeImage(image = null) {
-  if (!image || !image.data) return null
+  if (!image || (!image.data && !image.mediaAssetId)) return null
   return {
     id: image.id || '',
+    mediaAssetId: normalizeText(image.mediaAssetId),
+    storageRef: normalizeText(image.storageRef),
+    purpose: normalizeText(image.purpose),
     prompt: normalizeText(image.prompt),
-    data: image.data,
+    data: image.data || '',
     negativePrompt: normalizeText(image.negativePrompt),
     modelName: normalizeText(image.modelName),
+    modelId: normalizeText(image.modelId),
     modelType: normalizeText(image.modelType),
     width: Number(image.width) || null,
     height: Number(image.height) || null

@@ -1,6 +1,6 @@
 /**
  * Worker 桥接 — 主线程调用入口
- * 通过 comlink.wrap 把 Worker 暴露为可远程调用的 proxy，60s 超时由 Promise.race 包装。
+ * 通过 comlink.wrap 把 Worker 暴露为可远程调用的 proxy，60s 超时会销毁当前 Worker。
  * 公共 API（generateMapInWorker / terminateWorker / serializeConfigForWorker）保持不变。
  */
 
@@ -18,8 +18,15 @@ interface WorkerApi {
   ): Promise<{ data: VoronoiMapData; meta: GenerationMeta }>
 }
 
-let worker: Worker | null = null
-let api: Remote<WorkerApi> | null = null
+interface WorkerOwner {
+  id: number
+  worker: Worker
+  api: Remote<WorkerApi>
+}
+
+let owner: WorkerOwner | null = null
+let nextOwnerId = 0
+let nextRequestId = 0
 
 class WorkerBridgeError extends Error {
   code: WorkerErrorCode
@@ -33,12 +40,16 @@ class WorkerBridgeError extends Error {
   }
 }
 
-function getApi(): Remote<WorkerApi> {
-  if (!worker || !api) {
-    worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-    api = wrap(worker)
+function getOwner(): WorkerOwner {
+  if (!owner) {
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+    owner = {
+      id: ++nextOwnerId,
+      worker,
+      api: wrap(worker),
+    }
   }
-  return api
+  return owner
 }
 
 /**
@@ -65,18 +76,38 @@ function toEngineError(error: unknown): WorkerBridgeError {
   return new WorkerBridgeError('ENGINE', `地图生成失败：${message}`, error)
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  requestId: number,
+  onTimeout: () => void,
+): Promise<T> {
   return new Promise((resolve, reject) => {
+    let settled = false
     const timer = setTimeout(() => {
-      reject(new WorkerBridgeError('TIMEOUT', `地图生成超时（${ms / 1000}s）`))
+      if (settled) return
+      settled = true
+      try {
+        onTimeout()
+      } finally {
+        reject(new WorkerBridgeError(
+          'TIMEOUT',
+          `地图生成超时（${ms / 1000}s）`,
+          { requestId },
+        ))
+      }
     }, ms)
 
     promise.then(
       value => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         resolve(value)
       },
       error => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         reject(toEngineError(error))
       },
@@ -86,15 +117,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /**
  * 在 Web Worker 中生成地图 — 主线程完全不阻塞
- * 单次请求超过 REQUEST_TIMEOUT_MS 后会主动 reject，避免挂起
+ * 单次请求超过 REQUEST_TIMEOUT_MS 后会销毁当前 Worker 并 reject，避免疑似卡死
+ * 的 Worker 被下一次请求复用。
  */
 export function generateMapInWorker(
   config: MapGenConfig = {},
   options: { debugPerf?: boolean } = {},
 ): Promise<{ data: VoronoiMapData; meta: GenerationMeta }> {
   const plainConfig = serializeConfigForWorker(config)
-  const call = getApi().generateMap(plainConfig, options)
-  return withTimeout(call, REQUEST_TIMEOUT_MS)
+  const requestId = ++nextRequestId
+  const requestOwner = getOwner()
+  const call = requestOwner.api.generateMap(plainConfig, options)
+  return withTimeout(call, REQUEST_TIMEOUT_MS, requestId, () => {
+    if (owner?.id === requestOwner.id) terminateWorker()
+  })
 }
 
 /**
@@ -102,9 +138,9 @@ export function generateMapInWorker(
  * 适用于组件卸载 / 应用切后台 / 用户主动取消等场景。
  */
 export function terminateWorker() {
-  if (worker) {
-    worker.terminate()
-    worker = null
-    api = null
+  const currentOwner = owner
+  owner = null
+  if (currentOwner) {
+    currentOwner.worker.terminate()
   }
 }

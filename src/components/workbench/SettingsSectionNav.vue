@@ -50,7 +50,17 @@ const currentRouteName = computed(() => String(route.name || ''))
   border-bottom: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
   background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
   flex-shrink: 0;
+  /* W5b UX sweep: on <760px the nav becomes overflow-x: auto and
+     the active tab can scroll out of view. Pure CSS scroll-snap +
+     scroll-padding keeps the active tab flush with the visible edge
+     so the user can always see which tab is selected. */
+  scroll-padding-inline: 8px;
+  scroll-behavior: smooth;
 }
+
+/* The active tab is the snap target; inline:start means it docks to the
+   left edge of the scroller (or right, in RTL) after route change. */
+
 
 /* UI-S16: 撕边 dashed 分隔 (跟 mast tab 同款 1px dashed border,
    第一项无 leading stub). 圆角 0 / 透明底 / ◆ 印章 active = 档案
@@ -84,9 +94,18 @@ const currentRouteName = computed(() => String(route.name || ''))
   color: var(--text-primary);
 }
 
+.settings-section-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .settings-section-tab.active {
   color: var(--text-primary);
   font-weight: 600;
+  /* W5b UX sweep (continued): scroll-snap-align + scroll-margin so the
+     active tab stays in view when the nav scrolls horizontally. */
+  scroll-snap-align: start;
+  scroll-margin-inline-start: 8px;
 }
 
 /* UI-S16: active 印章 ◆ 跟 mast tab 同款做法, ::before 内容

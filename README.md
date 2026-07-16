@@ -1,7 +1,7 @@
 # Pinax
 
-Pinax 正在向一个**角色化 AI GM 驱动的网页文字冒险工作台**迁移。
-当前稳定执行骨架仍是：
+Pinax 正在收敛为一个**地理与历史可持续演化的 AI GM 创作系统**。
+当前主链是：
 
 ```text
 选择世界
@@ -11,7 +11,7 @@ Pinax 正在向一个**角色化 AI GM 驱动的网页文字冒险工作台**迁
   -> 整理成分镜或继续扩展世界
 ```
 
-也就是说：**产品外壳开始换，底层主链继续沿用 `playable-worldbook`。**
+也就是说：**设定生成的地点要进入历史，历史要进入冒险，冒险结果再回到世界和作品。**
 
 ## 快速开始
 
@@ -40,9 +40,7 @@ npm run dev
 ## 文档入口
 
 - 当前计划：[docs/PLAN.md](docs/PLAN.md)
-- 产品方向：[docs/plan/character-driven-arc.md](docs/plan/character-driven-arc.md)
-- 执行骨架：[docs/plan/playable-worldbook-roadmap.md](docs/plan/playable-worldbook-roadmap.md)
-- 并行分工：[docs/plan/playable-worldbook-parallel-plan.md](docs/plan/playable-worldbook-parallel-plan.md)
+- 产品路线图：[docs/plan/pinax-integrated-product-roadmap.md](docs/plan/pinax-integrated-product-roadmap.md)
 - 近期变化：[docs/LOG.md](docs/LOG.md)
 - 项目文档导航：[docs/README.md](docs/README.md)
 - 代码 owning surface：[docs/src/code-map.md](docs/src/code-map.md)
@@ -64,7 +62,6 @@ npm run dev
 | `npm run server` | 启动 Express 后端 |
 | `npm run test` | Vitest 监听模式 |
 | `npm run test:run` | 一次性跑所有测试 |
-| `npm run test:arch` | 只跑架构守卫测试 |
 | `npm run build` | 生产构建到 `dist/` |
 | `npm run docs:dev` | 本地启动 VitePress 文档站 |
 | `npm run docs:build` | 构建 VitePress 文档站 |

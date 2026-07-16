@@ -2,11 +2,11 @@
 
 > 状态：active direction note
 > 适用范围：`WelcomeView`、`AppShell`、`Experience`、`Writing`、`Notes`、`ProseEssay`
-> 关系：补充 [character-driven-arc.md](./character-driven-arc.md) 的视觉执行层；不替代 runtime / content 主线
+> 关系：这是已落地的视觉方向参考；当前产品优先级以 [pinax-integrated-product-roadmap.md](./pinax-integrated-product-roadmap.md) 为准。
 
 ## 1. Why this exists
 
-`character-driven-arc.md` 已经定义了 Pinax 要往“角色化 AI GM 驱动的文字冒险工作台”收敛，但它还不够具体，无法直接指导页面的平面设计。
+这份文档只记录档案册视觉语言，不再承担产品方向或实施优先级。
 
 `docs/demo/kao.jpg` 提供了一个更明确的视觉锚：
 

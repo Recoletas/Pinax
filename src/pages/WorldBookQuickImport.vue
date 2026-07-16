@@ -109,23 +109,42 @@ onMounted(async () => {
 
 <style scoped>
 .quick-page {
-  min-height: var(--app-viewport-height, 100vh);
+  /* W4c.5 follow-up: was `min-height: 100vh`. With min-height, the
+     page grows with its content and the `.quick-page__body` below
+     has no bounded height, so its `overflow: auto` never triggers
+     and any `position: sticky` descendants (e.g. .my-worldbooks
+     picker) fall back to <html> as their scroll ancestor and scroll
+     out of view with the document. Switch to a bounded `height:
+     100vh` + `overflow: hidden` so the body inside becomes a real
+     scroll container — mirrors the W4b .editor-layout pattern
+     exactly. */
+  height: var(--app-viewport-height, 100vh);
   padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow: hidden;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, transparent), var(--bg-primary));
   color: var(--text-primary);
 }
 
 .quick-page__body {
+  /* AppShell is height: 100vh + overflow: hidden; mirror the W4b
+     pattern so hero + nav + preset grid + extra actions can scroll
+     inside the bounded shell instead of being clipped. The body
+     fills the remaining viewport space (.quick-page is min-height:
+     100vh; display: flex; column above), and the sticky
+     MyWorldbooksNav picker inside this body pins relative to here. */
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
   max-width: 1240px;
   width: 100%;
   margin: 0 auto;
+  overflow: auto;
 }
 
 @media (max-width: 760px) {

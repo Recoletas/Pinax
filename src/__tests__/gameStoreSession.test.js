@@ -5,6 +5,7 @@ import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 import { createMemoryCandidate } from '../services/memoryCandidates'
 import { listNarrativeAssets } from '../services/narrativeAssets'
+import { consumePlayableWorldHistoryIntent } from '../services/playableWorldEntry'
 import { runGenerationTask, runGenerationStreamTask } from '../services/generationService'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import { listStoryboardDocuments } from '../services/storyboardStore'
@@ -53,6 +54,15 @@ describe('gameStore sessions', () => {
     expect(session.runtimeState.messages).toEqual([])
     expect(session.runtimeState.writingCharacter.name).toBe('User')
     expect(gameStore.currentSessionId).toBe(session.id)
+  })
+
+  it('keeps the current place on extracted activity records', () => {
+    const gameStore = useGameStore()
+    gameStore.worldMapState = { placeId: 'place:current', currentScene: '旧税所' }
+
+    gameStore.addActivity({ title: '发现旧税册', type: 'event', date: '2026-07-15' })
+
+    expect(gameStore.activities[0].placeId).toBe('place:current')
   })
 
   it('persists runtime edits into the active session and restores them on load', () => {
@@ -181,6 +191,212 @@ describe('gameStore sessions', () => {
     expect(nextEntry.sourceStartIndex).toBe(16)
     expect(nextEntry.sourceEndIndex).toBe(32)
     expect(gameStore.plotJournal).toHaveLength(2)
+  })
+
+  it('writes a generated plot journal window back to world history once', async () => {
+    const worldStore = useWorldStore()
+    const worldbook = await worldStore.createWorldbook({ name: '灰墙历史测试' })
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '灰墙调查', worldbookId: worldbook.id })
+    gameStore.worldMapState = {
+      map: { countries: [] },
+      currentCountry: '东境',
+      currentCity: '灰墙',
+      currentScene: '旧税所',
+      placeId: 'place:wb-map:site-tax-office'
+    }
+    gameStore.historyNode = {
+      id: 'history-gray-wall',
+      placeRef: {
+        placeId: 'place:wb-map:site-tax-office',
+        worldbookId: worldbook.id,
+        mapId: 'map-1',
+        siteId: 'site-tax-office'
+      }
+    }
+    gameStore.chatHistory = [{ role: 'system', content: '你是叙述者。' }]
+
+    for (let index = 1; index <= 8; index += 1) {
+      gameStore.chatHistory.push({ role: 'user', content: `我在旧税所核对第 ${index} 页账册。` })
+      gameStore.chatHistory.push({
+        role: 'assistant',
+        content: `林舟在灰墙旧税所确认第 ${index} 页账册，线索仍指向失踪的税册。`
+      })
+    }
+
+    const journalEntry = gameStore.maybeAppendPlotJournalEntry()
+    expect(journalEntry).not.toBeNull()
+
+    await vi.waitFor(() => {
+      expect(worldStore.activeWorldbook?.geoHistory?.playerNodes).toHaveLength(1)
+    })
+
+    const playerNode = worldStore.activeWorldbook.geoHistory.playerNodes[0]
+    expect(playerNode.kind).toBe('player-history-v1')
+    expect(playerNode.placeId).toBe('place:wb-map:site-tax-office')
+    expect(playerNode.sourceNodeId).toBe('history-gray-wall')
+    expect(playerNode.worldStateSnapshot.place.city).toBe('灰墙')
+    expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'player-history-writeback')).toBe(true)
+
+    await gameStore.persistLatestPlayerHistoryNode()
+    expect(worldStore.activeWorldbook.geoHistory.playerNodes).toHaveLength(1)
+  })
+
+  it('collects place-bound emergence candidates after state extraction and persists dismissal', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = {
+      id: 'wb_emergence',
+      name: '地点候选测试',
+      entries: [],
+      geoHistory: {
+        version: 1,
+        placeRefs: [{ placeId: 'place:gray-wall:tax-office', name: '旧税所', siteId: 'site-tax-office' }],
+        nodes: [{
+          id: 'history-gray-wall',
+          placeRef: { placeId: 'place:gray-wall:tax-office', siteId: 'site-tax-office' },
+          unresolvedHooks: ['失踪税册仍被藏在旧税所'],
+          entryIds: ['entry-tax-ledger']
+        }],
+        playerNodes: []
+      }
+    }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '地点候选', worldbookId: 'wb_emergence' })
+    gameStore.worldMapState = {
+      ...gameStore.worldMapState,
+      placeId: 'place:gray-wall:tax-office',
+      currentCountry: '东境',
+      currentCity: '灰墙',
+      currentScene: '旧税所'
+    }
+    gameStore.encounteredCharacters = [{ id: 'char-lin', name: '林舟' }]
+
+    const candidates = gameStore.refreshEmergenceCandidates({ now: 1710000000000 })
+
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].placeId).toBe('place:gray-wall:tax-office')
+    expect(candidates[0].summary).toContain('失踪税册')
+    expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-candidate-ready')).toBe(true)
+
+    gameStore.dismissEmergenceCandidate(candidates[0].id)
+    expect(gameStore.emergenceCandidates).toEqual([])
+    expect(gameStore.emergenceDismissedIds).toContain(candidates[0].id)
+
+    gameStore.saveCurrentSession()
+    const sessionId = gameStore.currentSessionId
+    gameStore.resetRuntimeState()
+    gameStore.loadSession(sessionId)
+    expect(gameStore.emergenceCandidates).toEqual([])
+    expect(gameStore.emergenceDismissedIds).toContain(candidates[0].id)
+  })
+
+  it('generates a constrained emergence draft and restores it with the session', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = {
+      id: 'wb_emergence_draft',
+      name: '事件具体化测试',
+      entries: [],
+      geoHistory: { version: 1, placeRefs: [], nodes: [], playerNodes: [] }
+    }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '事件具体化', worldbookId: worldStore.activeWorldbook.id })
+    gameStore.worldMapState = {
+      ...gameStore.worldMapState,
+      placeId: 'place:gray-wall:tax-office',
+      currentCountry: '东境',
+      currentCity: '灰墙',
+      currentScene: '旧税所'
+    }
+    gameStore.encounteredCharacters = [{ id: 'char-lin', name: '林舟' }]
+    gameStore.emergenceCandidates = [{
+      id: 'emergence_history-hook_1',
+      type: 'history-hook',
+      title: '未决历史线索的回响',
+      summary: '在旧税所继续处理失踪税册。',
+      reasons: ['当前地点：东境 / 灰墙 / 旧税所'],
+      placeId: 'place:gray-wall:tax-office',
+      participants: ['林舟'],
+      sourceRefs: [{ type: 'geo-history', id: 'history-gray-wall' }]
+    }]
+
+    vi.mocked(runGenerationTask).mockImplementation(async ({ taskType, parseContent }) => {
+      expect(taskType).toBe('emergence.event')
+      const content = JSON.stringify({
+        title: '旧税所的账册回响',
+        summary: '林舟在旧税所找到被撕走的账页，线索因此重新指向失踪税册。',
+        placeId: 'place:gray-wall:tax-office',
+        participants: ['林舟'],
+        causes: ['失踪税册仍未找到'],
+        changes: [{ op: 'set', path: 'flags', value: { taxLedgerSeen: true } }],
+        consequences: ['账册缺页成为新的调查入口'],
+        unresolvedHooks: ['账册缺页的去向'],
+        choices: [
+          { id: 'inspect', label: '检查被撕走的账页', intent: '追查来源', risk: '可能暴露行踪' },
+          { id: 'hide', label: '先把账页藏起来', intent: '保留证据', risk: '会错过追踪时机' }
+        ],
+        confidence: 0.8
+      })
+      return { success: true, parsed: parseContent(content) }
+    })
+
+    const draft = await gameStore.generateEmergenceDraft('emergence_history-hook_1')
+
+    expect(draft.status).toBe('ready')
+    expect(draft.event.kind).toBe('emergent-event-v1')
+    expect(draft.event.placeId).toBe('place:gray-wall:tax-office')
+    expect(draft.event.choices).toHaveLength(2)
+    expect(gameStore.getEmergenceStateDeltaPreview('emergence_history-hook_1').explanation).toContain('因为')
+    expect(gameStore.getEmergenceStateDeltaPreview('emergence_history-hook_1').explanation).toContain('所以')
+    expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-draft-ready')).toBe(true)
+    expect(gameStore.sessions[0].runtimeState.emergenceDraft.status).toBe('ready')
+
+    const applied = gameStore.applyEmergenceDraft('emergence_history-hook_1')
+    expect(applied.event.type).toBe('state_delta')
+    expect(applied.event.payload.explanation).toContain('所以')
+    expect(gameStore.flags.taxLedgerSeen).toBe(true)
+    expect(gameStore.emergenceDraft.decision).toBe('applied')
+
+    const rolledBack = gameStore.rollbackEmergenceDraft('emergence_history-hook_1')
+    expect(rolledBack.success).toBe(true)
+    expect(gameStore.flags.taxLedgerSeen).toBeUndefined()
+    expect(gameStore.emergenceDraft.decision).toBe('rolled-back')
+    expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-state-rollback')).toBe(true)
+
+    gameStore.resetRuntimeState()
+    gameStore.loadSession(session.id)
+    expect(gameStore.emergenceDraft.status).toBe('ready')
+    expect(gameStore.emergenceDraft.decision).toBe('rolled-back')
+    expect(gameStore.emergenceDraft.event.title).toBe('旧税所的账册回响')
+  })
+
+  it('rejects an emergence draft without mutating runtime state', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_emergence_reject', name: '事件拒绝测试', entries: [] }
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '拒绝事件', worldbookId: worldStore.activeWorldbook.id })
+    gameStore.emergenceCandidates = [{ id: 'candidate-reject', placeId: 'place:test', title: '候选', summary: '这是一个等待审阅的候选事件。' }]
+    gameStore.emergenceDraft = {
+      candidateId: 'candidate-reject',
+      status: 'ready',
+      decision: 'pending',
+      event: {
+        kind: 'emergent-event-v1',
+        title: '待审阅事件',
+        summary: '这段事件只用于验证拒绝不会改变运行时状态。',
+        placeId: 'place:test',
+        choices: [{ id: 'a', label: '观察' }, { id: 'b', label: '离开' }],
+        changes: [{ op: 'merge', path: 'flags', value: { shouldNotApply: true } }]
+      }
+    }
+
+    gameStore.rejectEmergenceDraft('candidate-reject')
+
+    expect(gameStore.flags.shouldNotApply).toBeUndefined()
+    expect(gameStore.emergenceDraft.decision).toBe('rejected')
+    expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-draft-rejected')).toBe(true)
   })
 
   it('generates and accepts a prose trigger draft from the latest plot journal entry', async () => {
@@ -772,5 +988,114 @@ describe('gameStore sessions', () => {
 
     // Generation prompt must remain sidecar-free (no runtime-event leakage).
     expect(sentMessages.every((message) => !message.content?.includes('runtime'))).toBe(true)
+  })
+
+  it('seeds a fresh session with plotJournal, runtimeEvents, worldMapState and factionRelations when entering from a history node', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_history', name: 'History World' }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '从历史进入', worldbookId: 'wb_history' })
+
+    // Empty baseline before applying the history patch.
+    expect(session.runtimeState.plotJournal).toEqual([])
+    expect(session.runtimeState.runtimeEvents).toEqual([])
+    expect(session.runtimeState.factionRelations).toEqual({})
+    expect(session.runtimeState.worldMapState.currentScene).toBe('')
+
+    const historyPatch = {
+      historyNode: {
+        id: 'hn_archive_w4',
+        title: '雾税账册追溯',
+        priorFacts: ['钟楼停摆'],
+        unresolvedHooks: ['证人代价'],
+        participants: ['苔娜'],
+        entryIds: ['e_archive_w4'],
+        mapBinding: { scene: '灯痕码头' },
+        factionRelations: { 潮盐行会: -8 }
+      }
+    }
+
+    // Mimic the applyPlayableWorldHistoryPatch flow from OpeningPage.vue.
+    const patches = consumePlayableWorldHistoryIntent(historyPatch)
+    expect(patches).not.toBeNull()
+    if (patches.historyNode) {
+      gameStore.setHistoryNode(patches.historyNode)
+    }
+    if (patches.worldMapPatch) {
+      gameStore.saveWorldMapState({ ...gameStore.worldMapState, ...patches.worldMapPatch })
+    }
+    if (patches.plotJournalEntry) {
+      gameStore.appendPlotJournal(patches.plotJournalEntry)
+    }
+    if (patches.factionRelationsPatch) {
+      for (const [name, value] of Object.entries(patches.factionRelationsPatch)) {
+        gameStore.setFactionRelation(name, value)
+      }
+    }
+    if (patches.runtimeEvent) {
+      gameStore.appendRuntimeEvent(patches.runtimeEvent)
+    }
+
+    expect(gameStore.worldMapState.currentScene).toBe('灯痕码头')
+    expect(gameStore.historyNode.id).toBe('hn_archive_w4')
+    expect(gameStore.factionRelations).toEqual({ 潮盐行会: -8 })
+    expect(gameStore.plotJournal).toHaveLength(1)
+    expect(gameStore.plotJournal[0]).toMatchObject({
+      participants: ['苔娜'],
+      locations: ['灯痕码头'],
+      unresolvedHooks: ['证人代价']
+    })
+    expect(gameStore.runtimeEvents).toHaveLength(1)
+    expect(gameStore.runtimeEvents[0]).toMatchObject({
+      type: 'display_event',
+      source: 'runtime',
+      payload: expect.objectContaining({
+        kind: 'history-node-init',
+        historyNodeId: 'hn_archive_w4',
+        contextual: false
+      })
+    })
+  })
+
+  it('persists the active history node in the session runtime for later context builds', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_history_runtime', name: 'History Runtime' }
+
+    const gameStore = useGameStore()
+    const session = gameStore.createSession({ title: '历史运行时', worldbookId: 'wb_history_runtime' })
+    const node = {
+      id: 'hn_runtime_1',
+      title: '河口封锁',
+      participants: ['潮汐行会'],
+      entryIds: ['entry-harbor'],
+      unresolvedHooks: ['谁下达了封港令'],
+      placeRef: { placeId: 'place:wb:map:harbor', name: '雾港' },
+      mapBinding: { placeId: 'place:wb:map:harbor', scene: '雾港码头' }
+    }
+
+    gameStore.setHistoryNode(node)
+    expect(gameStore.historyNode).toMatchObject(node)
+    expect(gameStore.getRuntimeSnapshot().historyNode).toMatchObject(node)
+
+    gameStore.loadSession(session.id)
+    expect(gameStore.historyNode).toMatchObject(node)
+  })
+
+  it('does not mutate the new session when the consumed history intent has no usable historyNode', () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_plain', name: 'Plain World' }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '普通进入', worldbookId: 'wb_plain' })
+
+    const patches = consumePlayableWorldHistoryIntent({ historyNode: { id: '   ' } })
+    expect(patches).toBeNull()
+
+    // No history patch applied — runtime stays empty.
+    expect(gameStore.plotJournal).toEqual([])
+    expect(gameStore.runtimeEvents).toEqual([])
+    expect(gameStore.factionRelations).toEqual({})
+    expect(gameStore.worldMapState.currentScene).toBe('')
   })
 })

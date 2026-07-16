@@ -2,7 +2,7 @@
  * 核心服务集成测试（精简版）
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   buildSystemPrompt,
   buildPromptSequence,
@@ -21,6 +21,41 @@ import {
   toMarkdown,
   toPremiereCSV
 } from '../services/shotExporter'
+import {
+  generateImage,
+  testImageProviderConnection
+} from '../services/media/imageProviderService'
+import {
+  deleteImageProviderConfig,
+  listImageProviderConfigs,
+  saveImageProviderConfig
+} from '../services/media/imageProviderConfigStore'
+import {
+  deleteMediaAsset,
+  getMediaAsset,
+  loadGeneratedImageLibrary,
+  listMediaAssets,
+  saveMediaAsset
+} from '../services/media/mediaAssetStore'
+import {
+  migrateCanvasAttachedImages,
+  serializeCanvasCards
+} from '../services/media/canvasImageAssetBridge'
+import {
+  addComicPanelTake,
+  buildComicPageManifest,
+  createComicPage,
+  listComicPages,
+  saveComicPage,
+  updateComicPanel,
+  updateComicPanelStage,
+  updateComicVisualBible
+} from '../services/media/comicPageStore'
+import {
+  buildComicScriptMessages,
+  parseComicScript
+} from '../services/media/comicScriptService'
+import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
   it('builds system prompt with style', () => {
@@ -44,13 +79,211 @@ describe('PromptBuilder', () => {
 })
 
 describe('Director Types', () => {
-  it('provides shot types', () => {
+  it('provides shot types and infers them from emotion', () => {
     const types = getShotTypes()
     expect(types.length).toBe(5)
-  })
-
-  it('infers shot type from emotion', () => {
     expect(inferShotTypeFromEmotion('fear')).toBe('extreme_close_up')
+  })
+})
+
+describe('Media services', () => {
+  it('shares provider config and keeps generated binary data outside localStorage', async () => {
+    localStorage.removeItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.COMIC_PAGES)
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { images: ['data:image/png;base64,abc'] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => ''
+      })
+    const config = {
+      type: 'http',
+      baseUrl: 'https://images.example/generate/',
+      apiKey: 'secret',
+      requestTemplate: '{"prompt":"{{prompt}}","negative":"{{negative_prompt}}","width":{{width}},"height":{{height}},"reference":"{{reference_image}}","references":{{reference_images_json}},"strength":{{reference_strength}}}',
+      responsePath: 'result.images.0'
+    }
+
+    const image = await generateImage(config, {
+      prompt: '雨夜 "街角"',
+      negativePrompt: '模糊',
+      width: 1280,
+      height: 720,
+      count: 1,
+      referenceImages: [{ id: 'ref-1', data: 'data:image/png;base64,YWJj' }],
+      referenceStrength: 0.7,
+      fetchImpl
+    })
+    const request = fetchImpl.mock.calls[0]
+    const body = JSON.parse(request[1].body)
+
+    expect(request[0]).toBe('https://images.example/generate')
+    expect(request[1].headers.Authorization).toBe('Bearer secret')
+    expect(body).toEqual({
+      prompt: '雨夜 "街角"',
+      negative: '模糊',
+      width: 1280,
+      height: 720,
+      reference: 'data:image/png;base64,YWJj',
+      references: ['data:image/png;base64,YWJj'],
+      strength: 0.7
+    })
+    expect(image).toBe('data:image/png;base64,abc')
+
+    const connection = await testImageProviderConnection(config, { fetchImpl })
+    expect(connection).toMatchObject({ ok: true, reachable: true, authenticated: true, status: 200 })
+
+    const sdFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ images: ['data:image/png;base64,ZGVyaXZlZA=='] })
+    })
+    await generateImage({ type: 'sd_webui', baseUrl: 'http://127.0.0.1:7860' }, {
+      prompt: '保持人物外观',
+      referenceImages: [{ id: 'ref-1', data: 'data:image/png;base64,YWJj' }],
+      referenceStrength: 0.7,
+      fetchImpl: sdFetch
+    })
+    const sdBody = JSON.parse(sdFetch.mock.calls[0][1].body)
+    expect(sdFetch.mock.calls[0][0]).toBe('http://127.0.0.1:7860/sdapi/v1/img2img')
+    expect(sdBody).toMatchObject({ init_images: ['data:image/png;base64,YWJj'], denoising_strength: 0.3 })
+
+    const savedConfig = saveImageProviderConfig({ ...config, name: '统一图像服务' })
+    saveImageProviderConfig({ ...savedConfig, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2/' })
+    expect(listImageProviderConfigs()).toEqual([
+      expect.objectContaining({ id: savedConfig.id, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2' })
+    ])
+
+    const blobs = new Map()
+    const binaryStore = {
+      put: async (id, blob) => blobs.set(id, blob),
+      get: async (id) => blobs.get(id) || null,
+      delete: async (id) => blobs.delete(id)
+    }
+    const media = await saveMediaAsset({
+      id: 'media-1',
+      projectId: 'book-1',
+      kind: 'image',
+      purpose: 'illustration',
+      sourceRefs: [{ refType: 'chapter', refId: 'chapter-1', projectId: 'book-1' }],
+      provider: savedConfig.type,
+      model: savedConfig.defaultModel,
+      promptSnapshot: '雨夜街角',
+      width: 1280,
+      height: 720
+    }, {
+      binary: 'data:image/png;base64,YWJj',
+      binaryStore
+    })
+    const storedMetadata = localStorage.getItem(STORAGE_KEYS.MEDIA_ASSETS)
+    const resolved = await getMediaAsset(media.id, { binaryStore })
+
+    expect(storedMetadata).toContain('idb://pinax-media/assets/media-1')
+    expect(storedMetadata).not.toContain('YWJj')
+    expect(listMediaAssets({ projectId: 'book-1' })).toHaveLength(1)
+    expect(await resolved.blob.text()).toBe('abc')
+
+    const parsedScript = parseComicScript(`\`\`\`json
+      {"title":"雨夜来客","layout":"strip-4","panels":[
+        {"visual":"雨中的街角远景","dialogue":[],"caption":"夜深"},
+        {"visual":"旅人推开酒馆木门","dialogue":[{"speaker":"旅人","text":"还有房间吗？"}]},
+        {"visual":"掌柜抬头审视旅人","dialogue":[],"caption":""},
+        {"visual":"桌下露出沾泥的密信","dialogue":[],"caption":"无人察觉"}
+      ]}
+    \`\`\``)
+    expect(parsedScript.panels).toHaveLength(4)
+    expect(buildComicScriptMessages({ sourceText: '雨夜旅人进入酒馆', panelCount: 4 })[1].content)
+      .toContain('4 格')
+
+    const comicPage = createComicPage({
+      ...parsedScript,
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'narrative-asset', refId: 'asset-1', projectId: 'book-1' }]
+    })
+    expect(comicPage).toMatchObject({
+      schemaVersion: 2,
+      colorMode: 'color',
+      canvas: { width: 1200, height: 1600 },
+      visualBible: { lineStyle: '', palette: [] }
+    })
+    expect(comicPage.panels[0]).toMatchObject({
+      frame: { kind: 'rect' },
+      direction: { shotSize: null, cameraAngle: null, perspective: null },
+      production: { rough: { status: 'empty' }, render: { status: 'empty' } }
+    })
+    saveComicPage(comicPage)
+    const withTake = addComicPanelTake(comicPage.id, comicPage.panels[0].id, media.id, { select: true })
+    expect(withTake.panels[0].selectedTakeId).toBe(media.id)
+    const directed = updateComicPanel(comicPage.id, comicPage.panels[0].id, {
+      direction: { shotSize: 'close', cameraAngle: 'low', perspective: 'one-point' }
+    })
+    expect(directed.panels[0]).toMatchObject({
+      direction: { revision: 2, shotSize: 'close', cameraAngle: 'low' },
+      production: { render: { status: 'stale', staleReason: '分镜构图已更新' } }
+    })
+    const staged = updateComicPanelStage(comicPage.id, comicPage.panels[0].id, 'rough', {
+      artifactIds: ['rough-1'],
+      selectedArtifactId: 'rough-1',
+      status: 'approved'
+    })
+    expect(staged.panels[0].production.rough).toMatchObject({ status: 'approved', artifactIds: ['rough-1'] })
+    const withBible = updateComicVisualBible(comicPage.id, {
+      lineStyle: '细线与大块黑面',
+      palette: ['#28384d', '#d6c6a0']
+    })
+    expect(withBible.visualBible).toMatchObject({ revision: 2, lineStyle: '细线与大块黑面' })
+    expect(listComicPages({ sourceRef: { refType: 'narrative-asset', refId: 'asset-1' } })[0])
+      .toMatchObject({ id: comicPage.id, layout: 'strip-4', status: 'draft' })
+    expect(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES)).not.toContain('data:image')
+    const manifest = buildComicPageManifest(withTake, { now: 1 })
+    expect(manifest).toMatchObject({
+      format: 'pinax-comic-page',
+      version: 2,
+      page: { id: comicPage.id, panels: expect.arrayContaining([expect.objectContaining({ selectedTakeId: media.id })]) }
+    })
+    expect(JSON.stringify(manifest)).not.toContain('data:image')
+    expect(createComicPage({ ...comicPage, id: 'feature-layout', layout: 'feature-4' }).layout).toBe('feature-4')
+
+    localStorage.setItem('legacy_image_library', JSON.stringify([{
+      id: 'legacy-1',
+      prompt: '旧图片',
+      modelName: '旧模型',
+      modelType: 'http',
+      data: 'data:image/png;base64,YWJj'
+    }]))
+    const migrated = await loadGeneratedImageLibrary('legacy_image_library', { binaryStore })
+    expect(migrated[0]).toMatchObject({ id: 'legacy-1', data: 'data:image/png;base64,YWJj' })
+    expect(localStorage.getItem('legacy_image_library')).not.toContain('YWJj')
+
+    await deleteMediaAsset(media.id, { binaryStore })
+    await deleteMediaAsset(migrated[0].mediaAssetId, { binaryStore })
+
+    localStorage.setItem(STORAGE_KEYS.PROSE_CARDS_V1, JSON.stringify([{
+      id: 'card-1',
+      content: '雨夜街角',
+      attachedImages: [{
+        id: 'canvas-image-1',
+        prompt: '雨夜街角',
+        data: 'data:image/png;base64,YWJj'
+      }]
+    }]))
+    const migratedCards = await migrateCanvasAttachedImages({ binaryStore })
+    const canvasImage = migratedCards[0].attachedImages[0]
+    expect(canvasImage.mediaAssetId).toBeTruthy()
+    expect(canvasImage.data).toContain('data:image/png')
+    expect(localStorage.getItem(STORAGE_KEYS.PROSE_CARDS_V1)).not.toContain('YWJj')
+    expect(JSON.stringify(serializeCanvasCards(migratedCards))).not.toContain('YWJj')
+    expect(listMediaAssets({ sourceRef: { refType: 'canvas-card', refId: 'card-1' } })).toHaveLength(1)
+    await deleteMediaAsset(canvasImage.mediaAssetId, { binaryStore })
+
+    expect(listMediaAssets()).toHaveLength(0)
+    expect(blobs.has(media.id)).toBe(false)
+    expect(deleteImageProviderConfig(savedConfig.id)).toEqual([])
   })
 })
 

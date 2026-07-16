@@ -930,7 +930,15 @@ watch(() => route.query.section, async (section) => {
     editorTab.value = 'create'
     await nextTick()
     if (section === 'import' || section === 'ai') {
-      document.querySelector(`[data-section="${section}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // W4b regression: W4b made .editor-layout the scroll container
+      // (`overflow: auto`), so document-level scrollIntoView now misses
+      // the target — scroll the layout container instead. Use the
+      // section's offsetTop within the layout for an anchored scroll.
+      const target = document.querySelector(`[data-section="${section}"]`)
+      const layout = target?.closest?.('.editor-layout')
+      if (layout && target) {
+        layout.scrollTo({ top: target.offsetTop - 12, behavior: 'smooth' })
+      }
     }
   }
 }, { immediate: true })
@@ -1788,6 +1796,12 @@ onMounted(async () => {
   grid-template-columns: 240px minmax(0, 1fr);
   gap: 12px;
   padding: 12px;
+  /* AppShell is height: 100vh + overflow: hidden; without an internal
+     scroll container, the create tab's stacked "novel snippet import" +
+     "AI generation worldbook" sections get clipped at the bottom.
+     Mirror StructuredSettings.vue .settings-body so the editor scrolls
+     inside the bounded shell. */
+  overflow: auto;
 }
 
 .worldbook-pane {
@@ -1829,6 +1843,13 @@ onMounted(async () => {
 .worldbook-item.active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+}
+
+/* W5 UX sweep: keyboard tabbing through the 240px worldbook pane
+   needs a visible focus ring; only :hover existed before. */
+.worldbook-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .worldbook-name {
@@ -2359,6 +2380,17 @@ label {
   cursor: not-allowed;
 }
 
+/* W5c UX sweep: when the worldbook base form has unsaved changes,
+   the "保存世界书" button should pulse so users notice it before
+   they switch worldbooks / tabs / close the page. */
+.primary-btn.is-dirty {
+  animation: wbe-dirty-pulse 1.6s ease-in-out infinite;
+}
+@keyframes wbe-dirty-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 60%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 0%,  transparent); }
+}
+
 .ghost-btn {
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -2396,6 +2428,12 @@ label {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
+}
+
+/* W5 UX sweep: editor tab focus-visible so keyboard nav is obvious. */
+.editor-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 @media (max-width: 1080px) {

@@ -66,14 +66,14 @@ Layering: **base = cream/ink, accent = crimson, type-only = gold**. Wikipedia: "
 4. **Hard offset shadow**: `box-shadow: 6px 6px 0 var(--p5r-ink);` on every raised surface; never `blur`.
 5. **Halftone overlay mixin**: `.halftone { background-image: radial-gradient(var(--p5r-ink) 1px, transparent 1.2px); background-size: 6px 6px; opacity: 0.18; mix-blend-mode: multiply; }` — for photo panels and section breaks.
 6. **Display + UI pairing**: `:root { --font-display: 'Playfair Display', 'Klee One', serif; --font-ui: 'Inter', 'Hiragino Sans', sans-serif; --tracking-ui: 0.08em; --tracking-display: 0.02em; }` — enforce via `body { font-family: var(--font-ui); }` and `.display { font-family: var(--font-display); }`.
-7. **Motion presets** as Vue composable: `useMotion('whoosh', { dur: 320, ease: 'cubic-bezier(0.22,1,0.36,1)' })` / `'slam'` / `'fade'` / `'slide'` — all snap, no spring. Respect `prefers-reduced-motion: reduce` (per `character-driven-arc.md:194`).
+7. **Motion presets** as Vue composable: `useMotion('whoosh', { dur: 320, ease: 'cubic-bezier(0.22,1,0.36,1)' })` / `'slam'` / `'fade'` / `'slide'` — all snap, no spring. Respect `prefers-reduced-motion: reduce`.
 
 ## Mapping to Pinax
-- Kao doc palette (`kao-ui-direction.md:86-96`) keeps the warm paper/ink but swaps verdigris for crimson — aligns P5R rules 1, 6 with `character-driven-arc.md:84` (P5R anchor).
+- Kao doc palette (`kao-ui-direction.md:86-96`) keeps the warm paper/ink but swaps verdigris for crimson — useful as a visual comparison only.
 - Surface taxonomy (FolioSurface / PosterStage / BookmarkButton / ArchiveStrip) at `kao-ui-direction.md:125-140` maps to slanted buttons + photo cutouts + halftone overlays above.
 - Motion rules at `kao-ui-direction.md:200-213` (抽页 / 滑片 / 相片层差 / 书签位移) are a direct subset of the P5R motion table — same easing family, no spring.
 
 ## Sources
 - [Persona 5 — Wikipedia](https://en.wikipedia.org/wiki/Persona_5) (palette constraint, art direction intent, cel-shader note)
 - [Persona 5 Royal — Wikipedia](https://en.wikipedia.org/wiki/Persona_5_Royal) (Royal-specific extensions)
-- Direction docs (in-repo): `docs/plan/kao-ui-direction.md`, `docs/plan/character-driven-arc.md`
+- Direction docs (in-repo): `docs/plan/kao-ui-direction.md`, `docs/plan/pinax-integrated-product-roadmap.md`

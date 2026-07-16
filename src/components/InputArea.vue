@@ -111,13 +111,23 @@
         @click="handleQuickAction(action.command)"
         :disabled="gameStore.isLoading"
       >
-        {{ action.icon }} {{ action.label }}
+        <!-- UI-E18-FIX3: emoji icon was rendered inline next to the
+             label. In theme-legacy (steel-blue dossier, COMPETITION
+             DEFAULT), the colorful emoji (▶ 🌿 💬 💭) clashed with the
+             archive-folio aesthetic. Kao theme keeps the emoji but
+             mutes them via .theme-kao .quick-btn rules. Default mode
+             hides the icon span entirely and renders the bare label —
+             the action still reads, the row reads as a tight tool
+             strip instead of a chat sticker bar. -->
+        <span class="quick-btn__icon" aria-hidden="true">{{ action.icon }}</span>
+        <span class="quick-btn__label">{{ action.label }}</span>
       </button>
       <button
         :class="['quick-btn', 'dialogue-btn', { active: gameStore.dialogueMode || gameStore.dialogueCharacter }]"
         @click="handleDialogueToggle"
       >
-        💬 对话模式
+        <span class="quick-btn__icon" aria-hidden="true">💬</span>
+        <span class="quick-btn__label">对话模式</span>
       </button>
     </div>
 
@@ -173,8 +183,11 @@
         v-model="inputText"
         type="text"
         class="input"
-        placeholder="输入你的行动..."
+        placeholder="输入你的行动... (Cmd+Enter 发送 · Esc 清空)"
         @keyup.enter="handleSend"
+        @keydown.meta.enter.prevent="handleSend"
+        @keydown.ctrl.enter.prevent="handleSend"
+        @keydown.escape="inputText = ''"
         @input="updatePromptInfo"
         :disabled="gameStore.isLoading"
       />
@@ -203,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
@@ -217,6 +230,15 @@ const settingsPopup = useSettingsPopup()
 const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
 function openApiSettings() {
   settingsPopup.open('ai')
+}
+function refreshApiSettings() {
+  gameStore.loadApiSettings()
+}
+function handleApiSettingsUpdated() {
+  refreshApiSettings()
+}
+function handleStorageUpdated(event) {
+  if (event.key === 'apiSettings') refreshApiSettings()
 }
 const inputText = ref('')
 const showPromptInfo = ref(false)
@@ -252,6 +274,17 @@ const quickActionPrompts = {
   dialogue: '请描写一段对话交互。',
   inner: '请描写角色的内心活动和情感变化。'
 }
+
+onMounted(() => {
+  refreshApiSettings()
+  window.addEventListener('pinax:api-settings-updated', handleApiSettingsUpdated)
+  window.addEventListener('storage', handleStorageUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('pinax:api-settings-updated', handleApiSettingsUpdated)
+  window.removeEventListener('storage', handleStorageUpdated)
+})
 
 function handleSend() {
   if (inputText.value.trim()) {
@@ -459,12 +492,26 @@ function updatePromptInfo() {
   font-size: 12px;
   transition: all 0.15s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 .quick-btn:first-child { border-radius: 6px 0 0 6px; }
 .quick-btn:last-child { border-right: none; border-radius: 0 6px 6px 0; }
 .quick-btn:only-child { border-radius: 6px; border-right: none; }
 .quick-btn:hover { background: var(--bg-hover); }
 .quick-btn:active { background: var(--accent-light); }
+
+/* UI-E18-FIX3: hide emoji icon in default (steel-blue dossier) theme
+   — the colorful emoji (▶ 🌿 💬 💭) read as chat-sticker decoration,
+   not as tool-strip glyphs, and clash with the archive-folio palette.
+   Kao theme keeps the emoji (already muted via .theme-kao .quick-btn
+   rules below — opacity 0.6 + hover reveal). The split between
+   quick-btn__icon (visual) and quick-btn__label (semantic) keeps the
+   text accessible to assistive tech even when the icon is hidden. */
+.theme-legacy .quick-btn__icon {
+  display: none;
+}
 
 .quick-btn:disabled {
   opacity: 0.4;
@@ -1038,40 +1085,44 @@ function updatePromptInfo() {
 .add-char-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .add-char-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Kao archive-folio overrides for InputArea.
-   These rules are scoped (data-v-InputArea_xxx auto-appended), so their
-   effective specificity is .theme-kao .x[data-v-xxx] = 0,2,1, which beats
-   the default scoped .x[data-v-xxx] = 0,1,1. Source order + specificity wins without the importance keyword.
-   Selectors cover: input row, input field, send button (记入), quick
-   buttons (archive chip), and the new record-meter (今日已记). */
+/* E16-NOVEL: kao input area as a footnote, not a chat row.
+   Per 微信阅读 / 古龙 online: the player input is a margin
+   annotation, not a message. Width matches the prose column
+   (720px), centered. No visible send button chrome — just a
+   thin dotted baseline + subtle "记" suffix that types when
+   the input has text. The moment input looks like a chat
+   input, the prose column above stops feeling like a chapter. */
 .theme-kao .input-area {
   background: transparent;
   border: none;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 18%, transparent);
   border-radius: 0;
-  padding: 10px 14px 12px;
+  padding: 14px 36px 18px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .theme-kao .input-row {
   gap: 0;
-  align-items: stretch;
+  align-items: baseline;
 }
 
 .theme-kao .input {
   flex: 1;
   background: transparent;
   border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 48%, transparent);
   border-radius: 0;
   color: var(--archive-ink);
-  font-family: var(--font-display);
-  font-size: 14px;
-  padding: 8px 4px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.75;
+  padding: 4px 0;
+  text-indent: 0;
 }
 
 .theme-kao .input:focus {
   outline: none;
-  border-bottom-color: var(--archive-gold);
 }
 
 .theme-kao .input::placeholder {
@@ -1079,45 +1130,52 @@ function updatePromptInfo() {
   font-style: italic;
 }
 
+/* Send button — minimal text suffix, not a button. Reads as
+   "↩ 记入" margin annotation when the user is ready to
+   commit. Disabled state hides it (no "can't send" button). */
 .theme-kao .send-btn {
-  background: var(--archive-paper);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 44%, transparent);
-  border-radius: 0;
-  color: var(--archive-ink);
+  background: transparent;
+  border: none;
+  color: color-mix(in srgb, var(--archive-olive-strong) 72%, transparent);
   font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: 12px;
+  font-weight: 500;
   letter-spacing: 0.16em;
-  padding: 6px 18px;
-  margin-left: 10px;
+  padding: 4px 8px;
+  margin-left: 6px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .theme-kao .send-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--archive-paper-strong) 40%, var(--archive-paper));
-  border-color: var(--archive-gold);
   color: var(--archive-olive-strong);
 }
 
 .theme-kao .send-btn:disabled {
-  opacity: 0.5;
-  background: var(--archive-paper-soft);
-  color: color-mix(in srgb, var(--archive-ink) 36%, transparent);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .theme-kao .quick-actions {
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 0;
+  margin-bottom: 4px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.theme-kao .quick-actions:hover {
+  opacity: 1;
 }
 
 .theme-kao .quick-btn {
-  background: var(--archive-paper-soft);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+  background: transparent;
+  border: none;
+  border-right: 1px dotted color-mix(in srgb, var(--archive-ink) 24%, transparent);
   border-radius: 0;
-  color: color-mix(in srgb, var(--archive-ink) 76%, transparent);
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.06em;
   padding: 4px 10px;
 }
 
@@ -1137,16 +1195,16 @@ function updatePromptInfo() {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
-  margin-left: 10px;
-  padding: 4px 10px;
-  height: auto;
-  background: var(--archive-paper-soft);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  border-radius: 0;
-  color: var(--archive-ink);
+  margin-left: 8px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  color: color-mix(in srgb, var(--archive-ink) 48%, transparent);
   cursor: default;
   user-select: none;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 .theme-kao .record-meter__kicker {

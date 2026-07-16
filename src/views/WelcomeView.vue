@@ -590,7 +590,11 @@ const welcomeArchiveItems = [
     var(--welcome-reference-image);
   background-size: cover;
   background-repeat: no-repeat;
-  border: 6px solid color-mix(in srgb, #fff 92%, var(--archive-paper-soft));
+  /* W5b UX sweep: hard-coded #fff border blew out on dark-mode kao
+     paper (white frame around a soft warm/cream collage tile). Use the
+     paper-soft token with a transparent fallthrough so dark + light both
+     stay on-palette. */
+  border: 6px solid color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
   box-shadow:
     0 18px 34px color-mix(in srgb, #000 16%, transparent),
     0 2px 0 color-mix(in srgb, #fff 48%, transparent) inset;
@@ -833,7 +837,11 @@ const welcomeArchiveItems = [
 .welcome-frame-cut {
   position: absolute;
   display: block;
-  background: color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  /* W5b UX sweep: pair archive-gold cut with archive-ink so the cut
+     line stays visible against dark kao paper (gold-on-paper alone
+     disappears). Keeps light-mode identical because archive-ink is
+     barely mixed in at 0%. */
+  background: color-mix(in srgb, var(--archive-gold) 32%, var(--archive-ink));
   opacity: 0.74;
 }
 

@@ -1,7 +1,7 @@
 # Three-Game UI Research — Reverse 1999 / Disco Elysium / Kentucky Route Zero
 
 > Pure research output. Concrete CSS-translatable rules. No code changes.
-> Anchors: [kao-ui-direction.md](./kao-ui-direction.md), [character-driven-arc.md](./character-driven-arc.md), `docs/demo/kao.jpg`.
+> Anchor: [kao-ui-direction.md](./kao-ui-direction.md)；产品优先级以 [pinax-integrated-product-roadmap.md](./pinax-integrated-product-roadmap.md) 为准。
 
 1. **Reverse: 1999 signature elements.** Recognizable for hand-painted 1990s oil/watercolor character portraiture (no photo, no 3D, no clean vector) wrapped in **decorative gilded borders**, warm cream backgrounds, classical serif wordmarks with small-caps + tracking, and ornamental flourishes (asterisks, stars, fleurons) framing UI chrome — the character is the "illustration", not a sprite. `kao-ui-direction.md:21-46` ("cream paper white / light ochre page", "metallic gold / warm amber highlight", "斜线 / 拼贴 / 跨页 / 撕边 / 照片堆叠").
 
@@ -155,4 +155,4 @@
       .folio-grid { display: grid; grid-template-columns: minmax(240px, 1fr) 3fr;
                     gap: 2.5rem; align-items: start; }
       ```
-      Bans the "SaaS card stack" anti-pattern in `character-driven-arc.md:94` ("不做 SaaS 卡片堆叠式布局").
+      Bans the "SaaS card stack" anti-pattern established by the current archive-folio direction.

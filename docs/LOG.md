@@ -7,7 +7,239 @@
 - 产品主线正在从“文字游戏 + 写作工具集合”收口为“可玩的世界书”：进入世界、冒险、沉淀剧情，再写成作品或整理为分镜。
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
-- 当前验证基线：`npm run test:run` 通过（87 files, 584 tests），`npm run build` 通过；视觉/性能单跑最近基线仍为 12 tests 通过。
+- 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
+- 当前验证基线：核心回归已收缩到 18 个文件、200 个用例；全量测试与文档构建在本轮收口时重跑。
+
+## 2026-07-16 - 联机、Agent、画布与视频并行实施包
+
+状态：计划完成，实现窗口尚未启动。
+
+结果摘要：
+- 将联机模式拆成服务端和客户端两个互斥窗口，冻结 RoomEvent、command 幂等、lastSeq 重连、snapshot 和 host 权限边界。
+- 将各页面 Agent 共性收口为 task registry、context envelope 和 result lifecycle 的单独窗口，先保持现有 Advisor 页面 API 兼容。
+- 将关系画布优化限制在几何、视口、连线按帧调度和拖动/键盘可靠性，不扩大为 `ProseEssay.vue` 整页重写。
+- 将视频接入拆为 GenerationJob 网关窗口和后置分镜接线，首版覆盖 MiniMax 与受约束的通用异步 HTTP adapter，密钥仅留服务端。
+- A-E 可在独立 worktree 并行，F 串行完成 Experience/分镜接线、测试等量替换和文档收口；最终测试硬上限仍为 200。
+
+执行入口：[并行执行包](./agent-runs/2026-07-16-online-agents-canvas-video/README.md)。
+
+## 2026-07-16 - 漫画制作字段直接接入
+
+状态：完成 G4.4 M1；沿用现有漫画页和存储，直接补齐制作阶段所需字段。
+
+结果摘要：
+- `ComicPage` 直接增加画幅、色制、画布、视觉圣经、格框、beat、景别/机位/透视、参考绑定和 rough/line/flats/tones/render/effects 状态。
+- 图片候选继续通过 MediaAsset ID 保存；阶段状态只记录候选引用、审阅状态和 stale 原因，不伪造不存在的线稿或上色结果。
+- 修改格内容、构图、参考绑定或视觉圣经后，当前页直接标记相关阶段需要重做。
+- 现有编辑器增加色制、线条规则、渲染规则、景别、机位、透视和阶段状态检查，不增加新的迁移入口或第二个项目存储。
+- 副工作台不再因素材为空而隐藏，漫画制作入口和当前页的分镜/制作字段默认可见，减少“代码已接入但前端找不到”的情况。
+- 空漫画状态改为直接显示阅读方向、色制和“建立制作页”；建立后立即进入当前漫画页的制作字段，旧的 4/6 格初始化按钮从入口移除。
+- 漫画编辑器控件统一沿用插画工作台的档案纸张、蓝灰色 token、虚线分隔、4px 圆角和 32/34px 操作高度，并补齐键盘焦点样式。
+- 重排漫画副阅读台：制作页头部、图片模型、页面信息、页面预览和当前格编辑分区显示；空白制作页默认建立 4 格工作底稿，单格预览也会按单格版式渲染。
+- 精简漫画空状态：移除重复的图片模型标题和说明段落，将阅读方向、页面版式、色制、画风基调、模型与创建/脚本动作集中到同一创建区。
+
+验证：`npm run verify:full` exit 0；核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-16 - 素材漫画技术原型
+
+状态：完成可恢复的固定格数技术原型，但经复审确认不构成漫画生产闭环；后续按主计划 G4.4 M1-M7 重构。
+
+结果摘要：
+- 新增 `ComicPage` / `ComicPanel` 持久化契约，漫画页、格顺序、独立对白/旁白、生成状态、候选 take 和来源引用进入 `comic_pages_v1`；图片二进制仍只进入 MediaAsset/IndexedDB。
+- 新增漫画脚本服务，复用现有文本 LLM 配置和 generation retry，严格解析 4 格或 6 格 JSON；重写脚本会创建新页版本，不覆盖旧稿。
+- 素材页按工作层级重排并删除浮动抽屉：中央主卡只展示当前素材图片或生成候选；右侧副工作台在“相关素材 / 插画生成 / 漫画排版”之间切换，生成参数、候选选择、插入正文和保存素材都留在右侧。
+- 漫画副工作台先显示 2×2 / 2×3 页面布局，再编辑当前格；支持逐格视觉描述、独立文本层、单格生成/重生成、候选切换和错误恢复，异步任务绑定启动时页面快照，切换素材不会串页写入。
+- 素材页支持单条或勾选多条素材作为漫画联合来源；漫画格可存为参考图素材并保留 comic page/panel source refs，也可导出不含 base64 的 JSON manifest。
+- 漫画页继续使用现有存储键；UI 复用现有 token 和 900px 移动断点，素材页不再使用抽屉，未启动 dev server，测试总量保持 200。
+- 插画与漫画改用同一模型选择弹层，可选择、添加、编辑、删除配置并在弹层内看到连通性结果；不再依赖无反馈的原生下拉框。
+- 参考图支持从现有素材选择或本地上传，上传内容归档为 MediaAsset；参考强度和图片会进入 SD WebUI img2img、OpenAI Images edit、Stability image-to-image 或通用 HTTP 模板，ComfyUI 未配置工作流时明确拒绝而不是静默忽略。
+- 漫画 2×2 / 2×3 整页及对白/旁白层改在中央主区显示，右侧保留页面缩略导航与单格编辑，并增加格序前移/后移。
+- 素材页不再让“参考图 / 插画”显示同一表单：参考图页集中管理输入图库，插画页通过一行摘要引用选择结果；尺寸和数量改为下拉项，显著减少按钮密度，同时不改变旧页面的单模式生图入口。
+- 插画生成、图片模型弹层和结果操作按钮统一到素材页的档案纸张、虚线分隔、4px 控件和蓝灰主动作，不再保留独立插件式的大圆角实色按钮。
+- 漫画编辑从逐格长表单改为“页面版式 -> 整页缩略导航 -> 当前格集中编辑”；新增四格/六格强调版式、格序导航、批量补齐未完成画面，并按版式中每格的真实比例请求图片。
+- 漫画页可直接导出带边框、旁白和对白层的整页 PNG；JSON manifest 继续作为结构化交换格式保留，既有 `strip-4` / `page-6` 页面和候选 take 继续沿用。
+- 复审结论：上述能力只证明基础存储、逐格失败隔离和简单拼页可行，仍缺页级节奏、阅读动线、视觉圣经、构图控制、rough/line/flats/tones/render 阶段、可编辑气泡对象和连续性质检；不再把它记录为漫画闭环。
+- 主计划 G4.4 已重写为八阶段制作管线和 M0-M7 实施门禁；现有 `ComicPageEditor.vue` 作为直接制作入口，下一步继续补分页级编排和视觉圣经。
+
+验证：`npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-16 - 素材正文媒体引用与共享生成抽屉
+
+状态：完成媒体路线第二张实施切片；素材参考图/插画共用同一抽屉，下一步进入漫画 page script 与逐格 take。
+
+结果摘要：
+- 新增 Markdown media bridge；素材正文中的旧 `data:image/...` 在打开时逐张归档为 MediaAsset，并把正文改为 `pinax-media://<id>`，迁移失败的图片保持原文。
+- 素材预览按需从 IndexedDB 还原媒体引用，新插入图片直接写引用，不再把生成图片 base64 塞回 narrative asset 正文。
+- 将原 `ImageGenRail` 实现迁入 `MediaGenerationDrawer`，旧组件只保留属性/事件兼容包装；素材页以紧凑模式栏提供“参考图 / 插画”，生成结果保留明确的媒体用途。
+- UI 沿用现有抽屉尺寸、颜色 token、浮动位置和移动端断点；未启动 dev server，测试总量保持 200。
+
+验证：`npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-16 - 共享图片与媒体目录基础
+
+状态：完成媒体路线第一张实施切片；后续正文引用与参考图/插画抽屉已在同日下一切片完成，漫画和异步视频仍待后续切片。
+
+结果摘要：
+- 新增 `src/services/media/imageProviderService.js`，统一 SD WebUI、DALL-E、Stability、ComfyUI 与通用 HTTP 的生成请求、响应提取、URL 图片转存和结构化连通性结果。
+- 新增共享 provider config store；`ImageGenRail.vue` 与 `ProseEssay.vue` 已移除两份页面内 provider fetch 和配置 localStorage 写入，旧配置读取时统一规范化。
+- 新增 MediaAsset 元数据目录和 IndexedDB Blob adapter；生成历史 localStorage 只保存媒体引用，旧 base64 历史在读取成功后迁移，失败时保留旧记录而不破坏数据。
+- 新增 narrative image bridge；素材 `reference-image` 新保存时直接引用 MediaAsset，旧内嵌图片成功归档后删除 base64，Notes 与 ProseEssay 仅在运行时从 IndexedDB 补图。
+- 新增 canvas image bridge；`PROSE_CARDS_V1` 的旧 `attachedImages[].data` 成功归档后改存 MediaAsset 引用，新附件持久化自动剥离运行时 data，并把 `canvas-card` 来源写回媒体目录。
+- 本切片不改变现有页面布局和视觉样式，不启动 dev server；新增服务契约继续合并在既有测试中，保持总量 200。
+
+验证：`npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-16 - 媒体创作与联机体验专项规划
+
+状态：完成代码审计、hack.chat 源码与视频供应商官方接口调研，只更新唯一主计划，未开始业务实现。
+
+结果摘要：
+- 素材页规划为参考图/插画/漫画三模式，先从 `ImageGenRail.vue` 抽出共享 provider/config/result parser，再以结构化 page script、逐格 take 和独立文本层实现漫画。
+- 分镜视频统一进入服务端 `GenerationJob`；首批采用 MiniMax + 受约束 `generic-async-http`，再接 Runway 或 OpenAI，支持状态、取消、回调、资产归档和结构化连通性测试。
+- 联机体验借鉴 hack.chat 的 URL 房间和昵称加入，但使用 `/experience/online/:roomSlug`、服务端权威 `RoomEvent.seq`、重连补发、房主/玩家/旁观者权限和完整文本提交，不广播整个 Pinia/localStorage 状态。
+- 测试硬上限保持 200；新增媒体/联机核心契约时必须合并或替换等量重复 UI 测试。
+
+验证：`npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-16 - 核心测试基线
+
+状态：按产品主链将前端测试上限收缩至 200 个用例，不保留历史 UI 版本、单点样式、同类地图算法和重复 smoke。
+
+结果摘要：
+- 删除 110 个测试文件，仅保留备份恢复、会话/runtime、地图历史/PlaceEntity、世界书上下文与导入、记忆候选、素材来源、章节选区、Worker 和视觉性能基线。
+- `writingSelectionCapture` 从 47 个局部断言收敛为 6 个端到端契约：选区归一化、保存、去重、失败保护、来源回跳与插入。
+- `verify:full` 的主测试段排除视觉测试，视觉基线只在最后阶段运行一次。
+
+验证：`npm run test:run` 通过，18 files / 200 tests；`npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
+
+## 2026-07-15 - 测试基线与跨功能资产收口
+
+状态：删除重复的历史 UI 契约测试，补齐地点语义逐项审阅、地点逐项入口、备份真实恢复和素材来源谱系；真实浏览器、供应商和大型架构工作仍按主计划保留。
+
+结果摘要：
+- 删除 9 个已被当前视觉/组件契约覆盖的旧 UI 历史测试文件，合并地图渲染、地形现实性和道路/省份重复 smoke；保留功能行为、边界和当前页面测试。
+- 地图生成后先展示有限语义点清单，用户勾选后才生成历史草案；历史节点与世界书条目均可从地点上下文逐项回到地图。
+- `restoreBackup()` 执行确认后的真实写入，并在损坏输入、存储异常或 quota 失败时回滚；设置页提供导入预览和确认。
+- narrative asset 保留旧 `source`，新增规范化 `sourceRefs[]`、稳定内容指纹、章节选区重复保存去重，以及素材页同项目批量合并。
+
+验证：资产定向 3 files / 97 tests 通过；完整 `npm run verify:full` 通过，128 files / 1144 tests，包含 Vite build、VitePress docs build、视觉验证 12 tests 和 `git diff --check`；未启动 dev server。
+
+## 2026-07-15 - G3.1 地点上下文跨页入口
+
+状态：完成事件卷、地图和结构化设定之间的第一版地点上下文互跳；历史节点 / 世界书条目逐项入口、语义点审阅和真实浏览器 smoke 仍待补齐。
+
+结果摘要：
+- `QuestLog` 不再把整条事件记录当作唯一点击区域；带 `placeId` 的活动保留编辑动作，同时显示“地图 / 设定”地点动作，并通过 `open-place` 发出规范化地点导航事件。
+- `Experience` 将地点事件导航转换为 `settings-world-map` / `settings-structured` 路由查询；地图页接收 `placeId` 后高亮地点实体，设定页显示历史节点和条目计数，并可返回地图。
+- `WorldMapPanel` 提供从聚焦地点回到结构化设定的入口；`gameStore.addActivity()` 会让自动提取活动继承当前 `worldMapState.placeId`，减少事件与地点脱钩。
+
+验证：定向 `questLog`、`worldMapHistoryIntegration`、`gameStoreSession` 共 3 files / 32 tests 通过；当时完整 `npm run verify:full` 通过，128 files / 1144 tests，包含 Vite build、VitePress docs build、视觉验证 12 tests 和 `git diff --check`；未启动 dev server。
+
+## 2026-07-15 - G3.2 / G3.3 受限状态变更 v1
+
+状态：完成“状态 delta 预览 -> 用户接受/拒绝 -> 可审计应用 -> 无冲突回滚”的第一版；因果图、跨事件冲突检测和地点实体双向 UI 仍未完成。
+
+结果摘要：
+- `runtimeEvents.js` 增加安全 JSON 值、根字段语义校验和纯函数 `buildStateDeltaPreview()` / `applyStateDelta()` / `rollbackStateDelta()`；地图状态只允许 `placeId/currentCountry/currentCity/currentScene` patch，阵营关系只接受数值 map，数组状态只能整项 push/pull。
+- `gameStore` 通过统一的 `state_delta` runtime event 写入 `before/after/ops/inverseOps` 和“因为 A 和 B，所以 C”解释，再提交目标 runtime 根字段；事件草稿支持 `pending/applied/rejected/rolled-back` 持久化决策。
+- `QuestLog` 在事件详情里显示地点、阵营、目标、剧情标记等变更预览；拒绝不修改状态，应用后可回滚，若目标根字段已被后续操作改动则报告回滚冲突而不覆盖新状态。
+
+验证：`runtimeEvents`、`generationEmergence`、`gameStoreSession`、`questLog` 共 4 files / 46 tests 通过；全量为 137 files / 1409 passed / 93 个既有 UI failures；未启动 dev server。
+
+## 2026-07-15 - G3.1 地点实体双向入口第一步
+
+状态：地图页已能从统一 `PlaceEntity` 读取地点并写回冒险当前地点；事件日志和设定页入口仍待接入。
+
+结果摘要：
+- `WorldMapPanel` 使用 `buildPlaceEntityIndex()` 展示当前世界书已有的地点、历史节点数和绑定条目数，不复制地图或历史数据。
+- 点击地点后通过 `buildPlaceRuntimePatch()` 同步 `gameStore.worldMapState` 和 `historyNode`，并记录 `place-entity-selected` 非上下文审计事件；后续 GM 上下文和涌现候选会继续按同一 `placeId` 工作。
+
+验证：`worldMapHistoryIntegration`、`placeEntity` 共 2 files / 6 tests 通过；未启动 dev server。
+
+## 2026-07-15 - G3.3 LLM 事件具体化 v1
+
+状态：完成“候选 -> 严格 JSON 事件草稿 -> 详情页预览”接线；正式状态应用、因果图和回滚仍未接入。
+
+结果摘要：
+- 新增 `generationEmergence.js`，通过 `runGenerationTask` 生成 `emergent-event-v1`；解析器严格校验当前 `placeId`、已知参与者/阵营、2-3 个剧情选项和 `runtimeEvents` 的顶层 state path 白名单，非法地点、神秘使者和嵌套路径直接丢弃。
+- `gameStore` 增加 `emergenceDraft` 的生成中/就绪/失败状态、会话持久化和恢复；生成就绪后写入非上下文 `display_event`，当前不会自动改变世界状态。
+- `QuestLog` 的通知仍在完整文本之后才出现；用户点击通知打开详情后，才可以请求具体化，生成完成后显示标题、摘要、置信度和 LLM 生成的选项。
+
+验证：`generationEmergence`、`gameStoreSession`、`questLog` 共 3 files / 28 tests 通过；全量为 137 files / 1405 passed / 93 个既有 UI failures；未启动 dev server。
+
+## 2026-07-15 - G3.3 涌现候选调度 v1
+
+状态：完成“文本生成完成后收集候选 -> 规则评分 -> 通知 -> 点击详情/暂不处理”第一阶段；LLM 具体化、schema 校验、受控状态应用仍未接入。
+
+结果摘要：
+- 新增 `worldHistory/emergenceScheduler.js`，只从当前地点、历史未决线索、已知参与者、活动目标和已知阵营关系生成候选；稳定 ID、最多 2 项、可解释评分和 dismissed 去重均为纯函数。
+- `gameStore` 在完整 assistant 文本完成并提取状态后刷新候选，候选和拒绝记录进入 session runtime；同时写入 `emergence-candidate-ready` / `emergence-candidate-dismissed` 审计事件。
+- `QuestLog` 增加非打断式“剧情回响”通知，点击后才打开详情；候选明确标记“尚未发生”，不会在流式文本期间自动弹窗，也不会凭空生成“神秘使者”。
+
+验证：`emergenceScheduler`、`gameStoreSession`、`questLog` 共 3 files / 27 tests 通过；全量为 136 files / 1400 passed / 93 个既有 UI failures；未启动 dev server。
+
+## 2026-07-15 - G3.1 PlaceEntity v1
+
+状态：完成统一地点索引的运行时接线；地点双向 UI 操作、受控世界变更和涌现调度仍未开始。
+
+结果摘要：
+- 新增 `worldHistory/placeEntity.js`，以 `placeId` 为唯一键聚合 `placeRef`、地图 cell/marker/route refs、历史节点、entry IDs 和可用世界书条目。
+- `runtimeContext.js` 通过 PlaceEntity 索引选择当前地点的历史节点，保留旧数据没有完整 `placeRef` 时的容错路径；`worldStore.getPlaceEntity()` 暴露统一查询入口。
+- 地图历史草案统计从“节点 + 语义点”扩展为“节点 + 语义点 + 地点实体”，使生成结果与后续历史入口的引用数量可见。
+
+验证：PlaceEntity、runtime context、worldStore、地图草案、gameStore 和 worldbook context 共 6 files / 55 tests 通过；全量基线为 135 files / 1394 passed / 93 个既有 UI failures；`verify:post`、`docs:build` 通过；未启动 dev server。
+
+## 2026-07-15 - Gate 0 地图 Worker 超时恢复
+
+状态：完成第一小步，后续压力验收未宣称完成。
+
+结果摘要：
+- `worker-bridge.ts` 记录每次请求 id 和 Worker owner；60 秒超时会终止当前 owner，下一次请求创建新的 Worker，旧请求的迟到回调不会终止新 owner。
+- `worker-bridge.test.js` 新增超时销毁、超时后重试成功契约；地图相关 9 个测试文件共 147 个测试通过。
+- 修正主计划和 known issues 的口径：常规重复生成已有 pending / stale result / Canvas 保护，剩余项是 20 次 regenerate、RAF/timer 和 heap 指标压力验证。
+
+验证：`npm run verify:post`、`npm run docs:build` 均 exit 0；未启动 dev server。
+
+## 2026-07-15 - G3.1 地理-历史生产接线第一块
+
+状态：完成地图结果到历史草案的生产接线，PlaceEntity 和 runtime 写回仍在后续切片。
+
+结果摘要：
+- 新增纯函数 `buildGeoHistoryDraft()`，把完整地图结果接到 `extractMapSemantics()` 和 `generateGeoHistory()`，明确无效地图、无语义站点和成功草案三种状态。
+- 地图页新增“生成历史草案”与“写入世界历史”两阶段操作；草案展示节点数和语义点数，重新生成地图会丢弃未确认草案，已有历史覆盖前要求确认。
+- 写入仍通过 `worldStore.updateWorldbook()`，没有在生成阶段隐式覆盖世界书。
+
+验证：新增地理历史管线与地图接线 5 个契约测试通过；连同地图、历史、运行时相关套件共 7 files / 87 tests 通过；`npm run verify:post`、`npm run docs:build` 通过；全量基线为 133 files / 1382 passed / 93 个既有 UI failures；未启动 dev server。
+
+## 2026-07-15 - G3.1 地理-历史运行时回流
+
+状态：完成玩家历史写回和地点相关上下文回流；受控世界变更与涌现调度仍未开始。
+
+结果摘要：
+- `playerHistory.js` 将剧情日志窗口转换为稳定指纹 ID，支持无副作用 append/dedup，并为节点补充 `placeId / placeRef`、时间、当前地点、势力关系、遇到角色和活动线索的有限 `worldStateSnapshot`。
+- `gameStore` 在剧情日志形成后异步写入当前世界书的 `geoHistory.playerNodes`，保持旧的同步日志 API 不变；重复调用不会重复写入，并追加一个不进入 prompt 的 `display_event` 审计事件。
+- 新增 `worldHistory/runtimeContext.js`：按当前 `worldMapState.placeId` 选择同地点历史节点，再合并最近玩家经历；`worldbookContextBuilder` 只消费这些有上限的摘要、人物、地点、选项、未决线索和条目 ID。
+
+验证：`playerHistory + geoHistoryRuntimeContext + gameStoreSession + worldbookContextBuilder + geoHistoryPipeline + worldMapHistoryIntegration + playableWorldEntry` 共 7 files / 66 tests 通过；未启动 dev server。
+
+## 2026-07-15 - Gate 0.1 Smoke 基线
+
+状态：完成验收口径冻结，真实 smoke 尚未执行。
+
+结果摘要：
+- `docs/src/test-status.md` 新增 10 条主流程清单：创建世界、三种设定导入、地图、历史、8 轮冒险、素材、章节、分镜、图片、备份恢复。
+- 每条流程固定输入、成功判据、预期持久化副作用和失败恢复动作，并区分自动测试与浏览器/API 手测状态。
+- 同步修正全量验证文档：当前 93 个失败是既有 UI stale contracts，不再写成“全量通过”。
+- 本轮收口验证：地图 Worker、备份、存储定向套件 3 files / 28 tests 通过；`npm run verify:post`、`npm run docs:build` 和 `git diff --check` 通过。
+
+## 2026-07-15 - Gate 0 备份键盘点
+
+状态：完成导出侧安全网和恢复预览子任务，实际恢复写入仍未开始。
+
+结果摘要：
+- 备份导出现在会动态发现 `worldbook_<id>` 与 `worldbook:brief:<id>:<section>`，并补齐 `active_worldbook_id`、`dialogue_characters`、Notes 图片提示键。
+- 备份顶层增加 `schemaVersion`；`backupExport.test.js` 与 `storage.test.js` 共 19 个测试通过。`createRestorePlan()` 会在写入前报告新增、覆盖、跳过和不兼容项，且不产生副作用。
+- 未引入 IndexedDB、实际恢复写入或新依赖；损坏备份保护和 quota warning 继续留在 Gate 0.3 的后续小步。
 
 ## 2026-06-19 - Worktree cleanup and main absorption
 

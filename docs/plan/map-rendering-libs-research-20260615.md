@@ -207,5 +207,5 @@ Pinax internal:
 - Current renderer: <https://github.com/recoletas/jiuguan/text-game-framework/blob/main/src/services/world-map/engine/renderer.ts> (1869 LoC, hand-rolled Canvas2D)
 - Perf residual issue: <https://github.com/recoletas/jiuguan/text-game-framework/blob/main/docs/plan/states-perf-residual-issue.md>
 - Kao UI direction: <https://github.com/recoletas/jiuguan/text-game-framework/blob/main/docs/plan/kao-ui-direction.md>
-- Voronoi engine v2: <https://github.com/recoletas/jiuguan/text-game-framework/blob/main/docs/plan/voronoi-engine-v2.md>
+- 当前地图路线：<https://github.com/recoletas/jiuguan/text-game-framework/blob/main/docs/plan/pinax-integrated-product-roadmap.md>
 - Map realism status: <https://github.com/recoletas/jiuguan/text-game-framework/blob/main/docs/plan/map-realism-status.md>

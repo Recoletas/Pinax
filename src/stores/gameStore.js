@@ -8,14 +8,29 @@ import {
 } from '../services/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import { buildWorldbookContext } from '../services/worldbookContextBuilder'
+import {
+  appendPlayerHistoryNode,
+  buildPlayerHistoryContext,
+  buildPlayerHistoryNodeFromPlotJournal,
+  getPlayerHistoryNodeKey
+} from '../services/playerHistory'
+import { buildGeoHistoryRuntimeContext } from '../services/worldHistory/runtimeContext'
+import { buildEmergenceCandidates } from '../services/worldHistory/emergenceScheduler'
+import { generateEmergenceEventDraft } from '../services/generationEmergence'
 import { buildScopedMemoryContext, buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildMem0MemoryContext } from '../services/memorySync'
 import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
 import {
   RUNTIME_EVENT_LIMIT,
+  applyStateDelta,
+  buildStateDeltaExplanation,
+  buildStateDeltaPreview,
   capRuntimeEvents,
-  createRuntimeEvent
+  createRuntimeEvent,
+  rollbackStateDelta,
+  validateStateDelta
 } from '../services/runtimeEvents'
+import { buildRuntimeEventCausality } from '../services/runtimeEventCausality'
 import { addNarrativeAsset } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -26,7 +41,8 @@ const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
   currentCountry: '',
   currentCity: '',
-  currentScene: ''
+  currentScene: '',
+  placeId: ''
 }
 
 const DEFAULT_WRITING_CHARACTER = {
@@ -57,7 +73,9 @@ const DEFAULT_ADVENTURE_STATE = {
     prose: null,
     storyboard: null
   },
-  adventureTriggerHistory: []
+  adventureTriggerHistory: [],
+  emergenceCandidates: [],
+  emergenceDismissedIds: []
 }
 
 const PLOT_JOURNAL_TURN_INTERVAL = 8
@@ -143,7 +161,8 @@ function normalizeWorldMapState(raw = {}) {
     },
     currentCountry: raw?.currentCountry || '',
     currentCity: raw?.currentCity || '',
-    currentScene: raw?.currentScene || ''
+    currentScene: raw?.currentScene || '',
+    placeId: raw?.placeId || ''
   }
 }
 
@@ -345,6 +364,102 @@ function normalizeAdventureTriggersState(raw = {}) {
   }
 }
 
+function normalizeEmergenceCandidates(raw = []) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((candidate) => {
+      const id = normalizeTextValue(candidate?.id)
+      const summary = normalizeTextValue(candidate?.summary)
+      if (!id || !summary) return null
+      return {
+        ...candidate,
+        id,
+        type: ['history-hook', 'goal-pressure', 'faction-pressure'].includes(candidate?.type)
+          ? candidate.type
+          : 'history-hook',
+        status: 'candidate',
+        title: normalizeTextValue(candidate?.title) || '待确认的剧情候选',
+        summary: summary.slice(0, 260),
+        hook: normalizeTextValue(candidate?.hook),
+        factionName: normalizeTextValue(candidate?.factionName),
+        placeId: normalizeTextValue(candidate?.placeId),
+        participants: Array.isArray(candidate?.participants)
+          ? candidate.participants.map(normalizeTextValue).filter(Boolean).slice(0, 6)
+          : [],
+        reasons: Array.isArray(candidate?.reasons)
+          ? candidate.reasons.map(normalizeTextValue).filter(Boolean).slice(0, 4)
+          : [],
+        sourceRefs: Array.isArray(candidate?.sourceRefs)
+          ? candidate.sourceRefs
+            .filter((ref) => ref && typeof ref === 'object' && normalizeTextValue(ref.id))
+            .map((ref) => ({ type: normalizeTextValue(ref.type) || 'runtime', id: normalizeTextValue(ref.id) }))
+            .slice(0, 6)
+          : [],
+        score: Math.max(0, Math.min(100, Math.round(Number(candidate?.score) || 0))),
+        createdAt: normalizeNumber(candidate?.createdAt, Date.now())
+      }
+    })
+    .filter(Boolean)
+    .slice(0, 2)
+}
+
+function normalizeEmergenceDismissedIds(raw = []) {
+  if (!Array.isArray(raw)) return []
+  return [...new Set(raw.map(normalizeTextValue).filter(Boolean))].slice(-24)
+}
+
+function normalizeEmergenceEvent(raw = null) {
+  if (!raw || typeof raw !== 'object') return null
+  const title = normalizeTextValue(raw.title)
+  const summary = normalizeTextValue(raw.summary)
+  const placeId = normalizeTextValue(raw.placeId)
+  if (!title || !summary || !placeId) return null
+  const changes = validateStateDelta(raw.changes || [])
+  if (!changes.valid || changes.sanitized.length === 0 || changes.sanitized.length > 6) return null
+  return {
+    ...raw,
+    v: normalizeNumber(raw.v, 1),
+    kind: 'emergent-event-v1',
+    candidateId: normalizeTextValue(raw.candidateId),
+    title: title.slice(0, 80),
+    summary: summary.slice(0, 520),
+    placeId,
+    participants: Array.isArray(raw.participants) ? raw.participants.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
+    factions: Array.isArray(raw.factions) ? raw.factions.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
+    causes: Array.isArray(raw.causes) ? raw.causes.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
+    changes: changes.sanitized.slice(0, 6),
+    consequences: Array.isArray(raw.consequences) ? raw.consequences.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
+    unresolvedHooks: Array.isArray(raw.unresolvedHooks) ? raw.unresolvedHooks.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
+    choices: Array.isArray(raw.choices)
+      ? raw.choices.map((choice, index) => ({
+        id: normalizeTextValue(choice?.id) || `choice-${index + 1}`,
+        label: normalizeTextValue(choice?.label).slice(0, 48),
+        intent: normalizeTextValue(choice?.intent).slice(0, 120),
+        risk: normalizeTextValue(choice?.risk).slice(0, 120)
+      })).filter((choice) => choice.label).slice(0, 3)
+      : [],
+    confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0.5)),
+    sourceRefs: Array.isArray(raw.sourceRefs) ? raw.sourceRefs.slice(0, 6) : []
+  }
+}
+
+function normalizeEmergenceDraft(raw = null) {
+  if (!raw || typeof raw !== 'object') return null
+  const status = normalizeTextValue(raw.status)
+  const decision = normalizeTextValue(raw.decision)
+  return {
+    candidateId: normalizeTextValue(raw.candidateId),
+    status: ['generating', 'ready', 'error'].includes(status) ? status : 'error',
+    decision: ['pending', 'applied', 'rejected', 'rolled-back'].includes(decision) ? decision : 'pending',
+    event: normalizeEmergenceEvent(raw.event),
+    error: normalizeTextValue(raw.error),
+    appliedEventId: normalizeTextValue(raw.appliedEventId),
+    rollbackEventId: normalizeTextValue(raw.rollbackEventId),
+    generatedAt: normalizeNumber(raw.generatedAt, 0),
+    updatedAt: normalizeNumber(raw.updatedAt, Date.now())
+  }
+}
+
 function normalizeAdventureState(raw = {}) {
   return {
     goals: normalizeGoals(raw?.goals),
@@ -354,7 +469,10 @@ function normalizeAdventureState(raw = {}) {
     plotJournal: normalizePlotJournal(raw?.plotJournal),
     adventureTriggers: normalizeAdventureTriggersState(raw?.adventureTriggers),
     adventureTriggerHistory: normalizeAdventureTriggerHistory(raw?.adventureTriggerHistory),
-    adventureTriggerCooldownUntil: normalizeNumber(raw?.adventureTriggerCooldownUntil, 0)
+    adventureTriggerCooldownUntil: normalizeNumber(raw?.adventureTriggerCooldownUntil, 0),
+    emergenceCandidates: normalizeEmergenceCandidates(raw?.emergenceCandidates),
+    emergenceDismissedIds: normalizeEmergenceDismissedIds(raw?.emergenceDismissedIds),
+    emergenceDraft: normalizeEmergenceDraft(raw?.emergenceDraft)
   }
 }
 
@@ -399,7 +517,11 @@ function createEmptySessionRuntime() {
     adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
     adventureTriggerHistory: [],
     adventureTriggerCooldownUntil: 0,
-    runtimeEvents: []
+    emergenceCandidates: [],
+    emergenceDismissedIds: [],
+    emergenceDraft: null,
+    runtimeEvents: [],
+    historyNode: null
   }
 }
 
@@ -471,6 +593,7 @@ export const useGameStore = defineStore('game', {
     flags: {},
     worldState: {},
     worldMapState: normalizeWorldMapState(DEFAULT_WORLD_MAP_STATE),
+    historyNode: null,
     writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
     writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
     activities: [],
@@ -482,6 +605,9 @@ export const useGameStore = defineStore('game', {
     adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
     adventureTriggerHistory: [],
     adventureTriggerCooldownUntil: 0,
+    emergenceCandidates: [],
+    emergenceDismissedIds: [],
+    emergenceDraft: null,
     adventureTriggerPendingType: null,
     npcRelations: {},
     discoveredPlaces: [],
@@ -552,6 +678,12 @@ export const useGameStore = defineStore('game', {
       this.worldMapState = normalized
       setItem(STORAGE_KEYS.WRITING_WORLDMAP, normalized)
       this.saveCurrentSession()
+    },
+
+    setHistoryNode(node) {
+      this.historyNode = node && typeof node === 'object' ? cloneState(node, null) : null
+      this.saveCurrentSession()
+      return this.historyNode
     },
 
     loadWritingCharacter() {
@@ -663,6 +795,379 @@ export const useGameStore = defineStore('game', {
     appendPlotJournal(entry) {
       this.plotJournal = normalizePlotJournal([...(this.plotJournal || []), entry])
       this.saveCurrentSession()
+    },
+
+    refreshEmergenceCandidates(options = {}) {
+      const worldStore = useWorldStore()
+      const worldbook = worldStore.activeWorldbook
+      const nextCandidates = normalizeEmergenceCandidates(buildEmergenceCandidates({
+        geoHistoryContext: buildGeoHistoryRuntimeContext({
+          worldbook,
+          geoHistory: worldbook?.geoHistory,
+          worldMapState: this.worldMapState,
+          historyNode: this.historyNode,
+          playerHistoryContext: buildPlayerHistoryContext(worldbook?.geoHistory)
+        }),
+        worldMapState: this.worldMapState,
+        historyNode: this.historyNode,
+        plotJournal: this.plotJournal,
+        goals: this.goals,
+        encounteredCharacters: this.encounteredCharacters,
+        factionRelations: this.factionRelations,
+        now: options?.now,
+        limit: 2,
+        dismissedIds: this.emergenceDismissedIds
+      }))
+      const previousIds = new Set((this.emergenceCandidates || []).map((candidate) => candidate?.id).filter(Boolean))
+      this.emergenceCandidates = nextCandidates
+      for (const candidate of nextCandidates) {
+        if (previousIds.has(candidate.id)) continue
+        this.appendRuntimeEvent({
+          type: 'display_event',
+          source: 'emergence',
+          payload: {
+            kind: 'emergence-candidate-ready',
+            candidateId: candidate.id,
+            candidateType: candidate.type,
+            placeId: candidate.placeId || '',
+            sourceRefs: candidate.sourceRefs
+          }
+        })
+      }
+      this.saveCurrentSession()
+      return this.emergenceCandidates
+    },
+
+    dismissEmergenceCandidate(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      if (!id) return
+      this.emergenceDismissedIds = normalizeEmergenceDismissedIds([
+        ...(this.emergenceDismissedIds || []),
+        id
+      ])
+      this.emergenceCandidates = (this.emergenceCandidates || []).filter((candidate) => candidate?.id !== id)
+      if (this.emergenceDraft?.candidateId === id && this.emergenceDraft.decision !== 'applied') {
+        this.emergenceDraft = null
+      }
+      this.appendRuntimeEvent({
+        type: 'display_event',
+        source: 'emergence',
+        payload: {
+          kind: 'emergence-candidate-dismissed',
+          candidateId: id
+        }
+      })
+      this.saveCurrentSession()
+    },
+
+    setEmergenceDraft(draft) {
+      this.emergenceDraft = normalizeEmergenceDraft(draft)
+      this.saveCurrentSession()
+      return this.emergenceDraft
+    },
+
+    getEmergenceDraftState(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id) || null
+      const draft = this.emergenceDraft?.candidateId === id ? this.emergenceDraft : null
+      return {
+        candidate,
+        draft,
+        isGenerating: Boolean(draft?.status === 'generating'),
+        isReady: Boolean(draft?.status === 'ready' && draft.event),
+        isPending: Boolean(draft?.status === 'ready' && draft.event && (!draft.decision || draft.decision === 'pending')),
+        isApplied: Boolean(draft?.decision === 'applied'),
+        isRejected: Boolean(draft?.decision === 'rejected'),
+        isRolledBack: Boolean(draft?.decision === 'rolled-back')
+      }
+    },
+
+    getEmergenceStateDeltaPreview(candidateId) {
+      const state = this.getEmergenceDraftState(candidateId)
+      if (!state.isReady) {
+        return { valid: false, state: this.getRuntimeSnapshot(), changes: [], errors: [{ code: 'draft-not-ready' }] }
+      }
+      const preview = buildStateDeltaPreview(this.getRuntimeSnapshot(), state.draft.event.changes)
+      return {
+        ...preview,
+        explanation: buildStateDeltaExplanation({
+          causes: state.draft.event.causes,
+          consequences: state.draft.event.consequences
+        })
+      }
+    },
+
+    applyEmergenceRuntimeRoots(nextState, paths = []) {
+      for (const path of [...new Set(paths)]) {
+        switch (path) {
+          case 'goals':
+            this.goals = normalizeGoals(nextState.goals)
+            break
+          case 'encounteredCharacters':
+            this.encounteredCharacters = normalizeEncounteredCharacters(nextState.encounteredCharacters)
+            break
+          case 'factionRelations':
+            this.factionRelations = normalizeFactionRelations(nextState.factionRelations)
+            break
+          case 'keyChoices':
+            this.keyChoices = normalizeKeyChoices(nextState.keyChoices)
+            break
+          case 'plotJournal':
+            this.plotJournal = normalizePlotJournal(nextState.plotJournal)
+            break
+          case 'activities':
+            this.activities = Array.isArray(nextState.activities) ? cloneState(nextState.activities, []) : []
+            break
+          case 'worldMapState':
+            this.worldMapState = normalizeWorldMapState(nextState.worldMapState || {})
+            break
+          case 'mechanismContext':
+            this.mechanismContext = cloneState(nextState.mechanismContext, null)
+            break
+          case 'milestoneEvent':
+            this.milestoneEvent = cloneState(nextState.milestoneEvent, null)
+            break
+          case 'flags':
+            this.flags = cloneState(nextState.flags, {})
+            break
+          case 'inventory':
+            this.inventory = Array.isArray(nextState.inventory) ? cloneState(nextState.inventory, []) : []
+            break
+          case 'quests':
+            this.quests = Array.isArray(nextState.quests) ? cloneState(nextState.quests, []) : []
+            break
+          default:
+            break
+        }
+      }
+    },
+
+    applyEmergenceDraft(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const state = this.getEmergenceDraftState(id)
+      if (!state.isReady) throw new Error('事件草稿尚未生成')
+      if (state.isApplied) throw new Error('事件草稿已经应用')
+      if (state.isRejected) throw new Error('事件草稿已拒绝')
+
+      const preview = this.getEmergenceStateDeltaPreview(id)
+      if (!preview.valid) throw new Error('事件状态变更未通过校验')
+      const event = this.appendRuntimeEvent({
+        type: 'state_delta',
+        source: 'runtime',
+        payload: {
+          kind: 'emergence-state-applied',
+          candidateId: id,
+          placeId: state.draft.event.placeId,
+          causes: state.draft.event.causes,
+          consequences: state.draft.event.consequences,
+          explanation: preview.explanation,
+          sourceRefs: state.draft.event.sourceRefs,
+          ops: preview.appliedOps,
+          inverseOps: preview.inverseOps,
+          before: preview.before,
+          after: preview.after,
+          contextual: false
+        }
+      })
+      this.applyEmergenceRuntimeRoots(preview.state, Object.keys(preview.before))
+      this.emergenceDraft = normalizeEmergenceDraft({
+        ...state.draft,
+        decision: 'applied',
+        appliedEventId: event.id,
+        error: '',
+        updatedAt: Date.now()
+      })
+      this.saveCurrentSession()
+      return { draft: this.emergenceDraft, event, preview }
+    },
+
+    rejectEmergenceDraft(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const state = this.getEmergenceDraftState(id)
+      if (!state.isReady) throw new Error('事件草稿尚未生成')
+      if (state.isApplied) throw new Error('事件草稿已经应用，不能拒绝')
+      this.emergenceDraft = normalizeEmergenceDraft({
+        ...state.draft,
+        decision: 'rejected',
+        error: '',
+        updatedAt: Date.now()
+      })
+      this.appendRuntimeEvent({
+        type: 'display_event',
+        source: 'runtime',
+        payload: {
+          kind: 'emergence-draft-rejected',
+          candidateId: id,
+          placeId: state.draft.event.placeId,
+          contextual: false
+        }
+      })
+      this.saveCurrentSession()
+      return this.emergenceDraft
+    },
+
+    rollbackEmergenceDraft(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const state = this.getEmergenceDraftState(id)
+      if (!state.isApplied || !state.draft.appliedEventId) throw new Error('没有可回滚的事件应用')
+      const appliedEvent = (this.runtimeEvents || []).find((event) => event?.id === state.draft.appliedEventId)
+      if (!appliedEvent) throw new Error('找不到事件应用记录')
+
+      const rollback = rollbackStateDelta(this.getRuntimeSnapshot(), appliedEvent)
+      if (!rollback.valid) {
+        this.emergenceDraft = normalizeEmergenceDraft({
+          ...state.draft,
+          error: `回滚冲突：${rollback.conflicts.join('、') || '状态已变化'}`,
+          updatedAt: Date.now()
+        })
+        this.saveCurrentSession()
+        return { success: false, rollback, draft: this.emergenceDraft }
+      }
+
+      const rollbackEvent = this.appendRuntimeEvent({
+        type: 'state_delta',
+        source: 'runtime',
+        parentId: appliedEvent.id,
+        payload: {
+          kind: 'emergence-state-rollback',
+          candidateId: id,
+          rollbackOf: appliedEvent.id,
+          explanation: '因为原事件应用已被撤回，所以恢复应用前的状态',
+          inverseOps: rollback.inverseOps,
+          before: rollback.before,
+          after: rollback.after,
+          contextual: false
+        }
+      })
+      this.applyEmergenceRuntimeRoots(rollback.state, Object.keys(rollback.before))
+      this.emergenceDraft = normalizeEmergenceDraft({
+        ...state.draft,
+        decision: 'rolled-back',
+        rollbackEventId: rollbackEvent.id,
+        error: '',
+        updatedAt: Date.now()
+      })
+      this.saveCurrentSession()
+      return { success: true, rollback, event: rollbackEvent, draft: this.emergenceDraft }
+    },
+
+    async generateEmergenceDraft(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id)
+      if (!candidate) throw new Error('找不到剧情候选')
+      if (this.emergenceDraft?.status === 'generating') throw new Error('事件正在具体化，请稍候')
+
+      this.loadApiSettings()
+      const now = Date.now()
+      this.setEmergenceDraft({
+        candidateId: id,
+        status: 'generating',
+        event: null,
+        error: '',
+        generatedAt: now,
+        updatedAt: now
+      })
+
+      try {
+        const worldStore = useWorldStore()
+        const result = await generateEmergenceEventDraft({
+          candidate,
+          worldbook: worldStore.activeWorldbook,
+          runtimeState: this.getRuntimeSnapshot(),
+          chatHistory: this.chatHistory,
+          settings: this.apiSettings,
+          worldId: this.worldId || worldStore.activeWorldbook?.id || ''
+        })
+        if (!result?.success || !result.event) throw new Error(result?.error || '事件具体化失败')
+
+        const draft = this.setEmergenceDraft({
+          candidateId: id,
+          status: 'ready',
+          event: result.event,
+          error: '',
+          generatedAt: now,
+          updatedAt: Date.now()
+        })
+        this.appendRuntimeEvent({
+          type: 'display_event',
+          source: 'emergence',
+          payload: {
+            kind: 'emergence-draft-ready',
+            candidateId: id,
+            placeId: result.event.placeId,
+            contextual: false
+          }
+        })
+        this.saveCurrentSession()
+        return draft
+      } catch (error) {
+        return this.setEmergenceDraft({
+          candidateId: id,
+          status: 'error',
+          event: null,
+          error: error?.message || '事件具体化失败',
+          generatedAt: now,
+          updatedAt: Date.now()
+        })
+      }
+    },
+
+    clearEmergenceDraft() {
+      this.emergenceDraft = null
+      this.saveCurrentSession()
+    },
+
+    async persistLatestPlayerHistoryNode() {
+      const worldStore = useWorldStore()
+      const worldbook = worldStore.activeWorldbook
+      if (!worldbook?.id || !this.currentSessionId) return null
+
+      const node = buildPlayerHistoryNodeFromPlotJournal(
+        this.latestPlotJournalEntry() ? [this.latestPlotJournalEntry()] : [],
+        this.historyNode,
+        {
+          placeId: this.worldMapState?.placeId,
+          placeRef: this.historyNode?.placeRef,
+          worldStateSnapshot: {
+            turn: this.chatHistory.filter((message) => message?.role === 'assistant').length,
+            worldMapState: this.worldMapState,
+            writingTime: this.writingTime,
+            factionRelations: this.factionRelations,
+            goals: this.goals,
+            encounteredCharacters: this.encounteredCharacters
+          }
+        }
+      )
+      if (!node) return null
+
+      const existingPlayerNodes = Array.isArray(worldbook.geoHistory?.playerNodes)
+        ? worldbook.geoHistory.playerNodes
+        : []
+      const nodeKey = getPlayerHistoryNodeKey(node)
+      if (existingPlayerNodes.some((item) => getPlayerHistoryNodeKey(item) === nodeKey)) {
+        return existingPlayerNodes.find((item) => getPlayerHistoryNodeKey(item) === nodeKey) || node
+      }
+
+      try {
+        const geoHistory = appendPlayerHistoryNode(worldbook.geoHistory, node)
+        const updated = await worldStore.updateWorldbook(worldbook.id, { geoHistory })
+        const persisted = updated?.geoHistory?.playerNodes?.find((item) => getPlayerHistoryNodeKey(item) === nodeKey) || node
+        this.appendRuntimeEvent({
+          type: 'display_event',
+          source: 'runtime',
+          payload: {
+            kind: 'player-history-writeback',
+            playerHistoryNodeId: persisted.id,
+            sourceNodeId: persisted.sourceNodeId,
+            placeId: persisted.placeId || '',
+            contextual: false
+          }
+        })
+        this.saveCurrentSession()
+        return persisted
+      } catch (error) {
+        return null
+      }
     },
 
     setAdventureTriggerDraft(type, draft) {
@@ -980,6 +1485,9 @@ export const useGameStore = defineStore('game', {
       const entry = this.buildPlotJournalEntry()
       if (!entry) return null
       this.appendPlotJournal(entry)
+      // Keep the journal API synchronous for existing callers; worldbook
+      // writeback is best-effort and must never delay the next AI turn.
+      void this.persistLatestPlayerHistoryNode()
       return entry
     },
 
@@ -1085,6 +1593,7 @@ export const useGameStore = defineStore('game', {
       this.writingCharacter = normalizeWritingCharacter(character)
       this.writingTime = normalizeWritingTime(session.worldState?.time || runtimeState.writingTime || DEFAULT_WRITING_TIME)
       this.worldMapState = normalizeWorldMapState(session.worldState?.worldMap || runtimeState.worldMapState || DEFAULT_WORLD_MAP_STATE)
+      this.historyNode = cloneState(runtimeState.historyNode || null, null)
       this.activities = cloneState(session.worldState?.activities || runtimeState.activities || [], [])
       const adventureState = normalizeAdventureState(runtimeState)
       this.goals = adventureState.goals
@@ -1095,6 +1604,9 @@ export const useGameStore = defineStore('game', {
       this.adventureTriggers = cloneState(adventureState.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers)
       this.adventureTriggerHistory = cloneState(adventureState.adventureTriggerHistory, [])
       this.adventureTriggerCooldownUntil = adventureState.adventureTriggerCooldownUntil || 0
+      this.emergenceCandidates = cloneState(adventureState.emergenceCandidates, [])
+      this.emergenceDismissedIds = cloneState(adventureState.emergenceDismissedIds, [])
+      this.emergenceDraft = cloneState(adventureState.emergenceDraft, null)
       this.adventureTriggerPendingType = null
       // 同时恢复 playerCharacter
       this.playerCharacter = {
@@ -1182,12 +1694,16 @@ export const useGameStore = defineStore('game', {
         adventureTriggers: cloneState(this.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers),
         adventureTriggerHistory: cloneState(this.adventureTriggerHistory, []),
         adventureTriggerCooldownUntil: this.adventureTriggerCooldownUntil,
+        emergenceCandidates: cloneState(this.emergenceCandidates, []),
+        emergenceDismissedIds: cloneState(this.emergenceDismissedIds, []),
+        emergenceDraft: cloneState(this.emergenceDraft, null),
         npcRelations: cloneState(this.npcRelations, {}),
         discoveredPlaces: cloneState(this.discoveredPlaces, []),
         completedQuests: cloneState(this.completedQuests, []),
         writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
         writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
         worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
+        historyNode: cloneState(this.historyNode, null),
         activeMechanism: this.activeMechanism,
         mechanismContext: cloneState(this.mechanismContext, null),
         milestoneEvent: cloneState(this.milestoneEvent, null),
@@ -1203,10 +1719,20 @@ export const useGameStore = defineStore('game', {
     },
 
     appendRuntimeEvent(input = {}) {
-      const event = createRuntimeEvent(input || {})
       const current = Array.isArray(this.runtimeEvents) ? this.runtimeEvents : []
+      const previous = current[current.length - 1]
+      const requestedParentId = String(input?.parentId == null ? '' : input.parentId).trim()
+      const requestedBranchId = String(input?.branchId == null ? '' : input.branchId).trim() || 'main'
+      const event = createRuntimeEvent({
+        ...(input || {}),
+        parentId: requestedParentId || (previous?.branchId === requestedBranchId ? previous.id : '')
+      })
       this.runtimeEvents = capRuntimeEvents(current.concat([event]), RUNTIME_EVENT_LIMIT)
       return event
+    },
+
+    getRuntimeCausalityReport() {
+      return buildRuntimeEventCausality(this.runtimeEvents)
     },
 
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
@@ -1673,8 +2199,16 @@ export const useGameStore = defineStore('game', {
             factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
             keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
             plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal),
+            geoHistoryContext: buildGeoHistoryRuntimeContext({
+              worldbook,
+              geoHistory: worldbook?.geoHistory,
+              worldMapState: this.worldMapState,
+              historyNode: this.historyNode,
+              playerHistoryContext: buildPlayerHistoryContext(worldbook?.geoHistory)
+            }),
             playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '', gender: '', age: '' }),
-            dialogueCharacter: cloneState(this.dialogueCharacter, null)
+            dialogueCharacter: cloneState(this.dialogueCharacter, null),
+            historyNode: cloneState(this.historyNode, null)
           },
           tokenBudget: 2000,
           scanDepth: 3,
@@ -1952,6 +2486,9 @@ export const useGameStore = defineStore('game', {
 
       // 剧情日志：每累计约 8 轮 assistant 回复，压成 1 条可写回的摘要
       this.maybeAppendPlotJournalEntry()
+
+      // 只在完整回复完成并提取状态后收集候选，不在流式文本期间弹出事件。
+      this.refreshEmergenceCandidates()
     },
 
     // 提取时间变化
@@ -2242,6 +2779,7 @@ export const useGameStore = defineStore('game', {
         title: activity.title,
         type: activity.type || 'event',
         date: activity.date || '',
+        placeId: activity.placeId || this.worldMapState?.placeId || '',
         createdAt: Date.now()
       })
       // 保留最近 20 条
@@ -2347,6 +2885,9 @@ export const useGameStore = defineStore('game', {
       this.adventureTriggers = runtime.adventureTriggers
       this.adventureTriggerHistory = runtime.adventureTriggerHistory
       this.adventureTriggerCooldownUntil = runtime.adventureTriggerCooldownUntil
+      this.emergenceCandidates = runtime.emergenceCandidates
+      this.emergenceDismissedIds = runtime.emergenceDismissedIds
+      this.emergenceDraft = runtime.emergenceDraft
       this.adventureTriggerPendingType = null
       this.npcRelations = runtime.npcRelations
       this.discoveredPlaces = runtime.discoveredPlaces
@@ -2354,6 +2895,7 @@ export const useGameStore = defineStore('game', {
       this.writingCharacter = runtime.writingCharacter
       this.writingTime = runtime.writingTime
       this.worldMapState = runtime.worldMapState
+      this.historyNode = runtime.historyNode
       this.isPlaying = false
       this.activeMechanism = runtime.activeMechanism
       this.mechanismContext = runtime.mechanismContext

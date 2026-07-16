@@ -54,7 +54,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 const props = defineProps({
   kicker: {
     type: String,
-    default: '在场 GM'
+    default: '顾问'
   },
   title: {
     type: String,
@@ -70,15 +70,15 @@ const props = defineProps({
   },
   launcherTitle: {
     type: String,
-    default: '打开角色化顾问入口'
+    default: '打开顾问入口'
   },
   avatarLabel: {
     type: String,
-    default: 'GM'
+    default: '问'
   },
   caption: {
     type: String,
-    default: '虚构集'
+    default: '顾问'
   },
   captionHint: {
     type: String,

@@ -1,0 +1,1335 @@
+<script setup>
+import { computed, ref, watch } from 'vue'
+import ComicPagePreview from './ComicPagePreview.vue'
+import ImageModelPicker from './ImageModelPicker.vue'
+import { generateImage } from '../../services/media/imageProviderService'
+import { addGeneratedImageToLibrary } from '../../services/media/mediaAssetStore'
+import {
+  addComicPanelTake,
+  buildComicPageManifest,
+  createComicPage,
+  findComicPageBySources,
+  hydrateComicPageTakes,
+  listComicPages,
+  saveComicPage,
+  updateComicPanel
+} from '../../services/media/comicPageStore'
+import { generateComicPageScript } from '../../services/media/comicScriptService'
+
+const props = defineProps({
+  sourceText: { type: String, default: '' },
+  sourceTitle: { type: String, default: '' },
+  projectId: { type: String, default: null },
+  sourceRefs: { type: Array, default: () => [] },
+  storageKey: { type: String, required: true },
+  modelConfigs: { type: Array, default: () => [] },
+  selectedModelId: { type: String, default: '' },
+  compact: { type: Boolean, default: false }
+})
+
+const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview'])
+const comicPage = ref(null)
+const panelCount = ref(4)
+const draftFormat = ref('page-ltr')
+const draftLayout = ref('strip-4')
+const draftColorMode = ref('color')
+const draftStyleBible = ref('')
+const scriptGenerating = ref(false)
+const batchGenerating = ref(false)
+const scriptError = ref('')
+const activePanelId = ref('')
+let loadRevision = 0
+const activePanel = computed(() => comicPage.value?.panels.find((panel) => panel.id === activePanelId.value) || null)
+const visiblePanels = computed(() => {
+  const panels = comicPage.value?.panels || []
+  if (!props.compact) return panels
+  return panels.filter((panel) => panel.id === activePanelId.value).slice(0, 1)
+})
+const layoutOptions = computed(() => {
+  const count = comicPage.value?.panels.length || panelCount.value
+  return count >= 6
+    ? [
+        { value: 'page-6', label: '六格均分' },
+        { value: 'feature-6', label: '首尾强调' }
+      ]
+    : [
+        { value: 'strip-4', label: '四格均分' },
+        { value: 'feature-4', label: '首格强调' }
+      ]
+})
+const unfinishedPanels = computed(() => comicPage.value?.panels.filter((panel) => !panel.selectedTakeId) || [])
+const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
+  ? [
+      { value: 'rough', label: '草稿' },
+      { value: 'line', label: '线稿' },
+      { value: 'tones', label: '网点' },
+      { value: 'effects', label: '效果' }
+    ]
+  : [
+      { value: 'rough', label: '草稿' },
+      { value: 'line', label: '线稿' },
+      { value: 'flats', label: '平涂' },
+      { value: 'render', label: '上色' },
+      { value: 'effects', label: '效果' }
+    ])
+
+watch(() => sourceSignature(props.sourceRefs), () => {
+  void loadStoredPage()
+}, { immediate: true })
+watch(comicPage, (page) => {
+  emit('page-preview', page)
+}, { deep: true })
+
+async function loadStoredPage() {
+  const revision = ++loadRevision
+  const stored = findComicPageBySources(props.sourceRefs, { projectId: props.projectId })
+    || (!props.sourceRefs.length ? listComicPages({ projectId: props.projectId })[0] : null)
+  if (!stored) {
+    comicPage.value = null
+    return
+  }
+  panelCount.value = stored.panels.length >= 6 ? 6 : 4
+  const hydrated = await hydrateComicPageTakes(stored)
+  if (revision === loadRevision) {
+    comicPage.value = hydrated
+    activePanelId.value = hydrated.panels.some((panel) => panel.id === activePanelId.value)
+      ? activePanelId.value
+      : hydrated.panels[0]?.id || ''
+  }
+}
+
+function createDraftPage() {
+  const page = createComicPage({
+    projectId: props.projectId,
+    sourceRefs: props.sourceRefs,
+    title: props.sourceTitle || '未命名漫画页',
+    format: draftFormat.value,
+    layout: draftLayout.value,
+    colorMode: draftColorMode.value,
+    styleBible: draftStyleBible.value,
+    panels: Array.from({ length: 4 }, (_, index) => ({ order: index + 1, visual: '' }))
+  })
+  comicPage.value = saveComicPage(page)
+  activePanelId.value = comicPage.value.panels[0]?.id || ''
+}
+
+async function generateScript() {
+  const requestedSourceSignature = sourceSignature(props.sourceRefs)
+  scriptGenerating.value = true
+  scriptError.value = ''
+  try {
+    const result = await generateComicPageScript({
+      sourceText: props.sourceText,
+      sourceTitle: props.sourceTitle,
+      sourceRefs: props.sourceRefs,
+      projectId: props.projectId,
+      panelCount: panelCount.value
+    })
+    const saved = saveComicPage({
+      ...result.page,
+      format: draftFormat.value,
+      layout: draftLayout.value,
+      colorMode: draftColorMode.value,
+      styleBible: draftStyleBible.value || result.page.styleBible
+    })
+    if (requestedSourceSignature === sourceSignature(props.sourceRefs)) {
+      comicPage.value = saved
+      activePanelId.value = saved.panels[0]?.id || ''
+    }
+  } catch (error) {
+    scriptError.value = error?.message || '漫画脚本生成失败'
+  } finally {
+    scriptGenerating.value = false
+  }
+}
+
+function persistPage() {
+  if (!comicPage.value) return
+  const runtimeTakes = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.imageTakes || []]))
+  const saved = saveComicPage(comicPage.value)
+  comicPage.value = {
+    ...saved,
+    panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [] }))
+  }
+}
+
+async function generatePanel(panel) {
+  const config = props.modelConfigs.find((item) => item.id === props.selectedModelId)
+  if (!config) return
+  const pageId = comicPage.value.id
+  const layout = comicPage.value.layout
+  const styleBible = comicPage.value.styleBible
+  const pageSourceRefs = [...comicPage.value.sourceRefs]
+  const projectId = props.projectId
+  const panelId = panel.id
+  const panelVisual = panel.visual
+  const imageSize = panelImageSize(layout, panel.order)
+  patchRuntimePanel(panel.id, { generationStatus: 'generating', generationError: '' })
+  updateComicPanel(pageId, panelId, { generationStatus: 'generating', generationError: '' })
+  try {
+    const prompt = [
+      styleBible,
+      panelVisual,
+      'comic panel, consistent characters and setting, no text, no speech bubbles, no watermark'
+    ].filter(Boolean).join('. ')
+    const data = await generateImage(config, {
+      prompt,
+      negativePrompt: 'text, letters, subtitle, speech bubble, watermark, logo',
+      width: imageSize.width,
+      height: imageSize.height,
+      count: 1
+    })
+    const entry = await addGeneratedImageToLibrary(props.storageKey, {
+      prompt: panelVisual,
+      negativePrompt: 'text, letters, subtitle, speech bubble, watermark, logo',
+      modelName: config.name,
+      modelId: config.defaultModel,
+      modelType: config.type,
+      width: imageSize.width,
+      height: imageSize.height,
+      data,
+      createdAt: new Date().toISOString()
+    }, {
+      projectId,
+      purpose: 'comic-panel',
+      sourceRefs: [
+        ...pageSourceRefs,
+        { refType: 'comic-page', refId: pageId, projectId },
+        { refType: 'comic-panel', refId: panelId, projectId }
+      ]
+    })
+    const saved = addComicPanelTake(pageId, panelId, entry.mediaAssetId, { select: true })
+    if (saved && comicPage.value?.id === pageId) {
+      comicPage.value = await hydrateComicPageTakes(saved)
+    }
+  } catch (error) {
+    const message = error?.message || '本格图片生成失败'
+    updateComicPanel(pageId, panelId, { generationStatus: 'error', generationError: message })
+    if (comicPage.value?.id === pageId) {
+      patchRuntimePanel(panelId, { generationStatus: 'error', generationError: message })
+    }
+  }
+}
+
+async function generateUnfinishedPanels() {
+  if (batchGenerating.value || !unfinishedPanels.value.length || !props.selectedModelId) return
+  batchGenerating.value = true
+  const panelIds = unfinishedPanels.value.map((panel) => panel.id)
+  try {
+    for (const panelId of panelIds) {
+      const panel = comicPage.value?.panels.find((item) => item.id === panelId)
+      if (panel && !panel.selectedTakeId) await generatePanel(panel)
+    }
+  } finally {
+    batchGenerating.value = false
+  }
+}
+
+function selectPanelTake(panel, takeId) {
+  const saved = updateComicPanel(comicPage.value.id, panel.id, { selectedTakeId: takeId })
+  if (!saved) return
+  patchRuntimePanel(panel.id, { selectedTakeId: takeId })
+}
+
+function addDialogue(panel) {
+  panel.dialogue.push({ speaker: '', text: '' })
+}
+
+function removeDialogue(panel, index) {
+  panel.dialogue.splice(index, 1)
+  persistPage()
+}
+
+function movePanel(panel, delta) {
+  if (!comicPage.value) return
+  const fromIndex = comicPage.value.panels.findIndex((item) => item.id === panel.id)
+  const toIndex = fromIndex + delta
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= comicPage.value.panels.length) return
+  const panels = [...comicPage.value.panels]
+  const [moved] = panels.splice(fromIndex, 1)
+  panels.splice(toIndex, 0, moved)
+  panels.forEach((item, index) => { item.order = index + 1 })
+  comicPage.value.panels = panels
+  persistPage()
+}
+
+function moveActivePanel(delta) {
+  if (activePanel.value) movePanel(activePanel.value, delta)
+}
+
+function navigatePanel(delta) {
+  const panels = comicPage.value?.panels || []
+  const index = panels.findIndex((panel) => panel.id === activePanelId.value)
+  if (index < 0) return
+  activePanelId.value = panels[Math.max(0, Math.min(panels.length - 1, index + delta))].id
+}
+
+function setPageLayout(layout) {
+  if (!comicPage.value || !layoutOptions.value.some((option) => option.value === layout)) return
+  comicPage.value.layout = layout
+  persistPage()
+}
+
+function setColorMode(colorMode) {
+  if (!comicPage.value) return
+  comicPage.value.colorMode = colorMode === 'monochrome' ? 'monochrome' : 'color'
+  persistPage()
+}
+
+function stageStatusLabel(panel, stage) {
+  const status = panel.production?.[stage]?.status || 'empty'
+  return {
+    empty: '未开始',
+    working: '处理中',
+    review: '待审阅',
+    approved: '已确认',
+    stale: '需重做',
+    failed: '失败'
+  }[status] || status
+}
+
+function acceptPage() {
+  comicPage.value.status = 'accepted'
+  persistPage()
+}
+
+function exportManifest() {
+  if (!comicPage.value || typeof document === 'undefined') return
+  const manifest = buildComicPageManifest(comicPage.value)
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${safeFilename(comicPage.value.title)}.comic.json`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+async function exportPageImage() {
+  if (!comicPage.value || typeof document === 'undefined') return
+  const width = 1200
+  const height = 1600
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) return
+
+  context.fillStyle = '#f7f4ed'
+  context.fillRect(0, 0, width, height)
+  const rects = comicPanelRects(comicPage.value.layout, width, height)
+  for (let index = 0; index < comicPage.value.panels.length; index += 1) {
+    const panel = comicPage.value.panels[index]
+    const rect = rects[index]
+    if (!rect) continue
+    const take = selectedTake(panel)
+    context.save()
+    context.beginPath()
+    context.rect(rect.x, rect.y, rect.width, rect.height)
+    context.clip()
+    context.fillStyle = '#e9e5dc'
+    context.fillRect(rect.x, rect.y, rect.width, rect.height)
+    if (take?.data) {
+      try {
+        const image = await loadCanvasImage(take.data)
+        drawCoverImage(context, image, rect)
+      } catch {
+        drawPanelPlaceholder(context, panel, rect)
+      }
+    } else {
+      drawPanelPlaceholder(context, panel, rect)
+    }
+    drawPanelText(context, panel, rect)
+    context.restore()
+    context.strokeStyle = '#1f2630'
+    context.lineWidth = 4
+    context.strokeRect(rect.x, rect.y, rect.width, rect.height)
+  }
+
+  const url = canvas.toDataURL('image/png')
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${safeFilename(comicPage.value.title)}.png`
+  anchor.click()
+}
+
+function savePanelToMaterial(panel) {
+  const take = selectedTake(panel)
+  if (!take) return
+  emit('save-to-material', {
+    id: take.id,
+    mediaAssetId: take.id,
+    data: take.data,
+    prompt: panel.visual,
+    mediaPurpose: 'comic-panel',
+    mode: 'comic',
+    sourceRefs: [
+      ...comicPage.value.sourceRefs,
+      { refType: 'comic-page', refId: comicPage.value.id, projectId: props.projectId },
+      { refType: 'comic-panel', refId: panel.id, projectId: props.projectId }
+    ]
+  })
+}
+
+function selectedTake(panel) {
+  return panel.imageTakes?.find((take) => take.id === panel.selectedTakeId) || null
+}
+
+function patchRuntimePanel(panelId, patch) {
+  const panel = comicPage.value?.panels.find((item) => item.id === panelId)
+  if (panel) Object.assign(panel, patch)
+}
+
+function panelStateLabel(panel) {
+  if (panel.generationStatus === 'generating') return '生成中'
+  if (panel.generationStatus === 'error') return '失败'
+  if (panel.selectedTakeId) return `${panel.imageTakeIds.length} 个候选`
+  return '待生成'
+}
+
+function panelImageSize(layout, order) {
+  if (layout === 'feature-4') {
+    if (order === 1) return { width: 1280, height: 720 }
+    if (order === 2) return { width: 768, height: 1152 }
+  }
+  if (layout === 'feature-6' && (order === 1 || order === 6)) {
+    return { width: 1280, height: 720 }
+  }
+  return layout === 'strip-4'
+    ? { width: 1024, height: 768 }
+    : { width: 896, height: 896 }
+}
+
+function comicPanelRects(layout, pageWidth, pageHeight) {
+  const margin = 34
+  const gap = 14
+  const x = margin
+  const y = margin
+  const width = pageWidth - margin * 2
+  const height = pageHeight - margin * 2
+  const halfWidth = (width - gap) / 2
+  if (layout === 'feature-4') {
+    const heroHeight = height * 0.34
+    const lowerY = y + heroHeight + gap
+    const lowerHeight = height - heroHeight - gap
+    const rightHeight = (lowerHeight - gap) / 2
+    return [
+      { x, y, width, height: heroHeight },
+      { x, y: lowerY, width: halfWidth, height: lowerHeight },
+      { x: x + halfWidth + gap, y: lowerY, width: halfWidth, height: rightHeight },
+      { x: x + halfWidth + gap, y: lowerY + rightHeight + gap, width: halfWidth, height: rightHeight }
+    ]
+  }
+  if (layout === 'feature-6') {
+    const heroHeight = height * 0.25
+    const footerHeight = height * 0.18
+    const middleY = y + heroHeight + gap
+    const middleHeight = height - heroHeight - footerHeight - gap * 2
+    const middleRowHeight = (middleHeight - gap) / 2
+    const footerY = middleY + middleHeight + gap
+    return [
+      { x, y, width, height: heroHeight },
+      { x, y: middleY, width: halfWidth, height: middleRowHeight },
+      { x: x + halfWidth + gap, y: middleY, width: halfWidth, height: middleRowHeight },
+      { x, y: middleY + middleRowHeight + gap, width: halfWidth, height: middleRowHeight },
+      { x: x + halfWidth + gap, y: middleY + middleRowHeight + gap, width: halfWidth, height: middleRowHeight },
+      { x, y: footerY, width, height: footerHeight }
+    ]
+  }
+  const rows = layout === 'page-6' ? 3 : 2
+  const rowHeight = (height - gap * (rows - 1)) / rows
+  return Array.from({ length: rows * 2 }, (_, index) => ({
+    x: x + (index % 2) * (halfWidth + gap),
+    y: y + Math.floor(index / 2) * (rowHeight + gap),
+    width: halfWidth,
+    height: rowHeight
+  }))
+}
+
+function loadCanvasImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('漫画格图片加载失败'))
+    image.src = source
+  })
+}
+
+function drawCoverImage(context, image, rect) {
+  const scale = Math.max(rect.width / image.naturalWidth, rect.height / image.naturalHeight)
+  const width = image.naturalWidth * scale
+  const height = image.naturalHeight * scale
+  context.drawImage(image, rect.x + (rect.width - width) / 2, rect.y + (rect.height - height) / 2, width, height)
+}
+
+function drawPanelPlaceholder(context, panel, rect) {
+  context.fillStyle = '#5d6470'
+  context.font = '600 30px sans-serif'
+  context.textAlign = 'center'
+  context.fillText(`第 ${panel.order} 格`, rect.x + rect.width / 2, rect.y + rect.height / 2)
+}
+
+function drawPanelText(context, panel, rect) {
+  const lines = [
+    panel.caption,
+    ...panel.dialogue.map((line) => `${line.speaker ? `${line.speaker}：` : ''}${line.text}`)
+  ].filter(Boolean).slice(0, 4)
+  if (!lines.length) return
+  const padding = 14
+  const lineHeight = 24
+  const boxHeight = lines.length * lineHeight + padding * 2
+  context.fillStyle = 'rgba(255,255,255,0.9)'
+  context.fillRect(rect.x + padding, rect.y + rect.height - boxHeight - padding, rect.width - padding * 2, boxHeight)
+  context.fillStyle = '#20242a'
+  context.font = '18px sans-serif'
+  context.textAlign = 'left'
+  lines.forEach((line, index) => {
+    const text = String(line).slice(0, Math.max(12, Math.floor(rect.width / 20)))
+    context.fillText(text, rect.x + padding * 2, rect.y + rect.height - boxHeight + padding + lineHeight * (index + 0.72), rect.width - padding * 4)
+  })
+}
+
+function sourceSignature(sourceRefs) {
+  return sourceRefs
+    .map((ref) => `${ref.refType}:${ref.refId}:${ref.projectId || ''}`)
+    .sort()
+    .join('|')
+}
+
+function safeFilename(value) {
+  return String(value || 'comic-page').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'comic-page'
+}
+</script>
+
+<template>
+  <section class="comic-editor" aria-label="漫画页编辑器">
+    <div v-if="!comicPage" class="comic-editor__draft">
+      <div class="comic-editor__draft-options">
+        <label>
+          <span>阅读方向</span>
+          <select v-model="draftFormat">
+            <option value="page-ltr">左到右页漫</option>
+            <option value="page-rtl">右到左页漫</option>
+            <option value="webtoon">竖向条漫</option>
+          </select>
+        </label>
+        <label>
+          <span>页面版式</span>
+          <select v-model="draftLayout">
+            <option value="strip-4">四格均分</option>
+            <option value="feature-4">首格强调</option>
+          </select>
+        </label>
+        <label>
+          <span>色制</span>
+          <select v-model="draftColorMode">
+            <option value="color">彩色</option>
+            <option value="monochrome">黑白 / 网点</option>
+          </select>
+        </label>
+      </div>
+      <label class="comic-editor__draft-style">
+        <span>画风基调</span>
+        <textarea v-model="draftStyleBible" rows="2" placeholder="角色、线条、光影与色彩基调"></textarea>
+      </label>
+    </div>
+    <div v-else class="comic-editor__setup">
+      <div class="comic-editor__setup-current">
+        <div>
+          <strong>漫画制作页</strong>
+          <span>{{ comicPage.title || '未命名漫画页' }}</span>
+        </div>
+        <button
+          class="comic-action comic-action--primary"
+          type="button"
+          :disabled="scriptGenerating || batchGenerating || !sourceText.trim()"
+          @click="generateScript"
+        >
+          {{ scriptGenerating ? '生成脚本中...' : '重写漫画脚本' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="comic-editor__model">
+      <ImageModelPicker
+        :model-value="selectedModelId"
+        :configs="modelConfigs"
+        @update:model-value="$emit('update:selectedModelId', $event)"
+        @configs-updated="$emit('configs-updated', $event)"
+      />
+    </div>
+
+    <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
+
+    <div v-if="!comicPage" class="comic-editor__draft-actions">
+      <button class="comic-action comic-action--primary" type="button" @click="createDraftPage">
+        建立制作页
+      </button>
+      <button
+        class="comic-action"
+        type="button"
+        :disabled="scriptGenerating || !sourceText.trim()"
+        @click="generateScript"
+      >
+        {{ scriptGenerating ? '生成脚本中...' : '生成漫画脚本' }}
+      </button>
+    </div>
+
+    <template v-else>
+      <div class="comic-editor__page-bar">
+        <label class="comic-editor__layout-select">
+          <span>页面版式</span>
+          <select :value="comicPage.layout" @change="setPageLayout($event.target.value)">
+            <option v-for="option in layoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+        <button
+          class="comic-action"
+          type="button"
+          :disabled="batchGenerating || scriptGenerating || unfinishedPanels.length === 0 || !selectedModelId"
+          @click="generateUnfinishedPanels"
+        >
+          {{ batchGenerating ? '正在补齐...' : unfinishedPanels.length ? `补齐 ${unfinishedPanels.length} 格` : '画面已齐' }}
+        </button>
+      </div>
+
+      <details class="comic-editor__page-settings" open>
+        <summary>页面信息与统一画风</summary>
+        <div class="comic-editor__page-meta">
+          <div class="comic-editor__page-row">
+            <label class="comic-editor__field">
+              <span>页面标题</span>
+              <input v-model="comicPage.title" aria-label="漫画页标题" @change="persistPage" />
+            </label>
+            <label class="comic-editor__inline-field">
+              <span>色制</span>
+              <select :value="comicPage.colorMode" @change="setColorMode($event.target.value)">
+                <option value="color">彩色</option>
+                <option value="monochrome">黑白 / 网点</option>
+              </select>
+            </label>
+          </div>
+          <label class="comic-editor__field">
+            <span>统一画风</span>
+            <textarea
+              v-model="comicPage.styleBible"
+              rows="2"
+              aria-label="统一画风"
+              placeholder="角色、地点、服装与色彩连续性"
+              @change="persistPage"
+            ></textarea>
+          </label>
+          <label class="comic-editor__field">
+            <span>线条规则</span>
+            <input v-model="comicPage.visualBible.lineStyle" aria-label="线条规则" placeholder="例如：人物线稿清晰，背景线条减弱" @change="persistPage" />
+          </label>
+          <label class="comic-editor__field">
+            <span>上色与网点</span>
+            <textarea
+              v-model="comicPage.visualBible.renderingNotes"
+              rows="2"
+              aria-label="上色与网点规则"
+              placeholder="上色、黑块、网点和效果规则"
+              @change="persistPage"
+            ></textarea>
+          </label>
+        </div>
+      </details>
+
+      <section class="comic-editor__preview-block" aria-label="页面预览">
+        <div class="comic-editor__section-heading">
+          <strong>页面预览</strong>
+          <span>{{ comicPage.panels.length }} 格</span>
+        </div>
+        <ComicPagePreview
+          v-if="compact"
+          :page="comicPage"
+          :active-panel-id="activePanelId"
+          compact
+          interactive
+          @select-panel="activePanelId = $event"
+        />
+      </section>
+
+      <div v-if="compact && activePanel" class="comic-editor__panel-nav">
+        <button type="button" title="上一格" aria-label="上一格" :disabled="activePanel.order <= 1" @click="navigatePanel(-1)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+        <button type="button" title="当前格前移" aria-label="当前格前移" :disabled="activePanel.order <= 1" @click="moveActivePanel(-1)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 19V5m0 0-5 5m5-5 5 5" /></svg>
+        </button>
+        <span><strong>第 {{ activePanel.order }} 格</strong> · {{ panelStateLabel(activePanel) }}</span>
+        <button type="button" title="当前格后移" aria-label="当前格后移" :disabled="activePanel.order >= comicPage.panels.length" @click="moveActivePanel(1)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14m0 0 5-5m-5 5-5-5" /></svg>
+        </button>
+        <button type="button" title="下一格" aria-label="下一格" :disabled="activePanel.order >= comicPage.panels.length" @click="navigatePanel(1)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </button>
+      </div>
+
+      <div class="comic-editor__panels">
+        <section v-for="panel in visiblePanels" :key="panel.id" class="comic-panel">
+          <header class="comic-panel__header">
+            <span>{{ compact ? '画面与文字' : `第 ${panel.order} 格 · 画面与文字` }}</span>
+            <button
+              class="comic-action comic-action--primary comic-panel__generate-btn"
+              type="button"
+              :disabled="batchGenerating || panel.generationStatus === 'generating' || !panel.visual.trim() || !selectedModelId"
+              @click="generatePanel(panel)"
+            >
+              {{ panel.imageTakeIds.length ? '重生成' : '生成画面' }}
+            </button>
+          </header>
+
+          <div v-if="selectedTake(panel)" class="comic-panel__image">
+            <img :src="selectedTake(panel).data" :alt="`第 ${panel.order} 格`" />
+          </div>
+          <div v-if="panel.imageTakes?.length > 1" class="comic-panel__takes" aria-label="图片候选">
+            <button
+              v-for="(take, index) in panel.imageTakes"
+              :key="take.id"
+              type="button"
+              :class="{ active: panel.selectedTakeId === take.id }"
+              :title="`选择候选 ${index + 1}`"
+              @click="selectPanelTake(panel, take.id)"
+            >
+              <img :src="take.data" alt="" />
+            </button>
+          </div>
+
+          <label class="comic-editor__field">
+            <span>画面</span>
+            <textarea v-model="panel.visual" rows="3" @change="persistPage"></textarea>
+          </label>
+
+          <details class="comic-panel__direction" open>
+            <summary>分镜与制作阶段</summary>
+            <div class="comic-panel__direction-grid">
+              <label>
+                <span>景别</span>
+                <select v-model="panel.direction.shotSize" @change="persistPage">
+                  <option :value="null">未设定</option>
+                  <option value="extreme-wide">大远景</option>
+                  <option value="wide">远景</option>
+                  <option value="medium">中景</option>
+                  <option value="close">近景</option>
+                  <option value="extreme-close">特写</option>
+                  <option value="insert">插入特写</option>
+                </select>
+              </label>
+              <label>
+                <span>机位</span>
+                <select v-model="panel.direction.cameraAngle" @change="persistPage">
+                  <option :value="null">未设定</option>
+                  <option value="eye">平视</option>
+                  <option value="high">高机位</option>
+                  <option value="low">低机位</option>
+                  <option value="bird">俯视</option>
+                  <option value="worm">仰视</option>
+                  <option value="dutch">倾斜</option>
+                  <option value="pov">主观</option>
+                </select>
+              </label>
+              <label>
+                <span>透视</span>
+                <select v-model="panel.direction.perspective" @change="persistPage">
+                  <option :value="null">未设定</option>
+                  <option value="flat">平面</option>
+                  <option value="one-point">一点透视</option>
+                  <option value="two-point">两点透视</option>
+                  <option value="three-point">三点透视</option>
+                  <option value="fisheye">鱼眼</option>
+                </select>
+              </label>
+            </div>
+            <div class="comic-panel__stage-list" aria-label="制作阶段">
+              <span v-for="stage in stageOptions" :key="stage.value" class="comic-panel__stage" :class="`is-${panel.production?.[stage.value]?.status || 'empty'}`">
+                <strong>{{ stage.label }}</strong>
+                <small>{{ stageStatusLabel(panel, stage.value) }}</small>
+              </span>
+            </div>
+          </details>
+
+          <div class="comic-panel__text-layer">
+            <div class="comic-panel__text-heading">
+              <span>对白</span>
+              <button type="button" @click="addDialogue(panel)">添加</button>
+            </div>
+            <div v-for="(line, lineIndex) in panel.dialogue" :key="lineIndex" class="comic-panel__dialogue">
+              <input v-model="line.speaker" aria-label="说话人" placeholder="角色" @change="persistPage" />
+              <input v-model="line.text" aria-label="对白" placeholder="对白内容" @change="persistPage" />
+              <button type="button" title="删除对白" aria-label="删除对白" @click="removeDialogue(panel, lineIndex)">×</button>
+            </div>
+            <label class="comic-editor__field comic-editor__field--caption">
+              <span>旁白</span>
+              <input v-model="panel.caption" placeholder="可选" @change="persistPage" />
+            </label>
+          </div>
+
+          <p v-if="panel.generationError" class="comic-editor__error" role="alert">{{ panel.generationError }}</p>
+          <button
+            v-if="selectedTake(panel)"
+            class="comic-action comic-panel__material-btn"
+            type="button"
+            @click="savePanelToMaterial(panel)"
+          >
+            存为素材
+          </button>
+        </section>
+      </div>
+
+      <footer class="comic-editor__footer">
+        <span>{{ comicPage.panels.filter((panel) => panel.selectedTakeId).length }} / {{ comicPage.panels.length }} 格已有画面</span>
+        <div class="comic-editor__footer-actions">
+          <button class="comic-action" type="button" @click="exportManifest">JSON</button>
+          <button class="comic-action" type="button" @click="exportPageImage">PNG</button>
+          <button class="comic-action comic-action--primary" type="button" :disabled="comicPage.status === 'accepted'" @click="acceptPage">
+            {{ comicPage.status === 'accepted' ? '已采纳' : '采纳漫画页' }}
+          </button>
+        </div>
+      </footer>
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.comic-editor {
+  display: grid;
+  gap: 12px;
+  color: var(--archive-ink, var(--text-primary));
+}
+
+.comic-editor__setup,
+.comic-editor__page-bar,
+.comic-editor__footer,
+.comic-editor__footer-actions,
+.comic-panel__header,
+.comic-panel__text-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comic-editor__setup,
+.comic-editor__page-bar,
+.comic-editor__footer {
+  justify-content: space-between;
+}
+
+.comic-editor__setup {
+  min-height: 34px;
+  padding: 8px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+}
+
+.comic-editor__draft {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0 2px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+}
+
+.comic-editor__model {
+  display: grid;
+  gap: 6px;
+}
+
+.comic-editor__setup-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.comic-editor__setup-current > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.comic-editor__setup-current strong {
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 12px;
+}
+
+.comic-editor__setup-current span {
+  overflow: hidden;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comic-editor__model > span,
+.comic-editor__section-heading span {
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__draft-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  width: 100%;
+}
+
+.comic-editor__draft-options label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__draft-options select {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+}
+
+.comic-editor__draft-style {
+  display: grid;
+  gap: 4px;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__draft-style textarea {
+  width: 100%;
+  min-height: 54px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.comic-editor__draft-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comic-editor__layout {
+  display: flex;
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 52%, transparent);
+}
+
+.comic-editor button,
+.comic-editor input,
+.comic-editor textarea,
+.comic-editor select {
+  font: inherit;
+}
+
+.comic-editor__layout button,
+.comic-panel__text-heading button,
+.comic-editor__panel-nav button {
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  cursor: pointer;
+}
+
+.comic-editor__layout button {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-bottom: 2px solid transparent;
+}
+
+.comic-editor__layout button.active {
+  border-bottom-color: var(--archive-olive, var(--accent));
+  color: var(--archive-olive-strong, var(--accent));
+  font-weight: 600;
+}
+
+.comic-action {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 64%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: var(--archive-ink-soft, var(--text-secondary));
+  cursor: pointer;
+  font-size: 11px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.comic-action:hover:not(:disabled) {
+  border-color: var(--archive-olive, var(--accent));
+  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong, var(--text-primary));
+}
+
+.comic-action--primary {
+  min-height: 34px;
+  padding-inline: 12px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--archive-olive) 72%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-olive-strong));
+  color: var(--archive-paper-soft, var(--accent-text));
+  font-weight: 600;
+}
+
+.comic-editor button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.comic-editor button:focus-visible,
+.comic-editor input:focus-visible,
+.comic-editor textarea:focus-visible,
+.comic-editor select:focus-visible,
+.comic-editor summary:focus-visible {
+  outline: 2px solid var(--archive-gold, var(--accent));
+  outline-offset: 2px;
+}
+
+.comic-editor__page-bar {
+  padding: 8px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
+}
+
+.comic-editor__layout-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__layout-select select {
+  min-height: 28px;
+  padding: 3px 24px 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 58%, var(--border));
+  border-radius: 4px;
+  background: var(--archive-paper-soft, var(--bg-primary));
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+}
+
+.comic-editor__page-settings {
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 11px;
+}
+
+.comic-editor__page-settings summary {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comic-editor__field {
+  display: grid;
+  gap: 5px;
+}
+
+.comic-editor__field > span,
+.comic-panel__text-heading,
+.comic-editor__footer {
+  font-size: 11px;
+  color: var(--archive-ink-soft, var(--text-secondary));
+}
+
+.comic-editor__field input,
+.comic-editor__field textarea,
+.comic-editor__field select,
+.comic-editor__page-meta input,
+.comic-editor__page-meta textarea,
+.comic-panel__dialogue input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.comic-editor__page-meta {
+  display: grid;
+  gap: 7px;
+  padding-top: 8px;
+}
+
+.comic-editor__page-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.comic-editor__inline-field {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 11px;
+}
+
+.comic-editor__page-meta input {
+  font-weight: 600;
+}
+
+.comic-editor__preview-block {
+  display: grid;
+  gap: 7px;
+}
+
+.comic-editor__section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.comic-editor__section-heading strong {
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.comic-editor textarea {
+  resize: vertical;
+}
+
+.comic-editor__panels {
+  display: grid;
+}
+
+.comic-editor__panel-nav {
+  display: grid;
+  grid-template-columns: 28px 28px minmax(0, 1fr) 28px 28px;
+  align-items: center;
+  min-height: 34px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+}
+
+.comic-editor__panel-nav button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.comic-editor__panel-nav button:hover:not(:disabled) { color: var(--archive-olive-strong, var(--accent)); }
+.comic-editor__panel-nav > span { min-width: 0; text-align: center; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
+.comic-editor__panel-nav strong { color: var(--archive-ink, var(--text-primary)); font-size: 11px; }
+
+.comic-panel {
+  display: grid;
+  gap: 8px;
+  padding: 2px 0 8px;
+}
+
+.comic-panel__header > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.comic-panel__generate-btn { flex: 0 0 auto; margin-left: auto; }
+
+.comic-panel__state {
+  color: var(--archive-ink-soft, var(--text-muted));
+  font-size: 10px;
+}
+
+.comic-panel__state.is-error,
+.comic-editor__error {
+  color: var(--danger);
+}
+
+.comic-panel__image {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, var(--border));
+  border-radius: 3px;
+  background: var(--archive-paper, var(--bg-primary));
+}
+
+.comic-panel__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.comic-panel__takes {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.comic-panel__takes button {
+  width: 48px;
+  height: 36px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  opacity: 0.65;
+}
+
+.comic-panel__takes button.active {
+  border-color: var(--archive-olive, var(--accent));
+  opacity: 1;
+}
+
+.comic-panel__takes img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comic-panel__text-layer {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 44%, transparent);
+}
+
+.comic-panel__direction {
+  padding-top: 7px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 11px;
+}
+
+.comic-panel__direction summary {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  color: var(--archive-ink, var(--text-primary));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comic-panel__direction-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 7px;
+}
+
+.comic-panel__direction-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comic-panel__direction-grid select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  min-height: 32px;
+  padding: 5px 6px;
+  font-size: 11px;
+}
+
+.comic-panel__stage-list {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-top: 8px;
+}
+
+.comic-panel__stage {
+  display: grid;
+  flex: 1 0 52px;
+  gap: 2px;
+  padding: 5px 6px;
+  border-bottom: 2px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
+  color: var(--archive-ink-soft, var(--text-secondary));
+  white-space: nowrap;
+}
+
+.comic-panel__stage strong { font-size: 10px; color: var(--archive-ink, var(--text-primary)); }
+.comic-panel__stage small { font-size: 9px; }
+.comic-panel__stage.is-review { border-bottom-color: var(--archive-olive, var(--accent)); }
+.comic-panel__stage.is-approved { border-bottom-color: var(--archive-olive-strong, var(--accent)); }
+.comic-panel__stage.is-stale { border-bottom-color: var(--danger); }
+
+.comic-panel__text-heading button {
+  margin-left: auto;
+  color: var(--archive-olive-strong, var(--accent));
+}
+
+.comic-panel__dialogue {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 24px;
+  gap: 5px;
+}
+
+.comic-panel__dialogue button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.comic-editor__field--caption {
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+}
+
+.comic-editor__field--caption input {
+  min-height: 30px;
+}
+
+.comic-editor__error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.comic-panel__material-btn {
+  justify-self: end;
+}
+
+.comic-editor__footer {
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.comic-editor__footer-actions {
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .comic-editor__setup { align-items: stretch; }
+  .comic-editor__draft-options { grid-template-columns: 1fr; }
+  .comic-editor__draft-actions .comic-action { flex: 1 1 140px; }
+  .comic-editor__page-row { grid-template-columns: 1fr; }
+  .comic-panel__direction-grid { grid-template-columns: 1fr; }
+  .comic-editor__footer-actions { width: 100%; margin-left: 0; }
+}
+</style>

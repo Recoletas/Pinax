@@ -126,4 +126,13 @@ function entryCount(preset) {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
+
+/* W5b UX sweep: collapse to a single column on phone portrait so the
+   clip-path torn-corner reads correctly and the preset name does not
+   wrap awkwardly under a 2x2 cramped layout. */
+@media (max-width: 480px) {
+  .preset-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

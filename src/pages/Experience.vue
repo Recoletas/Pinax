@@ -1,91 +1,44 @@
 <template>
   <div class="game-page">
-    <CharacterBackdrop
-      :src="speakerThumbSrc"
-      position="right center"
-      tint="archive-olive-strong"
-      :tint-strength="58"
-      :blur="2"
-    />
-    <!-- UI-E11-A: workstation 4-section composition.
-         ws-layout (grid: 260px 1fr 300px) replaces UI-E10 game-layout +
-         record-folio band. 4 sections share one topstrip as the
-         section anchor, replacing the deleted 28px shared vertical
-         axis (E10-CLEAN 2026-06-22) and the scene-stage__indicator
-         sticky bar. -->
+    <!-- K3 (2026-06-27): drop the 3-region workstation grid. It
+         crammed 260px + 1fr + 300px into one row and forced every
+         element to fight for width. Replace with a 2-region layout:
+         a slim topstrip (not sticky, not 80px) + a single working
+         column (dialogue + input) + a right dossier column. The
+         narrator hero portrait moves into the dossier header so the
+         left rail is gone entirely; the working column breathes. -->
     <div class="ws-layout">
-      <aside v-if="!showSessionPicker" class="ws-left-rail" aria-label="在场档案员">
-        <div class="ws-left-rail__hero">
-          <span class="ws-left-rail__kicker">在场档案员 · 旁白 GM</span>
-          <p class="ws-left-rail__brief">{{ meta.topstripAnchor }}</p>
-        </div>
-      </aside>
-      <main v-if="!showSessionPicker" class="ws-center-stage" aria-label="记录流">
-        <section class="ws-topstrip" aria-label="案卷进度条">
-          <!-- UI-E12-W2: page title — small kicker at the top-left of
-               the workstation, ties the menu drawer caption ("体验")
-               to the page itself so the menu → page handoff has
-               visual continuity. Same grid row as the 5 metadata
-               cells; kaocss pagetitle column has 1px gold rule on
-               the right to separate it from the cells. -->
-          <div class="ws-topstrip__pagetitle">
-            <span class="ws-topstrip__pagetitle-kicker">体验</span>
-            <span class="ws-topstrip__pagetitle-name">Experience</span>
+      <section v-if="!showSessionPicker" class="ws-topstrip" aria-label="案卷进度条">
+<!-- E16: 2-segment topstrip. Left = page title only (no chip
+                with 卷 / 任务 / 第 N 共 M — was redundant decoration
+                pulling eye from the dialogue). Right = session chip
+                + settings link. The session chip carries the
+                identifying info, the title is the page landmark. -->
+          <div class="ws-topstrip__main">
+            <span class="ws-topstrip__title">体验</span>
+          </div>
+          <div class="ws-topstrip__actions">
             <button
               class="ws-topstrip__settings-link"
+              type="button"
               :disabled="!hasSelectedWorldbook"
               :title="hasSelectedWorldbook ? '修改当前世界设定' : '先选择世界'"
               :aria-disabled="(!hasSelectedWorldbook).toString()"
               aria-label="打开结构化设定"
               @click="router.push({ name: 'settings-structured' })"
             >设定</button>
+            <div class="ws-topstrip__session-chip" :title="sessionTitleTooltip">
+              <span class="ws-topstrip__session-chip-label">{{ currentSessionLabel }}</span>
+              <button
+                class="ws-topstrip__session-chip-btn"
+                type="button"
+                aria-label="切换会话"
+                @click="showSessionPicker = true"
+              >切换</button>
+            </div>
           </div>
-          <div class="ws-topstrip__cell">
-            <span class="ws-topstrip__kicker">卷</span>
-            <span class="ws-topstrip__value">{{ meta.currentVolume }}</span>
-          </div>
-          <div class="ws-topstrip__cell">
-            <span class="ws-topstrip__kicker">案号</span>
-            <span class="ws-topstrip__case">{{ meta.caseNo }}</span>
-          </div>
-          <div class="ws-topstrip__cell">
-            <span class="ws-topstrip__kicker">当前任务</span>
-            <span class="ws-topstrip__value">{{ meta.currentTask }}</span>
-          </div>
-          <div class="ws-topstrip__cell">
-            <span class="ws-topstrip__kicker">第 N 条</span>
-            <!-- UI-E12-FIX1: honest placeholder when 0-state.
-                 useWorkstationMeta exposes the real count (0 when
-                 empty); this template gates the value on meta.isEmpty
-                 so the topstrip never shows fake "1/1" / "1/0"
-                 counts. The W1 Math.max(1, …) padding that produced
-                 "1/1" was reverted; this is the contract for "no fake
-                 1/1 in 0-state". -->
-            <span class="ws-topstrip__value">{{ meta.isEmpty ? '—' : meta.currentSection }}</span>
-          </div>
-          <div class="ws-topstrip__cell">
-            <span class="ws-topstrip__kicker">共 M 条</span>
-            <span class="ws-topstrip__value">{{ meta.isEmpty ? '—' : meta.totalCount }}</span>
-          </div>
-          <div class="ws-topstrip__progress" aria-label="5-section 进度">
-            <span
-              v-for="n in 5"
-              :key="n"
-              class="ws-topstrip__progress-cell"
-              :class="{ 'is-filled': n <= Math.min(meta.totalCount, 5) }"
-            ></span>
-          </div>
-          <div class="ws-topstrip__session-chip" :title="sessionTitleTooltip">
-            <span class="ws-topstrip__session-chip-label">{{ currentSessionLabel }}</span>
-            <button
-              class="ws-topstrip__session-chip-btn"
-              type="button"
-              aria-label="切换会话"
-              @click="showSessionPicker = true"
-            >切换</button>
-          </div>
-          <p class="ws-topstrip__anchor">{{ meta.topstripAnchor }}</p>
         </section>
+      <main v-if="!showSessionPicker" class="ws-center-stage" aria-label="记录流">
         <!-- UI-E13-BIG1: local demo banner — shown when isDemoMode
              (no real messages yet). Replaces the previous "AI 配置
              不完整" empty error with a usable local state: 3-scene
@@ -101,8 +54,8 @@
         >
           <div class="ws-demo-banner__head">
             <span class="ws-demo-banner__kicker">本地演示</span>
-            <span class="ws-demo-banner__scene">{{ meta.demoScene.title }}</span>
-            <span class="ws-demo-banner__step">{{ meta.demoEventIndex + 1 }} / {{ meta.demoEventsCount }}</span>
+            <span class="ws-demo-banner__scene">{{ demoSceneTitle }}</span>
+            <span class="ws-demo-banner__step">{{ demoStepLabel }}</span>
           </div>
           <p class="ws-demo-banner__hint">未配置 AI, 切到本地手动推进。下方按钮不依赖网络, 仅改写 localStorage 与当前会话。</p>
           <div class="ws-demo-banner__actions">
@@ -122,25 +75,80 @@
         <InputArea @send="handleSend" />
       </main>
       <aside v-if="!showSessionPicker" class="ws-right-rail" aria-label="右栏档案">
-        <!-- UI-E12-W1: dossier tab strip — the 3 ws-section below share
-             this single tab strip at the top so the right rail reads
-             as ONE dossier binder with 3 sections, not 3 unrelated
-             cards. Labels are visual-only (no click handler in W1; E13
-             can add tab switching). -->
-        <header class="ws-right-rail__tab-strip" aria-label="卷宗导航">
-          <span class="ws-right-rail__tab is-active" data-tab="卷宗一">卷宗一</span>
-          <span class="ws-right-rail__tab" data-tab="卷宗二">卷宗二</span>
-          <span class="ws-right-rail__tab" data-tab="卷宗三">卷宗三</span>
+        <!-- E17: right rail is now a live codex index. It does not
+             mount three always-open tool panels. 人物/地点/事件 stay
+             collapsed by default, show count/latest/+N, and reveal
+             compact details only after a deliberate click. -->
+        <header class="ws-dossier-bar">
+          <span class="ws-dossier-bar__label">现场索引</span>
+          <button
+            class="ws-dossier-bar__quick-cta"
+            type="button"
+            :disabled="meta.isDemoMode"
+            :title="meta.isDemoMode ? '本地演示中，无需记录' : '快速记一段速记'"
+            :aria-disabled="meta.isDemoMode.toString()"
+            aria-label="打开速记面板"
+            @click="quickNoteOpen = true"
+          >速记</button>
         </header>
-        <div class="ws-section" data-dossier-stamp="卷宗一 · 在场人物">
-          <StatusBar />
-        </div>
-        <div class="ws-section" data-dossier-stamp="卷宗二 · 地点卡">
-          <GeographyPanel />
-        </div>
-        <div class="ws-section" data-dossier-stamp="卷宗三 · 事件卷">
-          <QuestLog />
-        </div>
+        <section class="ws-live-codex" aria-label="现场索引">
+          <article
+            v-for="section in codexSections"
+            :key="section.key"
+            class="ws-codex-section"
+            :class="{
+              'ws-codex-section--open': activeCodexSection === section.key,
+              'ws-codex-section--has-update': section.update > 0
+            }"
+          >
+            <div
+              class="ws-codex-section__trigger"
+              role="button"
+              tabindex="0"
+              :aria-expanded="(activeCodexSection === section.key).toString()"
+              @click="toggleCodexSection(section.key)"
+              @keydown.enter.prevent="toggleCodexSection(section.key)"
+              @keydown.space.prevent="toggleCodexSection(section.key)"
+            >
+              <span class="ws-codex-section__label">{{ section.label }}</span>
+              <span class="ws-codex-section__count">{{ section.count }}</span>
+              <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
+              <span class="ws-codex-section__latest">{{ section.latest }}</span>
+              <button
+                type="button"
+                class="ws-codex-section__quick-detail"
+                :aria-label="`查看${section.label}详情`"
+                @click.stop="openCodexDetail(section.key)"
+                @keydown.enter.stop="openCodexDetail(section.key)"
+                @keydown.space.stop="openCodexDetail(section.key)"
+              >查看</button>
+            </div>
+
+            <div v-if="activeCodexSection === section.key" class="ws-codex-section__body">
+              <TimeQuickRail
+                v-if="section.key === 'time'"
+                class="ws-codex-time-rail"
+              />
+              <StatusBar
+                v-else-if="section.key === 'characters'"
+                rail-mode="codex"
+                @open-detail="openCodexDetail"
+              />
+              <GeographyPanel
+                v-else-if="section.key === 'locations'"
+                rail-mode="codex"
+                @open-detail="openCodexDetail"
+                @add-location="handleRailAddLocation"
+              />
+              <QuestLog
+                v-else
+                rail-mode="codex"
+                @open-detail="openCodexDetail"
+                @open-place="openPlaceContext"
+              />
+            </div>
+          </article>
+        </section>
       </aside>
       <SessionPicker
         v-if="showSessionPicker"
@@ -151,14 +159,11 @@
       />
     </div>
 
-    <aside v-if="showExperienceWorkChrome" class="quick-notes-rail" aria-label="快捷入口">
-      <button class="quick-notes-btn" type="button" @click.stop="toggleQuickNoteWorkspace" title="打开速记">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M5.5 18.5l2.9-.7 8.1-8.1-2.2-2.2-8.1 8.1-.7 2.9z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M13.2 8.8l2.2 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </aside>
+    <!-- K3: floating quick-notes-rail removed — the dossier hero 速记
+         CTA in the right rail now owns this action, so the fixed
+         floating button (which fought with the topstrip + the dossier
+         hero) is gone. toggleQuickNoteWorkspace just sets
+         quickNoteOpen=true, same effect. -->
 
     <Transition name="modal-fade">
       <div v-if="quickNoteOpen" class="quick-note-workspace-overlay" @click.self="quickNoteOpen = false">
@@ -229,9 +234,24 @@
                   <div class="quick-note-stat"><span>已选字</span><strong>{{ dialogueImportStats.selectedWords }}</strong></div>
                 </div>
                 <div class="quick-note-workspace-actions">
-                  <button class="action-btn primary" type="button" @click="importSelectedDialogueSegments">导入速记</button>
-                  <button class="action-btn" type="button" @click="saveSelectedDialogueSegmentsAsAsset">存为素材</button>
-                  <button class="action-btn" type="button" @click="gameStore.clearQuickNoteMessageSelection">清空选择</button>
+                  <button
+                    class="action-btn primary"
+                    type="button"
+                    :disabled="dialogueImportStats.selectedCount === 0"
+                    @click="importSelectedDialogueSegments"
+                  >导入速记</button>
+                  <button
+                    class="action-btn"
+                    type="button"
+                    :disabled="dialogueImportStats.selectedCount === 0"
+                    @click="saveSelectedDialogueSegmentsAsAsset"
+                  >存为素材</button>
+                  <button
+                    class="action-btn"
+                    type="button"
+                    :disabled="dialogueImportStats.selectedCount === 0"
+                    @click="gameStore.clearQuickNoteMessageSelection"
+                  >清空选择</button>
                 </div>
                 <div v-if="quickNoteStatus" class="quick-note-workspace-tip">{{ quickNoteStatus }}</div>
               </aside>
@@ -242,6 +262,60 @@
     </Transition>
 
     <Character v-if="showCharacter" @close="showCharacter = false" />
+
+    <!-- UI-E18: codex detail drawer — central detail surface for the
+         3 right-rail sections (人物 / 地点 / 事件). Each codex rail
+         summary emits `open-detail` with its section key; Experience
+         renders the FULL component (no rail-mode) inside this drawer
+         so all original fields stay editable. Detail lives behind a
+         deliberate open — the right rail never auto-expands into a
+         full editor. -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div
+          v-if="codexDetailSection"
+          class="ws-codex-detail-overlay"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="codexDetailLabel"
+          @click.self="closeCodexDetail"
+        >
+          <Transition name="modal-scale" appear>
+            <section class="ws-codex-detail-panel" :data-section="codexDetailSection">
+              <header class="ws-codex-detail-header">
+                <span class="ws-codex-detail-kicker">现场索引 · 详情</span>
+                <h2 class="ws-codex-detail-title">{{ codexDetailLabel }}</h2>
+                <button
+                  type="button"
+                  class="ws-codex-detail-close"
+                  aria-label="关闭详情"
+                  @click="closeCodexDetail"
+                >×</button>
+              </header>
+              <div class="ws-codex-detail-body">
+                <TimeSettings
+                  v-if="codexDetailSection === 'time'"
+                  inline
+                  hide-close
+                  @close="closeCodexDetail"
+                />
+                <StatusBar
+                  v-else-if="codexDetailSection === 'characters'"
+                />
+                <GeographyPanel
+                  v-else-if="codexDetailSection === 'locations'"
+                  :auto-expand-id="lastAddedLocationId"
+                />
+                <QuestLog
+                  v-else-if="codexDetailSection === 'events'"
+                  @open-place="openPlaceContext"
+                />
+              </div>
+            </section>
+          </Transition>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- 机制面板 -->
     <MechanismPanel
@@ -281,10 +355,11 @@
 
     <GmPersonaLauncher
       v-if="showExperienceWorkChrome"
-      kicker="在场 GM"
+      kicker="当场顾问"
       title="从这里继续推进"
       body="我先看当前世界、开场现场和最近对话，再给你一个更紧的推进切口。"
-      caption="虚构集"
+      avatarLabel="场"
+      caption="当场顾问"
       captionHint="继续冒险"
       @open="openAdvisorFromAction"
     />
@@ -356,10 +431,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, proxyRefs, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
+import { useGeographyStore } from '../stores/geographyStore'
 import ImageGenRail from '../components/ImageGenRail.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import { useAdvisor } from '../composables/useAdvisor'
@@ -370,10 +446,10 @@ import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
 import GeographyPanel from '../components/geography/GeographyPanel.vue'
 import Character from '../components/Character.vue'
+import TimeSettings from '../components/TimeSettings.vue'
+import TimeQuickRail from '../components/TimeQuickRail.vue'
 import FolioSurface from '@/components/folio/FolioSurface.vue'
 import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
-import CharacterBackdrop from '@/components/folio/CharacterBackdrop.vue'
-import { useCharacterArt } from '@/composables/useCharacterArt'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
@@ -385,15 +461,14 @@ import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
 
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
+const geographyStore = useGeographyStore()
 const router = useRouter()
-const { resolveArt } = useCharacterArt()
-const speakerThumbSrc = computed(() => resolveArt({ poseId: 'speaker-thumb' }).src)
 // UI-E11-A: workstation topstrip / left rail / right rail all read from
 // this single source of truth. Replaces the 6 record-folio computeds
 // (recordCaseNo / recordVolume / recordTime / recordCharacters /
 // recordLocation / recordObjective) that previously drove the deleted
 // 6-cell record-folio band.
-const meta = useWorkstationMeta()
+const meta = proxyRefs(useWorkstationMeta())
 const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
 
 const selectedWorldbookId = ref('')
@@ -415,6 +490,51 @@ const hasUserActionMessages = computed(() => {
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
+const activeCodexSection = ref('events')
+const codexUpdates = ref({
+  time: 0,
+  characters: 0,
+  locations: 0,
+  events: 0
+})
+const codexDetailSection = ref(null)
+const lastAddedLocationId = ref('')
+const codexDetailLabels = {
+  time: '时间设定',
+  characters: '在场人物',
+  locations: '地点卷',
+  events: '事件卷'
+}
+const codexDetailLabel = computed(() => codexDetailLabels[codexDetailSection.value] || '详情')
+
+function openCodexDetail(sectionKey) {
+  if (!sectionKey) return
+  codexDetailSection.value = sectionKey
+  if (typeof gameStore.setQuickNoteImportMode === 'function') {
+    gameStore.setQuickNoteImportMode(false)
+  }
+  quickNoteImportOpen.value = false
+  closeAdvisor()
+}
+
+function openPlaceContext({ placeId, target } = {}) {
+  if (!placeId) return
+  const routeName = target === 'settings' ? 'settings-structured' : 'settings-world-map'
+  router.push({ name: routeName, query: { placeId } })
+}
+
+function closeCodexDetail() {
+  codexDetailSection.value = null
+  lastAddedLocationId.value = ''
+}
+
+function handleRailAddLocation(newId) {
+  // UI-E18-B round 3: codex rail 添加 button emitted a fresh location id.
+  // Stash it + open the locations detail drawer so the new card auto-expands
+  // and the description textarea is immediately editable.
+  lastAddedLocationId.value = newId
+  openCodexDetail('locations')
+}
 const currentSessionLabel = computed(() => {
   const sid = gameStore.currentSessionId
   if (!sid) return '无会话'
@@ -427,6 +547,113 @@ const sessionTitleTooltip = computed(() => {
   const count = gameStore.sessions.length
   return `${s.title || '未命名会话'} · 共 ${count} 个会话`
 })
+const recordProgressLabel = computed(() => {
+  if (meta.isEmpty) return '暂无记录'
+  return `第 ${meta.currentSection} / 共 ${meta.totalCount} 条`
+})
+const demoSceneTitle = computed(() => {
+  return meta.demoScene?.title || meta.demoScene?.location || '本地演示'
+})
+const demoStepLabel = computed(() => {
+  const total = Number(meta.demoEventsCount || 0)
+  if (!total) return '0 / 0'
+  return `${Number(meta.demoEventIndex || 0) + 1} / ${total}`
+})
+
+const codexCharacterCount = computed(() => (gameStore.encounteredCharacters || []).length)
+const codexLocationCount = computed(() => (geographyStore.locations || []).length)
+const codexEventCount = computed(() => {
+  return (gameStore.activities || []).length + (gameStore.plotJournal || []).length
+})
+
+const latestCharacterLabel = computed(() => {
+  const list = gameStore.encounteredCharacters || []
+  const latest = list[list.length - 1]
+  return latest?.name || latest?.displayName || gameStore.playerName || '未登记角色'
+})
+
+const latestLocationLabel = computed(() => {
+  const locations = geographyStore.locations || []
+  const latest = locations[locations.length - 1]
+  return latest?.name || gameStore.worldMapState?.currentScene || meta.demoScene?.title || '暂无地点'
+})
+
+const latestEventLabel = computed(() => {
+  const latestActivity = (gameStore.activities || [])[0]
+  const latestPlot = (gameStore.plotJournal || [])[0]
+  return latestActivity?.title || latestPlot?.title || latestPlot?.summary || '暂无事件'
+})
+
+const codexTimeCount = computed(() => {
+  const t = gameStore.writingTime || {}
+  return (t.eraName || t.year || t.month || t.day) ? 1 : 0
+})
+
+const codexTimeLatest = computed(() => {
+  const t = gameStore.writingTime || {}
+  const era = t.eraName || t.eraId || ''
+  if (!t.year && !t.month && !t.day) return '未登记'
+  const eraStr = era ? `${era} ` : ''
+  return `${eraStr}${t.year || '?'}年${t.month || '?'}月${t.day || '?'}日`
+})
+
+const codexSections = computed(() => [
+  {
+    key: 'time',
+    label: '时间',
+    count: codexTimeCount.value,
+    latest: codexTimeLatest.value,
+    update: codexUpdates.value.time
+  },
+  {
+    key: 'characters',
+    label: '人物',
+    count: codexCharacterCount.value,
+    latest: latestCharacterLabel.value,
+    update: codexUpdates.value.characters
+  },
+  {
+    key: 'locations',
+    label: '地点',
+    count: codexLocationCount.value,
+    latest: latestLocationLabel.value,
+    update: codexUpdates.value.locations
+  },
+  {
+    key: 'events',
+    label: '事件',
+    count: codexEventCount.value,
+    latest: latestEventLabel.value,
+    update: codexUpdates.value.events
+  }
+])
+
+function toggleCodexSection(section) {
+  activeCodexSection.value = activeCodexSection.value === section ? '' : section
+  if (section && codexUpdates.value[section]) {
+    codexUpdates.value = { ...codexUpdates.value, [section]: 0 }
+  }
+}
+
+function trackCodexCount(key, count) {
+  watch(
+    () => count.value,
+    (next, previous) => {
+      if (typeof previous !== 'number') return
+      if (next > previous && activeCodexSection.value !== key) {
+        codexUpdates.value = {
+          ...codexUpdates.value,
+          [key]: codexUpdates.value[key] + (next - previous)
+        }
+      }
+    }
+  )
+}
+
+trackCodexCount('time', codexTimeCount)
+trackCodexCount('characters', codexCharacterCount)
+trackCodexCount('locations', codexLocationCount)
+trackCodexCount('events', codexEventCount)
 
 // Record-folio 6-field header REMOVED 2026-06-23 (UI-E11-A):
 //   recordCaseNo / recordVolume / recordTime / recordCharacters /
@@ -825,7 +1052,7 @@ const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
 
 const shouldLockPageScroll = computed(() => {
-  return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value)
+  return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value) || Boolean(codexDetailSection.value)
 })
 
 useBodyScrollLock(shouldLockPageScroll)
@@ -998,17 +1225,32 @@ function quickNoteWordCount(text) {
 .game-page {
   position: relative;
   isolation: isolate;
-  height: var(--app-viewport-height, 100vh);
-  min-height: var(--app-viewport-height, 100vh);
+  /* UI-E18-FIX2: was `height: 100vh; min-height: 100vh;` which forced
+     game-page to start at top-of-app-shell AND extend 100vh, so when
+     AppShell's shell-mast (~67px desktop / ~149px mobile) sits above
+     game-page, the bottom of game-page extends below the viewport and
+     InputArea gets clipped by `overflow: hidden`. Now: `flex: 1 1
+     auto; min-height: 0` lets game-page fill shell-content exactly
+     (AppShell is now a bounded flex column with height: 100vh; overflow:
+     hidden). `min-height: 0` is critical — without it, flex children
+     refuse to shrink below their content's intrinsic height, which
+     re-introduces overflow. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* K6 (2026-06-27): 默认主题去掉 accent-rose / accent-amber 暖色
+     角部叠加 (这是 kao 主题1 的 SaaS 配色痕迹, 跟蓝白档案册
+     不搭). 改用 --archive-olive / --archive-gold 派生 (冷色 dossier
+     调). 跟 .ws-topstrip / .ws-right-rail 的 --archive-paper-soft
+     底色一致. */
   background:
-    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--accent-rose) 18%, transparent), transparent 24%),
-    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--accent-amber) 18%, transparent), transparent 22%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary)), color-mix(in srgb, var(--bg-primary) 98%, #050506 2%));
-  color: var(--text-primary);
-  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--archive-olive) 14%, transparent), transparent 24%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--archive-gold) 12%, transparent), transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)), color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper-strong)));
+  color: var(--archive-ink);
+  font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif);
 }
 
 .sidebar-head-copy {
@@ -1586,14 +1828,14 @@ function quickNoteWordCount(text) {
 .action-btn.primary {
   border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 88%, #fff5db) 0 68%, color-mix(in srgb, var(--archive-gold) 92%, #ae7f2d) 68% 100%);
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 0 68%, color-mix(in srgb, var(--archive-gold) 92%, var(--archive-olive)) 68% 100%);
   color: var(--archive-ink);
 }
 
 .action-btn.primary:hover {
   border-color: color-mix(in srgb, var(--archive-gold) 68%, var(--border));
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 84%, #fff8e4) 0 66%, color-mix(in srgb, var(--archive-gold-soft) 96%, #bb8e36) 66% 100%);
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 84%, var(--archive-paper)) 0 66%, color-mix(in srgb, var(--archive-gold-soft) 96%, var(--archive-olive)) 66% 100%);
   color: var(--archive-ink);
 }
 
@@ -1676,6 +1918,514 @@ function quickNoteWordCount(text) {
   color: var(--archive-ink);
 }
 
+/* UI-K4 (2026-06-27): default (blue-white dossier) theme rules for
+   the workstation classes that K2 added in kao.css under `.theme-kao`.
+   Under default, those classes would render unstyled (no grid, no
+   border, no padding) — exactly the "旧工具页" regression the user
+   reported. These rules mirror the kao.css layout / token recipe
+   (same colors via the --archive-* tokens, same `·` separator stamp
+   language, same grid proportions) but are gated by :not(.theme-kao)
+   so they only apply in default mode. When .theme-kao is on the root,
+   :not(.theme-kao) is false for every element (root is always an
+   ancestor), so kao.css takes over and these rules are inert.
+
+   Specificity: .not(.theme-kao).X is (0,2,0), equal to .theme-kao.X.
+   Cascade order: kao.css is imported in main.js (loaded before any
+   component <style>), so the unscoped :not(.theme-kao) block here
+   only matches in default mode and is structurally inert in kao. */
+</style>
+
+<style>
+/* Workstation layout — default (blue-white dossier) variant.
+   K2 / K3 added the template skeleton (ws-layout + ws-topstrip +
+   ws-center-stage + ws-right-rail + ws-dossier-hero + ws-section);
+   the K2 visual rules live in kao.css under .theme-kao. These
+   :not(.theme-kao) rules reproduce the same token recipe in default
+   mode so the page reads as a steel-blue dossier, not an unstyled
+   HTML page. */
+
+:not(.theme-kao) .ws-layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: auto 1fr;
+  /* UI-E18-FIX2: was `min-height: 100vh` which forced ws-layout to
+     be at least viewport-tall, ignoring game-page's flex layout.
+     Now: flex:1 fills game-page's flex column space; min-height:0
+     allows shrinking below content so the grid 1fr row distributes
+     correctly between topstrip + center. Center always ends at
+     game-page bottom = viewport bottom (with the AppShell change). */
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+  padding: 14px 16px 16px 64px;
+  gap: 12px;
+}
+
+:not(.theme-kao) .ws-topstrip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 8px 16px;
+  background: var(--archive-paper-soft);
+  border: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--hairline-soft);
+  color: var(--archive-ink);
+  font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif);
+  border-radius: 4px;
+}
+
+:not(.theme-kao) .ws-topstrip__main {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+:not(.theme-kao) .ws-topstrip__title {
+  font-family: var(--font-display, "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--archive-ink);
+  white-space: nowrap;
+}
+
+:not(.theme-kao) .ws-topstrip__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-body, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 13px;
+  color: color-mix(in srgb, var(--archive-ink) 78%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:not(.theme-kao) .ws-topstrip__chip-kicker {
+  color: var(--archive-olive);
+  font-weight: 600;
+}
+
+:not(.theme-kao) .ws-topstrip__chip-value {
+  color: var(--archive-ink);
+  font-weight: 500;
+}
+
+:not(.theme-kao) .ws-topstrip__chip-tail {
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+  font-size: 12px;
+}
+
+:not(.theme-kao) .ws-topstrip__chip-sep {
+  color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  font-weight: 400;
+}
+
+:not(.theme-kao) .ws-topstrip__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+:not(.theme-kao) .ws-topstrip__settings-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 2px 12px 2px 18px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+:not(.theme-kao) .ws-topstrip__settings-link::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--archive-rose) 70%, transparent);
+  font-weight: 900;
+}
+
+:not(.theme-kao) .ws-topstrip__settings-link:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--archive-rose) 44%, var(--border));
+  color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-paper-soft) 70%, transparent);
+}
+
+:not(.theme-kao) .ws-topstrip__settings-link:hover:not(:disabled)::before {
+  color: var(--archive-rose);
+}
+
+:not(.theme-kao) .ws-topstrip__settings-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:not(.theme-kao) .ws-topstrip__session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 4px 2px 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 12px;
+}
+
+:not(.theme-kao) .ws-topstrip__session-chip-label {
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:not(.theme-kao) .ws-topstrip__session-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 1px 10px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+:not(.theme-kao) .ws-topstrip__session-chip-btn:hover {
+  border-color: var(--archive-rose);
+  color: var(--archive-ink);
+}
+
+:not(.theme-kao) .ws-center-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--archive-paper-soft);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* UI-E18-FIX: E18 made prose / rp-* / scene-break visible, but the
+   workstation center stage still uses GamePanel.vue's `.chat-container {
+   height: 100% }` (E10-era). In a flex column, `height: 100%` resolves
+   to 100% of parent, pushing InputArea below the visible viewport.
+   The page-level `bottomAnchor.scrollIntoView()` then scrolls the
+   document, not the chat region, so the input is never naturally
+   pinned to the bottom. Kao theme already has this exact fix at
+   kao.css L2432 + L2694 (`.theme-kao .ws-center-stage > .chat-container
+   { flex:1 1 auto; min-height:0; height:auto; overflow-y:auto }` +
+   `.theme-kao .ws-center-stage > .input-area { flex-shrink:0 }`).
+   This rule mirrors those two in default mode so the input always
+   stays visible at the bottom of the center stage, and the chat
+   region becomes the internal scroll surface. */
+:not(.theme-kao) .ws-center-stage > .chat-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+}
+
+:not(.theme-kao) .ws-center-stage > .input-area {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+:not(.theme-kao) .ws-right-rail {
+  grid-row: 2;
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0;
+  background: var(--archive-paper-soft);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 4px;
+  overflow: hidden;
+  color: var(--archive-ink);
+}
+
+:not(.theme-kao) .ws-dossier-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
+}
+
+:not(.theme-kao) .ws-dossier-bar__label {
+  font-family: var(--font-sans, sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
+}
+
+:not(.theme-kao) .ws-dossier-bar__quick-cta {
+  min-height: 22px;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+:not(.theme-kao) .ws-dossier-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--archive-paper);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+:not(.theme-kao) .ws-dossier-hero > .character-portrait {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+:not(.theme-kao) .ws-dossier-hero__quick-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 12px 4px 18px;
+  /* K6 (2026-06-27): 默认主题 border 改 archive-olive (冷色 dossier 调,
+     不再用 archive-rose 暖色, archive-rose 留给 kao 主题 印章色
+     + 跟 K0 audit §3.4 "印章必须有温度" 一致). */
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+:not(.theme-kao) .ws-dossier-hero__quick-cta::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  font-weight: 900;
+}
+
+:not(.theme-kao) .ws-dossier-hero__quick-cta:hover:not(:disabled) {
+  border-color: var(--archive-olive);
+  color: var(--archive-ink);
+}
+
+:not(.theme-kao) .ws-dossier-hero__quick-cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:not(.theme-kao) .ws-section {
+  position: relative;
+  display: block;
+  padding: 12px 14px;
+  background: var(--archive-paper-soft);
+  border: 0;
+  border-top: 1px solid var(--hairline-soft);
+}
+
+:not(.theme-kao) .ws-section:first-of-type {
+  border-top: 0;
+}
+
+:not(.theme-kao) .ws-live-codex {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  overflow: auto;
+}
+
+:not(.theme-kao) .ws-codex-section {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 14%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper) 56%, transparent);
+}
+
+:not(.theme-kao) .ws-codex-section--open {
+  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+  border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--border));
+}
+
+:not(.theme-kao) .ws-codex-section__trigger {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+:not(.theme-kao) .ws-codex-section__label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:not(.theme-kao) .ws-codex-section__count,
+:not(.theme-kao) .ws-codex-section__new {
+  min-width: 20px;
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  padding: 1px 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+:not(.theme-kao) .ws-codex-section__new {
+  border-color: color-mix(in srgb, var(--archive-rose) 32%, var(--border));
+  color: var(--archive-rose);
+}
+
+:not(.theme-kao) .ws-codex-section__latest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--archive-ink-soft) 90%, transparent);
+  font-size: 12px;
+}
+
+:not(.theme-kao) .ws-codex-section__body {
+  padding: 0 8px 8px;
+}
+
+:not(.theme-kao) .ws-demo-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  /* K6 (2026-06-27): 默认主题去掉 archive-amber 暖色 (kao 主题1
+     痕迹), 改 archive-olive / archive-gold 冷色. */
+  background: color-mix(in srgb, var(--archive-olive) 6%, var(--archive-paper-soft));
+  border: 1px dashed color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+  border-radius: 4px;
+  margin: 12px;
+  color: var(--archive-ink);
+}
+
+:not(.theme-kao) .ws-demo-banner__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+:not(.theme-kao) .ws-demo-banner__kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  /* K6 (2026-06-27): 默认主题去掉 archive-amber 暖色, 改 olive 冷色 */
+  color: var(--archive-olive);
+}
+
+:not(.theme-kao) .ws-demo-banner__scene {
+  font-family: var(--font-display, serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--archive-ink);
+}
+
+:not(.theme-kao) .ws-demo-banner__step {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--archive-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+:not(.theme-kao) .ws-demo-banner__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--archive-ink) 78%, transparent);
+}
+
+:not(.theme-kao) .ws-demo-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  :not(.theme-kao) .ws-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+    padding: 12px 12px 16px 56px;
+  }
+
+  :not(.theme-kao) .ws-topstrip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  :not(.theme-kao) .ws-topstrip__actions {
+    justify-content: flex-end;
+  }
+
+  :not(.theme-kao) .ws-right-rail {
+    grid-row: 3;
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  :not(.theme-kao) .ws-layout {
+    padding: 10px 10px 14px 52px;
+  }
+
+  :not(.theme-kao) .ws-topstrip__session-chip-label {
+    max-width: 100px;
+  }
+}
+
 /* UI-E4A: dedupe right-rail section labels.
    The dossier-stamp kicker above is the canonical first-read title
    ("卷宗一 · 在场人物" etc.). The internal sub-panel header text
@@ -1698,5 +2448,139 @@ function quickNoteWordCount(text) {
 }
 .theme-kao .game-page .panel-header > span:not(.count-badge) {
   display: none;
+}
+
+/* UI-E18: codex detail drawer — central detail surface for the 3
+   codex rail sections. Lives in Experience.vue (page-owned) so the
+   3 child components keep their existing modal anchors and own
+   data mutations. Scoped CSS keeps .ws-codex-detail-* class names
+   from leaking to other pages. */
+.ws-codex-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--archive-ink) 38%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.ws-codex-detail-panel {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 26%, var(--border));
+  border-radius: 6px;
+  background: var(--archive-paper-soft);
+  box-shadow: 0 24px 56px color-mix(in srgb, var(--archive-ink) 28%, transparent);
+  color: var(--archive-ink);
+  overflow: hidden;
+}
+
+.ws-codex-detail-header {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 18px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper) 78%, transparent);
+}
+
+.ws-codex-detail-kicker {
+  font-family: var(--font-sans, sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--archive-olive);
+}
+
+.ws-codex-detail-title {
+  margin: 0;
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--archive-ink);
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-codex-detail-close {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  border-radius: 4px;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 18px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.ws-codex-detail-close:hover {
+  border-color: var(--archive-olive);
+  color: var(--archive-olive-strong);
+}
+
+.ws-codex-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 18px;
+}
+
+/* UI-E18-B (round 2): trigger 行 内置 "查看" 微按钮 — 不需要先展开
+   才能看到入口. 整行仍是 toggle 按钮 (grid-row trigger), 微按钮用
+   nested <button> + @click.stop 抢 click, 不触发 expand. */
+.ws-codex-section__quick-detail {
+  justify-self: end;
+  min-width: 38px;
+  min-height: 22px;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: var(--archive-olive-strong);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.ws-codex-section__quick-detail:hover {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong);
+}
+
+.ws-codex-time-rail {
+  display: grid;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .ws-codex-detail-overlay {
+    padding: 10px;
+  }
+
+  .ws-codex-detail-panel {
+    width: 100%;
+    max-height: calc(var(--app-viewport-height, 100vh) - 20px);
+  }
+
+  .ws-codex-detail-title {
+    font-size: 16px;
+  }
 }
 </style>

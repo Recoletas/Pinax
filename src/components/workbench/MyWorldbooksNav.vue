@@ -53,6 +53,27 @@ function focusSelect() {
   flex-wrap: wrap;
   gap: 8px 12px;
   padding: 8px 0;
+  /* Pin the 选世界书 picker to the top of its scroll container
+     (.quick-page__body has overflow: auto) so the 切换 / 新建 / 管理
+     controls stay reachable while the user browses the preset grid
+     below. Opaque background prevents the scrolling content from
+     bleeding through under the picker. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--archive-paper);
+  /* W5 UX sweep: 1px dashed 撕边 + 浅阴影 give the picker a visible
+     separation from the preset-grid cards scrolling underneath. Without
+     this, content slides under the opaque background and the bottom
+     edge of the picker visually merges with the next card row. */
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-olive) 22%, transparent);
+  box-shadow: 0 4px 8px color-mix(in srgb, var(--archive-ink) 6%, transparent);
+}
+
+/* Legacy 主题 (.theme-legacy) 同样需要 opaque 背景, 否则 Material 蓝白
+   主题下 preset grid 滚动时会从 picker 后面露出来. */
+.theme-legacy .my-worldbooks {
+  background: var(--bg-secondary);
 }
 
 .my-worldbooks__label {

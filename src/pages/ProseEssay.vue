@@ -1,57 +1,115 @@
 <template>
-  <div class="prose-essay-page">
-    <WorkbenchPageHero
-      kicker="Storyboard Canvas"
-      title="卡片画布"
-      :description="proseHeroDescription"
-    >
-      <template #back>
-        <button class="icon-btn workbench-hero-button icon-only" @click="router.push('/')" title="返回">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-          </svg>
-        </button>
-      </template>
-      <template #inline>
-        <div class="workbench-hero-input-group">
+  <div class="prose-essay-page is-archive-paper">
+    <!-- V3 archive-folio top strip (印章签名手法: paper-fiber + 透明底
+         chip + archive-rose 22% 边 + `·` 墨点 + 0 圆角 + 1px dashed
+         archive-gold 18% 撕边虚线).
+         结构参考 Notes manuscript-top: __left (back chip + page id +
+         optional summary) / __mid (topic input + 生成 button) /
+         __right (meta chips + 素材库 + theme-toggle).
+         FolioSurface as="header" :decorated="false" keeps the paper
+         baseline; the prose-top scoped CSS layers the stamp signature. -->
+    <FolioSurface as="header" variant="chrome" :decorated="false" class="prose-essay__hero">
+      <div class="prose-top">
+        <div class="prose-top__left">
+          <button
+            class="prose-top__chip prose-top__chip--back"
+            type="button"
+            @click="goToAdventure"
+            title="返回冒险"
+            aria-label="返回冒险"
+          >
+            <span class="prose-top__chip-label">冒险</span>
+          </button>
+          <div class="prose-top__id">
+            <span class="prose-top__id-mark">画布</span>
+            <span class="prose-top__id-count">{{ cards.length }} 节点</span>
+          </div>
+          <span v-if="selectedCard" class="prose-top__summary">
+            选中 #{{ selectedCardTimelineSequence || '—' }}
+          </span>
+        </div>
+
+        <div class="prose-top__mid">
           <input
             v-model="currentTopic"
-            class="topic-input workbench-hero-inline-input"
-            placeholder="输入场景线索，生成素材节点..."
+            ref="topicInputRef"
+            class="prose-top__input"
+            :class="{ 'is-overtlong': currentTopic.length > 500 }"
+            placeholder="输入场景线索… (建议 ≤ 500 字 · 上限 2000)"
+            maxlength="2000"
             @keydown.enter="generateCards"
           />
-          <button class="btn-primary generate-btn workbench-hero-button" @click="generateCards" :disabled="isGenerating || !currentTopic.trim()">
-            {{ isGenerating ? generationMessage : '生成节点' }}
+          <span v-if="currentTopic.length > 500" class="prose-top__overtlong-hint">
+            {{ currentTopic.length }} 字 · 建议截断到 500 以内
+          </span>
+          <button
+            class="prose-top__chip prose-top__chip--generate"
+            type="button"
+            @click="generateCards"
+            :disabled="isGenerating || !currentTopic.trim()"
+          >
+            <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '生成' }}</span>
           </button>
         </div>
-      </template>
-      <template #meta>
-        <div class="workbench-hero-meta-list">
-          <span class="workbench-hero-chip accent">{{ currentModeLabel }}</span>
-          <span class="workbench-hero-chip">{{ cards.length }} 个节点</span>
-          <span class="workbench-hero-chip">{{ timelineSummaryLabel }}</span>
-          <span v-if="directorStatusLabel" class="workbench-hero-chip">{{ directorStatusLabel }}</span>
-        </div>
-      </template>
-      <template #actions>
-        <div class="workbench-hero-actions-row">
-          <router-link class="theme-toggle workbench-hero-button" to="/materials" title="返回素材库" aria-label="返回素材库">
-            <span class="theme-label">素材库</span>
+
+        <div class="prose-top__right">
+          <span class="prose-top__chip prose-top__chip--accent" :title="currentModeLabel">
+            <span class="prose-top__chip-label">{{ currentModeLabel }}</span>
+          </span>
+          <span class="prose-top__chip" :title="timelineSummaryLabel">
+            <span class="prose-top__chip-label">{{ timelineSummaryLabel }}</span>
+          </span>
+          <router-link
+            class="prose-top__chip prose-top__chip--link"
+            to="/materials"
+            title="素材库"
+            aria-label="素材库"
+          >
+            <span class="prose-top__chip-label">素材库</span>
           </router-link>
-          <button class="theme-toggle workbench-hero-button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
-            <span class="theme-icon">
-              <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <button
+            class="prose-top__chip prose-top__chip--mode"
+            type="button"
+            @click="toggleTheme"
+            :title="isDark ? '切换亮色' : '切换暗色'"
+            :aria-label="isDark ? '切换亮色' : '切换暗色'"
+          >
+            <span class="prose-top__chip-icon" aria-hidden="true">
+              <svg v-if="isDark" width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
               </svg>
-              <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <svg v-else width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
                 <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
               </svg>
             </span>
-            <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
           </button>
         </div>
-      </template>
-    </WorkbenchPageHero>
+      </div>
+    </FolioSurface>
+
+    <!-- V3 0-state hero block: shown only when cards.length === 0.
+         Hidden as soon as a single card lands so the canvas takes over. -->
+    <section v-if="cards.length === 0" class="prose-hero is-archive-paper" aria-label="画布零态引导">
+      <div class="prose-hero__inner">
+        <h1 class="prose-hero__title">画布空白</h1>
+        <p class="prose-hero__desc">输入主题，或从素材库拖入素材生成画布。</p>
+        <div class="prose-hero__actions">
+          <button
+            class="prose-top__chip prose-top__chip--cta"
+            type="button"
+            @click="focusTopicInput"
+          >
+            <span class="prose-top__chip-label">输入主题</span>
+          </button>
+          <router-link
+            class="prose-top__chip prose-top__chip--cta"
+            to="/materials"
+          >
+            <span class="prose-top__chip-label">从素材库导入</span>
+          </router-link>
+        </div>
+      </div>
+    </section>
 
     <div class="pe-main">
       <!-- 左侧面板 -->
@@ -566,7 +624,8 @@
         kicker="编导顾问"
         title="先理顺镜头和关系，再决定下一刀"
         body="我先看卡片关系、镜头顺序和转场，再帮你指出最该先修的一处。"
-        caption="虚构集"
+        avatarLabel="编"
+        caption="编导顾问"
         captionHint="编导入口"
         @open="openAdvisor"
       />
@@ -597,7 +656,7 @@ import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
-import WorkbenchPageHero from '../components/workbench/WorkbenchPageHero.vue'
+import FolioSurface from '../components/folio/FolioSurface.vue'
 import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
 import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
 import {
@@ -616,6 +675,32 @@ import {
   addNarrativeAsset,
   listNarrativeAssets
 } from '../services/narrativeAssets'
+import {
+  addNarrativeImageAsset,
+  hydrateNarrativeImageAssets,
+  migrateNarrativeImageAssets
+} from '../services/media/narrativeImageAssetBridge'
+import {
+  archiveCanvasAttachedImage,
+  migrateCanvasAttachedImages,
+  saveCanvasCards
+} from '../services/media/canvasImageAssetBridge'
+import {
+  createImageModelConfigDraft,
+  generateImage,
+  IMAGE_MODEL_TYPES,
+  testImageProviderConnection
+} from '../services/media/imageProviderService'
+import {
+  deleteImageProviderConfig,
+  listImageProviderConfigs,
+  saveImageProviderConfig
+} from '../services/media/imageProviderConfigStore'
+import {
+  addGeneratedImageToLibrary,
+  loadGeneratedImageLibrary,
+  saveGeneratedImageLibraryRefs
+} from '../services/media/mediaAssetStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -668,7 +753,6 @@ const cameraMovements = [
 
 // Image generation
 const IMG_LIBRARY_KEY = STORAGE_KEYS.PROSE_IMAGE_LIBRARY
-const IMG_MODEL_CONFIGS_KEY = STORAGE_KEYS.IMAGE_MODEL_CONFIGS
 const imageDrawerOpen = ref(false)
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
@@ -698,16 +782,9 @@ const sizePresets = [
 ]
 
 // Model types
-const modelTypes = [
-  { value: 'openai_dalle', label: 'OpenAI DALL-E' },
-  { value: 'stability', label: 'Stability AI' },
-  { value: 'sd_webui', label: 'Stable Diffusion WebUI' },
-  { value: 'comfyui', label: 'ComfyUI' },
-  { value: 'http', label: '通用 HTTP' },
-]
+const modelTypes = IMAGE_MODEL_TYPES
 
 // Storage keys
-const CARDS_KEY = STORAGE_KEYS.PROSE_CARDS_V1
 const EDGES_KEY = STORAGE_KEYS.PROSE_EDGES_V1
 const OUTLINE_KEY = STORAGE_KEYS.PROSE_OUTLINE_V1
 const TIMELINE_KEY = STORAGE_KEYS.PROSE_TIMELINE_V1
@@ -789,6 +866,23 @@ const showExportMenu = ref(false)
 const cardWallRef = ref(null)
 const edgesSvgRef = ref(null)
 const apiSettings = ref(null)
+// V3 top strip: topic input element ref so the 0-state "输入主题" CTA
+// can move focus into the input without scrolling the canvas.
+const topicInputRef = ref(null)
+
+function focusTopicInput() {
+  nextTick(() => {
+    const el = topicInputRef.value
+    if (el && typeof el.focus === 'function') {
+      el.focus()
+      try { el.select?.() } catch {}
+    }
+  })
+}
+
+function goToAdventure() {
+  router.push({ name: 'experience' })
+}
 const canvasWidth = ref(1200)
 const canvasHeight = ref(800)
 
@@ -1109,20 +1203,21 @@ function handleInlineKeydown(e) {
 }
 
 onMounted(async () => {
-  loadCanvasAssets()
-  loadData()
+  await migrateNarrativeImageAssets()
+  await loadCanvasAssets()
+  await loadData()
   apiSettings.value = await getResolvedApiSettings()
   document.addEventListener('keydown', handleKeydown)
   loadImageConfigs()
-  loadImageLibrary()
+  await loadImageLibrary()
   loadStoryboardSeedAssets()
-  loadMaterialImageAssets()
+  await loadMaterialImageAssets()
   await nextTick()
   focusAssetCardFromRoute()
 })
 
 watch(() => route.query.assetId, () => {
-  loadCanvasAssets()
+  void loadCanvasAssets()
   focusAssetCardFromRoute()
 })
 
@@ -1157,9 +1252,9 @@ function inferZone(cardId) {
   return outline.value.some(o => o.cardId === cardId) ? 'editing' : 'material'
 }
 
-function loadData() {
+async function loadData() {
   try {
-    const rawCards = getItem(CARDS_KEY) || []
+    const rawCards = await migrateCanvasAttachedImages()
     edges.value = getItem(EDGES_KEY) || []
     outline.value = getItem(OUTLINE_KEY) || []
     timeline.value = getItem(TIMELINE_KEY) || []
@@ -1186,7 +1281,7 @@ function loadData() {
 }
 
 function saveData() {
-  setItem(CARDS_KEY, cards.value)
+  saveCanvasCards(cards.value)
   setItem(EDGES_KEY, edges.value)
   setItem(OUTLINE_KEY, outline.value)
   setItem(TIMELINE_KEY, timeline.value)
@@ -1218,8 +1313,8 @@ function countWords(text) {
   return String(text).replace(/\s/g, '').length
 }
 
-function loadCanvasAssets() {
-  canvasAssets.value = listNarrativeAssets({ status: null })
+async function loadCanvasAssets() {
+  canvasAssets.value = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
 }
 
 function getCardAsset(card) {
@@ -1282,6 +1377,8 @@ function normalizeCardImageEntry(image = {}, context = {}) {
   if (!image) return null
   return {
     id: String(image.id || context.assetId || '').trim(),
+    mediaAssetId: String(image.mediaAssetId || '').trim(),
+    storageRef: String(image.storageRef || '').trim(),
     assetId: String(image.assetId || context.assetId || '').trim(),
     assetKind: String(image.assetKind || context.assetKind || '').trim(),
     source: String(image.source || context.source || '').trim(),
@@ -1298,6 +1395,8 @@ function getCardImageReferences(card) {
   return getCardImageEntries(card).map((entry) => {
     const reference = {
       id: entry.id,
+      mediaAssetId: entry.mediaAssetId,
+      storageRef: entry.storageRef,
       assetId: entry.assetId,
       assetKind: entry.assetKind,
       source: entry.source,
@@ -1538,7 +1637,7 @@ function saveCardDetail() {
   }
 }
 
-function sendSelectedCardToMaterials() {
+async function sendSelectedCardToMaterials() {
   if (!selectedCard.value) return
   const card = selectedCard.value
   const firstImage = Array.isArray(card.attachedImages) ? card.attachedImages[0] : null
@@ -1558,7 +1657,7 @@ function sendSelectedCardToMaterials() {
     lines.push(`时长：${card.extraFields.duration}s`)
   }
 
-  const asset = addNarrativeAsset({
+  const assetInput = {
     title: String(card.content || currentTopic.value || '画布节点').slice(0, 24),
     content: lines.join('；'),
     kind: assetKind,
@@ -1569,14 +1668,23 @@ function sendSelectedCardToMaterials() {
     },
     image: firstImage?.data ? {
       id: firstImage.id,
+      mediaAssetId: firstImage.mediaAssetId,
+      storageRef: firstImage.storageRef,
+      purpose: 'storyboard-reference',
       prompt: firstImage.prompt,
       data: firstImage.data
     } : null
-  })
+  }
+  const asset = firstImage?.data
+    ? await addNarrativeImageAsset(assetInput)
+    : addNarrativeAsset(assetInput)
 
   card.assetId = asset.id
   card.wordCount = countWords(asset.content)
-  canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
+  const runtimeAsset = firstImage?.data
+    ? { ...asset, image: { ...asset.image, data: firstImage.data } }
+    : asset
+  canvasAssets.value = [runtimeAsset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
   addTimeline(`转为素材节点：${asset.title}`)
   saveData()
 }
@@ -2179,16 +2287,6 @@ const directorStatusLabel = computed(() => {
   if (!status) return ''
   return `${status.title} · ${status.detail}`
 })
-const proseHeroDescription = computed(() => {
-  const topic = String(currentTopic.value || '').trim()
-  if (!topic) {
-    return '先给一个场景线索，再把节点、关系和时间轴收成可剪的镜头版本。顶部只保留主题输入与导演态摘要。'
-  }
-  if (timelineItems.value.length === 0) {
-    return `当前主题是「${topic}」。节点已经可以继续铺开，但还没进入时间轴，先把关键镜头顺一遍。`
-  }
-  return `当前主题是「${topic}」，时间轴已挂 ${timelineSummaryLabel.value}。接下来该收的是镜头顺序、关系强度和分镜版本同步。`
-})
 
 function handleDirectorTimelineAction() {
   if (directorTimelineActionDisabled.value) return
@@ -2516,20 +2614,21 @@ function exportEditingPackage() {
 
 // Image generation functions
 function loadImageConfigs() {
-  const loaded = getItem(IMG_MODEL_CONFIGS_KEY)
-  modelConfigs.value = Array.isArray(loaded) ? loaded : []
+  modelConfigs.value = listImageProviderConfigs()
   if (modelConfigs.value.length > 0 && !imageSelectedModel.value) {
     imageSelectedModel.value = modelConfigs.value[0].id
   }
 }
 
-function loadImageLibrary() {
-  const loaded = getItem(IMG_LIBRARY_KEY)
-  imageLibrary.value = Array.isArray(loaded) ? loaded : []
+async function loadImageLibrary() {
+  imageLibrary.value = await loadGeneratedImageLibrary(IMG_LIBRARY_KEY, {
+    purpose: 'storyboard-reference'
+  })
 }
 
-function loadMaterialImageAssets() {
-  materialImageAssets.value = listNarrativeAssets({ status: null })
+async function loadMaterialImageAssets() {
+  const assets = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
+  materialImageAssets.value = assets
     .filter((asset) => asset.status !== 'rejected' && asset.status !== 'archived')
     .filter((asset) => asset.kind === 'reference-image' && asset.image?.data)
     .slice(0, 12)
@@ -2543,8 +2642,7 @@ function loadStoryboardSeedAssets() {
 }
 
 function saveImageLibrary() {
-  const trimmed = imageLibrary.value.slice(0, 20)
-  setItem(IMG_LIBRARY_KEY, trimmed)
+  saveGeneratedImageLibraryRefs(IMG_LIBRARY_KEY, imageLibrary.value)
 }
 
 function useCardContentAsPrompt() {
@@ -2560,15 +2658,7 @@ function useStoryboardSeed(asset) {
 }
 
 function openImageConfig() {
-  editingModelConfig.value = {
-    id: '',
-    name: '',
-    type: 'sd_webui',
-    baseUrl: 'http://127.0.0.1:7860',
-    apiKey: '',
-    defaultModel: '',
-    requestTemplate: ''
-  }
+  editingModelConfig.value = createImageModelConfigDraft()
   showImageConfigDialog.value = true
 }
 
@@ -2582,15 +2672,8 @@ function editSelectedModel() {
 
 function saveModelConfig() {
   if (!editingModelConfig.value?.name) return
-  const cfg = { ...editingModelConfig.value }
-  if (!cfg.id) {
-    cfg.id = `model_${Date.now()}`
-    modelConfigs.value.push(cfg)
-  } else {
-    const idx = modelConfigs.value.findIndex(c => c.id === cfg.id)
-    if (idx >= 0) modelConfigs.value[idx] = cfg
-  }
-  setItem(IMG_MODEL_CONFIGS_KEY, modelConfigs.value)
+  const cfg = saveImageProviderConfig(editingModelConfig.value)
+  modelConfigs.value = listImageProviderConfigs()
   showImageConfigDialog.value = false
   if (!imageSelectedModel.value) {
     imageSelectedModel.value = cfg.id
@@ -2598,8 +2681,7 @@ function saveModelConfig() {
 }
 
 function deleteModelConfig(modelId) {
-  modelConfigs.value = modelConfigs.value.filter(c => c.id !== modelId)
-  setItem(IMG_MODEL_CONFIGS_KEY, modelConfigs.value)
+  modelConfigs.value = deleteImageProviderConfig(modelId)
   if (imageSelectedModel.value === modelId) {
     imageSelectedModel.value = modelConfigs.value[0]?.id || ''
   }
@@ -2610,53 +2692,13 @@ async function testModelConnection() {
     alert('请先填写 API 地址')
     return
   }
-  try {
-    const baseUrl = editingModelConfig.value.baseUrl.replace(/\/$/, '')
-    const type = editingModelConfig.value.type
-
-    if (type === 'http') {
-      // HTTP 类型用 POST 测试
-      const headers = { 'Content-Type': 'application/json' }
-      if (editingModelConfig.value.apiKey) {
-        headers['Authorization'] = `Bearer ${editingModelConfig.value.apiKey}`
-      }
-      let body = editingModelConfig.value.requestTemplate || '{"prompt":"test"}'
-      body = body.replace(/\{\{prompt\}\}/g, 'test').replace(/\{\{negative_prompt\}\}/g, '')
-
-      const resp = await fetch(baseUrl, { method: 'POST', headers, body })
-      if (resp.ok) {
-        alert('连接成功！')
-      } else {
-        const errText = await resp.text().catch(() => '')
-        alert(`连接失败: ${resp.status} ${errText}`)
-      }
-      return
-    }
-
-    // 其他类型用 GET 测试
-    let testUrl = baseUrl
-    if (type === 'sd_webui') {
-      testUrl = baseUrl + '/sdapi/v1/progress'
-    } else if (type === 'comfyui') {
-      testUrl = baseUrl + '/api/system_stats'
-    } else if (type === 'openai_dalle') {
-      testUrl = 'https://api.openai.com/v1/models'
-    } else if (type === 'stability') {
-      testUrl = 'https://api.stability.ai/v1/account'
-    }
-    const opts = { method: 'GET' }
-    if (editingModelConfig.value.apiKey && (type === 'openai_dalle' || type === 'stability')) {
-      opts.headers = { 'Authorization': `Bearer ${editingModelConfig.value.apiKey}` }
-    }
-    const resp = await fetch(testUrl, opts)
-    if (resp.ok) {
-      alert('连接成功！')
-    } else {
-      alert(`连接失败: ${resp.status} ${resp.statusText}`)
-    }
-  } catch (e) {
-    alert('连接失败: ' + e.message)
+  const result = await testImageProviderConnection(editingModelConfig.value)
+  if (result.ok) {
+    alert(`连接成功！${result.latencyMs ? ` ${result.latencyMs}ms` : ''}`)
+    return
   }
+  const status = result.status ? `${result.status} ` : ''
+  alert(`连接失败: ${status}${result.error || result.statusText || '请检查网络和配置'}`)
 }
 
 async function generateImages() {
@@ -2679,22 +2721,34 @@ async function generateImages() {
   try {
     const results = []
     for (let i = 0; i < imageCount.value; i++) {
-      const base64 = await callImageAPI(cfg, imagePrompt.value, imageNegativePrompt.value)
+      const base64 = await generateImage(cfg, {
+        prompt: imagePrompt.value,
+        negativePrompt: imageNegativePrompt.value,
+        width: imageWidth.value,
+        height: imageHeight.value,
+        count: imageCount.value
+      })
       results.push(base64)
     }
 
     for (const data of results) {
-      const entry = {
+      const entry = await addGeneratedImageToLibrary(IMG_LIBRARY_KEY, {
         id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         prompt: imagePrompt.value,
         negativePrompt: imageNegativePrompt.value,
         modelName: cfg.name,
+        modelId: cfg.defaultModel,
         modelType: cfg.type,
         width: imageWidth.value,
         height: imageHeight.value,
         data,
         createdAt: new Date().toISOString()
-      }
+      }, {
+        purpose: 'storyboard-reference',
+        sourceRefs: selectedCard.value?.assetId
+          ? [{ refType: 'narrative-asset', refId: selectedCard.value.assetId }]
+          : []
+      })
       imageLibrary.value.unshift(entry)
     }
     saveImageLibrary()
@@ -2705,211 +2759,12 @@ async function generateImages() {
   }
 }
 
-async function callImageAPI(cfg, prompt, negativePrompt) {
-  const baseUrl = (cfg.baseUrl || '').replace(/\/$/, '')
-
-  switch (cfg.type) {
-    case 'sd_webui': {
-      const resp = await fetch(baseUrl + '/sdapi/v1/txt2img', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          negative_prompt: negativePrompt,
-          steps: 20,
-          width: imageWidth.value,
-          height: imageHeight.value
-        })
-      })
-      if (!resp.ok) throw new Error(`SD WebUI error: ${resp.status}`)
-      const json = await resp.json()
-      if (json.images && json.images[0]) {
-        return 'data:image/png;base64,' + json.images[0]
-      }
-      throw new Error('No image in response')
-    }
-    case 'openai_dalle': {
-      const resp = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cfg.apiKey}`
-        },
-        body: JSON.stringify({
-          model: cfg.defaultModel || 'dall-e-3',
-          prompt,
-          n: 1,
-          size: `${imageWidth.value}x${imageHeight.value}`
-        })
-      })
-      if (!resp.ok) throw new Error(`DALL-E error: ${resp.status}`)
-      const json = await resp.json()
-      if (json.data && json.data[0]) {
-        const base64 = await fetch(json.data[0].url).then(r => r.blob()).then(b => {
-          return new Promise(resolve => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result)
-            reader.readAsDataURL(b)
-          })
-        })
-        return base64
-      }
-      throw new Error('No image in response')
-    }
-    case 'stability': {
-      const resp = await fetch('https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cfg.apiKey}`
-        },
-        body: JSON.stringify({
-          text_prompts: [{ text: prompt, weight: 1 }, ...(negativePrompt ? [{ text: negativePrompt, weight: -1 }] : [])],
-          height: imageHeight.value,
-          width: imageWidth.value
-        })
-      })
-      if (!resp.ok) throw new Error(`Stability error: ${resp.status}`)
-      const json = await resp.json()
-      if (json.artifacts && json.artifacts[0]) {
-        return 'data:image/png;base64,' + json.artifacts[0].base64
-      }
-      throw new Error('No image in response')
-    }
-    case 'comfyui': {
-      const resp = await fetch(baseUrl + '/prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      })
-      if (!resp.ok) throw new Error(`ComfyUI error: ${resp.status}`)
-      const json = await resp.json()
-      const promptId = json.prompt_id
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 1000))
-        const histResp = await fetch(baseUrl + '/history/' + promptId)
-        if (histResp.ok) {
-          const hist = await histResp.json()
-          if (hist[promptId]?.outputs) {
-            const outputs = hist[promptId].outputs
-            for (const nodeId of Object.keys(outputs)) {
-              const node = outputs[nodeId]
-              if (node.images) {
-                const img = node.images[0]
-                const imgResp = await fetch(baseUrl + '/view?filename=' + img.filename)
-                if (imgResp.ok) {
-                  const blob = await imgResp.blob()
-                  return new Promise(resolve => {
-                    const reader = new FileReader()
-                    reader.onloadend = () => resolve(reader.result)
-                    reader.readAsDataURL(blob)
-                  })
-                }
-              }
-            }
-          }
-        }
-      }
-      throw new Error('ComfyUI timeout')
-    }
-    case 'http': {
-      let body = cfg.requestTemplate || '{"prompt":"{{prompt}}"}'
-      body = body
-        .replace(/{{prompt}}/g, prompt.replace(/"/g, '\"'))
-        .replace(/{{negative_prompt}}/g, (negativePrompt || '').replace(/"/g, '\"'))
-        .replace(/{{width}}/g, imageWidth.value)
-        .replace(/{{height}}/g, imageHeight.value)
-        .replace(/{{n}}/g, imageCount.value)
-        .replace(/{{aspect_ratio}}/g, `${imageWidth.value}:${imageHeight.value}`)
-
-      const headers = { 'Content-Type': 'application/json' }
-      if (cfg.apiKey) {
-        headers['Authorization'] = `Bearer ${cfg.apiKey}`
-      }
-
-      const resp = await fetch(baseUrl, {
-        method: 'POST',
-        headers,
-        body
-      })
-
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '')
-        throw new Error(`HTTP ${resp.status}: ${errText}`)
-      }
-
-      const json = await resp.json()
-
-      // 先看用户有没有配 responsePath
-      let imageData = null
-      if (cfg.responsePath) {
-        try {
-          const keys = cfg.responsePath.split('.')
-          let val = json
-          for (const key of keys) {
-            val = val?.[key]
-          }
-          imageData = val
-        } catch {}
-      }
-
-      // 没配或取不到就自动识别常见格式
-      if (!imageData) {
-        if (json.data?.image_urls?.[0]) {
-          const imgResp = await fetch(json.data.image_urls[0])
-          if (!imgResp.ok) throw new Error(`下载图片失败: ${imgResp.status}`)
-          const blob = await imgResp.blob()
-          imageData = await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result)
-            reader.onerror = reject
-            reader.readAsDataURL(blob)
-          })
-        } else if (json.data?.image_base64?.[0]) {
-          imageData = 'data:image/png;base64,' + json.data.image_base64[0]
-        } else if (json.images?.[0]) {
-          imageData = 'data:image/png;base64,' + json.images[0]
-        } else if (json.data?.[0]?.url) {
-          const imgResp = await fetch(json.data[0].url)
-          const blob = await imgResp.blob()
-          imageData = await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result)
-            reader.onerror = reject
-            reader.readAsDataURL(blob)
-          })
-        } else if (json.artifacts?.[0]?.base64) {
-          imageData = 'data:image/png;base64,' + json.artifacts[0].base64
-        }
-      }
-
-      if (imageData) {
-        if (typeof imageData === 'string' && imageData.startsWith('http')) {
-          const imgResp = await fetch(imageData)
-          const blob = await imgResp.blob()
-          imageData = await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result)
-            reader.onerror = reject
-            reader.readAsDataURL(blob)
-          })
-        }
-        return imageData
-      }
-
-      throw new Error('未能从响应中提取图片，请检查响应字段映射或模型返回格式')
-    }
-    default:
-      throw new Error('Unknown model type')
-  }
-}
-
 function attachImageToCard(imgEntry) {
   if (!selectedCard.value) return
-  attachImageEntryToCard(selectedCard.value.id, imgEntry)
+  void attachImageEntryToCard(selectedCard.value.id, imgEntry)
 }
 
-function attachImageEntryToCard(cardId, imgEntry) {
+async function attachImageEntryToCard(cardId, imgEntry) {
   if (!cardId || !imgEntry?.data) return
   const card = cards.value.find(c => c.id === cardId)
   if (!card) return
@@ -2918,8 +2773,10 @@ function attachImageEntryToCard(cardId, imgEntry) {
     alert('最多附加3张图片')
     return
   }
-  card.attachedImages.push({
+  const runtimeImage = {
     id: imgEntry.id,
+    mediaAssetId: imgEntry.mediaAssetId || '',
+    storageRef: imgEntry.storageRef || '',
     assetId: imgEntry.assetId || '',
     assetKind: imgEntry.assetKind || '',
     source: imgEntry.source || 'card-attachment',
@@ -2928,7 +2785,19 @@ function attachImageEntryToCard(cardId, imgEntry) {
     data: imgEntry.data,
     width: imgEntry.width || null,
     height: imgEntry.height || null
-  })
+  }
+  let archivedImage = runtimeImage
+  try {
+    const metadata = await archiveCanvasAttachedImage(runtimeImage, {
+      cardId: card.id,
+      assetId: card.assetId,
+      cardTitle: getCardTitle(card)
+    })
+    archivedImage = { ...metadata, data: runtimeImage.data }
+  } catch {
+    // Preserve inline data when IndexedDB archival is unavailable.
+  }
+  card.attachedImages.push(archivedImage)
   saveData()
   imagePreviewIndex.value = -1
 }
@@ -2938,8 +2807,10 @@ function attachMaterialImageToSelectedCard(asset) {
     alert('请先选择一张卡片')
     return
   }
-  attachImageEntryToCard(selectedCard.value.id, {
+  void attachImageEntryToCard(selectedCard.value.id, {
     id: asset.image?.id || asset.id,
+    mediaAssetId: asset.image?.mediaAssetId || '',
+    storageRef: asset.image?.storageRef || '',
     assetId: asset.id,
     assetKind: asset.kind,
     source: 'asset',
@@ -2960,9 +2831,9 @@ function openImagePreview(card, imageIndex) {
   }
 }
 
-function saveAsNewCard(imgEntry) {
+async function saveAsNewCard(imgEntry) {
   if (!imgEntry?.data) return
-  const asset = addNarrativeAsset({
+  const asset = await addNarrativeImageAsset({
     title: String(imgEntry.prompt || '参考图').slice(0, 24),
     content: imgEntry.prompt || '参考图',
     kind: 'reference-image',
@@ -2970,12 +2841,16 @@ function saveAsNewCard(imgEntry) {
     source: { type: 'relation-canvas', id: imgEntry.id },
     image: {
       id: imgEntry.id,
+      mediaAssetId: imgEntry.mediaAssetId,
+      storageRef: imgEntry.storageRef,
+      purpose: 'storyboard-reference',
       prompt: imgEntry.prompt,
       data: imgEntry.data
     }
   })
-  canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
-  cards.value.push(createCardFromAsset(asset))
+  const runtimeAsset = { ...asset, image: { ...asset.image, data: imgEntry.data } }
+  canvasAssets.value = [runtimeAsset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
+  cards.value.push(createCardFromAsset(runtimeAsset))
   saveData()
   imagePreviewIndex.value = -1
 }
@@ -2984,9 +2859,9 @@ function copyImagePrompt(imgEntry) {
   navigator.clipboard.writeText(imgEntry.prompt)
 }
 
-function saveToMaterialLib(imgEntry) {
+async function saveToMaterialLib(imgEntry) {
   if (!imgEntry?.data) return
-  addNarrativeAsset({
+  await addNarrativeImageAsset({
     title: (imgEntry.prompt || '参考图').slice(0, 24),
     content: imgEntry.prompt || '参考图',
     kind: 'reference-image',
@@ -2997,16 +2872,20 @@ function saveToMaterialLib(imgEntry) {
     },
     image: {
       id: imgEntry.id,
+      mediaAssetId: imgEntry.mediaAssetId,
+      storageRef: imgEntry.storageRef,
+      purpose: 'storyboard-reference',
       prompt: imgEntry.prompt,
       data: imgEntry.data,
       negativePrompt: imgEntry.negativePrompt,
       modelName: imgEntry.modelName,
+      modelId: imgEntry.modelId,
       modelType: imgEntry.modelType,
       width: imgEntry.width,
       height: imgEntry.height
     }
   })
-  loadMaterialImageAssets()
+  await loadMaterialImageAssets()
   imagePreviewIndex.value = -1
 }
 
@@ -3029,30 +2908,303 @@ function goToMaterialsImageGen() {
   overflow: hidden;
 }
 
-/* Header */
-.topic-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--text-primary);
-  font-size: 14px;
+/* V3 archive-folio top strip — paper-fiber surface inherited from
+   FolioSurface chrome variant + scoped stamp-language CSS. legacy
+   variant uses --border / --surface-* tokens; kao variant overrides
+   live in src/styles/themes/kao.css gated by .theme-kao. */
+.prose-essay__hero {
+  flex: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
 }
 
-.topic-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.generate-btn {
+.prose-top {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 16px;
-  white-space: nowrap;
+  gap: 12px;
+  padding: 10px 18px;
+  min-height: 56px;
+  /* Two implicit dividers: between __left and __mid, between __mid
+     and __right. Borrow the archive-gold dashed tear-edge from the
+     AppShell V3 shell-tab divider language. */
+}
+
+.prose-top__left,
+.prose-top__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: none;
+  min-width: 0;
+}
+
+.prose-top__mid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 14px;
+  /* tear-edge dashed dividers around the topic input */
+  border-left: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
+}
+
+.prose-top__id {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.prose-top__id-mark {
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.prose-top__id-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.prose-top__summary {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* V3 chip stamp language — mirrors AppShell .shell-meta-chip:
+   transparent background + 1px solid archive-rose 22% border +
+   ::before `·` ink dot in archive-rose + border-radius 0
+   (档案册硬切角). Single canonical class so every strip control
+   reads as the same stamp regardless of role (back / meta / link /
+   mode / hero CTA). */
+.prose-top__chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px 0 18px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.prose-top__chip::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  transition: color 0.16s ease, font-weight 0.16s ease;
+}
+
+.prose-top__chip:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
+  color: var(--text-primary);
+}
+
+.prose-top__chip:hover:not(:disabled)::before {
+  color: var(--archive-rose);
+  font-weight: 900;
+}
+
+.prose-top__chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.prose-top__chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.prose-top__chip-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prose-top__chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+}
+
+.prose-top__chip--accent {
+  /* active director-mode marker: archive-rose ink stamp + bolder
+     border (mirrors AppShell .shell-tab.active language). */
+  border-color: color-mix(in srgb, var(--archive-rose) 42%, var(--border));
+  color: var(--text-primary);
+}
+
+.prose-top__chip--accent::before {
+  color: var(--archive-rose);
+  font-weight: 900;
+}
+
+.prose-top__chip--mode {
+  padding: 0 10px 0 10px;
+  /* the icon stands in for the dot here; the ::before stays
+     because removing it would break the chip stamp signature.
+     Move the dot inward + shrink icon spacing instead. */
+  padding-left: 16px;
+}
+
+.prose-top__chip--generate {
+  background: color-mix(in srgb, var(--archive-rose) 12%, transparent);
+}
+
+.prose-top__chip--danger {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+  color: color-mix(in srgb, var(--danger) 78%, var(--text-primary));
+}
+
+.prose-top__chip--danger::before {
+  color: color-mix(in srgb, var(--danger) 64%, transparent);
+}
+
+.prose-top__chip--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.prose-top__chip--danger:hover:not(:disabled)::before {
+  color: var(--danger);
+}
+
+.prose-top__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  /* 0 圆角 — match the chip stamp language */
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 32px;
+  transition: border-color 0.16s ease;
+}
+
+.prose-top__input:focus {
+  outline: none;
+  border-color: var(--archive-rose);
+}
+
+.prose-top__input::placeholder {
+  color: var(--text-muted);
+}
+
+/* V3 0-state hero block — shown only while cards.length === 0.
+   Parallels Experience GamePanel.__hero / Notes empty-archive:
+   kicker + title + 1-paragraph guidance + 3 CTA chips. Inherits the
+   page paper-fiber via .is-archive-paper. */
+.prose-hero {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 36px 18px 32px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, transparent), color-mix(in srgb, var(--bg-primary) 96%, transparent));
+}
+
+.prose-hero__inner {
+  width: min(680px, 100%);
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.prose-hero__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--archive-rose) 60%, var(--text-muted));
+}
+
+.prose-hero__title {
+  margin: 0;
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.prose-hero__desc {
+  margin: 0 auto;
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.prose-hero__actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.prose-top__chip--cta {
+  min-height: 36px;
+  padding: 0 16px 0 22px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 980px) {
+  .prose-top {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+
+  .prose-top__mid {
+    order: 3;
+    width: 100%;
+    padding: 0;
+    border-left: none;
+    border-right: none;
+    border-top: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
+    padding-top: 10px;
+  }
+
+  .prose-top__right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 /* Main */
@@ -3901,7 +4053,10 @@ function goToMaterialsImageGen() {
 
 .export-status.is-stale .export-status-dot,
 .export-status.is-warning .export-status-dot {
-  background: #f59f00;
+  /* W5b UX sweep: var(--warning) is themed (light ≈ #b37213, dark ≈ #f0ba54)
+     so the dot stays visible across both modes and the legacy steel-blue
+     variant no longer fights the warm orange hex. */
+  background: var(--warning);
 }
 
 .export-status.is-error .export-status-dot {

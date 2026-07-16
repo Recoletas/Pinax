@@ -24,16 +24,26 @@
       <span class="chat-container__hero-folio" aria-hidden="true">
         <span class="chat-container__hero-folio-case">{{ caseNoShort }}</span>
       </span>
-      <div class="chat-container__hero-portrait">
-        <CharacterPortrait pose-id="narrator" size="hero" caption="在场档案员" />
-      </div>
       <div class="chat-container__hero-prompt">
-        <p class="chat-container__hero-greeting">档案空白 · 等候第 1 条落笔</p>
-        <p class="chat-container__hero-hint">在下方的输入区记录你的第 1 步行动, 或从以下开始:</p>
-        <div class="chat-container__hero-actions">
-          <button class="action-btn primary" type="button" @click="$emit('quick-action', 'continue')">续写</button>
-          <button class="action-btn" type="button" @click="$emit('quick-action', 'note')">速记</button>
-          <button class="action-btn" type="button" @click="$emit('quick-action', 'scene')">切场景</button>
+        <p class="chat-container__hero-kicker">现场记录入口</p>
+        <p class="chat-container__hero-greeting">从第一步行动开始</p>
+        <p class="chat-container__hero-hint">输入你的下一步，或先用本地演示推进一条记录。右侧索引会提示新线索。</p>
+        <div class="chat-container__hero-actions" aria-label="记录起步操作">
+          <button class="chat-container__hero-slip is-primary" type="button" @click="$emit('quick-action', 'continue')">
+            <span>行动</span>
+            <strong>续写第一步</strong>
+            <small>把当前意图写入记录流</small>
+          </button>
+          <button class="chat-container__hero-slip" type="button" @click="$emit('quick-action', 'note')">
+            <span>速记</span>
+            <strong>摘一条线索</strong>
+            <small>把对话片段转为素材</small>
+          </button>
+          <button class="chat-container__hero-slip" type="button" @click="$emit('quick-action', 'scene')">
+            <span>场景</span>
+            <strong>切到下一处</strong>
+            <small>用本地演示检查流转</small>
+          </button>
         </div>
       </div>
     </section>
@@ -58,89 +68,124 @@
          the scene boundary reads as a chapter break, not a content
          entry. Same data path (gameStore.messages), different visual. -->
     <template v-for="(msg, index) in displayMessages" :key="`scene-${index}`">
+      <!-- E16-NOVEL: scene-prompt is now a centered ornamental break
+           (◇ + caption), not a horizontal divider with a chip.
+           Matches 微信阅读 / 古龙 online chapter break convention. -->
       <div
         v-if="msg.type === 'scene'"
-        class="scene-prompt"
+        class="scene-break"
         :data-section-no="index + 1"
-        :aria-label="`场景提示 · ${msg.content}`"
+        :aria-label="`场景 · ${msg.content}`"
       >
-        <span class="scene-prompt__kicker">场景提示</span>
-        <span>{{ msg.content }}</span>
+        <span class="scene-break__mark" aria-hidden="true">◇</span>
+        <span class="scene-break__text">{{ msg.content }}</span>
       </div>
-      <article
-        class="scene-entry"
-        :class="msg.role"
-        :aria-label="`第 ${index + 1} 条 · ${displayName(msg)}`"
-        :data-section-no="index + 1"
+      <!-- E16-NOVEL: each msg is one prose paragraph in the reading
+           column. No avatar, no msg-actions, no msg-time visible.
+           Speaker differentiation is via:
+             (a) an inline small-caps speaker label (Disco Elysium
+                 "skill voice" pattern) for the first turn of a run,
+             (b) 段首缩进 2em on every paragraph (canonical CJK),
+             (c) per-role color tint on the speaker label only.
+           The text is the UI; everything else is chrome. -->
+      <p
+        class="prose"
+        :class="[
+          `prose--${msg.role || 'assistant'}`,
+          `prose--${msg.role || 'assistant'}-role`,
+          {
+            'compression-complete': isCompressionCompleteMessage(msg),
+            'prose--opening': isOpeningTurn(index),
+            'prose--editing': editingIndex === index
+          }
+        ]"
         :data-global-index="index"
+        :data-role="msg.role"
       >
-        <header class="scene-entry__marginalia" aria-hidden="true">
-          <span class="scene-entry__date">{{ formatDate(msg.timestamp) }}</span>
-          <span class="scene-entry__no">第 {{ index + 1 }} 条</span>
-          <span class="scene-entry__stamp">{{ roleStamp(msg) }}</span>
-        </header>
-        <div class="scene-entry__body">
-          <div
-            class="msg-item"
-            :class="[
-              msg.role,
-              {
-                'import-picked': gameStore.quickNoteImportMode && gameStore.quickNoteSelectedMessageIndexes.includes(index),
-                'compression-complete': isCompressionCompleteMessage(msg)
-              }
-            ]"
-            :data-global-index="index"
+        <span
+          v-if="showSpeakerLabel(msg, index)"
+          class="prose__speaker"
+          :class="`prose__speaker--${msg.role || 'assistant'}`"
+        >{{ displayName(msg) }}</span><span
+          v-if="showSpeakerLabel(msg, index)"
+          class="prose__sep"
+          aria-hidden="true"
+        >　</span><!--
+          UI-E19: in-place contenteditable editor. Replaces the E18
+          <Transition mode="out-in"> span/textarea swap, which felt like
+          "opening a dialog" instead of editing the current message.
+          The editor stays inside .prose (no modal, no separate form);
+          initial content is set via JS in nextTick (Vue's v-html would
+          overwrite the user-typed text on every render, so we mount
+          an empty editor and seed its textContent once). On save we
+          read innerText — preserves multi-line breaks as \n, which
+          renderRPText re-renders as <br>. Enter inserts newline (block
+          default); Esc cancels; Ctrl/Cmd+Enter saves. The view-mode
+          .prose__body span is not rendered while editing, so mechanism
+          triggers / inline details can't fire from inside the editor.
+        -->
+        <span
+          v-if="editingIndex === index"
+          class="prose__editor"
+          contenteditable="true"
+          spellcheck="false"
+          :data-editing-index="index"
+          @keydown="onEditorKeydown"
+          @click.stop
+        ></span>
+        <span
+          v-else
+          class="prose__body"
+          @click="onTextWrapperClick(index, msg, $event)"
+          v-html="renderMessageContent(msg, index)"
+        ></span>
+        <span
+          v-if="editingIndex === index"
+          class="prose__edit-actions"
+        >
+          <button class="tavern-btn primary" @click="saveEdit(index)">保存修改</button>
+          <button class="tavern-btn" @click="cancelEdit">取消</button>
+        </span>
+        <!-- E16-NOVEL v2: per-paragraph action row. Hover-revealed
+             (opacity 0 → 1 on prose hover), right-aligned, like a
+             margin annotation. Brings back edit/delete/regenerate
+             from the 541a2ce-era msg-actions. Position: absolute on
+             the prose wrapper so it floats to the right of the column
+             without affecting the prose flow. -->
+        <span
+          v-if="editingIndex !== index && (msg.role || msg.type) !== 'system'"
+          class="prose__actions"
+        >
+          <span
+            class="prose__action"
+            :title="'编辑内容'"
+            @click.stop="startEdit(index, msg.content)"
           >
-            <template v-if="isCompressionCompleteMessage(msg)">
-              <div class="msg-column">
-                <div class="msg-header">
-                  <span class="display-name">档案员</span>
-                  <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-                </div>
-                <div class="text-wrapper">
-                  <div class="context-compression-complete">
-                    <span class="context-compression-pulse"></span>
-                    <span class="context-compression-text">{{ msg.content }}</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <div class="msg-column">
-                <span
-                  class="msg-item__folio"
-                  :data-folio-page="index + 1"
-                  aria-hidden="true"
-                >页 {{ index + 1 }}</span>
-                <div class="msg-header">
-                  <span class="display-name">{{ displayName(msg) }}</span>
-                  <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
-                </div>
-                <div
-                  class="text-wrapper"
-                  @click="onTextWrapperClick(index, msg, $event)"
-                >
-                  <div
-                    v-if="editingIndex === index"
-                    class="edit-area"
-                  >
-                    <textarea v-model="editText" class="tavern-textarea" ref="editTextarea"></textarea>
-                    <div class="edit-footer">
-                      <button class="tavern-btn primary" @click="saveEdit(index)">保存修改</button>
-                      <button class="tavern-btn" @click="editingIndex = -1">取消</button>
-                    </div>
-                  </div>
-                  <div
-                    v-else
-                    class="text-main"
-                    v-html="renderMessageContent(msg, index)"
-                  ></div>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-      </article>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
+            </svg>
+          </span>
+          <span
+            class="prose__action prose__action--delete"
+            :title="'删除'"
+            @click.stop="gameStore.deleteMessage(index)"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
+            </svg>
+          </span>
+          <span
+            v-if="msg.role === 'user'"
+            class="prose__action prose__action--regen"
+            :title="'重写后续'"
+            @click.stop="gameStore.regenerateFrom(index)"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M2 1l9 5-9 5V1z"/>
+            </svg>
+          </span>
+        </span>
+      </p>
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
@@ -150,14 +195,16 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
-import CharacterPortrait from './folio/CharacterPortrait.vue'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
 const bottomAnchor = ref(null)
+// UI-E19: edit state is just an index. The actual editor element is a
+// contenteditable span inside .prose, addressed by data-global-index.
+// We seed its textContent in nextTick after editingIndex flips; v-html
+// is intentionally NOT bound to the editor (Vue would re-render and
+// clobber what the user is typing).
 const editingIndex = ref(-1)
-const editText = ref('')
-const editTextarea = ref(null)
 
 // UI-E11-B: emit('quick-action') added so Experience.vue (parent
 // workstation composition) can listen for 续写 / 速记 / 切场景 CTA.
@@ -192,36 +239,82 @@ const displayMessages = computed(() => {
     .filter((msg) => msg && (msg.role || msg.type) !== undefined)
 })
 
-const formatDate = (ts) => {
-  const d = ts ? new Date(ts) : new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+// E16-NOVEL: speaker label + drop-cap helpers. The speaker label
+// appears inline at the start of a run (Disco Elysium "skill voice"
+// pattern) so the user can scan who said what without an avatar.
+// The opening turn of a role run gets a drop cap (Kentucky Route Zero
+// / Pentiment), so the first line of each "speaker turn" has the
+// gravity of a novel chapter opening.
+const isOpeningTurn = (index) => {
+  if (index === 0) return true
+  const prev = displayMessages.value[index - 1]
+  const curr = displayMessages.value[index]
+  if (!prev || !curr) return true
+  if (prev.type === 'scene') return true
+  return (prev.role || prev.type) !== (curr.role || curr.type)
 }
-
-const roleStamp = (msg) => {
-  if (!msg) return '录'
-  if (isCompressionCompleteMessage(msg)) return '档案员 · 备忘'
-  if (msg.role === 'user') return '我 · 落笔'
-  if (msg.role === 'assistant') return '旁白 · 续页'
-  if (msg.role === 'system' || msg.type === 'system') return '系统 · 备注'
-  return '录'
+const showSpeakerLabel = (msg, index) => {
+  if (!msg || msg.type === 'scene') return false
+  if (isOpeningTurn(index)) return true
+  // Also show when the speaker changed within the same role (e.g.
+  // assistant turn handing off to a different character) — the
+  // displayName will differ from the previous one.
+  if (index > 0) {
+    const prev = displayMessages.value[index - 1]
+    if (prev && prev.type !== 'scene' && displayName(msg) !== displayName(prev)) {
+      return true
+    }
+  }
+  return false
 }
 
 const startEdit = (index, text) => {
   editingIndex.value = index
-  editText.value = text
   nextTick(() => {
-    editTextarea.value?.focus()
+    const editor = document.querySelector(
+      `.prose[data-global-index="${index}"] .prose__editor`
+    )
+    if (!editor) return
+    editor.textContent = text || ''
+    editor.focus()
+    // Place cursor at end so the user can immediately type to extend,
+    // or use shift+arrow / Ctrl+A to select. No select-all by default —
+    // a small typo fix shouldn't blow away the whole message.
+    const range = document.createRange()
+    range.selectNodeContents(editor)
+    range.collapse(false)
+    const sel = window.getSelection()
+    if (sel) {
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
   })
 }
 
+const cancelEdit = () => {
+  editingIndex.value = -1
+}
+
 const saveEdit = (index) => {
-  if (editText.value.trim()) {
-    gameStore.updateMessage(index, editText.value)
+  const editor = document.querySelector(
+    `.prose[data-global-index="${index}"] .prose__editor`
+  )
+  const text = (editor?.innerText ?? '').replace(/ /g, ' ').trimEnd()
+  if (text.trim()) {
+    gameStore.updateMessage(index, text)
   }
   editingIndex.value = -1
+}
+
+const onEditorKeydown = (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelEdit()
+  } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    saveEdit(editingIndex.value)
+  }
+  // Plain Enter is left to the browser's default (newline / <br>).
 }
 
 const isCompressionCompleteMessage = (msg) => {
@@ -232,9 +325,17 @@ const isCompressionCompleteMessage = (msg) => {
 const displayName = (msg) => {
   if (isCompressionCompleteMessage(msg)) return '系统'
   if (msg.name) return msg.name
-  if (msg.role === 'user') return gameStore.playerCharacter?.name || 'User'
+  if (msg.role === 'user') return gameStore.playerCharacter?.name || '主角'
   if (msg.role === 'system' || msg.type === 'system') return '系统'
-  return gameStore.aiCharacter?.name || 'Assistant'
+  return gameStore.aiCharacter?.name || '旁白'
+}
+
+const roleLabel = (msg) => {
+  if (isCompressionCompleteMessage(msg)) return '档案员'
+  if (msg?.role === 'user') return '我'
+  if (msg?.role === 'assistant') return '旁白'
+  if (msg?.role === 'system' || msg?.type === 'system') return '系统'
+  return '记录'
 }
 
 const renderMessageContent = (msg, index) => {
@@ -295,143 +396,6 @@ watch(() => gameStore.messages.length, scroll)
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.msg-item {
-  display: flex;
-  gap: 14px;
-  width: 100%;
-}
-
-.msg-item.import-picked .text-wrapper {
-  outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-radius: 8px;
-}
-
-.avatar-column {
-  flex-shrink: 0;
-}
-
-.tavern-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--border);
-  font-size: 18px;
-  font-weight: bold;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.ai-icon {
-  background: var(--accent-light);
-  color: var(--accent);
-}
-
-.user-icon {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-}
-
-.system-icon {
-  background: color-mix(in srgb, var(--accent-emerald) 14%, var(--bg-secondary));
-  color: var(--accent-emerald);
-  border-color: color-mix(in srgb, var(--accent-emerald) 28%, var(--border));
-}
-
-.msg-column {
-  flex: 1;
-  min-width: 0;
-}
-
-.msg-item.compression-complete {
-  align-items: center;
-}
-
-.msg-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.display-name {
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.msg-time {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.msg-actions {
-  margin-left: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  opacity: 0;
-  transition: 0.2s;
-}
-
-.msg-item:hover .msg-actions {
-  opacity: 1;
-}
-
-.msg-actions.import-mode {
-  opacity: 1;
-}
-
-.msg-actions-row {
-  display: flex;
-  gap: 8px;
-}
-
-.import-picker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 20px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.import-picker input {
-  width: 13px;
-  height: 13px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.icon-btn {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.icon-btn.execute:hover {
-  color: var(--success);
-}
-
-.icon-btn.delete:hover {
-  color: var(--danger);
 }
 
 .thought-wrapper {
@@ -571,6 +535,149 @@ summary .arrow {
   background: var(--accent-hover);
 }
 
+.chat-container {
+  background: transparent;
+  padding: 18px 22px 24px;
+  gap: 18px;
+}
+
+.chat-container__hero {
+  position: relative;
+  display: block;
+  padding: 30px 34px 34px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 90%, transparent),
+      color-mix(in srgb, var(--archive-paper) 96%, transparent));
+  border: 1px solid var(--hairline-soft);
+  border-radius: 4px;
+}
+
+.chat-container__hero-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.chat-container__hero-kicker {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--archive-olive);
+}
+
+.chat-container__hero-greeting {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--archive-ink);
+}
+
+.chat-container__hero-hint {
+  margin: 0;
+  max-width: 620px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--archive-ink) 76%, transparent);
+}
+
+.chat-container__hero-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.chat-container__hero-slip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 92px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 4px;
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 74%, transparent),
+    0 8px 18px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.chat-container__hero-slip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 82%, transparent),
+    0 10px 22px color-mix(in srgb, var(--archive-ink) 12%, transparent);
+}
+
+.chat-container__hero-slip span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--archive-olive);
+}
+
+.chat-container__hero-slip strong {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.chat-container__hero-slip small {
+  color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-container__hero-slip.is-primary {
+  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 78%, var(--archive-paper));
+}
+
+.chat-container__hero-folio {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--archive-ink) 48%, transparent);
+  pointer-events: none;
+}
+
+.text-main {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.72;
+  letter-spacing: 0;
+}
+
+@media (max-width: 760px) {
+  .chat-container {
+    padding: 12px 12px 18px;
+  }
+
+  .chat-container__hero {
+    padding: 26px 20px 24px;
+  }
+
+  .chat-container__hero-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* UI-E6A record-book ledger overrides — kept verbatim from the previous
    round so the typography / spine / folio / chapter-rule layer is still
    the foundation. The new UI-E9 book spread sits on top of this. */
@@ -596,9 +703,9 @@ summary .arrow {
   pointer-events: none;
 }
 
-/* UI-E10: chapter-rule deleted. The numbered section axis is now carried
-   by .scene-entry__no (per-entry marginalia); the E9 ribbon-between-spreads
-   divider is gone.
+/* UI-E10: chapter-rule deleted. UI-E15 also removes the later per-entry
+   marginalia header; role identity now lives in the message speaker badge.
+   The E9 ribbon-between-spreads divider is gone.
    UI-E10-CLEAN 2026-06-22: .scene-stage__indicator reference removed
    (indicator was deleted from Experience.vue + kao.css; section anchor
    is now per-entry marginalia only). */
@@ -612,8 +719,8 @@ summary .arrow {
    logical turn, and the long-assistant 续 mark pulled focus to layout
    instead of content. E10 collapses each message into one <article
    class="scene-entry"> with:
-     - top marginalia (date / 第 N 条 / role stamp) — gives a numbered
-       axis running top-to-bottom through the ledger
+     - left speaker badge — keeps user / narrator identity visible without
+       the noisy date / 第 N 条 / 续页 / 页 N metadata stack
      - body = .msg-item + .text-wrapper (E6A preserved)
      - role-color 3px left bar comes from .msg-item role classes
        (preserved below)
@@ -622,219 +729,6 @@ summary .arrow {
    borders). UI-E11 will replace with a sticky topstrip, not a hidden
    1px line. This entry-level margin just adds breathing room around
    the msg-item card. */
-.theme-kao .scene-entry {
-  position: relative;
-  padding: 14px 18px 12px 38px;
-  margin-bottom: 6px;
-  background: transparent;
-  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 22%, transparent);
-}
-
-.theme-kao .scene-entry:last-child {
-  border-bottom: none;
-}
-
-/* Top marginalia — date (left) / 第 N 条 (center) / role stamp (right).
-   Sans 11px per UI-DETAIL1 §S-3 meta rule; gold-soft for the section
-   number so it reads as the page's "axis coordinate"; rose for the role
-   stamp echoing the page-level vertical axis. */
-.theme-kao .scene-entry__marginalia {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px 8px;
-  margin-bottom: 6px;
-  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 26%, transparent);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
-}
-
-.theme-kao .scene-entry__date {
-  flex: 0 0 auto;
-}
-
-.theme-kao .scene-entry__no {
-  flex: 1 1 auto;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  color: color-mix(in srgb, var(--archive-gold) 84%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
-/* UI-E12-F: scene-entry__stamp switched from --font-display (LXGW
-   brush) to --font-sans. The brush face is too dense to read at
-   10px; sans keeps the role stamp legible while the italic + rose
-   color still mark it as a kicker. Bumped 10 → 11px for product-
-   feel readability at 1280 and 640. */
-.theme-kao .scene-entry__stamp {
-  flex: 0 0 auto;
-  font-family: var(--font-sans);
-  font-style: italic;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-rose) 80%, transparent);
-}
-
-.theme-kao .scene-entry__body {
-  display: block;
-  padding: 0;
-}
-
-/* === UI-E6A record-book ledger overrides — preserved below ===
-   The scene-entry (UI-E10) layer above sits on top of these. */
-.theme-kao .msg-item {
-  display: block;
-  padding: 14px 36px 14px 24px;
-  position: relative;
-  background: color-mix(in srgb, var(--archive-paper-strong) 18%, transparent);
-  border-left: 3px solid var(--archive-gold);
-  border-radius: 0;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
-  margin-bottom: 4px;
-}
-
-.theme-kao .msg-item.user {
-  border-left-color: var(--archive-olive-strong);
-}
-
-.theme-kao .msg-item.assistant {
-  border-left-color: var(--archive-gold);
-}
-
-.theme-kao .msg-item.compression-complete {
-  border-left-color: var(--archive-rose);
-  background: color-mix(in srgb, var(--archive-paper-strong) 24%, transparent);
-}
-
-/* Sparse dividers — preserved from E6A: dotted gold hairline appears between
-   adjacent msg-items whose roles change, suppressed when roles repeat. In the
-   E9 spread layout msg-items live in separate sheet sections so this selector
-   rarely matches, but the rule stays for the contract + any future non-spread
-   path (e.g. inline inline-list rendering). */
-.theme-kao .msg-item + .msg-item.user,
-.theme-kao .msg-item + .msg-item.assistant {
-  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
-  margin-top: 14px;
-  padding-top: 18px;
-}
-
-.theme-kao .msg-item.user + .msg-item.user,
-.theme-kao .msg-item.assistant + .msg-item.assistant {
-  border-top: none;
-  margin-top: 2px;
-  padding-top: 6px;
-}
-
-.theme-kao .avatar-column {
-  display: none;
-}
-
-.theme-kao .tavern-avatar {
-  display: none;
-}
-
-.theme-kao .msg-column {
-  display: block;
-}
-
-.theme-kao .msg-item__folio {
-  position: absolute;
-  top: 8px;
-  left: 24px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-style: italic;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
-  pointer-events: none;
-}
-
-.theme-kao .msg-header {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.theme-kao .display-name {
-  font-family: var(--font-sans);
-  font-weight: 400;
-  font-size: 11px;
-  font-style: italic;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
-}
-
-.theme-kao .msg-time {
-  font-family: var(--font-sans);
-  font-style: italic;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--archive-ink-soft) 60%, transparent);
-}
-
-.theme-kao .msg-item.user .text-main::before {
-  content: "我 · ";
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-style: italic;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 80%, transparent);
-}
-
-.theme-kao .msg-item.assistant .text-main::before {
-  content: "旁白 · ";
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-style: italic;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-rose) 84%, transparent);
-}
-
-.theme-kao .msg-item.compression-complete .text-main::before {
-  content: "档案员 · ";
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-style: italic;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-gold) 88%, transparent);
-}
-
-.theme-kao .text-main {
-  /* UI-E10: body text reads in system serif (Songti / Source Han Serif /
-     Noto Serif CJK / STSong / Georgia), NOT LXGW. LXGW is reserved for
-     display positions only (chapter title, kicker signature, marginalia
-     stamps). UI-E12-F: bumped 16 → 17px so the central record surface
-     reads as a product body (not as faded decoration); contract #2
-     pins font-family var(--font-body) + font-size ≥16 + line-height
-     ≥1.7. Letter-spacing 0.02em preserves CJK rhythm. */
-  font-family: var(--font-body);
-  font-size: 17px;
-  line-height: 1.78;
-  color: var(--archive-ink);
-  letter-spacing: 0.02em;
-}
-
 .theme-kao .thought-wrapper {
   max-width: 100%;
   margin: 6px 0 8px;
@@ -863,41 +757,106 @@ summary .arrow {
   background: color-mix(in srgb, var(--archive-paper-soft) 40%, transparent);
 }
 
-.theme-kao .icon-btn {
-  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
+/* E16-NOVEL: the kao theme owns the prose column. Per
+   微信阅读 / 古龙 online: Songti 17px / 1.75 / 段首缩进 2em.
+   No inter-paragraph margin (indent is the only separator).
+   The drop cap uses --font-display (LXGW WenKai) gold-to-rose
+   gradient — same calligraphy we ship on 5C / Writing W3. */
+.theme-kao .prose {
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--archive-ink);
+  text-indent: 2em;
+}
+.theme-kao .prose--opening {
+  text-indent: 0;
+}
+.theme-kao .prose--opening .prose__body {
+  text-indent: 0;
+}
+.theme-kao .prose--opening .prose__body::first-letter {
+  float: left;
+  font-family: var(--font-display);
+  font-size: 3em;
+  line-height: 0.95;
+  margin: 0.06em 0.12em 0 0;
+  font-weight: 700;
+  background: linear-gradient(180deg,
+    var(--archive-olive-strong) 0%,
+    var(--archive-gold) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-indent: 0;
+}
+.theme-kao .prose__speaker {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
+  text-transform: uppercase;
+  text-indent: 0;
+}
+.theme-kao .prose__speaker--user {
+  color: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
+}
+.theme-kao .prose__speaker--assistant {
+  color: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-gold));
+}
+.theme-kao .prose__speaker--system {
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  font-style: italic;
+}
+.theme-kao .prose.compression-complete {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  font-size: 15px;
+}
+.theme-kao .scene-break {
+  text-align: center;
+  margin: 1.6em 0;
+  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.theme-kao .scene-break__mark {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
+}
+.theme-kao .scene-break__text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  font-style: italic;
+}
+.theme-kao .tavern-textarea {
+  width: 100%;
+  min-height: 80px;
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.75;
+  background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
   border-radius: 0;
+  padding: 8px 10px;
+  color: var(--archive-ink);
+  resize: vertical;
 }
 
-.theme-kao .icon-btn:hover {
-  background: color-mix(in srgb, var(--archive-gold) 12%, transparent);
-  color: var(--archive-olive-strong);
-}
-
-/* Reduced-motion a11y — scene-entry inherits the same disable pattern
-   as E6A animations (no transitions on entry surfaces). */
-@media (prefers-reduced-motion: reduce) {
-  .theme-kao .scene-entry,
-  .theme-kao .scene-entry__marginalia,
-  .theme-kao .msg-item {
-    transition: none;
-    transform: none;
-    animation: none;
-  }
-}
-
-/* Mobile — tighten padding for narrow screens. E10's single-column
-   layout doesn't need the E9 spread-to-column fallback (already a
-   single column). Just compact padding + smaller font. */
+/* Mobile — single column, no padding change needed (text is
+   already 17px / 1.75). Just compact chat-container padding. */
 @media (max-width: 760px) {
-  .theme-kao .scene-entry {
-    padding: 10px 14px 10px 22px;
+  .theme-kao .chat-container {
+    padding: 20px 20px 32px;
   }
-  .theme-kao .scene-entry__marginalia {
-    font-size: 10px;
-    gap: 8px;
-  }
-  .theme-kao .scene-entry__no {
-    font-size: 11px;
+  .theme-kao .prose {
+    font-size: 16px;
+    line-height: 1.8;
   }
 }
 
@@ -912,23 +871,25 @@ summary .arrow {
    card with a page corner, not as a flat fill-in form. */
 .theme-kao .chat-container__hero {
   position: relative;
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 22px;
-  padding: 32px 24px 36px;
+  display: block;
+  padding: 30px 34px 34px;
   background: color-mix(in srgb, var(--archive-paper-strong) 6%, transparent);
   border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
-}
-.theme-kao .chat-container__hero-portrait {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
 }
 .theme-kao .chat-container__hero-prompt {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  justify-content: center;
+  gap: 12px;
+  max-width: 760px;
+}
+.theme-kao .chat-container__hero-kicker {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--archive-olive-strong);
 }
 /* UI-E12-W1: hero greeting bumped 18 → 22px so the empty-state first
    read hits harder. DISPLAY LXGW still reserved for kicker positions;
@@ -938,11 +899,11 @@ summary .arrow {
    stays 17px Songti per E12-F contract #2). */
 .theme-kao .chat-container__hero-greeting {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: 0.06em;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
   color: var(--archive-ink);
 }
 /* UI-E12-W1: hero hint 14 → 15px / 1.65 → 1.7 so the secondary copy
@@ -950,15 +911,59 @@ summary .arrow {
    Still BODY Songti (not DISPLAY) per font-layer contract. */
 .theme-kao .chat-container__hero-hint {
   margin: 0;
-  font-family: var(--font-body);
-  font-size: 15px;
+  max-width: 620px;
+  font-family: var(--font-sans);
+  font-size: 14px;
   line-height: 1.7;
   color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
 }
 .theme-kao .chat-container__hero-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.theme-kao .chat-container__hero-slip {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 92px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--archive-paper) 70%, transparent);
+  color: var(--archive-ink);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 70%, transparent),
+    0 8px 18px color-mix(in srgb, var(--archive-ink) 10%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.theme-kao .chat-container__hero-slip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--archive-olive) 44%, var(--border));
+}
+.theme-kao .chat-container__hero-slip span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--archive-olive-strong);
+}
+.theme-kao .chat-container__hero-slip strong {
+  font-size: 15px;
+  line-height: 1.3;
+}
+.theme-kao .chat-container__hero-slip small {
+  color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.theme-kao .chat-container__hero-slip.is-primary {
+  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 74%, transparent);
 }
 
 /* UI-E12-W1: hero folio corner — top-right stamp showing the
@@ -983,6 +988,12 @@ summary .arrow {
 
 @media (max-width: 760px) {
   .theme-kao .chat-container__hero {
+    padding: 26px 20px 24px;
+  }
+  .theme-kao .chat-container__hero-greeting {
+    font-size: 22px;
+  }
+  .theme-kao .chat-container__hero-actions {
     grid-template-columns: 1fr;
   }
 }
@@ -996,5 +1007,52 @@ summary .arrow {
    correctly and the hero still reads as a raised card. */
 .theme-kao.theme-dark .chat-container__hero {
   background: color-mix(in srgb, var(--archive-paper-soft) 8%, transparent);
+}
+
+/* UI-E19: in-place editor chrome. The .prose itself gets a subtle
+   background lift + soft inset frame when .prose--editing is on, and
+   the inner .prose__editor takes over the body content. Per-theme
+   color choices come from kao.css / legacy.css (steel-blue dossier
+   for legacy, warm archive-folio for kao) — scoped CSS only owns
+   layout (display, min-height, padding, white-space, transition
+   timing). No out-in / unmount-remount: the .prose stays mounted, only
+   its child swaps from .prose__body to .prose__editor via v-if/v-else. */
+.prose {
+  transition: background-color 160ms ease, box-shadow 160ms ease,
+              min-height 160ms ease;
+}
+
+.prose__editor {
+  display: block;
+  width: 100%;
+  min-height: 1.6em;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  text-indent: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px 10px;
+  border-radius: 0;
+  /* Subtle chrome transition only — background / border / box-shadow.
+     160ms sits in the 120-180ms range; min-height also transitions so
+     the column doesn't snap when toggling edit. */
+  transition: background-color 160ms ease, border-color 160ms ease,
+              box-shadow 160ms ease, min-height 160ms ease;
+}
+
+.prose__editor:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prose,
+  .prose__editor {
+    transition: none;
+  }
 }
 </style>

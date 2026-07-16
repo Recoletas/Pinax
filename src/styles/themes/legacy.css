@@ -1,2 +1,713 @@
-/* 5C: legacy = map-era blue-white. */
-:root.theme-legacy{--bg-primary:#f3f3f3;--bg-secondary:#fff;--accent:#0078d4;--accent-hover:#106ebe;--text-primary:#1a1a1a;--border:#cbd5e1;}
+/* 5C: legacy = map-era blue-white.
+   K6 (2026-06-27): keep theme 2 self-contained. The migrated dossier
+   surfaces now consume archive/accent variant tokens; if legacy only
+   overrides the old base tokens it inherits theme 1 stamp/gold traces. */
+:root.theme-legacy {
+  --bg-primary: #f3f3f3;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e8eef5;
+  --bg-hover: #dbe7f2;
+  --text-primary: #1a1a1a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent: #0078d4;
+  --accent-hover: #106ebe;
+  --accent-light: rgba(0, 120, 212, 0.10);
+  --accent-text: #ffffff;
+  --accent-purple: #456aa1;
+  --accent-purple-light: rgba(69, 106, 161, 0.12);
+  --accent-teal: #0f7490;
+  --accent-teal-light: rgba(15, 116, 144, 0.12);
+  --accent-amber: #64748b;
+  --accent-amber-light: rgba(100, 116, 139, 0.12);
+  --accent-rose: #476f9f;
+  --accent-rose-light: rgba(71, 111, 159, 0.12);
+  --accent-emerald: #2b7c78;
+  --accent-emerald-light: rgba(43, 124, 120, 0.12);
+  --border: #cbd5e1;
+  --border-strong: #94a3b8;
+  --shadow: rgba(15, 23, 42, 0.08);
+  --shadow-md: rgba(15, 23, 42, 0.14);
+
+  --archive-paper: #f8fafc;
+  --archive-paper-strong: #e2e8f0;
+  --archive-paper-soft: #ffffff;
+  --archive-ink: #0f172a;
+  --archive-ink-soft: #475569;
+  --archive-olive: #2563eb;
+  --archive-olive-strong: #1e3a8a;
+  --archive-gold: #94a3b8;
+  --archive-gold-soft: #cbd5e1;
+  --archive-rose: #476f9f;
+  --archive-photo: #1e3a5f;
+  --hairline-soft: rgba(71, 85, 105, 0.18);
+  --hairline-accent: rgba(100, 116, 139, 0.38);
+  --hairline-rose: rgba(37, 99, 235, 0.32);
+}
+
+/* E17 correction: theme 2 owns the Experience live-codex rail chrome.
+   The blue-white archive skin should not rely on the kao olive/gold
+   sheet or on the generic :not(.theme-kao) fallback in Experience.vue. */
+.theme-legacy .ws-right-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent),
+      color-mix(in srgb, var(--archive-paper-strong) 36%, var(--archive-paper-soft)));
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
+  box-shadow:
+    -1px 0 0 color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) inset,
+    0 16px 34px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  color: var(--archive-ink);
+}
+
+.theme-legacy .ws-dossier-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft)),
+      color-mix(in srgb, var(--archive-paper-soft) 94%, transparent));
+}
+
+.theme-legacy .ws-dossier-bar__label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .ws-dossier-bar__quick-cta {
+  min-height: 24px;
+  padding: 1px 10px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 26%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.theme-legacy .ws-dossier-bar__quick-cta:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--archive-olive) 46%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+  color: var(--archive-ink);
+}
+
+.theme-legacy .ws-dossier-bar__quick-cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-legacy .ws-live-codex {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 9px;
+  overflow: auto;
+}
+
+.theme-legacy .ws-codex-section {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 14%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 76%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 72%, transparent) inset;
+}
+
+.theme-legacy .ws-codex-section--open {
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 5%, var(--archive-paper-soft));
+}
+
+.theme-legacy .ws-codex-section--has-update {
+  border-color: color-mix(in srgb, var(--archive-rose) 34%, var(--border));
+}
+
+.theme-legacy .ws-codex-section__trigger {
+  width: 100%;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-legacy .ws-codex-section__quick-detail {
+  justify-self: end;
+  min-width: 38px;
+  min-height: 22px;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 30%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: var(--archive-olive-strong);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.theme-legacy .ws-codex-section__quick-detail:hover {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .ws-codex-section__quick-detail:focus-visible {
+  outline: 2px solid var(--archive-olive);
+  outline-offset: 2px;
+}
+
+.theme-legacy .ws-codex-section__label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .ws-codex-section__count,
+.theme-legacy .ws-codex-section__new {
+  min-width: 22px;
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
+  color: color-mix(in srgb, var(--archive-ink-soft) 92%, transparent);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.theme-legacy .ws-codex-section__new {
+  border-color: color-mix(in srgb, var(--archive-rose) 38%, var(--border));
+  background: color-mix(in srgb, var(--archive-rose) 9%, var(--archive-paper-soft));
+  color: var(--archive-rose);
+  font-weight: 750;
+}
+
+.theme-legacy .ws-codex-section__latest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--archive-ink-soft) 90%, transparent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.theme-legacy .ws-codex-section__body {
+  padding: 0 8px 8px;
+}
+
+.theme-legacy .ws-section {
+  padding: 7px 10px 8px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 12%, var(--border));
+  border-radius: 3px;
+}
+
+.theme-legacy .ws-section--compact {
+  padding: 5px 8px 7px;
+}
+
+/* W5b UX sweep: mirror the .theme-kao data-dossier-stamp rule.
+   Without this, Experience right-rail section titles (卷宗一/二/三)
+   silently disappear when the user picks theme-legacy. */
+.theme-legacy .ws-section::before {
+  content: attr(data-dossier-stamp);
+  display: block;
+  font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   UI-E18: Experience prose / edit / role distinction for theme 2.
+   Theme 2 is the COMPETITION DEFAULT — must read as steel-blue dossier,
+   not warm archive-folio. Mirrors theme 1's structural choices (single
+   column, speaker label, 段首缩进, drop cap, role color mark) but uses
+   the legacy palette tokens so it doesn't drift into the warm signature.
+   All values bound to var(--archive-*) tokens (token-only discipline).
+   ============================================================================ */
+.theme-legacy .prose {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 12px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.72;
+  color: var(--archive-ink);
+  text-indent: 2em;
+  /* 2px vertical role mark — quiet signal, not chat avatar. */
+  border-left: 2px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+}
+.theme-legacy .prose--user,
+.theme-legacy .prose--user-role {
+  border-left-color: color-mix(in srgb, var(--archive-olive-strong) 80%, transparent);
+}
+.theme-legacy .prose--assistant,
+.theme-legacy .prose--assistant-role {
+  border-left-color: color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink-soft));
+}
+.theme-legacy .prose--system {
+  border-left-color: color-mix(in srgb, var(--archive-ink) 32%, transparent);
+}
+.theme-legacy .prose.compression-complete {
+  border-left-color: color-mix(in srgb, var(--archive-ink) 32%, transparent);
+}
+/* No inter-paragraph gap — 段首缩进 2em is the ONLY separator. */
+.theme-legacy .prose + .prose {
+  margin: 0;
+}
+.theme-legacy .prose--same-role + .prose {
+  margin-top: 0;
+}
+
+/* Speaker label (DISPLAY small caps, role-colored) — visible on opening turns. */
+.theme-legacy .prose__speaker {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 90%, var(--archive-ink));
+  text-transform: uppercase;
+  text-indent: 0;
+}
+.theme-legacy .prose__speaker--user {
+  color: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
+}
+.theme-legacy .prose__speaker--assistant {
+  color: color-mix(in srgb, var(--archive-rose) 88%, var(--archive-olive-strong));
+}
+.theme-legacy .prose__speaker--system {
+  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+  font-style: italic;
+}
+.theme-legacy .prose__sep {
+  display: inline;
+  text-indent: 0;
+}
+.theme-legacy .prose__body {
+  text-indent: 0;
+}
+.theme-legacy .prose--opening .prose__body {
+  text-indent: 0;
+}
+.theme-legacy .prose--opening {
+  text-indent: 0;
+}
+
+/* Drop cap (steel-blue dossier edition) — 3-line float-left initial,
+   olive→rose gradient. Theme 2 uses steel-rose not warm olive. */
+.theme-legacy .prose--opening .prose__body::first-letter {
+  float: left;
+  font-family: var(--font-display);
+  font-size: 3em;
+  line-height: 0.95;
+  margin: 0.06em 0.12em 0 0;
+  font-weight: 700;
+  color: var(--archive-olive-strong);
+  background: linear-gradient(180deg, var(--archive-olive-strong) 0%, var(--archive-rose) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.theme-legacy .prose.compression-complete {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  font-size: 14px;
+}
+.theme-legacy .prose.compression-complete .prose__speaker {
+  font-style: italic;
+}
+.theme-legacy .prose__body p {
+  margin: 0;
+}
+
+/* Edit mode — inline textarea replaces body. Inherits prose column width,
+   font, line-height. Border-1px steel-blue + 140ms focus transition. */
+.theme-legacy .prose__body--editing {
+  display: block;
+}
+.theme-legacy .tavern-textarea {
+  width: 100%;
+  min-height: 80px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.72;
+  background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 36%, transparent);
+  border-radius: 0;
+  padding: 8px 10px;
+  color: var(--archive-ink);
+  resize: vertical;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.theme-legacy .tavern-textarea:focus {
+  outline: none;
+  border-color: var(--archive-olive);
+  background: var(--archive-paper-soft);
+}
+.theme-legacy .prose__edit-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.theme-legacy .prose__edit-actions .tavern-btn {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 4px 14px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 42%, transparent);
+  background: transparent;
+  color: var(--archive-ink);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.theme-legacy .prose__edit-actions .tavern-btn.primary {
+  background: var(--archive-olive);
+  color: var(--archive-paper-soft);
+  border-color: var(--archive-olive-strong);
+}
+.theme-legacy .prose__edit-actions .tavern-btn.primary:hover {
+  background: var(--archive-olive-strong);
+}
+.theme-legacy .prose__edit-actions .tavern-btn:hover:not(.primary) {
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+}
+
+/* Scene break — same ◇ convention as theme 1, but using steel-blue. */
+.theme-legacy .scene-break {
+  text-align: center;
+  margin: 1.6em 0;
+  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.theme-legacy .scene-break__mark {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--archive-olive) 70%, var(--archive-ink));
+}
+.theme-legacy .scene-break__text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+  font-style: italic;
+}
+
+/* ============================================================================
+   UI-E18: rp-* token scannability (theme 2). Both themes need 7-class
+   token distinction (dialogue / action / thought / location / time /
+   item / world-intro) so the user can scan 对白 / 动作 / 地点 /
+   时间 / 物品 in the prose column without re-reading.
+   ============================================================================ */
+.theme-legacy .rp-dialogue {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive-strong));
+}
+.theme-legacy .rp-action {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink) 86%, var(--archive-rose));
+}
+.theme-legacy .rp-thought {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+}
+.theme-legacy .rp-location {
+  font-weight: 600;
+  text-decoration: underline dotted color-mix(in srgb, var(--archive-olive) 60%, transparent);
+  text-underline-offset: 3px;
+  color: var(--archive-olive-strong);
+}
+.theme-legacy .rp-time {
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.theme-legacy .rp-item {
+  font-weight: 600;
+  text-decoration: underline solid color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  text-underline-offset: 3px;
+  color: var(--archive-rose);
+  cursor: pointer;
+}
+.theme-legacy .rp-item:hover {
+  background: color-mix(in srgb, var(--archive-rose) 8%, transparent);
+}
+.theme-legacy .rp-world-intro {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink) 88%, var(--archive-olive));
+}
+.theme-legacy .rp-dialogue-quote-soft,
+.theme-legacy .rp-dialogue-quote-warm,
+.theme-legacy .rp-dialogue-quote-neutral {
+  font-style: italic;
+  color: color-mix(in srgb, var(--archive-ink-soft) 92%, transparent);
+}
+
+/* Reduced-motion — disable edit transitions in theme 2. */
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy .tavern-textarea,
+  .theme-legacy .prose__edit-actions .tavern-btn {
+    transition: none;
+  }
+}
+/* END UI-E18: prose / rp-* / reduced-motion (Window A) */
+
+/* ============================================================================
+   UI-E19: Experience in-place editor chrome (Window A) for theme 2.
+   Replaces E18's textarea-swap. The editor is a contenteditable span
+   inside .prose, not a separate textarea — the message gets "lightly
+   boxed" via .prose--editing (background lift + soft inset frame) and
+   the inner .prose__editor takes over the body content.
+
+   Theme 2 chrome = steel-blue dossier (var(--archive-olive) accent,
+   var(--archive-paper-soft) wash). No purple, no warm gold. Inherits
+   font / size / line-height / text-indent from the .prose wrapper, so
+   editing a message keeps the column rhythm intact.
+
+   All values bound to var(--archive-*) tokens (token-only color
+   discipline). No raw hex, no forced override flags, no global escape.
+   Transitions are scoped to chrome (background / border / box-shadow /
+   min-height) and are 160ms — inside the 120-180ms range the user
+   asked for.
+   ============================================================================ */
+.theme-legacy .prose--editing {
+  background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--archive-olive) 18%, transparent);
+}
+.theme-legacy .prose__editor {
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 36%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper) 80%, transparent);
+}
+.theme-legacy .prose__editor:focus {
+  background: var(--archive-paper-soft);
+  border-color: var(--archive-olive);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper) 80%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--archive-olive) 14%, transparent);
+}
+
+/* UI-E19: reduced-motion — disable editor + .prose--editing transitions
+   in theme 2. Mirrors the E18 contract pattern but targets the new
+   .prose__editor / .prose--editing classes. */
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy .prose__editor,
+  .theme-legacy .prose--editing {
+    transition: none;
+  }
+}
+/* END UI-E19: in-place editor (Window A) */
+
+/* ============================================================================
+   UI-E18 (Claude Window B): codex detail drawer + codex rail summary chip
+   chrome for theme 2 (legacy / 经典). Experience.vue owns layout / structural
+   rules; this file provides the steel-blue dossier palette so the right
+   rail summary and the central detail drawer read as the same archive.
+   All values bound to var(--archive-*) tokens (token-only color discipline).
+   ============================================================================ */
+.theme-legacy .ws-codex-detail-overlay {
+  background: color-mix(in srgb, var(--archive-ink) 36%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.theme-legacy .ws-codex-detail-panel {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent),
+      color-mix(in srgb, var(--archive-paper-strong) 24%, var(--archive-paper-soft)));
+  box-shadow:
+    0 28px 60px color-mix(in srgb, var(--archive-ink) 32%, transparent),
+    0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) inset;
+  color: var(--archive-ink);
+}
+
+.theme-legacy .ws-codex-detail-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft)),
+      color-mix(in srgb, var(--archive-paper-soft) 90%, transparent));
+}
+
+.theme-legacy .ws-codex-detail-kicker {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.18em;
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .ws-codex-detail-title {
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--archive-ink);
+}
+
+.theme-legacy .ws-codex-detail-close {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 30%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
+  font-family: var(--font-sans);
+}
+
+.theme-legacy .ws-codex-detail-close:hover {
+  border-color: var(--archive-olive);
+  color: var(--archive-olive-strong);
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+}
+
+.theme-legacy .ws-codex-detail-body {
+  background: transparent;
+}
+
+/* Codex rail summary chip — codex rail summary rows (时间 / 主角 / 性格 /
+   目标 / 最新地点 / 摘要) 在 theme 2 走 archive-paper-soft 而非纯透明. */
+.theme-legacy .status-rail-row,
+.theme-legacy .status-rail-trait,
+.theme-legacy .quest-rail-entry,
+.theme-legacy .quest-rail-summary-list li,
+.theme-legacy .geo-rail-line {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--archive-paper-soft) 96%, transparent),
+      color-mix(in srgb, var(--archive-paper-strong) 16%, var(--archive-paper-soft)));
+  color: var(--archive-ink);
+}
+
+.theme-legacy .status-rail-hint,
+.theme-legacy .quest-rail-hint {
+  border: 1px dashed color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink-soft) 86%, transparent);
+  font-style: italic;
+}
+
+.theme-legacy .status-rail-detail-btn,
+.theme-legacy .geo-rail-actions .toolbar-text-btn,
+.theme-legacy .quest-rail-actions .mini-btn {
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+  color: var(--archive-olive-strong);
+  font-family: var(--font-sans);
+  font-weight: 650;
+  font-size: 11px;
+}
+
+.theme-legacy .status-rail-detail-btn:hover,
+.theme-legacy .geo-rail-actions .toolbar-text-btn:hover,
+.theme-legacy .quest-rail-actions .mini-btn:hover {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .status-rail-detail-btn:disabled,
+.theme-legacy .geo-rail-actions .toolbar-text-btn:disabled,
+.theme-legacy .quest-rail-actions .mini-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-legacy .geo-rail-snippet {
+  border-left: 2px solid color-mix(in srgb, var(--archive-olive) 36%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-strong) 12%, var(--archive-paper-soft));
+  color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
+}
+
+/* E18-B (round 2): 速记面板 (quick-note-workspace) 按钮 chrome —
+   导入速记 / 存为素材 / 清空选择 + 编辑器面板 保存素材 / 清空.
+   Default .action-btn 在 Experience.vue scoped CSS 里用 archive-gold
+   + 撕角 clip-path (kao 主题1 signature), theme 2 走 steel-blue
+   dossier 所以去掉 clip-path 改 archive-olive 边 + archive-paper-soft
+   底. 让 panel 内的 5 个按钮 (2 编辑器 + 3 对话段) 都一致. */
+.theme-legacy .quick-note-workspace-actions .action-btn,
+.theme-legacy .quick-note-panel-head .action-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 86%, transparent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  clip-path: none;
+  box-shadow: none;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.theme-legacy .quick-note-workspace-actions .action-btn:hover,
+.theme-legacy .quick-note-panel-head .action-btn:hover {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .quick-note-workspace-actions .action-btn:disabled,
+.theme-legacy .quick-note-panel-head .action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.theme-legacy .quick-note-workspace-actions .action-btn.primary {
+  background: var(--archive-olive);
+  border-color: var(--archive-olive-strong);
+  color: var(--archive-paper-soft);
+}
+
+.theme-legacy .quick-note-workspace-actions .action-btn.primary:hover {
+  background: var(--archive-olive-strong);
+  border-color: var(--archive-olive-strong);
+  color: var(--archive-paper-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy .status-rail-detail-btn,
+  .theme-legacy .geo-rail-actions .toolbar-text-btn,
+  .theme-legacy .quest-rail-actions .mini-btn,
+  .theme-legacy .ws-codex-detail-close {
+    transition: none;
+  }
+}

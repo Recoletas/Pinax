@@ -7,16 +7,15 @@
 - **关键目录**：
   - `src/` — Vue 前端
   - `server/` — Express 后端
-  - `docs/` — VitePress 文档 + `superpowers/specs/` 模式
+  - `docs/` — VitePress 文档、产品计划与历史规格
   - `docs/PLAN.md` `docs/LOG.md` — 持续维护的项目计划 / 日志
   - `docs/STATUS.md` — 多 session 共享状态（每次启动必读）
   - `agent-skills/` — canonical 仓库内 skills
 
 ## First action
 At session start, before task work or clarification:
-1. Try to invoke `superpowers:using-superpowers` (Claude plugin name) or `using-superpowers` (Codex global skill name). **如果两者都不可用，第一条回复里显式说**"superpowers 套件不可用，本 session 按裸 `AGENTS.md` 流程执行"。
-2. Read `docs/STATUS.md`.
-3. Read `LOCAL.md` only if it exists and is non-empty.
+1. Read `docs/STATUS.md`.
+2. Read `LOCAL.md` only if it exists and is non-empty.
 
 If a required tool/skill is unavailable, say so briefly and continue with the remaining steps.
 
@@ -67,10 +66,9 @@ When the user explicitly asks to use Claude as a sub-agent or to run broad paral
 ## Skill discovery paths
 - canonical: `agent-skills/<name>/SKILL.md`
 - Codex: `.agents/skills/<name>/SKILL.md`（symlink 到 canonical）
-- Codex user/global: `~/.codex/skills/<name>/SKILL.md`（used for installed third-party skills such as Superpowers）
 - Claude Code: `.claude/skills/<name>/SKILL.md`（symlink 到 canonical）
-- 项目内 brainstorm scratch: `.superpowers/brainstorm/`（**不是** skill discovery 路径；不要在它下面建 `SKILL.md`，那只是 session 临时产物）
-- Claude plugin 入口: `.claude/settings.json` 的 `enabledPlugins`（当前 `{ superpowers, context7 }`）是 Claude 插件真正生效入口；不在 `agent-skills/` 目录里
+- 第三方全局 skill 不属于项目约定；项目任务只依赖仓库内 canonical skills 与其 shim
+- `.claude/settings.json` 只启用与项目明确相关的插件；Superpowers 不作为本项目工作流依赖
 
 ## Local notes
 `LOCAL.md` 在根目录、gitignored；放用户私人 todo / 偏好 / 备注。agent first action 读，但不写——只有用户写。

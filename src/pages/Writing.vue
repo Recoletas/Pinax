@@ -3253,6 +3253,19 @@ function stopResizeRight() {
   border-style: dashed;
   opacity: 0.85;
 }
+/* W5c UX sweep: per-state visual distinction. Only is-saving existed
+   before; is-saved and is-unsaved now read as distinct chips so users
+   can tell at a glance whether their work is safe. */
+.wall__save-chip.is-saved {
+  border-color: color-mix(in srgb, var(--archive-olive) 60%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 14%, var(--bg-secondary));
+}
+.wall__save-chip.is-unsaved {
+  border-color: var(--archive-rose);
+  background: color-mix(in srgb, var(--archive-rose) 12%, var(--bg-secondary));
+  color: var(--archive-rose);
+  font-weight: 600;
+}
 .wall__save-chip-state {
   font-family: var(--font-display);
   font-weight: 500;

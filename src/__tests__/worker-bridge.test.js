@@ -4,6 +4,8 @@ let remoteApi = {
   generateMap: vi.fn(),
 }
 
+const createdWorkers = []
+
 vi.mock('comlink', () => ({
   wrap: vi.fn(() => remoteApi),
 }))
@@ -38,6 +40,7 @@ function reactive(target) {
 
 class FakeWorker {
   constructor() {
+    createdWorkers.push(this)
     this.terminate = vi.fn()
   }
 }
@@ -51,6 +54,7 @@ afterEach(() => {
   remoteApi = {
     generateMap: vi.fn(),
   }
+  createdWorkers.length = 0
   vi.useRealTimers()
 })
 
@@ -138,5 +142,26 @@ describe('generateMapInWorker', () => {
       code: 'TIMEOUT',
       message: '地图生成超时（60s）',
     })
+    expect(createdWorkers).toHaveLength(1)
+    expect(createdWorkers[0].terminate).toHaveBeenCalledTimes(1)
+  })
+
+  it('超时后下一次生成使用新 Worker 并成功', async () => {
+    vi.useFakeTimers()
+    const result = {
+      data: { name: 'recovered-world' },
+      meta: { totalMs: 8, timings: [], seed: 'seed-recovered' },
+    }
+    remoteApi.generateMap
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce(result)
+
+    const first = generateMapInWorker({ seed: 'seed-timeout' }).catch(error => error)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(first).resolves.toMatchObject({ code: 'TIMEOUT' })
+
+    await expect(generateMapInWorker({ seed: 'seed-recovered' })).resolves.toEqual(result)
+    expect(createdWorkers).toHaveLength(2)
+    expect(createdWorkers[0].terminate).toHaveBeenCalledTimes(1)
   })
 })

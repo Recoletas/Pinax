@@ -137,6 +137,67 @@ function collectScanText(chatHistory = [], runtimeState = {}, scanDepth = DEFAUL
     }
   }
 
+  // History node context: when entering a session from a prior history node,
+  // boost worldbook entries that mention its participants / hooks / bound
+  // entry ids. We deliberately do NOT inject full geoHistory — the runtime
+  // patch only carries enough signal to surface relevant constant / keyword
+  // matches downstream of the existing token budget.
+  const historyNode = runtimeState?.historyNode && typeof runtimeState.historyNode === 'object'
+    ? runtimeState.historyNode
+    : null
+  if (historyNode) {
+    if (historyNode.title) runtimeParts.push(String(historyNode.title))
+    for (const participant of Array.isArray(historyNode.participants) ? historyNode.participants : []) {
+      const name = String(participant || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const hook of Array.isArray(historyNode.unresolvedHooks) ? historyNode.unresolvedHooks : []) {
+      const label = String(hook || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+    // Prior facts often double as character/location names that should hit
+    // keyword matches — include them as bare terms (not full sentences).
+    for (const fact of Array.isArray(historyNode.priorFacts) ? historyNode.priorFacts : []) {
+      const value = String(fact || '').trim()
+      if (value) runtimeParts.push(value)
+    }
+  }
+
+  // Forward-compatible slice for a future geoHistoryContext structure. Only
+  // safe fields are mirrored here; full geoHistory is intentionally not
+  // dumped into the scan text to avoid prompt explosion.
+  const geoHistoryContext = runtimeState?.geoHistoryContext && typeof runtimeState.geoHistoryContext === 'object'
+    ? runtimeState.geoHistoryContext
+    : null
+  if (geoHistoryContext) {
+    for (const summary of Array.isArray(geoHistoryContext.summaries) ? geoHistoryContext.summaries : []) {
+      const value = String(summary || '').trim()
+      if (value) runtimeParts.push(value)
+    }
+    for (const participant of Array.isArray(geoHistoryContext.participants) ? geoHistoryContext.participants : []) {
+      const name = String(participant || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const location of Array.isArray(geoHistoryContext.locations) ? geoHistoryContext.locations : []) {
+      const name = String(location || '').trim()
+      if (name) runtimeParts.push(name)
+    }
+    for (const choice of Array.isArray(geoHistoryContext.keyChoices) ? geoHistoryContext.keyChoices : []) {
+      const label = String(choice || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+    for (const hook of Array.isArray(geoHistoryContext.unresolvedHooks) ? geoHistoryContext.unresolvedHooks : []) {
+      const label = String(hook || '').trim()
+      if (label) runtimeParts.push(label)
+    }
+    // entryIds are scanned as keywords so that bound worldbook entries get
+    // a strong match signal even when their human keys wouldn't trigger.
+    for (const entryId of Array.isArray(geoHistoryContext.entryIds) ? geoHistoryContext.entryIds : []) {
+      const id = String(entryId || '').trim()
+      if (id) runtimeParts.push(id)
+    }
+  }
+
   return [...parts, ...runtimeParts].join('\n').toLowerCase()
 }
 
@@ -177,7 +238,8 @@ export function matchWorldbookEntries({
   runtimeState = {},
   scanDepth = DEFAULT_SCAN_DEPTH,
   includeStarterEntries = false,
-  starterEntryLimits: starterLimits = {}
+  starterEntryLimits: starterLimits = {},
+  historyEntryIds = null
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -187,9 +249,39 @@ export function matchWorldbookEntries({
   const matchedEntries = []
   const seenIds = new Set()
 
+  // Pre-pass: history-bound entry ids short-circuit to a high-priority
+  // include so bound worldbook entries get into the budget before the
+  // generic scan runs. Caller-provided list takes precedence over ids
+  // embedded in runtimeState.historyNode.entryIds when both are present.
+  const historyIdSet = new Set()
+  if (Array.isArray(historyEntryIds)) {
+    for (const id of historyEntryIds) {
+      const normalized = String(id || '').trim()
+      if (normalized) historyIdSet.add(normalized)
+    }
+  } else {
+    const runtimeEntryIds = Array.isArray(runtimeState?.historyNode?.entryIds)
+      ? runtimeState.historyNode.entryIds
+      : []
+    for (const id of runtimeEntryIds) {
+      const normalized = String(id || '').trim()
+      if (normalized) historyIdSet.add(normalized)
+    }
+  }
+
   for (const rawEntry of worldbook.entries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry) continue
+
+    if (historyIdSet.has(entry.id) && !seenIds.has(entry.id)) {
+      matchedEntries.push({
+        ...entry,
+        matchReason: 'history',
+        matchedKeys: [],
+        matchedKeysLabel: '历史节点绑定'
+      })
+      seenIds.add(entry.id)
+    }
 
     const mode = String(entry.injection?.mode || 'selective')
     if (mode === 'constant') {
@@ -238,7 +330,8 @@ export function matchWorldbookEntries({
   }
 
   return matchedEntries.sort((a, b) => {
-    const modeDelta = (a.matchReason === 'constant' ? 0 : 1) - (b.matchReason === 'constant' ? 0 : 1)
+    const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : 1)
+      - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : 1)
     if (modeDelta !== 0) return modeDelta
     const priorityDelta = getTypePriority(a.type) - getTypePriority(b.type)
     if (priorityDelta !== 0) return priorityDelta
@@ -253,7 +346,8 @@ export function buildWorldbookContext({
   tokenBudget = DEFAULT_TOKEN_BUDGET,
   scanDepth = DEFAULT_SCAN_DEPTH,
   includeStarterEntries = false,
-  starterEntryLimits = {}
+  starterEntryLimits = {},
+  historyEntryIds = null
 } = {}) {
   const warnings = []
   let contextLedger = createContextLedger({
@@ -296,7 +390,8 @@ export function buildWorldbookContext({
     runtimeState,
     scanDepth,
     includeStarterEntries,
-    starterEntryLimits
+    starterEntryLimits,
+    historyEntryIds
   })
 
   if (matchedEntries.length === 0) {

@@ -109,6 +109,7 @@
             </div>
             <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
               <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+              <button v-if="checkedAssetIds.length > 1" class="selection-action-btn material-action-btn" type="button" @click="mergeCheckedAssets">合并</button>
               <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
               <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
               <button class="selection-action-btn material-action-btn danger" type="button" @click="deleteCheckedAssets">删除</button>
@@ -260,11 +261,16 @@
                       <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
                     </div>
                   </div>
-                  <div v-if="selectedAsset?.image?.data" class="image-asset-preview">
-                    <img :src="selectedAsset.image.data" :alt="selectedAsset.title || '参考图'" />
+                  <ComicPagePreview
+                    v-if="sidekickWorkspace === 'comic' && comicPagePreview"
+                    class="main-comic-preview"
+                    :page="comicPagePreview"
+                  />
+                  <div v-else-if="mainVisualPreview?.data" class="image-asset-preview">
+                    <img :src="mainVisualPreview.data" :alt="mainVisualPreview.alt" />
                     <div class="image-asset-meta">
-                      <span>参考图</span>
-                      <span>{{ selectedAsset.image.width && selectedAsset.image.height ? `${selectedAsset.image.width}×${selectedAsset.image.height}` : '素材图片' }}</span>
+                      <span>{{ mainVisualPreview.label }}</span>
+                      <span>{{ mainVisualPreview.size }}</span>
                     </div>
                   </div>
                   <textarea
@@ -351,7 +357,7 @@
            旧"一次只看一个"被吸收: 选中态展示同类相关 (排除 active),
            非选中态展示 4 张近期, 都可点击切换. 不实现真实拖拽 (如
            N6/N9/N10 multi-canvas 那样), 只做视觉/交互骨架 -->
-      <aside class="archive-pin notes-sidekick" aria-label="副阅读台" v-if="chapters.length > 0">
+      <aside class="archive-pin notes-sidekick" aria-label="副阅读台">
         <span class="archive-pin__nail" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="7" cy="7" r="3" fill="currentColor"/>
@@ -360,8 +366,37 @@
         </span>
         <header class="notes-sidekick__header">
           <span class="notes-sidekick__title">副阅读台</span>
-          <span class="notes-sidekick__count">{{ sidekickItems.length }} 张 · 可点击</span>
+          <span class="notes-sidekick__count">
+            {{ sidekickWorkspace === 'comic'
+              ? '漫画制作'
+              : sidekickWorkspace === 'illustration'
+                ? '插画生成'
+                : `${sidekickItems.length} 张 · 可点击` }}
+          </span>
         </header>
+        <nav class="notes-sidekick__modes" aria-label="副工作台模式">
+          <button type="button" :class="{ active: sidekickWorkspace === 'materials' }" @click="setSidekickWorkspace('materials')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M3 2.5h10v4H3zM3 9.5h10v4H3z"/>
+            </svg>
+            相关素材
+          </button>
+          <button type="button" :class="{ active: sidekickWorkspace === 'illustration' }" @click="setSidekickWorkspace('illustration')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="11" height="11" rx="1"/>
+              <circle cx="6" cy="6" r="1.2"/>
+              <path d="M3.5 12l3.2-3 2.1 1.8 1.7-1.6 2 2"/>
+            </svg>
+            插画生成
+          </button>
+          <button type="button" :class="{ active: sidekickWorkspace === 'comic' }" @click="setSidekickWorkspace('comic')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>
+            </svg>
+            漫画制作
+          </button>
+        </nav>
+        <template v-if="sidekickWorkspace === 'materials'">
         <div class="notes-sidekick__list" role="list" aria-label="相关素材列表">
           <button
             v-for="asset in sidekickItems"
@@ -397,6 +432,44 @@
             aria-label="素材缩略目录"
           />
         </footer>
+        </template>
+        <ImageGenerationWorkbench
+          v-else-if="sidekickWorkspace === 'illustration'"
+          class="notes-sidekick__illustration"
+          presentation="inline"
+          :showHeader="false"
+          :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
+          :selectedText="selectedAsset?.content || currentChapterTitle"
+          :sourceTitle="selectedAsset?.title || currentChapterTitle"
+          :projectId="selectedAsset?.projectId || null"
+          :sourceRefs="selectedAsset ? [{ refType: 'narrative-asset', refId: selectedAsset.id, projectId: selectedAsset.projectId ?? null, excerpt: selectedAsset.content }] : []"
+          :referenceCandidates="imageReferenceCandidates"
+          :modes="['reference', 'illustration']"
+          defaultMode="illustration"
+          mediaPurpose="storyboard-reference"
+          selectedPromptLabel="当前素材"
+          :allowInsertImageToEditor="true"
+          @image-preview="showMainVisualPreview"
+          @insert-image="insertImageMarkdown"
+          @save-to-material="saveGeneratedImageAsset"
+          @configs-updated="loadSidekickImageModels"
+        />
+        <ComicPageEditor
+          v-else
+          class="notes-sidekick__comic"
+          compact
+          :sourceText="mediaGenerationSourceText"
+          :sourceTitle="mediaGenerationSourceTitle"
+          :projectId="mediaGenerationProjectId"
+          :sourceRefs="mediaGenerationSourceRefs"
+          :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
+          :modelConfigs="sidekickImageModelConfigs"
+          :selectedModelId="sidekickImageModelId"
+          @update:selectedModelId="sidekickImageModelId = $event"
+          @configs-updated="loadSidekickImageModels"
+          @page-preview="showComicPagePreview"
+          @save-to-material="saveGeneratedImageAsset"
+        />
       </aside>
     </div>
 
@@ -459,16 +532,6 @@
       @ask="handleAskAdvisor"
     />
 
-    <ImageGenRail
-      :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
-      :selectedText="selectedAsset?.content || currentChapterTitle"
-      selectedPromptLabel="当前素材"
-      drawerTitle="素材生图"
-      side="left"
-      :allowInsertImageToEditor="true"
-      @insert-image="insertImageMarkdown"
-      @save-to-material="saveGeneratedImageAsset"
-    />
   </div>
 </template>
 
@@ -486,7 +549,9 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
-import ImageGenRail from '../components/ImageGenRail.vue'
+import ComicPageEditor from '../components/media/ComicPageEditor.vue'
+import ComicPagePreview from '../components/media/ComicPagePreview.vue'
+import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
 import {
@@ -494,9 +559,21 @@ import {
   deleteNarrativeAsset,
   getAssetKindLabel,
   listActiveNarrativeAssets,
+  mergeNarrativeAssets,
   setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
+import {
+  addNarrativeImageAsset,
+  hydrateNarrativeImageAssets,
+  migrateNarrativeImageAssets
+} from '../services/media/narrativeImageAssetBridge'
+import {
+  createMarkdownMediaReference,
+  hydrateMarkdownMediaContent,
+  migrateMarkdownMediaContent
+} from '../services/media/markdownMediaBridge'
+import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
 import {
   deleteAssetCanvasReferences,
   ensureAssetCanvasCard,
@@ -521,6 +598,12 @@ const newNoteInput = ref(null)
 const editorRef = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
+const renderedMarkdownContent = ref('')
+const sidekickWorkspace = ref('materials')
+const illustrationPreview = ref(null)
+const comicPagePreview = ref(null)
+const sidekickImageModelConfigs = ref([])
+const sidekickImageModelId = ref('')
 const checkedAssetIds = ref([])
 const canvasImportRevision = ref(0)
 const collapsedAssetKinds = ref({})
@@ -646,15 +729,117 @@ let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
+  loadSidekickImageModels()
   loadNotesPinnedSlipsPref()
   loadNotes(String(route.query.assetId || ''))
+  void migrateNarrativeImageAssets().then(() => {
+    loadNotes(selectedChapterId.value || String(route.query.assetId || ''))
+  })
   // K3c (2026-06-27): 初始 auto-grow (loadNotes 触发 selectChapter,
   // selectChapter 里已调 autoResizeTextarea, 这里是 belt-and-suspenders)
   nextTick(() => autoResizeTextarea())
 })
 
-const previewHtml = computed(() => markdownToHtml(markdownContent.value))
+function loadSidekickImageModels(configs = null) {
+  const next = Array.isArray(configs) ? configs : listImageProviderConfigs()
+  sidekickImageModelConfigs.value = next
+  if (!next.some((config) => config.id === sidekickImageModelId.value)) {
+    sidekickImageModelId.value = next[0]?.id || ''
+  }
+}
+
+function setSidekickWorkspace(workspace) {
+  const allowedWorkspaces = ['materials', 'illustration', 'comic']
+  sidekickWorkspace.value = allowedWorkspaces.includes(workspace) ? workspace : 'materials'
+  if (sidekickWorkspace.value !== 'materials') loadSidekickImageModels()
+}
+
+let markdownMediaRenderRevision = 0
+watch(markdownContent, (content) => {
+  const revision = ++markdownMediaRenderRevision
+  renderedMarkdownContent.value = content
+  void hydrateMarkdownMediaContent(content).then((hydrated) => {
+    if (revision === markdownMediaRenderRevision) {
+      renderedMarkdownContent.value = hydrated
+    }
+  })
+}, { immediate: true })
+
+const previewHtml = computed(() => markdownToHtml(renderedMarkdownContent.value))
 const selectedAsset = computed(() => chapters.value.find((asset) => asset.id === selectedChapterId.value) || null)
+const mainVisualPreview = computed(() => {
+  const generated = illustrationPreview.value
+  if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
+    const entry = generated.entry
+    return {
+      data: entry.data,
+      alt: entry.prompt || selectedAsset.value?.title || '插画',
+      label: entry.mediaPurpose === 'storyboard-reference' ? '参考图草稿' : '插画草稿',
+      size: entry.width && entry.height ? `${entry.width}×${entry.height}` : '生成图片'
+    }
+  }
+
+  const image = selectedAsset.value?.image
+  if (!image?.data) return null
+  return {
+    data: image.data,
+    alt: selectedAsset.value?.title || '素材图片',
+    label: image.purpose === 'comic-panel'
+      ? '漫画格'
+      : image.purpose === 'illustration'
+        ? '插画'
+        : '参考图',
+    size: image.width && image.height ? `${image.width}×${image.height}` : '素材图片'
+  }
+})
+const imageReferenceCandidates = computed(() => chapters.value
+  .filter((asset) => asset.image?.data)
+  .map((asset) => ({
+    id: `asset_${asset.id}`,
+    mediaAssetId: asset.image.mediaAssetId || '',
+    title: asset.title || '素材参考图',
+    data: asset.image.data,
+    mediaPurpose: asset.image.purpose || 'storyboard-reference'
+  })))
+
+function showMainVisualPreview(entry) {
+  if (!entry?.data || !selectedChapterId.value) return
+  illustrationPreview.value = {
+    sourceAssetId: selectedChapterId.value,
+    entry
+  }
+}
+
+function showComicPagePreview(page) {
+  comicPagePreview.value = page || null
+}
+
+const mediaGenerationSourceAssets = computed(() => {
+  if (checkedAssetIds.value.length > 0) {
+    const checked = new Set(checkedAssetIds.value)
+    return chapters.value.filter((asset) => checked.has(asset.id))
+  }
+  return selectedAsset.value ? [selectedAsset.value] : []
+})
+const mediaGenerationSourceText = computed(() => mediaGenerationSourceAssets.value
+  .map((asset) => `${asset.title || '无标题素材'}\n${asset.content || ''}`.trim())
+  .filter(Boolean)
+  .join('\n\n---\n\n'))
+const mediaGenerationSourceTitle = computed(() => {
+  const assets = mediaGenerationSourceAssets.value
+  if (assets.length === 1) return assets[0].title || '当前素材'
+  return assets.length > 1 ? `${assets.length} 条素材` : '当前素材'
+})
+const mediaGenerationProjectId = computed(() => {
+  const projectIds = [...new Set(mediaGenerationSourceAssets.value.map((asset) => asset.projectId ?? null))]
+  return projectIds.length === 1 ? projectIds[0] : null
+})
+const mediaGenerationSourceRefs = computed(() => mediaGenerationSourceAssets.value.map((asset) => ({
+  refType: 'narrative-asset',
+  refId: asset.id,
+  projectId: asset.projectId ?? null,
+  excerpt: asset.content
+})))
 const assetKindOrder = [
   'storyboard-seed',
   'reference-image',
@@ -857,14 +1042,29 @@ async function handleAskAdvisor(input) {
   await askAdvisor({ ...action, mode: 'notes' }, collectNotesContext)
 }
 
+let notesMediaLoadRevision = 0
+
+function sortNoteAssets(assets) {
+  return [...assets].sort((a, b) => {
+    const rank = { accepted: 0, inbox: 1 }
+    const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
+    if (diff !== 0) return diff
+    return Number(b.createdAt || 0) - Number(a.createdAt || 0)
+  })
+}
+
 function loadNotes(preferredChapterId = '') {
-  chapters.value = listActiveNarrativeAssets()
-    .sort((a, b) => {
-      const rank = { accepted: 0, inbox: 1 }
-      const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
-      if (diff !== 0) return diff
-      return Number(b.createdAt || 0) - Number(a.createdAt || 0)
-    })
+  const revision = ++notesMediaLoadRevision
+  chapters.value = sortNoteAssets(listActiveNarrativeAssets())
+  void hydrateNarrativeImageAssets(chapters.value).then((hydrated) => {
+    if (revision !== notesMediaLoadRevision) return
+    const hydratedImages = new Map(hydrated.map((asset) => [asset.id, asset.image]))
+    chapters.value = sortNoteAssets(chapters.value.map((asset) => (
+      hydratedImages.get(asset.id)
+        ? { ...asset, image: hydratedImages.get(asset.id) }
+        : asset
+    )))
+  })
 
   // UI-N10: 默认所有素材 visible on canvas (避免 0 张时大空 void)
   // 仅在 prefs 没保存过时默认全开; 否则尊重 user 选择
@@ -896,14 +1096,44 @@ function selectChapter(chapterId) {
     currentChapterTitle.value = chapter.title || ''
     const raw = chapter.content || ''
     const format = chapter.contentFormat || (looksLikeHtml(raw) ? 'html' : 'md')
-    markdownContent.value = format === 'md' ? raw : htmlToMarkdown(raw)
+    const nextMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
+    markdownContent.value = nextMarkdown
     editorContent.value = markdownToHtml(markdownContent.value)
+    void migrateSelectedChapterMarkdownMedia(chapter, nextMarkdown)
     nextTick(() => {
       if (editorRef.value) editorRef.value.value = markdownContent.value
       // K3c (2026-06-27): 切换素材后重新 auto-grow, 让 height 跟新内容匹配
       autoResizeTextarea()
     })
   }
+}
+
+async function migrateSelectedChapterMarkdownMedia(chapter, sourceMarkdown) {
+  const result = await migrateMarkdownMediaContent(sourceMarkdown, {
+    projectId: chapter.projectId ?? null,
+    purpose: 'illustration',
+    sourceRefs: [{
+      refType: 'narrative-asset',
+      refId: chapter.id,
+      projectId: chapter.projectId ?? null,
+      excerpt: chapter.content
+    }]
+  })
+  if (!result.changed) return
+  if (selectedChapterId.value !== chapter.id || markdownContent.value !== sourceMarkdown) return
+
+  markdownContent.value = result.content
+  editorContent.value = markdownToHtml(result.content)
+  chapter.content = result.content
+  chapter.contentFormat = 'md'
+  updateNarrativeAsset(chapter.id, {
+    content: result.content,
+    contentFormat: 'md'
+  })
+  nextTick(() => {
+    if (editorRef.value) editorRef.value.value = result.content
+    autoResizeTextarea()
+  })
 }
 
 function createNewNote() {
@@ -1146,6 +1376,31 @@ function setCheckedAssetsState(status) {
   loadNotes(nextId)
 }
 
+function mergeCheckedAssets() {
+  const targets = getCheckedAssets()
+  if (targets.length < 2) return
+
+  saveCurrentChapter()
+  const selectedId = selectedChapterId.value
+  const targetId = targets.some((asset) => asset.id === selectedId) ? selectedId : targets[0].id
+  const removableIds = targets.map((asset) => asset.id).filter((id) => id !== targetId)
+  const canvasAttached = removableIds.filter((id) => isAssetOnCanvas(id))
+  if (canvasAttached.length > 0) {
+    const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
+      ? false
+      : window.confirm(`有 ${canvasAttached.length} 项素材已在画布中。继续合并会移除这些旧画布节点，是否继续？`)
+    if (!confirmed) return
+  }
+
+  const result = mergeNarrativeAssets(targets.map((asset) => asset.id), { targetId })
+  if (!result) return
+
+  canvasAttached.forEach((assetId) => deleteAssetCanvasReferences(assetId))
+  checkedAssetIds.value = []
+  canvasImportRevision.value += 1
+  loadNotes(result.asset.id)
+}
+
 function getAssetKindColor(kind) {
   switch (kind) {
     case 'draft-prose':
@@ -1167,35 +1422,45 @@ function getAssetKindColor(kind) {
   }
 }
 
-function saveGeneratedImageAsset(imgEntry) {
+async function saveGeneratedImageAsset(imgEntry) {
   if (!imgEntry?.data) return
-  const asset = addNarrativeAsset({
+  const currentAssetId = selectedChapterId.value
+  const asset = await addNarrativeImageAsset({
     title: (imgEntry.prompt || '素材参考图').slice(0, 24),
     content: imgEntry.prompt || '素材参考图',
     kind: 'reference-image',
     status: 'accepted',
+    projectId: mediaGenerationProjectId.value,
+    sourceRefs: [...mediaGenerationSourceRefs.value, ...(imgEntry.sourceRefs || [])],
     source: {
       type: 'note-image',
       id: imgEntry.id
     },
     image: {
       id: imgEntry.id,
+      mediaAssetId: imgEntry.mediaAssetId,
+      storageRef: imgEntry.storageRef,
+      purpose: imgEntry.mediaPurpose || 'illustration',
       prompt: imgEntry.prompt,
       data: imgEntry.data,
       negativePrompt: imgEntry.negativePrompt,
       modelName: imgEntry.modelName,
+      modelId: imgEntry.modelId,
       modelType: imgEntry.modelType,
       width: imgEntry.width,
       height: imgEntry.height
     }
   })
-  loadNotes(asset.id)
+  loadNotes(imgEntry.mode === 'comic' && currentAssetId ? currentAssetId : asset.id)
 }
 
 function insertImageMarkdown(imgEntry) {
-  if (!imgEntry?.data) return
+  if (!imgEntry?.data && !imgEntry?.mediaAssetId) return
   const alt = String(imgEntry.prompt || selectedAsset.value?.title || '图片').trim() || '图片'
-  const imageMarkdown = `\n\n![${alt}](${imgEntry.data})\n`
+  const reference = imgEntry.mediaAssetId
+    ? createMarkdownMediaReference(alt, imgEntry.mediaAssetId)
+    : `![${alt}](${imgEntry.data})`
+  const imageMarkdown = `\n\n${reference}\n`
   const editor = editorRef.value
   if (editor && typeof editor.selectionStart === 'number' && typeof editor.selectionEnd === 'number') {
     const start = editor.selectionStart
@@ -2358,11 +2623,17 @@ function syncSelectionCommandState() {
   background: var(--bg-secondary);
 }
 
+.main-comic-preview {
+  margin: 14px auto 4px;
+  width: min(100%, 620px);
+}
+
 .image-asset-preview img {
   width: 100%;
-  max-height: 260px;
-  object-fit: cover;
+  max-height: min(52vh, 560px);
+  object-fit: contain;
   display: block;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
 }
 
 .image-asset-meta {
@@ -2915,6 +3186,22 @@ function syncSelectionCommandState() {
 .material-top .manuscript-top__tab {
   color: var(--archive-ink-soft);
   font-size: 12px;
+}
+
+/* W5c UX sweep: per-state chip colors for the Notes save status.
+   Before this, "已保存 / 保存中 / 未保存" rendered identically and
+   users couldn't tell at a glance whether their edits were saved. */
+.material-top .manuscript-top__chip.is-saved {
+  color: var(--text-secondary, #5d5247);
+}
+.material-top .manuscript-top__chip.is-saving {
+  color: var(--warning, #b37213);
+  font-weight: 600;
+}
+.material-top .manuscript-top__chip.is-unsaved {
+  color: var(--danger, #b34d3a);
+  font-weight: 600;
+  border-color: var(--danger, #b34d3a);
 }
 
 .material-top .manuscript-top__tab {
@@ -3559,6 +3846,11 @@ function syncSelectionCommandState() {
   height: 26px;
 }
 
+.deck-toolbar__btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .page-controls {
   display: flex;
   align-items: center;
@@ -3649,6 +3941,46 @@ function syncSelectionCommandState() {
   letter-spacing: 0.1em;
   color: var(--archive-ink-soft);
   white-space: nowrap;
+}
+
+.notes-sidekick__modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 12px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+}
+
+.notes-sidekick__modes button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 5px 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.notes-sidekick__modes button:hover {
+  color: var(--archive-ink);
+}
+
+.notes-sidekick__modes button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.notes-sidekick__illustration,
+.notes-sidekick__comic {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
 }
 
 /* K3: 副阅读台主体 — 2-4 张 sidekick-slip 列表 */

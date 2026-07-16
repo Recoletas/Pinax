@@ -2,22 +2,35 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
+  buildNarrativeAssetContentHash,
   createNarrativeAsset,
   deleteNarrativeAsset,
+  findDuplicateNarrativeAsset,
   getAssetKindExplanation,
   getAssetKindLabel,
   getAssetSourceDetail,
   getAssetSourceLabel,
   listActiveNarrativeAssets,
   listNarrativeAssets,
+  mergeNarrativeAssets,
+  normalizeContentRef,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '@/services/narrativeAssets'
+import {
+  addNarrativeImageAsset,
+  migrateNarrativeImageAssets
+} from '@/services/media/narrativeImageAssetBridge'
+import {
+  hydrateMarkdownMediaContent,
+  migrateMarkdownMediaContent
+} from '@/services/media/markdownMediaBridge'
 
 describe('narrativeAssets', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
   })
 
   it('creates normalized inbox assets', () => {
@@ -37,6 +50,56 @@ describe('narrativeAssets', () => {
     expect(asset.title).toBe('第一段正文候选')
     expect(asset.content).toBe('第一段正文候选')
     expect(asset.source.messageIds).toEqual(['m1'])
+    expect(asset.contentHash).toBe(buildNarrativeAssetContentHash('第一段正文候选'))
+    expect(asset.sourceRefs).toEqual([
+      {
+        refType: 'session-message',
+        refId: 'session-a:m1',
+        projectId: null,
+        version: null,
+        excerpt: null
+      }
+    ])
+  })
+
+  it('normalizes content refs and fingerprints whitespace-equivalent text', () => {
+    expect(normalizeContentRef({
+      type: 'chapter',
+      id: 'ch-1',
+      projectId: 'book-1',
+      excerpt: '  原文\n片段  '
+    })).toEqual({
+      refType: 'chapter',
+      refId: 'ch-1',
+      projectId: 'book-1',
+      version: null,
+      excerpt: '原文 片段'
+    })
+    expect(buildNarrativeAssetContentHash('a\n b')).toBe(buildNarrativeAssetContentHash('a b'))
+  })
+
+  it('finds duplicates only when project, content, and source ref all match', () => {
+    const original = addNarrativeAsset({
+      content: '同一段正文',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-1' }]
+    })
+
+    expect(findDuplicateNarrativeAsset({
+      content: '同一段正文',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-1' }]
+    })?.id).toBe(original.id)
+    expect(findDuplicateNarrativeAsset({
+      content: '同一段正文',
+      projectId: 'book-2',
+      sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-2' }]
+    })).toBeNull()
+    expect(findDuplicateNarrativeAsset({
+      content: '同一段正文',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'ch-2', projectId: 'book-1' }]
+    })).toBeNull()
   })
 
   it('describes asset sources', () => {
@@ -99,6 +162,27 @@ describe('narrativeAssets', () => {
     expect(listNarrativeAssets({ status: 'archived' })).toHaveLength(2)
   })
 
+  it('merges same-project assets while preserving content and source refs', () => {
+    const first = addNarrativeAsset({
+      content: '第一段',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-1' }]
+    })
+    const second = addNarrativeAsset({
+      content: '第二段',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'session-message', refId: 'session-1:m2', projectId: 'book-1' }]
+    })
+
+    const result = mergeNarrativeAssets([first.id, second.id], { targetId: first.id })
+
+    expect(result?.mergedIds).toEqual([second.id])
+    expect(result?.asset.content).toBe('第一段\n\n第二段')
+    expect(result?.asset.sourceRefs).toHaveLength(2)
+    expect(listNarrativeAssets({ status: null })).toHaveLength(1)
+    expect(mergeNarrativeAssets([first.id, 'missing'])).toBeNull()
+  })
+
   it('lists only active inbox and accepted assets for material sidebar views', () => {
     const inbox = addNarrativeAsset({ content: '待处理素材', kind: 'inspiration', status: 'inbox' })
     const accepted = addNarrativeAsset({ content: '采纳素材', kind: 'event', status: 'accepted' })
@@ -132,7 +216,13 @@ describe('narrativeAssets', () => {
     expect(getAssetKindExplanation('unknown-kind')).toBe('可复用的写作素材条目。')
   })
 
-  it('stores reference image metadata', () => {
+  it('migrates reference image binaries into MediaAsset storage', async () => {
+    const blobs = new Map()
+    const binaryStore = {
+      put: async (id, blob) => blobs.set(id, blob),
+      get: async (id) => blobs.get(id) || null,
+      delete: async (id) => blobs.delete(id)
+    }
     const asset = addNarrativeAsset({
       title: '雨夜街角',
       content: '雨夜街角，冷色调',
@@ -145,10 +235,56 @@ describe('narrativeAssets', () => {
         height: 768
       }
     })
+    const hydrated = await migrateNarrativeImageAssets({ binaryStore })
+    const migrated = listNarrativeAssets({ status: null })[0]
 
     expect(asset.kind).toBe('reference-image')
-    expect(asset.image.prompt).toBe('雨夜街角')
-    expect(asset.image.data).toContain('data:image/png')
+    expect(migrated.image.prompt).toBe('雨夜街角')
+    expect(migrated.image.mediaAssetId).toBeTruthy()
+    expect(migrated.image.data).toBe('')
+    expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).not.toContain('data:image/png')
+    expect(blobs.has(migrated.image.mediaAssetId)).toBe(true)
+    expect(hydrated[0].image.data).toContain('data:image/png')
+
+    const direct = await addNarrativeImageAsset({
+      title: '新参考图',
+      content: '新参考图',
+      status: 'accepted',
+      image: {
+        prompt: '新参考图',
+        data: 'data:image/png;base64,YWJj',
+        modelType: 'http'
+      }
+    }, { binaryStore })
+    expect(direct.image.mediaAssetId).toBeTruthy()
+    expect(direct.image.data).toBe('')
+    expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).not.toContain('YWJj')
+
+    const migratedMarkdown = await migrateMarkdownMediaContent(
+      '正文\n\n![雨夜](data:image/png;base64,YWJj)',
+      { sourceRefs: [{ refType: 'narrative-asset', refId: direct.id }] },
+      { binaryStore }
+    )
+    expect(migratedMarkdown.content).toMatch(/!\[雨夜\]\(pinax-media:\/\//)
+    expect(migratedMarkdown.content).not.toContain('YWJj')
+    expect(await hydrateMarkdownMediaContent(migratedMarkdown.content, { binaryStore }))
+      .toContain('data:image/png;base64')
+
+    const fallback = addNarrativeAsset({
+      title: '待迁移参考图',
+      content: '待迁移参考图',
+      kind: 'reference-image',
+      image: { data: 'data:image/png;base64,ZGVm' }
+    })
+    await migrateNarrativeImageAssets({
+      binaryStore: {
+        put: async () => { throw new Error('storage unavailable') },
+        get: async () => null,
+        delete: async () => false
+      }
+    })
+    expect(listNarrativeAssets({ status: null }).find((item) => item.id === fallback.id)?.image.data)
+      .toContain('data:image/png')
     expect(getAssetKindLabel('reference-image')).toBe('参考图')
   })
 })

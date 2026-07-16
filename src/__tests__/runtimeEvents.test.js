@@ -5,9 +5,12 @@ import {
   STATE_OPS,
   STATE_PATH_ROOTS,
   appendRuntimeEvent,
+  applyStateDelta,
   capRuntimeEvents,
+  buildStateDeltaPreview,
   createRuntimeEvent,
   normalizeRuntimeEvent,
+  rollbackStateDelta,
   validateStateDelta
 } from '../services/runtimeEvents'
 
@@ -176,5 +179,140 @@ describe('runtimeEvents', () => {
     expect(result.events[198]).toMatchObject({ id: 'pre_198' })
     expect(result.events[199].id.startsWith('evt_')).toBe(true)
     expect(result.events[199].payload.preview).toBe('new')
+  })
+
+  it('builds a v1 display_event envelope for history-node-init, defaulting contextual=false', () => {
+    const event = createRuntimeEvent({
+      type: 'display_event',
+      source: 'runtime',
+      payload: {
+        kind: 'history-node-init',
+        historyNodeId: 'hn_archive_w4',
+        title: '雾税账册追溯',
+        mapBinding: { scene: '灯痕码头' },
+        priorFactsCount: 1,
+        unresolvedHooksCount: 1
+      }
+    })
+
+    expect(event).toMatchObject({
+      v: 1,
+      type: 'display_event',
+      source: 'runtime',
+      branchId: 'main',
+      payload: {
+        kind: 'history-node-init',
+        historyNodeId: 'hn_archive_w4',
+        title: '雾税账册追溯',
+        mapBinding: { scene: '灯痕码头' },
+        priorFactsCount: 1,
+        unresolvedHooksCount: 1,
+        contextual: false
+      }
+    })
+    expect(event.id.startsWith('evt_')).toBe(true)
+  })
+
+  it('preserves explicit contextual=true on history-node-init when caller opts in', () => {
+    const event = createRuntimeEvent({
+      type: 'display_event',
+      source: 'runtime',
+      payload: {
+        kind: 'history-node-init',
+        historyNodeId: 'hn_optin',
+        contextual: true
+      }
+    })
+
+    expect(event.payload.contextual).toBe(true)
+  })
+
+  it('appendRuntimeEvent caps to the runtime event limit and returns the new event', () => {
+    const seed = Array.from({ length: 3 }, (_, index) => ({
+      type: 'display_event',
+      source: 'runtime',
+      payload: { kind: 'seed', index }
+    }))
+    const { event, events } = appendRuntimeEvent(seed, {
+      type: 'display_event',
+      source: 'runtime',
+      payload: { kind: 'history-node-init', historyNodeId: 'hn_1' }
+    })
+
+    expect(events).toHaveLength(4)
+    expect(events[3]).toMatchObject({
+      payload: { kind: 'history-node-init', historyNodeId: 'hn_1', contextual: false }
+    })
+    expect(event).toBe(events[3])
+  })
+
+  it('state_delta ops targeting factionRelations / plotJournal / worldMapState are accepted by the allowlist', () => {
+    const result = validateStateDelta([
+      { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
+      { op: 'push', path: 'plotJournal', value: { summary: 's' } },
+      { op: 'merge', path: 'worldMapState', value: { currentScene: '灯痕码头' } }
+    ])
+
+    expect(result.valid).toBe(true)
+    expect(result.sanitized).toEqual([
+      { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
+      { op: 'push', path: 'plotJournal', value: { summary: 's' } },
+      { op: 'merge', path: 'worldMapState', value: { currentScene: '灯痕码头' } }
+    ])
+  })
+
+  it('previews and applies constrained deltas without mutating the source state', () => {
+    const state = {
+      flags: { ledgerSeen: false },
+      factionRelations: { 潮盐行会: -8 },
+      worldMapState: { placeId: 'place:old', currentScene: '旧税所' }
+    }
+    const ops = [
+      { op: 'merge', path: 'flags', value: { ledgerSeen: true } },
+      { op: 'inc', path: 'factionRelations', value: { 潮盐行会: -4 } },
+      { op: 'merge', path: 'worldMapState', value: { currentScene: '账房' } }
+    ]
+
+    const preview = buildStateDeltaPreview(state, ops)
+    expect(preview.valid).toBe(true)
+    expect(preview.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'flags' }),
+      expect.objectContaining({ path: 'factionRelations' }),
+      expect.objectContaining({ path: 'worldMapState' })
+    ]))
+    expect(state.flags.ledgerSeen).toBe(false)
+    expect(preview.state.factionRelations['潮盐行会']).toBe(-12)
+    expect(preview.state.worldMapState.currentScene).toBe('账房')
+
+    const applied = applyStateDelta(state, ops)
+    expect(applied.valid).toBe(true)
+    expect(applied.inverseOps).toEqual([
+      { op: 'set', path: 'flags', value: { ledgerSeen: false } },
+      { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
+      { op: 'set', path: 'worldMapState', value: { placeId: 'place:old', currentScene: '旧税所' } }
+    ])
+  })
+
+  it('rejects unsafe semantic delta values and prevents rollback over later changes', () => {
+    expect(validateStateDelta([
+      { op: 'set', path: 'worldMapState', value: { map: { countries: [] } } }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      { op: 'inc', path: 'factionRelations', value: { 潮盐行会: 'a lot' } }
+    ]).valid).toBe(false)
+
+    const state = { flags: { ledgerSeen: false } }
+    const applied = applyStateDelta(state, [{ op: 'merge', path: 'flags', value: { ledgerSeen: true } }])
+    expect(applied.valid).toBe(true)
+    const laterState = { flags: { ledgerSeen: false, anotherChange: true } }
+    const rollback = rollbackStateDelta(laterState, {
+      payload: {
+        inverseOps: applied.inverseOps,
+        after: applied.after
+      }
+    })
+    expect(rollback.valid).toBe(false)
+    expect(rollback.code).toBe('rollback-conflict')
+    expect(rollback.conflicts).toContain('flags')
   })
 })

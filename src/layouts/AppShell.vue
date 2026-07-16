@@ -5,7 +5,6 @@ import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
-import AppearanceControls from '../components/theme/AppearanceControls.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
@@ -265,7 +264,8 @@ function handleSelectPanel(routeName) {
             />
           </div>
 
-          <AppearanceControls />
+          <!-- K5 (2026-06-27): theme switcher 移出侧边栏, 只在 SettingsPopup
+               "外观" tab 提供. 侧边栏是导航, 不再承担主题配置. -->
         </div>
       </FolioSurface>
     </template>
@@ -293,11 +293,23 @@ function handleSelectPanel(routeName) {
 .app-shell {
   --shell-drawer-width: 360px;
   position: relative;
-  min-height: var(--app-viewport-height, 100vh);
+  /* UI-E18-FIX2: was `min-height: 100vh` which lets app-shell grow
+     beyond viewport when content is taller, pushing route content
+     below the fold and forcing the user to scroll to see the
+     InputArea. Now: `height: 100vh` + `overflow: hidden` bounds
+     app-shell to viewport; `display: flex; flex-direction: column`
+     lets shell-content (flex: 1) take the remaining space after
+     shell-mast's natural height, so route roots like Experience.vue's
+     `.game-page { flex:1 }` always end at the viewport bottom. */
+  height: var(--app-viewport-height, 100vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* UI-K1: default mast surface is blue-white dossier paper (archive
+     tokens). The .theme-kao override below re-binds archive-* to warm
+     palette when the user picks "现代". */
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 84%, transparent), transparent 120px),
-    linear-gradient(128deg, color-mix(in srgb, var(--accent-light) 10%, transparent) 0 18%, transparent 18.4% 100%),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent-rose-light) 8%, transparent), transparent 32%);
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent) 220px);
   color: var(--text-primary);
   isolation: isolate;
 }
@@ -308,14 +320,13 @@ function handleSelectPanel(routeName) {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--border) 10%, transparent), transparent 120px),
-    linear-gradient(118deg, transparent 0 62%, color-mix(in srgb, var(--accent) 8%, transparent) 62.2% 66%, transparent 66.2%),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-ink) 5%, transparent), transparent 140px),
     repeating-linear-gradient(
       90deg,
-      transparent 0 48px,
-      color-mix(in srgb, var(--border) 7%, transparent) 48px 49px
+      transparent 0 64px,
+      color-mix(in srgb, var(--archive-ink) 4%, transparent) 64px 65px
     );
-  opacity: 0.72;
+  opacity: 0.55;
   z-index: -1;
 }
 
@@ -329,7 +340,7 @@ function handleSelectPanel(routeName) {
   top: 16px;
   left: 16px;
   z-index: 90;
-  box-shadow: 0 14px 24px color-mix(in srgb, #000 12%, transparent);
+  box-shadow: 0 14px 24px color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
 /* V3 (2026-06-25): mast paper-fiber baseline. Drops the SaaS
@@ -348,10 +359,13 @@ function handleSelectPanel(routeName) {
   gap: 16px;
   align-items: center;
   padding: 12px 20px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  /* UI-K1: archive-folder style mast — flat archive-paper surface,
+     hairline bottom edge in archive-olive (binder spine rule), soft
+     shadow under. Replaces SaaS blur+gradient. */
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 22%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, transparent), color-mix(in srgb, var(--surface-panel) 94%, transparent));
-  box-shadow: 0 10px 26px color-mix(in srgb, #000 8%, transparent);
+    linear-gradient(180deg, var(--archive-paper-soft), color-mix(in srgb, var(--archive-paper) 92%, transparent));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 12%, transparent);
 }
 
 .shell-mast::before {
@@ -360,9 +374,9 @@ function handleSelectPanel(routeName) {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(116deg, transparent 0 68%, color-mix(in srgb, var(--accent) 10%, transparent) 68.2% 72%, transparent 72.2%),
-    linear-gradient(90deg, transparent 0 24px, color-mix(in srgb, var(--border) 10%, transparent) 24px 25px, transparent 25px 100%);
-  opacity: 0.72;
+    linear-gradient(116deg, transparent 0 68%, color-mix(in srgb, var(--archive-olive) 10%, transparent) 68.2% 72%, transparent 72.2%),
+    linear-gradient(90deg, transparent 0 24px, color-mix(in srgb, var(--archive-ink) 8%, transparent) 24px 25px, transparent 25px 100%);
+  opacity: 0.55;
 }
 
 .shell-mast__brand {
@@ -380,18 +394,18 @@ function handleSelectPanel(routeName) {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, transparent);
   clip-path: polygon(0 9px, 10px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 10px) 100%, 0 100%);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--surface-raised) 92%, transparent), color-mix(in srgb, var(--surface-panel) 92%, transparent));
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent));
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 
 .shell-menu-btn:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
-  background: color-mix(in srgb, var(--accent-light) 16%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--archive-olive) 48%, var(--archive-ink));
+  background: color-mix(in srgb, var(--archive-paper) 92%, transparent);
 }
 
 .shell-menu-btn span {
@@ -407,7 +421,7 @@ function handleSelectPanel(routeName) {
 }
 
 .shell-brand-mark {
-  color: color-mix(in srgb, var(--accent-rose) 72%, var(--text-primary));
+  color: color-mix(in srgb, var(--archive-rose) 72%, var(--text-primary));
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -478,7 +492,7 @@ function handleSelectPanel(routeName) {
 }
 
 .shell-tab:hover {
-  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
   color: var(--text-primary);
 }
 
@@ -519,7 +533,7 @@ function handleSelectPanel(routeName) {
   margin-right: 4px;
   font-size: 9px;
   line-height: 1;
-  color: color-mix(in srgb, var(--accent-rose) 82%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 82%, transparent);
 }
 
 /* V3: roman numeral stamp on .shell-tab__index — LXGW brush via
@@ -573,7 +587,7 @@ function handleSelectPanel(routeName) {
   padding: 0 12px 0 18px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent-rose) 22%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
   border-radius: 0;
   background: transparent;
   color: var(--text-primary);
@@ -591,17 +605,17 @@ function handleSelectPanel(routeName) {
   transform: translateY(-50%);
   font-size: 14px;
   line-height: 1;
-  color: color-mix(in srgb, var(--accent-rose) 60%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
   transition: color 0.16s ease, font-weight 0.16s ease;
 }
 
 .shell-meta-chip:hover {
-  border-color: color-mix(in srgb, var(--accent-rose) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
   color: var(--text-primary);
 }
 
 .shell-meta-chip:hover::before {
-  color: var(--accent-rose);
+  color: var(--archive-rose);
   font-weight: 900;
 }
 
@@ -613,7 +627,7 @@ function handleSelectPanel(routeName) {
   margin-right: 8px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent-rose) 22%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
   border-radius: 0;
   background: transparent;
   color: var(--text-primary);
@@ -632,28 +646,28 @@ function handleSelectPanel(routeName) {
   transform: translateY(-50%);
   font-size: 14px;
   line-height: 1;
-  color: color-mix(in srgb, var(--accent-rose) 60%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
   transition: color 0.16s ease, font-weight 0.16s ease;
 }
 
 .shell-storage-chip:hover {
-  border-color: color-mix(in srgb, var(--accent-rose) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
 }
 
 .shell-storage-chip:hover::before {
-  color: var(--accent-rose);
+  color: var(--archive-rose);
   font-weight: 900;
 }
 
 .shell-storage-chip.warning {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger) 16%, var(--surface-raised));
+  background: color-mix(in srgb, var(--danger) 16%, var(--archive-paper));
   color: var(--danger);
 }
 
 .shell-storage-chip.critical {
   border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 22%, var(--surface-raised));
+  background: color-mix(in srgb, var(--danger) 22%, var(--archive-paper));
   color: var(--danger);
 }
 
@@ -662,7 +676,7 @@ function handleSelectPanel(routeName) {
   inset: 0;
   z-index: 88;
   border: none;
-  background: color-mix(in srgb, #000 18%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 18%, transparent);
   backdrop-filter: blur(4px);
   cursor: pointer;
 }
@@ -678,11 +692,11 @@ function handleSelectPanel(routeName) {
   transition: transform 0.2s ease;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 22%, transparent);
   clip-path: polygon(0 0, calc(100% - 34px) 0, 100% 40px, 100% 100%, 0 100%);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, transparent), color-mix(in srgb, var(--surface-panel) 94%, transparent));
-  box-shadow: 18px 0 42px color-mix(in srgb, #000 18%, transparent);
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent));
+  box-shadow: 18px 0 42px color-mix(in srgb, var(--archive-ink) 18%, transparent);
 }
 
 .shell-drawer.open {
@@ -695,9 +709,9 @@ function handleSelectPanel(routeName) {
   justify-content: space-between;
   gap: 12px;
   padding: 18px 18px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 18%, transparent);
   background:
-    linear-gradient(126deg, color-mix(in srgb, var(--accent-light) 12%, transparent) 0 28%, transparent 28.4% 100%);
+    linear-gradient(126deg, color-mix(in srgb, var(--archive-olive) 10%, transparent) 0 28%, transparent 28.4% 100%);
 }
 
 .shell-drawer__copy {
@@ -724,9 +738,9 @@ function handleSelectPanel(routeName) {
 .shell-drawer__close {
   width: 34px;
   height: 34px;
-  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, transparent);
   clip-path: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
-  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 92%, transparent);
   color: var(--text-secondary);
   font-size: 18px;
   cursor: pointer;
@@ -751,12 +765,24 @@ function handleSelectPanel(routeName) {
 }
 
 .shell-drawer__activity {
-  border-right: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  background: color-mix(in srgb, var(--surface-soft) 42%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 18%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 28%, transparent);
 }
 
 .shell-content {
-  min-height: var(--app-viewport-height, 100vh);
+  /* UI-E18-FIX2: shell-content is the route slot. With app-shell now
+     being a bounded flex column (height: 100vh, overflow: hidden),
+     shell-content takes `flex: 1` so it fills the remaining viewport
+     after `.shell-mast`'s natural height. `min-height: 0` is the
+     critical pair — without it, flex children refuse to shrink
+     below their content's intrinsic height, which would re-introduce
+     the same overflow the fix removes. The route root inside (e.g.
+     Experience.vue's `.game-page { flex:1 }`) now lands at the
+     viewport bottom edge so InputArea always stays visible. */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .route-loading {
@@ -766,15 +792,15 @@ function handleSelectPanel(routeName) {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: var(--text-muted, #999);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .route-loading-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid var(--border, #e5e7eb);
-  border-top-color: var(--accent, #c84b31);
+  border: 2px solid var(--border);
+  border-top-color: var(--archive-olive);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -881,7 +907,7 @@ function handleSelectPanel(routeName) {
    is conditional. */
 .theme-kao .app-shell {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary)), color-mix(in srgb, var(--archive-paper) 94%, var(--bg-primary)));
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 96%, var(--archive-paper)));
   color: var(--archive-ink);
 }
 
@@ -914,13 +940,13 @@ function handleSelectPanel(routeName) {
 .theme-kao .shell-menu-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 22%, var(--border));
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff), color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised)));
+    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper)));
   color: var(--archive-ink);
 }
 
 .theme-kao .shell-menu-btn:hover {
   border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
+  background: color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper));
 }
 
 .theme-kao .shell-brand-mark {
@@ -1010,14 +1036,14 @@ function handleSelectPanel(routeName) {
 }
 
 .theme-kao .shell-overlay {
-  background: color-mix(in srgb, #000 16%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 16%, transparent);
 }
 
 .theme-kao .shell-drawer {
   border-right-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, #fff), color-mix(in srgb, var(--archive-paper) 94%, var(--surface-panel)));
-  box-shadow: 18px 0 42px color-mix(in srgb, #000 12%, transparent);
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 94%, var(--archive-paper)));
+  box-shadow: 18px 0 42px color-mix(in srgb, var(--archive-ink) 14%, transparent);
   mix-blend-mode: normal;
 }
 
@@ -1039,7 +1065,7 @@ function handleSelectPanel(routeName) {
 
 .theme-kao .shell-drawer__close {
   border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
+  background: color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper));
   color: var(--archive-ink-soft);
 }
 

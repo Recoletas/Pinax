@@ -6,59 +6,67 @@
  * regression should land here, not in main.css.
  */
 
+/* UI-K1: kao warm token override — moved out of @layer kao so the
+   :root selector (specificity 0,1,1) beats main.css unlayered :root
+   (specificity 0,0,1). Previously inside @layer kao, the override was
+   a no-op because unlayered CSS always wins over any layered CSS
+   (per CSS Cascade Layers spec). The unlayered :root.theme-kao rule
+   now actually switches the palette back to warm when the user picks
+   "现代", while default / no-class stays on main.css blue-white
+   dossier. */
+:root.theme-kao {
+  /* K2 (2026-06-25): .theme-kao re-bound to the blue-white dossier
+     palette so the default variant reads as a steel-blue dossier, not
+     warm kraft paper. This unlayered :root.theme-kao (0,2,0) wins
+     over the layered @layer kao :root below (warm) and over the
+     unlayered main.css :root (0,1,0). The @layer kao warm tokens
+     are kept as the historical "kao = 暖色档案册" intent and would
+     re-activate if a future user adds a .theme-kao-warm override
+     (out of scope for K2). The @layer kao body rules (cork speckle,
+     3-D shadow, ruled-paper signatures, drop-cap) still apply
+     because they consume --archive-* tokens which are now bound to
+     the blue-white values. */
+  --archive-paper: #f3f6fb;
+  --archive-paper-strong: #e1e9f4;
+  --archive-paper-soft: #fbfdfe;
+  --archive-ink: #0f2236;
+  --archive-ink-soft: #4a637d;
+  --archive-olive: #1f4d7a;
+  --archive-olive-strong: #0d2c4d;
+  --archive-gold: #7d97b0;
+  --archive-gold-soft: #c1d2e4;
+  --archive-rose: #a23a4a;
+  --archive-photo: #1a3a5e;
+}
+
+/* Dark-mode kao: dark ink on warm paper (kao intent). Both classes
+   on <html> = this beats main.css unlayered .theme-dark (0,1,0 vs
+   0,2,1 specificity). */
+:root.theme-kao.theme-dark {
+  --archive-paper: #eee3d2;
+  --archive-paper-strong: #d8c6ae;
+  --archive-paper-soft: #f4e9d9;
+  --archive-ink: #17110d;
+  --archive-ink-soft: #c1b29e;
+  --archive-olive: #57a092;
+  --archive-olive-strong: #294c47;
+  --archive-gold: #d8ab54;
+  --archive-gold-soft: #f0c271;
+  --archive-rose: #cb7a88;
+  --archive-photo: #17322f;
+}
+
 @layer kao {
-  /* LXGW WenKai @font-face — moved from main.css */
+  /* LXGW WenKai @font-face — kept here as fallback even though the
+     default UI also declares it in main.css. The kao variant may
+     override --font-display to LXGW in the future; the @font-face
+     stays scoped to the layer so removal is a single block delete. */
   @font-face {
     font-family: 'LXGW WenKai';
     src: url('../../assets/fonts/LXGWWenKai-Regular.woff2') format('woff2');
     font-weight: 400 900;
     font-style: normal;
     font-display: swap;
-  }
-
-  /* Kao display token (paired with the @font-face above) */
-  :root {
-    --font-display: "LXGW WenKai", "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
-    /* UI-E10: readable system serif fallback for body text. LXGW WenKai
-       (--font-display) is a brush-style display face — too dense for long
-       passages. .text-main and other long-form readers resolve to a
-       native 宋/serif stack: Songti SC (Mac CN) → Source Han Serif CN
-       (Linux CN) → Noto Serif CJK SC (universal) → STSong → Songti TC →
-       Iowan Old Style (Latin display) → Georgia → generic serif. Body
-       text becomes readable serif; decorative / kicker positions keep
-       LXGW via --font-display. */
-    --font-body: "Songti SC", "Source Han Serif CN", "Noto Serif CJK SC",
-      STSong, "Songti TC", "Iowan Old Style", Georgia, serif;
-  }
-
-  /* Light-theme archive / folio tokens (overrides main.css defaults) */
-  :root {
-    --archive-paper: #f5ebdd;
-    --archive-paper-strong: #e8d9c3;
-    --archive-paper-soft: #fbf4e9;
-    --archive-ink: #241a15;
-    --archive-ink-soft: #5f5348;
-    --archive-olive: #2f6e64;
-    --archive-olive-strong: #173c37;
-    --archive-gold: #b78a34;
-    --archive-gold-soft: #e0ae68;
-    --archive-rose: #944f5b;
-    --archive-photo: #264944;
-  }
-
-  /* Dark-theme archive / folio tokens */
-  .theme-dark {
-    --archive-paper: #eee3d2;
-    --archive-paper-strong: #d8c6ae;
-    --archive-paper-soft: #f4e9d9;
-    --archive-ink: #17110d;
-    --archive-ink-soft: #c1b29e;
-    --archive-olive: #57a092;
-    --archive-olive-strong: #294c47;
-    --archive-gold: #d8ab54;
-    --archive-gold-soft: #f0c271;
-    --archive-rose: #cb7a88;
-    --archive-photo: #17322f;
   }
 
   /* Archive-folio utility classes — gated by .theme-kao so they only
@@ -640,87 +648,11 @@
     z-index: 0;
   }
 
-  /* Wall zones — stacked vertically. y=0..28 molding,
-     y=28..216 cork-board, y=216..744 main, y=744..800 floor. */
-  .theme-kao .wall__molding {
-    position: relative;
-    z-index: 1;
-    height: 28px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 12%) 0%,
-        color-mix(in srgb, var(--archive-ink) 24%, var(--archive-paper-strong)) 100%);
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 38%, transparent);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
-      0 2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
-  }
-  .theme-kao .wall__molding-rule {
-    position: absolute;
-    left: 0; right: 0; bottom: -3px;
-    height: 3px;
-    background: linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-ink) 36%, transparent),
-      transparent);
-    pointer-events: none;
-  }
-
-  /* UI-W10: 编辑灯 / desk lamp — 编辑室资料墙的"工作灯"记忆点.
-     灯头从 molding 右上角悬挂, 摇臂 + 截锥灯罩 + 灯泡辉光. 与
-     wall__lamp-cone (下方光锥 radial gradient) 配对组成景深叙事:
-     背景 molding 暗 / 中景 cork 棕 / 前景 dossier 被工作灯照亮.
-
-     位置: writing-page 是 relative 定位上下文 (writing-page 内层 flex
-     都是 relative), lamp 用 right + top 锚定到右上角 0,0. lamp DOM
-     位置在 cork 之后, 所以 z-index 在 cork 之上 (后者 stacking context
-     创建了"挡板"效果, 必须靠 DOM 顺序 + z-index 才能跳出). */
-  .theme-kao .wall__lamp {
-    position: absolute;
-    top: -12px;
-    right: 64px;
-    width: 180px;
-    height: 180px;
-    z-index: 5;
-    pointer-events: none;
-    filter: drop-shadow(3px 5px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent));
-  }
-  .theme-kao .wall__lamp-svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-
-  /* UI-W10: 编辑灯光锥 — 从灯罩位置发出的暖色径向光, 照亮中央 dossier.
-     pointer-events: none 不阻挡编辑交互. 与 lamp 同源, 暗态自动
-     通过 kao token 翻转 (var(--archive-gold) 自动跟随 theme). */
-  .theme-kao .wall__lamp-cone {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-    z-index: 2;
-    /* 光锥中心 ≈ lamp 灯罩位置 (right ~120px from edge, top ~80px)
-       向下扩散, 椭圆覆盖中央 dossier 区, 边缘透明.
-       第二层是边缘暗角 (远离灯的区域自然变暗) — 强化景深. */
-    background:
-      radial-gradient(
-        ellipse 720px 620px at 73% 6%,
-        color-mix(in srgb, var(--archive-gold) 22%, transparent) 0%,
-        color-mix(in srgb, var(--archive-gold) 14%, transparent) 22%,
-        color-mix(in srgb, var(--archive-gold) 8%, transparent) 44%,
-        color-mix(in srgb, var(--archive-gold) 4%, transparent) 65%,
-        transparent 88%
-      ),
-      radial-gradient(
-        ellipse at 50% 50%,
-        transparent 35%,
-        color-mix(in srgb, var(--archive-ink) 7%, transparent) 70%,
-        color-mix(in srgb, var(--archive-ink) 12%, transparent) 100%
-      );
-    mix-blend-mode: multiply;
-  }
+  /* Wall zones — K3 (2026-06-27) removed molding + lamp + lamp-cone
+     + floor + pins + shelf-board + shelf-roll + shelf-scroll +
+     shelf-note + shelf-roll-label + dossier-portrait + steel-pin +
+     empty-stamp + empty-clip. The editor now reads as cork + shelf +
+     dossier, no decorative chrome. */
 
   /* UI-W9: Writing top thin functional bar — single-row flex 64-80px.
      Replaces the 188px cork-board announcement panel. Reads as a
@@ -742,9 +674,14 @@
       radial-gradient(circle at 64% 78%, color-mix(in srgb, var(--archive-ink) 18%, transparent) 0 1.5px, transparent 3px),
       radial-gradient(circle at 38% 58%, color-mix(in srgb, var(--archive-rose) 12%, transparent) 0 1.5px, transparent 3px),
       radial-gradient(circle at 84% 30%, color-mix(in srgb, var(--archive-olive) 14%, transparent) 0 1.5px, transparent 3px),
+      /* K2 (2026-06-25): cork base was warm kraft (#c8a26a / #b78a52)
+         which made the cork read as a brown pegboard even after the
+         archive token swap. Re-binds to --archive-paper / --archive-
+         gold-soft (now silver-blue) so the cork speckle sits on a
+         cool moon-white base, not on warm tan. */
       linear-gradient(135deg,
-        color-mix(in srgb, #c8a26a 88%, var(--archive-ink)) 0%,
-        color-mix(in srgb, #b78a52 92%, var(--archive-ink)) 100%);
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink)) 0%,
+        color-mix(in srgb, var(--archive-gold-soft) 92%, var(--archive-ink)) 100%);
     background-size: 11px 11px, 13px 13px, 17px 17px, 19px 19px, 100% 100%;
     overflow: hidden;
     box-shadow:
@@ -814,23 +751,7 @@
     color: color-mix(in srgb, var(--archive-ink) 60%, var(--archive-paper-soft));
   }
 
-  /* Pin strip — inline 8px chapter-status dots, no label wrappers. */
-  .theme-kao .wall__pins {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0;
-  }
-  .theme-kao .wall__pin-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--pin-color, var(--archive-gold));
-    box-shadow:
-      inset -1px -1px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
-      inset 1px 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
-      0 1px 2px color-mix(in srgb, var(--archive-ink) 30%, transparent);
-  }
+  /* Pin strip removed in K3 (2026-06-27). */
 
   /* Save chip — inline pill replacing 76x76 round seal. Rose 1px border
      + paper-soft 70% bg + dashed border in 'saving' state. */
@@ -988,41 +909,8 @@
         transparent 0 96px,
         color-mix(in srgb, var(--archive-ink) 8%, transparent) 96px 97px);
   }
-  .theme-kao .wall__shelf-board {
-    position: absolute;
-    left: -10px;
-    right: -10px;
-    top: 0;
-    bottom: 36px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-paper-strong) 90%, var(--archive-ink) 10%) 0%,
-        color-mix(in srgb, var(--archive-paper-strong) 78%, var(--archive-ink) 22%) 100%);
-    z-index: -1;
-    box-shadow:
-      inset 0 2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-      inset 0 -2px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
-      4px 0 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
-  }
-  .theme-kao .wall__shelf-roll {
-    position: relative;
-    margin-top: auto;
-    align-self: stretch;
-    height: 48px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 14%) 0%,
-        color-mix(in srgb, var(--archive-ink) 22%, var(--archive-paper-strong)) 100%);
-    border-top: 1px solid color-mix(in srgb, var(--archive-ink) 26%, transparent);
-    box-shadow:
-      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 24%, transparent),
-      0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
-  }
-  /* Old "未展开稿纸卷" text moved to <span class="wall__shelf-roll-label"> inside the
-     roll. Keeping ::after empty so the text isn't duplicated. */
-  .theme-kao .wall__shelf-roll::after {
-    content: none;
-  }
+  /* .wall__shelf-board + .wall__shelf-roll + .wall__shelf-roll::after
+     removed in K3 (2026-06-27). The shelf is now bare books + folder. */
 
   /* Chapter folder card — 88px tall kraft card with index tab on
      left, title + wordcount on body. Active folder pulls right 24px
@@ -1098,6 +986,60 @@
     transform: translateX(4px);
     background: color-mix(in srgb, var(--archive-paper-strong) 92%, var(--archive-paper));
   }
+  /* K5 (2026-06-27): book vs chapter variant — books are heavier
+     kraft "volumes", chapters are lighter "open index cards" with
+     top-right fold corner. K7 (2026-06-27): shrunk heights (96→64
+     for book, 72→52 for chapter) + strengthened distinction via 5
+     visual axes — height ratio stays but is no longer the dominant
+     signal. */
+  .theme-kao .wall__folder--book {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 96%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 12%) 100%);
+    border-color: color-mix(in srgb, var(--archive-ink) 32%, transparent);
+    border-left-color: color-mix(in srgb, var(--archive-gold) 78%, var(--archive-ink) 22%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 1px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
+      inset 0 -3px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
+      0 3px 5px color-mix(in srgb, var(--archive-ink) 22%, transparent);
+  }
+  .theme-kao .wall__folder--book.is-active {
+    border-left-color: var(--archive-rose);
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 92%, var(--archive-gold-soft)) 0%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 12%) 100%);
+  }
+  .theme-kao .wall__folder--chapter {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 100%);
+    border-color: color-mix(in srgb, var(--archive-ink) 22%, transparent);
+  }
+  .theme-kao .wall__folder--chapter::after {
+    /* Fold-corner wedge — triangle indicating "folded open page" */
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    background:
+      linear-gradient(135deg,
+        transparent 0 49%,
+        color-mix(in srgb, var(--archive-ink) 32%, transparent) 49% 51%,
+        color-mix(in srgb, var(--archive-paper-soft) 92%, var(--archive-paper)) 51% 100%);
+    pointer-events: none;
+  }
+  .theme-kao .wall__folder--chapter.is-active {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-gold-soft)) 0%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 8%) 100%);
+  }
   .theme-kao .wall__folder.is-active {
     transform: translateX(24px);
     background:
@@ -1148,6 +1090,84 @@
     color: var(--archive-olive-strong);
     border-color: var(--archive-olive);
     border-style: solid;
+  }
+
+  /* K5 (2026-06-27) restored paper-tactile shelf decorative — wood
+     board backdrop + rolled manuscript + sticky note underneath the
+     folder rows. These are the physical archive cues that the writing
+     page needs (per ui-style-check §2 narrative role = editor in
+     archived materials). Lamp + lamp-cone + portrait card stay
+     deleted (industrial collage, not paper tactile). */
+  .theme-kao .wall__shelf-board {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 90%, var(--archive-ink) 10%) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 78%, var(--archive-ink) 22%) 100%);
+    box-shadow:
+      inset 0 2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
+      4px 0 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+  .theme-kao .wall__shelf-roll {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink) 14%) 0%,
+        color-mix(in srgb, var(--archive-ink) 22%, var(--archive-paper-strong)) 100%);
+    border-top-color: color-mix(in srgb, var(--archive-ink) 26%, transparent);
+    box-shadow:
+      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 24%, transparent),
+      0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  }
+  .theme-kao .wall__shelf-scroll {
+    background:
+      linear-gradient(180deg,
+        var(--archive-paper-soft) 0%,
+        var(--archive-paper) 50%,
+        var(--archive-paper-strong) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
+      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
+      0 2px 4px color-mix(in srgb, var(--archive-ink) 20%, transparent);
+  }
+  .theme-kao .wall__shelf-scroll::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    bottom: -4px;
+    width: 10px;
+    transform: translateX(-50%);
+    background:
+      linear-gradient(180deg,
+        var(--archive-rose) 0%,
+        color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink)) 100%);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  }
+  .theme-kao .wall__shelf-note {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 92%, var(--archive-gold-soft)) 0%,
+        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink)) 100%);
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    box-shadow: 0 2px 4px color-mix(in srgb, var(--archive-ink) 26%, transparent);
+  }
+  .theme-kao .wall__shelf-note::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    width: 6px;
+    height: 6px;
+    transform: translateX(-50%) rotate(45deg);
+    background: inherit;
+    border: inherit;
+    border-bottom: none;
+    border-right: none;
+  }
+  .theme-kao .wall__shelf-roll-label {
+    color: color-mix(in srgb, var(--archive-ink) 78%, var(--archive-paper-soft));
+    font-family: var(--font-display);
   }
 
   /* Dossier sheet — central kraft paper with red margin rule, ruled
@@ -1279,191 +1299,24 @@
     width: var(--w, 80%);
     margin-left: var(--indent, 0);
   }
-  .theme-kao .wall__empty-stamp {
-    position: absolute;
-    top: 38px;
-    right: 56px;
-    width: 64px;
-    height: 64px;
-    border-radius: 50%;
-    border: 2px solid color-mix(in srgb, var(--archive-rose) 76%, transparent);
-    color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-display);
-    font-size: 14px;
-    letter-spacing: 0.18em;
-    transform: rotate(-8deg);
-    background:
-      radial-gradient(circle at 30% 30%, transparent 0 4px, color-mix(in srgb, var(--archive-rose) 14%, transparent) 6px 100%);
-  }
-  .theme-kao .wall__empty-clip {
-    position: absolute;
-    top: 96px;
-    right: 24px;
-    width: 132px;
-    padding: 8px 12px 10px;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, #c9333f 88%, var(--archive-ink)), color-mix(in srgb, #9a2632 90%, var(--archive-ink)));
-    color: var(--archive-paper-soft);
-    font-family: var(--font-display);
-    font-size: 11px;
-    line-height: 1.4;
-    transform: rotate(2deg);
-    box-shadow:
-      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
-      0 3px 5px color-mix(in srgb, var(--archive-ink) 30%, transparent);
-    z-index: 2;
-  }
-  .theme-kao .wall__empty-clip::before {
-    content: "";
-    position: absolute;
-    left: 14px;
-    right: 14px;
-    top: -8px;
-    height: 8px;
-    border: 2px solid color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
-  }
+  /* .wall__empty-stamp + .wall__empty-clip + .wall__empty-clip::before
+     removed in K3 (2026-06-27). The empty state shows only the
+     .wall__pin-cta CTA below the empty-draft lines. */
+
+  /* .wall__pin-cta + .wall__pin-cta::before removed in K3
+     (2026-06-27). Empty-state uses the legacy scoped-CSS .wall__pin-cta
+     rule (olive ink button, no kao override). The empty-actions row
+     stays so future CTA additions have a flex anchor. */
+
   .theme-kao .wall__empty-actions {
     display: flex;
     gap: 12px;
     margin-top: 18px;
     padding-left: 8px;
   }
-  .theme-kao .wall__pin-cta {
-    appearance: none;
-    background: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
-    color: var(--archive-paper-soft);
-    border: none;
-    padding: 10px 16px 11px;
-    font-family: var(--font-display);
-    font-size: 13px;
-    cursor: pointer;
-    box-shadow:
-      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 40%, transparent),
-      0 4px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent);
-    letter-spacing: 0.04em;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .theme-kao .wall__pin-cta::before {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--archive-gold-soft);
-    box-shadow:
-      inset -1px -1px 0 color-mix(in srgb, var(--archive-ink) 30%, transparent),
-      0 0 4px color-mix(in srgb, var(--archive-gold-soft) 60%, transparent);
-  }
-  .theme-kao .wall__pin-cta--ghost {
-    background: transparent;
-    color: var(--archive-ink);
-    border: 1px solid color-mix(in srgb, var(--archive-ink) 32%, transparent);
-    box-shadow: none;
-  }
-  .theme-kao .wall__pin-cta--ghost::before {
-    background: var(--archive-rose);
-  }
 
-  /* Wall-attached character dossier — 220×300 kraft card pinned to
-     wall with 2 steel pins. Replaces floating character card. */
-  .theme-kao .wall__dossier-portrait {
-    position: relative;
-    align-self: end;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-paper-strong) 92%, var(--archive-paper)) 0%,
-        color-mix(in srgb, var(--archive-paper) 92%, var(--archive-ink) 8%) 100%);
-    border: 1px solid color-mix(in srgb, var(--archive-ink) 24%, transparent);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
-      4px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-      0 8px 18px color-mix(in srgb, var(--archive-ink) 24%, transparent);
-    padding: 18px 14px 14px;
-    /* W4: portrait card shrunk 220px → 192px so the center dossier wins
-       the visual focus contest (3-column grid: shelf 248 + dossier 1fr
-       + portrait 192). 28px recovery goes back to the dossier body
-       (more room for the writing surface). */
-    width: 192px;
-    min-height: 280px;
-    margin-bottom: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .theme-kao .wall__dossier-portrait::before {
-    content: "档案 / CONFIDENTIAL";
-    position: absolute;
-    top: 8px;
-    left: 12px;
-    font-family: var(--font-display);
-    font-size: 9px;
-    color: color-mix(in srgb, var(--archive-rose) 80%, var(--archive-ink));
-    letter-spacing: 0.24em;
-  }
-  .theme-kao .wall__dossier-portrait::after {
-    content: "";
-    position: absolute;
-    left: 14px;
-    top: 36px;
-    width: 18px;
-    height: 4px;
-    background: color-mix(in srgb, var(--archive-ink) 70%, transparent);
-    box-shadow:
-      0 8px 0 color-mix(in srgb, var(--archive-ink) 70%, transparent);
-  }
-  .theme-kao .wall__dossier-portrait .character-portrait {
-    margin-top: 36px;
-    max-width: 164px;
-    /* W4: portrait recedes so the center dossier wins attention.
-       0.78 opacity keeps the image recognizable but demotes it from
-       "main element" to "contextual annotation". */
-    opacity: 0.78;
-  }
-  .theme-kao .wall__dossier-portrait .character-portrait__caption {
-    font-family: var(--font-display);
-    font-size: 11px;
-    color: var(--archive-ink-soft);
-    letter-spacing: 0.06em;
-    text-align: center;
-  }
-
-  /* Steel pin — small circle with inner highlight, used at 4 corners
-     of dossier + 2 top corners of portrait card. */
-  .theme-kao .wall__steel-pin {
-    position: absolute;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 32% 32%,
-      color-mix(in srgb, var(--archive-paper-soft) 60%, transparent) 0 3px,
-      color-mix(in srgb, var(--archive-ink) 84%, transparent) 5px 100%);
-    box-shadow:
-      0 2px 4px color-mix(in srgb, var(--archive-ink) 60%, transparent),
-      0 0 0 1px color-mix(in srgb, var(--archive-ink) 30%, transparent);
-    z-index: 3;
-  }
-  .theme-kao .wall__steel-pin--tl { top: -6px; left: -6px; transform: rotate(-12deg); }
-  .theme-kao .wall__steel-pin--tr { top: -6px; right: -6px; transform: rotate(8deg); }
-
-  /* Floor molding — bottom 56px. */
-  .theme-kao .wall__floor {
-    position: relative;
-    z-index: 1;
-    height: 56px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-ink) 22%, var(--archive-paper-strong)) 0%,
-        color-mix(in srgb, var(--archive-ink) 38%, var(--archive-paper-strong)) 100%);
-    box-shadow:
-      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 22%, transparent),
-      0 -6px 12px color-mix(in srgb, var(--archive-ink) 18%, transparent);
-  }
+  /* .wall__dossier-portrait + .wall__steel-pin + character-portrait
+     capsule removed in K3 (2026-06-27). Right-side role card is gone. */
 
   /* Responsive — collapse to 1-column at 980px. */
   @media (max-width: 980px) {
@@ -1471,11 +1324,6 @@
       grid-template-columns: 1fr;
       gap: 16px;
       padding: 16px;
-    }
-    .theme-kao .wall__dossier-portrait {
-      width: 100%;
-      flex-direction: row;
-      align-items: center;
     }
     .theme-kao .wall__cork {
       min-height: 0;
@@ -1553,86 +1401,10 @@
     transform: rotate(4deg);
   }
 
-  /* (C) Shelf anchor — rolled manuscript + sticky note. These objects
-     live at the bottom of the shelf so the left rail is never empty.
-     Replaces the previous "未展开稿纸卷" text-only label. */
-  .theme-kao .wall__shelf-scroll {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    top: 8px;
-    bottom: 8px;
-    background:
-      linear-gradient(180deg,
-        var(--archive-paper-soft) 0%,
-        var(--archive-paper) 50%,
-        var(--archive-paper-strong) 100%);
-    border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
-    box-shadow:
-      inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-      inset 0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 40%, transparent),
-      0 2px 4px color-mix(in srgb, var(--archive-ink) 20%, transparent);
-  }
-  .theme-kao .wall__shelf-scroll::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: -4px;
-    bottom: -4px;
-    width: 10px;
-    transform: translateX(-50%);
-    background:
-      linear-gradient(180deg,
-        var(--archive-rose) 0%,
-        color-mix(in srgb, var(--archive-rose) 70%, var(--archive-ink)) 100%);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--archive-ink) 30%, transparent);
-  }
-  .theme-kao .wall__shelf-note {
-    position: absolute;
-    right: 18px;
-    bottom: 6px;
-    width: 64px;
-    height: 22px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--archive-paper-soft) 92%, var(--archive-gold-soft)) 0%,
-        color-mix(in srgb, var(--archive-paper-strong) 88%, var(--archive-ink)) 100%);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
-    transform: rotate(-7deg);
-    box-shadow:
-      0 2px 4px color-mix(in srgb, var(--archive-ink) 26%, transparent);
-  }
-  .theme-kao .wall__shelf-note::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: -4px;
-    width: 6px;
-    height: 6px;
-    transform: translateX(-50%) rotate(45deg);
-    background: inherit;
-    border: inherit;
-    border-bottom: none;
-    border-right: none;
-  }
-  .theme-kao .wall__shelf-roll-label {
-    position: absolute;
-    left: 32px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-family: var(--font-display);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 78%, var(--archive-paper-soft));
-    z-index: 1;
-    pointer-events: none;
-  }
-  .theme-kao .wall__shelf-roll {
-    /* The position:relative is set on the base .wall__shelf-roll rule above
-       (line 915); this block is a no-op kept as a marker that the roll is
-       the anchor container for .wall__shelf-scroll / .wall__shelf-note /
-       .wall__shelf-roll-label children. */
-  }
+  /* (C) Shelf anchor (.wall__shelf-scroll + .wall__shelf-note +
+     .wall__shelf-roll-label + .wall__shelf-roll) removed in
+     K3 (2026-06-27). The shelf stays as bare books + folder
+     + new-book / new-chapter actions. */
 
   /* UI-N2: Notes Archive Drawer 视觉覆写
      All rules gated by .theme-kao so legacy variant keeps the neutral
@@ -1656,27 +1428,9 @@
       1px 0 0 color-mix(in srgb, var(--archive-gold) 18%, transparent);
   }
 
-  /* keeper-corner 值班档案员 */
-  .theme-kao .keeper-corner {
-    background:
-      linear-gradient(180deg,
-        var(--archive-paper-strong) 0%,
-        color-mix(in srgb, var(--archive-paper-strong) 60%, var(--archive-paper-soft)) 100%);
-    border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
-  }
-  .theme-kao .keeper-corner__label,
-  .theme-kao .keeper-corner__count {
-    color: var(--archive-ink-soft);
-    font-family: var(--font-display);
-  }
-  .theme-kao .keeper-corner__add {
-    color: var(--archive-ink-soft);
-    border-color: color-mix(in srgb, var(--archive-gold) 60%, transparent);
-  }
-  .theme-kao .keeper-corner__add:hover {
-    color: var(--archive-gold);
-    border-color: var(--archive-gold);
-  }
+  /* K4 (2026-06-27): .keeper-corner decorative override deleted
+     along with the .keeper-corner block. The drawer now starts
+     directly with .drawer-units. */
 
   /* drawer-units 抽屉盒 */
   .theme-kao .drawer-units {
@@ -1840,21 +1594,10 @@
     font-family: var(--font-display);
     text-transform: uppercase;
   }
-  .theme-kao .empty-archive__stamp {
-    color: var(--archive-ink);
-    border-color: color-mix(in srgb, var(--archive-gold) 55%, transparent);
-    background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
-    font-family: var(--font-display);
-    border-radius: 0;
-  }
-  .theme-kao .empty-archive__stamp svg circle:last-child {
-    fill: var(--archive-gold);
-  }
-  .theme-kao .empty-archive__footer {
-    color: var(--archive-ink-soft);
-    font-family: var(--font-display);
-    font-weight: 600;
-  }
+  /* K4 (2026-06-27): .empty-archive__stamp (档案员 · 值班中 印章) +
+     .empty-archive__footer (档案柜 · 7 类 · 12 格 · 等候中) + the
+     .empty-archive__stamp svg circle:last-child child rule deleted.
+     Decorative role framing removed. */
   .theme-kao .empty-archive__card {
     background:
       linear-gradient(180deg,
@@ -1880,8 +1623,10 @@
     font-style: italic;
   }
 
-  /* active-card 被推上来的卡 — paper-soft 之上再浮一层亮调，
-     让 card 跟 backdrop 拉开 tone 差；阴影 + inset gold ring + 双胶带 */
+  /* K3c (2026-06-27): active-card 升为 卷宗 视觉 (paper + 红线 +
+     30px 横线 + 撕角胶带 + 8px 阴影). 跟 Writing.vue wall__dossier
+     同源. ::before 红线 (44px left) + 0 边框 (透明) 让
+     .active-card__ruled-lines 透出. */
   .theme-kao .active-card {
     background:
       linear-gradient(180deg,
@@ -1891,6 +1636,19 @@
     box-shadow:
       8px 8px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
       inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 24%, transparent);
+  }
+  /* K3c: 暖色红线 (44px) — Writing.vue wall__dossier::before 同款 */
+  .theme-kao .active-card::before {
+    background: color-mix(in srgb, var(--archive-rose) 64%, transparent);
+  }
+  /* K3c: 暖色横线 — 跟 scoped CSS 同样 repeating-linear-gradient,
+     kao 暖色下用 olive 替代 (深棕) */
+  .theme-kao .active-card__ruled-lines {
+    background:
+      repeating-linear-gradient(180deg,
+        transparent 0 29px,
+        color-mix(in srgb, var(--archive-olive) 22%, transparent) 29px 30px);
+    opacity: 0.55;
   }
   .theme-kao .active-card::after {
     color: var(--archive-ink-soft);
@@ -1902,6 +1660,11 @@
   }
   .theme-kao .active-card .chapter-title-input {
     color: var(--archive-ink);
+  }
+  /* K3c: kao 下 editor-textarea 透明 + 跟 ruled lines 对齐 */
+  .theme-kao .editor-textarea {
+    color: var(--archive-ink);
+    font-family: var(--font-body);
   }
   .theme-kao .deck-toolbar {
     border-color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
@@ -1920,20 +1683,111 @@
     font-family: var(--font-display);
   }
 
-  /* archive-pin 右下浮卡（archive-strip 的钉住版）*/
+  /* K3 (2026-06-27): archive-pin 升为副阅读台第 3 列 (was 右下浮卡).
+     旧 rotate/translateX 浮卡位移已删, 改用 dashed 左边 + paper 渐变. */
   .theme-kao .archive-pin {
-    transform: rotate(-3deg) translateX(8px);
-    transform-origin: bottom right;
-    background: var(--archive-paper);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    border-left-color: color-mix(in srgb, var(--archive-gold) 55%, transparent);
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper) 92%, transparent) 0%,
+        color-mix(in srgb, var(--archive-paper-soft) 96%, transparent) 100%);
     box-shadow:
-      4px 4px 0 color-mix(in srgb, var(--archive-ink) 22%, transparent),
-      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
-    padding: 4px;
+      inset 4px 0 0 color-mix(in srgb, var(--archive-gold) 32%, transparent);
   }
   .theme-kao .archive-pin__nail {
     color: var(--archive-gold);
     filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--archive-ink) 50%, transparent));
+  }
+
+  /* K3 (2026-06-27): 副阅读台 header — 标题 + 数量 chip */
+  .theme-kao .notes-sidekick__header {
+    border-bottom-color: color-mix(in srgb, var(--archive-gold) 55%, transparent);
+  }
+  .theme-kao .notes-sidekick__title {
+    color: var(--archive-ink);
+  }
+  .theme-kao .notes-sidekick__count {
+    color: var(--archive-ink-soft);
+  }
+
+  /* K3 (2026-06-27): sidekick-slip — 单张素材摘要, 复刻 pinned-slip 视觉
+     (paper-soft 底 + gold 边 + rose active), 但改成 button 静态布局 */
+  .theme-kao .sidekick-slip {
+    background: var(--archive-paper-soft);
+    border-color: color-mix(in srgb, var(--archive-gold) 55%, transparent);
+    box-shadow:
+      3px 3px 0 color-mix(in srgb, var(--archive-ink) 20%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+    color: var(--archive-ink);
+    font-family: var(--font-display);
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  }
+  .theme-kao .sidekick-slip:hover {
+    border-color: var(--archive-gold);
+    background: color-mix(in srgb, var(--archive-gold) 8%, var(--archive-paper-soft));
+    transform: translateY(-1px);
+    box-shadow:
+      4px 4px 0 color-mix(in srgb, var(--archive-ink) 24%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  }
+  .theme-kao .sidekick-slip.is-active {
+    border-color: var(--archive-rose);
+    background: color-mix(in srgb, var(--archive-rose) 8%, var(--archive-paper-soft));
+    box-shadow:
+      4px 4px 0 color-mix(in srgb, var(--archive-rose) 28%, transparent),
+      inset 0 0 0 2px color-mix(in srgb, var(--archive-rose) 40%, transparent);
+  }
+  .theme-kao .sidekick-slip__title {
+    color: var(--archive-ink);
+  }
+  .theme-kao .sidekick-slip__preview {
+    color: color-mix(in srgb, var(--archive-ink) 75%, transparent);
+  }
+  .theme-kao .sidekick-slip__kind {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .sidekick-slip__status {
+    color: var(--archive-ink-soft);
+  }
+  .theme-kao .sidekick-slip__stat {
+    color: var(--archive-ink-soft);
+  }
+  /* K3b (2026-06-27): 副阅读台 sidekick-slip 双行 footer (line-1 + line-2)
+     + status-dot 6px 圆点 (复刻 N10 pinned-slip 视觉) */
+  .theme-kao .sidekick-slip__line-1 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .theme-kao .sidekick-slip__line-2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .theme-kao .sidekick-slip__status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* K3 (2026-06-27): 暗态硬化 — 不让副阅读台在 dark 下消失 */
+  .theme-kao.theme-dark .sidekick-slip {
+    background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper));
+    border-color: color-mix(in srgb, var(--archive-gold) 65%, transparent);
+    box-shadow:
+      3px 3px 0 color-mix(in srgb, var(--archive-ink) 36%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  }
+  .theme-kao.theme-dark .sidekick-slip__preview {
+    color: color-mix(in srgb, var(--archive-ink) 85%, transparent);
+  }
+  .theme-kao.theme-dark .archive-pin {
+    box-shadow:
+      inset 4px 0 0 color-mix(in srgb, var(--archive-gold) 50%, transparent);
   }
 
   /* UI-N6: Pinned material slips — 贴板纸, 自由拖拽, 占满右侧空白 */
@@ -2056,9 +1910,12 @@
      不引入 :global / !important / broad :deep / raw hex. */
   .theme-kao .multi-canvas {
     position: relative;
+    /* K3 (2026-06-27): 1 列 grid (chrome + main), 不再有 __slips 拖拽列
+       (副阅读台 notes-sidekick 吸收该角色). 旧 1.55fr + 1fr 双列
+       会让 pinned-slip 的 position:absolute 溢出到 副阅读台 列. */
     display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-    grid-template-rows: auto 1fr auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
     gap: 16px;
     width: 100%;
     height: 100%;
@@ -2112,6 +1969,7 @@
     color: var(--archive-olive-strong);
   }
 
+  /* K3 (2026-06-27): multi-canvas 1 列, __main 占满 row 2 整行 */
   .theme-kao .multi-canvas__main {
     grid-column: 1;
     grid-row: 2;
@@ -2297,42 +2155,23 @@
     .theme-kao .multi-canvas,
     .theme-kao .multi-canvas__main-card,
     .theme-kao .multi-canvas__slips .pinned-slip,
-    .theme-kao .multi-canvas__bottom-cross {
+    .theme-kao .multi-canvas__bottom-cross,
+    /* K3 (2026-06-27): 副阅读台 sidekick-slip 也尊重 reduce-motion */
+    .theme-kao .sidekick-slip {
       transition: none;
       transform: none;
       animation: none;
     }
   }
 
+  /* K3 (2026-06-27): multi-canvas 1 列, 980px 媒体简化为只调整 row 顺序.
+     原 multi-canvas__slips / .pinned-slip / .multi-canvas__bottom-cross
+     移动端 fallback 已删 (副阅读台接管 slip 角色, 980px 走自己的
+     水平 stack). */
   @media (max-width: 980px) {
     .theme-kao .multi-canvas {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto auto auto auto;
-    }
-    .theme-kao .multi-canvas__main {
-      grid-column: 1;
-      grid-row: 2;
-    }
-    .theme-kao .multi-canvas__slips {
-      grid-column: 1;
-      grid-row: 3;
-      border-left: none;
-      border-top: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
-      padding: 12px 4px 4px;
-      flex-direction: row;
-      flex-wrap: wrap;
-    }
-    /* N10-FIX mobile: slip 从 absolute 退回到 flex item (row + wrap)
-       因为触屏拖拽跟桌面不一样 — N10 mobile 走静态排列 */
-    .theme-kao .multi-canvas__slips .pinned-slip {
-      position: relative;
-      left: auto;
-      top: auto;
-      width: calc(50% - 6px);
-      min-height: 84px;
-    }
-    .theme-kao .multi-canvas__bottom-cross {
-      grid-row: 4;
+      grid-template-rows: auto 1fr;
     }
   }
 
@@ -2407,146 +2246,104 @@
      same importance. ws-topstrip padding-left 80px + pagetitle
      rules are safe inside @layer (no AppShell.vue competing rule). */
 
+/* K3 (2026-06-27): Experience workstation, rebuilt.
+     The old E11 "3-region grid 260px + 1fr + 300px + 80px sticky
+     topstrip with 8 cells + 5-cell progress bar" was too dense and
+     too flat. K3 drops the left rail entirely, demotes the topstrip
+     to a slim 44px band (not sticky, not 80px), merges the 5 metadata
+     cells into 1 inline chip, deletes the decorative 5-cell progress
+     bar, and moves the narrator portrait + 速记 CTA into the right
+     dossier hero so the working column finally breathes.
+     Layout: ws-layout (grid: 1fr 320px) > ws-topstrip (full width)
+     + ws-center-stage (working column) + ws-right-rail (dossier).
+     No left rail, no floating quick-notes-rail, no CharacterBackdrop. */
+
   .theme-kao .ws-layout {
     position: relative;
     z-index: 1;
-    flex: 1;
     display: grid;
-    grid-template-columns: 260px 1fr 300px;
-    gap: 14px;
-    /* UI-E12-FIX1: padding-left 64px so the left rail kicker text
-       (which starts at rail-padding 14 + ws-layout-padding 16 = 30px
-       from viewport left at 1280) is not covered by the fixed
-       46px-wide hamburger (z-index 260, top:16 left:16, ends at
-       62px from viewport left). 64px is the safe gap; matches the
-       hamburger width + 18px breathing room. ws-topstrip already
-       had padding-left 80px (W2) so it was safe; this brings the
-       rest of the workstation into the same clearance. */
-    padding: 14px 16px 16px 64px;
-    max-width: 1420px;
-    margin: 0 auto;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: auto 1fr;
+    min-height: var(--app-viewport-height, 100vh);
+    align-items: stretch;
   }
 
-  @media (max-width: 1280px) {
-    .theme-kao .ws-layout {
-      grid-template-columns: 220px 1fr 280px;
-    }
-  }
-
-  @media (max-width: 980px) {
-    .theme-kao .ws-layout {
-      grid-template-columns: 1fr;
-      gap: 10px;
-      /* UI-E12-FIX1: mobile hamburger is 46px wide at top:12 left:12,
-         ends at 58px. Drop ws-layout padding-left to 12px so the
-         workstation doesn't waste a 60px+ column on the left. The
-         ws-topstrip mobile rule (above) already handles its own
-         56px left padding to clear the hamburger. */
-      padding: 14px 12px 16px;
-    }
-  }
-
+  /* ws-topstrip — slim 44px band spanning both columns. Not sticky;
+     the mast already owns stickiness. Two segments: main (title +
+     inline chip) + actions (设定 + session chip). No 5-cell grid,
+     no progress bar — "第 X / 共 M 条" inside the chip already
+     conveys progress numerically. */
   .theme-kao .ws-topstrip {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-floating-dock, 240);
-    min-height: 80px;
-    display: grid;
-    /* V1-B (2026-06-25): two-band layout — left band holds pagetitle
-       + 0/5 metadata cells + 5-cell progress bar; right band holds
-       settings + session actions. Replaces the old
-       `auto repeat(5, 1fr) auto` single-row grid that crammed 8
-       cells into one line. The 4 hidden cells (卷/案号/第N条/共M条)
-       v-if hide in 0-state, so the left band collapses to pagetitle
-       + 当前任务 + progress. The 5-cell progress bar / session chip
-       / settings link are preserved (functional contract). */
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 16px;
+    grid-column: 1 / -1;
+    display: flex;
     align-items: center;
-    padding-top: 10px;
-    padding-right: 16px;
-    padding-bottom: 10px;
-    padding-left: 80px;
-    background: var(--archive-paper);
-    border: 1px solid var(--border);
-    box-shadow: 0 6px 18px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 44px;
+    padding: 8px 16px 8px 64px;
+    background: color-mix(in srgb, var(--archive-paper-soft) 94%, var(--surface-panel));
+    border-bottom: 1px solid var(--hairline-soft);
+    color: var(--archive-ink);
     font-family: var(--font-sans);
   }
 
-  /* V1-B: left band — pagetitle + metadata group (cells + progress). */
   .theme-kao .ws-topstrip__main {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 14px;
     min-width: 0;
   }
 
-  /* V1-B: metadata group inside the left band. flex-row so cells +
-     progress line up next to pagetitle, wrapping on narrow viewports. */
-  .theme-kao .ws-topstrip__meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    flex-wrap: wrap;
+  .theme-kao .ws-topstrip__title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--archive-ink);
+    white-space: nowrap;
   }
 
-  /* V1-B: right band — settings link + session chip. Compact cluster
-     that stays reachable in both 0-state and full-state. */
+  /* Inline record chip — merges 卷 / 当前任务 / 第 N / 共 M into one
+     line. 0-state collapses to "暂无任务" alone. The `·` separators
+     are dedicated spans (.ws-topstrip__chip-sep) so they can dim
+     independently of the value text. */
+  .theme-kao .ws-topstrip__chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: color-mix(in srgb, var(--archive-ink) 78%, transparent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .theme-kao .ws-topstrip__chip-kicker {
+    color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
+    font-weight: 600;
+  }
+  .theme-kao .ws-topstrip__chip-value {
+    color: var(--archive-ink);
+    font-weight: 500;
+  }
+  .theme-kao .ws-topstrip__chip-tail {
+    color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+    font-size: 12px;
+  }
+  .theme-kao .ws-topstrip__chip-sep {
+    color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    font-weight: 400;
+  }
+
   .theme-kao .ws-topstrip__actions {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
+    gap: 10px;
   }
 
-  /* UI-E12-W2: page title — small kicker at the top-left of the
-     workstation, ties the menu drawer caption ("体验") to the
-     page itself so the menu → page handoff has visual continuity.
-     Stacked kicker (体验, sans 9px) + name (EXPERIENCE, sans
-     10px letter-spacing 0.18em) reads as one signature mark. */
-  .theme-kao .ws-topstrip__pagetitle {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 8px;
-    padding-right: 14px;
-    margin-right: 6px;
-    border-right: 1px solid var(--hairline-soft);
-    min-width: 0;
-  }
-  .theme-kao .ws-topstrip__pagetitle-kicker {
-    font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    color: var(--archive-ink);
-    line-height: 1.1;
-  }
-  /* V1-E (2026-06-25): drop text-transform:uppercase. Experience as
-     a 10-character Latin signature mark still reads fine as a Latin
-     string; the original E12-W2 rule "9px + letter-spacing 0.22em +
-     uppercase" was visually too wide for the 80px pagetitle column.
-     Keep letter-spacing so the English signature still scans as a
-     mark, drop uppercase to read as the actual word. */
-  .theme-kao .ws-topstrip__pagetitle-name {
-    font-family: var(--font-sans);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-    line-height: 1;
-  }
-
-  /* V3 (2026-06-25): ws-topstrip chips adopt the mast chip stamp
-     language. transparent background + archive-rose 22% border +
-     archive-rose ink-dot prefix. border-radius:0 (档案册硬切角).
-     Replaces V1's grey-rect SaaS chip. */
+  /* Settings link — archive-rose 22% border chip with ink-dot prefix.
+     Same V3 stamp language as the mast chips. */
   .theme-kao .ws-topstrip__settings-link {
-    position: relative;
     display: inline-flex;
     align-items: center;
     min-height: 26px;
@@ -2554,233 +2351,344 @@
     border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
     border-radius: 0;
     background: transparent;
-    color: var(--archive-ink);
+    color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
     font-family: var(--font-sans);
     font-size: 12px;
     font-weight: 500;
-    text-decoration: none;
     cursor: pointer;
-    transition: border-color 0.16s ease, color 0.16s ease;
+    transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
   }
   .theme-kao .ws-topstrip__settings-link::before {
     content: "·";
     position: absolute;
-    left: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 14px;
-    line-height: 1;
-    color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
-    transition: color 0.16s ease, font-weight 0.16s ease;
-  }
-  .theme-kao .ws-topstrip__settings-link:hover {
-    border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
-    color: var(--archive-ink);
-  }
-  .theme-kao .ws-topstrip__settings-link:hover::before {
-    color: var(--archive-rose);
+    margin-left: -12px;
+    color: color-mix(in srgb, var(--archive-rose) 70%, transparent);
     font-weight: 900;
   }
+  .theme-kao .ws-topstrip__settings-link:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--archive-rose) 44%, var(--border));
+    color: var(--archive-ink);
+    background: color-mix(in srgb, var(--archive-paper-soft) 70%, transparent);
+  }
+  .theme-kao .ws-topstrip__settings-link:hover:not(:disabled)::before {
+    color: var(--archive-rose);
+  }
+  .theme-kao .ws-topstrip__settings-link:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
-  /* UI-E14-U6: session chip inside ws-topstrip — current session name
-     + switch button so users can change sessions without the drawer.
-     V3: same stamp language as settings-link; 切换 button keeps
-     the inner button styling but with archive-rose 22% border. */
+  /* Session chip — same stamp language. label + small 切换 button. */
   .theme-kao .ws-topstrip__session-chip {
-    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 14px 4px 22px;
+    min-height: 26px;
+    padding: 2px 10px;
     border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
     border-radius: 0;
     background: transparent;
-    white-space: nowrap;
-  }
-  .theme-kao .ws-topstrip__session-chip::before {
-    content: "·";
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 14px;
-    line-height: 1;
-    color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
-    transition: color 0.16s ease, font-weight 0.16s ease;
   }
   .theme-kao .ws-topstrip__session-chip-label {
+    font-family: var(--font-sans);
     font-size: 12px;
     font-weight: 500;
     color: var(--archive-ink);
-    max-width: 140px;
+    max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .theme-kao .ws-topstrip__session-chip-btn {
-    height: 22px;
+    min-height: 22px;
     padding: 0 8px;
-    border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
-    border-radius: 0;
+    border: none;
     background: transparent;
-    color: var(--archive-ink);
-    font-size: 12px;
-    font-weight: 500;
+    color: color-mix(in srgb, var(--archive-rose) 82%, var(--archive-ink));
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    transition: border-color 0.16s ease, color 0.16s ease;
   }
   .theme-kao .ws-topstrip__session-chip-btn:hover {
-    border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
-    color: var(--archive-ink);
+    color: var(--archive-rose);
   }
 
-  @media (max-width: 980px) {
-    /* UI-E12-FIX2: 640 mobile — switch the workstation from a
-       3-column grid to a SIMPLE VERTICAL STACK so 5 cells + progress
-       + anchor never wrap unpredictably. No more dense / complex
-       grid; just `display: flex; flex-direction: column; gap: 6px;`
-       and each topstrip child takes its own row. Same for the
-       left-rail narrator — show as a compact 1-line bar above
-       topstrip instead of a horizontal scroll row that collides
-       with the topstrip below. 6 vertical sections at 640:
-         1. left-rail (compact 1-line bar)
-         2. topstrip (pagetitle / 5 cells stacked / progress / anchor)
-         3. center stage (chat-container)
-         4. input area
-         5. right-rail (sections)
-       Order locked by ws-layout grid-template-rows: 1fr repeat(5, auto);
-       so each section gets its own row at mobile, no overlap. */
-    /* V1-B (2026-06-25): two-band topstrip collapses to a single
-       vertical stack at ≤980px so the meta cells + progress + actions
-       each get their own row instead of squashing horizontally.
-       V1-D: archive-gold 18% / 14% border → var(--hairline-soft). */
-    .theme-kao .ws-topstrip {
-      min-height: 0;
-      height: auto;
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .theme-kao .ws-topstrip__main {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 8px;
-    }
-    .theme-kao .ws-topstrip__meta {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 6px;
-    }
-    .theme-kao .ws-topstrip__actions {
-      width: 100%;
-      justify-content: flex-end;
-    }
-    .theme-kao .ws-topstrip__pagetitle {
-      border-right: none;
-      border-bottom: 1px solid var(--hairline-soft);
-      padding: 0 0 6px;
-      margin: 0 0 2px;
-      width: 100%;
-    }
-    .theme-kao .ws-topstrip__cell {
-      width: 100%;
-      border-right: none;
-      border-bottom: 1px dotted var(--hairline-soft);
-    }
-    .theme-kao .ws-topstrip__cell:last-of-type {
-      border-bottom: none;
-    }
-    .theme-kao .ws-topstrip__progress {
-      width: 100%;
-    }
-    .theme-kao .ws-topstrip__anchor {
-      margin: 4px 0 0;
-    }
-    /* UI-E13-BIG1: demo banner — keep paper-soft wash but reduce
-       padding to fit the mobile single-column stack. */
-    .theme-kao .ws-demo-banner {
-      padding: 8px 10px 10px;
-    }
-    /* Disable W2 stagger animation at mobile (the simple flex column
-       doesn't need the cascade). */
-    .theme-kao .ws-topstrip__cell:nth-child(2),
-    .theme-kao .ws-topstrip__cell:nth-child(3),
-    .theme-kao .ws-topstrip__cell:nth-child(4),
-    .theme-kao .ws-topstrip__cell:nth-child(5) {
-      animation: none;
-    }
-  }
-
-  .theme-kao .ws-left-rail {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px;
-    background: var(--archive-paper-soft);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-    overflow-y: auto;
-  }
-
-  @media (max-width: 980px) {
-    /* UI-E12-FIX2: at 640 mobile, the left rail narrator becomes a
-       compact 1-line bar (kicker only, brief hidden). Avoids the
-       portrait + brief pushing the topstrip down on phones. The
-       kicker still tells the user "this is the experience
-       workstation" without taking vertical space. */
-    .theme-kao .ws-left-rail {
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      min-height: 36px;
-      overflow: hidden;
-    }
-    /* Hide the brief paragraph at mobile so the rail is 1-line. */
-    .theme-kao .ws-left-rail__brief {
-      display: none;
-    }
-  }
-
+  /* ws-center-stage — the working column. Holds the demo banner
+     (optional) + GamePanel dialogue flow + InputArea. It is the
+     only flex column; children stack vertically with the dialogue
+     scrollable and the input pinned to bottom. */
   .theme-kao .ws-center-stage {
     display: flex;
     flex-direction: column;
-    min-width: 0;
     min-height: 0;
-    background: var(--archive-paper);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
-    /* UI-E12-W1: page-edge treatment so the center record surface reads
-       as a bound ledger page rather than a flat fill-in form. The
-       3px gold left spine acts as the binding edge; the 1px inset
-       gold hairline acts as the page-edge top rule. Both colors come
-       from --archive-gold via color-mix, no raw hex. */
-    border-left: 3px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--archive-gold) 14%, transparent);
-    overflow: hidden;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--archive-paper-soft) 100%, var(--archive-paper)) 0%,
+        color-mix(in srgb, var(--archive-paper) 94%, var(--archive-paper-strong)) 60%,
+        color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 6%) 100%);
   }
-
-  /* PLAN-QA Fix #4: ws-center-stage children — GamePanel's .chat-container
-     was height: 100% under E10, but inside a flex column that pushes
-     InputArea (the next sibling) off-screen. Override so the chat scrolls
-     within available space and InputArea sticks to the bottom.
-     UI-E12-W1: add repeating-linear-gradient ruled-paper lines (32px
-     row height, archive-ink 4% hairline). background-attachment:
-     local keeps the lines fixed to the scroll position so the ruler
-     appears to scroll with content — gives the empty state a real
-     "workbench ruled paper" surface and gives the filled state a
-     subtle baseline rhythm without adding weight. */
   .theme-kao .ws-center-stage > .chat-container {
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
     overflow-y: auto;
-    background-image: repeating-linear-gradient(
-      to bottom,
-      transparent 0 31px,
-      color-mix(in srgb, var(--archive-ink) 4%, transparent) 31px 32px
-    );
-    background-attachment: local;
+  }
+
+  /* E16-NOVEL: center dialogue is a novel-page reading column, not
+     a chat log. Per the 微信阅读 / 古龙 online / Disco Elysium
+     research: one continuous prose column, no chat affordances,
+     no avatars, no left color bands, no msg-actions hover. The
+     reading column is ~720px (60-65 CJK chars/line, the "read for
+     hours" zone). Body is Songti serif (--font-body) 17px /
+     line-height 1.75, with 段首缩进 2em on every paragraph (the
+     canonical CJK paragraph separator since CJK has no word
+     separator). Per-role speaker label is a small-caps inline
+     (Disco "skill voice" pattern) tinted by role, not an avatar
+     circle. The scene-prompt is a centered ◇ break, not a
+     horizontal divider. */
+  .theme-kao .chat-container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 36px 48px;
+    background: transparent;
+  }
+
+  /* Scene break — centered ornament + caption, no chip, no
+     horizontal divider. Matches 微信阅读 / 古龙 chapter break
+     convention. ~1.5em air above and below per the research. */
+  .theme-kao .scene-break {
+    text-align: center;
+    margin: 1.6em 0;
+    color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+  }
+  .theme-kao .scene-break__mark {
+    display: block;
+    font-size: 18px;
+    margin-bottom: 4px;
+    color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
+  }
+  .theme-kao .scene-break__text {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+    font-style: italic;
+  }
+
+  /* Prose column — the core. Each <p class="prose"> is one speaker
+     turn rendered as a continuous prose paragraph. The first
+     paragraph after a scene-break or a role-change gets a drop
+     cap (.prose--opening) so the user feels they're starting a
+     new chapter beat (Kentucky Route Zero / Pentiment). */
+  .theme-kao .prose {
+    position: relative;
+    margin: 0;
+    padding: 0 0 0 12px;
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.75;
+    color: var(--archive-ink);
+    text-indent: 2em;
+    /* 2px vertical color mark on the left, per role. 80% transparent
+       so it stays a quiet signal, not a chat-style avatar. Border-left
+       lets the mark run the full height of the paragraph (multi-line
+       paragraphs get a continuous bar, not a dot). */
+    border-left: 2px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+  }
+  /* Per-role vertical color mark — the speaker distinction the user
+     needed. 2px left border, role-tinted, 80% transparent. Multi-line
+     paragraphs get a continuous bar (not a single dot). */
+  .theme-kao .prose--user,
+  .theme-kao .prose--user-role {
+    border-left-color: color-mix(in srgb, var(--archive-olive-strong) 80%, transparent);
+  }
+  .theme-kao .prose--assistant,
+  .theme-kao .prose--assistant-role {
+    border-left-color: color-mix(in srgb, var(--archive-olive) 60%, var(--archive-gold));
+  }
+  .theme-kao .prose--system {
+    border-left-color: color-mix(in srgb, var(--archive-ink) 32%, transparent);
+  }
+  .theme-kao .prose.compression-complete {
+    border-left-color: color-mix(in srgb, var(--archive-ink) 32%, transparent);
+  }
+  /* No inter-paragraph gap — 段首缩进 2em is the ONLY separator.
+     This is the canonical CJK novel convention; any margin here
+     breaks the "2-hour read" rhythm. */
+  .theme-kao .prose + .prose {
+    margin: 0;
+  }
+  /* Adjacent turns from the same speaker get a smaller air so the
+     paragraph break is still felt but doesn't fragment the run. */
+  .theme-kao .prose--same-role + .prose {
+    margin-top: 0;
+  }
+
+  /* Speaker label — small-caps inline (Disco Elysium "skill voice"
+     pattern). Not an avatar. Tinted by role only. The label is a
+     stamp, not a tag. */
+  .theme-kao .prose__speaker {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
+    text-transform: uppercase;
+    text-indent: 0;
+  }
+  .theme-kao .prose__speaker--user {
+    color: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
+  }
+  .theme-kao .prose__speaker--assistant {
+    color: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-gold));
+  }
+  .theme-kao .prose__speaker--system {
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    font-style: italic;
+  }
+  .theme-kao .prose__sep {
+    display: inline;
+    text-indent: 0;
+  }
+  .theme-kao .prose__body {
+    text-indent: 0;
+  }
+  /* On the FIRST paragraph of a turn run (.prose--opening),
+     suppress the body 2em indent (the speaker label already
+     provides the visual start) so the drop cap can sit flush
+     with the column edge. */
+  .theme-kao .prose--opening .prose__body {
+    text-indent: 0;
+  }
+  .theme-kao .prose--opening {
+    text-indent: 0;
+  }
+
+  /* Drop cap on the opening turn (KRZ / Pentiment). 3-line float-left
+     initial, gold-to-rose gradient (LXGW WenKai). Per CJK convention
+     the drop cap applies to the first character of the first paragraph
+     of a new scene/speaker run. */
+  .theme-kao .prose--opening .prose__body::first-letter {
+    float: left;
+    font-family: var(--font-display);
+    font-size: 3em;
+    line-height: 0.95;
+    margin: 0.06em 0.12em 0 0;
+    font-weight: 700;
+    color: var(--archive-olive-strong);
+    background: linear-gradient(180deg, var(--archive-olive-strong) 0%, var(--archive-gold) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Compression-complete turns — italic + dimmer, "档案员" margin
+     note rather than body text. */
+  .theme-kao .prose.compression-complete {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
+    font-size: 15px;
+  }
+  .theme-kao .prose.compression-complete .prose__speaker {
+    font-style: italic;
+  }
+
+  /* Body paragraph inner — renderRPText produces <p> tags. The
+     outer .prose already provides 段首缩进 2em; inner <p> should
+     NOT add additional margins (would double-indent). */
+  .theme-kao .prose__body p {
+    margin: 0;
+  }
+
+  /* Edit mode — inline textarea replaces the body. Stays in the
+     prose column, not a modal. */
+  .theme-kao .prose__body--editing {
+    display: block;
+  }
+  .theme-kao .tavern-textarea {
+    width: 100%;
+    min-height: 80px;
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.75;
+    background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
+    border-radius: 0;
+    padding: 8px 10px;
+    color: var(--archive-ink);
+    resize: vertical;
+  }
+  .theme-kao .prose__edit-actions {
+    display: inline-flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .theme-kao .prose__edit-actions .tavern-btn {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    padding: 4px 14px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+    background: transparent;
+    color: var(--archive-ink);
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .theme-kao .prose__edit-actions .tavern-btn.primary {
+    background: var(--archive-olive);
+    color: var(--archive-paper-soft);
+    border-color: var(--archive-olive-strong);
+  }
+
+  /* E16-NOVEL v2: per-paragraph action row — hover-revealed, right-
+     aligned, like a margin annotation. Brings back edit / delete /
+     regenerate from the 541a2ce-era msg-actions, but framed as
+     "档案员批注工具" not chat buttons. opacity 0 → 1 on .prose
+     hover, anchored to the right of the column. */
+  .theme-kao .prose__actions {
+    position: absolute;
+    top: 0;
+    right: -8px;
+    transform: translateX(100%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+  }
+  .theme-kao .prose:hover .prose__actions,
+  .theme-kao .prose__actions:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .theme-kao .prose__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+    background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  .theme-kao .prose__action:hover {
+    color: var(--archive-olive-strong);
+    border-color: var(--archive-gold);
+    background: var(--archive-paper);
+  }
+  .theme-kao .prose__action--delete:hover {
+    color: color-mix(in srgb, var(--archive-rose) 80%, var(--archive-ink));
+    border-color: color-mix(in srgb, var(--archive-rose) 50%, transparent);
+  }
+  .theme-kao .prose__action--regen {
+    color: color-mix(in srgb, var(--archive-olive) 80%, var(--archive-ink));
   }
 
   .theme-kao .ws-center-stage > .input-area,
@@ -2791,210 +2699,211 @@
     align-self: stretch;
   }
 
+  /* ws-right-rail — E16: quieted. Narrower (280px, was 320px), the
+     portrait is gone (lives in the 0-state hero instead), the
+     dossier hero is a 28px-tall compact bar (just the stamp label
+     + 速记 button). 3 dossier sections follow as a compact stack
+     with quieter dividers. */
   .theme-kao .ws-right-rail {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    background: var(--archive-paper);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
-    /* UI-E12-W1: dossier metaphor — 3px gold left spine acts as the
-       binder edge so the right rail reads as ONE dossier binder, not
-       3 unrelated cards. Same approach as ws-center-stage's left spine
-       (kao.css L2568-2570). No raw hex, color-mix only. */
-    border-left: 3px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
-    overflow-y: auto;
+    min-height: 0;
+    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
+    border-left: 1px solid color-mix(in srgb, var(--hairline-soft) 70%, transparent);
   }
 
-  /* UI-E12-W1: dossier tab strip — small kicker row at the top of the
-     right rail that names the 3 卷宗 sections so the eye reads "1 binder
-     with 3 tabs" instead of "3 stacked cards". DISPLAY LXGW at 10px for
-     a brush signature on the active tab; sans 9px for inactive tabs.
-     The .is-active tab carries a 2px gold underline as the "current
-     binder section" mark. Visual-only in W1 (no click handler); E13
-     can wire tab switching if needed. */
-  .theme-kao .ws-right-rail__tab-strip {
+  .theme-kao .ws-dossier-bar {
     display: flex;
-    align-items: stretch;
-    gap: 0;
-    padding: 0;
-    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 28px;
+    padding: 4px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--hairline-soft) 60%, transparent);
+    background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
   }
-  .theme-kao .ws-right-rail__tab {
-    flex: 1 1 0;
-    text-align: center;
-    padding: 8px 6px 7px;
-    font-family: var(--font-sans);
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
-    border-right: 1px dotted color-mix(in srgb, var(--archive-gold) 18%, transparent);
-    border-bottom: 2px solid transparent;
-    cursor: default;
-  }
-  .theme-kao .ws-right-rail__tab:last-child {
-    border-right: none;
-  }
-  .theme-kao .ws-right-rail__tab.is-active {
+  .theme-kao .ws-dossier-bar__label {
     font-family: var(--font-display);
     font-size: 10px;
-    letter-spacing: 0.14em;
-    color: var(--archive-ink);
-    border-bottom-color: var(--archive-gold);
-    background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
+    letter-spacing: 0.24em;
+    color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
   }
-
-  @media (max-width: 980px) {
-    .theme-kao .ws-right-rail {
-      flex-direction: column;
-    }
-  }
-
-  /* UI-E11-A: topstrip — 5 metadata cells + 5-cell progress bar.
-     The topstrip is the single section anchor (replaces E10-CLEAN's
-     deleted 28px shared vertical axis + scene-stage__indicator). Each
-     cell carries a sans 9px kicker + a display 14px value; the 5-cell
-     progress bar shows the current narrative state as filled gold cells. */
-
-  /* V1-D (2026-06-25): cell border-right: archive-gold 16% → var(--hairline-soft).
-     Cells use the same single inner-divider token as pagetitle. */
-  .theme-kao .ws-topstrip__cell {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 4px 8px;
-    border-right: 1px solid var(--hairline-soft);
-  }
-
-  .theme-kao .ws-topstrip__cell:last-of-type {
-    border-right: none;
-  }
-
-  /* UI-E12-F: small topstrip value / case switched from --font-display
-     (LXGW brush) to --font-body (Songti serif). The brush face is too
-     dense at 14px to read as data values; the italic + gold color still
-     marks the case position as a kicker without forcing brush at small
-     size. Kickers below the labels remain sans at 10px (META), per
-     E12-F contract #1. V1-E: drop text-transform:uppercase + letter-spacing
-     0.16em; the cells now read as compact data cells (卷 / 案号 / 当前任务
-     / 第N条 / 共M条 are all CJK, not abbreviations). */
-  .theme-kao .ws-topstrip__kicker {
+  .theme-kao .ws-dossier-bar__quick-cta {
+    min-height: 22px;
+    padding: 0 10px;
+    border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+    border-radius: 0;
+    background: transparent;
+    color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
     font-family: var(--font-sans);
     font-size: 11px;
     font-weight: 500;
-    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease;
   }
-
-  .theme-kao .ws-topstrip__value {
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
+  .theme-kao .ws-dossier-bar__quick-cta:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--archive-rose) 44%, var(--border));
     color: var(--archive-ink);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.25;
+  }
+  .theme-kao .ws-dossier-bar__quick-cta:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
-  .theme-kao .ws-topstrip__case {
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: 0.03em;
-    color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive));
-    font-style: italic;
-    line-height: 1.25;
-  }
-
-  /* UI-E12-W1: .ws-topstrip__meta removed — no template match in
-     Experience.vue (topstrip uses __kicker / __value / __case /
-     __progress / __anchor; no __meta element). Was dead CSS
-     consuming 6 lines + falsely implying a meta label slot that
-     the workstation never ships. V1-B re-introduces a non-CSS
-     __meta wrapper in Experience.vue (the flex container around
-     the 5 cells + progress) so no CSS rule needs to exist for it. */
-
-  /* 5-cell progress bar — one cell per section axis:
-     开卷 / 当前 / 在场 / 发生 / 落笔. Filled cells represent the
-     current narrative state. Total count fills progressively.
-     V1-D: archive-gold 22% border → var(--border); filled cell
-     border-color → var(--accent) (single accent tier). */
-  .theme-kao .ws-topstrip__progress {
+  .theme-kao .ws-live-codex {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 4px;
-    width: 200px;
-    padding: 4px;
-    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
-    border: 1px solid var(--border);
+    gap: 6px;
+    padding: 8px;
+    overflow: auto;
   }
-
-  .theme-kao .ws-topstrip__progress-cell {
-    height: 12px;
-    background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-    border: 1px solid var(--border);
-    transition: background 0.2s ease;
+  .theme-kao .ws-codex-section {
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 14%, transparent);
+    background: color-mix(in srgb, var(--archive-paper) 46%, transparent);
   }
-
-  .theme-kao .ws-topstrip__progress-cell.is-filled {
-    background: var(--accent);
-    border-color: var(--accent);
+  .theme-kao .ws-codex-section--open {
+    background: color-mix(in srgb, var(--archive-paper-soft) 78%, transparent);
+    border-color: color-mix(in srgb, var(--archive-olive) 28%, var(--archive-gold));
   }
-
-  /* Topstrip anchor text — always-on section indicator. In 0-state the
-     Vue template renders "档案空白 · 卷 1 · 等候第 1 条" (B2 contract);
-     here we set the typographic treatment so the italic rose anchor
-     reads as a single continuity mark, not as a status badge. */
-  .theme-kao .ws-topstrip__anchor {
+  .theme-kao .ws-codex-section__trigger {
+    width: 100%;
+    min-height: 48px;
+    display: grid;
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 9px;
+    border: 0;
+    background: transparent;
+    color: var(--archive-ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .theme-kao .ws-codex-section__label {
     font-family: var(--font-display);
     font-size: 12px;
-    font-style: italic;
+    font-weight: 600;
     letter-spacing: 0.06em;
-    color: color-mix(in srgb, var(--archive-rose) 84%, transparent);
+  }
+  .theme-kao .ws-codex-section__count,
+  .theme-kao .ws-codex-section__new {
+    min-width: 20px;
+    justify-self: start;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
+    padding: 1px 5px;
+    color: color-mix(in srgb, var(--archive-ink-soft) 90%, transparent);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .theme-kao .ws-codex-section__new {
+    border-color: color-mix(in srgb, var(--archive-rose) 34%, transparent);
+    color: var(--archive-rose);
+  }
+  .theme-kao .ws-codex-section__latest {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--archive-ink-soft) 86%, transparent);
+    font-family: var(--font-sans);
+    font-size: 12px;
+  }
+  .theme-kao .ws-codex-section__quick-detail {
+    justify-self: end;
+    min-width: 38px;
+    min-height: 22px;
+    padding: 1px 9px;
+    border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--archive-paper-soft) 84%, transparent);
+    color: var(--archive-olive-strong);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  }
+  .theme-kao .ws-codex-section__quick-detail:hover {
+    border-color: color-mix(in srgb, var(--archive-olive) 46%, transparent);
+    background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+    color: var(--archive-olive-strong);
+  }
+  .theme-kao .ws-codex-section__quick-detail:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--archive-olive) 60%, transparent);
+    outline-offset: 2px;
+  }
+  .theme-kao .ws-codex-section__body {
+    padding: 0 8px 8px;
   }
 
-  /* UI-E13-BIG1: local demo banner — shown in demo mode (no real
-     messages yet). 1-line head + hint + 2 buttons. Same paper-soft
-     wash as ws-topstrip so it reads as part of the workstation
-     chrome, not a separate dialog. No raw hex. */
+  /* ws-section — compact. Quieter dividers (lighter dashed line,
+     less padding), smaller stamp font. Each section still carries
+     its role-stamp as ::before so the user knows what's there
+     without the visual competing with the center dialogue. */
+  .theme-kao .ws-section {
+    position: relative;
+    padding: 6px 12px 8px;
+  }
+  .theme-kao .ws-section--compact {
+    padding: 4px 10px 6px;
+  }
+  .theme-kao .ws-section:not(:last-child)::after {
+    content: "";
+    display: block;
+    height: 0;
+    margin-top: 4px;
+    border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  }
+  .theme-kao .ws-section::before {
+    content: attr(data-dossier-stamp);
+    display: block;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: color-mix(in srgb, var(--archive-olive) 60%, var(--archive-ink-soft));
+    margin-bottom: 4px;
+  }
+
+  /* Demo banner (local demo mode) — same archive paper wash as the
+     topstrip so it reads as part of the workstation, not a foreign
+     SaaS callout. */
   .theme-kao .ws-demo-banner {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px 12px;
-    background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
-    border: 1px solid color-mix(in srgb, var(--archive-olive) 32%, transparent);
+    margin: 12px 16px 0;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--archive-olive) 32%, transparent);
+    font-family: var(--font-sans);
   }
   .theme-kao .ws-demo-banner__head {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
   }
   .theme-kao .ws-demo-banner__kicker {
-    font-family: var(--font-sans);
-    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--archive-olive-strong);
+    font-size: 10px;
   }
   .theme-kao .ws-demo-banner__scene {
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 500;
     color: var(--archive-ink);
+    font-weight: 600;
+    font-size: 13px;
   }
   .theme-kao .ws-demo-banner__step {
     margin-left: auto;
-    font-family: var(--font-sans);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
+    color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
   .theme-kao .ws-demo-banner__hint {
-    margin: 0;
-    font-family: var(--font-sans);
+    margin: 0 0 8px;
     font-size: 12px;
     line-height: 1.5;
     color: color-mix(in srgb, var(--archive-ink) 76%, transparent);
@@ -3005,30 +2914,40 @@
     flex-wrap: wrap;
   }
 
-  /* UI-E13-BIG1: scene-prompt message — horizontal divider that
-     marks a scene transition in the chat. Different from
-     .msg-item (which is a card) and from .compression-complete
-     (which is a pill). Pure divider so the scene boundary reads
-     as a chapter break, not a content entry. */
-  .theme-kao .scene-prompt {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    margin: 8px 0 4px;
-    border-top: 1px dashed color-mix(in srgb, var(--archive-olive) 32%, transparent);
-    border-bottom: 1px dashed color-mix(in srgb, var(--archive-olive) 32%, transparent);
-    background: color-mix(in srgb, var(--archive-paper-soft) 60%, transparent);
-    font-family: var(--font-sans);
-    font-size: 12px;
-    color: color-mix(in srgb, var(--archive-ink) 72%, transparent);
+  /* Mobile: 980px and below — single column, dossier collapses
+     below the working column. 640px — further compact topstrip. */
+  @media (max-width: 980px) {
+    .theme-kao .ws-layout {
+      grid-template-columns: 1fr;
+    }
+    .theme-kao .ws-right-rail {
+      border-left: none;
+      border-top: 1px solid var(--hairline-soft);
+    }
+    .theme-kao .ws-topstrip {
+      padding-left: 16px;
+    }
   }
-  .theme-kao .scene-prompt__kicker {
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--archive-olive-strong);
+  @media (max-width: 640px) {
+    .theme-kao .ws-topstrip {
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    .theme-kao .ws-topstrip__main {
+      flex: 1 1 100%;
+    }
+    .theme-kao .ws-topstrip__actions {
+      flex: 1 1 100%;
+      justify-content: flex-end;
+    }
+  }    flex-wrap: wrap;
   }
+
+  /* E16-NOVEL: .scene-prompt replaced by .scene-break (centered
+     ornament + caption, not a horizontal divider with kicker). The
+     old .scene-prompt rules above are dead CSS from the chat-log
+     era; removed to keep the file clean. */
 
   /* UI-E13-BIG1: demo state blocks in right rail. Each rail section
      shows a small honest placeholder when isDemoMode = true, listing
@@ -3112,36 +3031,9 @@
 
   /* UI-E11-A: ws-section — right rail dossier section container.
      Replaces the OLD .theme-kao .game-page .sidebar-section (E2/E4A
-     archive-binder). Each .ws-section in the right rail shows one
-     dossier stamp (卷宗一/二/三) and one sub-component
-     (StatusBar / GeographyPanel / QuestLog). Sections share the
-     ws-right-rail outer paper; per-section borders are minimal so
-     the right rail reads as one continuous record binder. */
-  .theme-kao .ws-section {
-    position: relative;
-    padding: 16px 14px 18px;
-    background: transparent;
-    /* UI-E12-W1: per-section divider becomes dashed — paired with the
-       top tab strip + shared left spine (kao.css L2582-2584 + L2596+),
-       the dashed divider reads as "section break inside one binder"
-       rather than "wall between 3 separate cards". */
-    border-top: 1px dashed color-mix(in srgb, var(--archive-ink) 22%, transparent);
-  }
-
-  .theme-kao .ws-section:first-child {
-    border-top: none;
-  }
-
-  .theme-kao .ws-section::before {
-    content: attr(data-dossier-stamp);
-    display: block;
-    font-family: var(--font-display);
-    font-size: 9px;
-    font-style: italic;
-    letter-spacing: 0.02em;
-    color: color-mix(in srgb, var(--archive-ink) 40%, transparent);
-    margin: 0 0 6px;
-  }
+     archive-binder). E16: compacted (padding 6→4px, font 11→10px,
+     dashed divider lighter). The earlier ws-section rules above
+     (E16) own the actual visual; this duplicate block was removed. */
 
   /* UI-E11-W3: 4-layer font layering (Task 8 of W3 cleanup).
      DISPLAY=LXGW brush for case / kicker / stamp / section title (10-14px).
@@ -3253,49 +3145,6 @@
         color-mix(in srgb, var(--archive-paper) 88%, var(--archive-ink) 6%) 100%);
   }
 
-  /* UI-E12-W2: wsLayoutEnter animation — settle-in ritual for the
-     menu → page handoff. LXGW inspired: a brief fade + 6px lift
-     over 420ms, replaced the hard cut that read as "page just
-     appeared". Easing curve matches the LXGW spread-curve used
-     elsewhere in the kao layer. Reduced-motion override is
-     mandatory per a11y convention. */
-  @keyframes wsLayoutEnter {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  .theme-kao .ws-layout {
-    animation: wsLayoutEnter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  /* Subtle stagger on topstrip cells so the 5 cells + progress
-     appear in sequence (no jarring single-frame fill). Total
-     stagger 4 * 30ms = 120ms, well under 420ms total animation. */
-  .theme-kao .ws-topstrip__cell:nth-child(2),
-  .theme-kao .ws-topstrip__cell:nth-child(3),
-  .theme-kao .ws-topstrip__cell:nth-child(4),
-  .theme-kao .ws-topstrip__cell:nth-child(5) {
-    animation: wsLayoutEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  .theme-kao .ws-topstrip__cell:nth-child(2) { animation-delay: 60ms; }
-  .theme-kao .ws-topstrip__cell:nth-child(3) { animation-delay: 90ms; }
-  .theme-kao .ws-topstrip__cell:nth-child(4) { animation-delay: 120ms; }
-  .theme-kao .ws-topstrip__cell:nth-child(5) { animation-delay: 150ms; }
-  /* Reduced-motion a11y — disable both the layout enter and the
-     cell stagger so users with motion sensitivity see the final
-     state immediately. */
-  @media (prefers-reduced-motion: reduce) {
-    .theme-kao .ws-layout,
-    .theme-kao .ws-topstrip__cell {
-      animation: none;
-    }
-  }
-}
-
 /* UI-E12-W2: shell-mast z-index overrides (UNLAYERED).
    AppShell.vue .shell-mast is sticky at z-index 90, which sits
    BELOW ws-topstrip (z-index 240). Bump mast to z-index 260
@@ -3380,3 +3229,104 @@
     0 0 0 2px var(--archive-gold),
     0 6px 14px color-mix(in srgb, var(--archive-ink) 18%, transparent);
 }
+
+  /* UI-E18: rp-* token scannability (theme 1, warm archive-folio). 7-class
+     token distinction (dialogue / action / thought / location / time /
+     item / world-intro) so the user can scan 对白 / 动作 / 地点 /
+     时间 / 物品 in the prose column without re-reading. */
+  .theme-kao .rp-dialogue {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-olive-strong));
+  }
+  .theme-kao .rp-action {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink) 86%, var(--archive-rose));
+  }
+  .theme-kao .rp-thought {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink-soft) 84%, transparent);
+  }
+  .theme-kao .rp-location {
+    font-weight: 600;
+    text-decoration: underline dotted color-mix(in srgb, var(--archive-olive) 60%, transparent);
+    text-underline-offset: 3px;
+    color: var(--archive-olive-strong);
+  }
+  .theme-kao .rp-time {
+    font-size: 0.85em;
+    letter-spacing: 0.02em;
+    color: color-mix(in srgb, var(--archive-ink-soft) 80%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+  .theme-kao .rp-item {
+    font-weight: 600;
+    text-decoration: underline solid color-mix(in srgb, var(--archive-rose) 60%, transparent);
+    text-underline-offset: 3px;
+    color: var(--archive-rose);
+    cursor: pointer;
+  }
+  .theme-kao .rp-item:hover {
+    background: color-mix(in srgb, var(--archive-rose) 8%, transparent);
+  }
+  .theme-kao .rp-world-intro {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink) 88%, var(--archive-olive));
+  }
+  .theme-kao .rp-dialogue-quote-soft,
+  .theme-kao .rp-dialogue-quote-warm,
+  .theme-kao .rp-dialogue-quote-neutral {
+    font-style: italic;
+    color: color-mix(in srgb, var(--archive-ink-soft) 92%, transparent);
+  }
+
+  /* UI-E18: reduced-motion — disable edit + action transitions in theme 1. */
+  @media (prefers-reduced-motion: reduce) {
+    .theme-kao .tavern-textarea,
+    .theme-kao .prose__edit-actions .tavern-btn {
+      transition: none;
+    }
+  }
+
+  /* UI-E19: Experience in-place editor chrome (Window A) for theme 1.
+     Replaces E18's textarea-swap. The editor is a contenteditable span
+     inside .prose, not a separate textarea — the message gets "lightly
+     boxed" via .prose--editing (background lift + soft inset frame) and
+     the inner .prose__editor takes over the body content.
+
+     Theme 1 chrome = warm archive-folio (var(--archive-paper-soft) wash
+     + var(--archive-gold) dashed border, matches E18's textarea chrome
+     so visual continuity holds across the upgrade). Inherits font /
+     size / line-height / text-indent from the .prose wrapper.
+
+     All values bound to var(--archive-*) tokens (token-only color
+     discipline). No raw hex, no forced override flags. Transitions are scoped to
+     chrome (background / border / box-shadow / min-height) and are
+     160ms — inside the 120-180ms range the user asked for. */
+  .theme-kao .prose--editing {
+    background: color-mix(in srgb, var(--archive-paper-strong) 4%, transparent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  }
+  .theme-kao .prose__editor {
+    background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent);
+  }
+  .theme-kao .prose__editor:focus {
+    background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
+    border-color: color-mix(in srgb, var(--archive-olive) 50%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 50%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--archive-gold) 14%, transparent);
+  }
+
+  /* UI-E19: reduced-motion — disable editor + .prose--editing transitions
+     in theme 1. Mirrors the E18 contract pattern but targets the new
+     .prose__editor / .prose--editing classes. */
+  @media (prefers-reduced-motion: reduce) {
+    .theme-kao .prose__editor,
+    .theme-kao .prose--editing {
+      transition: none;
+    }
+  }

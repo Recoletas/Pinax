@@ -53,7 +53,7 @@
 
 ## 7. Honest caveats
 - External research tools failed (Firecrawl 401, WebSearch 400). Rules cited are stable published canon, not freshly verified 2026 sources.
-- No visual claim about Phase 2/3 motion bundle size (direction doc `character-driven-arc.md:373-375` already flags this as unverified).
+- No visual claim about Phase 2/3 motion bundle size; this remains an unverified follow-up and is outside the current product roadmap.
 - No file modifications made; report is research-only as requested.
 
 ## Sources used (canonical, offline-verified)

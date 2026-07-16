@@ -5,9 +5,9 @@ import { useThemeStore } from '../../stores/themeStore.js'
 const themeStore = useThemeStore()
 let injectedPreload = null
 
-// legacy carries the map-era blue-white palette in a tiny gated CSS chunk.
-// It still does not preload LXGW or archive-folio chrome; the chunk only
-// restores the classic tokens when <html> has theme-legacy.
+// legacy carries the blue-white toolbox/archive variant. It does not
+// preload LXGW, but it may own small .theme-legacy-gated chrome rules
+// for migrated workbench surfaces as theme 2 becomes product-ready.
 const VARIANT_CSS = {
   kao: () => import('../../styles/themes/kao.css'),
   legacy: () => import('../../styles/themes/legacy.css'),

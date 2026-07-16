@@ -33,7 +33,10 @@
           role="tabpanel"
           aria-label="外观"
         >
-          <p class="settings-section__hint">主题变体与明暗模式,选择后立即生效。</p>
+          <!-- K5 (2026-06-27): 简化文案 — 不再分 "主题变体 + 明暗模式",
+               主题切换只切 variant (主题1/主题2). 明暗模式 由 WelcomeView
+               顶部单独的 light/dark pill 切, 不在 settings popup 里. -->
+          <p class="settings-section__hint">主题选择,切换后立即生效。</p>
           <AppearanceControls />
         </section>
 
@@ -74,7 +77,28 @@
           </table>
           <div class="storage-actions">
             <button class="settings-btn settings-btn--primary" type="button" @click="handleExportBackup">导出全部备份</button>
+            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">导入备份</button>
+            <input
+              ref="backupInputRef"
+              class="backup-import-input"
+              data-test="backup-import-input"
+              type="file"
+              accept="application/json,.json"
+              @change="handleBackupFile"
+            >
           </div>
+          <div v-if="backupPlan" class="backup-review" data-test="backup-review" role="status">
+            <strong>备份已读取，确认后才会写入</strong>
+            <span>新增 {{ backupPlan.add.length }} · 覆盖 {{ backupPlan.overwrite.length }} · 跳过 {{ backupPlan.skip.length }}</span>
+            <span v-if="backupPlan.incompatible.length" class="backup-review__error">{{ backupPlan.incompatible.join('；') }}</span>
+            <div class="backup-review__actions">
+              <button class="settings-btn settings-btn--primary" type="button" data-test="backup-restore-confirm" :disabled="backupBusy || !backupPlan.valid" @click="confirmBackupRestore">
+                {{ backupBusy ? '写入中...' : '确认导入' }}
+              </button>
+              <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
+            </div>
+          </div>
+          <p v-if="backupFeedback" class="backup-feedback" role="status">{{ backupFeedback }}</p>
         </section>
       </div>
     </div>
@@ -86,7 +110,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import AppearanceControls from '../theme/AppearanceControls.vue'
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
-import { exportAllBackup } from '../../utils/backupExport'
+import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
 
 const { close, activeSection, isOpen } = useSettingsPopup()
@@ -95,6 +119,11 @@ const storageHealth = useStorageHealth()
 const storageTopKeys = computed(() => storageHealth.getTopKeys(10))
 
 const closeBtnRef = ref(null)
+const backupInputRef = ref(null)
+const backupText = ref('')
+const backupPlan = ref(null)
+const backupFeedback = ref('')
+const backupBusy = ref(false)
 
 const tabs = [
   { key: 'appearance', label: '外观' },
@@ -113,6 +142,53 @@ function handleExportBackup() {
     exportAllBackup()
   } catch (e) {
     console.error('[SettingsPopup] backup export failed:', e)
+  }
+}
+
+function pickBackupFile() {
+  backupInputRef.value?.click()
+}
+
+async function handleBackupFile(event) {
+  const file = event.target?.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  backupFeedback.value = ''
+  try {
+    backupText.value = await file.text()
+    backupPlan.value = createRestorePlan(backupText.value)
+    if (!backupPlan.value.valid) {
+      backupFeedback.value = backupPlan.value.incompatible.join('；') || '备份不可导入'
+      backupPlan.value = null
+    }
+  } catch (error) {
+    backupPlan.value = null
+    backupFeedback.value = error?.message || '备份读取失败'
+  }
+}
+
+function cancelBackupRestore() {
+  backupPlan.value = null
+  backupText.value = ''
+}
+
+function confirmBackupRestore() {
+  if (!backupPlan.value || backupBusy.value) return
+  backupBusy.value = true
+  try {
+    const result = restoreBackup(backupText.value)
+    if (result.success) {
+      backupFeedback.value = `已导入 ${result.written.length} 个键，跳过 ${result.skipped.length} 个键。`
+      cancelBackupRestore()
+      storageHealth.refresh()
+    } else {
+      backupFeedback.value = result.reason === 'quota'
+        ? '存储空间不足，已撤销本次导入。'
+        : result.error || '备份写入失败，未完成导入。'
+    }
+  } finally {
+    backupBusy.value = false
   }
 }
 
@@ -309,8 +385,51 @@ watch(isOpen, async (open) => {
 
 .storage-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
   padding-top: 4px;
+}
+
+.backup-import-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.backup-review {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 12px;
+}
+
+.backup-review > span {
+  color: var(--text-secondary);
+}
+
+.backup-review__error {
+  color: var(--danger);
+}
+
+.backup-review__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.backup-feedback {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .settings-btn {

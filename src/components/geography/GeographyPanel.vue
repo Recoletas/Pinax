@@ -8,6 +8,36 @@
       <span class="geo-count" aria-label="地点数量">{{ locations.length }}</span>
     </header>
 
+    <div v-if="railMode === 'compact' || railMode === 'codex'" class="geo-rail-summary">
+      <div v-if="isDemoMode" class="demo-scene" aria-label="本场景地点">
+        <div class="demo-scene__location">{{ meta.demoScene?.title || '未登记场景' }}</div>
+        <div class="demo-scene__meta">
+          <span>{{ meta.demoScene?.timeOfDay || '' }}</span>
+          <span>·</span>
+          <span>{{ meta.demoScene?.weather || '' }}</span>
+        </div>
+      </div>
+      <div class="geo-rail-line">
+        <span>地点</span>
+        <strong>{{ locations.length }}</strong>
+        <em>{{ latestLocationLabel }}</em>
+      </div>
+      <p
+        v-if="latestLocationDescription"
+        class="geo-rail-snippet"
+      >{{ latestLocationDescription }}</p>
+      <div v-if="locations.length > 0" class="geo-stat-strip" aria-label="地点卷统计">
+        <span><strong>{{ locationStats.root }}</strong> 卷号</span>
+        <span><strong>{{ locationStats.linked }}</strong> 从属</span>
+        <span><strong>{{ locationStats.described }}</strong> 已记</span>
+      </div>
+      <div class="geo-rail-actions">
+        <button class="toolbar-text-btn" type="button" @click="emitOpenDetail">查看详情</button>
+        <button class="toolbar-text-btn" type="button" @click="handleRailAdd">添加</button>
+      </div>
+    </div>
+
+    <template v-else>
     <!-- UI-E13-BIG1: demo mode — show the local demo scene's
          location / time / weather as an honest placeholder. Same
          pattern as the section above (shows what the current scene
@@ -21,16 +51,12 @@
       </div>
     </div>
 
-    <!-- UI-E11-C: 0-data stat strip placeholder — 当没有地点时, 显示 dashed
-         placeholder + inline hint (档案员批注风格), 不再是 0 0 0 堆叠 -->
     <div
       v-if="locations.length === 0"
       class="geo-stat-strip geo-stat-strip--empty"
       aria-label="无地点卷"
     >
-      <span class="geo-stat-strip--hint">暂无卷宗</span>
-      <span class="geo-stat-strip--hint">地点是档案柜的目录</span>
-      <span class="geo-stat-strip--hint">点 + 添加第一条</span>
+      <span class="geo-stat-strip--hint">暂无地点</span>
     </div>
     <div v-else class="geo-stat-strip" aria-label="地点卷统计">
       <span><strong>{{ locationStats.root }}</strong> 卷号</span>
@@ -193,11 +219,12 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
 import { buildConceptMapPrompt, buildImageMapPrompt } from '../../services/ai/geographyAdapter'
@@ -207,6 +234,30 @@ import { LOCATION_TYPES } from '../../config/geography-types'
 import { useWorkstationMeta } from '../../composables/useWorkstationMeta'
 import { sanitizeSvg } from '../../utils/sanitize'
 import LocationTreeMap from './LocationTreeMap.vue'
+
+const props = defineProps({
+  railMode: {
+    type: String,
+    default: ''
+  },
+  // UI-E18-B round 3: when the codex rail 添加 button creates a new
+  // location, the codex instance sets expandedId to the new id, but
+  // the codex detail drawer renders a *separate* GeographyPanel
+  // instance (different mount point), so expandedId does not carry
+  // over. The parent passes the freshly-created id as autoExpandId
+  // prop so the drawer instance expands the new card automatically
+  // and the description textarea is visible + focused.
+  autoExpandId: {
+    type: String,
+    default: ''
+  }
+})
+
+const emit = defineEmits(['open-detail', 'add-location'])
+
+function emitOpenDetail() {
+  emit('open-detail', 'locations')
+}
 
 const geoStore = useGeographyStore()
 const { overview, locations } = storeToRefs(geoStore)
@@ -219,6 +270,17 @@ const copied = ref(false)
 const streaming = ref(false)
 const meta = useWorkstationMeta()
 const isDemoMode = computed(() => meta.isDemoMode.value)
+const latestLocationLabel = computed(() => {
+  const latest = (locations.value || [])[(locations.value || []).length - 1]
+  return latest?.name || meta.demoScene.value?.title || '暂无地点'
+})
+
+const latestLocationDescription = computed(() => {
+  const latest = (locations.value || [])[(locations.value || []).length - 1]
+  const raw = String(latest?.description || '').trim()
+  if (!raw) return ''
+  return raw.split('\n')[0].slice(0, 56)
+})
 
 const locationStats = computed(() => {
   const items = locations.value || []
@@ -264,7 +326,44 @@ function addLocation() {
   const updated = [...locations.value, newLoc]
   expandedId.value = newLoc.id
   geoStore.saveGeography({ locations: updated })
+  return newLoc.id
 }
+
+function handleRailAdd() {
+  // UI-E18-B round 3: codex rail 添加 button — create the location AND
+  // emit the new id so Experience.vue can open the detail drawer with
+  // autoExpandId set. Without this two-step, the new card auto-expands
+  // in the codex instance but the drawer renders a fresh instance with
+  // its own expandedId ref (which is null), so the description textarea
+  // is invisible to the user.
+  const newId = addLocation()
+  emit('add-location', newId)
+}
+
+// UI-E18-B round 3: when the parent passes a freshly-created id, sync
+// expandedId + switch to list view so the drawer instance expands the
+// new card AND renders the list (default view is 'map' which hides
+// the .location-card template entirely). `immediate: true` is critical —
+// the drawer GeographyPanel mounts with autoExpandId already set, but
+// the watch does not fire on initial mount unless we tell it to. Without
+// `immediate`, the user has to close + reopen the drawer for the new
+// card to auto-expand.
+watch(() => props.autoExpandId, (newId) => {
+  if (newId && locations.value.some((loc) => loc.id === newId)) {
+    expandedId.value = newId
+    view.value = 'list'
+  }
+}, { immediate: true })
+
+// Defensive fallback: if the geoStore hasn't synced the new location by
+// the time the watcher fires (rare race when addLocation + emit happen
+// in the same tick), retry on the next tick.
+onMounted(() => {
+  if (props.autoExpandId && locations.value.some((loc) => loc.id === props.autoExpandId)) {
+    expandedId.value = props.autoExpandId
+    view.value = 'list'
+  }
+})
 
 function updateLocation(id, data) {
   const updated = locations.value.map(l => l.id === id ? { ...l, ...data } : l)
@@ -398,6 +497,71 @@ async function copyPrompt() {
   font-size: 13px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+}
+
+.geo-rail-summary {
+  display: grid;
+  gap: 7px;
+}
+
+.geo-rail-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+
+.geo-rail-line span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.geo-rail-line strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.geo-rail-line em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.geo-rail-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.geo-rail-actions .toolbar-text-btn {
+  flex: 1 1 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+/* UI-E18: codex rail snippet — 1-行 最新地点描述精华.
+   仅在 latest 有 description 时渲染, 防止空 hint 噪声. */
+.geo-rail-snippet {
+  margin: 0;
+  padding: 6px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* UI-E11-C: 0-data 状态 placeholder — dashed outline + muted hint */

@@ -64,6 +64,39 @@
               </div>
             </div>
 
+            <div
+              v-if="hasSelectedWorldbook && playableHistoryNodes.length"
+              class="opening-history"
+              aria-label="可进入的历史节点"
+            >
+              <span class="opening-history__eyebrow">历史节点 · 可进入</span>
+              <ul class="opening-history__list">
+                <li
+                  v-for="node in playableHistoryNodes"
+                  :key="node.id"
+                  class="opening-history-card"
+                >
+                  <div class="opening-history-card__head">
+                    <span v-if="node.yearLabel" class="opening-history-card__year">{{ node.yearLabel }}</span>
+                    <strong class="opening-history-card__title">{{ node.title || '未命名节点' }}</strong>
+                  </div>
+                  <p v-if="node.summary" class="opening-history-card__summary">{{ node.summary }}</p>
+                  <div class="opening-history-card__meta">
+                    <span v-if="node.participants.length">参与方 · {{ node.participants.join('、') }}</span>
+                    <span v-if="node.locationHint">地点 · {{ node.locationHint }}</span>
+                  </div>
+                  <button
+                    class="opening-history-card__enter"
+                    type="button"
+                    :disabled="gameStore.isLoading || isStarting"
+                    @click="enterHistoryNode(node.raw)"
+                  >
+                    进入这段历史
+                  </button>
+                </li>
+              </ul>
+            </div>
+
             <div v-if="hasSelectedWorldbook && showOpeningActionCard" class="opening-action-actions">
               <BookmarkButton
                 class="action-btn stage-command stage-command--primary"
@@ -144,8 +177,12 @@ import CharacterBackdrop from '@/components/folio/CharacterBackdrop.vue'
 import CharacterArchiveStrip from '@/components/folio/CharacterArchiveStrip.vue'
 import {
   buildPlayableWorldActionHooks,
+  buildPlayableHistoryEntryIntent,
   clearPlayableWorldEntryIntent,
-  getPlayableWorldEntryIntent
+  consumePlayableWorldHistoryIntent,
+  getPlayableHistoryNodes,
+  getPlayableWorldEntryIntent,
+  savePlayableWorldEntryIntent
 } from '../services/playableWorldEntry'
 
 const gameStore = useGameStore()
@@ -208,6 +245,7 @@ const playableWorldDeck = computed(() => {
   return activeWorldbook.value?.description || playableWorldDescription.value || ''
 })
 const openingActionHooks = computed(() => buildPlayableWorldActionHooks(activeWorldbook.value))
+const playableHistoryNodes = computed(() => getPlayableHistoryNodes(activeWorldbook.value))
 const selectedOpeningAction = computed(() => {
   const hooks = openingActionHooks.value
   if (!hooks.length) return null
@@ -354,6 +392,7 @@ async function ensureWorldAdventureSession({ initIfEmpty = true } = {}) {
         worldbookId,
         inheritRuntimeState: false,
       })
+      applyPlayableWorldHistoryPatch(getPlayableWorldEntryIntent())
     }
 
     if (initIfEmpty && (!gameStore.messages || gameStore.messages.length === 0)) {
@@ -366,6 +405,28 @@ async function ensureWorldAdventureSession({ initIfEmpty = true } = {}) {
   }
 }
 
+function applyPlayableWorldHistoryPatch(intent) {
+  const patches = consumePlayableWorldHistoryIntent(intent)
+  if (!patches) return
+  if (patches.historyNode && typeof gameStore.setHistoryNode === 'function') {
+    gameStore.setHistoryNode(patches.historyNode)
+  }
+  if (patches.worldMapPatch) {
+    gameStore.saveWorldMapState({ ...gameStore.worldMapState, ...patches.worldMapPatch })
+  }
+  if (patches.plotJournalEntry) {
+    gameStore.appendPlotJournal(patches.plotJournalEntry)
+  }
+  if (patches.factionRelationsPatch) {
+    for (const [name, value] of Object.entries(patches.factionRelationsPatch)) {
+      gameStore.setFactionRelation(name, value)
+    }
+  }
+  if (patches.runtimeEvent) {
+    gameStore.appendRuntimeEvent(patches.runtimeEvent)
+  }
+}
+
 async function sendOpeningAction() {
   const action = selectedOpeningAction.value
   if (!action?.command) return
@@ -373,6 +434,19 @@ async function sendOpeningAction() {
   if (!ready) return
   clearPlayableWorldEntryIntent()
   await gameStore.sendAction(action.command, { hidden: true })
+  router.push({ name: 'experience' })
+}
+
+async function enterHistoryNode(rawNode) {
+  const intent = buildPlayableHistoryEntryIntent(activeWorldbook.value, rawNode)
+  if (!intent?.action?.command) return
+  // Save first so ensureWorldAdventureSession's applyPlayableWorldHistoryPatch
+  // can seed the fresh session from this history node (map / factions / journal).
+  savePlayableWorldEntryIntent(intent)
+  const ready = await ensureWorldAdventureSession({ initIfEmpty: false })
+  if (!ready) return
+  clearPlayableWorldEntryIntent()
+  await gameStore.sendAction(intent.action.command, { hidden: true })
   router.push({ name: 'experience' })
 }
 
@@ -805,6 +879,117 @@ function getActiveEntryNames(typeValue, limit = 3) {
   margin-left: 4px;
 }
 
+/* Window 3: playable history node entry. Restrained archive cards that sit
+   directly on the art (no gradient/left-accent cliches). Hidden entirely
+   when the world carries no playable geoHistory nodes. */
+.opening-history {
+  display: grid;
+  gap: 10px;
+  max-width: min(780px, 52vw);
+  margin-left: 4px;
+}
+
+.opening-history__eyebrow {
+  color: var(--archive-paper-soft);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow:
+    0 1px 0 color-mix(in srgb, #000 54%, transparent),
+    var(--opening-surface-shadow);
+}
+
+.opening-history__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.opening-history-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--archive-ink) 34%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 26%, transparent);
+  backdrop-filter: blur(8px) saturate(1.05);
+}
+
+.opening-history-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.opening-history-card__year {
+  color: var(--archive-gold);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.68);
+}
+
+.opening-history-card__title {
+  color: var(--archive-paper);
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+}
+
+.opening-history-card__summary {
+  margin: 0;
+  color: var(--archive-paper);
+  font-size: 13px;
+  line-height: 1.5;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+
+.opening-history-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.opening-history-card__meta span {
+  color: var(--archive-paper-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.opening-history-card__enter {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 6px 14px;
+  color: var(--archive-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--archive-gold) 82%, var(--archive-paper));
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  cursor: pointer;
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.opening-history-card__enter:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.opening-history-card__enter:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .opening-mission {
   display: grid;
   gap: 6px;
@@ -1105,6 +1290,10 @@ function getActiveEntryNames(typeValue, limit = 3) {
     width: 100%;
   }
 
+  .opening-history {
+    max-width: 100%;
+  }
+
   .opening-pressure-grid,
   .opening-page-facts {
     grid-template-columns: 1fr;
@@ -1168,5 +1357,23 @@ function getActiveEntryNames(typeValue, limit = 3) {
     padding-left: 10px;
     font-size: 16px;
   }
+}
+
+/* W5b UX sweep: the text-shadow rules above were tuned for the kao
+   dark-olive CharacterBackdrop. In theme-legacy the surface is
+   steel-blue / bright, so the shadows double-render as halos against
+   the title text. The cleanest fix is to reset text-shadow on the
+   known affected selectors within .theme-legacy specifically. The kao
+   (default) variant keeps the existing decorative shadows. */
+.theme-legacy .opening-kicker,
+.theme-legacy .opening-world-kicker,
+.theme-legacy .opening-phase-tag,
+.theme-legacy .opening-rail-btn span,
+.theme-legacy .opening-action-head span,
+.theme-legacy .opening-orbit-decor,
+.theme-legacy .opening-orbit-decor span,
+.theme-legacy .opening-cta-decor,
+.theme-legacy .opening-meta-line {
+  text-shadow: none;
 }
 </style>

@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 进入世界 / 开始冒险 | `src/pages/Experience.vue`, `src/components/GamePanel.vue` | `src/composables/useAdvisor.js`, `src/services/generationService.js`, `src/services/memorySync.js` |
 | 世界书 / 设定 | `src/pages/WorldBookQuickImport.vue`, `src/pages/WorldBookEditor.vue`, `src/pages/StructuredSettings.vue` | `src/stores/worldStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/settingFieldGeneration.js`, `src/services/settingPanelSchema.js` |
-| 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js` |
+| 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js`, `src/services/media/imageProviderService.js` |
 | 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/relationCanvas.js`, `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
 | 写作消费 | `src/pages/Writing.vue` | `src/services/proseGeneration.js`, `src/services/writingNotes.js` |
 
@@ -63,6 +63,10 @@
 | 职责 | 关键文件 |
 | --- | --- |
 | 素材真源 | `src/services/narrativeAssets.js` |
+| 图片 Provider / 配置 | `src/services/media/imageProviderService.js`, `src/services/media/imageProviderConfigStore.js` |
+| 媒体资产 / Blob | `src/services/media/mediaAssetStore.js` |
+| 素材图片桥接 / 迁移 | `src/services/media/narrativeImageAssetBridge.js` |
+| 画布附件桥接 / 迁移 | `src/services/media/canvasImageAssetBridge.js` |
 | 关系画布 | `src/services/relationCanvas.js` |
 | 分镜状态 / 导出 | `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
 
@@ -79,8 +83,7 @@
 | 路径 / 命令 | 用途 |
 | --- | --- |
 | `src/__tests__/` | 全部测试 |
-| `npm run test:run` | 全量回归 |
-| `npm run test:arch` | 架构护栏 |
+| `npm run test:run` | 18 files / 200 tests 核心回归 |
 | `npm run build` | 生产构建 |
 | `npm run docs:build` | 文档站构建 |
 

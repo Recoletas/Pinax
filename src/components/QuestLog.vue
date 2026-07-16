@@ -5,6 +5,34 @@
       <span v-if="activities.length > 0" class="count-badge">{{ activities.length }}</span>
     </header>
 
+    <template v-if="railMode === 'compact' || railMode === 'codex'">
+      <div class="quest-rail-summary">
+        <div v-if="latestActivity" class="quest-rail-entry">
+          <span>{{ getActivityLabel(latestActivity.type) }}</span>
+          <strong>{{ latestActivity.title }}</strong>
+        </div>
+        <div v-else class="quest-rail-entry quest-rail-entry--empty">
+          <span>事件</span>
+          <strong>暂无事件</strong>
+        </div>
+        <ul v-if="codexSummaryItems.length > 0" class="quest-rail-summary-list">
+          <li v-for="item in codexSummaryItems" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </li>
+        </ul>
+        <p
+          v-else
+          class="quest-rail-hint"
+        >推进冒险后会在这里补上目标 / 选择 / 已遇角色摘要。</p>
+        <div class="quest-rail-actions">
+          <button type="button" class="mini-btn" @click="emitOpenDetail" :disabled="activities.length === 0">查看详情</button>
+          <button type="button" class="mini-btn primary" @click="openAddModal">记入</button>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
     <!-- UI-E13-BIG1: demo mode — show the local demo scene's events as
          honest placeholders. The current event is highlighted so the
          user can see which step they're on. Hidden when real messages
@@ -38,6 +66,36 @@
         <div class="summary-label">暂无摘要</div>
         <p class="summary-value summary-value--hint">推进冒险后会生成目标 / 选择 / 已遇角色摘要</p>
       </article>
+    </section>
+
+    <section
+      v-if="emergenceCandidates.length > 0"
+      class="emergence-panel"
+      data-test="emergence-candidate-panel"
+      aria-label="待确认的剧情候选"
+    >
+      <div class="emergence-panel-head">
+        <div>
+          <div class="emergence-kicker">文本已完成 · 待确认</div>
+          <h3 class="emergence-title">剧情回响</h3>
+        </div>
+        <span class="emergence-count">{{ emergenceCandidates.length }}</span>
+      </div>
+      <button
+        v-for="candidate in emergenceCandidates"
+        :key="candidate.id"
+        type="button"
+        class="emergence-notice"
+        data-test="emergence-candidate-notice"
+        @click="openEmergenceCandidate(candidate)"
+      >
+        <span class="emergence-notice-mark" aria-hidden="true"></span>
+        <span class="emergence-notice-copy">
+          <strong>{{ candidate.title }}</strong>
+          <span>{{ candidate.summary }}</span>
+        </span>
+        <span class="emergence-notice-arrow" aria-hidden="true">›</span>
+      </button>
     </section>
 
     <section
@@ -163,14 +221,15 @@
       </svg>
     </button>
     <button v-else type="button" class="empty-state" @click="openAddModal">
-      <span class="empty-state-kicker">事件卷 · 空白</span>
-      <span class="empty-state-copy">记录第一次冒险事件 · 时间 / 类型 / 关联活动</span>
+      <span class="empty-state-kicker">暂无事件</span>
+      <span class="empty-state-copy">推进冒险后再记录关键变化</span>
     </button>
 
     <div class="inline-actions">
       <button type="button" class="mini-btn" @click="showDetail = true" :disabled="activities.length === 0">查看事件卷</button>
       <button type="button" class="mini-btn primary" @click="openAddModal">记入事件</button>
     </div>
+    </template>
 
     <div v-if="showDetail" class="detail-overlay" @click.self="showDetail = false">
       <div class="detail-modal">
@@ -183,12 +242,10 @@
             <div v-for="(group, dateKey) in groupedActivities" :key="dateKey" class="timeline-group">
               <div class="timeline-date">{{ formatDateKey(dateKey) }}</div>
               <div class="timeline-items">
-                <button
+                <article
                   v-for="activity in group"
                   :key="activity.id"
-                  type="button"
                   class="timeline-item"
-                  @click="editActivity(activity)"
                 >
                   <div class="item-time">{{ formatTime(activity.time) }}</div>
                   <div class="item-marker">
@@ -196,12 +253,29 @@
                     <div class="marker-line"></div>
                   </div>
                   <div class="item-content">
-                    <div class="item-title">{{ activity.title }}</div>
-                    <div class="item-type" :style="{ color: getActivityColor(activity.type) }">
-                      {{ getActivityLabel(activity.type) }}
+                    <button type="button" class="timeline-edit-action" @click="editActivity(activity)">
+                      <span class="item-title">{{ activity.title }}</span>
+                      <span class="item-type" :style="{ color: getActivityColor(activity.type) }">
+                        {{ getActivityLabel(activity.type) }}
+                      </span>
+                    </button>
+                    <div v-if="getActivityPlace(activity)" class="timeline-place-actions">
+                      <span class="timeline-place-label">{{ getActivityPlace(activity).name || activity.placeId }}</span>
+                      <button
+                        type="button"
+                        class="timeline-place-link"
+                        :data-test="`${activity.id}-map`"
+                        @click="emitPlaceNavigation(activity, 'map')"
+                      >地图</button>
+                      <button
+                        type="button"
+                        class="timeline-place-link"
+                        :data-test="`${activity.id}-settings`"
+                        @click="emitPlaceNavigation(activity, 'settings')"
+                      >设定</button>
                     </div>
                   </div>
-                </button>
+                </article>
               </div>
             </div>
           </div>
@@ -212,6 +286,127 @@
         <div class="modal-footer">
           <button type="button" class="btn" @click="showDetail = false">关闭</button>
           <button type="button" class="btn primary" @click="openAddModal">添加活动</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="selectedEmergenceCandidate"
+      class="detail-overlay"
+      data-test="emergence-candidate-dialog"
+      @click.self="selectedEmergenceCandidate = null"
+    >
+      <div class="detail-modal emergence-detail">
+        <div class="modal-header">
+          <span>剧情候选</span>
+          <button type="button" class="close-btn" @click="selectedEmergenceCandidate = null" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="emergence-detail-kicker">尚未发生 · 需要确认</div>
+          <h3>{{ selectedEmergenceCandidate.title }}</h3>
+          <p>{{ selectedEmergenceCandidate.summary }}</p>
+          <ul v-if="selectedEmergenceCandidate.reasons?.length" class="emergence-reasons">
+            <li v-for="reason in selectedEmergenceCandidate.reasons" :key="reason">{{ reason }}</li>
+          </ul>
+          <div
+            v-if="emergenceDraftState.draft?.status === 'error'"
+            class="emergence-draft-state emergence-draft-state--error"
+          >
+            <strong>具体化失败</strong>
+            <p>{{ emergenceDraftState.draft.error || '这次事件没有通过校验，请稍后重试。' }}</p>
+          </div>
+          <article
+            v-if="emergenceDraftState.isReady"
+            class="emergence-draft-preview"
+            data-test="emergence-draft-preview"
+          >
+            <div class="emergence-draft-preview-head">
+              <span>待审阅事件草稿</span>
+              <span>{{ Math.round((emergenceDraftState.draft.event.confidence || 0) * 100) }}%</span>
+            </div>
+            <h4>{{ emergenceDraftState.draft.event.title }}</h4>
+            <p>{{ emergenceDraftState.draft.event.summary }}</p>
+            <ul class="emergence-choice-list">
+              <li v-for="choice in emergenceDraftState.draft.event.choices" :key="choice.id">
+                <strong>{{ choice.label }}</strong>
+                <span v-if="choice.risk">{{ choice.risk }}</span>
+              </li>
+            </ul>
+          </article>
+          <section
+            v-if="emergenceDraftState.isPending && emergenceDeltaPreview.valid"
+            class="emergence-delta-preview"
+            data-test="emergence-delta-preview"
+          >
+            <div class="emergence-draft-preview-head">
+              <span>状态变更预览</span>
+              <span>待确认</span>
+            </div>
+            <p class="emergence-delta-explanation">{{ emergenceDeltaPreview.explanation }}</p>
+            <ul class="emergence-delta-list">
+              <li v-for="change in emergenceDeltaPreview.changes" :key="change.path">
+                <strong>{{ formatEmergenceDeltaPath(change.path) }}</strong>
+                <span>{{ formatEmergenceDelta(change) }}</span>
+              </li>
+            </ul>
+          </section>
+          <div
+            v-if="emergenceDraftState.isApplied"
+            class="emergence-draft-state emergence-draft-state--applied"
+            data-test="emergence-applied-state"
+          >
+            <strong>已应用 · 可回滚</strong>
+            <p>{{ emergenceDraftState.draft.event.causes?.join('、') || '事件依据已写入运行时事件记录。' }}</p>
+          </div>
+          <div
+            v-else-if="emergenceDraftState.isRejected"
+            class="emergence-draft-state"
+            data-test="emergence-rejected-state"
+          >
+            <strong>已拒绝 · 未改变世界状态</strong>
+          </div>
+          <div v-if="emergenceActionError" class="emergence-draft-state emergence-draft-state--error">
+            <strong>操作未完成</strong>
+            <p>{{ emergenceActionError }}</p>
+          </div>
+          <div class="inline-actions emergence-detail-actions">
+            <button
+              type="button"
+              class="mini-btn primary"
+              data-test="emergence-generate"
+              :disabled="emergenceDraftState.isGenerating || emergenceDraftState.isReady"
+              @click="generateSelectedEmergence"
+            >
+              {{ emergenceDraftState.isGenerating ? '具体化中' : emergenceDraftState.isReady ? '事件草稿已生成' : '生成事件草稿' }}
+            </button>
+            <button
+              v-if="emergenceDraftState.isPending"
+              type="button"
+              class="mini-btn primary"
+              data-test="emergence-apply"
+              @click="applySelectedEmergence"
+            >接受并应用</button>
+            <button
+              v-if="emergenceDraftState.isPending"
+              type="button"
+              class="mini-btn"
+              data-test="emergence-reject"
+              @click="rejectSelectedEmergence"
+            >拒绝</button>
+            <button
+              v-if="emergenceDraftState.isApplied"
+              type="button"
+              class="mini-btn"
+              data-test="emergence-rollback"
+              @click="rollbackSelectedEmergence"
+            >回滚应用</button>
+            <button
+              type="button"
+              class="mini-btn"
+              data-test="emergence-dismiss"
+              @click="dismissSelectedEmergence"
+            >暂不处理</button>
+          </div>
         </div>
       </div>
     </div>
@@ -294,9 +489,25 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { useWorldStore } from '../stores/worldStore'
 import { useWorkstationMeta } from '../composables/useWorkstationMeta'
+import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
+
+defineProps({
+  railMode: {
+    type: String,
+    default: ''
+  }
+})
+
+const emit = defineEmits(['open-detail', 'open-place'])
+
+function emitOpenDetail() {
+  emit('open-detail', 'events')
+}
 
 const gameStore = useGameStore()
+const worldStore = useWorldStore()
 const meta = useWorkstationMeta()
 const isDemoMode = computed(() => meta.isDemoMode.value)
 
@@ -314,6 +525,8 @@ const goals = computed(() => gameStore.goals || [])
 const keyChoices = computed(() => gameStore.keyChoices || [])
 const encounteredCharacters = computed(() => gameStore.encounteredCharacters || [])
 const plotJournal = computed(() => gameStore.plotJournal || [])
+const emergenceCandidates = computed(() => gameStore.emergenceCandidates || [])
+const placeEntityIndex = computed(() => buildPlaceEntityIndex(worldStore.activeWorldbook || {}))
 
 const activityTypes = [
   { value: 'event', label: '事件', color: '#6aa7ff' },
@@ -341,6 +554,12 @@ const summaryItems = computed(() => {
     characterNames.length > 0 ? { label: '已遇角色', value: characterNames.join('、') } : null
   ].filter(Boolean)
 })
+
+// UI-E18: codex rail summary — 复用 summaryItems 但截短到 18 字符,
+const codexSummaryItems = computed(() => summaryItems.value.slice(0, 2).map((item) => ({
+  label: item.label,
+  value: String(item.value || '').replace(/\s+/g, ' ').slice(0, 26)
+})))
 
 const groupedActivities = computed(() => {
   const groups = {}
@@ -379,6 +598,22 @@ const triggerMetaItems = computed(() => {
 })
 const proseDraftCard = computed(() => buildDraftCard(proseTriggerState.value, 'prose'))
 const storyboardDraftCard = computed(() => buildDraftCard(storyboardTriggerState.value, 'storyboard'))
+const selectedEmergenceCandidate = ref(null)
+const emergenceActionError = ref('')
+const emergenceDraftState = computed(() => {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || typeof gameStore.getEmergenceDraftState !== 'function') {
+    return { candidate: null, draft: null, isGenerating: false, isReady: false }
+  }
+  return gameStore.getEmergenceDraftState(candidateId)
+})
+const emergenceDeltaPreview = computed(() => {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || !emergenceDraftState.value.isPending || typeof gameStore.getEmergenceStateDeltaPreview !== 'function') {
+    return { valid: false, changes: [], explanation: '' }
+  }
+  return gameStore.getEmergenceStateDeltaPreview(candidateId)
+})
 
 onMounted(() => {
   loadActivities()
@@ -576,6 +811,99 @@ function handleDismissTrigger(type) {
   gameStore.dismissAdventureTriggerDraft(type)
 }
 
+function openEmergenceCandidate(candidate) {
+  selectedEmergenceCandidate.value = candidate
+  emergenceActionError.value = ''
+}
+
+async function generateSelectedEmergence() {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || typeof gameStore.generateEmergenceDraft !== 'function') return
+  emergenceActionError.value = ''
+  try {
+    await gameStore.generateEmergenceDraft(candidateId)
+  } catch (error) {
+    emergenceActionError.value = error?.message || '事件具体化失败'
+  }
+}
+
+function applySelectedEmergence() {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || typeof gameStore.applyEmergenceDraft !== 'function') return
+  emergenceActionError.value = ''
+  try {
+    gameStore.applyEmergenceDraft(candidateId)
+  } catch (error) {
+    emergenceActionError.value = error?.message || '事件应用失败'
+  }
+}
+
+function rejectSelectedEmergence() {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || typeof gameStore.rejectEmergenceDraft !== 'function') return
+  emergenceActionError.value = ''
+  try {
+    gameStore.rejectEmergenceDraft(candidateId)
+  } catch (error) {
+    emergenceActionError.value = error?.message || '事件拒绝失败'
+  }
+}
+
+function rollbackSelectedEmergence() {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (!candidateId || typeof gameStore.rollbackEmergenceDraft !== 'function') return
+  emergenceActionError.value = ''
+  try {
+    const result = gameStore.rollbackEmergenceDraft(candidateId)
+    if (result?.success === false) emergenceActionError.value = result.draft?.error || '回滚冲突'
+  } catch (error) {
+    emergenceActionError.value = error?.message || '事件回滚失败'
+  }
+}
+
+function formatEmergenceDeltaPath(path) {
+  return {
+    flags: '剧情标记',
+    factionRelations: '阵营关系',
+    worldMapState: '地点状态',
+    goals: '角色目标',
+    encounteredCharacters: '已遇角色',
+    keyChoices: '关键选择',
+    plotJournal: '剧情日志',
+    activities: '活动记录',
+    inventory: '物品',
+    quests: '任务'
+  }[path] || path
+}
+
+function formatEmergenceDelta(change) {
+  if (change.path === 'worldMapState') {
+    const before = change.before || {}
+    const after = change.after || {}
+    const fields = ['currentCountry', 'currentCity', 'currentScene', 'placeId']
+      .filter((key) => before[key] !== after[key] && after[key])
+      .map((key) => `${after[key]}`)
+    return fields.join(' / ') || '地点信息更新'
+  }
+  if (change.path === 'factionRelations') {
+    return Object.entries(change.after || {})
+      .filter(([name, value]) => value !== (change.before || {})[name])
+      .map(([name, value]) => `${name} ${Number(value) > Number((change.before || {})[name] || 0) ? '+' : ''}${value}`)
+      .join('、') || '关系更新'
+  }
+  if (Array.isArray(change.after)) return `条目 ${change.before?.length || 0} → ${change.after.length}`
+  const changedKeys = Object.keys(change.after || {}).filter((key) => change.after[key] !== (change.before || {})[key])
+  return changedKeys.join('、') || '状态更新'
+}
+
+function dismissSelectedEmergence() {
+  const candidateId = selectedEmergenceCandidate.value?.id
+  if (candidateId && typeof gameStore.dismissEmergenceCandidate === 'function') {
+    gameStore.dismissEmergenceCandidate(candidateId)
+  }
+  selectedEmergenceCandidate.value = null
+}
+
 function editActivity(activity) {
   editingActivity.value = activity
   editTitle.value = activity.title || ''
@@ -603,6 +931,17 @@ function editActivity(activity) {
   showEditor.value = true
 }
 
+function getActivityPlace(activity) {
+  if (!activity?.placeId) return null
+  return resolvePlaceEntity(placeEntityIndex.value, activity.placeId)
+}
+
+function emitPlaceNavigation(activity, target) {
+  const placeId = getActivityPlace(activity)?.placeId || activity?.placeId
+  if (!placeId) return
+  emit('open-place', { placeId, target })
+}
+
 function closeModal() {
   showEditor.value = false
   editingActivity.value = null
@@ -626,7 +965,10 @@ function saveActivity() {
     type: editType.value,
     date: editDate.value,
     time: editDate.value && editTime.value ? `${editDate.value} ${editTime.value}` : editTime.value,
-    relations: [...editRelations.value]
+    relations: [...editRelations.value],
+    placeId: editingActivity.value
+      ? (editingActivity.value.placeId || '')
+      : (gameStore.worldMapState?.placeId || '')
   }
 
   if (editingActivity.value) {
@@ -680,8 +1022,13 @@ function deleteActivity() {
   min-width: 22px;
   padding: 2px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 82%, #fff 18%);
-  color: var(--accent-text, #fff);
+  /* W5b UX sweep: soften the 82% accent wash + #fff fallback. The
+     hard `accent 82% + #fff 18%` puts white-on-near-red in kao dark
+     (WCAG ~3.6:1 fail). Soft accent tint over page bg + text in
+     accent itself = chip-readable in both modes + both variants. */
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-primary));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
   font-size: 10px;
   text-align: center;
 }
@@ -689,6 +1036,232 @@ function deleteActivity() {
 .adventure-summary {
   display: grid;
   gap: 8px;
+}
+
+.emergence-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+
+.emergence-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.emergence-kicker,
+.emergence-detail-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.emergence-title {
+  margin: 3px 0 0;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.emergence-count {
+  min-width: 22px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.emergence-notice {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.emergence-notice:hover,
+.emergence-notice:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  outline: none;
+}
+
+.emergence-notice-mark {
+  width: 6px;
+  height: 30px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.emergence-notice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.emergence-notice-copy strong,
+.emergence-notice-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emergence-notice-copy strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.emergence-notice-copy span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.emergence-notice-arrow {
+  color: var(--accent);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.emergence-detail h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+}
+
+.emergence-detail p {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.emergence-reasons {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.emergence-draft-state,
+.emergence-draft-preview {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, var(--accent) 14%);
+}
+
+.emergence-draft-state--error {
+  border-color: color-mix(in srgb, var(--danger, #d46d78) 35%, var(--border));
+}
+
+.emergence-draft-state--applied {
+  border-color: color-mix(in srgb, #4bc690 42%, var(--border));
+}
+
+.emergence-delta-preview {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+}
+
+.emergence-detail .emergence-delta-explanation {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.emergence-delta-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.emergence-delta-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.emergence-delta-list strong {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.emergence-draft-state strong,
+.emergence-draft-preview-head {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.emergence-draft-state p,
+.emergence-draft-preview p {
+  margin-top: 5px;
+}
+
+.emergence-draft-preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  letter-spacing: 0.04em;
+}
+
+.emergence-draft-preview h4 {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.emergence-choice-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.emergence-choice-list li {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.emergence-choice-list strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.emergence-choice-list span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.emergence-detail-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .trigger-panel {
@@ -1060,8 +1633,55 @@ function deleteActivity() {
   width: 100%;
   padding: 8px 10px;
   border-radius: 10px;
+  text-align: left;
+}
+
+.timeline-edit-action {
+  display: grid;
+  width: 100%;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.timeline-edit-action:hover .item-title {
+  color: var(--accent);
+}
+
+.timeline-place-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.timeline-place-label {
+  max-width: 15em;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-place-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.timeline-place-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .item-time {
@@ -1325,5 +1945,93 @@ function deleteActivity() {
 .theme-kao .modal-overlay,
 .theme-kao .detail-overlay {
   background: color-mix(in srgb, var(--archive-ink) 30%, transparent);
+}
+
+.quest-rail-summary {
+  display: grid;
+  gap: 7px;
+}
+
+.quest-rail-entry {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.quest-rail-entry--empty {
+  cursor: default;
+}
+
+.quest-rail-entry span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.quest-rail-entry strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.quest-rail-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* UI-E18: codex rail summary list — 2 行精选摘要 (目标 / 选择 或 已遇角色),
+   + inline hint fallback when 0 数据. 跟 StatusBar / GeographyPanel 一致. */
+.quest-rail-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.quest-rail-summary-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+
+.quest-rail-summary-list li span {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.quest-rail-summary-list li strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.quest-rail-hint {
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.45;
 }
 </style>

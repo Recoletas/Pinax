@@ -94,7 +94,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 7. **AppShell drawer focus trap**(`inert` + Esc)— 1 天 a11y
 8. **Color contrast `#9a6a2f` → token** — 1 天真 bug
 9. **Vue 3.5 特性**(`defineModel` / `useTemplateRef` / `useId` / `onWatcherCleanup` / `effectScope`)— zero-risk drop-in
-10. **立体感 v5 plan doc** — **v3 修:已存在**(`docs/superpowers/plans/2026-06-15-stereo-migration.md` 51 KB / 1164 行 / 2026-06-15 09:24 写就);v2 误判为"缺失"已订正。
+10. **立体感 v5 plan doc** — **已完成并清理**；当前路线图不再维护这份历史执行计划。
 11. **V2 世界书规范对齐 + CJK token 修 + save debounce** — 1 个 "do not touch" exception 申请
 12. **Pinia 3 升级** + **Vitest 4 升级**(sweep-limited)+ **`markRaw` LLM 响应对象** — 版本 bump + 微型 perf 修
 
@@ -141,7 +141,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 
 **god composable**:`useCopilot.js` 514 / `useMem0.js` 594 / `useDirector.js` 442 LoC。
 
-**UI 契约测试是文本断言**:`uiPolish.test.js` / `welcomeView.test.js` / `workbenchNav.test.js` 全部 `readFileSync` + 字符串匹配。
+**历史 UI 契约测试曾大量使用文本断言**；已完成的 `uiPolish.test.js` 历史集合现已删除，当前覆盖拆分在各页面和功能测试文件中。
 
 **a11y 覆盖**:6 个 worldbook field 组件(vitest-axe),23 个组件零审计。
 
@@ -362,7 +362,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 | 7 | AppShell drawer focus trap(v2 从 T3 升) | 加 `inert` on `<main>` + Esc 关闭 | `src/layouts/AppShell.vue:84-117` | 1 天 a11y |
 | 8 | Color contrast `#9a6a2f` → token(v2 从 T3 升) | `.rp-dialogue-quote-warm` 当前在 archive paper 上 fail WCAG AA | `src/styles/main.css:694-700` | 1 天真 bug |
 | 9 | Vue 3.5 特性 sweep | 启用 `defineModel` / `useTemplateRef` / `useId` / `onWatcherCleanup` | Vue 全局 | drop-in 收益 |
-| 10 | ~~立体感 v5 plan doc 落地(v2 新)~~ | **v3 修:已存在**(`docs/superpowers/plans/2026-06-15-stereo-migration.md` 51 KB / 1164 行 / 2026-06-15 09:24 写就);本条从 Tier 1 删除 | — | 0 |
+| 10 | ~~立体感 v5 plan doc 落地(v2 新)~~ | 历史计划已完成并清理；本条从 Tier 1 删除 | — | 0 |
 | 11 | **V2 世界书对齐 + CJK token 修 + save debounce**(bundle exception) | 一次申请 `worldbook-workflow` + `gameStore` 例外;3 个 fix 一并发 | `src/services/worldbookContextBuilder.js` + `src/stores/gameStore.js`(都 "do not touch") | **例外请求先** |
 | 12 | Pinia 3 升级 + `markRaw` on LLM(v2 增 `markRaw` 单独条目) | 版本 bump 单独 PR(不绑 setup-store 迁移);`useCopilot.js` / `useMem0.js` LLM 响应 `markRaw` | `package.json` + `src/composables/useCopilot.js` / `useMem0.js` | 1-2 天,v2 grep 验证 LLM 响应未 markRaw |
 
@@ -417,10 +417,10 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 | 37 | Per-layer OffscreenCanvas(v2 从 T2 降) | 3 canvas 拆 + worker 化,2-4 周 | `src/components/geography/WorldMapVoronoi.vue` | T2→T3 |
 | 38 | 删 legacy `/api/game/*` | 实质死(关键词引擎 / stateManager / timeSystem) | `server/routes/game.js` + `services/{stateManager,timeSystem,eventEngine}.js` | 不变 |
 | 39 | server/data 迁 SPA bundle | 消除 2 routers + 1 service | `server/data/{worlds,events}/` → `src/data/` | 不变 |
-| 40 | 修 `storyforge-setting-panel.md` | 实施已超过规划 | `docs/plan/storyforge-setting-panel.md` | 不变 |
+| 40 | 修 StoryForge 设定栏 | 核心逻辑已迁移；旧实施计划已清理 | 主路线图 Gate 1 | 不变 |
 | 41 | 测 23 个无测试组件 | 用 @vue/test-utils mount 写运行时测试 | `src/__tests__/{welcomeView,experience,openingPage,gamePanel,inputArea,proseEssay,writing,notes,...}.test.js` | 不变 |
 | 42 | 加 `npm run test:coverage` | 装 c8/istanbul | `package.json` + `vitest.config.js` | 不变 |
-| 43 | mount 测试替代文件字符串测试 | 拆 `uiPolish.test.js` 39 tests → per-component | `src/__tests__/uiPolish.test.js` | 不变 |
+| 43 | mount 测试替代文件字符串测试 | 将历史 UI 字符串断言按页面 / 功能拆分 | `src/__tests__/*` | 已开始，后续只为真实交互风险补 mount 测试 |
 | 44 | a11y 扩 folio + gm-persona | vitest-axe | `src/components/folio/*` + `src/components/gm-persona/*` | 不变 |
 | 45 | Color contrast `.rp-dialogue-quote-warm` 修法 | (与 T1 #8 是同一 fix,T1 修后此处冗余) | — | 移出 |
 | 46 | 服务端结构化日志 + request-id | pino + correlation id middleware | `server/index.js` + `server/routes/*` | 不变 |
@@ -540,7 +540,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
    - 安全审计(OWASP top 10 / npm audit / Snyk)
    - 国际化付费市场(本地化服务商)
 2. **Tier 1 #11 bundle exception 申请要现在提吗?** 涵盖 V2 世界书对齐 / CJK token / save debounce 三个 fix。STATUS.md "Do not touch" 是硬约束,需要用户明确授权。
-3. ~~**Tier 1 #10(立体感 v5 plan doc)要现在派 writing-plans 流程吗?**~~ — **v3 修:plan doc 已存在 (`docs/superpowers/plans/2026-06-15-stereo-migration.md` 51 KB),本问已闭环。**
+3. ~~**Tier 1 #10(立体感 v5 plan doc)要现在派 writing-plans 流程吗?**~~ — 历史计划已完成并清理，本问已闭环。
 4. **Tier 1 #9 + #12 是否合并成 1 PR?** Vue 3.5 特性 + `markRaw` LLM 响应是同一个 sweepless PR。
 5. **Tier 2 #15(Tiptap v3 + Codex 右侧栏)是否独占一个 spec?** 还是合并到 Phase 1C plan?
 6. **Tier 2 #28(Vector RAG spike)是否现在启动?** mem0ai 凭据可用性 = 429 blocker 之外的新前置条件。
