@@ -648,7 +648,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -701,6 +701,15 @@ import {
   loadGeneratedImageLibrary,
   saveGeneratedImageLibraryRefs
 } from '../services/media/mediaAssetStore'
+import {
+  rectToLocalRect,
+  getConnectorPoint,
+  makeEdgePath,
+  getCardWallPoint,
+  clampNodePosition,
+  clamp
+} from '../services/canvasGeometry'
+import { useCanvasViewport } from '../composables/useCanvasViewport'
 
 const router = useRouter()
 const route = useRoute()
@@ -886,6 +895,24 @@ function goToAdventure() {
 const canvasWidth = ref(1200)
 const canvasHeight = ref(800)
 
+const pointerDragCard = ref(null)
+const pointerDragStartX = ref(0)
+const pointerDragStartY = ref(0)
+const pointerDragCardStartX = ref(0)
+const pointerDragCardStartY = ref(0)
+let _pointerDragMoved = false
+
+const viewport = useCanvasViewport({
+  containerRef: cardWallRef,
+  onEdgeChange: () => {
+    const wall = cardWallRef.value
+    if (!wall) return
+    renderedEdges.value = computeEdgePaths()
+    canvasWidth.value = Math.max(wall.scrollWidth, wall.clientWidth) + 100
+    canvasHeight.value = Math.max(wall.scrollHeight, wall.clientHeight) + 100
+  }
+})
+
 // Director mode editing
 const editingShotType = ref('')
 const editingCameraMovement = ref('')
@@ -977,14 +1004,6 @@ function layoutCards(cardsToLayout) {
   })
 }
 
-function makeEdgePath(x1, y1, x2, y2) {
-  const dx = Math.abs(x2 - x1)
-  const bend = Math.min(120, Math.max(40, dx * 0.4))
-  const c1x = x1 + bend
-  const c2x = x2 - bend
-  return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`
-}
-
 function computeEdgePaths() {
   const wall = cardWallRef.value
   if (!wall) return []
@@ -992,19 +1011,14 @@ function computeEdgePaths() {
     const sourceEl = wall.querySelector(`[data-card-id="${edge.sourceId}"]`)
     const targetEl = wall.querySelector(`[data-card-id="${edge.targetId}"]`)
     if (!sourceEl || !targetEl) return null
-    const sourceRect = sourceEl.getBoundingClientRect()
-    const targetRect = targetEl.getBoundingClientRect()
     const wallRect = wall.getBoundingClientRect()
-    const sourcePoint = getConnectorPoint(
-      rectToLocalRect(sourceRect, wallRect, wall),
-      rectToLocalRect(targetRect, wallRect, wall).centerX,
-      rectToLocalRect(targetRect, wallRect, wall).centerY
-    )
-    const targetPoint = getConnectorPoint(
-      rectToLocalRect(targetRect, wallRect, wall),
-      rectToLocalRect(sourceRect, wallRect, wall).centerX,
-      rectToLocalRect(sourceRect, wallRect, wall).centerY
-    )
+    const sl = wall.scrollLeft || 0
+    const st = wall.scrollTop || 0
+    const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, sl, st)
+    const targetRect = rectToLocalRect(targetEl.getBoundingClientRect(), wallRect, sl, st)
+    if (!sourceRect || !targetRect) return null
+    const sourcePoint = getConnectorPoint(sourceRect, targetRect.centerX, targetRect.centerY)
+    const targetPoint = getConnectorPoint(targetRect, sourceRect.centerX, sourceRect.centerY)
     return {
       ...edge,
       d: makeEdgePath(sourcePoint.x, sourcePoint.y, targetPoint.x, targetPoint.y),
@@ -1025,14 +1039,7 @@ function updateLayout() {
     renderedEdges.value = []
     return
   }
-  nextTick(() => {
-    renderedEdges.value = computeEdgePaths()
-    const wall = cardWallRef.value
-    if (wall) {
-      canvasWidth.value = Math.max(wall.scrollWidth, wall.clientWidth) + 100
-      canvasHeight.value = Math.max(wall.scrollHeight, wall.clientHeight) + 100
-    }
-  })
+  viewport.scheduleEdgeFlush()
 }
 
 watch(cards, () => {
@@ -1065,11 +1072,7 @@ function isInSameGroup(cardId) {
 }
 
 function computeEdgePositions() {
-  const wall = cardWallRef.value
-  if (!wall) return
-  renderedEdges.value = computeEdgePaths()
-  canvasWidth.value = Math.max(wall.scrollWidth, wall.clientWidth) + 100
-  canvasHeight.value = Math.max(wall.scrollHeight, wall.clientHeight) + 100
+  viewport.scheduleEdgeFlush()
 }
 
 function getRelatedCards(cardId) {
@@ -1214,6 +1217,11 @@ onMounted(async () => {
   await loadMaterialImageAssets()
   await nextTick()
   focusAssetCardFromRoute()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+  stopEdgeDraft()
 })
 
 watch(() => route.query.assetId, () => {
@@ -1477,6 +1485,9 @@ function trackPreference(action, card) {
 
 // Card operations
 function handleKeydown(e) {
+  const activeTag = document.activeElement?.tagName?.toLowerCase()
+  const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || document.activeElement?.isContentEditable
+
   if (e.key === 'Escape' && (linkingActive.value || edgeDeleteActive.value)) {
     cancelLinking()
     edgeDeleteActive.value = false
@@ -1486,6 +1497,26 @@ function handleKeydown(e) {
   } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
     e.preventDefault()
     redoCard()
+  } else if (!isInput && selectedCard.value && (e.key.startsWith('Arrow'))) {
+    e.preventDefault()
+    const step = e.shiftKey ? 40 : 8
+    const card = cards.value.find(c => c.id === selectedCard.value.id)
+    if (!card) return
+    const wall = cardWallRef.value
+    const cw = Number.isFinite(canvasWidth.value) && canvasWidth.value > 0 ? canvasWidth.value : (wall?.clientWidth || 1200)
+    const ch = Number.isFinite(canvasHeight.value) && canvasHeight.value > 0 ? canvasHeight.value : (wall?.clientHeight || 800)
+    let nx = card.x || 0
+    let ny = card.y || 0
+    if (e.key === 'ArrowUp') ny -= step
+    else if (e.key === 'ArrowDown') ny += step
+    else if (e.key === 'ArrowLeft') nx -= step
+    else if (e.key === 'ArrowRight') nx += step
+    const pos = clampNodePosition(nx, ny, 220, 160, cw, ch)
+    card.x = pos.x
+    card.y = pos.y
+    updateConnectedEdges(card.id)
+    updateLayout()
+    saveData()
   }
 }
 
@@ -2080,82 +2111,182 @@ function connectCards(sourceId, targetId, edgeType) {
   saveData()
 }
 
-function rectToLocalRect(rect, wallRect, wall) {
-  return {
-    left: rect.left - wallRect.left + wall.scrollLeft,
-    top: rect.top - wallRect.top + wall.scrollTop,
-    width: rect.width,
-    height: rect.height,
-    centerX: rect.left - wallRect.left + wall.scrollLeft + rect.width / 2,
-    centerY: rect.top - wallRect.top + wall.scrollTop + rect.height / 2,
-    right: rect.right - wallRect.left + wall.scrollLeft,
-    bottom: rect.bottom - wallRect.top + wall.scrollTop
-  }
-}
-
-function getConnectorPoint(rect, targetX, targetY) {
-  const dx = targetX - rect.centerX
-  const dy = targetY - rect.centerY
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return {
-      x: dx >= 0 ? rect.right : rect.left,
-      y: rect.centerY
-    }
-  }
-  return {
-    x: rect.centerX,
-    y: dy >= 0 ? rect.bottom : rect.top
-  }
-}
-
-function getCardWallPoint(event) {
-  if (!cardWallRef.value) return { x: 0, y: 0 }
-  const rect = cardWallRef.value.getBoundingClientRect()
-  return {
-    x: event.clientX - rect.left + cardWallRef.value.scrollLeft,
-    y: event.clientY - rect.top + cardWallRef.value.scrollTop
-  }
-}
-
 function onCardPointerDown(event, card) {
-  if (!linkingActive.value || event.button !== 0) return
+  if (event.button !== 0) return
   if (event.target instanceof Element && event.target.closest('.card-actions')) return
+
+  if (linkingActive.value) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const wall = cardWallRef.value
+    if (!wall) return
+    const sourceEl = wall.querySelector(`[data-card-id="${card.id}"]`)
+    if (!sourceEl) return
+    const wallRect = wall.getBoundingClientRect()
+    const sl = wall.scrollLeft || 0
+    const st = wall.scrollTop || 0
+    const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, sl, st)
+    if (!sourceRect) return
+    const localPoint = getCardWallPoint(event, wall)
+    const anchor = getConnectorPoint(sourceRect, localPoint.x, localPoint.y)
+
+    linkSourceCardId.value = card.id
+    edgeLinkDraft.value = {
+      sourceId: card.id,
+      x1: anchor.x,
+      y1: anchor.y,
+      x2: anchor.x,
+      y2: anchor.y
+    }
+    window.addEventListener('pointermove', onEdgeDraftMove)
+    window.addEventListener('pointerup', onEdgeDraftEnd)
+    return
+  }
+
   event.preventDefault()
   event.stopPropagation()
+  const cardEl = event.currentTarget
+  cardEl.setPointerCapture(event.pointerId)
 
+  pointerDragCard.value = card
+  pointerDragStartX.value = event.clientX
+  pointerDragStartY.value = event.clientY
+  pointerDragCardStartX.value = card.x || 0
+  pointerDragCardStartY.value = card.y || 0
+  _pointerDragMoved = false
+
+  cardEl.addEventListener('pointermove', onPointerDragMove)
+  cardEl.addEventListener('pointerup', onPointerDragUp)
+  cardEl.addEventListener('pointercancel', onPointerDragUp)
+}
+
+function onPointerDragMove(event) {
+  if (!pointerDragCard.value) return
+  const card = pointerDragCard.value
+  const dx = event.clientX - pointerDragStartX.value
+  const dy = event.clientY - pointerDragStartY.value
+  if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
+  _pointerDragMoved = true
+  const wall = cardWallRef.value
+  const cw = Number.isFinite(canvasWidth.value) && canvasWidth.value > 0 ? canvasWidth.value : (wall?.clientWidth || 1200)
+  const ch = Number.isFinite(canvasHeight.value) && canvasHeight.value > 0 ? canvasHeight.value : (wall?.clientHeight || 800)
+  const pos = clampNodePosition(
+    pointerDragCardStartX.value + dx,
+    pointerDragCardStartY.value + dy,
+    220, 160,
+    cw, ch
+  )
+  card.x = pos.x
+  card.y = pos.y
+  updateConnectedEdges(card.id)
+  updateLayout()
+}
+
+function onPointerDragUp(event) {
+  const cardEl = event.currentTarget
+  cardEl.removeEventListener('pointermove', onPointerDragMove)
+  cardEl.removeEventListener('pointerup', onPointerDragUp)
+  cardEl.removeEventListener('pointercancel', onPointerDragUp)
+
+  if (!pointerDragCard.value) return
+  const card = pointerDragCard.value
+  pointerDragCard.value = null
+
+  if (!_pointerDragMoved) return
+
+  const target = document.elementFromPoint(event.clientX, event.clientY)
+  const targetCardEl = target?.closest?.('[data-card-id]')
+  const targetCardId = targetCardEl?.dataset?.cardId
+
+  if (targetCardId && targetCardId !== card.id) {
+    const targetCard = cards.value.find(c => c.id === targetCardId)
+    if (targetCard) {
+      const targetPileId = targetCard.pileId
+      if (targetPileId) {
+        const pile = piles.value.find(p => p.pileId === targetPileId)
+        if (pile) pile.cardIds.push(card.id)
+        cards.value.forEach(c => { if (c.id === card.id) c.pileId = targetPileId })
+      } else {
+        const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+        piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, card.id], pileX: targetCard.x, pileY: targetCard.y })
+        cards.value.forEach(c => {
+          if (c.id === card.id || c.id === targetCard.id) c.pileId = newPileId
+        })
+      }
+      addTimeline('卡片加入牌堆')
+    }
+  }
+
+  if (card.pileId) {
+    const pile = piles.value.find(p => p.pileId === card.pileId)
+    if (pile) {
+      pile.cardIds = pile.cardIds.filter(id => id !== card.id)
+      if (pile.cardIds.length < 2) {
+        cards.value.forEach(c => { if (c.pileId === pile.pileId) c.pileId = null })
+        piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
+      }
+    }
+    card.pileId = null
+  }
+
+  viewport.scheduleEdgeFlush()
+  updateLayout()
+  saveData()
+}
+
+function updateConnectedEdges(cardId) {
+  if (!cardId) return
   const wall = cardWallRef.value
   if (!wall) return
-  const sourceEl = wall.querySelector(`[data-card-id="${card.id}"]`)
-  if (!sourceEl) return
   const wallRect = wall.getBoundingClientRect()
-  const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, wall)
-  const localPoint = {
-    x: event.clientX - wallRect.left + wall.scrollLeft,
-    y: event.clientY - wallRect.top + wall.scrollTop
-  }
-  const anchor = getConnectorPoint(sourceRect, localPoint.x, localPoint.y)
+  const sl = wall.scrollLeft || 0
+  const st = wall.scrollTop || 0
 
-  linkSourceCardId.value = card.id
-  edgeLinkDraft.value = {
-    sourceId: card.id,
-    x1: anchor.x,
-    y1: anchor.y,
-    x2: anchor.x,
-    y2: anchor.y
+  const otherEdges = {}
+  for (const e of renderedEdges.value) {
+    if (e.sourceId !== cardId && e.targetId !== cardId) otherEdges[e.id] = e
   }
-  window.addEventListener('pointermove', onEdgeDraftMove)
-  window.addEventListener('pointerup', onEdgeDraftEnd)
+
+  const updated = edges.value
+    .filter(e => e.sourceId === cardId || e.targetId === cardId)
+    .map(edge => {
+      const sourceEl = wall.querySelector(`[data-card-id="${edge.sourceId}"]`)
+      const targetEl = wall.querySelector(`[data-card-id="${edge.targetId}"]`)
+      if (!sourceEl || !targetEl) return null
+      const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, sl, st)
+      const targetRect = rectToLocalRect(targetEl.getBoundingClientRect(), wallRect, sl, st)
+      if (!sourceRect || !targetRect) return null
+      const sp = getConnectorPoint(sourceRect, targetRect.centerX, targetRect.centerY)
+      const tp = getConnectorPoint(targetRect, sourceRect.centerX, sourceRect.centerY)
+      return {
+        ...edge,
+        d: makeEdgePath(sp.x, sp.y, tp.x, tp.y),
+        x1: sp.x, y1: sp.y, x2: tp.x, y2: tp.y
+      }
+    })
+    .filter(Boolean)
+
+  for (const e of updated) {
+    otherEdges[e.id] = e
+  }
+  renderedEdges.value = Object.values(otherEdges)
 }
 
 function onEdgeDraftMove(event) {
   if (!edgeLinkDraft.value) return
-  const point = getCardWallPoint(event)
-  const sourceCard = cards.value.find((item) => item.id === edgeLinkDraft.value.sourceId)
   const wall = cardWallRef.value
-  if (!sourceCard || !wall) return
+  if (!wall) return
+  const point = getCardWallPoint(event, wall)
+  const sourceCard = cards.value.find((item) => item.id === edgeLinkDraft.value.sourceId)
+  if (!sourceCard) return
   const sourceEl = wall.querySelector(`[data-card-id="${sourceCard.id}"]`)
   if (!sourceEl) return
-  const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wall.getBoundingClientRect(), wall)
+  const wallRect = wall.getBoundingClientRect()
+  const sl = wall.scrollLeft || 0
+  const st = wall.scrollTop || 0
+  const sourceRect = rectToLocalRect(sourceEl.getBoundingClientRect(), wallRect, sl, st)
+  if (!sourceRect) return
   const anchor = getConnectorPoint(sourceRect, point.x, point.y)
   edgeLinkDraft.value = {
     ...edgeLinkDraft.value,

@@ -1,4 +1,5 @@
 import { computed, isRef, ref } from 'vue'
+import { clamp } from '../services/canvasGeometry'
 
 /**
  * UI-N6 / UI-N6F2: Free-placement canvas board composable.
@@ -168,8 +169,8 @@ export function useCanvasBoard(options) {
     const dropY = e.clientY - rect.top
     const scrollX = board.scrollLeft || 0
     const scrollY = board.scrollTop || 0
-    const x = dropX + scrollX - itemWidth / 2
-    const y = dropY + scrollY - itemHeight / 2
+    const x = clamp(dropX + scrollX - itemWidth / 2, -100, 10000)
+    const y = clamp(dropY + scrollY - itemHeight / 2, -100, 10000)
     setPosition(id, x, y)
     // UI-N6F2 req #4: clear draggingId so the next drag is recognized
     // as a fresh drag, not a continuation of the previous one.
