@@ -1,12 +1,18 @@
 import { ref } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService'
-import { createPendingResult, markCompleted, markFailed, markStale, markApplied, canApply, acknowledgeApply } from '../services/agents/agentResultLifecycle'
-import { adaptLegacyResultToAgentResult } from '../services/agents/legacyAdapter'
+import {
+  createPendingResult,
+  markFailed,
+  markStale,
+  markApplied,
+  markDismissed,
+  acknowledgeApply,
+  canApply,
+  canDismiss,
+  RESULT_STATUSES
+} from '../services/agents/agentResultLifecycle'
+import { adaptLegacyResultToAgentResult, adaptAgentResultToLegacy } from '../services/agents/legacyAdapter'
 import { validateTaskType } from '../services/agents/agentTaskRegistry'
-
-function createAdvisorResultId() {
-  return `advisor_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-}
 
 function normalizeAdvisorInput(input) {
   if (typeof input === 'string') {
@@ -46,7 +52,24 @@ function normalizeAdvisorInput(input) {
   }
 }
 
-export function useAdvisor() {
+function deriveDisplayFields(agentResult) {
+  const legacy = adaptAgentResultToLegacy(agentResult)
+  const result = legacy.result || {}
+  return {
+    summary: result.summary || agentResult.summary || '',
+    replacement: result.replacement || '',
+    targetRange: result.targetRange || null,
+    mode: result.mode || 'review',
+    issues: Array.isArray(result.issues) ? result.issues : [],
+    action: Array.isArray(result.action) ? result.action : [],
+    suggestions: Array.isArray(agentResult.suggestions) ? agentResult.suggestions.filter(Boolean) : [],
+    actions: Array.isArray(agentResult.actions) ? agentResult.actions.filter(Boolean) : []
+  }
+}
+
+export function useAdvisor(options = {}) {
+  const sideEffectRunner = options.sideEffectRunner || null
+
   const advisorOpen = ref(false)
   const advisorLoading = ref(false)
   const advisorMessages = ref([])
@@ -61,20 +84,29 @@ export function useAdvisor() {
     advisorLoading.value = true
     advisorMessages.value.push({ role: 'user', content: task.label || task.question })
 
+    const taskTypeValidation = validateTaskType(task.taskType)
+    const effectiveTaskType = taskTypeValidation.valid
+      ? taskTypeValidation.canonical
+      : task.taskType
+
+    const pendingAgentResult = createPendingResult(
+      effectiveTaskType || 'advisor.review.chapter',
+      { baseRevision: task.target?.text || null, target: task.target || null }
+    )
+
+    const previewFields = deriveDisplayFields(pendingAgentResult)
+    const entry = {
+      id: pendingAgentResult.id,
+      _agentResult: pendingAgentResult,
+      status: RESULT_STATUSES.PENDING,
+      ...previewFields
+    }
+    advisorResults.value.push(entry)
+
     try {
       if (typeof contextProvider !== 'function') {
         throw new Error('未配置上下文函数')
       }
-
-      const taskTypeValidation = validateTaskType(task.taskType)
-      const effectiveTaskType = taskTypeValidation.valid
-        ? taskTypeValidation.canonical
-        : task.taskType
-
-      const pendingResult = createPendingResult(effectiveTaskType || 'advisor.review.chapter', {
-        baseRevision: task.target?.text || null,
-        target: task.target || null
-      })
 
       const context = await contextProvider()
       const taskResult = await requestAdvisorTask({
@@ -87,31 +119,41 @@ export function useAdvisor() {
         mode: task.mode
       })
 
-      const agentResult = adaptLegacyResultToAgentResult(
+      const completedAgentResult = adaptLegacyResultToAgentResult(
         taskResult.result,
         effectiveTaskType
       )
 
-      advisorResults.value.push({
-        id: agentResult?.id || pendingResult.id || createAdvisorResultId(),
-        status: 'pending',
-        ...(taskResult.result || {}),
-        _agentResult: agentResult
-      })
+      entry._agentResult = completedAgentResult
+      const fields = deriveDisplayFields(completedAgentResult)
+      entry.summary = fields.summary
+      entry.replacement = fields.replacement
+      entry.targetRange = fields.targetRange
+      entry.mode = fields.mode
+      entry.issues = fields.issues
+      entry.action = fields.action
+      entry.suggestions = fields.suggestions
+      entry.actions = fields.actions
+      entry.status = RESULT_STATUSES.COMPLETED
+
       advisorMessages.value.push({ role: 'advisor', content: taskResult.advice })
     } catch (e) {
+      const failedAgentResult = markFailed(pendingAgentResult, e)
+      entry._agentResult = failedAgentResult
+      entry.status = RESULT_STATUSES.FAILED
+      entry.statusDetail = e.message || String(e)
       advisorMessages.value.push({ role: 'advisor', content: `获取建议失败：${e.message || e}` })
     } finally {
       advisorLoading.value = false
     }
   }
 
-  function applyAdvisorResult(resultId, currentRevision) {
-    const result = advisorResults.value.find((item) => item.id === resultId)
-    if (!result) return { ok: false, reason: 'not-found' }
+  async function applyAdvisorResult(resultId, currentRevision) {
+    const entry = advisorResults.value.find((item) => item.id === resultId)
+    if (!entry) return { ok: false, reason: 'not-found', status: null }
 
-    const agentResult = result._agentResult
-    if (!agentResult) return { ok: false, reason: 'no-agent-result' }
+    const agentResult = entry._agentResult
+    if (!agentResult) return { ok: false, reason: 'no-agent-result', status: null }
 
     if (!canApply(agentResult, currentRevision)) {
       return {
@@ -121,27 +163,119 @@ export function useAdvisor() {
       }
     }
 
-    console.log('[useAdvisor] applyAdvisorResult not yet wired to side-effect runner')
+    if (typeof sideEffectRunner === 'function') {
+      entry.status = 'applying'
+      try {
+        const runnerResult = await sideEffectRunner(agentResult, { currentRevision })
+        if (runnerResult && runnerResult.ok === false) {
+          entry._agentResult = markFailed(agentResult, runnerResult.message || 'side-effect failed')
+          entry.status = RESULT_STATUSES.FAILED
+          entry.statusDetail = runnerResult.message || runnerResult.reason
+          return {
+            ok: false,
+            reason: runnerResult.reason || 'side-effect-failed',
+            status: RESULT_STATUSES.FAILED,
+            message: runnerResult.message
+          }
+        }
+        entry._agentResult = markApplied(agentResult)
+        entry.status = RESULT_STATUSES.APPLIED
+        return {
+          ok: true,
+          resultId,
+          status: RESULT_STATUSES.APPLIED,
+          actions: agentResult.actions
+        }
+      } catch (err) {
+        entry._agentResult = markFailed(agentResult, err)
+        entry.status = RESULT_STATUSES.FAILED
+        entry.statusDetail = err.message || String(err)
+        return {
+          ok: false,
+          reason: 'side-effect-exception',
+          status: RESULT_STATUSES.FAILED,
+          message: err.message || String(err)
+        }
+      }
+    }
 
-    return { ok: true, resultId, actions: agentResult.actions }
-  }
-
-  function markResultStale(resultId, reason, currentRevision) {
-    const result = advisorResults.value.find((item) => item.id === resultId)
-    if (!result) return
-
-    if (result._agentResult) {
-      result._agentResult = markStale(result._agentResult, reason, currentRevision)
-      result.status = 'stale'
+    entry._agentResult = markApplied(agentResult)
+    entry.status = RESULT_STATUSES.APPLIED
+    return {
+      ok: true,
+      resultId,
+      status: RESULT_STATUSES.APPLIED,
+      actions: agentResult.actions,
+      message: '结果已标记为已应用（无 side-effect runner）。'
     }
   }
 
-  function acknowledgeResult(resultId) {
-    const result = advisorResults.value.find((item) => item.id === resultId)
-    if (!result) return
+  function dismissResult(resultId) {
+    const entry = advisorResults.value.find((item) => item.id === resultId)
+    if (!entry) return
+    const agentResult = entry._agentResult
+    if (!agentResult) return
+    if (!canDismiss(agentResult)) return
+    entry._agentResult = markDismissed(agentResult)
+    entry.status = RESULT_STATUSES.DISMISSED
+  }
 
-    if (result._agentResult) {
-      result._agentResult = acknowledgeApply(result._agentResult)
+  function markResultStale(resultId, reason, currentRevision) {
+    const entry = advisorResults.value.find((item) => item.id === resultId)
+    if (!entry) return
+    if (!entry._agentResult) return
+    if (entry._agentResult.status === RESULT_STATUSES.APPLIED) return
+    if (entry._agentResult.status === RESULT_STATUSES.DISMISSED) return
+    entry._agentResult = markStale(entry._agentResult, reason, currentRevision)
+    entry.status = RESULT_STATUSES.STALE
+    entry.statusDetail = reason || 'base-text-changed'
+  }
+
+  function acknowledgeResult(resultId) {
+    const entry = advisorResults.value.find((item) => item.id === resultId)
+    if (!entry) return
+    if (entry._agentResult) {
+      entry._agentResult = acknowledgeApply(entry._agentResult)
+    }
+  }
+
+  function updateAdvisorResultStatus(resultId, status, detail = '') {
+    const entry = advisorResults.value.find((item) => item.id === resultId)
+    if (!entry) return
+    const agentResult = entry._agentResult
+    if (!agentResult) {
+      entry.status = status
+      entry.statusDetail = detail
+      return
+    }
+    switch (status) {
+      case RESULT_STATUSES.APPLIED:
+        entry._agentResult = markApplied(agentResult)
+        entry.status = RESULT_STATUSES.APPLIED
+        entry.statusDetail = detail
+        break
+      case RESULT_STATUSES.FAILED:
+        entry._agentResult = markFailed(agentResult, detail || 'User marked as failed')
+        entry.status = RESULT_STATUSES.FAILED
+        entry.statusDetail = detail
+        break
+      case RESULT_STATUSES.DISMISSED:
+        if (canDismiss(agentResult)) {
+          entry._agentResult = markDismissed(agentResult)
+          entry.status = RESULT_STATUSES.DISMISSED
+        }
+        break
+      case RESULT_STATUSES.STALE:
+        if (agentResult.status !== RESULT_STATUSES.APPLIED
+          && agentResult.status !== RESULT_STATUSES.DISMISSED) {
+          entry._agentResult = markStale(agentResult, detail, null)
+          entry.status = RESULT_STATUSES.STALE
+          entry.statusDetail = detail || 'base-text-changed'
+        }
+        break
+      default:
+        entry.status = status
+        entry.statusDetail = detail
     }
   }
 
@@ -158,21 +292,6 @@ export function useAdvisor() {
     advisorResults.value = []
   }
 
-  function updateAdvisorResultStatus(resultId, status, detail = '') {
-    const result = advisorResults.value.find((item) => item.id === resultId)
-    if (!result) return
-    result.status = status
-    result.statusDetail = detail
-
-    if (result._agentResult) {
-      if (status === 'applied') {
-        result._agentResult = markApplied(result._agentResult)
-      } else if (status === 'failed') {
-        result._agentResult = markFailed(result._agentResult, detail || 'User marked as failed')
-      }
-    }
-  }
-
   return {
     advisorOpen,
     advisorLoading,
@@ -180,6 +299,7 @@ export function useAdvisor() {
     advisorResults,
     askAdvisor,
     applyAdvisorResult,
+    dismissResult,
     markResultStale,
     acknowledgeResult,
     openAdvisor,

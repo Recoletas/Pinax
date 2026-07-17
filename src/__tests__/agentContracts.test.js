@@ -18,7 +18,10 @@ import {
   markCompleted,
   markStale,
   markApplied,
+  markFailed,
+  markDismissed,
   canApply,
+  canDismiss,
   isActive,
   RESULT_STATUSES
 } from '../services/agents/agentResultLifecycle'
@@ -89,6 +92,18 @@ describe('agentContracts', function () {
 
     var applied = markApplied(completed)
     expect(canApply(applied, 'rev-1')).toBe(false)
+
+    var failed = markFailed(completed, { code: 'AGENT_ERROR', message: 'boom' })
+    expect(failed.status).toBe(RESULT_STATUSES.FAILED)
+    expect(canApply(failed, 'rev-1')).toBe(false)
+    expect(canDismiss(failed)).toBe(true)
+
+    var dismissed = markDismissed(completed)
+    expect(dismissed.status).toBe(RESULT_STATUSES.DISMISSED)
+    expect(canApply(dismissed, 'rev-1')).toBe(false)
+    expect(canDismiss(dismissed)).toBe(false)
+    expect(canDismiss(applied)).toBe(false)
+    expect(canDismiss(pending)).toBe(true)
 
     var legacyResult = {
       task: 'advisor.fix.selection',

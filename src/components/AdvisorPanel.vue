@@ -42,15 +42,52 @@
           >
             <div class="result-card-header">
               <span class="result-card-title">{{ getResultTitle(result) }}</span>
-              <span v-if="result.status === 'applied'" class="result-status">已应用</span>
-              <span v-else-if="result.status === 'stale'" class="result-status error">已过期</span>
+              <span class="result-status" :class="statusBadgeClass(result.status)">{{ statusLabel(result.status) }}</span>
             </div>
-            <p v-if="result.summary" class="result-summary">{{ result.summary }}</p>
-            <pre class="result-replacement">{{ result.replacement }}</pre>
-            <p v-if="result.statusDetail" class="result-detail">{{ result.statusDetail }}</p>
-            <div class="result-actions" v-if="result.status === 'pending'">
-              <button class="result-btn primary" type="button" @click="$emit('apply-result', result)">应用修改</button>
-              <button class="result-btn" type="button" @click="$emit('dismiss-result', result)">忽略</button>
+            <div
+              v-if="result.summary"
+              class="result-summary is-markdown"
+              v-html="sanitizeHtml(marked(result.summary))"
+            ></div>
+            <div v-if="result.suggestions && result.suggestions.length" class="result-section">
+              <div class="result-section-label">建议</div>
+              <ul class="result-suggestion-list">
+                <li v-for="(s, i) in result.suggestions" :key="`sug-${i}`">{{ suggestionText(s) }}</li>
+              </ul>
+            </div>
+            <div v-if="result.actions && result.actions.length" class="result-section">
+              <div class="result-section-label">动作</div>
+              <ol class="result-action-list">
+                <li v-for="(a, i) in result.actions" :key="`act-${i}`">
+                  <span class="result-action-label">{{ actionLabel(a) }}</span>
+                  <pre v-if="a.content" class="result-action-content">{{ a.content }}</pre>
+                </li>
+              </ol>
+            </div>
+            <pre v-else-if="result.replacement" class="result-replacement">{{ result.replacement }}</pre>
+            <p
+              v-if="result.statusDetail"
+              class="result-detail"
+              :class="{ error: isErrorStatus(result.status) }"
+            >{{ result.statusDetail }}</p>
+            <p
+              v-else-if="result.status === 'applying'"
+              class="result-detail info"
+            >正在应用修改…</p>
+            <div class="result-actions" v-if="showResultActions(result)">
+              <button
+                v-if="hasAppliable(result)"
+                class="result-btn primary"
+                type="button"
+                :disabled="!canApplyResult(result)"
+                @click="$emit('apply-result', result)"
+              >应用修改</button>
+              <button
+                class="result-btn"
+                type="button"
+                :disabled="!canDismissResult(result)"
+                @click="$emit('dismiss-result', result)"
+              >忽略</button>
             </div>
           </div>
           <div v-if="loading" class="message advisor">
@@ -146,12 +183,24 @@ const normalizedQuickQuestions = computed(() => (props.quickQuestions || []).map
   }
 }))
 
+const STATUS_LABELS = {
+  pending: '生成中',
+  completed: '待应用',
+  applying: '应用中',
+  applied: '已应用',
+  stale: '已过期',
+  failed: '失败',
+  dismissed: '已忽略'
+}
+
 const visibleResults = computed(() => (props.results || []).filter((result) => {
   if (!result || typeof result !== 'object') return false
   if (result.status === 'dismissed') return false
-  if (result.mode !== 'replace') return false
-  if (!String(result.replacement || '').trim()) return false
-  return Boolean(result.targetRange && Number.isFinite(Number(result.targetRange.start)) && Number.isFinite(Number(result.targetRange.end)))
+  const hasReplacement = String(result.replacement || '').trim().length > 0
+  const hasSuggestions = Array.isArray(result.suggestions) && result.suggestions.length > 0
+  const hasActions = Array.isArray(result.actions) && result.actions.length > 0
+  const hasSummary = String(result.summary || '').trim().length > 0
+  return hasReplacement || hasSuggestions || hasActions || hasSummary
 }))
 
 watch(() => props.isOpen, (open) => {
@@ -180,6 +229,53 @@ function getResultTitle(result) {
   if (result.task === 'advisor.fix.selection') return '选区修改'
   if (result.task === 'advisor.fix.paragraph') return '段落修改'
   return '可应用修改'
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || ''
+}
+
+function statusBadgeClass(status) {
+  if (status === 'applied') return 'success'
+  if (status === 'failed' || status === 'stale') return 'error'
+  if (status === 'applying' || status === 'pending') return 'info'
+  return ''
+}
+
+function isErrorStatus(status) {
+  return status === 'failed' || status === 'stale'
+}
+
+function hasAppliable(result) {
+  if (Array.isArray(result.actions) && result.actions.length > 0) return true
+  return Boolean(result.replacement && result.targetRange
+    && Number.isFinite(Number(result.targetRange.start))
+    && Number.isFinite(Number(result.targetRange.end)))
+}
+
+function canApplyResult(result) {
+  return result.status === 'pending' || result.status === 'completed'
+}
+
+function canDismissResult(result) {
+  return result.status === 'pending'
+    || result.status === 'completed'
+    || result.status === 'failed'
+}
+
+function showResultActions(result) {
+  return result.status !== 'applied' && result.status !== 'dismissed'
+}
+
+function suggestionText(s) {
+  if (!s) return ''
+  if (typeof s === 'string') return s
+  return String(s.label || s.summary || s.content || '')
+}
+
+function actionLabel(a) {
+  if (!a) return ''
+  return String(a.label || a.type || '')
 }
 
 function handleInputKeydown(e) {
@@ -394,11 +490,16 @@ function sendInput() {
 }
 
 .advisor-result-card.applied {
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
-.advisor-result-card.stale {
+.advisor-result-card.stale,
+.advisor-result-card.failed {
   border-color: color-mix(in srgb, #d44 45%, var(--border));
+}
+
+.advisor-result-card.applying {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
 .result-card-header {
@@ -417,13 +518,90 @@ function sendInput() {
 .result-status {
   font-size: 11px;
   color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.result-status.success {
+  color: color-mix(in srgb, var(--accent) 80%, #6c6);
 }
 
 .result-status.error {
   color: #d44;
 }
 
-.result-summary,
+.result-status.info {
+  color: var(--accent);
+}
+
+.result-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.result-summary.is-markdown :deep(p) {
+  margin: 0 0 6px;
+}
+
+.result-summary.is-markdown :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.result-summary.is-markdown :deep(ul),
+.result-summary.is-markdown :deep(ol) {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.result-summary.is-markdown :deep(li) {
+  margin: 2px 0;
+}
+
+.result-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.result-section-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+
+.result-suggestion-list,
+.result-action-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.result-suggestion-list li,
+.result-action-list li {
+  margin: 2px 0;
+}
+
+.result-action-label {
+  font-size: 11px;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.result-action-content {
+  margin: 2px 0 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .result-detail {
   margin: 0;
   font-size: 12px;
@@ -431,13 +609,21 @@ function sendInput() {
   color: var(--text-secondary);
 }
 
+.result-detail.error {
+  color: #d44;
+}
+
+.result-detail.info {
+  color: var(--accent);
+  opacity: 0.9;
+}
+
 .result-replacement {
   margin: 0;
   max-height: 140px;
   overflow: auto;
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--bg-primary);
+  padding: 8px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -461,17 +647,29 @@ function sendInput() {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
+  transition: all 0.15s;
 }
 
-.result-btn:hover {
+.result-btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.result-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .result-btn.primary {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+.result-btn.primary:disabled {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-secondary));
+  border-color: transparent;
+  color: var(--text-secondary);
 }
 
 .loading-dot {

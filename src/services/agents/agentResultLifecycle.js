@@ -5,7 +5,8 @@ const RESULT_STATUSES = Object.freeze({
   COMPLETED: 'completed',
   FAILED: 'failed',
   STALE: 'stale',
-  APPLIED: 'applied'
+  APPLIED: 'applied',
+  DISMISSED: 'dismissed'
 })
 
 const SUGGESTION_TYPES = Object.freeze({
@@ -159,6 +160,14 @@ export function acknowledgeApply(result) {
   }
 }
 
+export function markDismissed(result) {
+  if (!result || typeof result !== 'object') return result
+  return {
+    ...result,
+    status: RESULT_STATUSES.DISMISSED
+  }
+}
+
 export function isActive(result) {
   if (!result || typeof result !== 'object') return false
   return result.status === RESULT_STATUSES.PENDING || result.status === RESULT_STATUSES.COMPLETED
@@ -169,9 +178,17 @@ export function canApply(result, currentRevision) {
   if (result.status === RESULT_STATUSES.APPLIED) return false
   if (result.status === RESULT_STATUSES.FAILED) return false
   if (result.status === RESULT_STATUSES.STALE) return false
+  if (result.status === RESULT_STATUSES.DISMISSED) return false
   if (!result.baseRevision) return true
   if (currentRevision == null) return true
   return safeStr(result.baseRevision) === safeStr(currentRevision)
+}
+
+export function canDismiss(result) {
+  if (!result || typeof result !== 'object') return false
+  return result.status === RESULT_STATUSES.PENDING
+    || result.status === RESULT_STATUSES.COMPLETED
+    || result.status === RESULT_STATUSES.FAILED
 }
 
 export function needsAcknowledge(result) {
