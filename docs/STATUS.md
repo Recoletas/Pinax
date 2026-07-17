@@ -15,14 +15,15 @@
 - **跨功能资产收口**：素材已补 `sourceRefs`、内容指纹、章节选区去重和同项目合并；下一步接写作/分镜来源账本。
 - **媒体与联机专项完成首版接线**：URL 房间、服务端有序事件、房主生成叙事与受限运行时同步已接入现代体验页；分镜版本可提交 MiniMax 或受约束的通用异步 HTTP 视频任务，完成后归档为 MediaAsset。
 - **A-F 执行包已集成**：Agent 基础契约、画布视口/连线调度、联机服务端与客户端、视频网关和页面接线已汇合；完整验证通过，等待用户在现有服务中做双浏览器与真实 provider smoke。
+- **Round 2 可见性与工作流已集成**：体验 mast 提供联机常驻入口，分镜时间轴提供视频按钮；画布卡片统一 pointer 拖拽并处理 cancel；顾问结果进入完整生命周期且无 runner 不会假应用；漫画页补页级节拍、翻页钩子、连续性和视觉圣经引用，Notes 不再嵌套 button。
 - **文档收口**：`docs/PLAN.md` 和 `docs/plan/pinax-integrated-product-roadmap.md` 是唯一产品计划入口，旧执行计划不再恢复。
 
 ## Recently done
 
+- 2026-07-17：按 A -> D 顺序集成 Round 2 四个独立分支，并在 Codex 审查中修复顾问无 runner 假 applied、漫画连续性/空白引用持久化、pointer cancel 回滚和 ComicPage schema 3 契约；测试总量保持 200，未启动 dev server。
 - 2026-07-16：恢复 A 启动前被 stash 的七月产品基线，确认旧界面和 1361 个测试来自 A-E 误从六月底 `main` 开工；A-E 已逐项整合到现代前端。F 完成联机体验、分镜视频面板、协议兼容、房主重连、任务归档和牌堆拖拽修复。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200。
 - 2026-07-16：完成漫画 G4.4 M1：沿用现有漫画页直接增加画布、视觉圣经、格框、方向和制作阶段字段；内容、构图、参考或视觉规则变化会标记阶段 stale。副工作台无素材时仍显示，空状态直接提供阅读方向、色制和“建立制作页”，不再展示旧的 4/6 格入口；进入制作页后分镜/制作字段默认展开。`verify:full` 通过 188 core + 12 visual tests、Vite/VitePress build 和 diff check，未启动 dev server。
 - 2026-07-16：删除重复、局部和历史 UI 测试，核心回归收缩到 18 files / 200 tests；`verify:full` 也不再重复运行视觉套件。
-- 2026-07-16 15:43 CST：完整 `npm run verify:full` 通过，核心段 17 files / 188 tests、视觉段 1 file / 12 tests；Vite build、VitePress docs build 和 `git diff --check` 均通过，未启动 dev server。
 - 2026-07-16：抽出共享图片 provider/config store、MediaAsset 目录及 narrative/canvas image bridge；素材、分镜生成历史、`reference-image` 与画布附件成功归档后不再内嵌 base64，失败时保持原样；`verify:full` 通过 188 core + 12 visual tests。
 - 2026-07-16：`ImageGenRail` 降级为兼容包装，业务实现迁入 `MediaGenerationDrawer`；素材页增加参考图/插画模式，Markdown 正文图片改存 MediaAsset 引用并迁移旧 data URL；`verify:full` 通过 188 core + 12 visual tests。
 - 2026-07-16：素材页视觉工作流技术原型完成并重排入口：删除浮动抽屉，中央主卡显示图片/拼页，右侧副工作台承载生成操作。ComicPage 与 MediaAsset 分离持久化，支持失败隔离、版本保留、存为素材和 JSON manifest，但不再视作完整漫画排版。

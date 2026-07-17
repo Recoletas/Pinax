@@ -6,10 +6,10 @@
 
 | ID | Owner | Worktree / Branch | Scope | Status | Output |
 |---|---|---|---|---|---|
-| R2-A | Manual agent | `/tmp/pinax-r2-entry` / `round2/visible-online-entry` | 联机常驻入口与路由可发现性 | ready | [prompt](./2026-07-16-round2-integration/prompt-a-entry.md) |
-| R2-B | Manual agent | `/tmp/pinax-r2-canvas` / `round2/canvas-video` | 视频入口可见性与画布拖拽状态机 | ready | [prompt](./2026-07-16-round2-integration/prompt-b-canvas-video.md) |
-| R2-C | Manual agent | `/tmp/pinax-r2-advisor` / `round2/advisor-lifecycle` | 顾问任务、结果生命周期和可应用状态 | ready | [prompt](./2026-07-16-round2-integration/prompt-c-advisor.md) |
-| R2-D | Manual agent | `/tmp/pinax-r2-comic` / `round2/comic-production` | Notes HTML 修复与漫画页级制作逻辑 | ready | [prompt](./2026-07-16-round2-integration/prompt-d-comic.md) |
+| R2-A | Manual agent | `/tmp/pinax-r2-entry` / `round2/visible-online-entry` | 联机常驻入口与路由可发现性 | 完成并集成 | [result](./2026-07-16-round2-integration/result-a-entry.md) |
+| R2-B | Manual agent | `/tmp/pinax-r2-canvas` / `round2/canvas-video` | 视频入口可见性与画布拖拽状态机 | 完成并集成 | [result](./2026-07-16-round2-integration/result-b-canvas-video.md) |
+| R2-C | Manual agent | `/tmp/pinax-r2-advisor` / `round2/advisor-lifecycle` | 顾问任务、结果生命周期和可应用状态 | 完成并集成 | [result](./2026-07-16-round2-integration/result-c-advisor.md) |
+| R2-D | Manual agent | `/tmp/pinax-r2-comic` / `round2/comic-production` | Notes HTML 修复与漫画页级制作逻辑 | 完成并集成 | [result](./2026-07-16-round2-integration/result-d-comic.md) |
 
 ### Write Locks
 
@@ -19,6 +19,8 @@
 - R2-D: `src/pages/Notes.vue`, `src/components/media/ComicPageEditor.vue`, `src/components/media/ComicPagePreview.vue`, `src/services/media/comic*.js`
 
 约束：不启动 dev server，不新增测试用例总数，不修改 `docs/STATUS.md`、`docs/PLAN.md`、`docs/LOG.md`、`AGENTS.md`、主 store 或其他窗口文件。每个 worker 必须自审、运行定向验证、提交 scoped commit，并写不超过 400 字的结果摘要。
+
+Codex 按 A -> D 顺序集成，并补齐三项审查修正：无 side-effect runner 的顾问结果不得进入 applied；漫画连续性文本和空白视觉引用编辑可正确保存；pointer cancel 回滚坐标并释放 listener/capture。测试总量保持核心 188 + 视觉 12。
 
 ## 2026-07-16 Online / Agents / Canvas / Video
 

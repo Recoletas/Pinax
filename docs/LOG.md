@@ -10,6 +10,21 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心回归已收缩到 18 个文件、200 个用例；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-07-17 - 联机入口、画布、顾问与漫画制作收口
+
+状态：Round 2 四窗口完成并集成。
+
+结果摘要：
+- 体验页 mast 增加持续可见的联机入口；分镜时间轴增加持续可见的视频操作，均复用已有路由和生成面板。
+- 画布卡片拖拽统一到 pointer 状态机，牌堆移动不再与原生 HTML5 drag 竞争；pointer cancel 会回滚位置并清理 capture/listener。
+- 顾问结果覆盖 pending/completed/applying/applied/stale/failed/dismissed；只有注入的 side-effect runner 成功后才进入 applied，旧写作页实际应用流程继续走兼容 shim。
+- Notes 素材行移除 button 嵌套；漫画页 schema 升到 3，页级目的、翻页钩子、连续性和视觉圣经引用贯通脚本解析、编辑和存储。
+- 集成审查同步修复连续性文本未落盘、空白视觉引用新增后立即消失，以及旧媒体测试仍断言 schema 2 的问题；测试数量未增加。
+
+执行记录：[Round 2 任务板](./agent-runs/2026-07-16-round2-integration/README.md)。
+
+验证：`npm run verify:full`，核心 188 + 视觉 12，Vite/VitePress build 和 `git diff --check`。
+
 ## 2026-07-16 - A-F 集成与版本基线恢复
 
 状态：完成。

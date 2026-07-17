@@ -189,7 +189,7 @@ describe('Media services', () => {
     expect(await resolved.blob.text()).toBe('abc')
 
     const parsedScript = parseComicScript(`\`\`\`json
-      {"title":"雨夜来客","layout":"strip-4","panels":[
+      {"title":"雨夜来客","layout":"strip-4","pagePurpose":"旅人带来危险的秘密","pageTurnHook":"密信上的印记指向掌柜","continuityNotes":["雨势持续"],"visualBibleRefs":[{"kind":"location","refId":"tavern-1","note":"木质酒馆"}],"panels":[
         {"visual":"雨中的街角远景","dialogue":[],"caption":"夜深"},
         {"visual":"旅人推开酒馆木门","dialogue":[{"speaker":"旅人","text":"还有房间吗？"}]},
         {"visual":"掌柜抬头审视旅人","dialogue":[],"caption":""},
@@ -206,10 +206,14 @@ describe('Media services', () => {
       sourceRefs: [{ refType: 'narrative-asset', refId: 'asset-1', projectId: 'book-1' }]
     })
     expect(comicPage).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       colorMode: 'color',
       canvas: { width: 1200, height: 1600 },
-      visualBible: { lineStyle: '', palette: [] }
+      visualBible: { lineStyle: '', palette: [] },
+      pagePurpose: '旅人带来危险的秘密',
+      pageTurnHook: '密信上的印记指向掌柜',
+      continuityNotes: ['雨势持续'],
+      visualBibleRefs: [{ kind: 'location', refId: 'tavern-1', note: '木质酒馆', revision: 1 }]
     })
     expect(comicPage.panels[0]).toMatchObject({
       frame: { kind: 'rect' },
@@ -243,7 +247,7 @@ describe('Media services', () => {
     const manifest = buildComicPageManifest(withTake, { now: 1 })
     expect(manifest).toMatchObject({
       format: 'pinax-comic-page',
-      version: 2,
+      version: 3,
       page: { id: comicPage.id, panels: expect.arrayContaining([expect.objectContaining({ selectedTakeId: media.id })]) }
     })
     expect(JSON.stringify(manifest)).not.toContain('data:image')

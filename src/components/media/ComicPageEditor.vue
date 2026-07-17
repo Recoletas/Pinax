@@ -336,13 +336,6 @@ const continuityNotesText = computed({
   }
 })
 
-// R2-D.5 self-review: continuityNotesText is now bound directly via
-// v-model on the top-level computed (v-model="continuityNotesText"),
-// so this helper became redundant. Kept the template-side v-model
-// two-way binding; persistPage is invoked inside addVisualBibleRef and
-// update/removeVisualBibleRef, so the textarea edits still persist
-// via the watcher on `comicPage.value`.
-
 function addVisualBibleRef() {
   if (!comicPage.value) return
   const refs = Array.isArray(comicPage.value.visualBibleRefs)
@@ -351,22 +344,25 @@ function addVisualBibleRef() {
   if (refs.length >= 40) return
   refs.push({ kind: 'character', refId: '', note: '', revision: 1 })
   comicPage.value.visualBibleRefs = refs
-  persistPage()
 }
 
 function removeVisualBibleRef(index) {
   if (!comicPage.value?.visualBibleRefs) return
+  const removed = comicPage.value.visualBibleRefs[index]
   const refs = comicPage.value.visualBibleRefs.filter((_, i) => i !== index)
   comicPage.value.visualBibleRefs = refs
-  persistPage()
+  if (String(removed?.refId || '').trim()) persistPage()
 }
 
 function updateVisualBibleRef(index, key, value) {
   if (!comicPage.value?.visualBibleRefs?.[index]) return
+  const previous = comicPage.value.visualBibleRefs[index]
   const refs = comicPage.value.visualBibleRefs.map((entry, i) =>
     i === index ? { ...entry, [key]: value } : entry)
   comicPage.value.visualBibleRefs = refs
-  persistPage()
+  const hadRefId = String(previous?.refId || '').trim()
+  const hasRefId = String(refs[index]?.refId || '').trim()
+  if (hadRefId || hasRefId) persistPage()
 }
 
 function acceptPage() {
@@ -762,6 +758,7 @@ function safeFilename(value) {
               rows="2"
               aria-label="前后页连续要点（每行一条）"
               placeholder="一行一条，例如：上一场的钟塔仍要从这一页的远景露出"
+              @change="persistPage"
             ></textarea>
             <small class="comic-editor__hint">每行一条，{{ comicPage.continuityNotes?.length || 0 }} / 20</small>
           </label>
@@ -770,7 +767,7 @@ function safeFilename(value) {
             <div class="comic-editor__ref-list">
               <span
                 v-for="(entry, refIndex) in comicPage.visualBibleRefs"
-                :key="`${entry.kind}:${entry.refId}`"
+                :key="`${entry.kind}:${entry.refId}:${refIndex}`"
                 class="comic-editor__ref-chip"
               >
                 <select
@@ -804,7 +801,7 @@ function safeFilename(value) {
                 >×</button>
               </span>
               <button
-                v-if="!comicPage.visualBibleRefs?.length"
+                v-if="(comicPage.visualBibleRefs?.length || 0) < 40"
                 type="button"
                 class="comic-action comic-editor__ref-add"
                 @click="addVisualBibleRef"

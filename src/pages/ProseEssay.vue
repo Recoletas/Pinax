@@ -2162,7 +2162,7 @@ function onCardPointerDown(event, card) {
 
   cardEl.addEventListener('pointermove', onPointerDragMove)
   cardEl.addEventListener('pointerup', onPointerDragUp)
-  cardEl.addEventListener('pointercancel', onPointerDragUp)
+  cardEl.addEventListener('pointercancel', onPointerDragCancel)
 }
 
 function onPointerDragMove(event) {
@@ -2200,7 +2200,7 @@ function onPointerDragUp(event) {
   const cardEl = event.currentTarget
   cardEl.removeEventListener('pointermove', onPointerDragMove)
   cardEl.removeEventListener('pointerup', onPointerDragUp)
-  cardEl.removeEventListener('pointercancel', onPointerDragUp)
+  cardEl.removeEventListener('pointercancel', onPointerDragCancel)
   if (cardEl && typeof cardEl.releasePointerCapture === 'function' && event.pointerId != null) {
     try { cardEl.releasePointerCapture(event.pointerId) } catch { /* noop */ }
   }
@@ -2211,11 +2211,15 @@ function onPointerDragUp(event) {
   const originalPileId = pointerDragOriginalPileId
   pointerDragOriginalPileId = null
   pointerDragDelta.value = { dx: 0, dy: 0 }
-  const wasSuppressed = _suppressLayoutWatch
   _suppressLayoutWatch = false
+  pointerDragEl = null
+  pointerDragPointerId = null
 
   // No-move click — let the click handler proceed, no pile/persist touched.
-  if (!_pointerDragMoved) return
+  if (!_pointerDragMoved) {
+    _pointerDragMoved = false
+    return
+  }
 
   // Resolve drop target via elementFromPoint. elementFromPoint is captured
   // BEFORE we mutate cards/piles, so a same-pile dropback lands us on a
@@ -2234,6 +2238,7 @@ function onPointerDragUp(event) {
     viewport.scheduleEdgeFlush()
     updateLayout()
     saveData()
+    _pointerDragMoved = false
     return
   }
 
@@ -2300,6 +2305,31 @@ function onPointerDragUp(event) {
   viewport.scheduleEdgeFlush()
   updateLayout()
   saveData()
+  _pointerDragMoved = false
+}
+
+function onPointerDragCancel(event) {
+  const cardEl = event.currentTarget
+  cardEl.removeEventListener('pointermove', onPointerDragMove)
+  cardEl.removeEventListener('pointerup', onPointerDragUp)
+  cardEl.removeEventListener('pointercancel', onPointerDragCancel)
+  if (typeof cardEl.releasePointerCapture === 'function' && event.pointerId != null) {
+    try { cardEl.releasePointerCapture(event.pointerId) } catch { /* noop */ }
+  }
+
+  const card = pointerDragCard.value
+  if (card && _pointerDragMoved) {
+    card.x = pointerDragCardStartX.value
+    card.y = pointerDragCardStartY.value
+  }
+  pointerDragCard.value = null
+  pointerDragOriginalPileId = null
+  pointerDragDelta.value = { dx: 0, dy: 0 }
+  pointerDragEl = null
+  pointerDragPointerId = null
+  _pointerDragMoved = false
+  _suppressLayoutWatch = false
+  updateLayout()
 }
 
 // Lifecycle cleanup for the authoritative pointer state machine. Called
@@ -2317,7 +2347,7 @@ function cancelPointerDrag() {
     try {
       cardEl.removeEventListener('pointermove', onPointerDragMove)
       cardEl.removeEventListener('pointerup', onPointerDragUp)
-      cardEl.removeEventListener('pointercancel', onPointerDragUp)
+      cardEl.removeEventListener('pointercancel', onPointerDragCancel)
     } catch { /* noop */ }
     if (pointerId != null && typeof cardEl.releasePointerCapture === 'function') {
       try { cardEl.releasePointerCapture(pointerId) } catch { /* noop */ }
@@ -2325,6 +2355,7 @@ function cancelPointerDrag() {
   }
   pointerDragEl = null
   pointerDragPointerId = null
+  _suppressLayoutWatch = false
 }
 
 function updateConnectedEdges(cardId) {

@@ -199,14 +199,13 @@ export function useAdvisor(options = {}) {
       }
     }
 
-    entry._agentResult = markApplied(agentResult)
-    entry.status = RESULT_STATUSES.APPLIED
     return {
-      ok: true,
+      ok: false,
+      reason: 'no-side-effect-runner',
       resultId,
-      status: RESULT_STATUSES.APPLIED,
+      status: agentResult.status,
       actions: agentResult.actions,
-      message: '结果已标记为已应用（无 side-effect runner）。'
+      message: '当前页面未配置结果执行器，未应用任何修改。'
     }
   }
 
