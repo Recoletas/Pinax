@@ -143,6 +143,19 @@ function handleSelectPanel(routeName) {
   }
   closeDrawer()
 }
+
+/* R2-A (2026-07-16): Experience 子模式入口。体验 activity 激活时，
+   在 mast 上持续显示一个“联机”子链接 chip，避免用户必须先开
+   drawer 才能进入 /experience/online。仍然不是顶层 activity，只
+   是当前 activity 内的子模式快捷入口；和 shell-tab 同语言（硬
+   边、墨点印章、archive token），不引入新视觉家族。 */
+const ONLINE_SUBROUTE_NAME = 'online-experience'
+const showOnlineEntry = computed(() => currentActivityKey.value === 'experience')
+const onlineEntryActive = computed(() => String(route.name || '') === ONLINE_SUBROUTE_NAME)
+function handleSelectOnline() {
+  if (onlineEntryActive.value) return
+  router.push({ name: ONLINE_SUBROUTE_NAME })
+}
 </script>
 
 <template>
@@ -189,6 +202,28 @@ function handleSelectPanel(routeName) {
           >
             <span class="shell-tab__index" aria-hidden="true">{{ ROMAN_ACTIVITY_STAMPS[index] || '·' }}</span>
             <span class="shell-tab__label">{{ item.label }}</span>
+          </button>
+        </nav>
+
+        <!-- R2-A: 体验 activity 的子模式入口（联机）。不新增顶层 activity，
+             只在体验激活时把入口常驻 mast 上；语言沿用 shell-tab 的
+             硬边纸签 + archive token，不引入新视觉家族。 -->
+        <nav v-if="showOnlineEntry" class="shell-subnav" aria-label="体验子模式">
+          <button
+            class="shell-subnav-btn"
+            :class="{ active: onlineEntryActive }"
+            type="button"
+            :aria-current="onlineEntryActive ? 'page' : 'false'"
+            aria-label="进入联机房间"
+            @click="handleSelectOnline"
+          >
+            <svg class="shell-subnav-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 4.5h6v6H3z"></path>
+              <path d="M9 6.5h4v5H9"></path>
+              <path d="M5 11.5v1.5M11 11.5v1.5"></path>
+              <path d="M3 13.5h2M9 13.5h5"></path>
+            </svg>
+            <span class="shell-subnav-label">联机</span>
           </button>
         </nav>
 
@@ -355,7 +390,9 @@ function handleSelectPanel(routeName) {
   z-index: 90;
   min-height: var(--shell-mast-height);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* R2-A: 加一列 auto 给 shell-subnav（仅体验 activity 渲染时出现，
+     其他 activity 此列为空 0 宽度，不影响布局）。 */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 16px;
   align-items: center;
   padding: 12px 20px;
@@ -568,6 +605,98 @@ function handleSelectPanel(routeName) {
 
 .shell-tab.active .shell-tab__label {
   font-weight: 600;
+}
+
+/* R2-A (2026-07-16): Experience activity 的子模式入口 chip。
+   视觉语言沿用 .shell-tab 的硬边纸签 + tear-edge dashed divider
+   + archive-rose 墨点；不引入新视觉家族、不增加顶层 activity。
+   与 shell-tab 的差异：无罗马序号、左前缀是 ink-dot `·` 而非
+   `◆` 印章（active 时改为 `◆`，让 active 状态在视觉上和 tab 区
+   分），尺寸更紧凑，让它在 mast 上作为子链接而非平级 tab 存在。 */
+.shell-subnav {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+.shell-subnav-btn {
+  position: relative;
+  min-height: 32px;
+  padding: 0 12px 0 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-left: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.shell-subnav-btn::before {
+  content: "·";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  transition: color 0.16s ease, font-weight 0.16s ease, content 0s;
+}
+
+.shell-subnav-btn:hover {
+  background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+  color: var(--text-primary);
+}
+
+.shell-subnav-btn:hover::before {
+  color: var(--archive-rose);
+  font-weight: 900;
+}
+
+.shell-subnav-btn.active {
+  color: var(--text-primary);
+}
+
+.shell-subnav-btn.active::before {
+  content: "◆";
+  font-size: 9px;
+  color: color-mix(in srgb, var(--archive-rose) 82%, transparent);
+}
+
+.shell-subnav-icon {
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
+  flex-shrink: 0;
+}
+
+.shell-subnav-btn.active .shell-subnav-icon,
+.shell-subnav-btn:hover .shell-subnav-icon {
+  color: var(--text-primary);
+}
+
+.shell-subnav-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.shell-subnav-btn.active .shell-subnav-label {
+  font-weight: 600;
+}
+
+.shell-subnav-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-rose) 60%, transparent);
+  outline-offset: 2px;
 }
 
 .shell-mast__meta {
@@ -811,7 +940,7 @@ function handleSelectPanel(routeName) {
 
 @media (max-width: 1040px) {
   .shell-mast {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .shell-tabbar {
@@ -825,12 +954,18 @@ function handleSelectPanel(routeName) {
   .shell-tab {
     min-width: max-content;
   }
+
+  /* R2-A: subnav 在 1040px 以下保持和 meta 同行，不挤进 tabbar 滚动行。 */
+  .shell-subnav {
+    order: 2;
+  }
 }
 
 @media (max-width: 760px) {
   .shell-mast {
     padding: 8px 12px;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 10px;
   }
 
   .shell-tabbar {
@@ -862,6 +997,23 @@ function handleSelectPanel(routeName) {
     font-size: 16px;
   }
 
+  /* R2-A: mobile 上 meta chip 文字已缩到 10px，subnav 紧凑到
+     14px label + 6px gap，确保不溢出 mast 行。 */
+  .shell-subnav-btn {
+    min-height: 28px;
+    padding: 0 10px 0 16px;
+    gap: 4px;
+  }
+
+  .shell-subnav-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .shell-subnav-label {
+    font-size: 11px;
+  }
+
   .shell-nav-trigger {
     top: 12px;
     left: 12px;
@@ -884,6 +1036,10 @@ function handleSelectPanel(routeName) {
 @media (max-width: 480px) {
   .shell-mast {
     padding: 8px 10px;
+    /* R2-A: 让 brand 收缩、subnav 和 meta 紧凑同行，避免溢出。
+       tabbar 在 ≤480px 隐藏，mast 只剩 brand + subnav + meta。 */
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
   }
 
   .shell-tabbar {
@@ -897,6 +1053,30 @@ function handleSelectPanel(routeName) {
   .shell-meta-chip {
     font-size: 10px;
     padding: 0 10px;
+  }
+
+  .shell-subnav-btn {
+    min-height: 26px;
+    padding: 0 8px 0 14px;
+    gap: 4px;
+  }
+
+  .shell-subnav-btn::before {
+    left: 6px;
+    font-size: 12px;
+  }
+
+  .shell-subnav-btn.active::before {
+    font-size: 8px;
+  }
+
+  .shell-subnav-icon {
+    width: 11px;
+    height: 11px;
+  }
+
+  .shell-subnav-label {
+    font-size: 10px;
   }
 }
 
@@ -1012,6 +1192,49 @@ function handleSelectPanel(routeName) {
 
 .theme-kao .shell-tab__label {
   font-size: 13px;
+}
+
+/* R2-A (2026-07-16): kao 主题下 subnav 沿用 archive-rose 墨点
+   印章 + archive-ink 文字。和 shell-tab 同家族，只是更紧凑、
+   没有罗马序号，作为子模式入口而非平级 tab。 */
+.theme-kao .shell-subnav-btn {
+  border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  color: var(--archive-ink-soft);
+}
+
+.theme-kao .shell-subnav-btn:hover {
+  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
+  color: var(--archive-ink);
+}
+
+.theme-kao .shell-subnav-btn::before {
+  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
+}
+
+.theme-kao .shell-subnav-btn:hover::before {
+  color: var(--archive-rose);
+  font-weight: 900;
+}
+
+.theme-kao .shell-subnav-btn.active {
+  color: var(--archive-ink);
+}
+
+.theme-kao .shell-subnav-btn.active::before {
+  color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
+}
+
+.theme-kao .shell-subnav-icon {
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+}
+
+.theme-kao .shell-subnav-btn.active .shell-subnav-icon,
+.theme-kao .shell-subnav-btn:hover .shell-subnav-icon {
+  color: var(--archive-ink);
+}
+
+.theme-kao .shell-subnav-label {
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
 }
 
 /* V3: meta chip uses archive-rose 22% border + ink-dot prefix in
