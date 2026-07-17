@@ -8,10 +8,17 @@ const props = defineProps({
   directorExportButtonTitle: { type: String, default: '导出' },
   directorActionDisabled: { type: Boolean, default: true },
   directorActionLabel: { type: String, default: '生成' },
-  directorActionTitle: { type: String, default: '' }
+  directorActionTitle: { type: String, default: '' },
+  // R2-B: persistent compact video control. Visible whenever a storyboard
+  // version exists or can be generated. The compact control replaces the
+  // need to dig into the export menu to find "视频生成".
+  videoCompact: {
+    type: Object,
+    default: () => ({ visible: false, label: '视频', title: '打开视频生成', kind: 'empty' })
+  }
 })
 
-const emit = defineEmits(['jump', 'move-up', 'move-down', 'remove', 'reorder', 'drop', 'clear', 'director-action'])
+const emit = defineEmits(['jump', 'move-up', 'move-down', 'remove', 'reorder', 'drop', 'clear', 'director-action', 'open-video'])
 
 const draggingIndex = ref(-1)
 const dragOverIndex = ref(-1)
@@ -71,6 +78,22 @@ import { ref } from 'vue'
           :title="directorActionTitle"
         >
           {{ directorActionLabel }}
+        </button>
+        <button
+          v-if="directorMode && videoCompact.visible"
+          class="timeline-video-compact"
+          type="button"
+          :class="`is-${videoCompact.kind}`"
+          :title="videoCompact.title"
+          :aria-label="videoCompact.title"
+          @click="emit('open-video')"
+        >
+          <svg class="timeline-video-compact-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3" y="6" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M16 10l5-3v10l-5-3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+          <span class="timeline-video-compact-label">{{ videoCompact.label }}</span>
+          <span v-if="videoCompact.badge" class="timeline-video-compact-badge">{{ videoCompact.badge }}</span>
         </button>
         <button class="timeline-clear-btn" type="button" :disabled="outlineLength === 0" @click="emit('clear')" title="清空时间轴">清空</button>
       </div>
@@ -222,6 +245,82 @@ import { ref } from 'vue'
 .timeline-version-action:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+/* R2-B: persistent compact video control. Lives next to the version
+   chip + version action + clear button, never in the export menu, never
+   in a second drawer. Reuses the existing StoryboardVideoPanel via the
+   `open-video` event. Status colors mirror directorExportStatus kinds. */
+.timeline-video-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.timeline-video-compact:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--accent);
+}
+
+.timeline-video-compact-icon {
+  flex: none;
+}
+
+.timeline-video-compact-label {
+  white-space: nowrap;
+}
+
+.timeline-video-compact-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.timeline-video-compact.is-current {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.timeline-video-compact.is-stale {
+  border-color: color-mix(in srgb, #f59f00 50%, var(--border));
+  background: color-mix(in srgb, #f59f00 16%, transparent);
+  color: #f59f00;
+}
+
+.timeline-video-compact.is-warning {
+  border-color: color-mix(in srgb, #f59f00 50%, var(--border));
+  background: color-mix(in srgb, #f59f00 14%, transparent);
+  color: #f59f00;
+}
+
+.timeline-video-compact.is-error {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.timeline-video-compact.is-empty {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .timeline-clear-btn {

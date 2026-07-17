@@ -157,6 +157,7 @@
           :director-action-disabled="directorTimelineActionDisabled"
           :director-action-label="directorTimelineActionLabel"
           :director-action-title="directorTimelineActionTitle"
+          :video-compact="videoCompact"
           @jump="jumpToTimelineItem"
           @move-up="moveOutlineUp"
           @move-down="moveOutlineDown"
@@ -165,6 +166,7 @@
           @drop="onOutlineDrop"
           @clear="clearTimeline"
           @director-action="handleDirectorTimelineAction"
+          @open-video="openStoryboardVideoPanel"
         />
       </aside>
 
@@ -229,12 +231,29 @@
           </p>
         </div>
 
-        <!-- Absolute positioned cards -->
+        <!-- Absolute positioned cards.
+             DIAGNOSIS (R2-B): previously the card root was BOTH `:draggable="!linkingActive"`
+             AND wired to `onCardPointerDown` (pointer events + setPointerCapture).
+             The two state machines competed for the same gesture:
+             1. HTML5 dragstart fires once the user moves while `draggable=true`
+                is set, regardless of `event.preventDefault()` on pointerdown. It
+                ran `onCardDragStart` → `onCardDragEnd` purely as side-effects,
+                while pointermove simultaneously mutated `card.x/card.y`.
+             2. The pointer state machine (pointerdown → pointermove → pointerup
+                with `setPointerCapture`) is the richer one — it owns pile logic,
+                edge flushing, and capture-release. It was getting clobbered
+                when both fired.
+             Authoritative state machine: pointer events only. `draggable="false"`
+             is explicit so browsers never start an OS-level drag for cards.
+             Material drop onto the canvas wall still works via `@dragover.prevent`
+             on `.card-wall` (kept; the card itself stays non-draggable). The
+             timeline reorder keeps its own `draggable="true"` on `.timeline-card`
+             elements (separate scope). -->
         <div
           v-for="card in flatCards"
           :key="card.id"
           class="writing-card"
-          :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': isCardInTimeline(card.id) }"
+          :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': isCardInTimeline(card.id), dragging: pointerDragCard?.id === card.id }"
           :style="{
             position: 'absolute',
             left: card.x + 'px',
@@ -247,14 +266,10 @@
           @mouseleave="card.pileId && (hoveredPileId = null)"
           @click.stop="card.pileId && (expandedPileId = expandedPileId === card.pileId ? null : card.pileId)"
           :data-card-id="card.id"
-          :draggable="!linkingActive"
+          :draggable="false"
           @pointerdown.stop="onCardPointerDown($event, card)"
           @click="handleCardClick(card)"
           @dblclick="card.assetId && openCardMaterial(card)"
-          @dragstart="onCardDragStart(card, $event)"
-          @dragover.prevent="onCardDragOver(card, $event)"
-          @drop="onCardDrop(card, $event)"
-          @dragend="onCardDragEnd"
         >
           <div v-if="getCardTimelineSequence(card.id)" class="card-storyboard-badge">
             <span>#{{ getCardTimelineSequence(card.id) }}</span>
@@ -912,8 +927,25 @@ const pointerDragStartX = ref(0)
 const pointerDragStartY = ref(0)
 const pointerDragCardStartX = ref(0)
 const pointerDragCardStartY = ref(0)
+// Live drag delta (visual position offset during drag, before final
+// commit). Stored as a ref so the style binding re-evaluates per frame
+// without touching the reactive `cards` tree on every pointermove.
+const pointerDragDelta = ref({ dx: 0, dy: 0 })
 let pointerDragOriginalPileId = null
 let _pointerDragMoved = false
+// Module-scope refs for the in-flight dragger element + pointer id, so
+// cancelPointerDrag (which runs on unmount) can actually unbind the
+// listeners and release the captured pointer. Without these, unmount-
+// during-drag would leave the listeners live on a detached node and the
+// pointer capture would never be released.
+let pointerDragEl = null
+let pointerDragPointerId = null
+// Re-entrancy guard: the deep `watch(cards, ...)` would otherwise fire
+// per frame as we mutate card.x/card.y during drag and trigger a full
+// layoutCards + computeEdgePaths. Suppress that — per-frame we only
+// touch the dragged card + its connected edges. The end-of-drag path
+// re-enables and flushes once.
+let _suppressLayoutWatch = false
 
 const viewport = useCanvasViewport({
   containerRef: cardWallRef,
@@ -937,7 +969,9 @@ const editingSoundEffects = ref('')
 const piles = ref([])
 const hoveredPileId = ref(null)
 const expandedPileId = ref(null)
-const draggingCardId = ref(null)
+// R2-B: `draggingCardId` was the HTML5 drag-and-drop state holder. The
+// pointer-events state machine (pointerDragCard) replaces it for in-canvas
+// card drags. It is intentionally no longer referenced from the template.
 
 // Git-style commits (renamed to avoid conflicts)
 const proseCommits = ref([])
@@ -1056,6 +1090,7 @@ function updateLayout() {
 }
 
 watch(cards, () => {
+  if (_suppressLayoutWatch) return
   updateLayout()
 }, { deep: true })
 
@@ -1233,8 +1268,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown)
+  cancelPointerDrag()
   stopEdgeDraft()
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 watch(() => route.query.assetId, () => {
@@ -1941,85 +1977,34 @@ function onOutlineDrop() {
   saveData()
 }
 
-function onCardDragStart(card, e) {
-  draggingCardId.value = card.id
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', card.id)
-}
-
-function onCardDragOver(card, e) {
-  if (!draggingCardId.value || draggingCardId.value === card.id) return
-  e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
-}
-
-function onCardDrop(targetCard, e) {
-  e.preventDefault()
-  const draggedId = draggingCardId.value
-  if (!draggedId || draggedId === targetCard.id) {
-    draggingCardId.value = null
-    return
-  }
-
-  const draggedCardInCards = cards.value.find(c => c.id === draggedId)
-  if (!draggedCardInCards) {
-    draggingCardId.value = null
-    return
-  }
-
-  const targetPileId = targetCard.pileId
-  if (targetPileId) {
-    const pile = piles.value.find(p => p.pileId === targetPileId)
-    if (pile) pile.cardIds.push(draggedId)
-    cards.value.forEach(c => { if (c.id === draggedId) c.pileId = targetPileId })
-  } else {
-    const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, draggedId], pileX: targetCard.x, pileY: targetCard.y })
-    cards.value.forEach(c => {
-      if (c.id === draggedId || c.id === targetCard.id) c.pileId = newPileId
-    })
-  }
-  draggingCardId.value = null
-  updateLayout()
-  addTimeline('卡片加入牌堆')
-  saveData()
-}
-
-function onCardDragEnd() {
-  draggingCardId.value = null
-}
+// R2-B: card-to-card drag-and-drop via HTML5 draggable is intentionally
+// removed. The pointer state machine (`onCardPointerDown/Move/Up`) is
+// the single authoritative drag path for cards. Material HTML5 drops
+// onto the canvas surface still hit `onCardWallDragOver` /
+// `onCardWallDrop` via the wall-level `@dragover.prevent` — those handlers
+// remain and only operate when a real external drag is present.
 
 function onCardWallDragOver(e) {
-  if (!draggingCardId.value) return
+  // Only acknowledge external material drops. Without a dataTransfer
+  // payload we let the event propagate so the OS drag preview behaves
+  // normally.
+  const types = e.dataTransfer?.types
+  const hasExternal = types && Array.from(types).some((t) => t !== 'Files' && t !== 'text/plain')
+  if (!hasExternal) return
   e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
+  e.dataTransfer.dropEffect = 'copy'
 }
 
 function onCardWallDrop(e) {
+  // External material drops carry an asset id we can hydrate. The legacy
+  // in-canvas card drag payload was removed with the HTML5 draggable on
+  // cards; we no longer treat internal card ids as drop payloads.
+  const dt = e.dataTransfer
+  const cardId = dt?.getData('text/plain')
+  if (!cardId) return
   e.preventDefault()
-  const cardId = draggingCardId.value
-  if (!cardId) {
-    draggingCardId.value = null
-    return
-  }
-
   const card = cards.value.find(c => c.id === cardId)
-  if (!card) {
-    draggingCardId.value = null
-    return
-  }
-
-  if (card.pileId) {
-    const pile = piles.value.find(p => p.pileId === card.pileId)
-    if (pile) {
-      pile.cardIds = pile.cardIds.filter(id => id !== cardId)
-      if (pile.cardIds.length < 2) {
-        cards.value.forEach(c => { if (c.pileId === pile.pileId) c.pileId = null })
-        piles.value = piles.value.filter(p => p.pileId !== pile.pileId)
-      }
-    }
-  }
-
+  if (!card) return
   const rect = e.currentTarget.getBoundingClientRect()
   const dropX = e.clientX - rect.left
   const dropY = e.clientY - rect.top
@@ -2029,7 +2014,6 @@ function onCardWallDrop(e) {
   card.x = dropX + scrollX - 140
   card.y = dropY + scrollY - 90
   card.pileId = null
-  draggingCardId.value = null
   updateLayout()
   saveData()
 }
@@ -2169,6 +2153,12 @@ function onCardPointerDown(event, card) {
   pointerDragCardStartY.value = card.y || 0
   pointerDragOriginalPileId = card.pileId || null
   _pointerDragMoved = false
+  pointerDragDelta.value = { dx: 0, dy: 0 }
+  _suppressLayoutWatch = false
+  // Expose in-flight dragger to module scope so cancelPointerDrag (called
+  // on unmount) can unbind listeners + release the captured pointer.
+  pointerDragEl = cardEl
+  pointerDragPointerId = event.pointerId
 
   cardEl.addEventListener('pointermove', onPointerDragMove)
   cardEl.addEventListener('pointerup', onPointerDragUp)
@@ -2181,7 +2171,13 @@ function onPointerDragMove(event) {
   const dx = event.clientX - pointerDragStartX.value
   const dy = event.clientY - pointerDragStartY.value
   if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
-  _pointerDragMoved = true
+  if (!_pointerDragMoved) {
+    _pointerDragMoved = true
+    // First meaningful move: silence the deep cards watcher so the per-
+    // frame mutation of card.x/card.y does NOT trigger a full layoutCards +
+    // computeEdgePaths. We restore + flush once on pointerup.
+    _suppressLayoutWatch = true
+  }
   const wall = cardWallRef.value
   const cw = Number.isFinite(canvasWidth.value) && canvasWidth.value > 0 ? canvasWidth.value : (wall?.clientWidth || 1200)
   const ch = Number.isFinite(canvasHeight.value) && canvasHeight.value > 0 ? canvasHeight.value : (wall?.clientHeight || 800)
@@ -2193,6 +2189,10 @@ function onPointerDragMove(event) {
   )
   card.x = pos.x
   card.y = pos.y
+  // Visual offset for the rendered card. The DOM rect reflects this
+  // through Vue's `:style.left/top`, so connected edges re-evaluate
+  // correctly via updateConnectedEdges reading getBoundingClientRect.
+  pointerDragDelta.value = { dx: 0, dy: 0 }
   updateConnectedEdges(card.id)
 }
 
@@ -2201,16 +2201,54 @@ function onPointerDragUp(event) {
   cardEl.removeEventListener('pointermove', onPointerDragMove)
   cardEl.removeEventListener('pointerup', onPointerDragUp)
   cardEl.removeEventListener('pointercancel', onPointerDragUp)
+  if (cardEl && typeof cardEl.releasePointerCapture === 'function' && event.pointerId != null) {
+    try { cardEl.releasePointerCapture(event.pointerId) } catch { /* noop */ }
+  }
 
   if (!pointerDragCard.value) return
   const card = pointerDragCard.value
   pointerDragCard.value = null
   const originalPileId = pointerDragOriginalPileId
   pointerDragOriginalPileId = null
+  pointerDragDelta.value = { dx: 0, dy: 0 }
+  const wasSuppressed = _suppressLayoutWatch
+  _suppressLayoutWatch = false
 
+  // No-move click — let the click handler proceed, no pile/persist touched.
   if (!_pointerDragMoved) return
 
-  if (originalPileId) {
+  // Resolve drop target via elementFromPoint. elementFromPoint is captured
+  // BEFORE we mutate cards/piles, so a same-pile dropback lands us on a
+  // sibling card inside the same pile and resolves to the original pile.
+  const target = document.elementFromPoint(event.clientX, event.clientY)
+  const targetCardEl = target?.closest?.('[data-card-id]')
+  const targetCardId = targetCardEl?.dataset?.cardId
+  const targetCard = targetCardId && targetCardId !== card.id
+    ? cards.value.find(c => c.id === targetCardId)
+    : null
+  const resolvedPileId = targetCard?.pileId || null
+
+  // (a) same-pile dropback: drag started in pile, ended in same pile.
+  //     Explicit gesture rule: do NOT unpile. Just persist x/y and flush.
+  if (originalPileId && resolvedPileId === originalPileId) {
+    viewport.scheduleEdgeFlush()
+    updateLayout()
+    saveData()
+    return
+  }
+
+  // Pile removal needs EXPLICIT gesture: only un-pile when there is a
+  // resolved target card that is in a DIFFERENT pile. Arbitrary free
+  // movement (no target card, or target on empty wall) must NOT un-pile.
+  const explicitCrossPileGesture =
+    Boolean(originalPileId) &&
+    Boolean(targetCard) &&
+    resolvedPileId &&
+    resolvedPileId !== originalPileId
+
+  // (d) pile-to-pile move: card was in pile, dropped on a card in a
+  //     different pile. Remove from original pile first.
+  if (explicitCrossPileGesture) {
     const originalPile = piles.value.find(p => p.pileId === originalPileId)
     if (originalPile) {
       originalPile.cardIds = originalPile.cardIds.filter(id => id !== card.id)
@@ -2222,32 +2260,71 @@ function onPointerDragUp(event) {
     card.pileId = null
   }
 
-  const target = document.elementFromPoint(event.clientX, event.clientY)
-  const targetCardEl = target?.closest?.('[data-card-id]')
-  const targetCardId = targetCardEl?.dataset?.cardId
-
-  if (targetCardId && targetCardId !== card.id) {
-    const targetCard = cards.value.find(c => c.id === targetCardId)
-    if (targetCard) {
-      const targetPileId = targetCard.pileId
-      if (targetPileId) {
-        const pile = piles.value.find(p => p.pileId === targetPileId)
-        if (pile && !pile.cardIds.includes(card.id)) pile.cardIds.push(card.id)
-        cards.value.forEach(c => { if (c.id === card.id) c.pileId = targetPileId })
-      } else {
-        const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, card.id], pileX: targetCard.x, pileY: targetCard.y })
-        cards.value.forEach(c => {
-          if (c.id === card.id || c.id === targetCard.id) c.pileId = newPileId
-        })
-      }
+  if (targetCard) {
+    if (resolvedPileId) {
+      // (c) enter existing pile via a different pile (already unpiled
+      //     above if it was a cross-pile gesture). Free card joining a
+      //     pile is also handled here (no originalPileId).
+      const pile = piles.value.find(p => p.pileId === resolvedPileId)
+      if (pile && !pile.cardIds.includes(card.id)) pile.cardIds.push(card.id)
+      cards.value.forEach(c => { if (c.id === card.id) c.pileId = resolvedPileId })
+    } else if (!originalPileId) {
+      // Free move onto a free target card: stack via new pile.
+      const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, card.id], pileX: targetCard.x, pileY: targetCard.y })
+      cards.value.forEach(c => {
+        if (c.id === card.id || c.id === targetCard.id) c.pileId = newPileId
+      })
       addTimeline('卡片加入牌堆')
+    } else {
+      // Originally piled, target is a free card → form new pile with
+      // target. This is an EXPLICIT gesture: dropped onto another card.
+      const newPileId = `pile_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      piles.value.push({ pileId: newPileId, name: '', cardIds: [targetCard.id, card.id], pileX: targetCard.x, pileY: targetCard.y })
+      cards.value.forEach(c => {
+        if (c.id === card.id || c.id === targetCard.id) c.pileId = newPileId
+      })
+      addTimeline('卡片移出牌堆并入新堆')
     }
+  } else if (!originalPileId) {
+    // (b) Free move with no drop target: position already persisted
+    //     via pointermove; nothing more to do.
   }
+  // else: originally piled, no target, dragged into empty wall → we
+  // DELIBERATELY keep the card in the pile. Removing from the pile on
+  // arbitrary free movement was the regression we are fixing.
 
+  // End-of-drag: ONE full layout + edge flush. Per-frame we only mutated
+  // card.x/card.y and called updateConnectedEdges() — not layoutCards()
+  // or computeEdgePaths().
   viewport.scheduleEdgeFlush()
   updateLayout()
   saveData()
+}
+
+// Lifecycle cleanup for the authoritative pointer state machine. Called
+// on component unmount and on link-mode cancel. Releases capture and
+// drops in-flight listeners so we never leak.
+function cancelPointerDrag() {
+  if (!pointerDragCard.value) return
+  const cardEl = pointerDragEl
+  const pointerId = pointerDragPointerId
+  pointerDragCard.value = null
+  pointerDragOriginalPileId = null
+  _pointerDragMoved = false
+  pointerDragDelta.value = { dx: 0, dy: 0 }
+  if (cardEl) {
+    try {
+      cardEl.removeEventListener('pointermove', onPointerDragMove)
+      cardEl.removeEventListener('pointerup', onPointerDragUp)
+      cardEl.removeEventListener('pointercancel', onPointerDragUp)
+    } catch { /* noop */ }
+    if (pointerId != null && typeof cardEl.releasePointerCapture === 'function') {
+      try { cardEl.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+  }
+  pointerDragEl = null
+  pointerDragPointerId = null
 }
 
 function updateConnectedEdges(cardId) {
@@ -2432,6 +2509,42 @@ const directorStatusLabel = computed(() => {
   const status = directorExportStatus.value
   if (!status) return ''
   return `${status.title} · ${status.detail}`
+})
+
+// R2-B: persistent COMPACT video control descriptor for the timeline
+// header. Mirrors the export-menu badge logic so the same "未/更/警/已"
+// language stays coherent. Does NOT duplicate the existing video button
+// in the export menu — it surfaces the same StoryboardVideoPanel via
+// `openStoryboardVideoPanel`, in a non-drawer position.
+const videoCompact = computed(() => {
+  if (currentMode.value !== 'directing') {
+    return { visible: false, label: '视频', title: '打开视频生成', kind: 'empty' }
+  }
+  const status = directorExportStatus.value
+  if (!status) {
+    return {
+      visible: true,
+      label: '视频',
+      title: '先把节点加入时间轴，再打开视频生成',
+      kind: 'empty',
+      badge: ''
+    }
+  }
+  const map = {
+    empty: { label: '视频', title: '尚未生成版本，打开视频生成', badge: '' },
+    error: { label: '视频', title: '版本未通过，打开视频生成', badge: '错' },
+    stale: { label: '视频', title: '画布已变化，打开视频生成', badge: '更' },
+    current: { label: '视频', title: '版本已同步，打开视频生成', badge: '已' },
+    warning: { label: '视频', title: '版本有提示项，打开视频生成', badge: '警' }
+  }
+  const cfg = map[status.kind] || map.empty
+  return {
+    visible: true,
+    label: cfg.label,
+    title: cfg.title,
+    kind: status.kind,
+    badge: cfg.badge
+  }
 })
 
 function handleDirectorTimelineAction() {
