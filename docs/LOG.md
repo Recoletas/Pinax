@@ -16,6 +16,7 @@
 
 结果摘要：
 - 体验页 mast 增加持续可见的联机入口；分镜时间轴增加持续可见的视频操作，均复用已有路由和生成面板。
+- Vite 开发服务器补充 `/ws` 到本地 Express 3001 的 WebSocket 代理；本地联机不再把 `/ws/rooms` 发给仅承载前端的 5173 端口。
 - 画布卡片拖拽统一到 pointer 状态机，牌堆移动不再与原生 HTML5 drag 竞争；pointer cancel 会回滚位置并清理 capture/listener。
 - 顾问结果覆盖 pending/completed/applying/applied/stale/failed/dismissed；只有注入的 side-effect runner 成功后才进入 applied，旧写作页实际应用流程继续走兼容 shim。
 - Notes 素材行移除 button 嵌套；漫画页 schema 升到 3，页级目的、翻页钩子、连续性和视觉圣经引用贯通脚本解析、编辑和存储。
