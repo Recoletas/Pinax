@@ -52,19 +52,24 @@
       </div>
 
       <div v-else-if="roomSlug" class="online-page__room">
-        <Experience class="online-page__experience" :online-session="onlineSession" />
+        <div class="online-page__stage">
+          <Experience class="online-page__experience" :online-session="onlineSession" />
+          <OnlineChatOverlay
+            :messages="chatMessages"
+            :is-connected="isConnected"
+            @send="onRoomSendChat"
+          />
+        </div>
         <OnlineRoomPanel
           compact
+          class="online-page__room-panel"
           :room-slug="roomSlug"
           :connection-state="connectionState"
           :error="error"
           :members="members"
-          :chat-messages="chatMessages"
           :proposals="proposals"
           :votes="votes"
           :is-host="isHost"
-          :is-connected="isConnected"
-          @send-chat="onRoomSendChat"
           @vote="onRoomVote"
           @select-action="onRoomSelectAction"
           @leave="onRoomLeave"
@@ -86,6 +91,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
 import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
+import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
 import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
 import Experience from './Experience.vue'
 
@@ -347,20 +353,38 @@ onMounted(() => {
 .online-page__room {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  display: block;
   position: relative;
 }
 
 .online-page__experience {
+  height: 100%;
   min-width: 0;
   min-height: 0;
 }
 
+.online-page__stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.online-page__room-panel {
+  position: absolute;
+  top: 54px;
+  right: 12px;
+  z-index: 9;
+  width: min(220px, calc(100% - 24px));
+}
+
 @media (max-width: 900px) {
-  .online-page__room {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(420px, 1fr) minmax(260px, 42vh);
+  .online-page__room-panel {
+    top: 52px;
+    right: 10px;
+    width: min(210px, calc(100% - 20px));
   }
 }
 

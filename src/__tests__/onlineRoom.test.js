@@ -1,5 +1,8 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
+import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
+import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
 import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
 import { Room } from '../../server/realtime/RoomRegistry.js'
 import { createEvent, getEventsSince, isCommandDuplicate } from '../../server/realtime/RoomEventStore.js'
@@ -41,7 +44,7 @@ describe('useOnlineRoom', () => {
     vi.useFakeTimers()
     mockWs = null
 
-    vi.stubGlobal('WebSocket', function (url) {
+    vi.stubGlobal('WebSocket', function (_url) {
       mockWs = new MockWebSocket()
       return mockWs
     })
@@ -240,6 +243,38 @@ describe('useOnlineRoom', () => {
       goals: [{ id: 'goal_1', title: '查明钟声' }]
     })
     expect(runtimePatch.paths).toEqual(['writingCharacter', 'writingTime', 'worldMapState', 'goals'])
+
+    const chat = mount(OnlineChatOverlay, {
+      props: {
+        isConnected: true,
+        messages: [{ id: 'chat-1', actorId: 'm_1', nickname: 'alice', text: '去钟楼。' }]
+      }
+    })
+    expect(chat.text()).toContain('alice')
+    expect(chat.text()).toContain('去钟楼。')
+    await chat.get('input').setValue('我来带路')
+    await chat.get('form').trigger('submit')
+    expect(chat.emitted('send')?.[0]).toEqual(['我来带路'])
+    chat.unmount()
+
+    const emptyChat = mount(OnlineChatOverlay, { props: { isConnected: true, messages: [] } })
+    expect(emptyChat.find('.online-chat').exists()).toBe(false)
+    expect(emptyChat.find('.online-chat-launcher').exists()).toBe(true)
+    await emptyChat.get('.online-chat-launcher').trigger('click')
+    expect(emptyChat.find('.online-chat').exists()).toBe(true)
+    emptyChat.unmount()
+
+    const roomPanel = mount(OnlineRoomPanel, {
+      props: {
+        compact: true,
+        roomSlug: '04bu8rsw',
+        connectionState: 'connected',
+        members: [{ id: 'm_1', nickname: 'REco', role: 'host' }]
+      }
+    })
+    expect(roomPanel.classes()).toContain('online-room--compact')
+    expect(roomPanel.text()).toContain('成员 · 1')
+    roomPanel.unmount()
     }
   })
 })

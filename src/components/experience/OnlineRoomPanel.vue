@@ -13,12 +13,23 @@
           title="复制房间链接"
           aria-label="复制房间链接"
           @click="copyLink"
-        >复制链接</button>
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <rect x="5.5" y="5.5" width="7" height="7" rx="1" />
+            <path d="M10.5 5.5v-2h-7v7h2" />
+          </svg>
+          <span class="online-room__action-label">复制链接</span>
+        </button>
         <button
           class="online-room__action-btn online-room__action-btn--leave"
           aria-label="离开房间"
           @click="leaveRoom"
-        >离开</button>
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <path d="M6.5 3H3.5v10h3M9 5l3 3-3 3M5.5 8H12" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="online-room__action-label">离开</span>
+        </button>
       </div>
     </div>
 
@@ -27,7 +38,7 @@
     <div class="online-room__body">
       <aside class="online-room__sidebar">
         <div class="online-room__section">
-          <h2 class="online-room__section-title">成员 ({{ members.length }})</h2>
+          <h2 class="online-room__section-title">成员 · {{ members.length }}</h2>
           <ul class="online-room__member-list" aria-label="在线成员">
             <li
               v-for="m in members"
@@ -72,62 +83,25 @@
         </div>
       </aside>
 
-      <main class="online-room__chat">
-        <div class="online-room__chat-messages" aria-label="聊天消息">
-          <div
-            v-for="(msg, i) in chatMessages"
-            :key="i"
-            class="online-room__chat-msg"
-          >
-            <span class="online-room__chat-author">{{ msg.nickname || msg.actorId }}:</span>
-            <span class="online-room__chat-text">{{ msg.text }}</span>
-          </div>
-          <div v-if="!chatMessages.length" class="online-room__chat-empty">
-            房间已建立，在这里发言
-          </div>
-        </div>
-        <form class="online-room__chat-input" @submit.prevent="onSendChat" aria-label="发送消息">
-          <label for="online-chat-input" class="sr-only">消息输入</label>
-          <input
-            id="online-chat-input"
-            v-model="draftChat"
-            class="online-room__chat-field"
-            placeholder="输入消息..."
-            maxlength="1000"
-            :disabled="!isConnected"
-            aria-label="消息内容"
-          />
-          <button
-            type="submit"
-            class="online-room__chat-send"
-            :disabled="!isConnected || !draftChat.trim()"
-            aria-label="发送消息"
-          >发送</button>
-        </form>
-      </main>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   roomSlug: { type: String, default: '' },
   connectionState: { type: String, default: 'idle' },
   error: { type: String, default: null },
   members: { type: Array, default: () => [] },
-  chatMessages: { type: Array, default: () => [] },
   proposals: { type: Array, default: () => [] },
   votes: { type: Object, default: () => ({}) },
   isHost: { type: Boolean, default: false },
-  isConnected: { type: Boolean, default: false },
   compact: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['send-chat', 'vote', 'select-action', 'leave', 'copy-link'])
-
-const draftChat = ref('')
+const emit = defineEmits(['vote', 'select-action', 'leave', 'copy-link'])
 
 const stateLabel = computed(() => {
   switch (props.connectionState) {
@@ -138,13 +112,6 @@ const stateLabel = computed(() => {
     default: return '未连接'
   }
 })
-
-function onSendChat() {
-  const text = draftChat.value.trim()
-  if (!text) return
-  emit('send-chat', text)
-  draftChat.value = ''
-}
 
 function copyLink() {
   emit('copy-link')
@@ -164,18 +131,6 @@ function leaveRoom() {
 </script>
 
 <style scoped>
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .online-room {
   display: flex;
   flex-direction: column;
@@ -282,8 +237,7 @@ function leaveRoom() {
 }
 
 .online-room__body {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: block;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -295,8 +249,8 @@ function leaveRoom() {
   gap: 0;
   padding: 0;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
   overflow-y: auto;
+  height: 100%;
 }
 
 .online-room__section {
@@ -412,135 +366,147 @@ function leaveRoom() {
   border-color: color-mix(in srgb, var(--archive-gold, #b78a34) 36%, transparent);
 }
 
-.online-room__chat {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .online-room--compact {
   border-left: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
 }
 
+.online-room--compact.online-room {
+  height: auto;
+  max-height: min(52vh, 440px);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-primary) 28%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.online-room--compact .online-room__header {
+  min-height: 34px;
+  gap: 7px;
+  padding: 5px 6px 5px 9px;
+  background: transparent;
+}
+
+.online-room--compact .online-room__title-row {
+  align-items: center;
+  gap: 7px;
+}
+
+.online-room--compact .online-room__slug {
+  max-width: 92px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.online-room--compact .online-room__state {
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  font-size: 9px;
+}
+
+.online-room--compact .online-room__state::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.online-room--compact .online-room__actions {
+  gap: 1px;
+}
+
+.online-room--compact .online-room__action-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+}
+
+.online-room--compact .online-room__action-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .online-room--compact .online-room__body {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(120px, auto) minmax(180px, 1fr);
+  flex: 0 1 auto;
 }
 
 .online-room--compact .online-room__sidebar {
-  max-height: 42vh;
   border-right: 0;
-  border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
+  height: auto;
+  max-height: calc(min(52vh, 440px) - 35px);
+  background: transparent;
+}
+
+.online-room--compact .online-room__section {
+  padding: 7px 9px;
+}
+
+.online-room--compact .online-room__section-title {
+  margin-bottom: 5px;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+.online-room--compact .online-room__member-list {
+  gap: 3px;
+}
+
+.online-room--compact .online-room__member {
+  min-height: 20px;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.online-room--compact .online-room__member-badge {
+  padding: 0 4px;
+  border: 0;
+  font-size: 9px;
+}
+
+.online-room--compact .online-room__proposal-list {
+  gap: 5px;
+}
+
+.online-room--compact .online-room__proposal {
+  gap: 4px;
+  padding: 6px;
+}
+
+.online-room--compact .online-room__proposal-text {
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 @media (max-width: 900px) {
   .online-room--compact {
     border-left: 0;
-    border-top: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
-  }
-
-  .online-room--compact .online-room__body {
-    grid-template-columns: minmax(180px, 34%) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
   }
 
   .online-room--compact .online-room__sidebar {
     max-height: none;
-    border-right: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
-    border-bottom: 0;
   }
-}
-
-.online-room__chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.online-room__chat-msg {
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-primary);
-  word-break: break-word;
-}
-
-.online-room__chat-author {
-  font-weight: 600;
-  margin-right: 6px;
-  color: var(--text-secondary);
-}
-
-.online-room__chat-empty {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-style: italic;
-  padding: 24px 0;
-}
-
-.online-room__chat-input {
-  display: flex;
-  gap: 0;
-  padding: 12px 16px;
-  border-top: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
-  background: var(--bg-secondary);
-}
-
-.online-room__chat-field {
-  flex: 1;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  padding: 8px 12px;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 22%, transparent));
-  outline: none;
-  min-width: 0;
-}
-
-.online-room__chat-field:focus {
-  border-color: var(--accent-teal, #0d8b7b);
-}
-
-.online-room__chat-field:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.online-room__chat-send {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  padding: 8px 16px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 22%, transparent));
-  border-left: none;
-  cursor: pointer;
-  transition: background 0.18s ease;
-}
-
-.online-room__chat-send:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.online-room__chat-send:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 @media (max-width: 640px) {
   .online-room__body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: block;
   }
 
   .online-room__sidebar {
     border-right: none;
-    border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 14%, transparent));
-    max-height: 40vh;
   }
 }
 </style>
