@@ -11,9 +11,17 @@ export function buildComicScriptMessages({ sourceText = '', sourceTitle = '', pa
       content: [
         '你是漫画分镜编剧，把小说素材改写成可逐格生图的漫画页脚本。',
         '只输出 JSON 对象，不要 Markdown，不要解释。',
-        '格式：{"title":"页标题","layout":"strip-4 或 page-6","styleBible":"统一画风、角色与色彩连续性","panels":[{"visual":"只描述可见画面、构图、角色动作与光线，不写对白文字","dialogue":[{"speaker":"角色","text":"对白"}],"caption":"旁白"}]}。',
+        // R2-D.4: page-level fields are part of the strict contract — the
+        // model must fill pagePurpose / pageTurnHook / continuityNotes /
+        // visualBibleRefs, the parser validates them, and the page is
+        // created (or saved) round-trippable with these keys.
+        '格式：{"title":"页标题","layout":"strip-4 或 page-6","styleBible":"统一画风、角色与色彩连续性",' +
+        '"pagePurpose":"本页要传达的核心情绪或情节转折（一句话）","pageTurnHook":"让读者翻页的视觉或悬念钩子（一句）",' +
+        '"continuityNotes":["前后页需要保持的连续点"],"visualBibleRefs":[{"kind":"character|location|prop|palette|lineStyle","refId":"实体 ID","note":"本页要点"}],' +
+        '"panels":[{"visual":"只描述可见画面、构图、角色动作与光线，不写对白文字","dialogue":[{"speaker":"角色","text":"对白"}],"caption":"旁白"}]}。',
         '每格 visual 必须具体且能独立生图；对白、旁白和拟声词不得烘焙进 visual。',
-        '相邻格保持人物服装、地点、时段和关键道具连续。'
+        '相邻格保持人物服装、地点、时段和关键道具连续。',
+        'pagePurpose 是本页一句话目标；pageTurnHook 是面向下一页的视觉钩子或悬念；visualBibleRefs 仅列本页需要强调的实体；缺信息时填简短占位文字但绝不留空字段。'
       ].join('\n')
     },
     {
@@ -40,10 +48,16 @@ export function parseComicScript(content = '') {
       const parsed = JSON.parse(candidate)
       const panels = normalizeScriptPanels(parsed?.panels)
       if (panels.length < 4 || panels.length > 6) continue
+      // R2-D.4: page-level fields must round-trip. Strings get trimmed,
+      // arrays are clamped to declared limits inside the normalizers.
       return {
         title: String(parsed.title || '漫画页').trim() || '漫画页',
         layout: panels.length >= 6 ? 'page-6' : 'strip-4',
         styleBible: String(parsed.styleBible || '').trim(),
+        pagePurpose: String(parsed.pagePurpose || '').trim(),
+        pageTurnHook: String(parsed.pageTurnHook || '').trim(),
+        continuityNotes: normalizeScriptContinuityNotes(parsed?.continuityNotes),
+        visualBibleRefs: normalizeScriptVisualBibleRefs(parsed?.visualBibleRefs),
         panels
       }
     } catch {
@@ -111,6 +125,39 @@ function normalizeScriptPanels(panels) {
     })).filter((line) => line.text),
     caption: String(panel?.caption || '').trim()
   })).filter((panel) => panel.visual)
+}
+
+// R2-D.4: page-level field normalizers for parsed output.
+// Strings stay simple (no clamp — full prose is fine).
+// Arrays clamp to declared limits to match comicPageStore normalizers.
+function normalizeScriptContinuityNotes(input) {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((note) => String(note || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 20)
+}
+
+const VALID_VISUAL_BIBLE_REF_KINDS = new Set([
+  'character', 'location', 'prop', 'palette', 'lineStyle'
+])
+
+function normalizeScriptVisualBibleRefs(input) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 40).map((entry) => {
+    if (!entry || typeof entry !== 'object') return null
+    const kind = VALID_VISUAL_BIBLE_REF_KINDS.has(entry.kind) ? entry.kind : 'character'
+    const refId = String(entry.refId || '').trim()
+    if (!refId) return null
+    return {
+      kind,
+      refId,
+      note: String(entry.note || '').trim(),
+      revision: Number.isFinite(Number(entry.revision)) && Number(entry.revision) > 0
+        ? Math.floor(Number(entry.revision))
+        : 1
+    }
+  }).filter(Boolean)
 }
 
 function clampPanelCount(value) {

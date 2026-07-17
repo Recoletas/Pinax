@@ -66,7 +66,15 @@
               </span>
             </button>
             <div v-show="!isAssetKindCollapsed(group.kind)" class="drawer-body">
-              <button
+              <!--
+                R2-D.2: replace outer <button class="index-card"> with a div
+                to remove the nested-button Vite warning. Inner <input>
+                (checkbox) + <button class="index-card__delete"> stay
+                independently focusable. The card-level click keeps the
+                same selectChapter semantics via @click + keyboard
+                handlers (Enter / Space).
+              -->
+              <div
                 v-for="(note, i) in group.items"
                 :key="note.id"
                 class="index-card"
@@ -75,7 +83,13 @@
                   'is-checked': checkedAssetIds.includes(note.id)
                 }"
                 :style="{ '--card-tilt': (i % 2 === 0 ? -4 : 3) + 'deg' }"
+                role="button"
+                tabindex="0"
+                :aria-label="`素材：${note.title || '无标题素材'}（点击选择）`"
+                :aria-selected="selectedChapterId === note.id"
                 @click="selectChapter(note.id)"
+                @keydown.enter.prevent="selectChapter(note.id)"
+                @keydown.space.prevent="selectChapter(note.id)"
               >
                 <input
                   class="index-card__check"
@@ -91,7 +105,7 @@
                 </div>
                 <span v-if="isAssetOnCanvas(note.id)" class="index-card__canvas-mark" title="已入画布">✓</span>
                 <button class="index-card__delete" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>
-              </button>
+              </div>
             </div>
           </section>
           <div v-if="groupedChapters.length === 0" class="drawer-empty">
@@ -3341,6 +3355,13 @@ function syncSelectionCommandState() {
 
 .index-card:hover {
   transform: rotate(0deg) translateY(-1px);
+}
+
+/* R2-D.2: focus-visible ring on the row-level selector (now a div
+   with role=button). */
+.index-card:focus-visible {
+  outline: 2px solid var(--archive-gold);
+  outline-offset: 2px;
 }
 
 .index-card.is-selected {

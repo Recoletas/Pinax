@@ -288,6 +288,87 @@ function stageStatusLabel(panel, stage) {
   }[status] || status
 }
 
+// R2-D.5: secondary status detail so the production stage tile doesn't
+// pretend that empty / working / stale stages are real finishes. Returns
+// a short secondary label (artifact count or stale reason) shown under
+// the primary status.
+function stageDetailLabel(panel, stage) {
+  const entry = panel?.production?.[stage]
+  if (!entry) return ''
+  const state = entry.status || 'empty'
+  const ids = Array.isArray(entry.artifactIds) ? entry.artifactIds.length : 0
+  const selected = entry.selectedArtifactId ? 1 : 0
+  if (state === 'empty') return ids ? `${ids} 个旧稿` : '无草图'
+  if (state === 'working') return '生成中…'
+  if (state === 'failed') return entry.error?.message ? `失败：${entry.error.message}` : '失败'
+  if (state === 'stale') return entry.staleReason ? `失效：${entry.staleReason}` : '需重做'
+  if (state === 'review') return selected ? `选 ${selected}/${ids}` : `${ids} 个候选`
+  if (state === 'approved') return entry.approvedAt ? `已确认 ${new Date(entry.approvedAt).toLocaleDateString()}` : '已确认'
+  return ''
+}
+
+// R2-D.5: full status title (hover + a11y) for the production tile.
+function stageTitle(panel, stage) {
+  const primary = stageStatusLabel(panel, stage)
+  const detail = stageDetailLabel(panel, stage)
+  const entry = panel?.production?.[stage]
+  if (!entry) return primary
+  const status = entry.status || 'empty'
+  const ids = Array.isArray(entry.artifactIds) ? entry.artifactIds.length : 0
+  const selected = entry.selectedArtifactId ? 1 : 0
+  return [primary, detail, `状态 ${status}`, `${ids} 候选 / 选 ${selected}`]
+    .filter(Boolean).join(' · ')
+}
+
+// R2-D.5: text-area bridge for continuityNotes (textarea is newline-
+// separated, store is string[]). Two-way binding via getter/setter on the
+// reactive page object.
+const continuityNotesText = computed({
+  get() {
+    return Array.isArray(comicPage.value?.continuityNotes)
+      ? comicPage.value.continuityNotes.join('\n')
+      : ''
+  },
+  set(text) {
+    if (!comicPage.value) return
+    const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 20)
+    comicPage.value.continuityNotes = lines
+  }
+})
+
+// R2-D.5 self-review: continuityNotesText is now bound directly via
+// v-model on the top-level computed (v-model="continuityNotesText"),
+// so this helper became redundant. Kept the template-side v-model
+// two-way binding; persistPage is invoked inside addVisualBibleRef and
+// update/removeVisualBibleRef, so the textarea edits still persist
+// via the watcher on `comicPage.value`.
+
+function addVisualBibleRef() {
+  if (!comicPage.value) return
+  const refs = Array.isArray(comicPage.value.visualBibleRefs)
+    ? [...comicPage.value.visualBibleRefs]
+    : []
+  if (refs.length >= 40) return
+  refs.push({ kind: 'character', refId: '', note: '', revision: 1 })
+  comicPage.value.visualBibleRefs = refs
+  persistPage()
+}
+
+function removeVisualBibleRef(index) {
+  if (!comicPage.value?.visualBibleRefs) return
+  const refs = comicPage.value.visualBibleRefs.filter((_, i) => i !== index)
+  comicPage.value.visualBibleRefs = refs
+  persistPage()
+}
+
+function updateVisualBibleRef(index, key, value) {
+  if (!comicPage.value?.visualBibleRefs?.[index]) return
+  const refs = comicPage.value.visualBibleRefs.map((entry, i) =>
+    i === index ? { ...entry, [key]: value } : entry)
+  comicPage.value.visualBibleRefs = refs
+  persistPage()
+}
+
 function acceptPage() {
   comicPage.value.status = 'accepted'
   persistPage()
@@ -496,6 +577,19 @@ function sourceSignature(sourceRefs) {
     .join('|')
 }
 
+// R2-D.5: small UI helpers for the page-level chip strip.
+function formatLabel(format) {
+  if (format === 'page-rtl') return '右到左'
+  if (format === 'webtoon') return '竖向条漫'
+  return '左到右'
+}
+
+function truncate(text, limit) {
+  const value = String(text || '')
+  if (value.length <= limit) return value
+  return `${value.slice(0, Math.max(0, limit - 1))}…`
+}
+
 function safeFilename(value) {
   return String(value || 'comic-page').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'comic-page'
 }
@@ -594,7 +688,7 @@ function safeFilename(value) {
       </div>
 
       <details class="comic-editor__page-settings" open>
-        <summary>页面信息与统一画风</summary>
+        <summary>页面级 · 统一画风</summary>
         <div class="comic-editor__page-meta">
           <div class="comic-editor__page-row">
             <label class="comic-editor__field">
@@ -636,10 +730,102 @@ function safeFilename(value) {
         </div>
       </details>
 
+      <!-- R2-D.5: page-level beat + continuity section. Pages with no
+           script yet render the empty placeholders inline rather than a
+           long form. Fields flow into comicScriptService prompt and round-trip
+           through comicPageStore save (schemaVersion 3). -->
+      <details class="comic-editor__page-settings comic-editor__page-beat" open>
+        <summary>页级节拍与连续性</summary>
+        <div class="comic-editor__page-meta">
+          <label class="comic-editor__field">
+            <span>页面节拍 / 目的</span>
+            <input
+              v-model="comicPage.pagePurpose"
+              aria-label="页面节拍与目的"
+              placeholder="本页要传达的核心情绪或转折（一句话）"
+              @change="persistPage"
+            />
+          </label>
+          <label class="comic-editor__field">
+            <span>翻页钩子</span>
+            <input
+              v-model="comicPage.pageTurnHook"
+              aria-label="翻页钩子"
+              placeholder="让读者想翻到下一页的视觉或悬念钩（一句话）"
+              @change="persistPage"
+            />
+          </label>
+          <label class="comic-editor__field">
+            <span>前后页连续要点</span>
+            <textarea
+              v-model="continuityNotesText"
+              rows="2"
+              aria-label="前后页连续要点（每行一条）"
+              placeholder="一行一条，例如：上一场的钟塔仍要从这一页的远景露出"
+            ></textarea>
+            <small class="comic-editor__hint">每行一条，{{ comicPage.continuityNotes?.length || 0 }} / 20</small>
+          </label>
+          <label class="comic-editor__field">
+            <span>本页视觉圣经引用</span>
+            <div class="comic-editor__ref-list">
+              <span
+                v-for="(entry, refIndex) in comicPage.visualBibleRefs"
+                :key="`${entry.kind}:${entry.refId}`"
+                class="comic-editor__ref-chip"
+              >
+                <select
+                  :value="entry.kind"
+                  aria-label="视觉圣经引用类型"
+                  @change="updateVisualBibleRef(refIndex, 'kind', $event.target.value)"
+                >
+                  <option value="character">角色</option>
+                  <option value="location">地点</option>
+                  <option value="prop">道具</option>
+                  <option value="palette">色板</option>
+                  <option value="lineStyle">线稿</option>
+                </select>
+                <input
+                  :value="entry.refId"
+                  aria-label="视觉圣经引用 ID"
+                  placeholder="实体 ID"
+                  @change="updateVisualBibleRef(refIndex, 'refId', $event.target.value)"
+                />
+                <input
+                  :value="entry.note"
+                  aria-label="视觉圣经引用说明"
+                  placeholder="本页要点（可选）"
+                  @change="updateVisualBibleRef(refIndex, 'note', $event.target.value)"
+                />
+                <button
+                  type="button"
+                  class="comic-action"
+                  :aria-label="`删除视觉圣经引用 ${refIndex + 1}`"
+                  @click="removeVisualBibleRef(refIndex)"
+                >×</button>
+              </span>
+              <button
+                v-if="!comicPage.visualBibleRefs?.length"
+                type="button"
+                class="comic-action comic-editor__ref-add"
+                @click="addVisualBibleRef"
+              >
+                + 添加视觉圣经引用
+              </button>
+            </div>
+          </label>
+        </div>
+      </details>
+
       <section class="comic-editor__preview-block" aria-label="页面预览">
         <div class="comic-editor__section-heading">
           <strong>页面预览</strong>
-          <span>{{ comicPage.panels.length }} 格</span>
+          <span class="comic-editor__page-meta-line">
+            <span class="comic-editor__direction-chip" :title="`阅读方向：${comicPage.format}`">{{ formatLabel(comicPage.format) }}</span>
+            <span class="comic-editor__chip" v-if="comicPage.pagePurpose" :title="comicPage.pagePurpose">节拍：{{ truncate(comicPage.pagePurpose, 22) }}</span>
+            <span class="comic-editor__chip" v-if="comicPage.pageTurnHook" :title="comicPage.pageTurnHook">钩：{{ truncate(comicPage.pageTurnHook, 22) }}</span>
+            <span class="comic-editor__chip is-meta">{{ comicPage.panels.length }} 格</span>
+            <span v-if="activePanel" class="comic-editor__chip is-active">第 {{ activePanel.order }} 格</span>
+          </span>
         </div>
         <ComicPagePreview
           v-if="compact"
@@ -743,9 +929,20 @@ function safeFilename(value) {
               </label>
             </div>
             <div class="comic-panel__stage-list" aria-label="制作阶段">
-              <span v-for="stage in stageOptions" :key="stage.value" class="comic-panel__stage" :class="`is-${panel.production?.[stage.value]?.status || 'empty'}`">
+              <span
+                v-for="stage in stageOptions"
+                :key="stage.value"
+                class="comic-panel__stage"
+                :class="`is-${panel.production?.[stage.value]?.status || 'empty'}`"
+                :title="stageTitle(panel, stage.value)"
+              >
                 <strong>{{ stage.label }}</strong>
-                <small>{{ stageStatusLabel(panel, stage.value) }}</small>
+                <small>
+                  {{ stageStatusLabel(panel, stage.value) }}
+                  <span v-if="stageDetailLabel(panel, stage.value)" class="comic-panel__stage-detail">
+                    · {{ stageDetailLabel(panel, stage.value) }}
+                  </span>
+                </small>
               </span>
             </div>
           </details>
@@ -1139,6 +1336,87 @@ function safeFilename(value) {
 .comic-editor__panel-nav button:hover:not(:disabled) { color: var(--archive-olive-strong, var(--accent)); }
 .comic-editor__panel-nav > span { min-width: 0; text-align: center; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 .comic-editor__panel-nav strong { color: var(--archive-ink, var(--text-primary)); font-size: 11px; }
+
+/* R2-D.5: page-level chip strip on the preview heading — keeps the
+   beat / turn-hook visible without blocking the preview, and shows
+   reading direction + active panel inline. All radii ≤ 8px per R2-D
+   archive-folio token spec. */
+.comic-editor__page-meta-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.comic-editor__chip,
+.comic-editor__direction-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-gold) 12%, transparent);
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.comic-editor__direction-chip {
+  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-weight: 600;
+}
+.comic-editor__chip.is-meta {
+  background: color-mix(in srgb, var(--archive-paper-soft) 78%, transparent);
+}
+.comic-editor__chip.is-active {
+  background: color-mix(in srgb, var(--archive-ink) 88%, transparent);
+  color: var(--archive-paper-soft, #fff);
+  font-weight: 600;
+}
+
+/* R2-D.5: page-beat hint + reference chip styles. */
+.comic-editor__hint {
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+.comic-editor__ref-list {
+  display: grid;
+  gap: 6px;
+}
+.comic-editor__ref-chip {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+}
+.comic-editor__ref-chip select,
+.comic-editor__ref-chip input {
+  min-height: 28px;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  background: var(--archive-paper, var(--bg-primary));
+}
+.comic-editor__ref-chip button {
+  border-radius: 4px;
+}
+.comic-editor__ref-add {
+  align-self: flex-start;
+}
+
+/* R2-D.5: stage detail line — secondary info under the primary status. */
+.comic-panel__stage-detail {
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-style: italic;
+  margin-left: 2px;
+}
 
 .comic-panel {
   display: grid;

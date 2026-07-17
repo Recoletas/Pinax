@@ -2,7 +2,7 @@ import { STORAGE_KEYS } from '../../composables/useStorage'
 import { normalizeSourceRefs } from '../narrativeAssets'
 import { getMediaAssetDataUrl } from './mediaAssetStore'
 
-export const COMIC_PAGE_SCHEMA_VERSION = 2
+export const COMIC_PAGE_SCHEMA_VERSION = 3
 export const COMIC_PRODUCTION_STAGES = Object.freeze(['rough', 'line', 'flats', 'tones', 'render', 'effects'])
 
 const VALID_LAYOUTS = new Set(['strip-4', 'feature-4', 'page-6', 'feature-6', 'free'])
@@ -35,6 +35,13 @@ export function createComicPage(input = {}) {
     canvas: normalizeCanvas(input.canvas),
     styleBible: String(input.styleBible || '').trim(),
     visualBible: normalizeVisualBible(input.visualBible, { projectId }),
+    // R2-D.3: page-level fields. Old pages (schemaVersion < 3) get safe
+    // defaults when re-saved through createComicPage — no data migration
+    // required because every field falls back to '' or [] below.
+    pagePurpose: normalizeText(input.pagePurpose),
+    pageTurnHook: normalizeText(input.pageTurnHook),
+    continuityNotes: normalizeStringList(input.continuityNotes, 20),
+    visualBibleRefs: normalizeVisualBibleRefs(input.visualBibleRefs),
     panels,
     status: VALID_STATUSES.has(input.status) ? input.status : 'draft',
     revision: normalizePositiveInteger(input.revision, 1),
@@ -379,6 +386,28 @@ function normalizeCanvas(input = {}) {
     bleed: normalizeFiniteNumber(input.bleed, 36),
     safeInset: normalizeFiniteNumber(input.safeInset, 48)
   }
+}
+
+// R2-D.3: page-level visual bible refs (lighter binding than the
+// full per-page visualBible block — useful when only one panel needs
+// to pull a specific character/location/prop/style cue).
+const VALID_VISUAL_BIBLE_REF_KINDS = new Set([
+  'character', 'location', 'prop', 'palette', 'lineStyle'
+])
+
+function normalizeVisualBibleRefs(input) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 40).map((entry = {}) => {
+    const kind = VALID_VISUAL_BIBLE_REF_KINDS.has(entry.kind) ? entry.kind : 'character'
+    const refId = normalizeText(entry.refId)
+    if (!refId) return null
+    return {
+      kind,
+      refId,
+      note: normalizeText(entry.note),
+      revision: normalizePositiveInteger(entry.revision, 1)
+    }
+  }).filter(Boolean)
 }
 
 function defaultPanelFrame(layout, order, panelCount) {
