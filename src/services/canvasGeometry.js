@@ -91,6 +91,16 @@ export function clampNodePosition(x, y, nodeW, nodeH, canvasW, canvasH) {
   }
 }
 
+export function commitNodePosition(nodes, nodeId, position) {
+  if (!Array.isArray(nodes) || !nodeId || !position) return null
+  const node = nodes.find((item) => item?.id === nodeId)
+  if (!node) return null
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null
+  node.x = position.x
+  node.y = position.y
+  return node
+}
+
 export function getNodeBounds(card, cardWallEl, wallRect, scrollLeft, scrollTop) {
   if (!card || !cardWallEl) return null
   const el = cardWallEl.querySelector(`[data-card-id="${card.id}"]`)

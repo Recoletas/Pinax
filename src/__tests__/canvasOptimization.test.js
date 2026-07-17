@@ -3,7 +3,8 @@ import { ref, nextTick } from 'vue'
 import {
   screenToCanvas,
   canvasToScreen,
-  clampNodePosition
+  clampNodePosition,
+  commitNodePosition
 } from '../services/canvasGeometry'
 import { useCanvasViewport } from '../composables/useCanvasViewport'
 
@@ -37,19 +38,19 @@ describe('canvas optimization contracts', () => {
 
     expect(onEdgeChange).toHaveBeenCalledTimes(1)
 
-    // R2-B: pointer-events are the single authoritative drag state
-    // machine. Cards explicitly opt OUT of HTML5 draggable so the
-    // browser does not start an OS-level drag that double-emits with
-    // pointermove. The shared `draggingCardId` HTML5 ref was retired in
-    // favor of `pointerDragCard`.
+    // The rendered layout is a copy. Moving that copy must not mutate the
+    // saved model; pointerup commits the final position by node id.
     {
-      // Cards explicitly opt OUT of HTML5 draggable so the browser
-      // does not start an OS-level drag that double-emits with
-      // pointermove. The shared `draggingCardId` HTML5 ref was retired
-      // in favor of `pointerDragCard`.
-      const stub = { html5Draggable: false, pointerDragCard: 'pointer-state' }
-      expect(stub.html5Draggable).toBe(false)
-      expect(stub.pointerDragCard).toBeTruthy()
+      const nodes = [{ id: 'c1', x: 40, y: 50 }]
+      const renderedCopy = { ...nodes[0] }
+      renderedCopy.x = 310
+      renderedCopy.y = 220
+      expect(nodes[0]).toMatchObject({ x: 40, y: 50 })
+      const committed = commitNodePosition(nodes, renderedCopy.id, renderedCopy)
+      expect(committed).toBe(nodes[0])
+      expect(nodes[0]).toMatchObject({ x: 310, y: 220 })
+      expect(commitNodePosition(nodes, 'missing', renderedCopy)).toBeNull()
+      expect(commitNodePosition(nodes, 'c1', { x: NaN, y: 2 })).toBeNull()
     }
 
     // R2-B: same-pile dropback must NOT trigger pile removal. We model
@@ -69,17 +70,16 @@ describe('canvas optimization contracts', () => {
       expect(pile.cardIds).toEqual(['c1', 'c2'])
     }
 
-    // R2-B: per-frame pointermove MUST NOT trigger a full layoutCards
-    // + computeEdgePaths; only an end-of-drag flush fires the recompute.
+    // Per-frame pointermove MUST NOT trigger a full layoutCards +
+    // computeEdgePaths; only an end-of-drag flush fires the recompute.
     // The viewport composable's RAF coalescing is the contract for that
     // single flush — `flushEdgesImmediate` cancels any in-flight RAF
     // and runs one synchronous recompute.
     {
       const onEdgeChange = vi.fn()
       const vp = useCanvasViewport({ onEdgeChange, containerRef: ref(null) })
-      // Simulate a sequence of pointermove events. Per-frame we only
-      // call `scheduleEdgeFlush` (RAF-coalesced). End-of-drag calls
-      // `flushEdgesImmediate` once to drain.
+      // Simulate the targeted edge RAF being coalesced before the final
+      // full flush at pointerup.
       vp.scheduleEdgeFlush()
       vp.scheduleEdgeFlush()
       vp.scheduleEdgeFlush()
@@ -131,24 +131,22 @@ describe('canvas optimization contracts', () => {
       expect(pile.cardIds).toContain('c1')
     }
 
-    // R2-B: pile-removal needs an EXPLICIT gesture. We require
-    // (originalPileId !== resolvedPileId) AND a non-null resolved pile
-    // before removing from the pile. Free move (no target card → no
-    // resolved pile) or self-dropback (resolved === original) MUST NOT
-    // un-pile.
+    // Leaving a pile requires landing on another card. Empty-canvas
+    // movement keeps the pile intact and translates the pile center.
     {
-      const checkExplicitGesture = (originalPileId, resolvedPileId) => (
-        Boolean(originalPileId) && Boolean(resolvedPileId) && originalPileId !== resolvedPileId
+      const checkExplicitGesture = (originalPileId, targetCardId, resolvedPileId) => (
+        Boolean(originalPileId) && Boolean(targetCardId) && originalPileId !== resolvedPileId
       )
       // self-dropback into same pile → no
-      expect(checkExplicitGesture('pileA', 'pileA')).toBe(false)
-      // free move out of pile (no target card) → no automatic removal:
-      // we only remove when an explicit cross-pile gesture lands.
-      expect(checkExplicitGesture('pileA', null)).toBe(false)
+      expect(checkExplicitGesture('pileA', 'c2', 'pileA')).toBe(false)
+      // free move out of pile (no target card) → move the pile as a unit.
+      expect(checkExplicitGesture('pileA', null, null)).toBe(false)
+      // landing on a free card is also an explicit leave-pile gesture.
+      expect(checkExplicitGesture('pileA', 'c3', null)).toBe(true)
       // explicit gesture into a different pile → yes
-      expect(checkExplicitGesture('pileA', 'pileB')).toBe(true)
+      expect(checkExplicitGesture('pileA', 'c4', 'pileB')).toBe(true)
       // no original pile → n/a
-      expect(checkExplicitGesture(null, 'pileB')).toBe(false)
+      expect(checkExplicitGesture(null, 'c4', 'pileB')).toBe(false)
     }
 
     // R2-B: a final flush coalesces everything queued during the drag.

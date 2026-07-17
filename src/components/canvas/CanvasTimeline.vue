@@ -142,8 +142,8 @@ import { ref } from 'vue'
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-top: 1px solid color-mix(in srgb, var(--border) 86%, var(--text-muted));
-  background: color-mix(in srgb, var(--surface-panel) 88%, var(--bg-primary));
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 44%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 76%, var(--surface-panel));
 }
 
 .outline-header {
@@ -152,8 +152,8 @@ import { ref } from 'vue'
   align-items: flex-start;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, var(--bg-primary));
-  background: color-mix(in srgb, var(--surface-raised) 80%, var(--surface-panel));
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  background: transparent;
   flex-shrink: 0;
 }
 
@@ -165,7 +165,8 @@ import { ref } from 'vue'
 }
 
 .outline-title {
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -192,8 +193,9 @@ import { ref } from 'vue'
   max-width: 108px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-soft) 84%, var(--surface-panel));
+  border-radius: 1px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 30%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 68%, transparent);
   color: var(--text-secondary);
   font-size: 10px;
   line-height: 1;
@@ -213,7 +215,7 @@ import { ref } from 'vue'
 
 .timeline-version-chip.is-stale .timeline-version-dot,
 .timeline-version-chip.is-warning .timeline-version-dot {
-  background: #f59f00;
+  background: var(--warning);
 }
 
 .timeline-version-chip.is-error .timeline-version-dot {
@@ -230,10 +232,10 @@ import { ref } from 'vue'
 .timeline-version-action {
   height: 22px;
   padding: 0 8px;
-  border: none;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 38%, transparent);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  color: var(--archive-olive);
   font-size: 11px;
   cursor: pointer;
 }
@@ -257,10 +259,10 @@ import { ref } from 'vue'
   gap: 5px;
   height: 22px;
   padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 48%, var(--border));
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--archive-olive) 9%, transparent);
+  color: var(--archive-olive);
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
@@ -300,15 +302,15 @@ import { ref } from 'vue'
 }
 
 .timeline-video-compact.is-stale {
-  border-color: color-mix(in srgb, #f59f00 50%, var(--border));
-  background: color-mix(in srgb, #f59f00 16%, transparent);
-  color: #f59f00;
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
 }
 
 .timeline-video-compact.is-warning {
-  border-color: color-mix(in srgb, #f59f00 50%, var(--border));
-  background: color-mix(in srgb, #f59f00 14%, transparent);
-  color: #f59f00;
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
 }
 
 .timeline-video-compact.is-error {
@@ -348,7 +350,7 @@ import { ref } from 'vue'
 .timeline-view {
   padding: 8px 10px 10px;
   min-height: 0;
-  background: color-mix(in srgb, var(--bg-primary) 22%, transparent);
+  background: transparent;
 }
 
 .timeline-track {
@@ -360,26 +362,26 @@ import { ref } from 'vue'
 }
 
 .timeline-card {
-  background: color-mix(in srgb, var(--surface-soft) 82%, var(--bg-primary));
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
+  border-radius: 1px;
   padding: 5px 6px;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   position: relative;
   min-width: 0;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent);
 }
 
 .timeline-card:hover {
-  background: color-mix(in srgb, var(--surface-raised) 86%, var(--bg-hover));
-  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-olive) 4%);
+  border-color: color-mix(in srgb, var(--archive-olive) 38%, var(--archive-gold));
 }
 
 .timeline-card.active {
-  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
-  box-shadow: inset 2px 0 0 var(--accent);
+  border-color: color-mix(in srgb, var(--archive-olive) 64%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 10%, var(--archive-paper-soft));
+  box-shadow: inset 2px 0 0 var(--archive-olive);
 }
 
 .timeline-card.dragging {
@@ -407,8 +409,9 @@ import { ref } from 'vue'
   font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
+  border-radius: 1px;
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
+  background: transparent;
   flex-shrink: 0;
 }
 

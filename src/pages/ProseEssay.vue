@@ -59,6 +59,19 @@
           <span class="prose-top__chip" :title="timelineSummaryLabel">
             <span class="prose-top__chip-label">{{ timelineSummaryLabel }}</span>
           </span>
+          <button
+            class="prose-top__chip prose-top__chip--video"
+            type="button"
+            :disabled="timelineItems.length === 0"
+            :title="timelineItems.length ? '根据当前分镜生成视频' : '先把节点加入时间轴'"
+            @click="openStoryboardVideoPanel"
+          >
+            <svg class="prose-top__chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="3" y="6" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M16 10l5-3v10l-5-3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+            <span class="prose-top__chip-label">生成视频</span>
+          </button>
           <router-link
             class="prose-top__chip prose-top__chip--link"
             to="/materials"
@@ -254,14 +267,7 @@
           :key="card.id"
           class="writing-card"
           :class="{ selected: selectedCard?.id === card.id, 'link-source': linkSourceCardId === card.id, 'continuation-child': isInSameGroup(card.id), 'storyboard-card': isCardInTimeline(card.id), dragging: pointerDragCard?.id === card.id }"
-          :style="{
-            position: 'absolute',
-            left: card.x + 'px',
-            top: card.y + 'px',
-            '--card-accent': 'var(--bg-secondary)',
-            zIndex: card.zIndex || 1,
-            transform: card.rotate ? `rotate(${card.rotate}deg)` : undefined
-          }"
+          :style="getRenderedCardStyle(card)"
           @mouseenter="card.pileId && (hoveredPileId = card.pileId)"
           @mouseleave="card.pileId && (hoveredPileId = null)"
           @click.stop="card.pileId && (expandedPileId = expandedPileId === card.pileId ? null : card.pileId)"
@@ -352,7 +358,6 @@
         <button v-if="currentMode === 'directing' && lastDirectorExportContext" type="button" @click="downloadDirectorMarkdown">下载分镜 Markdown</button>
         <button type="button" @click="exportToTxt">导出为 TXT</button>
         <button type="button" @click="exportToJson">导出完整关系网 JSON</button>
-        <button v-if="currentMode === 'directing'" type="button" @click="openStoryboardVideoPanel">视频生成</button>
         <button v-if="currentMode === 'directing'" type="button" @click="exportEditingPackage">导出剪辑包 ZIP</button>
       </div>
     </div>
@@ -732,6 +737,7 @@ import {
   makeEdgePath,
   getCardWallPoint,
   clampNodePosition,
+  commitNodePosition,
   clamp
 } from '../services/canvasGeometry'
 import { useCanvasViewport } from '../composables/useCanvasViewport'
@@ -927,10 +933,9 @@ const pointerDragStartX = ref(0)
 const pointerDragStartY = ref(0)
 const pointerDragCardStartX = ref(0)
 const pointerDragCardStartY = ref(0)
-// Live drag delta (visual position offset during drag, before final
-// commit). Stored as a ref so the style binding re-evaluates per frame
-// without touching the reactive `cards` tree on every pointermove.
-const pointerDragDelta = ref({ dx: 0, dy: 0 })
+// Dragging mutates only this transient rendered position. The canonical
+// card is committed once on pointerup, avoiding layout-copy snapback.
+const pointerDragPosition = ref(null)
 let pointerDragOriginalPileId = null
 let _pointerDragMoved = false
 // Module-scope refs for the in-flight dragger element + pointer id, so
@@ -940,11 +945,9 @@ let _pointerDragMoved = false
 // pointer capture would never be released.
 let pointerDragEl = null
 let pointerDragPointerId = null
-// Re-entrancy guard: the deep `watch(cards, ...)` would otherwise fire
-// per frame as we mutate card.x/card.y during drag and trigger a full
-// layoutCards + computeEdgePaths. Suppress that — per-frame we only
-// touch the dragged card + its connected edges. The end-of-drag path
-// re-enables and flushes once.
+let pointerDragEdgeRaf = null
+// Re-entrancy guard for the final canonical commit. During pointermove
+// only pointerDragPosition changes, so the saved cards tree stays quiet.
 let _suppressLayoutWatch = false
 
 const viewport = useCanvasViewport({
@@ -1087,6 +1090,20 @@ function updateLayout() {
     return
   }
   viewport.scheduleEdgeFlush()
+}
+
+function getRenderedCardStyle(card) {
+  const dragPosition = pointerDragCard.value?.id === card.id
+    ? pointerDragPosition.value
+    : null
+  return {
+    position: 'absolute',
+    left: `${dragPosition?.x ?? card.x}px`,
+    top: `${dragPosition?.y ?? card.y}px`,
+    '--card-accent': 'var(--archive-paper-soft)',
+    zIndex: dragPosition ? 80 : (card.zIndex || 1),
+    transform: dragPosition ? 'none' : (card.rotate ? `rotate(${card.rotate}deg)` : undefined)
+  }
 }
 
 watch(cards, () => {
@@ -2108,6 +2125,47 @@ function connectCards(sourceId, targetId, edgeType) {
   saveData()
 }
 
+function scheduleDraggedEdgeUpdate(cardId) {
+  if (!cardId || pointerDragEdgeRaf != null) return
+  pointerDragEdgeRaf = requestAnimationFrame(() => {
+    pointerDragEdgeRaf = null
+    updateConnectedEdges(cardId)
+  })
+}
+
+function cancelDraggedEdgeUpdate() {
+  if (pointerDragEdgeRaf == null) return
+  cancelAnimationFrame(pointerDragEdgeRaf)
+  pointerDragEdgeRaf = null
+}
+
+function getDropTargetCard(event, draggedCardId) {
+  const hitElements = typeof document.elementsFromPoint === 'function'
+    ? document.elementsFromPoint(event.clientX, event.clientY)
+    : [document.elementFromPoint(event.clientX, event.clientY)].filter(Boolean)
+  for (const element of hitElements) {
+    const cardElement = element?.closest?.('[data-card-id]')
+    const cardId = cardElement?.dataset?.cardId
+    if (!cardId || cardId === draggedCardId) continue
+    const card = cards.value.find((item) => item.id === cardId)
+    if (card) return card
+  }
+  return null
+}
+
+function detachCardFromPile(cardId, pileId) {
+  if (!cardId || !pileId) return
+  const pile = piles.value.find((item) => item.pileId === pileId)
+  if (!pile) return
+  pile.cardIds = pile.cardIds.filter((id) => id !== cardId)
+  if (pile.cardIds.length < 2) {
+    cards.value.forEach((item) => {
+      if (item.pileId === pileId) item.pileId = null
+    })
+    piles.value = piles.value.filter((item) => item.pileId !== pileId)
+  }
+}
+
 function onCardPointerDown(event, card) {
   if (event.button !== 0) return
   if (event.target instanceof Element && event.target.closest('.card-actions')) return
@@ -2144,16 +2202,21 @@ function onCardPointerDown(event, card) {
   event.preventDefault()
   event.stopPropagation()
   const cardEl = event.currentTarget
+  const canonicalCard = cards.value.find((item) => item.id === card.id)
+  if (!canonicalCard) return
   cardEl.setPointerCapture(event.pointerId)
 
-  pointerDragCard.value = card
+  pointerDragCard.value = canonicalCard
   pointerDragStartX.value = event.clientX
   pointerDragStartY.value = event.clientY
-  pointerDragCardStartX.value = card.x || 0
-  pointerDragCardStartY.value = card.y || 0
-  pointerDragOriginalPileId = card.pileId || null
+  pointerDragCardStartX.value = Number.isFinite(card.x) ? card.x : 0
+  pointerDragCardStartY.value = Number.isFinite(card.y) ? card.y : 0
+  pointerDragOriginalPileId = canonicalCard.pileId || null
   _pointerDragMoved = false
-  pointerDragDelta.value = { dx: 0, dy: 0 }
+  pointerDragPosition.value = {
+    x: pointerDragCardStartX.value,
+    y: pointerDragCardStartY.value
+  }
   _suppressLayoutWatch = false
   // Expose in-flight dragger to module scope so cancelPointerDrag (called
   // on unmount) can unbind listeners + release the captured pointer.
@@ -2173,9 +2236,8 @@ function onPointerDragMove(event) {
   if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
   if (!_pointerDragMoved) {
     _pointerDragMoved = true
-    // First meaningful move: silence the deep cards watcher so the per-
-    // frame mutation of card.x/card.y does NOT trigger a full layoutCards +
-    // computeEdgePaths. We restore + flush once on pointerup.
+    // The first meaningful move starts transient rendering. Canonical
+    // coordinates remain untouched until pointerup.
     _suppressLayoutWatch = true
   }
   const wall = cardWallRef.value
@@ -2187,13 +2249,8 @@ function onPointerDragMove(event) {
     220, 160,
     cw, ch
   )
-  card.x = pos.x
-  card.y = pos.y
-  // Visual offset for the rendered card. The DOM rect reflects this
-  // through Vue's `:style.left/top`, so connected edges re-evaluate
-  // correctly via updateConnectedEdges reading getBoundingClientRect.
-  pointerDragDelta.value = { dx: 0, dy: 0 }
-  updateConnectedEdges(card.id)
+  pointerDragPosition.value = pos
+  scheduleDraggedEdgeUpdate(card.id)
 }
 
 function onPointerDragUp(event) {
@@ -2207,13 +2264,18 @@ function onPointerDragUp(event) {
 
   if (!pointerDragCard.value) return
   const card = pointerDragCard.value
+  const finalPosition = pointerDragPosition.value || {
+    x: pointerDragCardStartX.value,
+    y: pointerDragCardStartY.value
+  }
   pointerDragCard.value = null
   const originalPileId = pointerDragOriginalPileId
   pointerDragOriginalPileId = null
-  pointerDragDelta.value = { dx: 0, dy: 0 }
+  pointerDragPosition.value = null
   _suppressLayoutWatch = false
   pointerDragEl = null
   pointerDragPointerId = null
+  cancelDraggedEdgeUpdate()
 
   // No-move click — let the click handler proceed, no pile/persist touched.
   if (!_pointerDragMoved) {
@@ -2221,47 +2283,24 @@ function onPointerDragUp(event) {
     return
   }
 
-  // Resolve drop target via elementFromPoint. elementFromPoint is captured
-  // BEFORE we mutate cards/piles, so a same-pile dropback lands us on a
-  // sibling card inside the same pile and resolves to the original pile.
-  const target = document.elementFromPoint(event.clientX, event.clientY)
-  const targetCardEl = target?.closest?.('[data-card-id]')
-  const targetCardId = targetCardEl?.dataset?.cardId
-  const targetCard = targetCardId && targetCardId !== card.id
-    ? cards.value.find(c => c.id === targetCardId)
-    : null
+  // elementsFromPoint lets us skip the captured drag element and inspect
+  // the card underneath it. elementFromPoint alone often returned self.
+  const targetCard = getDropTargetCard(event, card.id)
   const resolvedPileId = targetCard?.pileId || null
 
   // (a) same-pile dropback: drag started in pile, ended in same pile.
   //     Explicit gesture rule: do NOT unpile. Just persist x/y and flush.
   if (originalPileId && resolvedPileId === originalPileId) {
-    viewport.scheduleEdgeFlush()
     updateLayout()
-    saveData()
+    nextTick(() => viewport.flushEdgesImmediate())
     _pointerDragMoved = false
     return
   }
 
-  // Pile removal needs EXPLICIT gesture: only un-pile when there is a
-  // resolved target card that is in a DIFFERENT pile. Arbitrary free
-  // movement (no target card, or target on empty wall) must NOT un-pile.
-  const explicitCrossPileGesture =
-    Boolean(originalPileId) &&
-    Boolean(targetCard) &&
-    resolvedPileId &&
-    resolvedPileId !== originalPileId
-
-  // (d) pile-to-pile move: card was in pile, dropped on a card in a
-  //     different pile. Remove from original pile first.
-  if (explicitCrossPileGesture) {
-    const originalPile = piles.value.find(p => p.pileId === originalPileId)
-    if (originalPile) {
-      originalPile.cardIds = originalPile.cardIds.filter(id => id !== card.id)
-      if (originalPile.cardIds.length < 2) {
-        cards.value.forEach(c => { if (c.pileId === originalPileId) c.pileId = null })
-        piles.value = piles.value.filter(p => p.pileId !== originalPileId)
-      }
-    }
+  // Landing on another card is the explicit gesture for leaving a pile.
+  // Free movement keeps the pile intact and moves the whole stack.
+  if (originalPileId && targetCard && resolvedPileId !== originalPileId) {
+    detachCardFromPile(card.id, originalPileId)
     card.pileId = null
   }
 
@@ -2291,20 +2330,22 @@ function onPointerDragUp(event) {
       })
       addTimeline('卡片移出牌堆并入新堆')
     }
-  } else if (!originalPileId) {
-    // (b) Free move with no drop target: position already persisted
-    //     via pointermove; nothing more to do.
+  } else if (originalPileId) {
+    const pile = piles.value.find((item) => item.pileId === originalPileId)
+    if (pile) {
+      pile.pileX = (Number.isFinite(pile.pileX) ? pile.pileX : pointerDragCardStartX.value)
+        + finalPosition.x - pointerDragCardStartX.value
+      pile.pileY = (Number.isFinite(pile.pileY) ? pile.pileY : pointerDragCardStartY.value)
+        + finalPosition.y - pointerDragCardStartY.value
+    }
+  } else {
+    commitNodePosition(cards.value, card.id, finalPosition)
   }
-  // else: originally piled, no target, dragged into empty wall → we
-  // DELIBERATELY keep the card in the pile. Removing from the pile on
-  // arbitrary free movement was the regression we are fixing.
 
-  // End-of-drag: ONE full layout + edge flush. Per-frame we only mutated
-  // card.x/card.y and called updateConnectedEdges() — not layoutCards()
-  // or computeEdgePaths().
-  viewport.scheduleEdgeFlush()
+  // End-of-drag: one canonical commit, one layout and one final edge flush.
   updateLayout()
   saveData()
+  nextTick(() => viewport.flushEdgesImmediate())
   _pointerDragMoved = false
 }
 
@@ -2317,16 +2358,12 @@ function onPointerDragCancel(event) {
     try { cardEl.releasePointerCapture(event.pointerId) } catch { /* noop */ }
   }
 
-  const card = pointerDragCard.value
-  if (card && _pointerDragMoved) {
-    card.x = pointerDragCardStartX.value
-    card.y = pointerDragCardStartY.value
-  }
   pointerDragCard.value = null
   pointerDragOriginalPileId = null
-  pointerDragDelta.value = { dx: 0, dy: 0 }
+  pointerDragPosition.value = null
   pointerDragEl = null
   pointerDragPointerId = null
+  cancelDraggedEdgeUpdate()
   _pointerDragMoved = false
   _suppressLayoutWatch = false
   updateLayout()
@@ -2342,7 +2379,8 @@ function cancelPointerDrag() {
   pointerDragCard.value = null
   pointerDragOriginalPileId = null
   _pointerDragMoved = false
-  pointerDragDelta.value = { dx: 0, dy: 0 }
+  pointerDragPosition.value = null
+  cancelDraggedEdgeUpdate()
   if (cardEl) {
     try {
       cardEl.removeEventListener('pointermove', onPointerDragMove)
@@ -3386,6 +3424,21 @@ function goToMaterialsImageGen() {
   background: color-mix(in srgb, var(--archive-rose) 12%, transparent);
 }
 
+.prose-top__chip--video {
+  border-color: color-mix(in srgb, var(--archive-olive) 52%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 9%, transparent);
+  color: color-mix(in srgb, var(--archive-olive) 76%, var(--archive-ink));
+  font-weight: 600;
+}
+
+.prose-top__chip--video::before {
+  display: none;
+}
+
+.prose-top__chip--video {
+  padding-left: 12px;
+}
+
 .prose-top__chip--danger {
   border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
   color: color-mix(in srgb, var(--danger) 78%, var(--text-primary));
@@ -3525,17 +3578,21 @@ function goToMaterialsImageGen() {
   flex: 1;
   overflow: auto;
   position: relative;
-  background-color: var(--bg-primary);
+  background-color: color-mix(in srgb, var(--archive-paper) 58%, var(--bg-primary));
   background-image:
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-secondary) 10%, transparent) 1px, transparent 0);
-  background-size: 18px 18px;
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--archive-ink-soft) 13%, transparent) 1px, transparent 0);
+  background-size: 72px 72px, 72px 72px, 18px 18px;
 }
 
 .card-wall.storyboard-mode {
   background-image:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 180px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-secondary) 10%, transparent) 1px, transparent 0);
-  background-size: auto, 18px 18px;
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive) 7%, transparent), transparent 180px),
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--archive-ink-soft) 13%, transparent) 1px, transparent 0);
+  background-size: auto, 72px 72px, 72px 72px, 18px 18px;
 }
 
 .card-wall.has-cards {
@@ -3574,32 +3631,39 @@ function goToMaterialsImageGen() {
 .writing-card {
   width: 224px;
   min-height: 122px;
-  background: var(--card-accent, var(--bg-secondary));
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 10px;
-  cursor: pointer;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-accent, var(--archive-paper-soft)) 96%, var(--archive-paper)), color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper-strong)));
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, transparent);
+  border-radius: 2px;
+  padding: 11px 12px 9px;
+  cursor: grab;
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 4px 16px var(--shadow);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
   z-index: 2;
   color: var(--text-primary);
 }
 
 .writing-card.storyboard-card {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--archive-olive);
   min-height: 124px;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .writing-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 8px 24px var(--shadow-md);
+  border-color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-gold));
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--archive-ink) 16%, transparent);
 }
 
 .writing-card.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
+  border-color: var(--archive-olive);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--archive-olive) 20%, transparent), 5px 5px 0 color-mix(in srgb, var(--archive-ink) 16%, transparent);
   z-index: 3;
+}
+
+.writing-card.dragging {
+  cursor: grabbing;
+  transition: none;
+  box-shadow: 8px 10px 20px color-mix(in srgb, var(--archive-ink) 20%, transparent);
 }
 
 .writing-card.link-source {
@@ -3685,7 +3749,7 @@ function goToMaterialsImageGen() {
   width: 100%;
   height: 54px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 1px;
   margin-bottom: 6px;
 }
 
@@ -3707,7 +3771,7 @@ function goToMaterialsImageGen() {
   min-height: 22px;
   margin: 2px 0 6px;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: 1px;
   background: color-mix(in srgb, var(--bg-primary) 54%, transparent);
   color: var(--text-muted);
 }
@@ -3837,9 +3901,9 @@ function goToMaterialsImageGen() {
 /* Left Panel */
 .left-panel {
   width: 320px;
-  background: linear-gradient(180deg, var(--surface-panel), color-mix(in srgb, var(--surface-panel) 86%, var(--bg-secondary)));
-  border-right: 1px solid color-mix(in srgb, var(--border) 88%, var(--text-muted));
-  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--bg-primary) 70%, transparent), 8px 0 18px color-mix(in srgb, var(--shadow) 42%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 78%, var(--surface-panel));
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--archive-paper-soft) 46%, transparent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3849,11 +3913,12 @@ function goToMaterialsImageGen() {
 
 /* Card Detail Panel - PoetryLab style */
 .card-detail-panel {
-  margin: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-soft);
-  padding: 10px;
+  margin: 14px 14px 12px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  border-radius: 0;
+  background: transparent;
+  padding: 11px 0 12px;
 }
 
 .detail-panel-header {
@@ -3865,16 +3930,17 @@ function goToMaterialsImageGen() {
 }
 
 .detail-panel-title {
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .node-index {
   padding: 2px 6px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-soft));
-  color: var(--accent);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--archive-olive) 10%, transparent);
+  color: var(--archive-olive);
   font-size: 11px;
 }
 
@@ -4045,9 +4111,9 @@ function goToMaterialsImageGen() {
 
 .btn-secondary {
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 64%, transparent);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -4095,7 +4161,7 @@ function goToMaterialsImageGen() {
 .btn-danger {
   padding: 8px 10px;
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 2px;
   background: transparent;
   color: var(--danger);
   font-size: 13px;
@@ -4232,11 +4298,11 @@ function goToMaterialsImageGen() {
   bottom: 24px;
   display: flex;
   gap: 4px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 6px;
-  box-shadow: 0 4px 20px var(--shadow-md);
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  border-radius: 2px;
+  padding: 5px;
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
   z-index: 100;
 }
 
@@ -4245,7 +4311,7 @@ function goToMaterialsImageGen() {
   height: 36px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 1px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -4301,11 +4367,11 @@ function goToMaterialsImageGen() {
 }
 
 .export-btn-badge.is-stale {
-  background: color-mix(in srgb, var(--bg-secondary) 76%, #f59f00);
+  background: color-mix(in srgb, var(--bg-secondary) 76%, var(--warning));
 }
 
 .export-btn-badge.is-warning {
-  background: color-mix(in srgb, var(--bg-secondary) 76%, #f59f00);
+  background: color-mix(in srgb, var(--bg-secondary) 76%, var(--warning));
 }
 
 .export-btn-badge.is-empty {
@@ -4326,11 +4392,11 @@ function goToMaterialsImageGen() {
   position: absolute;
   bottom: 48px;
   right: 0;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--archive-paper-soft);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 52%, transparent);
+  border-radius: 2px;
   padding: 6px;
-  box-shadow: 0 4px 16px var(--shadow-md);
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
   min-width: 160px;
 }
 

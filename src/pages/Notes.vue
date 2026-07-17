@@ -233,9 +233,9 @@
                     <span class="asset-source-chip__index" aria-hidden="true">◆</span>
                     来源章节 · {{ sourceRangeLabel }}
                   </button>
-                  <div class="deck-toolbar">
-                    <label class="asset-control">
-                      <span>类型</span>
+                  <div class="deck-toolbar" aria-label="素材操作">
+                    <label class="asset-control deck-toolbar__kind">
+                      <span>素材类型</span>
                       <select :value="selectedAsset?.kind" @change="setSelectedAssetKind($event.target.value)">
                         <option value="inspiration">灵感</option>
                         <option value="draft-prose">正文候选</option>
@@ -246,17 +246,26 @@
                         <option value="reference-image">参考图</option>
                       </select>
                     </label>
-                    <button class="material-action-btn deck-toolbar__btn" type="button" @click="importCurrentToCanvas">
-                      {{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}
+                    <button class="material-action-btn deck-toolbar__btn deck-toolbar__btn--canvas" type="button" @click="importCurrentToCanvas">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="4" y="4" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                        <rect x="14" y="14" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M10 7h4a3 3 0 013 3v4" stroke="currentColor" stroke-width="1.5"/>
+                      </svg>
+                      <span>{{ isAssetOnCanvas(selectedAsset?.id) ? '打开画布节点' : '导当前到画布' }}</span>
                     </button>
                     <button
                       v-if="selectedAsset"
-                      class="material-action-btn deck-toolbar__btn"
+                      class="material-action-btn deck-toolbar__btn deck-toolbar__btn--generate"
                       type="button"
                       :disabled="isGeneratingProfessionalInfo"
                       @click="generateAndImportToCanvas"
                     >
-                      {{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                        <path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" fill="currentColor"/>
+                      </svg>
+                      <span>{{ isGeneratingProfessionalInfo ? '生成中…' : '生成专业信息' }}</span>
                     </button>
                     <button
                       v-if="hasChapterSource"
@@ -2697,18 +2706,52 @@ function syncSelectionCommandState() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--archive-ink-soft);
 }
 
 .asset-control select {
-  height: 27px;
-  padding: 0 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  height: 30px;
+  padding: 0 28px 0 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 46%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: var(--archive-ink);
   font-size: 12px;
+}
+
+.material-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 76%, transparent);
+  color: var(--archive-ink-soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.material-action-btn:hover:not(:disabled) {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+  color: var(--archive-ink);
+}
+
+.material-action-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.material-action-btn:disabled {
+  opacity: 0.48;
+  cursor: wait;
 }
 
 .toolbar-spacer {
@@ -3851,11 +3894,18 @@ function syncSelectionCommandState() {
 .deck-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+  gap: 7px;
+  padding: 8px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
   flex-wrap: wrap;
-  background: color-mix(in srgb, var(--archive-paper) 50%, var(--archive-paper-soft));
+  background: transparent;
+}
+
+.deck-toolbar__kind {
+  padding-right: 10px;
+  margin-right: 2px;
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
 }
 
 .deck-toolbar__spacer {
@@ -3863,13 +3913,18 @@ function syncSelectionCommandState() {
 }
 
 .deck-toolbar__btn {
-  font-size: 11px;
-  height: 26px;
+  height: 30px;
 }
 
-.deck-toolbar__btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
+.deck-toolbar__btn--canvas {
+  border-color: color-mix(in srgb, var(--archive-olive) 45%, transparent);
+  color: color-mix(in srgb, var(--archive-olive) 78%, var(--archive-ink));
+}
+
+.deck-toolbar__btn--generate {
+  border-color: color-mix(in srgb, var(--archive-rose) 36%, var(--archive-gold));
+  background: color-mix(in srgb, var(--archive-rose) 7%, var(--archive-paper-soft));
+  color: color-mix(in srgb, var(--archive-rose) 68%, var(--archive-ink));
 }
 
 .page-controls {

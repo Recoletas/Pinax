@@ -62,11 +62,11 @@ import { computed } from 'vue'
   width: 132px;
   margin: 10px 12px 0 0;
   padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow-md) 22%, transparent);
-  backdrop-filter: blur(12px) saturate(1.05);
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 44%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 11%, transparent);
+  backdrop-filter: blur(8px);
   transition: width 0.16s ease, border-radius 0.16s ease, padding 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 
@@ -74,9 +74,9 @@ import { computed } from 'vue'
 .canvas-edge-legend.active {
   width: 164px;
   padding: 8px;
-  border-radius: 10px;
-  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow-md) 28%, transparent);
+  border-radius: 2px;
+  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--archive-gold));
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
 .canvas-edge-legend-head {
@@ -113,9 +113,8 @@ import { computed } from 'vue'
   width: 10px;
   height: 2px;
   flex-shrink: 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 82%, transparent), color-mix(in srgb, var(--accent) 48%, var(--text-primary)));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 0;
+  background: var(--archive-olive);
 }
 
 .legend-toggle-btn {
@@ -127,7 +126,7 @@ import { computed } from 'vue'
   height: 24px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 1px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 10px;
@@ -190,7 +189,7 @@ import { computed } from 'vue'
   height: 24px;
   flex-shrink: 0;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 1px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -216,7 +215,7 @@ import { computed } from 'vue'
   gap: 8px;
   padding: 5px 4px;
   border: none;
-  border-radius: 6px;
+  border-radius: 1px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
