@@ -41,6 +41,7 @@ const durationSeconds = ref(6)
 const job = ref(null)
 const message = ref('')
 const hasError = ref(false)
+const backendContractOutdated = ref(false)
 const pollingController = ref(null)
 const archivedJobIds = new Set()
 const generic = reactive({
@@ -161,6 +162,11 @@ function buildProviderConfig() {
 async function testConnection() {
   message.value = '正在测试连接...'
   hasError.value = false
+  if (isMinimax.value && backendContractOutdated.value) {
+    hasError.value = true
+    message.value = '后端仍在使用旧版 MiniMax 视频接口，请重启 Express 后端后再测试。'
+    return
+  }
   try {
     const result = await videoJobService.testProvider(providerId.value, buildProviderConfig())
     hasError.value = !result?.ok
@@ -175,6 +181,11 @@ async function submitJob() {
   pollingController.value?.abort()
   message.value = ''
   hasError.value = false
+  if (isMinimax.value && backendContractOutdated.value) {
+    hasError.value = true
+    message.value = '后端仍在使用旧版 MiniMax 视频接口，请重启 Express 后端后再生成。'
+    return
+  }
   try {
     let storyboardInput = buildStoryboardVideoJobInput({
       shots: shots.value,
@@ -280,8 +291,17 @@ function trimPrompt(value, maxChars) {
 }
 
 function mergeProviderMetadata(remoteProviders) {
+  const remoteList = Array.isArray(remoteProviders) ? remoteProviders : []
+  const remoteMinimax = remoteList.find((provider) => provider?.id === 'minimax-video')
+  const remoteModels = Array.isArray(remoteMinimax?.capabilities?.models)
+    ? remoteMinimax.capabilities.models
+    : []
+  backendContractOutdated.value = Boolean(
+    remoteMinimax
+    && !remoteModels.some((item) => MINIMAX_MODEL_OPTIONS.includes(item))
+  )
   const merged = new Map(BUILTIN_PROVIDERS.map((provider) => [provider.id, provider]))
-  for (const provider of Array.isArray(remoteProviders) ? remoteProviders : []) {
+  for (const provider of remoteList) {
     if (!provider?.id) continue
     if (provider.id === 'minimax-video') {
       merged.set(provider.id, {

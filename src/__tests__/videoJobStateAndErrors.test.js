@@ -136,6 +136,7 @@ describe('videoJobStore state machine', () => {
     // backend capabilities must not replace it with the retired model name.
     const { mount, flushPromises } = await import('@vue/test-utils')
     const { videoJobService } = await import('../services/media/videoJobService.js')
+    const testProvider = vi.spyOn(videoJobService, 'testProvider').mockResolvedValue({ ok: true, latencyMs: 1 })
     const listProviders = vi.spyOn(videoJobService, 'listProviders').mockResolvedValue({
       providers: [{
         id: 'minimax-video',
@@ -152,7 +153,12 @@ describe('videoJobStore state machine', () => {
     expect(channelOptions).toContain('T2V-01-Director')
     expect(channelOptions).toContain('T2V-01')
     expect(channelOptions).not.toContain('MiniMax-video-01')
+    await wrapper.findAll('button').find((button) => button.text() === '测试连接').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('后端仍在使用旧版 MiniMax 视频接口')
+    expect(testProvider).not.toHaveBeenCalled()
     wrapper.unmount()
     listProviders.mockRestore()
+    testProvider.mockRestore()
   })
 })
