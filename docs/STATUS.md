@@ -20,7 +20,7 @@
 
 ## Recently done
 
-- 2026-07-18：MiniMax 视频 adapter 从失效的旧模型和 `/video/generations` 假定切换到 `api.minimaxi.com/v1` 官方协议；支持 Hailuo 2.3/02、T2V-01 Director/T2V-01 的合法时长与分辨率组合、`base_resp` 业务错误、10 秒 provider 轮询和 `file_id` 下载地址解析。分镜视频面板同步改为模型/规格选择与 MiniMax 高级参数，并标明结果地址约一小时有效；测试总量保持 200，未启动 dev server。
+- 2026-07-18：MiniMax 视频 adapter 从失效的旧模型和 `/video/generations` 假定切换到 `api.minimaxi.com/v1` 官方协议；支持 Hailuo 2.3/02、T2V-01 Director/T2V-01 的合法时长与分辨率组合、`base_resp` 业务错误、10 秒 provider 轮询和 `file_id` 下载地址解析。分镜视频面板的渠道下拉直接列出四个具体模型，前端内置官方模型表，旧后端返回的 `MiniMax-video-01` 不再覆盖新选项；结果地址约一小时有效。测试总量保持 200，未启动 dev server。
 - 2026-07-17：修复画布拖动修改布局副本导致回弹的问题；pointermove 只更新瞬时位置，pointerup 按节点 ID 写回原始模型，落点识别跳过被捕获节点，牌堆空白拖动改为移动整堆。视频生成升为画布顶栏常驻动作并从导出菜单移除；素材类型、画布导入、专业信息、节点纸片、关系工具和时间轴统一为档案工作台样式。未启动 dev server。
 - 2026-07-17：按 A -> D 顺序集成 Round 2 四个独立分支，并在 Codex 审查中修复顾问无 runner 假 applied、漫画连续性/空白引用持久化、pointer cancel 回滚和 ComicPage schema 3 契约；随后补齐 Vite `/ws` 代理。联机聊天移到体验画面左下角，无消息时收为记忆按钮上方的透明 30px 入口；房间状态收为右侧顶栏下方的紧凑浮层。测试总量保持 200，未启动 dev server。
 - 2026-07-16：恢复 A 启动前被 stash 的七月产品基线，确认旧界面和 1361 个测试来自 A-E 误从六月底 `main` 开工；A-E 已逐项整合到现代前端。F 完成联机体验、分镜视频面板、协议兼容、房主重连、任务归档和牌堆拖拽修复。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200。

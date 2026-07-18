@@ -12,7 +12,26 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'archived'])
 
-const providers = ref([])
+const MINIMAX_MODEL_OPTIONS = Object.freeze([
+  'MiniMax-Hailuo-2.3',
+  'MiniMax-Hailuo-02',
+  'T2V-01-Director',
+  'T2V-01'
+])
+const BUILTIN_PROVIDERS = Object.freeze([
+  {
+    id: 'minimax-video',
+    label: 'MiniMax Video',
+    capabilities: { models: MINIMAX_MODEL_OPTIONS, aspectRatios: ['16:9'] }
+  },
+  {
+    id: 'generic-async-http',
+    label: '自定义异步 HTTP',
+    capabilities: { models: ['custom'], aspectRatios: ['16:9', '9:16', '1:1'] }
+  }
+])
+
+const providers = ref([...BUILTIN_PROVIDERS])
 const providerId = ref('minimax-video')
 const model = ref('MiniMax-Hailuo-2.3')
 const baseUrl = ref('')
@@ -44,9 +63,19 @@ const versionLabel = computed(() => version.value.versionId?.slice(-6) || '未�
 const currentProvider = computed(() => providers.value.find((item) => item.id === providerId.value) || null)
 const isMinimax = computed(() => providerId.value === 'minimax-video')
 const isHailuoModel = computed(() => ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'].includes(model.value))
-const minimaxModels = computed(() => currentProvider.value?.capabilities?.models || [
-  'MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01-Director', 'T2V-01'
-])
+const otherProviders = computed(() => providers.value.filter((item) => item.id !== 'minimax-video'))
+const channelSelection = computed({
+  get: () => isMinimax.value ? `minimax-video::${model.value}` : providerId.value,
+  set: (value) => {
+    const selected = String(value || '')
+    if (selected.startsWith('minimax-video::')) {
+      providerId.value = 'minimax-video'
+      model.value = selected.slice('minimax-video::'.length)
+      return
+    }
+    providerId.value = selected
+  }
+})
 const minimaxResolutions = computed(() => isHailuoModel.value ? ['768P', '1080P'] : ['720P', '1080P'])
 const minimaxDurations = computed(() => isHailuoModel.value && minimax.resolution === '768P' ? [6, 10] : [6])
 const aspectRatios = computed(() => currentProvider.value?.capabilities?.aspectRatios || ['16:9', '9:16', '1:1'])
@@ -69,7 +98,11 @@ watch(shots, (nextShots) => {
 
 watch(providerId, (id) => {
   const provider = providers.value.find((item) => item.id === id)
-  model.value = provider?.capabilities?.models?.[0] || (id === 'minimax-video' ? 'MiniMax-Hailuo-2.3' : 'custom')
+  if (id === 'minimax-video') {
+    if (!MINIMAX_MODEL_OPTIONS.includes(model.value)) model.value = MINIMAX_MODEL_OPTIONS[0]
+  } else {
+    model.value = provider?.capabilities?.models?.[0] || 'custom'
+  }
   const ratios = provider?.capabilities?.aspectRatios || []
   if (ratios.length && !ratios.includes(aspectRatio.value)) aspectRatio.value = ratios[0]
   if (id === 'minimax-video') normalizeMinimaxOptions()
@@ -87,12 +120,12 @@ onBeforeUnmount(() => pollingController.value?.abort())
 async function loadProviders() {
   try {
     const result = await videoJobService.listProviders()
-    providers.value = Array.isArray(result?.providers) ? result.providers : []
+    providers.value = mergeProviderMetadata(result?.providers)
     if (providers.value.length && !providers.value.some((item) => item.id === providerId.value)) {
       providerId.value = providers.value[0].id
     }
     const provider = providers.value.find((item) => item.id === providerId.value)
-    if (provider?.capabilities?.models?.length && !provider.capabilities.models.includes(model.value)) {
+    if (!isMinimax.value && provider?.capabilities?.models?.length && !provider.capabilities.models.includes(model.value)) {
       model.value = provider.capabilities.models[0]
     }
     if (isMinimax.value) normalizeMinimaxOptions()
@@ -245,6 +278,27 @@ function trimPrompt(value, maxChars) {
   const lastLineBreak = candidate.lastIndexOf('\n')
   return (lastLineBreak >= Math.floor(maxChars * 0.75) ? candidate.slice(0, lastLineBreak) : candidate).trim()
 }
+
+function mergeProviderMetadata(remoteProviders) {
+  const merged = new Map(BUILTIN_PROVIDERS.map((provider) => [provider.id, provider]))
+  for (const provider of Array.isArray(remoteProviders) ? remoteProviders : []) {
+    if (!provider?.id) continue
+    if (provider.id === 'minimax-video') {
+      merged.set(provider.id, {
+        ...provider,
+        label: 'MiniMax Video',
+        capabilities: {
+          ...(provider.capabilities || {}),
+          models: MINIMAX_MODEL_OPTIONS,
+          aspectRatios: ['16:9']
+        }
+      })
+      continue
+    }
+    merged.set(provider.id, provider)
+  }
+  return Array.from(merged.values())
+}
 </script>
 
 <template>
@@ -261,20 +315,22 @@ function trimPrompt(value, maxChars) {
     <div v-else-if="!shots.length" class="video-panel__notice">当前版本没有可生成的镜头。</div>
 
     <div class="video-panel__form">
-      <label class="video-panel__field">
+      <label class="video-panel__field video-panel__field--wide">
         <span>渠道</span>
-        <select v-model="providerId" :disabled="busy">
-          <option v-for="provider in providers" :key="provider.id" :value="provider.id">
+        <select v-model="channelSelection" :disabled="busy">
+          <optgroup label="MiniMax Video">
+            <option v-for="item in MINIMAX_MODEL_OPTIONS" :key="item" :value="`minimax-video::${item}`">
+              {{ item }}
+            </option>
+          </optgroup>
+          <option v-for="provider in otherProviders" :key="provider.id" :value="provider.id">
             {{ provider.label }}
           </option>
         </select>
       </label>
-      <label class="video-panel__field">
+      <label v-if="!isMinimax" class="video-panel__field video-panel__field--wide">
         <span>模型</span>
-        <select v-if="isMinimax" v-model="model" :disabled="busy">
-          <option v-for="item in minimaxModels" :key="item" :value="item">{{ item }}</option>
-        </select>
-        <input v-else v-model.trim="model" :disabled="busy" placeholder="视频模型名称" />
+        <input v-model.trim="model" :disabled="busy" placeholder="视频模型名称" />
       </label>
       <label class="video-panel__field video-panel__field--wide">
         <span>API 地址</span>

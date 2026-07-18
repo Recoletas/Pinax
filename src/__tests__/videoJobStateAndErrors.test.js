@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createJobStore,
@@ -131,5 +131,28 @@ describe('videoJobStore state machine', () => {
 
     expect(asset.externalUrl).toBe('https://cdn.example.com/take.mp4')
     expect(mediaModule.listMediaAssets({ kind: 'video' }, { storage })).toHaveLength(1)
+
+    // The channel picker owns the current official MiniMax model list. Stale
+    // backend capabilities must not replace it with the retired model name.
+    const { mount, flushPromises } = await import('@vue/test-utils')
+    const { videoJobService } = await import('../services/media/videoJobService.js')
+    const listProviders = vi.spyOn(videoJobService, 'listProviders').mockResolvedValue({
+      providers: [{
+        id: 'minimax-video',
+        label: 'MiniMax Video',
+        capabilities: { models: ['MiniMax-video-01'], aspectRatios: ['16:9'] }
+      }]
+    })
+    const StoryboardVideoPanel = (await import('../components/media/StoryboardVideoPanel.vue')).default
+    const wrapper = mount(StoryboardVideoPanel, { props: { context: { shots: [] } } })
+    await flushPromises()
+    const channelOptions = wrapper.find('select').findAll('option').map((option) => option.text())
+    expect(channelOptions).toContain('MiniMax-Hailuo-2.3')
+    expect(channelOptions).toContain('MiniMax-Hailuo-02')
+    expect(channelOptions).toContain('T2V-01-Director')
+    expect(channelOptions).toContain('T2V-01')
+    expect(channelOptions).not.toContain('MiniMax-video-01')
+    wrapper.unmount()
+    listProviders.mockRestore()
   })
 })

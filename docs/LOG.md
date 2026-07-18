@@ -17,6 +17,7 @@
 结果摘要：
 - MiniMax adapter 改用官方 `POST /v1/video_generation`，通过 `GET /v1/query/video_generation` 查询任务，并在成功后用 `file_id` 调用 `GET /v1/files/retrieve` 解析视频地址。
 - 默认模型更新为 `MiniMax-Hailuo-2.3`；面板按模型限制 6/10 秒和 720P/768P/1080P 的合法组合，并接入提示词优化、快速预处理和 AIGC 水印参数。
+- 渠道下拉直接列出四个 MiniMax 具体模型；官方模型表由前端内置，旧后端 capabilities 中的 `MiniMax-video-01` 不会再把新选项覆盖掉。
 - MiniMax `base_resp.status_code` 即使处于 HTTP 200 也会进入统一错误体系；连接测试使用无效任务查询探测鉴权，不提交生成任务。
 - 任务 runner 开始尊重 provider 的 10 秒轮询间隔；完成输出保留 `file_id`、尺寸和约一小时有效期，素材库明确记录临时地址限制。
 - 现有视频测试原位增加官方请求、查询和文件解析断言，测试总量不增加；未调用真实 MiniMax API，未启动 dev server。
