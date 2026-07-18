@@ -106,6 +106,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     }
     return {
       status: 'succeeded',
+      providerStatus: 'Success',
       progress: 100,
       providerJobId,
       outputs: [{
@@ -223,10 +224,10 @@ function normalizeGenerationOptions(input, config, model) {
 
 function mapPollResponse(payload) {
   const status = String(payload?.status || '')
-  if (status === 'Success') return { status: 'succeeded', progress: 100 }
+  if (status === 'Success') return { status: 'succeeded', providerStatus: status, progress: 100 }
   if (status === 'Fail') {
     const error = makeProviderError(payload, 'MiniMax video generation failed')
-    return { status: 'failed', error }
+    return { status: 'failed', providerStatus: status, error }
   }
   const progressByStatus = { Preparing: 15, Queueing: 30, Processing: 65 }
   if (!(status in progressByStatus)) {
@@ -234,6 +235,7 @@ function mapPollResponse(payload) {
   }
   return {
     status: 'running',
+    providerStatus: status,
     progress: progressByStatus[status] ?? 30,
     providerJobId: payload?.task_id || null
   }

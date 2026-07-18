@@ -94,7 +94,7 @@ export function createJobRunner({ store, registry, logger = console, options = {
       if (shuttingDown) return
     }
     running += 1
-    const ctrl = { aborted: false, timer: null, timeoutId: null, attempt: 0 }
+    const ctrl = { aborted: false, timer: null, timeoutId: null, attempt: 0, lastProviderStatus: null }
     controllers.set(jobId, ctrl)
     installExitHooks()
 
@@ -161,6 +161,11 @@ export function createJobRunner({ store, registry, logger = console, options = {
         }
         const status = String(pollResult.status || '').toLowerCase()
         const progress = Number.isFinite(pollResult.progress) ? pollResult.progress : current.progress
+        const providerStatus = String(pollResult.providerStatus || '').trim()
+        if (providerStatus && providerStatus !== ctrl.lastProviderStatus) {
+          ctrl.lastProviderStatus = providerStatus
+          logger.info?.(`[media] job provider status id=${jobId} state=${providerStatus} progress=${progress}`)
+        }
 
         if (status === 'succeeded' || status === JOB_STATUS.SUCCEEDED) {
           const outputs = Array.isArray(pollResult.outputs) ? pollResult.outputs : []
@@ -189,10 +194,13 @@ export function createJobRunner({ store, registry, logger = console, options = {
 
         // still running
         try {
-          current = store.transition(jobId, JOB_STATUS.RUNNING, {
+          const patch = {
             progress: clampProgress(progress),
             providerJobId: pollResult.providerJobId ?? current.providerJobId
-          })
+          }
+          current = current.status === JOB_STATUS.RUNNING
+            ? store.patchJob(jobId, patch)
+            : store.transition(jobId, JOB_STATUS.RUNNING, patch)
         } catch (err) {
           if (err instanceof IllegalTransitionError) return
           throw err

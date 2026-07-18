@@ -20,6 +20,7 @@
 
 ## Recently done
 
+- 2026-07-18：修复 MiniMax 视频任务首次进入 `running` 后，第二次 `Preparing` 轮询因非法 `running -> running` 自迁移而静默退出的问题；后续轮询改为原地更新进度，runner 保持活动直到成功、失败、取消或超时。创建日志改为结构化脱敏配置，并在 provider 状态变化时记录 `Preparing / Queueing / Processing / Success`。现有已卡住的本地任务无法自动恢复，需先查询上游任务或在加载新后端后重新提交。
 - 2026-07-18：MiniMax 视频 adapter 从失效的旧模型和 `/video/generations` 假定切换到 `api.minimaxi.com/v1` 官方协议；支持 Hailuo 2.3/02、T2V-01 Director/T2V-01 的合法时长与分辨率组合、`base_resp` 业务错误、10 秒 provider 轮询和 `file_id` 下载地址解析。分镜视频面板的渠道下拉直接列出四个具体模型，前端内置官方模型表，旧后端返回的 `MiniMax-video-01` 不再覆盖新选项，并会被识别为旧协议而阻止测试/提交，避免误报上游 404；结果地址约一小时有效。测试总量保持 200，未启动 dev server。
 - 2026-07-17：修复画布拖动修改布局副本导致回弹的问题；pointermove 只更新瞬时位置，pointerup 按节点 ID 写回原始模型，落点识别跳过被捕获节点，牌堆空白拖动改为移动整堆。视频生成升为画布顶栏常驻动作并从导出菜单移除；素材类型、画布导入、专业信息、节点纸片、关系工具和时间轴统一为档案工作台样式。未启动 dev server。
 - 2026-07-17：按 A -> D 顺序集成 Round 2 四个独立分支，并在 Codex 审查中修复顾问无 runner 假 applied、漫画连续性/空白引用持久化、pointer cancel 回滚和 ComicPage schema 3 契约；随后补齐 Vite `/ws` 代理。联机聊天移到体验画面左下角，无消息时收为记忆按钮上方的透明 30px 入口；房间状态收为右侧顶栏下方的紧凑浮层。测试总量保持 200，未启动 dev server。
@@ -29,7 +30,6 @@
 - 2026-07-16：抽出共享图片 provider/config store、MediaAsset 目录及 narrative/canvas image bridge；素材、分镜生成历史、`reference-image` 与画布附件成功归档后不再内嵌 base64，失败时保持原样；`verify:full` 通过 188 core + 12 visual tests。
 - 2026-07-16：`ImageGenRail` 降级为兼容包装，业务实现迁入 `MediaGenerationDrawer`；素材页增加参考图/插画模式，Markdown 正文图片改存 MediaAsset 引用并迁移旧 data URL；`verify:full` 通过 188 core + 12 visual tests。
 - 2026-07-16：素材页视觉工作流技术原型完成并重排入口：删除浮动抽屉，中央主卡显示图片/拼页，右侧副工作台承载生成操作。ComicPage 与 MediaAsset 分离持久化，支持失败隔离、版本保留、存为素材和 JSON manifest，但不再视作完整漫画排版。
-- 2026-07-16：补齐素材视觉工作流细节：模型选择改为插画/漫画共用的选择、增改删与连通性弹层；参考图进入 MediaAsset 并由 SD WebUI、OpenAI Images、Stability 或通用 HTTP adapter 实际消费；漫画整页与对白层进入中央预览，右侧可切格、改格序和管理 take。
 - 2026-07-16：素材页“参考图 / 插画”拆为不同工作区：参考图页只负责图库选择、上传和强度，插画页只保留生成表单并以摘要引用已选参考图；画幅和数量由九个按钮收为两个下拉项。单一参考图模式的旧页面继续保留原生成行为。
 
 ## Next up

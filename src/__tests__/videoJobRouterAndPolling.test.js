@@ -18,6 +18,7 @@ function jsonResponse(status, payload) {
 }
 
 function buildTestEnv(options = {}) {
+  const logger = options.logger || { info() {}, error() {} }
   const fetchImpl = vi.fn(async (url, init = {}) => {
     const method = String(init.method || 'GET').toUpperCase()
     if (options.fetchHandler) return options.fetchHandler(url, init, method)
@@ -26,7 +27,7 @@ function buildTestEnv(options = {}) {
   const minimaxAdapter = options.minimaxAdapter || createMinimaxVideoAdapter({ fetchImpl })
   const genericAdapter = createGenericAsyncHttpAdapter({ fetchImpl })
   const store = createJobStore()
-  const registry = createProviderRegistry({ logger: { info() {}, error() {} } })
+  const registry = createProviderRegistry({ logger })
   registry.register({
     id: minimaxAdapter.id,
     adapter: minimaxAdapter,
@@ -41,8 +42,8 @@ function buildTestEnv(options = {}) {
     capabilities: genericAdapter.getCapabilities(),
     publicConfigKeys: genericAdapter.publicConfigKeys
   })
-  const runner = createJobRunner({ store, registry, logger: { info() {}, error() {} }, options: { initialPollMs: 5, maxPollMs: 10, jitterMs: 0 } })
-  const router = createMediaRouter({ store, registry, runner, minimaxAdapter, genericAdapter, logger: { info() {}, error() {} } })
+  const runner = createJobRunner({ store, registry, logger, options: { initialPollMs: 5, maxPollMs: 10, jitterMs: 0 } })
+  const router = createMediaRouter({ store, registry, runner, minimaxAdapter, genericAdapter, logger })
   return { router, store, registry, runner, minimaxAdapter, genericAdapter, fetchImpl }
 }
 
@@ -123,8 +124,10 @@ describe('media router POST /api/media/jobs → cancel end-to-end with AbortSign
 
   it('router POST /api/media/jobs → cancel end-to-end with AbortSignal stopping polling', async () => {
     let pollCount = 0
+    const logger = { info: vi.fn(), error: vi.fn() }
 
     const { router, store, runner } = buildTestEnv({
+      logger,
       fetchHandler: async (url, _init, method) => {
         if (method === 'POST' && url.endsWith('/v1/video_generation')) {
           return jsonResponse(200, { task_id: 'p_77', base_resp: { status_code: 0 } })
@@ -147,12 +150,20 @@ describe('media router POST /api/media/jobs → cancel end-to-end with AbortSign
     })
     expect(created.status).toBe(201)
     const jobId = created.body.id
+    const createLog = logger.info.mock.calls.flat().find((entry) => String(entry).includes('[media] job created'))
+    expect(createLog).toContain('"resolution":"768P"')
+    expect(createLog).toContain('"apiKey":"<redacted>"')
+    expect(createLog).not.toContain('[object Object]')
+    expect(createLog).not.toContain('sk-test')
 
-    // 2. Let the runner submit + run at least one poll cycle.
+    // 2. Let the runner submit and survive repeated Processing polls.
     await flushMicrotasks()
     await vi.runOnlyPendingTimersAsync()
-    expect(pollCount).toBeGreaterThanOrEqual(1)
+    await flushMicrotasks()
+    expect(pollCount).toBeGreaterThanOrEqual(2)
     expect(store.getJob(jobId).status).toBe(JOB_STATUS.RUNNING)
+    expect(runner.getActiveCount()).toBe(1)
+    expect(logger.info.mock.calls.flat().some((entry) => String(entry).includes('state=Processing progress=65'))).toBe(true)
 
     // 3. POST /api/media/jobs/:id/cancel moves the job to cancelled.
     const cancelled = await invokeRouter(router, 'POST', `/api/media/jobs/${jobId}/cancel`, {})

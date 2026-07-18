@@ -19,6 +19,8 @@
 - 默认模型更新为 `MiniMax-Hailuo-2.3`；面板按模型限制 6/10 秒和 720P/768P/1080P 的合法组合，并接入提示词优化、快速预处理和 AIGC 水印参数。
 - 渠道下拉直接列出四个 MiniMax 具体模型；官方模型表由前端内置，旧后端 capabilities 中的 `MiniMax-video-01` 不会再把新选项覆盖掉。
 - 面板检测到仍返回旧模型契约的 Express 进程时，会直接提示重启并阻止测试/提交，不再让旧 adapter 请求失效的 `/models` 后显示含混的 404。
+- 修复异步任务在第二个相同运行态轮询时静默退出：状态机仍禁止 `running -> running`，runner 改用无状态迁移的进度更新；后台会按变化记录 MiniMax provider 状态。
+- 创建日志改用 registry 的对象级脱敏，不再输出 `config="[object Object]"`，同时确保 API Key 只显示为 `<redacted>`。
 - MiniMax `base_resp.status_code` 即使处于 HTTP 200 也会进入统一错误体系；连接测试使用无效任务查询探测鉴权，不提交生成任务。
 - 任务 runner 开始尊重 provider 的 10 秒轮询间隔；完成输出保留 `file_id`、尺寸和约一小时有效期，素材库明确记录临时地址限制。
 - 现有视频测试原位增加官方请求、查询和文件解析断言，测试总量不增加；未调用真实 MiniMax API，未启动 dev server。

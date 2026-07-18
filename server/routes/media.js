@@ -55,7 +55,7 @@ export function createMediaRouter(options = {}) {
     })
 
     // Sanitize provider config before logging or storing on job.
-    const safeConfig = redactSecrets(providerConfig)
+    const safeConfig = registry.redactConfig(providerConfig)
     logger.info?.(`[media] job created id=${job.id} provider=${job.providerId} config=${JSON.stringify(safeConfig)}`)
 
     runner.submit(job, providerConfig)

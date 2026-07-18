@@ -110,6 +110,17 @@ export function createJobStore(options = {}) {
     return job
   }
 
+  function patchJob(id, patch = {}) {
+    const job = getJob(id)
+    if (patch.progress != null) job.progress = patch.progress
+    if (patch.providerJobId != null) job.providerJobId = patch.providerJobId
+    if (patch.outputs != null) job.outputs = patch.outputs
+    if (patch.error != null) job.error = patch.error
+    if (patch.attempts != null) job.attempts = patch.attempts
+    job.updatedAt = new Date(now()).toISOString()
+    return job
+  }
+
   function cancel(id) {
     try {
       const job = getJob(id)
@@ -140,7 +151,7 @@ export function createJobStore(options = {}) {
     jobs.clear()
   }
 
-  return { createJob, getJob, listJobs, transition, cancel, sweep, size, clear }
+  return { createJob, getJob, listJobs, transition, patchJob, cancel, sweep, size, clear }
 }
 
 export function isTerminalStatus(status) {
