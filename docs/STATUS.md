@@ -20,6 +20,7 @@
 
 ## Recently done
 
+- 2026-07-18：素材中央主阅读区补齐插画拖动定位、50%-200% 缩放、完整/铺满、重置和键盘微调；右侧副工作台继续只承载生成。构图参数同步写入 NarrativeAsset / MediaAsset，旧图片兼容默认值，生成候选切换或刷新后可恢复。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：素材图片模型配置新增 MiniMax Image，接入 `image-01` / `image-01-live`、官方同步生图、标准画幅、base64 结果和业务错误识别；视频面板移除每次填写的 Key/地址/渠道表单，新增与图片配置一致的添加、编辑、测试、删除和持久选择流程，MiniMax 与自定义异步 HTTP 配置随备份导出。确认 MiniMax 图片接口允许本地 Vite 来源跨域携带鉴权。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：卡片画布视频改为按当前镜头生成，不再把整版长文本截断后塞入一个 6 秒任务；生成面板增加镜头选择和可编辑最终提示词，纳入景别、MiniMax 运镜指令、转场、卡片关系、上一镜视觉锚点、色调、情绪、对白和环境表现。MiniMax 提示词自动改写默认关闭，归档补齐镜头参数。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：修复 MiniMax 视频任务首次进入 `running` 后，第二次 `Preparing` 轮询因非法 `running -> running` 自迁移而静默退出的问题；后续轮询改为原地更新进度，runner 保持活动直到成功、失败、取消或超时。创建日志改为结构化脱敏配置，并在 provider 状态变化时记录 `Preparing / Queueing / Processing / Success`。现有已卡住的本地任务无法自动恢复，需先查询上游任务或在加载新后端后重新提交。
@@ -29,10 +30,6 @@
 - 2026-07-16：恢复 A 启动前被 stash 的七月产品基线，确认旧界面和 1361 个测试来自 A-E 误从六月底 `main` 开工；A-E 已逐项整合到现代前端。F 完成联机体验、分镜视频面板、协议兼容、房主重连、任务归档和牌堆拖拽修复。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200。
 - 2026-07-16：完成漫画 G4.4 M1：沿用现有漫画页直接增加画布、视觉圣经、格框、方向和制作阶段字段；内容、构图、参考或视觉规则变化会标记阶段 stale。副工作台无素材时仍显示，空状态直接提供阅读方向、色制和“建立制作页”，不再展示旧的 4/6 格入口；进入制作页后分镜/制作字段默认展开。`verify:full` 通过 188 core + 12 visual tests、Vite/VitePress build 和 diff check，未启动 dev server。
 - 2026-07-16：删除重复、局部和历史 UI 测试，核心回归收缩到 18 files / 200 tests；`verify:full` 也不再重复运行视觉套件。
-- 2026-07-16：抽出共享图片 provider/config store、MediaAsset 目录及 narrative/canvas image bridge；素材、分镜生成历史、`reference-image` 与画布附件成功归档后不再内嵌 base64，失败时保持原样；`verify:full` 通过 188 core + 12 visual tests。
-- 2026-07-16：`ImageGenRail` 降级为兼容包装，业务实现迁入 `MediaGenerationDrawer`；素材页增加参考图/插画模式，Markdown 正文图片改存 MediaAsset 引用并迁移旧 data URL；`verify:full` 通过 188 core + 12 visual tests。
-- 2026-07-16：素材页视觉工作流技术原型完成并重排入口：删除浮动抽屉，中央主卡显示图片/拼页，右侧副工作台承载生成操作。ComicPage 与 MediaAsset 分离持久化，支持失败隔离、版本保留、存为素材和 JSON manifest，但不再视作完整漫画排版。
-- 2026-07-16：素材页“参考图 / 插画”拆为不同工作区：参考图页只负责图库选择、上传和强度，插画页只保留生成表单并以摘要引用已选参考图；画幅和数量由九个按钮收为两个下拉项。单一参考图模式的旧页面继续保留原生成行为。
 
 ## Next up
 

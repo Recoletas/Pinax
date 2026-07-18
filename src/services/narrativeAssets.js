@@ -42,6 +42,12 @@ export const ASSET_KINDS = [
 
 export const ASSET_STATUSES = ['inbox', 'accepted', 'rejected', 'archived']
 export const ACTIVE_ASSET_STATUSES = ['inbox', 'accepted']
+export const DEFAULT_IMAGE_PRESENTATION = Object.freeze({
+  fit: 'contain',
+  scale: 1,
+  positionX: 50,
+  positionY: 50
+})
 export const CONTENT_REF_TYPES = [
   'worldbook-entry',
   'map-site',
@@ -205,6 +211,7 @@ export function updateNarrativeAsset(assetId, patch = {}) {
       sourceRefs: patch.sourceRefs !== undefined || patch.source !== undefined || patch.projectId !== undefined
         ? normalizeSourceRefs(patch.sourceRefs, { source, projectId })
         : (Array.isArray(asset.sourceRefs) ? asset.sourceRefs : normalizeSourceRefs([], { source, projectId })),
+      image: patch.image !== undefined ? normalizeImage(patch.image) : asset.image,
       contentHash: patch.content !== undefined
         ? buildNarrativeAssetContentHash(content)
         : (asset.contentHash || buildNarrativeAssetContentHash(content)),
@@ -481,8 +488,25 @@ function normalizeImage(image = null) {
     modelId: normalizeText(image.modelId),
     modelType: normalizeText(image.modelType),
     width: Number(image.width) || null,
-    height: Number(image.height) || null
+    height: Number(image.height) || null,
+    presentation: normalizeImagePresentation(image.presentation)
   }
+}
+
+export function normalizeImagePresentation(presentation = {}) {
+  const source = presentation && typeof presentation === 'object' ? presentation : {}
+  return {
+    fit: source.fit === 'cover' ? 'cover' : DEFAULT_IMAGE_PRESENTATION.fit,
+    scale: clampNumber(source.scale, 0.5, 2, DEFAULT_IMAGE_PRESENTATION.scale),
+    positionX: clampNumber(source.positionX, 0, 100, DEFAULT_IMAGE_PRESENTATION.positionX),
+    positionY: clampNumber(source.positionY, 0, 100, DEFAULT_IMAGE_PRESENTATION.positionY)
+  }
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, number))
 }
 
 function normalizeText(value) {

@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../../composables/useStorage'
-import { normalizeSourceRefs } from '../narrativeAssets'
+import { normalizeImagePresentation, normalizeSourceRefs } from '../narrativeAssets'
 
 export const MEDIA_ASSET_SCHEMA_VERSION = 1
 export const MEDIA_DATABASE_NAME = 'pinax-media'
@@ -155,7 +155,8 @@ export async function addGeneratedImageToLibrary(libraryKey, entry = {}, options
       height: entry.height || null,
       referenceImageIds: normalizeStringList(entry.referenceImageIds),
       referenceCount: normalizePositiveNumber(entry.referenceCount),
-      referenceStrength: normalizePositiveNumber(entry.referenceStrength)
+      referenceStrength: normalizePositiveNumber(entry.referenceStrength),
+      presentation: normalizeImagePresentation(entry.presentation)
     },
     mimeType: entry.mimeType,
     width: entry.width,
@@ -217,7 +218,8 @@ export async function loadGeneratedImageLibrary(libraryKey, options = {}) {
           height: entry.height || null,
           referenceImageIds: normalizeStringList(entry.referenceImageIds),
           referenceCount: normalizePositiveNumber(entry.referenceCount),
-          referenceStrength: normalizePositiveNumber(entry.referenceStrength)
+          referenceStrength: normalizePositiveNumber(entry.referenceStrength),
+          presentation: normalizeImagePresentation(entry.presentation)
         },
         width: entry.width,
         height: entry.height,
@@ -382,6 +384,7 @@ function hydrateGeneratedImageEntry(libraryEntry, asset, data) {
     referenceImageIds: normalizeStringList(asset.generationParams?.referenceImageIds),
     referenceCount: normalizePositiveNumber(asset.generationParams?.referenceCount),
     referenceStrength: normalizePositiveNumber(asset.generationParams?.referenceStrength),
+    presentation: normalizeImagePresentation(asset.generationParams?.presentation),
     mediaPurpose: asset.purpose,
     width: asset.width,
     height: asset.height,

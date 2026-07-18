@@ -290,10 +290,69 @@
                     :page="comicPagePreview"
                   />
                   <div v-else-if="mainVisualPreview?.data" class="image-asset-preview">
-                    <img :src="mainVisualPreview.data" :alt="mainVisualPreview.alt" />
-                    <div class="image-asset-meta">
-                      <span>{{ mainVisualPreview.label }}</span>
-                      <span>{{ mainVisualPreview.size }}</span>
+                    <div
+                      class="image-asset-stage"
+                      :class="{ 'is-dragging': isDraggingIllustration }"
+                      tabindex="0"
+                      aria-label="插画构图区域"
+                      @pointerdown.stop="startIllustrationDrag"
+                      @pointermove.stop="moveIllustrationDrag"
+                      @pointerup.stop="finishIllustrationDrag"
+                      @pointercancel.stop="cancelIllustrationDrag"
+                      @keydown="onIllustrationKeydown"
+                    >
+                      <img
+                        :src="mainVisualPreview.data"
+                        :alt="mainVisualPreview.alt"
+                        :style="imagePresentationStyle"
+                        draggable="false"
+                      />
+                    </div>
+                    <div class="image-asset-controls">
+                      <div class="image-fit-switch" role="group" aria-label="图片显示方式">
+                        <button
+                          type="button"
+                          :class="{ active: mainVisualPreview.presentation.fit === 'contain' }"
+                          @click="setImageFit('contain')"
+                        >完整</button>
+                        <button
+                          type="button"
+                          :class="{ active: mainVisualPreview.presentation.fit === 'cover' }"
+                          @click="setImageFit('cover')"
+                        >铺满</button>
+                      </div>
+                      <div class="image-scale-control">
+                        <button type="button" title="缩小插画" aria-label="缩小插画" @click="nudgeImageScale(-0.1)">
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M3 8h10"/>
+                          </svg>
+                        </button>
+                        <input
+                          type="range"
+                          min="50"
+                          max="200"
+                          step="5"
+                          :value="Math.round(mainVisualPreview.presentation.scale * 100)"
+                          aria-label="插画大小"
+                          @input="setImageScale($event.target.value, false)"
+                          @change="setImageScale($event.target.value, true)"
+                        />
+                        <output>{{ Math.round(mainVisualPreview.presentation.scale * 100) }}%</output>
+                        <button type="button" title="放大插画" aria-label="放大插画" @click="nudgeImageScale(0.1)">
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M3 8h10M8 3v10"/>
+                          </svg>
+                        </button>
+                      </div>
+                      <button class="image-reset-button" type="button" title="重置插画构图" aria-label="重置插画构图" @click="resetImagePresentation">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M3.2 5.4A5.2 5.2 0 111.9 9M3.2 5.4V2.2M3.2 5.4H6.4"/>
+                        </svg>
+                      </button>
+                      <div class="image-asset-meta">
+                        <span>{{ mainVisualPreview.label }}</span>
+                        <span>{{ mainVisualPreview.size }}</span>
+                      </div>
                     </div>
                   </div>
                   <textarea
@@ -579,17 +638,22 @@ import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
 import {
   addNarrativeAsset,
+  DEFAULT_IMAGE_PRESENTATION,
   deleteNarrativeAsset,
   getAssetKindLabel,
   listActiveNarrativeAssets,
   mergeNarrativeAssets,
+  normalizeImagePresentation,
   setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
 import {
   addNarrativeImageAsset,
+  getMediaImagePresentation,
   hydrateNarrativeImageAssets,
-  migrateNarrativeImageAssets
+  migrateNarrativeImageAssets,
+  updateMediaImagePresentation,
+  updateNarrativeImagePresentation
 } from '../services/media/narrativeImageAssetBridge'
 import {
   createMarkdownMediaReference,
@@ -624,6 +688,7 @@ const markdownContent = ref('')
 const renderedMarkdownContent = ref('')
 const sidekickWorkspace = ref('materials')
 const illustrationPreview = ref(null)
+const isDraggingIllustration = ref(false)
 const comicPagePreview = ref(null)
 const sidekickImageModelConfigs = ref([])
 const sidekickImageModelId = ref('')
@@ -798,7 +863,8 @@ const mainVisualPreview = computed(() => {
       data: entry.data,
       alt: entry.prompt || selectedAsset.value?.title || '插画',
       label: entry.mediaPurpose === 'storyboard-reference' ? '参考图草稿' : '插画草稿',
-      size: entry.width && entry.height ? `${entry.width}×${entry.height}` : '生成图片'
+      size: entry.width && entry.height ? `${entry.width}×${entry.height}` : '生成图片',
+      presentation: normalizeImagePresentation(entry.presentation)
     }
   }
 
@@ -812,7 +878,15 @@ const mainVisualPreview = computed(() => {
       : image.purpose === 'illustration'
         ? '插画'
         : '参考图',
-    size: image.width && image.height ? `${image.width}×${image.height}` : '素材图片'
+    size: image.width && image.height ? `${image.width}×${image.height}` : '素材图片',
+    presentation: normalizeImagePresentation(image.presentation)
+  }
+})
+const imagePresentationStyle = computed(() => {
+  const presentation = mainVisualPreview.value?.presentation || DEFAULT_IMAGE_PRESENTATION
+  return {
+    objectFit: presentation.fit,
+    transform: `translate3d(${presentation.positionX - 50}%, ${presentation.positionY - 50}%, 0) scale(${presentation.scale})`
   }
 })
 const imageReferenceCandidates = computed(() => chapters.value
@@ -827,10 +901,115 @@ const imageReferenceCandidates = computed(() => chapters.value
 
 function showMainVisualPreview(entry) {
   if (!entry?.data || !selectedChapterId.value) return
+  const storedPresentation = getMediaImagePresentation(entry.mediaAssetId)
   illustrationPreview.value = {
     sourceAssetId: selectedChapterId.value,
-    entry
+    entry: {
+      ...entry,
+      presentation: storedPresentation || normalizeImagePresentation(entry.presentation)
+    }
   }
+}
+
+let illustrationDrag = null
+
+function applyImagePresentation(patch = {}, persist = true) {
+  if (!mainVisualPreview.value) return
+  const presentation = normalizeImagePresentation({
+    ...mainVisualPreview.value.presentation,
+    ...patch
+  })
+  const generated = illustrationPreview.value
+  if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
+    illustrationPreview.value = {
+      ...generated,
+      entry: { ...generated.entry, presentation }
+    }
+    if (persist && generated.entry.mediaAssetId) {
+      updateMediaImagePresentation(generated.entry.mediaAssetId, presentation)
+    }
+    return
+  }
+
+  const asset = selectedAsset.value
+  if (!asset?.image) return
+  asset.image = { ...asset.image, presentation }
+  if (persist) updateNarrativeImagePresentation(asset.id, presentation)
+}
+
+function startIllustrationDrag(event) {
+  if (event.button !== 0 || !mainVisualPreview.value) return
+  const frame = event.currentTarget
+  const presentation = mainVisualPreview.value.presentation
+  illustrationDrag = {
+    pointerId: event.pointerId,
+    frame,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startPositionX: presentation.positionX,
+    startPositionY: presentation.positionY
+  }
+  isDraggingIllustration.value = true
+  frame.setPointerCapture?.(event.pointerId)
+}
+
+function moveIllustrationDrag(event) {
+  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
+  const rect = illustrationDrag.frame.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  applyImagePresentation({
+    positionX: illustrationDrag.startPositionX + ((event.clientX - illustrationDrag.startClientX) / rect.width) * 100,
+    positionY: illustrationDrag.startPositionY + ((event.clientY - illustrationDrag.startClientY) / rect.height) * 100
+  }, false)
+}
+
+function finishIllustrationDrag(event) {
+  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
+  illustrationDrag.frame.releasePointerCapture?.(event.pointerId)
+  illustrationDrag = null
+  isDraggingIllustration.value = false
+  applyImagePresentation({}, true)
+}
+
+function cancelIllustrationDrag(event) {
+  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
+  applyImagePresentation({
+    positionX: illustrationDrag.startPositionX,
+    positionY: illustrationDrag.startPositionY
+  }, false)
+  illustrationDrag = null
+  isDraggingIllustration.value = false
+}
+
+function setImageFit(fit) {
+  applyImagePresentation({ fit }, true)
+}
+
+function setImageScale(value, persist = true) {
+  applyImagePresentation({ scale: Number(value) / 100 }, persist)
+}
+
+function nudgeImageScale(delta) {
+  applyImagePresentation({ scale: mainVisualPreview.value.presentation.scale + delta }, true)
+}
+
+function resetImagePresentation() {
+  applyImagePresentation(DEFAULT_IMAGE_PRESENTATION, true)
+}
+
+function onIllustrationKeydown(event) {
+  const step = event.shiftKey ? 5 : 2
+  const presentation = mainVisualPreview.value?.presentation
+  if (!presentation) return
+  const keyPatches = {
+    ArrowLeft: { positionX: presentation.positionX - step },
+    ArrowRight: { positionX: presentation.positionX + step },
+    ArrowUp: { positionY: presentation.positionY - step },
+    ArrowDown: { positionY: presentation.positionY + step }
+  }
+  if (!keyPatches[event.key]) return
+  event.preventDefault()
+  applyImagePresentation(keyPatches[event.key], true)
 }
 
 function showComicPagePreview(page) {
@@ -1447,6 +1626,12 @@ function getAssetKindColor(kind) {
 
 async function saveGeneratedImageAsset(imgEntry) {
   if (!imgEntry?.data) return
+  const previewEntry = illustrationPreview.value?.entry
+  const presentation = previewEntry && (
+    previewEntry.mediaAssetId === imgEntry.mediaAssetId || previewEntry.id === imgEntry.id
+  )
+    ? previewEntry.presentation
+    : imgEntry.presentation
   const currentAssetId = selectedChapterId.value
   const asset = await addNarrativeImageAsset({
     title: (imgEntry.prompt || '素材参考图').slice(0, 24),
@@ -1471,7 +1656,8 @@ async function saveGeneratedImageAsset(imgEntry) {
       modelId: imgEntry.modelId,
       modelType: imgEntry.modelType,
       width: imgEntry.width,
-      height: imgEntry.height
+      height: imgEntry.height,
+      presentation: normalizeImagePresentation(presentation)
     }
   })
   loadNotes(imgEntry.mode === 'comic' && currentAssetId ? currentAssetId : asset.id)
@@ -2639,11 +2825,12 @@ function syncSelectionCommandState() {
 
 .image-asset-preview {
   max-width: 940px;
+  width: 100%;
   margin: 12px auto 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
+  border-radius: 4px;
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: var(--archive-paper-soft);
 }
 
 .main-comic-preview {
@@ -2651,21 +2838,140 @@ function syncSelectionCommandState() {
   width: min(100%, 620px);
 }
 
-.image-asset-preview img {
+.image-asset-stage {
+  position: relative;
   width: 100%;
-  max-height: min(52vh, 560px);
-  object-fit: contain;
+  height: min(52vh, 520px);
+  min-height: 280px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background: color-mix(in srgb, var(--archive-paper-strong) 64%, var(--archive-photo));
+  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, transparent);
+}
+
+.image-asset-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.image-asset-stage:focus-visible {
+  outline: 2px solid var(--archive-olive);
+  outline-offset: -3px;
+}
+
+.image-asset-stage img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
-  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  user-select: none;
+  pointer-events: none;
+  transform-origin: center;
+  transition: transform 120ms ease;
+  will-change: transform;
+}
+
+.image-asset-stage.is-dragging img {
+  transition: none;
+}
+
+.image-asset-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 8px;
+  color: var(--archive-ink-soft);
+}
+
+.image-fit-switch,
+.image-scale-control {
+  display: inline-flex;
+  align-items: center;
+}
+
+.image-fit-switch {
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  padding-right: 8px;
+}
+
+.image-fit-switch button,
+.image-scale-control button,
+.image-reset-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  cursor: pointer;
+}
+
+.image-fit-switch button {
+  min-width: 42px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.image-fit-switch button.active {
+  border-color: color-mix(in srgb, var(--archive-olive) 52%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
+  color: var(--archive-ink);
+}
+
+.image-scale-control {
+  gap: 4px;
+}
+
+.image-scale-control button,
+.image-reset-button {
+  width: 26px;
+  padding: 0;
+}
+
+.image-fit-switch button:hover,
+.image-scale-control button:hover,
+.image-reset-button:hover {
+  color: var(--archive-ink);
+  border-color: color-mix(in srgb, var(--archive-gold) 48%, transparent);
+}
+
+.image-fit-switch button:focus-visible,
+.image-scale-control button:focus-visible,
+.image-reset-button:focus-visible,
+.image-scale-control input:focus-visible {
+  outline: 2px solid var(--archive-olive);
+  outline-offset: 1px;
+}
+
+.image-scale-control input {
+  width: 104px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--archive-olive);
+  cursor: pointer;
+}
+
+.image-scale-control output {
+  width: 36px;
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .image-asset-meta {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
-  padding: 8px 10px;
-  color: var(--text-secondary);
-  font-size: 12px;
+  margin-left: auto;
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .editor-preview :deep(img) {
@@ -4278,6 +4584,16 @@ function syncSelectionCommandState() {
   }
   .sidekick-slip {
     flex: 0 0 240px;
+  }
+  .image-asset-stage {
+    height: min(46vh, 420px);
+    min-height: 220px;
+  }
+  .image-asset-meta {
+    flex: 1 0 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    padding-top: 2px;
   }
   .reading-deck:has(.canvas-pinboard) {
     flex-direction: column;

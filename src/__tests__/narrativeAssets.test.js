@@ -14,13 +14,16 @@ import {
   listNarrativeAssets,
   mergeNarrativeAssets,
   normalizeContentRef,
+  normalizeImagePresentation,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '@/services/narrativeAssets'
 import {
   addNarrativeImageAsset,
-  migrateNarrativeImageAssets
+  getMediaImagePresentation,
+  migrateNarrativeImageAssets,
+  updateNarrativeImagePresentation
 } from '@/services/media/narrativeImageAssetBridge'
 import {
   hydrateMarkdownMediaContent,
@@ -50,6 +53,12 @@ describe('narrativeAssets', () => {
     expect(asset.title).toBe('第一段正文候选')
     expect(asset.content).toBe('第一段正文候选')
     expect(asset.source.messageIds).toEqual(['m1'])
+    expect(normalizeImagePresentation({ fit: 'cover', scale: 4, positionX: -20, positionY: 75 })).toEqual({
+      fit: 'cover',
+      scale: 2,
+      positionX: 0,
+      positionY: 75
+    })
     expect(asset.contentHash).toBe(buildNarrativeAssetContentHash('第一段正文候选'))
     expect(asset.sourceRefs).toEqual([
       {
@@ -232,7 +241,8 @@ describe('narrativeAssets', () => {
         prompt: '雨夜街角',
         data: 'data:image/png;base64,abc',
         width: 1024,
-        height: 768
+        height: 768,
+        presentation: { fit: 'cover', scale: 1.25, positionX: 36, positionY: 62 }
       }
     })
     const hydrated = await migrateNarrativeImageAssets({ binaryStore })
@@ -242,9 +252,22 @@ describe('narrativeAssets', () => {
     expect(migrated.image.prompt).toBe('雨夜街角')
     expect(migrated.image.mediaAssetId).toBeTruthy()
     expect(migrated.image.data).toBe('')
+    expect(migrated.image.presentation).toEqual({ fit: 'cover', scale: 1.25, positionX: 36, positionY: 62 })
     expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).not.toContain('data:image/png')
     expect(blobs.has(migrated.image.mediaAssetId)).toBe(true)
     expect(hydrated[0].image.data).toContain('data:image/png')
+
+    const reframed = updateNarrativeImagePresentation(migrated.id, {
+      fit: 'contain',
+      scale: 1.6,
+      positionX: 82,
+      positionY: 18
+    })
+    expect(reframed.image.presentation).toEqual({ fit: 'contain', scale: 1.6, positionX: 82, positionY: 18 })
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MEDIA_ASSETS))[0].generationParams.presentation)
+      .toEqual({ fit: 'contain', scale: 1.6, positionX: 82, positionY: 18 })
+    expect(getMediaImagePresentation(migrated.image.mediaAssetId))
+      .toEqual({ fit: 'contain', scale: 1.6, positionX: 82, positionY: 18 })
 
     const direct = await addNarrativeImageAsset({
       title: '新参考图',
@@ -253,11 +276,13 @@ describe('narrativeAssets', () => {
       image: {
         prompt: '新参考图',
         data: 'data:image/png;base64,YWJj',
-        modelType: 'http'
+        modelType: 'http',
+        presentation: { fit: 'cover', scale: 0.8, positionX: 44, positionY: 56 }
       }
     }, { binaryStore })
     expect(direct.image.mediaAssetId).toBeTruthy()
     expect(direct.image.data).toBe('')
+    expect(direct.image.presentation).toEqual({ fit: 'cover', scale: 0.8, positionX: 44, positionY: 56 })
     expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).not.toContain('YWJj')
 
     const migratedMarkdown = await migrateMarkdownMediaContent(

@@ -1,6 +1,7 @@
 import {
   addNarrativeAsset,
   listNarrativeAssets,
+  normalizeImagePresentation,
   normalizeSourceRefs,
   updateNarrativeAsset
 } from '../narrativeAssets'
@@ -89,6 +90,42 @@ export async function addNarrativeImageAsset(input = {}, options = {}) {
   }
 }
 
+export function updateNarrativeImagePresentation(assetId, presentation, options = {}) {
+  const asset = listNarrativeAssets({ status: null }).find((item) => item.id === assetId)
+  if (!asset?.image) return null
+  const normalized = normalizeImagePresentation(presentation)
+  const updated = updateNarrativeAsset(asset.id, {
+    image: { ...asset.image, presentation: normalized }
+  })
+  if (asset.image.mediaAssetId) {
+    updateMediaImagePresentation(asset.image.mediaAssetId, normalized, options)
+  }
+  return updated
+}
+
+export function updateMediaImagePresentation(mediaAssetId, presentation, options = {}) {
+  if (!mediaAssetId) return null
+  const mediaAsset = listMediaAssets({}, { storage: options.storage })
+    .find((item) => item.id === mediaAssetId)
+  if (!mediaAsset) return null
+  return updateMediaAsset(mediaAsset.id, {
+    generationParams: {
+      ...(mediaAsset.generationParams || {}),
+      presentation: normalizeImagePresentation(presentation)
+    }
+  }, { storage: options.storage })
+}
+
+export function getMediaImagePresentation(mediaAssetId, options = {}) {
+  if (!mediaAssetId) return null
+  const mediaAsset = listMediaAssets({}, { storage: options.storage })
+    .find((item) => item.id === mediaAssetId)
+  const presentation = mediaAsset?.generationParams?.presentation
+  return presentation && typeof presentation === 'object'
+    ? normalizeImagePresentation(presentation)
+    : null
+}
+
 async function saveImageBinary(narrativeAssetId, asset, options) {
   const image = asset.image || {}
   const sourceRefs = normalizeSourceRefs([
@@ -113,7 +150,8 @@ async function saveImageBinary(narrativeAssetId, asset, options) {
     generationParams: {
       negativePrompt: image.negativePrompt || '',
       modelName: image.modelName || '',
-      modelId: image.modelId || ''
+      modelId: image.modelId || '',
+      presentation: normalizeImagePresentation(image.presentation)
     },
     width: image.width,
     height: image.height,
@@ -140,6 +178,9 @@ function toNarrativeImageMetadata(image, mediaAsset) {
     modelType: image.modelType || mediaAsset.provider,
     width: image.width || mediaAsset.width,
     height: image.height || mediaAsset.height,
+    presentation: normalizeImagePresentation(
+      image.presentation || mediaAsset.generationParams?.presentation
+    ),
     data: ''
   }
 }
