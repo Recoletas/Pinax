@@ -734,6 +734,7 @@ interface WorldStateSnapshot {
 - 中央主区是可选择格框和文字对象的页面画布，右侧是当前页/当前格的阶段检查器；生成配置不进入中央画布；
 - 每一阶段都必须能人工替换。用户上传的草图、线稿或上色稿与 AI 结果同等对待；
 - 模型不具备结构控制、身份保持或局部编辑能力时必须明确降级，不能用普通文生图伪装成线稿/上色流程。
+- 素材插画不再是正文上方的独立预览框：中央主区按 Word 图片布局语义支持嵌入、四周/紧密环绕、上下和前后层，文字锚点与版式属于 MediaAsset/NarrativeAsset 构图元数据；生成参数仍只放右侧副工作台。参考 [Microsoft Word 图片文字环绕](https://support.microsoft.com/en-gb/office/wrap-text-around-a-picture-in-word-bdbbe1fe-c089-4b5c-b85c-43997da64a12) 与 [CSS Shapes Level 1](https://www.w3.org/TR/css-shapes/)。
 
 #### G4.4.2 完整制作管线
 

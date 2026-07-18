@@ -54,6 +54,7 @@
 
 ## 稳定限制
 
+- 🟢 素材插画的紧密型环绕使用 CSS Shapes Level 1：透明图片可按 alpha 轮廓环绕，不透明图片退化为矩形；浏览器浮动排版只能让一行文字位于对象一侧，因此不提供与紧密型效果重复、却无法复现 Word 内部空洞排文的“穿越型”假选项。
 - 🟢 地图管线不追求 100% 复现 Azgaar；目标是保留模板语义并提升本项目视觉真实感。
 - 🟢 离线程地图生成通过 comlink 桥接，worker 边界需要 strip Vue reactive proxy。
 - 🟢 VitePress 文档站入口为 `docs/src/index.md`；不要提交 `.vitepress/cache/` 或 `.vitepress/dist/`。

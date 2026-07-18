@@ -46,7 +46,11 @@ export const DEFAULT_IMAGE_PRESENTATION = Object.freeze({
   fit: 'contain',
   scale: 1,
   positionX: 50,
-  positionY: 50
+  positionY: 50,
+  wrap: 'square',
+  align: 'right',
+  textGap: 16,
+  anchorOffset: 0
 })
 export const CONTENT_REF_TYPES = [
   'worldbook-entry',
@@ -495,11 +499,21 @@ function normalizeImage(image = null) {
 
 export function normalizeImagePresentation(presentation = {}) {
   const source = presentation && typeof presentation === 'object' ? presentation : {}
+  const wrap = ['inline', 'square', 'tight', 'top-bottom', 'behind', 'front'].includes(source.wrap)
+    ? source.wrap
+    : DEFAULT_IMAGE_PRESENTATION.wrap
+  const align = ['left', 'center', 'right'].includes(source.align)
+    ? source.align
+    : (wrap === 'inline' || wrap === 'top-bottom' ? 'center' : DEFAULT_IMAGE_PRESENTATION.align)
   return {
     fit: source.fit === 'cover' ? 'cover' : DEFAULT_IMAGE_PRESENTATION.fit,
     scale: clampNumber(source.scale, 0.5, 2, DEFAULT_IMAGE_PRESENTATION.scale),
     positionX: clampNumber(source.positionX, 0, 100, DEFAULT_IMAGE_PRESENTATION.positionX),
-    positionY: clampNumber(source.positionY, 0, 100, DEFAULT_IMAGE_PRESENTATION.positionY)
+    positionY: clampNumber(source.positionY, 0, 100, DEFAULT_IMAGE_PRESENTATION.positionY),
+    wrap,
+    align,
+    textGap: clampNumber(source.textGap, 0, 48, DEFAULT_IMAGE_PRESENTATION.textGap),
+    anchorOffset: Math.round(clampNumber(source.anchorOffset, 0, Number.MAX_SAFE_INTEGER, 0))
   }
 }
 
