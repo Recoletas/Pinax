@@ -91,7 +91,9 @@
 
 ## 8. 图片生成（侧栏 `ImageGenRail`）
 
-不是单独页面，是右侧栏的 AI 生图。绑多个 provider 配置，键名 `image_model_configs`。
+不是单独页面，是素材副工作台里的 AI 生图。可保存 MiniMax Image、OpenAI Images、Stability、SD WebUI、ComfyUI 或通用 HTTP 配置，键名 `image_model_configs`。
+
+画布的分镜视频使用相同的模型配置交互，MiniMax Video 和自定义异步 HTTP 配置存于 `video_model_configs`，不需要每次重新填写 API Key。
 
 ## 9. 顾问（章节旁的顾问按钮）
 

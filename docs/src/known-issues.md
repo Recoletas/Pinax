@@ -44,6 +44,7 @@
 
 ## 已知缺口
 
+- 🟡 MiniMax Image 的人物参考接口当前只接受公网图片 URL；Pinax 参考图库以本地/IndexedDB 图片为主，因此 MiniMax 配置当前先支持文生图，选择本地参考图时会明确阻止提交而不是静默忽略。后续需要对象存储或受控图片上传桥接。
 - 🟡 MiniMax `files/retrieve` 返回的下载地址约一小时有效；当前 MediaAsset 会记录 `file_id`、到期时间和临时外链，但尚未把视频二进制自动转存到持久对象存储。真实 provider smoke 时需及时保存结果，后续持久化渠道接入不能把该外链当永久资产。
 - 🟡 `moveCostForEdge` 已有 biome 缺省值兜底，但 caller 仍应避免传未声明 biome。
 - 🟡 states 阶段性能仍有残留问题，见 [states-perf-residual-issue.md](../plan/states-perf-residual-issue.md)。

@@ -178,28 +178,56 @@ describe('videoJobStore state machine', () => {
     expect(asset.externalUrl).toBe('https://cdn.example.com/take.mp4')
     expect(mediaModule.listMediaAssets({ kind: 'video' }, { storage })).toHaveLength(1)
 
-    // The channel picker owns the current official MiniMax model list. Stale
-    // backend capabilities must not replace it with the retired model name.
+    const videoConfigModule = await import('../services/media/videoProviderConfigStore.js')
+    const videoConfigMemory = new Map()
+    const videoConfigStorage = {
+      getItem: (key) => videoConfigMemory.get(key) || null,
+      setItem: (key, value) => videoConfigMemory.set(key, value)
+    }
+    const savedVideoConfig = videoConfigModule.saveVideoProviderConfig({
+      name: '我的海螺视频',
+      providerId: 'minimax-video',
+      model: 'MiniMax-Hailuo-2.3',
+      baseUrl: 'https://api.minimaxi.com/',
+      apiKey: 'saved-video-key',
+      resolution: '768P',
+      promptOptimizer: false
+    }, { storage: videoConfigStorage })
+    expect(videoConfigModule.listVideoProviderConfigs({ storage: videoConfigStorage })).toEqual([
+      expect.objectContaining({
+        id: savedVideoConfig.id,
+        name: '我的海螺视频',
+        baseUrl: 'https://api.minimaxi.com',
+        apiKey: 'saved-video-key'
+      })
+    ])
+    videoConfigModule.saveSelectedVideoProviderConfigId(savedVideoConfig.id, { storage: videoConfigStorage })
+    expect(videoConfigModule.getSelectedVideoProviderConfigId({ storage: videoConfigStorage })).toBe(savedVideoConfig.id)
+
+    // Saved video configurations feed the panel without exposing repeated
+    // API key fields. Stale backend capabilities still block submission.
     const { mount, flushPromises } = await import('@vue/test-utils')
     const { videoJobService } = await import('../services/media/videoJobService.js')
     const testProvider = vi.spyOn(videoJobService, 'testProvider').mockResolvedValue({ ok: true, latencyMs: 1 })
-    const listProviders = vi.spyOn(videoJobService, 'listProviders').mockResolvedValue({
+    const listProviders = vi.spyOn(videoJobService, 'listProviders').mockResolvedValueOnce({
+      providers: [{
+        id: 'minimax-video',
+        label: 'MiniMax Video',
+        capabilities: { models: ['MiniMax-Hailuo-2.3'], aspectRatios: ['16:9'] }
+      }]
+    }).mockResolvedValueOnce({
       providers: [{
         id: 'minimax-video',
         label: 'MiniMax Video',
         capabilities: { models: ['MiniMax-video-01'], aspectRatios: ['16:9'] }
       }]
     })
+    localStorage.setItem('video_model_configs', JSON.stringify([savedVideoConfig]))
     const StoryboardVideoPanel = (await import('../components/media/StoryboardVideoPanel.vue')).default
     const wrapper = mount(StoryboardVideoPanel, { props: { context: { shots: storyboardShots } } })
     await flushPromises()
-    const channelSelect = wrapper.find('[data-testid="video-channel-select"]')
-    const channelOptions = channelSelect.findAll('option').map((option) => option.text())
-    expect(channelOptions).toContain('MiniMax-Hailuo-2.3')
-    expect(channelOptions).toContain('MiniMax-Hailuo-02')
-    expect(channelOptions).toContain('T2V-01-Director')
-    expect(channelOptions).toContain('T2V-01')
-    expect(channelOptions).not.toContain('MiniMax-video-01')
+    expect(wrapper.text()).toContain('我的海螺视频')
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false)
     const shotSelect = wrapper.find('[data-testid="video-shot-select"]')
     expect(shotSelect.findAll('option')).toHaveLength(2)
     await shotSelect.setValue('1')
@@ -208,9 +236,21 @@ describe('videoJobStore state machine', () => {
     expect(wrapper.text()).toContain('镜头 2 / 2')
     await wrapper.findAll('button').find((button) => button.text() === '测试连接').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('后端仍在使用旧版 MiniMax 视频接口')
-    expect(testProvider).not.toHaveBeenCalled()
+    expect(testProvider).toHaveBeenCalledWith('minimax-video', expect.objectContaining({
+      apiKey: 'saved-video-key',
+      model: 'MiniMax-Hailuo-2.3'
+    }))
     wrapper.unmount()
+
+    const staleWrapper = mount(StoryboardVideoPanel, { props: { context: { shots: storyboardShots } } })
+    await flushPromises()
+    await staleWrapper.findAll('button').find((button) => button.text() === '测试连接').trigger('click')
+    await flushPromises()
+    expect(staleWrapper.text()).toContain('后端仍在使用旧版 MiniMax 视频接口')
+    expect(testProvider).toHaveBeenCalledTimes(1)
+    staleWrapper.unmount()
+    localStorage.removeItem('video_model_configs')
+    localStorage.removeItem('video_model_selected')
     listProviders.mockRestore()
     testProvider.mockRestore()
   })

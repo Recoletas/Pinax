@@ -54,6 +54,24 @@ function addConfig() {
   showConfig.value = true
 }
 
+function changeModelType(event) {
+  const nextType = String(event.target?.value || '')
+  const current = editingConfig.value
+  if (!current || current.type === nextType) return
+  const previousDefaults = createImageModelConfigDraft(current.type)
+  const nextDefaults = createImageModelConfigDraft(nextType)
+  editingConfig.value = {
+    ...current,
+    type: nextType,
+    baseUrl: !current.baseUrl || current.baseUrl === previousDefaults.baseUrl
+      ? nextDefaults.baseUrl
+      : current.baseUrl,
+    defaultModel: !current.defaultModel || current.defaultModel === previousDefaults.defaultModel
+      ? nextDefaults.defaultModel
+      : current.defaultModel
+  }
+}
+
 function editConfig(config) {
   editingConfig.value = { ...config }
   resetConnectionState()
@@ -189,13 +207,20 @@ function resetConnectionState() {
             <label><span>名称</span><input v-model="editingConfig.name" placeholder="例如：本地 SDXL" /></label>
             <label>
               <span>类型</span>
-              <select v-model="editingConfig.type">
+              <select :value="editingConfig.type" @change="changeModelType">
                 <option v-for="item in modelTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
             <label><span>API 地址</span><input v-model="editingConfig.baseUrl" placeholder="http://127.0.0.1:7860" /></label>
             <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" placeholder="可选" /></label>
-            <label><span>模型 ID</span><input v-model="editingConfig.defaultModel" placeholder="例如：gpt-image-1 或 SDXL checkpoint" /></label>
+            <label v-if="editingConfig.type === 'minimax_image'">
+              <span>模型 ID</span>
+              <select v-model="editingConfig.defaultModel">
+                <option value="image-01">image-01</option>
+                <option value="image-01-live">image-01-live</option>
+              </select>
+            </label>
+            <label v-else><span>模型 ID</span><input v-model="editingConfig.defaultModel" placeholder="例如：gpt-image-1 或 SDXL checkpoint" /></label>
             <label><span>响应字段路径</span><input v-model="editingConfig.responsePath" placeholder="通用 HTTP 可选，例如 data.0.url" /></label>
             <label v-if="editingConfig.type === 'http'">
               <span>请求体模板</span>

@@ -44,8 +44,9 @@ export function deleteImageProviderConfig(configId, options = {}) {
 
 export function normalizeImageProviderConfig(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
-  const defaults = createImageModelConfigDraft()
-  const type = VALID_PROVIDER_TYPES.has(input.type) ? input.type : defaults.type
+  const fallback = createImageModelConfigDraft()
+  const type = VALID_PROVIDER_TYPES.has(input.type) ? input.type : fallback.type
+  const defaults = createImageModelConfigDraft(type)
 
   return {
     ...defaults,

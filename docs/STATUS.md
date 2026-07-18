@@ -20,6 +20,7 @@
 
 ## Recently done
 
+- 2026-07-18：素材图片模型配置新增 MiniMax Image，接入 `image-01` / `image-01-live`、官方同步生图、标准画幅、base64 结果和业务错误识别；视频面板移除每次填写的 Key/地址/渠道表单，新增与图片配置一致的添加、编辑、测试、删除和持久选择流程，MiniMax 与自定义异步 HTTP 配置随备份导出。确认 MiniMax 图片接口允许本地 Vite 来源跨域携带鉴权。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：卡片画布视频改为按当前镜头生成，不再把整版长文本截断后塞入一个 6 秒任务；生成面板增加镜头选择和可编辑最终提示词，纳入景别、MiniMax 运镜指令、转场、卡片关系、上一镜视觉锚点、色调、情绪、对白和环境表现。MiniMax 提示词自动改写默认关闭，归档补齐镜头参数。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：修复 MiniMax 视频任务首次进入 `running` 后，第二次 `Preparing` 轮询因非法 `running -> running` 自迁移而静默退出的问题；后续轮询改为原地更新进度，runner 保持活动直到成功、失败、取消或超时。创建日志改为结构化脱敏配置，并在 provider 状态变化时记录 `Preparing / Queueing / Processing / Success`。现有已卡住的本地任务无法自动恢复，需先查询上游任务或在加载新后端后重新提交。
 - 2026-07-18：MiniMax 视频 adapter 从失效的旧模型和 `/video/generations` 假定切换到 `api.minimaxi.com/v1` 官方协议；支持 Hailuo 2.3/02、T2V-01 Director/T2V-01 的合法时长与分辨率组合、`base_resp` 业务错误、10 秒 provider 轮询和 `file_id` 下载地址解析。分镜视频面板的渠道下拉直接列出四个具体模型，前端内置官方模型表，旧后端返回的 `MiniMax-video-01` 不再覆盖新选项，并会被识别为旧协议而阻止测试/提交，避免误报上游 404；结果地址约一小时有效。测试总量保持 200，未启动 dev server。
@@ -39,7 +40,7 @@
 2. 把控制权、角色状态、年代冲突和下游 stale 标记接进 runtime 因果报告。
 3. 将 `sourceRefs` 继续接入写作 context ledger、分镜版本和后续媒体任务。
 4. 漫画进入 G4.4 M2：实现同一素材的多页改编候选、页级 beat/page-turn hook，并从角色、地点、已有插画建立可审阅的语义视觉圣经；M2 门禁通过前不进入自由格框画布。测试总量继续保持不超过 200。
-5. 用修正后的单镜头提示词逐镜头完成 MiniMax 6 秒 / 768P 真实 smoke；确认景别、运镜与衔接指令生效，并及时另存约一小时有效的结果地址。继续完成联机双浏览器 smoke。
+5. 用已保存配置分别完成一张 MiniMax `image-01` 插画和一条 6 秒 / 768P 单镜头视频真实 smoke；确认图片归档、景别/运镜/衔接指令及临时视频地址处理。继续完成联机双浏览器 smoke。
 
 ## Working rules
 

@@ -1,10 +1,23 @@
 export const IMAGE_MODEL_TYPES = [
+  { value: 'minimax_image', label: 'MiniMax Image' },
   { value: 'openai_dalle', label: 'OpenAI Images' },
   { value: 'stability', label: 'Stability AI' },
   { value: 'sd_webui', label: 'Stable Diffusion WebUI' },
   { value: 'comfyui', label: 'ComfyUI' },
   { value: 'http', label: '通用 HTTP' }
 ]
+
+const IMAGE_MODEL_DEFAULTS = Object.freeze({
+  minimax_image: {
+    baseUrl: 'https://api.minimaxi.com',
+    defaultModel: 'image-01'
+  },
+  openai_dalle: { baseUrl: '', defaultModel: 'gpt-image-1' },
+  stability: { baseUrl: '', defaultModel: 'stable-diffusion-xl-1024-v1-0' },
+  sd_webui: { baseUrl: 'http://127.0.0.1:7860', defaultModel: '' },
+  comfyui: { baseUrl: 'http://127.0.0.1:8188', defaultModel: '' },
+  http: { baseUrl: '', defaultModel: '' }
+})
 
 const DEFAULT_IMAGE_OPTIONS = {
   prompt: '',
@@ -18,14 +31,16 @@ const DEFAULT_IMAGE_OPTIONS = {
   maxPollAttempts: 60
 }
 
-export function createImageModelConfigDraft() {
+export function createImageModelConfigDraft(type = 'sd_webui') {
+  const normalizedType = IMAGE_MODEL_DEFAULTS[type] ? type : 'sd_webui'
+  const defaults = IMAGE_MODEL_DEFAULTS[normalizedType]
   return {
     id: '',
     name: '',
-    type: 'sd_webui',
-    baseUrl: 'http://127.0.0.1:7860',
+    type: normalizedType,
+    baseUrl: defaults.baseUrl,
     apiKey: '',
-    defaultModel: '',
+    defaultModel: defaults.defaultModel,
     responsePath: '',
     requestTemplate: ''
   }
@@ -81,6 +96,8 @@ export async function generateImage(config = {}, input = {}) {
       return generateWithStability(config, options, fetchImpl)
     case 'comfyui':
       return generateWithComfyUi(config, options, fetchImpl, baseUrl)
+    case 'minimax_image':
+      return generateWithMinimax(config, options, fetchImpl, baseUrl)
     case 'http':
       return generateWithGenericHttp(config, options, fetchImpl, baseUrl)
     default:
@@ -107,6 +124,7 @@ function buildConnectionRequest(config) {
   }
 
   const urls = {
+    minimax_image: `${buildMinimaxRoot(baseUrl)}/v1/models`,
     sd_webui: `${requireBaseUrl(baseUrl)}/sdapi/v1/progress`,
     comfyui: `${requireBaseUrl(baseUrl)}/api/system_stats`,
     openai_dalle: 'https://api.openai.com/v1/models',
@@ -122,6 +140,43 @@ function buildConnectionRequest(config) {
       headers: Object.keys(headers).length > 1 || config.apiKey ? headers : undefined
     }
   }
+}
+
+async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
+  if (options.referenceImages.length) {
+    throw new Error('MiniMax 人物参考图需要公网图片 URL，当前本地参考图不能直接提交')
+  }
+  const model = String(config.defaultModel || 'image-01').trim()
+  if (!['image-01', 'image-01-live'].includes(model)) {
+    throw new Error(`MiniMax 图片模型无效: ${model}`)
+  }
+  const prompt = [options.prompt, options.negativePrompt ? `避免出现：${options.negativePrompt}` : '']
+    .filter(Boolean)
+    .join('\n')
+  if (!prompt) throw new Error('MiniMax 图片提示词不能为空')
+  if (prompt.length > 1500) throw new Error('MiniMax 图片提示词不能超过 1500 字符')
+
+  const response = await fetchImpl(`${buildMinimaxRoot(baseUrl)}/v1/image_generation`, {
+    method: 'POST',
+    headers: buildHeaders(config),
+    body: JSON.stringify({
+      model,
+      prompt,
+      aspect_ratio: normalizeMinimaxAspectRatio(options.width, options.height, model),
+      response_format: 'base64',
+      n: 1,
+      prompt_optimizer: false,
+      aigc_watermark: false
+    })
+  })
+  const payload = await readJsonResponse(response, 'MiniMax Image')
+  const providerCode = Number(payload?.base_resp?.status_code ?? 0)
+  if (providerCode !== 0) {
+    throw new Error(`MiniMax Image ${providerCode}: ${payload?.base_resp?.status_msg || '生成失败'}`)
+  }
+  const base64 = payload?.data?.image_base64?.[0]
+  if (typeof base64 === 'string' && base64.trim()) return `data:image/jpeg;base64,${base64}`
+  return resolveImageCandidate(payload?.data?.image_urls?.[0], fetchImpl)
 }
 
 async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {
@@ -342,6 +397,25 @@ function readPath(payload, path) {
 
 function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '')
+}
+
+function buildMinimaxRoot(value) {
+  const baseUrl = normalizeBaseUrl(value || IMAGE_MODEL_DEFAULTS.minimax_image.baseUrl)
+  if (baseUrl.endsWith('/v1/image_generation')) return baseUrl.slice(0, -'/v1/image_generation'.length)
+  if (baseUrl.endsWith('/v1')) return baseUrl.slice(0, -3)
+  return baseUrl
+}
+
+function normalizeMinimaxAspectRatio(width, height, model) {
+  const ratio = Number(width) / Number(height)
+  const candidates = [
+    ['1:1', 1], ['16:9', 16 / 9], ['4:3', 4 / 3], ['3:2', 3 / 2],
+    ['2:3', 2 / 3], ['3:4', 3 / 4], ['9:16', 9 / 16]
+  ]
+  if (model === 'image-01') candidates.push(['21:9', 21 / 9])
+  return candidates.reduce((best, item) => (
+    Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best
+  ))[0]
 }
 
 function requireBaseUrl(value) {

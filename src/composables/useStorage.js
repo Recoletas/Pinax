@@ -46,6 +46,8 @@ export const STORAGE_KEYS = {
 
   // AI 生图
   IMAGE_MODEL_CONFIGS: 'image_model_configs',
+  VIDEO_MODEL_CONFIGS: 'video_model_configs',
+  VIDEO_MODEL_SELECTED: 'video_model_selected',
   MEDIA_ASSETS: 'media_assets_v1',
   COMIC_PAGES: 'comic_pages_v1',
 

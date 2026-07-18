@@ -22,7 +22,9 @@ import {
   toPremiereCSV
 } from '../services/shotExporter'
 import {
+  createImageModelConfigDraft,
   generateImage,
+  IMAGE_MODEL_TYPES,
   testImageProviderConnection
 } from '../services/media/imageProviderService'
 import {
@@ -152,6 +154,71 @@ describe('Media services', () => {
     const sdBody = JSON.parse(sdFetch.mock.calls[0][1].body)
     expect(sdFetch.mock.calls[0][0]).toBe('http://127.0.0.1:7860/sdapi/v1/img2img')
     expect(sdBody).toMatchObject({ init_images: ['data:image/png;base64,YWJj'], denoising_strength: 0.3 })
+
+    expect(IMAGE_MODEL_TYPES).toContainEqual({ value: 'minimax_image', label: 'MiniMax Image' })
+    expect(createImageModelConfigDraft('minimax_image')).toMatchObject({
+      type: 'minimax_image',
+      baseUrl: 'https://api.minimaxi.com',
+      defaultModel: 'image-01'
+    })
+    const minimaxFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: { image_base64: ['bWluaW1heA=='] },
+          base_resp: { status_code: 0, status_msg: 'success' }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ object: 'list', data: [{ id: 'MiniMax-M2.7' }] })
+      })
+    const minimaxImage = await generateImage({
+      type: 'minimax_image',
+      baseUrl: 'https://api.minimaxi.com/',
+      apiKey: 'minimax-secret',
+      defaultModel: 'image-01'
+    }, {
+      prompt: '蓝色空间号穿过小行星带',
+      negativePrompt: '文字，水印',
+      width: 1280,
+      height: 720,
+      fetchImpl: minimaxFetch
+    })
+    const minimaxRequest = minimaxFetch.mock.calls[0]
+    expect(minimaxRequest[0]).toBe('https://api.minimaxi.com/v1/image_generation')
+    expect(minimaxRequest[1].headers.Authorization).toBe('Bearer minimax-secret')
+    expect(JSON.parse(minimaxRequest[1].body)).toEqual(expect.objectContaining({
+      model: 'image-01',
+      prompt: '蓝色空间号穿过小行星带\n避免出现：文字，水印',
+      aspect_ratio: '16:9',
+      response_format: 'base64',
+      n: 1,
+      prompt_optimizer: false,
+      aigc_watermark: false
+    }))
+    expect(minimaxImage).toBe('data:image/jpeg;base64,bWluaW1heA==')
+    expect(await testImageProviderConnection({
+      type: 'minimax_image',
+      baseUrl: 'https://api.minimaxi.com',
+      apiKey: 'minimax-secret'
+    }, { fetchImpl: minimaxFetch })).toMatchObject({ ok: true, authenticated: true })
+    expect(minimaxFetch.mock.calls[1][0]).toBe('https://api.minimaxi.com/v1/models')
+    await expect(generateImage({
+      type: 'minimax_image',
+      apiKey: 'minimax-secret',
+      defaultModel: 'image-01'
+    }, {
+      prompt: '触发业务错误',
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ base_resp: { status_code: 1008, status_msg: 'invalid params' } })
+      })
+    })).rejects.toThrow('MiniMax Image 1008')
 
     const savedConfig = saveImageProviderConfig({ ...config, name: '统一图像服务' })
     saveImageProviderConfig({ ...savedConfig, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2/' })

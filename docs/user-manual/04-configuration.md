@@ -121,6 +121,8 @@ OpenClaw 是顾问 / 主动检查功能依赖的后台服务。普通体验用�
 | 键名 | 什么时候会想动它 |
 | --- | --- |
 | `image_model_configs` | 多 provider 生图配置 |
+| `video_model_configs` | 分镜视频 provider、模型和 API Key 配置 |
+| `video_model_selected` | 最近选择的视频模型配置 |
 
 ### 世界 / 地理
 

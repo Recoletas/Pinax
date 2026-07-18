@@ -1,8 +1,16 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import VideoModelPicker from './VideoModelPicker.vue'
 import { buildShotVideoPrompt, buildStoryboardVideoJobInput } from '../../composables/useDirector'
 import { saveExternalMediaAsset } from '../../services/media/mediaAssetStore'
 import { videoJobService } from '../../services/media/videoJobService'
+import {
+  getSelectedVideoProviderConfigId,
+  listVideoProviderConfigs,
+  MINIMAX_VIDEO_MODELS,
+  saveSelectedVideoProviderConfigId,
+  toVideoProviderConfig
+} from '../../services/media/videoProviderConfigStore'
 import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../../types/director'
 
 const props = defineProps({
@@ -13,17 +21,11 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'archived'])
 
-const MINIMAX_MODEL_OPTIONS = Object.freeze([
-  'MiniMax-Hailuo-2.3',
-  'MiniMax-Hailuo-02',
-  'T2V-01-Director',
-  'T2V-01'
-])
 const BUILTIN_PROVIDERS = Object.freeze([
   {
     id: 'minimax-video',
     label: 'MiniMax Video',
-    capabilities: { models: MINIMAX_MODEL_OPTIONS, aspectRatios: ['16:9'] }
+    capabilities: { models: MINIMAX_VIDEO_MODELS, aspectRatios: ['16:9'] }
   },
   {
     id: 'generic-async-http',
@@ -33,10 +35,10 @@ const BUILTIN_PROVIDERS = Object.freeze([
 ])
 
 const providers = ref([...BUILTIN_PROVIDERS])
+const videoConfigs = ref([])
+const selectedVideoConfigId = ref('')
 const providerId = ref('minimax-video')
 const model = ref('MiniMax-Hailuo-2.3')
-const baseUrl = ref('')
-const apiKey = ref('')
 const aspectRatio = ref('16:9')
 const durationSeconds = ref(6)
 const selectedShotIndex = ref(0)
@@ -47,13 +49,6 @@ const hasError = ref(false)
 const backendContractOutdated = ref(false)
 const pollingController = ref(null)
 const archivedJobIds = new Set()
-const generic = reactive({
-  submitUrl: '',
-  statusUrl: '',
-  submitBodyTemplate: '{"prompt":"{{prompt}}","duration":{{duration}},"aspect_ratio":"{{aspectRatio}}"}',
-  statusPath: 'id',
-  outputUrlPath: 'output_url'
-})
 const minimax = reactive({
   resolution: '768P',
   promptOptimizer: false,
@@ -64,28 +59,15 @@ const minimax = reactive({
 const shots = computed(() => props.context?.shots || props.context?.version?.shots || [])
 const selectedShot = computed(() => shots.value[selectedShotIndex.value] || null)
 const previousShot = computed(() => selectedShotIndex.value > 0 ? shots.value[selectedShotIndex.value - 1] : null)
+const selectedVideoConfig = computed(() => videoConfigs.value.find((item) => item.id === selectedVideoConfigId.value) || null)
 const version = computed(() => props.context?.version || {})
 const versionLabel = computed(() => version.value.versionId?.slice(-6) || '未建立')
 const currentProvider = computed(() => providers.value.find((item) => item.id === providerId.value) || null)
 const isMinimax = computed(() => providerId.value === 'minimax-video')
 const isHailuoModel = computed(() => ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'].includes(model.value))
-const otherProviders = computed(() => providers.value.filter((item) => item.id !== 'minimax-video'))
-const channelSelection = computed({
-  get: () => isMinimax.value ? `minimax-video::${model.value}` : providerId.value,
-  set: (value) => {
-    const selected = String(value || '')
-    if (selected.startsWith('minimax-video::')) {
-      providerId.value = 'minimax-video'
-      model.value = selected.slice('minimax-video::'.length)
-      return
-    }
-    providerId.value = selected
-  }
-})
 const minimaxResolutions = computed(() => isHailuoModel.value ? ['768P', '1080P'] : ['720P', '1080P'])
 const minimaxDurations = computed(() => isHailuoModel.value && minimax.resolution === '768P' ? [6, 10] : [6])
 const aspectRatios = computed(() => currentProvider.value?.capabilities?.aspectRatios || ['16:9', '9:16', '1:1'])
-const baseUrlPlaceholder = computed(() => isMinimax.value ? 'https://api.minimaxi.com' : '渠道默认地址或自定义地址')
 const busy = computed(() => ['queued', 'submitted', 'running'].includes(job.value?.status))
 const progress = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress) || 0)))
 const outputUrl = computed(() => job.value?.outputs?.find((item) => item?.url)?.url || '')
@@ -129,10 +111,15 @@ watch(selectedShotIndex, () => {
   }
 })
 
+watch(selectedVideoConfigId, () => {
+  saveSelectedVideoProviderConfigId(selectedVideoConfigId.value)
+  applySelectedVideoConfig()
+})
+
 watch(providerId, (id) => {
   const provider = providers.value.find((item) => item.id === id)
   if (id === 'minimax-video') {
-    if (!MINIMAX_MODEL_OPTIONS.includes(model.value)) model.value = MINIMAX_MODEL_OPTIONS[0]
+    if (!MINIMAX_VIDEO_MODELS.includes(model.value)) model.value = MINIMAX_VIDEO_MODELS[0]
   } else {
     model.value = provider?.capabilities?.models?.[0] || 'custom'
   }
@@ -144,7 +131,10 @@ watch(providerId, (id) => {
 
 watch([model, () => minimax.resolution], normalizeMinimaxOptions)
 
-onMounted(loadProviders)
+onMounted(() => {
+  loadVideoConfigs()
+  void loadProviders()
+})
 onBeforeUnmount(() => pollingController.value?.abort())
 
 async function loadProviders() {
@@ -166,31 +156,22 @@ async function loadProviders() {
 }
 
 function buildProviderConfig() {
-  const common = { apiKey: apiKey.value, model: model.value }
-  if (baseUrl.value) common.baseUrl = baseUrl.value
-  if (isMinimax.value) {
-    return {
-      ...common,
-      resolution: minimax.resolution,
-      promptOptimizer: minimax.promptOptimizer,
-      fastPretreatment: minimax.fastPretreatment,
-      aigcWatermark: minimax.aigcWatermark
-    }
-  }
-  if (providerId.value !== 'generic-async-http') return common
-  return {
-    ...common,
-    submitUrl: generic.submitUrl,
-    statusUrl: generic.statusUrl,
-    submitBodyTemplate: generic.submitBodyTemplate,
-    statusPath: generic.statusPath,
-    outputUrlPath: generic.outputUrlPath
-  }
+  if (!selectedVideoConfig.value) return {}
+  return toVideoProviderConfig({
+    ...selectedVideoConfig.value,
+    model: model.value,
+    resolution: isMinimax.value ? minimax.resolution : selectedVideoConfig.value.resolution
+  })
 }
 
 async function testConnection() {
   message.value = '正在测试连接...'
   hasError.value = false
+  if (!selectedVideoConfig.value) {
+    hasError.value = true
+    message.value = '请先选择或添加视频模型配置。'
+    return
+  }
   if (isMinimax.value && backendContractOutdated.value) {
     hasError.value = true
     message.value = '后端仍在使用旧版 MiniMax 视频接口，请重启 Express 后端后再测试。'
@@ -218,6 +199,11 @@ async function submitJob() {
   if (!selectedShot.value || !videoPrompt.value.trim()) {
     hasError.value = true
     message.value = '请选择镜头并补充视频提示词。'
+    return
+  }
+  if (!selectedVideoConfig.value) {
+    hasError.value = true
+    message.value = '请先选择或添加视频模型配置。'
     return
   }
   try {
@@ -337,6 +323,37 @@ function getShotOptionLabel(shot, index) {
   return `镜头 ${index + 1}${excerpt ? ` · ${excerpt}` : ''}`
 }
 
+function loadVideoConfigs() {
+  videoConfigs.value = listVideoProviderConfigs()
+  const storedSelection = getSelectedVideoProviderConfigId()
+  selectedVideoConfigId.value = videoConfigs.value.some((item) => item.id === storedSelection)
+    ? storedSelection
+    : videoConfigs.value[0]?.id || ''
+  applySelectedVideoConfig()
+}
+
+function handleVideoConfigsUpdated(configs) {
+  videoConfigs.value = Array.isArray(configs) ? configs : listVideoProviderConfigs()
+  if (!videoConfigs.value.some((item) => item.id === selectedVideoConfigId.value)) {
+    selectedVideoConfigId.value = videoConfigs.value[0]?.id || ''
+  }
+  applySelectedVideoConfig()
+}
+
+function applySelectedVideoConfig() {
+  const config = selectedVideoConfig.value
+  if (!config) return
+  providerId.value = config.providerId
+  model.value = config.model
+  if (config.providerId === 'minimax-video') {
+    minimax.resolution = config.resolution || '768P'
+    minimax.promptOptimizer = config.promptOptimizer === true
+    minimax.fastPretreatment = config.fastPretreatment === true
+    minimax.aigcWatermark = config.aigcWatermark === true
+    normalizeMinimaxOptions()
+  }
+}
+
 function mergeProviderMetadata(remoteProviders) {
   const remoteList = Array.isArray(remoteProviders) ? remoteProviders : []
   const remoteMinimax = remoteList.find((provider) => provider?.id === 'minimax-video')
@@ -345,7 +362,7 @@ function mergeProviderMetadata(remoteProviders) {
     : []
   backendContractOutdated.value = Boolean(
     remoteMinimax
-    && !remoteModels.some((item) => MINIMAX_MODEL_OPTIONS.includes(item))
+    && !remoteModels.some((item) => MINIMAX_VIDEO_MODELS.includes(item))
   )
   const merged = new Map(BUILTIN_PROVIDERS.map((provider) => [provider.id, provider]))
   for (const provider of remoteList) {
@@ -356,7 +373,7 @@ function mergeProviderMetadata(remoteProviders) {
         label: 'MiniMax Video',
         capabilities: {
           ...(provider.capabilities || {}),
-          models: MINIMAX_MODEL_OPTIONS,
+          models: MINIMAX_VIDEO_MODELS,
           aspectRatios: ['16:9']
         }
       })
@@ -404,31 +421,14 @@ function mergeProviderMetadata(remoteProviders) {
     </div>
 
     <div class="video-panel__form">
-      <label class="video-panel__field video-panel__field--wide">
-        <span>渠道</span>
-        <select v-model="channelSelection" data-testid="video-channel-select" :disabled="busy">
-          <optgroup label="MiniMax Video">
-            <option v-for="item in MINIMAX_MODEL_OPTIONS" :key="item" :value="`minimax-video::${item}`">
-              {{ item }}
-            </option>
-          </optgroup>
-          <option v-for="provider in otherProviders" :key="provider.id" :value="provider.id">
-            {{ provider.label }}
-          </option>
-        </select>
-      </label>
-      <label v-if="!isMinimax" class="video-panel__field video-panel__field--wide">
-        <span>模型</span>
-        <input v-model.trim="model" :disabled="busy" placeholder="视频模型名称" />
-      </label>
-      <label class="video-panel__field video-panel__field--wide">
-        <span>API 地址</span>
-        <input v-model.trim="baseUrl" :disabled="busy" :placeholder="baseUrlPlaceholder" />
-      </label>
-      <label class="video-panel__field video-panel__field--wide">
-        <span>API Key</span>
-        <input v-model="apiKey" type="password" autocomplete="off" :disabled="busy" placeholder="仅用于本次任务" />
-      </label>
+      <div class="video-panel__field video-panel__field--wide">
+        <VideoModelPicker
+          v-model="selectedVideoConfigId"
+          :configs="videoConfigs"
+          :disabled="busy"
+          @configs-updated="handleVideoConfigsUpdated"
+        />
+      </div>
       <label v-if="!isMinimax" class="video-panel__field">
         <span>画幅</span>
         <select v-model="aspectRatio" :disabled="busy">
@@ -450,41 +450,6 @@ function mergeProviderMetadata(remoteProviders) {
       </label>
     </div>
 
-    <details v-if="isMinimax" class="video-panel__advanced">
-      <summary>MiniMax 参数</summary>
-      <div class="video-panel__options">
-        <label><input v-model="minimax.promptOptimizer" type="checkbox" :disabled="busy" />提示词优化</label>
-        <label v-if="isHailuoModel"><input v-model="minimax.fastPretreatment" type="checkbox" :disabled="busy" />快速预处理</label>
-        <label><input v-model="minimax.aigcWatermark" type="checkbox" :disabled="busy" />AIGC 水印</label>
-      </div>
-    </details>
-
-    <details v-if="providerId === 'generic-async-http'" class="video-panel__advanced">
-      <summary>自定义异步接口</summary>
-      <div class="video-panel__form">
-        <label class="video-panel__field video-panel__field--wide">
-          <span>提交地址</span>
-          <input v-model.trim="generic.submitUrl" :disabled="busy" placeholder="https://api.example.com/jobs" />
-        </label>
-        <label class="video-panel__field video-panel__field--wide">
-          <span>查询地址</span>
-          <input v-model.trim="generic.statusUrl" :disabled="busy" placeholder="https://api.example.com/jobs/{{providerJobId}}" />
-        </label>
-        <label class="video-panel__field video-panel__field--wide">
-          <span>提交模板</span>
-          <textarea v-model="generic.submitBodyTemplate" :disabled="busy" rows="3"></textarea>
-        </label>
-        <label class="video-panel__field">
-          <span>任务 ID 路径</span>
-          <input v-model.trim="generic.statusPath" :disabled="busy" />
-        </label>
-        <label class="video-panel__field">
-          <span>结果 URL 路径</span>
-          <input v-model.trim="generic.outputUrlPath" :disabled="busy" />
-        </label>
-      </div>
-    </details>
-
     <div v-if="job" class="video-panel__job" :class="`is-${job.status}`">
       <div class="video-panel__job-row">
         <strong>{{ statusLabel }}</strong>
@@ -504,7 +469,7 @@ function mergeProviderMetadata(remoteProviders) {
         v-else
         type="button"
         class="video-panel__button is-primary"
-        :disabled="stale || !selectedShot || !videoPrompt.trim() || !providerId"
+        :disabled="stale || !selectedShot || !videoPrompt.trim() || !selectedVideoConfig"
         @click="submitJob"
       >{{ job?.status === 'failed' || job?.status === 'cancelled' ? '重新生成当前镜头' : '生成当前镜头' }}</button>
     </footer>
@@ -627,36 +592,6 @@ function mergeProviderMetadata(remoteProviders) {
 .video-panel__shot-workflow textarea {
   min-height: 132px;
   line-height: 1.55;
-}
-
-.video-panel__advanced {
-  margin-top: 14px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.video-panel__advanced summary { cursor: pointer; }
-
-.video-panel__options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
-}
-
-.video-panel__options label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.video-panel__options input {
-  margin: 0;
-  accent-color: var(--accent);
 }
 
 .video-panel__job {
