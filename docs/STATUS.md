@@ -20,7 +20,7 @@
 
 ## Recently done
 
-- 2026-07-18：素材插画进入真实正文排版：编辑态由 textarea 升级为 `contenteditable` 文档流，支持嵌入、四周/紧密左右环绕、上下、衬于文字下方和浮于文字上方；图片可拖动更新段落锚点、环绕侧或前后层坐标，保留尺寸、裁切、间距和重置。版式同步写入 NarrativeAsset / MediaAsset；CSS 无法可靠复现的 Word 穿越型未伪造。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
+- 2026-07-18：素材插画进入真实正文排版：编辑态由 textarea 升级为 `contenteditable` 文档流，支持嵌入、四周/紧密左右环绕、上下、衬于文字下方和浮于文字上方；图片按原始比例无承托层显示，可拖动更新锚点/坐标并用右下角缩放，八种版式只在图片右键菜单出现。版式同步写入 NarrativeAsset / MediaAsset；CSS 无法可靠复现的 Word 穿越型未伪造。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：素材图片模型配置新增 MiniMax Image，接入 `image-01` / `image-01-live`、官方同步生图、标准画幅、base64 结果和业务错误识别；视频面板移除每次填写的 Key/地址/渠道表单，新增与图片配置一致的添加、编辑、测试、删除和持久选择流程，MiniMax 与自定义异步 HTTP 配置随备份导出。确认 MiniMax 图片接口允许本地 Vite 来源跨域携带鉴权。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：卡片画布视频改为按当前镜头生成，不再把整版长文本截断后塞入一个 6 秒任务；生成面板增加镜头选择和可编辑最终提示词，纳入景别、MiniMax 运镜指令、转场、卡片关系、上一镜视觉锚点、色调、情绪、对白和环境表现。MiniMax 提示词自动改写默认关闭，归档补齐镜头参数。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：修复 MiniMax 视频任务首次进入 `running` 后，第二次 `Preparing` 轮询因非法 `running -> running` 自迁移而静默退出的问题；后续轮询改为原地更新进度，runner 保持活动直到成功、失败、取消或超时。创建日志改为结构化脱敏配置，并在 provider 状态变化时记录 `Preparing / Queueing / Processing / Success`。现有已卡住的本地任务无法自动恢复，需先查询上游任务或在加载新后端后重新提交。

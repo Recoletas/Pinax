@@ -290,116 +290,6 @@
                     :page="comicPagePreview"
                   />
                   <div
-                    v-else-if="mainVisualPreview?.data"
-                    class="image-layout-toolbar"
-                    @click.stop
-                  >
-                    <label class="image-layout-select">
-                      <span>文字环绕</span>
-                      <select :value="imageLayoutValue" @change="setImageLayout($event.target.value)">
-                        <option value="inline-center">嵌入文字</option>
-                        <option value="square-left">四周型 · 左</option>
-                        <option value="square-right">四周型 · 右</option>
-                        <option value="tight-left">紧密型 · 左</option>
-                        <option value="tight-right">紧密型 · 右</option>
-                        <option value="top-bottom-center">上下型</option>
-                        <option value="behind-center">衬于文字下方</option>
-                        <option value="front-center">浮于文字上方</option>
-                      </select>
-                    </label>
-                    <div class="image-asset-controls">
-                      <div class="image-fit-switch" role="group" aria-label="图片显示方式">
-                        <button
-                          type="button"
-                          :class="{ active: mainVisualPreview.presentation.fit === 'contain' }"
-                          @click="setImageFit('contain')"
-                        >完整</button>
-                        <button
-                          type="button"
-                          :class="{ active: mainVisualPreview.presentation.fit === 'cover' }"
-                          @click="setImageFit('cover')"
-                        >铺满</button>
-                      </div>
-                      <div class="image-scale-control">
-                        <button type="button" title="缩小插画" aria-label="缩小插画" @click="nudgeImageScale(-0.1)">
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                            <path d="M3 8h10"/>
-                          </svg>
-                        </button>
-                        <input
-                          type="range"
-                          min="50"
-                          max="200"
-                          step="5"
-                          :value="Math.round(mainVisualPreview.presentation.scale * 100)"
-                          aria-label="插画大小"
-                          @input="setImageScale($event.target.value, false)"
-                          @change="setImageScale($event.target.value, true)"
-                        />
-                        <output>{{ Math.round(mainVisualPreview.presentation.scale * 100) }}%</output>
-                        <button type="button" title="放大插画" aria-label="放大插画" @click="nudgeImageScale(0.1)">
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                            <path d="M3 8h10M8 3v10"/>
-                          </svg>
-                        </button>
-                      </div>
-                      <label
-                        v-if="['square', 'tight'].includes(mainVisualPreview.presentation.wrap)"
-                        class="image-gap-control"
-                      >
-                        <span>间距</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="48"
-                          step="2"
-                          :value="mainVisualPreview.presentation.textGap"
-                          @input="setImageTextGap($event.target.value, false)"
-                          @change="setImageTextGap($event.target.value, true)"
-                        />
-                        <output>{{ Math.round(mainVisualPreview.presentation.textGap) }}</output>
-                      </label>
-                      <div
-                        v-if="['behind', 'front'].includes(mainVisualPreview.presentation.wrap)"
-                        class="image-position-control"
-                      >
-                        <label title="水平位置">
-                          <span>横</span>
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="2"
-                            :value="mainVisualPreview.presentation.positionX"
-                            @input="setImagePosition('positionX', $event.target.value, false)"
-                            @change="setImagePosition('positionX', $event.target.value, true)"
-                          />
-                        </label>
-                        <label title="垂直位置">
-                          <span>纵</span>
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="2"
-                            :value="mainVisualPreview.presentation.positionY"
-                            @input="setImagePosition('positionY', $event.target.value, false)"
-                            @change="setImagePosition('positionY', $event.target.value, true)"
-                          />
-                        </label>
-                      </div>
-                      <button class="image-reset-button" type="button" title="重置插画构图" aria-label="重置插画构图" @click="resetImagePresentation">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                          <path d="M3.2 5.4A5.2 5.2 0 111.9 9M3.2 5.4V2.2M3.2 5.4H6.4"/>
-                        </svg>
-                      </button>
-                      <div class="image-asset-meta">
-                        <span>{{ mainVisualPreview.label }}</span>
-                        <span>{{ mainVisualPreview.size }}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div
                     v-if="editorMode === 'wysiwyg'"
                     class="editor-textarea prose-rich-editor"
                     ref="editorRef"
@@ -420,6 +310,8 @@
                     @pointermove="moveIllustrationDrag"
                     @pointerup="finishIllustrationDrag"
                     @pointercancel="cancelIllustrationDrag"
+                    @click="selectIllustrationFromEvent"
+                    @contextmenu="showEditorContextMenu"
                   ></div>
                   <textarea
                     v-if="editorMode === 'markdown'"
@@ -479,6 +371,29 @@
             <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
             <div class="ctx-divider"></div>
             <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
+          </div>
+          <div
+            v-if="imageContextMenu.show"
+            class="context-menu illustration-context-menu"
+            :style="{ top: imageContextMenu.y + 'px', left: imageContextMenu.x + 'px' }"
+            role="menu"
+            aria-label="图片文字环绕"
+            @click.stop
+          >
+            <span class="illustration-context-menu__title">文字环绕</span>
+            <button
+              v-for="layout in imageLayoutOptions"
+              :key="layout.value"
+              class="ctx-item illustration-layout-item"
+              :class="{ active: imageLayoutValue === layout.value }"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="imageLayoutValue === layout.value"
+              @click="chooseImageLayout(layout.value)"
+            >
+              <span class="illustration-layout-item__mark" aria-hidden="true">{{ imageLayoutValue === layout.value ? '✓' : '' }}</span>
+              <span>{{ layout.label }}</span>
+            </button>
           </div>
         </section>
       </FolioSurface>
@@ -840,6 +755,18 @@ const selectedText = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
 const contextMenu = ref({ show: false, x: 0, y: 0 })
+const imageContextMenu = ref({ show: false, x: 0, y: 0 })
+const illustrationSelected = ref(false)
+const imageLayoutOptions = [
+  { value: 'inline-center', label: '嵌入文字' },
+  { value: 'square-left', label: '四周型 · 左侧' },
+  { value: 'square-right', label: '四周型 · 右侧' },
+  { value: 'tight-left', label: '紧密型 · 左侧' },
+  { value: 'tight-right', label: '紧密型 · 右侧' },
+  { value: 'top-bottom-center', label: '上下型' },
+  { value: 'behind-center', label: '衬于文字下方' },
+  { value: 'front-center', label: '浮于文字上方' }
+]
 const editorFont = ref("'Microsoft YaHei', sans-serif")
 const showFindReplace = ref(false)
 const findText = ref('')
@@ -975,6 +902,12 @@ function showMainVisualPreview(entry) {
 
 let illustrationDrag = null
 
+function imageBaseWidth(wrap) {
+  if (wrap === 'inline') return 32
+  if (wrap === 'top-bottom') return 68
+  return 42
+}
+
 function setCurrentImagePresentation(presentation) {
   const generated = illustrationPreview.value
   if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
@@ -1014,15 +947,20 @@ function startIllustrationDrag(event) {
   event.preventDefault()
   event.stopPropagation()
   const root = event.currentTarget
+  const mode = event.target.closest?.('[data-illustration-resize]') ? 'resize' : 'move'
   illustrationDrag = {
     pointerId: event.pointerId,
     root,
     figure,
     startClientX: event.clientX,
     startClientY: event.clientY,
+    startWidth: figure.getBoundingClientRect().width,
+    mode,
     moved: false
   }
-  figure.classList.add('is-dragging')
+  illustrationSelected.value = true
+  figure.classList.add('is-selected')
+  figure.classList.add(mode === 'resize' ? 'is-resizing' : 'is-dragging')
   root.setPointerCapture?.(event.pointerId)
 }
 
@@ -1031,6 +969,15 @@ function moveIllustrationDrag(event) {
   const dx = event.clientX - illustrationDrag.startClientX
   const dy = event.clientY - illustrationDrag.startClientY
   illustrationDrag.moved ||= Math.hypot(dx, dy) > 3
+  if (illustrationDrag.mode === 'resize') {
+    const rootWidth = illustrationDrag.root.getBoundingClientRect().width || 1
+    const basePercent = imageBaseWidth(mainVisualPreview.value.presentation.wrap)
+    const minWidth = rootWidth * basePercent * 0.5 / 100
+    const maxWidth = rootWidth * Math.min(100, basePercent * 2) / 100
+    const width = Math.min(maxWidth, Math.max(minWidth, illustrationDrag.startWidth + dx))
+    illustrationDrag.figure.style.width = `${width}px`
+    return
+  }
   const base = ['behind', 'front'].includes(mainVisualPreview.value.presentation.wrap)
     ? 'translate(-50%, -50%) '
     : ''
@@ -1044,12 +991,20 @@ function finishIllustrationDrag(event) {
   illustrationDrag = null
   if (!drag.moved) {
     drag.figure.classList.remove('is-dragging')
+    drag.figure.classList.remove('is-resizing')
     drag.figure.style.transform = ''
     return
   }
 
   const presentation = mainVisualPreview.value.presentation
   const rect = drag.root.getBoundingClientRect()
+  if (drag.mode === 'resize') {
+    const widthPercent = (drag.figure.getBoundingClientRect().width / Math.max(1, rect.width)) * 100
+    applyImagePresentation({
+      scale: widthPercent / imageBaseWidth(presentation.wrap)
+    }, true)
+    return
+  }
   if (['behind', 'front'].includes(presentation.wrap)) {
     applyImagePresentation({
       positionX: ((event.clientX - rect.left) / rect.width) * 100,
@@ -1068,8 +1023,39 @@ function finishIllustrationDrag(event) {
 function cancelIllustrationDrag(event) {
   if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
   illustrationDrag.figure.classList.remove('is-dragging')
+  illustrationDrag.figure.classList.remove('is-resizing')
   illustrationDrag.figure.style.transform = ''
   illustrationDrag = null
+}
+
+function selectIllustrationFromEvent(event) {
+  const figure = event.target.closest?.('[data-narrative-illustration]')
+  if (!figure) {
+    illustrationSelected.value = false
+    editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
+    return
+  }
+  event.stopPropagation()
+  illustrationSelected.value = true
+  figure.classList.add('is-selected')
+}
+
+function showEditorContextMenu(event) {
+  const figure = event.target.closest?.('[data-narrative-illustration]')
+  if (!figure) {
+    imageContextMenu.value.show = false
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenu.value.show = false
+  illustrationSelected.value = true
+  figure.classList.add('is-selected')
+  imageContextMenu.value = {
+    show: true,
+    x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
+    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 330))
+  }
 }
 
 function setImageLayout(value) {
@@ -1083,29 +1069,9 @@ function setImageLayout(value) {
   }, true)
 }
 
-function setImageFit(fit) {
-  applyImagePresentation({ fit }, true)
-}
-
-function setImageScale(value, persist = true) {
-  applyImagePresentation({ scale: Number(value) / 100 }, persist)
-}
-
-function setImageTextGap(value, persist = true) {
-  applyImagePresentation({ textGap: Number(value) }, persist)
-}
-
-function setImagePosition(axis, value, persist = true) {
-  if (!['positionX', 'positionY'].includes(axis)) return
-  applyImagePresentation({ [axis]: Number(value) }, persist)
-}
-
-function nudgeImageScale(delta) {
-  applyImagePresentation({ scale: mainVisualPreview.value.presentation.scale + delta }, true)
-}
-
-function resetImagePresentation() {
-  applyImagePresentation(DEFAULT_IMAGE_PRESENTATION, true)
+function chooseImageLayout(value) {
+  setImageLayout(value)
+  imageContextMenu.value.show = false
 }
 
 function showComicPagePreview(page) {
@@ -2401,16 +2367,13 @@ function injectIllustrationIntoSurface(root, interactive) {
     'narrative-illustration',
     `illustration-wrap--${presentation.wrap}`,
     `illustration-align--${presentation.align}`,
-    interactive ? 'is-editable' : ''
+    interactive ? 'is-editable' : '',
+    interactive && illustrationSelected.value ? 'is-selected' : ''
   ].filter(Boolean).join(' ')
   figure.setAttribute('aria-label', `${visual.label}，${layoutLabel(presentation)}`)
-  if (interactive) figure.title = '拖动图片可更换文字锚点或左右位置'
+  if (interactive) figure.title = '拖动图片移动，拖动右下角缩放，右键设置文字环绕'
 
-  const baseWidth = presentation.wrap === 'inline'
-    ? 32
-    : presentation.wrap === 'top-bottom'
-      ? 68
-      : 42
+  const baseWidth = imageBaseWidth(presentation.wrap)
   figure.style.width = `${Math.min(100, Math.max(16, baseWidth * presentation.scale))}%`
   figure.style.setProperty('--illustration-gap', `${presentation.textGap}px`)
   if (['behind', 'front'].includes(presentation.wrap)) {
@@ -2427,9 +2390,14 @@ function injectIllustrationIntoSurface(root, interactive) {
   image.src = visual.data
   image.alt = visual.alt
   image.draggable = false
-  image.style.objectFit = presentation.fit
-  image.style.objectPosition = `${presentation.positionX}% ${presentation.positionY}%`
   figure.appendChild(image)
+  if (interactive) {
+    const resizeHandle = document.createElement('span')
+    resizeHandle.dataset.illustrationResize = 'true'
+    resizeHandle.className = 'illustration-resize-handle'
+    resizeHandle.setAttribute('aria-hidden', 'true')
+    figure.appendChild(resizeHandle)
+  }
   insertIllustrationAtTextOffset(root, figure, presentation.anchorOffset, presentation.wrap)
 }
 
@@ -2599,6 +2567,9 @@ function setSelectionByTextOffsets(start, end) {
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
   contextMenu.value.show = false
+  imageContextMenu.value.show = false
+  illustrationSelected.value = false
+  editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
   showFontPanel.value = false
   showNameGen.value = false
   showFindReplace.value = false
@@ -3121,178 +3092,6 @@ function syncSelectionCommandState() {
   width: min(100%, 620px);
 }
 
-.image-layout-toolbar {
-  position: relative;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: 6px 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
-  color: var(--archive-ink-soft);
-}
-
-.image-layout-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 8px;
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  font-size: 10px;
-}
-
-.image-layout-select select {
-  height: 28px;
-  max-width: 150px;
-  padding: 0 24px 0 8px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 48%, transparent);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 84%, transparent);
-  color: var(--archive-ink);
-  font-size: 11px;
-}
-
-.image-asset-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  flex: 1;
-  min-height: 28px;
-  padding: 0;
-  color: var(--archive-ink-soft);
-}
-
-.image-fit-switch,
-.image-scale-control,
-.image-gap-control,
-.image-position-control,
-.image-position-control label {
-  display: inline-flex;
-  align-items: center;
-}
-
-.image-fit-switch {
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  padding-right: 8px;
-}
-
-.image-fit-switch button,
-.image-scale-control button,
-.image-reset-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--archive-ink-soft);
-  cursor: pointer;
-}
-
-.image-fit-switch button {
-  min-width: 42px;
-  padding: 0 8px;
-  font-size: 11px;
-}
-
-.image-fit-switch button.active {
-  border-color: color-mix(in srgb, var(--archive-olive) 52%, transparent);
-  background: color-mix(in srgb, var(--archive-olive) 9%, var(--archive-paper-soft));
-  color: var(--archive-ink);
-}
-
-.image-scale-control {
-  gap: 4px;
-}
-
-.image-scale-control button,
-.image-reset-button {
-  width: 26px;
-  padding: 0;
-}
-
-.image-fit-switch button:hover,
-.image-scale-control button:hover,
-.image-reset-button:hover {
-  color: var(--archive-ink);
-  border-color: color-mix(in srgb, var(--archive-gold) 48%, transparent);
-}
-
-.image-fit-switch button:focus-visible,
-.image-scale-control button:focus-visible,
-.image-reset-button:focus-visible,
-.image-scale-control input:focus-visible {
-  outline: 2px solid var(--archive-olive);
-  outline-offset: 1px;
-}
-
-.image-scale-control input {
-  width: 104px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--archive-olive);
-  cursor: pointer;
-}
-
-.image-scale-control output {
-  width: 36px;
-  color: var(--archive-ink-soft);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.image-gap-control {
-  gap: 5px;
-  padding-left: 8px;
-  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  font-size: 10px;
-}
-
-.image-gap-control input {
-  width: 70px;
-  margin: 0;
-  accent-color: var(--archive-olive);
-}
-
-.image-gap-control output {
-  width: 18px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.image-position-control {
-  gap: 7px;
-  padding-left: 8px;
-  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
-}
-
-.image-position-control label {
-  gap: 3px;
-  font-size: 10px;
-}
-
-.image-position-control input {
-  width: 54px;
-  margin: 0;
-  accent-color: var(--archive-olive);
-}
-
-.image-asset-meta {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-left: auto;
-  color: var(--archive-ink-soft);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
 .prose-rich-editor,
 .editor-preview {
   isolation: isolate;
@@ -3330,17 +3129,20 @@ function syncSelectionCommandState() {
 .prose-rich-editor :deep(.narrative-illustration),
 .editor-preview :deep(.narrative-illustration) {
   box-sizing: border-box;
-  aspect-ratio: 4 / 3;
   max-width: 100%;
   margin: 0;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--archive-paper-strong) 72%, var(--archive-photo));
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  line-height: 0;
 }
 
 .prose-rich-editor :deep(.narrative-illustration.is-editable) {
+  position: relative;
   cursor: grab;
   touch-action: none;
+}
+
+.prose-rich-editor :deep(.narrative-illustration.is-selected) {
+  outline: 1px solid color-mix(in srgb, var(--archive-olive) 78%, transparent);
+  outline-offset: 2px;
 }
 
 .prose-rich-editor :deep(.narrative-illustration.is-dragging) {
@@ -3349,15 +3151,39 @@ function syncSelectionCommandState() {
   z-index: 6;
 }
 
+.prose-rich-editor :deep(.narrative-illustration.is-resizing) {
+  cursor: nwse-resize;
+  z-index: 6;
+}
+
 .prose-rich-editor :deep(.narrative-illustration img),
 .editor-preview :deep(.narrative-illustration img) {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   margin: 0;
-  border-radius: inherit;
+  border-radius: 0;
   user-select: none;
   pointer-events: none;
+}
+
+.prose-rich-editor :deep(.illustration-resize-handle) {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--archive-olive);
+  border-radius: 1px;
+  background: var(--archive-paper-soft);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  z-index: 8;
+}
+
+.prose-rich-editor :deep(.narrative-illustration.is-selected .illustration-resize-handle) {
+  display: block;
 }
 
 .prose-rich-editor :deep(.illustration-wrap--square.illustration-align--left),
@@ -3919,6 +3745,45 @@ function syncSelectionCommandState() {
   height: 1px;
   background: var(--border);
   margin: 6px 0;
+}
+
+.illustration-context-menu {
+  width: 184px;
+  padding: 5px;
+  border-radius: 5px;
+  background: var(--archive-paper-soft);
+  border-color: color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--archive-ink) 18%, transparent);
+}
+
+.illustration-context-menu__title {
+  display: block;
+  padding: 5px 9px 6px;
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.illustration-layout-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 29px;
+  padding: 5px 9px 5px 6px;
+  border-radius: 3px;
+  color: var(--archive-ink);
+  font-size: 12px;
+}
+
+.illustration-layout-item.active {
+  background: color-mix(in srgb, var(--archive-olive) 10%, transparent);
+  font-weight: 600;
+}
+
+.illustration-layout-item__mark {
+  width: 14px;
+  color: var(--archive-olive);
+  text-align: center;
 }
 
 .material-top {
@@ -5021,25 +4886,6 @@ function syncSelectionCommandState() {
   }
   .sidekick-slip {
     flex: 0 0 240px;
-  }
-  .image-layout-toolbar {
-    align-items: flex-start;
-  }
-  .image-layout-select {
-    flex: 1 0 100%;
-    justify-content: space-between;
-    padding-right: 0;
-    border-right: none;
-  }
-  .image-layout-select select {
-    max-width: none;
-    flex: 1;
-  }
-  .image-asset-meta {
-    flex: 1 0 100%;
-    justify-content: flex-start;
-    margin-left: 0;
-    padding-top: 2px;
   }
   .reading-deck:has(.canvas-pinboard) {
     flex-direction: column;
