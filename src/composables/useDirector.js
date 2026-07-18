@@ -26,6 +26,8 @@ import {
   toMarkdown
 } from '../services/shotExporter'
 import {
+  CAMERA_MOVEMENTS,
+  SHOT_TYPES,
   getShotTypes,
   getCameraMovements,
   getTransitionTypes,
@@ -33,18 +35,121 @@ import {
   inferToneFromEmotion
 } from '../types/director'
 
+const VIDEO_PROMPT_LIMIT = 2000
+const CAMERA_PROMPT_TEXT = Object.freeze({
+  push: '[推进] 镜头向主体缓慢推进',
+  pull: '[拉远] 镜头从主体平稳拉远',
+  pan: '镜头缓慢横摇，逐步揭示空间关系',
+  track: '镜头平稳横移，保持主体构图稳定',
+  follow: '[跟随] 镜头平稳跟随主体运动',
+  fixed: '[固定] 镜头保持固定机位'
+})
+const TRANSITION_PROMPT_TEXT = Object.freeze({
+  cut: '紧接上一镜切入当前画面',
+  jump_cut: '从上一镜跳切进入当前画面',
+  dissolve: '画面由上一镜柔和叠化进入',
+  fade: '画面从黑场淡入',
+  fade_in_out: '画面由上一镜淡出后再淡入',
+  contrast_montage: '通过对比蒙太奇进入当前画面',
+  cross_cut: '从并行场景交叉剪辑至当前画面',
+  match_cut: '沿用上一镜的形状或动作匹配切入'
+})
+const RELATION_PROMPT_LABELS = Object.freeze({
+  continuation: '前后镜',
+  elaboration: '因果',
+  contrast: '对照',
+  parallel: '同场',
+  consciousness: '视觉呼应'
+})
+
+function normalizePromptText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function truncatePromptPart(value, maxChars) {
+  const text = normalizePromptText(value)
+  if (text.length <= maxChars) return text
+  const candidate = text.slice(0, maxChars)
+  const sentenceEnd = Math.max(
+    candidate.lastIndexOf('。'),
+    candidate.lastIndexOf('！'),
+    candidate.lastIndexOf('？'),
+    candidate.lastIndexOf('；')
+  )
+  return `${sentenceEnd >= Math.floor(maxChars * 0.55) ? candidate.slice(0, sentenceEnd + 1) : candidate}…`
+}
+
+function trimVideoPrompt(value) {
+  const prompt = String(value || '').trim()
+  if (prompt.length <= VIDEO_PROMPT_LIMIT) return prompt
+  return prompt.slice(0, VIDEO_PROMPT_LIMIT).trim()
+}
+
+export function buildShotVideoPrompt(input = {}) {
+  const shot = input.shot || {}
+  const previousShot = input.previousShot || null
+  const content = truncatePromptPart(
+    shot.content || shot.sourceText || shot.description || shot.visual,
+    920
+  )
+  if (!content) return ''
+
+  const shotTypeId = shot.shotType || shot.shotSize || 'medium'
+  const cameraId = shot.camera || shot.cameraMovement || 'fixed'
+  const shotType = SHOT_TYPES[shotTypeId]?.label || normalizePromptText(shotTypeId)
+  const camera = CAMERA_PROMPT_TEXT[cameraId]
+    || CAMERA_MOVEMENTS[cameraId]?.description
+    || normalizePromptText(cameraId)
+  const sequence = Number(shot.sequence) || Number(input.shotIndex) + 1 || 1
+  const lines = [
+    `镜头 ${sequence}。画面主体、场景与动作：${content}`,
+    `构图与镜头运动：${shotType || '中景'}；${camera || '[固定] 镜头保持固定机位'}。`
+  ]
+
+  if (previousShot) {
+    const transition = TRANSITION_PROMPT_TEXT[shot.transition] || '承接上一镜进入当前画面'
+    const relation = truncatePromptPart(
+      shot.relationLabel || RELATION_PROMPT_LABELS[shot.relationType] || shot.relationType,
+      60
+    )
+    const previousAnchor = truncatePromptPart(
+      previousShot.content || previousShot.sourceText || previousShot.description || previousShot.visual,
+      180
+    )
+    const relationText = relation ? `，以“${relation}”关系衔接` : ''
+    const anchorText = previousAnchor ? `；上一镜的视觉锚点是“${previousAnchor}”` : ''
+    lines.push(`镜头衔接：${transition}${relationText}${anchorText}。保持人物、服装、空间方位和光线连续。`)
+  }
+
+  const atmosphere = [shot.tone || shot.visual, shot.emotion]
+    .map((item) => truncatePromptPart(item, 160))
+    .filter(Boolean)
+  if (atmosphere.length) lines.push(`视觉氛围：${atmosphere.join('；')}。`)
+
+  const dialogue = truncatePromptPart(shot.dialogue, 180)
+  if (dialogue) lines.push(`人物表演：口型和动作配合对白“${dialogue}”。`)
+  const sound = truncatePromptPart(shot.sound, 140)
+  if (sound) lines.push(`环境表现：画面中的声源与“${sound}”对应。`)
+
+  lines.push('画面中不出现字幕、镜头参数文字、界面文字或水印。')
+  return trimVideoPrompt(lines.join('\n'))
+}
+
 export function buildStoryboardVideoJobInput(input = {}) {
   const shots = Array.isArray(input.shots) ? input.shots : []
+  const requestedIndex = Number.isFinite(Number(input.shotIndex)) ? Number(input.shotIndex) : 0
+  const shotIndex = Math.max(0, Math.min(shots.length - 1, Math.round(requestedIndex)))
+  const shot = shots[shotIndex] || null
+  const previousShot = shotIndex > 0 ? shots[shotIndex - 1] : null
   const durationSeconds = Math.max(1, Math.min(60, Math.round(
-    Number(input.durationSeconds) || shots.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0) || 5
+    Number(input.durationSeconds) || Number(shot?.duration) || 5
   )))
-  const prompt = shots
-    .map((shot, index) => `${index + 1}. ${String(shot?.content || shot?.description || '').trim()}`)
-    .filter((line) => !/^\d+\.\s*$/.test(line))
-    .join('\n')
-    .slice(0, 4000)
-  const referenceImages = shots
-    .flatMap((shot) => Array.isArray(shot?.imageReferences) ? shot.imageReferences : [])
+  const prompt = trimVideoPrompt(input.promptOverride || buildShotVideoPrompt({
+    shot,
+    previousShot,
+    shotIndex
+  }))
+  const referenceImages = (Array.isArray(shot?.imageReferences) ? shot.imageReferences : [])
     .filter((reference) => typeof reference?.data === 'string' && reference.data.startsWith('data:image/'))
     .slice(0, 4)
     .map((reference) => ({ data: reference.data, mediaAssetId: reference.mediaAssetId || null }))
@@ -70,6 +175,17 @@ export function buildStoryboardVideoJobInput(input = {}) {
 
   return {
     projectId: input.projectId || null,
+    shot: shot
+      ? {
+          shotId: shot.shotId || shot.nodeId || null,
+          sequence: Number(shot.sequence) || shotIndex + 1,
+          shotType: shot.shotType || shot.shotSize || null,
+          camera: shot.camera || shot.cameraMovement || null,
+          transition: shot.transition || null,
+          relationType: shot.relationType || null,
+          relationLabel: shot.relationLabel || null
+        }
+      : null,
     input: {
       prompt,
       durationSeconds,

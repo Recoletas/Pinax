@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { buildStoryboardVideoJobInput } from '../../composables/useDirector'
+import { buildShotVideoPrompt, buildStoryboardVideoJobInput } from '../../composables/useDirector'
 import { saveExternalMediaAsset } from '../../services/media/mediaAssetStore'
 import { videoJobService } from '../../services/media/videoJobService'
+import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../../types/director'
 
 const props = defineProps({
   context: { type: Object, default: null },
@@ -38,6 +39,8 @@ const baseUrl = ref('')
 const apiKey = ref('')
 const aspectRatio = ref('16:9')
 const durationSeconds = ref(6)
+const selectedShotIndex = ref(0)
+const videoPrompt = ref('')
 const job = ref(null)
 const message = ref('')
 const hasError = ref(false)
@@ -53,12 +56,14 @@ const generic = reactive({
 })
 const minimax = reactive({
   resolution: '768P',
-  promptOptimizer: true,
+  promptOptimizer: false,
   fastPretreatment: false,
   aigcWatermark: false
 })
 
 const shots = computed(() => props.context?.shots || props.context?.version?.shots || [])
+const selectedShot = computed(() => shots.value[selectedShotIndex.value] || null)
+const previousShot = computed(() => selectedShotIndex.value > 0 ? shots.value[selectedShotIndex.value - 1] : null)
 const version = computed(() => props.context?.version || {})
 const versionLabel = computed(() => version.value.versionId?.slice(-6) || '未建立')
 const currentProvider = computed(() => providers.value.find((item) => item.id === providerId.value) || null)
@@ -87,15 +92,42 @@ const outputUrl = computed(() => job.value?.outputs?.find((item) => item?.url)?.
 const statusLabel = computed(() => ({
   queued: '等待提交', submitted: '已提交', running: '生成中', succeeded: '生成完成', failed: '生成失败', cancelled: '已取消'
 })[job.value?.status] || '准备中')
+const selectedShotMeta = computed(() => {
+  const shot = selectedShot.value
+  if (!shot) return ''
+  const shotTypeId = shot.shotType || shot.shotSize
+  const cameraId = shot.camera || shot.cameraMovement
+  const transitionLabels = { none: '无转场', cut: '切入', dissolve: '叠化', fade: '淡入淡出' }
+  return [
+    `镜头 ${selectedShotIndex.value + 1} / ${shots.value.length}`,
+    SHOT_TYPES[shotTypeId]?.label || shotTypeId,
+    CAMERA_MOVEMENTS[cameraId]?.label || cameraId,
+    transitionLabels[shot.transition] || shot.transition,
+    shot.relationLabel || shot.relationType
+  ].filter(Boolean).join(' · ')
+})
 
 watch(shots, (nextShots) => {
+  if (selectedShotIndex.value >= nextShots.length) {
+    selectedShotIndex.value = Math.max(0, nextShots.length - 1)
+  }
+  refreshVideoPrompt()
   if (isMinimax.value) {
     normalizeMinimaxOptions()
     return
   }
-  const total = nextShots.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0)
-  durationSeconds.value = Math.max(1, Math.min(60, Math.round(total || 5)))
+  durationSeconds.value = normalizeShotDuration(selectedShot.value)
 }, { immediate: true })
+
+watch(selectedShotIndex, () => {
+  refreshVideoPrompt()
+  if (!isMinimax.value) durationSeconds.value = normalizeShotDuration(selectedShot.value)
+  if (!busy.value) {
+    job.value = null
+    message.value = ''
+    hasError.value = false
+  }
+})
 
 watch(providerId, (id) => {
   const provider = providers.value.find((item) => item.id === id)
@@ -107,10 +139,7 @@ watch(providerId, (id) => {
   const ratios = provider?.capabilities?.aspectRatios || []
   if (ratios.length && !ratios.includes(aspectRatio.value)) aspectRatio.value = ratios[0]
   if (id === 'minimax-video') normalizeMinimaxOptions()
-  else {
-    const total = shots.value.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0)
-    durationSeconds.value = Math.max(1, Math.min(60, Math.round(total || 5)))
-  }
+  else durationSeconds.value = normalizeShotDuration(selectedShot.value)
 })
 
 watch([model, () => minimax.resolution], normalizeMinimaxOptions)
@@ -186,9 +215,16 @@ async function submitJob() {
     message.value = '后端仍在使用旧版 MiniMax 视频接口，请重启 Express 后端后再生成。'
     return
   }
+  if (!selectedShot.value || !videoPrompt.value.trim()) {
+    hasError.value = true
+    message.value = '请选择镜头并补充视频提示词。'
+    return
+  }
   try {
-    let storyboardInput = buildStoryboardVideoJobInput({
+    const storyboardInput = buildStoryboardVideoJobInput({
       shots: shots.value,
+      shotIndex: selectedShotIndex.value,
+      promptOverride: videoPrompt.value,
       documentId: props.context?.document?.id,
       versionId: version.value.versionId,
       versionFingerprint: props.context?.fingerprint,
@@ -197,14 +233,7 @@ async function submitJob() {
       aspectRatio: aspectRatio.value
     })
     if (isMinimax.value) {
-      storyboardInput = {
-        ...storyboardInput,
-        input: {
-          ...storyboardInput.input,
-          prompt: trimPrompt(storyboardInput.input.prompt, 2000),
-          referenceImages: []
-        }
-      }
+      storyboardInput.input.referenceImages = []
     }
     job.value = await videoJobService.createJob({
       ...storyboardInput,
@@ -258,6 +287,13 @@ function archiveResult(completed, storyboardInput) {
       durationSeconds: storyboardInput.input.durationSeconds,
       aspectRatio: storyboardInput.input.aspectRatio,
       resolution: isMinimax.value ? minimax.resolution : null,
+      shotId: storyboardInput.shot?.shotId || null,
+      shotSequence: storyboardInput.shot?.sequence || selectedShotIndex.value + 1,
+      shotType: storyboardInput.shot?.shotType || null,
+      camera: storyboardInput.shot?.camera || null,
+      transition: storyboardInput.shot?.transition || null,
+      relationType: storyboardInput.shot?.relationType || null,
+      relationLabel: storyboardInput.shot?.relationLabel || null,
       providerFileId: output.fileId || null,
       externalUrlExpiresAt: output.expiresAt || null
     },
@@ -268,9 +304,10 @@ function archiveResult(completed, storyboardInput) {
     status: 'accepted'
   })
   archivedJobIds.add(completed.id)
+  const shotLabel = `镜头 ${storyboardInput.shot?.sequence || selectedShotIndex.value + 1}`
   message.value = output.expiresAt
-    ? '生成完成，临时结果地址已记入素材库（约 1 小时有效）'
-    : '视频已归档到素材库'
+    ? `${shotLabel}生成完成，临时结果地址已记入素材库（约 1 小时有效）`
+    : `${shotLabel}视频已归档到素材库`
   emit('archived', asset)
 }
 
@@ -282,12 +319,22 @@ function normalizeMinimaxOptions() {
   if (!durations.includes(Number(durationSeconds.value))) durationSeconds.value = durations[0]
 }
 
-function trimPrompt(value, maxChars) {
-  const prompt = String(value || '').trim()
-  if (prompt.length <= maxChars) return prompt
-  const candidate = prompt.slice(0, maxChars)
-  const lastLineBreak = candidate.lastIndexOf('\n')
-  return (lastLineBreak >= Math.floor(maxChars * 0.75) ? candidate.slice(0, lastLineBreak) : candidate).trim()
+function normalizeShotDuration(shot) {
+  return Math.max(1, Math.min(60, Math.round(Number(shot?.duration) || 5)))
+}
+
+function refreshVideoPrompt() {
+  videoPrompt.value = buildShotVideoPrompt({
+    shot: selectedShot.value,
+    previousShot: previousShot.value,
+    shotIndex: selectedShotIndex.value
+  })
+}
+
+function getShotOptionLabel(shot, index) {
+  const content = String(shot?.content || shot?.sourceText || shot?.description || '').replace(/\s+/g, ' ').trim()
+  const excerpt = content.length > 28 ? `${content.slice(0, 28)}…` : content
+  return `镜头 ${index + 1}${excerpt ? ` · ${excerpt}` : ''}`
 }
 
 function mergeProviderMetadata(remoteProviders) {
@@ -334,10 +381,32 @@ function mergeProviderMetadata(remoteProviders) {
     <div v-if="stale" class="video-panel__notice is-warning">画布已有变化，请先更新分镜版本。</div>
     <div v-else-if="!shots.length" class="video-panel__notice">当前版本没有可生成的镜头。</div>
 
+    <div v-if="shots.length" class="video-panel__shot-workflow">
+      <label class="video-panel__field">
+        <span>生成镜头</span>
+        <select v-model.number="selectedShotIndex" data-testid="video-shot-select" :disabled="busy">
+          <option v-for="(shot, index) in shots" :key="shot.shotId || shot.nodeId || index" :value="index">
+            {{ getShotOptionLabel(shot, index) }}
+          </option>
+        </select>
+      </label>
+      <p class="video-panel__shot-meta">{{ selectedShotMeta }}</p>
+      <label class="video-panel__field">
+        <span>视频提示词（可编辑）</span>
+        <textarea
+          v-model="videoPrompt"
+          data-testid="video-prompt-input"
+          :disabled="busy"
+          maxlength="2000"
+          rows="7"
+        ></textarea>
+      </label>
+    </div>
+
     <div class="video-panel__form">
       <label class="video-panel__field video-panel__field--wide">
         <span>渠道</span>
-        <select v-model="channelSelection" :disabled="busy">
+        <select v-model="channelSelection" data-testid="video-channel-select" :disabled="busy">
           <optgroup label="MiniMax Video">
             <option v-for="item in MINIMAX_MODEL_OPTIONS" :key="item" :value="`minimax-video::${item}`">
               {{ item }}
@@ -435,9 +504,9 @@ function mergeProviderMetadata(remoteProviders) {
         v-else
         type="button"
         class="video-panel__button is-primary"
-        :disabled="stale || !shots.length || !providerId"
+        :disabled="stale || !selectedShot || !videoPrompt.trim() || !providerId"
         @click="submitJob"
-      >{{ job?.status === 'failed' || job?.status === 'cancelled' ? '重新生成' : '开始生成' }}</button>
+      >{{ job?.status === 'failed' || job?.status === 'cancelled' ? '重新生成当前镜头' : '生成当前镜头' }}</button>
     </footer>
   </section>
 </template>
@@ -516,6 +585,21 @@ function mergeProviderMetadata(remoteProviders) {
   margin-top: 16px;
 }
 
+.video-panel__shot-workflow {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+.video-panel__shot-meta {
+  margin: -2px 0 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .video-panel__field {
   display: grid;
   gap: 5px;
@@ -538,6 +622,11 @@ function mergeProviderMetadata(remoteProviders) {
   font: inherit;
   font-size: 12px;
   resize: vertical;
+}
+
+.video-panel__shot-workflow textarea {
+  min-height: 132px;
+  line-height: 1.55;
 }
 
 .video-panel__advanced {

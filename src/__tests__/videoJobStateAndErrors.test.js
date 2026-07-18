@@ -88,19 +88,35 @@ describe('videoJobStore state machine', () => {
     const directorModule = await import('../composables/useDirector.js')
     expect(typeof directorModule.buildStoryboardVideoJobInput).toBe('function')
 
+    const storyboardShots = [
+      {
+        sequence: 1,
+        content: '雾中的钟楼亮起一盏灯。',
+        duration: 4,
+        imageReferences: [{ mediaAssetId: 'img_1', data: 'data:image/png;base64,AAAA' }]
+      },
+      {
+        shotId: 'shot_2',
+        sequence: 2,
+        content: '守夜人抬头看见钟摆逆向转动。',
+        shotType: 'close_up',
+        camera: 'push',
+        duration: 6,
+        transition: 'dissolve',
+        relationType: 'elaboration',
+        relationLabel: '因果',
+        tone: '冷蓝低饱和',
+        emotion: '警觉',
+        dialogue: '钟声不对。',
+        imageReferences: [{ mediaAssetId: 'img_2', data: 'data:image/png;base64,BBBB' }]
+      }
+    ]
     const input = directorModule.buildStoryboardVideoJobInput({
       documentId: 'storyboard_doc_1',
       versionId: 'storyboard_version_2',
       versionFingerprint: 'fp_2',
       projectId: 'world_1',
-      shots: [
-        {
-          sequence: 1,
-          content: '雾中的钟楼亮起一盏灯。',
-          duration: 4,
-          imageReferences: [{ mediaAssetId: 'img_1', data: 'data:image/png;base64,AAAA' }]
-        }
-      ]
+      shots: storyboardShots
     })
 
     expect(input.projectId).toBe('world_1')
@@ -112,6 +128,36 @@ describe('videoJobStore state machine', () => {
       version: 'fp_2'
     }))
     expect(input.input.referenceImages).toHaveLength(1)
+
+    const secondShotInput = directorModule.buildStoryboardVideoJobInput({
+      versionId: 'storyboard_version_2',
+      projectId: 'world_1',
+      shots: storyboardShots,
+      shotIndex: 1
+    })
+    expect(secondShotInput.input.prompt).toContain('守夜人抬头')
+    expect(secondShotInput.input.prompt).toContain('近景')
+    expect(secondShotInput.input.prompt).toContain('[推进]')
+    expect(secondShotInput.input.prompt).toContain('叠化')
+    expect(secondShotInput.input.prompt).toContain('因果')
+    expect(secondShotInput.input.prompt).toContain('冷蓝低饱和')
+    expect(secondShotInput.input.prompt).toContain('钟声不对')
+    expect(secondShotInput.input.durationSeconds).toBe(6)
+    expect(secondShotInput.input.referenceImages).toEqual([
+      expect.objectContaining({ mediaAssetId: 'img_2' })
+    ])
+    expect(secondShotInput.shot).toEqual(expect.objectContaining({
+      shotId: 'shot_2',
+      sequence: 2,
+      relationLabel: '因果'
+    }))
+
+    const overriddenInput = directorModule.buildStoryboardVideoJobInput({
+      shots: storyboardShots,
+      shotIndex: 1,
+      promptOverride: '自定义的最终视频提示词'
+    })
+    expect(overriddenInput.input.prompt).toBe('自定义的最终视频提示词')
 
     const mediaModule = await import('../services/media/mediaAssetStore.js')
     expect(typeof mediaModule.saveExternalMediaAsset).toBe('function')
@@ -145,14 +191,21 @@ describe('videoJobStore state machine', () => {
       }]
     })
     const StoryboardVideoPanel = (await import('../components/media/StoryboardVideoPanel.vue')).default
-    const wrapper = mount(StoryboardVideoPanel, { props: { context: { shots: [] } } })
+    const wrapper = mount(StoryboardVideoPanel, { props: { context: { shots: storyboardShots } } })
     await flushPromises()
-    const channelOptions = wrapper.find('select').findAll('option').map((option) => option.text())
+    const channelSelect = wrapper.find('[data-testid="video-channel-select"]')
+    const channelOptions = channelSelect.findAll('option').map((option) => option.text())
     expect(channelOptions).toContain('MiniMax-Hailuo-2.3')
     expect(channelOptions).toContain('MiniMax-Hailuo-02')
     expect(channelOptions).toContain('T2V-01-Director')
     expect(channelOptions).toContain('T2V-01')
     expect(channelOptions).not.toContain('MiniMax-video-01')
+    const shotSelect = wrapper.find('[data-testid="video-shot-select"]')
+    expect(shotSelect.findAll('option')).toHaveLength(2)
+    await shotSelect.setValue('1')
+    expect(wrapper.find('[data-testid="video-prompt-input"]').element.value).toContain('守夜人抬头')
+    expect(wrapper.find('[data-testid="video-prompt-input"]').element.value).toContain('[推进]')
+    expect(wrapper.text()).toContain('镜头 2 / 2')
     await wrapper.findAll('button').find((button) => button.text() === '测试连接').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('后端仍在使用旧版 MiniMax 视频接口')
