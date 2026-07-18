@@ -45,7 +45,7 @@ describe('video provider adapters', () => {
     let thrown = null
     try {
       await liveAdapter.submit(
-        { input: { prompt: 'x', durationSeconds: 1, aspectRatio: '16:9', referenceImages: [] }, model: '' },
+        { input: { prompt: 'x', durationSeconds: 6, aspectRatio: '16:9', referenceImages: [] }, model: '' },
         { apiKey: SECRET }
       )
     } catch (err) {
@@ -66,24 +66,72 @@ describe('video provider adapters', () => {
     expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).toContain('<redacted>')
     expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).not.toContain(SECRET)
 
-    // 3. Direct redactSecrets handles structured strings the same way.
-    expect(redactSecrets('Authorization: Bearer abc.def.ghi')).toContain('<redacted>')
-    expect(redactSecrets('Authorization: Bearer abc.def.ghi')).not.toContain('abc.def.ghi')
-    expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).toContain('<redacted>')
-    expect(redactSecrets(`{"apiKey":"${SECRET}","name":"demo"}`)).not.toContain(SECRET)
+    // 4. Official MiniMax flow: submit -> query -> retrieve file URL.
+    let queryCount = 0
+    const minimaxFetch = vi.fn(async (url, init = {}) => {
+      const method = String(init.method || 'GET').toUpperCase()
+      if (method === 'POST' && url.endsWith('/v1/video_generation')) {
+        expect(init.headers.Authorization).toBe('Bearer sk-minimax')
+        expect(JSON.parse(init.body)).toEqual({
+          model: 'MiniMax-Hailuo-2.3',
+          prompt: 'a quiet harbor at dawn',
+          duration: 6,
+          resolution: '768P',
+          prompt_optimizer: true,
+          aigc_watermark: false,
+          fast_pretreatment: false
+        })
+        return jsonResponse(200, { task_id: 'mm_42', base_resp: { status_code: 0, status_msg: 'success' } })
+      }
+      if (method === 'GET' && url.includes('/v1/query/video_generation?task_id=mm_42')) {
+        queryCount += 1
+        return queryCount === 1
+          ? jsonResponse(200, { task_id: 'mm_42', status: 'Processing', base_resp: { status_code: 0 } })
+          : jsonResponse(200, {
+              task_id: 'mm_42', status: 'Success', file_id: 'file_77', video_width: 1366, video_height: 768,
+              base_resp: { status_code: 0 }
+            })
+      }
+      if (method === 'GET' && url.includes('/v1/files/retrieve?file_id=file_77')) {
+        return jsonResponse(200, {
+          file: { download_url: 'https://cdn.minimaxi.com/video/file_77.mp4' },
+          base_resp: { status_code: 0 }
+        })
+      }
+      return jsonResponse(404, { base_resp: { status_code: 2013, status_msg: 'unmocked' } })
+    })
+    const officialAdapter = createMinimaxVideoAdapter({ fetchImpl: minimaxFetch })
+    const officialConfig = { apiKey: 'sk-minimax', model: 'MiniMax-Hailuo-2.3', resolution: '768P' }
+    const submitted = await officialAdapter.submit({
+      model: 'MiniMax-Hailuo-2.3',
+      input: { prompt: 'a quiet harbor at dawn', durationSeconds: 6 }
+    }, officialConfig)
+    expect(submitted.providerJobId).toBe('mm_42')
+    expect(await officialAdapter.poll({ providerJobId: 'mm_42' }, officialConfig)).toMatchObject({ status: 'running', progress: 65 })
+    const completed = await officialAdapter.poll({ providerJobId: 'mm_42' }, officialConfig)
+    expect(completed).toMatchObject({
+      status: 'succeeded',
+      outputs: [{ url: 'https://cdn.minimaxi.com/video/file_77.mp4', fileId: 'file_77', expiresInSeconds: 3600 }]
+    })
+    expect(completed.outputs[0].expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     }
     {
     const registry = createProviderRegistry({ logger: { info() {}, error() {} } })
+    const minimaxAdapter = createMinimaxVideoAdapter()
     registry.register({
       id: 'minimax-video',
-      adapter: createMinimaxVideoAdapter(),
+      adapter: minimaxAdapter,
       label: 'MiniMax Video',
-      capabilities: {},
-      publicConfigKeys: ['baseUrl', 'apiKey', 'model']
+      capabilities: minimaxAdapter.getCapabilities(),
+      publicConfigKeys: minimaxAdapter.publicConfigKeys
     })
     const publicList = registry.listPublic()
     const minimax = publicList.find((p) => p.id === 'minimax-video')
-    expect(minimax.configKeys.map((c) => c.key).sort()).toEqual(['apiKey', 'baseUrl', 'model'].sort())
+    expect(minimax.configKeys.map((c) => c.key).sort()).toEqual([
+      'apiKey', 'baseUrl', 'model', 'resolution', 'promptOptimizer', 'fastPretreatment', 'aigcWatermark'
+    ].sort())
+    expect(minimax.capabilities.models).toContain('MiniMax-Hailuo-2.3')
+    expect(minimax.capabilities.pollIntervalMs).toBe(10000)
     expect(minimax.configKeys.find((c) => c.key === 'apiKey').secret).toBe(true)
     expect(minimax.configKeys.find((c) => c.key === 'baseUrl').secret).toBe(false)
 

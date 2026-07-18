@@ -14,11 +14,11 @@ const emit = defineEmits(['close', 'archived'])
 
 const providers = ref([])
 const providerId = ref('minimax-video')
-const model = ref('MiniMax-video-01')
+const model = ref('MiniMax-Hailuo-2.3')
 const baseUrl = ref('')
 const apiKey = ref('')
 const aspectRatio = ref('16:9')
-const durationSeconds = ref(5)
+const durationSeconds = ref(6)
 const job = ref(null)
 const message = ref('')
 const hasError = ref(false)
@@ -31,12 +31,26 @@ const generic = reactive({
   statusPath: 'id',
   outputUrlPath: 'output_url'
 })
+const minimax = reactive({
+  resolution: '768P',
+  promptOptimizer: true,
+  fastPretreatment: false,
+  aigcWatermark: false
+})
 
 const shots = computed(() => props.context?.shots || props.context?.version?.shots || [])
 const version = computed(() => props.context?.version || {})
 const versionLabel = computed(() => version.value.versionId?.slice(-6) || '未建立')
 const currentProvider = computed(() => providers.value.find((item) => item.id === providerId.value) || null)
+const isMinimax = computed(() => providerId.value === 'minimax-video')
+const isHailuoModel = computed(() => ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'].includes(model.value))
+const minimaxModels = computed(() => currentProvider.value?.capabilities?.models || [
+  'MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01-Director', 'T2V-01'
+])
+const minimaxResolutions = computed(() => isHailuoModel.value ? ['768P', '1080P'] : ['720P', '1080P'])
+const minimaxDurations = computed(() => isHailuoModel.value && minimax.resolution === '768P' ? [6, 10] : [6])
 const aspectRatios = computed(() => currentProvider.value?.capabilities?.aspectRatios || ['16:9', '9:16', '1:1'])
+const baseUrlPlaceholder = computed(() => isMinimax.value ? 'https://api.minimaxi.com' : '渠道默认地址或自定义地址')
 const busy = computed(() => ['queued', 'submitted', 'running'].includes(job.value?.status))
 const progress = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress) || 0)))
 const outputUrl = computed(() => job.value?.outputs?.find((item) => item?.url)?.url || '')
@@ -45,16 +59,27 @@ const statusLabel = computed(() => ({
 })[job.value?.status] || '准备中')
 
 watch(shots, (nextShots) => {
+  if (isMinimax.value) {
+    normalizeMinimaxOptions()
+    return
+  }
   const total = nextShots.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0)
   durationSeconds.value = Math.max(1, Math.min(60, Math.round(total || 5)))
 }, { immediate: true })
 
 watch(providerId, (id) => {
   const provider = providers.value.find((item) => item.id === id)
-  model.value = provider?.capabilities?.models?.[0] || (id === 'minimax-video' ? 'MiniMax-video-01' : 'custom')
+  model.value = provider?.capabilities?.models?.[0] || (id === 'minimax-video' ? 'MiniMax-Hailuo-2.3' : 'custom')
   const ratios = provider?.capabilities?.aspectRatios || []
   if (ratios.length && !ratios.includes(aspectRatio.value)) aspectRatio.value = ratios[0]
+  if (id === 'minimax-video') normalizeMinimaxOptions()
+  else {
+    const total = shots.value.reduce((sum, shot) => sum + (Number(shot?.duration) || 0), 0)
+    durationSeconds.value = Math.max(1, Math.min(60, Math.round(total || 5)))
+  }
 })
+
+watch([model, () => minimax.resolution], normalizeMinimaxOptions)
 
 onMounted(loadProviders)
 onBeforeUnmount(() => pollingController.value?.abort())
@@ -66,6 +91,11 @@ async function loadProviders() {
     if (providers.value.length && !providers.value.some((item) => item.id === providerId.value)) {
       providerId.value = providers.value[0].id
     }
+    const provider = providers.value.find((item) => item.id === providerId.value)
+    if (provider?.capabilities?.models?.length && !provider.capabilities.models.includes(model.value)) {
+      model.value = provider.capabilities.models[0]
+    }
+    if (isMinimax.value) normalizeMinimaxOptions()
   } catch (error) {
     hasError.value = true
     message.value = error?.message || '无法读取视频渠道'
@@ -75,6 +105,15 @@ async function loadProviders() {
 function buildProviderConfig() {
   const common = { apiKey: apiKey.value, model: model.value }
   if (baseUrl.value) common.baseUrl = baseUrl.value
+  if (isMinimax.value) {
+    return {
+      ...common,
+      resolution: minimax.resolution,
+      promptOptimizer: minimax.promptOptimizer,
+      fastPretreatment: minimax.fastPretreatment,
+      aigcWatermark: minimax.aigcWatermark
+    }
+  }
   if (providerId.value !== 'generic-async-http') return common
   return {
     ...common,
@@ -104,7 +143,7 @@ async function submitJob() {
   message.value = ''
   hasError.value = false
   try {
-    const storyboardInput = buildStoryboardVideoJobInput({
+    let storyboardInput = buildStoryboardVideoJobInput({
       shots: shots.value,
       documentId: props.context?.document?.id,
       versionId: version.value.versionId,
@@ -113,6 +152,16 @@ async function submitJob() {
       durationSeconds: durationSeconds.value,
       aspectRatio: aspectRatio.value
     })
+    if (isMinimax.value) {
+      storyboardInput = {
+        ...storyboardInput,
+        input: {
+          ...storyboardInput.input,
+          prompt: trimPrompt(storyboardInput.input.prompt, 2000),
+          referenceImages: []
+        }
+      }
+    }
     job.value = await videoJobService.createJob({
       ...storyboardInput,
       providerId: providerId.value,
@@ -151,8 +200,8 @@ async function cancelJob() {
 
 function archiveResult(completed, storyboardInput) {
   if (archivedJobIds.has(completed.id)) return
-  const url = completed.outputs?.find((item) => item?.url)?.url
-  if (!url) return
+  const output = completed.outputs?.find((item) => item?.url)
+  if (!output?.url) return
   const asset = saveExternalMediaAsset({
     projectId: props.projectId,
     kind: 'video',
@@ -163,17 +212,38 @@ function archiveResult(completed, storyboardInput) {
     promptSnapshot: storyboardInput.input.prompt,
     generationParams: {
       durationSeconds: storyboardInput.input.durationSeconds,
-      aspectRatio: storyboardInput.input.aspectRatio
+      aspectRatio: storyboardInput.input.aspectRatio,
+      resolution: isMinimax.value ? minimax.resolution : null,
+      providerFileId: output.fileId || null,
+      externalUrlExpiresAt: output.expiresAt || null
     },
     durationSeconds: storyboardInput.input.durationSeconds,
     sourceRefs: storyboardInput.input.sourceRefs,
-    externalUrl: url,
+    externalUrl: output.url,
     mimeType: 'video/mp4',
     status: 'accepted'
   })
   archivedJobIds.add(completed.id)
-  message.value = '视频已归档到素材库'
+  message.value = output.expiresAt
+    ? '生成完成，临时结果地址已记入素材库（约 1 小时有效）'
+    : '视频已归档到素材库'
   emit('archived', asset)
+}
+
+function normalizeMinimaxOptions() {
+  if (!isMinimax.value) return
+  const resolutions = isHailuoModel.value ? ['768P', '1080P'] : ['720P', '1080P']
+  if (!resolutions.includes(minimax.resolution)) minimax.resolution = resolutions[0]
+  const durations = isHailuoModel.value && minimax.resolution === '768P' ? [6, 10] : [6]
+  if (!durations.includes(Number(durationSeconds.value))) durationSeconds.value = durations[0]
+}
+
+function trimPrompt(value, maxChars) {
+  const prompt = String(value || '').trim()
+  if (prompt.length <= maxChars) return prompt
+  const candidate = prompt.slice(0, maxChars)
+  const lastLineBreak = candidate.lastIndexOf('\n')
+  return (lastLineBreak >= Math.floor(maxChars * 0.75) ? candidate.slice(0, lastLineBreak) : candidate).trim()
 }
 </script>
 
@@ -201,27 +271,48 @@ function archiveResult(completed, storyboardInput) {
       </label>
       <label class="video-panel__field">
         <span>模型</span>
-        <input v-model.trim="model" :disabled="busy" placeholder="视频模型名称" />
+        <select v-if="isMinimax" v-model="model" :disabled="busy">
+          <option v-for="item in minimaxModels" :key="item" :value="item">{{ item }}</option>
+        </select>
+        <input v-else v-model.trim="model" :disabled="busy" placeholder="视频模型名称" />
       </label>
       <label class="video-panel__field video-panel__field--wide">
         <span>API 地址</span>
-        <input v-model.trim="baseUrl" :disabled="busy" placeholder="渠道默认地址或自定义地址" />
+        <input v-model.trim="baseUrl" :disabled="busy" :placeholder="baseUrlPlaceholder" />
       </label>
       <label class="video-panel__field video-panel__field--wide">
         <span>API Key</span>
         <input v-model="apiKey" type="password" autocomplete="off" :disabled="busy" placeholder="仅用于本次任务" />
       </label>
-      <label class="video-panel__field">
+      <label v-if="!isMinimax" class="video-panel__field">
         <span>画幅</span>
         <select v-model="aspectRatio" :disabled="busy">
           <option v-for="ratio in aspectRatios" :key="ratio" :value="ratio">{{ ratio }}</option>
         </select>
       </label>
+      <label v-else class="video-panel__field">
+        <span>分辨率</span>
+        <select v-model="minimax.resolution" :disabled="busy">
+          <option v-for="item in minimaxResolutions" :key="item" :value="item">{{ item }}</option>
+        </select>
+      </label>
       <label class="video-panel__field">
         <span>时长</span>
-        <input v-model.number="durationSeconds" type="number" min="1" max="60" :disabled="busy" />
+        <select v-if="isMinimax" v-model.number="durationSeconds" :disabled="busy">
+          <option v-for="item in minimaxDurations" :key="item" :value="item">{{ item }} 秒</option>
+        </select>
+        <input v-else v-model.number="durationSeconds" type="number" min="1" max="60" :disabled="busy" />
       </label>
     </div>
+
+    <details v-if="isMinimax" class="video-panel__advanced">
+      <summary>MiniMax 参数</summary>
+      <div class="video-panel__options">
+        <label><input v-model="minimax.promptOptimizer" type="checkbox" :disabled="busy" />提示词优化</label>
+        <label v-if="isHailuoModel"><input v-model="minimax.fastPretreatment" type="checkbox" :disabled="busy" />快速预处理</label>
+        <label><input v-model="minimax.aigcWatermark" type="checkbox" :disabled="busy" />AIGC 水印</label>
+      </div>
+    </details>
 
     <details v-if="providerId === 'generic-async-http'" class="video-panel__advanced">
       <summary>自定义异步接口</summary>
@@ -380,6 +471,28 @@ function archiveResult(completed, storyboardInput) {
 }
 
 .video-panel__advanced summary { cursor: pointer; }
+
+.video-panel__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+.video-panel__options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.video-panel__options input {
+  margin: 0;
+  accent-color: var(--accent);
+}
 
 .video-panel__job {
   margin-top: 16px;

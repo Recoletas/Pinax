@@ -10,6 +10,19 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-07-18 - MiniMax 视频正式协议接入
+
+状态：代码接入完成，等待真实 Key smoke。
+
+结果摘要：
+- MiniMax adapter 改用官方 `POST /v1/video_generation`，通过 `GET /v1/query/video_generation` 查询任务，并在成功后用 `file_id` 调用 `GET /v1/files/retrieve` 解析视频地址。
+- 默认模型更新为 `MiniMax-Hailuo-2.3`；面板按模型限制 6/10 秒和 720P/768P/1080P 的合法组合，并接入提示词优化、快速预处理和 AIGC 水印参数。
+- MiniMax `base_resp.status_code` 即使处于 HTTP 200 也会进入统一错误体系；连接测试使用无效任务查询探测鉴权，不提交生成任务。
+- 任务 runner 开始尊重 provider 的 10 秒轮询间隔；完成输出保留 `file_id`、尺寸和约一小时有效期，素材库明确记录临时地址限制。
+- 现有视频测试原位增加官方请求、查询和文件解析断言，测试总量不增加；未调用真实 MiniMax API，未启动 dev server。
+
+验证：`npm run verify:full` exit 0；核心 23 files / 188 tests、视觉 1 file / 12 tests，Vite build、VitePress build 和 `git diff --check` 均通过，总量 200。
+
 ## 2026-07-17 - 画布拖动与工作台视觉二次收口
 
 状态：完成用户反馈修正。

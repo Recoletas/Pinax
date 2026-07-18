@@ -126,14 +126,13 @@ describe('media router POST /api/media/jobs → cancel end-to-end with AbortSign
 
     const { router, store, runner } = buildTestEnv({
       fetchHandler: async (url, _init, method) => {
-        if (url.endsWith('/models')) return jsonResponse(200, { data: [{ id: 'MiniMax-video-01' }] })
-        if (method === 'POST' && url.endsWith('/video/generations')) {
-          return jsonResponse(200, { task_id: 'p_77' })
+        if (method === 'POST' && url.endsWith('/v1/video_generation')) {
+          return jsonResponse(200, { task_id: 'p_77', base_resp: { status_code: 0 } })
         }
-        if (method === 'GET' && url.includes('/video/generations/p_77')) {
+        if (method === 'GET' && url.includes('/v1/query/video_generation?task_id=p_77')) {
           pollCount += 1
-          // Stay in 'running' forever so only cancel ends the loop.
-          return jsonResponse(200, { status: 'running', progress: 30 })
+          // Stay in Processing forever so only local cancellation ends the loop.
+          return jsonResponse(200, { task_id: 'p_77', status: 'Processing', base_resp: { status_code: 0 } })
         }
         return jsonResponse(404, { error: 'unmocked' })
       }
@@ -142,9 +141,9 @@ describe('media router POST /api/media/jobs → cancel end-to-end with AbortSign
     // 1. POST /api/media/jobs creates the job and returns 201.
     const created = await invokeRouter(router, 'POST', '/api/media/jobs', {
       providerId: 'minimax-video',
-      model: 'MiniMax-video-01',
-      input: { prompt: 'a sunset', durationSeconds: 5, aspectRatio: '16:9', sourceRefs: [], referenceImages: [] },
-      providerConfig: { apiKey: 'sk-test', model: 'MiniMax-video-01' }
+      model: 'MiniMax-Hailuo-2.3',
+      input: { prompt: 'a sunset', durationSeconds: 6, aspectRatio: '16:9', sourceRefs: [], referenceImages: [] },
+      providerConfig: { apiKey: 'sk-test', model: 'MiniMax-Hailuo-2.3', resolution: '768P' }
     })
     expect(created.status).toBe(201)
     const jobId = created.body.id

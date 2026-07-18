@@ -114,6 +114,7 @@ export function createJobRunner({ store, registry, logger = console, options = {
         return
       }
       const adapter = entry.adapter
+      const providerPollMs = resolveProviderPollMs(adapter, providerConfig, cfg)
       let current = job
 
       // Phase 1: submit
@@ -201,7 +202,7 @@ export function createJobRunner({ store, registry, logger = console, options = {
           failJob(jobId, normalizeAdapterError(new Error('max poll attempts reached')))
           return
         }
-        const delay = backoffMs(ctrl.attempt, cfg)
+        const delay = pollDelayMs(ctrl.attempt, cfg, providerPollMs)
         await new Promise((resolve) => {
           ctrl.timer = setTimeout(() => {
             ctrl.timer = null
@@ -247,6 +248,19 @@ function backoffMs(attempt, cfg) {
   const base = Math.min(cfg.maxPollMs, cfg.initialPollMs * Math.pow(2, Math.max(0, attempt - 1)))
   const jitter = Math.floor(Math.random() * cfg.jitterMs)
   return base + jitter
+}
+
+function resolveProviderPollMs(adapter, providerConfig, cfg) {
+  try {
+    const value = Number(adapter.getCapabilities(providerConfig)?.pollIntervalMs)
+    return Number.isFinite(value) && value > 0 ? Math.min(cfg.maxPollMs, value) : 0
+  } catch {
+    return 0
+  }
+}
+
+function pollDelayMs(attempt, cfg, providerPollMs) {
+  return Math.max(backoffMs(attempt, cfg), providerPollMs || 0)
 }
 
 function clampProgress(value) {
