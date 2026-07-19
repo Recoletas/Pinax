@@ -118,7 +118,7 @@ const workbenchChildren = [
     name: 'comics',
     component: ComicStudio,
     meta: {
-      activityKey: 'storyboard',
+      activityKey: 'materials',
       title: '漫画制作'
     }
   },

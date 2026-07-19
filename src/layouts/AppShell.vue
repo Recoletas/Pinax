@@ -158,7 +158,7 @@ function handleSelectOnline() {
 }
 
 const COMIC_SUBROUTE_NAME = 'comics'
-const showComicEntry = computed(() => currentActivityKey.value === 'storyboard')
+const showComicEntry = computed(() => currentActivityKey.value === 'materials')
 const comicEntryActive = computed(() => String(route.name || '') === COMIC_SUBROUTE_NAME)
 function handleSelectComics() {
   if (comicEntryActive.value) return
@@ -235,7 +235,7 @@ function handleSelectComics() {
           </button>
         </nav>
 
-        <nav v-if="showComicEntry" class="shell-subnav" aria-label="画布子模式">
+        <nav v-if="showComicEntry" class="shell-subnav" aria-label="素材子模式">
           <button
             class="shell-subnav-btn"
             :class="{ active: comicEntryActive }"

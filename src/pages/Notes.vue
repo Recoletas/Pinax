@@ -445,13 +445,6 @@
             暂无相关素材
           </div>
         </div>
-        <footer class="notes-sidekick__strip" aria-label="素材缩略目录">
-          <ArchiveStrip
-            :items="archiveStripItems"
-            :image="firstImageDataUrl"
-            aria-label="素材缩略目录"
-          />
-        </footer>
         </template>
         <ImageGenerationWorkbench
           v-else
@@ -550,7 +543,6 @@ import { useAdvisor } from '../composables/useAdvisor'
 import { useCanvasBoard } from '../composables/useCanvasBoard'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
-import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
@@ -1134,27 +1126,6 @@ const groupedChapters = computed(() => assetKindOrder
   }))
   .filter((group) => group.items.length > 0))
 
-// N5C: ArchiveStrip 3 entry collage state
-const currentKindForArchiveStrip = ref(null)
-const archiveStripItems = computed(() => {
-  const kind = currentKindForArchiveStrip.value
-    || chapters.value.find((a) => a.status === 'accepted' || a.status === 'inbox')?.kind
-    || chapters.value[0]?.kind
-    || null
-  if (!kind) return []
-  return chapters.value
-    .filter((a) => a.kind === kind)
-    .slice(0, 3)
-    .map((a) => ({ label: a.title || '无标题', position: 'center' }))
-})
-// N5C: when user picks an asset, switch ArchiveStrip to that asset's kind
-watch(() => selectedAsset.value?.kind, (k) => {
-  if (k) currentKindForArchiveStrip.value = k
-})
-const firstImageDataUrl = computed(() => {
-  const ref = chapters.value.find((a) => a.image?.data)
-  return ref?.image?.data || ''
-})
 // N2: page-flip navigation for active card (reading deck prev/next).
 const currentAssetIndex = computed(() => {
   if (!selectedChapterId.value) return -1
@@ -4715,7 +4686,7 @@ function syncSelectionCommandState() {
 /* K3 (2026-06-27): 副阅读台 (was 右下浮卡). archive-pin 类名保留
    以满足既有 UI-N2 契约 (anti-micro-tweak 仍 5/5 命中), 但实际
    角色从右下浮卡升为 notes-content-area 第 3 列, 容纳 2-4 张
-   素材摘要 (sidekick-slip) + 小 ArchiveStrip 缩略目录. */
+   素材摘要 (sidekick-slip). */
 .archive-pin {
   position: relative;
   display: flex;
@@ -4952,14 +4923,6 @@ function syncSelectionCommandState() {
   font-size: 9px;
   font-style: italic;
   color: var(--archive-ink-soft);
-}
-
-/* K3: 副阅读台底部 — 小 ArchiveStrip 缩略目录 (保留 UI-N2 archive-pin
-   既有契约; 列底下的小图签, 不再是右下浮卡) */
-.notes-sidekick__strip {
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
-  padding: 10px 10px 12px;
-  background: color-mix(in srgb, var(--archive-paper) 78%, transparent);
 }
 
 /* UI-N6: Pinned material slips — 贴板纸, 在 canvas-pinboard 内绝对定位
