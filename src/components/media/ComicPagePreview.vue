@@ -11,6 +11,33 @@ defineEmits(['select-panel'])
 function selectedTake(panel) {
   return panel.imageTakes?.find((take) => take.id === panel.selectedTakeId) || null
 }
+
+function letteringStyle(object) {
+  const [x, y, width, height] = normalizeBox(object?.box)
+  return {
+    left: `${x * 100}%`,
+    top: `${y * 100}%`,
+    width: `${width * 100}%`,
+    minHeight: `${height * 100}%`,
+    zIndex: 10 + (Number(object?.zIndex) || 0)
+  }
+}
+
+function normalizeBox(box) {
+  const values = Array.isArray(box) ? box.map(Number) : []
+  const width = clamp(values[2], 0.18, 0.8, 0.38)
+  const height = clamp(values[3], 0.1, 0.6, 0.2)
+  return [
+    clamp(values[0], 0, 1 - width, 0.56),
+    clamp(values[1], 0, 1 - height, 0.08),
+    width,
+    height
+  ]
+}
+
+function clamp(value, min, max, fallback) {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
 </script>
 
 <template>
@@ -38,11 +65,14 @@ function selectedTake(panel) {
         <span>{{ panel.visual || '等待画面' }}</span>
       </span>
 
-      <span v-if="panel.caption" class="comic-page-preview__caption">{{ panel.caption }}</span>
-      <span v-if="panel.dialogue?.length" class="comic-page-preview__dialogue">
-        <span v-for="(line, index) in panel.dialogue" :key="`${panel.id}-${index}`">
-          <strong v-if="line.speaker">{{ line.speaker }}</strong>{{ line.text }}
-        </span>
+      <span
+        v-for="object in panel.letteringObjects || []"
+        :key="object.id"
+        class="comic-page-preview__lettering"
+        :class="`is-${object.type}`"
+        :style="letteringStyle(object)"
+      >
+        {{ object.text }}
       </span>
       <span class="comic-page-preview__index" aria-hidden="true">{{ panel.order }}</span>
     </button>
@@ -97,15 +127,17 @@ function selectedTake(panel) {
 .comic-page-preview__placeholder { width: 100%; height: 100%; display: grid; align-content: center; justify-items: center; gap: 8px; padding: 12px; background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-secondary)) 82%, transparent); color: var(--text-muted); text-align: center; }
 .comic-page-preview__placeholder strong { font-family: var(--font-display); font-size: 24px; }
 .comic-page-preview__placeholder span { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-size: 11px; line-height: 1.5; }
-.comic-page-preview__caption, .comic-page-preview__dialogue { position: absolute; z-index: 2; max-width: calc(100% - 16px); background: rgb(255 255 255 / 0.9); color: #242424; box-shadow: 0 1px 5px rgb(0 0 0 / 0.16); }
-.comic-page-preview__caption { top: 7px; left: 7px; padding: 4px 6px; font-size: 10px; line-height: 1.35; }
-.comic-page-preview__dialogue { right: 7px; bottom: 7px; display: grid; gap: 3px; padding: 6px 8px; border-radius: 12px 12px 3px 12px; font-size: 10px; line-height: 1.35; }
-.comic-page-preview__dialogue strong { margin-right: 3px; color: #4d5f7d; }
+.comic-page-preview__lettering { position: absolute; display: grid; place-items: center; padding: 3px 5px; overflow: hidden; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: rgb(255 255 255 / 0.94); color: #20242a; box-shadow: 0 1px 5px rgb(0 0 0 / 0.16); font-family: var(--font-display); font-size: 10px; font-weight: 600; line-height: 1.3; text-align: center; }
+.comic-page-preview__lettering.is-thought { border-style: dashed; border-radius: 46%; }
+.comic-page-preview__lettering.is-caption { place-items: start; border-radius: 2px; text-align: left; }
+.comic-page-preview__lettering.is-sfx { border: 0; background: transparent; box-shadow: none; color: #fff; font-size: 14px; font-weight: 800; text-shadow: -1px -1px 0 #20242a, 1px -1px 0 #20242a, -1px 1px 0 #20242a, 1px 1px 0 #20242a; transform: rotate(-7deg); }
 .comic-page-preview__index { position: absolute; left: 5px; bottom: 4px; z-index: 3; color: rgb(255 255 255 / 0.88); font-size: 9px; text-shadow: 0 1px 3px rgb(0 0 0 / 0.9); }
 
 .comic-page-preview.is-compact { width: 100%; aspect-ratio: 4 / 5; gap: 4px; padding: 5px; box-shadow: none; }
 .comic-page-preview.is-single { grid-template-columns: 1fr; grid-template-rows: 1fr; aspect-ratio: 4 / 5; }
 .comic-page-preview.is-compact .comic-page-preview__placeholder { padding: 5px; }
 .comic-page-preview.is-compact .comic-page-preview__placeholder strong { font-size: 16px; }
-.comic-page-preview.is-compact .comic-page-preview__placeholder span, .comic-page-preview.is-compact .comic-page-preview__caption, .comic-page-preview.is-compact .comic-page-preview__dialogue { display: none; }
+.comic-page-preview.is-compact .comic-page-preview__placeholder span { display: none; }
+.comic-page-preview.is-compact .comic-page-preview__lettering { padding: 2px 3px; font-size: 7px; }
+.comic-page-preview.is-compact .comic-page-preview__lettering.is-sfx { font-size: 10px; }
 </style>

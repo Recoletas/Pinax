@@ -59,6 +59,7 @@ import {
   buildComicScriptMessages,
   parseComicScript
 } from '../services/media/comicScriptService'
+import { buildComicPanelImageRequest } from '../services/media/comicImagePrompt'
 import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
@@ -322,6 +323,31 @@ describe('Media services', () => {
     expect(JSON.stringify(manifest)).not.toContain('data:image')
     expect(createComicPage({ ...comicPage, id: 'feature-layout', layout: 'feature-4' }).layout).toBe('feature-4')
 
+    const imageRequest = buildComicPanelImageRequest({
+      page: comicPage,
+      panel: { ...comicPage.panels[1], visual: '旅人推开酒馆木门，雨水从斗篷滴落' },
+      previousPanel: { ...comicPage.panels[0], visual: '雨中的街角远景，酒馆门口亮着暖灯' },
+      sourceTitle: '雨夜来客',
+      sourceText: '雨夜，旅人进入酒馆。他问：“还有房间吗？”掌柜注意到他袖口的泥。',
+      providerType: 'minimax_image',
+      previousImageData: 'data:image/png;base64,YWJj'
+    })
+    expect(imageRequest.prompt).toContain('单幅')
+    expect(imageRequest.prompt).toContain('雨夜来客')
+    expect(imageRequest.prompt).toContain('上一格视觉锚点')
+    expect(imageRequest.prompt).not.toContain('还有房间吗')
+    expect(imageRequest.prompt.toLowerCase()).not.toContain('comic panel')
+    expect(imageRequest.negativePrompt).toContain('拼贴')
+    expect(imageRequest.referenceImages).toEqual([])
+    expect(`${imageRequest.prompt}\n${imageRequest.negativePrompt}`.length).toBeLessThanOrEqual(1480)
+    expect(buildComicPanelImageRequest({
+      page: comicPage,
+      panel: comicPage.panels[1],
+      previousPanel: comicPage.panels[0],
+      providerType: 'sd_webui',
+      previousImageData: 'data:image/png;base64,YWJj'
+    }).referenceImages).toHaveLength(1)
+
     const comicEditor = mount(ComicPageEditor, {
       props: {
         sourceText: '雨夜旅人进入酒馆',
@@ -335,6 +361,13 @@ describe('Media services', () => {
     await flushPromises()
     expect(comicEditor.text()).toContain('分格导航')
     expect(comicEditor.text()).not.toContain('视觉连续性')
+    const placeScriptButton = comicEditor.findAll('button').find((button) => button.text() === '排入画面')
+    expect(placeScriptButton).toBeTruthy()
+    await placeScriptButton.trigger('click')
+    expect(comicEditor.findAll('.comic-lettering-overlay')).toHaveLength(1)
+    expect(comicEditor.find('.comic-lettering-overlay').text()).toBe('夜深')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects)
+      .toEqual([expect.objectContaining({ type: 'caption', text: '夜深' })])
     await comicEditor.get('.comic-editor__workspace-tabs button:first-child').trigger('click')
     expect(comicEditor.text()).toContain('视觉连续性')
     expect(comicEditor.text()).toContain('页级节拍与连续性')

@@ -20,6 +20,7 @@
 
 ## Recently done
 
+- 2026-07-19：`integration/online-agents-canvas-video-f` 修复漫画批量补齐把单格画成多格拼贴的问题：提示词强制单幅当前瞬间、无边框且无任何文字，并纳入原素材、页级视觉规则、当前镜头和上一格视觉锚点；支持参考图的 provider 复用上一格成图，MiniMax Image 使用文本锚点降级。脚本对白/旁白不再自动进入预览和 PNG，改为可明确排入、添加、编辑、拖动和缩放的对白/心声/旁白/拟声文字对象。`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check；1440px 浏览器回归通过，未启动 dev server。
 - 2026-07-19：漫画副工作台拆为“页面规划 / 分格制作”，默认将格序导航、模型和当前格制作前置；空白态真实支持 4/6 格，页面与格级编辑补齐阅读方向、视觉连续性、剧情 beat 和构图调度。修复 Notes 在 AppShell 内重复使用 `100vh` 导致右栏底部裁切的问题，900px 窄屏仍保留素材索引/主区/副工作台且无横向溢出；左侧斜放便签改为轻微错落、柔和纸影和压印选中态。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-19：素材插画进入真实正文排版：资产主图和正文 Markdown/MediaAsset 图片统一为可编辑插画节点，支持嵌入、四周/紧密、上下和前后层；图片按原始比例无承托层显示，可拖动更新锚点/坐标并用右下角缩放，八种版式只在图片右键菜单出现。修复根节点 pointer capture 清除选中态和拖图遮挡落点检测；每张正文图片按媒体 ID 独立持久化构图。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；浏览器回归覆盖主图及 Markdown 图片选中、右键、缩放、拖动和持久化；未启动 dev server。
 - 2026-07-18：素材图片模型配置新增 MiniMax Image，接入 `image-01` / `image-01-live`、官方同步生图、标准画幅、base64 结果和业务错误识别；视频面板移除每次填写的 Key/地址/渠道表单，新增与图片配置一致的添加、编辑、测试、删除和持久选择流程，MiniMax 与自定义异步 HTTP 配置随备份导出。确认 MiniMax 图片接口允许本地 Vite 来源跨域携带鉴权。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
@@ -30,14 +31,13 @@
 - 2026-07-17：按 A -> D 顺序集成 Round 2 四个独立分支，并在 Codex 审查中修复顾问无 runner 假 applied、漫画连续性/空白引用持久化、pointer cancel 回滚和 ComicPage schema 3 契约；随后补齐 Vite `/ws` 代理。联机聊天移到体验画面左下角，无消息时收为记忆按钮上方的透明 30px 入口；房间状态收为右侧顶栏下方的紧凑浮层。测试总量保持 200，未启动 dev server。
 - 2026-07-16：恢复 A 启动前被 stash 的七月产品基线，确认旧界面和 1361 个测试来自 A-E 误从六月底 `main` 开工；A-E 已逐项整合到现代前端。F 完成联机体验、分镜视频面板、协议兼容、房主重连、任务归档和牌堆拖拽修复。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200。
 - 2026-07-16：完成漫画 G4.4 M1：沿用现有漫画页直接增加画布、视觉圣经、格框、方向和制作阶段字段；内容、构图、参考或视觉规则变化会标记阶段 stale。副工作台无素材时仍显示，空状态直接提供阅读方向、色制和“建立制作页”，不再展示旧的 4/6 格入口；进入制作页后分镜/制作字段默认展开。`verify:full` 通过 188 core + 12 visual tests、Vite/VitePress build 和 diff check，未启动 dev server。
-- 2026-07-16：删除重复、局部和历史 UI 测试，核心回归收缩到 18 files / 200 tests；`verify:full` 也不再重复运行视觉套件。
 
 ## Next up
 
 1. 完成真实浏览器 smoke：地图重复生成、历史开局、冒险写回和状态回滚。
 2. 把控制权、角色状态、年代冲突和下游 stale 标记接进 runtime 因果报告。
 3. 将 `sourceRefs` 继续接入写作 context ledger、分镜版本和后续媒体任务。
-4. 漫画进入 G4.4 M2：实现同一素材的多页改编候选、页级 beat/page-turn hook，并从角色、地点、已有插画建立可审阅的语义视觉圣经；M2 门禁通过前不进入自由格框画布。测试总量继续保持不超过 200。
+4. 漫画进入 G4.4 M2：实现同一素材的多页改编候选、页级 beat/page-turn hook，并从角色、地点、已有插画建立可审阅的语义视觉圣经；M6 已有基础文字对象，但尾巴、字体、溢出/遮挡检查和 manifest 往返仍留在后续门禁。测试总量继续保持不超过 200。
 5. 用已保存配置分别完成一张 MiniMax `image-01` 插画和一条 6 秒 / 768P 单镜头视频真实 smoke；确认图片归档、景别/运镜/衔接指令及临时视频地址处理。继续完成联机双浏览器 smoke。
 
 ## Working rules
