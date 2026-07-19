@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import ComicPagePreview from '../components/media/ComicPagePreview.vue'
@@ -10,6 +11,8 @@ import { listComicPages } from '../services/media/comicPageStore'
 import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
 
 const comicPages = ref([])
+const route = useRoute()
+const router = useRouter()
 const activePageId = ref('')
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
@@ -30,6 +33,10 @@ const activeProjectId = computed(() => activePage.value?.projectId ?? selectedSo
 
 onMounted(() => {
   sourceCandidates.value = listActiveNarrativeAssets()
+  const requestedSourceId = String(route.query.assetId || '')
+  selectedSourceId.value = sourceCandidates.value.some((asset) => asset.id === requestedSourceId)
+    ? requestedSourceId
+    : ''
   loadModels()
   refreshPages()
 })
@@ -62,6 +69,16 @@ function selectSource(sourceId) {
 
 function syncActivePanelSource(sourceId) {
   selectedSourceId.value = sourceId || ''
+}
+
+function openMaterialWorkspace(workspace) {
+  router.push({
+    name: 'materials',
+    query: {
+      workspace,
+      ...(selectedSourceId.value ? { assetId: selectedSourceId.value } : {})
+    }
+  })
 }
 
 function startNewPage() {
@@ -114,9 +131,12 @@ async function savePanelAsMaterial(entry) {
 <template>
   <div class="comic-studio">
     <header class="comic-studio__mast">
-      <div>
-        <span>素材 · 漫画制作</span>
-        <h1>漫画制作</h1>
+      <div class="comic-studio__mast-left">
+        <div class="comic-studio__book">
+          <strong>素材</strong>
+          <span>漫画制作</span>
+        </div>
+        <span v-if="selectedSource" class="comic-studio__source-title">{{ selectedSource.title || '无标题素材' }}</span>
       </div>
       <button type="button" class="comic-studio__new" @click="startNewPage">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -167,8 +187,41 @@ async function savePanelAsMaterial(entry) {
         </div>
       </main>
 
-      <aside class="comic-studio__inspector" aria-label="漫画制作检查器">
-        <ComicPageEditor
+      <aside class="comic-studio__inspector archive-pin notes-sidekick" aria-label="副阅读台">
+        <span class="archive-pin__nail" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="3" fill="currentColor" />
+            <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4" opacity="0.55" />
+          </svg>
+        </span>
+        <header class="notes-sidekick__header">
+          <span class="notes-sidekick__title">副阅读台</span>
+          <span class="notes-sidekick__count">漫画制作</span>
+        </header>
+        <nav class="notes-sidekick__modes" aria-label="副工作台模式">
+          <button type="button" @click="openMaterialWorkspace('materials')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M3 2.5h10v4H3zM3 9.5h10v4H3z" />
+            </svg>
+            相关素材
+          </button>
+          <button type="button" @click="openMaterialWorkspace('illustration')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
+              <circle cx="6" cy="6" r="1.2" />
+              <path d="M3.5 12l3.2-3 2.1 1.8 1.7-1.6 2 2" />
+            </svg>
+            插画生成
+          </button>
+          <button type="button" class="active" aria-current="page">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z" />
+            </svg>
+            漫画制作
+          </button>
+        </nav>
+        <div class="comic-studio__inspector-body">
+          <ComicPageEditor
           :key="activePageId || 'new-page'"
           standalone
           compact
@@ -188,8 +241,9 @@ async function savePanelAsMaterial(entry) {
           @page-saved="handlePageSaved"
           @active-panel-source-change="syncActivePanelSource"
           @save-to-material="savePanelAsMaterial"
-        />
-        <p v-if="archiveStatus" class="comic-studio__status" role="status">{{ archiveStatus }}</p>
+          />
+          <p v-if="archiveStatus" class="comic-studio__status" role="status">{{ archiveStatus }}</p>
+        </div>
       </aside>
     </div>
   </div>
@@ -211,51 +265,66 @@ async function savePanelAsMaterial(entry) {
 
 .comic-studio__mast {
   flex: 0 0 auto;
-  min-height: 74px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 12px 22px 10px;
+  padding: 10px 24px 11px 64px;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
 }
 
-.comic-studio__mast > div { display: grid; gap: 2px; }
-.comic-studio__mast span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
-.comic-studio__mast h1 { margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 650; letter-spacing: 0; }
+.comic-studio__mast-left { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.comic-studio__book { display: inline-flex; align-items: baseline; gap: 8px; padding-left: 10px; border-left: 2px solid var(--archive-gold); }
+.comic-studio__book strong { color: var(--archive-ink); font-size: 13px; }
+.comic-studio__book span { color: var(--archive-ink-soft); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+.comic-studio__source-title { max-width: 32ch; overflow: hidden; color: var(--archive-ink-soft); font-size: 12px; font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
 
 .comic-studio__new {
-  min-height: 34px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 11px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 62%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-olive-strong));
-  color: var(--archive-paper-soft, var(--accent-text));
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   font-weight: 600;
 }
+.comic-studio__new:hover { color: var(--archive-ink); }
 
 .comic-studio__workspace {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(380px, 1fr) 350px;
+  grid-template-columns: 260px minmax(380px, 1fr) 340px;
   overflow: hidden;
 }
 
 .comic-studio__inspector {
+  position: relative;
   min-width: 0;
   min-height: 0;
-  background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--archive-paper) 86%, transparent) 0%, color-mix(in srgb, var(--archive-paper-soft) 92%, transparent) 100%);
 }
 
-.comic-studio__inspector { padding: 12px; overflow: auto; border-left: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent); scrollbar-gutter: stable; }
+.archive-pin__nail { position: absolute; top: 14px; left: 14px; z-index: 2; color: var(--accent); pointer-events: none; }
+.notes-sidekick__header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 18px 16px 10px 36px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 45%, transparent); }
+.notes-sidekick__title { color: var(--archive-ink); font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+.notes-sidekick__count { color: var(--archive-ink-soft); font-family: var(--font-sans); font-size: 10px; font-style: italic; letter-spacing: 0.1em; white-space: nowrap; }
+.notes-sidekick__modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0 12px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent); }
+.notes-sidekick__modes button { min-width: 0; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 4px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--archive-ink-soft); cursor: pointer; font: inherit; font-size: 11px; }
+.notes-sidekick__modes button:hover { color: var(--archive-ink); }
+.notes-sidekick__modes button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.comic-studio__inspector-body { flex: 1 1 auto; min-height: 0; padding: 12px; overflow: auto; scrollbar-gutter: stable; }
 
 .comic-studio__page-bar {
   width: 100%;
@@ -315,8 +384,12 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__empty-canvas span { font-size: 11px; }
 .comic-studio__status { margin: 10px 0 0; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 
+@media (max-width: 1100px) {
+  .comic-studio__workspace { grid-template-columns: 240px minmax(340px, 1fr) 280px; }
+}
+
 @media (max-width: 980px) {
-  .comic-studio__workspace { grid-template-columns: 180px minmax(300px, 1fr) 310px; }
+  .comic-studio__workspace { grid-template-columns: 180px minmax(300px, 1fr) 280px; }
   .comic-studio__mast { padding-inline: 14px; }
   .comic-studio__canvas-stage { padding: 14px; }
 }

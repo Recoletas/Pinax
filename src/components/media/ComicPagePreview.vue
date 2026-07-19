@@ -62,7 +62,7 @@ function clamp(value, min, max, fallback) {
       <img v-if="selectedTake(panel)" :src="selectedTake(panel).data" :alt="`第 ${panel.order} 格`" />
       <span v-else class="comic-page-preview__placeholder">
         <strong>{{ panel.order }}</strong>
-        <span>{{ panel.visual || '等待画面' }}</span>
+        <span>等待画面</span>
       </span>
 
       <span

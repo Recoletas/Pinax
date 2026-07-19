@@ -309,7 +309,6 @@ function setPanelSource(panel, assetId) {
     projectId: asset.projectId ?? props.projectId,
     excerpt: String(asset.content || '').slice(0, 240)
   }] : []
-  if (asset && !panel.visual.trim()) panel.visual = firstVisualMoment(asset.content)
   persistPage()
 }
 
@@ -322,12 +321,6 @@ function collectPanelSourceRefs(panels = []) {
     seen.add(key)
     return true
   })
-}
-
-function firstVisualMoment(content) {
-  const source = String(content || '').replace(/\s+/g, ' ').trim()
-  if (!source) return ''
-  return (source.match(/^.{1,180}?[。！？!?](?:[”’」』])?/)?.[0] || source.slice(0, 180)).trim()
 }
 
 function canGeneratePanel(panel) {

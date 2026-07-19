@@ -400,7 +400,7 @@ describe('Media services', () => {
     expect(reboundPage.sourceRefs).toEqual([
       expect.objectContaining({ refType: 'narrative-asset', refId: 'asset-panel-2' })
     ])
-    expect(reboundPage.panels[0].visual).toContain('掌柜弯腰时')
+    expect(reboundPage.panels[0].visual).toBe('')
     standaloneEditor.unmount()
 
     const blankEditor = mount(ComicPageEditor, {

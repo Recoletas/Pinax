@@ -2,9 +2,10 @@ const PROMPT_LIMIT = 1240
 
 export const COMIC_IMAGE_NEGATIVE_PROMPT = [
   '多格漫画', '拼贴', '分屏', '故事板', '接触表', '画中画', '重复人物',
-  '边框', '分格线', '对白框', '气泡', '字幕', '标题', '文字', '字母', '数字',
+  '网格排版', '漫画页面', '边框', '分格线', '对白框', '气泡', '字幕', '标题', '文字', '字母', '数字',
   '水印', '签名', 'logo', 'comic page', 'collage', 'split screen', 'storyboard',
-  'speech bubble', 'caption', 'text', 'letters', 'watermark'
+  'panel layout', 'grid layout', 'speech bubble', 'caption', 'text overlay', 'typography',
+  'Chinese characters', 'letters', 'watermark'
 ].join('，')
 
 export function buildComicPanelImageRequest({
@@ -16,10 +17,6 @@ export function buildComicPanelImageRequest({
   providerType = '',
   previousImageData = ''
 } = {}) {
-  const panels = Array.isArray(page.panels) ? page.panels : []
-  const panelIndex = Math.max(0, panels.findIndex((item) => item.id === panel.id))
-  const panelNumber = Number(panel.order) || panelIndex + 1
-  const panelTotal = panels.length || Math.max(1, panelNumber)
   const sourceContext = stripVerbatimDialogue(sourceText)
   const continuity = buildPageContinuity(page)
   const previousAnchor = buildPreviousAnchor(previousPanel)
@@ -28,8 +25,9 @@ export function buildComicPanelImageRequest({
 
   const prompt = [
     '任务：生成一张独立、单幅、全幅出血、无边框的叙事插画。',
-    `这是第 ${panelNumber}/${panelTotal} 格，只表现当前这一瞬间；不要把前后镜头、动作过程或多个时间点同时画进同一张图。`,
+    '当前请求只生成一个镜头、一个画面和一个时间点；不要画成漫画页，不要添加其他镜头或动作过程。',
     '画面只包含人物、环境、道具、动作、光线与构图。画面中不得出现任何可读文字、字母、数字、字幕、标题、拟声词、标牌内容、对话框或气泡；文字将在成图后另行排版覆盖。',
+    'Do not render panels, grids, borders, speech bubbles, captions, typography, letters, numbers, signs, subtitles, or any readable text.',
     sourceTitle ? `来源标题：${clip(sourceTitle, 80)}` : '',
     sourceContext ? `来源故事核心：${clip(sourceContext, 320)}` : '',
     continuity ? `全页连续性：${clip(continuity, 300)}` : '',

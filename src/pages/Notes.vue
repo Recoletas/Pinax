@@ -745,6 +745,7 @@ let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
+  setSidekickWorkspace(String(route.query.workspace || 'materials'))
   loadSidekickImageModels()
   loadNotesPinnedSlipsPref()
   loadNotes(String(route.query.assetId || ''))
@@ -771,7 +772,10 @@ function setSidekickWorkspace(workspace) {
 }
 
 function goToComics() {
-  router.push({ name: 'comics' })
+  router.push({
+    name: 'comics',
+    query: selectedChapterId.value ? { assetId: selectedChapterId.value } : {}
+  })
 }
 
 let markdownMediaRenderRevision = 0

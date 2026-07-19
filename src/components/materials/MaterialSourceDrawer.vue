@@ -62,10 +62,6 @@ function kindColor(kind) {
 
 <template>
   <aside class="material-drawer material-source-drawer" aria-label="漫画素材索引">
-    <div class="material-source-drawer__context">
-      <span>素材索引</span>
-      <strong>{{ assets.length }} 卷</strong>
-    </div>
     <div class="drawer-units">
       <section
         v-for="(group, groupIndex) in groupedAssets"
@@ -141,19 +137,6 @@ function kindColor(kind) {
   box-shadow: inset 8px 0 16px color-mix(in srgb, var(--archive-ink) 22%, transparent);
 }
 
-.material-source-drawer__context {
-  height: 42px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  color: var(--archive-ink-soft, var(--text-secondary));
-  font-size: 10px;
-}
-
-.material-source-drawer__context strong { color: var(--archive-ink); font-size: 11px; }
 .drawer-units { flex: 1; min-height: 0; padding: 4px 0 12px; overflow-y: auto; }
 .drawer-unit { margin: 0 0 10px; border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent); }
 .drawer-handle { width: 100%; display: flex; align-items: center; gap: 6px; padding: 5px 10px 6px; border: 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 22%, transparent); background: transparent; color: var(--archive-ink); cursor: pointer; text-align: left; }
@@ -175,6 +158,10 @@ function kindColor(kind) {
 .index-card__meta { margin-top: 1px; color: var(--archive-ink-soft); font-size: 10px; }
 .index-card__selected-mark { flex: 0 0 auto; color: var(--archive-olive); }
 .drawer-empty { padding: 22px 14px; color: var(--archive-ink-soft); font-size: 11px; font-style: italic; text-align: center; }
+
+@media (max-width: 1100px) {
+  .material-source-drawer { width: 240px; }
+}
 
 @media (max-width: 980px) {
   .material-source-drawer { width: 180px; }
