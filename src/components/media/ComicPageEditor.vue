@@ -18,6 +18,9 @@ import {
 import { generateComicPageScript } from '../../services/media/comicScriptService'
 
 const props = defineProps({
+  pageId: { type: String, default: '' },
+  standalone: { type: Boolean, default: false },
+  sourceCandidates: { type: Array, default: () => [] },
   sourceText: { type: String, default: '' },
   sourceTitle: { type: String, default: '' },
   projectId: { type: String, default: null },
@@ -28,7 +31,7 @@ const props = defineProps({
   compact: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview'])
+const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview', 'page-saved'])
 const comicPage = ref(null)
 const panelCount = ref(4)
 const draftFormat = ref('page-ltr')
@@ -69,6 +72,9 @@ const draftLayoutOptions = computed(() => panelCount.value >= 6
       { value: 'feature-4', label: '首格强调' }
     ])
 const unfinishedPanels = computed(() => comicPage.value?.panels.filter((panel) => !panel.selectedTakeId) || [])
+const unconfiguredPanels = computed(() => props.standalone
+  ? unfinishedPanels.value.filter((panel) => !panelSourceId(panel) || !panel.visual.trim())
+  : [])
 const completedPanelCount = computed(() => comicPage.value?.panels.filter((panel) => panel.selectedTakeId).length || 0)
 const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
   ? [
@@ -85,7 +91,7 @@ const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
       { value: 'effects', label: '效果' }
     ])
 
-watch(() => sourceSignature(props.sourceRefs), () => {
+watch([() => props.pageId, () => sourceSignature(props.sourceRefs)], () => {
   void loadStoredPage()
 }, { immediate: true })
 watch(comicPage, (page) => {
@@ -94,8 +100,12 @@ watch(comicPage, (page) => {
 
 async function loadStoredPage() {
   const revision = ++loadRevision
-  const stored = findComicPageBySources(props.sourceRefs, { projectId: props.projectId })
-    || (!props.sourceRefs.length ? listComicPages({ projectId: props.projectId })[0] : null)
+  const stored = props.pageId
+    ? listComicPages({ projectId: props.projectId }).find((page) => page.id === props.pageId) || null
+    : props.standalone
+      ? null
+      : findComicPageBySources(props.sourceRefs, { projectId: props.projectId })
+        || (!props.sourceRefs.length ? listComicPages({ projectId: props.projectId })[0] : null)
   if (!stored) {
     comicPage.value = null
     return
@@ -113,7 +123,7 @@ async function loadStoredPage() {
 function createDraftPage() {
   const page = createComicPage({
     projectId: props.projectId,
-    sourceRefs: props.sourceRefs,
+    sourceRefs: props.standalone ? [] : props.sourceRefs,
     title: props.sourceTitle || '未命名漫画页',
     format: draftFormat.value,
     layout: draftLayout.value,
@@ -124,6 +134,7 @@ function createDraftPage() {
   comicPage.value = saveComicPage(page)
   activePanelId.value = comicPage.value.panels[0]?.id || ''
   compactWorkspace.value = 'panels'
+  emit('page-saved', comicPage.value)
 }
 
 async function generateScript() {
@@ -149,6 +160,7 @@ async function generateScript() {
       comicPage.value = saved
       activePanelId.value = saved.panels[0]?.id || ''
       compactWorkspace.value = 'panels'
+      emit('page-saved', saved)
     }
   } catch (error) {
     scriptError.value = error?.message || '漫画脚本生成失败'
@@ -159,17 +171,19 @@ async function generateScript() {
 
 function persistPage() {
   if (!comicPage.value) return
+  if (props.standalone) comicPage.value.sourceRefs = collectPanelSourceRefs(comicPage.value.panels)
   const runtimeTakes = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.imageTakes || []]))
   const saved = saveComicPage(comicPage.value)
   comicPage.value = {
     ...saved,
     panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [] }))
   }
+  emit('page-saved', saved)
 }
 
 async function generatePanel(panel) {
   const config = props.modelConfigs.find((item) => item.id === props.selectedModelId)
-  if (!config) return
+  if (!config || (props.standalone && !panelSourceId(panel))) return
   const pageId = comicPage.value.id
   const layout = comicPage.value.layout
   const pageSourceRefs = [...comicPage.value.sourceRefs]
@@ -179,12 +193,13 @@ async function generatePanel(panel) {
   const panelIndex = orderedPanels.findIndex((item) => item.id === panelId)
   const previousPanel = panelIndex > 0 ? orderedPanels[panelIndex - 1] : null
   const previousImageData = previousPanel ? selectedTake(previousPanel)?.data || '' : ''
+  const source = panelSourceContext(panel)
   const imageRequest = buildComicPanelImageRequest({
     page: comicPage.value,
     panel,
     previousPanel,
-    sourceTitle: props.sourceTitle,
-    sourceText: props.sourceText,
+    sourceTitle: source.title || props.sourceTitle,
+    sourceText: source.content || props.sourceText,
     providerType: config.type,
     previousImageData
   })
@@ -213,6 +228,7 @@ async function generatePanel(panel) {
       purpose: 'comic-panel',
       sourceRefs: [
         ...pageSourceRefs,
+        ...(panel.continuityRefs || []),
         { refType: 'comic-page', refId: pageId, projectId },
         { refType: 'comic-panel', refId: panelId, projectId }
       ]
@@ -220,6 +236,7 @@ async function generatePanel(panel) {
     const saved = addComicPanelTake(pageId, panelId, entry.mediaAssetId, { select: true })
     if (saved && comicPage.value?.id === pageId) {
       comicPage.value = await hydrateComicPageTakes(saved)
+      emit('page-saved', comicPage.value)
     }
   } catch (error) {
     const message = error?.message || '本格图片生成失败'
@@ -231,7 +248,7 @@ async function generatePanel(panel) {
 }
 
 async function generateUnfinishedPanels() {
-  if (batchGenerating.value || !unfinishedPanels.value.length || !props.selectedModelId) return
+  if (batchGenerating.value || !unfinishedPanels.value.length || unconfiguredPanels.value.length || !props.selectedModelId) return
   batchGenerating.value = true
   const panelIds = unfinishedPanels.value.map((panel) => panel.id)
   try {
@@ -248,6 +265,53 @@ function selectPanelTake(panel, takeId) {
   const saved = updateComicPanel(comicPage.value.id, panel.id, { selectedTakeId: takeId })
   if (!saved) return
   patchRuntimePanel(panel.id, { selectedTakeId: takeId })
+}
+
+function panelSourceId(panel) {
+  return panel?.continuityRefs?.find((ref) => ref.refType === 'narrative-asset')?.refId || ''
+}
+
+function panelSourceContext(panel) {
+  const ref = panel?.continuityRefs?.find((item) => item.refType === 'narrative-asset')
+  const candidate = props.sourceCandidates.find((asset) => asset.id === ref?.refId)
+  return {
+    title: candidate?.title || '',
+    content: candidate?.content || ref?.excerpt || ''
+  }
+}
+
+function setPanelSource(panel, assetId) {
+  const asset = props.sourceCandidates.find((candidate) => candidate.id === assetId)
+  panel.continuityRefs = asset ? [{
+    refType: 'narrative-asset',
+    refId: asset.id,
+    projectId: asset.projectId ?? props.projectId,
+    excerpt: String(asset.content || '').slice(0, 240)
+  }] : []
+  if (asset && !panel.visual.trim()) panel.visual = firstVisualMoment(asset.content)
+  persistPage()
+}
+
+function collectPanelSourceRefs(panels = []) {
+  const seen = new Set()
+  return panels.flatMap((panel) => panel.continuityRefs || []).filter((ref) => {
+    if (ref.refType !== 'narrative-asset' || !ref.refId) return false
+    const key = `${ref.refType}:${ref.refId}:${ref.projectId || ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function firstVisualMoment(content) {
+  const source = String(content || '').replace(/\s+/g, ' ').trim()
+  if (!source) return ''
+  return (source.match(/^.{1,180}?[。！？!?](?:[”’」』])?/)?.[0] || source.slice(0, 180)).trim()
+}
+
+function canGeneratePanel(panel) {
+  if (!panel.visual.trim() || !props.selectedModelId) return false
+  return !props.standalone || Boolean(panelSourceId(panel))
 }
 
 function addDialogue(panel) {
@@ -862,11 +926,11 @@ function safeFilename(value) {
 </script>
 
 <template>
-  <section class="comic-editor" :class="{ 'is-compact': compact }" aria-label="漫画页编辑器">
+  <section class="comic-editor" :class="{ 'is-compact': compact, 'is-standalone': standalone }" aria-label="漫画页编辑器">
     <template v-if="!comicPage">
       <header class="comic-editor__draft-heading">
-        <span>新建漫画页</span>
-        <strong>{{ sourceTitle || '当前素材' }}</strong>
+        <span>{{ standalone ? '新建独立漫画页' : '新建漫画页' }}</span>
+        <strong>{{ standalone ? '先建立页面，再为每格选择素材' : sourceTitle || '当前素材' }}</strong>
       </header>
       <div class="comic-editor__draft">
         <div class="comic-editor__draft-options">
@@ -901,6 +965,7 @@ function safeFilename(value) {
         </div>
         <div class="comic-editor__draft-actions">
           <button
+            v-if="!standalone"
             class="comic-action comic-action--primary"
             type="button"
             :disabled="scriptGenerating || !sourceText.trim()"
@@ -908,7 +973,7 @@ function safeFilename(value) {
           >
             {{ scriptGenerating ? '生成脚本中...' : '从素材生成脚本' }}
           </button>
-          <button class="comic-action" type="button" @click="createDraftPage">建立空白页</button>
+          <button class="comic-action" :class="{ 'comic-action--primary': standalone }" type="button" @click="createDraftPage">建立空白页</button>
         </div>
         <label class="comic-editor__draft-style">
           <span>画风基调</span>
@@ -926,6 +991,7 @@ function safeFilename(value) {
             <strong>{{ comicPage.title || '未命名漫画页' }}</strong>
           </div>
           <button
+            v-if="!standalone"
             class="comic-action comic-editor__rewrite"
             type="button"
             :disabled="scriptGenerating || batchGenerating || !sourceText.trim()"
@@ -1089,21 +1155,36 @@ function safeFilename(value) {
           <button
             class="comic-action"
             type="button"
-            :disabled="batchGenerating || scriptGenerating || unfinishedPanels.length === 0 || !selectedModelId"
+            :disabled="batchGenerating || scriptGenerating || unfinishedPanels.length === 0 || unconfiguredPanels.length > 0 || !selectedModelId"
             @click="generateUnfinishedPanels"
           >
-            {{ batchGenerating ? '正在补齐...' : unfinishedPanels.length ? `补齐其余 ${unfinishedPanels.length} 格` : '画面已齐' }}
+            {{ batchGenerating
+              ? '正在补齐...'
+              : unconfiguredPanels.length
+                ? `还有 ${unconfiguredPanels.length} 格未配置`
+                : unfinishedPanels.length
+                  ? `补齐其余 ${unfinishedPanels.length} 格`
+                  : '画面已齐' }}
           </button>
         </div>
 
         <div class="comic-editor__panels">
           <section v-for="panel in visiblePanels" :key="panel.id" class="comic-panel">
+          <label v-if="standalone" class="comic-panel__source-select">
+            <span>本格素材</span>
+            <select :value="panelSourceId(panel)" @change="setPanelSource(panel, $event.target.value)">
+              <option value="">选择一条素材</option>
+              <option v-for="asset in sourceCandidates" :key="asset.id" :value="asset.id">
+                {{ asset.title || '无标题素材' }}
+              </option>
+            </select>
+          </label>
           <header class="comic-panel__header">
             <span>第 {{ panel.order }} 格 <small>{{ panelStateLabel(panel) }}</small></span>
             <button
               class="comic-action comic-action--primary comic-panel__generate-btn"
               type="button"
-              :disabled="batchGenerating || panel.generationStatus === 'generating' || !panel.visual.trim() || !selectedModelId"
+              :disabled="batchGenerating || panel.generationStatus === 'generating' || !canGeneratePanel(panel)"
               @click="generatePanel(panel)"
             >
               {{ panel.imageTakeIds.length ? '重生成' : '生成画面' }}
@@ -1450,6 +1531,10 @@ function safeFilename(value) {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.9fr);
   gap: 7px;
+}
+
+.comic-editor.is-standalone .comic-editor__draft-actions {
+  grid-template-columns: 1fr;
 }
 
 .comic-editor__draft-actions .comic-action {
@@ -1841,6 +1926,32 @@ function safeFilename(value) {
   display: grid;
   gap: 9px;
   padding: 3px 0 10px;
+}
+
+.comic-panel__source-select {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-olive) 6%, var(--archive-paper-soft));
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-panel__source-select select {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 24px 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 20%, var(--border));
+  border-radius: 4px;
+  background: var(--archive-paper-soft, var(--bg-primary));
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
 }
 
 .comic-panel__header > span:first-child {

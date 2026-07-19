@@ -10,6 +10,7 @@ const WorldMapPage = () => import('../pages/WorldMapPage.vue')
 const Writing = () => import('../pages/Writing.vue')
 const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
+const ComicStudio = () => import('../pages/ComicStudio.vue')
 const OnlineExperience = () => import('../pages/OnlineExperience.vue')
 
 const workbenchChildren = [
@@ -110,6 +111,15 @@ const workbenchChildren = [
     meta: {
       activityKey: 'storyboard',
       title: '卡片画布'
+    }
+  },
+  {
+    path: 'comics',
+    name: 'comics',
+    component: ComicStudio,
+    meta: {
+      activityKey: 'storyboard',
+      title: '漫画制作'
     }
   },
   {

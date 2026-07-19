@@ -373,6 +373,36 @@ describe('Media services', () => {
     expect(comicEditor.text()).toContain('页级节拍与连续性')
     comicEditor.unmount()
 
+    updateComicPanel(comicPage.id, comicPage.panels[0].id, { visual: '' })
+    const standaloneEditor = mount(ComicPageEditor, {
+      props: {
+        pageId: comicPage.id,
+        standalone: true,
+        sourceCandidates: [{
+          id: 'asset-panel-2',
+          projectId: 'book-1',
+          title: '柜台下的密信',
+          content: '掌柜弯腰时，桌下露出一封沾泥的密信。旅人立刻按住斗篷。',
+          kind: 'event'
+        }],
+        projectId: 'book-1',
+        storageKey: 'comic-editor-test',
+        compact: true
+      }
+    })
+    await flushPromises()
+    const panelSourceSelect = standaloneEditor.get('.comic-panel__source-select select')
+    await panelSourceSelect.setValue('asset-panel-2')
+    const reboundPage = listComicPages({ projectId: 'book-1' }).find((page) => page.id === comicPage.id)
+    expect(reboundPage.panels[0].continuityRefs).toEqual([
+      expect.objectContaining({ refType: 'narrative-asset', refId: 'asset-panel-2' })
+    ])
+    expect(reboundPage.sourceRefs).toEqual([
+      expect.objectContaining({ refType: 'narrative-asset', refId: 'asset-panel-2' })
+    ])
+    expect(reboundPage.panels[0].visual).toContain('掌柜弯腰时')
+    standaloneEditor.unmount()
+
     const blankEditor = mount(ComicPageEditor, {
       props: {
         sourceText: '另一个场景',

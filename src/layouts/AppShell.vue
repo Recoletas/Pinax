@@ -156,6 +156,14 @@ function handleSelectOnline() {
   if (onlineEntryActive.value) return
   router.push({ name: ONLINE_SUBROUTE_NAME })
 }
+
+const COMIC_SUBROUTE_NAME = 'comics'
+const showComicEntry = computed(() => currentActivityKey.value === 'storyboard')
+const comicEntryActive = computed(() => String(route.name || '') === COMIC_SUBROUTE_NAME)
+function handleSelectComics() {
+  if (comicEntryActive.value) return
+  router.push({ name: COMIC_SUBROUTE_NAME })
+}
 </script>
 
 <template>
@@ -224,6 +232,22 @@ function handleSelectOnline() {
               <path d="M3 13.5h2M9 13.5h5"></path>
             </svg>
             <span class="shell-subnav-label">联机</span>
+          </button>
+        </nav>
+
+        <nav v-if="showComicEntry" class="shell-subnav" aria-label="画布子模式">
+          <button
+            class="shell-subnav-btn"
+            :class="{ active: comicEntryActive }"
+            type="button"
+            :aria-current="comicEntryActive ? 'page' : 'false'"
+            aria-label="进入漫画制作"
+            @click="handleSelectComics"
+          >
+            <svg class="shell-subnav-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
+              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z" />
+            </svg>
+            <span class="shell-subnav-label">漫画</span>
           </button>
         </nav>
 

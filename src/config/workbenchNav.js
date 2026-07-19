@@ -116,6 +116,11 @@ export const SIDE_PANELS = {
         routeName: 'prose-essay',
         label: '关系画布',
         description: '素材关系与分镜编排'
+      },
+      {
+        routeName: 'comics',
+        label: '漫画制作',
+        description: '按格选择素材并制作漫画页'
       }
     ]
   }

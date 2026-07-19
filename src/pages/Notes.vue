@@ -287,11 +287,6 @@
                       <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
                     </div>
                   </div>
-                  <ComicPagePreview
-                    v-if="sidekickWorkspace === 'comic' && comicPagePreview"
-                    class="main-comic-preview"
-                    :page="comicPagePreview"
-                  />
                   <div
                     v-if="editorMode === 'wysiwyg'"
                     class="editor-textarea prose-rich-editor"
@@ -400,11 +395,9 @@
         <header class="notes-sidekick__header">
           <span class="notes-sidekick__title">副阅读台</span>
           <span class="notes-sidekick__count">
-            {{ sidekickWorkspace === 'comic'
-              ? '漫画制作'
-              : sidekickWorkspace === 'illustration'
-                ? '插画生成'
-                : `${sidekickItems.length} 张 · 可点击` }}
+            {{ sidekickWorkspace === 'illustration'
+              ? '插画生成'
+              : `${sidekickItems.length} 张 · 可点击` }}
           </span>
         </header>
         <nav class="notes-sidekick__modes" aria-label="副工作台模式">
@@ -421,12 +414,6 @@
               <path d="M3.5 12l3.2-3 2.1 1.8 1.7-1.6 2 2"/>
             </svg>
             插画生成
-          </button>
-          <button type="button" :class="{ active: sidekickWorkspace === 'comic' }" @click="setSidekickWorkspace('comic')">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>
-            </svg>
-            漫画制作
           </button>
         </nav>
         <template v-if="sidekickWorkspace === 'materials'">
@@ -467,7 +454,7 @@
         </footer>
         </template>
         <ImageGenerationWorkbench
-          v-else-if="sidekickWorkspace === 'illustration'"
+          v-else
           class="notes-sidekick__illustration"
           presentation="inline"
           :showHeader="false"
@@ -486,22 +473,6 @@
           @insert-image="insertImageMarkdown"
           @save-to-material="saveGeneratedImageAsset"
           @configs-updated="loadSidekickImageModels"
-        />
-        <ComicPageEditor
-          v-else
-          class="notes-sidekick__comic"
-          compact
-          :sourceText="mediaGenerationSourceText"
-          :sourceTitle="mediaGenerationSourceTitle"
-          :projectId="mediaGenerationProjectId"
-          :sourceRefs="mediaGenerationSourceRefs"
-          :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
-          :modelConfigs="sidekickImageModelConfigs"
-          :selectedModelId="sidekickImageModelId"
-          @update:selectedModelId="sidekickImageModelId = $event"
-          @configs-updated="loadSidekickImageModels"
-          @page-preview="showComicPagePreview"
-          @save-to-material="saveGeneratedImageAsset"
         />
       </aside>
     </div>
@@ -582,8 +553,6 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
-import ComicPageEditor from '../components/media/ComicPageEditor.vue'
-import ComicPagePreview from '../components/media/ComicPagePreview.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
@@ -642,7 +611,6 @@ const renderedMarkdownContent = ref('')
 const renderedMarkdownSource = ref('')
 const sidekickWorkspace = ref('materials')
 const illustrationPreview = ref(null)
-const comicPagePreview = ref(null)
 const sidekickImageModelConfigs = ref([])
 const sidekickImageModelId = ref('')
 const checkedAssetIds = ref([])
@@ -799,7 +767,7 @@ function loadSidekickImageModels(configs = null) {
 }
 
 function setSidekickWorkspace(workspace) {
-  const allowedWorkspaces = ['materials', 'illustration', 'comic']
+  const allowedWorkspaces = ['materials', 'illustration']
   sidekickWorkspace.value = allowedWorkspaces.includes(workspace) ? workspace : 'materials'
   if (sidekickWorkspace.value !== 'materials') loadSidekickImageModels()
 }
@@ -865,8 +833,7 @@ const imageLayoutValue = computed(() => {
 watch([
   () => selectedChapterId.value,
   () => mainVisualPreview.value?.data || '',
-  () => sidekickWorkspace.value,
-  () => comicPagePreview.value?.id || ''
+  () => sidekickWorkspace.value
 ], () => {
   nextTick(() => {
     if (editorMode.value === 'wysiwyg') renderCurrentEditor()
@@ -1132,25 +1099,12 @@ function chooseImageLayout(value) {
   imageContextMenu.value.show = false
 }
 
-function showComicPagePreview(page) {
-  comicPagePreview.value = page || null
-}
-
 const mediaGenerationSourceAssets = computed(() => {
   if (checkedAssetIds.value.length > 0) {
     const checked = new Set(checkedAssetIds.value)
     return chapters.value.filter((asset) => checked.has(asset.id))
   }
   return selectedAsset.value ? [selectedAsset.value] : []
-})
-const mediaGenerationSourceText = computed(() => mediaGenerationSourceAssets.value
-  .map((asset) => `${asset.title || '无标题素材'}\n${asset.content || ''}`.trim())
-  .filter(Boolean)
-  .join('\n\n---\n\n'))
-const mediaGenerationSourceTitle = computed(() => {
-  const assets = mediaGenerationSourceAssets.value
-  if (assets.length === 1) return assets[0].title || '当前素材'
-  return assets.length > 1 ? `${assets.length} 条素材` : '当前素材'
 })
 const mediaGenerationProjectId = computed(() => {
   const projectIds = [...new Set(mediaGenerationSourceAssets.value.map((asset) => asset.projectId ?? null))]
@@ -2416,7 +2370,7 @@ function injectIllustrationIntoSurface(root, interactive) {
   enhanceEmbeddedIllustrations(root, interactive)
 
   const visual = mainVisualPreview.value
-  if (!visual?.data || (sidekickWorkspace.value === 'comic' && comicPagePreview.value)) return
+  if (!visual?.data) return
 
   const presentation = visual.presentation
   const image = document.createElement('img')
@@ -3247,11 +3201,6 @@ function syncSelectionCommandState() {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.main-comic-preview {
-  margin: 14px auto 4px;
-  width: min(100%, 620px);
 }
 
 .prose-rich-editor,
@@ -4821,7 +4770,7 @@ function syncSelectionCommandState() {
 
 .notes-sidekick__modes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 0 12px;
   border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
 }
@@ -4851,8 +4800,7 @@ function syncSelectionCommandState() {
   font-weight: 600;
 }
 
-.notes-sidekick__illustration,
-.notes-sidekick__comic {
+.notes-sidekick__illustration {
   flex: 1 1 auto;
   min-height: 0;
   padding: 12px;
