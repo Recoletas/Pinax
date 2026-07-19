@@ -82,7 +82,10 @@
                   'is-selected': selectedChapterId === note.id,
                   'is-checked': checkedAssetIds.includes(note.id)
                 }"
-                :style="{ '--card-tilt': (i % 2 === 0 ? -4 : 3) + 'deg' }"
+                :style="{
+                  '--card-tilt': ((idx + i) % 3 === 0 ? -1.2 : (idx + i) % 3 === 1 ? 0.65 : -0.35) + 'deg',
+                  '--card-shift': ((idx + i) % 2 === 0 ? 0 : 2) + 'px'
+                }"
                 role="button"
                 tabindex="0"
                 :aria-label="`素材：${note.title || '无标题素材'}（点击选择）`"
@@ -2749,8 +2752,8 @@ function syncSelectionCommandState() {
 
 <style scoped>
 .writing-page {
-  height: var(--app-viewport-height, 100vh);
-  min-height: var(--app-viewport-height, 100vh);
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -4152,19 +4155,42 @@ function syncSelectionCommandState() {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 8px 6px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
-  background: var(--archive-paper-soft);
+  gap: 7px;
+  min-height: 48px;
+  margin-inline: var(--card-shift, 0) 2px;
+  padding: 8px 8px 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--archive-paper) 32%, transparent), transparent 42%),
+    var(--archive-paper-soft);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--archive-ink) 11%, transparent);
   cursor: pointer;
   text-align: left;
   color: var(--archive-ink);
   transform: rotate(var(--card-tilt, 0deg));
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  transform-origin: 50% 12%;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.index-card::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 28px;
+  height: 4px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--archive-gold) 34%, var(--archive-paper));
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--archive-ink) 12%, transparent);
+  opacity: 0.72;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .index-card:hover {
-  transform: rotate(0deg) translateY(-1px);
+  border-color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--archive-ink) 15%, transparent);
+  transform: rotate(0deg) translate(2px, -1px);
 }
 
 /* R2-D.2: focus-visible ring on the row-level selector (now a div
@@ -4175,8 +4201,13 @@ function syncSelectionCommandState() {
 }
 
 .index-card.is-selected {
-  border-color: var(--archive-gold);
-  background: color-mix(in srgb, var(--archive-gold) 10%, var(--archive-paper-soft));
+  border-color: color-mix(in srgb, var(--archive-gold) 72%, var(--archive-ink));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 16%, transparent), transparent 38%),
+    var(--archive-paper-soft);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--archive-gold) 76%, var(--archive-ink)),
+    0 5px 12px color-mix(in srgb, var(--archive-ink) 14%, transparent);
   transform: rotate(0deg) translateY(-1px);
 }
 
@@ -4201,6 +4232,7 @@ function syncSelectionCommandState() {
 
 .index-card__title {
   font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4228,7 +4260,8 @@ function syncSelectionCommandState() {
   color: var(--archive-ink-soft);
 }
 
-.index-card:hover .index-card__delete {
+.index-card:hover .index-card__delete,
+.index-card:focus-within .index-card__delete {
   opacity: 1;
 }
 
@@ -4824,6 +4857,9 @@ function syncSelectionCommandState() {
   min-height: 0;
   padding: 12px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 /* K3: 副阅读台主体 — 2-4 张 sidekick-slip 列表 */
@@ -5027,24 +5063,36 @@ function syncSelectionCommandState() {
 }
 
 @media (max-width: 980px) {
-  /* 移动端: 副阅读台变成主卡下方的滚动条, slip 改为水平 stack. */
+  /* 窄屏压缩索引列，但保留素材入口与漫画副工作台。 */
   .notes-content-area {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: 180px minmax(0, 1fr) 280px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .material-drawer {
+    display: flex;
+    width: 180px;
   }
   .archive-pin {
-    border-left: none;
-    border-top: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
-    max-height: 260px;
+    grid-column: 3;
+    min-height: 0;
+    max-height: none;
+    border-top: 0;
+    border-left: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
   }
   .notes-sidekick__list {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 10px 10px 6px;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 10px;
   }
   .sidekick-slip {
-    flex: 0 0 240px;
+    flex: 0 0 auto;
+  }
+  .drawer-body {
+    padding-inline: 8px;
+  }
+  .index-card {
+    padding-inline: 7px;
   }
   .reading-deck:has(.canvas-pinboard) {
     flex-direction: column;

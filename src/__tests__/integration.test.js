@@ -3,6 +3,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import {
   buildSystemPrompt,
   buildPromptSequence,
@@ -319,6 +321,40 @@ describe('Media services', () => {
     })
     expect(JSON.stringify(manifest)).not.toContain('data:image')
     expect(createComicPage({ ...comicPage, id: 'feature-layout', layout: 'feature-4' }).layout).toBe('feature-4')
+
+    const comicEditor = mount(ComicPageEditor, {
+      props: {
+        sourceText: '雨夜旅人进入酒馆',
+        sourceTitle: '雨夜来客',
+        projectId: 'book-1',
+        sourceRefs: [{ refType: 'narrative-asset', refId: 'asset-1', projectId: 'book-1' }],
+        storageKey: 'comic-editor-test',
+        compact: true
+      }
+    })
+    await flushPromises()
+    expect(comicEditor.text()).toContain('分格导航')
+    expect(comicEditor.text()).not.toContain('视觉连续性')
+    await comicEditor.get('.comic-editor__workspace-tabs button:first-child').trigger('click')
+    expect(comicEditor.text()).toContain('视觉连续性')
+    expect(comicEditor.text()).toContain('页级节拍与连续性')
+    comicEditor.unmount()
+
+    const blankEditor = mount(ComicPageEditor, {
+      props: {
+        sourceText: '另一个场景',
+        sourceTitle: '六格空白页',
+        projectId: 'book-1',
+        sourceRefs: [{ refType: 'narrative-asset', refId: 'asset-blank', projectId: 'book-1' }],
+        storageKey: 'comic-editor-test',
+        compact: true
+      }
+    })
+    await blankEditor.get('.comic-editor__draft-options select').setValue('6')
+    await blankEditor.get('.comic-editor__draft-actions button:last-child').trigger('click')
+    expect(blankEditor.text()).toContain('0/6')
+    expect(blankEditor.findAll('.comic-page-preview__panel')).toHaveLength(6)
+    blankEditor.unmount()
 
     localStorage.setItem('legacy_image_library', JSON.stringify([{
       id: 'legacy-1',

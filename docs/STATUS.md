@@ -20,6 +20,7 @@
 
 ## Recently done
 
+- 2026-07-19：漫画副工作台拆为“页面规划 / 分格制作”，默认将格序导航、模型和当前格制作前置；空白态真实支持 4/6 格，页面与格级编辑补齐阅读方向、视觉连续性、剧情 beat 和构图调度。修复 Notes 在 AppShell 内重复使用 `100vh` 导致右栏底部裁切的问题，900px 窄屏仍保留素材索引/主区/副工作台且无横向溢出；左侧斜放便签改为轻微错落、柔和纸影和压印选中态。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-19：素材插画进入真实正文排版：资产主图和正文 Markdown/MediaAsset 图片统一为可编辑插画节点，支持嵌入、四周/紧密、上下和前后层；图片按原始比例无承托层显示，可拖动更新锚点/坐标并用右下角缩放，八种版式只在图片右键菜单出现。修复根节点 pointer capture 清除选中态和拖图遮挡落点检测；每张正文图片按媒体 ID 独立持久化构图。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；浏览器回归覆盖主图及 Markdown 图片选中、右键、缩放、拖动和持久化；未启动 dev server。
 - 2026-07-18：素材图片模型配置新增 MiniMax Image，接入 `image-01` / `image-01-live`、官方同步生图、标准画幅、base64 结果和业务错误识别；视频面板移除每次填写的 Key/地址/渠道表单，新增与图片配置一致的添加、编辑、测试、删除和持久选择流程，MiniMax 与自定义异步 HTTP 配置随备份导出。确认 MiniMax 图片接口允许本地 Vite 来源跨域携带鉴权。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。
 - 2026-07-18：卡片画布视频改为按当前镜头生成，不再把整版长文本截断后塞入一个 6 秒任务；生成面板增加镜头选择和可编辑最终提示词，纳入景别、MiniMax 运镜指令、转场、卡片关系、上一镜视觉锚点、色调、情绪、对白和环境表现。MiniMax 提示词自动改写默认关闭，归档补齐镜头参数。`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量 200；未启动 dev server。

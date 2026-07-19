@@ -1474,30 +1474,31 @@
 
   /* index-card 索引卡 */
   .theme-kao .index-card {
-    background: var(--archive-paper-soft);
-    border: 1px solid color-mix(in srgb, var(--archive-gold) 50%, transparent);
+    background:
+      linear-gradient(105deg, color-mix(in srgb, var(--archive-paper) 32%, transparent), transparent 42%),
+      var(--archive-paper-soft);
+    border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
     color: var(--archive-ink);
-    box-shadow: 2px 2px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
+    box-shadow: 0 3px 8px color-mix(in srgb, var(--archive-ink) 11%, transparent);
   }
   .theme-kao .index-card:hover {
-    border-color: var(--archive-gold);
-    box-shadow: 3px 3px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent);
+    border-color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
+    box-shadow: 0 5px 12px color-mix(in srgb, var(--archive-ink) 15%, transparent);
   }
   .theme-kao .index-card.is-selected {
-    border-color: var(--archive-gold);
+    border-color: color-mix(in srgb, var(--archive-gold) 72%, var(--archive-ink));
     background:
-      linear-gradient(180deg,
-        var(--archive-paper-soft) 0%,
-        color-mix(in srgb, var(--archive-gold) 10%, var(--archive-paper-soft)) 100%);
+      linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 16%, transparent), transparent 38%),
+      var(--archive-paper-soft);
     box-shadow:
-      inset 0 0 0 1px var(--archive-gold),
-      4px 4px 0 color-mix(in srgb, var(--archive-gold) 24%, transparent);
+      inset 3px 0 0 color-mix(in srgb, var(--archive-gold) 76%, var(--archive-ink)),
+      0 5px 12px color-mix(in srgb, var(--archive-ink) 14%, transparent);
   }
   .theme-kao .index-card.is-checked {
     border-color: var(--archive-rose);
     box-shadow:
-      inset 0 0 0 1px var(--archive-rose),
-      3px 3px 0 color-mix(in srgb, var(--archive-rose) 22%, transparent);
+      inset 3px 0 0 color-mix(in srgb, var(--archive-rose) 68%, var(--archive-ink)),
+      0 5px 12px color-mix(in srgb, var(--archive-ink) 14%, transparent);
   }
   .theme-kao .index-card__canvas-mark {
     color: var(--archive-rose);

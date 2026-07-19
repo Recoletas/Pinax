@@ -38,6 +38,7 @@ const scriptGenerating = ref(false)
 const batchGenerating = ref(false)
 const scriptError = ref('')
 const activePanelId = ref('')
+const compactWorkspace = ref('panels')
 let loadRevision = 0
 const activePanel = computed(() => comicPage.value?.panels.find((panel) => panel.id === activePanelId.value) || null)
 const visiblePanels = computed(() => {
@@ -57,7 +58,17 @@ const layoutOptions = computed(() => {
         { value: 'feature-4', label: '首格强调' }
       ]
 })
+const draftLayoutOptions = computed(() => panelCount.value >= 6
+  ? [
+      { value: 'page-6', label: '六格均分' },
+      { value: 'feature-6', label: '首尾强调' }
+    ]
+  : [
+      { value: 'strip-4', label: '四格均分' },
+      { value: 'feature-4', label: '首格强调' }
+    ])
 const unfinishedPanels = computed(() => comicPage.value?.panels.filter((panel) => !panel.selectedTakeId) || [])
+const completedPanelCount = computed(() => comicPage.value?.panels.filter((panel) => panel.selectedTakeId).length || 0)
 const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
   ? [
       { value: 'rough', label: '草稿' },
@@ -107,10 +118,11 @@ function createDraftPage() {
     layout: draftLayout.value,
     colorMode: draftColorMode.value,
     styleBible: draftStyleBible.value,
-    panels: Array.from({ length: 4 }, (_, index) => ({ order: index + 1, visual: '' }))
+    panels: Array.from({ length: panelCount.value }, (_, index) => ({ order: index + 1, visual: '' }))
   })
   comicPage.value = saveComicPage(page)
   activePanelId.value = comicPage.value.panels[0]?.id || ''
+  compactWorkspace.value = 'panels'
 }
 
 async function generateScript() {
@@ -135,6 +147,7 @@ async function generateScript() {
     if (requestedSourceSignature === sourceSignature(props.sourceRefs)) {
       comicPage.value = saved
       activePanelId.value = saved.panels[0]?.id || ''
+      compactWorkspace.value = 'panels'
     }
   } catch (error) {
     scriptError.value = error?.message || '漫画脚本生成失败'
@@ -268,6 +281,17 @@ function setPageLayout(layout) {
   if (!comicPage.value || !layoutOptions.value.some((option) => option.value === layout)) return
   comicPage.value.layout = layout
   persistPage()
+}
+
+function setPageFormat(format) {
+  if (!comicPage.value || !['page-ltr', 'page-rtl', 'webtoon'].includes(format)) return
+  comicPage.value.format = format
+  persistPage()
+}
+
+function setDraftPanelCount(count) {
+  panelCount.value = Number(count) >= 6 ? 6 : 4
+  draftLayout.value = panelCount.value >= 6 ? 'page-6' : 'strip-4'
 }
 
 function setColorMode(colorMode) {
@@ -580,261 +604,212 @@ function formatLabel(format) {
   return '左到右'
 }
 
-function truncate(text, limit) {
-  const value = String(text || '')
-  if (value.length <= limit) return value
-  return `${value.slice(0, Math.max(0, limit - 1))}…`
-}
-
 function safeFilename(value) {
   return String(value || 'comic-page').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'comic-page'
 }
 </script>
 
 <template>
-  <section class="comic-editor" aria-label="漫画页编辑器">
-    <div v-if="!comicPage" class="comic-editor__draft">
-      <div class="comic-editor__draft-options">
-        <label>
-          <span>阅读方向</span>
-          <select v-model="draftFormat">
-            <option value="page-ltr">左到右页漫</option>
-            <option value="page-rtl">右到左页漫</option>
-            <option value="webtoon">竖向条漫</option>
-          </select>
-        </label>
-        <label>
-          <span>页面版式</span>
-          <select v-model="draftLayout">
-            <option value="strip-4">四格均分</option>
-            <option value="feature-4">首格强调</option>
-          </select>
-        </label>
-        <label>
-          <span>色制</span>
-          <select v-model="draftColorMode">
-            <option value="color">彩色</option>
-            <option value="monochrome">黑白 / 网点</option>
-          </select>
-        </label>
-      </div>
-      <label class="comic-editor__draft-style">
-        <span>画风基调</span>
-        <textarea v-model="draftStyleBible" rows="2" placeholder="角色、线条、光影与色彩基调"></textarea>
-      </label>
-    </div>
-    <div v-else class="comic-editor__setup">
-      <div class="comic-editor__setup-current">
-        <div>
-          <strong>漫画制作页</strong>
-          <span>{{ comicPage.title || '未命名漫画页' }}</span>
+  <section class="comic-editor" :class="{ 'is-compact': compact }" aria-label="漫画页编辑器">
+    <template v-if="!comicPage">
+      <header class="comic-editor__draft-heading">
+        <span>新建漫画页</span>
+        <strong>{{ sourceTitle || '当前素材' }}</strong>
+      </header>
+      <div class="comic-editor__draft">
+        <div class="comic-editor__draft-options">
+          <label>
+            <span>页格</span>
+            <select :value="panelCount" @change="setDraftPanelCount($event.target.value)">
+              <option :value="4">4 格</option>
+              <option :value="6">6 格</option>
+            </select>
+          </label>
+          <label>
+            <span>阅读方向</span>
+            <select v-model="draftFormat">
+              <option value="page-ltr">左到右页漫</option>
+              <option value="page-rtl">右到左页漫</option>
+              <option value="webtoon">竖向条漫</option>
+            </select>
+          </label>
+          <label>
+            <span>页面版式</span>
+            <select v-model="draftLayout">
+              <option v-for="option in draftLayoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <label>
+            <span>色制</span>
+            <select v-model="draftColorMode">
+              <option value="color">彩色</option>
+              <option value="monochrome">黑白 / 网点</option>
+            </select>
+          </label>
         </div>
-        <button
-          class="comic-action comic-action--primary"
-          type="button"
-          :disabled="scriptGenerating || batchGenerating || !sourceText.trim()"
-          @click="generateScript"
-        >
-          {{ scriptGenerating ? '生成脚本中...' : '重写漫画脚本' }}
-        </button>
+        <div class="comic-editor__draft-actions">
+          <button
+            class="comic-action comic-action--primary"
+            type="button"
+            :disabled="scriptGenerating || !sourceText.trim()"
+            @click="generateScript"
+          >
+            {{ scriptGenerating ? '生成脚本中...' : '从素材生成脚本' }}
+          </button>
+          <button class="comic-action" type="button" @click="createDraftPage">建立空白页</button>
+        </div>
+        <label class="comic-editor__draft-style">
+          <span>画风基调</span>
+          <textarea v-model="draftStyleBible" rows="3" placeholder="角色、线条、光影与色彩基调"></textarea>
+        </label>
       </div>
-    </div>
-
-    <div class="comic-editor__model">
-      <ImageModelPicker
-        :model-value="selectedModelId"
-        :configs="modelConfigs"
-        @update:model-value="$emit('update:selectedModelId', $event)"
-        @configs-updated="$emit('configs-updated', $event)"
-      />
-    </div>
-
-    <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
-
-    <div v-if="!comicPage" class="comic-editor__draft-actions">
-      <button class="comic-action comic-action--primary" type="button" @click="createDraftPage">
-        建立制作页
-      </button>
-      <button
-        class="comic-action"
-        type="button"
-        :disabled="scriptGenerating || !sourceText.trim()"
-        @click="generateScript"
-      >
-        {{ scriptGenerating ? '生成脚本中...' : '生成漫画脚本' }}
-      </button>
-    </div>
+      <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
+    </template>
 
     <template v-else>
-      <div class="comic-editor__page-bar">
-        <label class="comic-editor__layout-select">
-          <span>页面版式</span>
-          <select :value="comicPage.layout" @change="setPageLayout($event.target.value)">
-            <option v-for="option in layoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <button
-          class="comic-action"
-          type="button"
-          :disabled="batchGenerating || scriptGenerating || unfinishedPanels.length === 0 || !selectedModelId"
-          @click="generateUnfinishedPanels"
-        >
-          {{ batchGenerating ? '正在补齐...' : unfinishedPanels.length ? `补齐 ${unfinishedPanels.length} 格` : '画面已齐' }}
-        </button>
-      </div>
+      <header class="comic-editor__setup">
+        <div class="comic-editor__setup-current">
+          <div>
+            <span>漫画制作页 · {{ formatLabel(comicPage.format) }} · {{ comicPage.panels.length }} 格</span>
+            <strong>{{ comicPage.title || '未命名漫画页' }}</strong>
+          </div>
+          <button
+            class="comic-action comic-editor__rewrite"
+            type="button"
+            :disabled="scriptGenerating || batchGenerating || !sourceText.trim()"
+            title="根据当前素材重写漫画脚本"
+            @click="generateScript"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+              <path d="M13 5.5A5.5 5.5 0 1 0 13.1 10M13 2v3.5H9.5" />
+            </svg>
+            {{ scriptGenerating ? '重写中' : '重写' }}
+          </button>
+        </div>
+      </header>
 
-      <details class="comic-editor__page-settings" open>
-        <summary>页面级 · 统一画风</summary>
-        <div class="comic-editor__page-meta">
-          <div class="comic-editor__page-row">
+      <nav v-if="compact" class="comic-editor__workspace-tabs" aria-label="漫画制作工作区">
+        <button type="button" :class="{ active: compactWorkspace === 'page' }" @click="compactWorkspace = 'page'">
+          页面规划
+        </button>
+        <button type="button" :class="{ active: compactWorkspace === 'panels' }" @click="compactWorkspace = 'panels'">
+          分格制作
+          <span>{{ completedPanelCount }}/{{ comicPage.panels.length }}</span>
+        </button>
+      </nav>
+
+      <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
+
+      <template v-if="!compact || compactWorkspace === 'page'">
+        <div class="comic-editor__page-bar">
+          <label class="comic-editor__layout-select">
+            <span>版式</span>
+            <select :value="comicPage.layout" @change="setPageLayout($event.target.value)">
+              <option v-for="option in layoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <label class="comic-editor__layout-select">
+            <span>阅读</span>
+            <select :value="comicPage.format" @change="setPageFormat($event.target.value)">
+              <option value="page-ltr">左到右</option>
+              <option value="page-rtl">右到左</option>
+              <option value="webtoon">竖向条漫</option>
+            </select>
+          </label>
+          <label class="comic-editor__layout-select">
+            <span>色制</span>
+            <select :value="comicPage.colorMode" @change="setColorMode($event.target.value)">
+              <option value="color">彩色</option>
+              <option value="monochrome">黑白 / 网点</option>
+            </select>
+          </label>
+        </div>
+
+        <details class="comic-editor__page-settings" open>
+          <summary>
+            <span>视觉连续性</span>
+            <small>角色、场景、线条与色彩</small>
+          </summary>
+          <div class="comic-editor__page-meta">
             <label class="comic-editor__field">
               <span>页面标题</span>
               <input v-model="comicPage.title" aria-label="漫画页标题" @change="persistPage" />
             </label>
-            <label class="comic-editor__inline-field">
-              <span>色制</span>
-              <select :value="comicPage.colorMode" @change="setColorMode($event.target.value)">
-                <option value="color">彩色</option>
-                <option value="monochrome">黑白 / 网点</option>
-              </select>
+            <label class="comic-editor__field">
+              <span>统一画风</span>
+              <textarea v-model="comicPage.styleBible" rows="3" aria-label="统一画风" placeholder="角色、地点、服装与色彩连续性" @change="persistPage"></textarea>
+            </label>
+            <label class="comic-editor__field">
+              <span>线条规则</span>
+              <input v-model="comicPage.visualBible.lineStyle" aria-label="线条规则" placeholder="人物线稿清晰，背景线条减弱" @change="persistPage" />
+            </label>
+            <label class="comic-editor__field">
+              <span>上色与网点</span>
+              <textarea v-model="comicPage.visualBible.renderingNotes" rows="2" aria-label="上色与网点规则" placeholder="上色、黑块、网点和效果规则" @change="persistPage"></textarea>
             </label>
           </div>
-          <label class="comic-editor__field">
-            <span>统一画风</span>
-            <textarea
-              v-model="comicPage.styleBible"
-              rows="2"
-              aria-label="统一画风"
-              placeholder="角色、地点、服装与色彩连续性"
-              @change="persistPage"
-            ></textarea>
-          </label>
-          <label class="comic-editor__field">
-            <span>线条规则</span>
-            <input v-model="comicPage.visualBible.lineStyle" aria-label="线条规则" placeholder="例如：人物线稿清晰，背景线条减弱" @change="persistPage" />
-          </label>
-          <label class="comic-editor__field">
-            <span>上色与网点</span>
-            <textarea
-              v-model="comicPage.visualBible.renderingNotes"
-              rows="2"
-              aria-label="上色与网点规则"
-              placeholder="上色、黑块、网点和效果规则"
-              @change="persistPage"
-            ></textarea>
-          </label>
-        </div>
-      </details>
+        </details>
 
-      <!-- R2-D.5: page-level beat + continuity section. Pages with no
-           script yet render the empty placeholders inline rather than a
-           long form. Fields flow into comicScriptService prompt and round-trip
-           through comicPageStore save (schemaVersion 3). -->
-      <details class="comic-editor__page-settings comic-editor__page-beat" open>
-        <summary>页级节拍与连续性</summary>
-        <div class="comic-editor__page-meta">
-          <label class="comic-editor__field">
-            <span>页面节拍 / 目的</span>
-            <input
-              v-model="comicPage.pagePurpose"
-              aria-label="页面节拍与目的"
-              placeholder="本页要传达的核心情绪或转折（一句话）"
-              @change="persistPage"
-            />
-          </label>
-          <label class="comic-editor__field">
-            <span>翻页钩子</span>
-            <input
-              v-model="comicPage.pageTurnHook"
-              aria-label="翻页钩子"
-              placeholder="让读者想翻到下一页的视觉或悬念钩（一句话）"
-              @change="persistPage"
-            />
-          </label>
-          <label class="comic-editor__field">
-            <span>前后页连续要点</span>
-            <textarea
-              v-model="continuityNotesText"
-              rows="2"
-              aria-label="前后页连续要点（每行一条）"
-              placeholder="一行一条，例如：上一场的钟塔仍要从这一页的远景露出"
-              @change="persistPage"
-            ></textarea>
-            <small class="comic-editor__hint">每行一条，{{ comicPage.continuityNotes?.length || 0 }} / 20</small>
-          </label>
-          <label class="comic-editor__field">
-            <span>本页视觉圣经引用</span>
-            <div class="comic-editor__ref-list">
-              <span
-                v-for="(entry, refIndex) in comicPage.visualBibleRefs"
-                :key="`${entry.kind}:${entry.refId}:${refIndex}`"
-                class="comic-editor__ref-chip"
-              >
-                <select
-                  :value="entry.kind"
-                  aria-label="视觉圣经引用类型"
-                  @change="updateVisualBibleRef(refIndex, 'kind', $event.target.value)"
-                >
-                  <option value="character">角色</option>
-                  <option value="location">地点</option>
-                  <option value="prop">道具</option>
-                  <option value="palette">色板</option>
-                  <option value="lineStyle">线稿</option>
-                </select>
-                <input
-                  :value="entry.refId"
-                  aria-label="视觉圣经引用 ID"
-                  placeholder="实体 ID"
-                  @change="updateVisualBibleRef(refIndex, 'refId', $event.target.value)"
-                />
-                <input
-                  :value="entry.note"
-                  aria-label="视觉圣经引用说明"
-                  placeholder="本页要点（可选）"
-                  @change="updateVisualBibleRef(refIndex, 'note', $event.target.value)"
-                />
-                <button
-                  type="button"
-                  class="comic-action"
-                  :aria-label="`删除视觉圣经引用 ${refIndex + 1}`"
-                  @click="removeVisualBibleRef(refIndex)"
-                >×</button>
-              </span>
-              <button
-                v-if="(comicPage.visualBibleRefs?.length || 0) < 40"
-                type="button"
-                class="comic-action comic-editor__ref-add"
-                @click="addVisualBibleRef"
-              >
-                + 添加视觉圣经引用
-              </button>
-            </div>
-          </label>
-        </div>
-      </details>
+        <details class="comic-editor__page-settings comic-editor__page-beat">
+          <summary>
+            <span>页级节拍与连续性</span>
+            <small>{{ comicPage.continuityNotes?.length || 0 }} 条连续要点</small>
+          </summary>
+          <div class="comic-editor__page-meta">
+            <label class="comic-editor__field">
+              <span>页面目的</span>
+              <input v-model="comicPage.pagePurpose" aria-label="页面节拍与目的" placeholder="这一页要完成的情绪或剧情转折" @change="persistPage" />
+            </label>
+            <label class="comic-editor__field">
+              <span>翻页钩子</span>
+              <input v-model="comicPage.pageTurnHook" aria-label="翻页钩子" placeholder="下一页前留下的视觉或悬念钩" @change="persistPage" />
+            </label>
+            <label class="comic-editor__field">
+              <span>前后页连续要点</span>
+              <textarea v-model="continuityNotesText" rows="3" aria-label="前后页连续要点（每行一条）" placeholder="每行一条，例如：上一场的钟塔仍在远景" @change="persistPage"></textarea>
+              <small class="comic-editor__hint">{{ comicPage.continuityNotes?.length || 0 }} / 20</small>
+            </label>
+            <label class="comic-editor__field">
+              <span>视觉圣经引用</span>
+              <div class="comic-editor__ref-list">
+                <span v-for="(entry, refIndex) in comicPage.visualBibleRefs" :key="`${entry.kind}:${entry.refId}:${refIndex}`" class="comic-editor__ref-chip">
+                  <select :value="entry.kind" aria-label="视觉圣经引用类型" @change="updateVisualBibleRef(refIndex, 'kind', $event.target.value)">
+                    <option value="character">角色</option>
+                    <option value="location">地点</option>
+                    <option value="prop">道具</option>
+                    <option value="palette">色板</option>
+                    <option value="lineStyle">线稿</option>
+                  </select>
+                  <input :value="entry.refId" aria-label="视觉圣经引用 ID" placeholder="实体 ID" @change="updateVisualBibleRef(refIndex, 'refId', $event.target.value)" />
+                  <input :value="entry.note" aria-label="视觉圣经引用说明" placeholder="本页要点" @change="updateVisualBibleRef(refIndex, 'note', $event.target.value)" />
+                  <button type="button" class="comic-action" :aria-label="`删除视觉圣经引用 ${refIndex + 1}`" @click="removeVisualBibleRef(refIndex)">×</button>
+                </span>
+                <button v-if="(comicPage.visualBibleRefs?.length || 0) < 40" type="button" class="comic-action comic-editor__ref-add" @click="addVisualBibleRef">
+                  添加引用
+                </button>
+              </div>
+            </label>
+          </div>
+        </details>
+      </template>
 
-      <section class="comic-editor__preview-block" aria-label="页面预览">
-        <div class="comic-editor__section-heading">
-          <strong>页面预览</strong>
-          <span class="comic-editor__page-meta-line">
-            <span class="comic-editor__direction-chip" :title="`阅读方向：${comicPage.format}`">{{ formatLabel(comicPage.format) }}</span>
-            <span class="comic-editor__chip" v-if="comicPage.pagePurpose" :title="comicPage.pagePurpose">节拍：{{ truncate(comicPage.pagePurpose, 22) }}</span>
-            <span class="comic-editor__chip" v-if="comicPage.pageTurnHook" :title="comicPage.pageTurnHook">钩：{{ truncate(comicPage.pageTurnHook, 22) }}</span>
-            <span class="comic-editor__chip is-meta">{{ comicPage.panels.length }} 格</span>
-            <span v-if="activePanel" class="comic-editor__chip is-active">第 {{ activePanel.order }} 格</span>
-          </span>
-        </div>
-        <ComicPagePreview
-          v-if="compact"
-          :page="comicPage"
-          :active-panel-id="activePanelId"
-          compact
-          interactive
-          @select-panel="activePanelId = $event"
-        />
-      </section>
+      <template v-if="!compact || compactWorkspace === 'panels'">
+        <section class="comic-editor__preview-block" aria-label="分格导航">
+          <div class="comic-editor__section-heading">
+            <strong>分格导航</strong>
+            <span>{{ completedPanelCount }} / {{ comicPage.panels.length }} 格已有画面</span>
+          </div>
+          <ComicPagePreview
+            v-if="compact"
+            :page="comicPage"
+            :active-panel-id="activePanelId"
+            compact
+            interactive
+            @select-panel="activePanelId = $event"
+          />
+        </section>
 
-      <div v-if="compact && activePanel" class="comic-editor__panel-nav">
+        <div v-if="compact && activePanel" class="comic-editor__panel-nav">
         <button type="button" title="上一格" aria-label="上一格" :disabled="activePanel.order <= 1" @click="navigatePanel(-1)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>
@@ -848,12 +823,31 @@ function safeFilename(value) {
         <button type="button" title="下一格" aria-label="下一格" :disabled="activePanel.order >= comicPage.panels.length" @click="navigatePanel(1)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
         </button>
-      </div>
+        </div>
 
-      <div class="comic-editor__panels">
-        <section v-for="panel in visiblePanels" :key="panel.id" class="comic-panel">
+        <div class="comic-editor__generation-tools">
+          <div class="comic-editor__model">
+            <ImageModelPicker
+              :model-value="selectedModelId"
+              :configs="modelConfigs"
+              @update:model-value="$emit('update:selectedModelId', $event)"
+              @configs-updated="$emit('configs-updated', $event)"
+            />
+          </div>
+          <button
+            class="comic-action"
+            type="button"
+            :disabled="batchGenerating || scriptGenerating || unfinishedPanels.length === 0 || !selectedModelId"
+            @click="generateUnfinishedPanels"
+          >
+            {{ batchGenerating ? '正在补齐...' : unfinishedPanels.length ? `补齐其余 ${unfinishedPanels.length} 格` : '画面已齐' }}
+          </button>
+        </div>
+
+        <div class="comic-editor__panels">
+          <section v-for="panel in visiblePanels" :key="panel.id" class="comic-panel">
           <header class="comic-panel__header">
-            <span>{{ compact ? '画面与文字' : `第 ${panel.order} 格 · 画面与文字` }}</span>
+            <span>第 {{ panel.order }} 格 <small>{{ panelStateLabel(panel) }}</small></span>
             <button
               class="comic-action comic-action--primary comic-panel__generate-btn"
               type="button"
@@ -882,11 +876,21 @@ function safeFilename(value) {
 
           <label class="comic-editor__field">
             <span>画面</span>
-            <textarea v-model="panel.visual" rows="3" @change="persistPage"></textarea>
+            <textarea v-model="panel.visual" rows="4" placeholder="主体、动作、环境、光线与构图" @change="persistPage"></textarea>
           </label>
 
+          <details class="comic-panel__beat">
+            <summary>剧情节拍</summary>
+            <div class="comic-panel__beat-grid">
+              <label><span>动作</span><input v-model="panel.beat.action" placeholder="这一格发生什么" @change="persistPage" /></label>
+              <label><span>情绪</span><input v-model="panel.beat.emotion" placeholder="人物与读者感受" @change="persistPage" /></label>
+              <label><span>揭示</span><input v-model="panel.beat.reveal" placeholder="新信息或变化" @change="persistPage" /></label>
+              <label><span>衔接</span><input v-model="panel.beat.transition" placeholder="与下一格如何连接" @change="persistPage" /></label>
+            </div>
+          </details>
+
           <details class="comic-panel__direction" open>
-            <summary>分镜与制作阶段</summary>
+            <summary>镜头与制作阶段</summary>
             <div class="comic-panel__direction-grid">
               <label>
                 <span>景别</span>
@@ -925,6 +929,10 @@ function safeFilename(value) {
                 </select>
               </label>
             </div>
+            <label class="comic-panel__direction-notes">
+              <span>构图与调度</span>
+              <input v-model="panel.direction.notes" placeholder="视线、站位、运动方向、气泡安全区" @change="persistPage" />
+            </label>
             <div class="comic-panel__stage-list" aria-label="制作阶段">
               <span
                 v-for="stage in stageOptions"
@@ -969,19 +977,20 @@ function safeFilename(value) {
           >
             存为素材
           </button>
-        </section>
-      </div>
-
-      <footer class="comic-editor__footer">
-        <span>{{ comicPage.panels.filter((panel) => panel.selectedTakeId).length }} / {{ comicPage.panels.length }} 格已有画面</span>
-        <div class="comic-editor__footer-actions">
-          <button class="comic-action" type="button" @click="exportManifest">JSON</button>
-          <button class="comic-action" type="button" @click="exportPageImage">PNG</button>
-          <button class="comic-action comic-action--primary" type="button" :disabled="comicPage.status === 'accepted'" @click="acceptPage">
-            {{ comicPage.status === 'accepted' ? '已采纳' : '采纳漫画页' }}
-          </button>
+          </section>
         </div>
-      </footer>
+
+        <footer class="comic-editor__footer">
+          <span>{{ completedPanelCount }} / {{ comicPage.panels.length }} 格完成</span>
+          <div class="comic-editor__footer-actions">
+            <button class="comic-action" type="button" @click="exportManifest">JSON</button>
+            <button class="comic-action" type="button" @click="exportPageImage">PNG</button>
+            <button class="comic-action comic-action--primary" type="button" :disabled="comicPage.status === 'accepted'" @click="acceptPage">
+              {{ comicPage.status === 'accepted' ? '已采纳' : '采纳本页' }}
+            </button>
+          </div>
+        </footer>
+      </template>
     </template>
   </section>
 </template>
@@ -989,8 +998,16 @@ function safeFilename(value) {
 <style scoped>
 .comic-editor {
   display: grid;
-  gap: 12px;
+  min-width: 0;
+  gap: 10px;
+  align-content: start;
   color: var(--archive-ink, var(--text-primary));
+}
+
+.comic-editor *,
+.comic-editor *::before,
+.comic-editor *::after {
+  box-sizing: border-box;
 }
 
 .comic-editor__setup,
@@ -1011,18 +1028,37 @@ function safeFilename(value) {
 }
 
 .comic-editor__setup {
-  min-height: 34px;
-  padding: 8px 0;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  min-height: 42px;
+  padding: 2px 0 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
 .comic-editor__draft {
   display: grid;
-  gap: 10px;
-  padding: 10px 0 2px;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  gap: 12px;
+  padding: 2px 0 0;
+}
+
+.comic-editor__draft-heading {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.comic-editor__draft-heading span {
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__draft-heading strong {
+  overflow: hidden;
+  color: var(--archive-ink, var(--text-primary));
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .comic-editor__model {
@@ -1040,16 +1076,23 @@ function safeFilename(value) {
 
 .comic-editor__setup-current > div {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
 .comic-editor__setup-current strong {
+  order: 2;
+  overflow: hidden;
   color: var(--archive-ink, var(--text-primary));
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .comic-editor__setup-current span {
+  order: 1;
   overflow: hidden;
   color: var(--archive-ink-soft, var(--text-secondary));
   font-size: 10px;
@@ -1083,7 +1126,7 @@ function safeFilename(value) {
   width: 100%;
   min-height: 32px;
   padding: 5px 7px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, var(--border));
   border-radius: 4px;
   background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
   color: var(--archive-ink, var(--text-primary));
@@ -1111,9 +1154,16 @@ function safeFilename(value) {
 }
 
 .comic-editor__draft-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.9fr);
+  gap: 7px;
+}
+
+.comic-editor__draft-actions .comic-action {
+  height: 40px;
+  min-height: 40px;
+  padding-inline: 6px;
+  white-space: nowrap;
 }
 
 .comic-editor__layout {
@@ -1152,9 +1202,9 @@ function safeFilename(value) {
 .comic-action {
   min-height: 32px;
   padding: 6px 10px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 64%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, var(--border));
   border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
   color: var(--archive-ink-soft, var(--text-secondary));
   cursor: pointer;
   font-size: 11px;
@@ -1177,6 +1227,16 @@ function safeFilename(value) {
   font-weight: 600;
 }
 
+.comic-editor__rewrite {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
 .comic-editor button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
@@ -1192,23 +1252,63 @@ function safeFilename(value) {
 }
 
 .comic-editor__page-bar {
-  padding: 8px 0;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 40%, transparent);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 2px 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.comic-editor__workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 36px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
+}
+
+.comic-editor__workspace-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.comic-editor__workspace-tabs button.active {
+  border-bottom-color: var(--archive-olive, var(--accent));
+  color: var(--archive-ink, var(--text-primary));
+  font-weight: 650;
+}
+
+.comic-editor__workspace-tabs button span {
+  min-width: 28px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-olive) 12%, transparent);
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 9px;
 }
 
 .comic-editor__layout-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
   color: var(--archive-ink-soft, var(--text-secondary));
   font-size: 10px;
 }
 
 .comic-editor__layout-select select {
+  width: 100%;
+  min-width: 0;
   min-height: 28px;
-  padding: 3px 24px 3px 7px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 58%, var(--border));
+  padding: 3px 18px 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 22%, var(--border));
   border-radius: 4px;
   background: var(--archive-paper-soft, var(--bg-primary));
   color: var(--archive-ink, var(--text-primary));
@@ -1223,13 +1323,24 @@ function safeFilename(value) {
 .comic-editor__page-settings summary {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 30px;
   padding: 4px 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 13%, transparent);
   color: var(--archive-ink, var(--text-primary));
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.comic-editor__page-settings summary small {
+  overflow: hidden;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 9px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .comic-editor__field {
@@ -1251,7 +1362,7 @@ function safeFilename(value) {
 .comic-editor__page-meta textarea,
 .comic-panel__dialogue input {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 20%, var(--border));
   border-radius: 4px;
   background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
   color: var(--archive-ink, var(--text-primary));
@@ -1264,7 +1375,7 @@ function safeFilename(value) {
 .comic-editor__page-meta {
   display: grid;
   gap: 7px;
-  padding-top: 8px;
+  padding: 9px 0 3px;
 }
 
 .comic-editor__page-row {
@@ -1288,12 +1399,12 @@ function safeFilename(value) {
 
 .comic-editor__preview-block {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .comic-editor__section-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   min-height: 20px;
@@ -1303,6 +1414,17 @@ function safeFilename(value) {
   color: var(--archive-ink, var(--text-primary));
   font-size: 12px;
   font-weight: 600;
+}
+
+.comic-editor.is-compact :deep(.comic-page-preview.is-compact) {
+  height: 168px;
+  aspect-ratio: auto;
+  border-color: color-mix(in srgb, var(--archive-ink) 28%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+}
+
+.comic-editor.is-compact :deep(.comic-page-preview__panel.active) {
+  outline-width: 2px;
 }
 
 .comic-editor textarea {
@@ -1318,8 +1440,8 @@ function safeFilename(value) {
   grid-template-columns: 28px 28px minmax(0, 1fr) 28px 28px;
   align-items: center;
   min-height: 34px;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
 .comic-editor__panel-nav button {
@@ -1331,7 +1453,7 @@ function safeFilename(value) {
 }
 
 .comic-editor__panel-nav button:hover:not(:disabled) { color: var(--archive-olive-strong, var(--accent)); }
-.comic-editor__panel-nav > span { min-width: 0; text-align: center; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
+.comic-editor__panel-nav > span { min-width: 0; overflow: hidden; text-align: center; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .comic-editor__panel-nav strong { color: var(--archive-ink, var(--text-primary)); font-size: 11px; }
 
 /* R2-D.5: page-level chip strip on the preview heading — keeps the
@@ -1353,7 +1475,7 @@ function safeFilename(value) {
   background: color-mix(in srgb, var(--archive-gold) 12%, transparent);
   color: var(--archive-ink-soft, var(--text-secondary));
   font-size: 10px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
   max-width: 240px;
   overflow: hidden;
@@ -1384,13 +1506,18 @@ function safeFilename(value) {
 }
 .comic-editor__ref-chip {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr) 28px;
+  grid-template-columns: 74px minmax(0, 1fr) 28px;
   gap: 6px;
   align-items: center;
-  padding: 4px;
+  padding: 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.comic-editor__ref-chip input[aria-label="视觉圣经引用说明"] {
+  grid-column: 1 / -1;
+  grid-row: 2;
 }
 .comic-editor__ref-chip select,
 .comic-editor__ref-chip input {
@@ -1402,6 +1529,8 @@ function safeFilename(value) {
   background: var(--archive-paper, var(--bg-primary));
 }
 .comic-editor__ref-chip button {
+  grid-column: 3;
+  grid-row: 1;
   border-radius: 4px;
 }
 .comic-editor__ref-add {
@@ -1417,13 +1546,20 @@ function safeFilename(value) {
 
 .comic-panel {
   display: grid;
-  gap: 8px;
-  padding: 2px 0 8px;
+  gap: 9px;
+  padding: 3px 0 10px;
 }
 
 .comic-panel__header > span:first-child {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
+}
+
+.comic-panel__header > span:first-child small {
+  margin-left: 5px;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 9px;
+  font-weight: 400;
 }
 
 .comic-panel__generate-btn { flex: 0 0 auto; margin-left: auto; }
@@ -1484,23 +1620,56 @@ function safeFilename(value) {
   display: grid;
   gap: 6px;
   padding-top: 8px;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 44%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
-.comic-panel__direction {
+.comic-panel__direction,
+.comic-panel__beat {
   padding-top: 7px;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
   color: var(--archive-ink-soft, var(--text-secondary));
   font-size: 11px;
 }
 
-.comic-panel__direction summary {
+.comic-panel__direction summary,
+.comic-panel__beat summary {
   display: flex;
   align-items: center;
   min-height: 26px;
   color: var(--archive-ink, var(--text-primary));
   font-weight: 600;
   cursor: pointer;
+}
+
+.comic-panel__beat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding-top: 7px;
+}
+
+.comic-panel__beat-grid label,
+.comic-panel__direction-notes {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comic-panel__beat-grid input,
+.comic-panel__direction-notes input {
+  width: 100%;
+  min-width: 0;
+  min-height: 31px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 20%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+}
+
+.comic-panel__direction-notes {
+  padding-top: 7px;
 }
 
 .comic-panel__direction-grid {
@@ -1519,7 +1688,7 @@ function safeFilename(value) {
 .comic-panel__direction-grid select {
   width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 20%, var(--border));
   border-radius: 4px;
   background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
   color: var(--archive-ink, var(--text-primary));
@@ -1529,20 +1698,21 @@ function safeFilename(value) {
 }
 
 .comic-panel__stage-list {
-  display: flex;
-  gap: 5px;
-  overflow-x: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 4px;
   padding-top: 8px;
 }
 
 .comic-panel__stage {
   display: grid;
-  flex: 1 0 52px;
+  min-width: 0;
   gap: 2px;
-  padding: 5px 6px;
+  padding: 5px 3px;
   border-bottom: 2px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
   color: var(--archive-ink-soft, var(--text-secondary));
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .comic-panel__stage strong { font-size: 10px; color: var(--archive-ink, var(--text-primary)); }
@@ -1590,9 +1760,20 @@ function safeFilename(value) {
 
 .comic-editor__footer {
   padding-top: 10px;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 48%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
   align-items: flex-end;
   flex-wrap: wrap;
+}
+
+.comic-editor__generation-tools {
+  display: grid;
+  gap: 7px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.comic-editor__generation-tools > .comic-action {
+  justify-self: stretch;
 }
 
 .comic-editor__footer-actions {
