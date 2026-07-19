@@ -355,23 +355,6 @@
             </div>
           </template>
 
-          <!-- 右键菜单 -->
-          <div
-            v-if="contextMenu.show"
-            class="context-menu"
-            :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-            @click.stop
-          >
-            <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
-            <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
-            <div class="ctx-divider"></div>
-            <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
-            <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
-            <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
-            <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
-            <div class="ctx-divider"></div>
-            <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
-          </div>
           <div
             v-if="imageContextMenu.show"
             class="context-menu illustration-context-menu"
@@ -603,6 +586,7 @@ import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
 import {
   addNarrativeAsset,
+  buildNarrativeAssetContentHash,
   DEFAULT_IMAGE_PRESENTATION,
   deleteNarrativeAsset,
   getAssetKindLabel,
@@ -652,6 +636,7 @@ const previewRef = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
 const renderedMarkdownContent = ref('')
+const renderedMarkdownSource = ref('')
 const sidekickWorkspace = ref('materials')
 const illustrationPreview = ref(null)
 const comicPagePreview = ref(null)
@@ -751,12 +736,9 @@ function slipStyleFor(slip) {
   return styleFor(slip)
 }
 
-const selectedText = ref('')
-const canUndo = ref(false)
-const canRedo = ref(false)
-const contextMenu = ref({ show: false, x: 0, y: 0 })
 const imageContextMenu = ref({ show: false, x: 0, y: 0 })
 const illustrationSelected = ref(false)
+const selectedIllustrationTarget = ref(null)
 const imageLayoutOptions = [
   { value: 'inline-center', label: '嵌入文字' },
   { value: 'square-left', label: '四周型 · 左侧' },
@@ -822,10 +804,14 @@ function setSidekickWorkspace(workspace) {
 let markdownMediaRenderRevision = 0
 watch(markdownContent, (content) => {
   const revision = ++markdownMediaRenderRevision
+  renderedMarkdownSource.value = content
   renderedMarkdownContent.value = content
   void hydrateMarkdownMediaContent(content).then((hydrated) => {
     if (revision === markdownMediaRenderRevision) {
       renderedMarkdownContent.value = hydrated
+      if (editorMode.value === 'wysiwyg' && document.activeElement !== editorRef.value) {
+        nextTick(renderCurrentEditor)
+      }
     }
   })
 }, { immediate: true })
@@ -862,8 +848,15 @@ const mainVisualPreview = computed(() => {
     presentation: normalizeImagePresentation(image.presentation)
   }
 })
+const activeIllustrationPresentation = computed(() => {
+  const target = selectedIllustrationTarget.value
+  if (target?.source === 'embedded' && target.key) {
+    return normalizeImagePresentation(selectedAsset.value?.embeddedImagePresentations?.[target.key])
+  }
+  return mainVisualPreview.value?.presentation || DEFAULT_IMAGE_PRESENTATION
+})
 const imageLayoutValue = computed(() => {
-  const presentation = mainVisualPreview.value?.presentation || DEFAULT_IMAGE_PRESENTATION
+  const presentation = activeIllustrationPresentation.value
   return `${presentation.wrap}-${presentation.align}`
 })
 watch([
@@ -908,7 +901,44 @@ function imageBaseWidth(wrap) {
   return 42
 }
 
-function setCurrentImagePresentation(presentation) {
+function illustrationTargetFromFigure(figure) {
+  if (!figure) return null
+  return {
+    source: figure.dataset.imageSource === 'embedded' ? 'embedded' : 'primary',
+    key: figure.dataset.imageKey || ''
+  }
+}
+
+function activateIllustrationFigure(figure, root = editorRef.value) {
+  const target = illustrationTargetFromFigure(figure)
+  if (target?.source !== 'embedded' || !target.key || !selectedAsset.value) return target
+  const stored = selectedAsset.value.embeddedImagePresentations?.[target.key]
+  if (!stored) {
+    setCurrentImagePresentation(normalizeImagePresentation({
+      ...DEFAULT_IMAGE_PRESENTATION,
+      anchorOffset: getFigureTextOffset(root, figure)
+    }), target)
+  }
+  return target
+}
+
+function presentationForTarget(target = selectedIllustrationTarget.value) {
+  if (target?.source === 'embedded' && target.key) {
+    return normalizeImagePresentation(selectedAsset.value?.embeddedImagePresentations?.[target.key])
+  }
+  return mainVisualPreview.value?.presentation || null
+}
+
+function setCurrentImagePresentation(presentation, illustrationTarget) {
+  if (illustrationTarget?.source === 'embedded' && illustrationTarget.key) {
+    const asset = selectedAsset.value
+    if (!asset) return null
+    asset.embeddedImagePresentations = {
+      ...(asset.embeddedImagePresentations || {}),
+      [illustrationTarget.key]: presentation
+    }
+    return { type: 'embedded', id: asset.id, key: illustrationTarget.key }
+  }
   const generated = illustrationPreview.value
   if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
     illustrationPreview.value = {
@@ -927,23 +957,32 @@ function persistCurrentImagePresentation(target, presentation) {
   if (!target?.id) return
   if (target.type === 'media') updateMediaImagePresentation(target.id, presentation)
   if (target.type === 'narrative') updateNarrativeImagePresentation(target.id, presentation)
+  if (target.type === 'embedded') {
+    updateNarrativeAsset(target.id, {
+      embeddedImagePresentations: selectedAsset.value?.embeddedImagePresentations || {}
+    })
+  }
 }
 
-function applyImagePresentation(patch = {}, persist = true, refresh = true) {
-  if (!mainVisualPreview.value) return
+function applyImagePresentation(patch = {}, persist = true, refresh = true, illustrationTarget = selectedIllustrationTarget.value) {
+  const currentPresentation = presentationForTarget(illustrationTarget)
+  if (!currentPresentation) return
   const presentation = normalizeImagePresentation({
-    ...mainVisualPreview.value.presentation,
+    ...currentPresentation,
     ...patch
   })
-  const target = setCurrentImagePresentation(presentation)
+  const target = setCurrentImagePresentation(presentation, illustrationTarget)
   if (persist) persistCurrentImagePresentation(target, presentation)
   if (refresh) nextTick(refreshIllustrationSurfaces)
 }
 
 function startIllustrationDrag(event) {
-  if (event.button !== 0 || !mainVisualPreview.value) return
+  if (event.button !== 0) return
   const figure = event.target.closest?.('[data-narrative-illustration]')
   if (!figure) return
+  const target = activateIllustrationFigure(figure, event.currentTarget)
+  const presentation = presentationForTarget(target)
+  if (!presentation) return
   event.preventDefault()
   event.stopPropagation()
   const root = event.currentTarget
@@ -956,12 +995,15 @@ function startIllustrationDrag(event) {
     startClientY: event.clientY,
     startWidth: figure.getBoundingClientRect().width,
     mode,
+    target,
+    presentation,
     moved: false
   }
+  selectedIllustrationTarget.value = target
   illustrationSelected.value = true
   figure.classList.add('is-selected')
   figure.classList.add(mode === 'resize' ? 'is-resizing' : 'is-dragging')
-  root.setPointerCapture?.(event.pointerId)
+  figure.setPointerCapture?.(event.pointerId)
 }
 
 function moveIllustrationDrag(event) {
@@ -971,14 +1013,14 @@ function moveIllustrationDrag(event) {
   illustrationDrag.moved ||= Math.hypot(dx, dy) > 3
   if (illustrationDrag.mode === 'resize') {
     const rootWidth = illustrationDrag.root.getBoundingClientRect().width || 1
-    const basePercent = imageBaseWidth(mainVisualPreview.value.presentation.wrap)
+    const basePercent = imageBaseWidth(illustrationDrag.presentation.wrap)
     const minWidth = rootWidth * basePercent * 0.5 / 100
     const maxWidth = rootWidth * Math.min(100, basePercent * 2) / 100
     const width = Math.min(maxWidth, Math.max(minWidth, illustrationDrag.startWidth + dx))
     illustrationDrag.figure.style.width = `${width}px`
     return
   }
-  const base = ['behind', 'front'].includes(mainVisualPreview.value.presentation.wrap)
+  const base = ['behind', 'front'].includes(illustrationDrag.presentation.wrap)
     ? 'translate(-50%, -50%) '
     : ''
   illustrationDrag.figure.style.transform = `${base}translate(${dx}px, ${dy}px)`
@@ -987,7 +1029,7 @@ function moveIllustrationDrag(event) {
 function finishIllustrationDrag(event) {
   if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
   const drag = illustrationDrag
-  drag.root.releasePointerCapture?.(event.pointerId)
+  drag.figure.releasePointerCapture?.(event.pointerId)
   illustrationDrag = null
   if (!drag.moved) {
     drag.figure.classList.remove('is-dragging')
@@ -996,28 +1038,36 @@ function finishIllustrationDrag(event) {
     return
   }
 
-  const presentation = mainVisualPreview.value.presentation
+  const presentation = drag.presentation
   const rect = drag.root.getBoundingClientRect()
   if (drag.mode === 'resize') {
     const widthPercent = (drag.figure.getBoundingClientRect().width / Math.max(1, rect.width)) * 100
     applyImagePresentation({
       scale: widthPercent / imageBaseWidth(presentation.wrap)
-    }, true)
+    }, true, true, drag.target)
     return
   }
   if (['behind', 'front'].includes(presentation.wrap)) {
     applyImagePresentation({
       positionX: ((event.clientX - rect.left) / rect.width) * 100,
       positionY: ((event.clientY - rect.top) / rect.height) * 100
-    }, true)
+    }, true, true, drag.target)
     return
   }
 
-  const anchorOffset = getTextOffsetFromPoint(drag.root, event.clientX, event.clientY)
+  const previousPointerEvents = drag.figure.style.pointerEvents
+  drag.figure.style.pointerEvents = 'none'
+  const anchorOffset = getTextOffsetFromPoint(
+    drag.root,
+    event.clientX,
+    event.clientY,
+    presentation.anchorOffset
+  )
+  drag.figure.style.pointerEvents = previousPointerEvents
   const align = ['square', 'tight'].includes(presentation.wrap)
     ? (event.clientX < rect.left + rect.width / 2 ? 'left' : 'right')
     : presentation.align
-  applyImagePresentation({ anchorOffset, align }, true)
+  applyImagePresentation({ anchorOffset, align }, true, true, drag.target)
 }
 
 function cancelIllustrationDrag(event) {
@@ -1031,11 +1081,13 @@ function cancelIllustrationDrag(event) {
 function selectIllustrationFromEvent(event) {
   const figure = event.target.closest?.('[data-narrative-illustration]')
   if (!figure) {
+    selectedIllustrationTarget.value = null
     illustrationSelected.value = false
     editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
     return
   }
   event.stopPropagation()
+  selectedIllustrationTarget.value = activateIllustrationFigure(figure)
   illustrationSelected.value = true
   figure.classList.add('is-selected')
 }
@@ -1048,7 +1100,7 @@ function showEditorContextMenu(event) {
   }
   event.preventDefault()
   event.stopPropagation()
-  contextMenu.value.show = false
+  selectedIllustrationTarget.value = activateIllustrationFigure(figure)
   illustrationSelected.value = true
   figure.classList.add('is-selected')
   imageContextMenu.value = {
@@ -1062,11 +1114,14 @@ function setImageLayout(value) {
   const separator = value.lastIndexOf('-')
   const wrap = value.slice(0, separator)
   const align = value.slice(separator + 1)
-  applyImagePresentation({
-    wrap,
-    align,
-    anchorOffset: getCurrentEditorCaretOffset() ?? mainVisualPreview.value.presentation.anchorOffset
-  }, true)
+  const target = selectedIllustrationTarget.value
+  const current = presentationForTarget(target)
+  if (!current) return
+  const patch = { wrap, align }
+  if (target?.source !== 'embedded') {
+    patch.anchorOffset = getCurrentEditorCaretOffset() ?? current.anchorOffset
+  }
+  applyImagePresentation(patch, true, true, target)
 }
 
 function chooseImageLayout(value) {
@@ -1354,6 +1409,9 @@ function selectChapter(chapterId) {
   if (selectedChapterId.value && selectedChapterId.value !== chapterId) {
     saveCurrentChapter()
   }
+  selectedIllustrationTarget.value = null
+  illustrationSelected.value = false
+  imageContextMenu.value.show = false
   selectedChapterId.value = chapterId
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
@@ -1389,14 +1447,34 @@ async function migrateSelectedChapterMarkdownMedia(chapter, sourceMarkdown) {
   editorContent.value = markdownToHtml(result.content)
   chapter.content = result.content
   chapter.contentFormat = 'md'
+  chapter.embeddedImagePresentations = remapEmbeddedImagePresentations(
+    chapter.embeddedImagePresentations,
+    sourceMarkdown,
+    result.content
+  )
   updateNarrativeAsset(chapter.id, {
     content: result.content,
-    contentFormat: 'md'
+    contentFormat: 'md',
+    embeddedImagePresentations: chapter.embeddedImagePresentations
   })
   nextTick(() => {
     renderCurrentEditor()
     renderPreviewSurface()
   })
+}
+
+function remapEmbeddedImagePresentations(presentations, previousMarkdown, nextMarkdown) {
+  const current = presentations && typeof presentations === 'object' ? presentations : {}
+  const previous = markdownImageDescriptors(previousMarkdown)
+  const next = markdownImageDescriptors(nextMarkdown)
+  const remapped = { ...current }
+  previous.forEach((descriptor, index) => {
+    const replacement = next[index]
+    if (!replacement || replacement.key === descriptor.key || !current[descriptor.key]) return
+    remapped[replacement.key] = current[descriptor.key]
+    delete remapped[descriptor.key]
+  })
+  return remapped
 }
 
 function createNewNote() {
@@ -2214,48 +2292,6 @@ function onTextAreaKeydown(e) {
   }
 }
 
-function showContextMenu(e) {
-  if (editorMode.value !== 'wysiwyg') return
-  const sel = window.getSelection()
-  selectedText.value = sel ? sel.toString() : ''
-  const rect = editorRef.value.getBoundingClientRect()
-  contextMenu.value = {
-    show: true,
-    x: Math.min(e.clientX, rect.right - 160),
-    y: Math.min(e.clientY, rect.bottom - 10)
-  }
-}
-
-function ctxAction(action) {
-  if (editorMode.value !== 'wysiwyg') return
-  const editor = editorRef.value
-  if (!editor) return
-  editor.focus()
-
-  switch (action) {
-    case 'undo': document.execCommand('undo'); break
-    case 'redo': document.execCommand('redo'); break
-    case 'cut':
-      document.execCommand('cut')
-      selectedText.value = ''
-      break
-    case 'copy':
-      document.execCommand('copy')
-      break
-    case 'paste':
-      document.execCommand('paste')
-      break
-    case 'delete':
-      document.execCommand('delete')
-      onContentChange()
-      break
-    case 'selectAll':
-      document.execCommand('selectAll')
-      break
-  }
-  contextMenu.value.show = false
-}
-
 function applyStyleToRange(styleMap) {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) return
@@ -2315,7 +2351,7 @@ function syncFromCurrentEditor() {
   if (editorMode.value === 'wysiwyg' && editorRef.value) {
     const anchorOffset = getIllustrationAnchorOffset(editorRef.value)
     if (anchorOffset !== null && mainVisualPreview.value) {
-      applyImagePresentation({ anchorOffset }, false, false)
+      applyImagePresentation({ anchorOffset }, false, false, { source: 'primary', key: '' })
     }
     const cleanHtml = getEditorHtmlWithoutIllustration(editorRef.value)
     markdownContent.value = htmlToMarkdown(cleanHtml)
@@ -2329,7 +2365,10 @@ function syncFromCurrentEditor() {
 
 function renderCurrentEditor() {
   if (editorMode.value !== 'wysiwyg' || !editorRef.value) return
-  editorRef.value.innerHTML = editorContent.value || ''
+  const renderSource = renderedMarkdownSource.value === markdownContent.value
+    ? renderedMarkdownContent.value
+    : markdownContent.value
+  editorRef.value.innerHTML = markdownToHtml(renderSource)
   injectIllustrationIntoSurface(editorRef.value, true)
 }
 
@@ -2341,7 +2380,21 @@ function renderPreviewSurface() {
 
 function getEditorHtmlWithoutIllustration(root) {
   const clone = root.cloneNode(true)
-  clone.querySelectorAll('[data-narrative-illustration]').forEach((element) => element.remove())
+  clone.querySelectorAll('[data-narrative-illustration]').forEach((element) => {
+    if (element.dataset.imageSource !== 'embedded') {
+      element.remove()
+      return
+    }
+    const image = element.querySelector('img')
+    if (!image) {
+      element.remove()
+      return
+    }
+    const markdownSrc = image.dataset.markdownSrc
+    if (markdownSrc) image.setAttribute('src', markdownSrc)
+    image.removeAttribute('data-markdown-src')
+    element.replaceWith(image)
+  })
   return sanitizeHtml(clone.innerHTML)
 }
 
@@ -2355,22 +2408,86 @@ function refreshIllustrationSurfaces() {
 }
 
 function injectIllustrationIntoSurface(root, interactive) {
-  root.querySelectorAll('[data-narrative-illustration]').forEach((element) => element.remove())
+  root.querySelectorAll('[data-image-source="primary"]').forEach((element) => element.remove())
+  restoreEmbeddedIllustrations(root)
+  enhanceEmbeddedIllustrations(root, interactive)
+
   const visual = mainVisualPreview.value
   if (!visual?.data || (sidekickWorkspace.value === 'comic' && comicPagePreview.value)) return
 
   const presentation = visual.presentation
+  const image = document.createElement('img')
+  image.src = visual.data
+  image.alt = visual.alt
+  const figure = createIllustrationFigure({
+    image,
+    presentation,
+    interactive,
+    source: 'primary',
+    label: visual.label
+  })
+  insertIllustrationAtTextOffset(root, figure, presentation.anchorOffset, presentation.wrap)
+}
+
+function restoreEmbeddedIllustrations(root) {
+  root.querySelectorAll('[data-image-source="embedded"]').forEach((figure) => {
+    const image = figure.querySelector('img')
+    if (!image) {
+      figure.remove()
+      return
+    }
+    figure.replaceWith(image)
+  })
+}
+
+function enhanceEmbeddedIllustrations(root, interactive) {
+  const descriptors = markdownImageDescriptors(markdownContent.value)
+  const images = [...root.querySelectorAll('img')]
+    .filter((image) => !image.closest('[data-narrative-illustration]'))
+  images.forEach((image, index) => {
+    const existingKey = image.dataset.imageKey || ''
+    const descriptor = descriptors.find((item) => item.key === existingKey)
+      || descriptors[index]
+      || fallbackImageDescriptor(image, index)
+    const storedPresentation = selectedAsset.value?.embeddedImagePresentations?.[descriptor.key]
+    const presentation = normalizeImagePresentation(storedPresentation)
+    image.dataset.markdownSrc = descriptor.href
+    image.dataset.imageKey = descriptor.key
+    image.draggable = false
+    const figure = createIllustrationFigure({
+      image,
+      presentation,
+      interactive,
+      source: 'embedded',
+      key: descriptor.key,
+      label: descriptor.alt || image.alt || '正文图片'
+    })
+    image.replaceWith(figure)
+    figure.insertBefore(image, figure.firstChild)
+    if (storedPresentation) {
+      insertIllustrationAtTextOffset(root, figure, presentation.anchorOffset, presentation.wrap)
+    }
+  })
+}
+
+function createIllustrationFigure({ image, presentation, interactive, source, key = '', label }) {
   const figure = document.createElement(presentation.wrap === 'inline' ? 'span' : 'figure')
+  const selectedTarget = selectedIllustrationTarget.value
+  const selected = illustrationSelected.value
+    && selectedTarget?.source === source
+    && (source !== 'embedded' || selectedTarget.key === key)
   figure.dataset.narrativeIllustration = 'true'
+  figure.dataset.imageSource = source
+  if (key) figure.dataset.imageKey = key
   figure.contentEditable = 'false'
   figure.className = [
     'narrative-illustration',
     `illustration-wrap--${presentation.wrap}`,
     `illustration-align--${presentation.align}`,
     interactive ? 'is-editable' : '',
-    interactive && illustrationSelected.value ? 'is-selected' : ''
+    interactive && selected ? 'is-selected' : ''
   ].filter(Boolean).join(' ')
-  figure.setAttribute('aria-label', `${visual.label}，${layoutLabel(presentation)}`)
+  figure.setAttribute('aria-label', `${label}，${layoutLabel(presentation)}`)
   if (interactive) figure.title = '拖动图片移动，拖动右下角缩放，右键设置文字环绕'
 
   const baseWidth = imageBaseWidth(presentation.wrap)
@@ -2381,16 +2498,13 @@ function injectIllustrationIntoSurface(root, interactive) {
     figure.style.top = `${presentation.positionY}%`
   }
   if (presentation.wrap === 'tight') {
-    figure.style.shapeOutside = `url(${JSON.stringify(visual.data)})`
+    figure.style.shapeOutside = `url(${JSON.stringify(image.src)})`
     figure.style.shapeImageThreshold = '0.12'
     figure.style.shapeMargin = `${presentation.textGap}px`
   }
 
-  const image = document.createElement('img')
-  image.src = visual.data
-  image.alt = visual.alt
   image.draggable = false
-  figure.appendChild(image)
+  if (source === 'primary') figure.appendChild(image)
   if (interactive) {
     const resizeHandle = document.createElement('span')
     resizeHandle.dataset.illustrationResize = 'true'
@@ -2398,7 +2512,47 @@ function injectIllustrationIntoSurface(root, interactive) {
     resizeHandle.setAttribute('aria-hidden', 'true')
     figure.appendChild(resizeHandle)
   }
-  insertIllustrationAtTextOffset(root, figure, presentation.anchorOffset, presentation.wrap)
+  return figure
+}
+
+function markdownImageDescriptors(markdown) {
+  const descriptors = []
+  const occurrences = new Map()
+  const visit = (tokens = []) => {
+    tokens.forEach((token) => {
+      if (token?.type === 'image') {
+        const href = String(token.href || '')
+        const mediaId = href.match(/^pinax-media:\/\/([a-zA-Z0-9_-]+)/)?.[1]
+        const baseKey = mediaId
+          ? `media:${mediaId}`
+          : `src:${buildNarrativeAssetContentHash(href)}`
+        const occurrence = occurrences.get(baseKey) || 0
+        occurrences.set(baseKey, occurrence + 1)
+        descriptors.push({
+          key: occurrence === 0 ? baseKey : `${baseKey}:${occurrence}`,
+          href,
+          alt: String(token.text || '')
+        })
+      }
+      if (Array.isArray(token?.tokens)) visit(token.tokens)
+      if (Array.isArray(token?.items)) token.items.forEach((item) => visit(item.tokens || []))
+    })
+  }
+  try {
+    visit(marked.lexer(String(markdown || '')))
+  } catch {
+    return []
+  }
+  return descriptors
+}
+
+function fallbackImageDescriptor(image, index) {
+  const href = image.getAttribute('src') || ''
+  return {
+    key: `src:${buildNarrativeAssetContentHash(href)}:${index}`,
+    href,
+    alt: image.alt || ''
+  }
 }
 
 function insertIllustrationAtTextOffset(root, figure, requestedOffset, wrap) {
@@ -2442,15 +2596,20 @@ function findTextAnchor(root, requestedOffset) {
 }
 
 function getIllustrationAnchorOffset(root) {
-  const figure = root.querySelector('[data-narrative-illustration]')
+  const figure = root.querySelector('[data-image-source="primary"]')
   if (!figure || ['behind', 'front'].includes(mainVisualPreview.value?.presentation.wrap)) return null
+  return getFigureTextOffset(root, figure)
+}
+
+function getFigureTextOffset(root, figure) {
+  if (!root || !figure) return 0
   try {
     const range = document.createRange()
     range.setStart(root, 0)
     range.setEndBefore(figure)
     return range.toString().length
   } catch {
-    return null
+    return 0
   }
 }
 
@@ -2470,7 +2629,7 @@ function getCurrentEditorCaretOffset() {
   }
 }
 
-function getTextOffsetFromPoint(root, clientX, clientY) {
+function getTextOffsetFromPoint(root, clientX, clientY, fallbackOffset = 0) {
   let node = null
   let offset = 0
   const caretPosition = document.caretPositionFromPoint?.(clientX, clientY)
@@ -2484,14 +2643,14 @@ function getTextOffsetFromPoint(root, clientX, clientY) {
       offset = caretRange.startOffset
     }
   }
-  if (!node || !root.contains(node)) return mainVisualPreview.value.presentation.anchorOffset
+  if (!node || !root.contains(node)) return fallbackOffset
   try {
     const range = document.createRange()
     range.setStart(root, 0)
     range.setEnd(node, offset)
     return range.toString().length
   } catch {
-    return mainVisualPreview.value.presentation.anchorOffset
+    return fallbackOffset
   }
 }
 
@@ -2566,8 +2725,8 @@ function setSelectionByTextOffsets(start, end) {
 
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
-  contextMenu.value.show = false
   imageContextMenu.value.show = false
+  selectedIllustrationTarget.value = null
   illustrationSelected.value = false
   editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
   showFontPanel.value = false
@@ -3169,11 +3328,11 @@ function syncSelectionCommandState() {
 
 .prose-rich-editor :deep(.illustration-resize-handle) {
   position: absolute;
-  right: -5px;
-  bottom: -5px;
+  right: 3px;
+  bottom: 3px;
   display: none;
-  width: 9px;
-  height: 9px;
+  width: 12px;
+  height: 12px;
   border: 1px solid var(--archive-olive);
   border-radius: 1px;
   background: var(--archive-paper-soft);

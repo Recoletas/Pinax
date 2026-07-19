@@ -105,6 +105,7 @@ export function createNarrativeAsset(input = {}) {
     content,
     status: normalizeStatus(input.status),
     image: normalizeImage(input.image),
+    embeddedImagePresentations: normalizeEmbeddedImagePresentations(input.embeddedImagePresentations),
     createdAt: input.createdAt || now,
     updatedAt: input.updatedAt || now
   }
@@ -216,6 +217,9 @@ export function updateNarrativeAsset(assetId, patch = {}) {
         ? normalizeSourceRefs(patch.sourceRefs, { source, projectId })
         : (Array.isArray(asset.sourceRefs) ? asset.sourceRefs : normalizeSourceRefs([], { source, projectId })),
       image: patch.image !== undefined ? normalizeImage(patch.image) : asset.image,
+      embeddedImagePresentations: patch.embeddedImagePresentations !== undefined
+        ? normalizeEmbeddedImagePresentations(patch.embeddedImagePresentations)
+        : normalizeEmbeddedImagePresentations(asset.embeddedImagePresentations),
       contentHash: patch.content !== undefined
         ? buildNarrativeAssetContentHash(content)
         : (asset.contentHash || buildNarrativeAssetContentHash(content)),
@@ -515,6 +519,17 @@ export function normalizeImagePresentation(presentation = {}) {
     textGap: clampNumber(source.textGap, 0, 48, DEFAULT_IMAGE_PRESENTATION.textGap),
     anchorOffset: Math.round(clampNumber(source.anchorOffset, 0, Number.MAX_SAFE_INTEGER, 0))
   }
+}
+
+function normalizeEmbeddedImagePresentations(presentations = {}) {
+  if (!presentations || typeof presentations !== 'object' || Array.isArray(presentations)) return {}
+  const normalized = {}
+  Object.entries(presentations).slice(0, 32).forEach(([rawKey, presentation]) => {
+    const key = String(rawKey || '').trim().slice(0, 160)
+    if (!key) return
+    normalized[key] = normalizeImagePresentation(presentation)
+  })
+  return normalized
 }
 
 function clampNumber(value, min, max, fallback) {

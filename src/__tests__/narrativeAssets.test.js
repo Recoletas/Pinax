@@ -40,6 +40,10 @@ describe('narrativeAssets', () => {
     const asset = createNarrativeAsset({
       content: '  第一段正文候选  ',
       kind: 'draft-prose',
+      embeddedImagePresentations: {
+        'media:image-a': { wrap: 'tight', align: 'left', scale: 4 },
+        '': { wrap: 'front' }
+      },
       source: {
         type: 'experience-session',
         id: 'session-a',
@@ -53,6 +57,9 @@ describe('narrativeAssets', () => {
     expect(asset.title).toBe('第一段正文候选')
     expect(asset.content).toBe('第一段正文候选')
     expect(asset.source.messageIds).toEqual(['m1'])
+    expect(asset.embeddedImagePresentations).toEqual({
+      'media:image-a': expect.objectContaining({ wrap: 'tight', align: 'left', scale: 2 })
+    })
     expect(normalizeImagePresentation({ fit: 'cover', scale: 4, positionX: -20, positionY: 75 })).toEqual({
       fit: 'cover',
       scale: 2,
@@ -208,8 +215,18 @@ describe('narrativeAssets', () => {
   })
 
   it('permanently deletes an asset instead of archiving it', () => {
-    const first = addNarrativeAsset({ content: '要删除的素材', kind: 'inspiration' })
+    const first = addNarrativeAsset({
+      content: '要删除的素材',
+      kind: 'inspiration',
+      embeddedImagePresentations: { 'media:image-a': { wrap: 'square', align: 'left' } }
+    })
     const second = addNarrativeAsset({ content: '保留的素材', kind: 'event' })
+    const updated = updateNarrativeAsset(first.id, {
+      embeddedImagePresentations: { 'media:image-a': { wrap: 'top-bottom', align: 'right', scale: 0.2 } }
+    })
+
+    expect(updated.embeddedImagePresentations['media:image-a'])
+      .toMatchObject({ wrap: 'top-bottom', align: 'right', scale: 0.5 })
 
     const deleted = deleteNarrativeAsset(first.id)
 
