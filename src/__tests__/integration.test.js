@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
+import ComicPagePreview from '../components/media/ComicPagePreview.vue'
 import {
   buildSystemPrompt,
   buildPromptSequence,
@@ -55,6 +56,12 @@ import {
   updateComicPanelStage,
   updateComicVisualBible
 } from '../services/media/comicPageStore'
+import {
+  getComicImageStyle,
+  getComicPanelImageSize,
+  getComicPanelRects,
+  getDefaultComicPanelFrame
+} from '../services/media/comicLayout'
 import {
   buildComicScriptMessages,
   parseComicScript
@@ -290,16 +297,27 @@ describe('Media services', () => {
       direction: { shotSize: null, cameraAngle: null, perspective: null },
       production: { rough: { status: 'empty' }, render: { status: 'empty' } }
     })
+    expect(createComicPage({
+      ...comicPage,
+      id: 'legacy-lettering-style',
+      panels: [{
+        ...comicPage.panels[0],
+        letteringObjects: [{ id: 'legacy-lettering', type: 'speech', text: '旧对白', style: null }]
+      }]
+    }).panels[0].letteringObjects[0].style).toEqual({
+      fontFamily: 'display', fontSize: 22, fontWeight: 600, textAlign: 'center'
+    })
     saveComicPage(comicPage)
     const withTake = addComicPanelTake(comicPage.id, comicPage.panels[0].id, media.id, { select: true })
     expect(withTake.panels[0].selectedTakeId).toBe(media.id)
     const directed = updateComicPanel(comicPage.id, comicPage.panels[0].id, {
-      direction: { shotSize: 'close', cameraAngle: 'low', perspective: 'one-point' }
+      direction: { shotSize: 'close', cameraAngle: 'low', perspective: 'one-point', focalPoint: { x: 0.32, y: 0.68 }, zoom: 1.4 }
     })
     expect(directed.panels[0]).toMatchObject({
-      direction: { revision: 2, shotSize: 'close', cameraAngle: 'low' },
+      direction: { revision: 2, shotSize: 'close', cameraAngle: 'low', focalPoint: { x: 0.32, y: 0.68 }, zoom: 1.4 },
       production: { render: { status: 'stale', staleReason: '分镜构图已更新' } }
     })
+    expect(createComicPage({ ...comicPage, panels: [{ ...comicPage.panels[0], direction: { zoom: 0.65 } }] }).panels[0].direction.zoom).toBe(0.65)
     const staged = updateComicPanelStage(comicPage.id, comicPage.panels[0].id, 'rough', {
       artifactIds: ['rough-1'],
       selectedArtifactId: 'rough-1',
@@ -322,6 +340,24 @@ describe('Media services', () => {
     })
     expect(JSON.stringify(manifest)).not.toContain('data:image')
     expect(createComicPage({ ...comicPage, id: 'feature-layout', layout: 'feature-4' }).layout).toBe('feature-4')
+    const featureRects = getComicPanelRects('feature-6', 1200, 1600, 6)
+    expect(featureRects).toHaveLength(6)
+    expect(featureRects[0].width).toBeGreaterThan(featureRects[1].width)
+    expect(featureRects[5].y).toBeGreaterThan(featureRects[3].y)
+    expect(getComicPanelImageSize({ ...comicPage, layout: 'feature-4' }, 2)).toEqual({ width: 720, height: 1280 })
+    expect(getDefaultComicPanelFrame('feature-6', 6, 6).points[0].y).toBeGreaterThan(0.7)
+    const coverTransform = getComicImageStyle(
+      { ...comicPage, layout: 'feature-4' },
+      { ...comicPage.panels[0], direction: { zoom: 1, focalPoint: { x: 0.5, y: 0.5 } } },
+      { width: 1200, height: 675 }
+    ).transform
+    const revealTransform = getComicImageStyle(
+      { ...comicPage, layout: 'feature-4' },
+      { ...comicPage.panels[0], direction: { zoom: 0.5, focalPoint: { x: 0.5, y: 0.5 } } },
+      { width: 1200, height: 675 }
+    ).transform
+    expect(Number(coverTransform.match(/scale\(([^)]+)/)?.[1])).toBeGreaterThan(1)
+    expect(Number(revealTransform.match(/scale\(([^)]+)/)?.[1])).toBeLessThan(1)
 
     const imageRequest = buildComicPanelImageRequest({
       page: comicPage,
@@ -330,12 +366,14 @@ describe('Media services', () => {
       sourceTitle: '雨夜来客',
       sourceText: '雨夜，旅人进入酒馆。他问：“还有房间吗？”掌柜注意到他袖口的泥。',
       providerType: 'minimax_image',
-      previousImageData: 'data:image/png;base64,YWJj'
+      previousImageData: 'data:image/png;base64,YWJj',
+      targetAspect: '3:4'
     })
     expect(imageRequest.prompt).toContain('单幅')
     expect(imageRequest.prompt).toContain('雨夜来客')
     expect(imageRequest.prompt).toContain('连续性优先')
     expect(imageRequest.prompt).toContain('上一镜锚点')
+    expect(imageRequest.prompt).toContain('目标画幅：3:4')
     expect(imageRequest.prompt).not.toContain('还有房间吗')
     expect(imageRequest.prompt).not.toContain('拼贴')
     expect(imageRequest.prompt).not.toContain('气泡')
@@ -372,11 +410,64 @@ describe('Media services', () => {
     expect(comicEditor.findAll('.comic-lettering-overlay')).toHaveLength(1)
     expect(comicEditor.find('.comic-lettering-overlay').text()).toBe('夜深')
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects)
-      .toEqual([expect.objectContaining({ type: 'caption', text: '夜深' })])
+      .toEqual([expect.objectContaining({
+        type: 'caption',
+        text: '夜深',
+        style: { fontFamily: 'display', fontSize: 22, fontWeight: 600, textAlign: 'left' }
+      })])
+    await comicEditor.get('select[aria-label="字体"]').setValue('rounded')
+    await comicEditor.get('input[aria-label="字号"]').setValue(37)
+    await comicEditor.get('select[aria-label="字重"]').setValue('800')
+    await comicEditor.get('select[aria-label="文字对齐"]').setValue('right')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects[0].style)
+      .toEqual({ fontFamily: 'rounded', fontSize: 37, fontWeight: 800, textAlign: 'right' })
+    expect(comicEditor.findAll('.comic-lettering-overlay__handle')).toHaveLength(8)
     await comicEditor.get('.comic-editor__workspace-tabs button:first-child').trigger('click')
     expect(comicEditor.text()).toContain('视觉连续性')
     expect(comicEditor.text()).toContain('页级节拍与连续性')
+    expect(comicEditor.find('.comic-editor__planning-overview').exists()).toBe(true)
     comicEditor.unmount()
+
+    const editablePreview = mount(ComicPagePreview, {
+      props: {
+        page: createComicPage({
+          ...comicPage,
+          id: 'editable-preview',
+          panels: [{
+            ...comicPage.panels[0],
+            letteringObjects: [{
+              id: 'preview-lettering',
+              type: 'speech',
+              text: '可以直接调整',
+              box: [0.5, 0.08, 0.42, 0.18]
+            }]
+          }]
+        }),
+        editableLettering: true
+      }
+    })
+    const previewPanel = editablePreview.get('.comic-page-preview__panel')
+    previewPanel.element.getBoundingClientRect = () => ({
+      x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 300, width: 400, height: 300
+    })
+    const previewLettering = editablePreview.get('.comic-page-preview__lettering')
+    expect(previewLettering.element.tagName).toBe('BUTTON')
+    expect(editablePreview.findAll('.comic-page-preview__lettering-handle')).toHaveLength(8)
+    const dispatchPointer = (type, clientX, clientY) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY })
+      Object.defineProperty(event, 'pointerId', { value: 4 })
+      previewLettering.element.dispatchEvent(event)
+    }
+    dispatchPointer('pointerdown', 250, 50)
+    dispatchPointer('pointermove', 210, 80)
+    dispatchPointer('pointerup', 210, 80)
+    await flushPromises()
+    expect(editablePreview.emitted('update-lettering-box')?.[0]?.[0]).toMatchObject({
+      panelId: comicPage.panels[0].id,
+      objectId: 'preview-lettering',
+      box: [0.4, 0.18, 0.42, 0.18]
+    })
+    editablePreview.unmount()
 
     updateComicPanel(comicPage.id, comicPage.panels[0].id, { visual: '' })
     const standaloneEditor = mount(ComicPageEditor, {

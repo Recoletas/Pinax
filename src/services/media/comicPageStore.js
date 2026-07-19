@@ -1,6 +1,7 @@
 import { STORAGE_KEYS } from '../../composables/useStorage'
 import { normalizeSourceRefs } from '../narrativeAssets'
-import { getMediaAssetDataUrl } from './mediaAssetStore'
+import { getDefaultComicPanelFrame } from './comicLayout'
+import { getMediaAssetDataUrl, listMediaAssets } from './mediaAssetStore'
 
 export const COMIC_PAGE_SCHEMA_VERSION = 3
 export const COMIC_PRODUCTION_STAGES = Object.freeze(['rough', 'line', 'flats', 'tones', 'render', 'effects'])
@@ -171,6 +172,7 @@ export function addComicPanelTake(pageId, panelId, mediaAssetId, options = {}) {
 export async function hydrateComicPageTakes(input = {}, options = {}) {
   const page = createComicPage(input)
   const dataById = new Map()
+  const metadataById = new Map(listMediaAssets({}, options).map((asset) => [asset.id, asset]))
   const takeIds = [...new Set(page.panels.flatMap((panel) => panel.imageTakeIds))]
   await Promise.all(takeIds.map(async (takeId) => {
     try {
@@ -186,7 +188,12 @@ export async function hydrateComicPageTakes(input = {}, options = {}) {
       ...panel,
       imageTakes: panel.imageTakeIds
         .filter((takeId) => dataById.has(takeId))
-        .map((takeId) => ({ id: takeId, data: dataById.get(takeId) }))
+        .map((takeId) => ({
+          id: takeId,
+          data: dataById.get(takeId),
+          width: metadataById.get(takeId)?.width || 0,
+          height: metadataById.get(takeId)?.height || 0
+        }))
     }))
   }
 }
@@ -206,7 +213,7 @@ function normalizePanel(input = {}, fallbackOrder, context) {
     order: normalizePositiveInteger(input.order, fallbackOrder),
     visual: String(input.visual || '').trim(),
     beat: normalizeBeat(input.beat),
-    frame: normalizeFrame(input.frame || defaultPanelFrame(context.layout, fallbackOrder, context.panelCount)),
+    frame: normalizeFrame(input.frame || getDefaultComicPanelFrame(context.layout, fallbackOrder, context.panelCount)),
     direction: normalizeDirection(input.direction),
     dialogue: normalizeDialogue(input.dialogue),
     caption: String(input.caption || '').trim(),
@@ -344,6 +351,7 @@ function normalizeDirection(input = {}) {
     cameraAngle: VALID_CAMERA_ANGLES.has(input.cameraAngle) ? input.cameraAngle : null,
     perspective: VALID_PERSPECTIVES.has(input.perspective) ? input.perspective : null,
     focalPoint: normalizePoint(input.focalPoint),
+    zoom: normalizeRangeNumber(input.zoom, 0.5, 3, 1),
     horizonY: input.horizonY === null || input.horizonY === undefined ? null : normalizeUnitNumber(input.horizonY, 0.5),
     blocking: Array.isArray(input.blocking) ? input.blocking.slice(0, 20) : [],
     motionVectors: Array.isArray(input.motionVectors) ? input.motionVectors.slice(0, 20) : [],
@@ -370,9 +378,26 @@ function normalizeLetteringObjects(objects) {
     text: normalizeText(object.text),
     box: Array.isArray(object.box) ? object.box.slice(0, 4).map((value) => normalizeUnitNumber(value, 0)) : null,
     tailTarget: normalizePoint(object.tailTarget),
-    style: object.style && typeof object.style === 'object' ? { ...object.style } : {},
+    style: normalizeLetteringStyle(object.style, object.type),
     zIndex: Number.isFinite(Number(object.zIndex)) ? Number(object.zIndex) : 0
   })).filter((object) => object.text)
+}
+
+function normalizeLetteringStyle(input = {}, type = 'speech') {
+  const source = input && typeof input === 'object' ? input : {}
+  const fontFamily = ['display', 'kai', 'serif', 'sans', 'rounded', 'mono'].includes(source.fontFamily) ? source.fontFamily : 'display'
+  const fontWeight = [400, 600, 800].includes(Number(source.fontWeight))
+    ? Number(source.fontWeight)
+    : type === 'sfx' ? 800 : 600
+  const textAlign = ['left', 'center', 'right'].includes(source.textAlign)
+    ? source.textAlign
+    : type === 'caption' ? 'left' : 'center'
+  return {
+    fontFamily,
+    fontSize: normalizeRangeNumber(source.fontSize, 10, 72, type === 'sfx' ? 32 : 22),
+    fontWeight,
+    textAlign
+  }
 }
 
 function normalizeFormat(value) {
@@ -410,47 +435,6 @@ function normalizeVisualBibleRefs(input) {
   }).filter(Boolean)
 }
 
-function defaultPanelFrame(layout, order, panelCount) {
-  const margin = 0.028
-  const gap = 0.012
-  const width = 1 - margin * 2
-  const height = 1 - margin * 2
-  const halfWidth = (width - gap) / 2
-  let rect
-
-  if (layout === 'feature-4' && order === 1) {
-    rect = [margin, margin, width, height * 0.34]
-  } else if (layout === 'feature-4' && order > 1) {
-    const heroHeight = height * 0.34
-    const lowerY = margin + heroHeight + gap
-    const lowerHeight = height - heroHeight - gap
-    const rightHeight = (lowerHeight - gap) / 2
-    rect = order === 2
-      ? [margin, lowerY, halfWidth, lowerHeight]
-      : [margin + halfWidth + gap, lowerY + (order - 3) * (rightHeight + gap), halfWidth, rightHeight]
-  } else {
-    const rows = panelCount >= 6 ? 3 : 2
-    const rowHeight = (height - gap * (rows - 1)) / rows
-    const index = Math.max(0, order - 1)
-    rect = [
-      margin + (index % 2) * (halfWidth + gap),
-      margin + Math.floor(index / 2) * (rowHeight + gap),
-      halfWidth,
-      rowHeight
-    ]
-  }
-
-  const [x, y, rectWidth, rectHeight] = rect || [margin, margin, width, height]
-  return {
-    kind: 'rect',
-    gutter: gap,
-    points: [
-      { x, y }, { x: x + rectWidth, y },
-      { x: x + rectWidth, y: y + rectHeight }, { x, y: y + rectHeight }
-    ]
-  }
-}
-
 function normalizePoint(value) {
   if (!value || !Number.isFinite(Number(value.x)) || !Number.isFinite(Number(value.y))) return null
   return { x: normalizeUnitNumber(value.x, 0), y: normalizeUnitNumber(value.y, 0) }
@@ -464,6 +448,11 @@ function normalizeUnitNumber(value, fallback) {
 function normalizeFiniteNumber(value, fallback) {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
+}
+
+function normalizeRangeNumber(value, min, max, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback
 }
 
 function normalizeStringList(values, limit = 40) {

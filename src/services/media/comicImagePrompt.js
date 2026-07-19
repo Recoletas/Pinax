@@ -12,7 +12,8 @@ export function buildComicPanelImageRequest({
   sourceTitle = '',
   sourceText = '',
   providerType = '',
-  previousImageData = ''
+  previousImageData = '',
+  targetAspect = ''
 } = {}) {
   const sourceContext = stripVerbatimDialogue(sourceText)
   const continuity = buildPageContinuity(page)
@@ -30,6 +31,7 @@ export function buildComicPanelImageRequest({
     `当前镜头：${clip(panel.visual, 340) || '从原素材中选择与上一镜衔接的下一瞬间。'}`,
     currentBeat ? `剧情推进：${clip(currentBeat, 160)}` : '',
     direction ? `摄影设计：${direction}` : '',
+    targetAspect ? `目标画幅：${clip(targetAspect, 24)}；主体、动作和关键道具完整落在画面内，并在边缘保留少量安全空间。` : '',
     '交付为一张自然完整、纯视觉的单幅画面，不带版面元素。'
   ].filter(Boolean).join('\n').slice(0, PROMPT_LIMIT)
 

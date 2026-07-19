@@ -20,6 +20,7 @@ const modelConfigs = ref([])
 const selectedModelId = ref('')
 const selectedSourceId = ref('')
 const archiveStatus = ref('')
+const comicEditor = ref(null)
 
 const activePage = computed(() => comicPages.value.find((page) => page.id === activePageId.value) || null)
 const selectedSource = computed(() => sourceCandidates.value.find((asset) => asset.id === selectedSourceId.value) || null)
@@ -91,6 +92,10 @@ function handlePageSaved(page) {
   if (!page?.id) return
   refreshPages(page.id)
   pagePreview.value = page
+}
+
+function updatePreviewLettering(payload) {
+  comicEditor.value?.updateLetteringBox(payload.panelId, payload.objectId, payload.box)
 }
 
 async function savePanelAsMaterial(entry) {
@@ -175,10 +180,14 @@ async function savePanelAsMaterial(entry) {
         <div class="comic-studio__canvas-stage">
           <div v-if="pagePreview" class="comic-studio__canvas-inner">
           <header>
-            <span>整页预览</span>
+            <span>整页编辑</span>
             <strong>{{ pagePreview.title || '未命名漫画页' }}</strong>
           </header>
-          <ComicPagePreview :page="pagePreview" />
+          <ComicPagePreview
+            :page="pagePreview"
+            editable-lettering
+            @update-lettering-box="updatePreviewLettering"
+          />
           </div>
           <div v-else class="comic-studio__empty-canvas">
             <strong>新漫画页</strong>
@@ -222,6 +231,7 @@ async function savePanelAsMaterial(entry) {
         </nav>
         <div class="comic-studio__inspector-body">
           <ComicPageEditor
+          ref="comicEditor"
           :key="activePageId || 'new-page'"
           standalone
           compact
@@ -301,7 +311,7 @@ async function savePanelAsMaterial(entry) {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 260px minmax(380px, 1fr) 340px;
+  grid-template-columns: 220px minmax(420px, 1fr) 320px;
   overflow: hidden;
 }
 
@@ -375,8 +385,8 @@ async function savePanelAsMaterial(entry) {
   background: color-mix(in srgb, var(--archive-paper-soft) 56%, transparent);
 }
 
-.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 22px; overflow: auto; }
-.comic-studio__canvas-inner { width: min(100%, 720px); display: grid; gap: 10px; justify-items: center; }
+.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px; overflow: auto; }
+.comic-studio__canvas-inner { width: min(100%, 920px); display: grid; gap: 8px; justify-items: center; }
 .comic-studio__canvas-inner > header { width: 100%; display: flex; justify-content: space-between; gap: 12px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 .comic-studio__canvas-inner > header strong { overflow: hidden; color: var(--archive-ink, var(--text-primary)); text-overflow: ellipsis; white-space: nowrap; }
 .comic-studio__empty-canvas { display: grid; gap: 7px; color: var(--archive-ink-soft, var(--text-secondary)); text-align: center; }
@@ -385,12 +395,12 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__status { margin: 10px 0 0; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 
 @media (max-width: 1100px) {
-  .comic-studio__workspace { grid-template-columns: 240px minmax(340px, 1fr) 280px; }
+  .comic-studio__workspace { grid-template-columns: 200px minmax(360px, 1fr) 280px; }
 }
 
 @media (max-width: 980px) {
-  .comic-studio__workspace { grid-template-columns: 180px minmax(300px, 1fr) 280px; }
+  .comic-studio__workspace { grid-template-columns: 170px minmax(300px, 1fr) 270px; }
   .comic-studio__mast { padding-inline: 14px; }
-  .comic-studio__canvas-stage { padding: 14px; }
+  .comic-studio__canvas-stage { padding: 8px; }
 }
 </style>

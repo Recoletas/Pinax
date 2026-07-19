@@ -1,9 +1,17 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import ComicPagePreview from './ComicPagePreview.vue'
 import ImageModelPicker from './ImageModelPicker.vue'
 import { generateImage } from '../../services/media/imageProviderService'
 import { buildComicPanelImageRequest } from '../../services/media/comicImagePrompt'
+import {
+  getComicCanvasSize,
+  getComicImageStyle,
+  getComicPanelImageSize,
+  getComicPanelRect,
+  getComicPanelRects,
+  getDefaultComicPanelFrame
+} from '../../services/media/comicLayout'
 import { addGeneratedImageToLibrary } from '../../services/media/mediaAssetStore'
 import {
   addComicPanelTake,
@@ -44,6 +52,7 @@ const batchGenerating = ref(false)
 const scriptError = ref('')
 const activePanelId = ref('')
 const compactWorkspace = ref('panels')
+const loadedTakeDimensions = reactive({})
 let loadRevision = 0
 const activePanel = computed(() => comicPage.value?.panels.find((panel) => panel.id === activePanelId.value) || null)
 const activePanelSourceId = computed(() => panelSourceId(activePanel.value))
@@ -92,6 +101,15 @@ const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
       { value: 'render', label: '上色' },
       { value: 'effects', label: '效果' }
     ])
+const letteringFontOptions = Object.freeze([
+  { value: 'display', label: '文楷' },
+  { value: 'kai', label: '楷体' },
+  { value: 'serif', label: '宋体' },
+  { value: 'sans', label: '黑体' },
+  { value: 'rounded', label: '圆体' },
+  { value: 'mono', label: '等宽' }
+])
+const letteringResizeHandles = Object.freeze(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'])
 
 watch([() => props.pageId, () => props.standalone ? '' : sourceSignature(props.sourceRefs)], () => {
   void loadStoredPage()
@@ -206,7 +224,6 @@ async function generatePanel(panel) {
   const config = props.modelConfigs.find((item) => item.id === props.selectedModelId)
   if (!config || (props.standalone && !panelSourceId(panel))) return
   const pageId = comicPage.value.id
-  const layout = comicPage.value.layout
   const pageSourceRefs = [...comicPage.value.sourceRefs]
   const projectId = props.projectId
   const panelId = panel.id
@@ -215,6 +232,7 @@ async function generatePanel(panel) {
   const previousPanel = panelIndex > 0 ? orderedPanels[panelIndex - 1] : null
   const previousImageData = previousPanel ? selectedTake(previousPanel)?.data || '' : ''
   const source = panelSourceContext(panel)
+  const imageSize = getComicPanelImageSize(comicPage.value, panel.order)
   const imageRequest = buildComicPanelImageRequest({
     page: comicPage.value,
     panel,
@@ -222,9 +240,9 @@ async function generatePanel(panel) {
     sourceTitle: source.title || props.sourceTitle,
     sourceText: source.content || props.sourceText,
     providerType: config.type,
-    previousImageData
+    previousImageData,
+    targetAspect: `${imageSize.width}:${imageSize.height}`
   })
-  const imageSize = panelImageSize(layout, panel.order)
   patchRuntimePanel(panel.id, { generationStatus: 'generating', generationError: '' })
   updateComicPanel(pageId, panelId, { generationStatus: 'generating', generationError: '' })
   try {
@@ -349,7 +367,7 @@ function addLetteringObject(panel, type = 'speech', text = '') {
       text: String(text || '').trim() || (type === 'caption' ? '输入旁白' : '输入对白'),
       box: defaults,
       tailTarget: null,
-      style: {},
+      style: defaultLetteringStyle(type),
       zIndex: index
     }
   ]
@@ -375,7 +393,7 @@ function importPanelScriptLettering(panel) {
       text: item.text,
       box: defaultLetteringBox(item.type, index),
       tailTarget: null,
-      style: {},
+      style: defaultLetteringStyle(item.type),
       zIndex: index
     })
     existing.add(`${item.type}:${item.text}`)
@@ -395,16 +413,207 @@ function letteringTypeLabel(type) {
 
 function letteringObjectStyle(object) {
   const [x, y, width, height] = normalizeLetteringBox(object.box)
+  const style = normalizeLetteringStyle(object.style, object.type)
   return {
     left: `${x * 100}%`,
     top: `${y * 100}%`,
     width: `${width * 100}%`,
-    minHeight: `${height * 100}%`,
-    zIndex: 10 + (Number(object.zIndex) || 0)
+    height: `${height * 100}%`,
+    zIndex: 10 + (Number(object.zIndex) || 0),
+    fontFamily: letteringFontFamily(style.fontFamily),
+    fontSize: `clamp(7px, ${style.fontSize / 3}cqh, 32px)`,
+    fontWeight: style.fontWeight,
+    textAlign: style.textAlign
   }
 }
 
+function defaultLetteringStyle(type = 'speech') {
+  return {
+    fontFamily: 'display',
+    fontSize: type === 'sfx' ? 32 : 22,
+    fontWeight: type === 'sfx' ? 800 : 600,
+    textAlign: type === 'caption' ? 'left' : 'center'
+  }
+}
+
+function normalizeLetteringStyle(input = {}, type = 'speech') {
+  const source = input && typeof input === 'object' ? input : {}
+  const fallback = defaultLetteringStyle(type)
+  return {
+    fontFamily: letteringFontOptions.some((option) => option.value === source.fontFamily) ? source.fontFamily : fallback.fontFamily,
+    fontSize: Math.min(72, Math.max(10, Number(source.fontSize) || fallback.fontSize)),
+    fontWeight: [400, 600, 800].includes(Number(source.fontWeight)) ? Number(source.fontWeight) : fallback.fontWeight,
+    textAlign: ['left', 'center', 'right'].includes(source.textAlign) ? source.textAlign : fallback.textAlign
+  }
+}
+
+function letteringFontFamily(value) {
+  return {
+    display: '"LXGW WenKai", "Songti SC", serif',
+    kai: 'KaiTi, "STKaiti", serif',
+    sans: '"Microsoft YaHei", "Segoe UI", sans-serif',
+    serif: '"Songti SC", "STSong", serif',
+    rounded: '"Yuanti SC", "Microsoft YaHei", sans-serif',
+    mono: '"SFMono-Regular", Consolas, monospace'
+  }[value] || '"LXGW WenKai", "Songti SC", serif'
+}
+
+function updateLetteringStyle(object, key, value) {
+  object.style = normalizeLetteringStyle({ ...object.style, [key]: value }, object.type)
+  persistPage()
+}
+
+function updateLetteringBox(panelId, objectId, box) {
+  const panel = comicPage.value?.panels.find((item) => item.id === panelId)
+  const object = panel?.letteringObjects?.find((item) => item.id === objectId)
+  if (!object) return false
+  activePanelId.value = panelId
+  object.box = normalizeLetteringBox(box).map(clampUnit)
+  persistPage()
+  return true
+}
+
+defineExpose({ updateLetteringBox })
+
 let letteringDrag = null
+let imagePan = null
+let imageZoom = null
+let imageZoomPersistTimer = null
+
+function panelImageStyle(panel, take = selectedTake(panel)) {
+  return getComicImageStyle(comicPage.value, panel, {
+    width: take?.width || loadedTakeDimensions[take?.id]?.width,
+    height: take?.height || loadedTakeDimensions[take?.id]?.height
+  })
+}
+
+function rememberTakeDimensions(event, take) {
+  if (!take?.id || !event.currentTarget?.naturalWidth) return
+  loadedTakeDimensions[take.id] = {
+    width: event.currentTarget.naturalWidth,
+    height: event.currentTarget.naturalHeight
+  }
+}
+
+function startImagePan(event, panel) {
+  if (event.button !== 0 || !selectedTake(panel) || event.target.closest('.comic-lettering-overlay')) return
+  const stage = event.currentTarget
+  const originalPoint = normalizeFocalPoint(panel.direction?.focalPoint)
+  event.preventDefault()
+  imagePan = {
+    pointerId: event.pointerId,
+    stage,
+    panel,
+    originalPoint,
+    startX: event.clientX,
+    startY: event.clientY
+  }
+  stage.classList.add('is-panning')
+  stage.setPointerCapture?.(event.pointerId)
+}
+
+function moveImagePan(event) {
+  if (!imagePan || imagePan.pointerId !== event.pointerId) return
+  const rect = imagePan.stage.getBoundingClientRect()
+  const dx = (event.clientX - imagePan.startX) / Math.max(1, rect.width)
+  const dy = (event.clientY - imagePan.startY) / Math.max(1, rect.height)
+  imagePan.panel.direction.focalPoint = {
+    x: clampUnit(imagePan.originalPoint.x - dx),
+    y: clampUnit(imagePan.originalPoint.y - dy)
+  }
+}
+
+function finishImagePan(event) {
+  if (!imagePan || imagePan.pointerId !== event.pointerId) return
+  imagePan.stage.releasePointerCapture?.(event.pointerId)
+  imagePan.stage.classList.remove('is-panning')
+  imagePan = null
+  persistPage()
+}
+
+function cancelImagePan(event) {
+  if (!imagePan || imagePan.pointerId !== event.pointerId) return
+  imagePan.panel.direction.focalPoint = imagePan.originalPoint
+  imagePan.stage.classList.remove('is-panning')
+  imagePan = null
+}
+
+function startImageZoom(event, panel) {
+  if (event.button !== 0 || !selectedTake(panel)) return
+  const handle = event.currentTarget
+  const stage = handle.closest('.comic-panel__image')
+  if (!stage) return
+  event.preventDefault()
+  event.stopPropagation()
+  imageZoom = {
+    pointerId: event.pointerId,
+    handle,
+    stage,
+    panel,
+    originalZoom: normalizeImageZoom(panel.direction?.zoom),
+    startX: event.clientX,
+    startY: event.clientY
+  }
+  stage.classList.add('is-zooming')
+  handle.setPointerCapture?.(event.pointerId)
+}
+
+function moveImageZoom(event) {
+  if (!imageZoom || imageZoom.pointerId !== event.pointerId) return
+  const rect = imageZoom.stage.getBoundingClientRect()
+  const distance = (event.clientX - imageZoom.startX) + (event.clientY - imageZoom.startY)
+  const delta = distance / Math.max(80, Math.min(rect.width, rect.height))
+  imageZoom.panel.direction.zoom = normalizeImageZoom(imageZoom.originalZoom + delta)
+}
+
+function finishImageZoom(event) {
+  if (!imageZoom || imageZoom.pointerId !== event.pointerId) return
+  imageZoom.handle.releasePointerCapture?.(event.pointerId)
+  imageZoom.stage.classList.remove('is-zooming')
+  imageZoom = null
+  persistPage()
+}
+
+function cancelImageZoom(event) {
+  if (!imageZoom || imageZoom.pointerId !== event.pointerId) return
+  imageZoom.panel.direction.zoom = imageZoom.originalZoom
+  imageZoom.stage.classList.remove('is-zooming')
+  imageZoom = null
+}
+
+function zoomImageWithWheel(event, panel) {
+  if (!selectedTake(panel)) return
+  const step = event.deltaY < 0 ? 0.1 : -0.1
+  panel.direction.zoom = normalizeImageZoom(normalizeImageZoom(panel.direction?.zoom) + step)
+  clearTimeout(imageZoomPersistTimer)
+  imageZoomPersistTimer = setTimeout(() => persistPage(), 180)
+}
+
+function nudgeImageZoom(panel, delta) {
+  panel.direction.zoom = normalizeImageZoom(normalizeImageZoom(panel.direction?.zoom) + delta)
+  persistPage()
+}
+
+function handleImageZoomKey(event, panel) {
+  if (['+', '=', 'ArrowUp', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault()
+    nudgeImageZoom(panel, 0.1)
+  } else if (['-', '_', 'ArrowDown', 'ArrowLeft'].includes(event.key)) {
+    event.preventDefault()
+    nudgeImageZoom(panel, -0.1)
+  } else if (event.key === 'Home') {
+    event.preventDefault()
+    panel.direction.zoom = 1
+    persistPage()
+  }
+}
+
+function resetImagePan(event, panel) {
+  if (!selectedTake(panel) || event.target.closest('.comic-lettering-overlay')) return
+  panel.direction.focalPoint = null
+  panel.direction.zoom = 1
+  persistPage()
+}
 
 function startLetteringDrag(event, panel, object) {
   if (event.button !== 0) return
@@ -424,7 +633,7 @@ function startLetteringDrag(event, panel, object) {
     startBox: [...box],
     startX: event.clientX,
     startY: event.clientY,
-    mode: event.target.closest('[data-lettering-resize]') ? 'resize' : 'move'
+    mode: event.target.closest('[data-lettering-resize]')?.dataset.letteringResize || 'move'
   }
   element.setPointerCapture?.(event.pointerId)
 }
@@ -435,13 +644,18 @@ function moveLetteringDrag(event) {
   const dx = (event.clientX - letteringDrag.startX) / Math.max(1, rect.width)
   const dy = (event.clientY - letteringDrag.startY) / Math.max(1, rect.height)
   const [x, y, width, height] = letteringDrag.startBox
-  if (letteringDrag.mode === 'resize') {
-    letteringDrag.object.box = [
-      x,
-      y,
-      clampUnit(Math.max(0.18, Math.min(1 - x, width + dx))),
-      clampUnit(Math.max(0.1, Math.min(1 - y, height + dy)))
-    ]
+  if (letteringDrag.mode !== 'move') {
+    const minWidth = 0.12
+    const minHeight = 0.08
+    let left = x
+    let top = y
+    let right = x + width
+    let bottom = y + height
+    if (letteringDrag.mode.includes('w')) left = Math.min(right - minWidth, Math.max(0, x + dx))
+    if (letteringDrag.mode.includes('e')) right = Math.max(left + minWidth, Math.min(1, x + width + dx))
+    if (letteringDrag.mode.includes('n')) top = Math.min(bottom - minHeight, Math.max(0, y + dy))
+    if (letteringDrag.mode.includes('s')) bottom = Math.max(top + minHeight, Math.min(1, y + height + dy))
+    letteringDrag.object.box = [left, top, right - left, bottom - top]
     return
   }
   letteringDrag.object.box = [
@@ -474,8 +688,8 @@ function defaultLetteringBox(type, index) {
 
 function normalizeLetteringBox(box) {
   const source = Array.isArray(box) && box.length >= 4 ? box : [0.52, 0.1, 0.42, 0.16]
-  const width = Math.max(0.18, Math.min(1, Number(source[2]) || 0.42))
-  const height = Math.max(0.1, Math.min(1, Number(source[3]) || 0.16))
+  const width = Math.max(0.12, Math.min(1, Number(source[2]) || 0.42))
+  const height = Math.max(0.08, Math.min(1, Number(source[3]) || 0.16))
   return [
     Math.min(1 - width, Math.max(0, Number(source[0]) || 0)),
     Math.min(1 - height, Math.max(0, Number(source[1]) || 0)),
@@ -496,7 +710,10 @@ function movePanel(panel, delta) {
   const panels = [...comicPage.value.panels]
   const [moved] = panels.splice(fromIndex, 1)
   panels.splice(toIndex, 0, moved)
-  panels.forEach((item, index) => { item.order = index + 1 })
+  panels.forEach((item, index) => {
+    item.order = index + 1
+    item.frame = getDefaultComicPanelFrame(comicPage.value.layout, item.order, panels.length)
+  })
   comicPage.value.panels = panels
   persistPage()
 }
@@ -515,6 +732,9 @@ function navigatePanel(delta) {
 function setPageLayout(layout) {
   if (!comicPage.value || !layoutOptions.value.some((option) => option.value === layout)) return
   comicPage.value.layout = layout
+  comicPage.value.panels.forEach((panel) => {
+    panel.frame = getDefaultComicPanelFrame(layout, panel.order, comicPage.value.panels.length)
+  })
   persistPage()
 }
 
@@ -643,8 +863,7 @@ function exportManifest() {
 
 async function exportPageImage() {
   if (!comicPage.value || typeof document === 'undefined') return
-  const width = 1200
-  const height = 1600
+  const { width, height } = getComicCanvasSize(comicPage.value.canvas)
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -653,7 +872,7 @@ async function exportPageImage() {
 
   context.fillStyle = '#f7f4ed'
   context.fillRect(0, 0, width, height)
-  const rects = comicPanelRects(comicPage.value.layout, width, height)
+  const rects = getComicPanelRects(comicPage.value.layout, width, height, comicPage.value.panels.length)
   for (let index = 0; index < comicPage.value.panels.length; index += 1) {
     const panel = comicPage.value.panels[index]
     const rect = rects[index]
@@ -668,7 +887,7 @@ async function exportPageImage() {
     if (take?.data) {
       try {
         const image = await loadCanvasImage(take.data)
-        drawCoverImage(context, image, rect)
+        drawCoverImage(context, image, rect, panel.direction?.focalPoint, panel.direction?.zoom)
       } catch {
         drawPanelPlaceholder(context, panel, rect)
       }
@@ -723,65 +942,6 @@ function panelStateLabel(panel) {
   return '待生成'
 }
 
-function panelImageSize(layout, order) {
-  if (layout === 'feature-4') {
-    if (order === 1) return { width: 1280, height: 720 }
-    if (order === 2) return { width: 768, height: 1152 }
-  }
-  if (layout === 'feature-6' && (order === 1 || order === 6)) {
-    return { width: 1280, height: 720 }
-  }
-  return layout === 'strip-4'
-    ? { width: 1024, height: 768 }
-    : { width: 896, height: 896 }
-}
-
-function comicPanelRects(layout, pageWidth, pageHeight) {
-  const margin = 34
-  const gap = 14
-  const x = margin
-  const y = margin
-  const width = pageWidth - margin * 2
-  const height = pageHeight - margin * 2
-  const halfWidth = (width - gap) / 2
-  if (layout === 'feature-4') {
-    const heroHeight = height * 0.34
-    const lowerY = y + heroHeight + gap
-    const lowerHeight = height - heroHeight - gap
-    const rightHeight = (lowerHeight - gap) / 2
-    return [
-      { x, y, width, height: heroHeight },
-      { x, y: lowerY, width: halfWidth, height: lowerHeight },
-      { x: x + halfWidth + gap, y: lowerY, width: halfWidth, height: rightHeight },
-      { x: x + halfWidth + gap, y: lowerY + rightHeight + gap, width: halfWidth, height: rightHeight }
-    ]
-  }
-  if (layout === 'feature-6') {
-    const heroHeight = height * 0.25
-    const footerHeight = height * 0.18
-    const middleY = y + heroHeight + gap
-    const middleHeight = height - heroHeight - footerHeight - gap * 2
-    const middleRowHeight = (middleHeight - gap) / 2
-    const footerY = middleY + middleHeight + gap
-    return [
-      { x, y, width, height: heroHeight },
-      { x, y: middleY, width: halfWidth, height: middleRowHeight },
-      { x: x + halfWidth + gap, y: middleY, width: halfWidth, height: middleRowHeight },
-      { x, y: middleY + middleRowHeight + gap, width: halfWidth, height: middleRowHeight },
-      { x: x + halfWidth + gap, y: middleY + middleRowHeight + gap, width: halfWidth, height: middleRowHeight },
-      { x, y: footerY, width, height: footerHeight }
-    ]
-  }
-  const rows = layout === 'page-6' ? 3 : 2
-  const rowHeight = (height - gap * (rows - 1)) / rows
-  return Array.from({ length: rows * 2 }, (_, index) => ({
-    x: x + (index % 2) * (halfWidth + gap),
-    y: y + Math.floor(index / 2) * (rowHeight + gap),
-    width: halfWidth,
-    height: rowHeight
-  }))
-}
-
 function loadCanvasImage(source) {
   return new Promise((resolve, reject) => {
     const image = new Image()
@@ -791,11 +951,60 @@ function loadCanvasImage(source) {
   })
 }
 
-function drawCoverImage(context, image, rect) {
-  const scale = Math.max(rect.width / image.naturalWidth, rect.height / image.naturalHeight)
-  const width = image.naturalWidth * scale
-  const height = image.naturalHeight * scale
-  context.drawImage(image, rect.x + (rect.width - width) / 2, rect.y + (rect.height - height) / 2, width, height)
+function drawCoverImage(context, image, rect, focalPoint, zoomValue) {
+  const containScale = Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight)
+  const containWidth = image.naturalWidth * containScale
+  const containHeight = image.naturalHeight * containScale
+  const coverScale = Math.max(rect.width / containWidth, rect.height / containHeight)
+  const zoom = normalizeImageZoom(zoomValue)
+  const width = containWidth * coverScale * zoom
+  const height = containHeight * coverScale * zoom
+  const point = normalizeFocalPoint(focalPoint)
+  const overflowX = Math.max(0, width - rect.width)
+  const overflowY = Math.max(0, height - rect.height)
+  context.drawImage(
+    image,
+    rect.x + (rect.width - width) / 2 + (0.5 - point.x) * overflowX,
+    rect.y + (rect.height - height) / 2 + (0.5 - point.y) * overflowY,
+    width,
+    height
+  )
+}
+
+function panelStageStyle(panel) {
+  const rect = getComicPanelRect(comicPage.value, panel.order)
+  const ratio = rect.width / rect.height
+  if (!props.compact) return { aspectRatio: `${rect.width} / ${rect.height}` }
+  const maxWidth = 180
+  const maxHeight = 150
+  const width = Math.min(maxWidth, maxHeight * ratio)
+  return {
+    width: `${Math.round(width)}px`,
+    height: `${Math.round(width / ratio)}px`,
+    aspectRatio: `${rect.width} / ${rect.height}`
+  }
+}
+
+function layoutOptionPanelStyles(layout) {
+  const count = comicPage.value?.panels.length || (layout.includes('6') ? 6 : 4)
+  return getComicPanelRects(layout, 120, 160, count).map((rect) => ({
+    left: `${rect.x / 120 * 100}%`,
+    top: `${rect.y / 160 * 100}%`,
+    width: `${rect.width / 120 * 100}%`,
+    height: `${rect.height / 160 * 100}%`
+  }))
+}
+
+function normalizeFocalPoint(point) {
+  return {
+    x: Number.isFinite(Number(point?.x)) ? clampUnit(Number(point.x)) : 0.5,
+    y: Number.isFinite(Number(point?.y)) ? clampUnit(Number(point.y)) : 0.5
+  }
+}
+
+function normalizeImageZoom(value) {
+  const zoom = Number(value)
+  return Number.isFinite(zoom) ? Math.min(3, Math.max(0.5, Math.round(zoom * 100) / 100)) : 1
 }
 
 function drawPanelPlaceholder(context, panel, rect) {
@@ -817,15 +1026,17 @@ function drawPanelLettering(context, panel, rect) {
     }
     const isSfx = object.type === 'sfx'
     const isCaption = object.type === 'caption'
+    const textStyle = normalizeLetteringStyle(object.style, object.type)
     const padding = Math.max(8, Math.min(18, box.width * 0.07))
-    const fontSize = Math.max(16, Math.min(isSfx ? 38 : 28, box.height * (isSfx ? 0.36 : 0.22)))
+    const fontSize = Math.max(10, textStyle.fontSize * rect.height / 300)
     const lineHeight = fontSize * 1.3
+    const canvasFont = `${textStyle.fontWeight} ${fontSize}px ${letteringCanvasFontFamily(textStyle.fontFamily)}`
     const lines = wrapCanvasText(
       context,
       object.text,
       Math.max(20, box.width - padding * 2),
       Math.max(1, Math.floor((box.height - padding * 2) / lineHeight)),
-      `${isSfx ? 800 : 600} ${fontSize}px sans-serif`
+      canvasFont
     )
     if (!lines.length) return
 
@@ -843,12 +1054,21 @@ function drawPanelLettering(context, panel, rect) {
       context.lineWidth = Math.max(2, rect.width / 280)
       if (object.type === 'thought') context.setLineDash([8, 6])
       context.stroke()
+      context.clip()
+    } else {
+      context.beginPath()
+      context.rect(box.x, box.y, box.width, box.height)
+      context.clip()
     }
 
-    context.font = `${isSfx ? 800 : 600} ${fontSize}px sans-serif`
-    context.textAlign = isCaption ? 'left' : 'center'
+    context.font = canvasFont
+    context.textAlign = textStyle.textAlign
     context.textBaseline = 'middle'
-    const textX = isCaption ? box.x + padding : box.x + box.width / 2
+    const textX = textStyle.textAlign === 'left'
+      ? box.x + padding
+      : textStyle.textAlign === 'right'
+        ? box.x + box.width - padding
+        : box.x + box.width / 2
     const totalHeight = lines.length * lineHeight
     const firstY = box.y + (box.height - totalHeight) / 2 + lineHeight / 2
     lines.forEach((line, index) => {
@@ -866,6 +1086,17 @@ function drawPanelLettering(context, panel, rect) {
     })
     context.restore()
   })
+}
+
+function letteringCanvasFontFamily(value) {
+  return {
+    display: '"LXGW WenKai", "Songti SC", serif',
+    kai: 'KaiTi, "STKaiti", serif',
+    serif: '"Songti SC", "STSong", serif',
+    sans: '"Microsoft YaHei", "Segoe UI", sans-serif',
+    rounded: '"Yuanti SC", "Microsoft YaHei", sans-serif',
+    mono: '"SFMono-Regular", Consolas, monospace'
+  }[value] || '"LXGW WenKai", "Songti SC", serif'
 }
 
 function wrapCanvasText(context, value, maxWidth, maxLines, font) {
@@ -1033,28 +1264,47 @@ function safeFilename(value) {
       <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
 
       <template v-if="!compact || compactWorkspace === 'page'">
-        <div class="comic-editor__page-bar">
-          <label class="comic-editor__layout-select">
-            <span>版式</span>
-            <select :value="comicPage.layout" @change="setPageLayout($event.target.value)">
-              <option v-for="option in layoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </label>
-          <label class="comic-editor__layout-select">
-            <span>阅读</span>
-            <select :value="comicPage.format" @change="setPageFormat($event.target.value)">
-              <option value="page-ltr">左到右</option>
-              <option value="page-rtl">右到左</option>
-              <option value="webtoon">竖向条漫</option>
-            </select>
-          </label>
-          <label class="comic-editor__layout-select">
-            <span>色制</span>
-            <select :value="comicPage.colorMode" @change="setColorMode($event.target.value)">
-              <option value="color">彩色</option>
-              <option value="monochrome">黑白 / 网点</option>
-            </select>
-          </label>
+        <div class="comic-editor__planning-overview">
+          <ComicPagePreview
+            v-if="compact"
+            :page="comicPage"
+            :active-panel-id="activePanelId"
+            compact
+            interactive
+            @select-panel="activePanelId = $event"
+          />
+          <div class="comic-editor__page-bar">
+            <div class="comic-editor__layout-options" role="radiogroup" aria-label="页面版式">
+              <button
+                v-for="option in layoutOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: comicPage.layout === option.value }"
+                :aria-pressed="comicPage.layout === option.value"
+                @click="setPageLayout(option.value)"
+              >
+                <span class="comic-editor__layout-map" aria-hidden="true">
+                  <i v-for="(style, index) in layoutOptionPanelStyles(option.value)" :key="index" :style="style"></i>
+                </span>
+                <span>{{ option.label }}</span>
+              </button>
+            </div>
+            <label class="comic-editor__layout-select">
+              <span>阅读</span>
+              <select :value="comicPage.format" @change="setPageFormat($event.target.value)">
+                <option value="page-ltr">左到右</option>
+                <option value="page-rtl">右到左</option>
+                <option value="webtoon">竖向条漫</option>
+              </select>
+            </label>
+            <label class="comic-editor__layout-select">
+              <span>色制</span>
+              <select :value="comicPage.colorMode" @change="setColorMode($event.target.value)">
+                <option value="color">彩色</option>
+                <option value="monochrome">黑白 / 网点</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <details class="comic-editor__page-settings" open>
@@ -1131,14 +1381,82 @@ function safeFilename(value) {
             <strong>分格导航</strong>
             <span>{{ completedPanelCount }} / {{ comicPage.panels.length }} 格已有画面</span>
           </div>
-          <ComicPagePreview
-            v-if="compact"
-            :page="comicPage"
-            :active-panel-id="activePanelId"
-            compact
-            interactive
-            @select-panel="activePanelId = $event"
-          />
+          <div v-if="compact" class="comic-editor__composition-previews">
+            <ComicPagePreview
+              :page="comicPage"
+              :active-panel-id="activePanelId"
+              compact
+              interactive
+              @select-panel="activePanelId = $event"
+            />
+            <div
+              v-if="activePanel && (selectedTake(activePanel) || activePanel.letteringObjects?.length)"
+              class="comic-panel__image comic-editor__active-framing"
+              :class="{ 'is-adjustable': selectedTake(activePanel) }"
+              :style="panelStageStyle(activePanel)"
+              :title="selectedTake(activePanel) ? '拖动调整取景，滚轮或右下角缩放，双击恢复' : ''"
+              aria-label="当前格取景"
+              @pointerdown="startImagePan($event, activePanel)"
+              @pointermove="moveImagePan"
+              @pointerup="finishImagePan"
+              @pointercancel="cancelImagePan"
+              @dblclick="resetImagePan($event, activePanel)"
+              @wheel.prevent="zoomImageWithWheel($event, activePanel)"
+            >
+              <img
+                v-if="selectedTake(activePanel)"
+                :src="selectedTake(activePanel).data"
+                :alt="`第 ${activePanel.order} 格取景`"
+                :style="panelImageStyle(activePanel, selectedTake(activePanel))"
+                draggable="false"
+                @load="rememberTakeDimensions($event, selectedTake(activePanel))"
+              />
+              <span v-else class="comic-panel__image-placeholder">等待画面</span>
+              <button
+                v-for="object in activePanel.letteringObjects || []"
+                :key="object.id"
+                type="button"
+                class="comic-lettering-overlay"
+                :class="`is-${object.type}`"
+                :style="letteringObjectStyle(object)"
+                :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
+                @pointerdown="startLetteringDrag($event, activePanel, object)"
+                @pointermove="moveLetteringDrag"
+                @pointerup="finishLetteringDrag"
+                @pointercancel="cancelLetteringDrag"
+              >
+                <span>{{ object.text }}</span>
+                <i
+                  v-for="handle in letteringResizeHandles"
+                  :key="handle"
+                  class="comic-lettering-overlay__handle"
+                  :class="`is-${handle}`"
+                  :data-lettering-resize="handle"
+                  aria-hidden="true"
+                ></i>
+              </button>
+              <span
+                v-if="selectedTake(activePanel)"
+                class="comic-panel__zoom-handle"
+                role="slider"
+                tabindex="0"
+                aria-label="图片缩放"
+                aria-valuemin="50"
+                aria-valuemax="300"
+                :aria-valuenow="Math.round(normalizeImageZoom(activePanel.direction?.zoom) * 100)"
+                title="拖动或滚轮缩放，双击恢复"
+                @pointerdown="startImageZoom($event, activePanel)"
+                @pointermove="moveImageZoom"
+                @pointerup="finishImageZoom"
+                @pointercancel="cancelImageZoom"
+                @keydown="handleImageZoomKey($event, activePanel)"
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                  <path d="M6 3H3v3M10 13h3v-3M3.5 5.5 6 3M10 13l2.5-2.5" />
+                </svg>
+              </span>
+            </div>
+          </div>
         </section>
 
         <div v-if="compact && activePanel" class="comic-editor__panel-nav">
@@ -1205,8 +1523,27 @@ function safeFilename(value) {
             </button>
           </header>
 
-          <div v-if="selectedTake(panel) || panel.letteringObjects?.length" class="comic-panel__image">
-            <img v-if="selectedTake(panel)" :src="selectedTake(panel).data" :alt="`第 ${panel.order} 格`" />
+          <div
+            v-if="!compact && (selectedTake(panel) || panel.letteringObjects?.length)"
+            class="comic-panel__image"
+            :class="{ 'is-adjustable': selectedTake(panel) }"
+            :style="panelStageStyle(panel)"
+            :title="selectedTake(panel) ? '拖动调整取景，双击恢复居中' : ''"
+            @pointerdown="startImagePan($event, panel)"
+            @pointermove="moveImagePan"
+            @pointerup="finishImagePan"
+            @pointercancel="cancelImagePan"
+            @dblclick="resetImagePan($event, panel)"
+            @wheel.prevent="zoomImageWithWheel($event, panel)"
+          >
+            <img
+              v-if="selectedTake(panel)"
+              :src="selectedTake(panel).data"
+              :alt="`第 ${panel.order} 格`"
+              :style="panelImageStyle(panel, selectedTake(panel))"
+              draggable="false"
+              @load="rememberTakeDimensions($event, selectedTake(panel))"
+            />
             <span v-else class="comic-panel__image-placeholder">生成画面后可在图上拖动文字框</span>
             <button
               v-for="object in panel.letteringObjects || []"
@@ -1215,15 +1552,42 @@ function safeFilename(value) {
               class="comic-lettering-overlay"
               :class="`is-${object.type}`"
               :style="letteringObjectStyle(object)"
-              :title="`${letteringTypeLabel(object.type)}：拖动定位，右下角缩放`"
+              :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
               @pointerdown="startLetteringDrag($event, panel, object)"
               @pointermove="moveLetteringDrag"
               @pointerup="finishLetteringDrag"
               @pointercancel="cancelLetteringDrag"
             >
               <span>{{ object.text }}</span>
-              <i data-lettering-resize aria-hidden="true"></i>
+              <i
+                v-for="handle in letteringResizeHandles"
+                :key="handle"
+                class="comic-lettering-overlay__handle"
+                :class="`is-${handle}`"
+                :data-lettering-resize="handle"
+                aria-hidden="true"
+              ></i>
             </button>
+            <span
+              v-if="selectedTake(panel)"
+              class="comic-panel__zoom-handle"
+              role="slider"
+              tabindex="0"
+              aria-label="图片缩放"
+              aria-valuemin="50"
+              aria-valuemax="300"
+              :aria-valuenow="Math.round(normalizeImageZoom(panel.direction?.zoom) * 100)"
+              title="拖动或滚轮缩放，双击恢复"
+              @pointerdown="startImageZoom($event, panel)"
+              @pointermove="moveImageZoom"
+              @pointerup="finishImageZoom"
+              @pointercancel="cancelImageZoom"
+              @keydown="handleImageZoomKey($event, panel)"
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M6 3H3v3M10 13h3v-3M3.5 5.5 6 3M10 13l2.5-2.5" />
+              </svg>
+            </span>
           </div>
           <div v-if="panel.imageTakes?.length > 1" class="comic-panel__takes" aria-label="图片候选">
             <button
@@ -1234,7 +1598,7 @@ function safeFilename(value) {
               :title="`选择候选 ${index + 1}`"
               @click="selectPanelTake(panel, take.id)"
             >
-              <img :src="take.data" alt="" />
+              <img :src="take.data" alt="" :style="panelImageStyle(panel, take)" @load="rememberTakeDimensions($event, take)" />
             </button>
           </div>
 
@@ -1344,16 +1708,42 @@ function safeFilename(value) {
             </div>
             <p v-if="!panel.letteringObjects?.length" class="comic-panel__lettering-empty">暂无文字框。可从脚本排入，或手动添加。</p>
             <div v-for="object in panel.letteringObjects || []" :key="object.id" class="comic-panel__lettering-item">
-              <select v-model="object.type" aria-label="文字框类型" @change="persistPage">
-                <option value="speech">对白</option>
-                <option value="thought">心声</option>
-                <option value="caption">旁白</option>
-                <option value="sfx">拟声</option>
-              </select>
-              <input v-model="object.text" :aria-label="`${letteringTypeLabel(object.type)}内容`" @change="persistPage" />
-              <button type="button" title="删除文字框" aria-label="删除文字框" @click="removeLetteringObject(panel, object.id)">×</button>
+              <div class="comic-panel__lettering-format">
+                <select v-model="object.type" aria-label="文字框类型" @change="persistPage">
+                  <option value="speech">对白</option>
+                  <option value="thought">心声</option>
+                  <option value="caption">旁白</option>
+                  <option value="sfx">拟声</option>
+                </select>
+                <select :value="object.style.fontFamily" aria-label="字体" @change="updateLetteringStyle(object, 'fontFamily', $event.target.value)">
+                  <option v-for="font in letteringFontOptions" :key="font.value" :value="font.value">{{ font.label }}</option>
+                </select>
+                <label class="comic-panel__font-size">
+                  <span>字号</span>
+                  <input
+                    :value="object.style.fontSize"
+                    type="number"
+                    min="10"
+                    max="72"
+                    step="1"
+                    aria-label="字号"
+                    @change="updateLetteringStyle(object, 'fontSize', Number($event.target.value))"
+                  />
+                </label>
+                <select :value="object.style.fontWeight" aria-label="字重" @change="updateLetteringStyle(object, 'fontWeight', Number($event.target.value))">
+                  <option :value="400">常规</option>
+                  <option :value="600">中粗</option>
+                  <option :value="800">粗体</option>
+                </select>
+                <select :value="object.style.textAlign" aria-label="文字对齐" @change="updateLetteringStyle(object, 'textAlign', $event.target.value)">
+                  <option value="left">左对齐</option>
+                  <option value="center">居中</option>
+                  <option value="right">右对齐</option>
+                </select>
+                <button type="button" title="删除文字框" aria-label="删除文字框" @click="removeLetteringObject(panel, object.id)">×</button>
+              </div>
+              <textarea v-model="object.text" rows="2" :aria-label="`${letteringTypeLabel(object.type)}内容`" @change="persistPage"></textarea>
             </div>
-            <small v-if="panel.letteringObjects?.length" class="comic-editor__hint">直接拖动画面上的文字框定位，拖右下角调整大小。</small>
           </div>
 
           <p v-if="panel.generationError" class="comic-editor__error" role="alert">{{ panel.generationError }}</p>
@@ -1645,10 +2035,76 @@ function safeFilename(value) {
 
 .comic-editor__page-bar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
+}
+
+.comic-editor__layout-options {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.comic-editor__layout-options button {
+  min-width: 0;
+  min-height: 47px;
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  cursor: pointer;
+  font-size: 10px;
+  text-align: left;
+}
+
+.comic-editor__layout-options button:hover,
+.comic-editor__layout-options button.active {
+  border-color: color-mix(in srgb, var(--archive-olive) 58%, var(--border));
+  color: var(--archive-ink, var(--text-primary));
+}
+
+.comic-editor__layout-options button.active {
+  background: color-mix(in srgb, var(--archive-olive) 7%, transparent);
+  font-weight: 650;
+}
+
+.comic-editor__layout-map {
+  position: relative;
+  width: 24px;
+  aspect-ratio: 3 / 4;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 38%, transparent);
+  background: var(--archive-paper-soft, var(--bg-primary));
+}
+
+.comic-editor__layout-map i {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 62%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 72%, transparent);
+}
+
+.comic-editor__planning-overview {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   padding: 2px 0 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.comic-editor__planning-overview > .comic-editor__page-bar:only-child {
+  grid-column: 1 / -1;
+}
+
+.comic-editor__planning-overview :deep(.comic-page-preview.is-compact) {
+  width: auto;
+  height: 112px;
+  margin: 0;
 }
 
 .comic-editor__workspace-tabs {
@@ -1794,6 +2250,23 @@ function safeFilename(value) {
   gap: 6px;
 }
 
+.comic-editor__composition-previews {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 118px;
+}
+
+.comic-editor__composition-previews :deep(.comic-page-preview.is-compact) {
+  margin-inline: 0;
+}
+
+.comic-editor__active-framing {
+  justify-self: center;
+}
+
 .comic-editor__section-heading {
   display: flex;
   align-items: center;
@@ -1809,8 +2282,9 @@ function safeFilename(value) {
 }
 
 .comic-editor.is-compact :deep(.comic-page-preview.is-compact) {
-  height: 168px;
-  aspect-ratio: auto;
+  width: auto;
+  height: 118px;
+  margin-inline: auto;
   border-color: color-mix(in srgb, var(--archive-ink) 28%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
 }
@@ -1994,19 +2468,55 @@ function safeFilename(value) {
 
 .comic-panel__image {
   position: relative;
-  aspect-ratio: 4 / 3;
+  container-type: size;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--archive-gold) 42%, var(--border));
   border-radius: 3px;
   background: var(--archive-paper, var(--bg-primary));
 }
 
+.comic-editor.is-compact .comic-panel__image {
+  max-width: 100%;
+  margin-inline: auto;
+}
+
 .comic-panel__image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
+  pointer-events: none;
+  user-select: none;
+  transform-origin: center;
 }
+
+.comic-panel__image.is-adjustable { cursor: grab; touch-action: none; }
+.comic-panel__image.is-panning { cursor: grabbing; }
+.comic-panel__image.is-zooming { cursor: nwse-resize; }
+
+.comic-panel__zoom-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 30;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 0.7);
+  border-radius: 3px;
+  background: rgb(24 31 39 / 0.66);
+  color: #fff;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  touch-action: none;
+}
+
+.comic-panel__image:hover .comic-panel__zoom-handle,
+.comic-panel__zoom-handle:focus-visible,
+.comic-panel__image.is-zooming .comic-panel__zoom-handle { opacity: 1; }
 
 .comic-panel__image-placeholder {
   width: 100%;
@@ -2024,6 +2534,7 @@ function safeFilename(value) {
   display: grid;
   place-items: center;
   margin: 0;
+  min-height: 0;
   padding: 5px 8px;
   overflow: visible;
   border: 1px solid color-mix(in srgb, var(--archive-ink) 76%, transparent);
@@ -2066,22 +2577,35 @@ function safeFilename(value) {
 }
 
 .comic-lettering-overlay > span {
+  width: 100%;
+  max-height: 100%;
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
 }
 
-.comic-lettering-overlay > i {
+.comic-lettering-overlay__handle {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid color-mix(in srgb, currentColor 68%, transparent);
-  border-bottom: 2px solid color-mix(in srgb, currentColor 68%, transparent);
-  cursor: nwse-resize;
+  width: 8px;
+  height: 8px;
+  display: none;
+  border: 1px solid rgb(32 36 42 / 0.82);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
 }
+
+.comic-lettering-overlay:hover .comic-lettering-overlay__handle,
+.comic-lettering-overlay:focus-visible .comic-lettering-overlay__handle { display: block; }
+.comic-lettering-overlay__handle.is-nw { left: -4px; top: -4px; cursor: nwse-resize; }
+.comic-lettering-overlay__handle.is-n { left: calc(50% - 4px); top: -4px; cursor: ns-resize; }
+.comic-lettering-overlay__handle.is-ne { right: -4px; top: -4px; cursor: nesw-resize; }
+.comic-lettering-overlay__handle.is-e { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+.comic-lettering-overlay__handle.is-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+.comic-lettering-overlay__handle.is-s { left: calc(50% - 4px); bottom: -4px; cursor: ns-resize; }
+.comic-lettering-overlay__handle.is-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
+.comic-lettering-overlay__handle.is-w { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
 
 .comic-panel__takes {
   display: flex;
@@ -2140,13 +2664,14 @@ function safeFilename(value) {
 
 .comic-panel__lettering-item {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 24px;
-  gap: 5px;
-  align-items: center;
+  gap: 6px;
+  padding-block: 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--archive-ink) 12%, transparent);
 }
 
 .comic-panel__lettering-item select,
-.comic-panel__lettering-item input {
+.comic-panel__lettering-item input,
+.comic-panel__lettering-item textarea {
   width: 100%;
   min-width: 0;
   min-height: 30px;
@@ -2158,7 +2683,48 @@ function safeFilename(value) {
   font-size: 11px;
 }
 
-.comic-panel__lettering-item button {
+.comic-panel__lettering-item textarea {
+  min-height: 48px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.comic-panel__lettering-format {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 68px 24px;
+  gap: 5px;
+  align-items: center;
+}
+
+.comic-panel__lettering-format select:nth-of-type(1) { grid-column: 1; grid-row: 1; }
+.comic-panel__lettering-format select:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+.comic-panel__lettering-format select:nth-of-type(3) { grid-column: 1 / 3; grid-row: 2; }
+.comic-panel__lettering-format select:nth-of-type(4) { grid-column: 3 / 5; grid-row: 2; }
+
+.comic-panel__font-size {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.comic-panel__font-size span {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 9px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.comic-panel__font-size input {
+  padding-left: 30px;
+}
+
+.comic-panel__lettering-format button {
+  grid-column: 4;
+  grid-row: 1;
   width: 24px;
   height: 24px;
   padding: 0;
