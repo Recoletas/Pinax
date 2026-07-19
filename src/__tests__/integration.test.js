@@ -334,19 +334,24 @@ describe('Media services', () => {
     })
     expect(imageRequest.prompt).toContain('单幅')
     expect(imageRequest.prompt).toContain('雨夜来客')
-    expect(imageRequest.prompt).toContain('上一格视觉锚点')
+    expect(imageRequest.prompt).toContain('连续性优先')
+    expect(imageRequest.prompt).toContain('上一镜锚点')
     expect(imageRequest.prompt).not.toContain('还有房间吗')
+    expect(imageRequest.prompt).not.toContain('拼贴')
+    expect(imageRequest.prompt).not.toContain('气泡')
     expect(imageRequest.prompt.toLowerCase()).not.toContain('comic panel')
-    expect(imageRequest.negativePrompt).toContain('拼贴')
+    expect(imageRequest.negativePrompt).toBe('')
     expect(imageRequest.referenceImages).toEqual([])
     expect(`${imageRequest.prompt}\n${imageRequest.negativePrompt}`.length).toBeLessThanOrEqual(1480)
-    expect(buildComicPanelImageRequest({
+    const referencedImageRequest = buildComicPanelImageRequest({
       page: comicPage,
       panel: comicPage.panels[1],
       previousPanel: comicPage.panels[0],
       providerType: 'sd_webui',
       previousImageData: 'data:image/png;base64,YWJj'
-    }).referenceImages).toHaveLength(1)
+    })
+    expect(referencedImageRequest.negativePrompt).toContain('拼贴')
+    expect(referencedImageRequest.referenceImages).toHaveLength(1)
 
     const comicEditor = mount(ComicPageEditor, {
       props: {

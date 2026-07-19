@@ -1,11 +1,8 @@
 const PROMPT_LIMIT = 1240
 
 export const COMIC_IMAGE_NEGATIVE_PROMPT = [
-  '多格漫画', '拼贴', '分屏', '故事板', '接触表', '画中画', '重复人物',
-  '网格排版', '漫画页面', '边框', '分格线', '对白框', '气泡', '字幕', '标题', '文字', '字母', '数字',
-  '水印', '签名', 'logo', 'comic page', 'collage', 'split screen', 'storyboard',
-  'panel layout', 'grid layout', 'speech bubble', 'caption', 'text overlay', 'typography',
-  'Chinese characters', 'letters', 'watermark'
+  '拼贴', '分屏', '多联画', '边框', '气泡', '字幕', '文字', '水印',
+  'collage', 'split screen', 'speech bubble', 'text', 'watermark'
 ].join('，')
 
 export function buildComicPanelImageRequest({
@@ -24,18 +21,16 @@ export function buildComicPanelImageRequest({
   const direction = buildDirection(panel.direction)
 
   const prompt = [
-    '任务：生成一张独立、单幅、全幅出血、无边框的叙事插画。',
-    '当前请求只生成一个镜头、一个画面和一个时间点；不要画成漫画页，不要添加其他镜头或动作过程。',
-    '画面只包含人物、环境、道具、动作、光线与构图。画面中不得出现任何可读文字、字母、数字、字幕、标题、拟声词、标牌内容、对话框或气泡；文字将在成图后另行排版覆盖。',
-    'Do not render panels, grids, borders, speech bubbles, captions, typography, letters, numbers, signs, subtitles, or any readable text.',
-    sourceTitle ? `来源标题：${clip(sourceTitle, 80)}` : '',
-    sourceContext ? `来源故事核心：${clip(sourceContext, 320)}` : '',
-    continuity ? `全页连续性：${clip(continuity, 300)}` : '',
-    previousAnchor ? `上一格视觉锚点：${clip(previousAnchor, 220)}。仅继承人物外观、服装、地点、时段、光线方向和关键道具，不要重画上一格。` : '',
-    `当前格画面：${clip(panel.visual, 360) || '按本页故事目标表现一个明确瞬间。'}`,
-    currentBeat ? `当前剧情节拍：${clip(currentBeat, 180)}` : '',
-    direction ? `镜头约束：${direction}` : '',
-    '输出要求：单一镜头、单一构图、自然占满画布，不使用漫画纸张、版面、格线、拼贴或多联画形式。'
+    '生成一张全幅叙事插画，只表现当前镜头的一个明确瞬间。',
+    '连续性优先：与相邻镜头保持同一角色身份、面貌、发型、体型、服装、地点、时段、光线、色调和关键道具；动作从上一镜自然延续，但构图必须推进剧情。',
+    continuity ? `全页视觉约定：${clip(continuity, 260)}` : '',
+    previousAnchor ? `上一镜锚点：${clip(previousAnchor, 220)}` : '',
+    sourceTitle ? `故事主题：${clip(sourceTitle, 80)}` : '',
+    sourceContext ? `原素材情境：${clip(sourceContext, 300)}` : '',
+    `当前镜头：${clip(panel.visual, 340) || '从原素材中选择与上一镜衔接的下一瞬间。'}`,
+    currentBeat ? `剧情推进：${clip(currentBeat, 160)}` : '',
+    direction ? `摄影设计：${direction}` : '',
+    '交付为一张自然完整、纯视觉的单幅画面，不带版面元素。'
   ].filter(Boolean).join('\n').slice(0, PROMPT_LIMIT)
 
   const canUsePreviousImage = providerType !== 'minimax_image'
@@ -43,7 +38,7 @@ export function buildComicPanelImageRequest({
 
   return {
     prompt,
-    negativePrompt: COMIC_IMAGE_NEGATIVE_PROMPT,
+    negativePrompt: providerType === 'minimax_image' ? '' : COMIC_IMAGE_NEGATIVE_PROMPT,
     referenceImages: canUsePreviousImage
       ? [{ id: previousPanel?.selectedTakeId || previousPanel?.id || 'previous-panel', data: previousImageData }]
       : [],
@@ -104,10 +99,13 @@ function buildDirection(direction = {}) {
 
 function stripVerbatimDialogue(value) {
   return clean(value)
+    .replace(/【[^】]{1,80}】/g, ' ')
+    .replace(/(?:^|\s)(?:\d{1,3}[.、)]|[-=*#]{2,})\s*/g, ' ')
     .replace(/[“”][^“”]{1,180}[“”]/g, '')
     .replace(/[‘’][^‘’]{1,180}[‘’]/g, '')
     .replace(/"[^"\n]{1,180}"/g, '')
     .replace(/'[^'\n]{1,180}'/g, '')
+    .replace(/[^，。！？\s]{0,12}(?:说|问|喊|答|道)[:：]\s*/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
