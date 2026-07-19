@@ -25,13 +25,14 @@ const props = defineProps({
   sourceTitle: { type: String, default: '' },
   projectId: { type: String, default: null },
   sourceRefs: { type: Array, default: () => [] },
+  preferredSourceId: { type: String, default: '' },
   storageKey: { type: String, required: true },
   modelConfigs: { type: Array, default: () => [] },
   selectedModelId: { type: String, default: '' },
   compact: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview', 'page-saved'])
+const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview', 'page-saved', 'active-panel-source-change'])
 const comicPage = ref(null)
 const panelCount = ref(4)
 const draftFormat = ref('page-ltr')
@@ -45,6 +46,7 @@ const activePanelId = ref('')
 const compactWorkspace = ref('panels')
 let loadRevision = 0
 const activePanel = computed(() => comicPage.value?.panels.find((panel) => panel.id === activePanelId.value) || null)
+const activePanelSourceId = computed(() => panelSourceId(activePanel.value))
 const visiblePanels = computed(() => {
   const panels = comicPage.value?.panels || []
   if (!props.compact) return panels
@@ -91,12 +93,19 @@ const stageOptions = computed(() => comicPage.value?.colorMode === 'monochrome'
       { value: 'effects', label: '效果' }
     ])
 
-watch([() => props.pageId, () => sourceSignature(props.sourceRefs)], () => {
+watch([() => props.pageId, () => props.standalone ? '' : sourceSignature(props.sourceRefs)], () => {
   void loadStoredPage()
 }, { immediate: true })
 watch(comicPage, (page) => {
   emit('page-preview', page)
 }, { deep: true })
+watch(activePanelSourceId, (sourceId) => {
+  emit('active-panel-source-change', sourceId)
+}, { immediate: true })
+watch(() => props.preferredSourceId, (sourceId) => {
+  if (!sourceId || !activePanel.value || panelSourceId(activePanel.value) === sourceId) return
+  setPanelSource(activePanel.value, sourceId)
+})
 
 async function loadStoredPage() {
   const revision = ++loadRevision
@@ -133,6 +142,9 @@ function createDraftPage() {
   })
   comicPage.value = saveComicPage(page)
   activePanelId.value = comicPage.value.panels[0]?.id || ''
+  if (props.standalone && props.preferredSourceId && activePanel.value) {
+    setPanelSource(activePanel.value, props.preferredSourceId)
+  }
   compactWorkspace.value = 'panels'
   emit('page-saved', comicPage.value)
 }
@@ -149,8 +161,17 @@ async function generateScript() {
       projectId: props.projectId,
       panelCount: panelCount.value
     })
+    const generatedPage = props.standalone && props.sourceRefs.length
+      ? {
+          ...result.page,
+          panels: result.page.panels.map((panel) => ({
+            ...panel,
+            continuityRefs: [...props.sourceRefs]
+          }))
+        }
+      : result.page
     const saved = saveComicPage({
-      ...result.page,
+      ...generatedPage,
       format: draftFormat.value,
       layout: draftLayout.value,
       colorMode: draftColorMode.value,

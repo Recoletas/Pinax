@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import ComicPagePreview from '../components/media/ComicPagePreview.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
@@ -14,10 +15,18 @@ const pagePreview = ref(null)
 const sourceCandidates = ref([])
 const modelConfigs = ref([])
 const selectedModelId = ref('')
+const selectedSourceId = ref('')
 const archiveStatus = ref('')
 
 const activePage = computed(() => comicPages.value.find((page) => page.id === activePageId.value) || null)
-const activeProjectId = computed(() => activePage.value?.projectId ?? null)
+const selectedSource = computed(() => sourceCandidates.value.find((asset) => asset.id === selectedSourceId.value) || null)
+const selectedSourceRefs = computed(() => selectedSource.value ? [{
+  refType: 'narrative-asset',
+  refId: selectedSource.value.id,
+  projectId: selectedSource.value.projectId ?? null,
+  excerpt: String(selectedSource.value.content || '').slice(0, 240)
+}] : [])
+const activeProjectId = computed(() => activePage.value?.projectId ?? selectedSource.value?.projectId ?? null)
 
 onMounted(() => {
   sourceCandidates.value = listActiveNarrativeAssets()
@@ -44,6 +53,15 @@ function selectPage(pageId) {
   activePageId.value = pageId
   pagePreview.value = comicPages.value.find((page) => page.id === pageId) || null
   archiveStatus.value = ''
+}
+
+function selectSource(sourceId) {
+  selectedSourceId.value = sourceId
+  archiveStatus.value = ''
+}
+
+function syncActivePanelSource(sourceId) {
+  selectedSourceId.value = sourceId || ''
 }
 
 function startNewPage() {
@@ -97,7 +115,7 @@ async function savePanelAsMaterial(entry) {
   <div class="comic-studio">
     <header class="comic-studio__mast">
       <div>
-        <span>独立制作工作区</span>
+        <span>素材 · 漫画制作</span>
         <h1>漫画制作</h1>
       </div>
       <button type="button" class="comic-studio__new" @click="startNewPage">
@@ -109,39 +127,43 @@ async function savePanelAsMaterial(entry) {
     </header>
 
     <div class="comic-studio__workspace">
-      <aside class="comic-studio__pages" aria-label="漫画页列表">
-        <header>
-          <strong>页面</strong>
-          <span>{{ comicPages.length }}</span>
-        </header>
-        <div class="comic-studio__page-list">
+      <MaterialSourceDrawer
+        :assets="sourceCandidates"
+        :selected-id="selectedSourceId"
+        @select="selectSource"
+      />
+
+      <main class="comic-studio__canvas">
+        <nav class="comic-studio__page-bar" aria-label="漫画页列表">
+          <span class="comic-studio__page-bar-label">页面 {{ comicPages.length }}</span>
+          <div class="comic-studio__page-list">
           <button
-            v-for="page in comicPages"
+            v-for="(page, index) in comicPages"
             :key="page.id"
             type="button"
             class="comic-studio__page-item"
             :class="{ active: page.id === activePageId }"
             @click="selectPage(page.id)"
           >
-            <span>{{ page.panels.length }} 格 · {{ page.status === 'accepted' ? '已采纳' : '草稿' }}</span>
+            <span>P{{ String(index + 1).padStart(2, '0') }}</span>
             <strong>{{ page.title || '未命名漫画页' }}</strong>
-            <small>{{ new Date(page.updatedAt).toLocaleDateString() }}</small>
           </button>
-          <p v-if="!comicPages.length">还没有漫画页</p>
-        </div>
-      </aside>
+            <span v-if="!comicPages.length" class="comic-studio__page-empty">尚无页面</span>
+          </div>
+        </nav>
 
-      <main class="comic-studio__canvas">
-        <div v-if="pagePreview" class="comic-studio__canvas-inner">
+        <div class="comic-studio__canvas-stage">
+          <div v-if="pagePreview" class="comic-studio__canvas-inner">
           <header>
             <span>整页预览</span>
             <strong>{{ pagePreview.title || '未命名漫画页' }}</strong>
           </header>
           <ComicPagePreview :page="pagePreview" />
-        </div>
-        <div v-else class="comic-studio__empty-canvas">
-          <strong>新漫画页</strong>
-          <span>在右侧确定版式后建立页面</span>
+          </div>
+          <div v-else class="comic-studio__empty-canvas">
+            <strong>新漫画页</strong>
+            <span>从左侧选择素材，在右侧确定版式后建立页面</span>
+          </div>
         </div>
       </main>
 
@@ -153,6 +175,10 @@ async function savePanelAsMaterial(entry) {
           :page-id="activePageId"
           :project-id="activeProjectId"
           :source-candidates="sourceCandidates"
+          :source-text="selectedSource?.content || ''"
+          :source-title="selectedSource?.title || ''"
+          :source-refs="selectedSourceRefs"
+          :preferred-source-id="selectedSourceId"
           :storage-key="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
           :model-configs="modelConfigs"
           :selected-model-id="selectedModelId"
@@ -160,6 +186,7 @@ async function savePanelAsMaterial(entry) {
           @configs-updated="loadModels"
           @page-preview="pagePreview = $event"
           @page-saved="handlePageSaved"
+          @active-panel-source-change="syncActivePanelSource"
           @save-to-material="savePanelAsMaterial"
         />
         <p v-if="archiveStatus" class="comic-studio__status" role="status">{{ archiveStatus }}</p>
@@ -222,37 +249,41 @@ async function savePanelAsMaterial(entry) {
   overflow: hidden;
 }
 
-.comic-studio__pages,
 .comic-studio__inspector {
   min-width: 0;
   min-height: 0;
   background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
 }
 
-.comic-studio__pages { border-right: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent); }
 .comic-studio__inspector { padding: 12px; overflow: auto; border-left: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent); scrollbar-gutter: stable; }
 
-.comic-studio__pages > header {
+.comic-studio__page-bar {
+  width: 100%;
   height: 42px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 10px;
   border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 44%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 82%, transparent);
   font-size: 11px;
 }
 
-.comic-studio__pages > header span { min-width: 24px; text-align: right; }
-.comic-studio__page-list { height: calc(100% - 42px); display: grid; align-content: start; gap: 6px; padding: 10px; overflow: auto; }
-.comic-studio__page-list > p { margin: 18px 4px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; text-align: center; }
+.comic-studio__page-bar-label { flex: 0 0 auto; color: var(--archive-ink-soft, var(--text-secondary)); }
+.comic-studio__page-list { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
+.comic-studio__page-empty { padding-inline: 5px; color: var(--archive-ink-soft, var(--text-secondary)); font-style: italic; }
 
 .comic-studio__page-item {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  padding: 9px 10px;
+  max-width: 170px;
+  min-width: 92px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--archive-ink) 16%, transparent);
-  border-radius: 3px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
   color: var(--archive-ink, var(--text-primary));
   cursor: pointer;
@@ -263,20 +294,19 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__page-item:hover,
 .comic-studio__page-item.active { border-color: color-mix(in srgb, var(--archive-olive) 64%, var(--border)); }
 .comic-studio__page-item.active { background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft)); }
-.comic-studio__page-item span,
-.comic-studio__page-item small { overflow: hidden; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.comic-studio__page-item strong { overflow: hidden; font-family: var(--font-display); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-
+.comic-studio__page-item span { flex: 0 0 auto; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 9px; }
+.comic-studio__page-item strong { min-width: 0; overflow: hidden; font-family: var(--font-display); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .comic-studio__canvas {
   min-width: 0;
   min-height: 0;
-  display: grid;
-  place-items: center;
-  padding: 22px;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
   background: color-mix(in srgb, var(--archive-paper-soft) 56%, transparent);
 }
 
+.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 22px; overflow: auto; }
 .comic-studio__canvas-inner { width: min(100%, 720px); display: grid; gap: 10px; justify-items: center; }
 .comic-studio__canvas-inner > header { width: 100%; display: flex; justify-content: space-between; gap: 12px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 .comic-studio__canvas-inner > header strong { overflow: hidden; color: var(--archive-ink, var(--text-primary)); text-overflow: ellipsis; white-space: nowrap; }
@@ -286,8 +316,8 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__status { margin: 10px 0 0; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 
 @media (max-width: 980px) {
-  .comic-studio__workspace { grid-template-columns: 164px minmax(300px, 1fr) 310px; }
+  .comic-studio__workspace { grid-template-columns: 180px minmax(300px, 1fr) 310px; }
   .comic-studio__mast { padding-inline: 14px; }
-  .comic-studio__canvas { padding: 14px; }
+  .comic-studio__canvas-stage { padding: 14px; }
 }
 </style>

@@ -415,6 +415,12 @@
             </svg>
             插画生成
           </button>
+          <button type="button" @click="goToComics">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z" />
+            </svg>
+            漫画制作
+          </button>
         </nav>
         <template v-if="sidekickWorkspace === 'materials'">
         <div class="notes-sidekick__list" role="list" aria-label="相关素材列表">
@@ -762,6 +768,10 @@ function setSidekickWorkspace(workspace) {
   const allowedWorkspaces = ['materials', 'illustration']
   sidekickWorkspace.value = allowedWorkspaces.includes(workspace) ? workspace : 'materials'
   if (sidekickWorkspace.value !== 'materials') loadSidekickImageModels()
+}
+
+function goToComics() {
+  router.push({ name: 'comics' })
 }
 
 let markdownMediaRenderRevision = 0
@@ -4741,7 +4751,7 @@ function syncSelectionCommandState() {
 
 .notes-sidekick__modes {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 0 12px;
   border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 38%, transparent);
 }
@@ -4974,7 +4984,7 @@ function syncSelectionCommandState() {
 }
 
 @media (max-width: 980px) {
-  /* 窄屏压缩索引列，但保留素材入口与漫画副工作台。 */
+  /* 窄屏压缩索引列，但保留素材入口与媒体副工作台。 */
   .notes-content-area {
     grid-template-columns: 180px minmax(0, 1fr) 280px;
     grid-template-rows: minmax(0, 1fr);
