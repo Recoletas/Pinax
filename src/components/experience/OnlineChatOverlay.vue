@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
+import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -10,6 +11,7 @@ const emit = defineEmits(['send'])
 
 const rootRef = ref(null)
 const inputRef = ref(null)
+const toggleRef = ref(null)
 const opened = ref(false)
 const expanded = ref(false)
 const draft = ref('')
@@ -52,6 +54,18 @@ function handleFocusOut() {
     expanded.value = false
   }, 0)
 }
+
+function collapseChat() {
+  expanded.value = false
+}
+
+useTransientLayer({
+  id: 'online-chat',
+  isOpen: expanded,
+  onClose: collapseChat,
+  initialFocus: () => inputRef.value,
+  returnFocus: () => toggleRef.value
+})
 </script>
 
 <template>
@@ -80,6 +94,7 @@ function handleFocusOut() {
       <span class="online-chat__title">房间聊天</span>
       <span v-if="messages.length" class="online-chat__count">{{ messages.length }}</span>
       <button
+        ref="toggleRef"
         type="button"
         class="online-chat__toggle"
         :title="expanded ? '收起聊天记录' : '展开聊天记录'"
@@ -149,7 +164,7 @@ function handleFocusOut() {
   position: absolute;
   left: 18px;
   bottom: 68px;
-  z-index: 8;
+  z-index: var(--z-popover, 400);
   width: min(390px, calc(100% - 36px));
   display: grid;
   grid-template-rows: 30px minmax(0, 88px) 36px;
@@ -167,7 +182,7 @@ function handleFocusOut() {
   position: absolute;
   left: 16px;
   bottom: 68px;
-  z-index: 8;
+  z-index: var(--z-popover, 400);
   width: 30px;
   height: 30px;
   padding: 0;

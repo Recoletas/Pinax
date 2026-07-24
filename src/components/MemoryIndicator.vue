@@ -4,6 +4,7 @@
       <Transition name="memory-fade">
         <button
           v-if="showIndicator"
+          ref="indicatorRef"
           class="memory-indicator"
           type="button"
           @click="togglePanel"
@@ -21,7 +22,13 @@
       </Transition>
 
       <Transition name="memory-panel-fade">
-        <section v-if="panelOpen" class="memory-panel">
+        <section
+          v-if="panelOpen"
+          ref="panelRef"
+          class="memory-panel"
+          role="dialog"
+          aria-label="记忆候选与已确认记忆"
+        >
           <header class="memory-panel-header">
             <div class="memory-panel-title">
               <strong>{{ getPanelModeTitle(panelMode) }}</strong>
@@ -253,10 +260,13 @@ import {
   updateMemoryCandidate
 } from '../services/memoryCandidates'
 import { describeMem0SyncResult, syncConfirmedMemoryCandidateToMem0 } from '../services/memorySync'
+import { useTransientLayer } from '../composables/useTransientLayer'
 
 const showIndicator = ref(false)
 const message = ref('')
 const panelOpen = ref(false)
+const indicatorRef = ref(null)
+const panelRef = ref(null)
 const pendingCandidates = ref([])
 const activeCandidates = ref([])
 const staleCandidates = ref([])
@@ -400,6 +410,14 @@ function closePanel() {
   cancelEdit()
   clearSelection()
 }
+
+useTransientLayer({
+  id: 'memory-candidates',
+  isOpen: panelOpen,
+  onClose: closePanel,
+  initialFocus: () => panelRef.value?.querySelector('button'),
+  returnFocus: () => indicatorRef.value
+})
 
 function buildSyncPatch(syncResult) {
   if (syncResult?.success) {
@@ -851,12 +869,52 @@ onUnmounted(() => {
   position: fixed;
   left: 16px;
   bottom: 16px;
-  z-index: 1000;
+  z-index: var(--z-popover, 400);
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: flex-start;
   pointer-events: none;
+}
+
+:global(.theme-legacy) .memory-indicator {
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(8px);
+}
+
+:global(.theme-legacy) .memory-panel {
+  border-radius: 4px;
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-elevated);
+}
+
+:global(.theme-legacy) .memory-panel-header {
+  border-top: 3px solid color-mix(in srgb, var(--accent-amber, var(--accent)) 62%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, var(--bg-secondary)), var(--bg-secondary) 56%);
+}
+
+:global(.theme-legacy) .memory-panel-filter,
+:global(.theme-legacy) .memory-panel-btn,
+:global(.theme-legacy) .memory-batch-field select,
+:global(.theme-legacy) .memory-batch-field input,
+:global(.theme-legacy) .memory-edit-field select,
+:global(.theme-legacy) .memory-edit-field input,
+:global(.theme-legacy) .memory-panel-textarea {
+  border-radius: 3px;
+}
+
+:global(.theme-legacy) .memory-panel-item {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .memory-indicator {
@@ -1240,8 +1298,14 @@ onUnmounted(() => {
 }
 
 @media (max-width: 700px) {
+  .memory-shell {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+  }
+
   .memory-panel {
-    width: min(520px, calc(100vw - 20px));
+    width: 100%;
     max-height: min(76vh, 620px);
   }
 

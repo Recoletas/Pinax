@@ -48,6 +48,9 @@ export function createContextLedgerPart(input = {}) {
   const previewLimit = normalizeLimit(input.previewLimit || CONTEXT_PREVIEW_LIMIT)
   const chars = Number.isFinite(Number(input.chars)) ? Number(input.chars) : content.length
   const tokens = Number.isFinite(Number(input.tokens)) ? Number(input.tokens) : estimateTokens(content)
+  const sourceRefs = Array.isArray(input.sourceRefs)
+    ? [...new Set(input.sourceRefs.map((ref) => normalizeText(ref)).filter(Boolean))].slice(0, 32)
+    : []
 
   return {
     source: normalizeSource(input.source),
@@ -60,6 +63,7 @@ export function createContextLedgerPart(input = {}) {
     truncated: Boolean(input.truncated),
     limit: Number.isFinite(Number(input.limit)) ? Number(input.limit) : null,
     entryId: normalizeText(input.entryId),
+    sourceRefs,
     warning: normalizeText(input.warning)
   }
 }

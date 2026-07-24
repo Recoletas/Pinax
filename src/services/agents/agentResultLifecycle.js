@@ -25,6 +25,13 @@ const ACTION_TYPES = Object.freeze({
   OUTLINE_ITEM: 'outline-item',
   CREATE_ASSET: 'create-asset',
   SET_REFERENCE: 'set-reference',
+  MATERIAL_CLASSIFICATION: 'material-classification',
+  MATERIAL_SPLIT: 'material-split',
+  MATERIAL_RELATIONS: 'material-relations',
+  CANVAS_LAYOUT: 'canvas-layout',
+  CANVAS_RELATIONS: 'canvas-relations',
+  CANVAS_TRANSITION: 'canvas-transition',
+  STORYBOARD_SHOT_PATCH: 'storyboard-shot-patch',
   RUNTIME_CANDIDATE: 'runtime-candidate',
   GENERATION_REQUEST: 'generation-request',
   REVIEW_ONLY: 'review-only'
@@ -103,9 +110,9 @@ export function markCompleted(result, {
     ...result,
     status: RESULT_STATUSES.COMPLETED,
     summary: safeStr(summary),
-    suggestions: Array.isArray(suggestions) ? suggestions.map(normalizeSuggestion) : [],
-    actions: Array.isArray(actions) ? actions.map(normalizeAction) : [],
-    sideEffects: Array.isArray(sideEffects) ? sideEffects.map(normalizeSideEffect) : [],
+    suggestions: Array.isArray(suggestions) ? suggestions.map(normalizeSuggestion).filter(Boolean) : [],
+    actions: Array.isArray(actions) ? actions.map(normalizeAction).filter(Boolean) : [],
+    sideEffects: Array.isArray(sideEffects) ? sideEffects.map(normalizeSideEffect).filter(Boolean) : [],
     error: null
   }
 }
@@ -209,10 +216,13 @@ function normalizeSuggestion(s) {
 
 function normalizeAction(a) {
   if (!a || typeof a !== 'object') return null
+  const validation = validateAgentAction(a)
+  if (!validation.valid) return null
   return {
-    type: safeStr(a.type) || ACTION_TYPES.REVIEW_ONLY,
+    type: validation.type,
     label: safeStr(a.label) || '',
     content: a.content != null ? a.content : a.text || '',
+    payload: a.payload && typeof a.payload === 'object' ? a.payload : null,
     sourceRefs: Array.isArray(a.sourceRefs) ? a.sourceRefs : [],
     range: a.range && typeof a.range === 'object'
       ? { start: Number(a.range.start), end: Number(a.range.end) }
@@ -223,10 +233,54 @@ function normalizeAction(a) {
 
 function normalizeSideEffect(se) {
   if (!se || typeof se !== 'object') return null
+  const type = safeStr(se.type)
+  if (!Object.values(SIDE_EFFECT_TYPES).includes(type)) return null
   return {
-    type: safeStr(se.type) || SIDE_EFFECT_TYPES.ADD_OUTLINE_ITEM,
+    type,
     ...se
   }
+}
+
+export function validateAgentAction(action) {
+  if (!action || typeof action !== 'object') {
+    return { valid: false, reason: 'invalid-action' }
+  }
+  const type = safeStr(action.type)
+  if (!Object.values(ACTION_TYPES).includes(type)) {
+    return { valid: false, reason: 'unknown-action-type', type }
+  }
+  if (type === ACTION_TYPES.TEXT_PATCH && !safeStr(action.content).trim()) {
+    return { valid: false, reason: 'missing-action-content', type }
+  }
+  if ([
+    ACTION_TYPES.MATERIAL_CLASSIFICATION,
+    ACTION_TYPES.MATERIAL_SPLIT,
+    ACTION_TYPES.MATERIAL_RELATIONS,
+    ACTION_TYPES.CANVAS_LAYOUT,
+    ACTION_TYPES.CANVAS_RELATIONS,
+    ACTION_TYPES.CANVAS_TRANSITION,
+    ACTION_TYPES.STORYBOARD_SHOT_PATCH,
+    ACTION_TYPES.RUNTIME_CANDIDATE,
+    ACTION_TYPES.GENERATION_REQUEST
+  ].includes(type) && (!action.payload || typeof action.payload !== 'object')) {
+    return { valid: false, reason: 'missing-action-payload', type }
+  }
+  return { valid: true, type }
+}
+
+export function validateAgentResult(result) {
+  if (!result || typeof result !== 'object') {
+    return { valid: false, reason: 'invalid-result' }
+  }
+  if (Number(result.schemaVersion) !== RESULT_SCHEMA_VERSION) {
+    return { valid: false, reason: 'unsupported-result-version' }
+  }
+  if (!Object.values(RESULT_STATUSES).includes(result.status)) {
+    return { valid: false, reason: 'unknown-result-status' }
+  }
+  const invalidAction = (result.actions || []).find((action) => !validateAgentAction(action).valid)
+  if (invalidAction) return { valid: false, reason: 'invalid-result-action' }
+  return { valid: true }
 }
 
 export function extractTextPatch(result) {

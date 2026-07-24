@@ -100,31 +100,38 @@
       </div>
     </FolioSurface>
 
-    <!-- V3 0-state hero block: shown only when cards.length === 0.
-         Hidden as soon as a single card lands so the canvas takes over. -->
-    <section v-if="cards.length === 0" class="prose-hero is-archive-paper" aria-label="画布零态引导">
+    <p
+      v-if="generationError"
+      class="prose-generation-feedback"
+      role="alert"
+    >
+      <span class="prose-generation-feedback__mark" aria-hidden="true"></span>
+      {{ generationError }}
+    </p>
+
+    <WorkspacePaneSwitch
+      v-model="mobilePane"
+      :items="canvasMobilePanes"
+      label="画布工作区"
+      :breakpoint="760"
+    />
+
+    <section v-if="cards.length === 0 && isKao" class="prose-hero is-archive-paper" aria-label="画布零态引导">
       <div class="prose-hero__inner">
         <h1 class="prose-hero__title">画布空白</h1>
         <p class="prose-hero__desc">输入主题，或从素材库拖入素材生成画布。</p>
         <div class="prose-hero__actions">
-          <button
-            class="prose-top__chip prose-top__chip--cta"
-            type="button"
-            @click="focusTopicInput"
-          >
+          <button class="prose-top__chip prose-top__chip--cta" type="button" @click="focusTopicInput">
             <span class="prose-top__chip-label">输入主题</span>
           </button>
-          <router-link
-            class="prose-top__chip prose-top__chip--cta"
-            to="/materials"
-          >
+          <router-link class="prose-top__chip prose-top__chip--cta" to="/materials">
             <span class="prose-top__chip-label">从素材库导入</span>
           </router-link>
         </div>
       </div>
     </section>
 
-    <div class="pe-main">
+    <div class="pe-main" :data-mobile-pane="mobilePane">
       <!-- 左侧面板 -->
       <aside class="left-panel">
         <!-- 选中卡片详情面板 -->
@@ -185,6 +192,7 @@
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length, 'storyboard-mode': currentMode === 'directing' }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
+        <ContourField density="relation" entry="right" />
         <CanvasEdgeLegend
           v-if="cards.length"
           :edge-types="edgeTypes"
@@ -230,18 +238,13 @@
           />
         </svg>
         <div v-if="cards.length === 0" class="empty-cards">
-          <div class="empty-icon">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor">
-              <path d="M8 8h14v32H8V8zm18 0h14v32H26V8zM12 14h6v4h-6v-4zm0 10h10v4H12v-4zm0 10h8v4h-8v-4z"/>
-            </svg>
+          <span class="empty-cards__kicker">关系画布</span>
+          <p class="empty-title">从一个场景线索开始</p>
+          <p class="empty-desc">生成节点后，可在这里组织关系、镜头顺序与视频任务。</p>
+          <div class="empty-cards__actions">
+            <button class="prose-top__chip prose-top__chip--generate" type="button" @click="focusTopicInput">输入场景线索</button>
+            <router-link class="empty-cards__link" to="/materials">从素材库导入</router-link>
           </div>
-          <p class="empty-title">还没有素材节点</p>
-          <p class="empty-desc">
-            从素材页加入节点，或输入线索创建新的节点
-          </p>
-          <p class="empty-hint">
-            连线与时间轴用于形成分镜版本
-          </p>
         </div>
 
         <!-- Absolute positioned cards.
@@ -368,6 +371,7 @@
       :stale="!directorStoryboardIsCurrent"
       @close="showStoryboardVideoPanel = false"
       @archived="handleStoryboardVideoArchived"
+      @shots-updated="handleStoryboardAgentShotsUpdated"
     />
 
     <!-- 生图悬浮按钮 -->
@@ -656,22 +660,23 @@
         avatarLabel="编"
         caption="编导顾问"
         captionHint="编导入口"
+        :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
         @open="openAdvisor"
       />
 
       <AdvisorPanel
         :isOpen="advisorOpen"
         :messages="advisorMessages"
+        :results="advisorResults"
         :loading="advisorLoading"
-        :quickQuestions="[
-          { label: '检查镜头顺序', question: '检查当前镜头/卡片的排列顺序，指出不连贯之处。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '分析关系结构', question: '分析素材卡片之间的逻辑关系和结构层次。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '转场建议', question: '分析卡片之间的转场，给出衔接建议。', scope: 'thread', taskType: 'advisor.close.thread' },
-          { label: '遗漏镜头', question: '检查当前分镜，找出遗漏或缺失的镜头。', scope: 'chapter', taskType: 'advisor.review.chapter' }
-        ]"
+        :quickQuestions="canvasAdvisorActions"
+        :notice="consistencyNotice"
         :emptyText="'创作顾问可帮你分析素材关系、镜头节奏和分镜推进方向。'"
         @close="closeAdvisor"
         @ask="handleAskAdvisor"
+        @apply-result="applyCanvasAdvisorResult"
+        @undo-result="undoCanvasAdvisorResult"
+        @dismiss-result="dismissResult($event.id)"
       />
     </div>
 </template>
@@ -688,6 +693,8 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
 import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
+import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
+import ContourField from '../components/workbench/ContourField.vue'
 import StoryboardVideoPanel from '../components/media/StoryboardVideoPanel.vue'
 import {
   saveValidatedStoryboardVersion
@@ -741,14 +748,38 @@ import {
   clamp
 } from '../services/canvasGeometry'
 import { useCanvasViewport } from '../composables/useCanvasViewport'
+import { buildCanvasAgentContext } from '../services/agents/creativeGraphAgentContext'
+import {
+  canUndoCanvasAgentTransaction,
+  prepareCanvasAgentTransaction,
+  restoreCanvasAgentTransaction
+} from '../services/agents/canvasAgentTransaction'
 
 const router = useRouter()
 const route = useRoute()
-const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
+const { isDark, isKao, toggleTheme } = useTheme()
+const {
+  advisorOpen,
+  advisorMessages,
+  advisorResults,
+  advisorLoading,
+  pendingReviewCount,
+  pendingReminderVisible,
+  consistencyNotice,
+  askAdvisor,
+  dismissResult,
+  updateAdvisorResultStatus,
+  openAdvisor,
+  closeAdvisor
+} = useAdvisor()
 
 // Mode switching
 const currentMode = ref('directing')
+const mobilePane = ref('canvas')
+const canvasMobilePanes = [
+  { value: 'canvas', label: '画布' },
+  { value: 'timeline', label: '时间轴与节点' }
+]
 
 // Director mode edge types
 const directorEdgeTypes = [
@@ -897,6 +928,7 @@ const editingContent = ref('')
 const editingEmotion = ref('calm')
 const isGenerating = ref(false)
 const generationMessage = ref('正在捕捉灵感…')
+const generationError = ref('')
 const newEdgeType = ref('continuation')
 const linkingActive = ref(false)
 const edgeDeleteActive = ref(false)
@@ -989,6 +1021,29 @@ const timelineTotalDuration = computed(() => timelineItems.value.reduce((sum, it
 const selectedCardTimelineIndex = computed(() => getSelectedCardTimelineIndex())
 const selectedCardInTimeline = computed(() => selectedCardTimelineIndex.value >= 0)
 const selectedCardTimelineSequence = computed(() => selectedCard.value ? getCardTimelineSequence(selectedCard.value.id) : 0)
+const canvasAdvisorActions = computed(() => [
+  {
+    label: '检查局部组织',
+    question: '检查选中节点、直接邻居和当前视口的组织方式，指出最需要调整的地方。',
+    scope: 'canvas',
+    taskType: 'canvas.organize',
+    disabled: !selectedCard.value
+  },
+  {
+    label: '分析相邻关系',
+    question: '分析选中节点与直接邻居之间值得建立、删除或修改的关系。',
+    scope: 'canvas',
+    taskType: 'canvas.relate',
+    disabled: !selectedCard.value
+  },
+  {
+    label: '检查镜头转场',
+    question: '检查选中镜头与直接邻居的转场关系，给出必要且克制的转场修改。',
+    scope: 'canvas',
+    taskType: 'canvas.transition',
+    disabled: !selectedCard.value
+  }
+])
 
 function layoutCards(cardsToLayout) {
   if (!cardWallRef.value) return
@@ -1296,29 +1351,91 @@ watch(() => route.query.assetId, () => {
 })
 
 // Advisor functions
-function collectProseContext() {
-  return {
-    mode: currentMode.value,
-    cards: flatCards.value.map(c => ({
-      id: c.id,
-      content: c.content,
-      extraFields: c.extraFields || null
-    })),
-    edges: edges.value.map(e => ({
-      sourceId: e.sourceId,
-      targetId: e.targetId,
-      type: e.type
-    })),
-    outline: outline.value,
-    timeline: currentMode.value === 'directing' ? timeline.value : null
+async function handleAskAdvisor(input) {
+  const action = typeof input === 'string'
+    ? { label: input, question: input, scope: 'canvas', taskType: 'canvas.organize' }
+    : input
+  if (!action || action.disabled || !selectedCard.value) return
+
+  const built = collectCanvasAdvisorContext(selectedCard.value.id)
+  if (!built.cards.length) return
+  const target = {
+    kind: 'canvas-selection',
+    id: selectedCard.value.id,
+    text: JSON.stringify(built.context),
+    revision: built.revision,
+    allowedCardIds: built.cards.map((card) => card.id)
   }
+
+  await askAdvisor({ ...action, scope: 'canvas', target, mode: 'prose' }, () => built.context)
 }
 
-function handleAskAdvisor(input) {
-  const action = typeof input === 'string'
-    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
-    : input
-  askAdvisor({ ...action, mode: 'prose' }, collectProseContext)
+function collectCanvasAdvisorContext(selectedCardId) {
+  const wall = cardWallRef.value
+  const currentSelectedCard = flatCards.value.find((card) => card.id === selectedCardId)
+    || cards.value.find((card) => card.id === selectedCardId)
+  return buildCanvasAgentContext({
+    selectedCard: currentSelectedCard,
+    cards: flatCards.value,
+    edges: edges.value,
+    viewport: {
+      zoom: viewport.zoom.value,
+      panX: viewport.panX.value,
+      panY: viewport.panY.value,
+      scrollLeft: wall?.scrollLeft,
+      scrollTop: wall?.scrollTop,
+      width: wall?.clientWidth || viewport.containerWidth.value,
+      height: wall?.clientHeight || viewport.containerHeight.value
+    }
+  })
+}
+
+function applyCanvasAdvisorResult(result) {
+  const actions = (result?.actions || []).filter((action) => String(action?.type || '').startsWith('canvas-'))
+  if (!actions.length) {
+    updateAdvisorResultStatus(result?.id, 'failed', '结果没有可应用的画布修改')
+    return
+  }
+  const current = collectCanvasAdvisorContext(result.target?.id)
+  if (current.revision !== result.target?.revision) {
+    updateAdvisorResultStatus(result.id, 'stale', '节点内容、位置或关系已变化，请重新生成')
+    return
+  }
+
+  const transaction = prepareCanvasAgentTransaction(actions, cards.value, edges.value, {
+    resultId: result.id,
+    selectedCardId: result.target.id,
+    allowedCardIds: result.target.allowedCardIds,
+    now: Date.now()
+  })
+  if (!transaction.ok) {
+    updateAdvisorResultStatus(result.id, 'failed', `无法应用画布修改：${transaction.reason}`)
+    return
+  }
+
+  cards.value = transaction.cards
+  edges.value = transaction.edges
+  result.applyReceipt = transaction.receipt
+  selectedCard.value = cards.value.find((card) => card.id === result.target.id) || null
+  updateAdvisorResultStatus(result.id, 'applied')
+  saveData()
+  updateLayout()
+}
+
+function undoCanvasAdvisorResult(result) {
+  const receipt = result?.applyReceipt
+  if (!canUndoCanvasAgentTransaction(cards.value, edges.value, receipt)) {
+    result.statusDetail = '相关节点或连线已再次变化，无法自动撤销'
+    return
+  }
+
+  cards.value = restoreCanvasAgentTransaction(cards.value, receipt)
+  edges.value = (receipt.beforeEdgesData || receipt.beforeEdges).map((edge) => ({ ...edge }))
+  result.applyReceipt = null
+  selectedCard.value = cards.value.find((card) => card.id === receipt.selectedCardId) || null
+  updateAdvisorResultStatus(result.id, 'completed')
+  saveData()
+  updateLayout()
 }
 
 // Data operations
@@ -1659,6 +1776,7 @@ function getTimelineRelationText(index, card) {
 function jumpToTimelineItem(item) {
   if (!item?.focusCardId) return
   jumpToCard(item.focusCardId)
+  mobilePane.value = 'canvas'
 }
 
 function getCardTimelineSequence(cardId) {
@@ -1836,6 +1954,7 @@ async function generateCards() {
     return
   }
 
+  generationError.value = ''
   isGenerating.value = true
   generationMsgIndex = 0
   generationMessage.value = generationMessages[0]
@@ -1855,8 +1974,10 @@ async function generateCards() {
       return
     }
 
+    generationError.value = '未能生成有效节点，请调整场景线索后重试。'
     console.error('卡片生成失败，未能解析有效内容')
   } catch (e) {
+    generationError.value = `生成失败：${e?.message || '请检查网络与模型配置后重试。'}`
     console.error('生成分镜卡片失败:', e)
   } finally {
     clearInterval(generationMsgTimer)
@@ -2772,6 +2893,38 @@ function handleStoryboardVideoArchived(asset) {
   addTimeline('归档分镜视频')
 }
 
+function handleStoryboardAgentShotsUpdated(shots, meta = {}) {
+  const current = storyboardVideoContext.value
+  if (!current?.document?.id || !Array.isArray(shots) || !shots.length) return
+  try {
+    const result = saveValidatedStoryboardVersion({
+      documentId: current.document.id,
+      projectId: current.document.projectId || null,
+      source: current.document.source || {},
+      shots,
+      taskType: meta.reason === 'agent-undo' ? 'storyboard.agent.undo' : 'storyboard.agent.review',
+      parameters: {
+        mode: 'directing',
+        agentReviewed: true
+      }
+    })
+    const updatedContext = {
+      ...current,
+      shots: result.shots,
+      document: result.document,
+      version: result.version,
+      validation: result.validation
+    }
+    storyboardVideoContext.value = updatedContext
+    lastDirectorExportContext.value = updatedContext
+    directorStoryboardStatus.value = meta.reason === 'agent-undo'
+      ? `已撤销镜头修正，建立版本 ${result.version.versionId.slice(-6)}`
+      : `已应用镜头修正，建立版本 ${result.version.versionId.slice(-6)}`
+  } catch (error) {
+    directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '镜头修正保存失败'
+  }
+}
+
 function downloadDirectorMarkdown() {
   showExportMenu.value = false
   try {
@@ -3247,8 +3400,17 @@ function goToMaterialsImageGen() {
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 62%,
+    color-mix(in srgb, var(--archive-paper-strong) 22%, var(--archive-paper-soft)) 100%
+  );
   overflow: hidden;
+}
+
+.prose-essay-page.is-archive-paper.is-archive-paper::before {
+  display: none;
 }
 
 /* V3 archive-folio top strip — paper-fiber surface inherited from
@@ -3258,6 +3420,29 @@ function goToMaterialsImageGen() {
 .prose-essay__hero {
   flex: none;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+}
+
+.prose-generation-feedback {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 18%, var(--border));
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg-primary));
+  color: color-mix(in srgb, var(--danger) 66%, var(--text-primary));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.prose-generation-feedback__mark {
+  width: 12px;
+  height: 2px;
+  flex: none;
+  background: color-mix(in srgb, var(--danger) 58%, var(--archive-rose));
 }
 
 .prose-top {
@@ -3570,7 +3755,7 @@ function goToMaterialsImageGen() {
   flex: 1;
   display: flex;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 /* Card Wall - PoetryLab-style canvas */
@@ -3578,21 +3763,44 @@ function goToMaterialsImageGen() {
   flex: 1;
   overflow: auto;
   position: relative;
-  background-color: color-mix(in srgb, var(--archive-paper) 58%, var(--bg-primary));
+  isolation: isolate;
+  background-color: color-mix(in srgb, var(--archive-paper) 34%, var(--archive-paper-soft));
   background-image:
-    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--archive-ink-soft) 13%, transparent) 1px, transparent 0);
-  background-size: 72px 72px, 72px 72px, 18px 18px;
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-ink-soft) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-ink-soft) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(118deg, transparent 0 68%, color-mix(in srgb, var(--archive-olive) 3%, transparent) 68.2% 82%, transparent 82.2%);
+  background-size: 96px 96px, 96px 96px, auto;
+}
+
+.card-wall::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.card-wall::after {
+  right: 0;
+  bottom: 0;
+  width: 38%;
+  height: 38%;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--archive-ink-soft) 16%, transparent) 1px,
+    transparent 1.2px
+  );
+  background-size: 20px 20px;
+  mask-image: linear-gradient(135deg, transparent 0%, transparent 28%, black 84%, black 100%);
+  opacity: 0.24;
 }
 
 .card-wall.storyboard-mode {
   background-image:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive) 7%, transparent), transparent 180px),
-    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 8%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--archive-ink-soft) 13%, transparent) 1px, transparent 0);
-  background-size: auto, 72px 72px, 72px 72px, 18px 18px;
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-olive) 5%, transparent), transparent 180px),
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-ink-soft) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--archive-ink-soft) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(118deg, transparent 0 68%, color-mix(in srgb, var(--archive-olive) 3%, transparent) 68.2% 82%, transparent 82.2%);
+  background-size: auto, 96px 96px, 96px 96px, auto;
 }
 
 .card-wall.has-cards {
@@ -3600,15 +3808,21 @@ function goToMaterialsImageGen() {
 }
 
 .empty-cards {
-  width: 100%;
+  width: min(100%, 460px);
+  min-height: 100%;
+  margin-inline: auto;
   text-align: center;
-  padding: 80px 20px;
+  padding: clamp(72px, 16vh, 150px) 24px 80px;
   color: var(--text-secondary);
 }
 
-.empty-icon {
-  opacity: 0.3;
-  margin-bottom: 16px;
+.empty-cards__kicker {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--archive-olive);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .empty-title {
@@ -3619,12 +3833,25 @@ function goToMaterialsImageGen() {
 
 .empty-desc {
   font-size: 14px;
-  margin-bottom: 4px;
+  line-height: 1.7;
 }
 
-.empty-hint {
+.empty-cards__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.empty-cards__link {
+  color: var(--archive-ink-soft);
   font-size: 12px;
-  color: var(--text-muted);
+  text-underline-offset: 4px;
+}
+
+.empty-cards__link:hover {
+  color: var(--archive-ink);
 }
 
 /* Writing Card - PoetryLab-style idea node */
@@ -3641,6 +3868,20 @@ function goToMaterialsImageGen() {
   box-shadow: 4px 4px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
   z-index: 2;
   color: var(--text-primary);
+}
+
+.writing-card::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: -4px;
+  bottom: -4px;
+  height: 4px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 12%, transparent);
+  border-top: 0;
+  background: color-mix(in srgb, var(--archive-paper-strong) 48%, var(--archive-paper-soft));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 3px 100%);
+  pointer-events: none;
 }
 
 .writing-card.storyboard-card {
@@ -3900,7 +4141,7 @@ function goToMaterialsImageGen() {
 
 /* Left Panel */
 .left-panel {
-  width: 320px;
+  width: clamp(236px, 19vw, 276px);
   background: color-mix(in srgb, var(--archive-paper) 78%, var(--surface-panel));
   border-right: 1px solid color-mix(in srgb, var(--archive-gold) 48%, transparent);
   box-shadow: inset -1px 0 0 color-mix(in srgb, var(--archive-paper-soft) 46%, transparent);
@@ -5159,6 +5400,40 @@ function goToMaterialsImageGen() {
 }
 
 @media (max-width: 760px) {
+  .prose-essay-page { min-width: 0; }
+  .prose-top {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .prose-top__left,
+  .prose-top__right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .prose-top__right { justify-content: flex-start; }
+  .prose-top__mid { padding-top: 8px; }
+  .prose-top__input { min-width: 0; }
+  .prose-hero { display: none; }
+  .pe-main { display: block; min-height: 0; }
+  .pe-main .left-panel,
+  .pe-main .card-wall { display: none; }
+  .pe-main[data-mobile-pane="canvas"] .card-wall,
+  .pe-main[data-mobile-pane="timeline"] .left-panel {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+  .pe-main[data-mobile-pane="canvas"] .card-wall { display: block; }
+  .left-panel { border-right: 0; }
+  .empty-cards {
+    width: min(100%, 320px);
+    padding-inline: 20px;
+  }
+  .empty-cards__actions { flex-direction: column; }
+  .empty-title,
+  .empty-desc,
+  .empty-hint { white-space: normal; }
+
   .image-gen-btn {
     width: 46px;
     height: 46px;
@@ -5172,9 +5447,15 @@ function goToMaterialsImageGen() {
   .image-gen-rail {
     top: auto;
     right: 12px;
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
     transform: none;
     transition: none;
+  }
+
+  .floating-toolbar {
+    left: 12px;
+    right: auto;
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   }
 
 }

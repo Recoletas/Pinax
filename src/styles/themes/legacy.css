@@ -40,9 +40,19 @@
   --archive-gold-soft: #cbd5e1;
   --archive-rose: #476f9f;
   --archive-photo: #1e3a5f;
+  --experience-signal-warm: #d8c84f;
+  --experience-signal-cool: #719da8;
   --hairline-soft: rgba(71, 85, 105, 0.18);
   --hairline-accent: rgba(100, 116, 139, 0.38);
   --hairline-rose: rgba(37, 99, 235, 0.32);
+  --surface-workbench: #f8fafc;
+  --surface-workbench-raised: #ffffff;
+  --surface-workbench-muted: #eef3f8;
+  --signal-primary: #2563eb;
+  --signal-secondary: #2b7c78;
+  --signal-warm: #b48a45;
+  --shadow-workbench: 0 12px 30px rgba(15, 23, 42, 0.09);
+  --shadow-workbench-float: 0 18px 44px rgba(15, 23, 42, 0.15);
 }
 
 /* E17 correction: theme 2 owns the Experience live-codex rail chrome.
@@ -52,10 +62,11 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent),
-      color-mix(in srgb, var(--archive-paper-strong) 36%, var(--archive-paper-soft)));
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 68%
+  );
   border: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
   box-shadow:
     -1px 0 0 color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) inset,
@@ -71,10 +82,11 @@
   min-height: 32px;
   padding: 5px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft)),
-      color-mix(in srgb, var(--archive-paper-soft) 94%, transparent));
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 64%
+  );
 }
 
 .theme-legacy .ws-dossier-bar__label {
@@ -503,25 +515,6 @@
    min-height) and are 160ms — inside the 120-180ms range the user
    asked for.
    ============================================================================ */
-.theme-legacy .prose--editing {
-  background: color-mix(in srgb, var(--archive-paper-soft) 86%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--archive-olive) 18%, transparent);
-}
-.theme-legacy .prose__editor {
-  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 36%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--archive-paper) 80%, transparent);
-}
-.theme-legacy .prose__editor:focus {
-  background: var(--archive-paper-soft);
-  border-color: var(--archive-olive);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--archive-paper) 80%, transparent),
-    0 0 0 4px color-mix(in srgb, var(--archive-olive) 14%, transparent);
-}
-
 /* UI-E19: reduced-motion — disable editor + .prose--editing transitions
    in theme 2. Mirrors the E18 contract pattern but targets the new
    .prose__editor / .prose--editing classes. */
@@ -548,10 +541,11 @@
 .theme-legacy .ws-codex-detail-panel {
   border: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
   border-radius: 4px;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-paper-soft) 92%, transparent),
-      color-mix(in srgb, var(--archive-paper-strong) 24%, var(--archive-paper-soft)));
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 66%
+  );
   box-shadow:
     0 28px 60px color-mix(in srgb, var(--archive-ink) 32%, transparent),
     0 2px 0 color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) inset;
@@ -560,10 +554,11 @@
 
 .theme-legacy .ws-codex-detail-header {
   border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 28%, var(--border));
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft)),
-      color-mix(in srgb, var(--archive-paper-soft) 90%, transparent));
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 62%
+  );
 }
 
 .theme-legacy .ws-codex-detail-kicker {

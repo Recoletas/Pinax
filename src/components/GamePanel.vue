@@ -34,12 +34,12 @@
             <strong>续写第一步</strong>
             <small>把当前意图写入记录流</small>
           </button>
-          <button class="chat-container__hero-slip" type="button" @click="$emit('quick-action', 'note')">
+          <button class="chat-container__hero-slip is-secondary" type="button" @click="$emit('quick-action', 'note')">
             <span>速记</span>
             <strong>摘一条线索</strong>
             <small>把对话片段转为素材</small>
           </button>
-          <button class="chat-container__hero-slip" type="button" @click="$emit('quick-action', 'scene')">
+          <button class="chat-container__hero-slip is-secondary" type="button" @click="$emit('quick-action', 'scene')">
             <span>场景</span>
             <strong>切到下一处</strong>
             <small>用本地演示检查流转</small>
@@ -88,104 +88,25 @@
              (b) 段首缩进 2em on every paragraph (canonical CJK),
              (c) per-role color tint on the speaker label only.
            The text is the UI; everything else is chrome. -->
-      <p
-        class="prose"
-        :class="[
-          `prose--${msg.role || 'assistant'}`,
-          `prose--${msg.role || 'assistant'}-role`,
-          {
-            'compression-complete': isCompressionCompleteMessage(msg),
-            'prose--opening': isOpeningTurn(index),
-            'prose--editing': editingIndex === index
-          }
-        ]"
-        :data-global-index="index"
-        :data-role="msg.role"
-      >
-        <span
-          v-if="showSpeakerLabel(msg, index)"
-          class="prose__speaker"
-          :class="`prose__speaker--${msg.role || 'assistant'}`"
-        >{{ displayName(msg) }}</span><span
-          v-if="showSpeakerLabel(msg, index)"
-          class="prose__sep"
-          aria-hidden="true"
-        >　</span><!--
-          UI-E19: in-place contenteditable editor. Replaces the E18
-          <Transition mode="out-in"> span/textarea swap, which felt like
-          "opening a dialog" instead of editing the current message.
-          The editor stays inside .prose (no modal, no separate form);
-          initial content is set via JS in nextTick (Vue's v-html would
-          overwrite the user-typed text on every render, so we mount
-          an empty editor and seed its textContent once). On save we
-          read innerText — preserves multi-line breaks as \n, which
-          renderRPText re-renders as <br>. Enter inserts newline (block
-          default); Esc cancels; Ctrl/Cmd+Enter saves. The view-mode
-          .prose__body span is not rendered while editing, so mechanism
-          triggers / inline details can't fire from inside the editor.
-        -->
-        <span
-          v-if="editingIndex === index"
-          class="prose__editor"
-          contenteditable="true"
-          spellcheck="false"
-          :data-editing-index="index"
-          @keydown="onEditorKeydown"
-          @click.stop
-        ></span>
-        <span
-          v-else
-          class="prose__body"
-          @click="onTextWrapperClick(index, msg, $event)"
-          v-html="renderMessageContent(msg, index)"
-        ></span>
-        <span
-          v-if="editingIndex === index"
-          class="prose__edit-actions"
-        >
-          <button class="tavern-btn primary" @click="saveEdit(index)">保存修改</button>
-          <button class="tavern-btn" @click="cancelEdit">取消</button>
-        </span>
-        <!-- E16-NOVEL v2: per-paragraph action row. Hover-revealed
-             (opacity 0 → 1 on prose hover), right-aligned, like a
-             margin annotation. Brings back edit/delete/regenerate
-             from the 541a2ce-era msg-actions. Position: absolute on
-             the prose wrapper so it floats to the right of the column
-             without affecting the prose flow. -->
-        <span
-          v-if="editingIndex !== index && (msg.role || msg.type) !== 'system'"
-          class="prose__actions"
-        >
-          <span
-            class="prose__action"
-            :title="'编辑内容'"
-            @click.stop="startEdit(index, msg.content)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <path d="M8.5 1.5l2 2-7 7-2.5.5.5-2.5 7-7z"/>
-            </svg>
-          </span>
-          <span
-            class="prose__action prose__action--delete"
-            :title="'删除'"
-            @click.stop="gameStore.deleteMessage(index)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <path d="M2 2h8v8H2V2zM4 0h4v2H4V0z"/>
-            </svg>
-          </span>
-          <span
-            v-if="msg.role === 'user'"
-            class="prose__action prose__action--regen"
-            :title="'重写后续'"
-            @click.stop="gameStore.regenerateFrom(index)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <path d="M2 1l9 5-9 5V1z"/>
-            </svg>
-          </span>
-        </span>
-      </p>
+      <NarrativeTurn
+        :message="msg"
+        :index="index"
+        :blocks="messageBlocks(msg)"
+        :editing="editingIndex === index"
+        :opening="isOpeningTurn(index)"
+        :show-turn-speaker="showSpeakerLabel(msg, index)"
+        :turn-speaker="displayName(msg)"
+        :compression-complete="isCompressionCompleteMessage(msg)"
+        :can-edit="(msg.role || msg.type) !== 'system'"
+        :render-content="(block) => renderBlockContent(msg, block, index)"
+        @body-click="onTextWrapperClick(index, msg, $event)"
+        @editor-keydown="onEditorKeydown"
+        @save-edit="saveEdit(index)"
+        @cancel-edit="cancelEdit"
+        @edit="startEdit(index, msg.content)"
+        @delete="gameStore.deleteMessage(index)"
+        @regenerate="gameStore.regenerateFrom(index)"
+      />
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
   </div>
@@ -195,6 +116,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
+import NarrativeTurn from './experience/NarrativeTurn.vue'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
@@ -255,6 +177,16 @@ const isOpeningTurn = (index) => {
 }
 const showSpeakerLabel = (msg, index) => {
   if (!msg || msg.type === 'scene') return false
+  const blocks = messageBlocks(msg)
+  const hasBlockSpeaker = blocks.some((block) => Boolean(block?.speaker))
+  const hasUnassignedDialogue = blocks.some((block) => block?.kind === 'dialogue' && !block?.speaker)
+
+  // Player input always needs an owner. Assistant dialogue also keeps a
+  // turn-level identity when neither the protocol nor the legacy text names
+  // its speaker; explicit block speakers remain the more precise label.
+  if (msg.role === 'user') return true
+  if (hasUnassignedDialogue) return true
+  if (hasBlockSpeaker) return false
   if (isOpeningTurn(index)) return true
   // Also show when the speaker changed within the same role (e.g.
   // assistant turn handing off to a different character) — the
@@ -299,7 +231,7 @@ const saveEdit = (index) => {
   const editor = document.querySelector(
     `.prose[data-global-index="${index}"] .prose__editor`
   )
-  const text = (editor?.innerText ?? '').replace(/ /g, ' ').trimEnd()
+  const text = (editor?.innerText ?? '').replace(/\u00a0/g, ' ').trimEnd()
   if (text.trim()) {
     gameStore.updateMessage(index, text)
   }
@@ -324,30 +256,30 @@ const isCompressionCompleteMessage = (msg) => {
 
 const displayName = (msg) => {
   if (isCompressionCompleteMessage(msg)) return '系统'
-  if (msg.name) return msg.name
+  const explicitName = String(msg.name || '').trim()
+  if (explicitName && !['assistant', 'user', 'system'].includes(explicitName.toLowerCase())) {
+    return explicitName
+  }
   if (msg.role === 'user') return gameStore.playerCharacter?.name || '主角'
   if (msg.role === 'system' || msg.type === 'system') return '系统'
-  return gameStore.aiCharacter?.name || '旁白'
+  const aiName = String(gameStore.aiCharacter?.name || '').trim()
+  return aiName && !['assistant', 'ai'].includes(aiName.toLowerCase()) ? aiName : '旁白'
 }
 
-const roleLabel = (msg) => {
-  if (isCompressionCompleteMessage(msg)) return '档案员'
-  if (msg?.role === 'user') return '我'
-  if (msg?.role === 'assistant') return '旁白'
-  if (msg?.role === 'system' || msg?.type === 'system') return '系统'
-  return '记录'
+const messageBlocks = (msg) => {
+  if (msg?.presentation?.blocks?.length) return msg.presentation.blocks
+  return [{
+    id: `${msg?.id || 'message'}-fallback`,
+    kind: msg?.role === 'system' ? 'system' : 'narration',
+    text: String(msg?.content || '')
+  }]
 }
 
-const renderMessageContent = (msg, index) => {
-  return renderRPText(msg.content, {
-    mechanismTrigger: msg.mechanismTrigger || null,
-    inlineEvents: gameStore.inlineEvents.filter((event) => event.messageId === index)
+const renderBlockContent = (msg, block) => {
+  return renderRPText(block?.text || '', {
+    mechanismTrigger: msg?.mechanismTrigger || null,
+    inlineEvents: gameStore.inlineEvents.filter((event) => event.messageId === displayMessages.value.indexOf(msg))
   })
-}
-
-const formatTime = (ts) => {
-  const d = ts ? new Date(ts) : new Date()
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const scroll = () => {
@@ -381,10 +313,12 @@ const onTextWrapperClick = (index, msg, event) => {
 }
 
 onMounted(() => {
-  scroll()
+  if (displayMessages.value.length > 0) scroll()
 })
 
-watch(() => gameStore.messages.length, scroll)
+watch(() => gameStore.messages.length, (length, previousLength) => {
+  if (length > previousLength) scroll()
+})
 </script>
 
 <style scoped>
@@ -767,7 +701,7 @@ summary .arrow {
   font-size: 17px;
   line-height: 1.75;
   color: var(--archive-ink);
-  text-indent: 2em;
+  text-indent: 0;
 }
 .theme-kao .prose--opening {
   text-indent: 0;
@@ -808,6 +742,115 @@ summary .arrow {
 .theme-kao .prose__speaker--system {
   color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
   font-style: italic;
+}
+
+.theme-kao .prose__body {
+  display: block;
+  text-indent: 0;
+}
+
+.theme-kao .narrative-block {
+  margin: 0;
+  text-indent: 0;
+}
+
+.theme-kao :deep(.narrative-block) {
+  margin: 0;
+  text-indent: 0;
+}
+
+.theme-kao :deep(.narrative-block + .narrative-block) {
+  margin-top: 0.72em;
+}
+
+.theme-kao :deep(.narrative-block--narration) {
+  text-indent: 2em;
+}
+
+.theme-kao :deep(.narrative-block--action),
+.theme-kao :deep(.narrative-block--thought) {
+  color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-olive));
+  font-style: italic;
+  text-indent: 1em;
+}
+
+.theme-kao :deep(.narrative-block--dialogue) {
+  color: color-mix(in srgb, var(--archive-ink) 94%, var(--archive-olive-strong));
+  font-weight: 520;
+}
+
+.theme-kao :deep(.narrative-block--system) {
+  margin: 1em 0;
+  padding: 0.55em 0.8em;
+  border-left: 2px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 42%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 68%, transparent);
+  font-size: 0.9em;
+  text-indent: 0;
+}
+
+.theme-kao :deep(.narrative-block__speaker) {
+  display: block;
+  margin-bottom: 0.28em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
+  font-family: var(--font-sans);
+  font-size: 0.72em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  text-indent: 0;
+}
+
+.theme-kao :deep(.narrative-block__text) {
+  display: inline;
+}
+
+.theme-kao .narrative-block + .narrative-block {
+  margin-top: 0.72em;
+}
+
+.theme-kao .narrative-block--narration {
+  text-indent: 2em;
+}
+
+.theme-kao .narrative-block--action,
+.theme-kao .narrative-block--thought {
+  color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-olive));
+  font-style: italic;
+  text-indent: 1em;
+}
+
+.theme-kao .narrative-block--dialogue {
+  color: color-mix(in srgb, var(--archive-ink) 94%, var(--archive-olive-strong));
+  font-weight: 520;
+}
+
+.theme-kao .narrative-block--system {
+  margin: 1em 0;
+  padding: 0.55em 0.8em;
+  border-left: 2px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 42%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 68%, transparent);
+  font-size: 0.9em;
+  text-indent: 0;
+}
+
+.theme-kao .narrative-block__speaker {
+  display: block;
+  margin-bottom: 0.28em;
+  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
+  font-family: var(--font-sans);
+  font-size: 0.72em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  text-indent: 0;
+}
+
+.theme-kao .narrative-block__text {
+  display: inline;
 }
 .theme-kao .prose.compression-complete {
   font-style: italic;
@@ -857,6 +900,10 @@ summary .arrow {
   .theme-kao .prose {
     font-size: 16px;
     line-height: 1.8;
+  }
+
+  .theme-kao :deep(.narrative-block--narration) {
+    text-indent: 1.5em;
   }
 }
 

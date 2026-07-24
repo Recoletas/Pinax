@@ -7,6 +7,16 @@ function safeStr(value, fallback = '') {
   return String(value)
 }
 
+function revisionOf(value) {
+  const text = safeStr(value)
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `rev-${(hash >>> 0).toString(36)}-${text.length.toString(36)}`
+}
+
 export function adaptLegacyContextToEnvelope({
   context,
   question,
@@ -16,7 +26,7 @@ export function adaptLegacyContextToEnvelope({
   options = {},
   mode
 }) {
-  const resolvedTaskType = resolveTaskType(taskType) || taskType || 'advisor.review.chapter'
+  const resolvedTaskType = resolveTaskType(taskType) || taskType || 'writing.chapter.health'
   const surface = scope === 'selection' || scope === 'paragraph' || scope === 'continue'
     || scope === 'thread' || scope === 'chapter'
     ? 'writing'
@@ -45,13 +55,17 @@ export function adaptLegacyContextToEnvelope({
     blocks.push({ kind: 'raw', content: safeStr(options.additionalContext), priority: 200 })
   }
 
+  const targetType = target?.kind || (scope || 'general')
+  const revisionSeed = target?.text ?? target?.baseText ?? context
   const envelope = buildContextEnvelope({
     surface,
     projectId: null,
     target: {
-      type: target?.kind || (scope || 'general'),
+      type: targetType,
       id: target?.id || null,
-      revision: null
+      revision: target?.revision || target?.baseRevision || revisionOf(
+        typeof revisionSeed === 'string' ? revisionSeed : JSON.stringify(revisionSeed || {})
+      )
     },
     blocks
   })
@@ -111,6 +125,10 @@ export function adaptLegacyResultToAgentResult(legacyResult, taskType) {
     })
   }
 
+  if (Array.isArray(legacyResult.typedActions)) {
+    actions.push(...legacyResult.typedActions)
+  }
+
   if (legacyResult.summary) {
     suggestions.push({
       type: 'review',
@@ -133,7 +151,7 @@ export function adaptAgentResultToLegacy(agentResult) {
   if (!agentResult || typeof agentResult !== 'object') {
     return {
       advice: '未获取到有效建议',
-      result: { task: 'advisor.review.chapter', mode: 'review', summary: '' }
+      result: { task: 'writing.chapter.health', mode: 'review', summary: '' }
     }
   }
 

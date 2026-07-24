@@ -236,7 +236,7 @@
     </Teleport>
 
     <div class="game-image-gen-rail">
-      <ImageGenRail
+      <MediaGenerationDrawer
         storage-key="game_image_library_v1"
         side="right"
         :vertical-offset="62"
@@ -269,7 +269,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useGameStore } from '../../stores/gameStore'
 import { useWorldStore } from '../../stores/worldStore'
-import ImageGenRail from '../../components/ImageGenRail.vue'
+import MediaGenerationDrawer from '../../components/media/MediaGenerationDrawer.vue'
 import { useTheme } from '../../composables/useTheme'
 import { useAdvisor } from '../../composables/useAdvisor'
 import AdvisorPanel from '../../components/AdvisorPanel.vue'

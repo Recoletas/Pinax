@@ -21,8 +21,9 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, reactive, watch } from 'vue'
 import { useGameStore } from '../stores/gameStore'
+import { useTransientLayer } from '../composables/useTransientLayer'
 
-defineProps({
+const props = defineProps({
   open: { type: Boolean, default: false },
   inline: { type: Boolean, default: false },
   hideClose: { type: Boolean, default: false }
@@ -33,6 +34,13 @@ const emit = defineEmits(['close'])
 function emitClose() {
   emit('close')
 }
+
+useTransientLayer({
+  id: 'time-settings',
+  isOpen: computed(() => props.open && !props.inline),
+  onClose: emitClose,
+  initialFocus: () => document.querySelector('.time-settings__close, .time-settings input')
+})
 
 const TimeSettingsForm = defineComponent({
   name: 'TimeSettingsForm',
@@ -129,11 +137,11 @@ const TimeSettingsForm = defineComponent({
 })
 </script>
 
-<style scoped>
+<style>
 .time-settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-modal-backdrop, 800);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -146,12 +154,16 @@ const TimeSettingsForm = defineComponent({
 
 .time-settings {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 8px;
-  background: var(--surface-raised, var(--bg-secondary));
-  color: var(--text-primary);
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 18%, transparent);
+  border-radius: 3px;
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive, var(--accent)) 3%, var(--archive-paper-soft, var(--bg-secondary))),
+    var(--archive-paper-soft, var(--bg-secondary)) 68%
+  );
+  color: var(--archive-ink, var(--text-primary));
 }
 
 .time-settings__header {
@@ -163,14 +175,19 @@ const TimeSettingsForm = defineComponent({
 
 .time-settings__kicker {
   display: block;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--archive-olive-strong, var(--accent)) 64%, var(--archive-ink-soft, var(--text-muted)));
+  font-family: var(--font-sans, sans-serif);
   font-size: 10px;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 .time-settings__title {
   margin: 2px 0 0;
+  color: var(--archive-ink, var(--text-primary));
+  font-family: var(--font-sans, sans-serif);
   font-size: 16px;
+  font-weight: 720;
   line-height: 1.2;
 }
 
@@ -185,12 +202,34 @@ const TimeSettingsForm = defineComponent({
 }
 
 .time-settings__preview {
+  position: relative;
   margin: 0;
-  padding: 8px 10px;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 38%, var(--border));
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-  color: var(--text-secondary);
+  padding: 10px 12px 10px 15px;
+  border: 0;
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive, var(--accent)) 3%, var(--archive-paper-soft, var(--bg-primary))),
+    var(--archive-paper-soft, var(--bg-primary)) 72%
+  );
+  color: color-mix(in srgb, var(--archive-ink, var(--text-secondary)) 82%, var(--archive-ink-soft, var(--text-muted)));
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-settings__preview::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    var(--experience-signal-warm, var(--archive-gold-soft, var(--border))) 0 18%,
+    var(--archive-olive-strong, var(--accent)) 18% 74%,
+    var(--experience-signal-cool, var(--archive-olive, var(--accent))) 74% 100%
+  );
+  clip-path: polygon(0 0, 100% 2px, 100% calc(100% - 2px), 0 100%);
 }
 
 .time-settings__grid {
@@ -206,20 +245,33 @@ const TimeSettingsForm = defineComponent({
 }
 
 .time-settings-field span {
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--archive-ink-soft, var(--text-muted)) 84%, transparent);
+  font-family: var(--font-sans, sans-serif);
   font-size: 11px;
+  font-weight: 600;
 }
 
 .time-settings-field input {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
-  color: var(--text-primary);
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 22%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-primary)) 86%, transparent);
+  color: var(--archive-ink, var(--text-primary));
   font: inherit;
   font-size: 13px;
+}
+
+.time-settings-field input:hover {
+  border-color: color-mix(in srgb, var(--archive-olive, var(--accent)) 34%, var(--border));
+}
+
+.time-settings-field input:focus {
+  border-color: var(--archive-olive, var(--accent));
+  outline: 2px solid color-mix(in srgb, var(--archive-olive, var(--accent)) 12%, transparent);
+  outline-offset: 0;
 }
 
 .time-settings__actions {
@@ -229,19 +281,32 @@ const TimeSettingsForm = defineComponent({
 }
 
 .time-settings__btn {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-  color: var(--text-secondary);
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 24%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-primary)) 76%, transparent);
+  color: color-mix(in srgb, var(--archive-ink, var(--text-secondary)) 84%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 650;
   cursor: pointer;
 }
 
 .time-settings__btn--primary {
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
-  background: var(--accent);
-  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--archive-olive-strong, var(--accent)) 62%, var(--border));
+  background: var(--archive-olive-strong, var(--accent));
+  color: var(--archive-paper-soft, var(--accent-text));
+}
+
+.time-settings__btn:hover,
+.time-settings__btn:focus-visible {
+  border-color: var(--archive-olive, var(--accent));
+  outline: none;
+}
+
+.time-settings__btn--primary:hover,
+.time-settings__btn--primary:focus-visible {
+  background: color-mix(in srgb, var(--archive-olive-strong, var(--accent)) 86%, var(--archive-ink, black));
 }
 
 @media (max-width: 520px) {

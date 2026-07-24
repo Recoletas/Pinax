@@ -1,5 +1,5 @@
 <template>
-  <div class="game-page">
+  <div class="game-page" :class="`reading-profile--${readingProfile}`" :style="readingProfileVars">
     <!-- K3 (2026-06-27): drop the 3-region workstation grid. It
          crammed 260px + 1fr + 300px into one row and forced every
          element to fight for width. Replace with a 2-region layout:
@@ -16,8 +16,25 @@
                 identifying info, the title is the page landmark. -->
           <div class="ws-topstrip__main">
             <span class="ws-topstrip__title">体验</span>
+            <span class="ws-topstrip__mobile-session" :title="currentSessionLabel">{{ currentSessionLabel }}</span>
           </div>
           <div class="ws-topstrip__actions">
+            <label class="ws-topstrip__reading-control" title="调整正文阅读节奏">
+              <span class="sr-only">阅读节奏</span>
+              <select v-model="readingProfile" aria-label="阅读节奏">
+                <option value="compact">紧凑</option>
+                <option value="standard">标准</option>
+                <option value="relaxed">舒展</option>
+              </select>
+            </label>
+            <button
+              ref="codexTriggerRef"
+              class="ws-topstrip__codex-toggle"
+              type="button"
+              aria-controls="experience-codex"
+              :aria-expanded="codexSheetOpen.toString()"
+              @click="openCodexSheet"
+            >索引</button>
             <button
               class="ws-topstrip__settings-link"
               type="button"
@@ -38,7 +55,12 @@
             </div>
           </div>
         </section>
-      <main v-if="!showSessionPicker" class="ws-center-stage" aria-label="记录流">
+      <main
+        v-if="!showSessionPicker"
+        class="ws-center-stage"
+        :class="{ 'ws-center-stage--active': gameStore.messages.length > 0 }"
+        aria-label="记录流"
+      >
         <!-- UI-E13-BIG1: local demo banner — shown when isDemoMode
              (no real messages yet). Replaces the previous "AI 配置
              不完整" empty error with a usable local state: 3-scene
@@ -74,13 +96,30 @@
         />
         <InputArea @send="handleSend" />
       </main>
-      <aside v-if="!showSessionPicker" class="ws-right-rail" aria-label="右栏档案">
+      <button
+        v-if="!showSessionPicker && codexSheetOpen"
+        class="ws-codex-backdrop"
+        type="button"
+        aria-label="关闭现场索引"
+        @click="closeCodexSheet"
+      ></button>
+      <aside
+        v-if="!showSessionPicker"
+        id="experience-codex"
+        ref="codexSheetRef"
+        class="ws-right-rail"
+        :class="{ 'is-mobile-open': codexSheetOpen }"
+        :tabindex="codexSheetOpen ? -1 : undefined"
+        aria-label="右栏档案"
+      >
+        <ContourField density="narrative" entry="right" />
         <!-- E17: right rail is now a live codex index. It does not
              mount three always-open tool panels. 人物/地点/事件 stay
              collapsed by default, show count/latest/+N, and reveal
              compact details only after a deliberate click. -->
         <header class="ws-dossier-bar">
           <span class="ws-dossier-bar__label">现场索引</span>
+          <button class="ws-dossier-bar__close" type="button" aria-label="关闭现场索引" @click="closeCodexSheet">×</button>
           <button
             class="ws-dossier-bar__quick-cta"
             type="button"
@@ -96,6 +135,7 @@
             v-for="section in codexSections"
             :key="section.key"
             class="ws-codex-section"
+            :data-section="section.key"
             :class="{
               'ws-codex-section--open': activeCodexSection === section.key,
               'ws-codex-section--has-update': section.update > 0
@@ -110,10 +150,14 @@
               @keydown.enter.prevent="toggleCodexSection(section.key)"
               @keydown.space.prevent="toggleCodexSection(section.key)"
             >
-              <span class="ws-codex-section__label">{{ section.label }}</span>
-              <span class="ws-codex-section__count">{{ section.count }}</span>
-              <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
-              <span class="ws-codex-section__latest">{{ section.latest }}</span>
+              <span class="ws-codex-section__summary">
+                <span class="ws-codex-section__heading">
+                  <strong class="ws-codex-section__label">{{ section.label }}</strong>
+                  <span class="ws-codex-section__count">{{ section.count }}</span>
+                  <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
+                </span>
+                <span class="ws-codex-section__latest">{{ section.latest }}</span>
+              </span>
               <button
                 type="button"
                 class="ws-codex-section__quick-detail"
@@ -361,6 +405,7 @@
       avatarLabel="场"
       caption="当场顾问"
       captionHint="继续冒险"
+      :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
       @open="openAdvisorFromAction"
     />
 
@@ -400,43 +445,28 @@
       </Transition>
     </Teleport>
 
-    <div v-if="showExperienceWorkChrome" class="game-image-gen-rail">
-      <ImageGenRail
-        storage-key="game_image_library_v1"
-        side="right"
-        :vertical-offset="62"
-        :horizontal-offset="12"
-        :mobile-bottom-offset="82"
-        drawer-title="体验生图"
-        selected-prompt-label="当前输入"
-        :selected-text="gameStore.inputText || ''"
-      />
-
-      <AdvisorPanel
-        :isOpen="advisorOpen"
-        :messages="advisorMessages"
-        :loading="advisorLoading"
-        :quickQuestions="[
-          { label: '分析当前节奏', question: '分析当前冒险的叙事节奏，指出快慢和转折点。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '人物塑造建议', question: '分析当前出场人物的行为逻辑和性格表现，给出深化建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '剧情发展方向', question: '基于当前剧情状态，给出1-2个合理的后续发展方向。', scope: 'thread', taskType: 'advisor.close.thread' },
-          { label: '续写灵感', question: '给出一句轻量续写建议，保持当前叙事语气。', scope: 'continue', taskType: 'advisor.continue.light' }
-        ]"
-        :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
-        @close="closeAdvisor"
-        @ask="handleAskAdvisor"
-      />
-    </div>
+    <AdvisorPanel
+      v-if="showExperienceWorkChrome"
+      :isOpen="advisorOpen"
+      :messages="advisorMessages"
+      :results="advisorResults"
+      :loading="advisorLoading"
+      :quickQuestions="experienceAdvisorActions"
+      :notice="consistencyNotice"
+      :emptyText="'当场顾问只读取当前回合、地点历史、相关角色、精简记忆与未决线索。'"
+      @close="closeAdvisor"
+      @ask="handleAskAdvisor"
+      @dismiss-result="dismissResult($event.id)"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, proxyRefs, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, proxyRefs, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useGeographyStore } from '../stores/geographyStore'
-import ImageGenRail from '../components/ImageGenRail.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
@@ -449,12 +479,16 @@ import Character from '../components/Character.vue'
 import TimeSettings from '../components/TimeSettings.vue'
 import TimeQuickRail from '../components/TimeQuickRail.vue'
 import FolioSurface from '@/components/folio/FolioSurface.vue'
+import ContourField from '@/components/workbench/ContourField.vue'
 import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
+import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
+import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
+import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
@@ -472,13 +506,65 @@ const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
 const router = useRouter()
+const readingProfile = ref(getTextItem(STORAGE_KEYS.EXPERIENCE_READING_PROFILE) || 'standard')
+const readingProfileVars = computed(() => {
+  const profiles = {
+    compact: {
+      '--experience-prose-size': '16px',
+      '--experience-leading': '1.68',
+      '--experience-measure': '68em',
+      '--experience-block-gap': '0.45em'
+    },
+    standard: {
+      '--experience-prose-size': '17px',
+      '--experience-leading': '1.78',
+      '--experience-measure': '64em',
+      '--experience-block-gap': '0.72em'
+    },
+    relaxed: {
+      '--experience-prose-size': '18px',
+      '--experience-leading': '1.96',
+      '--experience-measure': '60em',
+      '--experience-block-gap': '0.96em'
+    }
+  }
+  return profiles[readingProfile.value] || profiles.standard
+})
+watch(readingProfile, (profile) => {
+  const normalized = ['compact', 'standard', 'relaxed'].includes(profile) ? profile : 'standard'
+  if (normalized !== profile) {
+    readingProfile.value = normalized
+    return
+  }
+  setTextItem(STORAGE_KEYS.EXPERIENCE_READING_PROFILE, normalized)
+})
 // UI-E11-A: workstation topstrip / left rail / right rail all read from
 // this single source of truth. Replaces the 6 record-folio computeds
 // (recordCaseNo / recordVolume / recordTime / recordCharacters /
 // recordLocation / recordObjective) that previously drove the deleted
 // 6-cell record-folio band.
 const meta = proxyRefs(useWorkstationMeta())
-const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor: openAdvisorPanel, closeAdvisor } = useAdvisor()
+const {
+  advisorOpen,
+  advisorMessages,
+  advisorResults,
+  advisorLoading,
+  pendingReviewCount,
+  pendingReminderVisible,
+  consistencyNotice,
+  askAdvisor,
+  dismissResult,
+  openAdvisor: openAdvisorPanel,
+  closeAdvisor
+} = useAdvisor({
+  resultValidator(result, { task }) {
+    return validateExperienceAgentResult(result, {
+      taskType: task.taskType,
+      allowedCandidateIds: task.target?.allowedCandidateIds,
+      allowedEvidenceRefs: task.target?.allowedEvidenceRefs
+    })
+  }
+})
 const onlineRequestIds = new Set()
 let onlineUnsubscribers = []
 
@@ -502,6 +588,12 @@ const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
 const activeCodexSection = ref('events')
+const codexSheetOpen = ref(false)
+const codexTriggerRef = ref(null)
+const codexSheetRef = ref(null)
+watch(showSessionPicker, (open) => {
+  if (open && codexSheetOpen.value) closeCodexSheet({ restoreFocus: false })
+})
 const codexUpdates = ref({
   time: 0,
   characters: 0,
@@ -517,6 +609,20 @@ const codexDetailLabels = {
   events: '事件卷'
 }
 const codexDetailLabel = computed(() => codexDetailLabels[codexDetailSection.value] || '详情')
+
+function openCodexSheet() {
+  codexSheetOpen.value = true
+  nextTick(() => codexSheetRef.value?.focus())
+}
+
+function closeCodexSheet({ restoreFocus = true } = {}) {
+  codexSheetOpen.value = false
+  if (restoreFocus) nextTick(() => codexTriggerRef.value?.focus())
+}
+
+function handleCodexKeydown(event) {
+  if (event.key === 'Escape' && codexSheetOpen.value) closeCodexSheet()
+}
 
 function openCodexDetail(sectionKey) {
   if (!sectionKey) return
@@ -743,6 +849,7 @@ function handleLocalDemoEvent(action) {
 
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
+  window.addEventListener('keydown', handleCodexKeydown)
 
   await worldStore.loadWorldbooksIndex()
   gameStore.loadSessions()
@@ -797,6 +904,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('story-mechanism-ready', handleMechanismReady)
+  window.removeEventListener('keydown', handleCodexKeydown)
   clearMechanismNotice()
   onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
   onlineUnsubscribers = []
@@ -813,25 +921,63 @@ function openWorldbookQuickImport() {
   router.push({ name: 'settings-worldbook' })
 }
 
-function collectGameContext() {
-  const msgs = gameStore.messages || []
-  return {
-    isPlaying: gameStore.isPlaying,
-    worldName: gameStore.worldName || '',
-    playerName: gameStore.playerName || '',
-    characterName: gameStore.characterName || '',
-    messages: msgs.slice(-20).map(m => ({ role: m.role, content: m.content })),
-    storyProgress: gameStore.storyProgress || 0,
-    inventoryCount: (gameStore.inventory || []).length,
-    questCount: (gameStore.quests || []).length
+const experienceAdvisorActions = computed(() => [
+  {
+    label: '生成下一步选项',
+    question: '根据当前对话、地点历史、角色状态和未决线索，生成 2-3 个由玩家自行选择的下一步行动。',
+    scope: 'experience',
+    taskType: 'experience.next-actions',
+    disabled: !(gameStore.messages || []).length
+  },
+  {
+    label: '审阅涌现候选',
+    question: '审阅当前已有涌现候选，找出最符合当前对话、地点历史和角色状态的一项，并说明依据。',
+    scope: 'experience',
+    taskType: 'experience.emergence',
+    disabled: !(gameStore.emergenceCandidates || []).length
   }
+])
+
+function collectGameContext(taskType) {
+  const runtimeState = gameStore.getRuntimeSnapshot()
+  const query = (gameStore.messages || [])
+    .slice(-4)
+    .map((message) => String(message?.cleanContent || message?.content || ''))
+    .join(' ')
+  const memoryRecall = buildScopedMemoryRecallContext({
+    projectId: worldStore.activeWorldbookId || '',
+    sessionId: gameStore.currentSessionId || '',
+    query,
+    limitPerScope: 3,
+    maxItemChars: 180
+  })
+  return buildExperienceAgentContext({
+    taskType,
+    worldbook: worldStore.activeWorldbook,
+    runtimeState,
+    messages: gameStore.messages,
+    memoryRecall,
+    projectId: worldStore.activeWorldbookId || '',
+    sessionId: gameStore.currentSessionId || ''
+  })
 }
 
 async function handleAskAdvisor(input) {
   const action = typeof input === 'string'
-    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
+    ? {
+        label: input,
+        question: input,
+        scope: 'experience',
+        taskType: 'experience.next-actions'
+      }
     : input
-  await askAdvisor({ ...action, mode: 'novel' }, collectGameContext)
+  if (!action || action.disabled) return
+  const built = collectGameContext(action.taskType)
+  await askAdvisor({
+    ...action,
+    target: built.target,
+    mode: 'novel'
+  }, () => built.envelope)
 }
 
 function openAdvisorFromAction() {
@@ -1329,6 +1475,41 @@ function quickNoteWordCount(text) {
   font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ws-topstrip__reading-control {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ws-topstrip__reading-control select {
+  min-width: 62px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 22%, transparent);
+  border-radius: 0;
+  padding: 3px 16px 3px 2px;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ws-topstrip__reading-control select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 55%, transparent);
+  outline-offset: 3px;
+}
+
 .sidebar-head-copy {
   min-width: 0;
   display: grid;
@@ -1364,8 +1545,7 @@ function quickNoteWordCount(text) {
   gap: 10px;
 }
 
-.quick-notes-rail > *,
-.game-image-gen-rail > * {
+.quick-notes-rail > * {
   pointer-events: auto;
 }
 
@@ -1976,9 +2156,722 @@ function quickNoteWordCount(text) {
 @media (max-width: 980px) {
 
   .mechanism-notice,
-  .quick-notes-rail,
-  .game-image-gen-rail {
+  .quick-notes-rail {
     bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  }
+}
+</style>
+
+<style>
+/* Shared workstation composition. The experience page has two palettes,
+   but its reading rhythm and responsive behavior should not diverge. */
+.game-page.game-page .ws-layout {
+  grid-template-columns: minmax(0, 1fr) 304px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 16px 16px 64px;
+}
+
+.game-page.game-page .ws-topstrip {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+}
+
+.game-page .ws-topstrip__main {
+  flex: 1 1 auto;
+}
+
+.game-page .ws-topstrip__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.game-page .ws-topstrip__mobile-session { display: none; }
+
+.game-page.game-page .ws-center-stage {
+  min-width: 0;
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  border-radius: 2px;
+}
+
+.game-page .ws-center-stage--active {
+  justify-content: flex-start;
+}
+
+.game-page .ws-center-stage--active::after {
+  content: "";
+  flex: 1 1 auto;
+  min-height: 24px;
+}
+
+.game-page.game-page .ws-center-stage--active > .chat-container {
+  flex: 0 1 auto;
+  height: auto;
+  max-height: calc(100% - 142px);
+  margin-top: 6px;
+  padding-bottom: 22px;
+}
+
+.game-page.game-page .ws-center-stage--active > .input-area {
+  margin-top: 0;
+}
+
+.game-page .ws-demo-banner {
+  gap: 5px;
+  margin: 10px 12px 0;
+  padding: 8px 12px;
+  border-width: 0 0 1px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--archive-olive) 24%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.game-page .ws-demo-banner__hint {
+  line-height: 1.45;
+}
+
+.game-page .ws-demo-banner__actions {
+  gap: 6px;
+}
+
+.game-page .ws-demo-banner__actions .action-btn {
+  min-height: 27px;
+  padding: 4px 12px;
+  box-shadow: none;
+}
+
+.game-page.game-page .chat-container {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  padding: 28px clamp(28px, 6vw, 72px) 44px;
+  scrollbar-gutter: stable;
+}
+
+/* Conversation typography: roles read as signatures and paragraph
+   rhythm instead of full-height colored rules. */
+.game-page.game-page .prose {
+  margin: 0 0 var(--experience-block-gap, 0.72em);
+  padding: 0;
+  border-left: 0;
+  color: color-mix(in srgb, var(--archive-ink) 96%, transparent);
+  font-family: var(--font-body);
+  font-size: var(--experience-prose-size, 17px);
+  font-weight: 400;
+  line-height: var(--experience-leading, 1.78);
+  width: 100%;
+  max-width: none;
+  letter-spacing: 0;
+  text-indent: 0;
+  text-rendering: optimizeLegibility;
+}
+
+.game-page.game-page .prose + .prose {
+  margin-top: 4px;
+}
+
+.game-page.game-page .prose--user,
+.game-page.game-page .prose--user-role {
+  margin-top: 1.15em;
+  margin-bottom: 0.95em;
+}
+
+.game-page.game-page .prose--user + .prose--assistant,
+.game-page.game-page .prose--user-role + .prose--assistant-role {
+  margin-top: 1.2em;
+}
+
+.game-page.game-page .prose__speaker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin-bottom: 9px;
+  color: color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.game-page.game-page .prose__speaker::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  display: inline-block;
+  background: color-mix(in srgb, var(--experience-signal-cool) 74%, var(--archive-olive-strong));
+}
+
+.game-page.game-page .prose__speaker--user {
+  color: color-mix(in srgb, var(--archive-olive-strong) 86%, var(--archive-ink));
+}
+
+.game-page.game-page .prose__speaker--user::before {
+  background: color-mix(in srgb, var(--experience-signal-warm) 72%, var(--archive-olive-strong));
+}
+
+.game-page.game-page .prose__speaker--system::before {
+  background: color-mix(in srgb, var(--archive-ink-soft) 40%, transparent);
+}
+
+.game-page.game-page .prose__sep {
+  display: none;
+}
+
+.game-page.game-page .prose__body {
+  display: block;
+  text-indent: 2em;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.game-page.game-page .narrative-block {
+  margin: 0 0 0.58em;
+}
+
+.game-page.game-page .narrative-block--dialogue {
+  margin: 0.35em 0 0.72em 1.15em;
+  color: color-mix(in srgb, var(--archive-ink) 88%, var(--archive-olive-strong));
+  font-style: italic;
+  font-weight: 520;
+  text-indent: 0;
+}
+
+.game-page.game-page .narrative-block--action,
+.game-page.game-page .narrative-block--thought {
+  margin-left: 0.7em;
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, var(--archive-ink));
+  font-style: italic;
+  text-indent: 0;
+}
+
+.game-page.game-page .narrative-block--thought {
+  color: color-mix(in srgb, var(--archive-olive-strong) 58%, var(--archive-ink-soft));
+}
+
+.game-page.game-page .narrative-block__speaker {
+  display: block;
+  width: max-content;
+  margin: 0 0 4px;
+  color: color-mix(in srgb, var(--archive-olive-strong) 90%, var(--archive-ink));
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-indent: 0;
+}
+
+.game-page.game-page .narrative-block--speaker-start + .narrative-block--speaker-start {
+  margin-top: 0.9em;
+}
+
+.game-page.game-page .prose--user .prose__body,
+.game-page.game-page .prose--user-role .prose__body {
+  padding-left: 1.5em;
+  color: color-mix(in srgb, var(--archive-ink) 86%, var(--archive-olive-strong));
+  font-weight: 550;
+  text-indent: 0;
+}
+
+.game-page.game-page .prose--system .prose__body,
+.game-page.game-page .prose.compression-complete .prose__body {
+  color: color-mix(in srgb, var(--archive-ink-soft) 76%, transparent);
+  font-size: 15px;
+  font-style: italic;
+  text-indent: 0;
+}
+
+.game-page.game-page .prose--opening .prose__body::first-letter {
+  float: none;
+  margin: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+
+.game-page.game-page .rp-dialogue {
+  color: color-mix(in srgb, var(--archive-ink) 84%, var(--archive-olive-strong));
+  font-style: italic;
+  font-weight: 500;
+}
+
+.game-page.game-page .rp-dialogue-quote-soft {
+  color: color-mix(in srgb, var(--archive-olive-strong) 68%, var(--archive-ink));
+}
+
+.game-page.game-page .rp-dialogue-quote-warm {
+  color: color-mix(in srgb, var(--archive-gold) 58%, var(--archive-ink));
+}
+
+.game-page.game-page .rp-dialogue-quote-neutral {
+  color: color-mix(in srgb, var(--archive-ink-soft) 86%, var(--archive-ink));
+}
+
+.game-page.game-page .rp-dialogue.mechanism-trigger {
+  text-decoration: underline dotted color-mix(in srgb, var(--archive-olive) 64%, transparent);
+  text-underline-offset: 4px;
+}
+
+.game-page .chat-container__hero {
+  width: 100%;
+  margin-block: auto;
+  padding: 26px 28px 28px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+  background: transparent;
+}
+
+.game-page .chat-container__hero-prompt {
+  gap: 9px;
+}
+
+.game-page .chat-container__hero-greeting {
+  font-size: 23px;
+}
+
+.game-page .chat-container__hero-hint {
+  max-width: 560px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.game-page .chat-container__hero-actions {
+  gap: 0;
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+}
+
+.theme-legacy .game-page .chat-container__hero-actions {
+  display: block;
+  max-width: 320px;
+  border-top: 0;
+}
+
+.theme-legacy .game-page .chat-container__hero-slip.is-secondary {
+  display: none;
+}
+
+.theme-legacy .game-page .chat-container__hero-slip.is-primary {
+  width: 100%;
+  min-height: 64px;
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 6%, var(--archive-paper-soft));
+  box-shadow: none;
+}
+
+.game-page .chat-container__hero-slip {
+  min-height: 76px;
+  padding: 11px 13px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.game-page .chat-container__hero-slip:last-child {
+  border-right: 0;
+}
+
+.game-page .chat-container__hero-slip.is-primary {
+  border-left: 2px solid color-mix(in srgb, var(--archive-olive) 56%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 5%, transparent);
+}
+
+.game-page .chat-container__hero-slip:hover {
+  transform: none;
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  box-shadow: none;
+}
+
+.game-page.game-page .input-area {
+  width: 100%;
+  max-width: none;
+  padding: 12px clamp(28px, 6vw, 72px) 16px;
+}
+
+.game-page .api-key-hint {
+  padding: 5px 10px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+.game-page.game-page .ws-right-rail {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 76%, transparent);
+}
+
+.game-page .ws-topstrip__codex-toggle,
+.game-page .ws-dossier-bar__close,
+.game-page .ws-codex-backdrop { display: none; }
+
+.game-page.game-page .ws-dossier-bar {
+  min-height: 44px;
+  padding: 7px 14px;
+  background: color-mix(in srgb, var(--archive-paper) 88%, transparent);
+}
+
+.game-page.game-page .ws-dossier-bar__label {
+  color: color-mix(in srgb, var(--archive-ink) 84%, var(--archive-olive));
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.game-page.game-page .ws-dossier-bar__quick-cta {
+  min-height: 26px;
+  padding: 2px 10px;
+  border-color: color-mix(in srgb, var(--archive-olive) 20%, transparent);
+  background: color-mix(in srgb, var(--archive-olive) 6%, transparent);
+  font-weight: 600;
+}
+
+.game-page.game-page .ws-live-codex {
+  gap: 0;
+  padding: 6px 14px 12px;
+}
+
+.game-page.game-page .ws-codex-section,
+.game-page.game-page .ws-codex-section--open {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  background: transparent;
+}
+
+.game-page.game-page .ws-codex-section--open {
+  background: color-mix(in srgb, var(--archive-olive) 4%, transparent);
+}
+
+.game-page.game-page .ws-codex-section--open .ws-codex-section__label {
+  color: var(--archive-olive-strong);
+}
+
+.game-page.game-page .ws-codex-section__trigger {
+  min-height: 68px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 11px 0;
+}
+
+.game-page.game-page .ws-codex-section__summary {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.game-page.game-page .ws-codex-section__heading {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+}
+
+.game-page.game-page .ws-codex-section__label {
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.game-page.game-page .ws-codex-section__count,
+.game-page.game-page .ws-codex-section__new {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: color-mix(in srgb, var(--archive-ink-soft) 72%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.game-page.game-page .ws-codex-section__count::before {
+  content: "· ";
+  font-weight: 400;
+}
+
+.game-page.game-page .ws-codex-section__new {
+  color: var(--archive-olive-strong);
+}
+
+.game-page.game-page .ws-codex-section__latest {
+  display: block;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--archive-ink-soft) 86%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-page.game-page .ws-codex-section__quick-detail {
+  align-self: center;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-olive-strong) 76%, var(--archive-ink-soft));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.game-page.game-page .ws-codex-section__quick-detail::after {
+  content: "  ›";
+}
+
+.game-page.game-page .ws-codex-section__quick-detail:hover {
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+}
+
+.game-page.game-page .ws-codex-section__body {
+  padding: 0 0 12px;
+}
+
+@media (max-width: 1100px) {
+  .game-page.game-page .ws-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 12px 12px 14px 56px;
+  }
+
+  .game-page .ws-topstrip__codex-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 3px 10px;
+    border: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+    background: transparent;
+    color: var(--archive-ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .game-page.game-page .ws-right-rail {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    z-index: 72;
+    display: none;
+    width: min(360px, calc(100vw - 24px));
+    max-height: none;
+    box-shadow: 0 18px 48px color-mix(in srgb, var(--archive-ink) 24%, transparent);
+  }
+
+  .game-page.game-page .ws-right-rail.is-mobile-open { display: flex; }
+
+  .game-page .ws-codex-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 71;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, var(--archive-ink) 18%, transparent);
+    cursor: default;
+  }
+
+  .game-page .ws-dossier-bar__close {
+    order: 3;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--archive-ink-soft);
+    cursor: pointer;
+    font: inherit;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .game-page.game-page .ws-topstrip {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .game-page.game-page .ws-center-stage {
+    grid-column: 1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .game-page.game-page .ws-layout {
+    padding: 8px 8px 10px 52px;
+    gap: 8px;
+  }
+
+  .game-page .ws-topstrip {
+    flex-wrap: wrap;
+    padding: 6px 8px;
+  }
+
+  .game-page .ws-topstrip__main {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .game-page .ws-topstrip__mobile-session {
+    display: block;
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    color: var(--archive-ink-soft);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-page .ws-topstrip__chip {
+    display: none;
+  }
+
+  .game-page .ws-topstrip__actions {
+    display: grid;
+    grid-template-columns: 64px 46px 46px minmax(0, 1fr);
+    width: 100%;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .game-page .ws-topstrip__reading-control,
+  .game-page .ws-topstrip__reading-control select,
+  .game-page .ws-topstrip__codex-toggle,
+  .game-page .ws-topstrip__settings-link,
+  .game-page .ws-topstrip__session-chip {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .game-page .ws-topstrip__codex-toggle,
+  .game-page .ws-topstrip__settings-link,
+  .game-page .ws-topstrip__session-chip-btn {
+    justify-content: center;
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
+
+  .game-page .ws-topstrip__settings-link::before { display: none; }
+
+  .game-page .ws-topstrip__session-chip {
+    gap: 3px;
+    padding-left: 7px;
+  }
+
+  .game-page .ws-topstrip__session-chip-label {
+    display: none;
+  }
+
+  .game-page .ws-topstrip__session-chip-btn { flex: 0 0 auto; }
+
+  .game-page .ws-demo-banner {
+    margin: 8px 10px 0;
+  }
+
+  .game-page .chat-container {
+    padding: 18px 18px 28px;
+  }
+
+  .game-page.game-page .ws-center-stage--active > .chat-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    margin-top: 0;
+  }
+
+  .game-page .ws-center-stage--active::after { display: none; }
+
+  .game-page.game-page .ws-center-stage > .chat-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .game-page.game-page .ws-center-stage > .input-area {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+.game-page.game-page .prose {
+  margin-bottom: var(--experience-block-gap, 0.72em);
+  font-size: var(--experience-prose-size, 17px);
+  line-height: var(--experience-leading, 1.78);
+  width: 100%;
+  max-width: none;
+}
+
+  .game-page .chat-container__hero {
+    margin-block: 0;
+    padding: 20px 14px;
+  }
+
+  .game-page .chat-container__hero-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .game-page .chat-container__hero-slip {
+    min-height: 64px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+  }
+
+  .game-page .input-area {
+    padding: 9px 16px 12px;
+  }
+}
+
+/* The center stage is the reading surface. Keep its content broad enough
+   to meet the side rail visually; 720px made the desktop page look like a
+   narrow column floating inside a much wider empty panel. */
+@media (min-width: 1101px) {
+  .game-page.game-page .chat-container,
+  .game-page.game-page .input-area {
+    padding-left: clamp(28px, 4vw, 56px);
+    padding-right: clamp(28px, 4vw, 56px);
+  }
+}
+
+@media (max-height: 760px) and (min-width: 721px) {
+  .game-page .chat-container {
+    padding-top: 18px;
+    padding-bottom: 24px;
+  }
+
+  .game-page .chat-container__hero {
+    margin-block: 0;
+    padding-block: 18px;
+  }
+
+  .game-page .chat-container__hero-slip {
+    min-height: 66px;
   }
 }
 </style>
@@ -2206,6 +3099,22 @@ function quickNoteWordCount(text) {
   border: 1px solid var(--hairline-soft);
   border-radius: 4px;
   overflow: hidden;
+}
+
+:not(.theme-kao) .ws-right-rail > :not(.contour-field) {
+  position: relative;
+  z-index: calc(var(--z-stage-decor) + 1);
+}
+
+:not(.theme-kao) .ws-right-rail {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+:not(.theme-kao) .ws-right-rail :deep(.contour-field) {
+  left: 24%;
+  opacity: 0.34;
 }
 
 /* UI-E18-FIX: E18 made prose / rp-* / scene-break visible, but the
@@ -2526,6 +3435,228 @@ function quickNoteWordCount(text) {
   display: none;
 }
 
+/* Operational index: neutral information plane with a small directional
+   signal. The active state is carried by the edge marker and signal line,
+   not by flooding the whole section with accent blue. */
+.game-page.game-page .ws-dossier-bar {
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 68%
+  );
+}
+
+.game-page.game-page .ws-dossier-bar__label,
+.game-page.game-page .ws-codex-section__label {
+  font-family: var(--font-sans, sans-serif);
+  letter-spacing: 0;
+}
+
+.game-page.game-page .ws-dossier-bar__label {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.game-page.game-page .ws-live-codex {
+  gap: 0;
+  padding: 5px 14px 12px;
+}
+
+.game-page.game-page .ws-codex-section {
+  position: relative;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+  background: transparent;
+  overflow: hidden;
+}
+
+.game-page.game-page .ws-codex-section::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--experience-signal-warm) 0 12%,
+    var(--archive-olive-strong) 12% 64%,
+    var(--experience-signal-cool) 64% 78%,
+    color-mix(in srgb, var(--archive-ink-soft) 18%, transparent) 78% 100%
+  );
+  clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  transition: width 0.2s ease;
+}
+
+.game-page.game-page .ws-codex-section--open {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 72%
+  );
+}
+
+.game-page.game-page .ws-codex-section--open::after {
+  width: 46%;
+}
+
+.game-page.game-page .ws-codex-section__trigger {
+  position: relative;
+  min-height: 66px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 0 10px 10px;
+}
+
+.game-page.game-page .ws-codex-section__trigger::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 4px;
+  height: 18px;
+  transform: translateY(-50%) scaleY(0.35);
+  transform-origin: center;
+  background: color-mix(in srgb, var(--archive-ink-soft) 24%, transparent);
+  clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%);
+  transition: height 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.game-page.game-page .ws-codex-section--open .ws-codex-section__trigger::before {
+  height: 34px;
+  transform: translateY(-50%) scaleY(1);
+  background: linear-gradient(
+    180deg,
+    var(--experience-signal-warm) 0 18%,
+    var(--archive-olive-strong) 18% 74%,
+    var(--experience-signal-cool) 74% 100%
+  );
+}
+
+.game-page.game-page .ws-codex-section__heading {
+  align-items: center;
+  gap: 7px;
+}
+
+.game-page.game-page .ws-codex-section__label {
+  color: color-mix(in srgb, var(--archive-ink) 92%, var(--archive-ink-soft));
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.game-page.game-page .ws-codex-section--open .ws-codex-section__label {
+  color: var(--archive-ink);
+}
+
+.game-page.game-page .ws-codex-section__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.game-page.game-page .ws-codex-section--open .ws-codex-section__count {
+  color: color-mix(in srgb, var(--archive-olive-strong) 62%, var(--archive-ink-soft));
+}
+
+.game-page.game-page .ws-codex-section__latest {
+  color: color-mix(in srgb, var(--archive-ink-soft) 80%, var(--archive-ink));
+  font-family: var(--font-sans, sans-serif);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.game-page.game-page .ws-codex-section__quick-detail {
+  padding: 2px 0 2px 8px;
+  color: color-mix(in srgb, var(--archive-ink-soft) 72%, var(--archive-olive-strong));
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 650;
+}
+
+.game-page.game-page .ws-codex-section__quick-detail:hover,
+.game-page.game-page .ws-codex-section__quick-detail:focus-visible {
+  color: var(--archive-olive-strong);
+  outline: none;
+}
+
+.game-page.game-page .ws-codex-section__body {
+  padding: 2px 0 12px 10px;
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .quest-rail-entry,
+  .status-rail-row,
+  .time-quick-rail__row,
+  .geo-rail-line,
+  .quest-rail-summary-list li,
+  .status-rail-trait
+) {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 16%, transparent);
+  border-radius: 2px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 70%
+  );
+  color: var(--archive-ink);
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .quest-rail-hint,
+  .status-rail-hint,
+  .time-quick-rail__hint,
+  .geo-rail-snippet
+) {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  border-radius: 2px;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink-soft) 82%, transparent);
+  font-family: var(--font-sans, sans-serif);
+  font-style: normal;
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .mini-btn,
+  .toolbar-text-btn,
+  .status-rail-detail-btn
+) {
+  min-height: 29px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-ink-soft));
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 650;
+  box-shadow: none;
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .mini-btn.primary,
+  .toolbar-text-btn.primary,
+  .status-rail-detail-btn.primary
+) {
+  border-color: color-mix(in srgb, var(--archive-olive-strong) 58%, transparent);
+  background: var(--archive-olive-strong);
+  color: var(--archive-paper-soft);
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .mini-btn,
+  .toolbar-text-btn,
+  .status-rail-detail-btn
+):hover:not(:disabled) {
+  border-color: var(--archive-olive);
+  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
+  color: var(--archive-ink);
+}
+
+.game-page.game-page .ws-codex-section__body :is(
+  .mini-btn,
+  .toolbar-text-btn,
+  .status-rail-detail-btn
+):disabled {
+  opacity: 0.46;
+}
+
 /* UI-E18: codex detail drawer — central detail surface for the 3
    codex rail sections. Lives in Experience.vue (page-owned) so the
    3 child components keep their existing modal anchors and own
@@ -2539,21 +3670,47 @@ function quickNoteWordCount(text) {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: color-mix(in srgb, var(--archive-ink) 38%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--archive-ink) 30%, transparent);
+  backdrop-filter: blur(6px) saturate(0.86);
 }
 
 .ws-codex-detail-panel {
+  position: relative;
+  isolation: isolate;
   width: min(620px, calc(100vw - 32px));
   max-height: min(80vh, 720px);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 26%, var(--border));
-  border-radius: 6px;
-  background: var(--archive-paper-soft);
-  box-shadow: 0 24px 56px color-mix(in srgb, var(--archive-ink) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 24%, var(--border));
+  border-radius: 3px;
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 68%
+  );
+  box-shadow:
+    0 28px 70px color-mix(in srgb, var(--archive-ink) 24%, transparent),
+    0 1px 0 color-mix(in srgb, var(--archive-paper) 86%, transparent) inset;
   color: var(--archive-ink);
   overflow: hidden;
+}
+
+.ws-codex-detail-panel::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--experience-signal-warm) 0 9%,
+    var(--archive-olive-strong) 9% 34%,
+    var(--experience-signal-cool) 34% 43%,
+    color-mix(in srgb, var(--archive-ink-soft) 18%, transparent) 43% 100%
+  );
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
 }
 
 .ws-codex-detail-header {
@@ -2561,25 +3718,29 @@ function quickNoteWordCount(text) {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 12px 18px 11px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 78%, transparent);
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, var(--border));
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--archive-olive) 3%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 64%
+  );
 }
 
 .ws-codex-detail-kicker {
   font-family: var(--font-sans, sans-serif);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--archive-olive);
+  color: color-mix(in srgb, var(--archive-olive-strong) 72%, var(--archive-ink-soft));
 }
 
 .ws-codex-detail-title {
   margin: 0;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  font-size: 18px;
-  font-weight: 600;
+  font-family: var(--font-sans, sans-serif);
+  font-size: 17px;
+  font-weight: 730;
   color: var(--archive-ink);
   flex: 1;
   min-width: 0;
@@ -2610,7 +3771,45 @@ function quickNoteWordCount(text) {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 14px 18px 18px;
+  padding: 16px 18px 20px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 76%, transparent);
+}
+
+.ws-codex-detail-body .status-bar,
+.ws-codex-detail-body .geography-panel,
+.ws-codex-detail-body .quest-panel {
+  color: var(--archive-ink);
+}
+
+.ws-codex-detail-body .status-header,
+.ws-codex-detail-body .panel-header {
+  color: color-mix(in srgb, var(--archive-ink-soft) 78%, var(--archive-ink));
+  font-family: var(--font-sans, sans-serif);
+  letter-spacing: 0.04em;
+}
+
+.ws-codex-detail-body .compact-profile {
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 17%, transparent);
+  border-radius: 3px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)),
+    var(--archive-paper-soft) 70%
+  );
+}
+
+.ws-codex-detail-body .compact-profile:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
+}
+
+.ws-codex-detail-body .avatar-placeholder {
+  background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
+  color: var(--archive-olive-strong);
+}
+
+.ws-codex-detail-body .mood-bar {
+  background: color-mix(in srgb, var(--archive-ink-soft) 14%, var(--archive-paper-soft));
 }
 
 /* UI-E18-B (round 2): trigger 行 内置 "查看" 微按钮 — 不需要先展开
@@ -2657,6 +3856,13 @@ function quickNoteWordCount(text) {
 
   .ws-codex-detail-title {
     font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-page.game-page .ws-codex-section::after,
+  .game-page.game-page .ws-codex-section__trigger::before {
+    transition: none;
   }
 }
 </style>

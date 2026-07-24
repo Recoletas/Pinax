@@ -196,15 +196,9 @@
         @click="handleSend"
         :disabled="gameStore.isLoading || !inputText.trim()"
       >
-        <span v-if="!gameStore.isLoading">记入</span>
+        <span v-if="!gameStore.isLoading">发送</span>
         <span v-else class="loading-spinner"></span>
       </button>
-      <!-- 今日已记 N 段 (取代 token 圆环) -->
-      <div class="record-meter" :title="`今日已记 ${loggedTodayCount} 段`">
-        <span class="record-meter__kicker">已记</span>
-        <strong class="record-meter__value">{{ loggedTodayCount }}</strong>
-        <span class="record-meter__unit">段</span>
-      </div>
 
       <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -223,6 +217,7 @@ import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
 import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
 import { estimateTokens } from '../composables/useTokenEstimate'
+import { buildNarrativeFormatInstructions } from '../services/narrativePresentation'
 
 const emit = defineEmits(['send'])
 const gameStore = useGameStore()
@@ -259,7 +254,9 @@ const systemPromptContent = `【身份】你是一位资深的文学创作助手
 - 使用 *动作* 格式描述角色动作
 - 使用 "对话" 格式描述对话
 - 段落分明，场景转换时使用空行
-- 长度适中，一般 50-200 字`
+- 长度适中，一般 50-200 字
+
+${buildNarrativeFormatInstructions()}`
 
 const quickActions = [
   { label: '继续', icon: '▶', command: 'continue' },
@@ -394,13 +391,6 @@ const historyTokens = computed(() => {
 const inputTokens = computed(() => estimateTokens(inputText.value))
 
 const totalTokens = computed(() => contextTokens.value + historyTokens.value + inputTokens.value)
-
-// 已记段数 (取代 token 圆环 — 纯 display,统计 user 消息)
-const loggedTodayCount = computed(() => {
-  return (gameStore.messages || []).filter(
-    (m) => (m.role || m.type) === 'user'
-  ).length
-})
 
 // 上下文用量圆弧
 const contextArc = computed(() => {
@@ -1130,9 +1120,8 @@ function updatePromptInfo() {
   font-style: italic;
 }
 
-/* Send button — minimal text suffix, not a button. Reads as
-   "↩ 记入" margin annotation when the user is ready to
-   commit. Disabled state hides it (no "can't send" button). */
+/* Send button — minimal text suffix, not a button. Disabled state
+   hides it so the prose footnote rhythm stays quiet. */
 .theme-kao .send-btn {
   background: transparent;
   border: none;
@@ -1191,39 +1180,6 @@ function updatePromptInfo() {
   background: color-mix(in srgb, var(--archive-gold) 12%, var(--archive-paper));
 }
 
-.theme-kao .record-meter {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-left: 8px;
-  padding: 4px 6px;
-  background: transparent;
-  border: none;
-  color: color-mix(in srgb, var(--archive-ink) 48%, transparent);
-  cursor: default;
-  user-select: none;
-  font-family: var(--font-sans);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
-
-.theme-kao .record-meter__kicker {
-  font-size: 9px;
-  letter-spacing: 0.2em;
-  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-}
-
-.theme-kao .record-meter__value {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--archive-olive-strong);
-}
-
-.theme-kao .record-meter__unit {
-  font-size: 10px;
-  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-}
-
 .theme-kao .info-btn {
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
@@ -1246,10 +1202,6 @@ function updatePromptInfo() {
   .theme-kao .send-btn {
     padding: 6px 12px;
     font-size: 12px;
-  }
-  .theme-kao .record-meter {
-    margin-left: 6px;
-    padding: 3px 6px;
   }
 }
 </style>

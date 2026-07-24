@@ -24,14 +24,40 @@
         <span class="wall__save-chip-state">{{ stampStateText }}</span>
       </div>
 
+      <button
+        ref="chapterDrawerTriggerRef"
+        class="wall__chapter-trigger"
+        type="button"
+        :aria-expanded="chapterDrawerOpen.toString()"
+        aria-controls="writing-chapter-shelf"
+        @click.stop="openChapterDrawer"
+      >
+        <WorkbenchIcon name="panel-left" :size="15" />
+        <span>{{ currentChapterTitle || '章节' }}</span>
+      </button>
+
       <div class="wall__tabs">
         <button class="wall__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
         <button class="wall__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
-        <button class="wall__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
-        <button class="wall__tab" type="button" @click.stop="goToAdventure" title="回到冒险">冒险</button>
-        <button class="wall__back" type="button" @click="goBack" title="返回首页" aria-label="返回">
-          ← 返回
-        </button>
+        <template v-if="isKao">
+          <button class="wall__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
+          <button class="wall__tab" type="button" @click.stop="goToAdventure" title="回到冒险">冒险</button>
+          <button class="wall__back" type="button" @click="goBack" title="返回首页" aria-label="返回">← 返回</button>
+        </template>
+        <details v-else class="wall__more" @click.stop>
+          <summary class="wall__tab" aria-label="更多写作操作" title="更多写作操作">
+            <WorkbenchIcon name="more" :size="16" />
+            <span>更多</span>
+          </summary>
+          <div class="wall__more-menu">
+            <button type="button" :aria-pressed="copilotEnabled.toString()" @click="toggleAgentRuntime">
+              智能 Agent：{{ copilotEnabled ? '开' : '关' }}
+            </button>
+            <button type="button" @click="exportChapterStoryboardDraft" :disabled="!selectedChapterId">导出章节分镜</button>
+            <button type="button" @click="goToAdventure">回到冒险</button>
+            <button type="button" @click="goBack">返回首页</button>
+          </div>
+        </details>
         <button class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -43,10 +69,18 @@
       </div>
     </div>
 
+    <button
+      v-if="chapterDrawerOpen"
+      class="wall__chapter-overlay"
+      type="button"
+      aria-label="关闭章节列表"
+      @click="closeChapterDrawer"
+    ></button>
+
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
     <main class="wall__main">
       <!-- 左：5 层书架 + 章节档案夹 -->
-      <aside class="wall__shelf" aria-label="章节书架">
+      <aside id="writing-chapter-shelf" ref="chapterShelfRef" class="wall__shelf" :class="{ 'is-mobile-open': chapterDrawerOpen }" :tabindex="chapterDrawerOpen ? -1 : undefined" aria-label="章节书架">
         <div
           v-for="book in books.slice(0, 4)"
           :key="book.id"
@@ -140,48 +174,43 @@
 
         <template v-if="!selectedBookId">
           <div class="wall__dossier-empty">
-            <div class="wall__empty-draft">
-              <div class="wall__empty-line" style="--w: 64%; --indent: 0"></div>
-              <div class="wall__empty-line" style="--w: 78%; --indent: 0"></div>
-              <div class="wall__empty-line" style="--w: 50%; --indent: 0"></div>
+            <div class="wall__empty-copy">
+              <span class="wall__empty-kicker">空白书稿</span>
+              <strong>尚未建立书稿</strong>
             </div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewBook">新建书</button>
+              <button class="wall__pin-cta" type="button" @click="createNewBook">建立第一本书</button>
             </div>
           </div>
         </template>
 
         <template v-else-if="!selectedChapterId">
           <div class="wall__dossier-empty">
-            <div class="wall__empty-draft">
-              <div class="wall__empty-line" style="--w: 72%; --indent: 0"></div>
-              <div class="wall__empty-line" style="--w: 84%; --indent: 0"></div>
-              <div class="wall__empty-line" style="--w: 40%; --indent: 0"></div>
+            <div class="wall__empty-copy">
+              <span class="wall__empty-kicker">空白章节</span>
+              <strong>尚未建立章节</strong>
             </div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewChapter">新建章节</button>
+              <button class="wall__pin-cta" type="button" @click="createNewChapter">建立第一章</button>
             </div>
           </div>
         </template>
 
         <template v-else>
-          <!-- Copilot 状态指示器 -->
-          <div v-if="copilotGenerating || copilotVisible" class="copilot-indicator" :style="copilotIndicatorStyle">
-            <span v-if="copilotGenerating" class="copilot-loading">
-              <span class="copilot-spinner"></span>
-              AI 续写中...
-            </span>
-            <span v-else-if="copilotVisible" class="copilot-ready">
-              <span class="copilot-ready-label">内联建议</span>
-              <span v-if="copilotMatchedEntries.length" class="copilot-meta">命中 {{ copilotMatchedEntries.length }} 条设定</span>
-              <kbd>Tab</kbd> 采纳 · <kbd>Esc</kbd> 忽略
-            </span>
-            <div class="copilot-actions">
-              <button v-if="copilotVisible" type="button" class="copilot-action" @mousedown.prevent @click.stop="acceptCopilotSuggestion">采纳</button>
-              <button v-if="copilotVisible" type="button" class="copilot-action" @mousedown.prevent @click.stop="retryCopilotSuggestion">重试</button>
-              <button type="button" class="copilot-action secondary" @mousedown.prevent @click.stop="copilotCancel">{{ copilotGenerating ? '停止' : '忽略' }}</button>
-            </div>
-          </div>
+          <WritingInlineCompletion
+            :generating="copilotGenerating"
+            :visible="copilotVisible"
+            :can-undo="writingAgentCanUndo"
+            :error="copilotError"
+            :cooling-down="writingAgentCoolingDown"
+            :matched-count="copilotMatchedEntries.length"
+            :style="copilotIndicatorStyle"
+            @accept-unit="acceptWritingSuggestion('unit')"
+            @accept-all="acceptWritingSuggestion('all')"
+            @retry="retryCopilotSuggestion"
+            @undo="undoWritingSuggestionApply"
+            @dismiss="copilotCancel"
+          />
 
           <div class="wall__dossier-body">
             <div class="editor-toolbar">
@@ -265,63 +294,10 @@
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
-                <button class="tool-btn ai-btn" :class="{ active: showAiPanel }" @click.stop="toggleAiPanel" title="AI 扩展/改写">AI</button>
-                <div class="ai-panel" v-if="showAiPanel" @click.stop>
-                  <div class="ai-panel-tabs">
-                    <button :class="['ai-tab', { active: aiPanelMode === 'expand' }]" @click="aiPanelMode = 'expand'">扩展</button>
-                    <button :class="['ai-tab', { active: aiPanelMode === 'rewrite' }]" @click="aiPanelMode = 'rewrite'">改写</button>
-                  </div>
-                  <div class="ai-panel-body">
-                    <div v-if="aiPanelMode === 'expand'" class="ai-options">
-                      <div class="ai-row"><span class="ai-label">扩展模式</span>
-                        <select class="ai-select" v-model="expandMode">
-                          <option v-for="m in expansionModes" :key="m.value" :value="m.value">{{ m.label }}</option>
-                        </select>
-                      </div>
-                      <div class="ai-row"><span class="ai-label">叙事风格</span>
-                        <select class="ai-select" v-model="narrativeStyle">
-                          <option value="literary">文学性</option>
-                          <option value="webnovel">网文风</option>
-                          <option value="concise">简洁白描</option>
-                          <option value="dramatic">戏剧性</option>
-                        </select>
-                      </div>
-                      <button class="tool-btn ai-action-btn" @click="doExpand" :disabled="aiProcessing || !selectedText">{{ aiProcessing ? '处理中...' : '扩展选中文字' }}</button>
-                    </div>
-                    <div v-if="aiPanelMode === 'rewrite'" class="ai-options">
-                      <div class="ai-row"><span class="ai-label">改写模式</span>
-                        <select class="ai-select" v-model="rewriteMode">
-                          <option v-for="m in rewriteModes" :key="m.value" :value="m.value">{{ m.label }}</option>
-                        </select>
-                      </div>
-                      <div class="ai-row" v-if="rewriteMode === 'style'"><span class="ai-label">叙事风格</span>
-                        <select class="ai-select" v-model="narrativeStyle">
-                          <option value="literary">文学性</option>
-                          <option value="webnovel">网文风</option>
-                          <option value="concise">简洁白描</option>
-                          <option value="dramatic">戏剧性</option>
-                        </select>
-                      </div>
-                      <div class="ai-row" v-if="rewriteMode === 'tone'"><span class="ai-label">语气</span>
-                        <select class="ai-select" v-model="rewriteTone">
-                          <option v-for="t in tonePresets" :key="t.value" :value="t.value">{{ t.label }}</option>
-                        </select>
-                      </div>
-                      <button class="tool-btn ai-action-btn" @click="doRewrite" :disabled="aiProcessing || !selectedText">{{ aiProcessing ? '处理中...' : '改写选中文字' }}</button>
-                    </div>
-                    <div v-if="aiResult" class="ai-result">
-                      <div class="ai-result-header">
-                        <span>结果预览</span>
-                        <div class="ai-result-actions">
-                          <BookmarkButton variant="primary" size="compact" :index="'01'" label="应用" :aria-label="`应用 AI 改写到正文`" @click="applyAiResult" />
-                          <BookmarkButton variant="secondary" size="compact" :index="'02'" label="取消" :aria-label="`取消 AI 改写`" @click="aiResult = ''" />
-                        </div>
-                      </div>
-                      <div class="ai-result-content">{{ aiResult }}</div>
-                    </div>
-                    <div v-if="!selectedText" class="ai-hint">请先在编辑器中选择要处理的文字</div>
-                  </div>
-                </div>
+                <button class="tool-btn ai-btn" @click.stop="openAdvisorFromAction" title="打开写作专业任务">
+                  <WorkbenchIcon name="sparkles" :size="14" />
+                  <span>顾问</span>
+                </button>
               </div>
               <div class="toolbar-spacer"></div>
               <div class="mode-switch">
@@ -389,6 +365,10 @@
                 @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
                 @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
                 @scroll="onEditorScroll"
+                @compositionstart="onWritingCompositionStart"
+                @compositionend="onWritingCompositionEnd"
+                @paste="onWritingPaste"
+                @drop="onWritingPaste"
               ></textarea>
             </div>
             <textarea
@@ -430,7 +410,7 @@
       </section>
     </main>
 
-    <ImageGenRail
+    <MediaGenerationDrawer
       storage-key="writing_image_library_v1"
       side="right"
       :vertical-offset="62"
@@ -604,6 +584,7 @@
       avatarLabel="作"
       caption="写作顾问"
       captionHint="写作入口"
+      :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
       @open="openAdvisorFromAction"
     />
 
@@ -613,40 +594,47 @@
       :results="advisorResults"
       :loading="advisorLoading"
       :quickQuestions="advisorQuickActions"
+      :notice="consistencyNotice"
       :emptyText="'统一智能顾问可帮助你修正选区、收束段落、体检章节，并给出轻量续写建议。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
       @apply-result="applyAdvisorResult"
+      @undo-result="undoAdvisorResult"
+      @undo-domain-result="undoAdvisorDomainAction"
       @dismiss-result="dismissAdvisorResult"
+      @convert-result="convertAdvisorSuggestion"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
-import { extractCopilotWindow, useCopilot } from '../composables/useCopilot'
+import { extractWritingSuggestionWindow } from '../services/writingSuggestion'
+import { useWritingAgent } from '../composables/useWritingAgent'
 import { useWorldStore } from '../stores/worldStore'
 import { useGameStore } from '../stores/gameStore'
 import { useEditorHistory } from '../composables/useEditorHistory'
-import { expandText, getExpansionModes } from '../services/textExpander'
-import { rewriteText, getRewriteModes, getTonePresets } from '../services/textRewriter'
-import ImageGenRail from '../components/ImageGenRail.vue'
+import MediaGenerationDrawer from '../components/media/MediaGenerationDrawer.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
+import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import WritingInlineCompletion from '../components/writing/WritingInlineCompletion.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
   getAssetKindExplanation,
   getAssetKindLabel,
   getAssetSourceDetail,
+  addNarrativeAsset,
+  deleteNarrativeAsset,
   listNarrativeAssets,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus
@@ -665,8 +653,17 @@ import {
   normalizeChapterOutlineItems,
   removeChapterOutlineItem
 } from '../services/chapterOutline'
-import { buildReferenceContext } from '../services/writingAgentReferences'
-import { applyAdvisorReplacement, applyWritingAgentAction } from '../services/advisorResultApplier'
+import { applyAdvisorReplacement } from '../services/advisorResultApplier'
+import {
+  applyWritingAgentTransaction,
+  undoWritingAgentTransaction
+} from '../services/agents/writingAgentTransaction'
+import {
+  buildSuggestionDomainAction,
+  buildWritingProfessionalActions,
+  buildWritingProfessionalTarget,
+  normalizeWritingProfessionalAction
+} from '../services/agents/writingProfessionalActions'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
@@ -682,12 +679,15 @@ import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 
 const router = useRouter()
 const route = useRoute()
-const { isDark, toggleTheme } = useTheme()
+const { isDark, isKao, toggleTheme } = useTheme()
 const {
   advisorOpen,
   advisorMessages,
   advisorResults,
   advisorLoading,
+  pendingReviewCount,
+  pendingReminderVisible,
+  consistencyNotice,
   askAdvisor,
   openAdvisor: openAdvisorPanel,
   closeAdvisor,
@@ -696,21 +696,6 @@ const {
 const worldStore = useWorldStore()
 const gameStore = useGameStore()
 
-// AI Copilot 续写
-const {
-  isGenerating: copilotGenerating,
-  suggestion: copilotSuggestion,
-  isVisible: copilotVisible,
-  error: copilotError,
-  matchedEntries: copilotMatchedEntries,
-  triggerGeneration: copilotTrigger,
-  manualTrigger: copilotManualTrigger,
-  acceptSuggestion: copilotAccept,
-  rejectSuggestion: copilotReject,
-  cancelSuggestion: copilotCancel
-} = useCopilot({ debounceMs: 220, autoTrigger: false, maxSuggestionLength: 160 })
-
-const copilotEnabled = ref(true)
 const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
 const copilotCursorPos = ref(0)
 const copilotScrollTop = ref(0)
@@ -828,21 +813,40 @@ const assetActionHelpEntries = [
 const assetActionHelpMap = Object.fromEntries(assetActionHelpEntries.map((item) => [item.key, item.description]))
 const copilotReferenceAsset = ref(null)
 const chapterOutlineItems = ref([])
+const {
+  enabled: copilotEnabled,
+  setEnabled: setWritingAgentEnabled,
+  generating: copilotGenerating,
+  suggestion: copilotSuggestion,
+  visible: copilotVisible,
+  error: copilotError,
+  matchedEntries: copilotMatchedEntries,
+  canUndoApply: writingAgentCanUndo,
+  coolingDown: writingAgentCoolingDown,
+  onInput: writingAgentOnInput,
+  manualTrigger: copilotManualTrigger,
+  accept: writingAgentAccept,
+  cancel: copilotCancel,
+  suppress: suppressWritingAgent,
+  finishComposition: finishWritingAgentComposition,
+  undoLastApply: writingAgentUndo
+} = useWritingAgent({
+  debounceMs: 900,
+  getContext: getWritingAgentPageContext,
+  getSnapshot: () => ({
+    content: markdownContent.value,
+    cursorPos: copilotCursorPos.value
+  })
+})
 
-// AI 扩展/改写状态
-const showAiPanel = ref(false)
-const aiPanelMode = ref('expand') // 'expand' or 'rewrite'
-const aiProcessing = ref(false)
-const aiResult = ref('')
-const expandMode = ref('balanced')
-const rewriteMode = ref('style')
-const rewriteTone = ref('neutral')
-const narrativeStyle = ref('literary')
-const expansionModes = getExpansionModes()
-const rewriteModes = getRewriteModes()
-const tonePresets = getTonePresets()
+function toggleAgentRuntime() {
+  setWritingAgentEnabled(!copilotEnabled.value)
+}
 
 const saveStatus = ref('saved')
+const chapterDrawerOpen = ref(false)
+const chapterDrawerTriggerRef = ref(null)
+const chapterShelfRef = ref(null)
 let saveTimeout = null
 let titleTimeout = null
 
@@ -859,7 +863,29 @@ onMounted(() => {
   refreshAssetInbox()
   if (pendingBackJump.value) tryApplyPendingBackJump()
   if (pendingInsertBack.value) tryApplyPendingInsertBack()
+  document.addEventListener('keydown', handleChapterDrawerKeydown)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleChapterDrawerKeydown)
+})
+
+function openChapterDrawer() {
+  chapterDrawerOpen.value = true
+  nextTick(() => chapterShelfRef.value?.focus())
+}
+
+function closeChapterDrawer({ restoreFocus = true } = {}) {
+  const wasOpen = chapterDrawerOpen.value
+  chapterDrawerOpen.value = false
+  if (restoreFocus && wasOpen) nextTick(() => chapterDrawerTriggerRef.value?.focus())
+}
+
+function handleChapterDrawerKeydown(event) {
+  if (event.key !== 'Escape' || !chapterDrawerOpen.value) return
+  event.preventDefault()
+  closeChapterDrawer()
+}
 
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
 const copilotReferenceLabel = computed(() => {
@@ -1029,7 +1055,7 @@ function collectWritingContext() {
   const currentChapter = selectedBook?.chapters?.find(c => c.id === selectedChapterId.value)
   const selection = getWritingSelectionSnapshot()
   const paragraph = getWritingParagraphSnapshot(selection.start)
-  const contextWindow = extractCopilotWindow(markdownContent.value || '', selection.start, {
+  const contextWindow = extractWritingSuggestionWindow(markdownContent.value || '', selection.start, {
     upstream: 520,
     downstream: 240
   })
@@ -1055,7 +1081,7 @@ function collectWritingContext() {
 function buildAdvisorActionContext(action = {}) {
   const selection = getWritingSelectionSnapshot()
   const paragraph = getWritingParagraphSnapshot(selection.start)
-  const contextWindow = extractCopilotWindow(markdownContent.value || '', selection.start, {
+  const contextWindow = extractWritingSuggestionWindow(markdownContent.value || '', selection.start, {
     upstream: 520,
     downstream: 240
   })
@@ -1078,111 +1104,14 @@ function buildAdvisorActionContext(action = {}) {
 const advisorQuickActions = computed(() => {
   const hasSelection = Boolean(String(selectedText.value || '').trim())
   const paragraph = getWritingParagraphSnapshot(copilotCursorPos.value)
-
-  return [
-    {
-      label: '修正选中内容',
-      question: '请修正我选中的内容，尽量保持原意和人物语气，不要扩写太多。',
-      scope: 'selection',
-      disabled: !hasSelection
-    },
-    {
-      label: '修正当前段落',
-      question: '请修正当前段落，重点处理语病、重复、节奏和衔接。',
-      scope: 'paragraph',
-      disabled: !paragraph.hasParagraph
-    },
-    {
-      label: '自动收线',
-      question: '请帮我收束当前线索，给出更自然的收线建议，优先考虑当前段落和上下文。',
-      scope: 'thread',
-      disabled: false
-    },
-    {
-      label: '章节体检',
-      question: '请对当前章节做一次简洁体检，指出节奏、人物和结构的主要问题。',
-      scope: 'chapter',
-      disabled: false
-    },
-    {
-      label: '轻续一句',
-      question: '请给出一句轻量续写建议，保持当前语气，尽量可直接接在光标后。',
-      scope: 'continue',
-      disabled: false
-    }
-  ]
+  return buildWritingProfessionalActions({
+    hasSelection,
+    hasParagraph: paragraph.hasParagraph
+  })
 })
 
-function normalizeAdvisorAction(input) {
-  if (typeof input === 'string') {
-    return {
-      label: input,
-      question: input,
-      scope: 'chapter',
-      disabled: false
-    }
-  }
-
-  if (!input || typeof input !== 'object') {
-    return {
-      label: '',
-      question: '',
-      scope: 'chapter',
-      disabled: false
-    }
-  }
-
-  const label = String(input.label || input.question || '').trim()
-  const question = String(input.question || input.label || '').trim()
-
-  return {
-    label,
-    question,
-    scope: String(input.scope || 'chapter').trim() || 'chapter',
-    taskType: String(input.taskType || '').trim(),
-    disabled: Boolean(input.disabled)
-  }
-}
-
-function buildAdvisorActionTarget(action, context) {
-  const scope = action.scope || 'chapter'
-  if (scope === 'selection') {
-    return {
-      kind: 'selection',
-      range: { start: context.selection.start, end: context.selection.end },
-      text: context.selection.text
-    }
-  }
-
-  if (scope === 'paragraph') {
-    return {
-      kind: 'paragraph',
-      range: { start: context.paragraph.start, end: context.paragraph.end },
-      text: context.paragraph.text
-    }
-  }
-
-  if (scope === 'thread' || scope === 'continue') {
-    return {
-      kind: scope === 'thread' ? 'thread-window' : 'cursor-window',
-      paragraph: context.paragraph.text,
-      before: context.contextWindow.before,
-      after: context.contextWindow.after
-    }
-  }
-
-  return {
-    kind: 'chapter',
-    title: context.chapterTitle,
-    wordCount: context.wordCount,
-    paragraph: context.paragraph.text,
-    selectedText: context.selection.text,
-    outline: context.chapterOutline
-  }
-}
-
 async function handleAskAdvisor(input) {
-  const action = normalizeAdvisorAction(input)
+  const action = normalizeWritingProfessionalAction(input)
   if (!action.question || action.disabled) return
 
   const context = buildAdvisorActionContext(action)
@@ -1191,7 +1120,7 @@ async function handleAskAdvisor(input) {
     question: action.question,
     scope: action.scope,
     taskType: action.taskType,
-    target: buildAdvisorActionTarget(action, context),
+    target: buildWritingProfessionalTarget(action, context),
     options: {
       editorMode: editorMode.value,
       chapterId: selectedChapterId.value
@@ -1200,17 +1129,13 @@ async function handleAskAdvisor(input) {
 }
 
 function applyAdvisorResult(result) {
-  // WA-C (2026-06-29): new multi-action path. If result carries a
-  // `actions: [...]` array (Writing Agent v1 protocol), iterate via
-  // applyWritingAgentAction. Else fall through to the legacy single-shot
-  // applyAdvisorReplacement path (mode === 'replace' from the old
-  // advisor flow). Both paths share the same editor focus / selection
-  // restoration pattern.
   if (Array.isArray(result?.actions) && result.actions.length) {
     return applyAgentActionsResult(result)
   }
 
-  const applied = applyAdvisorReplacement(markdownContent.value || '', result)
+  const before = markdownContent.value || ''
+  const cursorBefore = readCurrentEditorCursor(before)
+  const applied = applyAdvisorReplacement(before, result)
   if (!applied.ok) {
     updateAdvisorResultStatus(result?.id, 'stale', applied.message)
     return
@@ -1224,6 +1149,16 @@ function applyAdvisorResult(result) {
   onContentChange()
 
   selectedText.value = ''
+  result.applyReceipt = {
+    type: 'writing-agent-transaction',
+    resultId: result.id,
+    chapterId: selectedChapterId.value,
+    before,
+    after: applied.content,
+    cursorBefore,
+    cursorAfter: applied.cursorPos,
+    appliedAt: Date.now()
+  }
   updateAdvisorResultStatus(result.id, 'applied', '修改已应用到正文。')
 
   nextTick(() => {
@@ -1234,61 +1169,67 @@ function applyAdvisorResult(result) {
   })
 }
 
-// WA-C: multi-action applier. Threads content + cursor between calls,
-// collects all side effects, applies them after the content is set.
-// Aborts (marks the result stale) if any action in the sequence fails —
-// partial application is the caller's choice (current implementation
-// leaves prior actions applied; future roll-back can be added without
-// changing the applier contract).
 function applyAgentActionsResult(result) {
-  let content = markdownContent.value || ''
-  const env = {
-    currentCursorPos: readCurrentEditorCursor(content),
-    now: Date.now()
-  }
-  const collected = []
-  const summary = []
-
-  for (let i = 0; i < result.actions.length; i++) {
-    const action = result.actions[i]
-    const applied = applyWritingAgentAction(content, action, env)
-    if (!applied.ok) {
-      updateAdvisorResultStatus(
-        result.id,
-        'stale',
-        `动作 ${i + 1}/${result.actions.length} 失败:${applied.message || applied.reason}`
-      )
-      return
-    }
-    content = applied.content
-    env.currentCursorPos = applied.cursorPos
-    if (Array.isArray(applied.sideEffects)) {
-      for (const se of applied.sideEffects) collected.push(se)
-    }
+  const before = markdownContent.value || ''
+  const transaction = applyWritingAgentTransaction(before, result.actions, {
+    resultId: result.id,
+    chapterId: selectedChapterId.value,
+    cursorBefore: readCurrentEditorCursor(before)
+  })
+  if (!transaction.ok) {
+    updateAdvisorResultStatus(
+      result.id,
+      'stale',
+      `修改未应用：${transaction.reason}${Number.isFinite(transaction.actionIndex) ? `（动作 ${transaction.actionIndex + 1}）` : ''}`
+    )
+    return
   }
 
-  // All actions succeeded — apply content + side effects.
-  markdownContent.value = content
+  markdownContent.value = transaction.content
   if (editorRef.value) {
-    editorRef.value.value = content
+    editorRef.value.value = transaction.content
   }
   syncMarkdownToEditor()
   onContentChange()
-
-  for (const se of collected) {
-    const msg = applyAgentSideEffect(se)
-    if (msg) summary.push(msg)
-  }
-
-  const detail = summary.length
-    ? `已应用 ${result.actions.length} 个动作:${summary.join('; ')}。`
-    : `已应用 ${result.actions.length} 个动作。`
-  updateAdvisorResultStatus(result.id, 'applied', detail)
+  result.applyReceipt = transaction.receipt
+  updateAdvisorResultStatus(result.id, 'applied', `已原子应用 ${result.actions.length} 个修改。`)
 
   nextTick(() => {
     if (!editorRef.value) return
     editorRef.value.focus()
-    editorRef.value.setSelectionRange(env.currentCursorPos, env.currentCursorPos)
+    editorRef.value.setSelectionRange(transaction.cursorPos, transaction.cursorPos)
+    syncCopilotCursorFromEditor()
+  })
+}
+
+function undoAdvisorResult(result) {
+  const undone = undoWritingAgentTransaction(
+    markdownContent.value || '',
+    result?.applyReceipt,
+    selectedChapterId.value
+  )
+  if (!undone.ok) {
+    if (result) {
+      result.status = 'stale'
+      result.statusDetail = '正文或章节已变化，不能撤销这次修改。'
+      result._agentResult = result._agentResult
+        ? { ...result._agentResult, status: 'stale', staleReason: undone.reason }
+        : result._agentResult
+    }
+    return
+  }
+  markdownContent.value = undone.content
+  if (editorRef.value) editorRef.value.value = undone.content
+  syncMarkdownToEditor()
+  onContentChange()
+  result.applyReceipt = null
+  result._agentResult = result._agentResult
+    ? { ...result._agentResult, status: 'completed', appliedAt: null, acknowledgedAt: null }
+    : result._agentResult
+  updateAdvisorResultStatus(result.id, 'completed', '已撤销，可重新审阅后应用。')
+  nextTick(() => {
+    editorRef.value?.focus()
+    editorRef.value?.setSelectionRange(undone.cursorPos, undone.cursorPos)
     syncCopilotCursorFromEditor()
   })
 }
@@ -1337,10 +1278,11 @@ function applyAgentSideEffect(se) {
 }
 
 function addAgentOutlineItem(item) {
-  if (!item || !item.title) return
+  if (!item || !item.title) return null
   const next = [item, ...chapterOutlineItems.value]
   chapterOutlineItems.value = normalizeChapterOutlineItems(next)
   syncChapterOutlineToCurrentChapter()
+  return chapterOutlineItems.value[0]
 }
 
 function findNarrativeAssetById(assetId) {
@@ -1363,6 +1305,56 @@ function readCurrentEditorCursor(content) {
 function dismissAdvisorResult(result) {
   if (!result?.id) return
   updateAdvisorResultStatus(result.id, 'dismissed')
+}
+
+function convertAdvisorSuggestion(payload) {
+  const domainAction = buildSuggestionDomainAction(payload?.type, payload?.suggestion, {
+    index: payload?.index,
+    resultId: payload?.result?.id,
+    chapterId: selectedChapterId.value,
+    projectId: selectedBookId.value
+  })
+  if (!domainAction) return
+
+  if (domainAction.type === 'outline-item') {
+    const outlineItem = addAgentOutlineItem(domainAction.item)
+    payload.result.domainReceipt = {
+      type: 'outline-item',
+      id: outlineItem.id,
+      chapterId: selectedChapterId.value
+    }
+    payload.result.statusDetail = '这条建议已加入当前章节纲要。'
+    return
+  }
+
+  if (domainAction.type === 'create-asset') {
+    const asset = addNarrativeAsset(domainAction.asset)
+    refreshAssetInbox()
+    payload.result.domainReceipt = {
+      type: 'create-asset',
+      id: asset.id,
+      chapterId: selectedChapterId.value
+    }
+    payload.result.statusDetail = `已保存到素材收件箱：${asset.title}`
+  }
+}
+
+function undoAdvisorDomainAction(result) {
+  const receipt = result?.domainReceipt
+  if (!receipt || receipt.chapterId !== selectedChapterId.value) {
+    if (result) result.statusDetail = '章节已经变化，不能撤销这次转换。'
+    return
+  }
+  if (receipt.type === 'outline-item') {
+    chapterOutlineItems.value = removeChapterOutlineItem(chapterOutlineItems.value, receipt.id)
+    syncChapterOutlineToCurrentChapter()
+    result.statusDetail = '已从当前章节纲要移除。'
+  } else if (receipt.type === 'create-asset') {
+    deleteNarrativeAsset(receipt.id)
+    refreshAssetInbox()
+    result.statusDetail = '已从素材收件箱移除。'
+  }
+  result.domainReceipt = null
 }
 
 function openAdvisorFromAction() {
@@ -1457,54 +1449,20 @@ function buildCopilotAssetContext(asset) {
   return parts.filter((part) => part !== '').join('\n')
 }
 
-function getCopilotContext() {
-  // WA-D: compose the agent's reference context under a single budget
-  // (outline gets its reserved slot, pinned asset always wins, ranked
-  // selected inbox entries fill the rest). Falls back to the legacy
-  // `extraContext` string shape only when there is no structured input
-  // (which can no longer happen — we always pass `references` now —
-  // but the legacy fallback stays as a safety net for older callers).
-  const outlineContext = buildChapterOutlineContext(chapterOutlineItems.value)
-  const reference = buildReferenceContext({
-    referenceAsset: copilotReferenceAsset.value || null,
-    inboxAssets: inboxAssets.value || [],
-    selectedInboxIds: selectedInboxAssetIds.value || [],
-    outlineContext,
-    currentChapterId: selectedChapterId.value || null,
-    currentBookId: selectedBookId.value || null
-  })
-
+function getWritingAgentPageContext() {
+  const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
   return {
+    content: markdownContent.value,
+    cursorPos: copilotCursorPos.value,
+    bookId: selectedBookId.value || null,
+    bookTitle: selectedBook?.title || '',
+    chapterId: selectedChapterId.value || null,
     chapterTitle: currentChapterTitle.value,
-    // Primary path: structured references (legacy useCopilot callers
-    // that only pass `extraContext` still work — see buildCopilotMessages).
-    references: {
-      referenceAsset: reference.referenceAsset
-        ? {
-            id: reference.referenceAsset.id,
-            kind: reference.referenceAsset.kind,
-            kindLabel: reference.referenceAsset.kindLabel,
-            title: reference.referenceAsset.title,
-            content: reference.referenceAsset.contentPreview,
-            source: null
-          }
-        : null,
-      inboxAssets: reference.inboxBlocks.map((block) => ({
-        id: block.id,
-        kind: block.kind,
-        kindLabel: block.kindLabel,
-        title: block.title,
-        content: block.contentPreview
-      })),
-      selectedInboxIds: selectedInboxAssetIds.value || [],
-      outlineContext,
-      currentChapterId: selectedChapterId.value || null,
-      currentBookId: selectedBookId.value || null
-    },
-    // Fallback for callers that still read extraContext (e.g. older
-    // copilot flows + manual debugging). Stable string under a char
-    // budget so it can't blow past the prompt.
-    extraContext: reference.contextText
+    outlineItems: chapterOutlineItems.value,
+    referenceAsset: copilotReferenceAsset.value,
+    inboxAssets: inboxAssets.value,
+    selectedInboxIds: selectedInboxAssetIds.value,
+    worldbook: worldStore.activeWorldbook || null
   }
 }
 
@@ -1539,7 +1497,7 @@ function useAssetAsCopilotContext(asset) {
     editorRef.value?.focus()
     syncCopilotCursorFromEditor()
     if (copilotEnabled.value) {
-      copilotManualTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
+      copilotManualTrigger()
     }
   })
 }
@@ -1925,6 +1883,7 @@ function openBook(bookId, options = {}) {
 
 function selectBook(bookId) {
   openBook(bookId)
+  closeChapterDrawer()
 }
 
 function selectChapter(chapterId) {
@@ -1949,6 +1908,7 @@ function selectChapter(chapterId) {
   } else {
     chapterOutlineItems.value = []
   }
+  closeChapterDrawer()
 }
 
 function createNewBook() {
@@ -2403,105 +2363,6 @@ function replaceAll() {
   onContentChange()
 }
 
-// AI 扩展/改写面板
-function toggleAiPanel() {
-  showAiPanel.value = !showAiPanel.value
-  if (showAiPanel.value) {
-    // 获取当前选中的文字
-    const editor = editorRef.value
-    if (editor) {
-      const start = editor.selectionStart
-      const end = editor.selectionEnd
-      if (start !== end) {
-        selectedText.value = markdownContent.value.slice(start, end)
-      }
-    }
-  }
-}
-
-// 执行扩展
-async function doExpand() {
-  if (!selectedText.value || aiProcessing.value) return
-
-  aiProcessing.value = true
-  aiResult.value = ''
-
-  try {
-    const result = await expandText(selectedText.value, {
-      mode: expandMode.value,
-      style: narrativeStyle.value,
-      targetLength: 3
-    })
-
-    if (result.success) {
-      aiResult.value = result.content
-    } else {
-      aiResult.value = `扩展失败: ${result.error}`
-    }
-  } catch (err) {
-    aiResult.value = `扩展出错: ${err.message}`
-  } finally {
-    aiProcessing.value = false
-  }
-}
-
-// 执行改写
-async function doRewrite() {
-  if (!selectedText.value || aiProcessing.value) return
-
-  aiProcessing.value = true
-  aiResult.value = ''
-
-  try {
-    const options = {
-      mode: rewriteMode.value,
-      style: narrativeStyle.value,
-      tone: rewriteTone.value
-    }
-
-    const result = await rewriteText(selectedText.value, options)
-
-    if (result.success) {
-      aiResult.value = result.content
-    } else {
-      aiResult.value = `改写失败: ${result.error}`
-    }
-  } catch (err) {
-    aiResult.value = `改写出错: ${err.message}`
-  } finally {
-    aiProcessing.value = false
-  }
-}
-
-// 应用 AI 结果
-function applyAiResult() {
-  if (!aiResult.value) return
-
-  const editor = editorRef.value
-  if (!editor) return
-
-  const start = editor.selectionStart
-  const end = editor.selectionEnd
-
-  // 替换选中文字为 AI 结果
-  markdownContent.value = markdownContent.value.slice(0, start) + aiResult.value + markdownContent.value.slice(end)
-
-  // 更新编辑器
-  syncMarkdownToEditor()
-  onContentChange()
-
-  // 移动光标到插入文本之后
-  nextTick(() => {
-    const newPos = start + aiResult.value.length
-    editor.setSelectionRange(newPos, newPos)
-    editor.focus()
-  })
-
-  // 清空结果
-  aiResult.value = ''
-  showAiPanel.value = false
-}
-
 function captureSelectionAsAsset() {
   if (!canCaptureSelection.value) return
 
@@ -2739,7 +2600,7 @@ function onEditorInput() {
   onContentChange()
 }
 
-function onMarkdownInput() {
+function onMarkdownInput(event) {
   if (editorMode.value === 'wysiwyg' && editorRef.value) {
     markdownContent.value = editorRef.value.value
     editorHistory.push(editorRef.value)
@@ -2748,10 +2609,29 @@ function onMarkdownInput() {
   syncMarkdownToEditor()
   onContentChange()
 
-  // 维持 Copilot 状态，默认不自动续写
+  // Only ordinary typing may schedule an inline completion. Paste, drop,
+  // history operations, and IME composition are explicitly suppressed.
   if (copilotEnabled.value && editorRef.value) {
-    copilotTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
+    writingAgentOnInput({
+      content: markdownContent.value,
+      cursorPos: copilotCursorPos.value,
+      hasSelection: Boolean(selectedText.value),
+      inputType: event?.inputType || '',
+      composing: Boolean(event?.isComposing)
+    })
   }
+}
+
+function onWritingCompositionStart() {
+  suppressWritingAgent('composition')
+}
+
+function onWritingCompositionEnd() {
+  finishWritingAgentComposition()
+}
+
+function onWritingPaste() {
+  suppressWritingAgent('paste')
 }
 
 function syncCopilotCursorFromEditor(options = {}) {
@@ -2778,13 +2658,20 @@ function onEditorScroll(event) {
   copilotScrollLeft.value = event.target?.scrollLeft || 0
 }
 
-function acceptCopilotSuggestion() {
+function acceptWritingSuggestion(mode = 'all') {
   const editor = editorRef.value
   if (editor) {
     syncCopilotCursorFromEditor()
   }
-  const result = copilotAccept(markdownContent.value, copilotCursorPos.value)
+  const result = writingAgentAccept(
+    markdownContent.value,
+    copilotCursorPos.value,
+    mode
+  )
+  if (!result) return
   markdownContent.value = result.content
+  if (editor) editor.value = result.content
+  editorHistory.push(editor)
   syncMarkdownToEditor()
   onContentChange()
   nextTick(() => {
@@ -2796,9 +2683,26 @@ function acceptCopilotSuggestion() {
   })
 }
 
+function undoWritingSuggestionApply() {
+  const result = writingAgentUndo(markdownContent.value)
+  if (!result.ok) return
+  markdownContent.value = result.content
+  if (editorRef.value) {
+    editorRef.value.value = result.content
+    editorHistory.push(editorRef.value)
+  }
+  syncMarkdownToEditor()
+  onContentChange()
+  nextTick(() => {
+    editorRef.value?.setSelectionRange(result.cursorPos, result.cursorPos)
+    editorRef.value?.focus()
+    syncCopilotCursorFromEditor()
+  })
+}
+
 function retryCopilotSuggestion() {
   syncCopilotCursorFromEditor()
-  copilotManualTrigger(markdownContent.value, copilotCursorPos.value, getCopilotContext())
+  copilotManualTrigger()
   nextTick(() => editorRef.value?.focus())
 }
 
@@ -2806,6 +2710,7 @@ function onTextAreaKeydown(e) {
   // Ctrl/Cmd+Z — undo
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
     e.preventDefault()
+    suppressWritingAgent('history')
     editorHistory.undo(e.target)
     return
   }
@@ -2813,6 +2718,7 @@ function onTextAreaKeydown(e) {
   if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') ||
       ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'y')) {
     e.preventDefault()
+    suppressWritingAgent('history')
     editorHistory.redo(e.target)
     return
   }
@@ -2820,29 +2726,54 @@ function onTextAreaKeydown(e) {
   // Tab 采纳 Copilot 建议
   if (e.key === 'Tab' && copilotVisible.value && copilotSuggestion.value) {
     e.preventDefault()
-    acceptCopilotSuggestion()
+    acceptWritingSuggestion('all')
     return
   }
 
   // Esc 拒绝建议
   if (e.key === 'Escape' && (copilotVisible.value || copilotGenerating.value)) {
     e.preventDefault()
-    copilotReject()
+    copilotCancel()
     return
   }
 
-  // 原有 Tab 逻辑
+  // Keep indentation in the textarea first. onContentChange reads the
+  // live editor value, so updating only the Vue ref would be overwritten.
   if (e.key === 'Tab') {
     e.preventDefault()
     const ta = e.target
     const start = ta.selectionStart
     const end = ta.selectionEnd
-    markdownContent.value = markdownContent.value.slice(0, start) + '\t' + markdownContent.value.slice(end)
-    nextTick(() => {
-      ta.setSelectionRange(start + 1, start + 1)
-    })
+    const value = ta.value
+    const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1
+    const selected = value.slice(lineStart, end)
+    const lines = selected.split('\n')
+    let nextValue
+    let nextStart
+    let nextEnd
+
+    if (e.shiftKey) {
+      const removals = lines.map((line) => line.startsWith('\t') ? 1 : Math.min(line.match(/^ {0,2}/)?.[0].length || 0, 2))
+      const adjusted = lines.map((line, index) => line.slice(removals[index])).join('\n')
+      nextValue = value.slice(0, lineStart) + adjusted + value.slice(end)
+      nextStart = Math.max(lineStart, start - removals[0])
+      nextEnd = Math.max(nextStart, end - removals.reduce((sum, count) => sum + count, 0))
+    } else {
+      const adjusted = lines.map((line) => `\t${line}`).join('\n')
+      nextValue = value.slice(0, lineStart) + adjusted + value.slice(end)
+      nextStart = start + 1
+      nextEnd = end + lines.length
+    }
+
+    ta.value = nextValue
+    markdownContent.value = nextValue
+    editorHistory.push(ta)
     syncMarkdownToEditor()
     onContentChange()
+    nextTick(() => {
+      ta.setSelectionRange(nextStart, nextEnd)
+      syncCopilotCursorFromEditor({ cancelOnMove: true })
+    })
   }
 }
 
@@ -3022,7 +2953,6 @@ function onGlobalClick() {
   showNameGen.value = false
   showFindReplace.value = false
   hasSelection.value = false
-  showAiPanel.value = false
 }
 
 function syncSelectionCommandState() {
@@ -3057,2649 +2987,6 @@ function stopResizeRight() {
 
 </script>
 
-<style scoped>
-/* W4: manuscript-top — legacy variant fallback (kao variant rules live
-   in kao.css .theme-kao block; legacy uses generic SaaS chrome). Kept
-   scoped here so Writing.vue remains the single owner. */
-.manuscript-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 24px 11px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-primary);
-  min-height: 44px;
-}
-.manuscript-top__left,
-.manuscript-top__right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.manuscript-top__left { flex: 1 1 auto; }
-.manuscript-top__back {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-.manuscript-top__back:hover {
-  color: var(--accent);
-  border-color: var(--border);
-}
-.manuscript-top__book {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 2px 6px 3px;
-  border-left: 2px solid var(--accent);
-  border-right: 1px solid var(--border);
-}
-.manuscript-top__no {
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-.manuscript-top__book-select {
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  padding: 0 6px;
-  cursor: pointer;
-}
-.manuscript-top__chapter {
-  font-size: 12px;
-  font-style: italic;
-  color: var(--text-secondary);
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 32ch;
-}
-.manuscript-top__chip {
-  font-size: 10px;
-  color: var(--text-secondary);
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  white-space: nowrap;
-}
-.manuscript-top__tab {
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid transparent;
-  padding: 4px 2px 5px;
-  cursor: pointer;
-}
-.manuscript-top__tab:hover:not(:disabled) {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-.manuscript-top__tab:disabled {
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-.manuscript-top__mode {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.manuscript-top__mode:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
+<style scoped src="./Writing.scoped.css"></style>
 
-/* UI-W2: Pinax Wall — legacy variant fallback (kao variant rules live
-   in kao.css .theme-kao block; legacy uses generic chrome). Kept
-   scoped here so Writing.vue remains the single owner. */
-.wall {
-  background: var(--bg-primary);
-}
-.wall__cork {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 56px;
-  max-height: 72px;
-  padding: 8px 16px;
-  background: var(--surface-soft);
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-}
-.wall__book-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 240px;
-  padding: 4px 8px 4px 0;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
-    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
-}
-.wall__book-pill-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--archive-olive) 12%, var(--bg-secondary));
-  border-right: 1px solid var(--border);
-  border-radius: 3px 0 0 3px;
-  margin-right: 2px;
-  align-self: stretch;
-}
-.wall__book-select {
-  appearance: none;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: var(--font-display);
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  cursor: pointer;
-}
-.wall__book-pill-arrow {
-  flex-shrink: 0;
-  margin-left: 4px;
-  color: var(--text-secondary);
-}
-.wall__save-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--archive-olive);
-  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--archive-olive) 8%);
-  font-size: 11px;
-  color: var(--text-primary);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 70%, white),
-    inset 0 -1px 0 color-mix(in srgb, var(--archive-olive) 20%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
-  white-space: nowrap;
-}
-.wall__save-chip.is-saving {
-  border-style: dashed;
-  opacity: 0.85;
-}
-/* W5c UX sweep: per-state visual distinction. Only is-saving existed
-   before; is-saved and is-unsaved now read as distinct chips so users
-   can tell at a glance whether their work is safe. */
-.wall__save-chip.is-saved {
-  border-color: color-mix(in srgb, var(--archive-olive) 60%, transparent);
-  background: color-mix(in srgb, var(--archive-olive) 14%, var(--bg-secondary));
-}
-.wall__save-chip.is-unsaved {
-  border-color: var(--archive-rose);
-  background: color-mix(in srgb, var(--archive-rose) 12%, var(--bg-secondary));
-  color: var(--archive-rose);
-  font-weight: 600;
-}
-.wall__save-chip-state {
-  font-family: var(--font-display);
-  font-weight: 500;
-  color: var(--archive-olive);
-}
-/* K2 (2026-06-27): wall__save-chip-meta removed — word count is no
-   longer duplicated in the top strip (it lives in the dossier footer
-   only). */
-.wall__tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  margin-left: auto;
-  padding-left: 0;
-  border-top: none;
-  margin-top: 0;
-}
-.wall__tab {
-  padding: 6px 14px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-right: none;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
-    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent),
-    0 1px 2px color-mix(in srgb, var(--text-primary) 18%, transparent);
-}
-.wall__tab:hover:not(:disabled) {
-  color: var(--archive-olive);
-  transform: translateY(-1px);
-}
-.wall__tab:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bg-secondary) 80%, white),
-    inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
-}
-.wall__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
-.wall__back {
-  margin-left: 0;
-  background: transparent;
-  border: none;
-  padding: 6px 8px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-}
-.wall__back:hover {
-  color: var(--archive-olive);
-  transform: translateY(-1px);
-}
-.wall__tab--mode {
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  margin-left: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.wall__main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 248px 1fr;
-  gap: 24px;
-  padding: 24px 28px;
-  overflow: auto;
-  min-height: 0;
-}
-.wall__shelf {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-}
-.wall__folder {
-  position: relative;
-  min-width: 0;
-  padding: 8px 12px 8px 48px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.wall__folder.is-active {
-  background: color-mix(in srgb, var(--archive-olive) 12%, var(--surface-soft));
-  border-color: var(--archive-olive);
-}
-
-/* K2 (2026-06-25): book vs chapter visual differentiation — shrunk
-   heights + 4 visual axes (spine / fold / typography / color).
-   Books are volumes: taller (54px), gold 4px spine ribbon on left,
-   heavier bottom shadow, no fold corner, larger title (14px),
-   tab shows "书". Chapters are open index cards: shorter (44px),
-   28px spine tab, top-right 8px fold corner, lighter paper,
-   smaller title (12px), tab shows numeric 01/02/03. K2 also
-   tightened .wall__shelf gap 8px → 4px and trimmed folder min-
-   heights so book + chapters read as one tight stack instead of
-   a list of separate cards. */
-.wall__folder--book {
-  min-height: 54px;
-  padding: 7px 14px 7px 52px;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary)) 0%,
-      var(--surface-soft) 100%);
-  border-radius: 2px 6px 6px 2px;
-  border-left-width: 4px;
-  box-shadow:
-    0 1px 0 color-mix(in srgb, var(--border) 60%, transparent),
-    inset 0 -3px 0 color-mix(in srgb, var(--border) 30%, transparent);
-}
-.wall__folder--book.is-active {
-  border-left-color: var(--archive-olive);
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-olive) 14%, var(--bg-secondary)) 0%,
-      color-mix(in srgb, var(--archive-olive) 6%, var(--surface-soft)) 100%);
-}
-.wall__folder--chapter {
-  min-height: 44px;
-  padding: 5px 10px 5px 36px;
-  /* Folded top-right corner reads as an open index card */
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
-  background: var(--bg-secondary);
-  border-radius: 0 0 0 3px;
-  border-left: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
-}
-.wall__folder--chapter.is-active {
-  background: color-mix(in srgb, var(--archive-olive) 8%, var(--bg-secondary));
-  border-left-color: var(--archive-olive);
-}
-.wall__folder-title {
-  display: block;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* K7 (2026-06-27): folder-tab visualizes the spine. Book tab is
-   a darker kraft "spine label" (42px wide, gold border, 12px bold
-   serif). Chapter tab is a numeric index (28px wide, lighter, 10px
-   tabular-nums). Width + font + color all signal "book" vs
-   "chapter index" at a glance. */
-.wall__folder-tab {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-primary);
-  border-right: 1px solid var(--border);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", Georgia, serif);
-  letter-spacing: 0.04em;
-}
-.wall__folder--book .wall__folder-tab {
-  width: 42px;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-gold-soft) 56%, transparent) 0%,
-      color-mix(in srgb, var(--archive-gold) 30%, transparent) 100%);
-  color: color-mix(in srgb, var(--archive-ink) 86%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--archive-ink) 32%, transparent);
-  font-size: 13px;
-  font-weight: 700;
-}
-.wall__folder--chapter .wall__folder-tab {
-  width: 28px;
-  background: transparent;
-  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
-  border-right: 1px dashed color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-}
-
-/* K7 (2026-06-27): book title uses 14px (heavier), chapter title
-   uses 12px (lighter) — typography joins the height + spine + fold
-   signals so the two tiers read distinct without scanning the
-   whole row. */
-.wall__folder--book .wall__folder-title {
-  font-size: 14px;
-  font-weight: 700;
-}
-.wall__folder--chapter .wall__folder-title {
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-.wall__folder-meta {
-  display: block;
-  min-width: 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 1px;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* K7 (2026-06-27): book meta uses lighter weight (volume-level
-   stat); chapter meta gets a touch heavier + numeric prefix
-   hint via font-variant-numeric tabular alignment. */
-.wall__folder--book .wall__folder-meta {
-  font-weight: 400;
-  font-style: italic;
-}
-.wall__folder--chapter .wall__folder-meta {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.wall__shelf-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.wall__shelf-pin-btn {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.wall__shelf-pin-btn:hover {
-  color: var(--archive-olive);
-  border-color: var(--archive-olive);
-  border-style: solid;
-}
-
-/* Paper-tactile shelf decorative — restored in K5 (2026-06-27).
-   The shelf has a wood-board backdrop + a rolled manuscript
-   underneath the folders (anchored by a sticky note). These are
-   the physical "this is an archive" cues that the writing page
-   needs; they are NOT industrial-collage decoration (lamp +
-   lamp-cone + CharacterPortrait portrait card stay deleted). */
-.wall__shelf-board {
-  position: absolute;
-  left: -10px;
-  right: -10px;
-  top: 0;
-  bottom: 36px;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.wall__shelf-roll {
-  position: relative;
-  margin-top: auto;
-  align-self: stretch;
-  height: 48px;
-  border-top: 1px solid var(--border);
-}
-
-.wall__shelf-scroll {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 8px;
-  bottom: 8px;
-}
-
-.wall__shelf-note {
-  position: absolute;
-  right: 18px;
-  bottom: 6px;
-  width: 64px;
-  height: 22px;
-  transform: rotate(-7deg);
-}
-
-.wall__shelf-roll-label {
-  position: absolute;
-  left: 32px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.wall__dossier {
-  position: relative;
-  /* K2 (2026-06-27): dossier is paper-tactile in default theme. Token-only
-     colors (--archive-paper-soft / --archive-paper for the cream-blue
-     gradient, --archive-rose for the red margin rule, --archive-ink-soft
-     for ruled lines) so the dossier auto-picks up the blue-white dossier
-     palette. Drops the hardcoded warm hex so the page is no longer "暖色
-     in both variants". */
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-paper-soft) 92%, #fff) 0%,
-      color-mix(in srgb, var(--archive-paper) 96%, #fff) 100%);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 28%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent),
-    inset 0 -2px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent),
-    0 2px 0 color-mix(in srgb, var(--archive-ink) 12%, transparent);
-  padding: 28px 28px 28px 56px;
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
-  min-height: 460px;
-}
-/* Red margin rule on the left edge — 1px line ~56px from left, classic
-   manuscript paper marker. Sits in front of the bg, behind the text. */
-.wall__dossier::before {
-  content: "";
-  position: absolute;
-  left: 48px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: color-mix(in srgb, var(--archive-rose) 50%, transparent);
-  pointer-events: none;
-  z-index: 1;
-}
-/* Ruled horizontal lines — 28px line height matches body line-height. */
-.wall__dossier::after {
-  content: "";
-  position: absolute;
-  left: 56px;
-  right: 0;
-  top: 56px;
-  bottom: 28px;
-  background-image: repeating-linear-gradient(
-    0deg,
-    transparent 0 27px,
-    color-mix(in srgb, var(--archive-ink-soft) 22%, transparent) 27px 28px
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Dossier tape — kraft masking-tape strip at top-left + top-right,
-   pinning the dossier visually to the cork above. Restored in K6. */
-.wall__dossier-tape {
-  position: absolute;
-  top: -10px;
-  width: 84px;
-  height: 22px;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--archive-paper-soft) 80%, var(--archive-gold-soft)) 0%,
-      color-mix(in srgb, var(--archive-gold-soft) 70%, var(--archive-gold)) 100%);
-  border: 1px dashed color-mix(in srgb, var(--archive-ink) 36%, transparent);
-  transform: rotate(-3deg);
-  z-index: 3;
-  pointer-events: none;
-  box-shadow: 0 2px 4px color-mix(in srgb, var(--archive-ink) 22%, transparent);
-}
-.wall__dossier-tape::before {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border: 1px dashed color-mix(in srgb, var(--archive-ink) 24%, transparent);
-}
-.wall__dossier-tape--left {
-  left: 36px;
-}
-.wall__dossier-tape--right {
-  right: 36px;
-  transform: rotate(4deg);
-}
-
-.wall__dossier-head {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  padding-bottom: 14px;
-  border-bottom: 2px solid color-mix(in srgb, var(--archive-ink-soft) 32%, transparent);
-  margin-bottom: 18px;
-  position: relative;
-  z-index: 2;
-}
-.wall__dossier-num {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--archive-ink);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-}
-.wall__dossier-title {
-  flex: 1;
-  font-size: 22px;
-  font-weight: 700;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--archive-ink);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-}
-.wall__dossier-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-  position: relative;
-  z-index: 2;
-}
-/* K2 (2026-06-27): dossier-textarea is paper, not a SaaS box. No
-   border, no border-radius, no plain background — sits over the
-   ruled paper lines (transparent bg, ruled lines show through the
-   textarea area via ::after pseudo). Body uses serif display font +
-   28px line-height to align with ruled lines. Color uses --archive-ink
-   so it tracks the blue-white dossier palette in default theme. */
-.wall__dossier-textarea {
-  flex: 1;
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  padding: 0 12px 0 0;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  font-size: 17px;
-  line-height: 28px;
-  color: var(--archive-ink);
-  resize: none;
-  min-height: 320px;
-}
-.wall__dossier-textarea:focus {
-  outline: none;
-  box-shadow: none;
-}
-.wall__dossier-empty {
-  padding: 32px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.wall__pin-cta {
-  background: var(--archive-olive);
-  color: var(--accent-text);
-  border: none;
-  padding: 10px 16px;
-  font-size: 13px;
-  cursor: pointer;
-  border-radius: 6px;
-}
-.dossier-footer {
-  display: flex;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
-.capture-selection-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.capture-selection-btn:disabled:hover {
-  border-color: color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
-  color: var(--archive-ink-soft);
-  background: transparent;
-}
-
-.writing-page {
-  height: var(--app-viewport-height, 100vh);
-  min-height: var(--app-viewport-height, 100vh);
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow: hidden;
-}
-
-.quick-note-mini-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.quick-note-mini-btn:hover,
-.quick-note-mini-btn.primary {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.asset-inbox-list {
-  display: grid;
-  gap: 8px;
-}
-
-.asset-inbox-filter {
-  min-width: 78px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 10px;
-  padding: 0 6px;
-}
-
-.asset-inbox-item {
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-}
-
-.asset-inbox-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.asset-inbox-title {
-  min-width: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.asset-inbox-title-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.asset-inbox-kind {
-  flex: 0 0 auto;
-  font-size: 9px;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-kind-explanation {
-  margin-bottom: 4px;
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-source {
-  margin-bottom: 4px;
-  font-size: 9px;
-  color: var(--text-muted);
-}
-
-.asset-inbox-preview {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  max-height: 64px;
-  overflow: auto;
-}
-
-.asset-inbox-actions {
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.asset-inbox-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  background: var(--surface-overlay);
-  backdrop-filter: blur(8px);
-}
-
-.asset-inbox-modal {
-  width: min(1180px, calc(100vw - 36px));
-  height: min(82vh, 820px);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 12px;
-  background: var(--surface-panel);
-  box-shadow: var(--shadow-elevated);
-  padding: 18px;
-}
-
-.asset-inbox-modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.asset-inbox-modal-kicker {
-  font-size: 11px;
-  color: var(--text-muted);
-  letter-spacing: 0;
-}
-
-.asset-inbox-modal-title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  line-height: 1.2;
-  color: var(--text-primary);
-}
-
-.asset-inbox-close {
-  margin-top: 2px;
-}
-
-.asset-inbox-modal-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 10px;
-  background: var(--surface-soft);
-}
-
-.asset-inbox-toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.asset-inbox-modal-stat {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-status {
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.asset-inbox-modal-body {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
-  gap: 14px;
-}
-
-.asset-inbox-list-panel,
-.asset-inbox-detail-panel {
-  min-height: 0;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 10px;
-  background: var(--surface-soft);
-}
-
-.asset-inbox-list-panel {
-  overflow: auto;
-  padding: 10px;
-}
-
-.asset-inbox-row {
-  width: 100%;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 11px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.asset-inbox-row:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.asset-inbox-row.active {
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.asset-inbox-row-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.asset-inbox-row-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.asset-inbox-detail-panel {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: auto;
-}
-
-.asset-inbox-detail-kicker {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.asset-inbox-detail-explanation {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-detail-title {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.3;
-  color: var(--text-primary);
-}
-
-.asset-inbox-detail-meta {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-detail-content {
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  line-height: 1.65;
-  white-space: pre-wrap;
-  overflow: auto;
-  min-height: 0;
-  flex: 1;
-}
-
-.asset-inbox-detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.asset-action-help-grid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.asset-action-help-item {
-  display: grid;
-  gap: 4px;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  background: var(--surface-raised);
-}
-
-.asset-action-help-item strong {
-  font-size: 11px;
-  color: var(--text-primary);
-}
-
-.asset-action-help-item span {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.asset-inbox-empty-state {
-  min-height: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.toolbar-text-btn {
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-soft);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.toolbar-text-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--surface-raised);
-}
-
-.toolbar-text-btn.prominent {
-  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary));
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.toolbar-text-btn.prominent:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 20%, var(--bg-hover));
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.book-selector {
-  height: 32px;
-  padding: 0 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  min-width: 160px;
-}
-
-.book-selector:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.theme-toggle:hover {
-  background: var(--surface-raised);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.theme-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 内容区域 */
-.content-area {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
-}
-
-/* 侧边栏 */
-.sidebar {
-  background: var(--surface-panel);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-
-.books-sidebar {
-  width: 260px;
-  min-width: 190px;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-panel);
-}
-
-/* 可拉伸分隔栏 */
-.resize-handle {
-  width: 5px;
-  cursor: col-resize;
-  background: color-mix(in srgb, var(--border) 45%, transparent);
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-
-.resize-handle:hover {
-  background: var(--accent);
-}
-
-.sidebar-header {
-  height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  background: var(--surface-raised);
-}
-
-.chapter-header {
-  border-top: 1px solid var(--border);
-}
-
-.sidebar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.side-toggle {
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-primary);
-}
-
-.side-toggle:hover {
-  border-color: var(--accent);
-}
-
-.sidebar-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.add-btn {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.add-btn.prominent {
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-}
-
-.add-btn.prominent:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.add-btn.btn-new {
-  width: 28px;
-  height: 28px;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-  border-radius: 6px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.add-btn.btn-new:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--accent-text);
-}
-
-.add-btn.btn-new svg {
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-}
-
-.book-list,
-.chapter-list {
-  flex: 0 1 auto;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.book-list {
-  max-height: 34%;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-}
-
-.chapter-list {
-  flex: 1;
-}
-
-.writing-sidebar__footer {
-  padding: 12px 8px;
-  border-top: 1px solid var(--hairline-soft);
-}
-
-.books-sidebar[style*='44px'] .sidebar-title {
-  display: none;
-}
-
-.book-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 9px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border: 1px solid transparent;
-}
-
-.book-item:hover {
-  background: var(--bg-hover);
-}
-
-.book-item.active {
-  background: var(--accent-light);
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
-.book-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.book-item.active .book-icon {
-  color: var(--accent);
-}
-
-.book-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.book-title {
-  font-size: 13px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.book-item.active .book-title {
-  color: var(--accent);
-}
-
-.book-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.chapter-list-item {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-}
-
-.chapter-list-item .bookmark-button {
-  flex: 1;
-  min-width: 0;
-}
-
-.chapter-list-item .delete-btn,
-.book-item .delete-btn {
-  opacity: 0;
-  width: 20px;
-  height: 20px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  align-self: center;
-  transition: all 0.15s;
-}
-
-.chapter-list-item:hover .delete-btn,
-.book-item:hover .delete-btn {
-  opacity: 1;
-}
-
-.chapter-list-item .delete-btn:hover,
-.book-item .delete-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--danger);
-}
-
-.empty-hint {
-  padding: 16px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-/* 主编辑区 */
-.editor-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-primary);
-  min-width: 0;
-}
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--text-muted);
-}
-
-.empty-icon {
-  opacity: 0.3;
-}
-
-.empty-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.empty-desc {
-  font-size: 13px;
-}
-
-.btn-primary {
-  margin-top: 8px;
-  padding: 8px 20px;
-  background: var(--accent);
-  border: none;
-  border-radius: 4px;
-  color: var(--accent-text);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.editor-header {
-  padding: 14px 24px 12px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-top: 14px;
-  max-width: 940px;
-  margin-left: auto;
-  margin-right: auto;
-  width: 100%;
-}
-
-.chapter-title-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  outline: none;
-}
-
-.chapter-title-input::placeholder {
-  color: var(--text-muted);
-}
-
-.editor-stats {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.stat {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.stat-divider {
-  color: var(--border);
-}
-
-/* 编辑工具栏 — K2 (2026-06-25): re-bound to the dossier palette so
-   the toolbar reads as an inline archive strip (paper-soft base +
-   archive-ink-soft hairline + 0 圆角 + no SaaS card shadow), not a
-   detached SaaS control bar. The 1px dashed archive divider between
-   tool groups inherits the AppShell mast's "撕边虚线" signature so
-   the toolbar feels like an extension of the same archive chrome. */
-.editor-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 94%, var(--archive-paper));
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 26%, transparent);
-  border-radius: 2px;
-  flex-shrink: 0;
-  position: relative;
-  max-width: 940px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.copilot-reference-bar {
-  max-width: 940px;
-  width: 100%;
-  margin: 10px auto 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
-  color: var(--text-secondary);
-}
-
-.copilot-reference-kicker {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.copilot-reference-title {
-  min-width: 0;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.copilot-reference-preview {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.copilot-reference-clear {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  border-radius: 5px;
-  padding: 2px 6px;
-}
-
-.copilot-reference-clear:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.chapter-outline-bar {
-  max-width: 940px;
-  width: 100%;
-  margin: 10px auto 0;
-  display: grid;
-  gap: 8px;
-}
-
-.chapter-outline-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--text-secondary);
-}
-
-.chapter-outline-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.chapter-outline-count {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.chapter-outline-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.chapter-outline-card {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
-}
-
-.chapter-outline-card-main {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.chapter-outline-card-main strong,
-.chapter-outline-card-main span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chapter-outline-card-main strong {
-  font-size: 12px;
-  color: var(--text-primary);
-}
-
-.chapter-outline-card-main span {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.chapter-outline-kind {
-  color: var(--accent) !important;
-  font-size: 10px !important;
-}
-
-.chapter-outline-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.chapter-outline-actions button {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  border-radius: 5px;
-  padding: 2px 5px;
-}
-
-.chapter-outline-actions button:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.toolbar-sep {
-  width: 0;
-  height: 18px;
-  border-left: 1px dashed color-mix(in srgb, var(--archive-ink-soft) 36%, transparent);
-  margin: 0 6px;
-}
-
-.toolbar-spacer {
-  flex: 1;
-}
-
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 30%, transparent);
-  border-radius: 2px;
-  background: transparent;
-  gap: 2px;
-}
-
-.mode-switch .tool-btn {
-  height: 24px;
-  padding: 3px 10px;
-  border: 1px solid transparent;
-  box-shadow: none;
-  background: transparent;
-}
-
-.mode-switch .tool-btn.active {
-  border-color: var(--archive-olive);
-  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
-  color: var(--archive-ink);
-}
-
-.tool-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
-  height: 26px;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
-  border-radius: 2px;
-  color: var(--archive-ink-soft);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.tool-btn:hover {
-  border-color: var(--archive-olive);
-  color: var(--archive-olive);
-  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
-}
-
-.tool-btn.active {
-  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
-  border-color: var(--archive-olive);
-  color: var(--archive-ink);
-}
-
-.tool-btn.sm {
-  padding: 4px 8px;
-  height: 24px;
-  background: var(--bg-primary);
-}
-
-.tool-btn.close {
-  color: var(--text-muted);
-  background: var(--bg-primary);
-}
-
-.tool-btn.close:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--bg-primary);
-}
-
-.font-selector {
-  height: 26px;
-  padding: 0 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.font-selector:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-/* 字体面板 */
-.font-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  min-width: 180px;
-  z-index: 100;
-}
-
-.fp-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.fp-row:last-child {
-  margin-bottom: 0;
-}
-
-.fp-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 24px;
-  flex-shrink: 0;
-}
-
-.fp-select {
-  flex: 1;
-  height: 24px;
-  padding: 0 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.fp-select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.fp-btns {
-  display: flex;
-  gap: 3px;
-}
-
-.fp-size-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.fp-size-val {
-  font-size: 11px;
-  color: var(--text-secondary);
-  min-width: 36px;
-  text-align: center;
-}
-
-.fp-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
-.fp-select.sm {
-  height: 22px;
-  font-size: 11px;
-  padding: 0 4px;
-  min-width: 70px;
-}
-
-.selection-toolbar {
-  position: fixed;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.16);
-  z-index: 1200;
-}
-
-.fp-btn {
-  min-width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  padding: 0 6px;
-}
-
-.fp-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.fp-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-
-/* 取名面板 */
-.name-gen-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  min-width: 180px;
-  z-index: 100;
-}
-
-.ng-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.ng-row:last-child {
-  margin-bottom: 0;
-}
-
-.ng-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  width: 24px;
-  flex-shrink: 0;
-}
-
-.ng-btns {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-}
-
-.ng-btn {
-  padding: 3px 7px;
-  font-size: 11px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.ng-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.ng-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-
-.ng-input {
-  flex: 1;
-  height: 24px;
-  padding: 0 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 11px;
-}
-
-.ng-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.ng-input.ng-sm {
-  width: 80px;
-  flex: none;
-}
-
-.ng-results {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-.ng-result-item {
-  padding: 5px 6px;
-  font-size: 12px;
-  color: var(--text-primary);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.ng-result-item:hover {
-  background: var(--bg-hover);
-}
-
-.ng-result-item:active {
-  background: var(--accent-light);
-}
-
-.ng-name-pair {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.ng-cn {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-/* 查找替换栏 */
-.find-replace-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.find-input {
-  height: 26px;
-  padding: 0 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-  min-width: 120px;
-}
-
-.find-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.fr-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
-.find-count {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 50px;
-  text-align: center;
-}
-
-.editor-textarea {
-  flex: 1;
-  padding: 24px;
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 8px;
-  font-size: 15px;
-  line-height: 1.8;
-  color: var(--text-primary);
-  resize: none;
-  outline: none;
-  overflow-y: auto;
-  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
-}
-
-.prose-textarea {
-  line-height: 1.9;
-}
-
-.markdown-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  width: min(940px, calc(100% - 48px));
-  margin: 20px auto 28px;
-}
-
-.editor-preview {
-  width: min(940px, calc(100% - 48px));
-  margin: 20px auto 28px;
-}
-
-.editor-preview :deep(h1),
-.editor-preview :deep(h2),
-.editor-preview :deep(h3) {
-  margin: 0.8em 0 0.4em;
-}
-
-.editor-preview :deep(code) {
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.editor-textarea::placeholder {
-  color: var(--text-muted);
-}
-
-.editor-textarea:empty::before {
-  content: attr(data-placeholder);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-/* AI 扩展/改写面板 — K2 (2026-06-25): AI toggle re-bound to the
-   dossier palette (steel-olive + moon-silver gradient) so it sits
-   in the same archive family as the rest of the toolbar instead of
-   being a red/indigo SaaS block. The accent button is still a
-   slightly heavier 3D press so it reads as "the magic tool" but
-   the colour stays inside --archive-*. */
-.ai-btn {
-  background: linear-gradient(180deg,
-    color-mix(in srgb, var(--archive-olive) 24%, var(--archive-paper-soft)) 0%,
-    color-mix(in srgb, var(--archive-olive) 12%, var(--archive-paper-soft)) 100%);
-  border-color: var(--archive-olive);
-  color: var(--archive-ink);
-  font-weight: 600;
-}
-
-.ai-btn:hover {
-  background: linear-gradient(180deg,
-    color-mix(in srgb, var(--archive-olive) 36%, var(--archive-paper-soft)) 0%,
-    color-mix(in srgb, var(--archive-olive) 22%, var(--archive-paper-soft)) 100%);
-  color: var(--archive-ink);
-}
-
-.ai-btn.active {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--archive-olive) 60%, transparent);
-}
-
-.ai-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  min-width: 260px;
-  z-index: 100;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
-}
-
-.ai-panel-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-}
-
-.ai-tab {
-  flex: 1;
-  padding: 8px 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.ai-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.ai-tab.active {
-  color: var(--accent);
-  border-bottom: 2px solid var(--accent);
-  margin-bottom: -1px;
-}
-
-.ai-panel-body {
-  padding: 12px;
-}
-
-.ai-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ai-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ai-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 56px;
-}
-
-.ai-select {
-  flex: 1;
-  height: 26px;
-  padding: 0 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.ai-select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.ai-action-btn {
-  width: 100%;
-  justify-content: center;
-  margin-top: 4px;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-.ai-action-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--accent-text);
-}
-
-.ai-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ai-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 8px 0;
-}
-
-.ai-result {
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.ai-result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.ai-result-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-}
-
-.ai-result-btn {
-  padding: 3px 8px;
-  font-size: 11px;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  color: var(--accent-text);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.ai-result-btn:hover {
-  background: var(--accent-hover);
-}
-
-.ai-result-btn.secondary {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-secondary);
-}
-
-.ai-result-btn.secondary:hover {
-  border-color: var(--text-primary);
-  color: var(--text-primary);
-}
-
-.ai-result-content {
-  font-size: 12px;
-  color: var(--text-primary);
-  line-height: 1.6;
-  padding: 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.modal {
-  width: 440px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px var(--shadow-md);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-header h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.modal-close:hover {
-  background: var(--bg-hover);
-}
-
-.modal-body {
-  padding: 20px;
-}
-
-.input-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-
-.input-label:not(:first-child) {
-  margin-top: 16px;
-}
-
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 14px;
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.input:focus {
-  border-color: var(--accent);
-}
-
-.input.textarea {
-  min-height: 80px;
-  resize: vertical;
-  line-height: 1.5;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
-}
-
-.btn {
-  padding: 8px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn:hover {
-  background: var(--bg-hover);
-}
-
-/* 右键菜单 */
-.context-menu {
-  position: fixed;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 0;
-  min-width: 150px;
-  box-shadow: 0 4px 16px var(--shadow);
-  z-index: 1000;
-}
-
-.ctx-item {
-  display: block;
-  width: 100%;
-  padding: 8px 16px;
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.ctx-item:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.ctx-item:disabled {
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.ctx-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 6px 0;
-}
-
-/* Copilot 状态指示器 */
-.copilot-indicator {
-  position: fixed;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 8px 7px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  z-index: 100;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.copilot-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--accent);
-}
-
-.copilot-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.copilot-ready {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-}
-
-.copilot-ready-label {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.copilot-meta {
-  color: var(--text-muted);
-  padding-right: 2px;
-}
-
-.copilot-ready kbd {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 11px;
-  font-family: inherit;
-  color: var(--text-primary);
-}
-
-.copilot-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.copilot-action {
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
-  color: var(--text-primary);
-  border-radius: 5px;
-  padding: 3px 7px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.copilot-action:hover {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-hover));
-}
-
-.copilot-action.secondary {
-  border-color: var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-/* 编辑器容器与 Ghost Text */
-.editor-container {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
-  padding: 20px 24px 28px;
-}
-
-.editor-container .editor-textarea {
-  flex: 1;
-  width: min(940px, 100%);
-  margin: 0 auto;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
-  position: relative;
-  z-index: 2;
-}
-
-.editor-container .editor-textarea.with-copilot-ghost {
-  color: transparent !important;
-  background: transparent !important;
-  border-color: transparent;
-  box-shadow: none;
-  caret-color: var(--text-primary);
-}
-
-.editor-container .editor-textarea.with-copilot-ghost::selection {
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
-  color: transparent;
-}
-
-.editor-ghost-layer {
-  position: absolute;
-  top: 20px;
-  left: 24px;
-  right: 24px;
-  bottom: 28px;
-  width: min(940px, calc(100% - 48px));
-  margin: 0 auto;
-  padding: 24px;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-  box-shadow: 0 10px 24px color-mix(in srgb, #000 7%, transparent);
-  box-sizing: border-box;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 1;
-  font-size: 15px;
-  line-height: 1.9;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  color: var(--text-primary);
-}
-
-.editor-ghost-scroll {
-  min-height: 100%;
-  transition: transform 0.02s linear;
-}
-
-.ghost-text {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-radius: 3px;
-  opacity: 0.92;
-}
-
-@media (max-width: 980px) {
-  .asset-inbox-overlay {
-    padding: 10px;
-  }
-
-  .asset-inbox-modal {
-    width: min(100vw - 20px, 100%);
-    height: calc(var(--app-viewport-height, 100vh) - 20px);
-    padding: 14px;
-  }
-
-  .asset-inbox-modal-body {
-    grid-template-columns: 1fr;
-  }
-
-  .copilot-reference-bar {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .copilot-reference-preview {
-    flex-basis: 100%;
-  }
-
-  .chapter-outline-list {
-    grid-template-columns: 1fr;
-  }
-
-  .chapter-outline-card {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .chapter-outline-actions {
-    justify-content: flex-end;
-  }
-
-  .asset-action-help-grid {
-    grid-template-columns: 1fr;
-  }
-
-}
-</style>
-
-<style>
-/* UI-W3 Pinax Wall polish — unscoped override block.
-   The base .wall__cork padding is set in this file's <style scoped> block
-   (specificity 0,1,1 with data-v-xxx). kao.css holds .theme-kao .wall__cork
-   inside @layer kao, which loses to unlayered scoped CSS regardless of
-   selector specificity (CSS Cascade Level 5 §6.4.4). The fix is to add
-   the desktop padding-left as an unscoped rule at the end of this file,
-   which loads AFTER the scoped block — same pattern Experience.vue
-   uses for its 6-field record-folio. Selector specificity 0,2,0 wins. */
-@media (min-width: 1000px) {
-  .theme-kao .wall__cork {
-    padding-left: 80px;
-  }
-}
-</style>
+<style src="./Writing.global.css"></style>

@@ -43,7 +43,14 @@
       </div>
     </FolioSurface>
 
-    <div class="content-area notes-content-area">
+    <WorkspacePaneSwitch
+      v-model="mobilePane"
+      :items="materialMobilePanes"
+      label="素材工作区"
+      :breakpoint="1100"
+    />
+
+    <div class="content-area notes-content-area" :data-mobile-pane="mobilePane">
       <!-- K3 (2026-06-27): notes-content-area 升为 3 列 grid —
            drawer 260px / reading-deck 1fr / 副阅读台 340px.
            副阅读台承担了原 archive-pin 浮卡的位置 + 角色 (列而非角落小标),
@@ -517,22 +524,23 @@
       avatarLabel="材"
       caption="素材顾问"
       captionHint="素材入口"
+      :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
       @open="openAdvisor"
     />
 
     <AdvisorPanel
       :isOpen="advisorOpen"
       :messages="advisorMessages"
+      :results="advisorResults"
       :loading="advisorLoading"
-      :quickQuestions="[
-        { label: '素材整理建议', question: '分析当前素材的组织结构，给出整理和分类建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-        { label: '关联发现', question: '基于当前素材内容，发现并建议素材间的关联。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-        { label: '扩展写作方向', question: '从当前素材延伸出可写的创作方向。', scope: 'thread', taskType: 'advisor.close.thread' },
-        { label: '分类体系优化', question: '分析当前分类体系，建议优化方向。', scope: 'chapter', taskType: 'advisor.review.chapter' }
-      ]"
+      :quickQuestions="materialAdvisorActions"
+      :notice="consistencyNotice"
       :emptyText="'创作顾问可帮你梳理灵感、组织素材，发现素材间的关联与创作方向。'"
       @close="closeAdvisor"
       @ask="handleAskAdvisor"
+      @apply-result="applyMaterialAdvisorResult"
+      @undo-result="undoMaterialAdvisorResult"
+      @dismiss-result="dismissResult($event.id)"
     />
 
   </div>
@@ -552,6 +560,7 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
+import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
 import {
@@ -561,6 +570,7 @@ import {
   deleteNarrativeAsset,
   getAssetKindLabel,
   listActiveNarrativeAssets,
+  listNarrativeAssets,
   mergeNarrativeAssets,
   normalizeImagePresentation,
   setNarrativeAssetsStatus,
@@ -587,11 +597,29 @@ import {
   findAssetCanvasCard
 } from '../services/relationCanvas'
 import { generateProfessionalInfoForAsset } from '../services/professionalInfoGenerator'
+import {
+  buildMaterialsAgentContext,
+  createContentRevision
+} from '../services/agents/creativeGraphAgentContext'
+import { prepareMaterialAgentTransaction } from '../services/agents/creativeGraphAgentActions'
 
 const router = useRouter()
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
-const { advisorOpen, advisorMessages, advisorLoading, askAdvisor, openAdvisor, closeAdvisor } = useAdvisor()
+const {
+  advisorOpen,
+  advisorMessages,
+  advisorResults,
+  advisorLoading,
+  pendingReviewCount,
+  pendingReminderVisible,
+  consistencyNotice,
+  askAdvisor,
+  dismissResult,
+  updateAdvisorResultStatus,
+  openAdvisor,
+  closeAdvisor
+} = useAdvisor()
 const gameStore = useGameStore()
 
 const chapters = ref([])
@@ -608,6 +636,12 @@ const markdownContent = ref('')
 const renderedMarkdownContent = ref('')
 const renderedMarkdownSource = ref('')
 const sidekickWorkspace = ref('materials')
+const mobilePane = ref('content')
+const materialMobilePanes = [
+  { value: 'index', label: '索引' },
+  { value: 'content', label: '内容' },
+  { value: 'tools', label: '工具' }
+]
 const illustrationPreview = ref(null)
 const sidekickImageModelConfigs = ref([])
 const sidekickImageModelId = ref('')
@@ -745,7 +779,9 @@ let saveTimeout = null
 let titleTimeout = null
 
 onMounted(() => {
-  setSidekickWorkspace(String(route.query.workspace || 'materials'))
+  const initialWorkspace = String(route.query.workspace || 'materials')
+  setSidekickWorkspace(initialWorkspace)
+  mobilePane.value = initialWorkspace === 'illustration' ? 'tools' : 'content'
   loadSidekickImageModels()
   loadNotesPinnedSlipsPref()
   loadNotes(String(route.query.assetId || ''))
@@ -769,6 +805,7 @@ function setSidekickWorkspace(workspace) {
   const allowedWorkspaces = ['materials', 'illustration']
   sidekickWorkspace.value = allowedWorkspaces.includes(workspace) ? workspace : 'materials'
   if (sidekickWorkspace.value !== 'materials') loadSidekickImageModels()
+  mobilePane.value = 'tools'
 }
 
 function goToComics() {
@@ -798,6 +835,55 @@ watch(previewHtml, () => {
   if (editorMode.value === 'preview') nextTick(renderPreviewSurface)
 })
 const selectedAsset = computed(() => chapters.value.find((asset) => asset.id === selectedChapterId.value) || null)
+const materialAdvisorSelection = computed(() => {
+  const checked = new Set(checkedAssetIds.value)
+  const selected = chapters.value
+    .filter((asset) => checked.has(asset.id))
+    .map((asset) => asset.id === selectedAsset.value?.id
+      ? {
+          ...asset,
+          title: currentChapterTitle.value,
+          content: markdownContent.value
+        }
+      : asset)
+  if (selected.length) return selected
+  if (!selectedAsset.value) return []
+  return [{
+    ...selectedAsset.value,
+    title: currentChapterTitle.value,
+    content: markdownContent.value
+  }]
+})
+const materialAdvisorActions = computed(() => [
+  {
+    label: '精简当前素材',
+    question: '精简当前素材，保留可复用事实、人物动机和关键细节。',
+    scope: 'materials',
+    taskType: 'materials.refine',
+    disabled: !selectedAsset.value
+  },
+  {
+    label: '分类建议',
+    question: '判断所选素材最合适的分类，并说明理由。',
+    scope: 'materials',
+    taskType: 'materials.classify',
+    disabled: materialAdvisorSelection.value.length === 0
+  },
+  {
+    label: '拆分建议',
+    question: '判断当前素材是否需要拆分，并给出清晰的拆分边界。',
+    scope: 'materials',
+    taskType: 'materials.split',
+    disabled: !selectedAsset.value
+  },
+  {
+    label: '关联发现',
+    question: '分析所选素材之间有依据的关系。',
+    scope: 'materials',
+    taskType: 'materials.relate',
+    disabled: materialAdvisorSelection.value.length < 2
+  }
+])
 const mainVisualPreview = computed(() => {
   const generated = illustrationPreview.value
   if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
@@ -1285,22 +1371,208 @@ function getAssetWordCount(asset) {
   return chineseChars + englishWords
 }
 
-function collectNotesContext() {
+async function handleAskAdvisor(input) {
+  const action = typeof input === 'string'
+    ? { label: input, question: input, scope: 'materials', taskType: 'materials.classify' }
+    : input
+  if (!action || action.disabled) return
+
+  saveCurrentChapter()
+  const selection = materialAdvisorSelection.value
+  const primary = action.taskType === 'materials.refine' || action.taskType === 'materials.split'
+    ? selection.find((asset) => asset.id === selectedAsset.value?.id) || selectedAsset.value
+    : null
+  const built = buildMaterialsAgentContext({
+    selectedAsset: primary,
+    selectedAssets: primary ? [primary] : selection
+  })
+  if (!built.assets.length) return
+
+  const target = primary
+    ? {
+        kind: 'asset',
+        id: primary.id,
+        text: String(primary.content || ''),
+        range: { start: 0, end: String(primary.content || '').length },
+        revision: createContentRevision(primary.content || '')
+      }
+    : {
+        kind: 'asset-selection',
+        id: built.assets.map((asset) => asset.id).join(','),
+        text: JSON.stringify(built.assets),
+        revision: built.revision
+      }
+
+  await askAdvisor({ ...action, scope: 'materials', target, mode: 'notes' }, () => built.context)
+}
+
+function applyMaterialAdvisorResult(result) {
+  const action = result?.actions?.find((item) => item?.type === 'text-patch')
+  const materialActions = (result?.actions || []).filter((item) => String(item?.type || '').startsWith('material-'))
+  if (materialActions.length) {
+    applyMaterialDomainResult(result, materialActions)
+    return
+  }
+  const assetId = result?.target?.id
+  const asset = chapters.value.find((item) => item.id === assetId)
+  if (!action || !asset) {
+    updateAdvisorResultStatus(result?.id, 'failed', '目标素材不存在或结果不可应用')
+    return
+  }
+
+  const currentContent = asset.id === selectedAsset.value?.id
+    ? String(markdownContent.value || '')
+    : String(asset.content || '')
+  if (currentContent !== String(action.baseText || '')) {
+    updateAdvisorResultStatus(result.id, 'stale', '素材内容已变化，请重新生成')
+    return
+  }
+
+  const nextContent = String(action.content || '')
+  updateNarrativeAsset(assetId, { content: nextContent })
+  result.applyReceipt = {
+    type: 'material-refine',
+    assetId,
+    before: currentContent,
+    after: nextContent
+  }
+  updateAdvisorResultStatus(result.id, 'applied')
+  loadNotes(assetId)
+}
+
+function undoMaterialAdvisorResult(result) {
+  const receipt = result?.applyReceipt
+  if (receipt?.type === 'material-agent-transaction') {
+    undoMaterialDomainResult(result, receipt)
+    return
+  }
+  if (!receipt || receipt.type !== 'material-refine') return
+  const asset = chapters.value.find((item) => item.id === receipt.assetId)
+  const currentContent = asset?.id === selectedAsset.value?.id
+    ? String(markdownContent.value || '')
+    : String(asset?.content || '')
+  if (!asset || currentContent !== receipt.after) {
+    result.statusDetail = '素材内容已再次变化，无法自动撤销'
+    return
+  }
+
+  updateNarrativeAsset(receipt.assetId, { content: receipt.before })
+  result.applyReceipt = null
+  updateAdvisorResultStatus(result.id, 'completed')
+  loadNotes(receipt.assetId)
+}
+
+function materialState(asset) {
+  if (!asset) return null
   return {
-    totalNotes: chapters.value.length,
-    selectedNoteId: selectedChapterId.value,
-    noteTitle: currentChapterTitle.value || '',
-    noteContent: editorContent.value || '',
-    selectedText: '',
-    wordCount: editorContent.value.replace(/\s/g, '').length
+    id: asset.id,
+    title: asset.title,
+    content: asset.content,
+    kind: asset.kind,
+    status: asset.status,
+    projectId: asset.projectId ?? null,
+    source: asset.source || null,
+    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : []
   }
 }
 
-async function handleAskAdvisor(input) {
-  const action = typeof input === 'string'
-    ? { label: input, question: input, scope: 'chapter', taskType: 'advisor.review.chapter' }
-    : input
-  await askAdvisor({ ...action, mode: 'notes' }, collectNotesContext)
+function materialStatesEqual(left, right) {
+  return JSON.stringify(materialState(left)) === JSON.stringify(materialState(right))
+}
+
+function currentMaterialTargetRevision(target) {
+  const allAssets = listNarrativeAssets({ status: null })
+  if (target?.kind === 'asset') {
+    const asset = allAssets.find((item) => item.id === target.id)
+    return createContentRevision(asset?.content || '')
+  }
+  const ids = String(target?.id || '').split(',').filter(Boolean)
+  const byId = new Map(allAssets.map((asset) => [asset.id, asset]))
+  const selected = ids.map((id) => byId.get(id)).filter(Boolean)
+  return buildMaterialsAgentContext({ selectedAssets: selected }).revision
+}
+
+function restoreMaterialSnapshots(snapshots) {
+  for (const snapshot of snapshots || []) {
+    updateNarrativeAsset(snapshot.id, {
+      title: snapshot.title,
+      content: snapshot.content,
+      kind: snapshot.kind,
+      status: snapshot.status,
+      projectId: snapshot.projectId,
+      source: snapshot.source,
+      sourceRefs: snapshot.sourceRefs
+    })
+  }
+}
+
+function applyMaterialDomainResult(result, actions) {
+  if (currentMaterialTargetRevision(result?.target) !== result?.target?.revision) {
+    updateAdvisorResultStatus(result?.id, 'stale', '素材选择或内容已变化，请重新生成')
+    return
+  }
+
+  const allAssets = listNarrativeAssets({ status: null })
+  const allById = new Map(allAssets.map((asset) => [asset.id, asset]))
+  const allowedIds = result.target?.kind === 'asset'
+    ? [result.target.id]
+    : String(result.target?.id || '').split(',').filter(Boolean)
+  const allowedAssets = allowedIds.map((id) => allById.get(id)).filter(Boolean)
+  const transaction = prepareMaterialAgentTransaction(actions, allowedAssets, { resultId: result.id })
+  if (!transaction.ok) {
+    updateAdvisorResultStatus(result.id, 'failed', `无法应用素材动作：${transaction.reason}`)
+    return
+  }
+
+  const created = []
+  try {
+    for (const operation of transaction.operations) {
+      if (operation.type === 'update') {
+        if (!updateNarrativeAsset(operation.assetId, operation.patch)) {
+          throw new Error(`素材不存在：${operation.assetId}`)
+        }
+      } else if (operation.type === 'create') {
+        created.push(addNarrativeAsset(operation.asset))
+      }
+    }
+  } catch (error) {
+    created.forEach((asset) => deleteNarrativeAsset(asset.id))
+    restoreMaterialSnapshots(transaction.receipt.before)
+    updateAdvisorResultStatus(result.id, 'failed', error.message || '素材事务执行失败')
+    return
+  }
+
+  const afterAssets = listNarrativeAssets({ status: null })
+  const touchedIds = new Set(transaction.receipt.before.map((asset) => asset.id))
+  result.applyReceipt = {
+    ...transaction.receipt,
+    after: afterAssets.filter((asset) => touchedIds.has(asset.id)).map(materialState),
+    created: created.map(materialState)
+  }
+  updateAdvisorResultStatus(result.id, 'applied')
+  checkedAssetIds.value = []
+  loadNotes(created[0]?.id || selectedChapterId.value)
+}
+
+function undoMaterialDomainResult(result, receipt) {
+  const current = listNarrativeAssets({ status: null })
+  const currentById = new Map(current.map((asset) => [asset.id, asset]))
+  const touchedUnchanged = (receipt.after || []).every((snapshot) =>
+    materialStatesEqual(currentById.get(snapshot.id), snapshot)
+  )
+  const createdUnchanged = (receipt.created || []).every((snapshot) =>
+    materialStatesEqual(currentById.get(snapshot.id), snapshot)
+  )
+  if (!touchedUnchanged || !createdUnchanged) {
+    result.statusDetail = '相关素材已再次变化，无法自动撤销'
+    return
+  }
+
+  for (const snapshot of receipt.created || []) deleteNarrativeAsset(snapshot.id)
+  restoreMaterialSnapshots(receipt.before)
+  result.applyReceipt = null
+  updateAdvisorResultStatus(result.id, 'completed')
+  loadNotes(receipt.before[0]?.id || selectedChapterId.value)
 }
 
 let notesMediaLoadRevision = 0
@@ -1355,6 +1627,7 @@ function selectChapter(chapterId) {
   illustrationSelected.value = false
   imageContextMenu.value.show = false
   selectedChapterId.value = chapterId
+  mobilePane.value = 'content'
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
     currentChapterTitle.value = chapter.title || ''
@@ -3988,21 +4261,85 @@ function syncSelectionCommandState() {
   display: grid;
   /* K3 (2026-06-27): 3-col grid — drawer 260px / reading-deck 1fr /
      副阅读台 340px. 副阅读台 替代原 archive-pin 浮卡, 升为正式列. */
-  grid-template-columns: 260px minmax(0, 1fr) 340px;
+  grid-template-columns: 224px minmax(0, 1fr) 300px;
   flex: 1;
   overflow: hidden;
   /* UI-N3 unified paper wall — drawer / deck / sidekick all sit on
      this surface so dark mode doesn't split into "light cream drawer +
      dark center gap". Archive tokens stay cream in both light/dark,
      so this wall is the constant visual ground. */
-  background:
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 0%,
-      color-mix(in srgb, var(--archive-paper) 80%, var(--archive-paper-strong)) 100%);
+  isolation: isolate;
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 58%,
+    color-mix(in srgb, var(--archive-paper-strong) 24%, var(--archive-paper-soft)) 100%
+  );
+}
+
+.notes-content-area::before,
+.notes-content-area::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.notes-content-area::before {
+  right: 12%;
+  bottom: -14%;
+  width: 58%;
+  height: 62%;
+  background: repeating-radial-gradient(
+    ellipse 76% 58% at 72% 104%,
+    transparent 0 42px,
+    color-mix(in srgb, var(--archive-olive) 8%, transparent) 43px 44px,
+    transparent 45px 62px
+  );
+  mask-image: linear-gradient(135deg, transparent 0%, black 32%, black 86%, transparent 100%);
+  opacity: 0.34;
+}
+
+.notes-content-area::after {
+  right: 0;
+  bottom: 0;
+  width: 42%;
+  height: 38%;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--archive-ink-soft) 16%, transparent) 1px,
+    transparent 1.2px
+  );
+  background-size: 20px 20px;
+  mask-image: linear-gradient(135deg, transparent 0%, transparent 24%, black 82%, black 100%);
+  opacity: 0.24;
+}
+
+.notes-content-area > * {
+  position: relative;
+  z-index: 1;
+}
+
+.writing-page .notes-content-area {
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 58%,
+    color-mix(in srgb, var(--archive-paper-strong) 24%, var(--archive-paper-soft)) 100%
+  );
+}
+
+.writing-page .drawer-units {
+  background: transparent;
+  mix-blend-mode: normal;
+}
+
+.writing-page .reading-deck::before {
+  display: none;
 }
 
 .material-drawer {
-  width: 260px;
+  width: 224px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -4095,9 +4432,13 @@ function syncSelectionCommandState() {
   padding: 8px 8px 7px 9px;
   border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
   background:
-    linear-gradient(105deg, color-mix(in srgb, var(--archive-paper) 32%, transparent), transparent 42%),
+    linear-gradient(225deg, color-mix(in srgb, var(--archive-paper-strong) 72%, transparent) 0 7px, transparent 7.5px) top right / 11px 11px no-repeat,
+    linear-gradient(105deg, color-mix(in srgb, var(--archive-paper) 30%, transparent), transparent 44%),
     var(--archive-paper-soft);
-  box-shadow: 0 3px 8px color-mix(in srgb, var(--archive-ink) 11%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 88%, transparent),
+    2px 3px 0 color-mix(in srgb, var(--archive-ink) 7%, transparent),
+    0 7px 14px color-mix(in srgb, var(--archive-ink) 9%, transparent);
   cursor: pointer;
   text-align: left;
   color: var(--archive-ink);
@@ -4109,21 +4450,43 @@ function syncSelectionCommandState() {
 .index-card::before {
   content: '';
   position: absolute;
-  top: -2px;
+  top: -3px;
   left: 50%;
-  width: 28px;
-  height: 4px;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--archive-gold) 34%, var(--archive-paper));
-  box-shadow: 0 1px 1px color-mix(in srgb, var(--archive-ink) 12%, transparent);
-  opacity: 0.72;
+  width: 36px;
+  height: 6px;
+  border-radius: 1px 1px 0 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--archive-gold) 40%, var(--archive-paper)) 4px 30px,
+    transparent 30px 100%
+  );
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--archive-ink) 14%, transparent);
+  opacity: 0.82;
   transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.index-card::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: -3px;
+  bottom: -4px;
+  height: 4px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 12%, transparent);
+  border-top: 0;
+  background: color-mix(in srgb, var(--archive-paper-strong) 52%, var(--archive-paper-soft));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 100%, 3px 100%);
   pointer-events: none;
 }
 
 .index-card:hover {
   border-color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
-  box-shadow: 0 5px 12px color-mix(in srgb, var(--archive-ink) 15%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 90%, transparent),
+    3px 4px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    0 10px 18px color-mix(in srgb, var(--archive-ink) 12%, transparent);
   transform: rotate(0deg) translate(2px, -1px);
 }
 
@@ -4141,8 +4504,42 @@ function syncSelectionCommandState() {
     var(--archive-paper-soft);
   box-shadow:
     inset 3px 0 0 color-mix(in srgb, var(--archive-gold) 76%, var(--archive-ink)),
-    0 5px 12px color-mix(in srgb, var(--archive-ink) 14%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 88%, transparent),
+    3px 4px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    0 9px 18px color-mix(in srgb, var(--archive-ink) 12%, transparent);
   transform: rotate(0deg) translateY(-1px);
+}
+
+/* Keep the refined paper stack above the kao theme's older flat card
+   override without changing card behavior. */
+.notes-content-area .index-card {
+  background:
+    linear-gradient(225deg, color-mix(in srgb, var(--archive-paper-strong) 72%, transparent) 0 7px, transparent 7.5px) top right / 11px 11px no-repeat,
+    linear-gradient(105deg, color-mix(in srgb, var(--archive-paper) 30%, transparent), transparent 44%),
+    var(--archive-paper-soft);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 88%, transparent),
+    2px 3px 0 color-mix(in srgb, var(--archive-ink) 7%, transparent),
+    0 7px 14px color-mix(in srgb, var(--archive-ink) 9%, transparent);
+}
+
+.notes-content-area .index-card:hover {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 90%, transparent),
+    3px 4px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    0 10px 18px color-mix(in srgb, var(--archive-ink) 12%, transparent);
+}
+
+.notes-content-area .index-card.is-selected {
+  background:
+    linear-gradient(225deg, color-mix(in srgb, var(--archive-paper-strong) 72%, transparent) 0 7px, transparent 7.5px) top right / 11px 11px no-repeat,
+    linear-gradient(90deg, color-mix(in srgb, var(--archive-gold) 13%, transparent), transparent 38%),
+    var(--archive-paper-soft);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--archive-gold) 76%, var(--archive-ink)),
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 88%, transparent),
+    3px 4px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    0 9px 18px color-mix(in srgb, var(--archive-ink) 12%, transparent);
 }
 
 .index-card.is-checked {
@@ -4297,7 +4694,7 @@ function syncSelectionCommandState() {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 28px 32px 24px;
+  padding: 22px 24px 20px;
   overflow: auto;
   position: relative;
 }
@@ -4424,12 +4821,12 @@ function syncSelectionCommandState() {
   justify-content: stretch;
   position: relative;
   padding: 0;
-  min-height: 460px;
+  min-height: 360px;
   overflow: hidden;
 }
 
 .empty-archive__grid {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -4474,39 +4871,35 @@ function syncSelectionCommandState() {
 .empty-archive__card {
   position: absolute;
   top: 50%;
-  left: 32%;
-  transform: translate(-50%, -50%) rotate(-3deg);
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  width: 260px;
+  width: min(320px, 78%);
   max-width: 70%;
   padding: 32px 22px 24px;
   text-align: center;
   z-index: 4;
-  background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 60%, transparent);
-  box-shadow:
-    6px 6px 0 color-mix(in srgb, var(--archive-ink) 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--archive-gold) 22%, transparent);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .empty-archive__tape {
-  position: absolute;
-  top: -10px;
-  left: 50%;
-  transform: translateX(-50%) rotate(-2deg);
-  width: 96px;
-  height: 20px;
-  border: 1px dashed currentColor;
-  opacity: 0.5;
+  position: static;
+  width: 34px;
+  height: 3px;
+  border: 0;
+  background: linear-gradient(90deg, var(--archive-gold) 0 28%, var(--archive-ink) 28% 78%, var(--archive-olive) 78%);
+  opacity: 0.82;
 }
 
 .empty-archive__title {
-  font-size: 22px;
-  font-weight: 400;
+  font-size: 24px;
+  font-weight: 600;
   color: var(--archive-ink);
 }
 
@@ -4981,29 +5374,34 @@ function syncSelectionCommandState() {
   border-radius: 0; padding: 0;
 }
 @media (max-width: 1100px) {
-  /* K3 (2026-06-27): 中等屏 副阅读台 收窄到 280px, 主阅读台留更多空间 */
   .notes-content-area {
-    grid-template-columns: 240px minmax(0, 1fr) 280px;
+    grid-template-columns: 220px minmax(0, 1fr);
   }
+  .notes-content-area .archive-pin {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 8;
+    display: none;
+    width: min(340px, calc(100% - 220px));
+    min-height: 0;
+    max-height: none;
+    border-top: 0;
+    border-left: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
+    box-shadow: -16px 0 32px color-mix(in srgb, var(--archive-ink) 12%, transparent);
+  }
+  .notes-content-area[data-mobile-pane="tools"] .archive-pin { display: flex; }
 }
 
 @media (max-width: 980px) {
-  /* 窄屏压缩索引列，但保留素材入口与媒体副工作台。 */
   .notes-content-area {
-    grid-template-columns: 180px minmax(0, 1fr) 280px;
+    grid-template-columns: 180px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
   .material-drawer {
     display: flex;
     width: 180px;
   }
-  .archive-pin {
-    grid-column: 3;
-    min-height: 0;
-    max-height: none;
-    border-top: 0;
-    border-left: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
-  }
+  .notes-content-area .archive-pin { width: min(340px, calc(100% - 180px)); }
   .notes-sidekick__list {
     flex-direction: column;
     overflow-x: hidden;
@@ -5043,6 +5441,73 @@ function syncSelectionCommandState() {
     position: relative; width: 240px;
     left: auto; top: auto; transform: none;
     flex: 0 0 240px;
+  }
+}
+
+@media (max-width: 760px) {
+  :global(.theme-legacy) .material-top {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 7px;
+    padding: 8px 10px;
+  }
+  :global(.theme-legacy) .material-top .manuscript-top__left,
+  :global(.theme-legacy) .material-top .manuscript-top__right {
+    width: 100%;
+    gap: 9px;
+  }
+  :global(.theme-legacy) .material-top .manuscript-top__right {
+    justify-content: flex-end;
+  }
+  :global(.theme-legacy) .material-top .manuscript-top__chip {
+    margin-right: auto;
+    white-space: nowrap;
+  }
+  :global(.theme-legacy) .material-top .manuscript-top__chapter {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+  :global(.theme-legacy) .material-top__count {
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+  .notes-content-area {
+    display: block;
+    min-height: 0;
+  }
+  .notes-content-area > * {
+    width: 100%;
+    height: 100%;
+  }
+  .notes-content-area .material-drawer,
+  .notes-content-area > :deep(.folio-surface),
+  .notes-content-area .archive-pin {
+    display: none;
+  }
+  .notes-content-area[data-mobile-pane="index"] .material-drawer,
+  .notes-content-area[data-mobile-pane="content"] > :deep(.folio-surface),
+  .notes-content-area[data-mobile-pane="tools"] .archive-pin {
+    position: relative;
+    inset: auto;
+    display: flex;
+    width: 100%;
+    max-width: none;
+    border-left: 0;
+    box-shadow: none;
+  }
+  .notes-content-area[data-mobile-pane="content"] > :deep(.folio-surface) { min-height: 0; }
+  .notes-content-area[data-mobile-pane="content"] .reading-deck { height: 100%; }
+  .notes-content-area[data-mobile-pane="content"] .empty-archive {
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .notes-content-area[data-mobile-pane="content"] .empty-archive__grid { display: none; }
+}
+
+@media (max-width: 420px) {
+  :global(html.theme-legacy .material-top .manuscript-top__right .manuscript-top__tab:nth-of-type(-n + 2)) {
+    display: none;
   }
 }
 </style>

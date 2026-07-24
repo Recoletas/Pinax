@@ -97,17 +97,21 @@ function entryCount(preset) {
 
 /* Legacy 主题: 1px hairline 矩形 */
 .theme-legacy .preset-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  min-height: 74px;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, var(--border));
+  border-radius: 0;
   color: var(--text-primary);
   clip-path: none;
 }
 
 .theme-legacy .preset-card:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent-light, transparent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--archive-olive) 58%, var(--border));
+  background: color-mix(in srgb, var(--archive-olive) 6%, transparent);
   box-shadow: none;
+  transform: none;
 }
 
 .theme-legacy .preset-card__roman {

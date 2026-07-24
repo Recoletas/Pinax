@@ -140,7 +140,7 @@ onMounted(async () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   max-width: 1240px;
   width: 100%;
   margin: 0 auto;

@@ -2,6 +2,13 @@ import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, buildContextMessage, recordMemory } from '../services/api'
 import { runGenerationStreamTask } from '../services/generationService'
 import {
+  buildNarrativeFormatInstructions,
+  ensureNarrativeMessage,
+  getTrustedMessageSpeaker,
+  normalizeNarrativeMessages,
+  parseNarrativePresentation
+} from '../services/narrativePresentation'
+import {
   formatAdventureStoryboardSeedContent,
   generateAdventureProseDraft,
   generateAdventureStoryboardDraft
@@ -1557,6 +1564,7 @@ export const useGameStore = defineStore('game', {
       if (!this.currentSessionId) return
       const idx = this.sessions.findIndex(s => s.id === this.currentSessionId)
       if (idx === -1) return
+      this.messages = normalizeNarrativeMessages(this.messages)
       const runtimeState = this.getRuntimeSnapshot()
       const worldbookId = this.worldId || this.sessions[idx].worldbookId || this.sessions[idx].worldId || resolveActiveWorldbookId() || ''
       this.sessions[idx].schemaVersion = this.sessions[idx].schemaVersion || 1
@@ -1587,7 +1595,7 @@ export const useGameStore = defineStore('game', {
       if (!session) return null
       this.currentSessionId = session.id
       const runtimeState = session.runtimeState || {}
-      this.messages = cloneState(session.messages || runtimeState.messages || [], [])
+      this.messages = normalizeNarrativeMessages(cloneState(session.messages || runtimeState.messages || [], []))
       this.chatHistory = cloneState(session.chatHistory || runtimeState.chatHistory || [], [])
       const character = cloneState(session.worldState?.character || runtimeState.writingCharacter || DEFAULT_WRITING_CHARACTER, DEFAULT_WRITING_CHARACTER)
       this.writingCharacter = normalizeWritingCharacter(character)
@@ -2112,6 +2120,12 @@ export const useGameStore = defineStore('game', {
     updateMessage(index, newContent) {
       if (this.messages[index]) {
         this.messages[index].content = newContent;
+        this.messages[index].presentation = parseNarrativePresentation(newContent, {
+          messageId: this.messages[index].id,
+          complete: true,
+          fallbackSpeaker: getTrustedMessageSpeaker(this.messages[index]),
+          role: this.messages[index].role
+        })
         this.rebuildChatHistory(); // 同步 AI 记忆
         this.saveCurrentSession()
       }
@@ -2169,7 +2183,10 @@ export const useGameStore = defineStore('game', {
       // 添加默认系统提示词
       const systemPrompt = {
         role: 'system',
-        content: '你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。'
+        content: [
+          '你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。',
+          buildNarrativeFormatInstructions()
+        ].join('\n\n')
       };
 
       this.chatHistory = [systemPrompt, ...history];
@@ -2327,6 +2344,18 @@ export const useGameStore = defineStore('game', {
 
         // 构建消息序列：世界书 + 写作上下文 + 聊天历史
         let messagesToSend = [...this.chatHistory]
+        const formatInstructions = buildNarrativeFormatInstructions()
+        if (!messagesToSend.some((message) => String(message?.content || '').includes(':::narration'))) {
+          const systemIndex = messagesToSend.findIndex((message) => message?.role === 'system')
+          if (systemIndex >= 0) {
+            messagesToSend[systemIndex] = {
+              ...messagesToSend[systemIndex],
+              content: `${messagesToSend[systemIndex].content}\n\n${formatInstructions}`
+            }
+          } else {
+            messagesToSend = [{ role: 'system', content: formatInstructions }, ...messagesToSend]
+          }
+        }
         if (worldBookMsg) {
           messagesToSend = [worldBookMsg, ...messagesToSend]
         }
@@ -2341,17 +2370,18 @@ export const useGameStore = defineStore('game', {
 
         // 先添加一个空的 AI 消息占位符
         const messageIndex = this.messages.length
-        this.messages.push({
+        this.messages.push(ensureNarrativeMessage({
           role: 'assistant',
           name: this.dialogueCharacter?.name || this.aiCharacter.name,
           content: '',
           timestamp: Date.now(),
           dialogueMode: !!this.dialogueCharacter,
           isStreaming: true
-        })
+        }, messageIndex))
 
         // 使用流式 API
         let fullContent = ''
+        let cleanContent = ''
 
         const maxTokens = isInitGeneration ? 1500 : 800
 
@@ -2368,9 +2398,16 @@ export const useGameStore = defineStore('game', {
             onChunk: (chunk) => {
               if (chunk.content) {
                 fullContent += chunk.content
-                // 实时更新消息内容
+                const parsed = parseNarrativePresentation(fullContent, {
+                  messageId: this.messages[messageIndex]?.id,
+                  complete: false,
+                  fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
+                  role: this.messages[messageIndex]?.role
+                })
+                cleanContent = parsed.content
                 if (this.messages[messageIndex]) {
-                  this.messages[messageIndex].content = fullContent
+                  this.messages[messageIndex].content = cleanContent
+                  this.messages[messageIndex].presentation = parsed
                 }
               }
             },
@@ -2378,6 +2415,15 @@ export const useGameStore = defineStore('game', {
               // 标记流式结束
               if (this.messages[messageIndex]) {
                 this.messages[messageIndex].isStreaming = false
+                const parsed = parseNarrativePresentation(fullContent, {
+                  messageId: this.messages[messageIndex].id,
+                  complete: true,
+                  fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
+                  role: this.messages[messageIndex].role
+                })
+                cleanContent = parsed.content
+                this.messages[messageIndex].content = cleanContent
+                this.messages[messageIndex].presentation = parsed
               }
             },
             onError: (error) => {
@@ -2391,14 +2437,20 @@ export const useGameStore = defineStore('game', {
         })
 
         // 更新 chatHistory
-        this.chatHistory.push({ role: 'assistant', content: fullContent });
+        cleanContent = parseNarrativePresentation(fullContent, {
+          messageId: this.messages[messageIndex]?.id,
+          complete: true,
+          fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
+          role: this.messages[messageIndex]?.role
+        }).content
+        this.chatHistory.push({ role: 'assistant', content: cleanContent });
 
         // 追加运行时事件侧车 (v1: capped append-only envelope)
         this.appendRuntimeEvent({
           type: 'turn',
           source: 'assistant',
           payload: {
-            preview: String(fullContent || '').slice(0, 200),
+            preview: String(cleanContent || '').slice(0, 200),
             messageIndex
           }
         })
@@ -2409,16 +2461,16 @@ export const useGameStore = defineStore('game', {
         }
 
         // 记录重要的叙事事件到记忆系统
-        if (fullContent && fullContent.length > 20) {
+        if (cleanContent && cleanContent.length > 20) {
           // 检测是否有重要事件（对话、物品获得、地点发现等）
-          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(fullContent)
-          const hasItem = /获得|发现.*物品|得到/.test(fullContent)
-          const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(fullContent)
+          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(cleanContent)
+          const hasItem = /获得|发现.*物品|得到/.test(cleanContent)
+          const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(cleanContent)
 
           if (hasDialogue || hasItem || hasLocation) {
             const eventType = hasLocation ? 'location_discovery' : hasItem ? 'item_acquisition' : 'dialogue'
             recordMemory(
-              fullContent,
+              cleanContent,
               eventType,
               {
                 character: this.playerCharacter?.name || '主角',
@@ -2431,16 +2483,16 @@ export const useGameStore = defineStore('game', {
         }
 
         // 内联事件标记保留（对话、物品等可点击查看）
-        const inlineEvents = this.detectInlineEvents(fullContent, messageIndex)
+        const inlineEvents = this.detectInlineEvents(cleanContent, messageIndex)
         if (inlineEvents.length > 0) {
           this.addInlineEvents(inlineEvents)
         }
 
         // 从 AI 回复中提取状态更新
-        this.extractAndUpdateState(fullContent)
+        this.extractAndUpdateState(cleanContent)
 
         // 检测机制触发（战斗、交易、任务、对话）
-        const mechanism = this.detectMechanismTriggers(fullContent)
+        const mechanism = this.detectMechanismTriggers(cleanContent)
         if (mechanism) {
           if (this.messages[messageIndex]) {
             this.messages[messageIndex].mechanismTrigger = mechanism
@@ -2954,6 +3006,7 @@ export const useGameStore = defineStore('game', {
 
       // 构建系统提示词
       const systemParts = ['你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。']
+      systemParts.push(`\n\n${buildNarrativeFormatInstructions()}`)
 
       // 世界设定描述
       const worldDesc = worldbook?.worldDescription || worldbook?.description || ''

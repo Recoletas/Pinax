@@ -1,0 +1,494 @@
+/* UI-W3 Pinax Wall polish — unscoped override block.
+   The base .wall__cork padding is set in this file's <style scoped> block
+   (specificity 0,1,1 with data-v-xxx). kao.css holds .theme-kao .wall__cork
+   inside @layer kao, which loses to unlayered scoped CSS regardless of
+   selector specificity (CSS Cascade Level 5 §6.4.4). The fix is to add
+   the desktop padding-left as an unscoped rule at the end of this file,
+   which loads AFTER the scoped block — same pattern Experience.vue
+   uses for its 6-field record-folio. Selector specificity 0,2,0 wins. */
+@media (min-width: 1000px) {
+  .theme-kao .wall__cork {
+    padding-left: 80px;
+  }
+}
+
+/* Page-level composition pass. These rules intentionally sit after both
+   the scoped fallback and kao theme so the editor keeps one layout in
+   either palette. */
+.writing-page.writing-page {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 58%,
+    color-mix(in srgb, var(--archive-paper-strong) 20%, var(--archive-paper-soft)) 100%
+  );
+}
+
+.writing-page.writing-page::before {
+  background:
+    linear-gradient(
+      118deg,
+      transparent 0 66%,
+      color-mix(in srgb, var(--archive-olive) 3%, transparent) 66.2% 79%,
+      transparent 79.2%
+    );
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+
+.writing-page .wall__cork {
+  min-height: 50px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  gap: 10px;
+}
+
+.writing-page .wall__chapter-trigger {
+  display: none;
+}
+
+.theme-legacy .writing-page .wall__more {
+  position: relative;
+}
+
+.theme-legacy .writing-page .wall__more > summary {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+
+.theme-legacy .writing-page .wall__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.theme-legacy .writing-page .wall__more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-workbench-sheet);
+  width: 164px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
+  background: var(--surface-workbench-raised);
+  box-shadow: var(--shadow-workbench-float);
+}
+
+.theme-legacy .writing-page .wall__more-menu button {
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .wall__more-menu button:hover:not(:disabled),
+.theme-legacy .writing-page .wall__more-menu button:focus-visible {
+  background: var(--surface-workbench-muted);
+  outline: none;
+}
+
+.theme-legacy .writing-page .wall__more-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.writing-page .wall__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-columns: 228px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 20px 18px;
+  background: transparent;
+}
+
+.writing-page .wall__shelf {
+  padding: 8px;
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 20%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--archive-ink-soft) 10%, transparent);
+}
+
+.writing-page .wall__folder.is-active {
+  transform: translateX(5px);
+}
+
+.writing-page .wall__folder.is-active::after {
+  display: none;
+}
+
+.writing-page .wall__shelf-roll,
+.writing-page .wall__shelf-board {
+  display: none;
+}
+
+.writing-page .wall__dossier {
+  padding: 24px 34px 26px 52px;
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  background: linear-gradient(
+    108deg,
+    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)) 0%,
+    var(--archive-paper-soft) 64%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 72%, transparent),
+    0 1px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent),
+    0 12px 30px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+}
+
+.writing-page .wall__dossier::before {
+  left: 42px;
+}
+
+.writing-page .wall__dossier::after {
+  left: 52px;
+  opacity: 0.2;
+}
+
+.writing-page .wall__dossier-tape {
+  display: none;
+}
+
+.writing-page .wall__dossier-head {
+  max-width: none;
+  width: 100%;
+  min-height: 58px;
+  margin: 0;
+  padding: 8px 0 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  align-items: flex-end;
+}
+
+.writing-page .wall__dossier-num {
+  position: absolute;
+  left: -36px;
+  bottom: 16px;
+  width: 26px;
+  color: color-mix(in srgb, var(--archive-olive-strong) 76%, var(--archive-ink-soft));
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.writing-page .wall__dossier-title {
+  width: 100%;
+  padding: 0;
+  font-size: 25px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.writing-page .wall__dossier-body {
+  width: 100%;
+  margin: 0 auto;
+  gap: 0;
+}
+
+.writing-page .wall__dossier-empty {
+  flex: 1;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 18px;
+  width: min(620px, 100%);
+  margin: 0 auto;
+  padding: 24px 18px 84px;
+}
+
+.writing-page .wall__empty-copy {
+  display: grid;
+  gap: 7px;
+}
+
+.writing-page .wall__empty-kicker {
+  font-family: var(--font-display);
+  color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.writing-page .wall__empty-copy strong {
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.writing-page .wall__empty-actions {
+  margin: 0;
+  padding: 0;
+}
+
+.writing-page .wall__pin-cta {
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 48%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--archive-olive) 92%, var(--archive-ink));
+  font-weight: 600;
+}
+
+.writing-page .editor-toolbar {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 7px 0 8px;
+  border-width: 0 0 1px;
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 13%, transparent);
+  background: transparent;
+}
+
+.writing-page .tool-btn {
+  border-color: transparent;
+}
+
+.writing-page .tool-btn:hover,
+.writing-page .tool-btn.active {
+  border-color: color-mix(in srgb, var(--archive-olive) 34%, transparent);
+}
+
+.writing-page .mode-switch {
+  border-color: color-mix(in srgb, var(--archive-ink-soft) 20%, transparent);
+}
+
+.writing-page .editor-container {
+  width: 100%;
+  padding: 18px 0 26px;
+}
+
+.writing-page .editor-container::before {
+  display: none;
+}
+
+.writing-page .editor-container .editor-textarea {
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 17px;
+  line-height: 1.9;
+}
+
+.theme-legacy .writing-page .wall__dossier-textarea,
+.theme-legacy .writing-page .editor-preview {
+  max-width: 880px;
+  margin-inline: auto;
+}
+
+.theme-legacy .writing-page .wall__dossier-head,
+.theme-legacy .writing-page .editor-toolbar,
+.theme-legacy .writing-page .copilot-reference-bar,
+.theme-legacy .writing-page .chapter-outline-bar,
+.theme-legacy .writing-page .find-replace-bar,
+.theme-legacy .writing-page .dossier-footer {
+  width: min(880px, 100%);
+  margin-inline: auto;
+}
+
+.theme-legacy .writing-page .wall__dossier-head {
+  padding-top: 14px;
+}
+
+.theme-legacy .writing-page .editor-container {
+  padding-top: 24px;
+}
+
+.theme-legacy .writing-page .wall__dossier-textarea {
+  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-size: 17px;
+  line-height: 1.95;
+}
+
+.writing-page .dossier-footer {
+  width: 100%;
+  margin: 0 auto;
+  padding-top: 9px;
+  border-top-color: color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
+}
+
+@media (max-width: 980px) {
+  .writing-page .wall__main {
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .writing-page .wall__cork {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .writing-page .wall__tabs {
+    flex: 0 0 auto;
+  }
+
+  .writing-page .wall__dossier {
+    min-width: 0;
+    padding: 18px 18px 20px 40px;
+  }
+
+  .writing-page .wall__dossier::before {
+    left: 32px;
+  }
+
+  .writing-page .wall__dossier::after {
+    left: 40px;
+  }
+
+  .writing-page .editor-toolbar {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 720px) {
+  .writing-page .wall__main {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .writing-page .wall__chapter-trigger {
+    min-width: 0;
+    max-width: 150px;
+    min-height: var(--control-height-md);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 9px;
+    border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
+    background: transparent;
+    color: var(--archive-ink);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .writing-page .wall__chapter-trigger span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .writing-page .wall__chapter-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-workbench-overlay);
+    border: 0;
+    background: color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  }
+
+  .writing-page .wall__shelf {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: var(--z-workbench-sheet);
+    width: min(340px, calc(100vw - 42px));
+    max-height: none;
+    overflow: auto;
+    transform: translateX(calc(-100% - 18px));
+    transition: transform var(--motion-page) var(--motion-ease-out);
+    box-shadow: var(--shadow-workbench-float);
+  }
+
+  .writing-page .wall__shelf.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .writing-page .wall__folder.is-active {
+    transform: none;
+  }
+
+  .writing-page .wall__dossier-empty {
+    min-height: 260px;
+    padding-bottom: 40px;
+  }
+
+  .writing-page .wall__main {
+    padding: 10px 12px 14px;
+  }
+
+  .writing-page .wall__dossier {
+    padding: 14px 14px 18px 32px;
+  }
+
+  .writing-page .wall__dossier::before {
+    left: 24px;
+  }
+
+  .writing-page .wall__dossier::after {
+    left: 32px;
+  }
+
+  .writing-page .wall__dossier-head {
+    min-height: 50px;
+  }
+
+  .writing-page .wall__dossier-title {
+    font-size: 21px;
+  }
+
+  .writing-page .wall__cork {
+    overflow-x: visible;
+    flex-wrap: wrap;
+    max-height: none;
+    gap: 7px;
+  }
+
+  .writing-page .wall__book-pill {
+    max-width: 132px;
+  }
+
+  .writing-page .wall__chapter-trigger {
+    flex: 1 1 120px;
+    max-width: none;
+  }
+
+  .writing-page .wall__tabs {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .writing-page .wall__tab--mode {
+    display: none;
+  }
+
+  .writing-page .wall__tabs > .wall__tab:nth-of-type(2) {
+    display: none;
+  }
+
+  .writing-page .editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .writing-page .toolbar-sep {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .writing-page .wall__shelf {
+    transition: none;
+  }
+}

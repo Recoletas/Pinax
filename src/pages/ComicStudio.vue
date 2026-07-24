@@ -1,9 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import ComicPagePreview from '../components/media/ComicPagePreview.vue'
+import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { listActiveNarrativeAssets, normalizeImagePresentation } from '../services/narrativeAssets'
 import { addNarrativeImageAsset } from '../services/media/narrativeImageAssetBridge'
@@ -12,7 +13,6 @@ import { listImageProviderConfigs } from '../services/media/imageProviderConfigS
 
 const comicPages = ref([])
 const route = useRoute()
-const router = useRouter()
 const activePageId = ref('')
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
@@ -21,6 +21,12 @@ const selectedModelId = ref('')
 const selectedSourceId = ref('')
 const archiveStatus = ref('')
 const comicEditor = ref(null)
+const mobilePane = ref('page')
+const comicMobilePanes = [
+  { value: 'sources', label: '素材' },
+  { value: 'page', label: '页面' },
+  { value: 'panel', label: '当前格' }
+]
 
 const activePage = computed(() => comicPages.value.find((page) => page.id === activePageId.value) || null)
 const selectedSource = computed(() => sourceCandidates.value.find((asset) => asset.id === selectedSourceId.value) || null)
@@ -61,31 +67,24 @@ function selectPage(pageId) {
   activePageId.value = pageId
   pagePreview.value = comicPages.value.find((page) => page.id === pageId) || null
   archiveStatus.value = ''
+  mobilePane.value = 'page'
 }
 
 function selectSource(sourceId) {
   selectedSourceId.value = sourceId
   archiveStatus.value = ''
+  mobilePane.value = 'page'
 }
 
 function syncActivePanelSource(sourceId) {
   selectedSourceId.value = sourceId || ''
 }
 
-function openMaterialWorkspace(workspace) {
-  router.push({
-    name: 'materials',
-    query: {
-      workspace,
-      ...(selectedSourceId.value ? { assetId: selectedSourceId.value } : {})
-    }
-  })
-}
-
 function startNewPage() {
   activePageId.value = ''
   pagePreview.value = null
   archiveStatus.value = ''
+  mobilePane.value = 'panel'
 }
 
 function handlePageSaved(page) {
@@ -138,10 +137,14 @@ async function savePanelAsMaterial(entry) {
     <header class="comic-studio__mast">
       <div class="comic-studio__mast-left">
         <div class="comic-studio__book">
-          <strong>素材</strong>
-          <span>漫画制作</span>
+          <strong>漫画</strong>
+          <span>整页制作</span>
         </div>
-        <span v-if="selectedSource" class="comic-studio__source-title">{{ selectedSource.title || '无标题素材' }}</span>
+        <ol class="comic-studio__workflow" aria-label="漫画制作层级">
+          <li>页面计划</li>
+          <li class="is-current">整页制作</li>
+          <li>当前格</li>
+        </ol>
       </div>
       <button type="button" class="comic-studio__new" @click="startNewPage">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -151,7 +154,14 @@ async function savePanelAsMaterial(entry) {
       </button>
     </header>
 
-    <div class="comic-studio__workspace">
+    <WorkspacePaneSwitch
+      v-model="mobilePane"
+      :items="comicMobilePanes"
+      label="漫画工作区"
+      :breakpoint="980"
+    />
+
+    <div class="comic-studio__workspace" :data-mobile-pane="mobilePane">
       <MaterialSourceDrawer
         :assets="sourceCandidates"
         :selected-id="selectedSourceId"
@@ -190,8 +200,10 @@ async function savePanelAsMaterial(entry) {
           />
           </div>
           <div v-else class="comic-studio__empty-canvas">
-            <strong>新漫画页</strong>
-            <span>从左侧选择素材，在右侧确定版式后建立页面</span>
+            <span class="comic-studio__empty-kicker">页面计划</span>
+            <strong>建立一张漫画页</strong>
+            <span>在当前格制作区选择阅读方向、版式与色制。</span>
+            <button type="button" @click="mobilePane = 'panel'">规划页面</button>
           </div>
         </div>
       </main>
@@ -204,31 +216,9 @@ async function savePanelAsMaterial(entry) {
           </svg>
         </span>
         <header class="notes-sidekick__header">
-          <span class="notes-sidekick__title">副阅读台</span>
-          <span class="notes-sidekick__count">漫画制作</span>
+          <span class="notes-sidekick__title">当前格制作</span>
+          <span class="notes-sidekick__count">分镜 · 构图 · 成稿</span>
         </header>
-        <nav class="notes-sidekick__modes" aria-label="副工作台模式">
-          <button type="button" @click="openMaterialWorkspace('materials')">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-              <path d="M3 2.5h10v4H3zM3 9.5h10v4H3z" />
-            </svg>
-            相关素材
-          </button>
-          <button type="button" @click="openMaterialWorkspace('illustration')">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-              <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
-              <circle cx="6" cy="6" r="1.2" />
-              <path d="M3.5 12l3.2-3 2.1 1.8 1.7-1.6 2 2" />
-            </svg>
-            插画生成
-          </button>
-          <button type="button" class="active" aria-current="page">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-              <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z" />
-            </svg>
-            漫画制作
-          </button>
-        </nav>
         <div class="comic-studio__inspector-body">
           <ComicPageEditor
           ref="comicEditor"
@@ -290,6 +280,10 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__book strong { color: var(--archive-ink); font-size: 13px; }
 .comic-studio__book span { color: var(--archive-ink-soft); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
 .comic-studio__source-title { max-width: 32ch; overflow: hidden; color: var(--archive-ink-soft); font-size: 12px; font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
+.comic-studio__workflow { display: flex; align-items: center; gap: 0; margin: 0; padding: 0; color: var(--archive-ink-soft); font-size: 10px; list-style: none; }
+.comic-studio__workflow li { display: inline-flex; align-items: center; white-space: nowrap; }
+.comic-studio__workflow li + li::before { content: "/"; margin-inline: 8px; color: color-mix(in srgb, var(--archive-ink-soft) 42%, transparent); }
+.comic-studio__workflow .is-current { color: var(--archive-ink); font-weight: 700; }
 
 .comic-studio__new {
   min-height: 28px;
@@ -306,12 +300,11 @@ async function savePanelAsMaterial(entry) {
   font-weight: 600;
 }
 .comic-studio__new:hover { color: var(--archive-ink); }
-
 .comic-studio__workspace {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px minmax(420px, 1fr) 320px;
+  grid-template-columns: 190px minmax(460px, 1fr) 300px;
   overflow: hidden;
 }
 
@@ -385,22 +378,45 @@ async function savePanelAsMaterial(entry) {
   background: color-mix(in srgb, var(--archive-paper-soft) 56%, transparent);
 }
 
-.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px; overflow: auto; }
+.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px 12px; overflow: auto; }
 .comic-studio__canvas-inner { width: min(100%, 920px); display: grid; gap: 8px; justify-items: center; }
 .comic-studio__canvas-inner > header { width: 100%; display: flex; justify-content: space-between; gap: 12px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 .comic-studio__canvas-inner > header strong { overflow: hidden; color: var(--archive-ink, var(--text-primary)); text-overflow: ellipsis; white-space: nowrap; }
-.comic-studio__empty-canvas { display: grid; gap: 7px; color: var(--archive-ink-soft, var(--text-secondary)); text-align: center; }
+.comic-studio__empty-canvas { display: grid; justify-items: center; gap: 9px; color: var(--archive-ink-soft, var(--text-secondary)); text-align: center; }
 .comic-studio__empty-canvas strong { color: var(--archive-ink, var(--text-primary)); font-family: var(--font-display); font-size: 20px; }
 .comic-studio__empty-canvas span { font-size: 11px; }
+.comic-studio__empty-kicker { color: var(--archive-olive); font-weight: 700; letter-spacing: 0.12em; }
+.comic-studio__empty-canvas button { min-height: 32px; margin-top: 8px; padding: 5px 14px; border: 1px solid color-mix(in srgb, var(--archive-olive) 58%, var(--border)); border-radius: 3px; background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft)); color: var(--archive-ink); cursor: pointer; font: inherit; font-size: 11px; font-weight: 650; }
 .comic-studio__status { margin: 10px 0 0; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 
 @media (max-width: 1100px) {
-  .comic-studio__workspace { grid-template-columns: 200px minmax(360px, 1fr) 280px; }
+  .comic-studio__workspace { grid-template-columns: 180px minmax(360px, 1fr) 280px; }
 }
 
 @media (max-width: 980px) {
-  .comic-studio__workspace { grid-template-columns: 170px minmax(300px, 1fr) 270px; }
+  .comic-studio__workspace { display: block; }
+  .comic-studio__workspace > * { width: 100%; height: 100%; }
+  .comic-studio__workspace > :deep(.material-source-drawer),
+  .comic-studio__workspace .comic-studio__canvas,
+  .comic-studio__workspace .comic-studio__inspector { display: none; }
+  .comic-studio__workspace[data-mobile-pane="sources"] > :deep(.material-source-drawer),
+  .comic-studio__workspace[data-mobile-pane="page"] .comic-studio__canvas,
+  .comic-studio__workspace[data-mobile-pane="panel"] .comic-studio__inspector {
+    display: flex;
+  }
+  .comic-studio__workspace[data-mobile-pane="panel"] .comic-studio__inspector {
+    border-left: 0;
+  }
   .comic-studio__mast { padding-inline: 14px; }
   .comic-studio__canvas-stage { padding: 8px; }
+}
+
+@media (max-width: 640px) {
+  .comic-studio__mast { gap: 10px; padding: 8px 10px; }
+  .comic-studio__source-title { display: none; }
+  .comic-studio__workflow { display: none; }
+  .comic-studio__new { flex: 0 0 auto; }
+  .comic-studio__canvas-stage { padding: 6px; }
+  .comic-studio__canvas-inner { width: 100%; }
 }
 </style>

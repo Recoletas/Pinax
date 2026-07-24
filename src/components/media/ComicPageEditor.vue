@@ -1179,13 +1179,13 @@ function safeFilename(value) {
       </header>
       <div class="comic-editor__draft">
         <div class="comic-editor__draft-options">
-          <label>
+          <div class="comic-editor__draft-choice comic-editor__draft-choice--count">
             <span>页格</span>
-            <select :value="panelCount" @change="setDraftPanelCount($event.target.value)">
-              <option :value="4">4 格</option>
-              <option :value="6">6 格</option>
-            </select>
-          </label>
+            <div role="radiogroup" aria-label="漫画页格数">
+              <button type="button" :class="{ active: panelCount === 4 }" :aria-pressed="panelCount === 4" @click="setDraftPanelCount(4)">4 格</button>
+              <button type="button" :class="{ active: panelCount === 6 }" :aria-pressed="panelCount === 6" @click="setDraftPanelCount(6)">6 格</button>
+            </div>
+          </div>
           <label>
             <span>阅读方向</span>
             <select v-model="draftFormat">
@@ -1194,12 +1194,24 @@ function safeFilename(value) {
               <option value="webtoon">竖向条漫</option>
             </select>
           </label>
-          <label>
+          <div class="comic-editor__draft-choice comic-editor__draft-choice--layout">
             <span>页面版式</span>
-            <select v-model="draftLayout">
-              <option v-for="option in draftLayoutOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </label>
+            <div role="radiogroup" aria-label="漫画页面版式">
+              <button
+                v-for="option in draftLayoutOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: draftLayout === option.value }"
+                :aria-pressed="draftLayout === option.value"
+                @click="draftLayout = option.value"
+              >
+                <span class="comic-editor__layout-map" aria-hidden="true">
+                  <i v-for="(style, index) in layoutOptionPanelStyles(option.value)" :key="index" :style="style"></i>
+                </span>
+                <span>{{ option.label }}</span>
+              </button>
+            </div>
+          </div>
           <label>
             <span>色制</span>
             <select v-model="draftColorMode">
@@ -1256,7 +1268,7 @@ function safeFilename(value) {
           页面规划
         </button>
         <button type="button" :class="{ active: compactWorkspace === 'panels' }" @click="compactWorkspace = 'panels'">
-          分格制作
+          当前格制作
           <span>{{ completedPanelCount }}/{{ comicPage.panels.length }}</span>
         </button>
       </nav>
@@ -1898,6 +1910,56 @@ function safeFilename(value) {
   min-width: 0;
   color: var(--archive-ink-soft, var(--text-secondary));
   font-size: 10px;
+}
+
+.comic-editor__draft-choice {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.comic-editor__draft-choice > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.comic-editor__draft-choice button {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.comic-editor__draft-choice button:hover,
+.comic-editor__draft-choice button.active {
+  border-color: color-mix(in srgb, var(--archive-olive) 62%, var(--border));
+  color: var(--archive-ink, var(--text-primary));
+}
+
+.comic-editor__draft-choice button.active {
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  font-weight: 650;
+}
+
+.comic-editor__draft-choice--layout {
+  grid-column: 1 / -1;
+}
+
+.comic-editor__draft-choice--layout button {
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 54px;
+  padding: 5px 7px;
+  text-align: left;
 }
 
 .comic-editor__draft-options select {

@@ -32,6 +32,7 @@
 
     <button
       class="gm-persona-launcher"
+      data-transient-trigger="advisor-review"
       type="button"
       :title="launcherTitle"
       :aria-expanded="expanded ? 'true' : 'false'"
@@ -44,12 +45,16 @@
         <strong>{{ caption }}</strong>
         <small>{{ captionHint }}</small>
       </span>
+      <span v-if="pendingCount > 0" class="gm-persona-pending" role="status">
+        {{ pendingCount > 9 ? '9+' : pendingCount }}
+      </span>
     </button>
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
   kicker: {
@@ -83,6 +88,10 @@ const props = defineProps({
   captionHint: {
     type: String,
     default: '先看提示'
+  },
+  pendingCount: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -119,6 +128,14 @@ function handleKeydown(event) {
     collapse()
   }
 }
+
+useTransientLayer({
+  id: 'advisor-launcher',
+  isOpen: expanded,
+  onClose: collapse,
+  initialFocus: () => dockRef.value?.querySelector('.gm-persona-primary'),
+  returnFocus: () => dockRef.value?.querySelector('.gm-persona-launcher')
+})
 
 onMounted(() => {
   document.addEventListener('pointerdown', handlePointerDown, true)
@@ -280,6 +297,24 @@ onBeforeUnmount(() => {
 .gm-persona-caption small {
   font-size: 10px;
   color: var(--text-secondary);
+  line-height: 1;
+}
+
+.gm-persona-pending {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  right: 5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--signal-primary, var(--accent)) 38%, var(--border));
+  background: color-mix(in srgb, var(--bg-primary) 82%, var(--signal-primary, var(--accent)));
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 700;
   line-height: 1;
 }
 

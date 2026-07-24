@@ -24,7 +24,7 @@ router.post('/proactive-check', async (req, res) => {
 
   try {
     const advice = await getAdvice(context, question, {
-      taskType: 'advisor.review.chapter',
+      taskType: 'writing.chapter.health',
       options: { source: 'proactive-check' },
       mode: 'json'
     })

@@ -274,10 +274,13 @@ function onEnter() {
 
 /* Legacy 主题覆写: 简化版白底, 不带撕角/罗马/印章 */
 .theme-legacy .worldbook-hero {
-  background: var(--bg-primary);
-  border-color: var(--border);
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 24px 28px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-primary));
+  border-color: color-mix(in srgb, var(--archive-ink) 18%, var(--border));
   clip-path: none;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: none;
 }
 
 .theme-legacy .worldbook-hero::before {
@@ -291,10 +294,33 @@ function onEnter() {
 
 .theme-legacy .worldbook-hero__name {
   font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", sans-serif);
+  font-size: clamp(28px, 3vw, 38px);
   color: var(--text-primary);
 }
 
+.theme-legacy .worldbook-hero__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 28px;
+  max-width: none;
+}
+
+.theme-legacy .worldbook-hero__body > :not(.worldbook-hero__cta) {
+  grid-column: 1;
+}
+
+.theme-legacy .worldbook-hero__hook {
+  overflow: hidden;
+  max-width: 72ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .theme-legacy .worldbook-hero__cta {
+  grid-column: 2;
+  grid-row: 1 / 6;
+  align-self: center;
+  margin-top: 0;
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg-secondary);
@@ -317,6 +343,27 @@ function onEnter() {
     font-size: 56px;
     top: 14px;
     left: 18px;
+  }
+
+  .theme-legacy .worldbook-hero {
+    padding: 22px 18px 20px;
+  }
+
+  .theme-legacy .worldbook-hero__body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .theme-legacy .worldbook-hero__hook {
+    white-space: normal;
+  }
+
+  .theme-legacy .worldbook-hero__cta {
+    grid-column: 1;
+    grid-row: auto;
+    align-self: flex-start;
+    margin-top: 8px;
   }
 
   .worldbook-hero__stamp {

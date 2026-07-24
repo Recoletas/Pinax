@@ -10,6 +10,7 @@ import {
   toVideoProviderConfig,
   VIDEO_PROVIDER_TYPES
 } from '../../services/media/videoProviderConfigStore'
+import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -20,10 +21,12 @@ const emit = defineEmits(['update:modelValue', 'configs-updated'])
 
 const showPicker = ref(false)
 const showConfig = ref(false)
+const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
+const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsMinimax = computed(() => editingConfig.value?.providerId === 'minimax-video')
 const editingIsHailuo = computed(() => ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'].includes(editingConfig.value?.model))
 const editingResolutions = computed(() => editingIsHailuo.value ? ['768P', '1080P'] : ['720P', '1080P'])
@@ -148,11 +151,28 @@ function resetConnectionState() {
 function providerLabel(providerId) {
   return VIDEO_PROVIDER_TYPES.find((item) => item.value === providerId)?.label || providerId
 }
+
+function closeLayer() {
+  if (showConfig.value) {
+    closeConfig()
+    return
+  }
+  showPicker.value = false
+}
+
+useTransientLayer({
+  id: 'video-model-picker',
+  isOpen: layerOpen,
+  onClose: closeLayer,
+  initialFocus: () => document.querySelector('.video-model-overlay .is-icon'),
+  returnFocus: () => triggerRef.value
+})
 </script>
 
 <template>
   <div class="video-model-picker">
     <button
+      ref="triggerRef"
       type="button"
       class="video-model-picker__trigger"
       data-testid="video-model-config-trigger"
@@ -258,7 +278,7 @@ function providerLabel(providerId) {
 .video-model-picker__trigger > span:first-child { display: grid; gap: 2px; min-width: 0; }
 .video-model-picker__trigger small { color: var(--archive-ink-soft, var(--text-muted)); font-size: 10px; }
 .video-model-picker__trigger strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.video-model-overlay { position: fixed; inset: 0; z-index: 1420; display: grid; place-items: center; padding: 20px; background: rgb(12 16 24 / 0.58); backdrop-filter: blur(4px); }
+.video-model-overlay { position: fixed; inset: 0; z-index: var(--z-modal-backdrop, 800); display: grid; place-items: center; padding: 20px; background: rgb(12 16 24 / 0.58); backdrop-filter: blur(4px); }
 .video-model-dialog { width: min(460px, 100%); max-height: min(720px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid color-mix(in srgb, var(--archive-gold) 52%, var(--border)); border-radius: 6px; background: var(--archive-paper-soft, var(--bg-secondary)); color: var(--archive-ink, var(--text-primary)); box-shadow: 0 24px 64px rgb(0 0 0 / 0.28); }
 .video-model-dialog--config { width: min(560px, 100%); }
 .video-model-dialog header, .video-model-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 46%, transparent); }

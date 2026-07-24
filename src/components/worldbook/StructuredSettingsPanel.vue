@@ -1,5 +1,5 @@
 <template>
-  <section class="card structured-settings-panel">
+  <section class="card structured-settings-panel" :class="{ 'is-continuous': !isKao }">
     <div class="card-head structured-head">
       <div>
         <span class="panel-kicker">设定工作台</span>
@@ -116,6 +116,7 @@
 <script setup>
 import { computed, provide, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useWorldStore } from '../../stores/worldStore'
+import { useTheme } from '../../composables/useTheme'
 import {
   SETTING_SECTIONS,
   getSettingField,
@@ -139,6 +140,7 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const worldStore = useWorldStore()
+const { isKao } = useTheme()
 const sections = SETTING_SECTIONS
 const activeSectionKey = ref('world')
 const workingKey = ref('')
@@ -843,6 +845,71 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 @media (max-width: 720px) {
   .fields-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Theme 2 is a continuous setting manuscript, not a dashboard of cards. */
+.structured-settings-panel.is-continuous {
+  gap: 10px;
+  padding: 12px 16px 0;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-primary));
+  box-shadow: none;
+}
+
+.structured-settings-panel.is-continuous .section-tabs {
+  padding: 0 0 8px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 17%, var(--border));
+  border-radius: 0;
+  background: transparent;
+}
+
+.structured-settings-panel.is-continuous .section-tab {
+  border-radius: 2px;
+}
+
+.structured-settings-panel.is-continuous .fields-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(100%, 980px);
+  margin-inline: auto;
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, var(--border));
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
+  padding: 16px 4px 18px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 50%, var(--border));
+  box-shadow: none;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
+  min-height: 116px;
+  border-inline: 0;
+  border-radius: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 30px,
+    color-mix(in srgb, var(--archive-ink-soft) 9%, transparent) 30px 31px
+  );
+  line-height: 31px;
+}
+
+@media (max-width: 720px) {
+  .structured-settings-panel.is-continuous {
+    padding: 12px 12px 0;
+    border-radius: 0;
   }
 }
 

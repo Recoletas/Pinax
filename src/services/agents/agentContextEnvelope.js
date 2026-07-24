@@ -1,4 +1,10 @@
-const CONTEXT_ENVELOPE_SCHEMA_VERSION = 1
+import {
+  AGENT_CONTEXT_SCHEMA_VERSION,
+  agentEnvelopeToPromptText,
+  clipAgentContextEnvelope
+} from '../../../shared/agentContextContract'
+
+const CONTEXT_ENVELOPE_SCHEMA_VERSION = AGENT_CONTEXT_SCHEMA_VERSION
 
 const BLOCK_KINDS = Object.freeze({
   SYSTEM: 'system',
@@ -56,16 +62,6 @@ function createBlock(kind, content, options = {}) {
     sourceRefs: Array.isArray(options.sourceRefs) ? options.sourceRefs : [],
     truncated: false,
     truncatedAt: null
-  }
-}
-
-function estimateBlockChars(block) {
-  if (!block || !block.content) return 0
-  if (typeof block.content === 'string') return block.content.length
-  try {
-    return JSON.stringify(block.content).length
-  } catch {
-    return 0
   }
 }
 
@@ -151,78 +147,9 @@ export function addRawBlock(envelope, content, priority = 100) {
 }
 
 export function clipContextEnvelope(envelope, maxCharsOverride) {
-  if (!envelope || !Array.isArray(envelope.blocks)) return envelope
-
-  const maxChars = Math.max(1, Math.floor(
-    maxCharsOverride ?? envelope.budget?.maxChars ?? DEFAULT_BUDGET.maxChars
-  ))
-
-  const blocks = envelope.blocks.slice().sort((a, b) => b.priority - a.priority)
-  let usedChars = 0
-  const included = []
-  const dropped = []
-  let truncated = false
-
-  for (const block of blocks) {
-    const blockLen = estimateBlockChars(block)
-    if (blockLen === 0) {
-      included.push({ ...block })
-      continue
-    }
-
-    const remaining = maxChars - usedChars
-    if (blockLen <= remaining) {
-      included.push({ ...block })
-      usedChars += blockLen
-    } else if (block.priority >= DEFAULT_BLOCK_PRIORITIES.system) {
-      included.push({
-        ...block,
-        truncated: true,
-        truncatedAt: remaining
-      })
-      usedChars += remaining
-      truncated = true
-    } else {
-      dropped.push({
-        kind: block.kind,
-        priority: block.priority,
-        estimatedChars: blockLen,
-        sourceRefs: block.sourceRefs
-      })
-      truncated = true
-    }
-
-    if (usedChars >= maxChars) break
-  }
-
-  return {
-    ...envelope,
-    blocks: included,
-    budget: {
-      ...envelope.budget,
-      maxChars,
-      usedChars,
-      truncated
-    },
-    dropReport: dropped.length ? {
-      dropped,
-      totalDropped: dropped.length
-    } : null
-  }
+  return clipAgentContextEnvelope(envelope, maxCharsOverride)
 }
 
 export function toPromptText(envelope) {
-  if (!envelope || !Array.isArray(envelope.blocks)) return ''
-
-  const parts = []
-  for (const block of envelope.blocks) {
-    if (!block || block.truncated === true) continue
-    if (typeof block.content === 'string') {
-      parts.push(block.content.trimEnd())
-    } else if (block.content && typeof block.content === 'object') {
-      const text = block.content.text || block.content.contextText || block.content.blockText || ''
-      if (text) parts.push(String(text).trimEnd())
-    }
-  }
-  return parts.filter(Boolean).join('\n\n')
+  return agentEnvelopeToPromptText(envelope)
 }

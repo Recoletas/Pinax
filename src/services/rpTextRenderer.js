@@ -174,12 +174,15 @@ function renderToken(token, triggerMatchers) {
   if (token.type === 'dialogue') {
     const triggered = isDialogueTrigger(token, triggerMatchers)
     const content = renderDialogueContent(token.content)
+    const openingQuote = escapeHtml(token.raw.slice(0, 1))
+    const closingQuote = escapeHtml(token.raw.slice(-1))
+    const quotedContent = `${openingQuote}${content}${closingQuote}`
     if (!triggered) {
-      return `<span class="rp-dialogue">${content}</span>`
+      return `<span class="rp-dialogue">${quotedContent}</span>`
     }
 
     const classes = ['rp-dialogue', 'clickable', 'mechanism-trigger'].join(' ')
-    return `<span class="${classes}" title="触发对话机制" data-inline-type="dialogue" data-inline-content="${escapeAttribute(token.content)}">${content}</span>`
+    return `<span class="${classes}" title="触发对话机制" data-inline-type="dialogue" data-inline-content="${escapeAttribute(token.content)}">${quotedContent}</span>`
   }
 
   return renderPlainText(token.raw)

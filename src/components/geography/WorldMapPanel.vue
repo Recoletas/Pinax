@@ -883,7 +883,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   display: flex;
-  border-radius: 14px;
+  position: relative;
+  border-radius: 6px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   background: var(--surface-soft);
@@ -893,8 +894,41 @@ onMounted(() => {
 .map-area {
   flex: 1;
   min-width: 0;
-  padding: 8px;
+  padding: 4px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 92%, var(--bg-secondary)), var(--surface-panel));
+}
+
+:global(.theme-legacy) .main-content {
+  border-color: color-mix(in srgb, var(--archive-ink) 18%, var(--border));
+  background: var(--archive-paper-soft);
+  box-shadow: none;
+}
+
+:global(.theme-legacy) .map-area {
+  background: var(--archive-paper-soft);
+}
+
+@media (max-width: 760px) {
+  .panel-toolbar {
+    align-items: flex-start;
+  }
+
+  .panel-title {
+    width: 100%;
+  }
+
+  .toolbar-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .history-btn {
+    margin-left: auto;
+  }
+
+  .main-content {
+    min-height: 0;
+  }
 }
 </style>

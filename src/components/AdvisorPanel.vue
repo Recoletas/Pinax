@@ -1,7 +1,13 @@
 <template>
   <Teleport to="body">
     <div v-if="isOpen" class="advisor-overlay" @click.self="$emit('close')">
-      <div class="advisor-panel">
+      <div
+        ref="panelRef"
+        class="advisor-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="advisor-panel-title"
+      >
         <!-- Header -->
         <div class="advisor-header">
           <div class="advisor-title">
@@ -9,7 +15,7 @@
               <circle cx="8" cy="8" r="5"></circle>
               <path d="M6.2 9.8L7.3 6.8L10.3 5.7L9.2 8.7L6.2 9.8Z"/>
             </svg>
-            <span>统一智能顾问</span>
+            <span id="advisor-panel-title">智能顾问</span>
           </div>
           <div class="advisor-actions">
             <button class="close-btn" @click="$emit('close')" title="关闭">
@@ -22,6 +28,7 @@
 
         <!-- Messages -->
         <div class="advisor-messages" ref="messagesRef">
+          <p v-if="notice" class="advisor-notice" role="status">{{ notice }}</p>
           <div v-if="messages.length === 0" class="advisor-empty">
             <p>{{ emptyText }}</p>
           </div>
@@ -34,62 +41,16 @@
             <div class="message-label">{{ msg.role === 'user' ? '你' : '顾问' }}</div>
             <div class="message-bubble" :class="{ 'is-markdown': msg.role === 'advisor' }" v-html="msg.role === 'advisor' ? sanitizeHtml(marked(msg.content)) : sanitizeHtml(msg.content)"></div>
           </div>
-          <div
+          <AgentResultTray
             v-for="result in visibleResults"
             :key="result.id || `${result.task}-${result.summary}`"
-            class="advisor-result-card"
-            :class="result.status"
-          >
-            <div class="result-card-header">
-              <span class="result-card-title">{{ getResultTitle(result) }}</span>
-              <span class="result-status" :class="statusBadgeClass(result.status)">{{ statusLabel(result.status) }}</span>
-            </div>
-            <div
-              v-if="result.summary"
-              class="result-summary is-markdown"
-              v-html="sanitizeHtml(marked(result.summary))"
-            ></div>
-            <div v-if="result.suggestions && result.suggestions.length" class="result-section">
-              <div class="result-section-label">建议</div>
-              <ul class="result-suggestion-list">
-                <li v-for="(s, i) in result.suggestions" :key="`sug-${i}`">{{ suggestionText(s) }}</li>
-              </ul>
-            </div>
-            <div v-if="result.actions && result.actions.length" class="result-section">
-              <div class="result-section-label">动作</div>
-              <ol class="result-action-list">
-                <li v-for="(a, i) in result.actions" :key="`act-${i}`">
-                  <span class="result-action-label">{{ actionLabel(a) }}</span>
-                  <pre v-if="a.content" class="result-action-content">{{ a.content }}</pre>
-                </li>
-              </ol>
-            </div>
-            <pre v-else-if="result.replacement" class="result-replacement">{{ result.replacement }}</pre>
-            <p
-              v-if="result.statusDetail"
-              class="result-detail"
-              :class="{ error: isErrorStatus(result.status) }"
-            >{{ result.statusDetail }}</p>
-            <p
-              v-else-if="result.status === 'applying'"
-              class="result-detail info"
-            >正在应用修改…</p>
-            <div class="result-actions" v-if="showResultActions(result)">
-              <button
-                v-if="hasAppliable(result)"
-                class="result-btn primary"
-                type="button"
-                :disabled="!canApplyResult(result)"
-                @click="$emit('apply-result', result)"
-              >应用修改</button>
-              <button
-                class="result-btn"
-                type="button"
-                :disabled="!canDismissResult(result)"
-                @click="$emit('dismiss-result', result)"
-              >忽略</button>
-            </div>
-          </div>
+            :result="result"
+            @apply="$emit('apply-result', $event)"
+            @undo="$emit('undo-result', $event)"
+            @undo-domain="$emit('undo-domain-result', $event)"
+            @dismiss="$emit('dismiss-result', $event)"
+            @convert="$emit('convert-result', $event)"
+          />
           <div v-if="loading" class="message advisor">
             <div class="message-label">顾问</div>
             <div class="message-bubble loading">
@@ -142,6 +103,8 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../utils/sanitize'
+import { useTransientLayer } from '../composables/useTransientLayer'
+import AgentResultTray from './agent/AgentResultTray.vue'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -149,15 +112,25 @@ const props = defineProps({
   results: { type: Array, default: () => [] },
   loading: Boolean,
   quickQuestions: { type: Array, default: () => [] },
+  notice: { type: String, default: '' },
   placeholder: { type: String, default: '输入你的问题... (Ctrl+Enter 发送)' },
   emptyText: { type: String, default: '统一智能顾问可帮助你分析当前创作状态，提供建议和灵感。' }
 })
 
-const emit = defineEmits(['close', 'ask', 'apply-result', 'dismiss-result'])
+const emit = defineEmits([
+  'close',
+  'ask',
+  'apply-result',
+  'undo-result',
+  'undo-domain-result',
+  'dismiss-result',
+  'convert-result'
+])
 
 const localInput = ref('')
 const messagesRef = ref(null)
 const inputRef = ref(null)
+const panelRef = ref(null)
 const normalizedQuickQuestions = computed(() => (props.quickQuestions || []).map((item) => {
   if (typeof item === 'string') {
     return {
@@ -182,16 +155,6 @@ const normalizedQuickQuestions = computed(() => (props.quickQuestions || []).map
     disabled: Boolean(item.disabled) || !label
   }
 }))
-
-const STATUS_LABELS = {
-  pending: '生成中',
-  completed: '待应用',
-  applying: '应用中',
-  applied: '已应用',
-  stale: '已过期',
-  failed: '失败',
-  dismissed: '已忽略'
-}
 
 const visibleResults = computed(() => (props.results || []).filter((result) => {
   if (!result || typeof result !== 'object') return false
@@ -225,58 +188,12 @@ watch(() => props.results, () => {
   })
 }, { deep: true })
 
-function getResultTitle(result) {
-  if (result.task === 'advisor.fix.selection') return '选区修改'
-  if (result.task === 'advisor.fix.paragraph') return '段落修改'
-  return '可应用修改'
-}
-
-function statusLabel(status) {
-  return STATUS_LABELS[status] || status || ''
-}
-
-function statusBadgeClass(status) {
-  if (status === 'applied') return 'success'
-  if (status === 'failed' || status === 'stale') return 'error'
-  if (status === 'applying' || status === 'pending') return 'info'
-  return ''
-}
-
-function isErrorStatus(status) {
-  return status === 'failed' || status === 'stale'
-}
-
-function hasAppliable(result) {
-  if (Array.isArray(result.actions) && result.actions.length > 0) return true
-  return Boolean(result.replacement && result.targetRange
-    && Number.isFinite(Number(result.targetRange.start))
-    && Number.isFinite(Number(result.targetRange.end)))
-}
-
-function canApplyResult(result) {
-  return result.status === 'pending' || result.status === 'completed'
-}
-
-function canDismissResult(result) {
-  return result.status === 'pending'
-    || result.status === 'completed'
-    || result.status === 'failed'
-}
-
-function showResultActions(result) {
-  return result.status !== 'applied' && result.status !== 'dismissed'
-}
-
-function suggestionText(s) {
-  if (!s) return ''
-  if (typeof s === 'string') return s
-  return String(s.label || s.summary || s.content || '')
-}
-
-function actionLabel(a) {
-  if (!a) return ''
-  return String(a.label || a.type || '')
-}
+useTransientLayer({
+  id: 'advisor-review',
+  isOpen: computed(() => props.isOpen),
+  onClose: () => emit('close'),
+  initialFocus: () => inputRef.value
+})
 
 function handleInputKeydown(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -297,7 +214,7 @@ function sendInput() {
 .advisor-overlay {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  z-index: var(--z-modal-backdrop, 800);
   background: transparent;
   display: flex;
   align-items: flex-end;
@@ -307,7 +224,7 @@ function sendInput() {
 
 .advisor-panel {
   position: relative;
-  z-index: 901;
+  z-index: var(--z-modal, 810);
   width: 380px;
   max-height: 560px;
   background: var(--bg-secondary);
@@ -317,6 +234,61 @@ function sendInput() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+:global(.theme-legacy .advisor-overlay) {
+  background: color-mix(in srgb, var(--surface-overlay) 28%, transparent);
+}
+
+:global(.theme-legacy .advisor-panel) {
+  width: min(430px, calc(100vw - 32px));
+  max-height: min(720px, calc(var(--app-viewport-height, 100vh) - 32px));
+  border-radius: 4px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-elevated);
+}
+
+:global(.theme-legacy .advisor-header) {
+  padding: 13px 16px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, var(--bg-secondary)), var(--bg-secondary) 52%);
+  border-top: 3px solid color-mix(in srgb, var(--accent-steel, var(--accent)) 70%, var(--border));
+}
+
+:global(.theme-legacy .advisor-title) {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+:global(.theme-legacy .message.advisor .message-bubble),
+:global(.theme-legacy .message-bubble.is-markdown p) {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:global(.theme-legacy .message.user .message-bubble) {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
+  color: var(--text-primary);
+}
+
+:global(.theme-legacy .quick-btn) {
+  border-radius: 3px;
+}
+
+@media (max-width: 640px) {
+  .advisor-overlay {
+    padding: 0;
+  }
+
+  :global(.theme-legacy .advisor-panel) {
+    width: 100%;
+    max-height: min(78vh, 680px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
 }
 
 .advisor-header {
@@ -377,6 +349,16 @@ function sendInput() {
   padding: 20px 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.advisor-notice {
+  margin: 0;
+  padding: 9px 10px;
+  border-top: 2px solid var(--signal-warning, var(--accent-amber, var(--accent)));
+  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--signal-warning, var(--accent)));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .advisor-empty p {

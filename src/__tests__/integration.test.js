@@ -6,6 +6,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import ComicPagePreview from '../components/media/ComicPagePreview.vue'
+import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
+import ContourField from '../components/workbench/ContourField.vue'
+import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import NarrativeTurn from '../components/experience/NarrativeTurn.vue'
 import {
   buildSystemPrompt,
   buildPromptSequence,
@@ -67,26 +71,132 @@ import {
   parseComicScript
 } from '../services/media/comicScriptService'
 import { buildComicPanelImageRequest } from '../services/media/comicImagePrompt'
+import { renderRPText } from '../services/rpTextRenderer'
+import {
+  buildNarrativeFormatInstructions,
+  createNarrativeMessageId,
+  parseNarrativePresentation,
+  parseMarkedBlocks
+} from '../services/narrativePresentation'
 import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
-  it('builds system prompt with style', () => {
+  it('builds system prompt, preserves dialogue punctuation, and keeps pane keyboard navigation accessible', async () => {
     const prompt = buildSystemPrompt('narrator', { style: 'webnovel' })
     expect(prompt).toContain('网文风')
-  })
 
-  it('builds narrative constraints', () => {
-    const prompt = buildNarrativeConstraints({ currentPeriod: '清晨', currentScene: '酒馆' })
-    expect(prompt).toContain('清晨')
-    expect(prompt).toContain('硬性约束')
-  })
-
-  it('builds complete prompt sequence', () => {
+    const rendered = renderRPText('他说：“那是‘归航信号’。”')
+    expect(rendered).toContain('<span class="rp-dialogue">“')
+    expect(rendered).toContain('”</span>')
+    expect(rendered).toContain('rp-dialogue-quote-soft')
+    const constraints = buildNarrativeConstraints({ currentPeriod: '清晨', currentScene: '酒馆' })
+    expect(constraints).toContain('清晨')
+    expect(constraints).toContain('硬性约束')
     const messages = buildPromptSequence({
       templateKey: 'narrator',
       worldBookEntries: [{ name: '测试', type: 'character', content: '测试内容' }]
     })
     expect(messages.length).toBeGreaterThan(0)
+
+    const paneSwitch = mount(WorkspacePaneSwitch, {
+      props: {
+        modelValue: 'content',
+        label: '素材工作区',
+        items: [
+          { value: 'index', label: '索引' },
+          { value: 'content', label: '内容' },
+          { value: 'tools', label: '工具' }
+        ]
+      }
+    })
+    const activePane = paneSwitch.get('[aria-checked="true"]')
+    await activePane.trigger('keydown', { key: 'ArrowRight' })
+    expect(paneSwitch.emitted('update:modelValue')?.at(-1)).toEqual(['tools'])
+    expect(paneSwitch.attributes('role')).toBe('radiogroup')
+
+    const contour = mount(ContourField, { props: { density: 'relation', entry: 'left' } })
+    expect(contour.classes()).toContain('contour-field--relation')
+    expect(contour.classes()).toContain('contour-field--left')
+    expect(contour.attributes('aria-hidden')).toBe('true')
+
+    const icon = mount(WorkbenchIcon, { props: { name: 'archive', size: 18 } })
+    expect(icon.find('svg').attributes('width')).toBe('18')
+
+    const turn = mount(NarrativeTurn, {
+      props: {
+        message: { role: 'user', content: '检查航道。' },
+        index: 0,
+        blocks: [{ id: 'b1', kind: 'narration', text: '检查航道。' }],
+        renderContent: (block) => block.text
+      }
+    })
+    expect(turn.get('details.prose__actions').attributes('open')).toBeUndefined()
+    expect(turn.findAll('.prose__action')).toHaveLength(3)
+  })
+})
+
+describe('Narrative presentation contract', () => {
+  it('parses markers into clean text and falls back without losing legacy content', () => {
+    const structured = parseNarrativePresentation([
+      ':::narration',
+      '雨水沿着舷窗滑落。',
+      ':::dialogue|陆晨曦',
+      '“信号还在吗？”',
+      ':::action|陆晨曦',
+      '她调高了增益。'
+    ].join('\n'), { messageId: 'message-1' })
+
+    expect(structured.source).toBe('model-structured')
+    expect(structured.content).toBe('雨水沿着舷窗滑落。\n\n“信号还在吗？”\n\n她调高了增益。')
+    expect(structured.blocks.map((block) => `${block.kind}:${block.speaker || ''}`)).toEqual([
+      'narration:', 'dialogue:陆晨曦', 'action:陆晨曦'
+    ])
+    expect(structured.content).not.toContain(':::')
+
+    const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
+      messageId: 'preamble'
+    })
+    expect(preamble.content).toContain('模型说明')
+    expect(preamble.content).toContain('“继续。”')
+
+    const provisional = parseNarrativePresentation(':::dialog', {
+      messageId: 'streaming',
+      complete: false
+    })
+    expect(provisional.status).toBe('provisional')
+    expect(provisional.content).toBe('')
+
+    const legacy = parseNarrativePresentation([
+      '*她抬头。*',
+      '',
+      '陆晨曦：“继续。”',
+      '陆晨曦说：“保持航向。”',
+      '“信号在移动。”陆晨曦说道。',
+      '“别走。”'
+    ].join('\n'), { messageId: 'legacy' })
+    expect(legacy.source).toBe('parser')
+    expect(legacy.content).toContain('“别走。”')
+    expect(legacy.blocks.map((block) => `${block.kind}:${block.speaker || ''}`)).toEqual([
+      'action:',
+      'dialogue:陆晨曦',
+      'dialogue:陆晨曦',
+      'dialogue:陆晨曦',
+      'dialogue:'
+    ])
+    expect(legacy.blocks.slice(1, 4).every((block) => block.speakerSource === 'text')).toBe(true)
+
+    const messageFallback = parseNarrativePresentation('“继续。”', {
+      messageId: 'fallback-speaker',
+      fallbackSpeaker: '褚岩'
+    })
+    expect(messageFallback.blocks[0]).toMatchObject({ speaker: '褚岩', speakerSource: 'message' })
+    expect(parseMarkedBlocks(':::dialogue|甲\n未闭合\n:::unknown\n文本', 'bad')).toBeNull()
+  })
+
+  it('keeps stable ids and one prompt format contract', () => {
+    expect(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
+      .toBe(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
+    expect(buildNarrativeFormatInstructions()).toContain(':::dialogue|角色名')
   })
 })
 
@@ -509,7 +619,7 @@ describe('Media services', () => {
         compact: true
       }
     })
-    await blankEditor.get('.comic-editor__draft-options select').setValue('6')
+    await blankEditor.get('.comic-editor__draft-choice--count button:last-child').trigger('click')
     await blankEditor.get('.comic-editor__draft-actions button:last-child').trigger('click')
     expect(blankEditor.text()).toContain('0/6')
     expect(blankEditor.findAll('.comic-page-preview__panel')).toHaveLength(6)

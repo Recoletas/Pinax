@@ -57,6 +57,9 @@ export const STORAGE_KEYS = {
   // 游戏
   GAME_SETTINGS: 'gameSettings',
   API_SETTINGS: 'apiSettings',
+  EXPERIENCE_READING_PROFILE: 'experience_reading_profile_v1',
+  AGENT_RUNTIME_POLICY: 'pinax_agent_runtime_policy_v1',
+  AGENT_RUNTIME_METRICS: 'pinax_agent_runtime_metrics_v1',
 
   // 角色卡
   CHARACTERS: 'characters',

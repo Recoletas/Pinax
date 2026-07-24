@@ -7,6 +7,7 @@ export {
   resolveTaskType,
   registerTask,
   getAllTaskTypes,
+  getExecutableTaskTypes,
   getTaskByLegacyAlias,
   isLegacyAlias,
   TASK_SCHEMA_VERSION
@@ -45,7 +46,9 @@ export {
   needsAcknowledge,
   extractTextPatch,
   extractSuggestions,
-  extractGenerationRequest
+  extractGenerationRequest,
+  validateAgentAction,
+  validateAgentResult
 } from './agentResultLifecycle'
 
 export {
@@ -53,3 +56,14 @@ export {
   adaptLegacyResultToAgentResult,
   adaptAgentResultToLegacy
 } from './legacyAdapter'
+
+export {
+  PASSIVE_HINT_TYPES,
+  DEFAULT_AGENT_RUNTIME_POLICY,
+  getAgentRuntimePolicy,
+  setAgentRuntimeEnabled,
+  canRunAgentTask,
+  getAgentRuntimeMetrics,
+  canRequestPassiveHint,
+  recordAgentRuntimeEvent
+} from './agentRuntimePolicy'

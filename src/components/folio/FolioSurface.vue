@@ -69,6 +69,14 @@ const variantClass = computed(() => `folio-surface--${props.variant}`)
     linear-gradient(160deg, color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary)) 0%, color-mix(in srgb, var(--archive-paper) 80%, var(--surface-panel)) 100%);
 }
 
+:global(html.theme-legacy .folio-surface--paper) {
+  background: var(--surface-workbench-raised);
+}
+
+:global(html.theme-legacy .folio-surface--chrome) {
+  background: var(--surface-workbench);
+}
+
 .folio-surface--dark {
   color: color-mix(in srgb, var(--archive-paper-soft) 94%, #fff);
   background:

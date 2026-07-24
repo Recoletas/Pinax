@@ -5,19 +5,14 @@ import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
+import ContourField from '../components/workbench/ContourField.vue'
+import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
 
 const route = useRoute()
 const router = useRouter()
-
-/* V3 (2026-06-25): roman numeral stamps for the 5 activity tabs.
-   ACTIVITY_ITEMS is fixed at 5 entries (workbenchNav.js), so the
-   map is hard-coded; if the count grows beyond Ⅹ we can extend or
-   switch to toRoman() but for now the archive folio language wants
-   hand-picked Ⅰ-Ⅴ marks, not generic 01-05 sans numerals. */
-const ROMAN_ACTIVITY_STAMPS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ']
 
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
@@ -48,8 +43,11 @@ const currentRouteCaption = computed(() => String(route.meta?.title || currentPa
    moves). */
 const prevActivityKey = ref(currentActivityKey.value)
 const transitionDirection = ref(1)
+const routeTransitionName = computed(() => transitionDirection.value === 0 ? 'page-layer' : 'page-route')
 
-watch(currentActivityKey, (nextKey, previousKey) => {
+watch(() => route.fullPath, () => {
+  const nextKey = currentActivityKey.value
+  const previousKey = prevActivityKey.value
   if (nextKey === previousKey) {
     transitionDirection.value = 0
     return
@@ -136,6 +134,20 @@ function handleSelectActivity(activityKey) {
   closeDrawer()
 }
 
+function handleTabKeydown(event, activityKey) {
+  const currentIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === activityKey)
+  if (currentIndex < 0) return
+  let nextIndex = currentIndex
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % ACTIVITY_ITEMS.length
+  else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + ACTIVITY_ITEMS.length) % ACTIVITY_ITEMS.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = ACTIVITY_ITEMS.length - 1
+  else return
+  event.preventDefault()
+  handleSelectActivity(ACTIVITY_ITEMS[nextIndex].key)
+  nextTick(() => tabbarRef.value?.querySelectorAll('[role="tab"]')?.[nextIndex]?.focus())
+}
+
 function handleSelectPanel(routeName) {
   if (!routeName) return
   if (route.name !== routeName) {
@@ -169,6 +181,7 @@ function handleSelectOnline() {
   >
     <template v-if="!hideActivityBar">
       <header class="shell-mast">
+        <ContourField density="narrative" entry="right" />
         <div class="shell-mast__brand">
           <button
             ref="drawerTriggerRef"
@@ -178,9 +191,7 @@ function handleSelectOnline() {
             aria-label="打开工作区导航"
             @click="toggleDrawer"
           >
-            <span></span>
-            <span></span>
-            <span></span>
+            <WorkbenchIcon name="menu" :size="19" />
           </button>
           <div class="shell-brand-route">
             <Transition name="caption-fade" mode="out-in">
@@ -191,17 +202,19 @@ function handleSelectOnline() {
 
         <nav ref="tabbarRef" class="shell-tabbar" role="tablist" aria-label="顶部活动导航">
           <button
-            v-for="(item, index) in ACTIVITY_ITEMS"
+            v-for="item in ACTIVITY_ITEMS"
             :key="item.key"
             class="shell-tab"
             :class="{ active: item.key === currentActivityKey }"
             role="tab"
             :aria-selected="(item.key === currentActivityKey).toString()"
+            :tabindex="item.key === currentActivityKey ? 0 : -1"
             :aria-label="item.label"
             type="button"
             @click="handleSelectActivity(item.key)"
+            @keydown="handleTabKeydown($event, item.key)"
           >
-            <span class="shell-tab__index" aria-hidden="true">{{ ROMAN_ACTIVITY_STAMPS[index] || '·' }}</span>
+            <WorkbenchIcon :name="item.icon" :size="15" />
             <span class="shell-tab__label">{{ item.label }}</span>
           </button>
         </nav>
@@ -218,12 +231,7 @@ function handleSelectOnline() {
             aria-label="进入联机房间"
             @click="handleSelectOnline"
           >
-            <svg class="shell-subnav-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 4.5h6v6H3z"></path>
-              <path d="M9 6.5h4v5H9"></path>
-              <path d="M5 11.5v1.5M11 11.5v1.5"></path>
-              <path d="M3 13.5h2M9 13.5h5"></path>
-            </svg>
+            <WorkbenchIcon class="shell-subnav-icon" name="users" :size="14" />
             <span class="shell-subnav-label">联机</span>
           </button>
         </nav>
@@ -244,7 +252,8 @@ function handleSelectOnline() {
             aria-label="打开设置"
             data-test="shell-settings-chip"
             @click="openSettings('appearance')"
-          >设置</button>
+            title="设置"
+          ><WorkbenchIcon name="settings" :size="16" /></button>
         </div>
       </header>
 
@@ -309,7 +318,7 @@ function handleSelectOnline() {
     <main class="shell-content">
       <RouterView v-slot="{ Component, route: routeInfo }">
         <transition
-          name="page-route"
+          :name="routeTransitionName"
           mode="out-in"
           @before-enter="onPageBeforeEnter"
           @before-leave="onPageBeforeLeave"
@@ -375,7 +384,7 @@ function handleSelectOnline() {
   position: fixed;
   top: 16px;
   left: 16px;
-  z-index: 90;
+  z-index: var(--z-workbench-chrome);
   box-shadow: 0 14px 24px color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
 
@@ -388,7 +397,7 @@ function handleSelectOnline() {
 .shell-mast {
   position: sticky;
   top: 0;
-  z-index: 90;
+  z-index: var(--z-workbench-chrome);
   min-height: var(--shell-mast-height);
   display: grid;
   /* R2-A: 加一列 auto 给 shell-subnav（仅体验 activity 渲染时出现，
@@ -428,10 +437,8 @@ function handleSelectOnline() {
   width: 46px;
   height: 42px;
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, transparent);
   clip-path: polygon(0 9px, 10px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 10px) 100%, 0 100%);
   background:
@@ -444,12 +451,6 @@ function handleSelectOnline() {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--archive-olive) 48%, var(--archive-ink));
   background: color-mix(in srgb, var(--archive-paper) 92%, transparent);
-}
-
-.shell-menu-btn span {
-  width: 16px;
-  height: 1px;
-  background: currentColor;
 }
 
 .shell-brand-copy {
@@ -510,7 +511,7 @@ function handleSelectOnline() {
    "no background highlight, mark via stamp + ink color". */
 .shell-tab {
   position: relative;
-  min-height: 40px;
+  min-height: var(--control-height-lg);
   padding: 0 14px;
   display: inline-flex;
   align-items: center;
@@ -572,24 +573,6 @@ function handleSelectOnline() {
   font-size: 9px;
   line-height: 1;
   color: color-mix(in srgb, var(--archive-rose) 82%, transparent);
-}
-
-/* V3: roman numeral stamp on .shell-tab__index — LXGW brush via
-   var(--font-display) instead of V1's sans mono. No skewX (V1
-   removed it), no tabular-nums (roman numerals don't align). */
-.shell-tab__index {
-  display: inline-block;
-  min-width: 14px;
-  text-align: center;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0;
-}
-
-.shell-tab.active .shell-tab__index {
-  color: var(--text-primary);
 }
 
 /* V3: inactive label at 500 weight, active label at 600 — the
@@ -713,7 +696,7 @@ function handleSelectOnline() {
    Replaces V1's rounded-grey-rect SaaS chip language. */
 .shell-meta-chip {
   position: relative;
-  min-height: 32px;
+  min-height: var(--control-height-md);
   padding: 0 12px 0 18px;
   display: inline-flex;
   align-items: center;
@@ -725,6 +708,17 @@ function handleSelectOnline() {
   font-weight: 500;
   cursor: pointer;
   transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.shell-meta-chip:has(svg) {
+  width: var(--control-height-md);
+  min-height: var(--control-height-md);
+  justify-content: center;
+  padding: 0;
+}
+
+.shell-meta-chip:has(svg)::before {
+  display: none;
 }
 
 .shell-meta-chip::before {
@@ -804,7 +798,7 @@ function handleSelectOnline() {
 .shell-overlay {
   position: fixed;
   inset: 0;
-  z-index: 88;
+  z-index: var(--z-workbench-overlay);
   border: none;
   background: color-mix(in srgb, var(--archive-ink) 18%, transparent);
   backdrop-filter: blur(4px);
@@ -816,7 +810,7 @@ function handleSelectOnline() {
   top: 0;
   left: 0;
   bottom: 0;
-  z-index: 89;
+  z-index: var(--z-workbench-sheet);
   width: min(var(--shell-drawer-width), calc(100vw - 28px));
   transform: translateX(calc(-100% - 20px));
   transition: transform 0.2s ease;
@@ -979,15 +973,6 @@ function handleSelectOnline() {
   .shell-tab {
     min-width: max-content;
     padding: 0 12px;
-  }
-
-  /* V3 (2026-06-25): roman numeral stamp stays visible at ≤760px so
-     the archive folio language reads on mobile. Old behavior hid the
-     index and let the labels stand alone; that read as plain text
-     tabs. With the LXGW Ⅰ-Ⅴ mark + small font + reduced letter-
-     spacing, the row fits the mast width without overflow. */
-  .shell-tab__index {
-    font-size: 11px;
   }
 
   .shell-tab__label {
@@ -1153,7 +1138,7 @@ function handleSelectOnline() {
    (V3 deletes V2's 2px accent bar — replaced by the archive-rose
    ◆ ::before stamp on active tabs). Tabs read as paper-tear
    dashed dividers (border-left 1px dashed archive-gold 18%) +
-   roman numeral stamp + ink-dot chip language. */
+   semantic icon + ink-dot chip language. */
 .theme-kao .shell-tabbar {
   gap: 0;
 }
@@ -1182,22 +1167,12 @@ function handleSelectOnline() {
   color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
 }
 
-.theme-kao .shell-tab__index {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .shell-tab.active .shell-tab__index {
-  color: var(--archive-ink);
-}
-
 .theme-kao .shell-tab__label {
   font-size: 13px;
 }
 
 /* R2-A (2026-07-16): kao 主题下 subnav 沿用 archive-rose 墨点
-   印章 + archive-ink 文字。和 shell-tab 同家族，只是更紧凑、
-   没有罗马序号，作为子模式入口而非平级 tab。 */
+   印章 + archive-ink 文字。和 shell-tab 同家族，只是更紧凑。 */
 .theme-kao .shell-subnav-btn {
   border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
   color: var(--archive-ink-soft);

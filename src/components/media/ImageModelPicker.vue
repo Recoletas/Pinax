@@ -10,6 +10,7 @@ import {
   listImageProviderConfigs,
   saveImageProviderConfig
 } from '../../services/media/imageProviderConfigStore'
+import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -19,12 +20,14 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'configs-updated'])
 const showPicker = ref(false)
 const showConfig = ref(false)
+const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const modelTypes = IMAGE_MODEL_TYPES
 const templateHelpText = '支持 {{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{reference_image}}、{{reference_images_json}}。'
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
+const layerOpen = computed(() => showPicker.value || showConfig.value)
 
 watch(() => props.configs, (configs) => {
   localConfigs.value = Array.isArray(configs) && configs.length
@@ -136,11 +139,27 @@ function resetConnectionState() {
   connectionState.kind = 'idle'
   connectionState.message = ''
 }
+
+function closeLayer() {
+  if (showConfig.value) {
+    closeConfig()
+    return
+  }
+  showPicker.value = false
+}
+
+useTransientLayer({
+  id: 'image-model-picker',
+  isOpen: layerOpen,
+  onClose: closeLayer,
+  initialFocus: () => document.querySelector('.image-model-overlay .image-model-icon-btn'),
+  returnFocus: () => triggerRef.value
+})
 </script>
 
 <template>
   <div class="image-model-picker">
-    <button class="image-model-picker__trigger" type="button" @click="openPicker">
+    <button ref="triggerRef" class="image-model-picker__trigger" type="button" @click="openPicker">
       <span class="image-model-picker__trigger-copy">
         <span class="image-model-picker__eyebrow">图片模型</span>
         <strong>{{ selectedConfig?.name || '选择或配置模型' }}</strong>
@@ -272,7 +291,7 @@ function resetConnectionState() {
 .image-model-overlay {
   position: fixed;
   inset: 0;
-  z-index: 420;
+  z-index: var(--z-modal-backdrop, 800);
   display: grid;
   place-items: center;
   padding: 20px;

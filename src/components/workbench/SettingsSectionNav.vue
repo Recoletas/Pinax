@@ -15,6 +15,7 @@
       :to="{ name: tab.routeName }"
     >
       <span class="settings-section-tab__index" aria-hidden="true">{{ tab.index }}</span>
+      <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="14" />
       <span class="settings-section-tab__label">{{ tab.label }}</span>
     </router-link>
   </nav>
@@ -23,6 +24,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import WorkbenchIcon from './WorkbenchIcon.vue'
 
 /* UI-S16 (2026-06-27): settings activity 内部切换条. 4 个设定子页
    共享同一段 router-link 标签条, 顺序 = activity 入口默认序:
@@ -31,10 +33,10 @@ import { useRoute } from 'vue-router'
    + active 的 ◆ 印章. 用户进 设定 activity 后, 4 个 sub-page
    内部就能互跳, 不必再回左侧抽屉 / mast activity tab. */
 const tabs = [
-  { key: 'worldbook', index: 'Ⅰ', label: '世界书', routeName: 'settings-worldbook' },
-  { key: 'structured', index: 'Ⅱ', label: '结构化', routeName: 'settings-structured' },
-  { key: 'map', index: 'Ⅲ', label: '地图', routeName: 'settings-world-map' },
-  { key: 'advanced', index: 'Ⅳ', label: '高级', routeName: 'settings-worldbook-advanced' }
+  { key: 'worldbook', index: 'Ⅰ', icon: 'book', label: '世界书', routeName: 'settings-worldbook' },
+  { key: 'structured', index: 'Ⅱ', icon: 'network', label: '结构化', routeName: 'settings-structured' },
+  { key: 'map', index: 'Ⅲ', icon: 'compass', label: '地图', routeName: 'settings-world-map' },
+  { key: 'advanced', index: 'Ⅳ', icon: 'settings', label: '高级', routeName: 'settings-worldbook-advanced' }
 ]
 
 const route = useRoute()
@@ -145,6 +147,23 @@ const currentRouteName = computed(() => String(route.name || ''))
 
 .settings-section-tab.active .settings-section-tab__index {
   color: var(--text-primary);
+}
+
+.settings-section-tab__icon {
+  display: none;
+  color: var(--text-muted);
+}
+
+:global(html.theme-legacy .settings-section-tab__index) {
+  display: none;
+}
+
+:global(html.theme-legacy .settings-section-tab__icon) {
+  display: inline-flex;
+}
+
+:global(html.theme-legacy .settings-section-tab.active .settings-section-tab__icon) {
+  color: var(--signal-primary);
 }
 
 .settings-section-tab__label {

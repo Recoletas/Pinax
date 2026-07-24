@@ -56,7 +56,7 @@ import TreeItem from './WorldTreeItem.vue'
 const geoStore = useGeographyStore()
 const { worldTree: tree, activeWorldId } = storeToRefs(geoStore)
 
-const collapsed = ref(false)
+const collapsed = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches)
 
 function setActiveWorld(id) {
   geoStore.setActiveWorld(id)
@@ -188,5 +188,19 @@ function handleRename(id, name) {
 
 .icon-btn-xs.accent:hover {
   color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .sidebar-expanded {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: var(--z-sheet, 40);
+    width: min(240px, calc(100% - 48px));
+    box-shadow: 14px 0 30px color-mix(in srgb, var(--shadow) 42%, transparent);
+  }
+
+  .sidebar-collapsed {
+    width: 40px;
+  }
 }
 </style>

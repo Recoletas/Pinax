@@ -8,6 +8,22 @@ import {
   spliceTextAt
 } from '@/services/writingSelectionCapture'
 import { listNarrativeAssets } from '@/services/narrativeAssets'
+import {
+  applyWritingSuggestion,
+  buildWritingAgentInput,
+  createWritingRevision,
+  shouldTriggerWritingAgent,
+  undoWritingSuggestion
+} from '@/composables/useWritingAgent'
+import {
+  applyWritingAgentTransaction,
+  undoWritingAgentTransaction
+} from '@/services/agents/writingAgentTransaction'
+import {
+  buildSuggestionDomainAction,
+  buildWritingProfessionalActions,
+  buildWritingProfessionalTarget
+} from '@/services/agents/writingProfessionalActions'
 
 describe('writingSelectionCapture core flow', () => {
   beforeEach(() => {
@@ -80,5 +96,106 @@ describe('writingSelectionCapture core flow', () => {
   it('splices text at a clamped insertion point', () => {
     expect(spliceTextAt('world', 'hello ', -1)).toEqual({ text: 'hello world', insertStart: 0, insertEnd: 6 })
     expect(spliceTextAt('hello', ' world', 999)).toEqual({ text: 'hello world', insertStart: 5, insertEnd: 11 })
+
+    const prose = '雨沿着旧窗缓慢落下。她没有回头，只把信压在灯下。走廊尽头的钟声已经停了很久，门外也始终没有人说话。'
+    expect(shouldTriggerWritingAgent({
+      content: prose,
+      cursorPos: prose.length,
+      inputType: 'insertText'
+    })).toBe(true)
+    for (const inputType of ['insertFromPaste', 'historyUndo', 'historyRedo']) {
+      expect(shouldTriggerWritingAgent({
+        content: prose,
+        cursorPos: prose.length,
+        inputType
+      })).toBe(false)
+    }
+    expect(shouldTriggerWritingAgent({
+      content: prose,
+      cursorPos: prose.length,
+      composing: true
+    })).toBe(false)
+
+    const applied = applyWritingSuggestion(prose, prose.length, '门外传来脚步声。她握紧了笔。', 'unit')
+    expect(applied.inserted).toBe('门外传来脚步声。')
+    const receipt = {
+      before: prose,
+      cursorBefore: prose.length,
+      cursorAfter: applied.newCursorPos,
+      afterRevision: createWritingRevision(applied.content, applied.newCursorPos)
+    }
+    expect(undoWritingSuggestion(applied.content, receipt)).toMatchObject({
+      ok: true,
+      content: prose,
+      cursorPos: prose.length
+    })
+    expect(undoWritingSuggestion(`${applied.content}改`, receipt)).toMatchObject({
+      ok: false,
+      reason: 'revision-changed'
+    })
+
+    const agentInput = buildWritingAgentInput({
+      content: prose,
+      bookId: 'book-1',
+      chapterId: 'chapter-1',
+      chapterTitle: '雨夜',
+      outlineItems: [],
+      inboxAssets: [],
+      selectedInboxIds: [],
+      referenceAsset: null,
+      worldbook: null
+    }, prose.length)
+    expect(agentInput.envelope).toMatchObject({
+      surface: 'writing',
+      target: {
+        type: 'cursor-window',
+        id: 'chapter-1',
+        revision: createWritingRevision(prose, prose.length)
+      }
+    })
+    expect(agentInput.envelope.blocks.map((block) => block.kind)).toEqual(['rules', 'scene'])
+    expect(agentInput.ledger.parts.some((part) => part.purpose === 'writing-cursor-window')).toBe(true)
+    expect(agentInput.ledger.parts.every((part) => !Object.prototype.hasOwnProperty.call(part, 'content'))).toBe(true)
+
+    const transaction = applyWritingAgentTransaction('甲段。乙段。', [
+      { type: 'text-patch', range: { start: 0, end: 2 }, baseText: '甲段', content: '开场' },
+      { type: 'text-patch', range: { start: 3, end: 5 }, baseText: '乙段', content: '收束' }
+    ], { resultId: 'result-1', chapterId: 'chapter-1', cursorBefore: 5 })
+    expect(transaction).toMatchObject({ ok: true, content: '开场。收束。' })
+    expect(undoWritingAgentTransaction(transaction.content, transaction.receipt, 'chapter-1'))
+      .toMatchObject({ ok: true, content: '甲段。乙段。', cursorPos: 5 })
+    expect(undoWritingAgentTransaction(`${transaction.content}改`, transaction.receipt, 'chapter-1'))
+      .toMatchObject({ ok: false, reason: 'revision-changed' })
+    expect(applyWritingAgentTransaction('甲段。乙段。', [
+      { type: 'text-patch', range: { start: 0, end: 2 }, baseText: '旧文', content: '开场' },
+      { type: 'text-patch', range: { start: 3, end: 5 }, baseText: '乙段', content: '收束' }
+    ])).toMatchObject({ ok: false, reason: 'stale-base-text', actionIndex: 0 })
+
+    expect(buildWritingProfessionalActions({ hasSelection: false, hasParagraph: true }))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: '扩写选区', disabled: true, taskType: 'writing.fix.selection' }),
+        expect.objectContaining({ label: '补强段落衔接', disabled: false, taskType: 'writing.fix.paragraph' })
+      ]))
+    expect(buildWritingProfessionalTarget({ scope: 'selection' }, {
+      selection: { start: 2, end: 4, text: '片段' }
+    })).toEqual({
+      kind: 'selection',
+      range: { start: 2, end: 4 },
+      text: '片段'
+    })
+    expect(buildSuggestionDomainAction('create-asset', { content: '保留这个伏笔' }, {
+      resultId: 'result-1',
+      chapterId: 'chapter-1',
+      projectId: 'book-1',
+      index: 0
+    })).toMatchObject({
+      type: 'create-asset',
+      asset: {
+        kind: 'inspiration',
+        content: '保留这个伏笔',
+        projectId: 'book-1',
+        source: { chapterId: 'chapter-1' }
+      }
+    })
   })
 })

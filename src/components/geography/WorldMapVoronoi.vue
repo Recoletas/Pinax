@@ -5,7 +5,12 @@
       <div class="empty-content">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
         <p class="empty-title">还没有地图数据</p>
-        <p class="empty-desc">点击右上角「AI 生成地图」，系统会根据世界观设定自动生成。<br/>先在「世界起源」「自然环境」中填写内容，效果更好。</p>
+        <p class="empty-desc">地图将从当前世界书的起源与自然环境生成。</p>
+        <dl class="empty-params" aria-label="地图生成参数摘要">
+          <div><dt>当前世界</dt><dd>{{ mergedConfig.mapName || '主世界' }}</dd></div>
+          <div><dt>地形模板</dt><dd>{{ mergedConfig.heightmapTemplate || '自动路由' }}</dd></div>
+          <div><dt>国家</dt><dd>{{ mergedConfig.stateCount || 8 }}</dd></div>
+        </dl>
       </div>
     </div>
 
@@ -941,6 +946,10 @@ function roundTo(value, digits) {
 .empty-content { color: var(--text-secondary); }
 .empty-title { font-size: 14px; margin: 12px 0 4px; color: var(--text-primary); }
 .empty-desc { font-size: 12px; opacity: 0.6; line-height: 1.5; }
+.empty-params { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 16px 0 0; }
+.empty-params div { display: grid; gap: 2px; min-width: 76px; }
+.empty-params dt { color: var(--text-muted); font-size: 9px; letter-spacing: 0.08em; }
+.empty-params dd { margin: 0; color: var(--text-primary); font-size: 11px; font-weight: 650; }
 
 .loading-content { color: var(--text-primary); }
 .loading-content p { font-size: 14px; margin-top: 12px; }

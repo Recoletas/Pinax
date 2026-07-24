@@ -22,7 +22,7 @@
 // Used by:
 //   - Writing.vue (next slice: replace buildCopilotAssetContext with
 //     buildReferenceContext in getCopilotContext()).
-//   - useCopilot.buildCopilotMessages() (new `references` parameter).
+//   - useWritingAgent.buildWritingAgentInput() (structured reference input).
 //   - WA-B writingAgentContext (consumer reads blocks for routing hints).
 //
 // Not used by:

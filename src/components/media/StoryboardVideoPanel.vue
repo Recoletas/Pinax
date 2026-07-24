@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import VideoModelPicker from './VideoModelPicker.vue'
+import AgentResultTray from '../agent/AgentResultTray.vue'
+import { useAdvisor } from '../../composables/useAdvisor'
 import { buildShotVideoPrompt, buildStoryboardVideoJobInput } from '../../composables/useDirector'
 import { saveExternalMediaAsset } from '../../services/media/mediaAssetStore'
 import { videoJobService } from '../../services/media/videoJobService'
@@ -12,6 +14,13 @@ import {
   toVideoProviderConfig
 } from '../../services/media/videoProviderConfigStore'
 import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../../types/director'
+import { buildStoryboardAgentContext } from '../../services/agents/storyboardAgentContext'
+import {
+  applyStoryboardShotPatch,
+  canUndoStoryboardShotPatch,
+  undoStoryboardShotPatch,
+  validateStoryboardAgentResult
+} from '../../services/agents/storyboardAgentResults'
 
 const props = defineProps({
   context: { type: Object, default: null },
@@ -19,7 +28,7 @@ const props = defineProps({
   projectId: { type: String, default: null }
 })
 
-const emit = defineEmits(['close', 'archived'])
+const emit = defineEmits(['close', 'archived', 'shots-updated'])
 
 const BUILTIN_PROVIDERS = Object.freeze([
   {
@@ -43,6 +52,7 @@ const aspectRatio = ref('16:9')
 const durationSeconds = ref(6)
 const selectedShotIndex = ref(0)
 const videoPrompt = ref('')
+const shots = ref([])
 const job = ref(null)
 const message = ref('')
 const hasError = ref(false)
@@ -56,7 +66,6 @@ const minimax = reactive({
   aigcWatermark: false
 })
 
-const shots = computed(() => props.context?.shots || props.context?.version?.shots || [])
 const selectedShot = computed(() => shots.value[selectedShotIndex.value] || null)
 const previousShot = computed(() => selectedShotIndex.value > 0 ? shots.value[selectedShotIndex.value - 1] : null)
 const selectedVideoConfig = computed(() => videoConfigs.value.find((item) => item.id === selectedVideoConfigId.value) || null)
@@ -88,6 +97,26 @@ const selectedShotMeta = computed(() => {
     shot.relationLabel || shot.relationType
   ].filter(Boolean).join(' · ')
 })
+
+const {
+  advisorResults,
+  advisorLoading,
+  askAdvisor,
+  updateAdvisorResultStatus,
+  dismissResult
+} = useAdvisor({
+  resultValidator(result, { task }) {
+    return validateStoryboardAgentResult(result, {
+      taskType: task.taskType,
+      target: task.target
+    })
+  }
+})
+
+watch(() => props.context, (context) => {
+  const source = context?.shots || context?.version?.shots || []
+  shots.value = source.map((shot) => ({ ...shot }))
+}, { immediate: true })
 
 watch(shots, (nextShots) => {
   if (selectedShotIndex.value >= nextShots.length) {
@@ -317,6 +346,83 @@ function refreshVideoPrompt() {
   })
 }
 
+function collectStoryboardAgentContext(taskType) {
+  return buildStoryboardAgentContext({
+    taskType,
+    shots: shots.value,
+    shotIndex: selectedShotIndex.value,
+    documentId: props.context?.document?.id,
+    versionId: version.value.versionId,
+    projectId: props.projectId
+  })
+}
+
+async function runStoryboardAgent(taskType) {
+  if (!selectedShot.value || advisorLoading.value) return
+  const built = collectStoryboardAgentContext(taskType)
+  const isReview = taskType === 'storyboard.review'
+  await askAdvisor({
+    label: isReview ? '检查当前镜头连续性' : '准备当前镜头视频请求',
+    question: isReview
+      ? '检查当前镜头与前后镜头的动作、人物、空间、光线、景别、运镜和转场连续性，只修正确有必要的字段。'
+      : '根据当前已确认镜头及前镜视觉锚点，准备一条可审阅的中文视频提示词，不要提交生成任务。',
+    scope: 'storyboard',
+    taskType,
+    target: built.target,
+    mode: 'director'
+  }, () => built.envelope)
+}
+
+function applyStoryboardAgentResult(result) {
+  const action = result?.actions?.[0]
+  const current = collectStoryboardAgentContext(result.taskType)
+  if (current.revision !== result.target?.revision) {
+    updateAdvisorResultStatus(result.id, 'stale', '镜头或相邻镜头已变化，请重新生成')
+    return
+  }
+  if (action?.type === 'generation-request') {
+    result.applyReceipt = {
+      type: 'storyboard-generation-request',
+      beforePrompt: videoPrompt.value,
+      afterPrompt: action.payload.prompt
+    }
+    videoPrompt.value = action.payload.prompt
+    updateAdvisorResultStatus(result.id, 'applied')
+    return
+  }
+  const transaction = applyStoryboardShotPatch(shots.value, action, result.target?.allowedShotId)
+  if (!transaction.ok) {
+    updateAdvisorResultStatus(result.id, 'failed', `无法应用镜头修改：${transaction.reason}`)
+    return
+  }
+  shots.value = transaction.shots
+  result.applyReceipt = transaction.receipt
+  updateAdvisorResultStatus(result.id, 'applied')
+  emit('shots-updated', transaction.shots, { reason: 'agent-review' })
+}
+
+function undoStoryboardAgentResult(result) {
+  const receipt = result?.applyReceipt
+  if (receipt?.type === 'storyboard-generation-request') {
+    if (videoPrompt.value !== receipt.afterPrompt) {
+      result.statusDetail = '提示词已再次编辑，无法自动撤销'
+      return
+    }
+    videoPrompt.value = receipt.beforePrompt
+    result.applyReceipt = null
+    updateAdvisorResultStatus(result.id, 'completed')
+    return
+  }
+  if (!canUndoStoryboardShotPatch(shots.value, receipt)) {
+    result.statusDetail = '当前镜头已再次变化，无法自动撤销'
+    return
+  }
+  shots.value = undoStoryboardShotPatch(shots.value, receipt)
+  result.applyReceipt = null
+  updateAdvisorResultStatus(result.id, 'completed')
+  emit('shots-updated', shots.value, { reason: 'agent-undo' })
+}
+
 function getShotOptionLabel(shot, index) {
   const content = String(shot?.content || shot?.sourceText || shot?.description || '').replace(/\s+/g, ' ').trim()
   const excerpt = content.length > 28 ? `${content.slice(0, 28)}…` : content
@@ -418,6 +524,22 @@ function mergeProviderMetadata(remoteProviders) {
           rows="7"
         ></textarea>
       </label>
+      <div class="video-panel__agent-actions">
+        <button type="button" class="video-panel__button" :disabled="busy || advisorLoading" @click="runStoryboardAgent('storyboard.review')">
+          检查连续性
+        </button>
+        <button type="button" class="video-panel__button" :disabled="busy || advisorLoading" @click="runStoryboardAgent('storyboard.video.prompt')">
+          准备生成请求
+        </button>
+      </div>
+      <AgentResultTray
+        v-for="result in advisorResults.filter((item) => !['dismissed'].includes(item.status))"
+        :key="result.id"
+        :result="result"
+        @apply="applyStoryboardAgentResult"
+        @undo="undoStoryboardAgentResult"
+        @dismiss="dismissResult($event.id)"
+      />
     </div>
 
     <div class="video-panel__form">
@@ -556,6 +678,12 @@ function mergeProviderMetadata(remoteProviders) {
   margin-top: 16px;
   padding-bottom: 15px;
   border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+.video-panel__agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .video-panel__shot-meta {

@@ -4,9 +4,26 @@
   --z-floating-rail: 220;
   --z-floating-dock: 240;
   --z-floating-action: 260;
+  --z-popover: 400;
+  --z-sheet: 600;
+  --z-modal-backdrop: 800;
+  --z-modal: 810;
+  --z-toast: 900;
   --z-stage-decor: 2;
   --z-stage-hero: 5;
   --z-stage-cta: 6;
+  --z-workbench-chrome: 90;
+  --z-workbench-overlay: 180;
+  --z-workbench-sheet: 200;
+  --control-height-sm: 28px;
+  --control-height-md: 34px;
+  --control-height-lg: 40px;
+  --control-radius: 3px;
+  --motion-fast: 140ms;
+  --motion-page: 220ms;
+  --motion-layer: 180ms;
+  --motion-contour: 12s;
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --hero-placeholder-gradient: linear-gradient(180deg, #2a0d12 0%, #1a0809 100%);
   --z-mechanism-notice: 248;
 }
@@ -471,15 +488,31 @@ body {
    matching the opening-titleBreathe curve so mast and page share a
    single motion vocabulary. */
 .page-route-enter-active {
-  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity var(--motion-page) var(--motion-ease-out),
+              transform var(--motion-page) var(--motion-ease-out);
   will-change: opacity, transform;
 }
 
 .page-route-leave-active {
-  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity var(--motion-layer) var(--motion-ease-out),
+              transform var(--motion-layer) var(--motion-ease-out);
   will-change: opacity, transform;
+}
+
+.page-layer-enter-active,
+.page-layer-leave-active {
+  transition: opacity var(--motion-layer) var(--motion-ease-out),
+              transform var(--motion-layer) var(--motion-ease-out);
+}
+
+.page-layer-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-layer-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .page-route-enter-from {
@@ -530,7 +563,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .page-route-enter-active,
-  .page-route-leave-active {
+  .page-route-leave-active,
+  .page-layer-enter-active,
+  .page-layer-leave-active {
     transition: opacity 0.01s ease;
     will-change: auto;
   }

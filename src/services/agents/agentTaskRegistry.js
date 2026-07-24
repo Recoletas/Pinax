@@ -1,4 +1,9 @@
 const AGENT_TASK_SCHEMA_VERSION = 1
+import {
+  getExecutableAgentTaskTypes,
+  LEGACY_AGENT_TASK_ALIASES,
+  resolveExecutableAgentTask
+} from '../../../shared/agentTaskContract'
 
 const RESULT_MODES = Object.freeze({
   SUGGESTIONS: 'suggestions',
@@ -8,13 +13,7 @@ const RESULT_MODES = Object.freeze({
   GENERATION_REQUEST: 'generation-request'
 })
 
-const LEGACY_ALIASES = Object.freeze({
-  'advisor.fix.selection': 'writing.fix.selection',
-  'advisor.fix.paragraph': 'writing.fix.paragraph',
-  'advisor.close.thread': 'writing.close.thread',
-  'advisor.review.chapter': 'writing.chapter.health',
-  'advisor.continue.light': 'writing.continue.light'
-})
+const LEGACY_ALIASES = LEGACY_AGENT_TASK_ALIASES
 
 const TASK_DEFINITIONS = Object.freeze([
   {
@@ -265,10 +264,46 @@ const EXTENDED_WRITING_TASKS = Object.freeze([
   }
 ])
 
+const CREATIVE_GRAPH_TASKS = Object.freeze([
+  task('materials.refine', 'materials', 'refine-asset', 'materials-selection', RESULT_MODES.TEXT_PATCH),
+  task('materials.classify', 'materials', 'classify-assets', 'materials-selection', RESULT_MODES.SUGGESTIONS),
+  task('materials.split', 'materials', 'split-asset', 'materials-selection', RESULT_MODES.SUGGESTIONS),
+  task('materials.relate', 'materials', 'relate-assets', 'materials-selection', RESULT_MODES.SUGGESTIONS),
+  task('canvas.organize', 'canvas', 'organize-selection', 'canvas-neighborhood', RESULT_MODES.SUGGESTIONS),
+  task('canvas.relate', 'canvas', 'relate-selection', 'canvas-neighborhood', RESULT_MODES.SUGGESTIONS),
+  task('canvas.transition', 'canvas', 'transition-selection', 'canvas-neighborhood', RESULT_MODES.SUGGESTIONS)
+])
+
 const ALL_REGISTERED_TASKS = Object.freeze([
   ...TASK_DEFINITIONS,
-  ...EXTENDED_WRITING_TASKS
-])
+  ...EXTENDED_WRITING_TASKS,
+  ...CREATIVE_GRAPH_TASKS
+].map((task) => {
+  const execution = resolveExecutableAgentTask(task.taskType)
+  return Object.freeze({
+    ...task,
+    availability: execution.valid ? 'available' : 'unavailable',
+    owner: execution.valid ? execution.definition.owner : task.surfaces[0],
+    actionTypes: execution.valid ? execution.definition.actionTypes : [],
+    resultMode: execution.valid ? execution.definition.resultMode : task.resultMode,
+    capability: execution.valid ? execution.definition.capability : task.capabilities[0],
+    requiresRevision: execution.valid ? execution.definition.requiresRevision : false,
+    targetTypes: execution.valid ? (execution.definition.targetTypes || []) : [],
+    maxContextChars: execution.valid ? execution.definition.maxContextChars : null
+  })
+}))
+
+function task(id, surface, intent, contextPolicy, resultMode) {
+  return {
+    id,
+    taskType: id,
+    surfaces: [surface],
+    intent,
+    contextPolicy,
+    resultMode,
+    capabilities: ['text']
+  }
+}
 
 const resolvers = new Map()
 for (const def of ALL_REGISTERED_TASKS) {
@@ -299,6 +334,10 @@ export function validateTaskType(taskType) {
   if (!taskType) return { valid: false, reason: 'missing-task-type' }
   const canonical = resolveTaskType(taskType)
   if (!canonical) return { valid: false, reason: 'unknown-task-type' }
+  const executable = resolveExecutableAgentTask(canonical)
+  if (!executable.valid) {
+    return { valid: false, reason: 'task-unavailable', canonical }
+  }
   return { valid: true, canonical }
 }
 
@@ -327,6 +366,10 @@ export function registerTask(definition) {
 
 export function getAllTaskTypes() {
   return ALL_REGISTERED_TASKS.map((t) => t.taskType)
+}
+
+export function getExecutableTaskTypes() {
+  return getExecutableAgentTaskTypes()
 }
 
 export function getTaskByLegacyAlias(legacyName) {

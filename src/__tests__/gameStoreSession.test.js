@@ -685,7 +685,9 @@ describe('gameStore sessions', () => {
     expect(sentMessages[0].content).toContain('【写作上下文】')
     expect(sentMessages[1].content).toContain('【已确认记忆】')
     expect(sentMessages[2].content).toContain('【世界书：Ledger World】')
-    expect(sentMessages[3]).toEqual({ role: 'system', content: '你是叙述者。' })
+    expect(sentMessages[3].role).toBe('system')
+    expect(sentMessages[3].content).toContain('你是叙述者。')
+    expect(sentMessages[3].content).toContain(':::narration')
 
     const sources = new Set(gameStore.lastContextLedger.parts.map((part) => part.source))
     expect(sources.has('worldbook')).toBe(true)

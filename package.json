@@ -19,7 +19,8 @@
     "verify:full": "vitest run --exclude=src/__tests__/visual-verification.test.js && vite build && git diff --check && vitepress build docs/src && vitest run src/__tests__/visual-verification.test.js",
     "docs:dev": "vitepress dev docs/src",
     "docs:build": "vitepress build docs/src",
-    "docs:preview": "vitepress preview docs/src"
+    "docs:preview": "vitepress preview docs/src",
+    "audit:ui": "node scripts/ui-audit.mjs"
   },
   "dependencies": {
     "alea": "^1.0.1",
@@ -32,6 +33,7 @@
     "express": "^4.18.0",
     "graphology": "^0.26.0",
     "graphology-shortest-path": "^2.1.0",
+    "lucide-vue-next": "^0.468.0",
     "marked": "^18.0.3",
     "mem0ai": "^3.0.3",
     "pinia": "^2.1.0",
@@ -49,6 +51,7 @@
     "eslint": "^9.0.0",
     "eslint-plugin-vue": "^9.0.0",
     "jsdom": "^29.1.1",
+    "playwright": "^1.61.1",
     "vite": "^5.0.0",
     "vitepress": "^1.6.4",
     "vitest": "^1.0.0",

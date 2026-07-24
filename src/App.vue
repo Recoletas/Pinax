@@ -86,7 +86,12 @@ watch(
     <ThemeAssets />
     <router-view />
     <transition name="meta-toast-fade">
-      <div v-if="generationMetaNotice" class="generation-meta-toast">
+      <div
+        v-if="generationMetaNotice"
+        class="generation-meta-toast"
+        role="status"
+        aria-live="polite"
+      >
         {{ generationMetaNotice }}
       </div>
     </transition>
@@ -105,7 +110,7 @@ watch(
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 9999;
+  z-index: var(--z-toast, 900);
   max-width: min(560px, calc(100vw - 32px));
   background: rgba(16, 18, 24, 0.92);
   color: #f8fafc;

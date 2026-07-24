@@ -447,6 +447,524 @@ UI 原则：
 - 同时运行任务时用户能看到队列、取消和失败原因；
 - 所有 dialog 可键盘关闭并恢复焦点。
 
+### G1.4 体验页叙事会话与阅读系统
+
+#### G1.4.1 问题定义与目标形态
+
+当前体验页已经从传统聊天气泡转向连续正文，但数据和渲染仍停在两个互相冲突的层次：
+
+- `gameStore.messages` 把一次模型回复保存为一条 assistant message；
+- `GamePanel.vue` 把整条 message 渲染成一个 `<p>`，只在角色切换时显示一次名称；
+- `rpTextRenderer.js` 依靠正则给引号、星号、括号和关键词做行内着色；
+- 一个回复内出现旁白、多个角色、动作和心理时，没有可靠的说话者与语义边界；
+- 编辑、删除、重写后续属于消息轮次，但视觉上没有清晰保留这层“酒馆会话”来源；
+- 当前 17px、页面级行高覆盖和 2em 缩进仍是一套分散的固定排版，尚未形成可调、可回退的阅读配置。
+
+目标不是把页面改回普通聊天软件，也不是把所有生成记录伪装成无来源的小说正文，而是建立：
+
+> **Tavern session shell + editorial reading interior（酒馆式会话骨架 + 编辑阅读内页）**
+
+信息层级固定为：
+
+```text
+场景 / 章节边界
+  -> 会话轮次（玩家、叙事者、指定角色、系统）
+    -> 语义块（叙述、动作、台词、心理、机制事件）
+      -> 行内语义（嵌套引语、物品、地点、时间、可触发片段）
+```
+
+这里的“会话轮次”继续拥有编辑、删除、重写、候选版本和来源信息；“语义块”只负责阅读组织，不能各自复制一套消息操作。默认表现以无框正文为主，只有压缩完成、错误、机制确认等特殊系统反馈可以使用克制的背景或边框。
+
+#### G1.4.2 调研依据与取舍
+
+**SillyTavern / Tavern：**
+
+- 本地 `/home/recoletas/jiuguan/SillyTavern` 为 `1.17.0-1-g004f1336e`；规划时已核对上游 `release` 的 `1.18.0`，不能把本地版本当作最新实现；
+- 新旧版本都提供 `Flat / Bubbles / Document` 三种表现，但底层始终保留 `.mes -> .mes_block -> .ch_name -> .mes_text` 的稳定消息壳；
+- Document 模式主要隐藏重复头像、名称和时间并调整正文间距，没有删除编辑、重生成、swipe/候选等消息能力；
+- Bubble 模式只用克制的用户/角色承托色区分两方，不依赖大量正文颜色；
+- 字号、聊天宽度、时间戳、头像、消息操作和引语/斜体颜色是独立设置，说明阅读表现不应污染消息数据；
+- Pinax 应继承“消息来源稳定、当前消息操作可达、表现模式可替换”的原则，不复制 SillyTavern 的面板密度、头像墙或传统气泡外观。
+
+**聊天产品的共同模式：**
+
+- 连续同说话者消息合并视觉身份，只在一组开头显示名称/头像，组内通过间距而不是重复标签分段；
+- 时间、编辑、删除等次级信息按 hover、focus、当前消息或长按出现，避免每段都常驻工具栏；
+- 用户输入和角色回复保持可扫描差异，但差异首先来自位置、节奏、标签和有限字重，而不是给整片正文刷不同颜色；
+- 回复、重试、替代版本绑定到消息轮次，点击任意普通台词不应打开“对话详情”。
+
+**阅读产品：**
+
+- Apple Books 将字号、字体、粗体、行距、两端对齐、页面主题和单双栏作为一套阅读外观配置，证明阅读舒适度应由少量一致参数共同控制；
+- WCAG 2.2 Text Spacing 要求界面在用户覆盖到 1.5 倍行高、2 倍段后距、0.12em 字距、0.16em 词距时仍不丢内容或功能；这是一项抗破版要求，不等于默认视觉必须使用这些极值；
+- 中文正文不照搬西文每段首行缩进：玩家行动、角色台词、连续叙述和场景开头分别确定段落节奏，避免所有消息统一 `2em` 缩进；
+- 默认正文保持现有 Pinax 档案/纸页气质，阅读设置只改变正文变量，不改变三栏工作台、主题色和功能布局。
+
+参考资料：
+
+- SillyTavern 当前上游源码：`https://github.com/SillyTavern/SillyTavern`（`public/index.html`、`public/scripts/power-user.js`、`public/css/toggle-dependent.css`、`public/script.js`）；
+- Apple Books 外观设置：`https://support.apple.com/guide/books/change-a-books-appearance-ibks8923126d/mac`；
+- WCAG 2.2 Text Spacing：`https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html`。
+
+#### G1.4.3 数据契约
+
+保留现有 `message.content` 为可编辑、可复制、可送回模型的干净文本，并新增可丢弃、可重建的表现侧车；不得把 HTML 存入 session：
+
+```ts
+type NarrativeMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  name?: string
+  content: string
+  timestamp: number
+  isStreaming?: boolean
+  presentation?: {
+    version: 1
+    source: 'model-structured' | 'parser' | 'legacy'
+    status: 'provisional' | 'complete' | 'invalid'
+    blocks: NarrativeBlock[]
+  }
+}
+
+type NarrativeBlock = {
+  id: string
+  kind: 'narration' | 'action' | 'dialogue' | 'thought' | 'system'
+  text: string
+  speaker?: string
+  addressee?: string
+  tone?: string
+  triggerRef?: string
+}
+```
+
+约束：
+
+- `content` 永远是事实源；`presentation.blocks` 删除后可以从内容重建；
+- block ID 在同一 message 内稳定，由 message ID、顺序和规范化文本摘要生成，不用数组下标充当跨保存引用；
+- `speaker` 只能来自明确模型结构、当前对话角色或高置信规则，无法确定时留空并按旁白展示，禁止猜成随机角色；
+- `dialogue` 默认只是文本，只有存在 `triggerRef` / `mechanismTrigger` 的片段可点击；
+- 编辑一条 message 后只重建该 message 的 blocks，并使依赖它的机制匹配、记忆候选和对话选项标记为待刷新；
+- 老 session 无需迁移写回：加载时按 `presentation ?? deriveNarrativePresentation(message)` 懒派生；下一次正常保存才带上 version 1 侧车；
+- `rebuildChatHistory()` 继续只发送干净 `content`，不能把渲染标签、颜色类名或 UI 元数据送给模型。
+
+#### G1.4.4 生成、流式与降级策略
+
+第一阶段不增加第二次 LLM 请求。主生成提示词改为请求轻量、可流式解析的叙事块协议，生成服务负责把协议还原为干净正文与侧车：
+
+首选协议采用只允许出现在行首的低歧义 marker，不使用必须等待闭合的整段 JSON，也不让模型输出 HTML：
+
+```text
+:::narration
+观测舱外的小行星带缓慢偏转。
+:::action|陆晨曦
+她合上已经泛黄的日记。
+:::dialogue|陆晨曦
+“那不是自然信号。”
+:::thought|陆晨曦
+她不愿承认，自己已经等待这句话十七年。
+```
+
+marker 仅接受 `narration / action / dialogue / thought / system` 白名单；speaker 去除控制字符和分隔符并限制长度。每遇到下一个合法 marker 就闭合上一块，流末尾闭合最后一块。未知 marker、缺失 marker、重复分隔符和正文中非行首的 `:::` 都按普通文本进入 fallback，不能吞掉内容。
+
+1. 模型优先输出有类型和可选 speaker 的块；协议只描述语义，不包含字体、颜色、HTML 或组件名。
+2. 流式阶段保留 `rawBuffer`，增量解析已经闭合的块；当前未闭合块作为 `provisional` 纯文本显示，不能等完整 JSON 结束才显示整条回复。
+3. UI 只接收清洗后的文本和 blocks，协议标记不得闪现在正文里，也不得进入 `chatHistory`。
+4. 完成时验证 block 类型、文本覆盖率、speaker 长度和顺序；所有 block 拼接后的规范化文本必须与 `content` 等价。
+5. 模型未遵守协议时，使用确定性段落解析器降级：空行/换行 -> 引号 -> 星号动作 -> 心理标记 -> 普通叙述；未知 speaker 留空。
+6. 连确定性解析也无法产生有效块时，退化成单个 `narration` 或按 message role 生成单个块，页面仍可读、可编辑、可重写。
+7. 流式异常保留已生成的干净文本，message 标记 `presentation.status = invalid`，错误反馈另建 system message，不把“生成出错”拼进角色正文。
+
+协议落地前先用 20 组中文 fixture 验证：纯叙述、单人台词、多人轮换、台词中嵌套单引号、动作夹台词、心理活动、场景转换、未闭合引号、Markdown、模型输出格式损坏。fixture 合并进少量 table-driven tests，不增加大量独立 test case。
+
+如果第一阶段真实 provider 的结构遵循率低于 90%，才启用可配置的完成后“结构修复”调用；修复调用必须：
+
+- 只返回 block ranges / speaker，不改写原文；
+- 有独立 task type、耗时和 token 记录；
+- 失败时静默回到 deterministic parser；
+- 默认不用于短消息、玩家消息和已经高置信解析的消息。
+
+#### G1.4.5 渲染组件与视觉层级
+
+将 `GamePanel.vue` 从“消息循环 + 语义解析 + 操作 + 全部样式”拆为：
+
+- `GamePanel.vue`：滚动、空状态、场景边界、消息列表和选择模式；
+- `src/components/experience/NarrativeTurn.vue`：轮次身份、分组、编辑/删除/重写/候选操作；
+- `src/components/experience/NarrativeBlock.vue`：叙述、动作、台词、心理、系统五类块；
+- `src/services/narrativePresentation.js`：协议解析、确定性降级、兼容旧 message；
+- `rpTextRenderer.js`：只保留安全转义和真正的行内语义，不再负责猜整个段落是谁说的。
+
+默认视觉规范：
+
+| 内容 | 默认表现 | 禁止项 |
+|---|---|---|
+| 旁白 | 正文字体、稳定行宽、自然段间距；连续旁白可合并节奏 | 每段重复“旁白”、整段着色、卡片框 |
+| 玩家行动 | 较短的独立 turn，略深字重或轻微位置差，保留“我/角色名” | 标准蓝色聊天气泡、过强背景 |
+| 角色台词 | 保留引号与现有斜体特征，speaker 只在台词组开头出现；字重比旁白略深 | 每句有框、所有台词可点击、字号突变 |
+| 动作 | 与所属角色同组，以温和斜体/字色和前后节奏区分 | 大面积蓝色、单独 badge |
+| 心理 | 比动作更内收，使用次级墨色与有限斜体 | 低对比灰、花哨颜色 |
+| 嵌套引语 | 继续保留双引号外层特征；单引号/书名式内嵌引语使用温和但不同的 2-3 个语义色 | 玫红、同一蓝色覆盖所有层级 |
+| 场景边界 | 无框章节留白、短标题和克制符号 | 横跨正文的重型装饰条 |
+| 系统/机制 | 允许淡背景或细边界，压缩提示保持 `【压缩完成】上下文已压缩完成` | 混入普通叙述流 |
+
+分组算法：
+
+- scene message 永远断组；
+- role、明确 speaker、在线事件作者或超过 5 分钟时间间隔变化时断组；
+- 同一 assistant message 内连续同 speaker 的 dialogue/action/thought 合并为一个视觉组，但仍保留独立 block；
+- narration 插入时终止当前 dialogue 组；短动作可以作为相邻台词的 lead/trail，不单独重复 speaker；
+- 无 speaker 的台词不继承上一个角色超过当前 message 边界；
+- 当前正在流式生成的 turn 保留稳定高度和光标状态，block 类型确认时不得让滚动位置跳动。
+
+#### G1.4.6 Tavern 能力与阅读控制
+
+消息操作保持 Tavern 逻辑但降低常驻噪声：
+
+- 桌面端：hover 或 `focus-within` 显示当前 turn 的编辑、删除、重写后续；最后一条 assistant turn 可显示候选版本/swipe 入口；
+- 触屏端：点按 turn 后显示一行紧凑操作，点正文其他位置关闭；不能依赖 hover；
+- 操作按钮使用项目现有图标与 tooltip，必须是真正的 `<button>`，避免不可聚焦 span action；
+- 编辑仍编辑整条原始 `content`，保存后立即重建 blocks；首版不做逐 block 富文本编辑，避免出现两个事实源；
+- quick-note 选择作用于 turn，可在确认页只摘取选中 block；点击普通台词不进入详情；
+- 替代生成属于 assistant turn，版本切换后同时切换 content 和 presentation，不把每个版本铺成多条消息。
+
+阅读控制收进体验页现有设置，不新增常驻工具条：
+
+- 三个紧凑预设：`舒展`、`标准`、`紧凑`，默认 `标准`；
+- 可选高级项：正文 15-20px、行高 1.6-2.0、阅读列 42-68em、段落节奏、正文/系统主题跟随；
+- 字体只在现有 body/display 字体栈中切换，不下载新字体，不允许每类 block 各用一种字体；
+- 设置按用户本地保存，不写入项目、session 或联机事件；
+- 调整只改 CSS custom properties，例如 `--experience-prose-size`、`--experience-leading`、`--experience-measure`、`--experience-block-gap`；
+- 在 WCAG text-spacing override 下不得截字、重叠、遮挡操作或失去可点击机制标记。
+
+#### G1.4.7 联机、持久化与边界
+
+- `/experience/online/:roomSlug` 已直接复用 `Experience.vue -> GamePanel.vue`，所以叙事 renderer 只能有一套；禁止为联机再建一份 message markup；
+- 房主广播的权威 narrative event 应携带稳定 message ID、干净 content 和可选 presentation；旧客户端忽略 presentation，新客户端缺失时本地派生；
+- 房间左下角聊天仍是成员沟通层，不套用小说 block renderer，也不进入故事 `chatHistory`；
+- 在线成员昵称不能被 deterministic parser 当作故事角色；只有权威 narrative event 中明确 speaker 才进入角色台词；
+- localStorage 中大型旧会话不做启动时全量重算，当前可见窗口优先派生，其余按进入视口或打开 session 时处理；
+- 语义块不是记忆条目。记忆候选继续从完整回复完成后提炼，但可利用 blocks 只选择关键动作、承诺、事实和状态变化，不能把整段台词自动塞入记忆。
+
+#### G1.4.8 分期任务、验收与回退
+
+**M0：基线与设计样本（0.5 天）**
+
+- 固定 20 组中文叙事 fixture 和 6 个真实 session 截图样本；
+- 记录 1440、1280、900、390 宽度下正文宽度、每行字数、首屏可见行数和滚动位置；
+- 标出当前同色泛滥、speaker 错判、未闭合引号、工具操作不可达和长段疲劳样本。
+
+门禁：没有 fixture 与截图基线，不开始改提示词或 CSS。
+
+**M1：语义契约与兼容解析（1-2 天）**
+
+- 建立 `narrativePresentation.js` 和 schema validator；
+- 建立 `buildExperienceNarrativePrompt()`（或同等单一 owner），让初始化、继续、重写和 InputArea 的提示预览读取同一份格式契约，删除 `InputArea.vue` 与 `rebuildChatHistory()` 互相漂移的重复提示；
+- 给每条新 message 生成稳定 ID；
+- 完成结构协议、流式增量解析、clean content 拼接和 deterministic fallback；
+- 旧 session 懒派生，编辑/删除/重写保持原行为。
+
+候选改动边界：`src/stores/gameStore.js`、`src/components/InputArea.vue`、`src/services/generationService.js`、新增的 `src/services/narrativePresentation.js` 与既有 generation fixture；服务端 `/api/chat/stream` 只负责传输 chunk，不解析 UI 语义。
+
+门禁：20 组 fixture 无文本丢失；协议损坏时仍显示完整原文；保存后不出现 HTML/协议标记。
+
+**M2：组件拆分与默认阅读表现（2 天）**
+
+- 拆出 `NarrativeTurn` / `NarrativeBlock`；
+- 落实五类 block、speaker group、场景边界和行内嵌套引语；
+- 删除旧的整段 role class、drop-cap 与统一 2em 缩进中和新层级冲突的部分；
+- 保持 Experience 三栏尺寸和整体 Pinax 主题不变。
+
+门禁：一条 assistant 回复中两名角色 + 旁白可在 3 秒内扫描清楚；无普通台词卡片；无整屏同蓝；文本列不因标签跳动。
+
+**M3：消息操作与 Tavern 连续性（1 天）**
+
+- 恢复语义正确的 turn 操作、触屏入口、键盘 focus 和最后消息候选位置；
+- 编辑后重建 blocks，重写后续仍准确截断；
+- 仅机制台词可点击，普通台词保持纯阅读行为。
+
+门禁：编辑、删除、重写、quick-note、机制触发各走一遍；键盘和触屏均可完成操作。
+
+**M4：阅读配置、移动端和联机复用（1-2 天）**
+
+- 设置页接入三个阅读预设和 CSS variables；
+- 验证 1440 / 1280 / 900 / 760 / 390，浅色/深色、reduced motion 和 text spacing override；
+- 双浏览器联机验证房主/成员看到相同叙事分块，成员聊天不混入正文。
+
+门禁：所有宽度无横向滚动、重叠和正文被侧栏遮挡；切换预设不改变消息数据；刷新后设置与 session 恢复。
+
+**M5：真实模型评估与可选结构修复（1 天观察窗口）**
+
+- 至少用已配置的两类 OpenAI-compatible provider 各生成 20 次；
+- 记录协议遵循率、speaker 准确率、fallback 率、首块显示延迟、完整回复耗时和用户手动编辑率；
+- 只有遵循率低于 90% 或多人台词 speaker 准确率低于 85% 时，才实现完成后结构修复调用。
+
+回退策略：任何 provider 都可关闭 structured narrative，仅保留 deterministic parser；`presentation` 可整体丢弃而不影响原文、历史、重写和 session 加载。
+
+#### G1.4.9 测试预算与完成定义
+
+自动化测试总数继续不超过 200：
+
+- 在现有 `integration.test.js` 中把零散 renderer 断言合并为 1-2 个 table-driven tests；
+- 用同一测试覆盖五类 block、嵌套引号、仅 trigger 可点击、malformed fallback 和 clean-content 等价；
+- store 契约只增加一个 message round-trip / edit rebuild 场景，必要时替换重复旧断言，不扩测试文件数量；
+- 视觉 12 tests 不增加数量，替换其中 Experience 基线，保留桌面与窄屏代表视口；
+- 手工 smoke 不计入自动化数量，但必须记录 provider、session、viewport 和结果。
+
+完成定义：
+
+- 多角色回复不再显示为一个身份不明的大段落；
+- 叙述、动作、台词、心理可辨，但正文仍像同一篇作品而不是彩色组件集合；
+- 普通台词不可点击，机制触发片段有明确且不刺眼的可交互标记；
+- 双引号保留斜体/台词特征，内嵌单引号具有温和分层且不使用玫红；
+- 轮次编辑、删除、重写、候选和联机同步不因新 renderer 退化；
+- 旧 session、格式损坏输出和无结构 provider 都能完整显示原文；
+- `verify:full` 通过，核心 + 视觉测试总数不超过 200，并完成指定视口截图审阅。
+
+执行进度（2026-07-24）：G1.4 的指定视口阅读审阅已完成。主题2常规/长会话覆盖 1440、1280、900、760、390 共 10 张截图，无横向滚动、固定层重叠或 console error；交互 smoke 确认五个视口滚动到底后末条正文均与输入区保持 52px 间隔，消息操作可键盘聚焦，移动现场索引可由 Escape 关闭并归还焦点。M4 仍保留双浏览器联机验收，M5 仍需真实 provider 观察；当前 `3001` 的 `/api/chat/test` 返回空 502，因此两项不标记完成。
+
+### G1.5 UI 一致性与工作区重编排
+
+#### G1.5.1 当前审计结论
+
+2026-07-21 使用用户现有的 `5173` 开发服务，对 `experience`、`writing`、`materials`、`prose-essay`、`comics`、`settings/worldbook`、`settings/structured`、`settings/world-map` 做了 `1440x900` 与 `390x844` 实景截图。首轮无状态浏览器因 `themeStore` 默认值落入 `kao`，实际截取的是已暂时搁置的主题1；复核 `AppearanceControls` 与存储键后，重新显式设置 `app_theme_variant=legacy`，完成主题2的同等 16 张截图。两轮均无 console error。
+
+本计划后续只以主题2（内部 variant 名仍为 `legacy`）作为视觉审计、设计和截图验收目标。主题1（内部 `kao`）保留现有游戏化米色设计并冻结，只要求共享行为、路由和数据不发生灾难性回归，不参与本轮视觉统一，也不把它的暖色表现判断为迁移失败。
+
+主题2截图仍确认：“没有整页横向滚动”不能代表响应式正确。多个页面通过裁切或 `overflow-x: hidden` 隐藏了桌面三栏，真实内容仍不可达。
+
+当前问题按严重度排序：
+
+1. **移动端工作区不是重编排，而是桌面布局裁切**
+   - 素材页在 390px 只剩左索引和右副阅读台，中间主素材舞台不可见；
+   - 卡片画布仍保留左时间轴 + 中央画布并排，中央空状态被挤成逐字竖排；
+   - 漫画制作仍保留素材索引 + 页面舞台 + 右编辑台，首屏只看到被截断的舞台；
+   - 体验页固定高度和底部输入层夹住空状态选项，能滚动不等于能完整阅读和点击；
+   - 写作页正文可用，但顶部模式和工具仍以横向裁切维持，功能发现性不足。
+
+2. **主题2内部的视觉深度仍不一致**
+   - 写作、体验、素材和画布已经形成蓝白现代档案的背景与边缘语言；
+   - 快速导入、结构化设定和世界地图在主题2下同样是蓝白色系，不存在米色主题串入问题，但仍主要依赖普通 hero、圆角字段卡和大外框，空间场、连续稿页和来源信号不足；
+   - 漫画页复用了素材三栏骨架，但中央制作页和右侧流程仍像独立工具，缺少纸页、来源和制作阶段的共同 owner。
+
+3. **空状态放大了结构问题**
+   - 素材、画布和漫画把空状态置于巨大的静态工作面中央，同时在顶部或右侧重复提供创建入口；
+   - 大面积空白没有形成有方向的 `Contour Field`、来源关系或下一步路径，只留下网格、斜带或点阵；
+   - 空状态说明和动作没有占据足够明确的视觉中心，反而让辅助栏比主任务更醒目。
+
+4. **共享壳与页面工作台各自定义层级**
+   - `AppShell` 使用罗马数字页签，页面内部又有自己的编号、标题、模式 tab 和工具条；
+   - 顾问入口、设置、联机、任务按钮和页面快捷动作分别占据右上、右下或边缘，缺少统一的边缘仪表规则；
+   - 页面转场已有方向状态，但视觉空间、纹理和当前工作对象没有参与转场，仍接近通用路由滑动。
+
+5. **超大单文件阻碍一致性修复**
+   - `Writing.vue`、`ProseEssay.vue`、`Notes.vue`、`Experience.vue` 分别约 6011、5248、5172、3560 行；
+   - 同一文件后段覆盖前段样式，响应式规则与历史修复注释交错，容易出现桌面修好、窄屏被旧规则重新覆盖；
+   - 视觉原件已经在文档中定义，但代码层仍主要靠页面私有 class 重复实现。
+
+#### G1.5.2 页面角色与目标状态
+
+| 表面 | Narrative role | 视觉温度 | 目标构图 |
+| --- | --- | --- | --- |
+| 全局壳 | 工作区导航与状态边缘 | 安静、精确 | 内容优先的薄 mast + 可折叠活动导航 + 统一边缘仪表 |
+| 体验 | 沉浸叙事与回合记录 | 沉静、现场感 | 宽阅读流 + 可收起现场索引 + 不遮挡的回合输入 |
+| 写作 | 长时间编辑器 | 编辑出版感 | 连续稿页 + 章节索引 + 就地补全/修订，不形成聊天侧栏 |
+| 素材 | 可检索资料夹 | 轻快、可扫描 | 索引 + 主素材舞台 + 按任务出现的副阅读台 |
+| 卡片画布 | 空间关系编辑器 | 精确、开放 | 全幅可平移画布 + 就近节点工具 + 可收起时间轴/详情 |
+| 漫画 | 页级视觉生产台 | 专注、制作感 | 素材来源 + 整页预览 + 当前格制作步骤，移动端一次只处理一层 |
+| 设定 | 世界档案编辑器 | 权威、文化感 | 连续设定稿 + 分类索引 + 草稿审阅，不使用表单卡片墙 |
+| 地图 | 地理与历史工作面 | 空间感、可解释 | 地图占据主舞台，地理/历史工具贴边，空状态也表达生成路径 |
+| Agent / task | 临时建议与结果事务 | 克制、可信 | 来源、diff、应用/撤销和任务状态；不复制独立聊天产品 |
+
+#### G1.5.3 全局硬约束
+
+- 保留现有业务行为和路由，不以视觉优化为由重写 store、生成协议或地图引擎；行为改动另走所属 Gate。
+- 本轮视觉实现只修改主题2的蓝白现代档案语言；主题1的米色游戏化设计冻结，不做迁移、重绘或视觉验收。共享模板改动必须保证主题1仍能使用，但不要求两套主题同构。
+- 不在 UI 优化中顺手重命名 `kao / legacy` 内部 variant，也不擅自改变默认主题；审计脚本必须显式写入主题2存储值，默认值调整另作产品决策。
+- 主内容保持开放，不把正文、设定字段、漫画步骤和空状态全部包装成卡片；有框区域只用于隔离编辑、比较、确认和风险。
+- 顶层工作区入口使用相应图标与中文名称，不再使用 `01/02/03`、罗马数字或无语义英文微标制造层级。
+- 每个工作面最多两套持续背景纹理，并遵守[空间场纹理语言](../engineering/visual-alignment-workflow.md#空间场纹理语言)；等高线必须具有来源方向，不得覆盖长正文和操作区。
+- 390px 下不能靠 `overflow-x: hidden` 通过验收；所有主要内容和动作必须通过模式切换、抽屉或顺序流真实可达。
+- 每个状态只保留一个主动作 owner。顶部、空状态、右栏不得同时重复“新建/生成/导入”而没有层级差异。
+- 不新增伪数据、假进度、无意义坐标和装饰标签；状态、编号、来源和线路必须来自真实模型。
+- 自动化测试总数继续不超过 200；UI 覆盖通过替换现有视觉用例、table-driven 断言和浏览器 smoke 完成。
+
+#### G1.5.4 M0：建立可复现 UI 基线（0.5-1 天）
+
+任务：
+
+- 增加一个非测试计数的浏览器审计脚本，按固定 localStorage fixture 建立空白、常规、长内容、生成中、失败五类状态；
+- 审计脚本在页面初始化前显式写入 `app_theme_variant=legacy` 与目标明暗模式，禁止依赖当前默认主题或浏览器残留偏好；
+- 默认覆盖 `1440 / 1280 / 980 / 760 / 390`，记录 `scrollWidth`、主内容实际宽度、被裁切元素、fixed/sticky 遮挡和 console error；
+- 截图默认写入 gitignored 临时目录，只有最终批准的代表性基线进入 `docs/demo`，不继续堆积每轮过程截图；
+- 为每页记录“首要对象、首要动作、滚动 owner、移动端 pane 策略、纹理 owner”五项清单。
+
+候选边界：`scripts/ui-audit.mjs`、现有截图脚本、`docs/engineering/visual-alignment-workflow.md`。
+
+门禁：没有可复现 filled-state 与 mobile-state，不开始该页大范围 CSS 调整。
+
+#### G1.5.5 M1：共享视觉基础与代码 owner（2-3 天）
+
+任务：
+
+- 盘点并收敛主题2使用的 `--archive-*`、表面、文字、边线、信号色、阴影、间距、控件高度、z-index 和 motion token；页面 CSS 只组合 token，不再次发明近似颜色；主题1 token 保持冻结，除共享行为修复外不改视觉值；
+- 建立单一图标 owner，使用 `lucide-vue-next` 覆盖菜单、设置、体验、设定、写作、素材、画布、联机、生成、导出、缩放等常见动作；删除重复 inline SVG 和编号式入口；
+- 在现有 `folio/` 与 `workbench/` 下收敛少量真实复用原件：`WorkspaceStage`、`InspectorRail`、`EmptyStage`、`SourceSignal`、`EdgeInstrument`、`ContourField`；只有至少两个页面采用后才保留抽象；
+- 统一主/次/危险/图标按钮、segmented control、tab、输入框、select、tooltip、focus ring、disabled/loading 状态；
+- 把 `Contour Field` 实现为可配置的局部背景层，提供 `narrative / geographic / relation` 三种密度、入口方向、mask 和 reduced-motion，而不是每页复制 radial-gradient 数值；
+- 明确背景、工作面、前景三层 z-index，防止顾问入口、聊天、弹窗、sticky footer 和画布控件互相遮挡。
+
+候选边界：`src/styles/`、`src/styles/themes/legacy.css`、`src/layouts/AppShell.vue`、`src/components/folio/`、`src/components/workbench/`；只有共享结构修复确实需要时才触碰冻结的 `kao.css`。
+
+门禁：先让 AppShell + 一个阅读面 + 一个空间面使用新原件并截图确认，再扩展其余页面。
+
+#### G1.5.6 M2：P0 响应式重编排（2-3 天）
+
+任务：
+
+- **体验**：统一为一个明确的垂直滚动 owner；输入区保持可见但不覆盖消息、选项和 API 状态；390px 将现场索引放入可关闭 sheet；
+- **素材**：`>=1100` 保留三栏，`760-1099` 变为窄索引 + 主舞台，副阅读台按需覆盖；`<760` 使用“索引 / 内容 / 工具”三模式切换，一次只显示一个 pane；
+- **画布**：移动端先显示主画布，时间轴和节点详情进入底部 sheet；顶部命令改为可换行的分组工具带，不让画布空状态逐字竖排；
+- **漫画**：移动端按“素材 -> 页面 -> 当前格”任务顺序切换，不把三栏并排缩小；页面预览保持可缩放，当前格工具进入 sheet；
+- **写作**：章节列表在窄屏成为抽屉，顶部模式与次级动作折叠为可访问菜单，正文始终拥有至少 `calc(100vw - 24px)` 的有效宽度；
+- **设定/地图**：sticky footer、世界书切换器和地图工具不得覆盖最后一项；移动端地图默认全幅，世界树和生成参数按需打开。
+
+门禁：在 390px 上，不依赖横向滚动即可完成每页核心任务；关闭所有 sheet 后焦点回到触发器；软键盘出现时输入和主动作仍可见。
+
+#### G1.5.7 M3：全局壳、模式导航与页面转场（1-2 天）
+
+任务：
+
+- AppShell mast 只保留品牌/当前页、工作区图标导航、真实全局状态和设置；移除罗马数字印章；
+- 同一 activity 的子页面使用统一次级页签，避免 shell 标题、页内标题、模式 tab 三次重复当前路径；
+- 联机入口、设置、存储状态和任务中心按频率与状态重新分组，不让右上角出现多个同权按钮；
+- 把已有 route direction 接入 `PageTransition`：跨工作区采用沿导航轴的抽页/遮罩进入，同工作区模式切换使用短距离层级揭示；
+- 转场时背景纹理可缓慢接续，但主内容移动限制在 `180-280ms`，不等待数据、不重置内部滚动、不影响 reduced motion；
+- 顾问/Agent 入口使用统一边缘仪表位置，并避让联机聊天、记忆候选、画布工具和移动端 safe area。
+
+门禁：连续切换五个工作区无布局跳动、双滚动或焦点丢失；禁用动效后功能和空间层级仍成立。
+
+#### G1.5.8 M4：阅读面精修（体验 + 写作，2-3 天）
+
+体验页：
+
+- filled-state 下让叙事流成为第一视觉中心，空状态缩短为一段场景入口 + 一个主动作，不保留大块演示框和重复选项；
+- 保持 G1.4 的 turn/block 数据结构，以署名、节奏、字重和引号排版区分角色，不恢复气泡墙或整段蓝色；
+- 现场索引压缩为时间/人物/地点/事件的真实摘要，展开详情使用边缘信号色而不是蓝色整块填充；
+- 等高线只出现在场景边界或现场索引附近，表达事件压力；正文阅读列与输入区保持无纹理；
+- hover 操作、触屏操作和编辑态共享一个消息 owner，解决工具靠近时消失、编辑样式跳变和普通台词误触。
+
+写作页：
+
+- 保留当前连续稿页和宽正文轴，收敛章节标题、模式切换、正文与页脚的垂直节奏；
+- 把模式、素材、分镜、冒险和版本操作按任务分组，次级动作 hidden-first，清理横向工具条裁切；
+- 内联 Copilot 只在光标附近显示建议和接受/拒绝，复杂 diff 进入 `ReviewTray`，不再依赖孤立的右下顾问牌；
+- 稿纸基线与边缘等高线只能二选一作为主要背景；长正文列内不叠加点阵、工程网格或动态纹理；
+- 完成标题、正文、选区工具、插画环绕和 Markdown/预览间的视觉连续性。
+
+门禁：体验长 session 与写作 5000 字章节连续阅读 10 分钟无明显层级疲劳；用户在 3 秒内能识别当前角色、当前章节和主动作。
+
+#### G1.5.9 M5：创作空间精修（素材 + 画布，2-3 天）
+
+素材页：
+
+- 左侧斜放纸条保留轻微错落、折角和夹片，但统一透视、阴影方向和选中位移，避免每条像不同角度的装饰贴纸；
+- 主舞台在空状态只保留一个“新建素材” owner；有内容时让文字或插画占据中心，不由类型条和空槽抢占首屏；
+- 相关素材、插画生成、漫画制作作为副阅读台的任务模式，共享同一素材引用和返回路径，不重复显示当前素材名；
+- 采用局部等高线 + 小范围点阵，前者从真实来源/当前类型一侧进入，后者只服务索引坐标。
+
+卡片画布：
+
+- 画布成为唯一主舞台；顶部“输入主题”和中央“还没有素材节点”合并为一个上下文敏感入口；
+- 工程网格随真实 viewport 平移/缩放，等高线停留在外围世界层，不能和节点关系线竞争；
+- 节点选择后就近出现编辑、连接、视频和专业信息工具；全局生成视频只承担多镜头任务，不与单节点视频动作重复；
+- 左时间轴与详情 rail 使用按需展开，不永久压缩画布；空状态、节点少、节点密集三种缩放策略分别验收；
+- 保持现有拖拽瞬时坐标和批量牌堆逻辑，不在视觉轮次重写交互状态机。
+
+门禁：1440px 下画布有效面积占工作区至少 70%；390px 下能创建节点、选中、打开详情并返回画布；缩放/拖动时背景、节点和关系线保持同一坐标感。
+
+#### G1.5.10 M6：漫画制作台重排（3-4 天）
+
+任务：
+
+- 将漫画页明确拆成“页面计划 / 整页制作 / 当前格制作”三层，而不是素材三栏的静态复制；
+- 左侧素材索引只负责给当前格建立 `continuityRefs`，中央整页始终是最大视觉对象，右侧按分镜、构图、草稿、线稿、上色、文字、质检顺序显示当前阶段；
+- 空页建立时用真实版式缩略图选择阅读方向、页格和强调格，不用四个普通 select + 一段说明承担全部决策；
+- 当前格生成前持续显示原素材、上一格锚点、角色/地点视觉圣经和画面推进，确保“联系”在 UI 中可审阅；
+- 对话框提供画布内拖动、八向缩放、尾巴方向、字体/字号/字重/对齐、溢出和遮挡提示；模型始终只生成无字单幅画面；
+- 整页预览与缩放预览合并，滚轮/触控缩放和拖拽查看作为主要交互，右栏不再放占位过大的重复预览。
+
+门禁：用户可从四个不同素材建立一页四格漫画，逐格生成并保持视觉联系，添加中文对话框后导出；页面中不存在自动多格、自动英文文字或不可达的缩放区域。
+
+#### G1.5.11 M7：设定、地理与历史视觉统一（3-4 天）
+
+任务：
+
+- 快速导入、结构化设定、高级世界书和地图在主题2下继续绑定蓝白 archive token；不删除或迁移主题1的米色/红棕游戏化主题规则；
+- 快速导入页压缩过大的世界书 hero，把“当前世界、来源、条目状态、开始冒险”组织成连续档案首页；
+- 结构化设定在主题2中从六张长文本卡片改为“分类索引 + 连续设定稿 + 字段级生成/来源状态”，同一字段只保留一个生成入口；主题1保留现有卡片化游戏面板；
+- 地图空状态使用地理参数摘要 + 一个生成动作；有地图时让地图贴近主舞台边缘，世界树、图层、地理语义和历史草案以可收起 rail 覆盖，不再用巨大外框包住空白；
+- `Contour Field` 在设定页表达世界结构，在地图页只服务生成前/地图外围；真实地形渲染出现后，装饰等高线主动退场；
+- 地理语义点、历史节点和冒险入口统一使用 `SourceSignal`，用户可看见“设定 -> 地点 -> 历史 -> 体验”的真实来源线。
+
+门禁：从世界书导入、补设定、生成地图、审阅历史到进入冒险，页面语言不发生主题跳变；地图和历史信息在 1440/980/390 下均有明确主次。
+
+#### G1.5.12 M8：Agent、任务反馈与浮层统一（2 天）
+
+任务：
+
+- 与 G1.3、G4.2 共用 task/result contract，不为 UI 再建状态；短确认使用 toast，长任务进入 task center，可取消、重试并查看真实失败原因；
+- Agent 默认表现为当前工作对象附近的建议、来源标记和修订结果，只有复杂任务才展开窄 `ReviewTray`；
+- 统一 modal stack、sheet、popover、tooltip、右键菜单、Esc、focus return 和 body scroll lock；
+- 联机聊天、记忆候选、Agent 建议和系统通知各有固定层级与互斥规则，移动端同一时间最多展开一个大型浮层；
+- 删除不再挂载的 `ImageGenRail` 兼容壳、失效抽屉样式、重复顾问入口和已被新原件替代的页面 CSS。
+
+门禁：同时触发联机聊天、记忆候选和生成任务时，主内容仍可读、主动作不被遮挡，关闭顺序与焦点返回可预测。
+
+#### G1.5.13 M9：结构清理、性能与长期门禁（2-3 天）
+
+任务：
+
+- 在每组页面视觉方向通过后，再将 `Writing.vue`、`Notes.vue`、`ProseEssay.vue`、`Experience.vue` 的稳定区域拆为有单一 owner 的组件和样式；不先做无视觉收益的全文件重构；
+- 删除被后置 selector 覆盖的旧样式、过时修复注释、未挂载组件和重复 media query，记录保留的主题覆盖原因；
+- 背景纹理优先 CSS/静态资源，不在动画帧中重算大范围滤镜；检查 route 切换、画布缩放和长 session 滚动的 long task；
+- 以现有 188 core + 12 visual 为上限，替换视觉测试覆盖 shell、阅读面、空间面和移动 pane，不新增测试数量；
+- `verify:full`、axe、键盘 smoke、reduced motion、200% zoom 和指定视口截图全部通过后才结束。
+
+#### G1.5.14 推荐执行批次
+
+| 批次 | 范围 | 可交付结果 | 依赖 |
+| --- | --- | --- | --- |
+| UI-A | M0 + M2 的体验/素材/画布/漫画 P0 | 移动端核心任务真实可达，不再靠裁切通过 | 无，立即执行 |
+| UI-B | M1 + M3 | 统一 token、图标、工作台原件、mast 与转场 | UI-A 的截图基线 |
+| UI-C | M4 | 体验与写作形成稳定阅读/编辑语言 | UI-B |
+| UI-D | M5 + M6 | 素材、画布、漫画成为连续视觉创作链 | UI-B，可与 UI-C 分文件并行 |
+| UI-E | M7 | 设定、地理、历史切入同一蓝白档案系统 | UI-B，需服从地理/历史数据 owner |
+| UI-F | M8 + M9 | Agent/任务/浮层统一，清理历史 CSS 与最终验收 | UI-C/D/E |
+
+UI-A 是当前可靠性前置任务；UI-B-F 是支撑地理、历史和 Creative Graph 的横向工作，不替代这些产品主线。每批只推进一个代表性页面到截图验收，再扩展同组页面，避免再次出现“大范围改完后才发现方向不对”。
+
+执行进度（2026-07-22）：UI-A 已完成。新增 `scripts/ui-audit.mjs`，固定主题2并覆盖八个工作区和 `1440 / 1280 / 980 / 760 / 390`，记录截图、console error、页面尺寸、主要 surface、裁切元素及 fixed/sticky 重叠候选；支持按 route、viewport、`empty / regular / long / loading / error` fixture 过滤运行。常规与长内容真实写入体验会话、素材和画布存储；生成中与失败态通过填写真实输入、点击生成按钮并拦截 `/api/generate` 建立，不伪造组件内部状态。体验页现场索引在窄屏改为可关闭 sheet，素材页改为平板双栏/工具覆盖与手机“索引/内容/工具”，画布改为手机“画布/时间轴与节点”，漫画改为“素材/页面/当前格”。三页 pane 导航已收敛为共享 `WorkspacePaneSwitch`，补齐 radiogroup、方向键、Home/End 和焦点语义；画布生成失败增加可见 `role=alert` 反馈。四页默认主任务、pane 切换、体验 Escape 关闭与焦点归还及桌面/手机动作态均通过 Chromium smoke，主题1只做共享行为回归。下一批进入 UI-B。
+
+执行进度（2026-07-22）：UI-B 已完成。主题2增加语义化表面、信号、阴影、控件高度、z-index 与 motion token；新增基于 `lucide-vue-next` 的 `WorkbenchIcon` 单一图标 owner，以及可配置密度/入口/mask/reduced-motion 的 `ContourField`，由壳、体验阅读面和关系画布复用。AppShell/ActivityBar 移除编号入口和重复 SVG，设定次级页签仅在主题2改用语义图标；主题1保留原页签并隐藏新等高线。route transition 改为监听完整路径，跨 activity 沿导航轴进入，同 activity 短距离层级揭示；顶部 tabs 增加完整键盘移动与焦点跟随。八工作区主题2桌面/手机 16 张截图无 console error、无页面横向溢出，连续五工作区与 reduced-motion smoke 通过。下一批进入 UI-C。
+
+执行进度（2026-07-22）：UI-C 已完成。体验页把 `ContourField` 限定在现场索引，正文以短边角色信号、署名和无框语义块形成阅读节奏；消息级编辑、重写、删除收进同一原生 `details` owner，兼顾 hover、键盘和触屏，空态只保留一个主动作。写作页将标题、工具、参考区、正文和页脚收敛到 880px 连续稿轴，移动端章节索引改为可关闭且归还焦点的 sheet，低频分镜/冒险/返回操作 hidden-first。审计 fixture 增加真实双章节与约 5000 字长稿，空态、长会话、移动编辑、章节切换和主题1共享行为完成 Chromium smoke，未增加测试数量。下一批进入 UI-D。
+
+执行进度（2026-07-23）：UI-D 已完成工作台重排。素材页将辅助列收至 224px / 300px，空态删除 12 格演示蓝图并只保留新建 owner，390px 顶栏改为两层命令结构。卡片画布删除独立 hero 与画布内空态的重复入口，左详情/时间轴收至 236-276px，1440px 主画布占工作区 81%，既有拖拽、牌堆和连线状态机保持不变。漫画页移除复制自素材页的副阅读台模式导航，明确“页面计划 / 整页制作 / 当前格制作”；新建页以格数按钮和真实版式缩略图替代主要 select，中央整页保持最大对象。三页空态/常规态、桌面/手机 12 张截图无 console error 和横向溢出，漫画移动版式切换 smoke 通过。多页改编候选、视觉圣经实体检索和真实四格生成验收仍属于 G4.4 产品实现，不因 UI-D 结项而标记完成。下一批进入 UI-E。
+
+执行进度（2026-07-23）：UI-E 已完成设定链视觉统一。主题2快速导入将大幅 hero 与卡片预设压缩为连续档案首页，并修复移动端 flex 收缩造成的主动作溢出；结构化设定从六卡片墙改为分类索引、连续横线设定稿和字段级单一生成入口，主题1维持原面板。地图空态加入当前世界、地形模板与国家数摘要，沿用顶栏唯一生成动作；移动端世界树默认收起为 40px rail，展开时覆盖地图而非永久挤压主舞台。现有地理语义、历史与冒险入口保持原数据 owner 和来源链，不另造展示状态。主题2在 1440 / 980 / 390 审计无页面横向溢出和非预期 console error，主题1三个设定入口 390px 共享行为 smoke 通过。真实地图数据态仍归地图重复生成与历史开局产品 smoke，不因空态视觉验收而标记完成。下一批进入 UI-F。
+
+执行进度（2026-07-23）：UI-F 已完成视觉与交互层收口。新增共享瞬态层协调器，顾问、记忆候选、联机聊天、角色入口、图片/视频模型选择和时间设置统一 Escape、焦点归还、大型浮层互斥与层级 token；主题2顾问改为窄审阅托盘，记忆改为低干扰档案层，短通知使用 polite status。写作页与主题1体验页改为直接消费 `MediaGenerationDrawer`，删除无逻辑 `ImageGenRail` 兼容壳。主题2八工作区 1440/390 共 16 张常规态截图无页面横向溢出或非预期 console error，顾问/记忆桌面与手机交互 smoke 通过；主题1关键工作区保持共享行为。联机聊天因本地未进入房间舞台，互斥接线仍待双浏览器实测。全局 task center 不在 UI 层复制尚未贯通的状态，待 G4.2 task/result contract 成为真实事实源后实现。至此 G1.5 UI-A 至 UI-F 执行批次完成。
+
+#### G1.5.15 总体验收矩阵
+
+- 路由：欢迎、体验、联机、写作、素材、画布、漫画、快速导入、结构化设定、高级世界书、地图；
+- 状态：空白、常规、长内容、生成中、失败、API 未配置、离线恢复；
+- 视口：`1440x900`、`1280x800`、`980x800`、`760x900`、`390x844`；
+- 输入：鼠标、键盘、触屏、右键、拖拽、滚轮/触控缩放；
+- 主题：主题2亮色/暗色作为完整视觉门禁；主题1只做核心路由、表单和主动作可用性 smoke；另检查 `prefers-reduced-motion` 与 200% zoom；
+- 每张截图先做 squint test：3 秒内能辨认当前工作区、主对象、主动作和当前状态；装饰不能形成第三视觉中心；
+- 每页通过 deletion test：删除不影响任务的信息、重复动作和无语义装饰；
+- 每页通过 capacity check：空状态不显得荒芜，filled-state 不溢出，长内容不靠缩小字体塞入。
+
 ## Gate 2：地图成为“可玩的地理系统”
 
 目标：地图不只是漂亮图片，而是设定、历史和冒险共同使用的空间模型。
@@ -683,22 +1201,278 @@ interface WorldStateSnapshot {
 
 ### G4.2 写作上下文与代理统一
 
-任务：
+#### G4.2.1 当前审计与问题定义
 
-- 建立单一 prompt/task registry，消除 narrator prompt 副本；
-- 统一 advisor 和 writing task taxonomy；
-- 所有写作 agent 使用相同的 context envelope、token report 和 source refs；
-- `worldbookBudgetGuard` 接入真实 `worldbookContextBuilder`；
-- context ledger 对用户显示“使用了哪些设定/素材”，允许排除和固定；
-- agent 返回 typed actions，正文替换、创建素材、更新大纲、生成分镜不再靠自由文本猜测；
-- 将 `Writing.vue` 按 editor、outline、asset inbox、AI actions、persistence 拆成领域组件和 composable。
+2026-07-21 对 `useAdvisor`、`AdvisorPanel`、`advisorTaskService`、`services/agents/*`、`useCopilot`、四个页面入口和服务端 OpenClaw 路由完成静态审计。结论是“基础件已存在，但产品链路没有接通”，不能继续通过增加顾问文案或快捷问题修补。
 
-验收：
+已存在的基础：
 
-- 相同任务从不同入口得到一致的上下文结构；
-- 用户可查看并撤销 agent 的每个写动作；
-- 章节切换不会丢 debounce 窗口内的最后输入；
-- 页面主文件控制在可审查范围，目标 < 1500 行。
+- 前端有 task registry、context envelope、result lifecycle、legacy adapter 和写作 action applier；
+- `useCopilot` 已具备光标窗口、设定匹配、参考素材预算、ghost text、请求编号、取消、Tab 采纳和 Esc 忽略；
+- 写作页能应用文本替换、创建素材、加入纲要和设置参考素材等动作；
+- 四个主要创作页面已经共用角色化入口和 `AdvisorPanel`。
+
+实际断点：
+
+- registry 定义了 worldbook、experience、writing、canvas、storyboard、comic 等二十余种任务，但服务端只为少数旧写作任务提供专用指令；未知任务静默退化为“章节体检”；
+- `buildAgentEnvelope()` 和服务端 `isNewEnvelopePayload()` 都没有进入 `/api/advisor/task` 主链，优先级、预算、`sourceRefs` 和 drop report 只是未消费的数据结构；
+- `writingAgentContext.js` 和 `getWritingQuickActions()` 已写好但没有接入 `Writing.vue`，页面仍手工拼装上下文和旧 scope；
+- Agent result 与写作 applier 存在动作命名双轨，例如 `text-patch` 与 `replace_range`，必须依赖兼容层猜测；
+- `useAdvisor` 只允许一个全局 in-flight 请求，没有队列、按任务取消、重试策略、历史持久化或真正的 undo transaction；
+- 只有写作页传入并显示 `advisorResults`；素材、画布和体验页主要只能看到自由文本建议，无法预览和执行专业动作；
+- 素材上下文只有当前正文与数量，选区固定为空；体验上下文只有最近 20 条消息和少量计数，没有地点、历史、记忆、未决线索和角色状态；画布上下文直接发送全部卡片与边，缺少当前选择和视口范围；
+- 四页的专业意图仍被重复映射到 `advisor.review.chapter`、`advisor.close.thread`、`advisor.continue.light`，所谓“素材顾问/编导顾问/当场顾问”目前主要是视觉 persona；
+- OpenClaw 是顾问唯一执行通道，与常规文本模型配置、能力检测和 provider fallback 没有统一；
+- 写作补全虽然在输入事件中调用，但 `autoTrigger: false` 令调用立即退出；除设置参考素材或点击重试外，用户几乎看不到原本计划的轻量补全；
+- 当前测试只覆盖合约纯函数的集中 happy path，缺少“页面 -> envelope -> route -> typed result -> preview/apply/undo”的纵向契约。
+
+#### G4.2.2 调研依据与产品取舍
+
+本阶段参考三类成熟模式，但不照搬其界面：
+
+- 本地 SillyTavern `world-info.js` / `openai.js`：世界信息按当前消息扫描激活，支持 constant、关键词、角色过滤、sticky/cooldown、递归激活、注入位置与 token budget；Pinax 应吸收“按任务检索 + 有预算注入 + 可追溯命中”，不复制完整聊天 prompt 堆栈；
+- VS Code / GitHub Copilot inline suggestions：补全依附光标、停顿后异步出现、编辑或移动光标即失效，支持采纳、忽略、重试和局部采纳；Pinax 应保持低打扰，不能让每次停顿都弹顾问窗口；
+- GitHub Copilot repository/path instructions：稳定规则与当前请求分离；Pinax 应把世界书文风、禁忌、角色事实和页面任务指令作为不同优先级的结构块，而不是拼成一段无法审计的用户问题。
+
+参考入口：
+
+- `SillyTavern/public/scripts/world-info.js`：`getWorldInfoPrompt()`、`checkWorldInfo()`；
+- `SillyTavern/public/scripts/openai.js`：prompt order、injection order、`ChatCompletion` token budget；
+- <https://code.visualstudio.com/docs/copilot/ai-powered-suggestions>；
+- <https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot>。
+
+产品取舍：
+
+- Agent 是“带上下文和可审阅工具的创作助手”，不是无限自主循环，也不允许静默改正文、世界状态或素材；
+- persona 只决定名称、语气和默认能力排序，不再复制业务逻辑或 prompt；
+- 快速补全、专业动作、开放问答是三种交互，不再全部塞进聊天消息流；
+- 默认一次任务一次模型调用；只有结构修复或显式多步任务允许第二次调用，并设置总步数、超时和成本上限；
+- 所有写操作先返回 draft action，经过 preview 和 revision 校验后才应用；体验运行时的世界状态变更继续走既有受限 mutation 合约。
+
+#### G4.2.3 目标架构
+
+建立六个清晰层次：
+
+```text
+Surface command / inline trigger
+  -> AgentTaskDefinition
+  -> ContextPolicy + ContextLedger
+  -> AgentRunner + ProviderAdapter
+  -> AgentResultSchema validator
+  -> Preview / Apply transaction / Undo receipt
+```
+
+1. `AgentTaskDefinition`
+   - 每个任务声明 `taskType`、surface、intent、context policy、output schema、允许工具、超时、最大步骤、温度和 fallback；
+   - 前后端从同一份可序列化定义派生 allowlist，删除手工维护的双 registry；
+   - 未知任务返回明确的 `400 UNKNOWN_TASK`，禁止静默退化成章节体检。
+
+2. `ContextPolicy`
+   - 每个任务显式声明 required / optional blocks、预算、检索深度和排序方式；
+   - 选择、当前段落、光标窗口和当前节点属于 direct context；设定、地点、历史、记忆和素材属于 retrieved context；
+   - 构建结果必须带 `sourceRefs`、字符/token 估算、截断原因和被丢弃块摘要。
+
+3. `AgentRunner`
+   - 统一请求 ID、AbortSignal、deadline、重试、provider capability 和错误码；
+   - 优先复用已配置文本生成通道，OpenClaw 作为可选 provider adapter，而不是顾问专属硬依赖；
+   - 同一 target + revision + task 的重复请求可短时去重，但不缓存跨 revision 的正文结果。
+
+4. `AgentResultSchema`
+   - 收敛为 `summary`、`suggestions[]`、`actions[]`、`citations[]`、`warnings[]`、`usage`；
+   - action 只允许 `replace-range`、`insert-at-cursor`、`create-asset`、`update-asset`、`add-outline-item`、`set-reference`、`propose-canvas-patch`、`propose-runtime-candidate`、`submit-generation` 和 `review-only`；
+   - 每个 action 必须携带 target、base revision/base text、来源和可读 label；JSON schema 校验失败先做一次确定性修复，仍失败则展示原始文本为不可应用建议。
+
+5. `ApplyTransaction`
+   - 先在内存中验证整批 action，再原子应用；禁止当前“前几个动作已写入、后一个失败”的半成功状态；
+   - 返回 receipt，记录 before/after revision、实际动作和副作用，用现有编辑器 history 或领域 store 实现一次撤销；
+   - target 内容改变后结果自动 stale，可重新基于当前内容生成，不允许强行覆盖。
+
+6. `AgentSession`
+   - 以项目 + surface + target 为作用域保存最近任务和 receipt；正文不重复持久化，只存摘要、引用和动作元数据；
+   - 页面切换或章节切换取消旧请求；切回页面可看到最近已应用/失败结果，但不会恢复过期 ghost text。
+
+#### G4.2.4 上下文账本与检索策略
+
+统一 envelope 至少包含：
+
+| Block | 来源 | 默认优先级 | 规则 |
+| --- | --- | ---: | --- |
+| `rules` | task instruction、输出 schema、安全边界 | 1000 | 必须保留，不允许被截断成无效 schema |
+| `selection` | 选区/当前格/当前节点 | 900 | 写作修改与局部动作必须存在 |
+| `cursor` / `scene` | 光标前后、当前回合、当前镜头 | 820 | 采用前长后短窗口，保留边界位置 |
+| `style` | 世界书文风、禁忌、项目指令 | 760 | 与事实分开，支持用户排除 |
+| `character` | 当前出场与被提及角色 | 700 | 角色 ID 优先，名称只作 fallback |
+| `location` | 当前地点、父级区域、相邻地点 | 660 | 接 PlaceEntity 与地图引用，不发送整张地图 |
+| `history` | 当前事件的前因、未决后果 | 620 | 沿因果引用取 1-2 跳，不按全文最近排序 |
+| `memory` | 当前角色/线索相关的精简记忆 | 560 | 只取摘要与原文 ref，不重新塞入大段聊天 |
+| `references` | 固定素材、已选素材、章节纲要 | 500 | 用户固定项优先于自动检索项 |
+| `recent` | 最近编辑/消息/画布动作 | 420 | 设置数量、时间与字符三重上限 |
+
+预算策略：
+
+- 先为规则、直接上下文和输出预留硬预算，再分配 retrieved context；
+- 预算以 provider token estimate 为准，字符数只作离线 fallback；
+- 选择相关性按显式选择 > ID/引用命中 > 关键词 > 时间邻近排序；
+- 允许一轮递归：已命中的地点/角色/事件可再拉取其直接父级或因果前驱，禁止无上限递归；
+- 用户能在结果旁展开“本次使用”，查看命中的设定、素材、地点、历史和被截断项，并可 pin/exclude；
+- ledger 记录 `sourceRefs` 和 budget report，不记录 API key、完整系统 prompt 或不必要的全文副本。
+
+#### G4.2.5 各页面能力矩阵
+
+| Surface | 首批任务 | 输入范围 | 可应用结果 | 明确不做 |
+| --- | --- | --- | --- | --- |
+| 写作 | 内联续写、修正选区、改写段落、扩写/压缩、桥接前后文、章节体检、抽取素材/纲要 | 光标、选区、段落、章节纲要、固定素材、命中设定、地点/历史引用 | 文本 patch、素材草稿、纲要条目、参考素材 | 不自动整章重写，不静默保存 |
+| 素材 | 精简、分类、拆分、合并候选、重复检测、关联发现、转写作/世界书/分镜 | 当前/多选素材、来源、状态、已有关系 | update/create asset、relation draft、下游引用 | 不用“章节体检”代替素材任务 |
+| 画布 | 关系补全、局部整理、冲突发现、生成专业字段、转纲要/分镜候选 | 当前选择、相邻一跳、可见视口、边与 pile | canvas patch preview、字段 patch、outline/storyboard draft | 不发送所有卡片，不直接移动全图 |
+| 体验 | 下一步选项、角色一致性、局势摘要、线索回收、涌现候选 | 当前回合、最近语义块、角色、地点、历史、记忆、未决线索 | option、memory draft、runtime candidate、asset draft | 不替玩家选择，不直接改世界状态 |
+| 分镜 | 镜头遗漏、轴线/连续性、节奏、转场、镜头提示词、视频任务准备 | 当前镜头、前后镜头、来源文本、角色/地点视觉约定 | shot patch、storyboard draft、generation request | 不把普通 review 直接提交视频 |
+| 世界书 | 条目一致性、地理/年代冲突、结构草稿 | 当前条目、显式关联、地理和历史索引 | worldbook draft/patch | 不绕过草案确认 |
+
+角色化入口仅负责显示当前页面最相关的 3-5 个任务和最近一条待处理结果。专业能力来自 task definition 与 tool allowlist，不来自“素材顾问”“编导顾问”等名字。
+
+#### G4.2.6 写作页轻量补全专项
+
+目标是“需要时自然出现的一小段正文”，而不是把顾问聊天搬到光标旁。
+
+触发策略：
+
+- 设置分为关闭 / 手动 / 智能，首次启用后默认智能；偏好按用户保存；
+- 智能模式仅在正文编辑态、无选区、非 IME composing、光标未移动且最近输入达到自然停顿时触发；自然停顿包括句末标点、换段或连续输入达到阈值后停顿；
+- debounce 从当前 220ms 调整到约 700-900ms，并加入请求完成后的短 cooldown；删除、粘贴大段、Undo/Redo、章节切换和正文过短时不自动触发；
+- 每次触发绑定 chapter ID、content revision、cursor position 和 request ID；任一变化立即 abort 并丢弃迟到响应；
+- 手动快捷入口不依赖智能模式，可在当前光标强制生成或重试。
+
+生成策略：
+
+- 默认建议 20-90 个中文字符、1-2 句，优先补完当前句或开启下一小步；不生成解释、标题和整段分析；
+- 上下文包含当前段落、上一个完整段落、有限后文、章节目标、固定素材和动态命中的角色/地点/设定；
+- 采纳整个建议用 Tab，Esc 忽略；增加“采纳到下一标点”的局部采纳，剩余部分保留并重新校验；
+- 采纳作为一次 editor history transaction，可一次撤销；采纳后不立即再次触发；
+- ghost text 只使用弱化文字，不加卡片、边框或遮挡正文；生成状态放在编辑器边缘，错误不弹 modal；
+- 当输出被 normalization 清空时记录原因并静默结束，连续失败达到阈值后暂停智能触发并提示检查模型配置。
+
+质量门槛：
+
+- 迟到响应写入率必须为 0；
+- 光标后有文本时，建议不得重复或吞掉后文；
+- 80% 以上有效响应能直接作为正文展示，不含“建议如下/作为 AI”等元话语；
+- 智能模式每分钟触发和失败次数有上限，避免停顿即请求造成成本与干扰；
+- 记录本地聚合指标：trigger、shown、accepted-full、accepted-partial、dismissed、stale、empty、latency、matched refs；默认不上传正文。
+
+#### G4.2.7 交互与 UI 形态
+
+- `GmPersonaLauncher` 保留右下角圆形/紧凑入口，但展开内容改为当前任务、待审阅结果和最近一次动作，不再显示一段固定宣传文案；
+- 选中文字时在既有编辑操作附近提供 2-3 个上下文动作；没有选区时不显示“修正选中内容”；
+- 专业任务结果进入“结果托盘”：上方是结论与风险，下方按 action 展示 diff、引用和应用范围；自由问答才进入对话流；
+- review 结果允许逐条“转为动作/忽略”，不能把建议列表误标成可应用修改；
+- 文本 patch 使用行内或并排 diff，素材/画布/分镜使用领域预览；应用、部分应用、撤销、重试和 stale 状态使用同一状态语言；
+- 顾问不能以全屏透明 overlay 截断当前工作，桌面端优先使用不遮正文的窄侧托盘，窄屏才使用底部 sheet；
+- 页面 persona 可以有不同 icon 和标题，但共用 token、结果组件、键盘行为和无障碍语义。
+
+#### G4.2.8 分期执行
+
+**M0：冻结契约与清除双轨（1 个实现切片）**
+
+- 盘点并冻结首批任务，只保留真正有执行器的 task；
+- 统一前后端 task definition、action 名称、result schema 和错误码；
+- 未接入任务显式标记 unavailable，删除静默 fallback；
+- 将现有测试合并为 2-3 个参数化契约用例，不增加总测试数。
+
+Gate：前后端 task 清单一致；每个 action 都有 validator 和 owner；未知任务明确失败。
+
+**M1：接通 AgentRunner 与 ContextEnvelope（2 个实现切片）**
+
+- `/api/advisor/task` 正式接收 envelope，校验 budget、target revision 和 task policy；
+- 将 OpenClaw 与常规文本模型包装为 provider adapter，增加 capability/timeout/fallback；
+- 建立 context ledger、token report、source refs 与本地 request trace；
+- 修复 context clip：规则块不能以“标记 truncated 后整块不序列化”的方式消失。
+
+Gate：同一 fixture 在前端、HTTP body 和服务端 prompt 中保持同一 source/order；日志可解释每个上下文块为何进入或被丢弃。
+
+**M2：写作补全试点（2 个实现切片）**
+
+- 将 `writingAgentContext.js`、`writingAgentReferences.js` 和 worldbook builder 接入统一 ledger；
+- 实现智能触发、IME/粘贴/Undo 抑制、revision 失效、局部采纳、一次撤销和失败熔断；
+- 拆出 `useWritingAgent`、`WritingInlineCompletion`，避免继续把状态堆入 `Writing.vue`。
+
+Gate：真实 provider 下完成中文正文 30 次 smoke；无迟到覆盖、无 Tab 缩进回归、无章节串写。
+
+**M3：写作专业动作（2 个实现切片）**
+
+- 接通选区/段落改写、扩写/压缩、前后文桥接、章节体检、抽取素材/纲要；
+- result tray 提供 diff、逐项应用、原子事务和撤销 receipt；
+- 把 task、上下文、执行与持久化从 `Writing.vue` 拆出，保留页面编排职责。
+
+Gate：所有写动作均可预览、应用、撤销；修改 target 后旧结果自动 stale；`Writing.vue` 先降至 < 3000 行，最终目标 < 1500 行。
+
+**M4：素材与画布专业化（2 个实现切片）**
+
+- 素材接精简/分类/拆分/合并/关系 action，支持多选与来源回看；
+- 画布只发送 selection + neighbors + viewport，返回 patch preview 后再写入；
+- 删除这两页对旧 `advisor.review.chapter` 的依赖。
+
+Gate：素材和画布至少各有 3 个真正可应用任务；不选择对象时不会发送整个工作区。
+
+**M5：体验与分镜接入地理/历史（2 个实现切片）**
+
+- 体验 Agent 使用语义叙事块、PlaceEntity、历史因果、角色状态、精简记忆和未决线索；
+- 下一步选项与涌现候选返回 typed result，继续遵守“正文完成后通知、点击后审阅”；
+- 分镜 Agent 使用前后镜头与视觉连续性，generation request 只有确认后才提交媒体网关。
+
+Gate：体验候选能说明命中的地点/历史/角色依据；分镜 review 不会误提交视频任务。
+
+**M6：主动性、评估与收口（1 个实现切片）**
+
+- 只增加三类可关闭的被动提示：写作停顿补全、明显一致性冲突、待处理结果提醒；
+- 用本地指标调节触发阈值、上下文预算和建议长度；
+- 清理 legacy adapter、旧 scope 与重复 prompt，更新用户文档和 provider 故障提示。
+
+Gate：关闭 Agent 后没有后台请求；主动提示有频率上限；legacy 入口无调用后才删除。
+
+执行进度（2026-07-23）：G4.2 M0-M6 实现 Gate 已全部关闭。M0-M1 建立共享 task / ContextEnvelope、预算/revision policy、ledger、trace 与 provider adapter；M2-M3 完成低打扰补全和写作专业事务；M4 关闭素材与画布专业任务 Gate；M5 完成受限体验候选与分镜 review/generation request，确认提示词不会提交媒体任务。M6 新增统一持久化 Agent 总开关，关闭时取消后台补全并在所有 `useAdvisor` 网络请求前本地阻断；写作补全、明显 revision/领域冲突、待审结果提醒均受频率限制，指标只记录事件、字符数、耗时和短失败原因，最多 120 条。已删除无运行调用且直连旧 generation service 的 `useCopilot`；现代前端与服务端内部使用 canonical task，共享 alias/adapter 只为主题1与旧客户端兼容保留。Chromium 实测待审提醒显示/清除只伴随原任务的 1 次请求，M6 Gate 关闭。M2 真实 provider 中文正文 30 次 smoke 仍待执行，并保留为 G4.2 最终结项条件。
+
+#### G4.2.9 测试预算与验收
+
+测试总量继续保持不超过 200（核心 188、视觉 12）。新增 Agent 覆盖必须通过合并旧测试、参数化和替换低价值快照腾出预算，不按每个 task 复制一套测试。
+
+核心契约集中覆盖：
+
+- task registry 与服务端 allowlist 一致；
+- context priority、token budget、递归一跳、pin/exclude 和 sourceRefs；
+- schema 校验、未知 action 拒绝、revision stale、原子 apply 与 undo receipt；
+- 补全触发抑制、Abort、迟到响应、IME、局部采纳、章节切换；
+- 每个 surface 至少一个纵向 fixture，从 context policy 到可应用 result；
+- provider timeout、一次 retry、fallback 和敏感字段清理。
+
+视觉 12 个用例不扩容，只替换低价值基线覆盖：桌面结果托盘、窄屏 bottom sheet、ghost text、diff/stale/error 和键盘 focus。
+
+完成定义：
+
+- 用户能清楚区分“内联补全、专业动作、开放问答”；
+- 各页面不再把专业任务伪装成章节体检；
+- 写作补全在智能模式下可自然出现，并能完整/局部采纳和一次撤销；
+- 每条可应用结果都能说明 target、revision 和使用的设定/素材/地点/历史；
+- 所有写操作必须预览并可撤销，所有运行时变化必须经过现有受限 mutation；
+- p95 首个可见反馈：内联补全 < 2.5s，专业任务 < 8s；超时后提供明确重试或 provider fallback；
+- Agent 关闭时网络请求为 0，项目正文和 API 凭据不进入遥测。
+
+#### G4.2.10 候选文件边界与非目标
+
+优先新增/调整：
+
+- `src/services/agents/agentTaskRegistry.js`、`agentContextEnvelope.js`、`agentResultLifecycle.js`；
+- `src/services/agentRunner.js`、`agentContextLedger.js`、`agentResultValidator.js`、`agentApplyTransaction.js`；
+- `src/composables/useAgentSession.js`、`useWritingAgent.js`；
+- `src/components/agent/AgentResultTray.vue`、`AgentContextLedger.vue`、`TextPatchPreview.vue`、`WritingInlineCompletion.vue`；
+- `server/routes/advisor.js`、`server/services/agentTaskService.js`、provider adapters；
+- 各 surface 只保留 context adapter、command 声明与领域 action executor。
+
+明确非目标：
+
+- 本阶段不做无限自主循环、后台自主改稿、跨用户长期云记忆、向量数据库或全项目自动重构；
+- 不为每个 persona 建独立 prompt、store、panel 或 provider；
+- 不在 M0-M3 同时重做所有页面 UI，先证明写作纵向闭环，再扩展 surface；
+- 不为了 Agent 再建一套 worldbook、地理、历史、素材或媒体数据源，只消费现有 owner 和显式引用。
 
 ### G4.3 分镜/导演统一
 

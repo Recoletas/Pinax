@@ -22,18 +22,31 @@ const DEVICE_IDENTITY_PATH = process.env.OPENCLAW_DEVICE_IDENTITY_PATH
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
 import { validateServerTaskType } from './agentTaskAllowlist.js'
+import { agentEnvelopeToPromptText } from '../../shared/agentContextContract.js'
+
+export const OPENCLAW_PROVIDER = Object.freeze({
+  id: 'openclaw',
+  capabilities: ['text'],
+  timeoutMs: OPENCLAW_TIMEOUT_MS
+})
 
 const ADVISOR_TASK_INSTRUCTIONS = {
-  'advisor.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
-  'advisor.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
-  'advisor.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
-  'advisor.review.chapter': '任务：章节体检。输出 summary/issues/action，每段简洁。',
-  'advisor.continue.light': '任务：轻续一句。只给一条短建议。',
   'writing.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
   'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
   'writing.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
   'writing.chapter.health': '任务：章节体检。输出 summary/issues/action，每段简洁。',
-  'writing.continue.light': '任务：轻续一句。只给一条短建议。'
+  'writing.continue.light': '任务：轻续一句。只给一条短建议。',
+  'materials.refine': '任务：精简当前素材。保留事实、人物动机和可复用信息，删除重复与空泛解释。',
+  'materials.classify': '任务：判断所选素材的分类。只给分类建议与简短理由，不修改素材。',
+  'materials.split': '任务：判断当前素材是否应拆分。给出最多四个拆分标题与边界，不直接写入。',
+  'materials.relate': '任务：分析所选素材之间的因果、人物、地点或时间关系。只报告有依据的关系。',
+  'canvas.organize': '任务：检查当前选中节点、直接邻居和可见视口的组织方式。不得假设未提供的节点。',
+  'canvas.relate': '任务：分析当前选中节点与直接邻居之间值得建立或修改的关系。不得扫描整个画布。',
+  'canvas.transition': '任务：检查选中镜头与直接邻居的转场，只修改上下文中已有节点之间的转场关系。',
+  'experience.next-actions': '任务：基于当前对话、地点、历史、角色状态、精简记忆和未决线索生成玩家可选的下一步行动。不得替玩家选择。',
+  'experience.emergence': '任务：审阅当前已有涌现候选，指出最符合对话与地点历史的一项。不得创造新候选或直接修改世界状态。',
+  'storyboard.review': '任务：检查当前镜头与前后镜头的动作、人物、空间、光线、景别、运镜和转场连续性。只提出必要的当前镜头字段修改。',
+  'storyboard.video.prompt': '任务：为当前已确认分镜镜头准备一条视频生成提示词。只返回待确认请求，不提交媒体任务。'
 }
 
 function readGatewayTokenFromConfig() {
@@ -52,29 +65,12 @@ function resolveGatewayToken() {
   return (process.env.OPENCLAW_GATEWAY_TOKEN || readGatewayTokenFromConfig() || '').trim()
 }
 
-function serializeContextBlocks(blocks) {
-  if (!Array.isArray(blocks)) return ''
-  return blocks
-    .filter((b) => b && typeof b === 'object' && !b.truncated)
-    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-    .map((b) => {
-      if (typeof b.content === 'string') return b.content.trim()
-      if (b.content && typeof b.content === 'object') {
-        const text = b.content.text || b.content.contextText || b.content.blockText || ''
-        return text ? String(text).trim() : ''
-      }
-      try { return JSON.stringify(b.content) } catch { return '' }
-    })
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 function serializeContext(context) {
   if (typeof context === 'string') return context.trim()
   if (context == null) return ''
 
   if (typeof context === 'object' && context.version != null && Array.isArray(context.blocks)) {
-    return serializeContextBlocks(context.blocks)
+    return agentEnvelopeToPromptText(context)
   }
 
   if (typeof context === 'object') {
@@ -88,18 +84,29 @@ function serializeContext(context) {
 }
 
 function normalizeTaskType(taskType) {
-  const value = String(taskType || '').trim()
-  if (!value) return 'advisor.review.chapter'
-  const validation = validateServerTaskType(value)
-  return validation.valid ? validation.taskType : value
+  const validation = validateServerTaskType(taskType)
+  if (!validation.valid) {
+    const error = new Error('该 Agent 任务尚未接入执行器')
+    error.code = validation.code
+    throw error
+  }
+  return validation.taskType
 }
 
 function getTaskInstruction(taskType) {
-  return ADVISOR_TASK_INSTRUCTIONS[taskType] || ADVISOR_TASK_INSTRUCTIONS['advisor.review.chapter']
+  const instruction = ADVISOR_TASK_INSTRUCTIONS[taskType]
+  if (!instruction) {
+    const error = new Error(`Agent 任务缺少服务端指令：${taskType}`)
+    error.code = 'AGENT_TASK_UNAVAILABLE'
+    throw error
+  }
+  return instruction
 }
 
 function getTaskOutputInstruction(taskType) {
-  if (taskType === 'advisor.fix.selection' || taskType === 'advisor.fix.paragraph') {
+  if (taskType === 'writing.fix.selection'
+    || taskType === 'writing.fix.paragraph'
+    || taskType === 'materials.refine') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
   "task": "${taskType}",
@@ -108,6 +115,176 @@ function getTaskOutputInstruction(taskType) {
   "replacement": "完整替换文本",
   "issues": []
 }`
+  }
+
+  if (taskType === 'materials.classify') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "material-classification",
+    "label": "应用分类",
+    "payload": {
+      "changes": [{ "assetId": "必须来自上下文", "kind": "draft-prose|event|character-fact|worldbook-draft|inspiration|storyboard-seed|reference-image", "reason": "简短理由" }]
+    }
+  }]
+}`
+  }
+
+  if (taskType === 'materials.split') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "material-split",
+    "label": "拆分素材",
+    "payload": {
+      "sourceAssetId": "必须来自上下文",
+      "parts": [{ "title": "短标题", "content": "完整可独立使用的内容", "kind": "合法素材分类" }]
+    }
+  }]
+}
+parts 为 2-4 项，不得编造上下文没有的事实。`
+  }
+
+  if (taskType === 'materials.relate') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "material-relations",
+    "label": "写入关联",
+    "payload": {
+      "links": [{ "sourceId": "必须来自上下文", "targetId": "必须来自上下文且不同于 sourceId", "relation": "causes|character|place|time|supports", "reason": "简短依据" }]
+    }
+  }]
+}`
+  }
+
+  if (taskType === 'canvas.organize') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "canvas-layout",
+    "label": "应用局部整理",
+    "payload": {
+      "moves": [{ "cardId": "必须来自上下文", "x": 120, "y": 240, "reason": "简短理由" }]
+    }
+  }]
+}
+单个节点相对原位置最多移动 480 像素；不要移动牌堆节点。`
+  }
+
+  if (taskType === 'canvas.relate') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "canvas-relations",
+    "label": "应用关系修改",
+    "payload": {
+      "changes": [{ "operation": "upsert|remove", "sourceId": "必须来自上下文", "targetId": "必须来自上下文", "edgeType": "continuation|elaboration|contrast|parallel|consciousness", "reason": "简短依据" }]
+    }
+  }]
+}`
+  }
+
+  if (taskType === 'canvas.transition') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "一句话",
+  "actions": [{
+    "type": "canvas-transition",
+    "label": "应用转场修改",
+    "payload": {
+      "changes": [{ "operation": "upsert|remove", "sourceId": "必须来自上下文", "targetId": "必须来自上下文", "edgeType": "jump_cut|dissolve|fade|contrast_montage|cross_cut|match_cut", "reason": "简短依据" }]
+    }
+  }]
+}`
+  }
+
+  if (taskType === 'experience.next-actions') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "当前局势的一句话概括",
+  "actions": [{
+    "type": "runtime-candidate",
+    "label": "审阅下一步选项",
+    "payload": {
+      "kind": "next-actions",
+      "options": [{
+        "id": "option-1",
+        "label": "玩家可直接采取的行动",
+        "intent": "行动意图",
+        "risk": "可感知风险",
+        "evidenceRefs": ["必须来自上下文 sourceRefs"]
+      }]
+    }
+  }]
+}
+options 必须为 2-3 项，使用中文，不得替玩家决定，不得输出预设式万能选项。`
+  }
+
+  if (taskType === 'experience.emergence') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "为什么该候选与当前对话一致",
+  "actions": [{
+    "type": "runtime-candidate",
+    "label": "审阅涌现候选",
+    "payload": {
+      "kind": "emergence-review",
+      "candidateId": "必须是上下文中已有 candidate ID",
+      "reason": "地点、历史、角色与对话依据",
+      "evidenceRefs": ["必须来自上下文 sourceRefs"]
+    }
+  }]
+}
+没有已有候选时 actions 返回空数组；不得创造神秘使者、陌生角色、新地点或状态修改。`
+  }
+
+  if (taskType === 'storyboard.review') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "连续性问题的一句话结论",
+  "actions": [{
+    "type": "storyboard-shot-patch",
+    "label": "应用镜头修正",
+    "payload": {
+      "shotId": "必须是当前镜头 ID",
+      "changes": {
+        "shotType": "wide|full|medium|close_up|extreme_close_up",
+        "cameraMovement": "fixed|push|pull|pan|track|follow",
+        "duration": 4,
+        "visual": "修正后的视觉描述",
+        "transition": "none|cut|dissolve|fade"
+      },
+      "reason": "前后镜头连续性依据",
+      "evidenceRefs": ["必须来自上下文 sourceRefs"]
+    }
+  }]
+}
+changes 只保留确实需要修改的字段，不得新增、删除或重排镜头。`
+  }
+
+  if (taskType === 'storyboard.video.prompt') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "summary": "提示词准备说明",
+  "actions": [{
+    "type": "generation-request",
+    "label": "确认视频提示词",
+    "payload": {
+      "kind": "storyboard-video",
+      "shotId": "必须是当前镜头 ID",
+      "versionId": "必须是当前分镜版本 ID",
+      "prompt": "20-2000 字中文视频提示词，包含主体、动作、构图、运镜、前镜衔接和无字要求",
+      "evidenceRefs": ["必须来自上下文 sourceRefs"]
+    }
+  }]
+}
+这里只准备请求，不能宣称任务已经提交或生成完成。`
   }
 
   return [
@@ -121,6 +298,28 @@ function getTaskOutputInstruction(taskType) {
     'action',
     '- 最多3条可执行动作'
   ].join('\n')
+}
+
+export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
+  const contextText = serializeContext(context)
+  const questionText = String(question || '').trim()
+  const taskType = normalizeTaskType(taskMeta.taskType)
+  const targetText = serializeContext(taskMeta.target)
+  const optionsText = serializeContext(taskMeta.options)
+
+  if (!contextText || !questionText) {
+    throw new Error('缺少 context 或 question 参数')
+  }
+
+  return [
+    `任务类型：${taskType}`,
+    getTaskInstruction(taskType),
+    getTaskOutputInstruction(taskType),
+    targetText ? `目标文本/范围：\n${targetText}` : '',
+    optionsText ? `任务选项：\n${optionsText}` : '',
+    `当前创作上下文：\n${contextText}`,
+    `用户的问题：${questionText}`
+  ].filter(Boolean).join('\n\n')
 }
 
 function base64UrlEncode(inputBuffer) {
@@ -280,25 +479,7 @@ export async function getAdvice(context, question, taskMeta = {}) {
     throw new Error('缺少 OPENCLAW_GATEWAY_TOKEN，请先配置网关 Token')
   }
 
-  const contextText = serializeContext(context)
-  const questionText = String(question || '').trim()
-  const taskType = normalizeTaskType(taskMeta.taskType)
-  const targetText = serializeContext(taskMeta.target)
-  const optionsText = serializeContext(taskMeta.options)
-
-  if (!contextText || !questionText) {
-    throw new Error('缺少 context 或 question 参数')
-  }
-
-  const userMessage = [
-    `任务类型：${taskType}`,
-    getTaskInstruction(taskType),
-    getTaskOutputInstruction(taskType),
-    targetText ? `目标文本/范围：\n${targetText}` : '',
-    optionsText ? `任务选项：\n${optionsText}` : '',
-    `当前创作上下文：\n${contextText}`,
-    `用户的问题：${questionText}`
-  ].filter(Boolean).join('\n\n')
+  const userMessage = buildOpenClawUserMessage(context, question, taskMeta)
 
   const wsUrl = GATEWAY_BASE_URL.replace(/^http/, 'ws').replace(/\/$/, '')
   const connectId = randomUUID()

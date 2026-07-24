@@ -1,32 +1,32 @@
 import { validateServerTaskType, isNewEnvelopePayload } from './agentTaskAllowlist.js'
 
 export const ADVISOR_TASK_MODES = {
-  'advisor.fix.selection': 'replace',
-  'advisor.fix.paragraph': 'replace',
-  'advisor.close.thread': 'closure',
-  'advisor.review.chapter': 'review',
-  'advisor.continue.light': 'continue',
   'writing.fix.selection': 'replace',
   'writing.fix.paragraph': 'replace',
   'writing.close.thread': 'closure',
   'writing.chapter.health': 'review',
-  'writing.continue.light': 'continue'
+  'writing.continue.light': 'continue',
+  'materials.refine': 'replace',
+  'materials.classify': 'review',
+  'materials.split': 'review',
+  'materials.relate': 'review',
+  'canvas.organize': 'review',
+  'canvas.relate': 'review',
+  'canvas.transition': 'review',
+  'experience.next-actions': 'review',
+  'experience.emergence': 'review',
+  'storyboard.review': 'review',
+  'storyboard.video.prompt': 'review'
 }
 
 export function validateAdvisorTaskType(taskType) {
   const validation = validateServerTaskType(taskType)
-  if (!validation.valid) {
-    const value = String(taskType || '').trim()
-    return value || 'advisor.review.chapter'
-  }
+  if (!validation.valid) return null
   return validation.taskType
 }
 
 export function normalizeAdvisorTaskType(taskType) {
-  const value = String(taskType || '').trim()
-  if (!value) return 'advisor.review.chapter'
-  const validation = validateServerTaskType(value)
-  return validation.valid ? validation.taskType : value
+  return validateAdvisorTaskType(taskType)
 }
 
 function stripJsonFence(text) {
@@ -131,6 +131,9 @@ function buildAdvisorResult(taskType, advice) {
     mode: base.mode || ADVISOR_TASK_MODES[taskType] || 'review',
     summary: base.summary || advice || '未获取到有效建议',
     replacement: typeof base.replacement === 'string' ? base.replacement : '',
+    typedActions: Array.isArray(base.actions)
+      ? base.actions.filter((action) => action && typeof action === 'object')
+      : [],
     issues: Array.isArray(base.issues) ? base.issues : [],
     action: Array.isArray(base.action) ? base.action : [],
     stalePolicy: base.stalePolicy || 'require-same-base-text'
@@ -160,7 +163,7 @@ function formatAdvice(rawAdvice, result) {
   return result.summary || rawAdvice || '未获取到有效建议'
 }
 
-export function createAdvisorTaskResponse({ taskType, advice, target = null } = {}) {
+export function createAdvisorTaskResponse({ taskType, advice, target = null, meta = null } = {}) {
   const normalizedTaskType = normalizeAdvisorTaskType(taskType)
   const result = attachTargetMetadata(buildAdvisorResult(normalizedTaskType, advice), target)
 
@@ -168,6 +171,7 @@ export function createAdvisorTaskResponse({ taskType, advice, target = null } = 
     taskType: normalizedTaskType,
     advice: formatAdvice(advice, result),
     rawAdvice: advice,
-    result
+    result,
+    meta
   }
 }

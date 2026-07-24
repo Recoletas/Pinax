@@ -7,7 +7,7 @@
 // inbox selection). This module centralizes that into one pure builder
 // that returns a stable, snapshot-safe JSON envelope, plus a small
 // taskType catalog so the agent panel can route by intent instead of
-// dumping every request under `advisor.review.chapter`.
+// routing every request through the generic chapter-health task.
 //
 // Design contract:
 //   - Pure: takes all state in as a plain object, returns plain object.
