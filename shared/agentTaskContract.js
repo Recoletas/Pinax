@@ -73,10 +73,11 @@ export const EXECUTABLE_AGENT_TASKS = Object.freeze([
   {
     taskType: 'writing.continue.light',
     owner: 'writing',
-    resultMode: 'suggestions',
-    actionTypes: [],
+    resultMode: 'text-patch',
+    actionTypes: ['text-patch'],
     capability: 'text',
     surfaces: ['writing'],
+    targetTypes: ['cursor-window'],
     requiresRevision: true,
     maxContextChars: 12000
   },

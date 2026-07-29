@@ -37,12 +37,57 @@ export function adaptLegacyContextToEnvelope({
   if (context) {
     if (typeof context === 'string') {
       blocks.push({ kind: 'raw', content: context, priority: 500 })
+    } else if (surface === 'writing' && typeof context === 'object') {
+      const targetText = safeStr(target?.text)
+      const paragraphText = safeStr(context.paragraph?.text || context.paragraphText)
+      const before = safeStr(context.contextWindow?.before)
+      const after = safeStr(context.contextWindow?.after)
+
+      if (targetText) {
+        blocks.push({
+          kind: scope === 'selection' ? 'selection' : 'scene',
+          content: `【必须处理的${scope === 'selection' ? '当前选区' : '目标原文'}】\n${targetText}`,
+          priority: 1000,
+          sourceRefs: []
+        })
+      }
+      if (paragraphText) {
+        blocks.push({
+          kind: 'scene',
+          content: `【当前段落，必须据此完成任务】\n${paragraphText}`,
+          priority: 900,
+          sourceRefs: []
+        })
+      }
+      if (before || after) {
+        blocks.push({
+          kind: 'scene',
+          content: [
+            before ? `【光标前文】\n${before}` : '',
+            after ? `【光标后文】\n${after}` : ''
+          ].filter(Boolean).join('\n\n'),
+          priority: 750,
+          sourceRefs: []
+        })
+      }
+      blocks.push({
+        kind: 'raw',
+        content: JSON.stringify({
+          chapterTitle: context.chapterTitle || '',
+          wordCount: context.wordCount || 0,
+          chapterOutline: context.chapterOutline || '',
+          referenceAsset: context.referenceAsset || null,
+          writingConstraints: context.writingConstraints || null
+        }),
+        priority: 350,
+        sourceRefs: []
+      })
     } else if (typeof context === 'object' && context.contextText) {
       blocks.push({ kind: 'raw', content: context.contextText, priority: 500, sourceRefs: [] })
     } else if (typeof context === 'object' && context.chapterTitle) {
       blocks.push({
         kind: 'scene',
-        content: { text: safeStr(context.chapterTitle), ...context },
+        content: context,
         priority: 700,
         sourceRefs: []
       })
@@ -127,16 +172,6 @@ export function adaptLegacyResultToAgentResult(legacyResult, taskType) {
 
   if (Array.isArray(legacyResult.typedActions)) {
     actions.push(...legacyResult.typedActions)
-  }
-
-  if (legacyResult.summary) {
-    suggestions.push({
-      type: 'review',
-      label: '摘要',
-      content: safeStr(legacyResult.summary),
-      sourceRefs: [],
-      priority: null
-    })
   }
 
   return markCompleted(result, {

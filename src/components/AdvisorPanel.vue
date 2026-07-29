@@ -29,6 +29,10 @@
         <!-- Messages -->
         <div class="advisor-messages" ref="messagesRef">
           <p v-if="notice" class="advisor-notice" role="status">{{ notice }}</p>
+          <p v-if="contextLabel" class="advisor-context" :title="contextLabel">
+            <span>本次上下文</span>
+            {{ contextLabel }}
+          </p>
           <div v-if="messages.length === 0" class="advisor-empty">
             <p>{{ emptyText }}</p>
           </div>
@@ -113,6 +117,8 @@ const props = defineProps({
   loading: Boolean,
   quickQuestions: { type: Array, default: () => [] },
   notice: { type: String, default: '' },
+  contextLabel: { type: String, default: '' },
+  returnFocus: { type: Function, default: null },
   placeholder: { type: String, default: '输入你的问题... (Ctrl+Enter 发送)' },
   emptyText: { type: String, default: '统一智能顾问可帮助你分析当前创作状态，提供建议和灵感。' }
 })
@@ -192,7 +198,8 @@ useTransientLayer({
   id: 'advisor-review',
   isOpen: computed(() => props.isOpen),
   onClose: () => emit('close'),
-  initialFocus: () => inputRef.value
+  initialFocus: () => inputRef.value,
+  returnFocus: () => props.returnFocus?.()
 })
 
 function handleInputKeydown(e) {
@@ -359,6 +366,24 @@ function sendInput() {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.advisor-context {
+  margin: 0;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advisor-context span {
+  margin-right: 8px;
+  color: var(--text-primary);
+  font-weight: 650;
 }
 
 .advisor-empty p {

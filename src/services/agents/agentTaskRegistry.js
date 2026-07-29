@@ -223,7 +223,7 @@ const EXTENDED_WRITING_TASKS = Object.freeze([
     surfaces: ['writing'],
     intent: 'continue-light',
     contextPolicy: 'writing-cursor',
-    resultMode: RESULT_MODES.SUGGESTIONS,
+    resultMode: RESULT_MODES.TEXT_PATCH,
     capabilities: ['text']
   },
   {

@@ -44,8 +44,12 @@ export function buildWritingProfessionalTarget(actionInput, context = {}) {
     }
   }
   if (scope === 'thread' || scope === 'continue') {
+    const cursor = Number(context.selection?.start)
     return {
       kind: scope === 'thread' ? 'thread-window' : 'cursor-window',
+      ...(scope === 'continue' && Number.isFinite(cursor)
+        ? { range: { start: cursor, end: cursor }, text: '' }
+        : {}),
       paragraph: context.paragraph?.text || '',
       before: context.contextWindow?.before || '',
       after: context.contextWindow?.after || ''

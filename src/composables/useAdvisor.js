@@ -158,11 +158,16 @@ export function useAdvisor(options = {}) {
         ...adaptedResult,
         baseRevision: task.target?.revision || adaptedResult.baseRevision,
         target: pendingAgentResult.target,
-        actions: adaptedResult.actions.map((action) => (
-          action.type === 'text-patch' && !action.baseText && typeof task.target?.text === 'string'
-            ? { ...action, baseText: task.target.text }
-            : action
-        ))
+        actions: adaptedResult.actions.map((action) => {
+          if (action.type !== 'text-patch') return action
+          return {
+            ...action,
+            range: action.range || task.target?.range || null,
+            baseText: action.baseText == null && typeof task.target?.text === 'string'
+              ? task.target.text
+              : action.baseText
+          }
+        })
       }
       if (typeof resultValidator === 'function') {
         const validation = resultValidator(completedAgentResult, { task, context })
@@ -190,7 +195,6 @@ export function useAdvisor(options = {}) {
         showPassiveReminder(PASSIVE_HINT_TYPES.PENDING_RESULT)
       }
 
-      advisorMessages.value.push({ role: 'advisor', content: taskResult.advice })
     } catch (e) {
       const failedAgentResult = markFailed(pendingAgentResult, e)
       entry._agentResult = failedAgentResult

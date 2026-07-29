@@ -170,6 +170,14 @@ describe('writingSelectionCapture core flow', () => {
       { type: 'text-patch', range: { start: 0, end: 2 }, baseText: '旧文', content: '开场' },
       { type: 'text-patch', range: { start: 3, end: 5 }, baseText: '乙段', content: '收束' }
     ])).toMatchObject({ ok: false, reason: 'stale-base-text', actionIndex: 0 })
+    expect(applyWritingAgentTransaction('甲段。乙段。', [
+      {
+        type: 'text-patch',
+        range: { start: 0, end: 2 },
+        baseText: '甲段',
+        content: '请提供当前段落内容以便重写。'
+      }
+    ])).toMatchObject({ ok: false, reason: 'invalid-replacement', actionIndex: 0 })
 
     expect(buildWritingProfessionalActions({ hasSelection: false, hasParagraph: true }))
       .toEqual(expect.arrayContaining([
@@ -182,6 +190,15 @@ describe('writingSelectionCapture core flow', () => {
       kind: 'selection',
       range: { start: 2, end: 4 },
       text: '片段'
+    })
+    expect(buildWritingProfessionalTarget({ scope: 'continue' }, {
+      selection: { start: 6, end: 6, text: '' },
+      paragraph: { text: '风吹过窗沿。' },
+      contextWindow: { before: '风吹过窗沿。', after: '' }
+    })).toMatchObject({
+      kind: 'cursor-window',
+      range: { start: 6, end: 6 },
+      text: ''
     })
     expect(buildSuggestionDomainAction('create-asset', { content: '保留这个伏笔' }, {
       resultId: 'result-1',

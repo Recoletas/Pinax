@@ -1,4 +1,4 @@
-import api from './api'
+import api, { getResolvedApiSettings } from './api'
 import { adaptLegacyContextToEnvelope } from './agents/legacyAdapter'
 import { clipContextEnvelope, toPromptText } from './agents/agentContextEnvelope'
 import { getTask, validateTaskType } from './agents/agentTaskRegistry'
@@ -102,6 +102,26 @@ export function buildAdvisorRequestPayload({
   }
 }
 
+export function buildAdvisorProviderOptions(settings = {}, options = {}) {
+  const provider = String(settings.provider || '').trim().toLowerCase()
+  const baseUrl = String(settings.baseUrl || '').trim()
+  const anthropic = provider === 'claude'
+    || provider === 'anthropic'
+    || provider === 'minimax'
+    || /\/anthropic(?:\/|$)/i.test(baseUrl)
+
+  return {
+    ...options,
+    agentProvider: 'text-model',
+    providerConfig: {
+      baseUrl,
+      apiKey: String(settings.apiKey || '').trim(),
+      model: String(settings.model || '').trim(),
+      format: anthropic ? 'anthropic' : 'openai'
+    }
+  }
+}
+
 export async function requestAdvisorTask({
   envelope = null,
   context,
@@ -140,11 +160,13 @@ export async function requestAdvisorTask({
   recordAgentRequestTrace(traceBase)
 
   try {
+    const apiSettings = await getResolvedApiSettings()
+    const providerOptions = buildAdvisorProviderOptions(apiSettings, options)
     const response = await api.post('/advisor/task', buildAdvisorRequestPayload({
       envelope: built.envelope,
       question: normalizedQuestion,
       taskType: built.taskType,
-      options,
+      options: providerOptions,
       mode,
       requestId,
       clientStartedAt: traceBase.startedAt

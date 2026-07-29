@@ -294,7 +294,12 @@
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
-                <button class="tool-btn ai-btn" @click.stop="openAdvisorFromAction" title="打开写作专业任务">
+                <button
+                  class="tool-btn ai-btn"
+                  title="打开写作专业任务"
+                  @pointerdown="captureAdvisorSelection"
+                  @click.stop="openAdvisorFromAction"
+                >
                   <WorkbenchIcon name="sparkles" :size="14" />
                   <span>顾问</span>
                 </button>
@@ -348,6 +353,16 @@
             </div>
 
             <div class="editor-container" v-if="editorMode === 'wysiwyg'">
+              <div
+                v-if="advisorSelectionVisible"
+                class="advisor-selection-layer"
+                :style="editorTypographyStyle"
+                aria-hidden="true"
+              >
+                <div class="advisor-selection-scroll" :style="copilotGhostScrollStyle">
+                  <span>{{ advisorSelectionBefore }}</span><mark>{{ advisorSelectionText }}</mark><span>{{ advisorSelectionAfter }}</span>
+                </div>
+              </div>
               <div class="editor-ghost-layer" v-if="copilotVisible && copilotSuggestion" :style="editorTypographyStyle" aria-hidden="true">
                 <div class="editor-ghost-scroll" :style="copilotGhostScrollStyle">
                   <span>{{ copilotGhostBefore }}</span><span class="ghost-text">{{ copilotSuggestion }}</span><span>{{ copilotGhostAfter }}</span>
@@ -356,7 +371,10 @@
               <textarea
                 v-model="markdownContent"
                 class="wall__dossier-textarea prose-textarea"
-                :class="{ 'with-copilot-ghost': copilotVisible && copilotSuggestion }"
+                :class="{
+                  'with-copilot-ghost': copilotVisible && copilotSuggestion,
+                  'with-advisor-selection': advisorSelectionVisible
+                }"
                 placeholder="开始写作..."
                 ref="editorRef"
                 :style="editorTypographyStyle"
@@ -371,14 +389,30 @@
                 @drop="onWritingPaste"
               ></textarea>
             </div>
-            <textarea
-              v-if="editorMode === 'markdown'"
-              v-model="markdownContent"
-              class="wall__dossier-textarea markdown-textarea"
-              placeholder="开始写作（Markdown）..."
-              @input="onMarkdownInput"
-              @keydown="onTextAreaKeydown"
-            ></textarea>
+            <div v-if="editorMode === 'markdown'" class="markdown-editor-container">
+              <div
+                v-if="advisorSelectionVisible"
+                class="advisor-selection-layer is-markdown"
+                :style="editorTypographyStyle"
+                aria-hidden="true"
+              >
+                <div class="advisor-selection-scroll" :style="copilotGhostScrollStyle">
+                  <span>{{ advisorSelectionBefore }}</span><mark>{{ advisorSelectionText }}</mark><span>{{ advisorSelectionAfter }}</span>
+                </div>
+              </div>
+              <textarea
+                v-model="markdownContent"
+                ref="editorRef"
+                class="wall__dossier-textarea markdown-textarea"
+                :class="{ 'with-advisor-selection': advisorSelectionVisible }"
+                placeholder="开始写作（Markdown）..."
+                @input="onMarkdownInput"
+                @keydown="onTextAreaKeydown"
+                @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+                @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
+                @scroll="onEditorScroll"
+              ></textarea>
+            </div>
             <div
               v-if="editorMode === 'preview'"
               class="wall__dossier-textarea editor-preview"
@@ -595,8 +629,10 @@
       :loading="advisorLoading"
       :quickQuestions="advisorQuickActions"
       :notice="consistencyNotice"
+      :contextLabel="advisorContextLabel"
+      :returnFocus="restoreAdvisorSelection"
       :emptyText="'统一智能顾问可帮助你修正选区、收束段落、体检章节，并给出轻量续写建议。'"
-      @close="closeAdvisor"
+      @close="handleCloseAdvisor"
       @ask="handleAskAdvisor"
       @apply-result="applyAdvisorResult"
       @undo-result="undoAdvisorResult"
@@ -698,6 +734,7 @@ const gameStore = useGameStore()
 
 const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
 const copilotCursorPos = ref(0)
+const advisorSelectionSnapshot = ref(null)
 const copilotScrollTop = ref(0)
 const copilotScrollLeft = ref(0)
 
@@ -1009,7 +1046,7 @@ function goBack() {
   router.push('/')
 }
 
-function getWritingSelectionSnapshot() {
+function readLiveWritingSelectionSnapshot() {
   const editor = editorRef.value
   const text = markdownContent.value || ''
   const fallbackStart = Math.max(0, Math.min(text.length, copilotCursorPos.value || 0))
@@ -1025,6 +1062,13 @@ function getWritingSelectionSnapshot() {
     text: selectionText,
     hasSelection: end > start
   }
+}
+
+function getWritingSelectionSnapshot() {
+  if (advisorOpen.value && advisorSelectionSnapshot.value) {
+    return { ...advisorSelectionSnapshot.value }
+  }
+  return readLiveWritingSelectionSnapshot()
 }
 
 function getWritingParagraphSnapshot(position = null) {
@@ -1102,12 +1146,37 @@ function buildAdvisorActionContext(action = {}) {
 }
 
 const advisorQuickActions = computed(() => {
-  const hasSelection = Boolean(String(selectedText.value || '').trim())
-  const paragraph = getWritingParagraphSnapshot(copilotCursorPos.value)
+  const snapshot = advisorOpen.value && advisorSelectionSnapshot.value
+    ? advisorSelectionSnapshot.value
+    : readLiveWritingSelectionSnapshot()
+  const hasSelection = Boolean(String(snapshot.text || '').trim())
+  const paragraph = getWritingParagraphSnapshot(snapshot.start)
   return buildWritingProfessionalActions({
     hasSelection,
     hasParagraph: paragraph.hasParagraph
   })
+})
+
+const advisorContextLabel = computed(() => {
+  const snapshot = advisorSelectionSnapshot.value
+  if (!snapshot) return ''
+  if (snapshot.hasSelection) {
+    const preview = snapshot.text.replace(/\s+/g, ' ').trim()
+    return `选区 ${snapshot.end - snapshot.start} 字 · ${preview.slice(0, 48)}${preview.length > 48 ? '…' : ''}`
+  }
+  return `光标位置 ${snapshot.start}`
+})
+const advisorSelectionVisible = computed(() =>
+  advisorOpen.value && Boolean(advisorSelectionSnapshot.value?.hasSelection)
+)
+const advisorSelectionBefore = computed(() => {
+  const snapshot = advisorSelectionSnapshot.value
+  return snapshot ? markdownContent.value.slice(0, snapshot.start) : ''
+})
+const advisorSelectionText = computed(() => advisorSelectionSnapshot.value?.text || '')
+const advisorSelectionAfter = computed(() => {
+  const snapshot = advisorSelectionSnapshot.value
+  return snapshot ? markdownContent.value.slice(snapshot.end) : markdownContent.value
 })
 
 async function handleAskAdvisor(input) {
@@ -1359,7 +1428,28 @@ function undoAdvisorDomainAction(result) {
 
 function openAdvisorFromAction() {
   assetInboxOpen.value = false
+  if (!advisorSelectionSnapshot.value || !advisorOpen.value) {
+    captureAdvisorSelection()
+  }
   openAdvisorPanel()
+}
+
+function captureAdvisorSelection() {
+  advisorSelectionSnapshot.value = readLiveWritingSelectionSnapshot()
+}
+
+function handleCloseAdvisor() {
+  closeAdvisor()
+}
+
+function restoreAdvisorSelection() {
+  const editor = editorRef.value
+  const snapshot = advisorSelectionSnapshot.value
+  if (!editor || !snapshot) return editor
+  editor.setSelectionRange(snapshot.start, snapshot.end)
+  copilotCursorPos.value = snapshot.start
+  selectedText.value = snapshot.text
+  return editor
 }
 
 function openAssetInbox() {

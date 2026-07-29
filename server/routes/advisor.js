@@ -112,7 +112,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
 
   try {
     const run = await runAdvisorAgent({
-      providerId: String(options?.agentProvider || 'openclaw'),
+      providerId: String(options?.agentProvider || 'text-model'),
       fallbackProviderId: options?.fallbackProvider
         ? String(options.fallbackProvider)
         : null,

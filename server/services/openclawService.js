@@ -35,7 +35,7 @@ const ADVISOR_TASK_INSTRUCTIONS = {
   'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
   'writing.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
   'writing.chapter.health': '任务：章节体检。输出 summary/issues/action，每段简洁。',
-  'writing.continue.light': '任务：轻续一句。只给一条短建议。',
+  'writing.continue.light': '任务：轻续一句。续写光标后的下一句正文，不要分析、解释、列建议或重复上文。',
   'materials.refine': '任务：精简当前素材。保留事实、人物动机和可复用信息，删除重复与空泛解释。',
   'materials.classify': '任务：判断所选素材的分类。只给分类建议与简短理由，不修改素材。',
   'materials.split': '任务：判断当前素材是否应拆分。给出最多四个拆分标题与边界，不直接写入。',
@@ -104,6 +104,18 @@ function getTaskInstruction(taskType) {
 }
 
 function getTaskOutputInstruction(taskType) {
+  if (taskType === 'writing.continue.light') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "task": "writing.continue.light",
+  "mode": "replace",
+  "summary": "续写一句",
+  "replacement": "可直接插入光标处的一句正文",
+  "issues": []
+}
+replacement 只能包含一句正文，不得包含 summary、issues、建议、序号或解释。`
+  }
+
   if (taskType === 'writing.fix.selection'
     || taskType === 'writing.fix.paragraph'
     || taskType === 'materials.refine') {
@@ -114,7 +126,8 @@ function getTaskOutputInstruction(taskType) {
   "summary": "一句话",
   "replacement": "完整替换文本",
   "issues": []
-}`
+}
+必须直接处理上下文中标为“必须处理”的原文。不得索要选区、段落或其他已提供内容；无法完成时也不得返回占位替换文本。`
   }
 
   if (taskType === 'materials.classify') {
@@ -305,7 +318,13 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
   const questionText = String(question || '').trim()
   const taskType = normalizeTaskType(taskMeta.taskType)
   const targetText = serializeContext(taskMeta.target)
-  const optionsText = serializeContext(taskMeta.options)
+  const {
+    providerConfig: _providerConfig,
+    agentProvider: _agentProvider,
+    fallbackProvider: _fallbackProvider,
+    ...promptOptions
+  } = taskMeta.options || {}
+  const optionsText = serializeContext(promptOptions)
 
   if (!contextText || !questionText) {
     throw new Error('缺少 context 或 question 参数')

@@ -1,3 +1,5 @@
+import { validateWritingReplacement } from '../../../shared/writingReplacementContract.js'
+
 function normalizeRange(range, length) {
   const start = Number(range?.start)
   const end = Number(range?.end)
@@ -18,6 +20,8 @@ function normalizePatch(action, content) {
   if (!range) return { ok: false, reason: 'invalid-range' }
   const replacement = String(action.content ?? action.text ?? action.replacement ?? '')
   if (!replacement) return { ok: false, reason: 'empty-replacement' }
+  const validation = validateWritingReplacement(replacement)
+  if (!validation.valid) return { ok: false, reason: 'invalid-replacement' }
   const baseText = action.baseText == null ? null : String(action.baseText)
   if (baseText != null && content.slice(range.start, range.end) !== baseText) {
     return { ok: false, reason: 'stale-base-text' }

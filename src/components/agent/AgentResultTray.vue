@@ -96,6 +96,7 @@ const title = computed(() => {
   if (task === 'storyboard.video.prompt') return '视频生成请求'
   if (task.includes('selection')) return '选区修改'
   if (task.includes('paragraph')) return '段落修改'
+  if (task.includes('continue')) return '轻续一句'
   if (task.includes('health')) return '章节体检'
   if (task.includes('thread')) return '线索收束'
   return '专业任务'

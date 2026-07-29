@@ -34,6 +34,7 @@ import {
   adaptLegacyContextToEnvelope
 } from '../services/agents/legacyAdapter'
 import {
+  buildAdvisorProviderOptions,
   buildAdvisorRequestPayload
 } from '../services/advisorTaskService'
 import {
@@ -42,6 +43,7 @@ import {
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
 import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
+import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
   createAgentContextLedger,
@@ -671,6 +673,33 @@ describe('agentContracts', function () {
       taskType: 'advisor.fix.selection',
       target: { kind: 'selection', text: '需要修改的选区' }
     })
+    var paragraphAdapted = adaptLegacyContextToEnvelope({
+      context: {
+        chapterTitle: '第一章',
+        paragraph: { text: '祠堂内的风铃忽然停了。' },
+        contextWindow: { before: '她收好麻纸。', after: '门外没有人。' }
+      },
+      question: '补强段落衔接',
+      scope: 'paragraph',
+      taskType: 'writing.fix.paragraph',
+      target: { kind: 'paragraph', text: '祠堂内的风铃忽然停了。' }
+    })
+    var paragraphPrompt = toPromptText(paragraphAdapted.envelope)
+    expect(paragraphPrompt).toContain('【必须处理的目标原文】')
+    expect(paragraphPrompt).toContain('【当前段落，必须据此完成任务】')
+    expect(paragraphPrompt).toContain('祠堂内的风铃忽然停了。')
+    expect(paragraphPrompt).toContain('【光标前文】')
+    expect(function () {
+      createAdvisorTaskResponse({
+        taskType: 'writing.fix.paragraph',
+        advice: JSON.stringify({
+          mode: 'replace',
+          summary: '未提供当前段落',
+          replacement: '请提供当前段落内容以便重写。'
+        }),
+        target: { type: 'paragraph', revision: 'rev-refusal' }
+      })
+    }).toThrow('模型没有返回可应用的正文')
     var requestEnvelope = clipContextEnvelope(adapted.envelope)
     var requestPayload = buildAdvisorRequestPayload({
       envelope: requestEnvelope,
@@ -685,9 +714,17 @@ describe('agentContracts', function () {
     )
     var serverPrompt = buildOpenClawUserMessage(requestPayload.envelope, requestPayload.question, {
       taskType: requestPayload.taskType,
-      target: requestPayload.target
+      target: requestPayload.target,
+      options: {
+        providerConfig: { apiKey: 'must-not-enter-prompt' },
+        agentProvider: 'text-model',
+        editorMode: 'selection'
+      }
     })
     expect(serverPrompt).toContain(toPromptText(requestPayload.envelope))
+    expect(serverPrompt).toContain('editorMode')
+    expect(serverPrompt).not.toContain('must-not-enter-prompt')
+    expect(serverPrompt).not.toContain('providerConfig')
     var promptSourceOrder = requestPayload.envelope.blocks
       .map(function (block) { return block.sourceRefs[0] })
       .filter(Boolean)
@@ -719,6 +756,33 @@ describe('agentContracts', function () {
       options: { providerConfig: {} }
     })).rejects.toMatchObject({
       code: 'AGENT_PROVIDER_CONFIG_INVALID',
+      retryable: false
+    })
+    expect(buildAdvisorProviderOptions({
+      provider: 'MiniMax',
+      baseUrl: 'https://api.minimaxi.com/anthropic',
+      apiKey: 'sk-test',
+      model: 'MiniMax-M2.7'
+    }, {
+      editorMode: 'selection'
+    })).toEqual({
+      editorMode: 'selection',
+      agentProvider: 'text-model',
+      providerConfig: {
+        baseUrl: 'https://api.minimaxi.com/anthropic',
+        apiKey: 'sk-test',
+        model: 'MiniMax-M2.7',
+        format: 'anthropic'
+      }
+    })
+    await expect(runAdvisorAgent({
+      providerId: 'openclaw',
+      capability: 'text',
+      envelope: requestPayload.envelope,
+      question: '检查',
+      taskMeta: {}
+    })).rejects.toMatchObject({
+      code: 'AGENT_PROVIDER_UNKNOWN',
       retryable: false
     })
     var pending = createPendingResult('writing.fix.selection', { baseRevision: 'rev-1' })

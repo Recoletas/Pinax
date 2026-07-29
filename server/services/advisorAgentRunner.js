@@ -1,14 +1,9 @@
-import { getAdvice, OPENCLAW_PROVIDER } from './openclawService.js'
 import {
   runTextModelAgent,
   TEXT_MODEL_PROVIDER
 } from './textModelAgentProvider.js'
 
 const PROVIDERS = Object.freeze({
-  openclaw: {
-    ...OPENCLAW_PROVIDER,
-    run: getAdvice
-  },
   'text-model': {
     ...TEXT_MODEL_PROVIDER,
     run: runTextModelAgent
@@ -33,7 +28,7 @@ function getProvider(providerId, capability) {
 }
 
 export async function runAdvisorAgent({
-  providerId = 'openclaw',
+  providerId = 'text-model',
   fallbackProviderId = null,
   capability,
   envelope,

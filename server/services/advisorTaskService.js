@@ -1,4 +1,5 @@
 import { validateServerTaskType, isNewEnvelopePayload } from './agentTaskAllowlist.js'
+import { validateWritingReplacement } from '../../shared/writingReplacementContract.js'
 
 export const ADVISOR_TASK_MODES = {
   'writing.fix.selection': 'replace',
@@ -126,7 +127,7 @@ function buildAdvisorResult(taskType, advice) {
     ? parsed
     : (sectioned || {})
 
-  return {
+  const result = {
     task: taskType,
     mode: base.mode || ADVISOR_TASK_MODES[taskType] || 'review',
     summary: base.summary || advice || '未获取到有效建议',
@@ -138,6 +139,19 @@ function buildAdvisorResult(taskType, advice) {
     action: Array.isArray(base.action) ? base.action : [],
     stalePolicy: base.stalePolicy || 'require-same-base-text'
   }
+
+  if (result.mode === 'replace') {
+    const validation = validateWritingReplacement(result.replacement)
+    if (!validation.valid) {
+      const error = new Error('模型没有返回可应用的正文，请重新生成')
+      error.code = 'AGENT_REPLACEMENT_INVALID'
+      error.retryable = true
+      throw error
+    }
+    result.replacement = validation.text
+  }
+
+  return result
 }
 
 function attachTargetMetadata(result, target) {
@@ -158,6 +172,7 @@ function attachTargetMetadata(result, target) {
 function formatAdvice(rawAdvice, result) {
   if (!result || typeof result !== 'object') return rawAdvice || '未获取到有效建议'
   if (result.replacement) {
+    if (result.task === 'writing.continue.light') return result.replacement
     return result.summary || '已生成可应用修改'
   }
   return result.summary || rawAdvice || '未获取到有效建议'

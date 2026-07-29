@@ -40,6 +40,8 @@
 // Legacy API — applyAdvisorReplacement
 // -----------------------------------------------------------------------------
 
+import { validateWritingReplacement } from '../../shared/writingReplacementContract.js'
+
 function normalizeRange(range) {
   if (!range || typeof range !== 'object') return null
   const start = Number(range.start)
@@ -81,6 +83,13 @@ export function applyAdvisorReplacement(content, result) {
       ok: false,
       reason: 'empty-replacement',
       message: '替换文本为空，无法应用。'
+    }
+  }
+  if (!validateWritingReplacement(replacement).valid) {
+    return {
+      ok: false,
+      reason: 'invalid-replacement',
+      message: '模型没有返回可应用的正文，请重新生成。'
     }
   }
 

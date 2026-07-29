@@ -2488,6 +2488,59 @@
   transition: transform 0.02s linear;
 }
 
+.advisor-selection-layer {
+  position: absolute;
+  inset: 20px 24px 28px;
+  padding: 0 12px 0 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+  color: var(--archive-ink);
+  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-size: 17px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.advisor-selection-scroll {
+  min-height: 100%;
+}
+
+.advisor-selection-layer mark {
+  padding: 1px 0;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 72%, var(--archive-ink));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--archive-ink);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.prose-textarea.with-advisor-selection,
+.markdown-textarea.with-advisor-selection {
+  position: relative;
+  z-index: 4;
+  color: transparent !important;
+  caret-color: var(--archive-ink);
+}
+
+.markdown-editor-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.markdown-editor-container .advisor-selection-layer.is-markdown {
+  inset: 20px 24px 28px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  line-height: 1.7;
+}
+
+.markdown-editor-container .markdown-textarea {
+  height: calc(100% - 48px);
+}
+
 .ghost-text {
   color: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
   background: color-mix(in srgb, var(--accent) 10%, transparent);
