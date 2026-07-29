@@ -1909,6 +1909,446 @@ server.ready / presence.sync / event.append / error / pong
 - <https://github.com/hack-chat/main/blob/master/client/client.js>
 - <https://github.com/hack-chat/main/blob/master/commands/core/join.js>
 
+### G4.6 体验叙事 Agent 与按需世界上下文
+
+定位：把体验页从“生成前一次性拼装世界书、记忆和运行时文本，再进行一次流式生成”升级为受控的叙事 Agent。地理、历史、世界书和记忆继续由现有 store / service 持有，模型只通过少量只读工具按需取得证据；最终叙事仍沿用现有流式文本协议、阅读渲染和候选状态事务。
+
+本节只参考可验证的公开材料：
+
+- OpenCode 活跃公开仓库为 MIT 许可的 [`anomalyco/opencode`](https://github.com/anomalyco/opencode)，早期 [`opencode-ai/opencode`](https://github.com/opencode-ai/opencode) 已归档，不能把两代实现混为一谈；
+- OpenCode 的公开 `session/prompt.ts` 使用有明确结束条件的 step loop，根据 `tool-calls / stop / compact` 继续或退出，并在达到 agent step 上限时注入终止提示；
+- `session/tools.ts`、`tool/registry.ts`、`tool/tool.ts` 分别承担会话工具解析、工具发现/模型筛选、参数校验和统一执行；工具结果经过截断，旧工具输出还能在 compaction 中单独裁剪；
+- OpenCode 对 JSON Schema、消息和模型参数做 provider-specific transform，并把权限、取消、重试、循环检测和工具状态作为运行时事实，而不是 UI 猜测；
+- Anthropic 公开资料将 Claude Code 描述为“收集上下文 -> 行动 -> 验证”的工具循环，并建议在少量预加载与 just-in-time retrieval 之间采用混合策略。
+
+2026-03-31 的 npm source map 事故已由多家媒体确认，Claude Code 源码曾被公开暴露；但公开暴露不等于 Anthropic 以开源许可证授权使用（[Axios](https://www.axios.com/2026/03/31/anthropic-leaked-source-code-ai)、[TechCrunch](https://techcrunch.com/2026/04/01/anthropic-took-down-thousands-of-github-repos-trying-to-yank-its-leaked-source-code-a-move-the-company-says-was-an-accident/)、[InfoQ](https://www.infoq.com/news/2026/04/claude-code-source-leak/)）。因此不直接读取、复制或依据该未授权专有源码复刻实现；Pinax 的实现只建立在本仓库数据模型、公开协议、官方文档和有明确许可证的公开开源代码之上。
+
+#### G4.6.1 当前事实与问题边界
+
+当前体验主叙事链路：
+
+```text
+gameStore.generateAIResponse()
+  -> buildGeoHistoryRuntimeContext()
+  -> buildWorldbookContext()
+  -> buildScopedMemoryRecallContext()
+  -> worldbook / memory / runtime 变为 system messages
+  -> runGenerationStreamTask()
+  -> parseNarrativePresentation()
+  -> chatHistory / runtime event / memory candidate
+```
+
+这不是“把完整数据库全部塞给模型”：世界书已有 constant、history-bound、关键词和 token budget；地理历史只取当前地点附近的小切片；记忆也有排序和条目长度限制。但它仍然是 pre-inference eager retrieval：
+
+1. 检索发生在模型理解本轮意图之前，模型不能决定本轮是否需要历史、地点或角色资料；
+2. 第一次关键词未命中后不能换查询、沿实体关系继续读取或请求某个条目详情；
+3. 世界简介、写作风格、示例和结构化设定仍可能因一次条目命中而整体进入高优先级消息；
+4. `memoryQuery` 混入已选世界书和运行时文本，容易强化第一次检索的偏差；
+5. 世界书普通内容与真正的硬规则都以 system prose 出现，数据与指令的信任边界不够清楚；
+6. 现有 `/api/generate/stream` 只规范化文本，不保留 provider 的 tool call / tool result 结构；
+7. 全量会话继续累积，服务端只在字符预算超限时裁剪，没有对历史工具结果、场景摘要和最近完整轮次分别管理；
+8. 条目概率随机激活适合氛围或涌现，不适合作为事实检索；同一输入可能得到不同事实集合，难以复现和审计。
+
+G4.2 已提供可复用基础，但不能直接冒充主叙事 Agent：
+
+- `ContextEnvelope`、revision、sourceRefs、ledger、trace 和 provider adapter 已覆盖专业任务；
+- `experience.next-actions / experience.emergence` 是受限候选任务，仍使用一次性 envelope；
+- 写作、画布和分镜事务已经证明“模型给建议，owner 校验并提交”可行；
+- `PlaceEntity`、geo-history runtime context 和 scoped memory 已具备稳定引用与局部读取入口。
+
+主叙事循环必须作为 G4.2 上层的新运行时，复用这些契约，不把所有专业 Agent 改成无限循环。
+
+#### G4.6.2 目标架构与控制流
+
+概念边界：
+
+- **Resource**：世界书条目、PlaceEntity、历史节点、玩家历史、已确认记忆和 runtime snapshot；
+- **Tool**：查询、读取、追溯这些资源的受控函数；
+- **Kernel**：每轮必需且足够小的场景工作集；
+- **Agent loop**：模型请求工具、应用执行、结果回传、模型继续的有限状态机；
+- **Transaction**：最终叙事产生的世界变化候选，经过 owner 校验和用户确认后写回。
+
+```text
+Experience turn
+  -> buildNarrativeKernel()
+  -> Agent round 1 (non-streaming, tool choice auto)
+      -> final intent ------------------------------┐
+      -> tool calls -> validate -> local execute    |
+                       -> capped tool results        |
+                       -> Agent round 2              |
+                           -> optional final tools   |
+                           -> Agent round 3 / stop   |
+                                                     v
+  -> final narrative stream
+  -> parseNarrativePresentation()
+  -> deterministic continuity validation
+  -> runtime / memory / emergence candidates
+  -> existing review and transaction owners
+```
+
+状态机至少包含：
+
+```text
+idle
+  -> preparing-kernel
+  -> deciding
+  -> awaiting-tools
+  -> executing-tools
+  -> deciding
+  -> streaming-final
+  -> validating
+  -> completed | cancelled | failed | fallback
+```
+
+每次状态变化写入结构化 trace。页面只能根据 trace 显示“查阅地点 / 追溯历史 / 组织叙事”等短状态，不展示、保存或伪造模型内部思维过程。
+
+#### G4.6.3 最小常驻内核
+
+常驻内容按职责而不是按数据来源划分：
+
+| Block | 内容 | 首版预算 | 说明 |
+|---|---|---:|---|
+| `rules` | 叙事身份、玩家控制权、输出标记、安全与禁止事项 | 900 chars | 硬约束，不从普通世界书内容推断 |
+| `turn` | 当前玩家输入、输入类型、请求时间 | 1200 chars | 不允许被工具结果覆盖 |
+| `scene` | 当前地点/时间、在场角色、当前动作、对话对象 | 1800 chars | 使用稳定 ID，并保留短显示名 |
+| `recent` | 最近 2 个完整语义轮次 | 3600 chars | 保留对话归属和 presentation 语义，不只留纯文本 |
+| `continuity` | 当前目标、未决动作、上一轮已确认状态变化 | 1600 chars | 只放强连续性事实 |
+| `style` | 极短风格指纹 | 600 chars | 示例文本不默认常驻 |
+| `tool_catalog` | 4 个领域工具的名称、用途和 schema | provider 实际 token | 不加载无关写工具 |
+
+硬规则来自明确字段：`forbidden`、`rule` 类型 constant 条目和产品级玩家控制权规则。普通 lore、角色传记、地点长描述、历史详情、示例文本、远方地图信息和长期记忆全部退出常驻内核。
+
+Kernel 必须能够支持“不调用工具也能完成的轻动作”，例如观察眼前物品、继续当前一句对话或执行已经明确的短动作；否则模型会把工具调用当成每轮税费。
+
+#### G4.6.4 首批只读工具
+
+首批只提供四个领域工具。相关操作通过 `action` 收敛，避免为每种实体和动作创建几十个工具：
+
+| Tool | Actions | 主要用途 | 不得承担 |
+|---|---|---|---|
+| `world_lookup` | `search / get / related` | 角色、组织、地点 lore、物品、规则和普通条目 | 修改世界书、生成新设定 |
+| `geo_lookup` | `current / get / nearby / route` | 地点详情、上下级区域、邻接、路线与地理约束 | 改当前位置、重新生成地图 |
+| `history_lookup` | `search / get / trace` | 按地点、人物、时间、因果和未决线索追溯事件 | 写入历史、触发随机事件 |
+| `memory_lookup` | `search / get` | 项目/会话范围的已确认经历、关系和事实 | 自动确认候选记忆 |
+
+统一输入约束：
+
+```ts
+interface NarrativeReadToolInput {
+  action: string
+  query?: string
+  ids?: string[]
+  filters?: {
+    entityTypes?: string[]
+    placeIds?: string[]
+    characterIds?: string[]
+    timeRange?: { from?: string; to?: string }
+    scopes?: Array<'project' | 'session'>
+  }
+  limit?: number
+  cursor?: string
+}
+```
+
+统一结果契约：
+
+```ts
+interface NarrativeToolResult {
+  tool: string
+  action: string
+  query: string
+  revision: string
+  items: Array<{
+    id: string
+    type: string
+    title: string
+    summary: string
+    relations?: Array<{ type: string; targetId: string }>
+    sourceRefs: string[]
+    matchReasons: string[]
+  }>
+  truncated: boolean
+  nextCursor?: string
+  warnings: string[]
+}
+```
+
+约束：
+
+- 每次最多返回 6 项、总计 4200 字符、单项摘要最多 520 字符；
+- `get` 可返回更完整单项，但仍限制 2800 字符；
+- 参数先过共享 schema，非法参数作为 typed tool error 返回模型，允许在轮数预算内修正一次；
+- 结果只包含数据，不夹带“你必须如何回答”的指令；
+- 所有条目带 canonical ID、revision、sourceRefs 和 matchReasons；
+- 找不到内容返回成功的空集合，不用虚构占位数据；
+- 同一轮相同参数按 `tool + args + resourceRevision` 缓存；
+- factual lookup 不执行概率抽样；随机性只保留在 emergence scheduler。
+
+#### G4.6.5 检索与索引
+
+不把“模型会调用工具”误当成检索质量已经解决。工具执行仍使用确定性、可解释的本地检索：
+
+1. **实体精确层**：ID、名称、别名、关键词和显式绑定；
+2. **结构过滤层**：类型、placeId、参与者、时间范围、项目/会话 scope；
+3. **图扩展层**：PlaceEntity 邻接、history links、entry bindings 和角色/组织关系，默认深度 1；
+4. **文本排序层**：中文 token、BM25/关键词覆盖、近期性、当前地点和显式引用加权；
+5. **可选语义层**：只作为召回补充，不替代 ID 和图约束；首版不强依赖远端向量库。
+
+新增 `NarrativeResourceIndex`：
+
+- 由 active worldbook、geoHistory、player history 和 confirmed memories 建立分域索引；
+- 使用各 owner 的 revision 增量重建，不在每次工具调用中全量扫描 localStorage；
+- 保存规范化 token、aliases、placeIds、participants、time bounds、relation targets 和 sourceRefs；
+- 索引属于可重建缓存，不进入项目真相源和备份；
+- 工具查询只读取 owner snapshot，不持有第二份可编辑世界状态。
+
+当前 `buildWorldbookContext()` 保留为不支持工具模型的 fallback 和 A/B baseline；不继续往其中叠加新检索规则。`memoryQuery` 改以当前输入、最近轮次和 canonical scene IDs 为主，不再把已命中的大段世界书文本作为查询主体。
+
+#### G4.6.6 浏览器、服务端与供应商边界
+
+Pinax 的主要项目数据在浏览器 localStorage / IndexedDB，首版工具执行应留在浏览器：
+
+```text
+Browser
+  NarrativeAgentOrchestrator
+  NarrativeResourceIndex
+  ReadToolRegistry
+  world / game / memory stores
+        |
+        | normalized agent turn
+        v
+Express
+  provider capability resolver
+  OpenAI-compatible adapter
+  Anthropic adapter
+  unsupported-provider fallback
+        |
+        v
+Model API
+```
+
+服务端新增 provider-neutral agent turn，不接触完整项目数据库：
+
+```text
+POST /api/generate/agent-turn
+  -> { kind: 'tool_calls', calls[], usage, finishReason }
+  -> { kind: 'final_ready', text?, usage, finishReason }
+  -> typed provider / schema / protocol error
+```
+
+第一、二轮使用非流式 agent turn，便于可靠取得完整 tool calls。确认模型不再请求工具后，最终叙事仍调用现有 stream endpoint；最终调用带入本轮 kernel、经过裁剪的工具结果和“现在输出正文”的明确约束。
+
+provider adapter 统一：
+
+- OpenAI-compatible：`tools / tool_choice / assistant.tool_calls / tool messages`；
+- Anthropic：`tools / tool_use / tool_result / stop_reason`；
+- 自定义兼容渠道：只有显式 capability test 通过后才能启用；
+- Cohere 和未知 provider 首版默认 `supportsTools=false`，走现有确定性 context builder；
+- capability 至少包括 `toolCalls`、`parallelToolCalls`、`strictSchema`、`streamToolCalls`、`structuredOutput`；
+- 不以模型名称字符串猜完整能力，配置结果可被用户连通性测试和运行错误降级修正。
+
+不引入 OpenCode 的 Effect runtime、数据库层或完整 AI SDK。Pinax 只借鉴层次和协议，继续使用现有 Vue service、Pinia owner、Express route 和 fetch/SSE 基础。
+
+内部工具首版也不需要启动 MCP server。工具注册表采用 MCP-compatible 的 name/description/schema/result 思路，等未来确有外部编辑器访问世界书的需求时再增加协议适配，不让远程协议增加本地叙事延迟。
+
+#### G4.6.7 循环、预算、压缩与恢复
+
+首版硬限制：
+
+- 最多 2 轮工具结果回传，最多 3 次模型决策；
+- 每轮最多 4 个并行只读调用，整轮最多 6 个工具调用；
+- 工具结果进入模型的累计上限 7200 字符；
+- 整个 agent turn 软时限 12 秒，单工具本地执行 800ms；
+- 连续 2 次同名同参调用立即返回 loop error，不执行第三次；
+- 用户取消、切换会话、重新生成或房主失去权威时，AbortSignal 终止当前 loop；
+- 最终正文开始流式输出后不再允许工具调用，避免正文半途停下查询；
+- 工具阶段失败可降级一次到现有 eager context；认证、协议和内容安全错误不得盲目重试。
+
+长会话采用分层压缩，不直接复制 coding agent 的通用 summary：
+
+1. 保留最近 2 个完整语义轮次；
+2. 更早轮次压成 scene summary，包含已确认事实、角色关系变化、地点变化、未决线索和 sourceRefs；
+3. 旧工具结果只保留工具名、参数摘要、命中 IDs 和最终采用的 sourceRefs，删除大段返回内容；
+4. 已进入世界状态或已确认记忆的事实不在会话摘要中重复保存全文；
+5. 压缩产物带 `coversMessageIds`、resource revisions 和生成时间；
+6. revision 不匹配时仅重建受影响块，不把整个历史重新展开；
+7. UI 仍只显示“【压缩完成】上下文已压缩完成”，内部结构不暴露为正文。
+
+这对应 OpenCode 将消息压缩和旧工具输出裁剪分开的做法，但 Pinax 的保护对象是叙事事实与来源，而不是文件修改记录。
+
+#### G4.6.8 权限、安全与状态写入
+
+读工具默认允许访问当前项目，但仍通过统一 policy：
+
+- `world_lookup / geo_lookup / history_lookup` 只能读 active worldbook 及其关联地图/历史；
+- `memory_lookup` 必须显式限定 project/session scope，不能跨项目搜索；
+- 联机模式仅房主浏览器执行本地工具，其他成员只收到短工具状态和最终权威事件；
+- 工具 trace 不记录 API key、完整 prompt、完整世界书内容或完整记忆，只记录参数摘要、IDs、字符数、耗时和错误码；
+- 用户创作的普通条目按 untrusted data 处理，不能通过内容文本提升为 system instruction；
+- 只有 schema 中明确标记的 hard rule 才进入 kernel，规则来源必须可在 ledger 中追踪；
+- 只读叙事 Agent 没有 `write_worldbook`、`move_player`、`append_history`、`confirm_memory` 等工具；
+- 叙事产生的移动、关系、物品、历史或记忆变化继续形成 typed candidate，由现有 owner/revision/transaction 校验；
+- tool result 中引用不存在、revision 过期或跨项目 ID 时整项拒绝，不能部分采用。
+
+首版不为纯读取弹权限框。未来新增有副作用工具时，必须像现有专业 Agent 一样进入审阅托盘，并提供 diff、来源、应用和撤销；不能复用“读工具默认允许”策略。
+
+#### G4.6.9 体验与联机表现
+
+单机体验：
+
+- 输入提交后立即建立 assistant placeholder，但正文区不显示空白大块；
+- 工具阶段在输入区附近显示单行状态，例如“查阅旧港 · 2 条历史”，状态完成后自动淡出；
+- 用户可从上下文台账查看本轮用了哪些资源及其来源，不显示内部推理；
+- 最终正文开始后恢复现有逐字/分块渲染、对话样式和操作工具；
+- 重新生成创建新的 agent turn，不复用上一轮未完成工具结果。
+
+联机体验：
+
+- 房主是唯一 generation owner，也是唯一工具 executor；
+- `narrative.request` 产生一个 commandId，工具阶段广播低敏感状态事件，最终正文仍只提交一次；
+- 房主断线或转让期间取消未完成 loop；新房主不能接管旧浏览器中的本地工具快照，只能从同一输入重新发起新 command；
+- 成员端不接收世界书工具原文，避免联机房间变成项目数据导出通道；
+- trace 和 runtime candidate 随权威 event seq 对齐，重连不会重复显示工具状态或提交正文。
+
+#### G4.6.10 分期执行
+
+**M0：契约、基线和可观测性（2-3 天）**
+
+- 固化 `NarrativeKernel`、`NarrativeToolCall`、`NarrativeToolResult`、`NarrativeAgentTurn` 和 capability schema；
+- 用现有 ContextLedger 记录当前 eager path 的输入字符、来源、命中和生成耗时；
+- 建立至少 40 个离线场景夹具：轻动作、旧事件、跨地点历史、同名角色、角色关系、路线、空检索、恶意条目、长会话和 unsupported provider；
+- 标记当前输出中的事实矛盾、无依据人物、错误地点历史和上下文字符基线；
+- 功能不变，不增加第二条生产生成路径。
+
+Gate：同一固定输入可重复生成相同的检索报告；ledger 不含 API key 和完整正文；测试总量仍不超过 200。
+
+**M1：本地资源索引与只读工具（3-5 天）**
+
+- 实现 `NarrativeResourceIndex` 和四个 read tool executor；
+- exact ID、aliases、结构过滤、图扩展和文本排序分层实现；
+- schema validation、revision、sourceRefs、缓存、截断和 typed empty/error 齐全；
+- 通过开发面板或脚本直接调用工具，不接模型。
+
+Gate：40 个夹具的目标证据召回率不低于当前 eager baseline；错误 project/place/revision 引用全部 fail closed；相同 snapshot+args 返回稳定。
+
+**M2：统一 tool-call provider 协议（4-6 天）**
+
+- 新增 provider-neutral `/api/generate/agent-turn`；
+- 完成 OpenAI-compatible 和 Anthropic 请求/响应转换；
+- 保留 assistant tool call 与 tool result 的结构，不再压成纯文本；
+- 实现 capability test、invalid-schema、partial call、parallel calls、cancel、timeout 和 provider error；
+- unknown/Cohere/custom 默认进入 fallback。
+
+Gate：至少两个真实兼容 provider 完成“请求工具 -> 本地结果 -> 继续 -> 最终响应”；协议错误不会返回假正文；没有工具能力时旧生成链可用。
+
+**M3：影子选择与检索评估（3-4 天）**
+
+- 仅在开发开关下让模型选择工具，但生产正文仍使用当前 eager context；
+- 比较模型调用、当前关键词命中和夹具目标证据；
+- 记录 over-call、under-call、空调用、重复调用、无效参数、额外延迟和上下文节省；
+- 调整工具描述、action 边界和结果字段，不根据个别示例堆 prompt 特判。
+
+Gate：有资料需求的夹具工具选择正确率至少 85%；轻动作中至少 70% 不调用工具；有效调用中至少 85% 返回被最终任务需要的证据；无循环超过硬限制。
+
+**M4：受控混合生成（4-6 天）**
+
+- `generateAIResponse()` 只负责页面生命周期，Agent loop 下沉到独立 orchestrator；
+- 支持工具 provider 使用 kernel + 最多两轮只读工具，最终正文单独流式生成；
+- unsupported、超时和协议失败按错误类别降级到现有 eager builder；
+- `parseNarrativePresentation()`、消息操作、记忆候选和 runtime candidate 行为保持；
+- feature flag 支持按 provider、项目或会话关闭，不需要数据迁移。
+
+Gate：普通不调用工具轮次的首 token 延迟相对 baseline 增量不超过 300ms；调用一次工具时 300ms 内出现可理解状态；最终叙事不包含工具 JSON、内部状态或未处理标记；取消和重新生成没有孤儿调用。
+
+**M5：缩减 eager context 与长会话管理（3-5 天）**
+
+- 普通世界书、历史、长期记忆和示例退出 supported-provider 常驻上下文；
+- 保留 hard rules、scene kernel、最近轮次和必要连续性；
+- 实现 scene summary、旧工具结果 pruning 和 revision-aware compaction；
+- ContextLedger 增加 kernel/tool/summary/fallback 分区和实际使用量；
+- 当前 builder 冻结为 fallback，不在两条路径间复制新规则。
+
+Gate：无关轮次上下文字符较 baseline 中位数下降至少 40%；40 个夹具的事实矛盾率不高于 baseline，地点/历史相关任务的有效证据率明显提升；长会话压缩后仍能追踪来源和未决线索。
+
+**M6：联机、UI 和生产门禁（3-5 天）**
+
+- 工具状态接入体验页现有瞬态层和 ContextLedger，不增加独立 Agent 聊天窗；
+- 联机只由房主执行，状态与最终正文进入有序事件；
+- 真实 provider 运行不少于 60 轮，覆盖不调用、单轮调用、多跳、空结果、取消、超时和 fallback；
+- A/B 检查 token、首 token、总耗时、工具次数、采用证据、错误事实和用户重试率；
+- 完成旧 eager path 的使用统计后再决定何时默认开启，不能因新路径存在就立即删除 fallback。
+
+Gate：
+
+- 95% 轮次不超过 2 轮工具结果回传；
+- 重复同参调用不会执行第三次；
+- supported provider 的工具协议成功率至少 98%；
+- fallback 成功率 100%，且用户能看到真实降级原因；
+- 地点/历史夹具中的无依据事实较 baseline 至少下降 30%；
+- 双浏览器联机每个 commandId 只有一次模型调用 owner 和一次最终正文；
+- 主题2 1440/390 不增加遮挡、横向溢出或空白正文占位；
+- 核心测试 + 视觉测试总量继续不超过 200。
+
+#### G4.6.11 候选文件与所有权
+
+共享契约：
+
+- `shared/narrativeAgentContract.js`；
+- `shared/generationToolContract.js`；
+- 复用 `shared/agentContextContract.js` 的 sourceRefs / revision / ledger 规则。
+
+浏览器运行时：
+
+- `src/services/agents/experienceNarrativeAgent.js`；
+- `src/services/agents/narrativeToolRegistry.js`；
+- `src/services/agents/tools/worldLookup.js`；
+- `src/services/agents/tools/geoLookup.js`；
+- `src/services/agents/tools/historyLookup.js`；
+- `src/services/agents/tools/memoryLookup.js`；
+- `src/services/agents/narrativeResourceIndex.js`；
+- `src/stores/gameStore.js` 只做入口、状态和 fallback 接线。
+
+服务端：
+
+- `server/routes/generationAgent.js`；
+- `server/services/toolCallingProviderAdapter.js`；
+- `server/services/providers/openAiToolAdapter.js`；
+- `server/services/providers/anthropicToolAdapter.js`；
+- `server/routes/chat.js` 保留文本与最终 streaming owner，不继续塞领域工具逻辑。
+
+UI：
+
+- `src/components/experience/NarrativeAgentStatus.vue`；
+- 复用/扩展 `AgentContextLedger.vue`；
+- `Experience.vue` 只接状态和取消，不内置工具执行器。
+
+#### G4.6.12 测试预算、回滚与非目标
+
+测试继续服从 200 上限：
+
+- 在现有 `gameStoreSession`、agent contract 和 provider tests 中参数化增加 tool loop 场景，先删除或合并等量低价值重复断言；
+- schema、provider normalization、loop termination、abort、fallback 和 sourceRef 校验使用纯契约测试；
+- 40 个质量夹具与 60 轮真实 provider 属于 eval/smoke，不按每个案例生成一个 Vitest；
+- 浏览器 smoke 覆盖单机、长会话、取消、重新生成和双浏览器房主权威。
+
+回滚策略：
+
+- `experienceAgenticContext` feature flag 默认可按 provider 关闭；
+- 旧 `buildWorldbookContext()` 和现有 stream path 在至少一个稳定发布周期内保留；
+- 新索引全部可重建，不修改存档 schema；
+- agent trace 只作诊断，删除 trace 不影响会话和世界状态；
+- 新路径失败不得写入半成品 assistant 正文、候选记忆或 runtime patch。
+
+明确非目标：
+
+- 不实现无限自主 Agent、多 Agent 叙事团队或后台自行推进剧情；
+- 不展示 chain-of-thought，也不把“思考中”伪造成模型推理记录；
+- 不让主叙事 Agent 直接写世界书、移动玩家、确认记忆或提交历史；
+- 不要求首版部署向量数据库、MCP server 或 OpenCode 的运行时框架；
+- 不把所有专业 Agent、写作补全和媒体生成改成同一个循环；
+- 不替换现有 narrative presentation parser 和主题2阅读设计；
+- 不直接读取、复制或依据已公开暴露但未获开源许可的 Claude Code 专有源码实现或验证功能。
+
 ## Gate 5：视频、音频与发布渠道
 
 目标：把现有分镜变成供应商无关、可恢复、可核算的媒体生产队列。

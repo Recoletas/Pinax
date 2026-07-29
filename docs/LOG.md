@@ -10,6 +10,36 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-07-29 - G4.6 体验叙事 Agent 与按需世界上下文计划
+
+状态：公开实现调研和主计划完成；下一步进入 M0 契约与 baseline，不改变生产行为。
+
+- 核对当前体验主链仍是预先筛选世界书、当前地点历史和记忆，再进行一次流式模型调用；已有检索不是完整数据倾倒，但模型不能按本轮意图决定查询、补查或沿关系追溯。
+- 参考 MIT 许可的活跃 OpenCode 公开仓库：会话以有限 step loop 处理 tool-calls/stop/compact，工具通过统一 registry、schema validation、provider transform、permission、abort、result truncation 和旧结果 pruning。
+- 结合 Anthropic 公开的 Claude Code 与 tool-use 文档，确定采用混合上下文：硬规则、当前场景和最近轮次常驻；世界书、地理、历史和记忆通过四个浏览器本地只读工具按需读取。
+- 主计划新增 G4.6，冻结最小 kernel、工具输入/结果契约、最多两轮工具回传、浏览器/Express/provider 边界、长会话摘要、联机房主权威、M0-M6 Gate、量化评估、200 测试上限和 feature-flag fallback。
+- 不引入 OpenCode 的 Effect runtime，不要求首期 MCP/向量数据库。已核实 2026-03-31 Claude Code npm source map 暴露事件属实，但公开暴露不等于开源授权，因此不直接读取、复制或依赖该专有源码。
+- 本轮只修改计划和状态文档，未启动或重启服务。
+
+## 2026-07-26 - 顾问移除 OpenClaw 默认链路
+
+状态：完成
+
+- 写作顾问复用浏览器中已保存的常规文本模型配置，不再要求单独配置 OpenClaw 网关 Token。
+- Agent runner 仅保留 `text-model` provider；MiniMax/Anthropic 兼容地址自动使用 Anthropic 消息协议。
+- 显式旧 OpenClaw provider 请求返回稳定的 provider unknown 错误，不再进入废弃链路。
+- “轻续一句”改为严格返回一句可插入正文，并绑定当前光标的零长度范围；结果托盘可直接应用。
+- 成功结果不再重复显示聊天副本，摘要不再成为“入纲要/存素材”操作项；连接配置与 API Key 不进入模型提示词。
+- 修复写作场景块因顶层 `text` 只序列化章节标题的问题；当前选区、当前段落和光标前后文现在独立、带标签并按任务优先进入上下文。
+- 写作 text patch 使用请求发起时的权威范围与原文；服务端和前端事务双重拒绝索要上下文、拒绝改写等占位 replacement，避免错误覆盖正文。
+- 顾问打开前冻结 textarea 选区，面板明确显示本次选区字数、预览或光标位置；关闭后恢复编辑器焦点和原选择范围，Markdown 编辑模式也接入相同选择同步。
+- 顾问打开期间在正文原位置保留随滚动同步的淡蓝选区高亮和短信号边；Chromium 实测 9 字选区高亮尺寸 `147×21px`，关闭后选择范围 `0–9` 与编辑器焦点均恢复。
+
+验证：
+- `npm run test:run -- src/__tests__/agentContracts.test.js` 通过（1 test）。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
 ## 2026-07-24 - G1.4 指定视口阅读 smoke
 
 状态：多视口阅读门禁完成；真实 provider 与双浏览器联机仍受当前后端 502 阻塞。
