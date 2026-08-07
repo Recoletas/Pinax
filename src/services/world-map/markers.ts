@@ -4,140 +4,66 @@
  */
 
 import type { MapMarker } from '../../types/world-map'
+import type { StyleConfig } from './engine/style-presets'
 
 function drawMarker(
   ctx: CanvasRenderingContext2D,
   marker: MapMarker,
   isSelected: boolean,
   isHovered: boolean,
+  style: StyleConfig,
 ) {
   const { x, y } = marker
-  const importance = marker.importance || 3
   const isCapital = marker.type === 'capital'
-  const isCity = marker.type === 'city' || marker.type === 'capital'
-  const isFortress = marker.type === 'fortress' || marker.type === 'sect'
   const isPort = marker.type === 'port'
+  const projectsBurg = String(marker.mapObjectId || '').startsWith('burg:')
 
   ctx.save()
 
-  if (isSelected) {
-    ctx.globalAlpha = 0.4
-    ctx.fillStyle = '#3b82f6'
+  if (isSelected || isHovered) {
+    ctx.globalAlpha = isSelected ? 0.32 : 0.2
+    ctx.fillStyle = style.river
     ctx.beginPath()
-    ctx.arc(x, y, 16, 0, Math.PI * 2)
+    ctx.arc(x, y, isSelected ? 12 : 9, 0, Math.PI * 2)
     ctx.fill()
     ctx.globalAlpha = 1
   }
 
-  if (isHovered && !isSelected) {
-    ctx.globalAlpha = 0.25
-    ctx.fillStyle = '#60a5fa'
+  // A worldbook place bound to an existing burg uses the burg icon and label
+  // already rendered in the base map. Only a quiet ownership arc is overlaid.
+  if (projectsBurg) {
+    ctx.strokeStyle = style.river
+    ctx.lineWidth = marker.bindingStatus === 'confirmed' ? 1.4 : 1
+    ctx.setLineDash(marker.bindingStatus === 'confirmed' ? [] : [2, 2])
     ctx.beginPath()
-    ctx.arc(x, y, 14, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.globalAlpha = 1
+    ctx.arc(x, y, isCapital ? 8 : 5, -Math.PI * 0.8, Math.PI * 0.1)
+    ctx.stroke()
+    ctx.restore()
+    return
   }
 
-  if (isCapital) {
-    ctx.globalAlpha = 0.25
-    ctx.fillStyle = '#c9a84c'
-    ctx.beginPath()
-    ctx.arc(x, y, 16, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.globalAlpha = 1
+  const radius = isCapital ? 6 : 3.5
+  ctx.fillStyle = style.scaleBarBg
+  ctx.strokeStyle = isCapital ? style.capitalStroke : style.townStroke
+  ctx.lineWidth = isCapital ? 2 : 1.2
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = isPort ? style.river : style.burgLabelColor
+  ctx.beginPath()
+  ctx.arc(x, y, isCapital ? 3.6 : 1.4, 0, Math.PI * 2)
+  ctx.fill()
 
-    ctx.fillStyle = '#c9a84c'
-    ctx.fillRect(x - 7, y - 4, 14, 10)
-    for (let i = -6; i <= 4; i += 4) {
-      ctx.fillRect(x + i, y - 8, 3, 4)
-    }
-    ctx.fillStyle = '#1a1810'
-    ctx.beginPath()
-    ctx.arc(x, y + 2, 2.5, Math.PI, 0)
-    ctx.fillRect(x - 2.5, y + 2, 5, 4)
-    ctx.fill()
-    ctx.strokeStyle = '#c9a84c'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(x, y - 8)
-    ctx.lineTo(x, y - 15)
-    ctx.stroke()
-    ctx.fillStyle = '#c44'
-    ctx.beginPath()
-    ctx.moveTo(x, y - 15)
-    ctx.lineTo(x + 6, y - 13)
-    ctx.lineTo(x, y - 11)
-    ctx.closePath()
-    ctx.fill()
-  } else if (isFortress) {
-    ctx.strokeStyle = '#8a6a4a'
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.moveTo(x, y - 7)
-    ctx.lineTo(x + 7, y)
-    ctx.lineTo(x, y + 7)
-    ctx.lineTo(x - 7, y)
-    ctx.closePath()
-    ctx.stroke()
-    ctx.fillStyle = '#5a4a38'
-    ctx.fill()
-    ctx.fillStyle = '#c9a84c'
-    ctx.beginPath()
-    ctx.arc(x, y, 3, 0, Math.PI * 2)
-    ctx.fill()
-  } else if (isPort) {
-    ctx.fillStyle = '#4a7a9a'
-    ctx.beginPath()
-    ctx.arc(x, y, 5, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = '#b0d0e0'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(x, y, 5, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.strokeStyle = '#b0d0e0'
-    ctx.lineWidth = 1.2
-    ctx.beginPath()
-    ctx.moveTo(x, y - 5)
-    ctx.lineTo(x, y + 4)
-    ctx.moveTo(x - 4, y + 2)
-    ctx.quadraticCurveTo(x - 4, y + 5, x, y + 4)
-    ctx.quadraticCurveTo(x + 4, y + 5, x + 4, y + 2)
-    ctx.stroke()
-  } else if (isCity) {
-    const r = 4 + Math.min(importance, 4)
-    ctx.fillStyle = '#b08060'
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = '#d0a878'
-    ctx.lineWidth = 1.2
-    ctx.stroke()
-    ctx.fillStyle = '#1a1810'
-    ctx.beginPath()
-    ctx.arc(x, y, r * 0.4, 0, Math.PI * 2)
-    ctx.fill()
-  } else {
-    const r = 3 + Math.min(importance, 3)
-    ctx.fillStyle = '#a08060'
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = '#c0a878'
-    ctx.lineWidth = 0.8
-    ctx.stroke()
-  }
-
-  const nameColor = isCapital ? '#c9a84c' : '#b0a080'
-  const fontSize = isCapital ? 12 : 8 + Math.min(importance, 3)
-  const nameFont = isCapital ? `bold ${fontSize}px serif` : `${fontSize}px serif`
-  ctx.fillStyle = nameColor
-  ctx.font = nameFont
+  const fontSize = isCapital ? 12 : 9
+  ctx.fillStyle = style.burgLabelColor
+  ctx.font = `${isCapital ? 'bold ' : ''}${fontSize}px ${style.burgLabelFont}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.strokeStyle = '#1a1810'
-  ctx.lineWidth = 2.5
-  const nameY = y + (isCapital ? 10 : 8)
+  ctx.strokeStyle = style.burgLabelStroke
+  ctx.lineWidth = 3
+  ctx.lineJoin = 'round'
+  const nameY = y + (isCapital ? 8 : 6)
   ctx.strokeText(marker.name, x, nameY)
   ctx.fillText(marker.name, x, nameY)
 
@@ -149,11 +75,13 @@ export function drawMarkers(
   markers: MapMarker[],
   selectedMarkerId?: string | null,
   hoveredMarkerId?: string | null,
+  style?: StyleConfig,
 ): void {
+  if (!style) return
   for (const marker of markers) {
     const isSelected = marker.id === selectedMarkerId
     const isHovered = marker.id === hoveredMarkerId
-    drawMarker(ctx, marker, isSelected, isHovered)
+    drawMarker(ctx, marker, isSelected, isHovered, style)
   }
 }
 

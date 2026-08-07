@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
   buildNarrativeAssetContentHash,
+  createNarrativeAssetSourceRef,
   createNarrativeAsset,
   deleteNarrativeAsset,
   findDuplicateNarrativeAsset,
@@ -12,13 +13,16 @@ import {
   getAssetSourceLabel,
   listActiveNarrativeAssets,
   listNarrativeAssets,
+  mergeSourceRefs,
   mergeNarrativeAssets,
   normalizeContentRef,
   normalizeImagePresentation,
+  sourceRefsToEvidenceRefs,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
   updateNarrativeAsset
 } from '@/services/narrativeAssets'
+import { createChapterOutlineItemFromAsset } from '@/services/chapterOutline'
 import {
   addNarrativeImageAsset,
   getMediaImagePresentation,
@@ -98,6 +102,26 @@ describe('narrativeAssets', () => {
       excerpt: '原文 片段'
     })
     expect(buildNarrativeAssetContentHash('a\n b')).toBe(buildNarrativeAssetContentHash('a b'))
+    const asset = createNarrativeAsset({
+      id: 'asset-history',
+      projectId: 'book-1',
+      content: '来自灰墙旧税所的账册线索',
+      sourceRefs: [
+        { refType: 'history-node', refId: 'history-gray-wall', projectId: 'book-1' },
+        { refType: 'map-site', refId: 'place:gray-wall:tax-office', projectId: 'book-1' }
+      ]
+    })
+    const merged = mergeSourceRefs([
+      ...asset.sourceRefs,
+      createNarrativeAssetSourceRef(asset),
+      asset.sourceRefs[0]
+    ])
+    expect(sourceRefsToEvidenceRefs(merged)).toEqual([
+      'history-node:history-gray-wall',
+      'map-site:place:gray-wall:tax-office',
+      'narrative-asset:asset-history'
+    ])
+    expect(createChapterOutlineItemFromAsset(asset).sourceRefs).toEqual(merged)
   })
 
   it('finds duplicates only when project, content, and source ref all match', () => {

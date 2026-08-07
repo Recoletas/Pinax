@@ -17,10 +17,17 @@ import {
 } from './worldbookImportGeneration'
 import { formatWorldbookStatus } from './worldbookFeedback'
 import { seedWorldbookPresets as presets } from './seedWorldbookPresets'
+import { createEmptyStructuredSettings, normalizeStructuredSettings } from './settingPanelSchema'
 import {
   buildPlayableWorldActionHooks,
   savePlayableWorldEntryIntent
 } from './playableWorldEntry'
+import {
+  normalizeResearchClaims,
+  normalizeResearchConflicts,
+  refreshResearchReview
+} from './worldbookResearchClaims'
+import { createResearchRevision } from './worldbookResearchRevision'
 
 // ----- Entry-type constants (mirrors WorldBookQuickImport.vue) -----
 
@@ -232,6 +239,24 @@ export function normalizeGeneratedEntry(rawEntry, index = 0) {
   const keysSecondary = normalizeKeywords(rawEntry?.keysSecondary || rawEntry?.secondary || rawEntry?.keysecondary)
   const group = normalizeGroupName(rawEntry?.group || rawEntry?.category || rawEntry?.injection?.group || defaultGroupByType(type)) || null
   const injection = resolveInjectionPolicy(rawEntry, type, name, content, keys)
+  const claimIds = [...new Set((Array.isArray(rawEntry?.claimIds) ? rawEntry.claimIds : rawEntry?.metadata?.claimIds || [])
+    .map((item) => normalizeText(item).toUpperCase())
+    .filter((item) => /^C\d+$/.test(item)))]
+    .slice(0, 8)
+  const sourceRefs = [...new Set((Array.isArray(rawEntry?.sourceRefs) ? rawEntry.sourceRefs : rawEntry?.metadata?.sourceRefs || [])
+    .map((item) => normalizeText(item).toUpperCase())
+    .filter((item) => /^S\d+$/.test(item)))]
+    .slice(0, 8)
+  const rawBasis = normalizeText(rawEntry?.basis || rawEntry?.metadata?.basis).toLowerCase()
+  const basis = ['research', 'mixed', 'creative'].includes(rawBasis)
+    ? rawBasis
+    : (sourceRefs.length ? 'mixed' : 'creative')
+  const sourceDocumentIds = [...new Set((Array.isArray(rawEntry?.sourceDocumentIds)
+    ? rawEntry.sourceDocumentIds
+    : rawEntry?.metadata?.sourceDocumentIds || [])
+    .map((item) => normalizeText(item))
+    .filter(Boolean))]
+    .slice(0, 8)
 
   return {
     name,
@@ -242,8 +267,42 @@ export function normalizeGeneratedEntry(rawEntry, index = 0) {
     injection: {
       ...injection,
       group
+    },
+    metadata: {
+      basis,
+      sourceRefs,
+      sourceDocumentIds,
+      claimIds,
+      reviewState: 'ready'
     }
   }
+}
+
+export function createSourceDocument(content, options = {}) {
+  const text = normalizeText(content)
+  if (!text) return null
+  const maxLength = 120000
+  const createdAt = Number(options.createdAt) || Date.now()
+  return {
+    id: normalizeText(options.id) || `source_${createdAt.toString(36)}`,
+    title: normalizeText(options.title) || '导入原文',
+    kind: normalizeText(options.kind) || 'reference-text',
+    content: text.slice(0, maxLength),
+    sourceLabel: normalizeText(options.sourceLabel) || '小说片段导入',
+    originalLength: text.length,
+    truncated: text.length > maxLength,
+    createdAt
+  }
+}
+
+function normalizeSourceDocuments(documents) {
+  return (Array.isArray(documents) ? documents : [])
+    .map((document, index) => createSourceDocument(document?.content, {
+      ...document,
+      id: document?.id || `source_${index + 1}`
+    }))
+    .filter(Boolean)
+    .slice(0, 8)
 }
 
 // ----- Helpers used by buildPendingPayload -----
@@ -305,6 +364,103 @@ function createAutoWorldbookName(prefix) {
   return `${prefix} ${stamp}`
 }
 
+function normalizeResearchPayload(research) {
+  if (!research || typeof research !== 'object') return null
+  const seen = new Set()
+  const sources = (Array.isArray(research.sources) ? research.sources : [])
+    .map((source) => ({
+      id: normalizeText(source?.id).toUpperCase(),
+      title: normalizeText(source?.title).slice(0, 240),
+      url: normalizeText(source?.url).slice(0, 1600),
+      snippet: normalizeText(source?.snippet).slice(0, 1200),
+      content: normalizeText(source?.content).slice(0, 6000),
+      evidenceLevel: source?.evidenceLevel === 'page' ? 'page' : 'snippet',
+      sourceKind: normalizeText(source?.sourceKind).slice(0, 50),
+      quality: normalizeText(source?.quality).slice(0, 30),
+      publishedAt: normalizeText(source?.publishedAt).slice(0, 80),
+      provider: normalizeText(source?.provider || research.provider).slice(0, 40),
+      excluded: false,
+      evidenceBlocks: (Array.isArray(source?.evidenceBlocks) ? source.evidenceBlocks : [])
+        .map((block) => ({
+          id: normalizeText(block?.id).toUpperCase().slice(0, 20),
+          locator: normalizeText(block?.locator).slice(0, 80),
+          text: normalizeText(block?.text).slice(0, 800)
+        }))
+        .filter((block) => /^P\d+$/.test(block.id) && block.text)
+        .slice(0, 12)
+    }))
+    .filter((source) => {
+      if (!/^S\d+$/.test(source.id) || !/^https?:\/\//i.test(source.url) || seen.has(source.id)) return false
+      seen.add(source.id)
+      return true
+    })
+    .slice(0, 16)
+  if (!sources.length) return null
+  const excludedSourceIds = [...new Set((Array.isArray(research.excludedSourceIds) ? research.excludedSourceIds : [])
+    .map((sourceId) => normalizeText(sourceId).toUpperCase())
+    .filter((sourceId) => /^S\d+$/.test(sourceId)))]
+  for (const source of sources) source.excluded = excludedSourceIds.includes(source.id)
+  const sourceIds = new Set(sources.map((source) => source.id))
+  const claims = normalizeResearchClaims(research.claims, sourceIds, new Set(excludedSourceIds))
+  const claimIds = new Set(claims.map((claim) => claim.id))
+  const conflicts = normalizeResearchConflicts(research.conflicts, claimIds)
+  const normalized = {
+    provider: normalizeText(research.provider).slice(0, 40),
+    plannedBy: ['ai', 'agent'].includes(research.plannedBy) ? research.plannedBy : 'local',
+    intent: normalizeText(research.intent).slice(0, 240),
+    queries: [...new Set((Array.isArray(research.queries) ? research.queries : [])
+      .map((query) => normalizeText(query).slice(0, 240))
+      .filter(Boolean))].slice(0, 4),
+    sources,
+    excludedSourceIds,
+    claims,
+    conflicts,
+    warnings: (Array.isArray(research.warnings) ? research.warnings : [])
+      .map((warning) => normalizeText(warning).slice(0, 300))
+      .filter(Boolean)
+      .slice(0, 4),
+    researchedAt: normalizeText(research.researchedAt).slice(0, 40),
+    incremental: research.incremental && typeof research.incremental === 'object'
+      ? {
+        query: normalizeText(research.incremental.query).slice(0, 220),
+        addedSourceCount: Math.max(0, Math.min(16, Number(research.incremental.addedSourceCount) || 0)),
+        completedAt: normalizeText(research.incremental.completedAt).slice(0, 40),
+        budget: research.incremental.budget === 'single-query' ? 'single-query' : ''
+      }
+      : null,
+    input: {
+      brief: normalizeText(research.input?.brief).slice(0, 4000),
+      genre: normalizeText(research.input?.genre).slice(0, 60),
+      genreLabel: normalizeText(research.input?.genreLabel).slice(0, 60),
+      nameHint: normalizeText(research.input?.nameHint).slice(0, 120),
+      targetCount: Number(research.input?.targetCount) || 0
+    }
+  }
+  const currentRevision = createResearchRevision({
+    input: normalized.input,
+    queries: normalized.queries,
+    sources: normalized.sources,
+    claims: normalized.claims,
+    excludedSourceIds: normalized.excludedSourceIds
+  })
+  const previousRevision = research.revision && typeof research.revision === 'object'
+    ? research.revision
+    : null
+  const revision = previousRevision?.fingerprint
+    ? {
+      ...currentRevision,
+      state: previousRevision.state === 'stale' || previousRevision.fingerprint !== currentRevision.fingerprint
+        ? 'stale'
+        : 'ready',
+      previousFingerprint: previousRevision.fingerprint !== currentRevision.fingerprint
+        ? previousRevision.fingerprint
+        : ''
+    }
+    : currentRevision
+  const withRevision = { ...normalized, revision }
+  return { ...withRevision, review: refreshResearchReview(withRevision) }
+}
+
 // ----- Payload builder -----
 
 export function buildPendingPayload({
@@ -316,10 +472,38 @@ export function buildPendingPayload({
   forbidden,
   sourceLabel,
   entries,
-  groups
+  groups,
+  research,
+  structuredSettings,
+  sourceDocuments
 }) {
+  const normalizedSourceDocuments = normalizeSourceDocuments(sourceDocuments)
+  const defaultSourceDocumentIds = normalizedSourceDocuments.map((document) => document.id)
+  const normalizedResearch = normalizeResearchPayload(research)
+  const excludedSourceIds = new Set(normalizedResearch?.excludedSourceIds || [])
+  const validSourceIds = new Set((normalizedResearch?.sources || [])
+    .map((source) => source.id)
+    .filter((sourceId) => !excludedSourceIds.has(sourceId)))
   const normalizedEntries = Array.isArray(entries)
     ? entries.map((entry, idx) => normalizeGeneratedEntry(entry, idx))
+      .map((entry) => {
+        const sourceRefs = (entry.metadata?.sourceRefs || []).filter((sourceId) => validSourceIds.has(sourceId))
+        const claimIds = (entry.metadata?.claimIds || [])
+          .filter((claimId) => normalizedResearch?.claims?.some((claim) => claim.id === claimId))
+        return {
+          ...entry,
+          metadata: {
+            ...entry.metadata,
+            sourceDocumentIds: entry.metadata?.sourceDocumentIds?.length
+              ? entry.metadata.sourceDocumentIds
+              : defaultSourceDocumentIds,
+            sourceRefs,
+            claimIds,
+            basis: sourceRefs.length ? entry.metadata.basis : (claimIds.length ? 'mixed' : 'creative'),
+            reviewState: 'ready'
+          }
+        }
+      })
     : []
   const normalizedDescription = normalizeText(description || worldDescription)
   const normalizedWorldDescription = normalizeText(worldDescription || normalizedDescription)
@@ -336,6 +520,15 @@ export function buildPendingPayload({
     entries: normalizedEntries
   })
 
+  const researchWithEntries = normalizedResearch
+    ? {
+      ...normalizedResearch,
+      review: refreshResearchReview(normalizedResearch, normalizedEntries),
+      revision: normalizedResearch.revision?.state === 'stale'
+        ? normalizedResearch.revision
+        : { ...normalizedResearch.revision, state: 'ready' }
+    }
+    : null
   const mergedEntries = [...normalizedEntries, ...constraintEntries]
 
   return {
@@ -346,6 +539,9 @@ export function buildPendingPayload({
     examples: normalizedExamples,
     forbidden: normalizedForbidden,
     sourceLabel: normalizeText(sourceLabel) || '快速导入',
+    research: researchWithEntries,
+    structuredSettings: normalizeStructuredSettings(structuredSettings),
+    sourceDocuments: normalizedSourceDocuments,
     entries: mergedEntries,
     groups: uniqueGroups([...(Array.isArray(groups) ? groups : []), ...collectGroupsFromEntries(mergedEntries)])
   }
@@ -374,7 +570,10 @@ export async function createWorldbookFromPayload(worldStore, payload) {
     writingStyle: normalizedPayload.writingStyle || '',
     examples: normalizedPayload.examples || '',
     forbidden: normalizedPayload.forbidden || '',
-    description: normalizedPayload.description || normalizedPayload.worldDescription || ''
+    description: normalizedPayload.description || normalizedPayload.worldDescription || '',
+    research: normalizedPayload.research,
+    structuredSettings: normalizedPayload.structuredSettings,
+    sourceDocuments: normalizedPayload.sourceDocuments
   })
 
   for (const entry of normalizedPayload.entries) {
@@ -384,7 +583,15 @@ export async function createWorldbookFromPayload(worldStore, payload) {
       keys: entry.keys,
       keysSecondary: entry.keysSecondary,
       content: entry.content,
-      injection: entry.injection
+      injection: entry.injection,
+      metadata: {
+        importSource: normalizedPayload.sourceLabel,
+        basis: entry.metadata?.basis || 'creative',
+        sourceRefs: entry.metadata?.sourceRefs || [],
+        claimIds: entry.metadata?.claimIds || [],
+        sourceDocumentIds: entry.metadata?.sourceDocumentIds || [],
+        reviewState: entry.metadata?.reviewState || 'ready'
+      }
     })
   }
 
@@ -446,56 +653,88 @@ export async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
       forbidden: normalizeText(parsed?.forbidden || ''),
       description: normalizeText(parsed?.description || parsed?.worldDescription || '由小说段落 AI 提炼生成'),
       sourceLabel: '小说段落 AI 提炼',
+      sourceDocuments: [createSourceDocument(sourceText, {
+        title: normalizeText(nameHint) ? `${normalizeText(nameHint)} · 导入原文` : '小说片段导入原文',
+        sourceLabel: '小说段落 AI 提炼'
+      })].filter(Boolean),
       entries: normalizedEntries,
       groups
     }
   }
 }
 
-export async function tryAiGenerateFromBrief({ genre, brief, targetCount, nameHint }) {
-  const safeTargetCount = clampNumber(targetCount, 8, 3, 30)
-  const genreLabel = entryTypeOptions.find((item) => item.value === genre)?.label || '通用风格'
+export function buildFoundationPayloadFromAiResult({ parsed, brief, genreLabel, nameHint } = {}) {
+  const worldDescription = normalizeText(parsed?.worldDescription || parsed?.description || brief)
+  const tone = normalizeText(parsed?.tone || '克制、清晰，保持稳定的情绪张力')
+  const writingStyle = normalizeText(parsed?.writingStyle || tone)
+  const perspective = normalizeText(parsed?.perspective || '采用稳定的有限视角，不随意越过角色认知边界')
+  const examples = normalizeText(parsed?.examples || '')
+  const forbidden = normalizeText(parsed?.forbidden || '避免无铺垫的冲突升级、角色失真和设定跳变')
+  const consistency = normalizeText(parsed?.consistency || '后续扩写必须遵循既有世界前提、叙事视角和人物认知边界')
+  const structuredSettings = createEmptyStructuredSettings()
 
-  const aiResult = await tryAiGenerateWorldbookJsonFromBrief({
-    genreLabel,
-    brief,
-    targetCount: safeTargetCount,
-    nameHint
-  })
+  structuredSettings.creativeRules.writingStyle = writingStyle
+  structuredSettings.creativeRules.perspective = perspective
+  structuredSettings.creativeRules.tone = tone
+  structuredSettings.creativeRules.taboos = forbidden
+  structuredSettings.creativeRules.consistency = consistency
+
+  return {
+    name: normalizeText(parsed?.name || nameHint || createAutoWorldbookName('创作基调')),
+    worldDescription,
+    writingStyle: [writingStyle, `叙事视角：${perspective}`, `情绪基调：${tone}`].filter(Boolean).join('\n'),
+    examples,
+    forbidden,
+    description: worldDescription,
+    sourceLabel: `AI 基调初始化（${genreLabel}）`,
+    structuredSettings,
+    entries: [
+      {
+        name: '世界一致性基线',
+        type: 'rule',
+        keys: ['世界规则', '一致性', '设定边界'],
+        content: `${worldDescription}\n一致性要求：${consistency}`,
+        group: '硬约束',
+        mode: 'constant'
+      },
+      {
+        name: '叙事基调',
+        type: 'style',
+        keys: ['写作风格', '叙事视角', '情绪基调'],
+        content: `写作风格：${writingStyle}\n叙事视角：${perspective}\n情绪基调：${tone}${examples ? `\n风格示例：${examples}` : ''}`,
+        group: '文风约束',
+        mode: 'constant'
+      },
+      {
+        name: '基础禁写边界',
+        type: 'forbidden',
+        keys: ['禁止内容', '禁写边界', '避免'],
+        content: forbidden,
+        group: '禁写边界',
+        mode: 'constant'
+      }
+    ],
+    groups: ['硬约束', '文风约束', '禁写边界']
+  }
+}
+
+export async function tryAiGenerateFromBrief({ genre, genreLabel: explicitGenreLabel, brief, nameHint }) {
+  const genreLabel = normalizeText(explicitGenreLabel)
+    || entryTypeOptions.find((item) => item.value === genre)?.label
+    || '通用风格'
+
+  const aiResult = await tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, nameHint })
 
   if (!aiResult.ok || !aiResult.parsed) return aiResult
 
-  const parsed = aiResult.parsed
-  const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries : []
-  const normalizedEntries = rawEntries
-    .slice(0, safeTargetCount)
-    .map((entry, idx) => normalizeGeneratedEntry(entry, idx))
-
-  if (!normalizedEntries.length) {
-    return {
-      ok: false,
-      reason: 'AI 返回了空条目，请补充说明后重试。'
-    }
-  }
-
-  const groups = uniqueGroups([
-    ...(Array.isArray(parsed?.groups) ? parsed.groups : []),
-    ...collectGroupsFromEntries(normalizedEntries)
-  ])
-
   return {
     ok: true,
-    payload: {
-      name: normalizeText(parsed?.name || nameHint || createAutoWorldbookName('AI随机世界书')),
-      worldDescription: normalizeText(parsed?.worldDescription || parsed?.description || brief.slice(0, 500) || '暂无世界设定描述'),
-      writingStyle: normalizeText(parsed?.writingStyle || ''),
-      examples: normalizeText(parsed?.examples || ''),
-      forbidden: normalizeText(parsed?.forbidden || ''),
-      description: normalizeText(parsed?.description || parsed?.worldDescription || brief || '由 AI 根据说明生成。'),
-      sourceLabel: `AI 随机生成（${genreLabel}）`,
-      entries: normalizedEntries,
-      groups
-    }
+    payload: buildFoundationPayloadFromAiResult({
+      parsed: aiResult.parsed,
+      brief,
+      genreLabel,
+      nameHint
+    })
   }
 }
 

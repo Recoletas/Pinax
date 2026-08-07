@@ -66,6 +66,24 @@ const POLAR_BAND = 0.12  // 极地衰减带(与 `softenMapEdges` 一致)
 const NEAR_POLAR_BAND = 0.40
 
 /**
+ * P0-4 de-banding:极地/近极地 cost 惩罚的松弛度。
+ * 0 = 保留当前惩罚强度（陆地被强推到中纬条带）；
+ * 调高（0.4-0.5）时按比例缩放惩罚 → 陆地可以更自由地分布到高纬,
+ * 缓解"陆地过度集中在中纬条带"。
+ *
+ * 由 `adjustSeaLevelTemplateAware` 在入口处从 `realism.shape.latitudeShaping`
+ * 设置；该模块的所有 polar penalty 计算都读取它。map 生成是单线程同步的,
+ * `adjustSeaLevelTemplateAware` 是这些 polar penalty 路径的唯一入口,
+ * 因此模块级状态在该范围内是安全的。
+ */
+let LATITUDE_SHAPING = 0
+
+/** 极地 cost 惩罚缩放因子：(1 - latitudeShaping)。0=完全松弛，1=当前行为。 */
+function polarPenaltyScale(): number {
+  return 1 - LATITUDE_SHAPING
+}
+
+/**
  * 极地衰减因子(0=极地,1=赤道),与 `coast.ts::polarFactor` 行为一致。
  * 极地区域应让 macroReshape 的翻动**显著衰减**,避免被极地放大成
  * 大片绿洲,推反 `softenMapEdges` 的极地海冰带。
@@ -108,13 +126,21 @@ function valueNoise2D(x: number, y: number): number {
   return lerp(lerp(a, b, tx), lerp(c, d, tx), ty) * 2 - 1
 }
 
+/** P0-3 de-banding: per-octave 旋转角度（见 heightmap.ts 同名常量说明）。 */
+const FBM_OCTAVE_ANGLE_DEG = 37
 function fbm2D(x: number, y: number, octaves: number): number {
+  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
   let v = 0
   let amp = 1
   let freq = 1
   let max = 0
   for (let i = 0; i < octaves; i++) {
-    v += amp * valueNoise2D(x * freq, y * freq)
+    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
+    const c = i === 0 ? 1 : Math.cos(i * theta)
+    const s = i === 0 ? 0 : Math.sin(i * theta)
+    const xr = x * c - y * s
+    const yr = x * s + y * c
+    v += amp * valueNoise2D(xr * freq, yr * freq)
     max += amp
     amp *= 0.5
     freq *= 2
@@ -941,7 +967,7 @@ function transitionFlip(cells: GridCells, targetLandRatio: number): void {
     const directionalBias = needMoreLand ? -bias * BIAS_GAIN : bias * BIAS_GAIN
     transitions.push({
       i, h,
-      cost: Math.abs(h - SEA_LEVEL) + directionalBias + (1 - pf) * 100,
+      cost: Math.abs(h - SEA_LEVEL) + directionalBias + (1 - pf) * 100 * polarPenaltyScale(),
       bias,
     })
   }
@@ -997,8 +1023,7 @@ function macroReshape(cells: GridCells): void {
     // Round 2.5 hotfix:NEAR_POLAR_BAND 0.30→0.40 扩到 y=0.7+ 也有
     // 惩罚。penalty (1-pf)*180 + (1-npf)*120 是 unit fix + pangea
     // 保持最大的平衡点;再高会切碎 pangea(largestRatio 0.85→0.81)。
-    const polarPenalty = (1 - pf) * 180
-      + (1 - npf) * 120
+    const polarPenalty = ((1 - pf) * 180 + (1 - npf) * 120) * polarPenaltyScale()
     const candidate = {
       i, h,
       // 低频 bias 绝对值越大越优先，离海平面越近越优先，高纬越靠后。
@@ -1058,7 +1083,7 @@ function silhouetteLandformReshape(cells: GridCells): void {
         if (bias > -SILHOUETTE_BIAS_THRESHOLD) continue
         const pf = polarFactor(y / canvasH)
         const npf = nearPolarFactor(y / canvasH)
-        const polarPenalty = (1 - pf) * 180 + (1 - npf) * 120
+        const polarPenalty = ((1 - pf) * 180 + (1 - npf) * 120) * polarPenaltyScale()
         erode.push({
           i: cellId,
           h,
@@ -1091,7 +1116,7 @@ function silhouetteLandformReshape(cells: GridCells): void {
       const y = cells.p[i * 2 + 1]
       const pf = polarFactor(y / canvasH)
       const npf = nearPolarFactor(y / canvasH)
-      const polarPenalty = (1 - pf) * 180 + (1 - npf) * 120
+      const polarPenalty = ((1 - pf) * 180 + (1 - npf) * 120) * polarPenaltyScale()
       grow.push({
         i,
         h,
@@ -1290,7 +1315,7 @@ function deepBayCarve(
 
       const pf = polarFactor(y / canvasH)
       const npf = nearPolarFactor(y / canvasH)
-      const polarPenalty = (1 - pf) * 150 + (1 - npf) * 85
+      const polarPenalty = ((1 - pf) * 150 + (1 - npf) * 85) * polarPenaltyScale()
       const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
       candidates.push({
         i: cellId,
@@ -1362,8 +1387,12 @@ export function adjustSeaLevelTemplateAware(
   targetLandRatio: number,
   shapeIntent?: TemplateShapeIntent,
   templateName?: HeightmapTemplate,
+  latitudeShaping?: number,
 ): void {
   if (cells.length === 0) return
+  // P0-4: 设置极地惩罚松弛度（clamp 到 [0,1]，默认 0 = 当前行为）。
+  const ls = latitudeShaping ?? 0
+  LATITUDE_SHAPING = Number.isFinite(ls) ? (ls < 0 ? 0 : ls > 1 ? 1 : ls) : 0
   macroHeightWarp(cells, targetLandRatio)
   globalShiftApproach(cells, targetLandRatio)
   transitionFlip(cells, targetLandRatio)

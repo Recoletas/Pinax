@@ -1,5 +1,6 @@
 import { buildContextEnvelope, clipContextEnvelope } from './agentContextEnvelope'
 import { createContentRevision } from './creativeGraphAgentContext'
+import { sourceRefsToEvidenceRefs } from '../narrativeAssets'
 
 function text(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -35,7 +36,8 @@ export function buildStoryboardAgentContext({
   shotIndex = 0,
   documentId = '',
   versionId = '',
-  projectId = ''
+  projectId = '',
+  sourceRefs: documentSourceRefs = []
 } = {}) {
   const index = Math.max(0, Math.min(shots.length - 1, Number(shotIndex) || 0))
   const selected = normalizeShot(shots[index], index)
@@ -51,6 +53,10 @@ export function buildStoryboardAgentContext({
     previous?.shotId ? `storyboard-shot:${previous.shotId}` : '',
     next?.shotId ? `storyboard-shot:${next.shotId}` : ''
   ].filter(Boolean)
+  const evidenceRefs = [...new Set([
+    ...sourceRefs,
+    ...sourceRefsToEvidenceRefs(documentSourceRefs)
+  ])]
   const envelope = clipContextEnvelope(buildContextEnvelope({
     surface: 'storyboard',
     projectId,
@@ -93,7 +99,7 @@ export function buildStoryboardAgentContext({
           documentId: text(documentId),
           versionId: text(versionId)
         },
-        sourceRefs
+        sourceRefs: evidenceRefs
       }
     ],
     budget: { maxChars: 12000 }
@@ -111,4 +117,3 @@ export function buildStoryboardAgentContext({
     }
   }
 }
-

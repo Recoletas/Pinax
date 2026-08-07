@@ -139,6 +139,7 @@ describe('writingSelectionCapture core flow', () => {
       bookId: 'book-1',
       chapterId: 'chapter-1',
       chapterTitle: '雨夜',
+      sourceRefs: ['history-node:history-rain', 'map-site:place:old-window'],
       outlineItems: [],
       inboxAssets: [],
       selectedInboxIds: [],
@@ -154,7 +155,10 @@ describe('writingSelectionCapture core flow', () => {
       }
     })
     expect(agentInput.envelope.blocks.map((block) => block.kind)).toEqual(['rules', 'scene'])
-    expect(agentInput.ledger.parts.some((part) => part.purpose === 'writing-cursor-window')).toBe(true)
+    expect(agentInput.envelope.blocks.find((block) => block.kind === 'scene').sourceRefs)
+      .toEqual(['chapter:chapter-1', 'history-node:history-rain', 'map-site:place:old-window'])
+    expect(agentInput.ledger.parts.find((part) => part.purpose === 'writing-cursor-window').sourceRefs)
+      .toEqual(['chapter:chapter-1', 'history-node:history-rain', 'map-site:place:old-window'])
     expect(agentInput.ledger.parts.every((part) => !Object.prototype.hasOwnProperty.call(part, 'content'))).toBe(true)
 
     const transaction = applyWritingAgentTransaction('甲段。乙段。', [

@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
-import { sendAction as apiSendAction, getState, buildContextMessage, recordMemory } from '../services/api'
-import { runGenerationStreamTask } from '../services/generationService'
+import { sendAction as apiSendAction, getState, recordMemory } from '../services/api'
 import {
   buildNarrativeFormatInstructions,
   ensureNarrativeMessage,
@@ -14,7 +13,6 @@ import {
   generateAdventureStoryboardDraft
 } from '../services/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
-import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import {
   appendPlayerHistoryNode,
   buildPlayerHistoryContext,
@@ -24,9 +22,9 @@ import {
 import { buildGeoHistoryRuntimeContext } from '../services/worldHistory/runtimeContext'
 import { buildEmergenceCandidates } from '../services/worldHistory/emergenceScheduler'
 import { generateEmergenceEventDraft } from '../services/generationEmergence'
-import { buildScopedMemoryContext, buildScopedMemoryRecallContext } from '../services/memoryCandidates'
-import { buildMem0MemoryContext } from '../services/memorySync'
-import { appendContextLedgerPart, createContextLedger, mergeContextLedgers, summarizePromptMessage } from '../services/contextLedger'
+import {
+  listScopedActiveMemoryCandidates
+} from '../services/memoryCandidates'
 import {
   RUNTIME_EVENT_LIMIT,
   applyStateDelta,
@@ -37,12 +35,40 @@ import {
   rollbackStateDelta,
   validateStateDelta
 } from '../services/runtimeEvents'
-import { buildRuntimeEventCausality } from '../services/runtimeEventCausality'
-import { addNarrativeAsset } from '../services/narrativeAssets'
+import {
+  buildRuntimeConflictKey,
+  buildRuntimeCausalityContext,
+  buildRuntimeEventCausality,
+  canResolveRuntimeConflict,
+  describeRuntimeStateTransitions
+} from '../services/runtimeEventCausality'
+import {
+  addNarrativeAsset,
+  createNarrativeAssetSourceRef,
+  mergeSourceRefs,
+  normalizeContentRef
+} from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
+import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
+import { getNarrativeResourceIndex } from '../services/agents/narrativeResourceIndex'
+import { buildNarrativeContextAudit } from '../services/agents/narrativeContextAudit'
+import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
+import {
+  createNarrativeAgentContextLedger,
+  runNarrativeAgentGeneration
+} from '../services/agents/narrativeAgentOrchestrator'
+import {
+  normalizeNarrativeSceneSummary,
+  resolveNarrativeSceneSummary
+} from '../services/agents/narrativeSceneSummary'
+import {
+  createNarrativeProductionObserver,
+  recordNarrativeProductionRun
+} from '../services/agents/narrativeProductionMetrics'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { debounce, flushPending } from '../composables/useDebounce'
 import { useWorldStore } from './worldStore'
+import { parseCharacterCards } from '../services/characterCard'
 
 const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
@@ -60,6 +86,55 @@ const DEFAULT_WRITING_CHARACTER = {
   mood: 50,
   description: '',
   goal: ''
+}
+
+function buildAdventureCreativeSourceRefs(store, messageIds = [], plotEntry = null) {
+  const projectId = store.worldId || resolveActiveWorldbookId() || null
+  const sessionId = String(store.currentSessionId || 'session')
+  const refs = (Array.isArray(messageIds) ? messageIds : [])
+    .map((messageId) => normalizeContentRef({
+      refType: 'session-message',
+      refId: `${sessionId}:${String(messageId || '').trim()}`,
+      projectId
+    }, projectId))
+    .filter(Boolean)
+
+  const historyNodeId = String(store.historyNode?.id || '').trim()
+  if (historyNodeId) {
+    refs.push(normalizeContentRef({
+      refType: 'history-node',
+      refId: historyNodeId,
+      projectId,
+      excerpt: store.historyNode?.summary || store.historyNode?.title
+    }, projectId))
+  }
+
+  const placeId = String(store.worldMapState?.placeId || store.historyNode?.placeId || '').trim()
+  if (placeId) {
+    refs.push(normalizeContentRef({
+      refType: 'map-site',
+      refId: placeId,
+      projectId,
+      excerpt: [
+        store.worldMapState?.currentCountry,
+        store.worldMapState?.currentCity,
+        store.worldMapState?.currentScene
+      ].filter(Boolean).join(' / ')
+    }, projectId))
+  }
+
+  const journal = plotEntry || store.latestPlotJournalEntry?.()
+  const journalId = String(journal?.id || journal?.chapterId || '').trim()
+  if (journalId) {
+    refs.push(normalizeContentRef({
+      refType: 'plot-journal',
+      refId: journalId,
+      projectId,
+      excerpt: journal?.summary
+    }, projectId))
+  }
+
+  return mergeSourceRefs(refs)
 }
 
 const DEFAULT_WRITING_TIME = {
@@ -188,6 +263,115 @@ function normalizeWritingTime(raw = {}) {
   }
 }
 
+function normalizePlaceStates(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([placeId, state]) => {
+    const id = normalizeTextValue(placeId)
+    if (!id || !state || typeof state !== 'object' || Array.isArray(state)) return null
+    const danger = Number(state.danger)
+    return [id, {
+      status: normalizeTextValue(state.status),
+      controllerId: normalizeTextValue(state.controllerId),
+      ...(Number.isFinite(danger) ? { danger: Math.max(0, Math.min(100, danger)) } : {})
+    }]
+  }).filter(Boolean))
+}
+
+function normalizeCharacterStates(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([characterId, state]) => {
+    const id = normalizeTextValue(characterId)
+    if (!id || !state || typeof state !== 'object' || Array.isArray(state)) return null
+    const mood = Number(state.mood)
+    return [id, {
+      status: normalizeTextValue(state.status),
+      ...(typeof state.alive === 'boolean' ? { alive: state.alive } : {}),
+      placeId: normalizeTextValue(state.placeId),
+      goal: normalizeTextValue(state.goal),
+      ...(Number.isFinite(mood) ? { mood: Math.max(0, Math.min(100, mood)) } : {}),
+      knowledgeRefs: Array.isArray(state.knowledgeRefs)
+        ? state.knowledgeRefs.map(normalizeTextValue).filter(Boolean).slice(0, 24)
+        : []
+    }]
+  }).filter(Boolean))
+}
+
+const CHARACTER_RELATION_KINDS = new Set([
+  'parent',
+  'child',
+  'sibling',
+  'spouse',
+  'grandparent',
+  'grandchild',
+  'guardian',
+  'ward',
+  'adoptive-parent',
+  'adoptive-child'
+])
+
+function normalizeCharacterRelations(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([relationId, relation]) => {
+    const id = normalizeTextValue(relationId)
+    const subjectId = normalizeTextValue(relation?.subjectId).slice(0, 120)
+    const objectId = normalizeTextValue(relation?.objectId).slice(0, 120)
+    const kind = normalizeTextValue(relation?.kind)
+    if (!id || !subjectId || !objectId || !CHARACTER_RELATION_KINDS.has(kind)) return null
+    const status = ['confirmed', 'disputed', 'ended'].includes(relation?.status)
+      ? relation.status
+      : 'confirmed'
+    return [id, {
+      subjectId,
+      objectId,
+      kind,
+      status,
+      sourceRefs: Array.isArray(relation?.sourceRefs)
+        ? relation.sourceRefs
+          .filter((ref) => typeof ref === 'string')
+          .map(normalizeTextValue)
+          .filter(Boolean)
+          .slice(0, 8)
+        : []
+    }]
+  }).filter(Boolean))
+}
+
+function normalizeCanonicalFacts(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).slice(0, 96).map(([factId, fact]) => {
+    const id = normalizeTextValue(factId)
+    const subjectId = normalizeTextValue(fact?.subjectId).slice(0, 120)
+    const predicate = normalizeTextValue(fact?.predicate).slice(0, 120)
+    const value = fact?.value
+    const validValue = (
+      value === null
+      || (typeof value === 'number' && Number.isFinite(value))
+      || typeof value === 'boolean'
+      || typeof value === 'string'
+    )
+    if (!id || !subjectId || !predicate || !validValue) return null
+    const confidence = Number(fact?.confidence)
+    return [id, {
+      subjectId,
+      predicate,
+      value: typeof value === 'string' ? value.slice(0, 240) : value,
+      status: ['confirmed', 'disputed', 'retired'].includes(fact?.status)
+        ? fact.status
+        : 'confirmed',
+      ...(Number.isFinite(confidence)
+        ? { confidence: Math.max(0, Math.min(1, confidence)) }
+        : {}),
+      sourceRefs: Array.isArray(fact?.sourceRefs)
+        ? fact.sourceRefs
+          .filter((ref) => typeof ref === 'string')
+          .map(normalizeTextValue)
+          .filter(Boolean)
+          .slice(0, 8)
+        : []
+    }]
+  }).filter(Boolean))
+}
+
 function normalizeGoals(raw = []) {
   if (!Array.isArray(raw)) return []
 
@@ -223,6 +407,13 @@ function normalizeEncounteredCharacters(raw = []) {
     characters.push({
       id: normalizeTextValue(item?.id) || buildStableRuntimeId('char', name, 'character'),
       name,
+      gender: normalizeTextValue(item?.gender),
+      age: normalizeTextValue(item?.age),
+      traits: Array.isArray(item?.traits)
+        ? item.traits.map(normalizeTextValue).filter(Boolean).slice(0, 12)
+        : [],
+      description: normalizeTextValue(item?.description),
+      goal: normalizeTextValue(item?.goal),
       source: normalizeTextValue(item?.source) || 'runtime',
       firstSeenAt: Number(item?.firstSeenAt || item?.lastSeenAt || Date.now()),
       lastSeenAt: Number(item?.lastSeenAt || item?.firstSeenAt || Date.now())
@@ -371,6 +562,47 @@ function normalizeAdventureTriggersState(raw = {}) {
   }
 }
 
+function normalizeEmergenceCausalState(raw = null) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const place = raw.place && typeof raw.place === 'object' && !Array.isArray(raw.place)
+    ? {
+        placeId: normalizeTextValue(raw.place.placeId),
+        status: normalizeTextValue(raw.place.status).slice(0, 80),
+        controllerId: normalizeTextValue(raw.place.controllerId).slice(0, 120),
+        danger: Number.isFinite(Number(raw.place.danger))
+          ? Math.max(0, Math.min(100, Number(raw.place.danger)))
+          : null
+      }
+    : null
+  const character = raw.character && typeof raw.character === 'object' && !Array.isArray(raw.character)
+    ? {
+        characterId: normalizeTextValue(raw.character.characterId),
+        name: normalizeTextValue(raw.character.name).slice(0, 80),
+        status: normalizeTextValue(raw.character.status).slice(0, 80),
+        goal: normalizeTextValue(raw.character.goal).slice(0, 120),
+        knowledgeRefs: Array.isArray(raw.character.knowledgeRefs)
+          ? raw.character.knowledgeRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
+          : [],
+        relationRefs: Array.isArray(raw.character.relationRefs)
+          ? raw.character.relationRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
+          : [],
+        factRefs: Array.isArray(raw.character.factRefs)
+          ? raw.character.factRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
+          : []
+      }
+    : null
+  return {
+    place,
+    character,
+    activeEventIds: Array.isArray(raw.activeEventIds)
+      ? raw.activeEventIds.map(normalizeTextValue).filter(Boolean).slice(0, 2)
+      : [],
+    blockedConflictCodes: Array.isArray(raw.blockedConflictCodes)
+      ? raw.blockedConflictCodes.map(normalizeTextValue).filter(Boolean).slice(0, 6)
+      : []
+  }
+}
+
 function normalizeEmergenceCandidates(raw = []) {
   if (!Array.isArray(raw)) return []
   return raw
@@ -400,8 +632,9 @@ function normalizeEmergenceCandidates(raw = []) {
           ? candidate.sourceRefs
             .filter((ref) => ref && typeof ref === 'object' && normalizeTextValue(ref.id))
             .map((ref) => ({ type: normalizeTextValue(ref.type) || 'runtime', id: normalizeTextValue(ref.id) }))
-            .slice(0, 6)
+            .slice(0, 8)
           : [],
+        causalState: normalizeEmergenceCausalState(candidate?.causalState),
         score: Math.max(0, Math.min(100, Math.round(Number(candidate?.score) || 0))),
         createdAt: normalizeNumber(candidate?.createdAt, Date.now())
       }
@@ -446,7 +679,7 @@ function normalizeEmergenceEvent(raw = null) {
       })).filter((choice) => choice.label).slice(0, 3)
       : [],
     confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0.5)),
-    sourceRefs: Array.isArray(raw.sourceRefs) ? raw.sourceRefs.slice(0, 6) : []
+    sourceRefs: Array.isArray(raw.sourceRefs) ? raw.sourceRefs.slice(0, 8) : []
   }
 }
 
@@ -488,8 +721,16 @@ function getWorldbookEntryNames(worldbook, type, limit = 20) {
   const entries = Array.isArray(worldbook?.entries) ? worldbook.entries : []
   return entries
     .filter((entry) => normalizeTextValue(entry?.type).toLowerCase() === normalizedType)
-    .map((entry) => normalizeTextValue(entry?.name || entry?.keys?.[0]))
+    .flatMap((entry) => {
+      if (normalizedType !== 'character') return [normalizeTextValue(entry?.name || entry?.keys?.[0])]
+      const cards = parseCharacterCards(entry?.content)
+      return cards.length
+        ? cards.map((card) => card.name)
+        : [normalizeTextValue(entry?.name || entry?.keys?.[0])]
+    })
+    .map(normalizeTextValue)
     .filter(Boolean)
+    .filter((name, index, names) => names.indexOf(name) === index)
     .slice(0, limit)
 }
 
@@ -508,6 +749,10 @@ function createEmptySessionRuntime() {
     completedQuests: [],
     writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
     writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
+    placeStates: {},
+    characterStates: {},
+    characterRelations: {},
+    canonicalFacts: {},
     worldMapState: normalizeWorldMapState(DEFAULT_WORLD_MAP_STATE),
     playerCharacter: { name: 'User', avatar: '', gender: '', age: '' },
     aiCharacter: { name: 'Assistant', avatar: '' },
@@ -528,7 +773,8 @@ function createEmptySessionRuntime() {
     emergenceDismissedIds: [],
     emergenceDraft: null,
     runtimeEvents: [],
-    historyNode: null
+    historyNode: null,
+    narrativeSceneSummary: null
   }
 }
 
@@ -564,6 +810,7 @@ function findSession(sessions, id) {
 // WeakMap so the debouncer is garbage-collected with the store instance.
 // 500ms trailing-only merge; 5+ writes per AI reply cycle collapse to 1.
 const saveSessionDebouncers = new WeakMap()
+const narrativeAbortControllers = new WeakMap()
 
 function getSaveSessionsDebouncer(store) {
   if (!saveSessionDebouncers.has(store)) {
@@ -603,6 +850,10 @@ export const useGameStore = defineStore('game', {
     historyNode: null,
     writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
     writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
+    placeStates: {},
+    characterStates: {},
+    characterRelations: {},
+    canonicalFacts: {},
     activities: [],
     goals: [],
     encounteredCharacters: [],
@@ -659,6 +910,11 @@ export const useGameStore = defineStore('game', {
     lastContextLedger: null,
     // 排名后的本地记忆召回元数据，可被 lastContextLedger / debug UI 复用。
     lastMemoryRecall: null,
+    lastNarrativeKernel: null,
+    lastNarrativeContextAudit: null,
+    lastNarrativeAgentTrace: null,
+    narrativeAgentStatus: null,
+    narrativeSceneSummary: null,
 
     // 运行时事件侧车 (v1 append-only, ≤200 events per session)
     runtimeEvents: [],
@@ -691,6 +947,10 @@ export const useGameStore = defineStore('game', {
       this.historyNode = node && typeof node === 'object' ? cloneState(node, null) : null
       this.saveCurrentSession()
       return this.historyNode
+    },
+
+    getCurrentCreativeSourceRefs(messageIds = [], plotEntry = null) {
+      return buildAdventureCreativeSourceRefs(this, messageIds, plotEntry)
     },
 
     loadWritingCharacter() {
@@ -779,8 +1039,14 @@ export const useGameStore = defineStore('game', {
     },
 
     addEncounteredCharacter(character) {
-      const incoming = normalizeEncounteredCharacters([...(this.encounteredCharacters || []), character])
-      this.encounteredCharacters = incoming
+      const name = normalizeTextValue(character?.name || character)
+      if (!name) return
+      const existing = (this.encounteredCharacters || []).find((item) => item?.name === name)
+      const retained = (this.encounteredCharacters || []).filter((item) => item?.name !== name)
+      this.encounteredCharacters = normalizeEncounteredCharacters([
+        ...retained,
+        { ...(existing || {}), ...(typeof character === 'object' ? character : { name }) }
+      ])
       this.saveCurrentSession()
     },
 
@@ -820,7 +1086,12 @@ export const useGameStore = defineStore('game', {
         plotJournal: this.plotJournal,
         goals: this.goals,
         encounteredCharacters: this.encounteredCharacters,
+        placeStates: this.placeStates,
+        characterStates: this.characterStates,
         factionRelations: this.factionRelations,
+        causalityContext: buildRuntimeCausalityContext({
+          runtimeState: this.getRuntimeSnapshot()
+        }),
         now: options?.now,
         limit: 2,
         dismissedIds: this.emergenceDismissedIds
@@ -925,6 +1196,21 @@ export const useGameStore = defineStore('game', {
           case 'activities':
             this.activities = Array.isArray(nextState.activities) ? cloneState(nextState.activities, []) : []
             break
+          case 'placeStates':
+            this.placeStates = normalizePlaceStates(nextState.placeStates)
+            break
+          case 'characterStates':
+            this.characterStates = normalizeCharacterStates(nextState.characterStates)
+            break
+          case 'characterRelations':
+            this.characterRelations = normalizeCharacterRelations(nextState.characterRelations)
+            break
+          case 'canonicalFacts':
+            this.canonicalFacts = normalizeCanonicalFacts(nextState.canonicalFacts)
+            break
+          case 'writingTime':
+            this.writingTime = normalizeWritingTime(nextState.writingTime)
+            break
           case 'worldMapState':
             this.worldMapState = normalizeWorldMapState(nextState.worldMapState || {})
             break
@@ -958,6 +1244,14 @@ export const useGameStore = defineStore('game', {
 
       const preview = this.getEmergenceStateDeltaPreview(id)
       if (!preview.valid) throw new Error('事件状态变更未通过校验')
+      const changedPaths = Object.keys(preview.before)
+      this.applyEmergenceRuntimeRoots(preview.state, changedPaths)
+      const appliedState = this.getRuntimeSnapshot()
+      const after = Object.fromEntries(changedPaths.map((path) => [
+        path,
+        cloneState(appliedState[path], null)
+      ]))
+      const transitions = describeRuntimeStateTransitions(preview.before, after)
       const event = this.appendRuntimeEvent({
         type: 'state_delta',
         source: 'runtime',
@@ -972,11 +1266,11 @@ export const useGameStore = defineStore('game', {
           ops: preview.appliedOps,
           inverseOps: preview.inverseOps,
           before: preview.before,
-          after: preview.after,
+          after,
+          transitions,
           contextual: false
         }
       })
-      this.applyEmergenceRuntimeRoots(preview.state, Object.keys(preview.before))
       this.emergenceDraft = normalizeEmergenceDraft({
         ...state.draft,
         decision: 'applied',
@@ -985,7 +1279,11 @@ export const useGameStore = defineStore('game', {
         updatedAt: Date.now()
       })
       this.saveCurrentSession()
-      return { draft: this.emergenceDraft, event, preview }
+      return {
+        draft: this.emergenceDraft,
+        event,
+        preview: { ...preview, state: appliedState, after }
+      }
     },
 
     rejectEmergenceDraft(candidateId) {
@@ -1031,6 +1329,14 @@ export const useGameStore = defineStore('game', {
         return { success: false, rollback, draft: this.emergenceDraft }
       }
 
+      const changedPaths = Object.keys(rollback.before)
+      this.applyEmergenceRuntimeRoots(rollback.state, changedPaths)
+      const rolledBackState = this.getRuntimeSnapshot()
+      const after = Object.fromEntries(changedPaths.map((path) => [
+        path,
+        cloneState(rolledBackState[path], null)
+      ]))
+      const transitions = describeRuntimeStateTransitions(rollback.before, after)
       const rollbackEvent = this.appendRuntimeEvent({
         type: 'state_delta',
         source: 'runtime',
@@ -1042,11 +1348,11 @@ export const useGameStore = defineStore('game', {
           explanation: '因为原事件应用已被撤回，所以恢复应用前的状态',
           inverseOps: rollback.inverseOps,
           before: rollback.before,
-          after: rollback.after,
+          after,
+          transitions,
           contextual: false
         }
       })
-      this.applyEmergenceRuntimeRoots(rollback.state, Object.keys(rollback.before))
       this.emergenceDraft = normalizeEmergenceDraft({
         ...state.draft,
         decision: 'rolled-back',
@@ -1055,7 +1361,12 @@ export const useGameStore = defineStore('game', {
         updatedAt: Date.now()
       })
       this.saveCurrentSession()
-      return { success: true, rollback, event: rollbackEvent, draft: this.emergenceDraft }
+      return {
+        success: true,
+        rollback: { ...rollback, state: rolledBackState, after },
+        event: rollbackEvent,
+        draft: this.emergenceDraft
+      }
     },
 
     async generateEmergenceDraft(candidateId) {
@@ -1361,6 +1672,7 @@ export const useGameStore = defineStore('game', {
       const plotEntry = this.latestPlotJournalEntry()
       const projectId = this.worldId || resolveActiveWorldbookId() || null
       const sourceMessageIds = Array.isArray(draft.sourceMessageIds) ? draft.sourceMessageIds : []
+      const creativeSourceRefs = this.getCurrentCreativeSourceRefs(sourceMessageIds, plotEntry)
 
       if (triggerType === 'storyboard') {
         const asset = addNarrativeAsset({
@@ -1373,8 +1685,13 @@ export const useGameStore = defineStore('game', {
             type: 'experience-session',
             id: this.currentSessionId || '',
             messageIds: sourceMessageIds
-          }
+          },
+          sourceRefs: creativeSourceRefs
         })
+        const storyboardSourceRefs = mergeSourceRefs([
+          ...asset.sourceRefs,
+          createNarrativeAssetSourceRef(asset)
+        ])
 
         const storyboard = saveValidatedStoryboardVersion({
           projectId,
@@ -1383,6 +1700,7 @@ export const useGameStore = defineStore('game', {
             sourceId: asset.id,
             title: asset.title
           },
+          sourceRefs: storyboardSourceRefs,
           shots: draft.shots || [],
           taskType: 'adventure.trigger.storyboard',
           parameters: {
@@ -1415,12 +1733,13 @@ export const useGameStore = defineStore('game', {
         kind: 'draft-prose',
         projectId,
         status: 'inbox',
-        source: {
-          type: 'experience-session',
-          id: this.currentSessionId || '',
-          messageIds: sourceMessageIds
-        }
-      })
+          source: {
+            type: 'experience-session',
+            id: this.currentSessionId || '',
+            messageIds: sourceMessageIds
+          },
+          sourceRefs: creativeSourceRefs
+        })
 
       const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
         ...draft,
@@ -1591,6 +1910,7 @@ export const useGameStore = defineStore('game', {
     },
 
     loadSession(id) {
+      this.cancelNarrativeGeneration('session-changed')
       const session = this.sessions.find(s => s.id === id)
       if (!session) return null
       this.currentSessionId = session.id
@@ -1600,8 +1920,13 @@ export const useGameStore = defineStore('game', {
       const character = cloneState(session.worldState?.character || runtimeState.writingCharacter || DEFAULT_WRITING_CHARACTER, DEFAULT_WRITING_CHARACTER)
       this.writingCharacter = normalizeWritingCharacter(character)
       this.writingTime = normalizeWritingTime(session.worldState?.time || runtimeState.writingTime || DEFAULT_WRITING_TIME)
+      this.placeStates = normalizePlaceStates(runtimeState.placeStates)
+      this.characterStates = normalizeCharacterStates(runtimeState.characterStates)
+      this.characterRelations = normalizeCharacterRelations(runtimeState.characterRelations)
+      this.canonicalFacts = normalizeCanonicalFacts(runtimeState.canonicalFacts)
       this.worldMapState = normalizeWorldMapState(session.worldState?.worldMap || runtimeState.worldMapState || DEFAULT_WORLD_MAP_STATE)
       this.historyNode = cloneState(runtimeState.historyNode || null, null)
+      this.narrativeSceneSummary = normalizeNarrativeSceneSummary(runtimeState.narrativeSceneSummary)
       this.activities = cloneState(session.worldState?.activities || runtimeState.activities || [], [])
       const adventureState = normalizeAdventureState(runtimeState)
       this.goals = adventureState.goals
@@ -1710,8 +2035,13 @@ export const useGameStore = defineStore('game', {
         completedQuests: cloneState(this.completedQuests, []),
         writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
         writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
+        placeStates: cloneState(this.placeStates, {}),
+        characterStates: cloneState(this.characterStates, {}),
+        characterRelations: cloneState(this.characterRelations, {}),
+        canonicalFacts: cloneState(this.canonicalFacts, {}),
         worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
         historyNode: cloneState(this.historyNode, null),
+        narrativeSceneSummary: cloneState(this.narrativeSceneSummary, null),
         activeMechanism: this.activeMechanism,
         mechanismContext: cloneState(this.mechanismContext, null),
         milestoneEvent: cloneState(this.milestoneEvent, null),
@@ -1743,6 +2073,51 @@ export const useGameStore = defineStore('game', {
       return buildRuntimeEventCausality(this.runtimeEvents)
     },
 
+    resolveRuntimeConflict(input = {}) {
+      const request = input && typeof input === 'object' ? input : {}
+      const report = this.getRuntimeCausalityReport()
+      const requestedKey = String(request.conflictKey || '').trim()
+      const conflict = report.activeConflicts.find((item) => (
+        requestedKey
+          ? item.conflictKey === requestedKey
+          : item.eventId === String(request.eventId || '').trim()
+            && item.code === String(request.code || '').trim()
+      ))
+      if (!conflict) {
+        return { ok: false, error: '待审阅冲突不存在或已经处理' }
+      }
+
+      const isBranchMerge = conflict.code === 'branch-merge-conflict'
+      const resolution = {
+        conflictKey: buildRuntimeConflictKey(conflict),
+        conflictEventId: conflict.eventId,
+        conflictCode: conflict.code,
+        resolution: isBranchMerge ? 'choose-branch' : 'accept-current',
+        chosenBranchId: isBranchMerge ? String(request.chosenBranchId || '').trim() : '',
+        path: String(conflict.path || '').trim()
+      }
+      if (!canResolveRuntimeConflict(conflict, resolution)) {
+        return {
+          ok: false,
+          error: isBranchMerge ? '所选分支与当前合并结果不一致' : '该冲突需要先修复事件结构'
+        }
+      }
+
+      const event = this.appendRuntimeEvent({
+        type: 'display_event',
+        source: 'user',
+        parentId: conflict.eventId,
+        branchId: conflict.branchId || 'main',
+        payload: {
+          kind: 'runtime-conflict-resolution',
+          contextual: false,
+          conflictResolution: resolution
+        }
+      })
+      this.saveCurrentSession()
+      return { ok: true, event, conflict }
+    },
+
     // --- 压缩上下文：精简聊天历史，减少 token 用量 ---
     async compressContext() {
       this.loadApiSettings()
@@ -1757,12 +2132,26 @@ export const useGameStore = defineStore('game', {
       if (!result.compressed) return result
 
       this.chatHistory = result.newHistory
+      this.refreshNarrativeSceneSummary()
       this.saveCurrentSession()
       return result
     },
 
     summarizeMessages(messages) {
       return buildHeuristicContextSummary(messages, { maxSummaryChars: 1400 })
+    },
+
+    refreshNarrativeSceneSummary() {
+      const worldStore = useWorldStore()
+      const projectId = this.worldId || worldStore.activeWorldbook?.id || ''
+      const resolved = resolveNarrativeSceneSummary({
+        messages: this.chatHistory,
+        previousSummary: this.narrativeSceneSummary,
+        projectId,
+        sessionId: this.currentSessionId || ''
+      })
+      this.narrativeSceneSummary = resolved.summary
+      return resolved
     },
 
     // --- 对话模式 ---
@@ -2192,258 +2581,216 @@ export const useGameStore = defineStore('game', {
       this.chatHistory = [systemPrompt, ...history];
     },
 
-    // --- 新增：提取出来的 AI 生成逻辑（流式输出）---
+    cancelNarrativeGeneration(reason = 'user-cancelled') {
+      const controller = narrativeAbortControllers.get(this)
+      if (controller && !controller.signal.aborted) {
+        const error = new Error(reason)
+        error.code = 'NARRATIVE_AGENT_ABORTED'
+        controller.abort(error)
+      }
+      this.narrativeAgentStatus = null
+    },
+
+    setNarrativeAgentStatus(status) {
+      this.narrativeAgentStatus = status && typeof status === 'object'
+        ? { ...status }
+        : null
+      if (typeof window !== 'undefined' && this.narrativeAgentStatus) {
+        window.dispatchEvent(new CustomEvent('narrative-agent-status', {
+          detail: this.narrativeAgentStatus
+        }))
+      }
+    },
+
+    // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
     async generateAIResponse() {
-      this.isLoading = true;
+      this.cancelNarrativeGeneration('superseded')
+      const controller = new AbortController()
+      const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      const productionObserver = createNarrativeProductionObserver()
+      narrativeAbortControllers.set(this, controller)
+      this.isLoading = true
+      this.lastError = null
+      let messageIndex = -1
+      let placeholderId = ''
+      let productionMode = 'continue'
+      let productionOutcome = 'error'
+      let productionError = null
+      let productionKernel = null
+      let completedAgentRun = null
       try {
-        this.loadApiSettings();
+        this.loadApiSettings()
 
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
         const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
         const isInitGeneration = this._isRegenerating ? false : !hasAssistantHistory
-
-        const worldbookContext = buildWorldbookContext({
+        productionMode = isInitGeneration ? 'init' : 'continue'
+        const narrativeProjectId = this.worldId || worldbook?.id || ''
+        const narrativeSessionId = this.currentSessionId || ''
+        const sceneSummaryResolution = resolveNarrativeSceneSummary({
+          messages: this.chatHistory,
+          previousSummary: this.narrativeSceneSummary,
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId
+        })
+        this.narrativeSceneSummary = sceneSummaryResolution.summary
+        const narrativeKernel = buildNarrativeKernel({
           worldbook,
-          chatHistory: this.chatHistory,
           runtimeState: {
-            writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
-            writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
-            worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
-            activities: cloneState(this.activities, []),
-            goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
-            encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
-            factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
-            keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
-            plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal),
-            geoHistoryContext: buildGeoHistoryRuntimeContext({
-              worldbook,
-              geoHistory: worldbook?.geoHistory,
-              worldMapState: this.worldMapState,
-              historyNode: this.historyNode,
-              playerHistoryContext: buildPlayerHistoryContext(worldbook?.geoHistory)
-            }),
-            playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '', gender: '', age: '' }),
-            dialogueCharacter: cloneState(this.dialogueCharacter, null),
-            historyNode: cloneState(this.historyNode, null)
+            worldMapState: this.worldMapState,
+            writingTime: this.writingTime,
+            placeStates: this.placeStates,
+            characterStates: this.characterStates,
+            characterRelations: this.characterRelations,
+            canonicalFacts: this.canonicalFacts,
+            runtimeEvents: this.runtimeEvents,
+            encounteredCharacters: this.encounteredCharacters,
+            goals: this.goals,
+            keyChoices: this.keyChoices,
+            playerCharacter: this.playerCharacter,
+            dialogueCharacter: this.dialogueCharacter,
+            historyNode: this.historyNode
           },
-          tokenBudget: 2000,
-          scanDepth: 3,
-          includeStarterEntries: isInitGeneration
+          messages: this.chatHistory,
+          sceneSummary: this.narrativeSceneSummary,
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId
         })
-        this.lastWorldbookContext = worldbookContext
-        const worldBookMsg = worldbookContext.messages[0] || null
-        debugLog('Matched world book entries:', worldbookContext.matchedEntries.length, worldBookMsg?.content?.slice(0, 100))
-
-        const contextDetail = {
-          character: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
-          time: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
-          location: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
-          scene: null,
-          activities: cloneState(this.activities, []),
-          goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
-          encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
-          factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
-          keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
-          plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal)
-        }
-
-        // 注入写作上下文（对话模式时传入对话角色）
-        // 小说体验模式下排除时间信息，避免 AI 每次都强调时间
-        const contextMsg = buildContextMessage(this.dialogueCharacter, { excludeTime: true, contextDetail })
-        const memoryQuery = [
-          worldBookMsg?.content || '',
-          contextMsg?.content || '',
-          ...this.chatHistory.slice(-6).map((message) => String(message?.content || '').trim())
-        ].filter(Boolean).join('\n')
-
-        // 排名后的本地已确认记忆召回：使用同一个 memoryQuery 排序。
-        // Mem0 仅在本地召回为空时兜底。
-        const memoryRecall = buildScopedMemoryRecallContext({
-          projectId: this.worldId || worldbook?.id || '',
-          sessionId: this.currentSessionId || '',
-          query: memoryQuery,
-          limitPerScope: 4,
-          maxItemChars: 180
+        productionKernel = narrativeKernel
+        const narrativeMemories = listScopedActiveMemoryCandidates({
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId,
+          limitPerScope: 100
+        }).filter((memory) => ['project', 'session'].includes(memory.scope))
+        const narrativeIndex = getNarrativeResourceIndex({
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId,
+          worldbook,
+          memories: narrativeMemories
         })
-        // 兼容旧调用方：保留 buildScopedMemoryContext 的字符串接口。
-        const localMemoryContext = memoryRecall.content || buildScopedMemoryContext({
-          projectId: this.worldId || worldbook?.id || '',
-          sessionId: this.currentSessionId || '',
-          limitPerScope: 4,
-          maxItemChars: 180
+        const narrativeRegistry = createNarrativeToolRegistry({
+          index: narrativeIndex,
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId,
+          currentPlaceId: this.worldMapState?.placeId || ''
         })
-
-        let memoryContext = localMemoryContext
-        let memoryRecallSource = 'local-ranked'
-        if (!memoryContext) {
-          memoryContext = await buildMem0MemoryContext({
-            currentSituation: memoryQuery,
-            projectId: this.worldId || worldbook?.id || '',
-            sessionId: this.currentSessionId || '',
-            limitPerScope: 4,
-            maxItemChars: 180
-          })
-          memoryRecallSource = memoryContext ? 'mem0-fallback' : 'none'
-        }
-
-        this.lastMemoryContext = memoryContext
+        this.lastNarrativeKernel = narrativeKernel
+        this.lastWorldbookContext = null
+        this.lastMemoryContext = ''
         this.lastMemoryRecall = {
-          query: memoryQuery,
-          source: memoryRecallSource,
-          includedCount: memoryRecall.includedCount,
-          excludedCount: memoryRecall.excluded.length,
-          totalItems: memoryRecall.items.length,
-          contentChars: memoryRecall.contentChars,
-          queryTerms: memoryRecall.queryTerms,
-          items: memoryRecall.items,
-          included: memoryRecall.included,
-          excluded: memoryRecall.excluded,
-          counts: memoryRecall.counts
-        }
-        const memoryMsg = memoryContext ? { role: 'system', content: memoryContext } : null
-
-        let generationLedger = createContextLedger({
-          sessionId: this.currentSessionId || '',
-          worldbookId: this.worldId || worldbook?.id || ''
-        })
-        if (contextMsg) {
-          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
-            message: contextMsg,
-            source: 'runtime',
-            title: '写作上下文',
-            purpose: 'runtime-context',
-            limit: 1
-          }))
-        }
-        if (memoryMsg) {
-          generationLedger = appendContextLedgerPart(generationLedger, summarizePromptMessage({
-            message: memoryMsg,
-            source: 'memory',
-            title: '已确认记忆',
-            purpose: 'memory-context',
-            limit: 1
-          }))
-        }
-        const recentChatContent = this.chatHistory
-          .slice(-6)
-          .map((message) => `${message?.role || 'unknown'}: ${String(message?.content || '').trim()}`)
-          .filter(Boolean)
-          .join('\n')
-        if (recentChatContent) {
-          generationLedger = appendContextLedgerPart(generationLedger, {
-            source: 'chat',
-            title: '最近会话',
-            purpose: 'recent-chat',
-            content: recentChatContent,
-            included: true,
-            limit: 6
-          })
-        }
-        this.lastContextLedger = mergeContextLedgers(worldbookContext.contextLedger, generationLedger)
-
-        // 构建消息序列：世界书 + 写作上下文 + 聊天历史
-        let messagesToSend = [...this.chatHistory]
-        const formatInstructions = buildNarrativeFormatInstructions()
-        if (!messagesToSend.some((message) => String(message?.content || '').includes(':::narration'))) {
-          const systemIndex = messagesToSend.findIndex((message) => message?.role === 'system')
-          if (systemIndex >= 0) {
-            messagesToSend[systemIndex] = {
-              ...messagesToSend[systemIndex],
-              content: `${messagesToSend[systemIndex].content}\n\n${formatInstructions}`
-            }
-          } else {
-            messagesToSend = [{ role: 'system', content: formatInstructions }, ...messagesToSend]
-          }
-        }
-        if (worldBookMsg) {
-          messagesToSend = [worldBookMsg, ...messagesToSend]
-        }
-        if (memoryMsg) {
-          messagesToSend = [memoryMsg, ...messagesToSend]
-        }
-        if (contextMsg) {
-          messagesToSend = [contextMsg, ...messagesToSend]
+          source: 'narrative-tools',
+          includedCount: 0,
+          excludedCount: 0,
+          totalItems: narrativeIndex.counts?.memory || 0,
+          contentChars: 0,
+          items: [],
+          included: [],
+          excluded: [],
+          counts: { project: 0, session: 0 }
         }
 
-        debugLog('Messages to send:', messagesToSend.length, 'entries')
-
-        // 先添加一个空的 AI 消息占位符
-        const messageIndex = this.messages.length
-        this.messages.push(ensureNarrativeMessage({
+        messageIndex = this.messages.length
+        const placeholder = ensureNarrativeMessage({
           role: 'assistant',
           name: this.dialogueCharacter?.name || this.aiCharacter.name,
           content: '',
           timestamp: Date.now(),
           dialogueMode: !!this.dialogueCharacter,
           isStreaming: true
-        }, messageIndex))
+        }, messageIndex)
+        placeholderId = placeholder.id
+        this.messages.push(placeholder)
+        const getPlaceholder = () => this.messages.find((message) => message?.id === placeholderId)
 
-        // 使用流式 API
         let fullContent = ''
         let cleanContent = ''
-
         const maxTokens = isInitGeneration ? 1500 : 800
-
-        await runGenerationStreamTask({
-          taskType: isInitGeneration ? 'narrative.init' : 'narrative.continue',
-          baseMessages: messagesToSend,
+        const agentRun = await runNarrativeAgentGeneration({
+          kernel: narrativeKernel,
+          registry: narrativeRegistry,
+          mode: isInitGeneration ? 'init' : 'continue',
+          formatInstructions: buildNarrativeFormatInstructions(),
           worldId: this.worldId,
           settings: this.apiSettings,
-          generationOptions: {
-            max_tokens: maxTokens,
-            attemptName: isInitGeneration ? 'narrative-init' : 'narrative-continue'
+          requestId,
+          signal: controller.signal,
+          maxTokens,
+          onStatus: (status) => {
+            productionObserver.observeStatus(status)
+            if (narrativeAbortControllers.get(this) === controller) {
+              this.setNarrativeAgentStatus({
+                ...status,
+                requestId
+              })
+            }
           },
           callbacks: {
             onChunk: (chunk) => {
+              productionObserver.observeChunk(chunk)
               if (chunk.content) {
                 fullContent += chunk.content
+                const targetMessage = getPlaceholder()
+                if (!targetMessage) return
                 const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: this.messages[messageIndex]?.id,
+                  messageId: targetMessage.id,
                   complete: false,
-                  fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
-                  role: this.messages[messageIndex]?.role
+                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
+                  role: targetMessage.role
                 })
                 cleanContent = parsed.content
-                if (this.messages[messageIndex]) {
-                  this.messages[messageIndex].content = cleanContent
-                  this.messages[messageIndex].presentation = parsed
-                }
+                targetMessage.content = cleanContent
+                targetMessage.presentation = parsed
               }
             },
-            onComplete: (result) => {
-              // 标记流式结束
-              if (this.messages[messageIndex]) {
-                this.messages[messageIndex].isStreaming = false
+            onComplete: () => {
+              const targetMessage = getPlaceholder()
+              if (targetMessage) {
+                targetMessage.isStreaming = false
                 const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: this.messages[messageIndex].id,
+                  messageId: targetMessage.id,
                   complete: true,
-                  fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
-                  role: this.messages[messageIndex].role
+                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
+                  role: targetMessage.role
                 })
                 cleanContent = parsed.content
-                this.messages[messageIndex].content = cleanContent
-                this.messages[messageIndex].presentation = parsed
+                targetMessage.content = cleanContent
+                targetMessage.presentation = parsed
               }
             },
             onError: (error) => {
               console.error('Stream error:', error)
-              if (this.messages[messageIndex]) {
-                this.messages[messageIndex].isStreaming = false
-                this.messages[messageIndex].content = `生成出错：${error.message}`
-              }
             }
           }
         })
+        completedAgentRun = agentRun
+        const completedMessage = getPlaceholder()
+        messageIndex = this.messages.findIndex((message) => message?.id === placeholderId)
+        this.lastNarrativeAgentTrace = agentRun.trace
+        this.lastNarrativeContextAudit = buildNarrativeContextAudit({
+          kernel: narrativeKernel,
+          index: narrativeIndex,
+          toolTrace: agentRun.trace
+        })
+        this.lastContextLedger = createNarrativeAgentContextLedger({
+          run: agentRun,
+          kernel: narrativeKernel,
+          sessionId: narrativeSessionId,
+          worldbookId: narrativeProjectId
+        })
 
-        // 更新 chatHistory
         cleanContent = parseNarrativePresentation(fullContent, {
-          messageId: this.messages[messageIndex]?.id,
+          messageId: completedMessage?.id,
           complete: true,
-          fallbackSpeaker: getTrustedMessageSpeaker(this.messages[messageIndex]),
-          role: this.messages[messageIndex]?.role
+          fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),
+          role: completedMessage?.role
         }).content
-        this.chatHistory.push({ role: 'assistant', content: cleanContent });
+        if (!cleanContent || messageIndex < 0) {
+          throw Object.assign(new Error('模型没有返回可用正文'), {
+            code: 'NARRATIVE_STREAM_EMPTY'
+          })
+        }
+        this.chatHistory.push({ role: 'assistant', content: cleanContent })
 
         // 追加运行时事件侧车 (v1: capped append-only envelope)
         this.appendRuntimeEvent({
@@ -2494,8 +2841,9 @@ export const useGameStore = defineStore('game', {
         // 检测机制触发（战斗、交易、任务、对话）
         const mechanism = this.detectMechanismTriggers(cleanContent)
         if (mechanism) {
-          if (this.messages[messageIndex]) {
-            this.messages[messageIndex].mechanismTrigger = mechanism
+          const targetMessage = getPlaceholder()
+          if (targetMessage) {
+            targetMessage.mechanismTrigger = mechanism
           }
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('story-mechanism-ready', {
@@ -2506,12 +2854,86 @@ export const useGameStore = defineStore('game', {
             this.saveCurrentSession()
           }
         }
+        productionOutcome = 'success'
       } catch (e) {
-        console.error('AI Error:', e)
-        this.lastError = e.message;
-        this.messages.push({ role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() });
+        productionError = e
+        productionOutcome = controller.signal.aborted || e?.code === 'NARRATIVE_AGENT_ABORTED'
+          ? 'cancelled'
+          : 'error'
+        const placeholderIndex = this.messages.findIndex((message) => message?.id === placeholderId)
+        if (placeholderIndex >= 0) {
+          this.messages.splice(placeholderIndex, 1)
+        }
+        if (!controller.signal.aborted && e?.code !== 'NARRATIVE_AGENT_ABORTED') {
+          console.error('AI Error:', e)
+          this.lastError = e.message
+          this.messages.push({ role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() })
+          this.setNarrativeAgentStatus({
+            phase: 'error',
+            code: e?.code || 'NARRATIVE_AGENT_FAILED',
+            message: e.message,
+            at: Date.now()
+          })
+        }
       } finally {
-        this.isLoading = false;
+        const ownsGeneration = narrativeAbortControllers.get(this) === controller
+        if (ownsGeneration) {
+          narrativeAbortControllers.delete(this)
+          this.isLoading = false
+          if (this.narrativeAgentStatus?.phase === 'complete') {
+            this.narrativeAgentStatus = null
+          }
+        }
+        const timing = productionObserver.snapshot()
+        const targetMessage = this.messages.find((message) => message?.id === placeholderId)
+        const trace = completedAgentRun?.trace || null
+        const summaryBlock = (productionKernel?.blocks || []).find((block) => block?.kind === 'summary')
+        const isTypedFailureVisible = productionOutcome !== 'error'
+          || this.narrativeAgentStatus?.phase === 'error'
+          || this.messages.some((message) => (
+            message?.role === 'system'
+            && String(message?.content || '').startsWith('AI 错误：')
+          ))
+        recordNarrativeProductionRun({
+          runId: requestId,
+          provider: this.apiSettings?.provider,
+          model: this.apiSettings?.model,
+          mode: productionMode,
+          outcome: productionOutcome,
+          errorCode: productionError?.code,
+          retryable: productionError?.retryable,
+          protocolOk: productionOutcome === 'success'
+            ? true
+            : (/^NARRATIVE_(PROVIDER_|AGENT_DECISION_INVALID)/.test(productionError?.code || '')
+                ? false
+                : null),
+          timing,
+          tools: {
+            rounds: completedAgentRun?.toolRounds ?? timing.toolRounds,
+            calls: completedAgentRun?.totalCalls ?? timing.totalCalls,
+            evidenceCount: completedAgentRun?.finalToolResults?.length ?? timing.evidenceCount,
+            errorCount: (trace?.calls || []).filter((call) => call?.errorCode).length
+          },
+          usage: {
+            inputTokens: completedAgentRun?.usage?.inputTokens,
+            outputTokens: completedAgentRun?.usage?.outputTokens,
+            totalTokens: completedAgentRun?.usage?.totalTokens,
+            estimatedFinalTokens: timing.estimatedOutputTokens
+          },
+          context: {
+            kernelChars: productionKernel?.budget?.usedChars,
+            summaryChars: summaryBlock?.chars,
+            finalToolResultChars: trace?.finalResultChars
+          },
+          cleanup: {
+            renderSettled: productionOutcome === 'success'
+              ? Boolean(targetMessage && !targetMessage.isStreaming && targetMessage.content)
+              : !targetMessage,
+            requestReleased: narrativeAbortControllers.get(this) !== controller,
+            loadingOwnerSettled: !ownsGeneration || this.isLoading === false,
+            failureVisible: isTypedFailureVisible
+          }
+        })
       }
     },
 
@@ -2919,6 +3341,7 @@ export const useGameStore = defineStore('game', {
     },
 
     resetRuntimeState() {
+      this.cancelNarrativeGeneration('runtime-reset')
       const runtime = createEmptySessionRuntime()
       this.gameId = null
       this.messages = runtime.messages
@@ -2946,6 +3369,10 @@ export const useGameStore = defineStore('game', {
       this.completedQuests = runtime.completedQuests
       this.writingCharacter = runtime.writingCharacter
       this.writingTime = runtime.writingTime
+      this.placeStates = runtime.placeStates
+      this.characterStates = runtime.characterStates
+      this.characterRelations = runtime.characterRelations
+      this.canonicalFacts = runtime.canonicalFacts
       this.worldMapState = runtime.worldMapState
       this.historyNode = runtime.historyNode
       this.isPlaying = false
@@ -2961,6 +3388,11 @@ export const useGameStore = defineStore('game', {
       this.lastMemoryContext = ''
       this.lastContextLedger = null
       this.lastMemoryRecall = null
+      this.lastNarrativeKernel = null
+      this.lastNarrativeContextAudit = null
+      this.lastNarrativeAgentTrace = null
+      this.narrativeAgentStatus = null
+      this.narrativeSceneSummary = null
       this.isLoading = false
       this.lastError = null
       this.quickNoteImportMode = false
@@ -3004,65 +3436,10 @@ export const useGameStore = defineStore('game', {
         }
       }
 
-      // 构建系统提示词
-      const systemParts = ['你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。']
-      systemParts.push(`\n\n${buildNarrativeFormatInstructions()}`)
-
-      // 世界设定描述
-      const worldDesc = worldbook?.worldDescription || worldbook?.description || ''
-      if (worldDesc.trim()) {
-        systemParts.push(`\n\n【世界设定】\n${worldDesc.trim()}`)
-      }
-
-      // 写作风格
-      if (worldbook?.writingStyle?.trim()) {
-        systemParts.push(`\n\n【写作风格】\n${worldbook.writingStyle.trim()}`)
-      }
-
-      // 禁止内容
-      if (worldbook?.forbidden?.trim()) {
-        systemParts.push(`\n\n【禁止内容】\n${worldbook.forbidden.trim()}`)
-      }
-
-      // 示例
-      if (worldbook?.examples?.trim()) {
-        systemParts.push(`\n\n【示例】\n${worldbook.examples.trim()}`)
-      }
-
-      // 添加约束
-      systemParts.push('\n\n请在叙事中严格遵循上述设定。')
-
-      // 检查是否需要初始化角色/时间/地点
-      const isFreshSession = !Array.isArray(this.messages) || this.messages.length === 0
-      const needInitCharacter = !this.writingCharacter?.name || this.writingCharacter.name === 'User'
-      const needInitTime = !this.writingTime?.year
-      const needInitLocation = !this.worldMapState?.currentScene
-
-      // 添加初始化指令
-      systemParts.push(`\n\n【初始化要求】
-这是故事的开始，你的回复需要包含以下两个部分：
-
-第一部分——世界观旁白（用斜体 *包裹*）：
-以旁白视角介绍故事发生的时代背景、世界特点、社会风貌或重要设定。让读者对即将展开的故事有一个宏观的认知。文字应富有文学性，营造氛围。
-
-第二部分——故事开篇：
-自然地引出主角，在叙述中明确交代：
-${needInitCharacter ? '- 角色姓名（用"你叫XXX"句式）\n- 角色性别与年龄（如"25岁的年轻男子"）' : ''}
-${needInitTime ? '- 故事时间（"XXXX年X月X日"格式）' : ''}
-${needInitLocation ? '- 当前地点（"来到/身处XXX"）' : ''}
-- 开篇场景，渲染氛围，埋下悬念
-
-示例：
-
-*大历三百二十七年，天下三分，北有强秦虎视眈眈，南有楚国偏安一隅，西凉铁骑时常犯境。这是一个英雄辈出的时代，也是一个命如草芥的乱世。朝廷腐败，民不聊生，江湖上却流传着无数关于绝世武功与神秘宝藏的传说。*
-
-你叫【全新姓名】，一个【年龄】岁的【身份】。本次是全新会话，不要复用之前任何会话里出现过的名字，优先生成一个自然、独立、没有重复感的姓名。故事从这里开始，你背着简单的行囊，来到一座陌生的城镇。天色渐晚，青石板铺就的街道两旁，茶幡在微风中轻轻摇曳。远处传来小贩的吆喝声，空气中弥漫着炊烟的气息。你站在城门口，望着这座陌生的小城，心中盘算着接下来的路该如何走...`)
-
-      if (isFreshSession) {
-        systemParts.push('\n\n【新会话约束】这是首次开局，请强制生成与旧会话不同的主角名字；如果需要命名，请不要沿用示例中的占位内容。')
-      }
-
-      const systemContent = systemParts.join('')
+      const systemContent = [
+        '你是一个小说叙述者，请用生动的中文描述场景并与玩家互动。',
+        buildNarrativeFormatInstructions()
+      ].join('\n\n')
 
       // 设置系统提示词
       this.chatHistory = [{

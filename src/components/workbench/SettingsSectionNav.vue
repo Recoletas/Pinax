@@ -28,13 +28,13 @@ import WorkbenchIcon from './WorkbenchIcon.vue'
 
 /* UI-S16 (2026-06-27): settings activity 内部切换条. 4 个设定子页
    共享同一段 router-link 标签条, 顺序 = activity 入口默认序:
-   世界书 (entry) → 结构化 → 地图 → 高级. 跟 AppShell mast 顶 tab
+   结构化 → 世界书 → 地图 → 高级. 跟 AppShell mast 顶 tab
    同款 archive-folio 语言: 撕边 dashed 分隔 + 罗马数字 index
    + active 的 ◆ 印章. 用户进 设定 activity 后, 4 个 sub-page
    内部就能互跳, 不必再回左侧抽屉 / mast activity tab. */
 const tabs = [
-  { key: 'worldbook', index: 'Ⅰ', icon: 'book', label: '世界书', routeName: 'settings-worldbook' },
-  { key: 'structured', index: 'Ⅱ', icon: 'network', label: '结构化', routeName: 'settings-structured' },
+  { key: 'structured', index: 'Ⅰ', icon: 'network', label: '结构化设定', routeName: 'settings-structured' },
+  { key: 'worldbook', index: 'Ⅱ', icon: 'book', label: '世界书', routeName: 'settings-worldbook' },
   { key: 'map', index: 'Ⅲ', icon: 'compass', label: '地图', routeName: 'settings-world-map' },
   { key: 'advanced', index: 'Ⅳ', icon: 'settings', label: '高级', routeName: 'settings-worldbook-advanced' }
 ]

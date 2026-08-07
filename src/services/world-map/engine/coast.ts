@@ -26,14 +26,25 @@ function hash2D(x: number, y: number): number {
   return s - Math.floor(s)
 }
 
-/** 分形布朗运动：多层 hash 噪声叠加 */
+/**
+ * 分形布朗运动：多层 hash 噪声叠加。
+ *
+ * P0-3 de-banding: per-octave 旋转（见 heightmap.ts::fbm2D）。
+ */
+const FBM_OCTAVE_ANGLE_DEG = 37
 function fbm(x: number, y: number, octaves: number): number {
+  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
   let v = 0
   let amp = 1
   let freq = 1
   let max = 0
   for (let i = 0; i < octaves; i++) {
-    v += amp * (hash2D(x * freq, y * freq) * 2 - 1)
+    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
+    const c = i === 0 ? 1 : Math.cos(i * theta)
+    const s = i === 0 ? 0 : Math.sin(i * theta)
+    const xr = x * c - y * s
+    const yr = x * s + y * c
+    v += amp * (hash2D(xr * freq, yr * freq) * 2 - 1)
     max += amp
     amp *= 0.5
     freq *= 2

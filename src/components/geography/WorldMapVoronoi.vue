@@ -23,15 +23,28 @@
     </div>
 
     <!-- Error -->
-    <div v-if="error" class="overlay error-overlay">
+    <div v-if="error && !mapData" class="overlay error-overlay">
       <div class="error-content">
         <p class="error-title">生成失败</p>
         <p class="error-msg">{{ error }}</p>
-        <button class="primary-btn-sm" @click="doGenerate(mergedConfig)">重试</button>
+        <button class="primary-btn-sm" @click="retryGeneration">重试</button>
       </div>
     </div>
 
     <canvas ref="canvasRef" class="voronoi-canvas"></canvas>
+
+    <div v-if="error && mapData && !generating" class="generation-error-banner" role="status">
+      <div>
+        <strong>新地图生成失败，当前地图未被替换</strong>
+        <span>{{ error }}</span>
+      </div>
+      <button type="button" class="canvas-btn sm" @click="retryGeneration">重试</button>
+    </div>
+
+    <div v-if="replacementPending && mapData && !generating" class="replacement-pending-banner" role="status">
+      <strong>新地图已生成，当前仍显示原版本</strong>
+      <span>请在“地图资料”中确认地点迁移后再提交。</span>
+    </div>
 
     <!-- Info bar -->
     <div v-if="mapData && !generating" class="info-bar">
@@ -59,7 +72,7 @@
         <svg v-else class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
         {{ exporting ? '导出中...' : '导出高清' }}
       </button>
-      <button class="canvas-btn" @click="regenerate">
+      <button class="canvas-btn" @click="regenerate" :disabled="replacementPending">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
         重新生成
       </button>
@@ -130,7 +143,7 @@
           <small class="param-hint">选择显式模板时，板块数 / 陆地比例仅作 routing 参考，模板以选择为准</small>
         </label>
         <p class="param-note">风格和图层保持固定，由地形图方案统一渲染；这里的参数会改变生成结果本身。</p>
-        <button class="canvas-btn sm apply-btn" @click="applyParamDraft">
+        <button class="canvas-btn sm apply-btn" @click="applyParamDraft" :disabled="replacementPending">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           应用并重新生成
         </button>
@@ -207,8 +220,10 @@
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
 import { generateMapInWorker, renderMap, renderMapAsync, renderScaleBarLayer, terminateWorker } from '../../services/world-map/engine'
 import { drawMarkers, hitTestMarker } from '../../services/world-map/markers'
+import { getStyleConfig } from '../../services/world-map/engine/style-presets'
 import MapMarkerEditor from './MapMarkerEditor.vue'
 import { usePerf } from '../../composables/usePerf'
+import { useThemeStore } from '../../stores/themeStore'
 
 const DEFAULT_RENDER_LAYERS = Object.freeze({
   hillshade: true,
@@ -247,13 +262,16 @@ const HEIGHTMAP_TEMPLATE_OPTIONS = Object.freeze([
 ])
 
 const perf = usePerf()
+const themeStore = useThemeStore()
 
 const props = defineProps({
   config: { type: Object, default: undefined },
   markers: { type: Array, default: () => [] },
+  focusMarkerId: { type: String, default: '' },
+  reviewBeforeCommit: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['map-generated', 'config-change', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end'])
+const emit = defineEmits(['map-generated', 'map-replacement-ready', 'config-change', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end'])
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -264,6 +282,7 @@ let baseRenderScale = 1
 const mapData = shallowRef(null)
 const generating = ref(false)
 const error = ref(null)
+const replacementPending = ref(false)
 
 const vp = shallowRef({ scale: 1, offsetX: 0, offsetY: 0 })
 const scalePercent = computed(() => Math.round(vp.value.scale * 100))
@@ -282,14 +301,21 @@ let isDraggingMarker = false
 let dragMoved = false
 let draggedMarker = null
 let paintScheduled = false
-let pendingGenerateConfig = null
+let pendingGenerateRequest = null
 let pendingSelectedMarkerId = null
 let pendingSubmittedConfigKey = null
+let lastFailedRequest = null
+let pendingReplacement = null
 
 const selectedMarker = computed(() =>
   props.markers.find(m => m.id === selectedMarkerId.value) || null
 )
 const markerCount = computed(() => props.markers.length)
+const authoredBurgProjectionKey = computed(() => props.markers
+  .filter((marker) => String(marker?.mapObjectId || '').startsWith('burg:'))
+  .map((marker) => `${marker.mapObjectId}:${marker.name}:${marker.bindingStatus}`)
+  .sort()
+  .join('|'))
 
 let canvasBgColor = '#f4f1e8'
 try {
@@ -307,7 +333,10 @@ const mergedConfig = computed(() => ({
   ...props.config,
 }))
 
-const renderStylePreset = computed(() => props.config?.stylePreset || 'topographic')
+const renderStylePreset = computed(() => {
+  const requested = props.config?.stylePreset || 'topographic'
+  return requested === 'dark' && themeStore.colorScheme === 'light' ? 'topographic' : requested
+})
 const renderLayers = computed(() => ({
   ...DEFAULT_RENDER_LAYERS,
   ...(props.config?.layers && typeof props.config.layers === 'object' ? props.config.layers : {}),
@@ -358,12 +387,9 @@ function applyParamDraft() {
 }
 
 function submitConfig(config) {
+  if (replacementPending.value) return
   const plainConfig = cloneConfig(config)
-  if (props.config && Object.keys(props.config).length > 0) {
-    pendingSubmittedConfigKey = JSON.stringify(plainConfig)
-    emit('config-change', plainConfig)
-  }
-  doGenerate(plainConfig)
+  doGenerate(plainConfig, { commitOnSuccess: true, reviewOnSuccess: props.reviewBeforeCommit && Boolean(mapData.value) })
 }
 
 function releaseCanvas(canvas) {
@@ -376,8 +402,25 @@ function baseRenderLayers() {
   return { ...renderLayers.value, scaleBar: false }
 }
 
-async function renderBaseMap(canvas, data, renderScale) {
-  await renderMapAsync(canvas, data, {
+function projectAuthoredBurgNames(data, markers) {
+  const namesByBurg = new Map((Array.isArray(markers) ? markers : [])
+    .filter((marker) => (
+      String(marker?.mapObjectId || '').startsWith('burg:')
+      && ['auto-matched', 'confirmed'].includes(marker?.bindingStatus)
+      && String(marker?.name || '').trim()
+    ))
+    .map((marker) => [Number(String(marker.mapObjectId).slice(5)), String(marker.name).trim()]))
+  if (!namesByBurg.size) return data
+  return {
+    ...data,
+    burgs: data.burgs.map((burg) => namesByBurg.has(Number(burg.i))
+      ? { ...burg, name: namesByBurg.get(Number(burg.i)) }
+      : burg),
+  }
+}
+
+async function renderBaseMap(canvas, data, renderScale, markerProjection = []) {
+  await renderMapAsync(canvas, projectAuthoredBurgNames(data, markerProjection), {
     scale: renderScale,
     kmPerPixel: kmPerPixel.value,
     stylePreset: renderStylePreset.value,
@@ -407,15 +450,20 @@ function currentRenderScale() {
   return Math.min(dpr, 3)
 }
 
-async function doGenerate(cfg) {
-  const requestConfig = cloneConfig(cfg)
+async function doGenerate(cfg, options = {}) {
+  const request = {
+    config: cloneConfig(cfg),
+    commitOnSuccess: Boolean(options.commitOnSuccess),
+    reviewOnSuccess: Boolean(options.reviewOnSuccess ?? (props.reviewBeforeCommit && mapData.value)),
+  }
   if (generating.value) {
-    pendingGenerateConfig = requestConfig
+    pendingGenerateRequest = request
     return
   }
 
   generating.value = true
   error.value = null
+  const requestConfig = request.config
 
   try {
     // 深拷贝 cfg 以剥离 Vue 响应式代理（Worker postMessage 要求纯数据）。
@@ -429,31 +477,102 @@ async function doGenerate(cfg) {
     await renderBaseMap(canvas, data, renderScale)
     const scaleOverlay = createScaleOverlay(data, renderScale)
 
-    if (pendingGenerateConfig) {
+    if (pendingGenerateRequest) {
       releaseCanvas(canvas)
       releaseCanvas(scaleOverlay)
       return
     }
 
-    // 新图完全可用后再替换旧位图，避免失败或过期请求清空当前画面。
-    releaseCanvas(offscreen)
-    releaseCanvas(scaleBarOverlay)
-    baseRenderScale = renderScale
-    offscreen = canvas
-    scaleBarOverlay = scaleOverlay
-    mapData.value = data
-    emit('map-generated', { data, meta })
+    lastFailedRequest = null
+    if (request.reviewOnSuccess && mapData.value) {
+      releasePendingReplacement()
+      pendingReplacement = { data, meta, config: requestConfig, canvas, scaleOverlay, renderScale, commitOnSuccess: request.commitOnSuccess }
+      replacementPending.value = true
+      emit('map-replacement-ready', { data, meta, config: requestConfig })
+      return
+    }
+    commitRenderedMap({ data, meta, config: requestConfig, canvas, scaleOverlay, renderScale, commitOnSuccess: request.commitOnSuccess })
   } catch (e) {
     console.error('[WorldMapVoronoi] Generation failed:', e)
     error.value = e instanceof Error ? e.message : String(e)
+    lastFailedRequest = request
   } finally {
     generating.value = false
-    const queuedConfig = pendingGenerateConfig
-    pendingGenerateConfig = null
-    if (queuedConfig) {
-      requestAnimationFrame(() => doGenerate(queuedConfig))
+    const queuedRequest = pendingGenerateRequest
+    pendingGenerateRequest = null
+    if (queuedRequest) {
+      requestAnimationFrame(() => doGenerate(queuedRequest.config, queuedRequest))
     }
   }
+}
+
+function commitRenderedMap(candidate) {
+  releaseCanvas(offscreen)
+  releaseCanvas(scaleBarOverlay)
+  baseRenderScale = candidate.renderScale
+  offscreen = candidate.canvas
+  scaleBarOverlay = candidate.scaleOverlay
+  mapData.value = candidate.data
+  if (candidate.commitOnSuccess) {
+    pendingSubmittedConfigKey = JSON.stringify(candidate.config)
+    emit('config-change', candidate.config)
+  }
+  emit('map-generated', { data: candidate.data, meta: candidate.meta, config: candidate.config })
+}
+
+function releasePendingReplacement() {
+  if (!pendingReplacement) return
+  releaseCanvas(pendingReplacement.canvas)
+  releaseCanvas(pendingReplacement.scaleOverlay)
+  pendingReplacement = null
+  replacementPending.value = false
+}
+
+function acceptReplacement() {
+  if (!pendingReplacement) return false
+  const candidate = pendingReplacement
+  pendingReplacement = null
+  replacementPending.value = false
+  commitRenderedMap(candidate)
+  return true
+}
+
+function discardReplacement(nextConfig = null) {
+  if (!pendingReplacement) return false
+  releasePendingReplacement()
+  if (nextConfig) pendingSubmittedConfigKey = JSON.stringify(nextConfig)
+  return true
+}
+
+function loadCommittedConfig(config) {
+  const plainConfig = cloneConfig(config)
+  releasePendingReplacement()
+  pendingSubmittedConfigKey = JSON.stringify(plainConfig)
+  doGenerate(plainConfig, { commitOnSuccess: false, reviewOnSuccess: false })
+}
+
+function markCommittedConfig(config) {
+  pendingSubmittedConfigKey = JSON.stringify(cloneConfig(config))
+}
+
+function focusCoordinates(x, y) {
+  const container = containerRef.value
+  if (!container || !Number.isFinite(x) || !Number.isFinite(y)) return false
+  const scale = Math.max(1.35, vp.value.scale)
+  vp.value = {
+    scale,
+    offsetX: x - container.clientWidth / (2 * scale),
+    offsetY: y - container.clientHeight / (2 * scale),
+  }
+  schedulePaint()
+  return true
+}
+
+defineExpose({ acceptReplacement, discardReplacement, loadCommittedConfig, markCommittedConfig, focusCoordinates })
+
+function retryGeneration() {
+  const request = lastFailedRequest || { config: cloneConfig(mergedConfig.value), commitOnSuccess: false }
+  doGenerate(request.config, request)
 }
 
 function cloneConfig(cfg) {
@@ -462,17 +581,23 @@ function cloneConfig(cfg) {
 
 async function rerender() {
   if (!mapData.value) return
-  // 释放旧 canvas 位图内存
-  releaseCanvas(offscreen)
-  releaseCanvas(scaleBarOverlay)
-  scaleBarOverlay = null
   const renderScale = currentRenderScale()
   const canvas = document.createElement('canvas')
-  await renderBaseMap(canvas, mapData.value, renderScale)
-  renderScaleOverlay(mapData.value, renderScale)
-  baseRenderScale = renderScale
-  offscreen = canvas
-  schedulePaint()
+  let overlay = null
+  try {
+    await renderBaseMap(canvas, mapData.value, renderScale, props.markers)
+    overlay = createScaleOverlay(mapData.value, renderScale)
+    releaseCanvas(offscreen)
+    releaseCanvas(scaleBarOverlay)
+    baseRenderScale = renderScale
+    offscreen = canvas
+    scaleBarOverlay = overlay
+    schedulePaint()
+  } catch (renderError) {
+    releaseCanvas(canvas)
+    releaseCanvas(overlay)
+    console.error('[WorldMapVoronoi] Re-render failed:', renderError)
+  }
 }
 
 function rerenderScaleBarOverlay() {
@@ -520,7 +645,13 @@ function paint() {
 
   // 叠加绘制用户标记
   if (props.markers.length > 0) {
-    drawMarkers(ctx, props.markers, selectedMarkerId.value, hoveredMarkerId.value)
+    drawMarkers(
+      ctx,
+      props.markers,
+      selectedMarkerId.value,
+      hoveredMarkerId.value,
+      getStyleConfig(renderStylePreset.value),
+    )
   }
 }
 
@@ -773,6 +904,18 @@ watch(() => props.markers, () => {
   schedulePaint()
 })
 
+watch(authoredBurgProjectionKey, () => {
+  if (mapData.value) rerender()
+})
+
+watch(() => props.focusMarkerId, (markerId) => {
+  if (!markerId) return
+  if (props.markers.some((marker) => marker.id === markerId)) {
+    selectedMarkerId.value = markerId
+    schedulePaint()
+  }
+})
+
 // When mapData changes, fit to view and paint
 watch(mapData, () => {
   if (!mapData.value) return
@@ -840,9 +983,11 @@ onUnmounted(() => {
   releaseCanvas(scaleBarOverlay)
   offscreen = null
   scaleBarOverlay = null
-  pendingGenerateConfig = null
+  pendingGenerateRequest = null
+  lastFailedRequest = null
   pendingSelectedMarkerId = null
   pendingSubmittedConfigKey = null
+  releasePendingReplacement()
 })
 
 function formatPercent(value) {
@@ -925,6 +1070,53 @@ function roundTo(value, digits) {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.generation-error-banner,
+.replacement-pending-banner {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 32px));
+  padding: 9px 10px 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  box-shadow: var(--shadow-floating);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.replacement-pending-banner {
+  display: grid;
+  gap: 2px;
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.generation-error-banner > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.generation-error-banner strong,
+.replacement-pending-banner strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.generation-error-banner span,
+.replacement-pending-banner span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Overlays */

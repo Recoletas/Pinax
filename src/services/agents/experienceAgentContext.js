@@ -1,6 +1,7 @@
 import { buildContextEnvelope, clipContextEnvelope } from './agentContextEnvelope'
 import { createContentRevision } from './creativeGraphAgentContext'
 import { buildGeoHistoryRuntimeContext } from '../worldHistory/runtimeContext'
+import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
 
 const RECENT_MESSAGE_LIMIT = 8
 const MESSAGE_CHAR_LIMIT = 520
@@ -34,6 +35,9 @@ function compactCharacters(runtimeState = {}) {
     .map((character) => ({
       id: text(character?.id) || null,
       name: text(character?.name || character),
+      profile: clip(character?.description, 220),
+      goal: clip(character?.goal, 120),
+      traits: (character?.traits || []).map(text).filter(Boolean).slice(0, 6),
       status: text(character?.status || character?.state),
       relation: text(character?.relation)
     }))
@@ -75,6 +79,7 @@ export function buildExperienceAgentContext({
   })
   const characters = compactCharacters(runtimeState)
   const candidates = compactCandidates(runtimeState.emergenceCandidates)
+  const causality = buildRuntimeCausalityContext({ runtimeState })
   const unresolvedHooks = (runtimeState.goals || [])
     .filter((goal) => goal?.status !== 'completed')
     .map((goal) => text(goal?.title || goal))
@@ -89,7 +94,11 @@ export function buildExperienceAgentContext({
     historyNodeId: text(runtimeState.historyNode?.id),
     characters,
     unresolvedHooks,
-    candidateIds: candidates.map((candidate) => candidate.id)
+    candidateIds: candidates.map((candidate) => candidate.id),
+    causalityEventIds: causality.sourceEventIds,
+    causalityConflictCodes: causality.conflicts.map((conflict) => conflict.code),
+    relationshipIds: causality.relationships.map((relation) => relation.relationId),
+    canonicalFactIds: causality.canonicalFacts.map((fact) => fact.factId)
   }
   const revision = createContentRevision(targetState)
   const targetType = taskType === 'experience.emergence' ? 'experience-state' : 'experience-turn'
@@ -103,6 +112,7 @@ export function buildExperienceAgentContext({
         constraints: [
           '只能使用本次上下文中出现的地点、历史、角色和候选 ID',
           '不得替玩家选择，不得直接修改世界状态',
+          '因果报告标记为冲突或 stale 的事件不能作为已确认事实',
           '不得创造神秘使者、陌生阵营或无依据的突发人物'
         ]
       },
@@ -132,6 +142,23 @@ export function buildExperienceAgentContext({
         ...sourceRefs('history', geoHistory?.historyNodeIds),
         ...sourceRefs('worldbook-entry', geoHistory?.entryIds)
       ]
+    },
+    {
+      kind: 'continuity',
+      priority: 720,
+      content: {
+        version: causality.version,
+        isConsistent: causality.isConsistent,
+        currentTime: causality.currentTime,
+        currentPlace: causality.currentPlace,
+        characters: causality.characters,
+        relationships: causality.relationships,
+        canonicalFacts: causality.canonicalFacts,
+        recentChanges: causality.recentChanges,
+        conflicts: causality.conflicts,
+        staleEventIds: causality.staleEventIds
+      },
+      sourceRefs: sourceRefs('runtime-event', causality.sourceEventIds)
     },
     {
       kind: 'character',
@@ -186,7 +213,9 @@ export function buildExperienceAgentContext({
       historyNodeIds: geoHistory?.historyNodeIds || [],
       characterNames: characters.map((character) => character.name),
       memoryIds: memoryRecall?.included?.map((item) => item.id) || [],
-      candidateIds: candidates.map((candidate) => candidate.id)
+      candidateIds: candidates.map((candidate) => candidate.id),
+      causalityConflictCount: causality.conflicts.length,
+      staleEventCount: causality.staleEventIds.length
     }
   }
 }

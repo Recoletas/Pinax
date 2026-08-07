@@ -1,5 +1,5 @@
 import { runGenerationRetryPlan } from './generationRetry'
-import { sendChatStream } from './api'
+import { sendChatStream, sendNarrativeAgentTurn } from './api'
 import { PROMPT_REGISTRY_VERSION } from './promptRegistry'
 
 export async function runGenerationTask({
@@ -41,6 +41,7 @@ export async function runGenerationStreamTask({
   promptVersion = PROMPT_REGISTRY_VERSION,
   character = null,
   worldId = null,
+  signal = null,
   callbacks = {}
 }) {
   if (!Array.isArray(baseMessages) || baseMessages.length === 0) {
@@ -58,6 +59,31 @@ export async function runGenerationStreamTask({
       ...(generationOptions || {}),
       taskType
     },
-    callbacks
+    callbacks,
+    { signal }
   )
+}
+
+export async function runNarrativeAgentTurn({
+  messages,
+  tools,
+  settings,
+  options = {},
+  requestId = '',
+  signal = null
+} = {}) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('runNarrativeAgentTurn requires non-empty messages')
+  }
+  if (!Array.isArray(tools) || tools.length === 0) {
+    throw new Error('runNarrativeAgentTurn requires non-empty tools')
+  }
+  return sendNarrativeAgentTurn({
+    messages,
+    tools,
+    settings,
+    options,
+    requestId,
+    signal
+  })
 }

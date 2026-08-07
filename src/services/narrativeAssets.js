@@ -162,6 +162,26 @@ export function normalizeSourceRefs(refs = [], { source = null, projectId = null
   }).slice(0, 12)
 }
 
+export function mergeSourceRefs(...groups) {
+  const refs = groups.flatMap((group) => Array.isArray(group) ? group : [])
+  return normalizeSourceRefs(refs)
+}
+
+export function createNarrativeAssetSourceRef(asset = {}) {
+  if (!asset?.id) return null
+  return normalizeContentRef({
+    refType: 'narrative-asset',
+    refId: asset.id,
+    projectId: asset.projectId ?? null,
+    excerpt: asset.content
+  }, asset.projectId)
+}
+
+export function sourceRefsToEvidenceRefs(refs = []) {
+  return normalizeSourceRefs(refs)
+    .map((ref) => `${ref.refType}:${ref.refId}`)
+}
+
 export function buildNarrativeAssetContentHash(content = '') {
   const normalized = normalizeText(content).replace(/\s+/g, ' ')
   let hash = 2166136261

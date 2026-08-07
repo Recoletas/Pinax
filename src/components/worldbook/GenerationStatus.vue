@@ -13,7 +13,7 @@
       type="button"
       class="status-retry"
       @click="$emit('retry')"
-    >重试</button>
+    >{{ retryLabel }}</button>
   </div>
 </template>
 
@@ -23,7 +23,9 @@ import { computed } from 'vue'
 const props = defineProps({
   state: { type: String, default: 'idle' }, // idle | pending | success | error | aborted
   progress: { type: String, default: '' },  // e.g. "3/6"
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  phase: { type: String, default: '' },
+  retryLabel: { type: String, default: '重试' }
 })
 
 defineEmits(['retry'])
@@ -32,7 +34,7 @@ const canRetry = computed(() => props.state === 'error')
 
 const message = computed(() => {
   switch (props.state) {
-    case 'pending': return `生成中…${props.progress ? ` ${props.progress}` : ''}`
+    case 'pending': return `${props.phase || '生成中'}…${props.progress ? ` ${props.progress}` : ''}`
     case 'success': return '已生成'
     case 'error': return `生成失败${props.error ? `：${props.error}` : ''}`
     case 'aborted': return '已中止'

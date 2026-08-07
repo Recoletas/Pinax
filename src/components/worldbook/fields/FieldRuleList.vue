@@ -64,11 +64,9 @@ function focusInput() {
   min-height: 42px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 10px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent-amber, var(--accent)) 10%, transparent) 0 3px, transparent 3px),
-    color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  background: var(--surface-raised);
   color: var(--text-primary);
-  padding: 9px 10px 9px 13px;
+  padding: 10px;
   cursor: text;
   box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
@@ -77,9 +75,7 @@ function focusInput() {
 .rule-list:focus-within {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent-amber, var(--accent)) 16%, transparent) 0 3px, transparent 3px),
-    var(--bg-primary);
+  background: var(--surface-raised);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
@@ -95,15 +91,12 @@ function focusInput() {
   gap: 8px;
   font-size: 13px;
   line-height: 1.5;
-  padding: 5px 7px;
-  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  padding: 2px 0;
 }
 
 .rule-index {
   min-width: 22px;
-  color: color-mix(in srgb, var(--accent-amber, var(--accent)) 80%, var(--text-secondary));
+  color: var(--text-muted);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;

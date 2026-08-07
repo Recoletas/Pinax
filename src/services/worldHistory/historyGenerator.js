@@ -70,7 +70,8 @@ const SEMANTIC_ALIASES = {
   isolated: 'isolatedSite',
   isolatedsite: 'isolatedSite',
   remote: 'isolatedSite',
-  ruinsite: 'isolatedSite',
+  ruinsite: 'ruinSite',
+  ruin: 'ruinSite',
   hostile: 'hostileRegion',
   hostileregion: 'hostileRegion',
   wasteland: 'hostileRegion',
@@ -90,6 +91,7 @@ const SEMANTIC_TYPES = [
   'tradeHub',
   'frontierZone',
   'isolatedSite',
+  'ruinSite',
   'hostileRegion',
   'fertileRegion',
   'strategicRoute'
@@ -188,6 +190,12 @@ const HISTORY_TEMPLATES = {
     { type: 'watchline-fall', label: '哨线失守', playable: true, primary: 'location', roleHint: '最后撤离的守望者', hookVerb: '一段哨线在夜里失守', actLabel: '守住或点燃烽火', actCommand: '决定死守残哨还是点燃烽火示警，并承担代价' }
   ],
   isolatedSite: [
+    { type: 'supply-cut', label: '补给中断', playable: true, primary: 'location', roleHint: '负责维持联络的外来人', hookVerb: '与外界的固定往来突然中断', actLabel: '重新打通联络', actCommand: '沿原有道路查明中断原因，决定是恢复旧路还是寻找新的联络方式' },
+    { type: 'messenger-overdue', label: '信使逾期', playable: true, primary: 'character', roleHint: '受托查明消息中断的人', hookVerb: '连续数次没有等到应到的信使', actLabel: '沿途查访信使', actCommand: '从最后一个有记录的停靠点开始，查清信使为何没有抵达' },
+    { type: 'relocation-dispute', label: '迁居争议', playable: true, primary: 'organization', roleHint: '被请来评估去留的人', hookVerb: '因资源与道路恶化而爆发迁居争议', actLabel: '确认去留的代价', actCommand: '核对水源、粮食、道路和可安置人口，再对是否迁居作出明确判断' },
+    { type: 'local-rule-strain', label: '乡约失衡', playable: false, primary: 'lore', roleHint: '刚到此地的见证者', hookVerb: '因长期封闭而让旧有乡约逐渐失衡', actLabel: '调停新旧规矩', actCommand: '先弄清旧规矩保护了谁、限制了谁，再决定是修订还是继续维持' }
+  ],
+  ruinSite: [
     { type: 'ruin-unsealed', label: '遗迹开启', playable: true, primary: 'location', roleHint: '第一批进入者', hookVerb: '一座封存的遗迹被重新打开', actLabel: '深入遗迹核心', actCommand: '独自深入遗迹核心，带回或惊动其中封存之物' },
     { type: 'taboo-broken', label: '禁忌被破', playable: true, primary: 'lore', roleHint: '知情的外来者', hookVerb: '一条古老禁忌被人打破', actLabel: '揭穿或掩盖禁忌', actCommand: '决定揭穿还是替其掩盖被打破的禁忌，并留下我的立场' },
     { type: 'disappearance-probe', label: '失踪调查', playable: true, primary: 'character', roleHint: '受托的调查者', hookVerb: '接连有人在此无声失踪', actLabel: '重演一次失踪路线', actCommand: '按失踪者的最后路线独自走一遍，逼出真相' },

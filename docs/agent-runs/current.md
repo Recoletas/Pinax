@@ -1,5 +1,13 @@
 # Agent Runs
 
+## 2026-08-06 Structured Place Catalog
+
+| ID | Owner | Workspace | Scope | Status | Output |
+|---|---|---|---|---|---|
+| SPC-LUNA | GPT-5.6 Luna | delegated workspace | G2.4-A A0-A5：地点合同、设定页目录、AI 整理审阅、世界书写入、地图正式条目边界及复用测试 | 代码完成，Codex 已审查 | A0-A4 与 A5 本地门禁完成；真实 provider Gate 待用户环境执行 |
+
+写锁：`shared/*place*`、结构化生成合同中 `setting-places.v1` 的最小扩展、`src/services/*place*`、`src/components/worldbook/*Place*`、`StructuredSettingsPanel.vue`、`worldStore.js` 的地点 CRUD、`worldbookMapBridge.js` 的消费边界，以及既有 worldbook/map 测试项。Luna 不修改 `docs/`，不启动服务，不创建提交，不回滚其他 WIP。Codex 负责计划、差异审查、文档与最终门禁。
+
 ## 2026-07-16 Round 2 Integration
 
 所有窗口固定基线为 `635a439038a16a3306ab9b30c45c4d3412250957`，不得从 `main`、旧 worktree 或 stash 开工。Codex 负责最终合并，worker 不修改共享状态文档。

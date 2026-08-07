@@ -61,7 +61,8 @@ export async function runGenerationRetryPlan({
   isValidParsed,
   character = null,
   worldId = null,
-  taskType = 'retry-plan'
+  taskType = 'retry-plan',
+  sendChatImpl = sendChat
 }) {
   if (!Array.isArray(baseMessages) || baseMessages.length === 0) {
     throw new Error('runGenerationRetryPlan requires non-empty baseMessages')
@@ -77,6 +78,13 @@ export async function runGenerationRetryPlan({
   for (let index = 0; index < normalizedAttempts.length; index += 1) {
     const attempt = normalizedAttempts[index] || {}
     const messages = resolveAttemptMessages(attempt, baseMessages, history)
+    const attemptGenerationOptions = {
+      ...generationOptions,
+      ...(attempt?.generationOptions || {})
+    }
+    for (const [key, value] of Object.entries(attemptGenerationOptions)) {
+      if (value == null) delete attemptGenerationOptions[key]
+    }
 
     let response = null
     let content = ''
@@ -85,13 +93,13 @@ export async function runGenerationRetryPlan({
     let requestError = null
 
     try {
-      response = await sendChat(
+      response = await sendChatImpl(
         messages,
         character,
         worldId,
         settings,
         {
-          ...generationOptions,
+          ...attemptGenerationOptions,
           retryCount: index,
           request_id: `${requestIdBase}_a${index}`,
           attemptName: attempt?.name || `attempt-${index + 1}`,

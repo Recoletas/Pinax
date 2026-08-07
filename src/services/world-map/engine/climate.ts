@@ -4,7 +4,7 @@
  * 使用空间网格索引避免 O(n²) 循环
  */
 
-import type { GridCells, BiomeDef, WindData, OceanCurrent } from './types'
+import type { GridCells, BiomeDef, WindData, OceanCurrent, MapRealism } from './types'
 
 const SEA_LEVEL = 20
 const TROPIC_NORTH = 16
@@ -17,19 +17,19 @@ const HEIGHT_EXPONENT = 2
 
 /** 生态群落定义 — 标准等高线地形图配色 */
 export const BIOMES: BiomeDef[] = [
-  { id: 0, name: '海洋',       color: '#6baed6', habitability: 0,   moveCost: 10 },
-  { id: 1, name: '热带沙漠',   color: '#e8d5a3', habitability: 4,   moveCost: 200 },
-  { id: 2, name: '寒带荒漠',   color: '#aab3a8', habitability: 10,  moveCost: 150 },
-  { id: 3, name: '热带草原',   color: '#c6e2a0', habitability: 22,  moveCost: 60 },
-  { id: 4, name: '温带草原',   color: '#a8d86e', habitability: 30,  moveCost: 50 },
-  { id: 5, name: '热带季风林', color: '#6abf5b', habitability: 50,  moveCost: 70 },
-  { id: 6, name: '温带落叶林', color: '#3da33d', habitability: 100, moveCost: 70 },
-  { id: 7, name: '热带雨林',   color: '#1e8a1e', habitability: 80,  moveCost: 80 },
-  { id: 8, name: '温带雨林',   color: '#2d8c2d', habitability: 90,  moveCost: 90 },
-  { id: 9, name: '针叶林',     color: '#4a7a3b', habitability: 12,  moveCost: 200 },
-  { id: 10, name: '苔原',      color: '#aebbad', habitability: 4,   moveCost: 1000 },
-  { id: 11, name: '冰川',      color: '#f0f5f6', habitability: 0,   moveCost: 5000 },
-  { id: 12, name: '湿地',      color: '#7fb5a0', habitability: 12,  moveCost: 150 },
+  { id: 0, name: '海洋',       color: '#7fb5ca', habitability: 0,   moveCost: 10 },
+  { id: 1, name: '热带沙漠',   color: '#d1bf88', habitability: 4,   moveCost: 200 },
+  { id: 2, name: '寒带荒漠',   color: '#b8c0b8', habitability: 10,  moveCost: 150 },
+  { id: 3, name: '热带草原',   color: '#b5c887', habitability: 22,  moveCost: 60 },
+  { id: 4, name: '温带草原',   color: '#9fb979', habitability: 30,  moveCost: 50 },
+  { id: 5, name: '热带季风林', color: '#7ea46a', habitability: 50,  moveCost: 70 },
+  { id: 6, name: '温带落叶林', color: '#688e60', habitability: 100, moveCost: 70 },
+  { id: 7, name: '热带雨林',   color: '#537b59', habitability: 80,  moveCost: 80 },
+  { id: 8, name: '温带雨林',   color: '#496f53', habitability: 90,  moveCost: 90 },
+  { id: 9, name: '针叶林',     color: '#586f50', habitability: 12,  moveCost: 200 },
+  { id: 10, name: '苔原',      color: '#c2cbc2', habitability: 4,   moveCost: 1000 },
+  { id: 11, name: '冰川',      color: '#d8e3e3', habitability: 0,   moveCost: 5000 },
+  { id: 12, name: '湿地',      color: '#7d9f91', habitability: 12,  moveCost: 150 },
 ]
 
 /**
@@ -44,6 +44,55 @@ const BIOME_MATRIX: number[][] = [
   [5, 5, 7, 7, 7, 7, 6, 6, 6, 6, 6, 8, 8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 11],
   [7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 11],
 ]
+
+// ── 相干空间噪声（P0 de-banding） ────────────────────
+//
+// 旧 climate 把温度/降水绑死在纬度条带上（每个纬度一个值，整行同温/同雨），
+// 视觉上呈现为水平条带。这里加一个 inline value-noise：整数格点 hash +
+// smoothstep 双线性插值，输出在空间上**连续**（相邻 cell 相关），且**不**
+// 消费 rng/alea（同 seed 同输入 → 同输出，确定性）。rng()/alea 产生的是
+// 白噪声（cell 间无关），无法用来"打破条带"。
+//
+// 用法：sampleClimateNoise(noise, x/width, y/height) → [-1, 1]。
+// 频率由内部 FEATURE_SCALE 控制（~3-4 个特征横跨整图）。
+
+const CLIMATE_NOISE_FEATURE_SCALE = 3.5
+const CLIMATE_NOISE_SEED = 1337 // 稳定 hash salt；不改 seed 派生以保持确定性
+
+/** 整数格点 hash → [0,1)。来自 heightmap-template-aware.ts::hash2D 同思路。 */
+function climateHash2D(ix: number, iy: number): number {
+  const s = Math.sin(ix * 12.9898 + iy * 78.233 + CLIMATE_NOISE_SEED) * 43758.5453
+  return s - Math.floor(s)
+}
+
+function climateSmooth(t: number): number {
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * 2D value noise at normalized (u, v) ∈ [0,1]²。返回 [-1, 1]，空间连续。
+ * u/v 乘 FEATURE_SCALE 决定特征密度。同 (u,v) 永远同输出（确定性）。
+ */
+export function sampleClimateNoise(u: number, v: number): number {
+  const fx = u * CLIMATE_NOISE_FEATURE_SCALE
+  const fy = v * CLIMATE_NOISE_FEATURE_SCALE
+  const x0 = Math.floor(fx)
+  const y0 = Math.floor(fy)
+  const tx = climateSmooth(fx - x0)
+  const ty = climateSmooth(fy - y0)
+  const a = climateHash2D(x0, y0)
+  const b = climateHash2D(x0 + 1, y0)
+  const c = climateHash2D(x0, y0 + 1)
+  const d = climateHash2D(x0 + 1, y0 + 1)
+  const top = a + (b - a) * tx
+  const bot = c + (d - c) * tx
+  return (top + (bot - top) * ty) * 2 - 1
+}
+
+function clamp01(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  return v < 0 ? 0 : v > 1 ? 1 : v
+}
 
 // ── 空间网格索引 ────────────────────────────────────
 
@@ -141,9 +190,17 @@ export function calculateTemperature(
   wind: WindData,
   oceanCurrents: OceanCurrent[],
   temperatureShift = 0,
+  realism?: MapRealism,
 ): void {
   const n = cells.length
   const grid = new SpatialGrid(cells, width, height)
+
+  // P0 de-banding: climate coherent noise knobs。
+  // noise=0 → 不加扰动（保留旧纯纬向行为）；>0 时温度基线 += (noise-0.5)*12*noise。
+  // latitudeWeight<1 时把纬向基线按该权重向"赤道基线 × (0.5+noise)"混合，
+  // 进一步弱化条带（赤道基线对纬度不敏感，混合后温度对 y 的依赖变弱）。
+  const climateNoise = clamp01(realism?.climate?.noise ?? 0.3)
+  const latitudeWeight = clamp01(realism?.climate?.latitudeWeight ?? 1)
 
   // 基础温度
   const baseTemp = new Float32Array(n)
@@ -152,9 +209,24 @@ export function calculateTemperature(
   const tempSouthTropic = TEMPERATURE_EQUATOR + TROPIC_SOUTH * TROPICAL_GRADIENT
   const southernGradient = (tempSouthTropic - TEMPERATURE_SOUTH_POLE) / (90 + TROPIC_SOUTH)
   for (let i = 0; i < n; i++) {
+    const px = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     const latitude = 90 - (y / height) * 180
     let temp = calculateSeaLevelTemperature(latitude)
+
+    // P0-1: 相干噪声扰动温度基线（打破纯纬向条带）。
+    // (noiseValue - 0.5) 在 [-0.5, 0.5]，×12 ≈ ±6℃，× climateNoise 缩放强度。
+    if (climateNoise > 0) {
+      const nv = sampleClimateNoise(px / width, y / height) // [-1,1]
+      const perturb = (nv * 0.5) * 12 * climateNoise
+      if (latitudeWeight < 1) {
+        // 把纬向基线按 latitudeWeight 保留，剩余权重让"赤道基线×(0.5+noise)"接管，
+        // 弱化温度对纬度的纯线性依赖。
+        const equatorish = TEMPERATURE_EQUATOR * (0.5 + nv * 0.5)
+        temp = temp * latitudeWeight + equatorish * (1 - latitudeWeight)
+      }
+      temp += perturb
+    }
 
     const h = cells.h[i]
     if (h >= SEA_LEVEL) temp -= getAltitudeTemperatureDrop(h)
@@ -246,20 +318,33 @@ export function calculatePrecipitation(
   wind: WindData,
   factor = 1.0,
   rng: () => number,
+  realism?: MapRealism,
 ): void {
   const n = cells.length
   const grid = new SpatialGrid(cells, width, height)
 
+  // P0 de-banding: 用相干噪声缩放纬向降水基线，让干/湿斑块在 x 方向蜿蜒，
+  // 不再是整纬度行同雨量。noise=0 → 不缩放（保留旧 rng() 行为）。
+  const climateNoise = clamp01(realism?.climate?.noise ?? 0.3)
+
   for (let i = 0; i < n; i++) {
+    const px = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     const lat = Math.abs(y / height - 0.5) * 2
 
-    // 基础降水
+    // 基础降水（纬向条带 + rng() 白噪声微扰）
     let prec = 0
     if (lat < 0.3) prec = 70 + rng() * 20
     else if (lat < 0.5) prec = 25 + rng() * 25
     else if (lat < 0.7) prec = 45 + rng() * 25
     else prec = 15 + rng() * 15
+
+    // P0-1: 相干噪声让干/湿斑块在空间上蜿蜒（不再纯纬向）。
+    // (1 + (nv-0)*climateNoise)：nv∈[-1,1] → 缩放因子 ∈ [1-noise, 1+noise]。
+    if (climateNoise > 0) {
+      const nv = sampleClimateNoise(px / width, y / height) // [-1,1]
+      prec *= 1 + nv * climateNoise
+    }
 
     // 沿海效应
     if (cells.t[i] > 0 && cells.t[i] <= 3) {
@@ -374,13 +459,13 @@ export function assignBiomes(cells: GridCells, height: number): void {
     const temp = cells.temp[i]
     const dist = cells.t[i]
     if (h < SEA_LEVEL) return false
-    if (absLat >= 84 && temp <= -1) return true
-    if (absLat >= 78 && temp <= -7) return true
-    if (absLat >= 68 && temp <= -13) return true
-    if (absLat >= 64 && temp <= -18) return true
+    if (absLat >= 87 && temp <= -5) return true
+    if (absLat >= 80 && temp <= -11) return true
+    if (absLat >= 72 && temp <= -17) return true
+    if (absLat >= 66 && temp <= -22) return true
     if (temp > -7) return false
-    if (h >= 92 && temp <= -10) return true
-    if (dist >= 6 && temp <= -12 && absLat >= 62) return true
+    if (h >= 94 && temp <= -14) return true
+    if (dist >= 8 && temp <= -18 && absLat >= 66) return true
     return false
   }
 

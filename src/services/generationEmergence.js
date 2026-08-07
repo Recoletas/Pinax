@@ -175,7 +175,11 @@ export function buildEmergenceEventMessages({
         '只输出 JSON 对象，不要 Markdown，不要解释。',
         'JSON 结构：{"title":"...","summary":"...","placeId":"...","participants":[],"factions":[],"causes":[],"changes":[],"consequences":[],"unresolvedHooks":[],"choices":[{"id":"...","label":"...","intent":"...","risk":"..."}],"confidence":0.0}',
         'choices 必须输出 2-3 个贴合当前剧情的玩家行动，不要使用预设模板。',
-        'changes 只能使用 set/merge/push/pull/inc/unset，path 只能是 goals、encounteredCharacters、factionRelations、keyChoices、plotJournal、activities、worldMapState、mechanismContext、milestoneEvent、flags、inventory、quests 之一。',
+        'changes 只能使用 set/merge/push/pull/inc/unset，path 只能是 goals、encounteredCharacters、factionRelations、keyChoices、plotJournal、activities、placeStates、characterStates、characterRelations、canonicalFacts、writingTime、worldMapState、mechanismContext、milestoneEvent、flags、inventory、quests 之一。',
+        'placeStates 必须以已知地点 ID 为键，且每个地点只能写 status、controllerId、danger；characterStates 必须以已知角色 ID 或姓名为键，且只能写 status、alive、placeId、goal、mood、knowledgeRefs。',
+        'characterRelations 只能写已知角色 ID 之间的 parent/child/sibling/spouse/grandparent/grandchild/guardian/ward/adoptive-parent/adoptive-child 关系；canonicalFacts 只能写 subjectId、predicate、标量 value、status、confidence 和 sourceRefs。',
+        'writingTime 只能写 eraId、eraName、year、month、day；只有剧情明确发生时间推进、年代切换或回溯时才修改。',
+        '受控状态中的 blockedConflictCodes 只是禁止采用的冲突警告，不是剧情事实；不得引用 stale 事件。',
         `当前地点必须严格使用：${placeId || '候选中没有可用地点，直接返回无效 JSON'}`,
         `已知参与者只能使用：${participants.join('、') || '无'}`,
         `已知阵营只能使用：${factions.join('、') || '无'}`,
@@ -190,6 +194,9 @@ export function buildEmergenceEventMessages({
         `候选标题：${normalizeText(candidate?.title)}`,
         `候选摘要：${normalizeText(candidate?.summary)}`,
         `触发依据：${(candidate?.reasons || []).map(normalizeText).filter(Boolean).join('；') || '无'}`,
+        candidate?.causalState
+          ? `受控状态：${JSON.stringify(candidate.causalState)}`
+          : '',
         `地点引用：${placeId}`,
         recent ? `最近对话：\n${recent}` : ''
       ].filter(Boolean).join('\n')

@@ -5,7 +5,7 @@
  * 文化：成本扩散 Dijkstra（阶段 3）
  */
 
-import type { GridCells, Burg, State, Culture, Province, Road, Government } from './types'
+import type { GridCells, Burg, State, Culture, Province, Road, Government, MapConstraints } from './types'
 import { BIOMES } from './climate'
 import { getStateName, getCapitalName, getTownName, getCultureName, getProvinceName } from './name-pool'
 import {
@@ -480,7 +480,7 @@ export function generateBurgs(
     if (score <= 0.7) break
     if (isTooClose(cells, i, placedCells, portSpacing)) continue
     placeOne(i, {
-      name: getTownName(burgs.length - 1),
+      name: burgNames?.[burgs.length - 1] || getTownName(burgs.length - 1),
       capital: false,
       snapPort: 0.2,
     })
@@ -504,7 +504,7 @@ export function generateBurgs(
     if (score <= 0.55) break
     if (isTooClose(cells, i, placedCells, regionSpacing)) continue
     placeOne(i, {
-      name: getTownName(burgs.length - 1),
+      name: burgNames?.[burgs.length - 1] || getTownName(burgs.length - 1),
       capital: false,
       snapPort: 0.2,
     })
@@ -525,7 +525,7 @@ export function generateBurgs(
     if (score <= 0.3) break
     if (isTooClose(cells, i, placedCells, townSpacing)) continue
     placeOne(i, {
-      name: getTownName(burgs.length - 1),
+      name: burgNames?.[burgs.length - 1] || getTownName(burgs.length - 1),
       capital: false,
       snapPort: 0.2,
     })
@@ -545,6 +545,7 @@ export function generateStates(
   _stateCount: number,
   rng: () => number,
   stateNames?: string[],
+  constraints?: MapConstraints,
 ): State[] {
   const states: State[] = [{
     i: 0, name: '无主之地', color: '#ccc', capital: 0,
@@ -577,8 +578,10 @@ export function generateStates(
     burg.state = state.i
   }
 
-  // 多源 Dijkstra 扩张
-  expandStates(cells, states, burgs)
+  // 多源 Dijkstra 扩张。世界书中已确认的国家归属和同国/异国关系
+  // 会编译为辅助种子；最终仍经过连通性清理，避免制造孤立飞地。
+  const constraintSeeds = buildConstraintStateSeeds(burgs, states, constraints)
+  expandStates(cells, states, burgs, constraintSeeds)
 
   // 分配城镇到所在国家
   for (const burg of burgs) {
@@ -621,7 +624,12 @@ export function __test_getLastExpandStatesDiagnostics(): ExpandStatesDiagnostics
 }
 
 /** 阶段 3：多源统一优先队列 Dijkstra 扩张 + 平滑 + 去飞地 */
-function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
+function expandStates(
+  cells: GridCells,
+  states: State[],
+  burgs: Burg[],
+  constraintSeeds: Map<number, number> = new Map(),
+): void {
   const n = cells.length
   const bestCost = new Float64Array(n).fill(Infinity)
   const maxStateId = states.reduce((max, state) => Math.max(max, state.i), 0)
@@ -661,6 +669,24 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
     cells.state[cell] = state.i
     heap.push({ cell, cost: 0, state: state.i })
     if (diagnostics) diagnostics.pushCount++
+  }
+
+  for (const [cell, state] of constraintSeeds) {
+    if (cell < 0 || cell >= n || cells.h[cell] < SEA_LEVEL || !states[state]) continue
+    const capital = burgs[states[state].capital]
+    if (!capital) continue
+    const corridor = findPath(cells, capital.cell, cell)
+    if (corridor.length === 0) continue
+    const crossesForeignCapital = corridor.some((pathCell) => states.some((candidate) => (
+      candidate.i > 0 && candidate.i !== state && burgs[candidate.capital]?.cell === pathCell
+    )))
+    if (crossesForeignCapital) continue
+    for (const pathCell of corridor) {
+      bestCost[pathCell] = 0
+      cells.state[pathCell] = state
+      heap.push({ cell: pathCell, cost: 0, state })
+      if (diagnostics) diagnostics.pushCount++
+    }
   }
 
   const maxCost = n * 0.8
@@ -727,6 +753,163 @@ function expandStates(cells: GridCells, states: State[], burgs: Burg[]): void {
   }
 
   if (diagnostics) lastExpandStatesDiagnostics = diagnostics
+}
+
+function normalizeConstraintName(value: unknown): string {
+  return String(value || '').trim().toLocaleLowerCase('zh-Hans-CN').replace(/[\s·・_-]+/g, '')
+}
+
+function constraintAliases(location: NonNullable<MapConstraints['locations']>[number]): string[] {
+  return [location.name, ...(location.aliases || [])].map(normalizeConstraintName).filter(Boolean)
+}
+
+function findConstraintBurg(
+  burgs: Burg[],
+  constraints: MapConstraints | undefined,
+  reference: { id?: string; name?: string },
+): Burg | undefined {
+  const normalized = normalizeConstraintName(reference.name)
+  const location = constraints?.locations?.find((candidate) => (
+    (reference.id && candidate.id === reference.id)
+    || (normalized && constraintAliases(candidate).includes(normalized))
+  ))
+  const aliases = location ? constraintAliases(location) : normalized ? [normalized] : []
+  return burgs.find((burg) => burg.i > 0 && aliases.includes(normalizeConstraintName(burg.name)))
+}
+
+/**
+ * 将世界书的国家关系编译成 Dijkstra 辅助种子。
+ * 同国关系先组成分组；明确国家优先，其次选择离组中心最近的首都。
+ * 冲突首都不会被改籍，异国关系只会移动未锁定且不含首都的一组。
+ */
+function buildConstraintStateSeeds(
+  burgs: Burg[],
+  states: State[],
+  constraints: MapConstraints | undefined,
+): Map<number, number> {
+  const locations = constraints?.locations || []
+  if (locations.length === 0 || states.length <= 1) return new Map()
+
+  const burgByLocation = new Map<string, Burg>()
+  const parent = new Map<number, number>()
+  const find = (value: number): number => {
+    const current = parent.get(value) ?? value
+    if (current === value) return value
+    const root = find(current)
+    parent.set(value, root)
+    return root
+  }
+  const union = (left: number, right: number): void => {
+    const a = find(left)
+    const b = find(right)
+    if (a !== b) parent.set(b, a)
+  }
+
+  for (const location of locations) {
+    const burg = findConstraintBurg(burgs, constraints, location)
+    if (!burg) continue
+    burgByLocation.set(location.id, burg)
+    parent.set(burg.i, burg.i)
+  }
+  for (const location of locations) {
+    const owner = burgByLocation.get(location.id)
+    if (!owner) continue
+    for (const reference of location.relationRefs || []) {
+      if (reference.relation !== 'same-state') continue
+      const target = findConstraintBurg(burgs, constraints, reference)
+      if (target) union(owner.i, target.i)
+    }
+  }
+
+  const groups = new Map<number, Burg[]>()
+  for (const burg of burgByLocation.values()) {
+    const root = find(burg.i)
+    const group = groups.get(root) || []
+    if (!group.some((candidate) => candidate.i === burg.i)) group.push(burg)
+    groups.set(root, group)
+  }
+  const stateByName = new Map(states.filter(state => state.i > 0).map(state => [normalizeConstraintName(state.name), state.i]))
+  const explicitByRoot = new Map<number, Set<number>>()
+  for (const location of locations) {
+    const owner = burgByLocation.get(location.id)
+    if (!owner) continue
+    for (const reference of location.relationRefs || []) {
+      if (reference.relation !== 'state') continue
+      const state = stateByName.get(normalizeConstraintName(reference.name))
+      if (!state) continue
+      const root = find(owner.i)
+      const values = explicitByRoot.get(root) || new Set<number>()
+      values.add(state)
+      explicitByRoot.set(root, values)
+    }
+  }
+
+  const capitalState = new Map(states.filter(state => state.i > 0).map(state => [state.capital, state.i]))
+  const assignment = new Map<number, number>()
+  const locked = new Set<number>()
+  for (const [root, members] of groups) {
+    const requested = new Set(explicitByRoot.get(root) || [])
+    for (const member of members) {
+      const state = capitalState.get(member.i)
+      if (state) requested.add(state)
+    }
+    if (requested.size > 1) continue
+    if (requested.size === 1) {
+      assignment.set(root, [...requested][0])
+      locked.add(root)
+      continue
+    }
+    const centerX = members.reduce((sum, burg) => sum + burg.x, 0) / members.length
+    const centerY = members.reduce((sum, burg) => sum + burg.y, 0) / members.length
+    const nearest = states
+      .filter(state => state.i > 0 && burgs[state.capital])
+      .map(state => {
+        const capital = burgs[state.capital]
+        return { state: state.i, distance: (capital.x - centerX) ** 2 + (capital.y - centerY) ** 2 }
+      })
+      .sort((a, b) => a.distance - b.distance || a.state - b.state)[0]
+    if (nearest) assignment.set(root, nearest.state)
+  }
+
+  for (const location of locations) {
+    const owner = burgByLocation.get(location.id)
+    if (!owner) continue
+    for (const reference of location.relationRefs || []) {
+      if (reference.relation !== 'different-state') continue
+      const target = findConstraintBurg(burgs, constraints, reference)
+      if (!target) continue
+      const ownerRoot = find(owner.i)
+      const targetRoot = find(target.i)
+      const ownerState = assignment.get(ownerRoot)
+      const targetState = assignment.get(targetRoot)
+      if (!ownerState || !targetState || ownerState !== targetState) continue
+      const movableRoot = !locked.has(targetRoot) ? targetRoot : !locked.has(ownerRoot) ? ownerRoot : undefined
+      if (movableRoot === undefined) continue
+      const movable = groups.get(movableRoot) || []
+      if (movable.some(burg => capitalState.has(burg.i))) continue
+      const alternative = states
+        .filter(state => state.i > 0 && state.i !== ownerState && burgs[state.capital])
+        .map(state => {
+          const capital = burgs[state.capital]
+          const distance = movable.reduce((sum, burg) => sum + (capital.x - burg.x) ** 2 + (capital.y - burg.y) ** 2, 0)
+          return { state: state.i, distance }
+        })
+        .sort((a, b) => a.distance - b.distance || a.state - b.state)[0]
+      if (alternative) assignment.set(movableRoot, alternative.state)
+    }
+  }
+
+  const seeds = new Map<number, number>()
+  for (const [root, members] of groups) {
+    const state = assignment.get(root)
+    if (!state) continue
+    for (const burg of members) {
+      const ownCapitalState = capitalState.get(burg.i)
+      if (ownCapitalState && ownCapitalState !== state) continue
+      seeds.set(burg.cell, state)
+    }
+  }
+  return seeds
 }
 
 /** 去飞地:对每个 state 做 BFS-from-capital,标记可达;不可达 cell 改归多数邻居 */
@@ -1102,6 +1285,7 @@ export function generateRoads(
   burgs: Burg[],
   _states: State[],
   rng: () => number,
+  constraints?: MapConstraints,
 ): Road[] {
   const roads: Road[] = []
   const activeBurgs = burgs.filter(b => b.i > 0)
@@ -1140,6 +1324,22 @@ export function generateRoads(
   const capitals = activeBurgs.filter(b => b.capital)
   const ports = activeBurgs.filter(b => b.port)
   const nonCapitalTowns = activeBurgs.filter(b => !b.capital)
+
+  // 世界书明确交通线优先于随机路网。后续层级沿用端点去重，不会用
+  // 一条随机命名的道路覆盖作者指定路线。
+  for (const route of constraints?.routes || []) {
+    const from = findConstraintBurg(burgs, constraints, { name: route.from })
+    const to = findConstraintBurg(burgs, constraints, { name: route.to })
+    if (!from || !to || from.i === to.i) continue
+    const path = findPath(cells, from.cell, to.cell, from, to)
+    addRoad(
+      from.cell,
+      to.cell,
+      from.state > 0 && from.state === to.state ? 'major' : 'trade',
+      path,
+      route.name || `${from.name}—${to.name}`,
+    )
+  }
 
   // ── Level 1: 首都间主干道 — 每个首都连最近 2-3 个首都 ──
   for (const cap of capitals) {

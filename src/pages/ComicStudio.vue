@@ -1,18 +1,33 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
+import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
+import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
-import ComicPagePreview from '../components/media/ComicPagePreview.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
+import { useWorldStore } from '../stores/worldStore'
 import { listActiveNarrativeAssets, normalizeImagePresentation } from '../services/narrativeAssets'
+import {
+  buildComicPagesFromAdaptation,
+  buildComicReferenceCatalog,
+  generateComicAdaptationCandidates
+} from '../services/media/comicAdaptationService'
 import { addNarrativeImageAsset } from '../services/media/narrativeImageAssetBridge'
-import { listComicPages } from '../services/media/comicPageStore'
+import {
+  confirmComicSequenceVisualBible,
+  listComicPages,
+  saveComicPages,
+  updateComicPageComposition,
+  updateComicSequenceVisualBible
+} from '../services/media/comicPageStore'
 import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
 
 const comicPages = ref([])
 const route = useRoute()
+const router = useRouter()
+const worldStore = useWorldStore()
 const activePageId = ref('')
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
@@ -21,31 +36,112 @@ const selectedModelId = ref('')
 const selectedSourceId = ref('')
 const archiveStatus = ref('')
 const comicEditor = ref(null)
+const activeCompositionPanelId = ref('')
 const mobilePane = ref('page')
-const comicMobilePanes = [
+const studioMode = ref('plan')
+const planningTarget = ref('new')
+const adaptationSourceIds = ref([])
+const adaptationCandidates = ref([])
+const selectedCandidateId = ref('')
+const adaptationGenerating = ref(false)
+const adaptationError = ref('')
+const pageMobilePanes = [
   { value: 'sources', label: '素材' },
   { value: 'page', label: '页面' },
   { value: 'panel', label: '当前格' }
 ]
+const planMobilePanes = [
+  { value: 'sources', label: '素材' },
+  { value: 'page', label: '页面计划' }
+]
 
 const activePage = computed(() => comicPages.value.find((page) => page.id === activePageId.value) || null)
 const selectedSource = computed(() => sourceCandidates.value.find((asset) => asset.id === selectedSourceId.value) || null)
+const selectedAdaptationSources = computed(() => sourceCandidates.value
+  .filter((asset) => adaptationSourceIds.value.includes(asset.id)))
 const selectedSourceRefs = computed(() => selectedSource.value ? [{
   refType: 'narrative-asset',
   refId: selectedSource.value.id,
   projectId: selectedSource.value.projectId ?? null,
   excerpt: String(selectedSource.value.content || '').slice(0, 240)
 }] : [])
-const activeProjectId = computed(() => activePage.value?.projectId ?? selectedSource.value?.projectId ?? null)
+const activeProjectId = computed(() => (
+  activePage.value?.projectId
+  ?? selectedSource.value?.projectId
+  ?? selectedAdaptationSources.value.find((asset) => asset.projectId)?.projectId
+  ?? worldStore.activeWorldbook?.id
+  ?? null
+))
+const comicMobilePanes = computed(() => studioMode.value === 'plan' ? planMobilePanes : pageMobilePanes)
+const referenceCatalog = computed(() => buildComicReferenceCatalog({
+  worldbook: worldStore.activeWorldbook,
+  assets: sourceCandidates.value
+}))
+const selectedCandidate = computed(() => adaptationCandidates.value
+  .find((candidate) => candidate.id === selectedCandidateId.value) || null)
+const activeSequencePages = computed(() => {
+  if (!activePage.value?.sequenceId) return []
+  return comicPages.value
+    .filter((page) => page.sequenceId === activePage.value.sequenceId)
+    .sort((left, right) => left.pageNumber - right.pageNumber)
+})
+const persistedPlan = computed(() => {
+  const pages = activeSequencePages.value
+  if (!pages.length) return null
+  const firstPage = pages[0]
+  return {
+    id: firstPage.sequenceId,
+    title: firstPage.sequenceTitle || firstPage.title,
+    rationale: '',
+    format: firstPage.format,
+    colorMode: firstPage.colorMode,
+    pages: pages.map((page) => ({
+      title: page.title,
+      narrativeBeat: page.pagePurpose,
+      pageTurnHook: page.pageTurnHook,
+      continuityNotes: page.continuityNotes,
+      panels: page.panels
+    })),
+    visualBible: {
+      references: firstPage.visualBible.references.map((reference) => ({
+        referenceId: reference.id,
+        invariantNotes: reference.invariantNotes,
+        locked: reference.locked,
+        label: reference.label,
+        kind: reference.kind,
+        sourceRef: reference.sourceRef,
+        assetIds: reference.assetIds
+      })),
+      palette: firstPage.visualBible.palette,
+      lineStyle: firstPage.visualBible.lineStyle,
+      renderingNotes: firstPage.visualBible.renderingNotes
+    }
+  }
+})
+const planningPersisted = computed(() => planningTarget.value === 'sequence' && Boolean(persistedPlan.value))
+const planningPlan = computed(() => (
+  planningPersisted.value ? persistedPlan.value : selectedCandidate.value
+))
+const planningBibleConfirmed = computed(() => (
+  planningPersisted.value
+  && activeSequencePages.value.every((page) => page.visualBibleStatus === 'confirmed')
+))
 
-onMounted(() => {
+onMounted(async () => {
   sourceCandidates.value = listActiveNarrativeAssets()
   const requestedSourceId = String(route.query.assetId || '')
   selectedSourceId.value = sourceCandidates.value.some((asset) => asset.id === requestedSourceId)
     ? requestedSourceId
     : ''
+  adaptationSourceIds.value = selectedSourceId.value ? [selectedSourceId.value] : []
+  await worldStore.loadWorldbooksIndex()
+  if (worldStore.worldbooksIndex.length) await worldStore.ensureActiveWorldbook()
   loadModels()
   refreshPages()
+  if (comicPages.value.length && !requestedSourceId) {
+    studioMode.value = 'page'
+    planningTarget.value = activePage.value?.sequenceId ? 'sequence' : 'new'
+  }
 })
 
 function refreshPages(preferredPageId = activePageId.value) {
@@ -54,6 +150,9 @@ function refreshPages(preferredPageId = activePageId.value) {
     ? preferredPageId
     : comicPages.value[0]?.id || ''
   pagePreview.value = comicPages.value.find((page) => page.id === activePageId.value) || null
+  activeCompositionPanelId.value = pagePreview.value?.panels.some((panel) => panel.id === activeCompositionPanelId.value)
+    ? activeCompositionPanelId.value
+    : pagePreview.value?.panels[0]?.id || ''
 }
 
 function loadModels(configs = null) {
@@ -67,10 +166,21 @@ function selectPage(pageId) {
   activePageId.value = pageId
   pagePreview.value = comicPages.value.find((page) => page.id === pageId) || null
   archiveStatus.value = ''
+  studioMode.value = 'page'
+  planningTarget.value = activePage.value?.sequenceId ? 'sequence' : 'new'
   mobilePane.value = 'page'
 }
 
 function selectSource(sourceId) {
+  if (studioMode.value === 'plan') {
+    adaptationSourceIds.value = adaptationSourceIds.value.includes(sourceId)
+      ? adaptationSourceIds.value.filter((id) => id !== sourceId)
+      : [...adaptationSourceIds.value, sourceId].slice(0, 8)
+    adaptationCandidates.value = []
+    selectedCandidateId.value = ''
+    adaptationError.value = ''
+    return
+  }
   selectedSourceId.value = sourceId
   archiveStatus.value = ''
   mobilePane.value = 'page'
@@ -81,10 +191,134 @@ function syncActivePanelSource(sourceId) {
 }
 
 function startNewPage() {
+  studioMode.value = 'page'
   activePageId.value = ''
   pagePreview.value = null
   archiveStatus.value = ''
   mobilePane.value = 'panel'
+}
+
+function openStudioMode(mode) {
+  studioMode.value = mode
+  if (mode === 'plan') {
+    planningTarget.value = activePage.value?.sequenceId ? 'sequence' : 'new'
+    mobilePane.value = 'page'
+    return
+  }
+  mobilePane.value = mode === 'panel' ? 'panel' : 'page'
+}
+
+function resetAdaptation() {
+  studioMode.value = 'plan'
+  planningTarget.value = 'new'
+  adaptationCandidates.value = []
+  selectedCandidateId.value = ''
+  adaptationError.value = ''
+  adaptationSourceIds.value = selectedSourceId.value ? [selectedSourceId.value] : []
+  mobilePane.value = 'page'
+}
+
+async function generateAdaptation() {
+  adaptationGenerating.value = true
+  adaptationError.value = ''
+  try {
+    const result = await generateComicAdaptationCandidates({
+      sources: selectedAdaptationSources.value,
+      referenceCatalog: referenceCatalog.value,
+      candidateCount: 2
+    })
+    adaptationCandidates.value = result.candidates
+    selectedCandidateId.value = result.candidates[0]?.id || ''
+  } catch (error) {
+    adaptationError.value = error?.message || '生成漫画分页方案失败'
+  } finally {
+    adaptationGenerating.value = false
+  }
+}
+
+function selectAdaptationCandidate(candidateId) {
+  selectedCandidateId.value = candidateId
+}
+
+function updatePlanningPlan(nextPlan) {
+  if (!nextPlan) return
+  if (!planningPersisted.value) {
+    adaptationCandidates.value = adaptationCandidates.value.map((candidate) => (
+      candidate.id === nextPlan.id ? nextPlan : candidate
+    ))
+    return
+  }
+  updateComicSequenceVisualBible(activePage.value.sequenceId, {
+    references: nextPlan.visualBible.references.map(resolveSemanticReference).filter(Boolean),
+    palette: nextPlan.visualBible.palette,
+    lineStyle: nextPlan.visualBible.lineStyle,
+    renderingNotes: nextPlan.visualBible.renderingNotes
+  })
+  refreshPages(activePageId.value)
+}
+
+function resolveSemanticReference(reference) {
+  const catalogItem = referenceCatalog.value.find((item) => item.id === reference.referenceId)
+  const sourceRef = catalogItem?.sourceRef || reference.sourceRef
+  if (!sourceRef) return null
+  return {
+    id: reference.referenceId,
+    kind: catalogItem?.kind || reference.kind || 'style',
+    label: catalogItem?.label || reference.label || reference.referenceId,
+    sourceRef,
+    assetIds: catalogItem?.assetIds || reference.assetIds || [],
+    invariantNotes: reference.invariantNotes || [],
+    locked: reference.locked !== false
+  }
+}
+
+function applyAdaptation() {
+  if (!selectedCandidate.value) return
+  try {
+    const pages = buildComicPagesFromAdaptation({
+      candidate: selectedCandidate.value,
+      sources: selectedAdaptationSources.value,
+      referenceCatalog: referenceCatalog.value,
+      projectId: activeProjectId.value
+    })
+    const saved = saveComicPages(pages)
+    if (!saved.length) return
+    refreshPages(saved[0].id)
+    planningTarget.value = 'sequence'
+    adaptationCandidates.value = []
+    selectedCandidateId.value = ''
+    studioMode.value = 'page'
+    mobilePane.value = 'page'
+    archiveStatus.value = `已建立 ${saved.length} 页制作序列`
+  } catch (error) {
+    adaptationError.value = error?.message || '建立漫画制作序列失败'
+  }
+}
+
+function confirmVisualBible() {
+  if (!activePage.value?.sequenceId) return
+  try {
+    confirmComicSequenceVisualBible(activePage.value.sequenceId)
+    refreshPages(activePageId.value)
+  } catch (error) {
+    adaptationError.value = error?.message || '确认视觉圣经失败'
+  }
+}
+
+function openReference(reference) {
+  const sourceRef = reference?.sourceRef
+  if (!sourceRef?.refId) return
+  if (sourceRef.refType === 'worldbook-entry') {
+    router.push({ name: 'settings-worldbook-advanced', query: { entryId: sourceRef.refId } })
+    return
+  }
+  if (sourceRef.refType === 'map-site') {
+    router.push({ name: 'settings-world-map', query: { placeId: sourceRef.refId } })
+    return
+  }
+  if (sourceRef.refType === 'narrative-asset') {
+    router.push({ name: 'materials', query: { assetId: sourceRef.refId } })
+  }
 }
 
 function handlePageSaved(page) {
@@ -93,8 +327,38 @@ function handlePageSaved(page) {
   pagePreview.value = page
 }
 
+function handlePagePreview(page) {
+  pagePreview.value = page
+  if (!page?.panels?.some((panel) => panel.id === activeCompositionPanelId.value)) {
+    activeCompositionPanelId.value = page?.panels?.[0]?.id || ''
+  }
+}
+
+function handleCompositionUpdate(nextPage) {
+  if (!nextPage?.id) return
+  const runtimeTakes = new Map(nextPage.panels.map((panel) => [panel.id, panel.imageTakes || []]))
+  const saved = updateComicPageComposition(nextPage.id, nextPage)
+  if (!saved) return
+  comicPages.value = listComicPages()
+  pagePreview.value = {
+    ...saved,
+    panels: saved.panels.map((panel) => ({
+      ...panel,
+      imageTakes: runtimeTakes.get(panel.id) || []
+    }))
+  }
+  if (!pagePreview.value.panels.some((panel) => panel.id === activeCompositionPanelId.value)) {
+    activeCompositionPanelId.value = pagePreview.value.panels[0]?.id || ''
+  }
+  void comicEditor.value?.reloadPage?.()
+}
+
 function updatePreviewLettering(payload) {
   comicEditor.value?.updateLetteringBox(payload.panelId, payload.objectId, payload.box)
+}
+
+function updatePreviewLetteringTail(payload) {
+  comicEditor.value?.updateLetteringTail(payload.panelId, payload.objectId, payload.tailTarget)
 }
 
 async function savePanelAsMaterial(entry) {
@@ -141,16 +405,44 @@ async function savePanelAsMaterial(entry) {
           <span>整页制作</span>
         </div>
         <ol class="comic-studio__workflow" aria-label="漫画制作层级">
-          <li>页面计划</li>
-          <li class="is-current">整页制作</li>
-          <li>当前格</li>
+          <li>
+            <button
+              type="button"
+              :class="{ 'is-current': studioMode === 'plan' }"
+              @click="openStudioMode('plan')"
+            >
+              页面计划
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              :class="{ 'is-current': studioMode === 'page' && mobilePane !== 'panel' }"
+              @click="openStudioMode('page')"
+            >
+              整页制作
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              :class="{ 'is-current': studioMode === 'page' && mobilePane === 'panel' }"
+              @click="openStudioMode('panel')"
+            >
+              当前格
+            </button>
+          </li>
         </ol>
       </div>
-      <button type="button" class="comic-studio__new" @click="startNewPage">
+      <button
+        type="button"
+        class="comic-studio__new"
+        @click="studioMode === 'plan' ? resetAdaptation() : startNewPage()"
+      >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        新建漫画页
+        {{ studioMode === 'plan' ? '新建改编' : '新建漫画页' }}
       </button>
     </header>
 
@@ -161,15 +453,21 @@ async function savePanelAsMaterial(entry) {
       :breakpoint="980"
     />
 
-    <div class="comic-studio__workspace" :data-mobile-pane="mobilePane">
+    <div
+      class="comic-studio__workspace"
+      :class="{ 'is-planning': studioMode === 'plan' }"
+      :data-mobile-pane="mobilePane"
+    >
       <MaterialSourceDrawer
         :assets="sourceCandidates"
         :selected-id="selectedSourceId"
+        :selected-ids="adaptationSourceIds"
+        :multi="studioMode === 'plan'"
         @select="selectSource"
       />
 
       <main class="comic-studio__canvas">
-        <nav class="comic-studio__page-bar" aria-label="漫画页列表">
+        <nav v-if="studioMode === 'page'" class="comic-studio__page-bar" aria-label="漫画页列表">
           <span class="comic-studio__page-bar-label">页面 {{ comicPages.length }}</span>
           <div class="comic-studio__page-list">
           <button
@@ -187,28 +485,56 @@ async function savePanelAsMaterial(entry) {
           </div>
         </nav>
 
-        <div class="comic-studio__canvas-stage">
-          <div v-if="pagePreview" class="comic-studio__canvas-inner">
-          <header>
-            <span>整页编辑</span>
-            <strong>{{ pagePreview.title || '未命名漫画页' }}</strong>
-          </header>
-          <ComicPagePreview
-            :page="pagePreview"
-            editable-lettering
-            @update-lettering-box="updatePreviewLettering"
+        <div
+          class="comic-studio__canvas-stage"
+          :class="{
+            'is-planning': studioMode === 'plan',
+            'has-composition': studioMode === 'page' && pagePreview
+          }"
+        >
+          <ComicAdaptationPlanner
+            v-if="studioMode === 'plan'"
+            :sources="selectedAdaptationSources"
+            :candidates="adaptationCandidates"
+            :selected-candidate-id="selectedCandidateId"
+            :plan="planningPlan"
+            :reference-catalog="referenceCatalog"
+            :generating="adaptationGenerating"
+            :error="adaptationError"
+            :persisted="planningPersisted"
+            :bible-confirmed="planningBibleConfirmed"
+            @generate="generateAdaptation"
+            @select-candidate="selectAdaptationCandidate"
+            @update-plan="updatePlanningPlan"
+            @apply="applyAdaptation"
+            @confirm-bible="confirmVisualBible"
+            @open-reference="openReference"
           />
-          </div>
-          <div v-else class="comic-studio__empty-canvas">
-            <span class="comic-studio__empty-kicker">页面计划</span>
-            <strong>建立一张漫画页</strong>
-            <span>在当前格制作区选择阅读方向、版式与色制。</span>
-            <button type="button" @click="mobilePane = 'panel'">规划页面</button>
-          </div>
+          <template v-else>
+            <ComicCompositionCanvas
+              v-if="pagePreview"
+              :page="pagePreview"
+              :active-panel-id="activeCompositionPanelId"
+              @select-panel="activeCompositionPanelId = $event"
+              @update-page="handleCompositionUpdate"
+              @update-lettering-box="updatePreviewLettering"
+              @update-lettering-tail="updatePreviewLetteringTail"
+            />
+            <div v-else class="comic-studio__empty-canvas">
+              <span class="comic-studio__empty-kicker">整页制作</span>
+              <strong>建立一张漫画页</strong>
+              <span>从页面计划建立多页序列，或在当前格制作区建立单页。</span>
+              <button type="button" @click="openStudioMode('plan')">打开页面计划</button>
+            </div>
+          </template>
         </div>
       </main>
 
-      <aside class="comic-studio__inspector archive-pin notes-sidekick" aria-label="副阅读台">
+      <aside
+        v-if="studioMode === 'page'"
+        class="comic-studio__inspector archive-pin notes-sidekick"
+        aria-label="副阅读台"
+      >
         <span class="archive-pin__nail" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="7" cy="7" r="3" fill="currentColor" />
@@ -232,13 +558,15 @@ async function savePanelAsMaterial(entry) {
           :source-title="selectedSource?.title || ''"
           :source-refs="selectedSourceRefs"
           :preferred-source-id="selectedSourceId"
+          :preferred-panel-id="activeCompositionPanelId"
           :storage-key="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
           :model-configs="modelConfigs"
           :selected-model-id="selectedModelId"
           @update:selected-model-id="selectedModelId = $event"
           @configs-updated="loadModels"
-          @page-preview="pagePreview = $event"
+          @page-preview="handlePagePreview"
           @page-saved="handlePageSaved"
+          @active-panel-change="activeCompositionPanelId = $event"
           @active-panel-source-change="syncActivePanelSource"
           @save-to-material="savePanelAsMaterial"
           />
@@ -283,7 +611,17 @@ async function savePanelAsMaterial(entry) {
 .comic-studio__workflow { display: flex; align-items: center; gap: 0; margin: 0; padding: 0; color: var(--archive-ink-soft); font-size: 10px; list-style: none; }
 .comic-studio__workflow li { display: inline-flex; align-items: center; white-space: nowrap; }
 .comic-studio__workflow li + li::before { content: "/"; margin-inline: 8px; color: color-mix(in srgb, var(--archive-ink-soft) 42%, transparent); }
-.comic-studio__workflow .is-current { color: var(--archive-ink); font-weight: 700; }
+.comic-studio__workflow button {
+  min-height: 28px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.comic-studio__workflow button:hover,
+.comic-studio__workflow button.is-current { color: var(--archive-ink); font-weight: 700; }
 
 .comic-studio__new {
   min-height: 28px;
@@ -307,6 +645,8 @@ async function savePanelAsMaterial(entry) {
   grid-template-columns: 190px minmax(460px, 1fr) 300px;
   overflow: hidden;
 }
+.comic-studio__workspace.is-planning { grid-template-columns: 210px minmax(0, 1fr); }
+.comic-studio__workspace > :deep(.material-source-drawer) { width: 100%; }
 
 .comic-studio__inspector {
   position: relative;
@@ -379,6 +719,9 @@ async function savePanelAsMaterial(entry) {
 }
 
 .comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px 12px; overflow: auto; }
+.comic-studio__canvas-stage.is-planning { display: block; padding: 0; }
+.comic-studio__canvas-stage.has-composition { display: block; padding: 0; overflow: hidden; }
+.comic-studio__canvas-stage.has-composition :deep(.comic-composition) { height: 100%; }
 .comic-studio__canvas-inner { width: min(100%, 920px); display: grid; gap: 8px; justify-items: center; }
 .comic-studio__canvas-inner > header { width: 100%; display: flex; justify-content: space-between; gap: 12px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
 .comic-studio__canvas-inner > header strong { overflow: hidden; color: var(--archive-ink, var(--text-primary)); text-overflow: ellipsis; white-space: nowrap; }
@@ -391,6 +734,7 @@ async function savePanelAsMaterial(entry) {
 
 @media (max-width: 1100px) {
   .comic-studio__workspace { grid-template-columns: 180px minmax(360px, 1fr) 280px; }
+  .comic-studio__workspace.is-planning { grid-template-columns: 190px minmax(0, 1fr); }
 }
 
 @media (max-width: 980px) {

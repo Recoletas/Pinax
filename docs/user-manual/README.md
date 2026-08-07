@@ -12,6 +12,7 @@
 4. [详细配置](./04-configuration.md) —— provider 怎么选、Mem0 怎么开、localStorage 那些键都在存什么
 5. [部署到公网](./05-deployment.md) —— **重点**：这个项目跟其他 LLM 应用不一样的地方都在这节
 6. [常见问题](./06-faq.md) —— 配了 key 还是报错、地图慢、顾问不响应……用用户语言写的故障排查
+7. [第一部分内测说明](./07-internal-test.md) —— 结构化地点目录、世界书导入和地图衔接的验收路径
 
 ## 我是 X，我该先看 Y
 
@@ -21,4 +22,5 @@
 - **我想让 AI 记住我"不喜欢冗长描述"这种偏好** → [04-configuration.md](./04-configuration.md) 的"记忆系统"一节
 - **我想把项目部署到自己的服务器上让朋友也能用** → [05-deployment.md](./05-deployment.md) 整篇，特别是"密钥模型"那一段
 - **我用着用着出问题了** → [06-faq.md](./06-faq.md)
+- **我准备参加第一部分内测** → [07-internal-test.md](./07-internal-test.md)
 - **我想改源码** → [../../README.md](../../README.md) + [../src/index.md](../src/index.md) + `docs/engineering/development-standards.md`

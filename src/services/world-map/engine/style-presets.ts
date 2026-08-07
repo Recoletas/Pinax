@@ -65,16 +65,16 @@ export interface StyleConfig {
 const PRESETS: Record<MapStylePreset, StyleConfig> = {
   // 等高线地形图（默认）
   topographic: {
-    oceanBg: '#a9d7ea',
-    oceanDepth: ['#d9f3f2', '#9fdae9', '#68bbd8', '#2f91bd', '#0f5d95'],
-    coastline: '#176f86',
-    coastGlow: 'rgba(116, 199, 208, 0.48)',
-    river: '#0879c5',
+    oceanBg: '#b9d8e2',
+    oceanDepth: ['#dceceb', '#badde3', '#8fc8d6', '#5da6bf', '#347c9f'],
+    coastline: '#397f8b',
+    coastGlow: 'rgba(112, 171, 180, 0.28)',
+    river: '#327fa9',
     riverGlow: 'rgba(60, 130, 200, 0.25)',
     riverHighlight: 'rgba(160, 210, 245, 0.3)',
-    borderAlpha: 0.98,
+    borderAlpha: 0.72,
     stateLabelFont: '"STSong", "SimSun", "Noto Serif SC", "Source Han Serif SC", serif',
-    stateLabelColor: 'rgba(40, 25, 10, 0.6)',
+    stateLabelColor: 'rgba(37, 45, 35, 0.52)',
     stateLabelGlow: 'rgba(255, 255, 240, 0.95)',
     burgLabelFont: '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif',
     burgLabelColor: '#111',

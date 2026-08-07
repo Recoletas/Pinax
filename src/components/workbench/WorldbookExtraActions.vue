@@ -4,6 +4,12 @@
     <div class="quick-extra__row">
       <button
         type="button"
+        class="extra-btn is-primary"
+        data-test="extra-btn-structured"
+        @click="$emit('structured')"
+      >编辑结构化设定</button>
+      <button
+        type="button"
         class="extra-btn"
         data-test="extra-btn-import"
         @click="$emit('import')"
@@ -13,13 +19,13 @@
         class="extra-btn"
         data-test="extra-btn-ai"
         @click="$emit('ai')"
-      >AI 生成</button>
+      >AI 建立基调</button>
     </div>
   </footer>
 </template>
 
 <script setup>
-defineEmits(['import', 'ai'])
+defineEmits(['structured', 'import', 'ai'])
 </script>
 
 <style scoped>
@@ -77,6 +83,13 @@ defineEmits(['import', 'ai'])
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent-light, transparent) 20%, transparent);
+}
+
+.theme-legacy .extra-btn.is-primary {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+  color: var(--text-primary);
+  font-weight: 650;
 }
 
 .theme-legacy .quick-extra__divider {

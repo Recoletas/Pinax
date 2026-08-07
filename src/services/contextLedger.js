@@ -4,6 +4,7 @@ export const CONTEXT_PREVIEW_LIMIT = 120
 export const CONTEXT_LEDGER_PART_LIMIT = 40
 
 const VALID_SOURCES = new Set(['worldbook', 'runtime', 'memory', 'chat', 'generation'])
+const VALID_PARTITIONS = new Set(['kernel', 'tool', 'summary', 'fallback'])
 
 function normalizeText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -12,6 +13,11 @@ function normalizeText(value) {
 function normalizeSource(source) {
   const value = normalizeText(source).toLowerCase()
   return VALID_SOURCES.has(value) ? value : 'generation'
+}
+
+function normalizePartition(partition) {
+  const value = normalizeText(partition).toLowerCase()
+  return VALID_PARTITIONS.has(value) ? value : ''
 }
 
 function normalizeLimit(limit, fallback = CONTEXT_PREVIEW_LIMIT) {
@@ -54,6 +60,7 @@ export function createContextLedgerPart(input = {}) {
 
   return {
     source: normalizeSource(input.source),
+    partition: normalizePartition(input.partition),
     title: normalizeText(input.title),
     purpose: normalizeText(input.purpose),
     chars,

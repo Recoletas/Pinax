@@ -7,6 +7,8 @@ export const STORAGE_KEYS = {
   // 通用
   QUICK_NOTE_DRAFT: 'quick_note_draft',
   PROSE_QUICK_NOTE_DRAFT: 'prose_quick_note_draft',
+  WORLDBOOK_CREATE_DRAFT: 'worldbook_create_draft_v1',
+  WORLDBOOK_RESEARCH_SETTINGS: 'worldbook_research_settings_v1',
 
   // 小说写作
   WRITING_BOOKS: 'writing_books',
@@ -60,6 +62,7 @@ export const STORAGE_KEYS = {
   EXPERIENCE_READING_PROFILE: 'experience_reading_profile_v1',
   AGENT_RUNTIME_POLICY: 'pinax_agent_runtime_policy_v1',
   AGENT_RUNTIME_METRICS: 'pinax_agent_runtime_metrics_v1',
+  NARRATIVE_PRODUCTION_METRICS: 'pinax_narrative_production_metrics_v1',
 
   // 角色卡
   CHARACTERS: 'characters',

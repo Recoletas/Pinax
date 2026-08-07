@@ -94,6 +94,7 @@
           @show-inline-detail="handleInlineDetail"
           @quick-action="handleQuickAction"
         />
+        <NarrativeAgentStatus :status="visibleNarrativeAgentStatus" />
         <InputArea @send="handleSend" />
       </main>
       <button
@@ -472,6 +473,7 @@ import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
+import NarrativeAgentStatus from '../components/experience/NarrativeAgentStatus.vue'
 import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
 import GeographyPanel from '../components/geography/GeographyPanel.vue'
@@ -566,7 +568,52 @@ const {
   }
 })
 const onlineRequestIds = new Set()
+const activeOnlineNarrativeRequestId = ref('')
+const onlineNarrativeStatus = ref(null)
 let onlineUnsubscribers = []
+let lastSubmittedOnlineStatusKey = ''
+
+const visibleNarrativeAgentStatus = computed(() => {
+  if (!props.onlineSession) return gameStore.narrativeAgentStatus
+  return props.onlineSession.isHost?.value
+    ? gameStore.narrativeAgentStatus
+    : onlineNarrativeStatus.value
+})
+
+watch(() => gameStore.narrativeAgentStatus, (status) => {
+  const requestId = activeOnlineNarrativeRequestId.value
+  const adapter = props.onlineSession?.adapter
+  if (!requestId || !props.onlineSession?.isHost?.value || !status || !adapter) return
+  const outbound = {
+    requestId,
+    phase: String(status.phase || '').trim(),
+    code: String(status.code || '').trim(),
+    message: String(status.message || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    toolRounds: Math.max(0, Number(status.toolRounds) || 0),
+    totalCalls: Math.max(0, Number(status.totalCalls ?? status.callCount) || 0),
+    at: Number(status.at) || Date.now()
+  }
+  const statusKey = [
+    outbound.requestId,
+    outbound.phase,
+    outbound.code,
+    outbound.toolRounds,
+    outbound.totalCalls
+  ].join(':')
+  if (!outbound.phase || statusKey === lastSubmittedOnlineStatusKey) return
+  lastSubmittedOnlineStatusKey = statusKey
+  adapter.submitHostStatus?.(outbound)
+}, { deep: true, flush: 'sync' })
+
+watch([
+  () => props.onlineSession?.isHost?.value,
+  () => props.onlineSession?.isConnected?.value
+], ([isHost, isConnected]) => {
+  if (!activeOnlineNarrativeRequestId.value || (isHost !== false && isConnected !== false)) return
+  gameStore.cancelNarrativeGeneration?.('online-host-authority-lost')
+  activeOnlineNarrativeRequestId.value = ''
+  lastSubmittedOnlineStatusKey = ''
+})
 
 const selectedWorldbookId = ref('')
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
@@ -891,7 +938,7 @@ onMounted(async () => {
     showSessionPicker.value = false
   }
 
-  if (loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
+  if (!props.onlineSession && loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
     await gameStore.initGame()
   }
 
@@ -1091,6 +1138,10 @@ async function handleMechanismAction(action) {
 
   // 将行动注入回叙事
   if (actionText && gameStore.useAI) {
+    if (props.onlineSession) {
+      await handleSend(actionText)
+      return
+    }
     // 添加用户行动消息
     gameStore.messages.push({
       role: 'user',
@@ -1121,7 +1172,7 @@ async function handleSessionSelect(session) {
       await worldStore.setActiveWorldbook(selectedWorldbookId.value)
     }
     showSessionPicker.value = false
-    if (!gameStore.messages || gameStore.messages.length === 0) {
+    if (!props.onlineSession && (!gameStore.messages || gameStore.messages.length === 0)) {
       await gameStore.initGame()
     }
   } finally {
@@ -1147,7 +1198,9 @@ async function handleSessionCreate() {
     }
     selectedWorldbookId.value = worldbookId
     showSessionPicker.value = false
-    await gameStore.initGame()
+    if (!props.onlineSession) {
+      await gameStore.initGame()
+    }
   } finally {
     isStarting.value = false
   }
@@ -1170,7 +1223,9 @@ async function handleSessionDelete(session) {
       }
       selectedWorldbookId.value = worldbookId
       showSessionPicker.value = false
-      await gameStore.initGame()
+      if (!props.onlineSession) {
+        await gameStore.initGame()
+      }
       return
     }
     if (gameStore.currentSessionId === null) {
@@ -1263,8 +1318,21 @@ function bindOnlineSession() {
   onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
   onlineUnsubscribers = [
     adapter.onNarrativeRequested(handleOnlineNarrativeRequested),
+    adapter.onNarrativeStatus((payload) => {
+      const requestId = String(payload?.requestId || '').trim()
+      if (!requestId || props.onlineSession?.isHost?.value) return
+      onlineNarrativeStatus.value = { ...payload, requestId }
+    }),
     adapter.onNarrativeCompleted((payload) => {
       applyOnlineNarrativeCompletion(gameStore, payload)
+      const requestId = String(payload?.requestId || payload?.requestEventId || '').trim()
+      if (!requestId || onlineNarrativeStatus.value?.requestId === requestId) {
+        onlineNarrativeStatus.value = null
+      }
+      if (activeOnlineNarrativeRequestId.value === requestId) {
+        activeOnlineNarrativeRequestId.value = ''
+        lastSubmittedOnlineStatusKey = ''
+      }
     }),
     adapter.onRuntimePatchAccepted((payload) => {
       applyOnlineRuntimePatch(gameStore, payload)
@@ -1273,12 +1341,25 @@ function bindOnlineSession() {
 }
 
 async function handleOnlineNarrativeRequested(payload = {}, event = {}) {
-  if (!props.onlineSession?.isHost?.value) return
+  const requestId = String(payload.requestId || event.commandId || event.id || '').trim()
   const requestEventId = String(event.id || payload.requestEventId || '').trim()
   const actionText = String(payload.text || '').trim()
-  if (!requestEventId || !actionText || onlineRequestIds.has(requestEventId)) return
-  if (gameStore.messages.some((message) => message?.onlineRequestEventId === requestEventId)) return
-  onlineRequestIds.add(requestEventId)
+  if (requestId && !props.onlineSession?.isHost?.value) {
+    onlineNarrativeStatus.value = {
+      requestId,
+      phase: 'deciding',
+      at: Date.now()
+    }
+  }
+  if (!props.onlineSession?.isHost?.value) return
+  if (!requestId || !requestEventId || !actionText || onlineRequestIds.has(requestId)) return
+  if (gameStore.messages.some((message) => (
+    message?.onlineRequestId === requestId
+    || message?.onlineRequestEventId === requestEventId
+  ))) return
+  onlineRequestIds.add(requestId)
+  activeOnlineNarrativeRequestId.value = requestId
+  lastSubmittedOnlineStatusKey = ''
 
   try {
     const messageStart = gameStore.messages.length
@@ -1287,16 +1368,28 @@ async function handleOnlineNarrativeRequested(payload = {}, event = {}) {
       .slice(messageStart)
       .findLast((message) => message?.role === 'assistant' && String(message?.content || '').trim())
     if (!generated) {
-      onlineRequestIds.delete(requestEventId)
+      const message = String(gameStore.lastError || '模型没有返回可用正文').trim()
+      if (gameStore.narrativeAgentStatus?.phase !== 'error') {
+        props.onlineSession.adapter.submitHostStatus?.({
+          requestId,
+          phase: 'error',
+          code: 'NARRATIVE_STREAM_EMPTY',
+          message,
+          at: Date.now()
+        })
+      }
+      activeOnlineNarrativeRequestId.value = ''
       return
     }
 
     for (const message of gameStore.messages.slice(messageStart)) {
+      message.onlineRequestId = requestId
       message.onlineRequestEventId = requestEventId
     }
     gameStore.saveCurrentSession?.()
     const runtimePatch = buildOnlineRuntimePatch(gameStore.getRuntimeSnapshot?.() || {})
     props.onlineSession.adapter.submitHostCompletion({
+      requestId,
       requestEventId,
       actionText,
       assistantMessage: {
@@ -1307,9 +1400,21 @@ async function handleOnlineNarrativeRequested(payload = {}, event = {}) {
       },
       createdAt: Date.now()
     })
-    props.onlineSession.adapter.submitAcceptedRuntimePatch(runtimePatch)
-  } catch {
-    onlineRequestIds.delete(requestEventId)
+    props.onlineSession.adapter.submitAcceptedRuntimePatch(runtimePatch, { requestId })
+    activeOnlineNarrativeRequestId.value = ''
+    lastSubmittedOnlineStatusKey = ''
+  } catch (error) {
+    const message = String(error?.message || '联机叙事生成失败').trim()
+    props.onlineSession.adapter.submitHostStatus?.({
+      requestId,
+      phase: 'error',
+      code: String(error?.code || 'NARRATIVE_AGENT_FAILED'),
+      message,
+      at: Date.now()
+    })
+    onlineRequestIds.delete(requestId)
+    activeOnlineNarrativeRequestId.value = ''
+    lastSubmittedOnlineStatusKey = ''
   }
 }
 
@@ -1381,7 +1486,8 @@ function saveQuickNoteAsAsset() {
       type: 'experience-session',
       id: gameStore.currentSessionId || '',
       messageIds: []
-    }
+    },
+    sourceRefs: gameStore.getCurrentCreativeSourceRefs([])
   })
 
   clearQuickNoteDraft()
@@ -1405,7 +1511,10 @@ function saveSelectedDialogueSegmentsAsAsset() {
       type: 'experience-session',
       id: gameStore.currentSessionId || '',
       messageIds: refs.map(({ message, index }) => message.id || `message_${index}`)
-    }
+    },
+    sourceRefs: gameStore.getCurrentCreativeSourceRefs(
+      refs.map(({ message, index }) => message.id || `message_${index}`)
+    )
   })
 
   quickNoteImportOpen.value = false

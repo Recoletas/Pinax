@@ -34,6 +34,7 @@ import {
   inferShotTypeFromEmotion,
   inferToneFromEmotion
 } from '../types/director'
+import { mergeSourceRefs } from '../services/narrativeAssets'
 
 const VIDEO_PROMPT_LIMIT = 2000
 const CAMERA_PROMPT_TEXT = Object.freeze({
@@ -153,15 +154,16 @@ export function buildStoryboardVideoJobInput(input = {}) {
     .filter((reference) => typeof reference?.data === 'string' && reference.data.startsWith('data:image/'))
     .slice(0, 4)
     .map((reference) => ({ data: reference.data, mediaAssetId: reference.mediaAssetId || null }))
-  const sourceRefs = input.versionId
-    ? [{
+  const sourceRefs = mergeSourceRefs(
+    input.sourceRefs,
+    input.versionId ? [{
         refType: 'storyboard-shot',
         refId: input.versionId,
         projectId: input.projectId || null,
         version: input.versionFingerprint || null,
         excerpt: prompt.slice(0, 240)
-      }]
-    : []
+      }] : []
+  )
   for (const reference of referenceImages) {
     if (!reference.mediaAssetId) continue
     sourceRefs.push({
@@ -190,7 +192,7 @@ export function buildStoryboardVideoJobInput(input = {}) {
       prompt,
       durationSeconds,
       aspectRatio: input.aspectRatio || '16:9',
-      sourceRefs,
+      sourceRefs: mergeSourceRefs(sourceRefs),
       referenceImages
     }
   }

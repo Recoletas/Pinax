@@ -1,8 +1,8 @@
 <template>
   <div class="generation-brief-bar">
     <label :for="inputId" class="brief-label">
-      <span>用户 brief</span>
-      <span class="brief-hint">（可选，给 AI 的额外提示）</span>
+      <span>本节生成要求</span>
+      <span class="brief-hint">（可选，用于补充题材、边界和重点）</span>
     </label>
     <textarea
       :id="inputId"
@@ -23,15 +23,15 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   sectionKey: { type: String, required: true },
   fieldKey: { type: String, default: '' },
-  placeholder: { type: String, default: '给 AI 的额外提示：风格、长度、强调点...' }
+  placeholder: { type: String, default: '例如：近未来海港城，历史围绕旧灯塔与雾潮展开...' }
 })
 
 defineEmits(['update:modelValue'])
 
 const inputId = computed(() => `brief-${props.sectionKey}${props.fieldKey ? `-${props.fieldKey}` : ''}`)
 const ariaLabel = computed(() => props.fieldKey
-  ? `字段「${props.fieldKey}」生成 AI 草稿时的用户 brief`
-  : `分区「${props.sectionKey}」批量生成 AI 草稿时的用户 brief`
+  ? `设定项「${props.fieldKey}」的补充生成要求`
+  : `「${props.sectionKey}」的补充生成要求`
 )
 </script>
 

@@ -127,6 +127,7 @@ export function useOnlineRoom() {
         break
       }
       case 'narrative.requested':
+      case 'narrative.status':
       case 'narrative.completed':
       case 'runtime.patch.accepted':
         events.push(evt)
@@ -150,13 +151,15 @@ export function useOnlineRoom() {
   }
 
   function sendCommand(type, payload = {}) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!ws || ws.readyState !== WebSocket.OPEN) return ''
+    const commandId = nanoid()
     const cmd = {
       type,
-      commandId: nanoid(),
+      commandId,
       ...payload
     }
     ws.send(JSON.stringify(cmd))
+    return commandId
   }
 
   function startHeartbeat() {

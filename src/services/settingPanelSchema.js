@@ -1,55 +1,6 @@
-export const SETTING_SECTIONS = [
-  {
-    key: 'world',
-    label: '世界观',
-    description: '世界来源、地理、历史、势力与运行规则',
-    fields: [
-      { key: 'origin', label: '世界起源', entryType: 'lore', defaultGroup: '世界观' },
-      { key: 'powerSystem', label: '力量体系', entryType: 'lore', defaultGroup: '世界观' },
-      { key: 'geography', label: '地理环境', entryType: 'location', defaultGroup: '地理' },
-      { key: 'history', label: '历史线', entryType: 'event', defaultGroup: '历史' },
-      { key: 'factions', label: '势力分布', entryType: 'organization', defaultGroup: '势力' },
-      { key: 'rules', label: '世界规则', entryType: 'rule', defaultGroup: '硬约束' }
-    ]
-  },
-  {
-    key: 'story',
-    label: '故事核心',
-    description: '故事概念、主题、冲突、主线与复线',
-    fields: [
-      { key: 'logline', label: '一句话故事', entryType: 'lore', defaultGroup: '故事核心' },
-      { key: 'concept', label: '故事概念', entryType: 'lore', defaultGroup: '故事核心' },
-      { key: 'theme', label: '主题', entryType: 'lore', defaultGroup: '故事核心' },
-      { key: 'coreConflict', label: '核心冲突', entryType: 'event', defaultGroup: '故事核心' },
-      { key: 'mainline', label: '主线', entryType: 'quest', defaultGroup: '故事核心' },
-      { key: 'sublines', label: '复线', entryType: 'quest', defaultGroup: '故事核心' }
-    ]
-  },
-  {
-    key: 'characters',
-    label: '角色设定',
-    description: '主角、重要配角、NPC 与关系摘要',
-    fields: [
-      { key: 'protagonists', label: '主角', entryType: 'character', defaultGroup: '角色' },
-      { key: 'majorSupporting', label: '重要配角', entryType: 'character', defaultGroup: '角色' },
-      { key: 'npcs', label: 'NPC', entryType: 'character', defaultGroup: '角色' },
-      { key: 'relationshipSummary', label: '关系摘要', entryType: 'lore', defaultGroup: '角色关系' }
-    ]
-  },
-  {
-    key: 'creativeRules',
-    label: '创作规则',
-    description: '文风、视角、基调、禁忌、一致性与参考作品',
-    fields: [
-      { key: 'writingStyle', label: '写作风格', entryType: 'style', defaultGroup: '文风约束' },
-      { key: 'perspective', label: '叙事视角', entryType: 'style', defaultGroup: '文风约束' },
-      { key: 'tone', label: '基调', entryType: 'style', defaultGroup: '文风约束' },
-      { key: 'taboos', label: '禁忌', entryType: 'forbidden', defaultGroup: '禁写边界' },
-      { key: 'consistency', label: '一致性规则', entryType: 'rule', defaultGroup: '硬约束' },
-      { key: 'references', label: '参考作品', entryType: 'lore', defaultGroup: '参考' }
-    ]
-  }
-]
+import { STRUCTURED_SETTING_SECTIONS } from '../../shared/structuredSettingContract'
+
+export const SETTING_SECTIONS = STRUCTURED_SETTING_SECTIONS
 
 // V2: entryType → controlType 派发表
 export const ENTRY_TYPE_TO_CONTROL_TYPE = {
@@ -58,7 +9,7 @@ export const ENTRY_TYPE_TO_CONTROL_TYPE = {
   location: 'textarea',
   organization: 'textarea',
   quest: 'textarea',
-  character: 'chips',
+  character: 'textarea',
   style: 'tags',
   rule: 'list',
   forbidden: 'list'
@@ -88,7 +39,9 @@ export const MAX_LENGTH_BY_CONTROL_TYPE = {
   textarea: 2000,
   chips: 100,
   tags: 50,
-  list: 200
+  // Rules are stored as newline-delimited text; 200 chars is too small for
+  // several concrete rules and causes valid AI output to fail local checks.
+  list: 800
 }
 
 // V2: entryType 默认 placeholder
@@ -98,7 +51,7 @@ const PLACEHOLDERS_BY_ENTRY_TYPE = {
   location: '描述地点的特征与边界...',
   organization: '描述势力的结构与目标...',
   quest: '描述这条故事线的目标与节奏...',
-  character: '每行一个人物名（Enter 分隔）',
+  character: '姓名、身份、性格、目标等角色卡信息...',
   style: '用逗号 / 顿号 / 空格分隔多个标签',
   rule: '每行一条规则（可用 - 起头）',
   forbidden: '每行一条禁忌（可用 - 起头）'

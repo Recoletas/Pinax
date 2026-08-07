@@ -3,7 +3,7 @@
  * 按顺序执行所有生成步骤
  */
 
-import type { MapGenConfig, VoronoiMapData, MapConstraints, HeightmapTemplate } from './types'
+import type { MapGenConfig, VoronoiMapData, MapConstraints, MapConstraintReport, HeightmapTemplate } from './types'
 import { seedRandom } from './random'
 import { generatePoints, buildVoronoi } from './grid'
 import { generateHeightmap } from './heightmap'
@@ -20,6 +20,7 @@ import { generateCultures, generateBurgs, generateStates, generateProvinces, gen
 import { setNamingStyle } from './name-pool'
 import type { PerfCollector } from './perf'
 import { type TemplateShapeIntent } from './heightmap-templates'
+import { applyLocationConstraints, evaluateLocationTopologyConstraints, evaluateRiverConstraints, evaluateRouteConstraints } from './location-constraints'
 
 interface ResolvedMapShapeConfig {
   plateCount: number
@@ -70,6 +71,28 @@ function resolveMapShapeConfig(config: MapGenConfig): ResolvedMapShapeConfig {
   }
 }
 
+function applyGeneratedRiverNames(
+  rivers: VoronoiMapData['rivers'],
+  riverNames: string[] | undefined,
+  constraints: MapConstraints | undefined,
+): void {
+  if (!riverNames?.length) return
+  const normalize = (value: unknown) => String(value || '').trim().toLocaleLowerCase('zh-Hans-CN')
+  const constrainedNames = new Set([
+    ...(constraints?.rivers || []).map(river => river.name),
+    ...(constraints?.locations || []).flatMap(location => (
+      (location.relationRefs || []).filter(reference => reference.relation === 'river').map(reference => reference.name)
+    )),
+  ].map(normalize).filter(Boolean))
+  let nameIndex = 0
+  for (const river of rivers) {
+    if (constrainedNames.has(normalize(river.name))) continue
+    while (nameIndex < riverNames.length && constrainedNames.has(normalize(riverNames[nameIndex]))) nameIndex++
+    if (nameIndex >= riverNames.length) break
+    river.name = riverNames[nameIndex++]
+  }
+}
+
 /** 生成完整地图 */
 export function generateMap(
   config: MapGenConfig = {},
@@ -103,6 +126,7 @@ export function generateMap(
   // 独立 sub-RNG 派生，**不**消费主 rng。`resolveMapShapeConfig` 现在只
   // 做结构性派生（plate/continent count），不消费 RNG。
   const rng = seedRandom(seed)
+  const constraintReport: MapConstraintReport = { satisfied: [], relaxed: [], impossible: [] }
   const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
@@ -187,8 +211,8 @@ export function generateMap(
   // 6. 气候：温度、降水量（接入风场+洋流）
   console.time('[MapEngine] Climate')
   collector?.start('climate')
-  calculateTemperature(cells, width, height, wind, oceanCurrents, temperatureShift)
-  calculatePrecipitation(cells, width, height, wind, precipitationFactor, rng)
+  calculateTemperature(cells, width, height, wind, oceanCurrents, temperatureShift, config.realism)
+  calculatePrecipitation(cells, width, height, wind, precipitationFactor, rng, config.realism)
   console.timeEnd('[MapEngine] Climate')
   collector?.end('climate')
 
@@ -198,12 +222,9 @@ export function generateMap(
   const rivers = generateRivers(cells, rng, {
     style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
-  })
-  if (riverNames) {
-    for (let i = 0; i < Math.min(rivers.length, riverNames.length); i++) {
-      rivers[i].name = riverNames[i]
-    }
-  }
+  }, effectiveConstraints)
+  applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
+  evaluateRiverConstraints(rivers, constraints ?? config.constraints, constraintReport)
   console.timeEnd('[MapEngine] Rivers')
   collector?.end('rivers')
 
@@ -243,6 +264,7 @@ export function generateMap(
   console.time('[MapEngine] Burgs')
   collector?.start('burgs')
   const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
+  applyLocationConstraints(cells, burgs, effectiveConstraints, constraintReport)
   console.timeEnd('[MapEngine] Burgs')
   collector?.end('burgs')
 
@@ -267,7 +289,8 @@ export function generateMap(
     }
   }
 
-  const states = generateStates(cells, burgs, stateCount, rng, stateNames)
+  const states = generateStates(cells, burgs, stateCount, rng, stateNames, effectiveConstraints)
+  evaluateLocationTopologyConstraints(cells, burgs, states, rivers, effectiveConstraints, constraintReport)
   console.timeEnd('[MapEngine] States')
   collector?.end('states')
 
@@ -286,10 +309,11 @@ export function generateMap(
   if (doRoads) {
     console.time('[MapEngine] Roads')
     collector?.start('roads')
-    roads = generateRoads(cells, burgs, states, rng)
+    roads = generateRoads(cells, burgs, states, rng, effectiveConstraints)
     console.timeEnd('[MapEngine] Roads')
     collector?.end('roads')
   }
+  evaluateRouteConstraints(roads, effectiveConstraints, constraintReport)
 
   console.timeEnd('[MapEngine] Total generation')
 
@@ -316,6 +340,7 @@ export function generateMap(
     // 自动 / reroll 后都一样能被读到。
     heightmapTemplate: resolvedTemplateName ?? config.heightmapTemplate,
     shapeIntent: resolvedShapeIntent,
+    constraintReport,
   }
 }
 
@@ -356,6 +381,7 @@ export async function generateMapAsync(
   // 独立 sub-RNG 派生，**不**消费主 rng。`resolveMapShapeConfig` 现在只
   // 做结构性派生（plate/continent count），不消费 RNG。
   const rng = seedRandom(seed)
+  const constraintReport: MapConstraintReport = { satisfied: [], relaxed: [], impossible: [] }
   const shapeConfig = resolveMapShapeConfig(config)
   const effectivePlateCount = shapeConfig.effectivePlateCount
   const effectiveContinentCount = shapeConfig.effectiveContinentCount
@@ -431,8 +457,8 @@ export async function generateMapAsync(
   // 6. Climate
   onProgress?.('气候', 35)
   collector?.start('climate')
-  calculateTemperature(cells, width, height, wind, oceanCurrents, temperatureShift)
-  calculatePrecipitation(cells, width, height, wind, precipitationFactor, rng)
+  calculateTemperature(cells, width, height, wind, oceanCurrents, temperatureShift, config.realism)
+  calculatePrecipitation(cells, width, height, wind, precipitationFactor, rng, config.realism)
   collector?.end('climate')
   await yieldToMain()
 
@@ -442,12 +468,9 @@ export async function generateMapAsync(
   const rivers = generateRivers(cells, rng, {
     style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
-  })
-  if (riverNames) {
-    for (let i = 0; i < Math.min(rivers.length, riverNames.length); i++) {
-      rivers[i].name = riverNames[i]
-    }
-  }
+  }, effectiveConstraints)
+  applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
+  evaluateRiverConstraints(rivers, constraints ?? config.constraints, constraintReport)
   collector?.end('rivers')
   collector?.start('hillshade')
   cells.hillshade = computeHillshade(cells)
@@ -482,6 +505,7 @@ export async function generateMapAsync(
   onProgress?.('城镇', 63)
   collector?.start('burgs')
   const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
+  applyLocationConstraints(cells, burgs, effectiveConstraints, constraintReport)
   collector?.end('burgs')
   await yieldToMain()
 
@@ -506,7 +530,8 @@ export async function generateMapAsync(
     }
   }
 
-  const states = generateStates(cells, burgs, stateCount, rng, stateNames)
+  const states = generateStates(cells, burgs, stateCount, rng, stateNames, effectiveConstraints)
+  evaluateLocationTopologyConstraints(cells, burgs, states, rivers, effectiveConstraints, constraintReport)
   collector?.end('states')
   await yieldToMain()
 
@@ -525,9 +550,10 @@ export async function generateMapAsync(
   let roads: VoronoiMapData['roads'] = []
   if (doRoads) {
     collector?.start('roads')
-    roads = generateRoads(cells, burgs, states, rng)
+    roads = generateRoads(cells, burgs, states, rng, effectiveConstraints)
     collector?.end('roads')
   }
+  evaluateRouteConstraints(roads, effectiveConstraints, constraintReport)
   await yieldToMain()
 
   onProgress?.('完成', 100)
@@ -553,5 +579,6 @@ export async function generateMapAsync(
     name: mapName,
     heightmapTemplate: resolvedTemplateName ?? config.heightmapTemplate,
     shapeIntent: resolvedShapeIntent,
+    constraintReport,
   }
 }

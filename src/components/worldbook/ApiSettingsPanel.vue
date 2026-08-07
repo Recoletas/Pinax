@@ -84,7 +84,24 @@
       </div>
 
       <div v-if="testResult" :class="['test-result', testResult.ok ? 'test-ok' : 'test-error']">
-        {{ testResult.message }}
+        <strong>{{ testResult.message }}</strong>
+        <div v-if="testResult.structured" class="structured-test-result">
+          <span :class="testResult.structured.available ? 'capability-ok' : 'capability-error'">
+            结构化设定：{{ testResult.structured.available ? '可用' : '不可用' }}
+          </span>
+          <span v-if="testResult.structured.available">
+            实际模式：{{ testResult.structured.mode }} · {{ testResult.structured.protocol }}
+          </span>
+          <span v-if="testResult.structured.available">
+            reasoning：{{ testResult.structured.reasoningControl === 'none' ? '已关闭/无独立思考块' : testResult.structured.reasoningControl }}
+          </span>
+          <span v-if="testResult.structured.latencyMs">
+            探测：{{ testResult.structured.latencyMs }}ms
+          </span>
+          <span v-if="!testResult.structured.available && testResult.structured.message" class="capability-error">
+            {{ testResult.structured.message }}
+          </span>
+        </div>
       </div>
 
       <div class="panel-actions">
@@ -287,6 +304,25 @@ function handleSave() {
   padding: 10px;
   border-radius: 4px;
   font-size: 13px;
+}
+
+.structured-test-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.capability-ok {
+  color: var(--success, #3b7d5a);
+  font-weight: 700;
+}
+
+.capability-error {
+  color: var(--danger, #a34d4d);
 }
 
 .test-ok {

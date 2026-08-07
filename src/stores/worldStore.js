@@ -1,10 +1,24 @@
 import { defineStore } from 'pinia'
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
 import {
+  SETTING_SECTIONS,
   getSettingField,
   normalizeStructuredSettings
 } from '../services/settingPanelSchema'
+import { parseCharacterCards } from '../services/characterCard'
 import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
+import {
+  createPlaceEntryPatch,
+  getPlacePayloadFromEntry,
+  isPlaceOverviewEntry,
+  placeFingerprint
+} from '../../shared/placeEntryContract.js'
+import {
+  getPlaceDeleteImpact as getCatalogPlaceDeleteImpact,
+  getPlaceSourceRevision,
+  listPlaceEntries,
+  preparePlaceForWrite
+} from '../services/worldbookPlaceCatalog'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -22,8 +36,97 @@ function decodeStored(raw, fallback) {
   return raw
 }
 
+function decodeStoredId(raw) {
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'string' ? parsed : raw
+  } catch {
+    return raw
+  }
+}
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
+}
+
+function structuredSettingRef(sectionKey, fieldKey) {
+  return `${sectionKey}.${fieldKey}`
+}
+
+function syncStructuredEntries(entries, structuredSettings) {
+  const nextEntries = entries.map((entry) => ({
+    ...entry,
+    metadata: { ...(entry.metadata || {}) }
+  }))
+
+  for (const section of SETTING_SECTIONS) {
+    for (const field of section.fields) {
+      const content = String(structuredSettings?.[section.key]?.[field.key] || '').trim()
+      const ref = structuredSettingRef(section.key, field.key)
+      const existingIndex = nextEntries.findIndex((entry) => (
+        entry.metadata?.structuredSettingRef === ref ||
+        (
+          entry.metadata?.importSource === 'structured-setting' &&
+          (entry.metadata?.sourceSection === section.key || !entry.metadata?.sourceSection) &&
+          (entry.metadata?.sourceField === field.key || entry.name === field.label)
+        )
+      ))
+
+      if (!content) {
+        if (existingIndex >= 0) nextEntries.splice(existingIndex, 1)
+        continue
+      }
+
+      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
+      const baseEntry = existingIndex >= 0 ? nextEntries[existingIndex] : null
+      const contentChanged = !baseEntry || baseEntry.content !== content
+      const now = Date.now()
+      const characterKeys = field.entryType === 'character'
+        ? parseCharacterCards(content).map((card) => card.name)
+        : []
+      const entry = {
+        ...(baseEntry || {}),
+        id: baseEntry?.id || `entry_structured_${section.key}_${field.key}`,
+        name: field.label,
+        type: field.entryType,
+        keys: [...new Set([field.label, ...characterKeys, ...(baseEntry?.keys || [])])],
+        keysSecondary: baseEntry?.keysSecondary || [],
+        content,
+        injection: {
+          ...(baseEntry?.injection || {}),
+          mode: isConstant ? 'constant' : 'selective',
+          probability: 100,
+          cooldown: 0,
+          depth: isConstant ? 2 : 1,
+          excludeRecursion: false,
+          group: field.defaultGroup
+        },
+        relations: {
+          tags: [...new Set(['结构化设定', ...(baseEntry?.relations?.tags || [])])],
+          locations: baseEntry?.relations?.locations || [],
+          characters: baseEntry?.relations?.characters || [],
+          events: baseEntry?.relations?.events || []
+        },
+        metadata: {
+          ...(baseEntry?.metadata || {}),
+          createdAt: baseEntry?.metadata?.createdAt || now,
+          updatedAt: contentChanged ? now : (baseEntry?.metadata?.updatedAt || now),
+          importSource: 'structured-setting',
+          structuredSettingRef: ref,
+          sourceSection: section.key,
+          sourceField: field.key,
+          basis: baseEntry?.metadata?.basis || 'creative',
+          reviewState: baseEntry?.metadata?.reviewState || 'ready'
+        }
+      }
+
+      if (existingIndex >= 0) nextEntries[existingIndex] = entry
+      else nextEntries.push(entry)
+    }
+  }
+
+  return nextEntries
 }
 
 /**
@@ -48,11 +151,17 @@ function normalizeGeoHistory(raw) {
 
 function normalizeWorldbook(raw = {}) {
   const source = decodeStored(raw, {})
-  const entries = ensureArray(decodeStored(source.entries, []))
-  const entriesMapRaw = decodeStored(source.entriesMap, null)
-  const entriesMap = (entriesMapRaw && typeof entriesMapRaw === 'object' && !Array.isArray(entriesMapRaw))
-    ? { ...entriesMapRaw }
-    : {}
+  const structuredSettings = normalizeStructuredSettings(source.structuredSettings)
+  const syncedEntries = syncStructuredEntries(
+    ensureArray(decodeStored(source.entries, [])),
+    structuredSettings
+  )
+  const entries = syncedEntries.map((entry) => (
+    entry?.type === 'location' && !isPlaceOverviewEntry(entry)
+      ? createPlaceEntryPatch(entry, entry)
+      : entry
+  ))
+  const entriesMap = {}
 
   for (const entry of entries) {
     if (entry?.id) entriesMap[entry.id] = entry
@@ -76,9 +185,21 @@ function normalizeWorldbook(raw = {}) {
     entries,
     entriesMap,
     groups: ensureArray(decodeStored(source.groups, [])),
+    sourceDocuments: ensureArray(decodeStored(source.sourceDocuments, []))
+      .filter((document) => document && typeof document === 'object' && String(document.content || '').trim())
+      .map((document, index) => ({
+        id: String(document.id || `source_${index + 1}`),
+        title: String(document.title || `原始资料 ${index + 1}`),
+        kind: String(document.kind || 'reference-text'),
+        content: String(document.content || ''),
+        sourceLabel: String(document.sourceLabel || ''),
+        originalLength: Math.max(String(document.content || '').length, Number(document.originalLength) || 0),
+        truncated: Boolean(document.truncated),
+        createdAt: Number(document.createdAt) || Date.now()
+      })),
     // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
     geoHistory: normalizeGeoHistory(source.geoHistory),
-    structuredSettings: normalizeStructuredSettings(source.structuredSettings)
+    structuredSettings
   }
 }
 
@@ -211,9 +332,11 @@ export const useWorldStore = defineStore('world', {
         entries: [],
         entriesMap: {}, // id -> entry 便于快速查找
         groups: [],
+        sourceDocuments: Array.isArray(data.sourceDocuments) ? data.sourceDocuments : [],
         // 预设 / AI 生成 / 导入若已带地图历史则挂上；否则 null（不阻塞）。
         geoHistory: normalizeGeoHistory(data.geoHistory),
-        structuredSettings: normalizeStructuredSettings(data.structuredSettings)
+        structuredSettings: normalizeStructuredSettings(data.structuredSettings),
+        research: data.research && typeof data.research === 'object' ? data.research : null
       }
 
       setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
@@ -255,6 +378,7 @@ export const useWorldStore = defineStore('world', {
       if (Object.prototype.hasOwnProperty.call(updates, 'name')) indexEntry.name = updates.name
       if (Object.prototype.hasOwnProperty.call(updates, 'description')) indexEntry.description = updates.description
       if (Object.prototype.hasOwnProperty.call(updates, 'author')) indexEntry.author = updates.author
+      indexEntry.entryCount = updated.entries.length
       indexEntry.updatedAt = updated.updatedAt
       await this.saveWorldbooksIndex()
 
@@ -280,7 +404,7 @@ export const useWorldStore = defineStore('world', {
         removeItem(ACTIVE_WORLDBOOK_ID_KEY)
       }
 
-      const persistedActiveId = decodeStored(getItem(ACTIVE_WORLDBOOK_ID_KEY), null)
+      const persistedActiveId = decodeStoredId(getItem(ACTIVE_WORLDBOOK_ID_KEY))
       if (persistedActiveId === worldbookId) {
         removeItem(ACTIVE_WORLDBOOK_ID_KEY)
       }
@@ -307,7 +431,7 @@ export const useWorldStore = defineStore('world', {
         })
       }
 
-      const persistedActiveId = decodeStored(getItem(ACTIVE_WORLDBOOK_ID_KEY), null)
+      const persistedActiveId = decodeStoredId(getItem(ACTIVE_WORLDBOOK_ID_KEY))
       const targetId = (typeof persistedActiveId === 'string' && this.worldbooksIndex.some(w => w.id === persistedActiveId))
         ? persistedActiveId
         : this.worldbooksIndex[0].id
@@ -326,6 +450,7 @@ export const useWorldStore = defineStore('world', {
       }
 
       const entry = {
+        ...entryData,
         id: createEntryId(),
         keys: entryData.keys || [],
         keysSecondary: entryData.keysSecondary || [],
@@ -347,14 +472,36 @@ export const useWorldStore = defineStore('world', {
           events: entryData.relations?.events || []
         },
         metadata: {
+          ...(entryData.metadata || {}),
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          importSource: entryData.metadata?.importSource || 'manual'
+          importSource: entryData.metadata?.importSource || 'manual',
+          basis: ['research', 'mixed', 'creative'].includes(entryData.metadata?.basis)
+            ? entryData.metadata.basis
+            : 'creative',
+          sourceRefs: Array.isArray(entryData.metadata?.sourceRefs)
+            ? entryData.metadata.sourceRefs.filter((item) => /^S\d+$/.test(String(item))).slice(0, 8)
+            : [],
+          sourceDocumentIds: Array.isArray(entryData.metadata?.sourceDocumentIds)
+            ? [...new Set(entryData.metadata.sourceDocumentIds.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 8)
+            : [],
+          structuredSettingRef: String(entryData.metadata?.structuredSettingRef || ''),
+          sourceSection: String(entryData.metadata?.sourceSection || ''),
+          sourceField: String(entryData.metadata?.sourceField || ''),
+          claimIds: Array.isArray(entryData.metadata?.claimIds)
+            ? entryData.metadata.claimIds.filter((item) => /^C\d+$/.test(String(item))).slice(0, 8)
+            : [],
+          reviewState: ['ready', 'stale', 'needs-review'].includes(entryData.metadata?.reviewState)
+            ? entryData.metadata.reviewState
+            : 'ready'
         }
       }
 
-      worldbook.entries.push(entry)
-      worldbook.entriesMap[entry.id] = entry
+      const persistedEntry = entry.type === 'location'
+        ? createPlaceEntryPatch(entry, entry)
+        : entry
+      worldbook.entries.push(persistedEntry)
+      worldbook.entriesMap[persistedEntry.id] = persistedEntry
       worldbook.updatedAt = Date.now()
 
       setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
@@ -368,7 +515,7 @@ export const useWorldStore = defineStore('world', {
         await this.saveWorldbooksIndex()
       }
 
-      return entry
+      return persistedEntry
     },
 
     async updateEntry(worldbookId, entryId, updates) {
@@ -383,22 +530,33 @@ export const useWorldStore = defineStore('world', {
       if (entryIdx < 0) throw new Error('条目不存在')
 
       const entry = worldbook.entries[entryIdx]
-      const updated = {
+      const updatedBase = {
         ...entry,
         ...updates,
         id: entryId, // 不可更改
         metadata: {
           ...entry.metadata,
+          ...(updates.metadata && typeof updates.metadata === 'object' ? updates.metadata : {}),
           updatedAt: Date.now()
         }
       }
 
+      const updated = (updates.type || entry.type) === 'location'
+        ? createPlaceEntryPatch(updatedBase, entry)
+        : updatedBase
       worldbook.entries[entryIdx] = updated
       worldbook.entriesMap[entryId] = updated
       worldbook.updatedAt = Date.now()
 
       setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
       this.activeWorldbook = worldbook
+
+      const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
+      if (idx >= 0) {
+        this.worldbooksIndex[idx].entryCount = worldbook.entries.length
+        this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
+        await this.saveWorldbooksIndex()
+      }
 
       return updated
     },
@@ -428,6 +586,84 @@ export const useWorldStore = defineStore('world', {
         this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
         await this.saveWorldbooksIndex()
       }
+    },
+
+    // ---------- 结构化地点目录 ----------
+
+    getPlaceEntries(worldbookId = this.activeWorldbook?.id) {
+      const worldbook = this.activeWorldbook?.id === worldbookId
+        ? this.activeWorldbook
+        : decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+      return listPlaceEntries(worldbook)
+    },
+
+    getPlaceDeleteImpact(worldbookId, entryId) {
+      const worldbook = this.activeWorldbook?.id === worldbookId
+        ? this.activeWorldbook
+        : decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+      return getCatalogPlaceDeleteImpact(worldbook, entryId)
+    },
+
+    async createPlace(worldbookId, payload, { sourceOverviewRevision = '' } = {}) {
+      let worldbook = this.activeWorldbook
+      if (worldbook?.id !== worldbookId) {
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (!raw) throw new Error('世界书不存在')
+        worldbook = normalizeWorldbook(raw)
+      }
+      if (sourceOverviewRevision && sourceOverviewRevision !== getPlaceSourceRevision(worldbook)) {
+        const error = new Error('地理环境概述已更新，请只重新整理这一项。')
+        error.code = 'PLACE_DRAFT_STALE'
+        throw error
+      }
+      const prepared = preparePlaceForWrite(payload, worldbook, { allowUnresolved: true })
+      return this.addEntry(worldbookId, createPlaceEntryPatch({
+        ...prepared.payload,
+        reviewState: prepared.payload.reviewState || 'accepted'
+      }, { id: createEntryId() }))
+    },
+
+    async updatePlace(worldbookId, entryId, payload, {
+      expectedFingerprint = '',
+      sourceOverviewRevision = ''
+    } = {}) {
+      let worldbook = this.activeWorldbook
+      if (worldbook?.id !== worldbookId) {
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (!raw) throw new Error('世界书不存在')
+        worldbook = normalizeWorldbook(raw)
+      }
+      const current = worldbook.entries.find((entry) => entry.id === entryId)
+      if (!current) throw new Error('地点条目不存在')
+      if (sourceOverviewRevision && sourceOverviewRevision !== getPlaceSourceRevision(worldbook)) {
+        const error = new Error('地理环境概述已更新，请只重新整理这一项。')
+        error.code = 'PLACE_DRAFT_STALE'
+        throw error
+      }
+      if (expectedFingerprint && placeFingerprint(current) !== expectedFingerprint) {
+        const error = new Error('地点条目已更新，请只重新整理这一项。')
+        error.code = 'PLACE_DRAFT_STALE'
+        throw error
+      }
+      const currentPlace = getPlacePayloadFromEntry(current)
+      const prepared = preparePlaceForWrite({
+        ...currentPlace,
+        ...payload,
+        sourceEvidence: Object.prototype.hasOwnProperty.call(payload || {}, 'sourceEvidence')
+          ? payload.sourceEvidence
+          : currentPlace.sourceEvidence,
+        mapBinding: Object.prototype.hasOwnProperty.call(payload || {}, 'mapBinding')
+          ? payload.mapBinding
+          : currentPlace.mapBinding
+      }, worldbook, { entryId, allowUnresolved: true })
+      return this.updateEntry(worldbookId, entryId, createPlaceEntryPatch(prepared.payload, current))
+    },
+
+    async deletePlace(worldbookId, entryId, { confirmImpact = false } = {}) {
+      const impact = this.getPlaceDeleteImpact(worldbookId, entryId)
+      if (impact.total > 0 && !confirmImpact) return { deleted: false, impact }
+      await this.deleteEntry(worldbookId, entryId)
+      return { deleted: true, impact }
     },
 
     // 根据关键词匹配条目
@@ -519,6 +755,8 @@ export const useWorldStore = defineStore('world', {
 
     async importFromSillyTavern(worldbookData) {
       const now = Date.now()
+      const pinaxSourceDocuments = worldbookData?.extensions?.pinax_source_documents
+      const pinaxGeoHistory = worldbookData?.extensions?.pinax_geo_history
       const worldbook = {
         id: createWorldBookId(),
         name: worldbookData.name || worldbookData.world_name || '导入的世界书',
@@ -534,7 +772,9 @@ export const useWorldStore = defineStore('world', {
         },
         entries: [],
         entriesMap: {},
-        groups: []
+        groups: [],
+        sourceDocuments: Array.isArray(pinaxSourceDocuments) ? pinaxSourceDocuments : [],
+        geoHistory: normalizeGeoHistory(pinaxGeoHistory)
       }
 
       // 解析entries
@@ -543,7 +783,10 @@ export const useWorldStore = defineStore('world', {
         const keys = normalizeKeywordList(entry.key)
         const keysSecondary = normalizeKeywordList(entry.keysecondary)
         const name = String(entry.comment || keys[0] || uid || '未命名条目').trim() || '未命名条目'
-        const type = this.guessEntryType(keys, entry.content, name)
+        const pinaxPlace = entry?.extensions?.pinax_place
+        const type = pinaxPlace && typeof pinaxPlace === 'object'
+          ? 'location'
+          : this.guessEntryType(keys, entry.content, name)
         const mode = resolveImportedEntryMode(entry, type)
         const depthFallback = mode === 'constant' ? 2 : 1
         const depthValue = clampImportNumber(entry.depth, depthFallback, 1, 99)
@@ -551,7 +794,8 @@ export const useWorldStore = defineStore('world', {
           ? '硬约束'
           : (type === 'style' ? '文风约束' : (type === 'forbidden' ? '禁写边界' : ''))
 
-        const mapped = {
+        let mapped = {
+          ...entry,
           id: `entry_${Date.now().toString(36)}_${uid.slice(0, 8)}`,
           keys,
           keysSecondary,
@@ -573,11 +817,23 @@ export const useWorldStore = defineStore('world', {
             events: []
           },
           metadata: {
+            ...(entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {}),
             createdAt: now,
             updatedAt: now,
             importSource: 'sillytavern',
-            originalUid: uid
+            originalUid: uid,
+            sourceDocumentIds: Array.isArray(entry?.extensions?.pinax_source_document_ids)
+              ? entry.extensions.pinax_source_document_ids.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+              : []
           }
+        }
+
+        if (pinaxPlace && typeof pinaxPlace === 'object') {
+          mapped = createPlaceEntryPatch({
+            ...pinaxPlace,
+            name,
+            description: entry.content || pinaxPlace.description
+          }, mapped)
         }
 
         worldbook.entries.push(mapped)
@@ -620,6 +876,9 @@ export const useWorldStore = defineStore('world', {
       const entries = {}
       for (const entry of worldbook.entries) {
         const uid = entry.metadata?.originalUid || entry.id.replace('entry_', '')
+        const place = entry.type === 'location' && !entry.metadata?.structuredSettingRef
+          ? getPlacePayloadFromEntry(entry)
+          : null
         entries[uid] = {
           key: entry.keys,
           keysecondary: entry.keysSecondary,
@@ -631,7 +890,13 @@ export const useWorldStore = defineStore('world', {
           depth: entry.injection.depth,
           probability: entry.injection.probability,
           cooldown: entry.injection.cooldown,
-          excludeRecursion: entry.injection.excludeRecursion
+          excludeRecursion: entry.injection.excludeRecursion,
+          extensions: {
+            ...(entry.metadata?.sourceDocumentIds?.length
+              ? { pinax_source_document_ids: entry.metadata.sourceDocumentIds }
+              : {}),
+            ...(place ? { pinax_place: place } : {})
+          }
         }
       }
 
@@ -645,6 +910,12 @@ export const useWorldStore = defineStore('world', {
         scan_depth: worldbook.settings.scanDepth,
         token_budget: worldbook.settings.tokenBudget,
         recursive_scanning: worldbook.settings.recursiveScanning,
+        extensions: {
+          ...(worldbook.sourceDocuments?.length
+            ? { pinax_source_documents: worldbook.sourceDocuments }
+            : {}),
+          ...(worldbook.geoHistory ? { pinax_geo_history: worldbook.geoHistory } : {})
+        },
         groups: worldbook.groups,
         entries
       }
@@ -684,32 +955,8 @@ export const useWorldStore = defineStore('world', {
       const content = structuredSettings[sectionKey][fieldKey].trim()
       if (!content) throw new Error('设定字段为空，不能转为世界书条目')
 
-      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
-      return this.addEntry(worldbookId, {
-        name: field.label,
-        type: field.entryType,
-        keys: [field.label],
-        content,
-        injection: {
-          mode: isConstant ? 'constant' : 'selective',
-          probability: 100,
-          cooldown: 0,
-          depth: isConstant ? 2 : 1,
-          excludeRecursion: false,
-          group: field.defaultGroup
-        },
-        relations: {
-          tags: ['结构化设定'],
-          locations: [],
-          characters: [],
-          events: []
-        },
-        metadata: {
-          importSource: 'structured-setting',
-          sourceSection: sectionKey,
-          sourceField: fieldKey
-        }
-      })
+      const updated = await this.updateWorldbook(worldbookId, { structuredSettings })
+      return updated.entries.find((entry) => entry.metadata?.structuredSettingRef === structuredSettingRef(sectionKey, fieldKey)) || null
     },
 
     // ---------- 辅助方法 ----------

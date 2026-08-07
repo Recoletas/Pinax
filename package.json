@@ -20,7 +20,12 @@
     "docs:dev": "vitepress dev docs/src",
     "docs:build": "vitepress build docs/src",
     "docs:preview": "vitepress preview docs/src",
-    "audit:ui": "node scripts/ui-audit.mjs"
+    "audit:ui": "node scripts/ui-audit.mjs",
+    "smoke:structured-settings": "node scripts/structured-settings-gate.mjs",
+    "eval:narrative-context": "vite-node scripts/narrative-context-eval.mjs",
+    "report:narrative-production": "vite-node scripts/narrative-production-report.mjs",
+    "smoke:narrative-production": "node scripts/narrative-production-smoke.mjs",
+    "smoke:online-narrative": "node scripts/online-narrative-smoke.mjs"
   },
   "dependencies": {
     "alea": "^1.0.1",

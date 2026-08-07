@@ -1,6 +1,10 @@
 const RUNTIME_PATHS = [
   'writingCharacter',
   'writingTime',
+  'placeStates',
+  'characterStates',
+  'characterRelations',
+  'canonicalFacts',
   'worldMapState',
   'goals',
   'encounteredCharacters',
@@ -22,17 +26,24 @@ export function buildOnlineRuntimePatch(snapshot = {}) {
 }
 
 export function applyOnlineNarrativeCompletion(gameStore, payload = {}) {
+  const requestId = String(payload.requestId || '').trim()
   const requestEventId = String(payload.requestEventId || '').trim()
-  if (!requestEventId || !gameStore || !Array.isArray(gameStore.messages)) return false
-  if (gameStore.messages.some((message) => message?.onlineRequestEventId === requestEventId)) return false
+  const completionKey = requestId || requestEventId
+  if (!completionKey || !gameStore || !Array.isArray(gameStore.messages)) return false
+  if (gameStore.messages.some((message) => (
+    message?.onlineRequestId === completionKey
+    || message?.onlineRequestEventId === requestEventId
+  ))) return false
 
   const actionText = String(payload.actionText || '').trim()
   const assistantContent = String(payload.assistantMessage?.content || payload.text || '').trim()
+  if (!assistantContent) return false
   if (actionText) {
     gameStore.messages.push({
       role: 'user',
       content: actionText,
       timestamp: payload.createdAt || Date.now(),
+      onlineRequestId: completionKey,
       onlineRequestEventId: requestEventId
     })
   }
@@ -43,6 +54,7 @@ export function applyOnlineNarrativeCompletion(gameStore, payload = {}) {
       content: assistantContent,
       timestamp: payload.assistantMessage?.timestamp || payload.createdAt || Date.now(),
       isStreaming: false,
+      onlineRequestId: completionKey,
       onlineRequestEventId: requestEventId
     })
   }

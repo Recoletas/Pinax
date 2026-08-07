@@ -32,6 +32,8 @@ export const useGeographyStore = defineStore('geography', {
     voronoiConfig: null,
     markers: [],
     lastGenerationMeta: null,
+    mapVersions: [],
+    activeMapRevision: null,
   }),
 
   getters: {
@@ -110,21 +112,29 @@ export const useGeographyStore = defineStore('geography', {
             this.voronoiConfig = parsed.voronoiConfig
             this.markers = Array.isArray(parsed.markers) ? parsed.markers : []
             this.lastGenerationMeta = parsed.lastGenerationMeta || null
+            this.mapVersions = Array.isArray(parsed.mapVersions) ? parsed.mapVersions.slice(0, 5) : []
+            this.activeMapRevision = parsed.activeMapRevision || this.mapVersions[0]?.id || null
           } else {
             // 旧格式：整个 parsed 就是 voronoiConfig
             this.voronoiConfig = parsed
             this.markers = []
             this.lastGenerationMeta = null
+            this.mapVersions = []
+            this.activeMapRevision = null
           }
         } catch {
           this.voronoiConfig = null
           this.markers = []
           this.lastGenerationMeta = null
+          this.mapVersions = []
+          this.activeMapRevision = null
         }
       } else {
         this.voronoiConfig = null
         this.markers = []
         this.lastGenerationMeta = null
+        this.mapVersions = []
+        this.activeMapRevision = null
       }
     },
 
@@ -186,6 +196,29 @@ export const useGeographyStore = defineStore('geography', {
       this.persistMapData()
     },
 
+    commitMapVersion(revision) {
+      if (!revision?.id || !revision?.config) return false
+      const next = JSON.parse(JSON.stringify(revision))
+      this.voronoiConfig = next.config
+      this.markers = Array.isArray(next.markers) ? next.markers : []
+      this.lastGenerationMeta = next.generationMeta || null
+      this.activeMapRevision = next.id
+      this.mapVersions = [next, ...this.mapVersions.filter((item) => item?.id !== next.id)].slice(0, 5)
+      this.persistMapData()
+      return true
+    },
+
+    restoreMapVersion(revisionId) {
+      const revision = this.mapVersions.find((item) => item?.id === revisionId)
+      if (!revision?.config) return null
+      this.voronoiConfig = JSON.parse(JSON.stringify(revision.config))
+      this.markers = Array.isArray(revision.markers) ? JSON.parse(JSON.stringify(revision.markers)) : []
+      this.lastGenerationMeta = revision.generationMeta || null
+      this.activeMapRevision = revision.id
+      this.persistMapData()
+      return JSON.parse(JSON.stringify(revision))
+    },
+
     persistMapData() {
       if (this.activeWorldId) {
         this.updateNode(this.activeWorldId, {
@@ -193,6 +226,8 @@ export const useGeographyStore = defineStore('geography', {
             voronoiConfig: this.voronoiConfig,
             markers: this.markers,
             lastGenerationMeta: this.lastGenerationMeta,
+            mapVersions: this.mapVersions,
+            activeMapRevision: this.activeMapRevision,
           })
         })
       }
@@ -201,6 +236,11 @@ export const useGeographyStore = defineStore('geography', {
     // ── 标记 CRUD ──
     addMarker(marker) {
       this.markers.push(marker)
+      this.persistMapData()
+    },
+
+    replaceMarkers(markers) {
+      this.markers = Array.isArray(markers) ? markers : []
       this.persistMapData()
     },
 

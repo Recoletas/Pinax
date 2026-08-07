@@ -184,7 +184,7 @@ onMounted(async () => {
 }
 
 .title-text {
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -195,7 +195,7 @@ onMounted(async () => {
   background: var(--bg-primary);
   color: var(--text-primary);
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 14px;
   max-width: 160px;
 }
 
@@ -232,7 +232,8 @@ onMounted(async () => {
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -364,6 +365,23 @@ onMounted(async () => {
 }
 
 @media (max-width: 760px) {
+  .title-text {
+    display: none;
+  }
+
+  .title-left,
+  .title-right {
+    min-width: 0;
+  }
+
+  .worldbook-select {
+    max-width: 140px;
+  }
+
+  .toolbar-text-btn {
+    padding-inline: 8px;
+  }
+
   .place-context-strip {
     flex-direction: column;
   }

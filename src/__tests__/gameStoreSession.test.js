@@ -6,10 +6,13 @@ import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 import { createMemoryCandidate } from '../services/memoryCandidates'
 import { listNarrativeAssets } from '../services/narrativeAssets'
 import { consumePlayableWorldHistoryIntent } from '../services/playableWorldEntry'
-import { runGenerationTask, runGenerationStreamTask } from '../services/generationService'
+import {
+  runGenerationTask,
+  runGenerationStreamTask,
+  runNarrativeAgentTurn
+} from '../services/generationService'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import { listStoryboardDocuments } from '../services/storyboardStore'
-import { buildContextMessage } from '../services/api'
 
 vi.mock('../services/api', () => ({
   default: {
@@ -17,14 +20,14 @@ vi.mock('../services/api', () => ({
   },
   sendAction: vi.fn(),
   getState: vi.fn(),
-  buildContextMessage: vi.fn(() => null),
   recordMemory: vi.fn(),
   getOrCreatePreferenceUserId: vi.fn(() => 'user-test')
 }))
 
 vi.mock('../services/generationService', () => ({
   runGenerationTask: vi.fn(),
-  runGenerationStreamTask: vi.fn()
+  runGenerationStreamTask: vi.fn(),
+  runNarrativeAgentTurn: vi.fn()
 }))
 
 describe('gameStore sessions', () => {
@@ -33,8 +36,18 @@ describe('gameStore sessions', () => {
     setActivePinia(createPinia())
     vi.mocked(runGenerationTask).mockReset()
     vi.mocked(runGenerationStreamTask).mockReset()
-    vi.mocked(buildContextMessage).mockReset()
-    vi.mocked(buildContextMessage).mockReturnValue(null)
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockResolvedValue({
+      kind: 'final_ready',
+      text: 'READY',
+      calls: [],
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
     vi.spyOn(console, 'debug').mockImplementation(() => {})
   })
 
@@ -75,7 +88,12 @@ describe('gameStore sessions', () => {
     gameStore.messages = [{ role: 'assistant', content: '开场白', timestamp: 1 }]
     gameStore.chatHistory = [
       { role: 'system', content: '系统提示' },
-      { role: 'assistant', content: '开场白' }
+      { role: 'assistant', content: '开场白' },
+      { role: 'user', content: '我进入青石城寻找钟楼。' },
+      { role: 'assistant', content: '阿离抵达城门，发现守卫正在核对通行令。' },
+      { role: 'user', content: '我出示旧令牌。' },
+      { role: 'assistant', content: '守卫允许她进入，但钟楼方向仍有警报声。' },
+      { role: 'user', content: '我继续前往钟楼。' }
     ]
     gameStore.writingCharacter = {
       name: '阿离',
@@ -109,6 +127,8 @@ describe('gameStore sessions', () => {
     gameStore.dialogueCharacter = { id: 'npc_1', name: '路人甲' }
     gameStore.playerCharacter = { name: '阿离', avatar: 'avatar.png' }
     gameStore.aiCharacter = { name: '叙述者', avatar: 'ai.png' }
+    const sceneSummary = gameStore.refreshNarrativeSceneSummary().summary
+    expect(sceneSummary?.sourceMessageCount).toBe(2)
 
     gameStore.saveCurrentSession()
 
@@ -135,6 +155,7 @@ describe('gameStore sessions', () => {
     expect(gameStore.dialogueCharacter?.name).toBe('路人甲')
     expect(gameStore.playerCharacter.avatar).toBe('avatar.png')
     expect(gameStore.aiCharacter.name).toBe('叙述者')
+    expect(gameStore.narrativeSceneSummary?.revision).toBe(sceneSummary.revision)
   })
 
   it('builds a compact plot journal entry after enough assistant turns and avoids duplicates', () => {
@@ -272,24 +293,228 @@ describe('gameStore sessions', () => {
       currentScene: '旧税所'
     }
     gameStore.encounteredCharacters = [{ id: 'char-lin', name: '林舟' }]
-
+    gameStore.placeStates = {
+      'place:gray-wall:tax-office': {
+        status: '封锁',
+        controllerId: 'faction:archive',
+        danger: 82
+      }
+    }
+    gameStore.characterStates = {
+      'char-lin': {
+        status: '追查中',
+        alive: true,
+        placeId: 'place:gray-wall:tax-office',
+        goal: '找到失踪税册',
+        knowledgeRefs: ['fact:ledger-seal']
+      }
+    }
+    gameStore.characterRelations = {
+      'relation:lin-keeper': {
+        subjectId: 'char-lin',
+        objectId: 'char-keeper',
+        kind: 'guardian',
+        status: 'confirmed',
+        sourceRefs: ['history:gray-wall']
+      }
+    }
+    gameStore.canonicalFacts = {
+      'fact:lin-ledger-duty': {
+        subjectId: 'char-lin',
+        predicate: 'ledger-duty',
+        value: 'recover',
+        status: 'confirmed',
+        sourceRefs: ['history:gray-wall']
+      }
+    }
+    gameStore.runtimeEvents = [{
+      id: 'evt-place-confirmed',
+      type: 'state_delta',
+      ts: 1,
+      payload: {
+        kind: 'place-state-confirmed',
+        placeId: 'place:gray-wall:tax-office',
+        after: { placeStates: gameStore.placeStates }
+      }
+    }, {
+      id: 'evt-stale-time',
+      parentId: 'evt-place-confirmed',
+      type: 'state_delta',
+      ts: 2,
+      payload: {
+        kind: 'stale-time',
+        placeId: 'place:gray-wall:tax-office',
+        after: { writingTime: { eraId: 'ledger-era', year: 1 } }
+      }
+    }, {
+      id: 'evt-time-rollback',
+      parentId: 'evt-stale-time',
+      type: 'state_delta',
+      ts: 3,
+      payload: {
+        kind: 'time-rollback',
+        rollbackOf: 'evt-stale-time',
+        placeId: 'place:gray-wall:tax-office',
+        before: { writingTime: { eraId: 'ledger-era', year: 1 } },
+        after: { writingTime: { eraId: 'ledger-era', year: 2 } }
+      }
+    }]
     const candidates = gameStore.refreshEmergenceCandidates({ now: 1710000000000 })
 
-    expect(candidates).toHaveLength(1)
-    expect(candidates[0].placeId).toBe('place:gray-wall:tax-office')
-    expect(candidates[0].summary).toContain('失踪税册')
+    expect(candidates).toHaveLength(2)
+    const characterCandidate = candidates.find((candidate) => candidate.hook === '找到失踪税册')
+    expect(characterCandidate).toMatchObject({
+      type: 'goal-pressure',
+      title: '角色目标的后续压力',
+      placeId: 'place:gray-wall:tax-office',
+      causalState: {
+        place: {
+          controllerId: 'faction:archive',
+          danger: 82
+        },
+          character: {
+            characterId: 'char-lin',
+            name: '林舟',
+            goal: '找到失踪税册',
+            knowledgeRefs: ['fact:ledger-seal'],
+            relationRefs: ['relation:lin-keeper'],
+            factRefs: ['fact:lin-ledger-duty']
+        },
+        activeEventIds: ['evt-place-confirmed', 'evt-time-rollback']
+      }
+    })
+    expect(characterCandidate.reasons.join(' ')).toContain('林舟的目标')
+    expect(characterCandidate.reasons.join(' ')).toContain('危险度 82')
+    expect(characterCandidate.sourceRefs).toEqual(expect.arrayContaining([
+      { type: 'character-knowledge', id: 'fact:ledger-seal' },
+      { type: 'character-relation', id: 'relation:lin-keeper' },
+      { type: 'canonical-fact', id: 'fact:lin-ledger-duty' },
+      { type: 'runtime-event', id: 'evt-place-confirmed' },
+      { type: 'runtime-event', id: 'evt-time-rollback' }
+    ]))
+    expect(characterCandidate.sourceRefs).not.toContainEqual({
+      type: 'runtime-event',
+      id: 'evt-stale-time'
+    })
     expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-candidate-ready')).toBe(true)
 
-    gameStore.dismissEmergenceCandidate(candidates[0].id)
+    gameStore.runtimeEvents = [{
+      id: 'evt-conflicted-state',
+      type: 'state_delta',
+      ts: 4,
+      payload: {
+        kind: 'conflicted-state',
+        placeId: 'place:gray-wall:tax-office',
+        before: {
+          placeStates: {
+            'place:gray-wall:tax-office': { controllerId: 'faction:archive' }
+          },
+          characterStates: {
+            'char-lin': { alive: false }
+          },
+          characterRelations: {
+            'relation:lin-keeper': {
+              subjectId: 'char-lin',
+              objectId: 'char-keeper',
+              kind: 'guardian',
+              status: 'confirmed'
+            }
+          },
+          canonicalFacts: {
+            'fact:lin-ledger-duty': {
+              subjectId: 'char-lin',
+              predicate: 'ledger-duty',
+              value: 'recover',
+              status: 'confirmed'
+            }
+          }
+        },
+        after: {
+          placeStates: {
+            'place:gray-wall:tax-office': { controllerId: 'faction:unknown' }
+          },
+          characterStates: {
+            'char-lin': { alive: true }
+          },
+          characterRelations: {
+            'relation:lin-keeper': {
+              subjectId: 'char-lin',
+              objectId: 'char-keeper',
+              kind: 'sibling',
+              status: 'confirmed'
+            }
+          },
+          canonicalFacts: {
+            'fact:lin-ledger-duty': {
+              subjectId: 'char-lin',
+              predicate: 'ledger-duty',
+              value: 'destroy',
+              status: 'confirmed'
+            }
+          }
+        }
+      }
+    }]
+    const conflictCandidates = gameStore.refreshEmergenceCandidates({ now: 1710000001000 })
+    expect(conflictCandidates).toHaveLength(1)
+    expect(conflictCandidates[0].hook).toBe('失踪税册仍被藏在旧税所')
+    expect(conflictCandidates[0].causalState).toMatchObject({
+      place: { controllerId: '' },
+      character: null,
+      activeEventIds: [],
+      blockedConflictCodes: expect.arrayContaining([
+        'place-control-conflict',
+        'character-state-conflict',
+        'kinship-conflict',
+        'canonical-fact-conflict'
+      ])
+    })
+    expect(conflictCandidates[0].sourceRefs).not.toContainEqual({
+      type: 'runtime-event',
+      id: 'evt-conflicted-state'
+    })
+    expect(conflictCandidates[0].sourceRefs).not.toContainEqual({
+      type: 'character-relation',
+      id: 'relation:lin-keeper'
+    })
+    expect(conflictCandidates[0].sourceRefs).not.toContainEqual({
+      type: 'canonical-fact',
+      id: 'fact:lin-ledger-duty'
+    })
+
+    const relationConflict = gameStore.getRuntimeCausalityReport().activeConflicts
+      .find((item) => item.code === 'kinship-conflict')
+    const reviewResult = gameStore.resolveRuntimeConflict({
+      conflictKey: relationConflict.conflictKey
+    })
+    expect(reviewResult.ok).toBe(true)
+    expect(reviewResult.event).toMatchObject({
+      type: 'display_event',
+      parentId: 'evt-conflicted-state',
+      payload: {
+        kind: 'runtime-conflict-resolution',
+        contextual: false,
+        conflictResolution: {
+          conflictKey: relationConflict.conflictKey,
+          conflictCode: 'kinship-conflict',
+          resolution: 'accept-current'
+        }
+      }
+    })
+    expect(gameStore.getRuntimeCausalityReport().activeConflicts).not.toContainEqual(
+      expect.objectContaining({ conflictKey: relationConflict.conflictKey })
+    )
+
+    gameStore.dismissEmergenceCandidate(conflictCandidates[0].id)
     expect(gameStore.emergenceCandidates).toEqual([])
-    expect(gameStore.emergenceDismissedIds).toContain(candidates[0].id)
+    expect(gameStore.emergenceDismissedIds).toContain(conflictCandidates[0].id)
 
     gameStore.saveCurrentSession()
     const sessionId = gameStore.currentSessionId
     gameStore.resetRuntimeState()
     gameStore.loadSession(sessionId)
     expect(gameStore.emergenceCandidates).toEqual([])
-    expect(gameStore.emergenceDismissedIds).toContain(candidates[0].id)
+    expect(gameStore.emergenceDismissedIds).toContain(conflictCandidates[0].id)
   })
 
   it('generates a constrained emergence draft and restores it with the session', async () => {
@@ -311,6 +536,45 @@ describe('gameStore sessions', () => {
       currentScene: '旧税所'
     }
     gameStore.encounteredCharacters = [{ id: 'char-lin', name: '林舟' }]
+    gameStore.placeStates = {
+      'place:gray-wall:tax-office': {
+        status: '封存',
+        controllerId: 'faction:archive',
+        danger: 35
+      }
+    }
+    gameStore.characterStates = {
+      'char-lin': {
+        status: '失踪',
+        alive: false,
+        placeId: 'place:gray-wall:tax-office',
+        goal: '找回税册'
+      }
+    }
+    gameStore.characterRelations = {
+      'relation:lin-keeper': {
+        subjectId: 'char-keeper',
+        objectId: 'char-lin',
+        kind: 'guardian',
+        status: 'confirmed'
+      }
+    }
+    gameStore.canonicalFacts = {
+      'fact:ledger-status': {
+        subjectId: 'ledger:missing',
+        predicate: 'status',
+        value: 'missing',
+        status: 'confirmed'
+      }
+    }
+    gameStore.writingTime = {
+      ...gameStore.writingTime,
+      eraId: 'old-ledger-era',
+      eraName: '封账纪',
+      year: 12,
+      month: 4,
+      day: 8
+    }
     gameStore.emergenceCandidates = [{
       id: 'emergence_history-hook_1',
       type: 'history-hook',
@@ -330,7 +594,61 @@ describe('gameStore sessions', () => {
         placeId: 'place:gray-wall:tax-office',
         participants: ['林舟'],
         causes: ['失踪税册仍未找到'],
-        changes: [{ op: 'set', path: 'flags', value: { taxLedgerSeen: true } }],
+        changes: [
+          { op: 'set', path: 'flags', value: { taxLedgerSeen: true } },
+          {
+            op: 'merge',
+            path: 'placeStates',
+            value: {
+              'place:gray-wall:tax-office': {
+                status: '重新开放',
+                controllerId: 'faction:tide',
+                danger: 62
+              }
+            }
+          },
+          {
+            op: 'merge',
+            path: 'characterStates',
+            value: {
+              'char-lin': {
+                status: '归队',
+                alive: true,
+                placeId: 'place:gray-wall:tax-office',
+                goal: '追查缺页'
+              }
+            }
+          },
+          {
+            op: 'merge',
+            path: 'writingTime',
+            value: { eraId: 'new-ledger-era', eraName: '追账纪', year: 1, month: 1, day: 1 }
+          },
+          {
+            op: 'merge',
+            path: 'characterRelations',
+            value: {
+              'relation:lin-keeper': {
+                subjectId: 'char-keeper',
+                objectId: 'char-lin',
+                kind: 'adoptive-parent',
+                status: 'confirmed'
+              }
+            }
+          },
+          {
+            op: 'merge',
+            path: 'canonicalFacts',
+            value: {
+              'fact:ledger-status': {
+                subjectId: 'ledger:missing',
+                predicate: 'status',
+                value: 'recovered',
+                status: 'confirmed'
+              }
+            }
+          }
+        ],
         consequences: ['账册缺页成为新的调查入口'],
         unresolvedHooks: ['账册缺页的去向'],
         choices: [
@@ -356,12 +674,49 @@ describe('gameStore sessions', () => {
     const applied = gameStore.applyEmergenceDraft('emergence_history-hook_1')
     expect(applied.event.type).toBe('state_delta')
     expect(applied.event.payload.explanation).toContain('所以')
+    expect(applied.event.payload.transitions).toMatchObject({
+      placeControl: [{
+        placeId: 'place:gray-wall:tax-office',
+        fromControllerId: 'faction:archive',
+        toControllerId: 'faction:tide'
+      }],
+      time: { allowEraChange: true }
+    })
+    expect(applied.event.payload.transitions.characters).toContainEqual({
+      characterId: 'char-lin',
+      kind: 'revival'
+    })
+    expect(applied.event.payload.transitions.relationships).toContainEqual(expect.objectContaining({
+      id: 'relation:lin-keeper',
+      kind: 'relationship-rewrite'
+    }))
+    expect(applied.event.payload.transitions.facts).toContainEqual(expect.objectContaining({
+      id: 'fact:ledger-status',
+      kind: 'canonical-fact-rewrite'
+    }))
     expect(gameStore.flags.taxLedgerSeen).toBe(true)
+    expect(gameStore.placeStates['place:gray-wall:tax-office'].controllerId).toBe('faction:tide')
+    expect(gameStore.characterStates['char-lin'].alive).toBe(true)
+    expect(gameStore.writingTime.eraId).toBe('new-ledger-era')
+    expect(gameStore.characterRelations['relation:lin-keeper'].kind).toBe('adoptive-parent')
+    expect(gameStore.canonicalFacts['fact:ledger-status'].value).toBe('recovered')
+    expect(gameStore.getRuntimeCausalityReport().activeConflicts).toEqual([])
     expect(gameStore.emergenceDraft.decision).toBe('applied')
 
     const rolledBack = gameStore.rollbackEmergenceDraft('emergence_history-hook_1')
     expect(rolledBack.success).toBe(true)
     expect(gameStore.flags.taxLedgerSeen).toBeUndefined()
+    expect(gameStore.placeStates['place:gray-wall:tax-office'].controllerId).toBe('faction:archive')
+    expect(gameStore.characterStates['char-lin'].alive).toBe(false)
+    expect(gameStore.writingTime.eraId).toBe('old-ledger-era')
+    expect(gameStore.characterRelations['relation:lin-keeper'].kind).toBe('guardian')
+    expect(gameStore.canonicalFacts['fact:ledger-status'].value).toBe('missing')
+    expect(rolledBack.event.payload.transitions.time.allowEraChange).toBe(true)
+    expect(gameStore.getRuntimeCausalityReport()).toMatchObject({
+      isConsistent: true,
+      activeConflicts: []
+    })
+    expect(gameStore.getRuntimeCausalityReport().staleEventIds).toContain(applied.event.id)
     expect(gameStore.emergenceDraft.decision).toBe('rolled-back')
     expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-state-rollback')).toBe(true)
 
@@ -370,6 +725,8 @@ describe('gameStore sessions', () => {
     expect(gameStore.emergenceDraft.status).toBe('ready')
     expect(gameStore.emergenceDraft.decision).toBe('rolled-back')
     expect(gameStore.emergenceDraft.event.title).toBe('旧税所的账册回响')
+    expect(gameStore.characterRelations['relation:lin-keeper'].kind).toBe('guardian')
+    expect(gameStore.canonicalFacts['fact:ledger-status'].value).toBe('missing')
   })
 
   it('rejects an emergence draft without mutating runtime state', () => {
@@ -420,6 +777,13 @@ describe('gameStore sessions', () => {
       unresolvedHooks: ['黎明前是否交给潮盐行会'],
       sourceMessageIds: ['chat-1', 'chat-2']
     }]
+    gameStore.setHistoryNode({ id: 'history-clocktower', title: '钟楼密谈', placeId: 'place:clocktower' })
+    gameStore.saveWorldMapState({
+      currentCountry: '东境',
+      currentCity: '青石城',
+      currentScene: '钟楼',
+      placeId: 'place:clocktower'
+    })
 
     vi.mocked(runGenerationTask).mockImplementation(async ({ taskType, parseContent }) => {
       expect(taskType).toBe('adventure.trigger.prose')
@@ -442,6 +806,12 @@ describe('gameStore sessions', () => {
     expect(accepted.asset.kind).toBe('draft-prose')
     expect(storedAssets).toHaveLength(1)
     expect(storedAssets[0].content).toContain('钟楼上的风')
+    expect(storedAssets[0].sourceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ refType: 'session-message', refId: `${session.id}:chat-1` }),
+      expect.objectContaining({ refType: 'history-node', refId: 'history-clocktower' }),
+      expect.objectContaining({ refType: 'map-site', refId: 'place:clocktower' }),
+      expect.objectContaining({ refType: 'plot-journal', refId: 'journal_1' })
+    ]))
     expect(gameStore.adventureTriggers.prose.status).toBe('accepted')
     expect(gameStore.getAdventureTriggerState('prose', Date.now() + 4000).canGenerate).toBe(false)
     expect(gameStore.getAdventureTriggerState('prose', Date.now() + 4000).blockReason).toContain('已保存')
@@ -468,6 +838,13 @@ describe('gameStore sessions', () => {
       unresolvedHooks: ['黎明前是否交给潮盐行会'],
       sourceMessageIds: ['chat-1', 'chat-2']
     }]
+    gameStore.setHistoryNode({ id: 'history-clocktower', title: '钟楼密谈', placeId: 'place:clocktower' })
+    gameStore.saveWorldMapState({
+      currentCountry: '东境',
+      currentCity: '青石城',
+      currentScene: '钟楼',
+      placeId: 'place:clocktower'
+    })
 
     vi.mocked(runGenerationTask).mockImplementation(async ({ taskType, parseContent }) => {
       expect(taskType).toBe('adventure.trigger.storyboard')
@@ -525,6 +902,12 @@ describe('gameStore sessions', () => {
     expect(storedAssets[0].content).toContain('摘要：阿离在钟楼顶层与林舟对质后')
     expect(storyboardDocuments).toHaveLength(1)
     expect(storyboardDocuments[0].projectId).toBe('wb_alpha')
+    expect(storyboardDocuments[0].sourceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ refType: 'narrative-asset', refId: accepted.asset.id }),
+      expect.objectContaining({ refType: 'history-node', refId: 'history-clocktower' }),
+      expect.objectContaining({ refType: 'map-site', refId: 'place:clocktower' }),
+      expect.objectContaining({ refType: 'plot-journal', refId: 'journal_1' })
+    ]))
     expect(gameStore.adventureTriggers.storyboard.status).toBe('accepted')
     expect(gameStore.adventureTriggers.storyboard.storyboardDocumentId).toBe(storyboardDocuments[0].id)
     expect(gameStore.adventureTriggers.storyboard.storyboardVersionId).toBe(accepted.storyboard.version.versionId)
@@ -573,7 +956,7 @@ describe('gameStore sessions', () => {
     expect(getItem(STORAGE_KEYS.WRITING_TIME).eraName).toBe('新纪元')
   })
 
-  it('injects scoped active memories into generation context', async () => {
+  it('returns scoped active memories only after the model requests memory_lookup', async () => {
     const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
@@ -617,26 +1000,42 @@ describe('gameStore sessions', () => {
     ]
     localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
 
-    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
-      callbacks?.onComplete?.({ content: '' })
-      return { content: '' }
-    })
+    vi.mocked(runNarrativeAgentTurn)
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [{
+          id: 'memory-call-1',
+          name: 'memory_lookup',
+          arguments: {
+            action: 'search',
+            query: '旧书店 铜钥匙',
+            filters: { scopes: ['project', 'session'] },
+            limit: 4
+          }
+        }]
+      })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
 
     await gameStore.generateAIResponse()
 
     const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const sentMessages = streamTask.baseMessages
-    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
-
     expect(streamTask.taskType).toBe('narrative.continue')
-    expect(memoryMessage?.content).toContain('旧书店在西街。')
-    expect(memoryMessage?.content).toContain('玩家刚拿到铜钥匙。')
-    expect(memoryMessage?.content).not.toContain('其他作品记忆')
-    expect(memoryMessage?.content).not.toContain('待确认记忆')
-    expect(gameStore.lastMemoryContext).toBe(memoryMessage?.content)
+    expect(streamTask.baseMessages).toHaveLength(3)
+    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(streamTask.baseMessages[0].content).toContain('旧书店在西街。')
+    expect(streamTask.baseMessages[0].content).toContain('玩家刚拿到铜钥匙。')
+    expect(streamTask.baseMessages[0].content).not.toContain('其他作品记忆')
+    expect(streamTask.baseMessages[0].content).not.toContain('待确认记忆')
+    expect(gameStore.lastMemoryContext).toBe('')
+    expect(gameStore.lastMemoryRecall.source).toBe('narrative-tools')
+    expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
+      toolRounds: 1,
+      totalCalls: 1,
+      calls: [expect.objectContaining({ tool: 'memory_lookup' })]
+    })
   })
 
-  it('stores a bounded context ledger without changing generation message order', async () => {
+  it('stores a bounded Kernel and tool ledger without restoring eager prompt layers', async () => {
     const worldStore = useWorldStore()
     worldStore.activeWorldbook = {
       id: 'project-ledger',
@@ -651,16 +1050,15 @@ describe('gameStore sessions', () => {
       }]
     }
 
-    vi.mocked(buildContextMessage).mockReturnValue({
-      role: 'system',
-      content: '【写作上下文】角色在钟楼。'
-    })
-
     const gameStore = useGameStore()
     const session = gameStore.createSession({ title: '账本测试', worldbookId: 'project-ledger' })
     gameStore.chatHistory = [
       { role: 'system', content: '你是叙述者。' },
-      { role: 'assistant', content: '你站在钟楼下。' },
+      { role: 'assistant', content: '你抵达钟楼下，发现门锁上有潮盐行会的旧印。' },
+      { role: 'user', content: '我向林舟询问铜钥匙。' },
+      { role: 'assistant', content: '林舟说铜钥匙曾被带进钟楼。' },
+      { role: 'user', content: '我检查钟楼门锁。' },
+      { role: 'assistant', content: '门锁仍然完好，但锁孔里留着新鲜铜屑。' },
       { role: 'user', content: '继续。' }
     ]
 
@@ -674,31 +1072,109 @@ describe('gameStore sessions', () => {
       })
     ]))
 
-    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
-      callbacks?.onComplete?.({ content: '' })
-      return { content: '' }
-    })
+    vi.mocked(runNarrativeAgentTurn)
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [
+          {
+            id: 'world-rule-call',
+            name: 'world_lookup',
+            arguments: { action: 'search', query: '常驻规则', limit: 3 }
+          },
+          {
+            id: 'world-rule-call-repeat',
+            name: 'world_lookup',
+            arguments: { action: 'search', query: '常驻规则', limit: 3 }
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
 
     await gameStore.generateAIResponse()
 
     const sentMessages = vi.mocked(runGenerationStreamTask).mock.calls[0][0].baseMessages
-    expect(sentMessages[0].content).toContain('【写作上下文】')
-    expect(sentMessages[1].content).toContain('【已确认记忆】')
-    expect(sentMessages[2].content).toContain('【世界书：Ledger World】')
-    expect(sentMessages[3].role).toBe('system')
-    expect(sentMessages[3].content).toContain('你是叙述者。')
-    expect(sentMessages[3].content).toContain(':::narration')
+    expect(sentMessages).toHaveLength(3)
+    expect(sentMessages[0].role).toBe('system')
+    expect(sentMessages[1].role).toBe('system')
+    expect(sentMessages[1].content).toContain('本轮作者注释')
+    expect(sentMessages[2].role).toBe('user')
+    expect(sentMessages[0].content).toContain('所有线索必须有代价')
+    expect(sentMessages[0].content).toContain(':::narration')
+    expect(sentMessages[0].content).not.toContain('【写作上下文】')
+    expect(sentMessages[0].content).not.toContain('【已确认记忆】')
+    expect(sentMessages[0].content).not.toContain('【世界书：Ledger World】')
 
     const sources = new Set(gameStore.lastContextLedger.parts.map((part) => part.source))
     expect(sources.has('worldbook')).toBe(true)
-    expect(sources.has('runtime')).toBe(true)
-    expect(sources.has('memory')).toBe(true)
+    expect(sources.has('generation')).toBe(true)
     expect(sources.has('chat')).toBe(true)
+    expect(sources.has('memory')).toBe(false)
     expect(gameStore.lastContextLedger.parts.every((part) => !Object.prototype.hasOwnProperty.call(part, 'content'))).toBe(true)
     expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
+    expect(gameStore.lastNarrativeKernel).toMatchObject({
+      schemaVersion: 1,
+      projectId: 'project-ledger',
+      sessionId: session.id
+    })
+    expect(gameStore.lastNarrativeKernel.blocks.map((block) => block.kind)).toEqual([
+      'rules',
+      'turn',
+      'scene',
+      'summary',
+      'recent',
+      'continuity',
+      'style'
+    ])
+    expect(gameStore.lastNarrativeContextAudit).toMatchObject({
+      schemaVersion: 1,
+      mode: 'agent-tools',
+      kernelRevision: gameStore.lastNarrativeKernel.revision,
+      indexed: {
+        counts: expect.objectContaining({ world: 1, memory: 1 })
+      },
+      tools: { rounds: 1, calls: 2 }
+    })
+    expect(gameStore.lastNarrativeContextAudit.queryPreview).toBe('继续。')
+    expect(gameStore.lastContextLedger.parts.map((part) => part.partition)).toEqual(
+      expect.arrayContaining(['kernel', 'summary', 'tool'])
+    )
+    expect(gameStore.lastContextLedger.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'generation',
+        partition: 'tool',
+        purpose: 'narrative-agent-runtime',
+        chars: 0
+      })
+    ]))
+    expect(gameStore.lastNarrativeContextAudit.tools).toMatchObject({
+      retainedResults: 1,
+      prunedResults: 1
+    })
+    const productionMetrics = JSON.parse(
+      localStorage.getItem(STORAGE_KEYS.NARRATIVE_PRODUCTION_METRICS)
+    )
+    expect(productionMetrics.events).toHaveLength(1)
+    expect(productionMetrics.events[0]).toMatchObject({
+      mode: 'continue',
+      outcome: 'success',
+      protocolOk: true,
+      tools: {
+        rounds: 1,
+        calls: 2,
+        evidenceCount: 1,
+        errorCount: 0
+      },
+      cleanup: {
+        renderSettled: true,
+        requestReleased: true,
+        loadingOwnerSettled: true
+      }
+    })
+    expect(JSON.stringify(productionMetrics)).not.toContain('所有线索必须有代价')
+    expect(JSON.stringify(productionMetrics)).not.toContain('secret-provider-key')
   })
 
-  it('exposes ranked local recall metadata with bounded previews and excludes pending memories', async () => {
+  it('keeps memory tool evidence bounded and excludes pending or cross-project records', async () => {
     const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
@@ -760,59 +1236,40 @@ describe('gameStore sessions', () => {
     ]
     localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
 
-    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
-      callbacks?.onComplete?.({ content: '' })
-      return { content: '' }
-    })
+    vi.mocked(runNarrativeAgentTurn)
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [{
+          id: 'memory-ranked-call',
+          name: 'memory_lookup',
+          arguments: {
+            action: 'search',
+            query: '旧书店 铜钥匙 钟楼',
+            filters: { scopes: ['project', 'session'] },
+            limit: 4
+          }
+        }]
+      })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
 
     await gameStore.generateAIResponse()
 
     const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const sentMessages = streamTask.baseMessages
-    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
-
-    expect(memoryMessage?.content).toContain('旧书店在西街尽头')
-    expect(memoryMessage?.content).toContain('钟楼顶层拿到了铜钥匙')
-    expect(memoryMessage?.content).not.toContain('另一部作品')
-    expect(memoryMessage?.content).not.toContain('未确认')
-
-    const recall = gameStore.lastMemoryRecall
-    expect(recall).not.toBeNull()
-    expect(recall.source).toBe('local-ranked')
-    expect(recall.includedCount).toBe(3)
-    expect(recall.excludedCount).toBe(0)
-    expect(recall.totalItems).toBe(3)
-    expect(recall.included.map((item) => item.id)).toEqual(expect.arrayContaining([
+    const finalEvidence = streamTask.baseMessages[0].content
+    expect(finalEvidence).toContain('旧书店在西街尽头')
+    expect(finalEvidence).toContain('钟楼顶层拿到了铜钥匙')
+    expect(finalEvidence).not.toContain('另一部作品')
+    expect(finalEvidence).not.toContain('未确认')
+    expect(gameStore.lastNarrativeAgentTrace.calls[0].itemIds).toEqual(expect.arrayContaining([
       'mem-project-bookstore',
-      'mem-session-key',
-      'mem-session-unrelated'
+      'mem-session-key'
     ]))
-    // query terms should be derived from the local query
-    expect(recall.queryTerms).toEqual(expect.arrayContaining(['旧书店', '铜钥匙', '钟楼']))
-    // score must reflect query match count
-    const sessionKey = recall.included.find((item) => item.id === 'mem-session-key')
-    const sessionUnrelated = recall.included.find((item) => item.id === 'mem-session-unrelated')
-    expect(sessionKey.score).toBeGreaterThan(sessionUnrelated.score)
-    // bounded preview: at most preview-limit + ellipsis
-    const PREVIEW_LIMIT = 120
-    for (const item of recall.included) {
-      expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
-      const sourceContent = records.find((record) => record.id === item.id).content
-      if (sourceContent.length > PREVIEW_LIMIT) {
-        // long content must be truncated with an ellipsis marker
-        expect(item.preview).not.toBe(sourceContent)
-        expect(item.preview.length).toBeLessThanOrEqual(PREVIEW_LIMIT + 1)
-      } else {
-        // short content can be shown in full
-        expect(item.preview).toBe(sourceContent)
-      }
-    }
-    // no raw unbounded content field
-    expect(JSON.stringify(recall)).not.toContain('另一部作品')
-    expect(JSON.stringify(recall)).not.toContain('未确认')
+    expect(JSON.stringify(gameStore.lastContextLedger)).not.toContain('另一部作品')
+    expect(JSON.stringify(gameStore.lastContextLedger)).not.toContain('未确认')
+    expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
   })
 
-  it('falls back to Mem0 only when local recall returns no content and still records audit metadata', async () => {
+  it('does not inject Mem0 or a memory prompt when the model does not request memory', async () => {
     const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
@@ -824,29 +1281,22 @@ describe('gameStore sessions', () => {
       { role: 'user', content: '我去找一间旧书店。' }
     ]
 
-    // No memory candidates at all → empty local recall.
-    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
-      callbacks?.onComplete?.({ content: '' })
-      return { content: '' }
-    })
-
     await gameStore.generateAIResponse()
 
     const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const sentMessages = streamTask.baseMessages
-    const memoryMessage = sentMessages.find((message) => message.content?.includes('【已确认记忆】'))
-    // Either no memory message (Mem0 also empty) or Mem0-supplied context.
+    expect(streamTask.baseMessages).toHaveLength(3)
+    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(streamTask.baseMessages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
     const recall = gameStore.lastMemoryRecall
     expect(recall).not.toBeNull()
     expect(recall.includedCount).toBe(0)
     expect(recall.totalItems).toBe(0)
-    expect(['mem0-fallback', 'none']).toContain(recall.source)
-    if (memoryMessage) {
-      expect(memoryMessage.content).toContain('【已确认记忆】')
-    }
+    expect(recall.source).toBe('narrative-tools')
+    expect(gameStore.lastMemoryContext).toBe('')
+    expect(vi.mocked(runNarrativeAgentTurn)).toHaveBeenCalledTimes(1)
   })
 
-  it('starts playable seed worlds with starter worldbook context on narrative init', async () => {
+  it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {
     const preset = seedWorldbookPresets[0]
     const worldStore = useWorldStore()
     worldStore.activeWorldbook = {
@@ -866,25 +1316,55 @@ describe('gameStore sessions', () => {
       { role: 'user', content: '开始故事' }
     ]
 
-    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
-      callbacks?.onChunk?.({ content: '暮湾钟楼仍然沉默。' })
-      callbacks?.onComplete?.({ content: '暮湾钟楼仍然沉默。' })
-      return { content: '暮湾钟楼仍然沉默。' }
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async (_, context) => {
+      if (context.decisionIndex === 0) {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'seed-overview',
+            name: 'world_lookup',
+            arguments: {
+              action: 'search',
+              query: worldStore.activeWorldbook.name,
+              limit: 3
+            }
+          }]
+        }
+      }
+      if (context.decisionIndex === 1) {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'seed-related',
+            name: 'world_lookup',
+            arguments: {
+              action: 'related',
+              ids: [`worldbook:${worldStore.activeWorldbook.id}:overview`],
+              limit: 6
+            }
+          }]
+        }
+      }
+      return { kind: 'final_ready', text: 'READY', calls: [] }
     })
 
     await gameStore.generateAIResponse()
 
     const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const worldbookMessage = streamTask.baseMessages.find((message) => message.content?.includes('【世界书：边境王国 · 雾潮暮湾】'))
-
     expect(streamTask.taskType).toBe('narrative.init')
     expect(streamTask.generationOptions.max_tokens).toBe(1500)
-    expect(worldbookMessage?.content).toContain('开场困境')
-    expect(worldbookMessage?.content).toContain('暮湾主城')
-    expect(worldbookMessage?.content).toContain('潮盐行会')
-    expect(worldbookMessage?.content).toContain('钟楼停摆事件')
-    expect(worldbookMessage?.content).toContain('黎明前的钟楼调查')
-    expect(gameStore.lastWorldbookContext.matchedEntries.some((entry) => entry.matchReason === 'starter')).toBe(true)
+    expect(streamTask.baseMessages).toHaveLength(3)
+    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(streamTask.baseMessages[0].content).toContain('开场困境')
+    expect(streamTask.baseMessages[0].content).toContain('暮湾主城')
+    expect(streamTask.baseMessages[0].content).toContain('银藤学院')
+    expect(streamTask.baseMessages[0].content).toContain('北境灰墙')
+    expect(streamTask.baseMessages[0].content).not.toContain('【世界书：边境王国 · 雾潮暮湾】')
+    expect(gameStore.lastWorldbookContext).toBeNull()
+    expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
+      toolRounds: 2,
+      totalCalls: 2
+    })
   })
 
   it('appends and persists capped runtime events across save and load', () => {
@@ -990,6 +1470,33 @@ describe('gameStore sessions', () => {
 
     // Generation prompt must remain sidecar-free (no runtime-event leakage).
     expect(sentMessages.every((message) => !message.content?.includes('runtime'))).toBe(true)
+
+    const messageCountBeforeCancel = gameStore.messages.length
+    vi.mocked(runNarrativeAgentTurn).mockImplementationOnce(async ({ signal }) => {
+      return new Promise((resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        if (signal.aborted) abort()
+        else signal.addEventListener('abort', abort, { once: true })
+      })
+    })
+    const cancelledGeneration = gameStore.generateAIResponse()
+    gameStore.cancelNarrativeGeneration('test-cancel')
+    await cancelledGeneration
+    expect(gameStore.messages).toHaveLength(messageCountBeforeCancel)
+    expect(gameStore.messages.some((message) => message?.isStreaming)).toBe(false)
+    expect(gameStore.lastError).toBeNull()
+    const productionMetrics = JSON.parse(
+      localStorage.getItem(STORAGE_KEYS.NARRATIVE_PRODUCTION_METRICS)
+    )
+    expect(productionMetrics.events.at(-1)).toMatchObject({
+      outcome: 'cancelled',
+      errorCode: 'NARRATIVE_AGENT_ABORTED',
+      cleanup: {
+        renderSettled: true,
+        requestReleased: true,
+        loadingOwnerSettled: true
+      }
+    })
   })
 
   it('seeds a fresh session with plotJournal, runtimeEvents, worldMapState and factionRelations when entering from a history node', () => {

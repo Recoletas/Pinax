@@ -1,10 +1,26 @@
 import { getRoomBySlug, createRoom } from './RoomRegistry.js'
-import { createEvent, getEventsSince, getSnapshot, isCommandDuplicate } from './RoomEventStore.js'
+import {
+  createEvent,
+  findNarrativeRequest,
+  getEventsSince,
+  getSnapshot,
+  hasNarrativeCompletion,
+  isCommandDuplicate
+} from './RoomEventStore.js'
 import { validateNickname, validateMessage, validateActionText, checkRateLimit, clearRateBucket, ERROR_CODES } from './validators.js'
 import { serialize, serverReady, roomJoined, eventAppend, snapshot, presenceSync, error, pong } from './serializer.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 const HEARTBEAT_TIMEOUT_MS = 60_000
+const NARRATIVE_STATUS_PHASES = new Set([
+  'deciding',
+  'executing-tools',
+  'tools-complete',
+  'ready',
+  'streaming',
+  'complete',
+  'error'
+])
 
 const connections = new Map()
 
@@ -117,6 +133,9 @@ function handleMessage (conn, raw) {
       break
     case 'narrative.request':
       handleNarrativeRequest(conn, parsed)
+      break
+    case 'narrative.status':
+      handleNarrativeStatus(conn, parsed)
       break
     case 'narrative.completed':
       handleNarrativeCompleted(conn, parsed)
@@ -237,7 +256,33 @@ function handleNarrativeRequest (conn, msg) {
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以执行此操作'))
   if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
-  const evt = createEvent(room, 'narrative.requested', conn.memberId, msg.payload || {}, msg.commandId || null)
+  const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
+  const requestId = normalizeNarrativeRequestId(payload.requestId || msg.commandId)
+  const textValid = validateActionText(payload.text)
+  if (!requestId || !textValid.ok) {
+    return conn.send(error(ERROR_CODES.ERR_INVALID_NARRATIVE, textValid.message || '叙事请求标识无效'))
+  }
+  if (findNarrativeRequest(room, requestId)) return
+  const evt = createEvent(room, 'narrative.requested', conn.memberId, {
+    requestId,
+    proposalId: String(payload.proposalId || '').trim().slice(0, 120),
+    text: textValid.value
+  }, msg.commandId || null)
+  conn.broadcastToRoom(eventAppend(room.id, evt))
+}
+
+function handleNarrativeStatus (conn, msg) {
+  const room = conn.room
+  if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
+  if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以提交叙事状态'))
+  if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
+  const payload = normalizeNarrativeStatus(msg.payload)
+  const request = findNarrativeRequest(room, payload.requestId)
+  if (!request) {
+    return conn.send(error(ERROR_CODES.ERR_INVALID_NARRATIVE, '找不到对应的叙事请求'))
+  }
+  if (hasNarrativeCompletion(room, payload.requestId)) return
+  const evt = createEvent(room, 'narrative.status', conn.memberId, payload, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
 
@@ -246,7 +291,28 @@ function handleNarrativeCompleted (conn, msg) {
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以提交叙事结果'))
   if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
-  const evt = createEvent(room, 'narrative.completed', conn.memberId, msg.payload || {}, msg.commandId || null)
+  const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
+  const requestId = normalizeNarrativeRequestId(payload.requestId)
+  const request = findNarrativeRequest(room, requestId)
+  const assistantContent = String(payload.assistantMessage?.content || payload.text || '').trim()
+  if (!request || !assistantContent || assistantContent.length > 20_000) {
+    return conn.send(error(ERROR_CODES.ERR_INVALID_NARRATIVE, '叙事结果无效或没有对应请求'))
+  }
+  if (hasNarrativeCompletion(room, requestId)) {
+    return conn.send(error(ERROR_CODES.ERR_NARRATIVE_CONFLICT, '该叙事请求已经完成'))
+  }
+  const evt = createEvent(room, 'narrative.completed', conn.memberId, {
+    requestId,
+    requestEventId: request.id,
+    actionText: request.payload.text,
+    assistantMessage: {
+      role: 'assistant',
+      name: String(payload.assistantMessage?.name || '').trim().slice(0, 80),
+      content: assistantContent,
+      timestamp: Number(payload.assistantMessage?.timestamp) || Date.now()
+    },
+    createdAt: Number(payload.createdAt) || Date.now()
+  }, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
 }
 
@@ -255,8 +321,36 @@ function handleRuntimePatch (conn, msg) {
   if (!room || !conn.memberId) return conn.send(error(ERROR_CODES.ERR_ROOM_NOT_FOUND, '未加入房间'))
   if (conn.memberId !== room.hostId) return conn.send(error(ERROR_CODES.ERR_NOT_HOST, '只有房主可以执行此操作'))
   if (msg.commandId && isCommandDuplicate(room, msg.commandId)) return
-  const evt = createEvent(room, 'runtime.patch.accepted', conn.memberId, msg.payload || {}, msg.commandId || null)
+  const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
+  const requestId = normalizeNarrativeRequestId(payload.requestId)
+  if (requestId && !hasNarrativeCompletion(room, requestId)) {
+    return conn.send(error(ERROR_CODES.ERR_INVALID_NARRATIVE, '运行时更新没有对应的已完成叙事'))
+  }
+  const evt = createEvent(room, 'runtime.patch.accepted', conn.memberId, {
+    ...payload,
+    requestId
+  }, msg.commandId || null)
   conn.broadcastToRoom(eventAppend(room.id, evt))
+}
+
+function normalizeNarrativeRequestId (value) {
+  const requestId = String(value || '').trim()
+  if (!requestId || requestId.length > 120 || !/^[a-zA-Z0-9:_-]+$/.test(requestId)) return ''
+  return requestId
+}
+
+function normalizeNarrativeStatus (input) {
+  const payload = input && typeof input === 'object' ? input : {}
+  const phase = String(payload.phase || '').trim()
+  return {
+    requestId: normalizeNarrativeRequestId(payload.requestId),
+    phase: NARRATIVE_STATUS_PHASES.has(phase) ? phase : 'error',
+    code: String(payload.code || '').trim().slice(0, 80),
+    message: String(payload.message || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    toolRounds: Math.max(0, Math.min(2, Number(payload.toolRounds) || 0)),
+    totalCalls: Math.max(0, Math.min(6, Number(payload.totalCalls ?? payload.callCount) || 0)),
+    at: Number(payload.at) || Date.now()
+  }
 }
 
 function handleSnapshotRequest (conn, msg) {

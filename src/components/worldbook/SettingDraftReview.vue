@@ -28,6 +28,47 @@
       @input="$emit('update:content', $event.target.value)"
     ></textarea>
 
+    <div class="revision-editor">
+      <div class="revision-editor__head">
+        <div>
+          <strong>修改意见</strong>
+          <span>保留、删除或补充的内容都写在这里</span>
+        </div>
+        <span v-if="revisionHistory.length > 1" class="revision-index">
+          {{ revisionIndex + 1 }} / {{ revisionHistory.length }}
+        </span>
+      </div>
+      <textarea
+        class="revision-input"
+        rows="3"
+        :value="revisionInstruction"
+        placeholder="例如：保留潮汐和旧灯塔，删除神明部分，补充三个关键历史阶段。"
+        :disabled="revisionWorking"
+        @input="$emit('update:revision-instruction', $event.target.value)"
+      ></textarea>
+      <div v-if="revisionError" class="revision-error" role="status">{{ revisionError }}</div>
+      <div class="revision-actions">
+        <button
+          type="button"
+          class="ghost-btn small"
+          :disabled="revisionWorking || revisionIndex <= 0"
+          @click="$emit('previous-revision')"
+        >上一版</button>
+        <button
+          type="button"
+          class="ghost-btn small"
+          :disabled="revisionWorking || revisionIndex >= revisionHistory.length - 1"
+          @click="$emit('next-revision')"
+        >下一版</button>
+        <button
+          type="button"
+          class="revision-submit primary-btn"
+          :disabled="revisionWorking || !revisionInstruction.trim()"
+          @click="$emit('revise')"
+        >{{ revisionWorking ? '修订中…' : '按意见修订' }}</button>
+      </div>
+    </div>
+
     <details v-if="hasDiff" class="diff-preview">
       <summary>查看差异（行级）</summary>
       <ul class="diff-list">
@@ -48,8 +89,13 @@
     </details>
 
     <div class="card-actions">
-      <button class="primary-btn" @click="onAdopt">采纳到字段</button>
-      <button class="ghost-btn" @click="$emit('convert-entry')">转为世界书条目</button>
+      <button class="primary-btn" @click="onAdopt">采纳到世界书</button>
+      <button
+        v-if="canImportToExperience"
+        type="button"
+        class="ghost-btn"
+        @click="$emit('import-to-experience')"
+      >导入体验</button>
       <button class="ghost-btn" @click="$emit('copy')">复制</button>
     </div>
   </section>
@@ -62,10 +108,27 @@ import GenerationStatus from './GenerationStatus.vue'
 const props = defineProps({
   draft: { type: Object, default: null },
   currentFieldValue: { type: String, default: '' },
-  status: { type: Object, default: null } // { state, progress, error }
+  status: { type: Object, default: null }, // { state, progress, error }
+  revisionInstruction: { type: String, default: '' },
+  revisionWorking: { type: Boolean, default: false },
+  revisionError: { type: String, default: '' },
+  revisionHistory: { type: Array, default: () => [] },
+  revisionIndex: { type: Number, default: 0 },
+  canImportToExperience: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['discard', 'update:content', 'save-field', 'convert-entry', 'copy', 'retry'])
+const emit = defineEmits([
+  'discard',
+  'update:content',
+  'save-field',
+  'copy',
+  'import-to-experience',
+  'retry',
+  'update:revision-instruction',
+  'revise',
+  'previous-revision',
+  'next-revision'
+])
 
 // 行级 LCS diff（O(m*n)，短文本足够）
 function diffLinesImpl(before, after) {
@@ -117,7 +180,7 @@ function onAdopt() {
   const current = String(props.currentFieldValue || '').trim()
   const incoming = String(props.draft.content || '').trim()
   if (current && current !== incoming) {
-    const confirmed = window.confirm('当前字段已有内容，采纳将覆盖。继续？')
+    const confirmed = window.confirm('当前设定项已有内容，采纳将更新对应世界书条目。继续？')
     if (!confirmed) return
   }
   emit('save-field')
@@ -182,6 +245,96 @@ function onAdopt() {
   border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
   background: var(--bg-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.revision-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.revision-editor__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.revision-editor__head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.revision-editor__head strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.revision-editor__head span:not(.revision-index) {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.revision-index {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+
+.revision-input {
+  width: 100%;
+  min-height: 76px;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
+  color: var(--text-primary);
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  outline: none;
+}
+
+.revision-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.revision-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.revision-input:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.revision-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.revision-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.revision-submit {
+  min-height: 32px;
 }
 
 .prompt-preview,

@@ -2,6 +2,8 @@ const DEFAULT_LIMIT = 2
 const MAX_HOOKS = 4
 const MAX_FACTIONS = 4
 const MAX_PARTICIPANTS = 6
+const MAX_CAUSAL_EVENTS = 2
+const MAX_SOURCE_REFS = 8
 
 function normalizeText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -16,6 +18,32 @@ function uniqueStrings(values, limit = 20) {
     if (!normalized || seen.has(key)) continue
     seen.add(key)
     result.push(normalized)
+    if (result.length >= limit) break
+  }
+  return result
+}
+
+function record(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function normalizeSourceRef(ref) {
+  if (!ref || typeof ref !== 'object') return null
+  const id = normalizeText(ref.id)
+  if (!id) return null
+  return { type: normalizeText(ref.type) || 'runtime', id }
+}
+
+function uniqueSourceRefs(values, limit = MAX_SOURCE_REFS) {
+  const seen = new Set()
+  const result = []
+  for (const value of values || []) {
+    const ref = normalizeSourceRef(value)
+    if (!ref) continue
+    const key = `${ref.type}\u0000${ref.id}`.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(ref)
     if (result.length >= limit) break
   }
   return result
@@ -65,52 +93,310 @@ function resolveLocation(worldMapState = {}, geoHistoryContext = {}) {
 
 function buildSourceRefs({ geoHistoryContext, historyNode, placeId } = {}) {
   const refs = []
+  const historyNodeId = normalizeText(historyNode?.id)
+  if (historyNodeId) refs.push({ type: 'history-node', id: historyNodeId })
+  if (placeId) refs.push({ type: 'place', id: placeId })
   for (const entryId of uniqueStrings(geoHistoryContext?.entryIds || [], 4)) {
     refs.push({ type: 'geo-history', id: entryId })
   }
-  const historyNodeId = normalizeText(historyNode?.id)
-  if (historyNodeId) refs.push({ type: 'history-node', id: historyNodeId })
-  if (refs.length === 0 && placeId) refs.push({ type: 'place', id: placeId })
-  return refs.slice(0, 6)
+  return uniqueSourceRefs(refs)
 }
 
-function buildReasons({ location, hook, participants, factionName, relationScore } = {}) {
+function describePlaceSignal(placeSignal) {
+  if (!placeSignal) return ''
+  const parts = []
+  if (placeSignal.status) parts.push(placeSignal.status)
+  if (placeSignal.controllerId) parts.push(`控制者 ${placeSignal.controllerId}`)
+  if (placeSignal.danger != null) parts.push(`危险度 ${placeSignal.danger}`)
+  if (placeSignal.activeEventIds.length > 0) parts.push(`近期确认变化 ${placeSignal.activeEventIds.length} 项`)
+  return parts.join('，')
+}
+
+function describeCharacterSignal(characterSignal) {
+  if (!characterSignal) return ''
+  const subject = characterSignal.name || characterSignal.characterId
+  const parts = [`${subject}的目标：${characterSignal.goal}`]
+  if (characterSignal.status) parts.push(`状态 ${characterSignal.status}`)
+  if (characterSignal.knowledgeRefs.length > 0) {
+    parts.push(`关联已确认知识 ${characterSignal.knowledgeRefs.length} 项`)
+  }
+  if (characterSignal.relationRefs.length > 0) {
+    parts.push(`关联已确认关系 ${characterSignal.relationRefs.length} 项`)
+  }
+  if (characterSignal.factRefs.length > 0) {
+    parts.push(`关联 canonical fact ${characterSignal.factRefs.length} 项`)
+  }
+  return parts.join('，')
+}
+
+function buildReasons({
+  location,
+  hook,
+  participants,
+  factionName,
+  relationScore,
+  placeSignal,
+  characterSignal
+} = {}) {
   const reasons = []
   if (location) reasons.push(`当前地点：${location}`)
   if (hook) reasons.push(`未决线索：${hook}`)
+  const characterReason = describeCharacterSignal(characterSignal)
+  if (characterReason) reasons.push(characterReason)
+  const placeReason = describePlaceSignal(placeSignal)
+  if (placeReason) reasons.push(`地点状态：${placeReason}`)
   if (participants.length > 0) reasons.push(`已知参与者：${participants.join('、')}`)
   if (factionName) reasons.push(`已知阵营：${factionName}（关系 ${relationScore}）`)
   return reasons.slice(0, 4)
+}
+
+function currentPlaceSignal({
+  placeId,
+  placeStates,
+  causalityContext
+} = {}) {
+  if (!placeId) return null
+  const raw = record(placeStates)[placeId]
+  if (!raw || typeof raw !== 'object') return null
+  const conflicts = Array.isArray(causalityContext?.conflicts) ? causalityContext.conflicts : []
+  const controlConflicted = conflicts.some((conflict) => (
+    conflict?.code === 'place-control-conflict'
+    && (!normalizeText(conflict.placeId) || normalizeText(conflict.placeId) === placeId)
+  ))
+  const staleIds = new Set((causalityContext?.staleEventIds || []).map(normalizeText).filter(Boolean))
+  const activeEventIds = uniqueStrings(
+    (causalityContext?.recentChanges || [])
+      .filter((change) => (
+        !change?.stale
+        && !staleIds.has(normalizeText(change?.eventId))
+        && (!normalizeText(change?.placeId) || normalizeText(change.placeId) === placeId)
+        && (change?.changedPaths || []).some((path) => (
+          path === 'placeStates'
+          || path === 'characterStates'
+          || path === 'characterRelations'
+          || path === 'canonicalFacts'
+          || path === 'writingTime'
+        ))
+      ))
+      .map((change) => change.eventId),
+    MAX_CAUSAL_EVENTS
+  )
+  const danger = Number(raw.danger)
+  return {
+    placeId,
+    status: normalizeText(raw.status).slice(0, 80),
+    controllerId: controlConflicted ? '' : normalizeText(raw.controllerId).slice(0, 120),
+    danger: Number.isFinite(danger) ? Math.max(0, Math.min(100, danger)) : null,
+    activeEventIds,
+    controlConflicted
+  }
+}
+
+function characterNameIndex(encounteredCharacters = []) {
+  const result = new Map()
+  for (const character of Array.isArray(encounteredCharacters) ? encounteredCharacters : []) {
+    const id = normalizeText(character?.id)
+    const name = normalizeText(character?.name || character)
+    if (id && name) result.set(id, name)
+  }
+  return result
+}
+
+function collectCharacterSignals({
+  characterStates,
+  encounteredCharacters,
+  placeId,
+  causalityContext
+} = {}) {
+  const names = characterNameIndex(encounteredCharacters)
+  const conflictedIds = new Set((causalityContext?.conflicts || [])
+    .filter((conflict) => conflict?.code === 'character-state-conflict')
+    .map((conflict) => normalizeText(conflict.characterId))
+    .filter(Boolean))
+  const result = []
+  for (const [rawCharacterId, rawState] of Object.entries(record(characterStates))) {
+    const characterId = normalizeText(rawCharacterId)
+    const state = record(rawState)
+    const goal = normalizeText(state.goal).slice(0, 120)
+    const statePlaceId = normalizeText(state.placeId)
+    if (!characterId || !goal || state.alive === false || conflictedIds.has(characterId)) continue
+    if (placeId && statePlaceId && statePlaceId !== placeId) continue
+    result.push({
+      characterId,
+      name: names.get(characterId) || '',
+      status: normalizeText(state.status).slice(0, 80),
+      placeId: statePlaceId,
+      goal,
+      knowledgeRefs: uniqueStrings(state.knowledgeRefs || [], 4),
+      relationRefs: uniqueStrings(
+        (causalityContext?.relationships || [])
+          .filter((relation) => (
+            normalizeText(relation?.subjectId) === characterId
+            || normalizeText(relation?.objectId) === characterId
+          ))
+          .map((relation) => relation.relationId),
+        4
+      ),
+      factRefs: uniqueStrings(
+        (causalityContext?.canonicalFacts || [])
+          .filter((fact) => normalizeText(fact?.subjectId) === characterId)
+          .map((fact) => fact.factId),
+        4
+      )
+    })
+    if (result.length >= MAX_PARTICIPANTS) break
+  }
+  return result
+}
+
+function findCharacterSignal(hook, characterSignals) {
+  const key = normalizeText(hook).toLowerCase()
+  return characterSignals.find((signal) => signal.goal.toLowerCase() === key) || null
+}
+
+function placePressureScore(placeSignal) {
+  if (!placeSignal) return 0
+  let score = 0
+  if (placeSignal.status) score += 2
+  if (placeSignal.controllerId) score += 2
+  if (placeSignal.danger >= 70) score += 6
+  else if (placeSignal.danger >= 40) score += 3
+  score += Math.min(4, placeSignal.activeEventIds.length * 2)
+  if (placeSignal.controlConflicted) score -= 3
+  return score
+}
+
+function buildCandidateSourceRefs({
+  baseSourceRefs,
+  placeId,
+  placeSignal,
+  characterSignal
+} = {}) {
+  return uniqueSourceRefs([
+    ...(baseSourceRefs || []).slice(0, 3),
+    ...(placeId ? [{ type: 'place', id: placeId }] : []),
+    ...(characterSignal ? [{ type: 'character', id: characterSignal.characterId }] : []),
+    ...(characterSignal?.knowledgeRefs || []).slice(0, 1).map((id) => ({
+      type: 'character-knowledge',
+      id
+    })),
+    ...(characterSignal?.relationRefs || []).slice(0, 1).map((id) => ({
+      type: 'character-relation',
+      id
+    })),
+    ...(characterSignal?.factRefs || []).slice(0, 1).map((id) => ({
+      type: 'canonical-fact',
+      id
+    })),
+    ...(placeSignal?.activeEventIds || []).map((id) => ({ type: 'runtime-event', id }))
+  ])
+}
+
+function buildCausalState({ placeSignal, characterSignal, conflicts = [] } = {}) {
+  return {
+    place: placeSignal
+      ? {
+          placeId: placeSignal.placeId,
+          status: placeSignal.status,
+          controllerId: placeSignal.controllerId,
+          danger: placeSignal.danger
+        }
+      : null,
+    character: characterSignal
+      ? {
+          characterId: characterSignal.characterId,
+          name: characterSignal.name,
+          status: characterSignal.status,
+          goal: characterSignal.goal,
+          knowledgeRefs: characterSignal.knowledgeRefs,
+          relationRefs: characterSignal.relationRefs,
+          factRefs: characterSignal.factRefs
+        }
+      : null,
+    activeEventIds: placeSignal?.activeEventIds || [],
+    blockedConflictCodes: uniqueStrings((conflicts || []).map((conflict) => conflict?.code), 6)
+  }
 }
 
 function candidateId(type, placeId, subject) {
   return `emergence_${type}_${stableHash([placeId, subject].join('|'))}`
 }
 
-function makeHookCandidate({ hook, placeId, placeRef, location, participants, sourceRefs, goalTitles, now }) {
-  const isGoal = goalTitles.some((title) => title === hook)
-  const reasons = buildReasons({ location, hook, participants })
+function makeHookCandidate({
+  hook,
+  placeId,
+  placeRef,
+  location,
+  participants,
+  baseSourceRefs,
+  goalTitles,
+  characterSignals,
+  placeSignal,
+  conflicts,
+  now
+}) {
+  const characterSignal = findCharacterSignal(hook, characterSignals)
+  const isGoal = Boolean(characterSignal) || goalTitles.some((title) => title === hook)
+  const candidateParticipants = uniqueStrings([
+    ...(characterSignal?.name ? [characterSignal.name] : []),
+    ...participants
+  ], MAX_PARTICIPANTS)
+  const reasons = buildReasons({
+    location,
+    hook,
+    participants: candidateParticipants,
+    placeSignal,
+    characterSignal
+  })
+  const sourceRefs = buildCandidateSourceRefs({
+    baseSourceRefs,
+    placeId,
+    placeSignal,
+    characterSignal
+  })
   return {
     id: candidateId('history-hook', placeId, hook),
     type: isGoal ? 'goal-pressure' : 'history-hook',
     status: 'candidate',
-    title: isGoal ? '未完成目标的后续压力' : '未决历史线索的回响',
+    title: characterSignal
+      ? '角色目标的后续压力'
+      : (isGoal ? '未完成目标的后续压力' : '未决历史线索的回响'),
     summary: location
       ? `在${location}继续处理“${hook}”，事件必须从已知线索和参与者中展开。`
       : `继续处理“${hook}”，事件必须从已知历史线索中展开。`,
     hook,
     placeId,
     placeRef,
-    participants,
+    participants: candidateParticipants,
     sourceRefs,
     reasons,
-    score: clampScore((isGoal ? 6 : 10) + (placeId ? 4 : 0) + (participants.length ? 2 : 0) + (isGoal ? 2 : 0)),
+    causalState: buildCausalState({ placeSignal, characterSignal, conflicts }),
+    score: clampScore(
+      (isGoal ? 6 : 10)
+      + (placeId ? 4 : 0)
+      + (candidateParticipants.length ? 2 : 0)
+      + (isGoal ? 2 : 0)
+      + placePressureScore(placeSignal)
+      + (characterSignal ? 5 + Math.min(3, characterSignal.knowledgeRefs.length) : 0)
+    ),
     createdAt: now
   }
 }
 
-function makeFactionCandidate({ factionName, relationScore, placeId, placeRef, location, participants, sourceRefs, now }) {
+function makeFactionCandidate({
+  factionName,
+  relationScore,
+  placeId,
+  placeRef,
+  location,
+  participants,
+  baseSourceRefs,
+  placeSignal,
+  conflicts,
+  now
+}) {
   const direction = relationScore < 0 ? '施压或阻断' : '提出合作或索取回报'
+  const sourceRefs = buildCandidateSourceRefs({ baseSourceRefs, placeId, placeSignal })
   return {
     id: candidateId('faction-pressure', placeId, factionName),
     type: 'faction-pressure',
@@ -123,8 +409,21 @@ function makeFactionCandidate({ factionName, relationScore, placeId, placeRef, l
     placeRef,
     participants,
     sourceRefs,
-    reasons: buildReasons({ location, participants, factionName, relationScore }),
-    score: clampScore(5 + Math.min(8, Math.abs(relationScore) / 5) + (placeId ? 4 : 0) + (participants.length ? 1 : 0)),
+    reasons: buildReasons({
+      location,
+      participants,
+      factionName,
+      relationScore,
+      placeSignal
+    }),
+    causalState: buildCausalState({ placeSignal, conflicts }),
+    score: clampScore(
+      5
+      + Math.min(8, Math.abs(relationScore) / 5)
+      + (placeId ? 4 : 0)
+      + (participants.length ? 1 : 0)
+      + placePressureScore(placeSignal)
+    ),
     createdAt: now
   }
 }
@@ -150,7 +449,10 @@ export function buildEmergenceCandidates({
   plotJournal = [],
   goals = [],
   encounteredCharacters = [],
+  placeStates = {},
+  characterStates = {},
   factionRelations = {},
+  causalityContext = null,
   now = Date.now(),
   limit = DEFAULT_LIMIT,
   dismissedIds = []
@@ -159,9 +461,22 @@ export function buildEmergenceCandidates({
   const placeId = resolvePlaceId({ geoHistoryContext: context, worldMapState, historyNode })
   const placeRef = resolvePlaceRef({ historyNode, placeId })
   const location = resolveLocation(worldMapState, context)
+  const conflicts = Array.isArray(causalityContext?.conflicts) ? causalityContext.conflicts : []
+  const placeSignal = currentPlaceSignal({
+    placeId,
+    placeStates,
+    causalityContext
+  })
+  const characterSignals = collectCharacterSignals({
+    characterStates,
+    encounteredCharacters,
+    placeId,
+    causalityContext
+  })
   const participants = uniqueStrings([
     ...(context.participants || []),
-    ...(Array.isArray(encounteredCharacters) ? encounteredCharacters.map((item) => item?.name || item) : [])
+    ...(Array.isArray(encounteredCharacters) ? encounteredCharacters.map((item) => item?.name || item) : []),
+    ...characterSignals.map((signal) => signal.name).filter(Boolean)
   ], MAX_PARTICIPANTS)
   const goalTitles = collectGoalTitles(goals)
   const journalHooks = Array.isArray(plotJournal)
@@ -170,9 +485,10 @@ export function buildEmergenceCandidates({
   const hooks = uniqueStrings([
     ...(context.unresolvedHooks || []),
     ...journalHooks,
-    ...goalTitles
+    ...goalTitles,
+    ...characterSignals.map((signal) => signal.goal)
   ], MAX_HOOKS)
-  const sourceRefs = buildSourceRefs({ geoHistoryContext: context, historyNode, placeId })
+  const baseSourceRefs = buildSourceRefs({ geoHistoryContext: context, historyNode, placeId })
   const dismissed = new Set((dismissedIds || []).map(normalizeText).filter(Boolean))
   const candidates = []
 
@@ -183,8 +499,11 @@ export function buildEmergenceCandidates({
       placeRef,
       location,
       participants,
-      sourceRefs,
+      baseSourceRefs,
       goalTitles,
+      characterSignals,
+      placeSignal,
+      conflicts,
       now
     })
     if (!dismissed.has(candidate.id)) candidates.push(candidate)
@@ -201,7 +520,9 @@ export function buildEmergenceCandidates({
       placeRef,
       location,
       participants,
-      sourceRefs,
+      baseSourceRefs,
+      placeSignal,
+      conflicts,
       now
     })
     if (!dismissed.has(candidate.id)) candidates.push(candidate)

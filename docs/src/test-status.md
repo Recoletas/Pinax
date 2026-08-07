@@ -4,12 +4,12 @@
 
 ## 最近验证
 
-最后更新：2026-07-16 15:43 CST
+最后更新：2026-08-07 10:52 CST
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| `npm run test:run` | 通过：18 files / 200 tests | 核心数据流、地图视觉、地理历史、运行时、世界书、记忆、素材与恢复回归 |
-| `npm run verify:full` | 通过：17 files / 188 tests + 1 file / 12 visual tests | Vite build、VitePress docs build、`git diff --check` 通过；视觉仅执行一次 |
+| `npm run test:run` | 通过：31 files / 254 tests | 核心数据流、地图视觉、地理历史、运行时、世界书、记忆、素材与恢复回归 |
+| `npm run verify:full` | 通过：31 files / 254 tests + 1 file / 12 visual tests | Vite build、VitePress docs build、`git diff --check` 通过；视觉仅执行一次 |
 
 ## Gate 0.1 主流程 Smoke 基线
 

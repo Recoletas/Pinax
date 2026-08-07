@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildGeoHistoryDraft,
+  collectWorldbookPlaceNames,
   selectSemanticSitesForReview
 } from '../services/worldHistory/geoHistoryPipeline'
 
@@ -120,6 +121,36 @@ describe('worldHistory/geoHistoryPipeline', () => {
       'fertile-1',
       'hostile-1'
     ])
+
+    const noisySites = selectSemanticSitesForReview({
+      tradeHubs: [{ id: 'hub-real', type: 'tradeHub', title: '白港（首都）', score: 100, markerIds: ['burg:1'] }],
+      frontierZones: [{ id: 'frontier-noise', type: 'frontierZone', title: '边境荒域 1', score: 99 }],
+      fertileRegions: [{ id: 'fertile-noise', type: 'fertileRegion', title: '沃土 11', score: 99 }],
+      hostileRegions: [{ id: 'hostile-noise', type: 'hostileRegion', title: '凶土 1', score: 99 }],
+      strategicRoutes: [{ id: 'route-real', type: 'strategicRoute', title: '白港—北境商道', score: 90, markerIds: ['road:1'] }]
+    }, { maxSites: 12 })
+
+    expect(noisySites.map((site) => site.id)).toEqual(['hub-real', 'route-real'])
+
+    const unnamedTerrain = selectSemanticSitesForReview({
+      fertileRegions: [{ id: 'fertile-plain', type: 'fertileRegion', title: '沃土', score: 100, cellIds: [4] }],
+      hostileRegions: [{ id: 'hostile-plain', type: 'hostileRegion', title: '凶土（高原）', score: 99, cellIds: [5] }],
+      mountainPasses: [{ id: 'pass-plain', type: 'mountainPass', title: '山口 2', score: 98, cellIds: [6] }]
+    }, { maxSites: 12 })
+    expect(unnamedTerrain).toEqual([])
+
+    const worldbookOnly = selectSemanticSitesForReview({
+      tradeHubs: [
+        { id: 'generated-capital', type: 'tradeHub', title: 'Silverkeep（首都）', score: 100, markerIds: ['burg:1'] },
+        { id: 'authored-port', type: 'tradeHub', title: '雾港（港）', score: 90, markerIds: ['burg:2'] },
+      ],
+      strategicRoutes: [{ id: 'generated-route', type: 'strategicRoute', title: 'Silverkeep—Ironforge（major）', score: 85, markerIds: ['road:1'] }],
+    }, { maxSites: 12, allowedNames: collectWorldbookPlaceNames(worldbook) })
+    expect(worldbookOnly.map((site) => site.id)).toEqual(['authored-port'])
+
+    expect(selectSemanticSitesForReview({
+      tradeHubs: [{ id: 'generated-only', type: 'tradeHub', title: 'Silverkeep（首都）', score: 100, markerIds: ['burg:3'] }],
+    }, { maxSites: 12, requireAllowedNames: true })).toEqual([])
   })
 
   it('只用明确选中的语义点生成历史草案', () => {

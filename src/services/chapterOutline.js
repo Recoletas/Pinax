@@ -1,4 +1,8 @@
-import { getAssetKindLabel } from './narrativeAssets'
+import {
+  createNarrativeAssetSourceRef,
+  getAssetKindLabel,
+  mergeSourceRefs
+} from './narrativeAssets'
 
 export const CHAPTER_OUTLINE_SCHEMA_VERSION = 1
 
@@ -17,6 +21,7 @@ export function createChapterOutlineItem(input = {}) {
     title,
     content,
     source: normalizeOutlineSource(input.source),
+    sourceRefs: mergeSourceRefs(input.sourceRefs),
     createdAt: input.createdAt || now,
     updatedAt: input.updatedAt || now
   }
@@ -28,6 +33,10 @@ export function createChapterOutlineItemFromAsset(asset = {}) {
     assetKind: asset.kind,
     title: asset.title,
     content: asset.content,
+    sourceRefs: mergeSourceRefs([
+      ...(asset.sourceRefs || []),
+      createNarrativeAssetSourceRef(asset)
+    ]),
     source: {
       type: 'narrative-asset',
       assetId: asset.id,

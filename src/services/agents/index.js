@@ -67,3 +67,44 @@ export {
   canRequestPassiveHint,
   recordAgentRuntimeEvent
 } from './agentRuntimePolicy'
+
+export { buildNarrativeKernel } from './narrativeKernel'
+export {
+  createNarrativeResourceIndex,
+  createNarrativeResourceSnapshotRevision,
+  getNarrativeResourceIndex,
+  getNarrativeResources,
+  getRelatedNarrativeResources,
+  searchNarrativeResources,
+  traceNarrativeHistory,
+  toNarrativeToolItems
+} from './narrativeResourceIndex'
+export { createNarrativeToolRegistry } from './narrativeToolRegistry'
+export {
+  appendNarrativeContextAudit,
+  buildNarrativeContextAudit
+} from './narrativeContextAudit'
+export {
+  NARRATIVE_AGENT_RUNTIME_LIMITS,
+  buildNarrativeDecisionMessages,
+  buildNarrativeFinalMessages,
+  createNarrativeAgentContextLedger,
+  pruneNarrativeToolResults,
+  runNarrativeAgentGeneration,
+  runNarrativeToolLoop
+} from './narrativeAgentOrchestrator'
+export {
+  NARRATIVE_SCENE_SUMMARY_LIMITS,
+  normalizeNarrativeSceneSummary,
+  resolveNarrativeSceneSummary
+} from './narrativeSceneSummary'
+export {
+  NARRATIVE_PRODUCTION_METRICS_SCHEMA_VERSION,
+  NARRATIVE_PRODUCTION_METRICS_LIMIT,
+  clearNarrativeProductionMetrics,
+  createNarrativeProductionObserver,
+  getNarrativeProductionMetrics,
+  normalizeNarrativeProductionRun,
+  recordNarrativeProductionRun,
+  summarizeNarrativeProductionMetrics
+} from './narrativeProductionMetrics'

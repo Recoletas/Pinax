@@ -2,6 +2,9 @@ import express from 'express'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { memoryService } from '../services/memoryService.js'
+import { resolveGenerationToolProtocol } from '../../shared/generationToolContract.js'
+import { probeNarrativeProviderCapabilities } from '../services/providers/narrativeCapabilityProbe.js'
+import { probeStructuredProviderCapabilities } from '../services/structuredGenerationRunner.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -88,7 +91,7 @@ function getMem0ClientError(error) {
     : '记忆服务请求失败，请检查网络和配置'
 }
 
-function extractTextContent(payload) {
+export function extractTextContent(payload) {
   if (typeof payload === 'string') return payload
   if (payload == null) return ''
 
@@ -100,8 +103,8 @@ function extractTextContent(payload) {
   }
 
   if (typeof payload === 'object') {
-    if (typeof payload.reasoning_content === 'string' && payload.reasoning_content.trim()) return payload.reasoning_content
-    if (typeof payload.reasoning === 'string' && payload.reasoning.trim()) return payload.reasoning
+    const blockType = String(payload.type || '').trim().toLowerCase()
+    if (['reasoning', 'thinking', 'redacted_thinking'].includes(blockType)) return ''
     if (typeof payload.text === 'string') return payload.text
     if (typeof payload.content === 'string') return payload.content
     if (Array.isArray(payload.content)) return extractTextContent(payload.content)
@@ -109,6 +112,12 @@ function extractTextContent(payload) {
     if (Array.isArray(payload.output)) return extractTextContent(payload.output)
     if (typeof payload.response === 'string') return payload.response
     if (Array.isArray(payload.parts)) return extractTextContent(payload.parts)
+    if (payload.type === 'tool_use' && payload.input && typeof payload.input === 'object') {
+      return JSON.stringify(payload.input)
+    }
+    if (payload.function && typeof payload.function.arguments === 'string') {
+      return payload.function.arguments
+    }
   }
 
   return ''
@@ -119,12 +128,15 @@ function extractOpenAIChoiceText(choice) {
 
   return (
     extractTextContent(choice?.message?.content) ||
-    extractTextContent(choice?.message?.reasoning_content) ||
-    extractTextContent(choice?.message?.reasoning) ||
     extractTextContent(choice?.content) ||
     extractTextContent(choice?.text) ||
     extractTextContent(choice?.delta?.content) ||
-    extractTextContent(choice?.delta?.reasoning_content) ||
+    (Array.isArray(choice?.message?.tool_calls)
+      ? choice.message.tool_calls
+        .map((toolCall) => extractTextContent(toolCall?.function?.arguments))
+        .filter(Boolean)
+        .join('')
+      : '') ||
     ''
   )
 }
@@ -317,6 +329,7 @@ export async function handleGenerateRequest(req, res) {
     baseUrl,
     apiKey,
     model,
+    format,
     max_tokens,
     temperature,
     response_format,
@@ -325,7 +338,8 @@ export async function handleGenerateRequest(req, res) {
     mem0Host,
     retryCount,
     max_input_chars,
-    request_id
+    request_id,
+    reasoning_effort
   } = req.body || {}
 
   if (!messages || !Array.isArray(messages)) {
@@ -349,7 +363,15 @@ export async function handleGenerateRequest(req, res) {
   const effectiveApiKey = apiKey
   const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
-  const chatPath = providerDefaults.chatPath || '/chat/completions'
+  const providerProtocol = resolveGenerationToolProtocol({
+    id: effectiveProvider,
+    baseUrl: effectiveBaseUrl,
+    format
+  })
+  const usesAnthropicProtocol = providerProtocol === 'anthropic'
+  const chatPath = usesAnthropicProtocol
+    ? '/v1/messages'
+    : (providerDefaults.chatPath || '/chat/completions')
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
@@ -466,11 +488,21 @@ export async function handleGenerateRequest(req, res) {
       headers['Authorization'] = `Bearer ${effectiveApiKey}`
     }
 
-    // Determine API format based on provider
-    const normalizedMessages = budgetedInput.messages.map(m => ({
-      role: m.role,
-      content: m.content
-    }))
+    // Anthropic-compatible APIs require system content outside the message list.
+    const clientSystemPrompt = budgetedInput.messages
+      .filter((message) => message?.role === 'system')
+      .map((message) => extractTextContent(message?.content))
+      .filter(Boolean)
+      .join('\n\n')
+    if (clientSystemPrompt) {
+      systemPromptBlocks.unshift(clientSystemPrompt)
+    }
+    const normalizedMessages = budgetedInput.messages
+      .filter((message) => message?.role !== 'system')
+      .map(m => ({
+        role: m.role,
+        content: m.content
+      }))
 
     let mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
     const maxSystemPromptChars = Math.max(120, Math.floor(maxInputChars * 0.2))
@@ -519,18 +551,27 @@ export async function handleGenerateRequest(req, res) {
       temperature: effectiveTemperature
     }
 
-    if (response_format && effectiveProvider !== 'claude' && effectiveProvider !== 'cohere') {
+    if (typeof reasoning_effort === 'string' && reasoning_effort.trim()
+      && (effectiveProvider === 'deepseek' || String(effectiveModel).toLowerCase().includes('reasoning'))) {
+      requestBody.reasoning_effort = reasoning_effort.trim()
+    }
+
+    if (response_format && !usesAnthropicProtocol && effectiveProvider !== 'cohere') {
       requestBody.response_format = response_format
     }
 
-    // Special handling for Claude API
-    if (effectiveProvider === 'claude') {
+    if (usesAnthropicProtocol) {
       delete headers['Authorization']
       headers['x-api-key'] = effectiveApiKey
       headers['anthropic-version'] = '2023-06-01'
+      if (/minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(chatUrl)) {
+        delete headers['x-api-key']
+        headers['Authorization'] = `Bearer ${effectiveApiKey}`
+      }
       requestBody = {
         model: effectiveModel,
         max_tokens: effectiveMaxTokens,
+        temperature: effectiveTemperature,
         messages: normalizedMessages.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : m.role,
           content: m.content
@@ -576,16 +617,13 @@ export async function handleGenerateRequest(req, res) {
     let content =
       extractOpenAIChoiceText(data?.choices?.[0]) ||
       extractTextContent(message?.content) ||
-      extractTextContent(message?.reasoning_content) ||
       extractTextContent(data?.message?.content) ||
-      extractTextContent(data?.message?.reasoning_content) ||
       extractTextContent(data?.content) ||
       extractTextContent(data?.output_text) ||
       extractTextContent(data?.output) ||
       ''
 
-    // Handle Claude response format
-    if (effectiveProvider === 'claude' && data.content) {
+    if (usesAnthropicProtocol && data.content) {
       content = extractTextContent(data.content) || content
     }
 
@@ -648,6 +686,7 @@ router.post('/stream', async (req, res) => {
     baseUrl,
     apiKey,
     model,
+    format,
     max_tokens,
     temperature,
     userId,
@@ -676,7 +715,15 @@ router.post('/stream', async (req, res) => {
   const effectiveApiKey = apiKey
   const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
-  const chatPath = providerDefaults.chatPath || '/chat/completions'
+  const providerProtocol = resolveGenerationToolProtocol({
+    id: effectiveProvider,
+    baseUrl: effectiveBaseUrl,
+    format
+  })
+  const usesAnthropicProtocol = providerProtocol === 'anthropic'
+  const chatPath = usesAnthropicProtocol
+    ? '/v1/messages'
+    : (providerDefaults.chatPath || '/chat/completions')
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
@@ -693,6 +740,13 @@ router.post('/stream', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
+
+  const upstreamController = new AbortController()
+  const abortUpstream = () => {
+    if (!res.writableEnded) upstreamController.abort()
+  }
+  req.once('aborted', abortUpstream)
+  res.once('close', abortUpstream)
 
   try {
     // 记忆注入
@@ -743,10 +797,16 @@ router.post('/stream', async (req, res) => {
 `
     }
 
-    const hasClientSystemPrompt = budgetedInput.messages.some((m) => m?.role === 'system')
+    const clientSystemPrompt = budgetedInput.messages
+      .filter((message) => message?.role === 'system')
+      .map((message) => extractTextContent(message?.content))
+      .filter(Boolean)
+      .join('\n\n')
     const systemPromptBlocks = []
 
-    if (!hasClientSystemPrompt) {
+    if (clientSystemPrompt) {
+      systemPromptBlocks.push(clientSystemPrompt)
+    } else {
       systemPromptBlocks.push(systemPrompt)
     }
 
@@ -763,10 +823,12 @@ router.post('/stream', async (req, res) => {
       headers['Authorization'] = `Bearer ${effectiveApiKey}`
     }
 
-    const normalizedMessages = budgetedInput.messages.map(m => ({
-      role: m.role,
-      content: m.content
-    }))
+    const normalizedMessages = budgetedInput.messages
+      .filter((message) => message?.role !== 'system')
+      .map(m => ({
+        role: m.role,
+        content: m.content
+      }))
 
     let mergedSystemPrompt = systemPromptBlocks.join('\n\n').trim()
     const maxSystemPromptChars = Math.max(120, Math.floor(maxInputChars * 0.2))
@@ -811,13 +873,18 @@ router.post('/stream', async (req, res) => {
     }
 
     // Claude API uses different format
-    if (effectiveProvider === 'claude') {
+    if (usesAnthropicProtocol) {
       delete headers['Authorization']
       headers['x-api-key'] = effectiveApiKey
       headers['anthropic-version'] = '2023-06-01'
+      if (/minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(chatUrl)) {
+        delete headers['x-api-key']
+        headers['Authorization'] = `Bearer ${effectiveApiKey}`
+      }
       requestBody = {
         model: effectiveModel,
         max_tokens: effectiveMaxTokens,
+        temperature: effectiveTemperature,
         messages: normalizedMessages.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : m.role,
           content: m.content
@@ -830,7 +897,8 @@ router.post('/stream', async (req, res) => {
     const response = await fetch(chatUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: upstreamController.signal
     })
 
     if (!response.ok) {
@@ -853,6 +921,7 @@ router.post('/stream', async (req, res) => {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
+        if (res.writableEnded || res.destroyed) return
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
 
@@ -884,9 +953,13 @@ router.post('/stream', async (req, res) => {
     res.write(`data: [DONE]\n\n`)
     res.end()
   } catch (e) {
+    if (upstreamController.signal.aborted || res.writableEnded || res.destroyed) return
     console.error('Stream error:', e)
     res.write(`data: ${JSON.stringify({ error: e.message || '内部错误' })}\n\n`)
     res.end()
+  } finally {
+    req.removeListener('aborted', abortUpstream)
+    res.removeListener('close', abortUpstream)
   }
 })
 
@@ -978,72 +1051,49 @@ router.post('/models', async (req, res) => {
 
 // Test connection endpoint
 router.post('/test', async (req, res) => {
-  const { baseUrl, apiKey, provider } = req.body
+  const { baseUrl, apiKey, provider, model, format } = req.body
   const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
 
   if (!effectiveBaseUrl) {
     return res.json({ ok: false, message: '请输入 Base URL' })
   }
+  if (!String(apiKey || '').trim()) return res.json({ ok: false, message: '请输入 API Key' })
+  if (!String(model || '').trim()) return res.json({ ok: false, message: '请输入模型名称' })
 
-  try {
-    const headers = {}
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`
-    }
-
-    // Try the models endpoint to test connection
-    let testUrl = effectiveBaseUrl
-    if (!testUrl.endsWith('/models')) {
-      testUrl = `${testUrl.replace(/\/$/, '')}/models`
-    }
-
-    const response = await fetch(testUrl, { headers })
-
-    if (response.ok) {
-      const data = await response.json()
-      const modelCount = data.data?.length || 0
-      return res.json({
-        ok: true,
-        message: `连接成功 (${modelCount} 个模型可用)`
-      })
-    } else {
-      // Try alternative
-      const altUrls = [
-        `${effectiveBaseUrl}/v1/models`,
-        `${effectiveBaseUrl}/api/tags`
-      ]
-
-      for (const url of altUrls) {
-        try {
-          const resp = await fetch(url, { headers })
-          if (resp.ok) {
-            const data = await resp.json()
-            let modelCount = 0
-            if (data.data) modelCount = data.data.length
-            else if (data.models) modelCount = data.models.length
-            else if (Array.isArray(data)) modelCount = data.length
-
-            return res.json({
-              ok: true,
-              message: `连接成功 (${modelCount} 个模型可用)`
-            })
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      return res.json({
-        ok: false,
-        message: `连接失败 (${response.status})`
-      })
-    }
-  } catch (e) {
-    return res.json({
-      ok: false,
-      message: '连接超时或地址无效'
-    })
-  }
+  const result = await probeNarrativeProviderCapabilities({
+    id: provider,
+    baseUrl: effectiveBaseUrl,
+    apiKey,
+    model,
+    format
+  })
+  const structured = await probeStructuredProviderCapabilities({
+    id: provider,
+    baseUrl: effectiveBaseUrl,
+    apiKey,
+    model,
+    format
+  })
+  const textOk = Boolean(result.text?.ok && result.text?.responseText)
+  const toolOk = Boolean(result.tool?.validCall)
+  const roundTripOk = Boolean(result.roundTrip?.terminal)
+  const message = [
+    textOk ? '文本可用' : '文本不可用',
+    toolOk ? '工具调用可用' : '工具调用未通过',
+    roundTripOk ? '工具结果往返可用' : '工具结果往返未通过',
+    structured.available ? `结构化设定可用（${structured.mode}）` : '结构化设定不可用'
+  ].join('；')
+  return res.json({
+    ok: textOk,
+    message,
+    capabilities: result.capabilities,
+    probe: {
+      text: result.text,
+      tool: result.tool,
+      roundTrip: result.roundTrip
+    },
+    structured
+  })
 })
 
 router.post('/mem0/test', async (req, res) => {

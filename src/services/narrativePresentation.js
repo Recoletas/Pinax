@@ -1,16 +1,17 @@
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
-const MARKER_RE = /^:::(narration|action|dialogue|thought|system)(?:\|([^\n|]{1,80}))?\s*$/
+const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:\|([^\n|]{1,80}))?\s*$/i
+const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|]+(?:\|[^\n]*)?\s*$/
 
-export const NARRATIVE_PRESENTATION_VERSION = 2
+export const NARRATIVE_PRESENTATION_VERSION = 3
 export const NARRATIVE_BLOCK_KINDS = Object.freeze([...BLOCK_KINDS])
 
 export function buildNarrativeFormatInstructions() {
   return [
     '【叙事输出格式】',
-    '请在每个语义块的行首使用 marker；不要输出 HTML、JSON、颜色说明或其他控制标签。',
+    'marker 只是传输协议，不是正文。每个自然段或说话人切换时使用一次，不要把每句话拆成一块；不要输出 HTML、JSON、颜色说明或其他控制标签。',
     '允许的类型只有：:::narration、:::action|角色名、:::dialogue|角色名、:::thought|角色名、:::system。',
     'marker 后换行写正文；同一块可以有多行；speaker 只有明确知道说话者时才填写，不要猜测角色。',
-    '台词保留中文或英文引号，动作和心理保持自然文字；不要替玩家决定未输入的行动。',
+    '台词保留中文或英文引号；叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
     '示例：\n:::narration\n雨水沿着舷窗滑落。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
     '如果没有明显语义切换，可以只输出一个 narration 块。'
   ].join('\n')
@@ -66,11 +67,10 @@ export function parseNarrativePresentation(text, options = {}) {
 export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   const complete = options.complete !== false
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
-  const lines = String(text || '').split('\n')
+  const lines = String(text || '').split(/\r?\n/)
   const blocks = []
   let current = null
   let sawMarker = false
-  let invalidMarker = false
 
   const flush = () => {
     if (!current) return
@@ -84,20 +84,26 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   }
 
   for (const line of lines) {
+    if (/^\s*```(?:text|markdown)?\s*$/i.test(line)) continue
     const marker = line.match(MARKER_RE)
     if (marker) {
       sawMarker = true
       flush()
-      current = { kind: marker[1], speaker: normalizeSpeaker(marker[2]), lines: [] }
+      current = { kind: marker[1].toLowerCase(), speaker: normalizeSpeaker(marker[2]), lines: [] }
       continue
     }
-    if (/^:::[^\s]/.test(line)) invalidMarker = true
+    if (UNKNOWN_MARKER_RE.test(line)) {
+      sawMarker = true
+      flush()
+      current = { kind: 'narration', speaker: '', lines: [] }
+      continue
+    }
     if (current) current.lines.push(line)
     else if (line.trim()) current = { kind: 'narration', speaker: '', lines: [line] }
   }
   flush()
 
-  if (!sawMarker || invalidMarker || (complete && blocks.length === 0)) return null
+  if (!sawMarker || (complete && blocks.length === 0)) return null
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'model-structured',
@@ -110,7 +116,7 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
 
 function trimPendingMarkerLine(text) {
   const source = String(text || '')
-  const lines = source.split('\n')
+  const lines = source.split(/\r?\n/)
   const lastLine = lines[lines.length - 1]
   if (/^:{1,3}[a-z]*(?:\|[^\n]*)?$/i.test(lastLine)) lines.pop()
   return lines.join('\n')
@@ -128,7 +134,7 @@ function parseLegacyBlocks(text, messageId, options = {}) {
       const thought = line.match(/^[（(]([^）)\n]+)[）)]$/)
       if (action) blocks.push(createBlock('action', action[1], '', messageId, blocks.length))
       else if (thought) blocks.push(createBlock('thought', thought[1], '', messageId, blocks.length))
-      else if (hasDialogue(line)) {
+      else if (isDialogueDominant(line)) {
         const explicitSpeaker = extractExplicitDialogueSpeaker(line)
         const speaker = explicitSpeaker || fallbackSpeaker
         blocks.push(createBlock(
@@ -147,12 +153,20 @@ function parseLegacyBlocks(text, messageId, options = {}) {
 }
 
 function hasDialogue(text) {
-  return /"[^"\n]+"|“[^”\n]+”|「[^」\n]+」|‘[^’\n]+’/.test(text)
+  return /"[^"\n]+"|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|‘[^’\n]+’/.test(text)
+}
+
+function isDialogueDominant(text) {
+  const line = String(text || '').trim()
+  if (!hasDialogue(line)) return false
+  if (extractExplicitDialogueSpeaker(line)) return true
+  if (/^[“"「『‘]/.test(line)) return true
+  return /^[^，,。！？!?]{1,24}(?:轻声|低声|沉声|冷冷地|缓缓地?|忽然)?(?:说|说道|问|问道|答|答道|喊|喊道|叫|叫道|低语|呢喃|开口)\s*[：:]\s*[“"「『‘]/.test(line)
 }
 
 function extractExplicitDialogueSpeaker(text) {
   const line = String(text || '').trim()
-  const openingQuoteIndex = line.search(/[“"「‘]/)
+  const openingQuoteIndex = line.search(/[“"「『‘]/)
   if (openingQuoteIndex < 0) return ''
 
   const beforeQuote = line.slice(0, openingQuoteIndex).trim()
@@ -164,6 +178,7 @@ function extractExplicitDialogueSpeaker(text) {
     line.lastIndexOf('”'),
     line.lastIndexOf('"'),
     line.lastIndexOf('」'),
+    line.lastIndexOf('』'),
     line.lastIndexOf('’')
   )
   if (closingQuoteIndex < openingQuoteIndex) return ''

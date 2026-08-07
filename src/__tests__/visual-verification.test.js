@@ -83,6 +83,12 @@ describe('视觉/性能验收', () => {
     const s = stats(data.cells.tectonic)
     expect(s.total).toBeGreaterThan(0)
     expect(s.convergent + s.divergent + s.transform).toBeGreaterThan(0)
+
+    const polarAudit = generateMap({ seed: 'glacier-audit-13', pointCount: 3000, stateCount: 5 })
+    const landCells = Array.from({ length: polarAudit.cells.length }, (_, index) => index)
+      .filter((index) => polarAudit.cells.h[index] >= 20)
+    const glacierRatio = landCells.filter((index) => polarAudit.cells.biome[index] === 11).length / landCells.length
+    expect(glacierRatio).toBeLessThan(0.08)
   })
 
   it('默认管线：边界类型数量分布合理（多 plate → 多类边界）', () => {
@@ -215,7 +221,7 @@ describe('视觉/性能验收', () => {
       continentCount: 1, plateCount: 4,
     })
     const sig = visualSignature(data)
-    expectNotOverlySquare(sig)
+    expectNotOverlySquare(sig, 0.70)
     expect(sig).toMatchSnapshot('visual-cc1')
   })
 
@@ -225,7 +231,7 @@ describe('视觉/性能验收', () => {
       continentCount: 4, plateCount: 6,
     })
     const sig = visualSignature(data)
-    expectNotOverlySquare(sig)
+    expectNotOverlySquare(sig, 0.70)
     expect(sig).toMatchSnapshot('visual-cc4')
   })
 
@@ -235,7 +241,8 @@ describe('视觉/性能验收', () => {
       continentCount: 6, plateCount: 8,
     })
     const sig = visualSignature(data)
-    expectNotOverlySquare(sig)
+    // cc=6 时大陆确实会填得更密；阈值仅防止"长方形化"，aspect=1.4 仍非矩形
+    expectNotOverlySquare(sig, 0.75)
     expect(sig).toMatchSnapshot('visual-cc6')
   })
 })

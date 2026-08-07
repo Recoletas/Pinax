@@ -26,8 +26,8 @@ const TOKEN_PATTERNS = [
   },
   {
     type: 'dialogue',
-    pattern: /"([^"\n]{3,})"|“([^”]{3,})”|「([^」]{3,})」/g,
-    contentIndex: [1, 2, 3]
+    pattern: /"([^"\n]{1,})"|“([^”\n]{1,})”|「([^」\n]{1,})」|『([^』\n]{1,})』|‘([^’\n]{1,})’/g,
+    contentIndex: [1, 2, 3, 4, 5]
   },
   {
     type: 'thought',
@@ -230,7 +230,7 @@ function isDialogueTrigger(token, triggerMatchers) {
 
 function normalizeComparableText(value) {
   return String(value || '')
-    .replace(/^["“「]|["”」]$/g, '')
+    .replace(/^["“「『‘]|["”」』’]$/g, '')
     .replace(/\s+/g, '')
     .trim()
 }

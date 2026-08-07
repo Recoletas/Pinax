@@ -10,6 +10,497 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-08-06 - 结构化地点目录取代地图正文猜测
+
+- 结构化设定的世界观分区在“地理环境”后新增连续式地点目录。城市、城镇、区域、河流和路线以独立世界书 `location` 条目维护，可搜索筛选、新建、编辑、删除并审阅关系影响；名称、别名、类型、尺度、上级、势力、地形提示、关键词、描述和有限 typed relations 共用统一地点合同。
+- “从概述整理”使用严格 `setting-places.v1`，按段落分批返回带原文证据的地点草稿；部分无效项和批次错误保留，草稿可逐项编辑、采纳或忽略。revision guard 只检查概述和目标条目，采纳一项不会让同批其他无关草稿过期；reasoning、普通文本和不闭合 JSON 不会作为地点写入。
+- 世界书 entries 继续是唯一地点事实真源，不新增地点 store。手工编辑保留已有证据和 `mapBinding`，Pinax/SillyTavern extension 往返保留结构化地点负载；高级条目和设定页读取同一 entry ID。
+- 地图生产链不再从“地理环境”正文提取 provisional marker、名称种子或历史候选，只消费正式地点、显式地点关系与 geo-history。旧后缀解析移到设定页整理适配层，只能产生待审草稿。
+- Luna 实现合同、服务、UI 和地图切换，Codex 修复 typed relation 兼容、地点编辑丢失绑定/证据、metadata 合并、生成异常复位和移动布局。完整核心 188 + 视觉 12、Vite/VitePress build 与 diff check 通过；主题2 1440/390 无 console error 或横向溢出，两草稿浏览器 fixture 证明采纳“灰锤堡”后“学城”仍可继续审阅。真实 provider 质量 Gate 待执行。
+
+## 2026-08-06 - 地点提取、地图原生地点与统一标记视觉
+
+- “地理环境”正文不再用单个后缀正则扫整段。提取改为按句子和分句识别地点，保留最多 180 字的证据句，并只依据明确的位于、相邻、方向和道路连接词建立关系；“某个小村”“通往地下城”等泛称不会成为地点。
+- 自动提取增加叙述片段词法门禁：含“这片、每一、的、总而言之、传说、常被”等语法成分的文本不会因为“都、湖、学院”等后缀被识别为地名；以“都”结尾的正文候选只接受短名称。中文引号内且带明确地理后缀的名称优先精确提取，例如只从用户回归句中得到“穹脊山脉、中央盆地、虹镜湖”，不会得到“传说湖、常被学院、浮沫水母”。并列城市清单与“区域·地点：说明”标题改用语法边界重叠扫描，例如从“除了教廷城、学城……北境·灰锤堡”得到“教廷城、学城、灰锤堡”，不把“许多大小城、矿镇、钟楼”识别为地点。地点备注也会识别已有“来自世界书”前缀，不再显示“来自世界书：来自世界书”。
+- 明确维护的世界书地点始终优先于正文推断，同名正文候选不能抢占正式条目。正文候选只携带自身证据句参与地理匹配，其他句子出现村落、港口等词不会污染它的地点类型。
+- 正文候选新增“建立正式条目”，写入后转为可确认绑定；提取结果在此之前只属于候选预览。地图引擎原有 burg 单列为“地图原生地点”，默认不写入世界书，可定位并逐项“纳入世界书”。
+- 绑定到现有 burg 的世界书地点直接复用底图聚落图标、标签字体和描边，渲染层只投影作者名称及一段轻量状态弧，不再叠加风格不同的大图标和第二套标签。
+- 浏览器验证覆盖主题2 1440/390、正式条目优先、候选转正式条目、原生地点定位/纳入入口和无横向溢出；无 console error。定向地图/历史 23 tests 与 Vite build 通过，完整验证在本轮收口执行。
+
+## 2026-08-05 - 地图冰川视觉与多世界书来源修复
+
+- “白色大陆”不是 Canvas 漏绘，而是随机陆块横跨极地时，过宽的冰川阈值、近白生态色和高山全量积雪叠加的结果。现在冰川需要更高纬度或更严格的低温/高海拔条件，冰川改为冷灰蓝，高山积雪不再将地形混成纯白。
+- 重现种子 `glacier-audit-13` 中，冰川占全部陆地从约 3% 降至 1.0%，冰川最密集的独立陆块从 36.5% 降至 22.2%；浏览器实图仍保留极地冰原，但不再读成未渲染的白块。
+- 地图资料 rail 从只显示当前世界书改为可直接选择任意已导入世界书。切换保留用户手动标记，替换上本世界书的派生地点，并清理不能跨世界书复用的约束报告、历史草案和语义审阅状态。
+- 修复活动世界书 ID 被存储层解析后又二次 `JSON.parse` 的问题；这会让普通字符串 ID 失效并每次回退到索引第一本。现在选择第二本后刷新仍保持选择。
+- 浏览器回归覆盖主题2的 1440/390 视口、两本世界书切换和刷新恢复，无 console error 或横向溢出；定向 29 tests 通过，用例总数未增加。
+
+## 2026-08-05 - 修复地图 AI 意外切换暗黑背景
+
+- AI 地图 JSON 允许输出 `stylePreset: dark`，旧页面会把它和地理参数一起无提示提交，因此浅色工作区在重新生成后可能突然显示近黑色海洋和背景。
+- AI 重新生成现在只负责地理参数，视觉风格继承当前地图；没有当前风格时固定使用 `topographic`。主题2浅色读取到历史 dark 配置时只在渲染层回退，不改写地图版本或世界书，真正的暗色主题仍保留 dark 预设。
+- 主题2 1440 浏览器注入 dark 旧存档后实际渲染为浅色 topographic，控制台无错误；现有地图集成 5 tests 与 Vite build 通过。
+
+## 2026-08-05 - 世界书沿河关系参与排水求解
+
+- confirmed 河流条目及地点的沿河关系会形成河道必经点。必经点已有自然河流时复用并采用世界书名称；没有现成河道时，从该点沿既有 drainage 向上游和下游追踪形成支流，不改高度图，也不使用跨地形直线。
+- 河口点没有采样上游时，只从更高的相邻陆地补足来水段；同一河流的多个确认地点可追加为有限支流。普通 `riverNames` 回填会跳过世界书约束名。
+- 修复 AI 地图配置解析丢失 `relationRefs[].relation`，confirmed 世界书约束仍在页面合并时拥有最高优先级。
+- 验证：既有 500-cell 地图夹具中的指定国家、同国、沿河和路线全部进入 `satisfied`；`npm run verify:full` 通过核心 188、视觉 12、Vite/VitePress build 和 diff check，20k cell 样本约 0.69 秒。
+
+## 2026-08-05 - 世界书国家关系与道路参与地图求解
+
+- 世界书地点的指定国家、同国和异国关系不再只在地图生成后报错。关系地点先组成分组，明确国家优先，无明确归属时选择最近首都；地点与目标首都之间的陆路走廊作为多源国界扩张的辅助种子，并继续经过平滑和去飞地。两个已有首都发生冲突时不会被强制合并。
+- 明确交通线会在随机首都路、港口路和商道之前使用同一 A* 寻路器铺设，保留世界书路线名称；后续随机路网沿用端点去重，不再抢占指定路线。
+- 同步与异步地图生成使用同一约束。复用现有地图集成测试项验证指定国家、同国与路线均进入 `satisfied`，没有增加测试数量。
+- 验证：`npm run verify:full` 退出码 0，核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 `git diff --check` 全部通过；20k cell 默认样本约 0.69 秒。
+
+## 2026-08-05 - 地图生成原子替换、世界书资料 rail 与视觉收口
+
+- 修复“配置先保存、地图后生成”的状态错误：AI/参数生成先进入候选，Worker 与临时 Canvas 全部成功后才写入当前世界；失败时旧图和旧配置继续可用，错误提示不再遮住地图。DPR 变化触发的重渲染也改为成功后交换。
+- 地图恢复为主舞台。世界书来源、地点绑定、约束报告、历史草案和地点实体集中到可收起资料 rail；工具栏显示当前世界书和地点数，并提供重新读取及导入/管理入口。退化成浏览器原生样式的地图文本按钮已补齐本地控件样式。
+- 默认 topographic 降低生态群落与海水饱和度，平滑相邻水陆单元色差，收细海岸、国界和国家标签，保留地形与水系的可辨识性。
+- 浏览器审阅覆盖主题2的 1440/390 空态与资料 rail、1440 确定性 5000-cell 实图，无 console error 或横向溢出；定向地图/Worker 14 项与视觉 12 项通过，20k cell 样本约 0.7 秒。完整 map version/remap、LOD/标签碰撞/聚类与 20 次连续生成仍属于后续阶段。
+
+## 2026-08-05 - 地图版本事务与逐地点 remap 审阅
+
+- 新地图通过 Worker 和临时 Canvas 后不再立刻替换旧画布；有 confirmed 地点时进入内存候选，中央地图继续显示旧版本，重新生成与历史动作暂时锁定。
+- confirmed 地点按稳定 entry ID、名称和别名寻找新 burg；约束报告中的 relaxed/impossible 会升级为冲突，未匹配地点明确标记失配，不使用随机陆地点伪装 remap。用户可逐项选择采用新位置、保留旧位置待确认或暂不落图。
+- 提交前比对每个条目的有限指纹。世界书在生成后发生编辑时只拒绝受影响条目的候选，不让无关条目变化使整批无条件过期；提交后地图、配置、marker 与 mapBinding revision 一起更新。
+- `geographyStore` 为每个世界保存最近 5 个轻量 map revision，内容仅含配置、marker、生成元数据和世界书绑定快照，不保存大体积 cells；旧版本可恢复并把恢复版本之后新增的绑定标为 stale，而不是静默删除。
+- 复用现有地图集成测试项覆盖 remap、冲突、失配、局部 stale guard 和轻量快照；主题2 1440/390 真实 500-cell 重生成审阅通过，提交生成第二版、恢复旧版成功，无 console error 或横向溢出。
+- 验证：`npm run verify:full` 退出码 0，核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 `git diff --check` 全部通过，测试总量保持 200。
+
+## 2026-08-05 - 世界书地点关系进入地图约束报告
+
+- 地点条目的 `relations.locations` 现在只在明确声明关系类型时编译为地图拓扑，兼容归属区域、所属国家、同国/异国、相邻、沿河和通路；已有 `country/state/parentRegion/mapBinding.country` 也进入同一有限合同，普通正文不会被臆测成硬关系。
+- confirmed 区域与国家保存为地图 anchor，不再因为引擎只支持 burg 而被丢弃，也不会伪装成城市。国家生成后核验地点归属与同国/异国关系，道路生成后核验连接，河流核验同名河道与地点接触。
+- 作者确认的地点坐标不会为了适配随机国界被静默移动；每项关系进入 `satisfied / relaxed / impossible`，资料 rail 显示地点关系和最多 6 条放宽/冲突原因。
+- 复用现有地图集成测试项加入关系编译、人工拓扑数据和 500-cell 真实生成回归，测试总量不增加；主题2 1440/390 地图和 390 世界书关系侧栏审阅无 console error 或横向溢出。
+- 验证：`npm run verify:full` 退出码 0，核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 `git diff --check` 全部通过。
+
+## 2026-08-05 - 地图名称来源与生成输入边界收口
+
+状态：代码完成；定向与全量验证通过，未启动本地服务。
+
+- 当前地图生成分为三层：AI 只设计宏观参数和命名风格；地图引擎根据名称池生成聚落，根据聚落端点组合道路，根据河流/道路/聚落结果提取语义列表；世界书地点通过名称种子、确认绑定和有限约束进入这条管线。`Silverkeep`、`Nightbloom`、`Runeflow` 等来自高幻想内置名称池，`Silverkeep—Ironforge` 等来自道路端点组合，不是模型凭空读出的正式地点。
+- 旧地图请求会把长世界观、地点全文和冗长重复 JSON schema 一起发送，服务端通用输入预算超过后会裁剪 system prompt，导致用户看到“输入太多/截断”。现在地图 prompt 对长字段、名称种子和地点描述分段压缩，并通过 `max_input_chars: 14000` 给地图请求单独留出完整契约预算。
+- 地理历史不再把地图分析标签或引擎随机地点直接当作世界设定：候选最多 12 个，过滤 `沃土/凶土/边境荒域/山口` 等诊断名、重复标题和重复地图锚点，并要求候选名称能匹配世界书地点。地图视觉仍保留未绑定预览点，避免世界书没有地点时整张地图空白。
+- 修复引擎名称种子只应用于首都的遗漏；港口、区域中心和普通城镇现在也消费 `burgNames`，因此世界书地点不会只在首都位置生效，相关道路名也会基于实际聚落名生成。
+- 验证：定向地图/历史 11 tests；全量核心 188 + 视觉 12；Vite、VitePress 和 `git diff --check` 均通过。
+
+## 2026-08-05 - 修复世界书地点稳定落点异常
+
+- 世界书地点没有匹配到地图聚落时，会按地图 seed 和条目 ID寻找稳定陆地点位；该路径引用了未传入的 `occupied` 集合，导致生成阶段报 `occupied is not defined`。
+- 现在由调用方显式传入已占用点集合，并在每次成功落点后追加新点；多个 fallback 地点不会互相覆盖。
+- 验证：地图集成 5 tests、全量核心 188 + 视觉 12、Vite/VitePress build 和 `git diff --check` 均通过。
+
+## 2026-08-05 - 导入世界书地点进入地理审阅
+
+- 地图历史入口原先只筛选地图算法提取的语义点；导入世界书地点如果没有被引擎生成成同名聚落，就会错误显示“没有与世界书地点对应的候选”。
+- 现在明确的 `location` 条目和世界书地点引用会转换为作者地点候选，直接进入“地理筛选”；自动生成的城市、河流和道路仍不会进入历史。空地图和没有地点条目的世界书仍然拒绝生成历史。
+- 地图页显示当前激活世界书及已读取地点数量；首次点击历史入口会确保世界书已加载。
+
+## 2026-08-05 - G2.4 M5 地理历史候选与水域约束收口
+
+状态：代码完成；定向测试通过，完整验证待本轮结束重跑，未启动本地服务。
+
+- 地理历史审阅统一经过 `selectSemanticSitesForReview()`：最多 12 项，排除“沃土/凶土/边境荒域/山口”等无名或编号诊断标签，重复标题和重复地图锚点不再重复展示。
+- `buildGeoHistoryDraft()` 在没有显式选择时也使用同一份筛选结果，避免把地图语义九个分类的全部产物直接写入世界书；显式选择仍需通过本地候选校验。
+- 地图约束执行器遇到 `water` 硬约束时报告 `impossible`，不把水域地点错误创建为陆上 burg。
+- 验证：`geoHistoryPipeline` 与 `worldMapHistoryIntegration` 定向共 11 tests 通过；测试总量未增加。
+
+## 2026-08-03 - 世界书约束型地图优化计划
+
+状态：完成详细规划，未修改地图代码，未启动本地服务。
+
+- 确认当前世界书地点接入仍以名称种子和生成后 marker 为主，尚不能约束国家、区域、河流、道路、地点层级和重生成后的稳定绑定。
+- 在唯一主路线图 G2.4 增加 M0-M8：基线追踪、地点/关系归一、绑定审阅、约束型生成、版本 remap、真实地点优先的地理语义、运行时按需查询、地图 UI/LOD 和 20 次可靠性门禁。
+- 冻结数据边界：世界书是作者事实真源，地图资产是空间真源，`PlaceEntity` 是查询投影，`geoHistory.placeRefs` 扩展承载绑定；不新增平行地点 store，不让随机陆地点或算法占位名伪装成正式设定。
+- 计划给出文件 owner、阶段依赖、失败回退和量化门槛；第一执行切片为 M0-M2，先让每个地点的来源、匹配理由、冲突和未绑定状态可见，再修改地图引擎。
+- 验证：`npm run verify:full` 通过核心 23 files / 188 tests、视觉 1 file / 12 tests、Vite/VitePress build 与 `git diff --check`。
+
+## 2026-08-03 - G2.4 M0-M2 地点绑定审阅第一切片
+
+状态：代码完成；真实浏览器 smoke 待在现有服务中执行，未启动本地服务。
+
+- 新增 `buildWorldbookPlaceInventory()`，地点清单区分明确世界书条目、关系引用、历史来源和地理正文 provisional 名称，并归一地点类型、别名和来源 revision。
+- 世界书地点 marker 增加 `bindingStatus / bindingMethod / bindingReason`：同名/别名聚落是 `auto-matched`，稳定哈希落点只是 `unbound` 预览点，保存过的地点绑定为 `confirmed`。
+- 地图页加入地点绑定审阅区，支持定位 marker、确认当前位置、解除绑定；确认只把 `mapBinding` 元数据写回原世界书 entry，不复制正文或新建地点 store。没有正式 entry ID 的 provisional 地点不可确认。
+- `WorldMapVoronoi` 增加 marker 聚焦入口，保留已有 marker 拖动和手工编辑行为。
+- 验证：定向 `worldMapHistoryIntegration` 5 tests 通过；完整 `npm run verify:full` 退出码 0，核心 188 + 视觉 12、Vite/VitePress build 和 diff check 通过。
+
+## 2026-08-03 - G2.4 M3 世界书约束编译第一切片
+
+状态：代码完成；M3 的关系拓扑和浏览器 smoke 待后续切片，未启动本地服务。
+
+- 新增 `compileWorldbookMapConstraints()`，只读取有正式 entry ID 且已确认 `mapBinding` 的地点；地理正文推断、关系悬空引用和未确认 marker 不会静默变成硬约束。
+- `MapConstraints` 新增有限地点、河流和路线合同；地点约束先支持 `land / coast / water / river`，区域/国家/父子关系明确进入 deferred，避免伪造完整 GIS 关系。
+- 地图引擎在 burg 阶段把确认地点移动到最近可行 cell，找不到可行解时进入 `impossible`；河流和道路在生成后返回 `satisfied / relaxed` 核验结果，结果挂到 `VoronoiMapData.constraintReport` 并在地图面板显示。
+- 现有地图集成测试补充了编译器和引擎落点断言，测试总量仍为 200。
+
+验证：`npx vitest run src/__tests__/worldMapHistoryIntegration.test.js` 5/5；`npm run verify:full` 通过核心 188、视觉 12、Vite/VitePress build 和 `git diff --check`。未启动或重启服务。
+
+## 2026-08-03 - 地理历史候选过滤噪声
+
+状态：完成地图语义审阅清单收敛，未启动本地服务。
+
+- 地理筛选不再按类别轮换硬凑 24 个候选；`边境荒域 1`、`沃土 11`、`凶土 1`、`山口 1` 等地图分析占位名称会被排除。
+- 同一道路或少量相同地图 cell 被多个类别描述时只保留一个候选；地图页默认最多展示 12 个有明确名称的城市、河口、路线或据点。
+- 历史草案仍严格只使用审阅后保留的 ID，没有改变用户逐项选择和确认写入的边界。
+- 验证：定向 `geoHistoryPipeline` 6 tests 通过；完整核心、视觉、Vite/VitePress build 和 `git diff --check` 待本轮结束重跑。
+
+## 2026-08-03 - 地图打开时恢复世界书地点
+
+状态：完成地图地点加载时序和引用覆盖修复，未启动本地服务。
+
+- 地图面板不再只加载地理 store；打开时会恢复活动世界书，已有地图在世界书异步加载完成后立即同步地点标记。
+- 地点来源扩展为独立地点条目、旧导入的地点类型、世界书条目 `relations.locations` 引用，以及 `geoHistory.placeRefs` / 历史节点地点。旧数据缺失地点 ID 时按名称生成稳定引用。
+- 对结构化设定的“地理环境”总述仅提取带明确地理后缀的具体名称（城、港、盆地、山、河、遗迹等），避免把字段标题“地理环境”误标成城市。
+- 仍沿用地图 store 的唯一标记状态：手动标记保留，世界书地点按同名 burg 或稳定陆地点位显示，不需要先重新生成地图。
+- 验证：定向 `worldMapHistoryIntegration` 5 tests 通过；完整核心 23 files / 188 tests、视觉 1 file / 12 tests、Vite/VitePress build 和 `git diff --check` 通过。
+
+## 2026-08-03 - 地图城市密度与世界书候选空响应修复
+
+状态：完成地图与世界书维护链路修复，未启动本地服务。
+
+- 地图桥接现在保留最多 80 个世界书地点种子；只要当前世界书或旧地理地点树存在地点，生成配置会提高城市密度并为更多地点保留名称，城市数量不再被模型常给出的低 `burgDensity` 限制。
+- 世界书维护的新增/完善请求不再把最多 72 个条目整体塞进上下文，改为 24 个高相关条目、720 字正文预览；首轮 JSON mode 失败后，普通 JSON 重试再加一次更短输入、较高输出预算和低推理强度重试。
+- `/api/generate` 兼容无正文但带 `tool_calls.function.arguments` 或 Anthropic `tool_use.input` 的结构化响应；reasoning/thinking 仍然不会被当作正文。空响应最终会显示明确的重试/切换模型提示。
+- 验证：定向地图/世界书 17 tests 通过；完整核心 23 files / 188 tests、视觉 1 file / 12 tests、Vite build、VitePress build、`git diff --check` 全部通过。
+
+## 2026-08-03 - 世界书维护候选连续采纳
+
+- 修复第一条候选采纳后，剩余同批候选全部因 `updatedAt` 变化被判过期的问题。
+- 本次维护写回会推进批次基准版本；同批候选只有在涉及已被本批修改/删除的原条目时才阻止，真正的外部编辑仍触发 stale guard。
+- 验证：复用世界书既有 12 个测试项通过，测试总量保持 200。
+
+## 2026-08-03 - 世界书地点接入地图标记
+
+状态：完成地图地点数据接线，未启动本地服务。
+
+- 原地图桥接只把世界书地点名送入 AI 地图配置的 `burgNames`，生成结束后没有把地点条目写入地图标记，因此地图只显示引擎随机生成的城市，世界书地点无法落图。
+- 新增 `buildWorldbookLocationMarkers()`：读取明确的 `location` 条目并兼容旧地点类型，同时接入旧地理地点树作为补充来源；同名 `burg` 优先复用其坐标，无同名城镇时使用地图 seed、条目 ID 和陆地高度网格做稳定选点，避免每次重绘漂移或落入海面。
+- 标记保存 `source: 'worldbook'` 与 `worldbookEntryId`，保留用户手动标记；地图生成回调、世界书异步加载和条目变化都会触发同步，旧地图不需要用户先重新生成才能看到地点。
+- `geographyStore` 新增批量替换标记动作，未引入第二份地点状态；补充现有地图历史集成测试中的纯函数回归，测试总量保持 200。
+- 验证：核心 23 files / 188 tests、视觉 1 file / 12 tests、Vite build、VitePress build、`git diff --check` 全部通过。
+
+## 2026-08-02 - 世界书自然语言维护工作台
+
+状态：代码完成；真实 provider 质量与浏览器操作仍需在现有服务中复试。
+
+- 高级条目管理新增统一“AI 处理世界书”入口，分为“新增设定”“审查整理”“完善选中”三种模式。新增设定直接接收自然语言，不需要用户先创建空条目；完善选中只读取勾选条目和相关世界书上下文。
+- 审查整理先用本地名称、关键词和内容 n-gram 相似度筛出候选对，并补充缺少触发词、过长正文和占位名称目标，再让模型判断重复、重叠、冲突或应保留，避免把整本世界书无条件塞进模型请求。
+- 单条目目标不再只保留第一个问题；本地预检会保留完整 `issues` 集合，并将同一目标的全部风险传给模型，避免“缺少触发词”掩盖“正文过长”或“占位名称”。
+- 审查请求按每批最多 2 个目标拆分，批次只携带自己的条目上下文；某一批上游空响应时保留其他批次候选，并在摘要中标记未覆盖批次，避免一次大请求导致整轮失败。
+- 修复审查预筛误报：同类型相似度门槛提高到 0.28、跨类型提高到 0.36；用户填写审查重点后，本地先按条目名称、关键词和正文做相关性过滤，弱相关的文风/基调条目不再进入模型。
+- 模型只能返回候选操作，不能直接写库；新增、改写、合并和标签整理均在候选区逐项采纳，忽略与冲突项只记录为已处理。候选保存生成时的 `worldbook.updatedAt`，采纳前版本变化会阻断写回。
+- 候选在采纳前可直接编辑名称、类型、主/次触发词、分组和正文；一条建议写回后同批剩余建议保持旧 revision 并显示过期，必须重新审查后才能继续操作。
+- 体验页 Agent 继续只承担运行时读取与局部冲突提示，不负责全局世界书创建或修改。现有核心 188 + 视觉 12、构建和 diff check 门禁保持不变。
+
+## 2026-08-02 - 配角角色卡截断重试修复
+
+状态：代码完成；需要重启现有后端后用真实配角字段复试。
+
+- 配角字段不再默认要求一次返回两张卡，改为默认一张完整角色卡，只有用户明确要求多个时才允许最多两张；每张卡要求固定标签、控制在 900 字以内，保证角色可直接导入体验页。
+- 单字段角色卡输出预算从 1200 提高到 2600 tokens；分区中失败字段的定向修复按字段类型计算预算，角色卡不再落入过低的 1600 tokens 上限。
+- 兼容部分上游 `finish_reason=stop/tool_calls` 但内容实际为半截 JSON 的返回，非空且无法解析时沿用结构化截断重试；现有契约测试扩展覆盖该形态，测试总量保持 200。
+
+## 2026-08-01 - 结构化字段生成接入已有设定约束
+
+状态：代码完成；真实 provider 字段质量仍需在现有服务中复试。
+
+- 根因是字段生成提示只读取世界概述和结构字段，完全遗漏 `worldbook.entries`、顶层文风、禁写边界与参考表达；整节生成还会反复读取同一份旧 worldbook。
+- 字段生成现在按全局/常驻硬约束、当前字段修订基线与其他已确认结构、相关已有条目、用户补充要求四级优先级组装提示；相关条目通过现有世界书匹配器按字段语义、关键词、类型和 12 条/6000 字符预算选择，作者生成不执行随机概率淘汰，体验运行时默认行为不变。
+- 不同字段控件获得对应输出格式约束；整节生成使用隔离工作副本，后续字段可读取本轮已成功草稿，而用户原始世界书在审阅前不被修改。复用既有测试项覆盖常驻/选择/无关条目和批次累积，不增加测试 item。
+- 修复兼容模型推理泄漏：普通聊天响应不再把 `reasoning_content` 或 `reasoning/thinking` 内容块降级为最终正文；结构化生成改为强制 `<setting-content>` 最终边界，客户端只提取最后一个完整边界，边界外分析全部丢弃。边界内部仍有第一人称规划、任务复述或提示回显时直接拒绝，并携带坏响应进行一次低温仅正文修复。复用同一测试 item 覆盖混合推理、边界提取和内部泄漏拒绝。
+- 修复结构化设定偶发只返回单字或再次泄漏思考：字段草稿按控件类型增加最低有效信息量，补齐中英文任务分析识别；生成预算从 900 提升到 2400 token，避免 reasoning 模型耗尽预算后仅留下残缺正文；修复轮不再把上一轮无效思考作为 assistant 内容回灌，而是从原始世界书约束重新生成。
+- 修复默认世界书占位污染：`默认世界书 / 自动创建的默认世界书` 不再作为名称或核心前提发送给模型。空世界书不再硬拦截生成，而进入“首条设定模式”，直接建立一条具体正式条目并供后续生成约束；单项生成复用本节补充要求，界面和模型提示中的用户可见“字段/brief”统一调整为“设定项/补充要求”。
+- 补回小说导入原文资料层：AI/本地提炼都会把原始文字保存为世界书 `sourceDocuments`，条目记录来源资料 ID，结构化工作台提供紧凑展开查看；Pinax 的 SillyTavern 扩展字段保留资料和关联。每个设定项生成会按当前设定、条目关键词和资料关联选取最多 5000 字原文，原文明示事实优先于派生条目；提示总预算同步扩至 28000 字符并对各层单独限额，避免服务端尾部截断吃掉世界书约束。
+- 收回结构化设定的影子全局层：结构化页面改为当前世界书条目的编辑视图，保存和采纳按 `section.field` 稳定引用直接 upsert，删除内容同步删除对应条目；旧结构数据和此前手动转换条目在归一化时复用确定 ID，不产生新副本。移除“转条目”按钮和运行时整块结构摘要，`rule/style/forbidden` 保持常驻，其余类型恢复选择注入。聚焦回归覆盖唯一 upsert、类型注入策略、删除和非全局上下文。
+- 重排主题2结构化设定工作台：移除 980px 窄稿纸限制，宽屏六项改为双列铺满，出现 AI 草稿时字段区与粘性审阅区并列，1100px 以下回到单列；核心正文与草稿提升至 17px，字段标题、标签、工具栏、来源资料和状态栏同步上调。修复草稿审阅操作退化为浏览器原生小按钮的问题，补齐采纳、复制、丢弃的尺寸、层级、悬停和键盘焦点状态；移动端通过移除重复页标题保持顶栏单行，不缩小正文。主题1布局不变。
+
+## 2026-08-01 - 结构化设定转为主流程
+
+状态：代码完成；真实 provider 基调返回仍需在现有服务中复试。
+
+- “设定”活动默认进入结构化设定，设定子导航与侧栏同步把结构化工作台放在第一位；快速世界书页保留预设、文本迁移和 AI 基调入口。
+- 一键 AI 不再生成完整 `entries`、具体角色、地点、组织、事件、历史、任务或联网研究包，只返回世界概述、基调、文风、视角、示例、禁写边界和一致性规则。
+- 客户端确定性生成 `rule / style / forbidden` 三条常驻基础约束，并将创作规则预填到结构化设定；确认后直接进入结构化工作台继续建设。
+- 复用既有世界书测试项覆盖三条基础约束和结构字段，不增加测试 item；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check，主题2快速页/结构化页 1440/390 共 4 张浏览器截图无横向溢出、重叠或 console error。未启动或重启服务。
+
+## 2026-08-01 - 世界书 entries 结构归一修复
+
+状态：代码完成；真实 provider 仍需在现有服务中复试。
+
+- 根因进一步定位为模型返回合法 JSON 但没有使用 `entries` 字段，可能包装在 `items`、分类数组、`data.entries`、`worldbook.entries` 或直接返回数组；旧校验只接受单一结构，因此报“返回内容缺少可用 entries”。
+- 新增世界书结果归一层，兼容这些有限包装形式并合并分组条目；如果结构合法但缺少非空条目，agent 和普通回退都会收到针对 `entries` 的修复提示，而不是泛化的 JSON 错误。
+- 在既有世界书测试项中加入 `items` 包装回归，没有增加测试 item；完整核心 188 + 视觉 12、双构建和 diff check 通过，未启动或重启服务。
+
+## 2026-08-01 - 世界书 JSON 返回修复
+
+状态：代码完成；真实 provider 返回格式仍需用户在现有服务中复试。
+
+- 根因是世界书 agent 或普通生成收到“有内容但非裸 JSON”的模型响应后，旧解析器只尝试整段和最外层花括号；解析失败后普通重试没有携带原始坏响应进行修复，最终显示“AI 返回不是有效 JSON”。
+- `parseJsonFromAiContent` 现在支持 BOM、代码围栏、前后说明和字符串内花括号，使用字符串感知的平衡括号提取完整 JSON 对象。
+- agent 最终回复解析失败时，会把上一轮 assistant 输出保留在同一 transcript，请模型只修复为严格 JSON；普通 JSON 回退增加一次带原始输出的修复请求。修复请求仍受原有 token、超时和重试边界限制。
+- 在既有世界书测试项中加入围栏/前后缀/字符串花括号回归断言，没有增加测试 item；完整核心 188 + 视觉 12、双构建和 diff check 通过，未启动或重启服务。
+
+## 2026-08-01 - 世界书生成切换为 agentic web research
+
+状态：代码完成；真实搜索渠道与真实 provider 仍需在用户现有服务中 smoke。
+
+- 世界书说明生成现在复用 provider-neutral `agent-turn`，新增 `web_search` 工具。模型自行判断是否需要真实历史、地理、制度、技术或物质文化资料；工具调用、assistant/tool 消息、受限网页证据和最终世界书 JSON 保持在同一临时 transcript 内。
+- 服务端支持 `provider=auto`，按已配置的 Brave、Tavily、SearXNG 自动选择渠道；用户界面移除搜索渠道、API Key、查询数、测试检索、补查和独立来源面板。研究 manifest、claims/conflicts/evidenceRefs 与 revision 数据仍作为内部可追溯结果保存。
+- 单次 agent 最多两轮工具调用，每轮只执行一个检索，最多整理 12 个来源并尝试 4 个正文页面；网页内容被视为不可信资料，不执行网页指令。工具协议不可用时回退普通 JSON 生成，不伪装为已完成联网核验。
+- 未增加测试 item；契约与世界书聚焦测试 13/13 通过，Vite build 通过；未启动或重启前后端。
+
+## 2026-08-01 - 说明驱动世界书定向补查 M3b-2a
+
+状态：M3b-2a 代码完成；来源过滤、正文定位交互和历史 revision 对比仍待 M3b-2b。
+
+- 对缺少正文定位的声明增加一次定向补查，查询由声明缺口、当前说明和风格组成，最多提交一个查询；支持 AbortSignal 取消，新增来源按 URL 去重后合并进原研究快照。
+- 研究 manifest 记录补查查询、新增来源数和 `single-query` 预算；补查不会直接解除审阅，仍必须按新来源重新生成并核对 claims/conflicts/evidenceRefs。
+- 未增加测试 item；聚焦世界书契约 12/12，完整验证继续保持核心 188 + 视觉 12 / 总量 200。
+
+## 2026-08-01 - 说明驱动世界书证据定位 M3b-1
+
+状态：M3b-1 代码完成；声明缺口的单次增量重搜、取消与 revision 对比界面仍待 M3b-2。
+
+- 正文抓取现在拆成受限 `P1/P2...` 证据块，研究来源保留证据块定位；AI 声明增加 `evidenceRefs`，没有正文定位的 research/mixed 声明进入待审状态。
+- 新增稳定研究 revision 指纹，覆盖输入说明、生成参数、来源 URL/标题/正文/证据块、声明和排除来源；任一部分变化都会让旧预览失效，重新生成建立新 revision。
+- 高级设置继续保留来源排除和局部重生成，研究输入改变时也禁止直接导入。未增加测试 item，继续保持核心 188 + 视觉 12 / 总量 200。
+
+## 2026-08-01 - 说明驱动世界书声明审阅 M3a
+
+状态：M3a 代码完成；段落定位、revision 指纹与增量重搜仍待 M3b。
+
+- 世界书生成结果现在保留受限 `claims` 声明账本与 `conflicts` 冲突关系，条目只接受实际存在的 `claimIds`，并根据来源状态派生审阅状态。
+- 高级设置研究预览新增冲突说明、受影响条目和来源排除；排除来源会保留 `excludedSourceIds`，依赖它的声明变为 `stale`，未恢复为 `ready` 前不能导入。
+- 新增按剩余来源局部重生成，提示词过滤已排除来源；原预览在失败时保留。未新增测试 item，继续保持核心 188 + 视觉 12 / 总量 200。
+
+## 2026-08-01 - AI 世界书结构化生成兼容修复
+
+状态：代码兼容链已修复；真实 provider 重试需用户现有服务验证。
+
+- 根因位于普通生成重试：世界书首轮强制 `response_format=json_object`，但第二轮只追加“请返回 JSON”文本，仍携带同一个结构化参数。不支持该参数的 OpenAI-compatible 网关会连续返回相同 400，重试没有降级价值。
+- `generationRetry` 现支持 attempt 级 generation options；世界书首轮优先原生 JSON mode，第二轮删除 `response_format`，仍使用确定性 JSON 提取和 entries 校验。现有测试项加入“首轮参数拒绝、第二轮成功”的回归，不增加测试总数。
+- 世界书 3200/3400 token 请求从通用 30 秒改为 90 秒 Axios 预算；超时、最终请求错误、JSON 解析错误和空 entries 不再被统一覆盖为“AI 生成失败”。
+- 普通非流式/流式生成现在透传显式 provider format；MiniMax Anthropic 请求仅发送 Bearer 鉴权，与 capability probe 保持一致，并保留 temperature。
+- 数据恢复审计确认 Express 普通生成不落盘 request messages，仓库内没有请求日志或数据库；旧版世界书创建输入也没有 localStorage owner，因此已经丢失的梗概无法由 Pinax 后台恢复。现在小说片段、AI 风格/名称/核心梗概和目标条目数自动写入 `worldbook_create_draft_v1`，重新进入页面会恢复，并随全量备份导出。
+
+## 2026-08-01 - 说明驱动世界书联网研究 M1
+
+状态：可用闭环完成；真实搜索 Key/provider 质量 smoke 与正文证据 M2 待执行。
+
+- 新增受限 `/api/research/search`：Brave/Tavily 使用固定官方端点，SearXNG 只读取服务器 `SEARXNG_BASE_URL`；查询数、单查询结果、总结果、字段长度和超时均有上限，不开放任意代理 URL。
+- 说明驱动生成改为“AI 查询规划（失败时本地规划）-> 多查询搜索 -> URL 去重 -> 不可信证据块 -> 带 `basis/sourceRefs` 的 JSON 生成”。联网失败会明确中止，避免把普通生成伪装成研究结果。
+- 世界书保存 research manifest，条目只引用本次实际存在的来源编号；非法/虚构引用会被归一层移除。高级页新增研究开关、渠道/Key、测试检索、阶段状态和来源预览，配置仅存浏览器并进入备份。
+- 修复高级页风格参数长期退成“通用风格”的问题；现在生成提示与来源标签使用实际选择的奇幻、都市、科幻、武侠或末日类型。
+
+## 2026-08-01 - 说明驱动世界书正文证据 M2
+
+状态：M2 代码完成；真实渠道正文抓取与来源质量仍需用户配置后 smoke，M3 声明/冲突审阅待执行。
+
+- 新增 `/api/research/fetch`，前 6 个搜索来源可尝试抓取公开正文；服务端拒绝 localhost、私网/保留地址、带凭据 URL、非文本 MIME、超过 3 次重定向和超过 1MB 响应，正文只保留有限文本摘录。
+- 搜索来源增加域名信号标签：机构、学术/文化、官方参考或普通网页；这是排序提示，不是事实核验结论。
+- 研究编排把正文摘录与搜索摘要合并进证据 manifest，生成提示标注证据级别；正文抓取失败时保留摘要并记录 warning，不阻断已经成功的搜索结果。
+- 新增 SSRF 归一回归、来源去重和正文证据字段断言，未增加 Vitest item。
+
+## 2026-08-01 - 体验正文渲染与叙事语气纠偏
+
+状态：确定性渲染和提示词分层已接入；真实 provider 文风评估仍属于 G1.4 M5。
+
+- 修复旧文本 fallback 的整行误判：只有纯台词或明确“角色说/问”结构进入 dialogue block，叙述中夹带引语时只渲染引号内文本。短对白、弯单引号和书名式双引号进入统一 token，嵌套引语继续保留温和分色。
+- presentation schema 升至 v3，使旧存档懒重解析；结构 parser 接受 CRLF、marker 前空格、大小写和代码围栏，未知 marker 降为普通叙述边界且不把控制文本显示给用户。
+- 对照 SillyTavern 的 Prompt Manager、Author's Note、First Message 与 Example Messages 机制，把最终叙事消息拆为长期行文契约、靠近末轮的动态作者注释和当前输入。动态注释只截取最近正文作为视角/称谓/时态样本；规则强调具体因果、单段单推进、非对称对话、反复述、反情绪总结和不强行制造新危机。
+- 体验快捷动作改为可观察任务，不再使用“详细描写环境氛围和心理变化”等泛化指令。未新增测试 item；聚焦 parser、最终消息顺序和会话记忆隔离共 33/33 通过。
+
+## 2026-08-01 - G4.6R 单 transcript 工具运行时计划
+
+状态：调研与实施计划完成；R0-R1 已执行，下一阶段进入 R2-R3 能力探测和 provider adapter。
+
+- 审计确认当前体验 Agent 是“资料调度请求 -> 浏览器工具 -> 新建普通正文请求”的两段式链路。最终正文请求只收到 Kernel 与压缩 evidence，不保留原 assistant tool call、tool result、调用 ID、provider content block、修复历史及必要的 thinking 回传元数据。
+- 对照 OpenAI function calling、Anthropic tool use、MiniMax 文本接口、AI SDK tool loop 与 OpenCode MIT 公开实现，主路线改为单一临时 transcript：供应商步骤、只读工具结果、修复和终态正文都沿同一轮消息历史推进；世界书、地图、历史和记忆仍由现有浏览器领域 owner 持有。
+- G4.6.13 新增 R0-R8：失败 fixture、共享 transcript 契约、真实能力 probe、四类 provider adapter、有限状态编排器、typed repair/fallback/abort/doom-loop、检索与证据约束、规范化流事件/联机审计，以及真实渠道量化 Gate。
+- 明确弃用“空响应或非法调用后静默普通续写”的完成口径。普通续写仅允许工具能力已确认不可用且 grounding 为 optional 的轮次；事实敏感轮次必须明确失败，不得伪装成已完成资料核验。
+- 计划指定了具体文件、提交边界、串并行依赖和测试命令；不新增 Vitest item，总量继续限制为核心 188 + 视觉 12。R0-R1 代码与测试见下一条日志。
+
+## 2026-08-01 - G4.6R R0-R1 单 transcript 契约
+
+状态：R0-R1 完成；下一阶段进入 R2-R3 能力探测与 provider adapter。
+
+- 新增五类脱敏协议 fixture：OpenAI Chat Completions、OpenAI Responses、Anthropic tool_use、MiniMax Anthropic thinking/tool_use、畸形 OpenAI-compatible 响应；fixture 同时保存完整响应、调用 ID、参数增量、停止原因、usage 和允许回传的 provider metadata。
+- 新增 `shared/narrativeTranscriptContract.js`。统一 `text`、`reasoning`、`refusal`、`tool-call`、`tool-result` part，要求消息 ID 唯一、调用与结果按 ID 配对、工具名称和参数由现有领域契约校验；支持当前 step 暂存 pending call。
+- 默认归一化/序列化清除 reasoning 正文，只保留 `signature`、`redactedData`、`encryptedContent`、`reasoningContent` 等 allowlist 字段，并限制 metadata、part、消息和整轮大小；未知 metadata 不进入序列化结果。
+- 现有 `agentContracts` 单测试覆盖 fixture 基线、完整 transcript 往返、pending call、孤立结果和缺失结果；未增加测试 item，也没有把预期失败断言提交到共享分支。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js`：exit 0，1 file / 1 test 通过。
+- `npm run verify:full`：exit 0，核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check 全部通过，总量保持 200。
+- 本轮未启动或重启前后端；R2 仍不安装依赖或切换生产主链，先完成能力矩阵设计与最小 probe。
+
+## 2026-08-01 - G4.6R R2 基础切片
+
+状态：能力矩阵和 OpenAI Responses 转换基础完成；真实 probe、AI SDK 接入和生产路由仍待完成。
+
+- 新增 `providerCapabilityResolver`：custom OpenAI-compatible 默认只声明文本能力；工具、并行、strict、流式工具和 reasoning round-trip 必须由 probe 打开。缓存键只包含 provider、URL 主机/路径、model 和 protocol，不包含 API key；支持 runtime downgrade 和显式失效。
+- 新增 OpenAI Responses adapter：把统一 transcript 映射为顶层 `function_call` / `function_call_output` input item，默认 `store:false`，按能力矩阵决定 strict/parallel；解析 function call、最终文本、refusal、reasoning opaque metadata 和稳定 typed error。
+- adapter 尚未接入主体验链，也未修改 `/api/chat/test`；当前只通过 fixture/契约测试验证协议形状，避免把未探测的工具能力显示为可用。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js`：exit 0，1 file / 1 test 通过。
+- `npm run verify:full`：exit 0，核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check 全部通过，总量保持 200。
+- 未启动或重启前后端。
+
+## 2026-08-01 - 体验叙事工具协议兼容修复
+
+状态：生产兼容层已接入；完整单 transcript 重构仍按 G4.6.13 R2-R8 推进。
+
+- 定位到“上游没有返回工具调用或最终文本”的直接原因：生产入口仍使用旧 Chat/Anthropic parser，遇到 Responses payload、兼容网关的 alternate text 或仅 thinking 响应时，错误地按空 assistant 处理；此前已写好的 Responses adapter 没有被 `toolCallingProviderAdapter` 调用。
+- `toolCallingProviderAdapter` 现在支持显式 `responses` / `openai-responses` 和 `/responses` URL，统一把旧 role/content 请求转换为临时 Responses input，并按 payload 形状兼容解析；Chat/Anthropic 的 reasoning-only 返回改成 `NARRATIVE_PROVIDER_REASONING_ONLY`，进入已有普通叙事回退而不是泄漏思考文本。
+- 回归覆盖 Responses function call 请求与解析、OpenAI/Anthropic reasoning-only 错误；未新增测试 item，未启动或重启服务。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js`：exit 0，1 file / 1 test 通过。
+- `npm run verify:post`：exit 0，Vite build 与 `git diff --check` 通过。
+
+## 2026-08-01 - G4.6R R2 provider capability probe
+
+状态：R2 probe 切片完成；AI SDK 接入、生产编排切换和 R3 全量 transcript 保真仍待后续阶段。
+
+- `/api/chat/test` 从 models-only 改为固定三步探测：最小文本 `PROBE_TEXT`、强制 `echo_probe`、回传 `tool_result` 并要求 `PROBE_OK`。响应区分文本、工具调用、工具结果往返和每步 latency/error，文本成功但工具失败不会再显示为完整可用。
+- 新增 `narrativeCapabilityProbe`，按 OpenAI Chat/Responses、Anthropic/MiniMax 三种协议组装探测请求；固定 schema 和短文本不读取项目世界书，也不把 API key 写入缓存。400 的 strict/parallel 不支持只降级对应能力并重试一次，401/403 保留鉴权失败；能力缓存采用 provider、URL host/path、model、protocol 维度。
+- 契约测试覆盖完整 probe 和高级参数降级 probe；未增加测试 item，未启动或重启服务。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js`：exit 0，1 file / 1 test 通过。
+
+## 2026-08-01 - 体验叙事调度回退
+
+状态：代码修复完成；工具调用优先，兼容模型失败时可直接生成正文。
+
+- 修复体验主链在 `NARRATIVE_PROVIDER_EMPTY_RESPONSE`、缺失工具调用、工具协议不支持或非法工具调用时直接结束整轮的问题。
+- `runNarrativeAgentGeneration` 现在保留错误码和回退 trace，使用同一浏览器配置构造最终叙事 prompt 并进入普通 `/api/chat/stream`；正常工具调用成功时仍完整保留工具证据、ContextLedger 和 production metrics。
+- 回退只覆盖工具调度协议错误，不吞掉 API key、网络、超时或最终正文流错误；这样配置兼容模型时不会把“工具调度失败”误显示成体验不可用。
+
+验证：
+- `npx vitest run src/__tests__/agentContracts.test.js`：1/1 通过。
+- `npx vitest run src/__tests__/gameStoreSession.test.js`：22/22 通过。
+- `npm run verify:full`：核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 diff check 全部通过，总量保持 200。
+- 未启动或重启前后端；真实 provider smoke 仍待用户现有服务与凭据可用时执行。
+
+## 2026-08-01 - G4.4 M6 文字排版与出版导出
+
+状态：代码门禁完成；真实字体渲染、PDF 阅读器和浏览器拖拽操作保留为外部门禁。
+
+- 文字对象补齐 `textDirection`、`rotation` 与 `tailTarget`，编辑器、整页构图预览和紧凑当前格预览共用横/竖排、旋转、八向缩放和气泡尾巴拖拽；模型只负责画面，文字仍由独立层绘制。
+- 新增出版质检服务，检查文字溢出、文字框重叠、视觉焦点遮挡、安全区、竖排对齐和对白/心声尾巴，并按当前色制路线要求最终阶段已选画面。
+- 整页导出优先读取最终阶段 MediaAsset，旧 `selectedTake` 作为兼容回退；新增 PNG/WebP/PDF、竖向条漫按格框边界切片和 `manifestVersion: 2`，保留既有 schema `version: 5` 与来源/谱系字段。
+- 现有 media integration 单测试扩展 manifest v2、文字质检、尾巴预览与导出相关模型契约，测试条目保持不变。
+
+验证：
+- `npx vitest run src/__tests__/integration.test.js`：10/10 通过。
+- `npm run build`：通过；`npm run lint` 仍受既有全仓组件块顺序等错误阻断，本轮新增服务无 error。
+- `npm run verify:full`：核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 diff check 全部通过；未启动前后端。
+
+## 2026-07-30 - G4.4 M5 彩色/黑白生产路线
+
+状态：代码门禁完成；真实 provider 后期质量和浏览器上传操作保留为外部门禁。
+
+- 彩色漫画使用 `rough -> line -> flats -> render -> effects`，黑白漫画使用 `rough -> line -> tones -> effects`；黑白效果不再错误依赖彩色 render，当前色制不会显示另一条路线的动作。
+- 平涂、网点、上色和效果沿已确认上游生成，分别保存输入 revision 与 MediaAsset 父链；每阶段都可人工上传替换、选择候选、确认和局部遮罩修订。
+- 生成提示按阶段锁定线稿、色块、光影与效果职责，并读取视觉圣经的色板、线条、网点/色光和统一画风；相关规则或色制改变会使旧产物 stale。
+- 右侧阶段工作台增加紧凑视觉规则带和真实色板 swatch；批量推进扩展到所有非草稿阶段，并继续要求已确认上游与已确认的序列视觉圣经。
+- 现有 media integration 单测试扩展彩色完整链、黑白人工稿链、色制门禁、父链和 stale 传播，测试条目保持不变。
+
+验证：
+- `npx vitest run src/__tests__/integration.test.js`：10/10 通过。
+- `npm run verify:full`：核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 diff check 全部通过，总量保持 200。
+- 未启动前后端；真实模型后期质量、上传和桌面/窄屏操作 smoke 待服务可用时执行。
+
+## 2026-07-30 - G4.4 M4 草稿、线稿与局部修订
+
+状态：代码门禁完成；真实 provider 质量和浏览器文件操作保留为外部门禁。
+
+- 图片 provider 增加统一能力矩阵，分别声明文生图、图生图、局部遮罩、身份参考和 pose/edge/depth 结构控制；SD WebUI/OpenAI 提交真实 mask，通用 HTTP 模板新增 `mask_image` 与 `control_images_json`，不支持能力的模型显示明确禁用原因。
+- 当前格检查器加入紧凑制作阶段工作台：rough/line 真实生成、人工上传替换、候选切换与大图预览、显式确认、局部遮罩修订，以及身份/服装/地点/道具/风格和结构参考绑定；后续平涂/网点/上色/效果暂不开放伪生成。
+- 漫画页 schema 升到 5；阶段候选保存 `artifactLineage` 的父产物、输入 revision、来源和时间，MediaAsset 继续以 `parentAssetId` 保存实际父链。分镜、视觉圣经或上游改变后，旧候选不能重新批准。
+- 批量线稿只处理草稿已确认且目标为空/失效/失败的格，逐格失败分别落盘；一格上游二进制缺失不会改变同页其他格已生成的线稿。
+- 现有 media integration 单测试内覆盖能力矩阵、SD mask、谱系归一化、旧 revision 拒绝、批量筛选、内存 rough -> approve -> line 和失败隔离，测试条目保持不变。
+
+验证：
+- `npx vitest run src/__tests__/integration.test.js`：10/10 通过。
+- `npm run verify:full`：核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 diff check 全部通过，总量保持 200。
+- 未启动前后端；真实模型、上传、遮罩与桌面/窄屏操作 smoke 待服务可用时执行。
+
+## 2026-07-30 - G4.4 M3 中央分镜与构图画布
+
+状态：代码门禁完成；真实浏览器拖拽与模型质量保留为外部门禁。
+
+- `/comics` 整页制作区由静态预览升级为中央构图工作台，支持格框纵/横拆分、无产物格合并、八向拖边、阅读顺序调整、沟槽和页漫/条漫画布；格数上限为 12，不再退回固定四格/六格模板。
+- 人物调度框、运动向量、视觉焦点、地平线和气泡安全区直接叠加在当前格，文字模式继续复用现有八向排版；所有控制项写入既有 `frame` / `direction`，不增加第二个画布状态 owner。
+- 持久格框与沟槽统一进入整页预览、单格生图比例、图片裁切和 PNG 导出；导演数据编译为景别/机位/透视、焦点、地平线、人物站位、动线和后期留白提示，模型继续只生成无文字单幅画面。
+- 构图变更只将对应格制作阶段标记 stale，页面画幅变化才影响全页；纯阅读顺序调整保留每格 frame 和阶段状态。右侧镜头参数、图片平移和缩放也改走同一构图持久化链。
+- 980px 以下沿用“素材 / 页面 / 当前格”互斥工作 pane，中央画布和检查器不会同时挤压。现有 media integration 内扩展覆盖，不增加测试条目。
+
+验证：
+- `npx vitest run src/__tests__/integration.test.js`：10/10 通过。
+- `npm run verify:full`：核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 与 diff check 全部通过，总量保持 200。
+- 当前 `127.0.0.1:5173` 未监听，按约束未启动服务，桌面/窄屏真实拖拽 smoke 待执行。
+
+## 2026-07-30 - G4.4 M2 漫画多页改编与视觉圣经
+
+状态：代码与聚焦交互 Gate 完成；真实模型和浏览器人工 smoke 待服务可用时执行。
+
+- 新增 `comicAdaptationService`，复用现有文本模型配置生成 2-3 个多页候选；每页按叙事需要使用 1-8 格，保存页级 beat、页尾钩子、格级 beat，并把对白/旁白与无文字画面描述分离。
+- `/comics` 的页面计划、整页制作和当前格成为真实模式；计划模式允许从左侧多选素材、切换候选、展开格级节拍并建立多页制作序列，移动端只显示素材或计划主区。
+- worldbook 条目、PlaceEntity、角色/地点/道具素材与已有插画形成语义参考目录；视觉圣经可增删来源、锁定不变量并跳回世界书、地图或素材，世界书高级页新增 `entryId` 定位。
+- 多页继续原子写入 `comic_pages_v1`；同序列视觉圣经同步更新，兼容角色/地点/道具字段由语义引用重建，修改后下游阶段 stale，确认前批量补齐按钮禁用。
+- 五格等非固定模板使用通用格框计算；既有 media integration 单测试扩展覆盖双候选、多页往返、多选素材、计划交互和确认门禁，测试总量不增加。`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。当前 5173 未监听，遵循约束未启动服务。
+
+## 2026-07-30 - G3.2 因果冲突审阅
+
+状态：代码与静态 UI Gate 完成；真实浏览器刷新/回滚 smoke 待服务可用时执行。
+
+- 因果报告为冲突生成稳定键，并识别后置的 `runtime-conflict-resolution` 展示事件；审阅结果保存在会话事件链中但不进入模型上下文。
+- 可审阅的状态改写支持“确认当前状态”；分支合并只接受与当前合并结果一致的来源分支。伪造选择、缺少来源、重复 ID 和孤立父事件不能被 UI 强行消除。
+- 已审阅冲突退出 `activeConflicts`，进入 `resolvedConflicts`，不再单独向下传播 stale；resolution 事件 ID 进入有限因果来源账本。
+- 主题 2 结构化设定工作区新增紧凑因果审阅带，支持查看来源事件、逐项确认和移动端堆叠；无冲突时保持单行，主题 1 视觉保持冻结。
+- 未增加测试条目。聚焦 3 个文件 30/30 通过；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。
+- 当前 `127.0.0.1:5173` 未监听；遵循用户约束未启动 dev server，因此本轮没有实机截图，仍需在已有服务可用时执行刷新/重进与实际冲突确认 smoke。
+
+## 2026-07-30 - G3.2 高阶因果 v3
+
+状态：底层代码 Gate 与聚焦评估完成；浏览器审阅可见性待后续切片。
+
+- `characterRelations` 和 `canonicalFacts` 成为严格白名单的受控状态根，沿 state delta 预览、应用、回滚、session snapshot、联机 runtime patch 和主叙事 Kernel 保存；旧 session 缺少字段时使用空状态，无额外迁移层。
+- 因果报告检测未经审阅的亲属关系/canonical fact 改写、同键互斥事实、非法亲属关系和跨分支差异；分支合并必须对每个分歧根指定 `chosenBranchId`，来源分支最后事件与合并事件之间建立 `branch-merge` 边。
+- 活动冲突及其下游继续沿原因果边标记 stale；发生冲突的关系与事实双方不会进入 Narrative Kernel、Experience ContextEnvelope 或涌现候选证据。
+- 涌现具体化允许写入有限关系/事实结构，候选来源上限由 6 调整为 8，以容纳地点、角色、关系、事实和运行时事件证据，仍保持有界。
+- 同步修复体验主叙事生成只传地点/时间而漏传 `runtimeEvents`、`placeStates` 和 `characterStates` 的问题，运行时因果摘要现在实际进入生产 Kernel。
+- 未增加测试条目。5 个聚焦文件 43/43 通过；叙事上下文 eval 40/40 通过，40 轮上下文由 6795 字符压至 2245 字符，下降 66.96%；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。未启动或重启服务。
+
+## 2026-07-30 - G4.1 地理/历史创作来源账本
+
+状态：代码与聚焦回归完成；真实浏览器链路受当前服务状态限制。
+
+- 体验页快速保存、对话保存和接受涌现草稿会建立规范化来源，覆盖当前会话消息、历史节点、地图地点与剧情日志。
+- 素材进入章节或纲要时继承上游引用；章节导出分镜后，来源继续进入 storyboard document、写作 ContextLedger、分镜 Agent evidence refs 和视频任务。
+- 引用始终优先保留上游地理/历史证据，再追加当前素材、章节、分镜和图片制品；最终统一去重并限制为 12 条，避免账本随创作链无限增长。
+- 未新增测试条目。6 个聚焦文件 51/51 通过；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。
+- 当前 `127.0.0.1:5173` 与 `127.0.0.1:3001` 均未监听；遵循用户约束未启动服务，因此地图 -> 历史开局 -> 冒险写回 -> 刷新/回滚实机链路和 Worker 20 次压力仍保留为外部 Gate。
+
+## 2026-07-30 - G3.3 因果感知涌现调度
+
+状态：代码与聚焦回归完成；真实浏览器刷新、重进和回滚主线待执行。
+
+- 涌现候选开始消费 `placeStates`、`characterStates` 和运行时因果摘要：地点状态、控制者、危险度、同地点存活角色目标、有限知识引用和最近已确认变化均可参与评分与“为何触发”解释。
+- 候选只保存有界 `causalState` 和最多 8 个来源引用；LLM 具体化将活动冲突代码视为警告，禁止把 stale 事件当作事实。
+- 地点控制冲突会移除不可信控制者，角色状态冲突会阻止对应角色驱动候选；rollback、stale 和冲突事件本身不会成为候选来源。
+- 修复因果报告中活动冲突因自身 stale 标记而被误判为已解决的问题：只有 rollback 来源的 stale 才会让冲突退出活动集合。
+- 未增加测试条目。跨会话、运行时因果、Agent 与联机聚焦回归 43/43 通过；叙事上下文 eval 40/40 通过，40 轮压缩后 2206 字符，较 6756 字符完整历史下降 67.35%；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。未启动或重启服务。
+
 ## 2026-07-29 - G4.6 体验叙事 Agent 与按需世界上下文计划
 
 状态：公开实现调研和主计划完成；下一步进入 M0 契约与 baseline，不改变生产行为。
@@ -20,6 +511,99 @@
 - 主计划新增 G4.6，冻结最小 kernel、工具输入/结果契约、最多两轮工具回传、浏览器/Express/provider 边界、长会话摘要、联机房主权威、M0-M6 Gate、量化评估、200 测试上限和 feature-flag fallback。
 - 不引入 OpenCode 的 Effect runtime，不要求首期 MCP/向量数据库。已核实 2026-03-31 Claude Code npm source map 暴露事件属实，但公开暴露不等于开源授权，因此不直接读取、复制或依赖该专有源码。
 - 本轮只修改计划和状态文档，未启动或重启服务。
+
+## 2026-07-29 - G3.1/G3.2 运行时因果 v2
+
+状态：控制权、角色状态、年代冲突和 rollback stale 已进入运行时与体验 Agent；浏览器主线、候选评分消费和高阶关系冲突待继续。
+
+- `placeStates`、`characterStates`、`writingTime` 进入受限 state delta、session snapshot 和联机 runtime patch；地点、角色与年代字段使用独立白名单，未知嵌套字段会被拒绝。
+- 用户确认应用和回滚时记录实际归一化后的 before/after 与转移证明，避免 store 默认字段让合法回滚误判为后续改动。
+- 因果报告 v2 检测未经确认的地点控制权转移、角色复活、年代切换和同年代时间回退；rollback 会使源事件及此前下游 stale，活动冲突沿父链/状态连续性边传播，已经被回滚的冲突不再计入当前一致性。
+- Narrative Kernel 与 Experience ContextEnvelope 只接收限量因果摘要和 `runtime-event:*` 证据引用；完整事件 payload 不进入模型上下文，冲突/stale 事实明确禁止直接采用。
+- 涌现事件提示词允许上述受控状态字段，但仍限制当前地点、已知参与者/阵营和 2-3 个动态选项。
+- 现有测试内增加真实应用/回滚、语义冲突、stale 传播、联机 patch 和 Agent 上下文断言，测试条目总数不增加。聚焦 43/43 与 `npm run eval:narrative-context` 40/40 通过；加入因果摘要后的固定长会话从 6756 字符降至 2206 字符，下降 67.35%。未启动或重启服务。
+
+## 2026-07-29 - G4.6 M0/M1 Kernel、资源索引与只读工具
+
+状态：完成；下一步 M2 provider tool-call 协议。
+
+- 新增共享 `NarrativeKernel`、四工具 schema、输入校验、稳定 revision 和 typed error，普通世界简介不进入 Kernel，只有产品规则、显式 hard rule、当前轮次、场景、最近两轮、连续性和短风格指纹常驻。
+- active worldbook、PlaceEntity、世界历史、玩家历史和 project/session 已确认记忆组成可重建 `NarrativeResourceIndex`；按 owner 内容 revision 缓存，不落盘、不形成第二份可编辑状态。
+- `world_lookup / geo_lookup / history_lookup / memory_lookup` 支持 exact ID/name、alias、中文 token、结构过滤、共享路线、关系/因果追溯、scope 隔离、4200 字符结果预算和同参缓存；非法 limit/schema 返回稳定错误。
+- 体验生成链新增 Kernel/索引审计，`lastContextLedger` 只记录字符、命中 refs 和 revision，不保存完整正文或 key；生产正文尚未切换。
+- `npm run eval:narrative-context` 运行 40 个世界书、地点/路线、历史/玩家历史和记忆场景，40/40 通过；现有 agent/gameStore 23 tests 通过，测试数量保持 200。
+- 后续取消影子生产链、长期 fallback 和 feature flag 双轨；M2 通过后直接切换主链，回归以清晰 Git 提交回退。
+
+## 2026-07-29 - G4.6 M2 Provider-neutral 工具协议
+
+状态：代码完成；真实 OpenAI-compatible + Anthropic/MiniMax 双渠道闭环待发布环境验证，下一开发阶段进入 M4 主链编排。
+
+- 新增共享 generation agent turn 契约，统一 provider、结构化 assistant tool call、tool result、只读工具目录、token/字符/超时预算和 requestId。
+- `/api/generate/agent-turn` 只负责协议转换和供应商请求，不执行浏览器本地工具；API key 不进入日志、提示词、响应或错误体。
+- OpenAI-compatible adapter 支持 `tools/tool_choice/parallel_tool_calls/assistant.tool_calls/tool messages`；Anthropic/MiniMax adapter 支持 `tools/tool_use/tool_result/stop_reason`，最终文本不混入 thinking。
+- 单轮工具调用最多 4 个；缺失/重复 ID、非法 JSON/schema、空响应、不支持 provider、上游 429/5xx、取消和超时都保留稳定 code、retryable、status 与 requestId。
+- 前端新增 `sendNarrativeAgentTurn` 和 `runNarrativeAgentTurn`，支持 localStorage 模型配置、AbortSignal 与 typed error；尚未接入体验主叙事生产循环。
+- 现有单个 agent contract 测试内补入并行、畸形、限流、取消和路由断言，未增加测试数；`verify:full` 的核心 188 + 视觉 12、Vite/VitePress build 和 diff check 全部通过，未启动服务。
+
+## 2026-07-29 - G4.6 M4 体验主链直接切换
+
+状态：代码 Gate 完成；真实 provider、首 token、浏览器与联机发布 Gate 待验证，下一阶段进入 M5。
+
+- 新增独立 `narrativeAgentOrchestrator`：模型先根据最小 Kernel 选择资料，浏览器并行执行四个只读工具，最多两轮结果回传；单轮最多 4 个、整轮最多 6 个调用，同参第三次阻止。
+- 工具结果累计限制为 7200 字符，超限时保留 ID、摘要、sourceRefs 和 typed error；本地工具限时 800ms，决策阶段限时 12s，trace 不保存正文、完整提示词或 API key。
+- `gameStore.generateAIResponse()` 只保留页面生命周期、流式正文解析与既有后处理；世界书、地理历史、作用域记忆和 Mem0 不再提前拼进体验主提示词。新会话也不再携带固定开场示例或完整世界描述。
+- 最终生成只接收 Kernel、实际工具证据与当前输入；正文继续通过既有 narrative marker parser，消息编辑、记忆候选、runtime event、涌现候选和机制通知保持原 owner。
+- 取消、重生成和会话切换通过 AbortController 与稳定 message ID 清理流式占位；迟到请求不能覆盖新请求的 loading 状态，错误轮次不留下半成品 assistant 消息。
+- `/api/chat` 普通与流式路径统一按协议解析 MiniMax/Anthropic URL、system 消息、请求头和响应格式；浏览器断连会终止上游流。
+- `npm run eval:narrative-context` 40/40 通过；聚焦 Agent/会话 23 tests 通过；`npm run verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。未启动或重启服务。
+
+## 2026-07-29 - G4.6 M5 场景摘要与证据裁剪
+
+状态：代码 Gate 完成；真实模型事实质量和生产指标并入 M6。
+
+- 新增独立、可重建的场景摘要状态：只压缩早于最近四条的 user/assistant 历史，最多 1600 字符；来源 revision 相同直接复用，旧消息被编辑或重写后自动失效。
+- 场景摘要随 session runtime 保存，但阅读区 `messages` 保留完整正文；旧存档无需迁移，缺少摘要时按当前历史重建。
+- 手动上下文压缩产生的 `【上下文摘要】` 不再被新 Agent Kernel 忽略；既有摘要主体与压缩后新增旧轮次分开合并，避免二次摘要只剩短预览。
+- Kernel 增加独立 summary block；ContextLedger 增加 kernel/summary/tool/fallback 分区，审计记录实际使用字符、最终证据字符和被裁剪证据。
+- 最终流式正文前去除本轮完全重复的工具证据，保留较新的 call；完整执行记录仍留在 trace，跨轮不常驻任何旧工具结果。
+- `npm run eval:narrative-context` 保持 40/40，并新增 40 轮长会话门禁：完整历史基线 6514 字符，摘要 + 最近轮次 Kernel 为 1964 字符，下降 69.85%，revision 复用通过。
+- `verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check，测试数量未增加；未启动或重启服务。
+
+## 2026-07-29 - G4.6 M6 联机权威与执行状态
+
+状态：本地代码 Gate 完成；真实 provider 60 轮质量指标和双浏览器实机仍待验证。
+
+- 新增低干扰叙事执行状态条，放在正文与输入之间，只显示核对场景、查阅资料、续写、轮次摘要和真实短错误，不建立第二个 Agent 对话面板。
+- ContextLedger 增加本轮执行完成、工具轮数和调用数记录，不保存工具参数、正文或思考过程。
+- 联机新增有序 `narrative.status` 事件；稳定 `requestId` 贯穿叙事请求、短状态、唯一完成正文和 runtime patch。
+- 服务端从 `narrative.requested` 恢复权威行动文本，拒绝非房主状态、无对应请求、正文为空和同请求重复完成；客户端完成载荷不能改写原行动。
+- 联机成员进入空会话不再调用 `initGame()`，机制按钮只提交行动提案；房主失去身份或连接断开时取消当前本地工具循环，新房主不会接管旧浏览器快照。
+- 现有单个联机测试扩展到 adapter、状态组件、服务端 WebSocket 权限和重复完成，测试数量不增加。
+- 主题2体验页常规/长会话覆盖 1440/390 共 4 张截图，无横向溢出、固定层重叠、截图警告或 console error；未启动或重启服务。
+
+## 2026-07-29 - G4.6 M6 生产观测与发布报告
+
+状态：观测代码与可复现报告完成；真实双 provider 60 轮和双浏览器仍是外部发布 Gate。
+
+- `gameStore.generateAIResponse()` 现在以生成 `requestId` 贯穿决策、工具、首段流式正文和最终清理，成功、typed failure 与取消都会形成一条运行记录。
+- 指标只保存 provider/model 枚举、模式、结果、耗时、工具轮次/调用/证据、token、上下文字符和清理布尔值；正文、prompt、世界资料、Base URL 和 API key 不进入存储，最多保留最近 120 轮。
+- 新增 `npm run report:narrative-production -- --input <metrics.json>`；可用 `--annotations` 合并按 `runId` 标注的证据采用、无依据事实、baseline 事实和重试，用 `--baseline` 比较首段、总耗时、token、调用数、证据采用与重试。
+- 报告只有同时满足不少于 60 轮、95% 轮次不超过两轮工具、supported provider 协议成功率至少 98%、typed failure 清理 100% 和无依据事实较 baseline 下降至少 30% 才返回发布就绪；`--allow-incomplete` 只用于查看未完成报告。
+- 浏览器原始数据位于 `pinax_narrative_production_metrics_v1`；导出后由报告工具重新执行字段白名单，不依赖页面内部 debug 状态。
+- 现有 Agent/会话测试内增加确定性 60 轮汇总、隐私白名单、成功与取消清理断言，没有增加测试数量；指标键同时进入项目备份白名单。
+- 40/40 上下文 eval 再次通过，长会话下降保持 69.85%；`verify:full` 通过核心 188 + 视觉 12、Vite/VitePress build 和 diff check。
+- 本轮未启动或重启服务。`127.0.0.1:3001` 当前未监听，环境中也没有 provider credential，因此没有把本地合成断言冒充真实生产观测。
+
+## 2026-07-29 - G4.6 外部生产 Gate Runner
+
+状态：runner 与本地契约完成；真实 provider 和双浏览器结果仍待执行。
+
+- 新增共享合成世界 fixture 和 60 轮矩阵，覆盖无查询、世界条目、当前位置/路线、历史因果、session/project 记忆、多跳、空结果、连续性，以及最后两轮受控 rate-limit/timeout；每轮都有唯一 `runId`、标准事实和禁止补造项。
+- `npm run smoke:narrative-production -- --config /tmp/pinax-provider.json` 通过真实 `/experience` 输入与发送按钮逐轮运行，等待 production metric 和非空正文完成后再采样。默认把 `metrics.json`、含合成输入/模型输出的 `review-cases.json`、`annotations.json` 与 `run.json` 写入 `/tmp`；只有 `metrics.json` 属于无正文白名单数据，复核样本不能当作隐私安全导出。
+- `npm run smoke:online-narrative -- --config /tmp/pinax-provider.json` 建立两个隔离浏览器上下文，成员提交动作、房主选择执行；通过 HTTP 与 WebSocket 双侧计数验证成员不发模型请求、房主只形成一条 production metric、同一 `requestId` 只有一个 requested 和一个 completed。
+- provider 配置为 `{ "provider", "baseUrl", "apiKey", "model", "format" }`；runner 只将其注入隔离浏览器 localStorage，不写入报告，console 诊断会擦除 API key 和 provider 地址。两条 runner 均支持 `--dry-run` 且不会启动前端或后端。
+- 现有单个 Agent contract 测试扩充 matrix、fixture、地理/历史/记忆和凭据隔离断言，没有新增测试用例；取消、重新生成和协议畸形继续由现有确定性契约覆盖，真实环境还需手动补取消/断线恢复 smoke。
+- 两条 runner dry-run 与 40/40 上下文 eval 通过；`verify:full` 通过核心 23 files / 188 tests、视觉 12 tests、Vite/VitePress build 和 diff check，总量保持 200。
 
 ## 2026-07-26 - 顾问移除 OpenClaw 默认链路
 
@@ -1293,3 +1877,139 @@ Deferred（按重要性排序，不在本 commit）：
 - [src/known-issues.md](./src/known-issues.md)
 - [plan/](./plan/)
 - [superpowers/specs/](./superpowers/specs/)
+## 2026-08-02 - 结构化设定生成链重构计划
+
+状态：计划完成，待执行
+
+结果摘要：
+- 定位字段生成速度和首轮有效率问题的共同根因：普通文本生成依赖 XML 边界与正则抽取，单字段最多 28000 字符 / 2400 token / 90 秒并无分类全量重试，整节仍按字段串行重复上下文。
+- 在主路线 G1.2.2 制定直接替换方案：专用结构化端点、服务端固定 schema registry、provider 结构化能力探测、原生 JSON Schema / 强制提交工具 / JSON object 的确定性选择链，以及不支持时的 typed error；不保留 XML 影子链。
+- 计划将整节压缩为一次请求，保留有效字段并只对失败字段进行一次选择性修复；MiniMax M3 Responses 显式关闭 reasoning，M2.x 依据实际 schema/tool 能力决定是否可用。
+- 明确上下文预算、缓存前缀、取消和 revision 防覆盖、错误决策表、隐私边界、S0-S7 文件范围与量化 Gate；测试总量继续保持 200。
+
+验证：
+- 本轮只修改计划与共享状态文档，未修改运行时代码，未启动或重启服务。
+
+## 2026-08-02 - 结构化设定生成链 S4-S5 完成
+
+状态：代码完成；S6-S7 待执行
+
+- 整节生成保持单次 `setting-section.v1` 请求，逐字段校验结果；有效草稿保留，失败字段带明确错误，不再因为一个字段失败而丢弃整节。
+- 对含有部分有效草稿的响应最多追加一次定向修复请求，只发送失败字段的稳定引用和压缩后的上下文；修复失败继续保留原字段错误，不扩散成整节失败。
+- 将世界书 revision、分区、字段、补充要求、全局约束、结构化条目和资料摘要纳入操作级缓存键，缓存有界且只存在内存，不改变浏览器 worldbook owner，也不缓存 API Key 或模型思考。
+- 调低文本字段的最低有效信息量阈值，允许“陆沉与沈砚互为旧识”这类简洁但完整的事实条目，同时继续拒绝单字、空响应、提示词回显和思考泄漏。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js src/__tests__/worldBookQuickImport.test.js`：13/13 通过。
+- `npm run verify:full`：核心 188、视觉 12，总量 200；Vite/VitePress build 与 `git diff --check` 通过。
+- 未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 结构化设定生成链 S6 完成
+
+状态：代码完成；S7 真实渠道 Gate 待执行
+
+- `/chat/test` 在原有文本/工具探测后，追加一次合成 `setting-field.v1` 请求，真实验证结构化 JSON Schema / forced-tool / JSON object 降级链；探测不会读取或保存用户世界书草稿。
+- 连接结果返回结构化可用性、实际模式、协议、reasoning 状态、延迟和 typed error，避免用模型列表成功或普通文本成功冒充设定生成可用。
+- 结构化分区生成状态增加请求模型、修复失败项、校验草稿和取消阶段；失败字段稳定记录，重试按钮只提交失败字段，已有成功草稿继续保留。
+- 统一协议标识为 `openai-chat` / `openai-responses` / `anthropic`，避免连接探测与能力缓存出现同一协议多种名称。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js src/__tests__/worldBookQuickImport.test.js`：13/13 通过。
+- `npm run build`：退出码 0；`git diff --check`：通过。
+- 未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 结构化设定生成链 S7 代码第一切片
+
+状态：代码侧完成；真实三渠道 Gate 待执行
+
+- 草稿记录生成时的 worldbook revision；单字段生成返回前、整节生成返回前和草稿采纳前均做 revision 比对。生成期间发生新编辑时，旧结果不进入草稿；采纳过期草稿时给出明确提示，不覆盖新内容。
+- `buildSettingGenerationMessages` / prompt preview 已改为展示 `setting-field.v1` JSON 协议，不再向用户展示 `<setting-content>` 输出要求；生产 structured adapter 从未依赖 XML。
+- 保留 `extractSettingContent` 与历史 reasoning fixture 作为兼容测试边界；本地正文校验的 reasoning/prompt-echo 规则仍作为安全阀，而不是上游传输协议。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js src/__tests__/worldBookQuickImport.test.js`：13/13 通过。
+- 真实 MiniMax/OpenAI-compatible/Anthropic-compatible Gate 尚未执行；未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 结构化设定生成 S7 Gate runner
+
+状态：本地夹具 Gate 通过；真实三渠道 Gate 待执行
+
+- 新增 `npm run smoke:structured-settings`，支持三份 provider 配置、单字段 10 次、整节 5 次、超时、脱敏 JSON 报告和 `--allow-incomplete`。
+- `--dry-run` 覆盖 OpenAI Chat、OpenAI Responses/工具和 Anthropic-compatible 的结构化回传路径；dry-run 只产生 `fixtureReady`，不会误报 `releaseReady`，也不会因真实发布门禁未完成而失败退出。
+- 报告仅保留 provider/model/protocol/mode、成功率、尝试次数、延迟、usage 汇总与错误码；API key、提示词和草稿均不进入报告。
+- 直接执行 runner 时发现共享结构化契约缺少 `STRUCTURED_GENERATION_SCHEMA_VERSION` 导出，已补为字段契约版本别名，避免 Node ESM 运行时失败。
+
+验证：dry-run 夹具与聚焦契约验证通过；真实渠道仍需使用本机保存配置执行，未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 结构化设定草稿局部意见修订 S8-A 至 S8-D
+
+- 将部分认可/部分反对的反馈入口放在结构化设定的草稿审阅区，不在世界书条目管理页重复增加 AI 写入口。用户可以明确写下保留、删除、补充和禁止引入的事实。
+- 新增 `setting-revision.v1` 与共享修订上下文：请求绑定一个 `section.field`，同时传入正式字段、当前草稿、用户意见和可选锁定事实；模型只能返回该字段的完整正文，禁止返回 patch、思考、解释或直接持久化。
+- 结构化草稿现在保存有限版本链。AI 修订会截断当前版本之后的 redo 分支并追加完整新版本，手动编辑会更新当前版本并建立新的分支；审阅区支持上一版/下一版、差异查看和最终采纳。
+- 修订请求现在会携带当前版本之前最多四个有限历史版本，总长度受契约限制；当前草稿和本次意见优先，历史版本只作为找回已写事实的参考，避免模型只凭当前一版重写而丢失早先内容。
+- 修订使用草稿内容哈希与 worldbook revision 双重 stale guard；旧 localStorage 草稿恢复时自动补齐基础版本，取消、切换分区、丢弃草稿都会中止未完成请求。正式世界书只有用户点击采纳后才写入。
+
+验证：定向结构化测试 13/13 与 `npm run build` 已通过；主题2 1440/390 审阅区 smoke 无横向溢出且控制台无错误；真实浏览器拦截请求 smoke 验证修订后显示 `2 / 2` 并可回退到初始版本；`npm run verify:full` 通过核心 188、视觉 12、Vite/VitePress build 和 diff check。未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 结构化修订旧后端兼容
+
+- 复现确认：当前 3001 进程能接受 `setting-field.v1`，但尚未加载 S8 新增的 `setting-revision.v1`，因此返回 `STRUCTURED_GENERATION_SCHEMA_UNSUPPORTED`，根因是进程版本滞后而非 API Key 或模型拒绝。
+- 修订服务现在只针对该明确错误做一次兼容回退：改用 `setting-field.v1`，将当前草稿作为字段修订基线、将用户修改意见写入兼容 `userBrief`；其他 schema、鉴权、上游网络和模型错误不会被吞掉。后端升级后仍优先走正式 `setting-revision.v1`。
+
+验证：兼容回退场景已并入现有世界书生成测试，定向 13/13 与 Vite build 通过；未启动或重启服务，未增加测试 item。
+
+## 2026-08-02 - 放宽结构化规则清单校验容量
+
+- `world.rules` 与创作规则中的 `rule/forbidden` 清单原先复用 200 字总容量，模型生成多条具体规则时容易超过本地校验允许范围，导致可用草稿被误报为无效。
+- 统一将清单字段容量提高到 800 字，仍保留思考泄漏、提示词回显、空内容和异常超长检查；服务端共享字段元数据与前端字段元数据保持一致。
+
+验证：现有世界书生成测试内加入 5 条具体规则、超过旧上限的回归，定向 13/13 通过；完整验证待执行，未启动或重启服务。
+
+## 2026-08-02 - 结构化路由旧进程诊断
+
+- 直接请求当前运行的 `127.0.0.1:3001` 确认：`POST /api/config/worlds` 正常，但 `POST /api/generate/structured` 返回 `Cannot POST`；临时加载当前源码验证该路由存在并能返回结构化请求校验错误。
+- 原因是后端进程在结构化路由加入前启动，属于进程版本滞后，不是 MiniMax 上游 404。前端对无 JSON 错误体的 404 增加明确的“请重启后端”提示。
+
+## 2026-08-02 - 结构化设定长文本超时边界修复
+
+- 复现“故事概念生成 `timeout of 47000ms exceeded`”：结构化字段前端固定请求 45000ms，Axios 只增加 2000ms 缓冲，服务端结构化契约和 provider adapter 也固定在 45000ms，因此长文本字段总会在 47 秒附近失败。
+- 新增共享 `STRUCTURED_GENERATION_TIMEOUTS`：短字段保持 45000ms，textarea 长字段与整节包含 textarea 的请求使用 90000ms，客户端保留 2000ms 缓冲；共享请求契约、前端字段生成、服务端 runner 和 provider abort 使用同一上限，避免只延长单层造成假修复。
+- 运行中的旧后端不会热加载新的服务端边界，需重启 3001 后端后长字段才能实际等待 90 秒；本轮未启动或重启服务。
+
+验证：`agentContracts` 通过 1/1 test，完整验证通过核心 188、视觉 12、Vite/VitePress build 和 `git diff --check`；测试总量仍为 200，未启动或重启服务。
+
+## 2026-08-02 - 结构化角色卡与体验导入
+
+- 根因是 `character` 设定项一直映射为 `chips`，生成提示只要求人物名；主角字段没有可供体验页消费的身份、性格、目标和行为约束，分区批量生成时也容易在名字列表后被截断。
+- `主角`、`重要配角`、`NPC` 现在使用紧凑角色卡文本，固定包含姓名、身份、性别、年龄、外貌、性格、背景、目标、关系、说话方式和开场状态；角色字段使用较小的单项输出预算，避免四个角色字段共用预算时互相挤占。
+- 草稿审阅区新增“导入体验”：主角写入 `writingCharacter`，配角/NPC 写入 `encounteredCharacters`；角色姓名同时进入结构化世界书条目的关键词，生成后的对话可以按真实姓名命中。导入解析兼容标签文本和 JSON 角色卡。
+
+验证：复用 `worldBookQuickImport` 既有测试项覆盖角色卡生成校验、批量修复和解析；定向 13/13 通过，未增加测试 item。
+
+## 2026-08-02 - 结构化设定长字段预算修复
+
+- 定位到地理环境单字段使用固定 `1000 tokens`，短的世界起源可以完成，地理/历史等 textarea 容易在 JSON 封闭前达到上游上限。
+- 单字段 textarea 提高到 3600 tokens；整节按字段类型动态预算，最高 5600 tokens；失败字段定向修复提高到至少 1600 tokens。历史线和地理环境增加紧凑字段边界，避免模型重复上下文导致输出预算被吃完。
+- 首轮响应被 `length`/`max_tokens` 截断时，在同一结构化模式下自动提高预算重试一次；仍保持单次操作最多两次上游请求，超出后返回明确截断错误。
+- 统一识别 OpenAI `length/incomplete` 与 Anthropic/MiniMax `max_tokens`，避免同一类截断被显示成普通解析失败。
+
+## 2026-08-02 - 结构化设定生成链 S0-S3 首轮实现
+
+状态：代码完成；S4-S5 已在后续切片完成，S6-S7 待执行
+
+- 新增共享 `setting-field.v1` / `setting-section.v1` 契约，前端结构化字段表改为消费共享定义，服务端拒绝未知分区、字段、schema 和超限上下文。
+- 新增 `/api/generate/structured` 及 provider-neutral runner；OpenAI Chat/Responses、Anthropic-compatible 支持原生 JSON Schema，能力不足时按协议进入强制提交工具或 JSON object 模式，并缓存运行时能力结果。
+- 单字段生成已切换到结构化端点，整节生产路径改成一次分区请求；输出不再通过 `<setting-content>` 主协议解析，拒绝、截断、空 payload、reasoning-only 和渠道不支持均不保存为草稿。
+- 现有 `generateField` 注入路径仅为测试兼容保留；生产路径已切换到结构化分区请求。
+
+验证：
+- `npm run verify:contract -- src/__tests__/agentContracts.test.js src/__tests__/worldBookQuickImport.test.js`：13/13 通过。
+- `npm run build`：退出码 0；`git diff --check`：退出码 0。
+- 未启动或重启服务；未增加测试 item。
+## 2026-08-06 - 世界书地点地理绑定与历史语义修复
+
+- 定位“小村固定发现地下城”：道路孤立的普通聚落此前统一进入 `isolatedSite`，该类型首个固定模板却是“遗迹开启”。现在普通孤立聚落只生成补给、信使、迁居和乡约类事件，只有明确遗迹/废墟条目进入 `ruinSite`。
+- 删除世界书地点进入 `burgNames/riverNames` 的路径，地图 AI 仅负责大陆形态、气候、密度和命名风格；客户端会过滤模型擅自复制的作者地点名，并拒绝模型产生的地点坐标约束。只有用户确认过的世界书绑定可进入地图引擎约束。
+- 世界书导入先匹配同名/别名真实对象，再按聚落层级、港口、沿河、海拔、生境、所属国家及地点关系评分现有对象。遗迹、洞穴和矿山只在明确地形条件下匹配 terrain cell；没有充分地理信息的地点留在“未绑定”，不再制造可见假点。
+- 修复候选标记已存在但清单仍显示“未绑定”的状态重算错误；候选保存真实 `cellId/mapObjectId`，村、镇、城、港口、遗迹保留对应标记类型。
+- 1200-cell 真实引擎审计：青禾村匹配现有低层级聚落，白帆港匹配 harbor 单元，断脊遗迹匹配高度 80 的山地单元，无名旧地保持未绑定。定向地图/历史 23 tests 通过，测试 item 总数未增加。

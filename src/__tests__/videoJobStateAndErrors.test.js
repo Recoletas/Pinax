@@ -116,6 +116,10 @@ describe('videoJobStore state machine', () => {
       versionId: 'storyboard_version_2',
       versionFingerprint: 'fp_2',
       projectId: 'world_1',
+      sourceRefs: [
+        { refType: 'history-node', refId: 'history-clocktower', projectId: 'world_1' },
+        { refType: 'map-site', refId: 'place:clocktower', projectId: 'world_1' }
+      ],
       shots: storyboardShots
     })
 
@@ -127,6 +131,10 @@ describe('videoJobStore state machine', () => {
       refId: 'storyboard_version_2',
       version: 'fp_2'
     }))
+    expect(input.input.sourceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ refType: 'history-node', refId: 'history-clocktower' }),
+      expect.objectContaining({ refType: 'map-site', refId: 'place:clocktower' })
+    ]))
     expect(input.input.referenceImages).toHaveLength(1)
 
     const secondShotInput = directorModule.buildStoryboardVideoJobInput({

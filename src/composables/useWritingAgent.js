@@ -15,6 +15,7 @@ import {
   mergeContextLedgers
 } from '../services/contextLedger'
 import { normalizeWritingSuggestion } from '../services/writingSuggestion'
+import { sourceRefsToEvidenceRefs } from '../services/narrativeAssets'
 import {
   PASSIVE_HINT_TYPES,
   canRequestPassiveHint,
@@ -117,12 +118,19 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
     currentChapterId: snapshot.chapterId,
     currentBookId: snapshot.bookId
   })
-  const referenceSourceRefs = [
-    snapshot.referenceAsset?.id,
+  const selectedReferenceAssets = [
+    snapshot.referenceAsset,
     ...(snapshot.inboxAssets || [])
       .filter((asset) => (snapshot.selectedInboxIds || []).includes(asset.id))
-      .map((asset) => asset.id)
-  ].filter(Boolean).map((id) => `asset:${id}`)
+  ].filter(Boolean)
+  const referenceSourceRefs = [...new Set(selectedReferenceAssets.flatMap((asset) => [
+    asset.id ? `narrative-asset:${asset.id}` : '',
+    ...sourceRefsToEvidenceRefs(asset.sourceRefs || [])
+  ]).filter(Boolean))]
+  const chapterSourceRefs = [...new Set([
+    snapshot.chapterId ? `chapter:${snapshot.chapterId}` : '',
+    ...(Array.isArray(snapshot.sourceRefs) ? snapshot.sourceRefs : [])
+  ].filter(Boolean))]
   const worldbook = buildWorldbookContext({
     worldbook: snapshot.worldbook,
     chatHistory: [{
@@ -164,7 +172,7 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
     ].filter(Boolean).join('\n')
   }, {
     priority: 700,
-    sourceRefs: snapshot.chapterId ? [`chapter:${snapshot.chapterId}`] : []
+    sourceRefs: chapterSourceRefs
   })
   if (references.contextText) {
     envelope = addBlock(envelope, BLOCK_KINDS.REFERENCES, references.contextText, {
@@ -192,7 +200,7 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
     content: `${writingContext.cursor.before}${writingContext.cursor.after}`,
     included: true,
     limit: 760,
-    sourceRefs: snapshot.chapterId ? [`chapter:${snapshot.chapterId}`] : []
+    sourceRefs: chapterSourceRefs
   })
   if (references.contextText) {
     writingLedger = appendContextLedgerPart(writingLedger, {

@@ -244,6 +244,7 @@ async function submitJob() {
       versionId: version.value.versionId,
       versionFingerprint: props.context?.fingerprint,
       projectId: props.projectId,
+      sourceRefs: props.context?.document?.sourceRefs || [],
       durationSeconds: durationSeconds.value,
       aspectRatio: aspectRatio.value
     })
@@ -353,7 +354,8 @@ function collectStoryboardAgentContext(taskType) {
     shotIndex: selectedShotIndex.value,
     documentId: props.context?.document?.id,
     versionId: version.value.versionId,
-    projectId: props.projectId
+    projectId: props.projectId,
+    sourceRefs: props.context?.document?.sourceRefs || []
   })
 }
 

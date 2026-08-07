@@ -147,6 +147,8 @@ describe('worldHistory/historyGenerator', () => {
     // 具体锚点：trade hub 应出现税权类型，frontier 应出现巡骑失踪类型。
     expect(tradeTypes.has('tax-rights')).toBe(true)
     expect(frontierTypes.has('ranger-vanish')).toBe(true)
+    expect(isolatedTypes.has('supply-cut')).toBe(true)
+    expect(isolatedTypes.has('ruin-unsealed')).toBe(false)
     }
   })
 
@@ -168,6 +170,7 @@ describe('worldHistory/historyGenerator', () => {
     expect(normalizeSemanticType('frontier')).toBe('frontierZone')
     expect(normalizeSemanticType('hostile')).toBe('hostileRegion')
     expect(normalizeSemanticType('isolated')).toBe('isolatedSite')
+    expect(normalizeSemanticType('ruinSite')).toBe('ruinSite')
     expect(normalizeSemanticType('trade')).toBe('tradeHub')
     expect(normalizeSemanticType('road')).toBe('strategicRoute')
     expect(normalizeSemanticType('farmland')).toBe('fertileRegion')

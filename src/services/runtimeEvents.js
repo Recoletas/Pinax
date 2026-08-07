@@ -32,6 +32,11 @@ export const STATE_PATH_ROOTS = [
   'keyChoices',
   'plotJournal',
   'activities',
+  'placeStates',
+  'characterStates',
+  'characterRelations',
+  'canonicalFacts',
+  'writingTime',
   'worldMapState',
   'mechanismContext',
   'milestoneEvent',
@@ -51,12 +56,41 @@ const ARRAY_STATE_ROOTS = new Set([
 ])
 const OBJECT_STATE_ROOTS = new Set([
   'factionRelations',
+  'placeStates',
+  'characterStates',
+  'characterRelations',
+  'canonicalFacts',
+  'writingTime',
   'worldMapState',
   'mechanismContext',
   'milestoneEvent',
   'flags'
 ])
 const WORLD_MAP_PATCH_KEYS = new Set(['placeId', 'currentCountry', 'currentCity', 'currentScene'])
+const WRITING_TIME_KEYS = new Set(['eraId', 'eraName', 'year', 'month', 'day'])
+const PLACE_STATE_KEYS = new Set(['status', 'controllerId', 'danger'])
+const CHARACTER_STATE_KEYS = new Set([
+  'status',
+  'alive',
+  'placeId',
+  'goal',
+  'mood',
+  'knowledgeRefs'
+])
+const CHARACTER_RELATION_KINDS = new Set([
+  'parent',
+  'child',
+  'sibling',
+  'spouse',
+  'grandparent',
+  'grandchild',
+  'guardian',
+  'ward',
+  'adoptive-parent',
+  'adoptive-child'
+])
+const CHARACTER_RELATION_STATUSES = new Set(['confirmed', 'disputed', 'ended'])
+const CANONICAL_FACT_STATUSES = new Set(['confirmed', 'disputed', 'retired'])
 
 const DEFAULT_BRANCH_ID = 'main'
 const DEFAULT_SOURCE = 'runtime'
@@ -177,6 +211,98 @@ function hasNumericRecordValues(value) {
     && Object.values(value).every((item) => typeof item === 'number' && Number.isFinite(item))
 }
 
+function hasOnlyScalarKeys(value, allowedKeys) {
+  return isPlainRecord(value)
+    && Object.keys(value).every((key) => allowedKeys.has(key))
+    && Object.values(value).every((item) => (
+      item === null
+      || typeof item === 'string'
+      || typeof item === 'number'
+      || typeof item === 'boolean'
+    ))
+}
+
+function hasValidEntityStateRecord(value, allowedKeys, limit = 64) {
+  if (!isPlainRecord(value) || Object.keys(value).length > limit) return false
+  return Object.entries(value).every(([id, state]) => (
+    id.trim()
+    && id.length <= 120
+    && isPlainRecord(state)
+    && Object.keys(state).every((key) => allowedKeys.has(key))
+    && Object.entries(state).every(([key, item]) => {
+      if (key === 'knowledgeRefs') {
+        return Array.isArray(item)
+          && item.length <= 24
+          && item.every((ref) => typeof ref === 'string' && ref.length <= 160)
+      }
+      return item === null
+        || typeof item === 'string'
+        || typeof item === 'number'
+        || typeof item === 'boolean'
+    })
+  ))
+}
+
+function hasValidSourceRefs(value, limit = 8) {
+  return value === undefined || (
+    Array.isArray(value)
+    && value.length <= limit
+    && value.every((ref) => typeof ref === 'string' && ref.trim() && ref.length <= 160)
+  )
+}
+
+function hasValidCharacterRelationRecord(value) {
+  if (!isPlainRecord(value) || Object.keys(value).length > 64) return false
+  return Object.entries(value).every(([relationId, relation]) => (
+    relationId.trim()
+    && relationId.length <= 120
+    && isPlainRecord(relation)
+    && Object.keys(relation).every((key) => (
+      ['subjectId', 'objectId', 'kind', 'status', 'sourceRefs'].includes(key)
+    ))
+    && typeof relation.subjectId === 'string'
+    && relation.subjectId.trim()
+    && relation.subjectId.length <= 120
+    && typeof relation.objectId === 'string'
+    && relation.objectId.trim()
+    && relation.objectId.length <= 120
+    && CHARACTER_RELATION_KINDS.has(relation.kind)
+    && (relation.status === undefined || CHARACTER_RELATION_STATUSES.has(relation.status))
+    && hasValidSourceRefs(relation.sourceRefs)
+  ))
+}
+
+function hasValidCanonicalFactRecord(value) {
+  if (!isPlainRecord(value) || Object.keys(value).length > 96) return false
+  return Object.entries(value).every(([factId, fact]) => (
+    factId.trim()
+    && factId.length <= 120
+    && isPlainRecord(fact)
+    && Object.keys(fact).every((key) => (
+      ['subjectId', 'predicate', 'value', 'status', 'confidence', 'sourceRefs'].includes(key)
+    ))
+    && typeof fact.subjectId === 'string'
+    && fact.subjectId.trim()
+    && fact.subjectId.length <= 120
+    && typeof fact.predicate === 'string'
+    && fact.predicate.trim()
+    && fact.predicate.length <= 120
+    && (
+      fact.value === null
+      || typeof fact.value === 'number'
+      || typeof fact.value === 'boolean'
+      || (typeof fact.value === 'string' && fact.value.length <= 240)
+    )
+    && (fact.status === undefined || CANONICAL_FACT_STATUSES.has(fact.status))
+    && (
+      fact.confidence === undefined
+      || (typeof fact.confidence === 'number' && Number.isFinite(fact.confidence)
+        && fact.confidence >= 0 && fact.confidence <= 1)
+    )
+    && hasValidSourceRefs(fact.sourceRefs)
+  ))
+}
+
 function validateStateDeltaValue(op, path, value, index) {
   if (op === 'unset') return null
   if (!isSafeJsonValue(value)) {
@@ -207,6 +333,21 @@ function validateStateDeltaValue(op, path, value, index) {
     if (path === 'factionRelations' && !hasNumericRecordValues(value)) {
       return { index, code: 'invalid-value', message: 'factionRelations merge values must be numeric' }
     }
+    if (path === 'writingTime' && !hasOnlyScalarKeys(value, WRITING_TIME_KEYS)) {
+      return { index, code: 'invalid-value', message: 'writingTime only accepts bounded era/date fields' }
+    }
+    if (path === 'placeStates' && !hasValidEntityStateRecord(value, PLACE_STATE_KEYS)) {
+      return { index, code: 'invalid-value', message: 'placeStates contains unsupported state fields' }
+    }
+    if (path === 'characterStates' && !hasValidEntityStateRecord(value, CHARACTER_STATE_KEYS)) {
+      return { index, code: 'invalid-value', message: 'characterStates contains unsupported state fields' }
+    }
+    if (path === 'characterRelations' && !hasValidCharacterRelationRecord(value)) {
+      return { index, code: 'invalid-value', message: 'characterRelations contains unsupported relation fields' }
+    }
+    if (path === 'canonicalFacts' && !hasValidCanonicalFactRecord(value)) {
+      return { index, code: 'invalid-value', message: 'canonicalFacts contains unsupported fact fields' }
+    }
     return null
   }
 
@@ -222,6 +363,21 @@ function validateStateDeltaValue(op, path, value, index) {
     }
     if (path === 'factionRelations' && !hasNumericRecordValues(value)) {
       return { index, code: 'invalid-value', message: 'factionRelations values must be numeric' }
+    }
+    if (path === 'writingTime' && !hasOnlyScalarKeys(value, WRITING_TIME_KEYS)) {
+      return { index, code: 'invalid-value', message: 'writingTime only accepts bounded era/date fields' }
+    }
+    if (path === 'placeStates' && !hasValidEntityStateRecord(value, PLACE_STATE_KEYS)) {
+      return { index, code: 'invalid-value', message: 'placeStates contains unsupported state fields' }
+    }
+    if (path === 'characterStates' && !hasValidEntityStateRecord(value, CHARACTER_STATE_KEYS)) {
+      return { index, code: 'invalid-value', message: 'characterStates contains unsupported state fields' }
+    }
+    if (path === 'characterRelations' && !hasValidCharacterRelationRecord(value)) {
+      return { index, code: 'invalid-value', message: 'characterRelations contains unsupported relation fields' }
+    }
+    if (path === 'canonicalFacts' && !hasValidCanonicalFactRecord(value)) {
+      return { index, code: 'invalid-value', message: 'canonicalFacts contains unsupported fact fields' }
     }
   }
 

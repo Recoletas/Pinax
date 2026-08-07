@@ -18,11 +18,9 @@
       </div>
       <SettingFieldActions
         :field-label="field.label"
-        :model-value="modelValue"
         :working="working"
         :has-draft="hasDraft"
         @generate="$emit('generate', payload)"
-        @convert-entry="$emit('convert-entry', payload)"
       />
     </div>
 
@@ -30,7 +28,7 @@
       :is="FieldComponent"
       :model-value="modelValue"
       :input-id="inputId"
-      :rows="meta.controlType === 'textarea' ? rows : undefined"
+      :rows="meta.controlType === 'textarea' ? (meta.entryType === 'character' ? 10 : rows) : undefined"
       :placeholder="meta.placeholder"
       :max-length="meta.maxLength"
       :delimiter="meta.delimiter"
@@ -48,7 +46,7 @@
     <span
       v-if="hasDraft"
       class="draft-ready-dot"
-      :aria-label="`字段「${field.label}」有 AI 草稿待采纳`"
+      :aria-label="`设定项「${field.label}」有 AI 草稿待采纳`"
       role="img"
     ></span>
 
@@ -80,7 +78,7 @@ const props = defineProps({
   rows: { type: Number, default: 4 }
 })
 
-const emit = defineEmits(['update:modelValue', 'generate', 'convert-entry', 'saved'])
+const emit = defineEmits(['update:modelValue', 'generate', 'saved'])
 
 const dirtyRegistry = inject('dirtyRegistry', null)
 
@@ -176,6 +174,7 @@ const statusText = computed(() => {
 
 const controlLabel = computed(() => {
   if (meta.value.entryType === 'forbidden') return '禁写'
+  if (meta.value.entryType === 'character') return '角色卡'
   if (meta.value.controlType === 'chips') return '角色'
   if (meta.value.controlType === 'tags') return '标签'
   if (meta.value.controlType === 'list') return '清单'

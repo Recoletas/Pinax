@@ -9,19 +9,20 @@ import { computeBorderlands } from './borderlands'
 import { hillshadeAlpha } from './hillshade'
 import { getStyleConfig, type StyleConfig } from './style-presets'
 import { getPipeline, type LayerSpec } from './renderer-pipeline'
+import { placeLabels, padRect, type Rect, type LabelItem, type LabelSlot } from './label-layout'
 
 const TERRAIN_BIOME_COLORS: Record<number, string> = {
-  1: '#dfbd43',
-  2: '#c8d0c8',
-  3: '#b5d45e',
-  4: '#93cc4d',
-  5: '#69b84b',
-  6: '#3fa23d',
-  7: '#218635',
-  8: '#2b7d36',
-  9: '#456f35',
-  10: '#d8ded8',
-  11: '#f4f7f6',
+  1: '#cdb878',
+  2: '#c4cbc4',
+  3: '#b6c884',
+  4: '#9cb976',
+  5: '#7fa667',
+  6: '#668f5d',
+  7: '#4f7b57',
+  8: '#456e50',
+  9: '#536d4c',
+  10: '#d5dbd5',
+  11: '#d8e3e3',
   12: '#4a9c72',
 }
 
@@ -387,20 +388,16 @@ function drawCoastlines(ctx: CanvasRenderingContext2D, data: VoronoiMapData, sty
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
 
-  ctx.strokeStyle = 'rgba(236, 248, 246, 0.48)'
-  ctx.lineWidth = 8.8
-  strokeCoast(ctx, data)
-
-  ctx.strokeStyle = 'rgba(126, 196, 205, 0.34)'
+  ctx.strokeStyle = 'rgba(238, 247, 243, 0.42)'
   ctx.lineWidth = 5.2
   strokeCoast(ctx, data)
 
-  ctx.strokeStyle = 'rgba(249, 241, 196, 0.42)'
+  ctx.strokeStyle = 'rgba(126, 181, 188, 0.28)'
   ctx.lineWidth = 2.8
   strokeCoast(ctx, data)
 
-  ctx.strokeStyle = colorWithAlpha(style.coastline, 0.78)
-  ctx.lineWidth = 1.15
+  ctx.strokeStyle = colorWithAlpha(style.coastline, 0.72)
+  ctx.lineWidth = 0.95
   strokeCoast(ctx, data)
 }
 
@@ -783,19 +780,19 @@ function drawBorders(
       ctx.strokeStyle = borderStyle === 'azgaar'
         ? 'rgba(255,255,230,0.96)'
         : 'rgba(255,255,255,0.56)'
-      ctx.lineWidth = borderStyle === 'azgaar' ? 6.4 : 2.8
+      ctx.lineWidth = borderStyle === 'azgaar' ? 3.6 : 2.2
       ctx.stroke()
 
       ctx.setLineDash([])
       ctx.strokeStyle = borderStyle === 'azgaar'
-        ? 'rgba(22,17,11,0.82)'
+        ? 'rgba(36,35,27,0.66)'
         : 'rgba(50,42,32,0.34)'
-      ctx.lineWidth = borderStyle === 'azgaar' ? 3.1 : 1.4
+      ctx.lineWidth = borderStyle === 'azgaar' ? 1.8 : 1.2
       ctx.stroke()
 
       ctx.setLineDash(borderStyle === 'azgaar' ? [7, 3.5] : [4, 3])
       ctx.strokeStyle = `rgba(73, 48, 25, ${alpha})`
-      ctx.lineWidth = borderStyle === 'azgaar' ? 1.9 : 0.95
+      ctx.lineWidth = borderStyle === 'azgaar' ? 0.9 : 0.8
       ctx.stroke()
     }
   }
@@ -838,6 +835,48 @@ function drawBurgs(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: S
 
 // ── 国家标签 ────────────────────────────────────────
 
+/**
+ * 计算 state 标签的占用矩形(供 burg 碰撞布局避让)。
+ * 与 drawStateLabels 的字体/间距/质心完全一致,只是不画字,返回 pad 后的 AABB。
+ */
+function computeStateLabelRects(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): Rect[] {
+  const { cells, states } = data
+  const rects: Rect[] = []
+
+  const centroids = new Map<number, { cx: number; cy: number; count: number }>()
+  for (let i = 0; i < cells.length; i++) {
+    const sid = cells.state[i]
+    if (sid === 0) continue
+    let c = centroids.get(sid)
+    if (!c) { c = { cx: 0, cy: 0, count: 0 }; centroids.set(sid, c) }
+    c.cx += cells.p[i * 2]; c.cy += cells.p[i * 2 + 1]; c.count++
+  }
+
+  for (const state of states) {
+    if (state.i === 0 || state.cells === 0) continue
+    const c = centroids.get(state.i)
+    if (!c || c.count === 0) continue
+    const cx = c.cx / c.count, cy = c.cy / c.count
+
+    const fontSize = Math.max(12, Math.min(22, Math.sqrt(c.count) * 1.3))
+    const spacing = fontSize * 0.22
+
+    ctx.font = `600 ${fontSize}px ${style.stateLabelFont}`
+    const name = state.name
+    const totalWidth = ctx.measureText(name).width + spacing * (name.length - 1)
+
+    // textBaseline 'middle' → AABB 上下各 fontSize/2
+    const raw: Rect = {
+      minX: cx - totalWidth / 2,
+      minY: cy - fontSize / 2,
+      maxX: cx + totalWidth / 2,
+      maxY: cy + fontSize / 2,
+    }
+    rects.push(padRect(raw, 2))
+  }
+  return rects
+}
+
 function drawStateLabels(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
   const { cells, states } = data
 
@@ -857,10 +896,10 @@ function drawStateLabels(ctx: CanvasRenderingContext2D, data: VoronoiMapData, st
     if (!c || c.count === 0) continue
     const cx = c.cx / c.count, cy = c.cy / c.count
 
-    const fontSize = Math.max(13, Math.min(26, Math.sqrt(c.count) * 1.5))
-    const spacing = fontSize * 0.3
+    const fontSize = Math.max(12, Math.min(22, Math.sqrt(c.count) * 1.3))
+    const spacing = fontSize * 0.22
 
-    ctx.font = `bold ${fontSize}px ${style.stateLabelFont}`
+    ctx.font = `600 ${fontSize}px ${style.stateLabelFont}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
@@ -868,7 +907,7 @@ function drawStateLabels(ctx: CanvasRenderingContext2D, data: VoronoiMapData, st
     const totalWidth = ctx.measureText(name).width + spacing * (name.length - 1)
 
     ctx.shadowColor = style.stateLabelGlow
-    ctx.shadowBlur = 6
+    ctx.shadowBlur = 4
     ctx.fillStyle = style.stateLabelColor
 
     let drawX = cx - totalWidth / 2
@@ -884,23 +923,51 @@ function drawStateLabels(ctx: CanvasRenderingContext2D, data: VoronoiMapData, st
 // ── 城镇标签 ────────────────────────────────────────
 
 function drawBurgLabels(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
-  for (const burg of data.burgs) {
+  // 预留国家标签的占用空间,burg 避让它们
+  const occupied = computeStateLabelRects(ctx, data, style)
+
+  const items: LabelItem<number>[] = []
+  for (let i = 0; i < data.burgs.length; i++) {
+    const burg = data.burgs[i]
     if (burg.i === 0) continue
 
     const fontSize = burg.capital ? 12 : 9
     ctx.font = `${burg.capital ? 'bold ' : ''}${fontSize}px ${style.burgLabelFont}`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
+    const w = ctx.measureText(burg.name).width
+    const h = fontSize
 
-    const labelPos = pickBurgLabelPosition(burg, data)
+    const candidates: LabelSlot[] = burgLabelCandidates(burg, data).map(({ x, y }) => ({
+      rect: padRect({ minX: x - w / 2, minY: y, maxX: x + w / 2, maxY: y + h }, 1),
+      x,
+      y,
+    }))
+
+    items.push({
+      key: i,
+      priority: (burg.capital ? 1e9 : 0) + (burg.population || 0),
+      force: burg.capital,
+      candidates,
+    })
+  }
+
+  const placed = placeLabels(items, occupied)
+
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.lineJoin = 'round'
+
+  for (const [keyStr, slot] of placed) {
+    const burg = data.burgs[Number(keyStr)]
+    if (!burg) continue
+    const fontSize = burg.capital ? 12 : 9
+    ctx.font = `${burg.capital ? 'bold ' : ''}${fontSize}px ${style.burgLabelFont}`
 
     ctx.strokeStyle = style.burgLabelStroke
     ctx.lineWidth = 3
-    ctx.lineJoin = 'round'
-    ctx.strokeText(burg.name, labelPos.x, labelPos.y)
+    ctx.strokeText(burg.name, slot.x, slot.y)
 
     ctx.fillStyle = burg.capital ? style.burgLabelColor : (style.burgLabelColor === '#111' ? '#2a2a2a' : style.burgLabelColor)
-    ctx.fillText(burg.name, labelPos.x, labelPos.y)
+    ctx.fillText(burg.name, slot.x, slot.y)
   }
 }
 
@@ -1340,7 +1407,7 @@ function computeTerrainBaseColors(
         const shelf = depth <= 1 ? 0.42 : 0.2
         color = mixRgb(color, parseColor('#eef9f3'), shelf)
       }
-      colors[i] = saturateRgb(color, 1.12)
+      colors[i] = saturateRgb(color, 1.02)
       continue
     }
 
@@ -1357,7 +1424,7 @@ function computeTerrainBaseColors(
         g: style.mountainHigh[1],
         b: style.mountainHigh[2],
       }, parseColor('#f5f8f7'), coldBlend)
-      color = mixRgb(rock, snow, Math.min(1, (h - 84) / 16))
+      color = mixRgb(rock, snow, Math.min(0.72, (h - 84) / 22))
     } else if (h > 58) {
       const lowRock = mixRgb(parseColor('#b17b3e'), parseColor('#9a9b88'), coldBlend)
       const highRock = mixRgb(parseColor('#725139'), parseColor('#73796f'), coldBlend)
@@ -1379,7 +1446,7 @@ function computeTerrainBaseColors(
 
     if (coldBlend > 0) {
       const frostTone = cells.biome[i] === 11
-        ? parseColor('#f0f5f6')
+        ? parseColor('#d8e3e3')
         : cells.biome[i] === 10
           ? parseColor('#aebbad')
           : parseColor('#bac4ba')
@@ -1389,7 +1456,7 @@ function computeTerrainBaseColors(
     if (cells.biome[i] === 7 || cells.biome[i] === 8 || cells.biome[i] === 9) {
       color = mixRgb(color, parseColor('#1f6d2e'), 0.08)
     }
-    const contrast = cells.biome[i] === 10 || cells.biome[i] === 2 ? 1.06 : 1.16
+    const contrast = cells.biome[i] === 10 || cells.biome[i] === 2 ? 1.03 : 1.08
     colors[i] = contrastRgb(mixRgb(color, parseColor('#f2f5f5'), polarBlend * 0.025), contrast)
   }
   return colors
@@ -1417,9 +1484,28 @@ function fallbackLandColor(cells: VoronoiMapData['cells'], cellId: number): stri
 
 function smoothTerrainColor(cells: VoronoiMapData['cells'], cellId: number, colors: RgbColor[]): RgbColor {
   const base = colors[cellId]
-  if (cells.h[cellId] < 20) return base
+  if (cells.h[cellId] < 20) {
+    let r = base.r * 2.2
+    let g = base.g * 2.2
+    let b = base.b * 2.2
+    let weight = 2.2
+    for (const nb of cells.c[cellId]) {
+      if (cells.h[nb] >= 20) continue
+      const depthDelta = Math.abs(Math.abs(cells.t[nb]) - Math.abs(cells.t[cellId]))
+      const w = depthDelta > 4 ? 0.16 : depthDelta > 2 ? 0.34 : 0.62
+      r += colors[nb].r * w
+      g += colors[nb].g * w
+      b += colors[nb].b * w
+      weight += w
+    }
+    return saturateRgb({
+      r: Math.round(r / weight),
+      g: Math.round(g / weight),
+      b: Math.round(b / weight),
+    }, 1.02)
+  }
   const coastBlend = coastalBlendStrength(cells, cellId)
-  const selfWeight = Math.max(2.4, 4 - coastBlend * 1.3)
+  const selfWeight = Math.max(1.8, 2.8 - coastBlend * 0.8)
   let r = base.r * selfWeight
   let g = base.g * selfWeight
   let b = base.b * selfWeight
@@ -1432,8 +1518,8 @@ function smoothTerrainColor(cells: VoronoiMapData['cells'], cellId: number, colo
     const mountainous = cells.h[cellId] >= 58 || cells.h[nb] >= 58
     const baseW = mountainous
       ? (Math.abs(cells.h[nb] - cells.h[cellId]) > 12 ? 0.1 : 0.22)
-      : (Math.abs(cells.h[nb] - cells.h[cellId]) > 12 ? 0.24 : 0.46)
-    const biomeMismatch = cells.biome[nb] === cells.biome[cellId] ? 1 : 0.35 + coastBlend * 0.4
+      : (Math.abs(cells.h[nb] - cells.h[cellId]) > 12 ? 0.3 : 0.58)
+    const biomeMismatch = cells.biome[nb] === cells.biome[cellId] ? 1 : 0.5 + coastBlend * 0.3
     const w = baseW * biomeMismatch * (1 + coastBlend * 0.55)
     r += c.r * w
     g += c.g * w
@@ -1444,7 +1530,7 @@ function smoothTerrainColor(cells: VoronoiMapData['cells'], cellId: number, colo
     r: Math.round(r / weight),
     g: Math.round(g / weight),
     b: Math.round(b / weight),
-  }, isColdTerrain(cells, cellId) ? 1.08 : 1.48)
+  }, isColdTerrain(cells, cellId) ? 1.04 : 1.12)
 }
 
 function applyCoastalTone(cells: VoronoiMapData['cells'], cellId: number, color: RgbColor): RgbColor {
@@ -1489,11 +1575,11 @@ function isColdTerrain(cells: VoronoiMapData['cells'], cellId: number): boolean 
 function terrainTexture(cells: VoronoiMapData['cells'], cellId: number): number {
   const noise = stateNoiseLike(cellId, cells.biome[cellId])
   const biome = cells.biome[cellId]
-  const biomeAmp = biome === 7 || biome === 8 || biome === 9 ? 3.2
-    : biome === 5 || biome === 6 ? 2.3
-    : biome === 1 || biome === 2 ? 2.0
-    : 1.4
-  const reliefAmp = cells.h[cellId] > 58 ? 3.4 : cells.h[cellId] > 46 ? 1.8 : 1
+  const biomeAmp = biome === 7 || biome === 8 || biome === 9 ? 1.8
+    : biome === 5 || biome === 6 ? 1.4
+    : biome === 1 || biome === 2 ? 1.2
+    : 0.8
+  const reliefAmp = cells.h[cellId] > 58 ? 2.2 : cells.h[cellId] > 46 ? 1.4 : 0.7
   const coastDamp = 1 - coastalBlendStrength(cells, cellId) * 0.62
   return (noise - 0.5) * biomeAmp * reliefAmp * coastDamp
 }
@@ -1836,15 +1922,18 @@ function strokeVertexChain(
   ctx.stroke()
 }
 
-function pickBurgLabelPosition(
+/**
+ * 给出 burg 标签的 4 个候选偏移位置,按地形惩罚升序排好(最佳在前)。
+ * 保留与原 pickBurgLabelPosition 一致的边界/海岸/国界惩罚。
+ */
+function burgLabelCandidates(
   burg: VoronoiMapData['burgs'][number],
   data: VoronoiMapData,
-): { x: number; y: number } {
+): Array<{ x: number; y: number }> {
   const offsets = burg.capital
     ? [[0, 10], [0, -18], [14, -4], [-14, -4]]
     : [[0, 6], [0, -14], [10, -2], [-10, -2]]
-  let best = { x: burg.x, y: burg.y + (burg.capital ? 10 : 6) }
-  let bestPenalty = Infinity
+  const scored: Array<{ x: number; y: number; penalty: number }> = []
   for (const [dx, dy] of offsets) {
     const x = burg.x + dx
     const y = burg.y + dy
@@ -1860,10 +1949,8 @@ function pickBurgLabelPosition(
         }
       }
     }
-    if (penalty < bestPenalty) {
-      bestPenalty = penalty
-      best = { x, y }
-    }
+    scored.push({ x, y, penalty })
   }
-  return best
+  scored.sort((a, b) => a.penalty - b.penalty)
+  return scored.map(({ x, y }) => ({ x, y }))
 }

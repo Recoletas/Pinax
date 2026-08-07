@@ -24,32 +24,34 @@ import { validateMapConfig } from './mapConfigSchema'
 export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookBridge = null) {
   const contextParts = []
 
-  if (worldview?.worldStructure) contextParts.push(`【世界结构】${worldview.worldStructure}`)
-  if (worldview?.worldDimensions) contextParts.push(`【世界尺寸】${worldview.worldDimensions}`)
-  if (worldview?.continentLayout) contextParts.push(`【大陆分布】${worldview.continentLayout}`)
-  if (worldview?.mountainsRivers) contextParts.push(`【山川河流】${worldview.mountainsRivers}`)
-  if (worldview?.climateByRegion) contextParts.push(`【气候分区】${worldview.climateByRegion}`)
-  if (worldview?.factionLayout) contextParts.push(`【势力分布】${worldview.factionLayout}`)
-  if (worldview?.races) contextParts.push(`【种族设定】${worldview.races}`)
-  if (worldview?.politicsEconomyCulture) contextParts.push(`【政治经济文化】${worldview.politicsEconomyCulture}`)
-  if (overview) contextParts.push(`【地理总述】${overview}`)
-  if (worldbookBridge?.loreContextBlock) contextParts.push(worldbookBridge.loreContextBlock.trim())
-  if (Array.isArray(worldbookBridge?.stateNames) && worldbookBridge.stateNames.length > 0) {
-    contextParts.push(`【世界书势力/国家名候选】${worldbookBridge.stateNames.slice(0, 20).join('、')}`)
-  }
-  if (Array.isArray(worldbookBridge?.burgNames) && worldbookBridge.burgNames.length > 0) {
-    contextParts.push(`【世界书地点名候选】${worldbookBridge.burgNames.slice(0, 30).join('、')}`)
-  }
-  if (Array.isArray(worldbookBridge?.riverNames) && worldbookBridge.riverNames.length > 0) {
-    contextParts.push(`【世界书河流名候选】${worldbookBridge.riverNames.slice(0, 12).join('、')}`)
-  }
-  const mountainSeeds = worldbookBridge?.constraints?.mountains
-  if (Array.isArray(mountainSeeds) && mountainSeeds.length > 0) {
-    contextParts.push(`【世界书山脉/火山约束】${mountainSeeds.slice(0, 12).map(m => `${m.name}(${m.type || 'range'})`).join('、')}`)
+  const compactText = (value, limit) => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    if (text.length <= limit) return text
+    const head = Math.max(0, limit - 80)
+    return `${text.slice(0, head)} … [已压缩] … ${text.slice(-70)}`
   }
 
-  const locationList = locations.length > 0
-    ? locations.map(l => `- ${l.name}（${l.type}）：${l.description || '无描述'}`).join('\n')
+  if (worldview?.worldStructure) contextParts.push(`【世界结构】${compactText(worldview.worldStructure, 900)}`)
+  if (worldview?.worldDimensions) contextParts.push(`【世界尺寸】${compactText(worldview.worldDimensions, 500)}`)
+  if (worldview?.continentLayout) contextParts.push(`【大陆分布】${compactText(worldview.continentLayout, 900)}`)
+  if (worldview?.mountainsRivers) contextParts.push(`【山川河流】${compactText(worldview.mountainsRivers, 900)}`)
+  if (worldview?.climateByRegion) contextParts.push(`【气候分区】${compactText(worldview.climateByRegion, 900)}`)
+  if (worldview?.factionLayout) contextParts.push(`【势力分布】${compactText(worldview.factionLayout, 900)}`)
+  if (worldview?.races) contextParts.push(`【种族设定】${compactText(worldview.races, 500)}`)
+  if (worldview?.politicsEconomyCulture) contextParts.push(`【政治经济文化】${compactText(worldview.politicsEconomyCulture, 900)}`)
+  if (overview) contextParts.push(`【地理总述】${compactText(overview, 2600)}`)
+  if (worldbookBridge?.loreContextBlock) contextParts.push(compactText(worldbookBridge.loreContextBlock, 900))
+  const mountainSeeds = worldbookBridge?.constraints?.mountains
+  if (Array.isArray(mountainSeeds) && mountainSeeds.length > 0) {
+    contextParts.push(`【世界书山脉/火山约束】${mountainSeeds.slice(0, 8).map(m => `${m.name}(${m.type || 'range'})`).join('、')}`)
+  }
+
+  const locationList = Array.isArray(locations) && locations.length > 0
+    ? locations
+      .filter(location => location && String(location.name || '').trim())
+      .slice(0, 16)
+      .map(location => `- ${compactText(location.name, 80)}（${compactText(location.type, 40)}）：${compactText(location.description || '无描述', 180)}`)
+      .join('\n')
     : ''
 
   const worldContext = contextParts.length > 0
@@ -58,149 +60,12 @@ export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookB
 
   const timingHint = getGenerationTimingHint()
 
-  const systemPrompt = `你是一位奇幻世界地图参数设计师。你需要根据用户的世界观文字描述，输出一组地图生成引擎的配置参数（JSON），引擎会用 Voronoi 细分、Azgaar heightmap 模板和后续地理算法自动生成完整的地形、河流、生态群落和城市。
+  const systemPrompt = `你是 Pinax 的地图宏观参数设计器。根据世界设定输出地图引擎配置，不要生成坐标、多边形、地点、道路或地点绑定。
 
-**你的任务**：
-分析用户的世界设定文字，将其转化为以下参数。你不需要指定具体的坐标或多边形——引擎会自动生成地形。你只需要控制宏观参数和命名。
+只返回可直接 JSON.parse 的纯 JSON，不要 Markdown、解释或思考内容。可用字段：
+{"seed":"字符串","mapName":"名称","width":1200,"height":800,"pointCount":6000,"landRatio":0.45,"heightmapTemplate":"continents|pangea|archipelago|mediterranean|peninsula|shattered","plateCount":6,"stateCount":8,"burgDensity":0.5,"temperatureShift":0,"precipitationFactor":1,"namingStyle":"chinese|japanese|european|arabic|highFantasy|darkFantasy","stylePreset":"topographic|parchment|watercolor|dark|clean|atlas","generateProvinces":true,"generateRoads":true,"layers":{},"realism":{}}
 
-**严格要求**：
-1. 返回**纯 JSON**，不要用 markdown 包裹，不要添加解释文字
-2. JSON 必须能被 JSON.parse() 直接解析
-
-**参数说明**：
-{
-  "seed": "随机种子字符串",
-  "mapName": "世界名称",
-  "width": 1200,
-  "height": 800,
-  "pointCount": 6000,
-  "landRatio": 0.45,
-  "heightmapTemplate": "continents",
-  "plateCount": 6,
-  "plateSpeedFactor": 1.0,
-  "stateCount": 8,
-  "burgDensity": 0.5,
-  "temperatureShift": 0,
-  "precipitationFactor": 1.0,
-  "stylePreset": "topographic",
-  "generateProvinces": true,
-  "generateRoads": true,
-
-  // 高度图模板（Azgaar 官方风格入口）
-  // 可选：
-  // "continents" | "pangea" | "archipelago" | "mediterranean" | "peninsula"
-  // "isthmus" | "shattered" | "oldWorld" | "volcano" | "atoll"
-  // "highIsland" | "lowIsland" | "taklamakan" | "fractious"
-  "heightmapTemplate": "continents",
-
-  // 板块数：主要影响 tectonic metadata、边界分布与后续国家/构造信息
-  // 范围 2-12，默认 6
-  // 2-3: 1 块超级大陆（盘古）
-  // 4-6: 多大陆（推荐）
-  // 7-12: 群岛 / 碎裂大陆
-  "plateCount": 6,
-
-  // 画布尺寸 400-4096，默认 1200 x 800
-  "width": 1200,
-  "height": 800,
-
-  // 网格点数量 2000-20000，默认 6000
-  "pointCount": 6000,
-
-  "namingStyle": "chinese",
-  // 命名风格，从以下选一个：
-  // "chinese"     — 中文古风（修仙/武侠/东方奇幻）
-  // "japanese"    — 日式和风（和风/忍者/阴阳师）
-  // "european"    — 欧洲中世纪（骑士/城堡/剑与魔法）
-  // "arabic"      — 阿拉伯/沙漠（一千零一夜风格）
-  // "highFantasy" — 高魔奇幻（精灵/矮人/龙）
-  // "darkFantasy" — 暗黑奇幻（末世/亡灵/恐怖）
-
-  // 渲染风格 preset
-  // "topographic" | "parchment" | "watercolor" | "dark" | "clean" | "atlas"
-  "stylePreset": "topographic",
-
-  // 图层显隐。只写需要覆盖默认值的子集即可
-  "layers": {
-    "terrain": true,
-    "ice": true,
-    "coastlines": true,
-    "continents": true,
-    "rivers": true,
-    "borders": true,
-    "provinces": false,
-    "roads": true,
-    "stateLabels": true,
-    "burgIcons": true,
-    "burgLabels": true,
-    "scaleBar": true,
-    "vignette": true,
-    "oceanCurrents": false,
-    "wind": false,
-    "tectonics": false
-  },
-
-  // 板块运动速率 0.1-3.0，默认 1.0
-  "plateSpeedFactor": 1.0,
-
-  // 是否生成省份和道路
-  "generateProvinces": true,
-  "generateRoads": true,
-
-  "stateNames": ["国家1", "国家2", "..."],
-  "burgNames":  ["首都1", "首都2", "...", "城镇1", "城镇2", "..."],
-  "riverNames": ["河流1", "河流2", "..."],
-
-  // 可选 biome 覆盖
-  "biomeOverrides": [
-    { "id": 6, "color": "#3da33d" }
-  ],
-
-  "realism": {
-    "tectonics": { "rangeWidth": 3 },
-    "rivers":    { "style": "meandering" },
-    "coast":     { "noiseAmplitude": 6 }
-  },
-  // 现实化参数（可选，未传则用默认值）。所有子字段都可选：
-  //   tectonics.rangeWidth  山带宽度 1-8（默认 3）
-  //   tectonics.riftDepth   裂谷深度 5-60（默认 25）
-  //   rivers.style          "straight" | "meandering" | "deltaic"（默认 meandering）
-  //   rivers.meanderAmplitude 河流弯曲幅度 0-5
-  //   coast.noiseScale      海岸噪声尺度（默认 0.012）
-  //   coast.noiseAmplitude  海岸噪声幅度（默认 6）
-
-  "constraints": {
-    // 世界书强约束（可选）。不写就引擎随机。
-    "mountains": [
-      {"name": "北境之脊", "cells": [], "type": "range"}
-      // cells 留空数组，引擎会自动算位置
-      // type: "range"（山脉带）| "volcano"（火山）| "ridge"（洋中脊）
-    ],
-    "stateSeeds": [
-      {"name": "玄羽国", "centerCell": 0, "radius": 0, "color": "#4e79a7"}
-      // centerCell/radius 留 0，引擎根据国家名匹配并自动选 cell
-    ]
-  }
-}
-
-**设计指导**：
-- 优先根据世界观选 heightmapTemplate：
-  单一超级大陆 → pangea
-  多大陆 → continents
-  群岛/碎裂海岸 → archipelago 或 shattered
-  中央内海 → mediterranean
-  狭长半岛 → peninsula
-- 再用 plateCount 微调构造复杂度：单一大陆 → 2-3；多大陆 → 4-6；群岛/破碎 → 7-12
-- 根据世界观文化氛围选择 namingStyle：中式修仙/武侠 → chinese；和风 → japanese；西方奇幻 → european 或 highFantasy
-- 如果世界观提到"北方寒冷"，设 temperatureShift 为负值
-- 如果世界观提到"干旱沙漠"，设 precipitationFactor < 0.6
-- 如果提到"群岛"，优先设 heightmapTemplate="archipelago"，再配 landRatio=0.25-0.35 + plateCount=8-12
-- 如果更重视性能或快速迭代，可把 pointCount 控制在 4000-8000
-- 国家名和城市名必须完全匹配所选的 namingStyle 风格
-- 如果用户已设定地点名/势力名，优先使用它们，补充的名字风格一致
-- burgNames 的前 stateCount 个会作为首都名，之后的作为普通城镇名
-- burgNames 长度至少为 stateCount 的 2-3 倍
-- **注意**：stateNames/burgNames/riverNames 中的每个名字都必须符合 namingStyle 风格`
+只根据资料决定宏观形状、板块数、气候、命名风格和密度。“已设定的地点”仅用于判断宏观地理需求，禁止复制到 stateNames、burgNames、riverNames 或 constraints，禁止为它们猜测坐标。作者地点由客户端在真实地图对象中匹配并交给用户确认。`
 
   const userPrompt = `请根据以下世界观描述，设计地图生成参数 JSON：
 
@@ -375,6 +240,50 @@ export function parseVoronoiMapConfig(raw) {
           centerCell: Number(s.centerCell) || 0,
           radius: Number(s.radius) || 0,
           color: typeof s.color === 'string' ? s.color : undefined,
+        }))
+    }
+    if (Array.isArray(parsed.constraints.locations)) {
+      config.constraints.locations = parsed.constraints.locations
+        .filter(location => location && typeof location.name === 'string' && Number.isFinite(Number(location.x)) && Number.isFinite(Number(location.y)))
+        .map(location => ({
+          id: String(location.id || `ai-location:${location.name}`),
+          name: String(location.name),
+          aliases: Array.isArray(location.aliases) ? location.aliases.map(String).slice(0, 12) : [],
+          kind: ['burg', 'site', 'region', 'state'].includes(location.kind) ? location.kind : 'site',
+          x: Number(location.x),
+          y: Number(location.y),
+          hard: Array.isArray(location.hard) ? location.hard.map(String).slice(0, 4) : ['land'],
+          relationRefs: Array.isArray(location.relationRefs)
+            ? location.relationRefs.map(reference => ({
+                id: reference?.id ? String(reference.id) : undefined,
+                name: String(reference?.name || ''),
+                relation: ['parent', 'state', 'same-state', 'different-state', 'adjacent', 'river', 'route'].includes(reference?.relation)
+                  ? reference.relation
+                  : undefined,
+              })).filter(reference => reference.name)
+            : [],
+        }))
+    }
+    if (Array.isArray(parsed.constraints.rivers)) {
+      config.constraints.rivers = parsed.constraints.rivers
+        .filter(river => river && typeof river.name === 'string')
+        .map(river => ({
+          name: String(river.name),
+          sourceCell: Number.isInteger(Number(river.sourceCell)) ? Number(river.sourceCell) : 0,
+          sourceX: Number.isFinite(Number(river.sourceX)) ? Number(river.sourceX) : undefined,
+          sourceY: Number.isFinite(Number(river.sourceY)) ? Number(river.sourceY) : undefined,
+          mouthHint: typeof river.mouthHint === 'string' ? river.mouthHint.slice(0, 160) : undefined,
+        }))
+    }
+    if (Array.isArray(parsed.constraints.routes)) {
+      config.constraints.routes = parsed.constraints.routes
+        .filter(route => route && typeof route.name === 'string')
+        .map(route => ({
+          name: String(route.name),
+          from: typeof route.from === 'string' ? route.from : undefined,
+          to: typeof route.to === 'string' ? route.to : undefined,
+          sourceX: Number.isFinite(Number(route.sourceX)) ? Number(route.sourceX) : undefined,
+          sourceY: Number.isFinite(Number(route.sourceY)) ? Number(route.sourceY) : undefined,
         }))
     }
     if (Object.keys(config.constraints).length === 0) delete config.constraints

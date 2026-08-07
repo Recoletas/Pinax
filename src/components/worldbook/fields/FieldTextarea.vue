@@ -32,7 +32,7 @@ defineEmits(['update:modelValue'])
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  background: var(--surface-raised);
   color: var(--text-primary);
   padding: 10px;
   font-size: 13px;
@@ -47,7 +47,7 @@ defineEmits(['update:modelValue'])
 .field-textarea:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
-  background: var(--bg-primary);
+  background: var(--surface-raised);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 

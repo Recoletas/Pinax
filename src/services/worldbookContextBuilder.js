@@ -1,4 +1,3 @@
-import { summarizeStructuredSettings } from './settingPanelSchema'
 import { estimateTokens } from '../composables/useTokenEstimate'
 import { appendContextLedgerPart, createContextLedger } from './contextLedger'
 
@@ -239,7 +238,8 @@ export function matchWorldbookEntries({
   scanDepth = DEFAULT_SCAN_DEPTH,
   includeStarterEntries = false,
   starterEntryLimits: starterLimits = {},
-  historyEntryIds = null
+  historyEntryIds = null,
+  respectProbability = true
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -298,7 +298,7 @@ export function matchWorldbookEntries({
     }
 
     const probability = Number(entry.injection?.probability ?? 100)
-    if (probability < 100 && Math.random() * 100 > probability) {
+    if (respectProbability && probability < 100 && Math.random() * 100 > probability) {
       continue
     }
 
@@ -482,36 +482,6 @@ export function buildWorldbookContext({
       included: true,
       limit: effectiveBudget
     })
-  }
-
-  const structuredSummary = summarizeStructuredSettings(worldbook.structuredSettings)
-  if (structuredSummary) {
-    const text = `\n\n【结构化设定】\n${structuredSummary}`
-    if (usedTokens + estimateTokens(text) <= effectiveBudget) {
-      parts.push(text)
-      usedChars += text.length
-      usedTokens += estimateTokens(text)
-      contextLedger = appendContextLedgerPart(contextLedger, {
-        source: 'worldbook',
-        title: '结构化设定',
-        purpose: 'structured-settings',
-        content: structuredSummary,
-        included: true,
-        limit: effectiveBudget
-      })
-    } else {
-      warnings.push('structured-settings-truncated')
-      contextLedger = appendContextLedgerPart(contextLedger, {
-        source: 'worldbook',
-        title: '结构化设定',
-        purpose: 'structured-settings',
-        content: structuredSummary,
-        included: false,
-        truncated: true,
-        limit: effectiveBudget,
-        warning: 'structured-settings-truncated'
-      })
-    }
   }
 
   parts.push('\n\n--- 以下是世界书中的关键设定条目，必须在叙事中严格遵循 ---')

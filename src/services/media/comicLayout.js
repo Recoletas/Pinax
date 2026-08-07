@@ -1,3 +1,5 @@
+import { getComicFrameBounds } from './comicCompositionService'
+
 export const DEFAULT_COMIC_CANVAS = Object.freeze({ width: 1200, height: 1600 })
 
 const IMAGE_SIZES = Object.freeze([
@@ -62,7 +64,7 @@ export function getComicPanelRects(layout, pageWidth, pageHeight, panelCount) {
     ].slice(0, count)
   }
 
-  const rows = count >= 6 ? 3 : 2
+  const rows = Math.ceil(count / 2)
   const rowHeight = (contentHeight - gap * (rows - 1)) / rows
   return Array.from({ length: count }, (_, index) => ({
     x: margin + (index % 2) * (halfWidth + gap),
@@ -74,6 +76,21 @@ export function getComicPanelRects(layout, pageWidth, pageHeight, panelCount) {
 
 export function getComicPanelRect(page = {}, order = 1) {
   const canvas = getComicCanvasSize(page.canvas)
+  const panel = page.panels?.find((item) => Number(item.order) === Number(order))
+  if (panel?.frame?.points?.length >= 3) {
+    const bounds = getComicFrameBounds(panel.frame)
+    const gutter = panel.frame.bleed
+      ? 0
+      : clampNumber(panel.frame.gutter, 0, 0.08, 0) * canvas.width / 2
+    const insetX = Math.min(gutter, bounds.width * canvas.width * 0.45)
+    const insetY = Math.min(gutter, bounds.height * canvas.height * 0.45)
+    return {
+      x: bounds.x * canvas.width + insetX,
+      y: bounds.y * canvas.height + insetY,
+      width: bounds.width * canvas.width - insetX * 2,
+      height: bounds.height * canvas.height - insetY * 2
+    }
+  }
   const count = Math.max(1, page.panels?.length || (page.layout?.includes('6') ? 6 : 4))
   return getComicPanelRects(page.layout, canvas.width, canvas.height, count)[Math.max(0, Number(order) - 1)]
     || getComicPanelRects(page.layout, canvas.width, canvas.height, count)[0]

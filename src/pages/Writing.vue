@@ -670,8 +670,12 @@ import {
   getAssetKindLabel,
   getAssetSourceDetail,
   addNarrativeAsset,
+  createNarrativeAssetSourceRef,
   deleteNarrativeAsset,
   listNarrativeAssets,
+  mergeSourceRefs,
+  normalizeContentRef,
+  sourceRefsToEvidenceRefs,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus
 } from '../services/narrativeAssets'
@@ -1116,6 +1120,7 @@ function collectWritingContext() {
     paragraphRange: { start: paragraph.start, end: paragraph.end },
     paragraphText: paragraph.text,
     contextWindow,
+    sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     editorMode: editorMode.value,
     totalBooks: books.value.length,
     totalChapters: selectedBook?.chapters?.length || 0
@@ -1541,6 +1546,7 @@ function buildCopilotAssetContext(asset) {
 
 function getWritingAgentPageContext() {
   const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
+  const currentChapter = selectedBook?.chapters?.find((chapter) => chapter.id === selectedChapterId.value)
   return {
     content: markdownContent.value,
     cursorPos: copilotCursorPos.value,
@@ -1548,6 +1554,7 @@ function getWritingAgentPageContext() {
     bookTitle: selectedBook?.title || '',
     chapterId: selectedChapterId.value || null,
     chapterTitle: currentChapterTitle.value,
+    sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     outlineItems: chapterOutlineItems.value,
     referenceAsset: copilotReferenceAsset.value,
     inboxAssets: inboxAssets.value,
@@ -1578,7 +1585,8 @@ function useAssetAsCopilotContext(asset) {
     title: asset.title || '',
     kind: asset.kind,
     source: asset.source,
-    content
+    content,
+    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : []
   }
   assetInboxOpen.value = false
   quickNoteStatus.value = `已设为续写参考：${asset.title || '未命名素材'}`
@@ -1612,6 +1620,8 @@ function addInboxAssetsToChapterOutline(assets = []) {
   }
 
   chapterOutlineItems.value = result.items
+  const addedIds = new Set(result.addedItems.map((item) => item.assetId).filter(Boolean))
+  recordChapterAssetSources(assets.filter((asset) => addedIds.has(asset.id)))
   syncChapterOutlineToCurrentChapter()
   return result
 }
@@ -1669,6 +1679,7 @@ function insertAssetsIntoChapter(assets = []) {
   markdownContent.value = markdownContent.value
     ? `${markdownContent.value.trimEnd()}\n\n${snippet}\n`
     : snippet
+  recordChapterAssetSources(usable)
   syncMarkdownToEditor()
   onContentChange()
   return true
@@ -1792,6 +1803,17 @@ function buildChapterStoryboardExcerpt(shots = []) {
     .slice(0, 240)
 }
 
+function recordChapterAssetSources(assets = [], chapter = null) {
+  const target = chapter || chapters.value.find((item) => item.id === selectedChapterId.value)
+  if (!target) return []
+  const refs = assets.flatMap((asset) => [
+    ...(Array.isArray(asset?.sourceRefs) ? asset.sourceRefs : []),
+    createNarrativeAssetSourceRef(asset)
+  ])
+  target.sourceRefs = mergeSourceRefs(target.sourceRefs, refs)
+  return target.sourceRefs
+}
+
 function downloadTextFile(content, filename, mimeType) {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
@@ -1831,6 +1853,15 @@ function exportChapterStoryboardDraft() {
         excerpt: buildChapterStoryboardExcerpt(shots)
       },
       projectId: selectedBookId.value || null,
+      sourceRefs: mergeSourceRefs(
+        chapter?.sourceRefs,
+        [normalizeContentRef({
+          refType: 'chapter',
+          refId: selectedChapterId.value,
+          projectId: selectedBookId.value || null,
+          excerpt: buildChapterStoryboardExcerpt(shots)
+        }, selectedBookId.value || null)]
+      ),
       shots,
       taskType: 'chapter.storyboard-draft',
       parameters: {
@@ -2598,6 +2629,7 @@ function performInsertAtChapter(chapter, asset) {
   const result = spliceTextAt(currentText, insertion, offset)
 
   markdownContent.value = result.text
+  recordChapterAssetSources([asset], chapter)
   syncMarkdownToEditor()
   onContentChange()
   saveCurrentChapter()

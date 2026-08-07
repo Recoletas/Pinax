@@ -1,5 +1,6 @@
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../types/director'
+import { normalizeSourceRefs } from './narrativeAssets'
 
 export const STORYBOARD_SCHEMA_VERSION = 1
 
@@ -232,6 +233,7 @@ export function createStoryboardDocument({
   id = '',
   projectId = null,
   source = {},
+  sourceRefs = [],
   shots = [],
   taskType = null,
   promptVersion = null,
@@ -252,6 +254,7 @@ export function createStoryboardDocument({
     schemaVersion: STORYBOARD_SCHEMA_VERSION,
     projectId: normalizeNullableText(projectId),
     source: createStoryboardSourceRef(source),
+    sourceRefs: normalizeSourceRefs(sourceRefs, { projectId }),
     currentVersionId: version.versionId,
     versions: [version],
     createdAt: normalizeTimestamp(createdAt) || now,
@@ -274,6 +277,7 @@ export function saveStoryboardVersion({
   documentId = '',
   projectId = null,
   source = {},
+  sourceRefs = [],
   shots = [],
   taskType = null,
   promptVersion = null,
@@ -283,6 +287,7 @@ export function saveStoryboardVersion({
   const normalizedDocumentId = normalizeText(documentId)
   const normalizedSource = createStoryboardSourceRef(source)
   const normalizedProjectId = normalizeNullableText(projectId)
+  const normalizedSourceRefs = normalizeSourceRefs(sourceRefs, { projectId: normalizedProjectId })
   const target = normalizedDocumentId
     ? current.find((item) => item.id === normalizedDocumentId)
     : findMatchingStoryboardDocument(current, {
@@ -294,6 +299,7 @@ export function saveStoryboardVersion({
     const document = createStoryboardDocument({
       projectId: normalizedProjectId,
       source: normalizedSource,
+      sourceRefs: normalizedSourceRefs,
       shots,
       taskType,
       promptVersion,
@@ -318,6 +324,9 @@ export function saveStoryboardVersion({
     ...target,
     projectId: normalizeNullableText(target.projectId),
     source: target.source || normalizedSource,
+    sourceRefs: normalizedSourceRefs.length
+      ? normalizedSourceRefs
+      : normalizeSourceRefs(target.sourceRefs, { projectId: target.projectId }),
     currentVersionId: version.versionId,
     versions: [version, ...normalizeStoryboardVersions(target.versions)],
     updatedAt: Date.now()
@@ -339,6 +348,7 @@ export function saveValidatedStoryboardVersion({
   documentId = '',
   projectId = null,
   source = {},
+  sourceRefs = [],
   shots = [],
   taskType = null,
   promptVersion = null,
@@ -355,6 +365,7 @@ export function saveValidatedStoryboardVersion({
     documentId,
     projectId,
     source,
+    sourceRefs,
     shots: validation.normalized,
     taskType,
     promptVersion,
@@ -485,6 +496,7 @@ export function saveStoryboardSnapshot(input = {}) {
       title: input.sourceLabel,
       excerpt: input.metadata?.excerpt || ''
     },
+    sourceRefs: input.metadata?.sourceRefs || [],
     shots: input.shots,
     taskType: input.metadata?.taskType || null,
     promptVersion: input.metadata?.promptVersion || null,

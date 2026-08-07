@@ -10,9 +10,10 @@ const props = defineProps({
   compact: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['select-panel', 'update-lettering-box'])
+const emit = defineEmits(['select-panel', 'update-lettering-box', 'update-lettering-tail'])
 const loadedDimensions = reactive({})
 const transientLetteringBoxes = reactive({})
+const transientLetteringTargets = reactive({})
 const letteringResizeHandles = Object.freeze(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'])
 let letteringDrag = null
 
@@ -63,7 +64,9 @@ function letteringStyle(object) {
     fontFamily: letteringFontFamily(style.fontFamily),
     fontSize: `clamp(6px, ${style.fontSize / 3}cqh, 34px)`,
     fontWeight: style.fontWeight,
-    textAlign: style.textAlign
+    textAlign: style.textAlign,
+    writingMode: style.textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+    transform: `rotate(${style.rotation + (object.type === 'sfx' ? -7 : 0)}deg)`
   }
 }
 
@@ -73,6 +76,36 @@ function panelElementTag() {
 
 function letteringElementTag() {
   return props.editableLettering ? 'button' : 'span'
+}
+
+function letteringTailTarget(object) {
+  const target = transientLetteringTargets[object?.id] || object?.tailTarget
+  if (!target || !Number.isFinite(Number(target.x)) || !Number.isFinite(Number(target.y))) return null
+  return { x: Number(target.x), y: Number(target.y) }
+}
+
+function letteringTailStyle(object) {
+  const target = letteringTailTarget(object)
+  const [x, y, width, height] = normalizeBox(object?.box)
+  if (!target) return { display: 'none' }
+  return {
+    left: `${((target.x - x) / width) * 100}%`,
+    top: `${((target.y - y) / height) * 100}%`
+  }
+}
+
+function letteringTailPoints(object) {
+  const target = letteringTailTarget(object)
+  const [x, y, width, height] = normalizeBox(object?.box)
+  if (!target) return ''
+  const tx = ((target.x - x) / width) * 100
+  const ty = ((target.y - y) / height) * 100
+  const dx = tx - 50
+  const dy = ty - 50
+  const length = Math.max(1, Math.sqrt(dx * dx + dy * dy))
+  const nx = -dy / length * 7
+  const ny = dx / length * 7
+  return `50,50 ${50 + nx},${50 + ny} ${tx},${ty} ${50 - nx},${50 - ny}`
 }
 
 function startLetteringDrag(event, panel, object) {
@@ -93,7 +126,8 @@ function startLetteringDrag(event, panel, object) {
     startBox: [...box],
     startX: event.clientX,
     startY: event.clientY,
-    mode: event.target.closest('[data-lettering-resize]')?.dataset.letteringResize || 'move'
+    mode: event.target.closest('[data-lettering-tail]') ? 'tail' : event.target.closest('[data-lettering-resize]')?.dataset.letteringResize || 'move',
+    startTarget: object.tailTarget ? { ...object.tailTarget } : { x: box[0] + box[2] / 2, y: box[1] + box[3] }
   }
   emit('select-panel', panel.id)
   element.setPointerCapture?.(event.pointerId)
@@ -105,6 +139,13 @@ function moveLetteringDrag(event) {
   const dx = (event.clientX - letteringDrag.startX) / Math.max(1, rect.width)
   const dy = (event.clientY - letteringDrag.startY) / Math.max(1, rect.height)
   const [x, y, width, height] = letteringDrag.startBox
+  if (letteringDrag.mode === 'tail') {
+    transientLetteringTargets[letteringDrag.objectId] = {
+      x: clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1, letteringDrag.startTarget.x),
+      y: clamp((event.clientY - rect.top) / Math.max(1, rect.height), 0, 1, letteringDrag.startTarget.y)
+    }
+    return
+  }
   let nextBox
   if (letteringDrag.mode === 'move') {
     nextBox = [
@@ -135,8 +176,16 @@ function finishLetteringDrag(event) {
   const box = normalizeBox(transientLetteringBoxes[drag.objectId] || drag.startBox).map(roundUnit)
   drag.element.releasePointerCapture?.(event.pointerId)
   letteringDrag = null
-  emit('update-lettering-box', { panelId: drag.panelId, objectId: drag.objectId, box })
-  queueMicrotask(() => { delete transientLetteringBoxes[drag.objectId] })
+  if (drag.mode === 'tail') {
+    const target = transientLetteringTargets[drag.objectId] || drag.startTarget
+    emit('update-lettering-tail', { panelId: drag.panelId, objectId: drag.objectId, tailTarget: target })
+  } else {
+    emit('update-lettering-box', { panelId: drag.panelId, objectId: drag.objectId, box })
+  }
+  queueMicrotask(() => {
+    delete transientLetteringBoxes[drag.objectId]
+    delete transientLetteringTargets[drag.objectId]
+  })
 }
 
 function cancelLetteringDrag(event) {
@@ -144,6 +193,7 @@ function cancelLetteringDrag(event) {
   const objectId = letteringDrag.objectId
   letteringDrag = null
   delete transientLetteringBoxes[objectId]
+  delete transientLetteringTargets[objectId]
 }
 
 function normalizeLetteringStyle(input = {}, type = 'speech') {
@@ -152,7 +202,9 @@ function normalizeLetteringStyle(input = {}, type = 'speech') {
     fontFamily: ['display', 'kai', 'serif', 'sans', 'rounded', 'mono'].includes(source.fontFamily) ? source.fontFamily : 'display',
     fontSize: Math.min(72, Math.max(10, Number(source.fontSize) || (type === 'sfx' ? 32 : 22))),
     fontWeight: [400, 600, 800].includes(Number(source.fontWeight)) ? Number(source.fontWeight) : type === 'sfx' ? 800 : 600,
-    textAlign: ['left', 'center', 'right'].includes(source.textAlign) ? source.textAlign : type === 'caption' ? 'left' : 'center'
+    textAlign: ['left', 'center', 'right'].includes(source.textAlign) ? source.textAlign : type === 'caption' ? 'left' : 'center',
+    textDirection: source.textDirection === 'vertical' ? 'vertical' : 'horizontal',
+    rotation: Math.min(180, Math.max(-180, Number(source.rotation) || 0))
   }
 }
 
@@ -237,6 +289,23 @@ function roundUnit(value) {
         @pointerup="finishLetteringDrag"
         @pointercancel="cancelLetteringDrag"
       >
+        <svg
+          v-if="editableLettering && ['speech', 'thought'].includes(object.type) && letteringTailTarget(object)"
+          class="comic-page-preview__lettering-tail"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <polygon :points="letteringTailPoints(object)" />
+        </svg>
+        <i
+          v-if="editableLettering && ['speech', 'thought'].includes(object.type)"
+          class="comic-page-preview__lettering-tail-handle"
+          :style="letteringTailStyle(object)"
+          data-lettering-tail="true"
+          title="拖动尾巴指向画面"
+          aria-hidden="true"
+        ></i>
         <span class="comic-page-preview__lettering-text">{{ object.text }}</span>
         <i
           v-for="handle in editableLettering ? letteringResizeHandles : []"
@@ -287,6 +356,9 @@ function roundUnit(value) {
 .comic-page-preview__lettering.is-caption { place-items: start; border-radius: 2px; text-align: left; }
 .comic-page-preview__lettering.is-sfx { border: 0; background: transparent; box-shadow: none; color: #fff; font-size: 14px; font-weight: 800; text-shadow: -1px -1px 0 #20242a, 1px -1px 0 #20242a, -1px 1px 0 #20242a, 1px 1px 0 #20242a; transform: rotate(-7deg); }
 .comic-page-preview__lettering-text { width: 100%; max-height: 100%; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
+.comic-page-preview__lettering-tail { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.comic-page-preview__lettering-tail polygon { fill: rgb(255 255 255 / 0.94); stroke: rgb(32 36 42 / 0.82); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.comic-page-preview__lettering-tail-handle { position: absolute; z-index: 3; width: 10px; height: 10px; margin: -5px; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.24); cursor: crosshair; }
 .comic-page-preview__lettering.is-editable { overflow: visible; cursor: grab; touch-action: none; }
 .comic-page-preview__lettering.is-editable:active { cursor: grabbing; }
 .comic-page-preview__lettering-handle { position: absolute; z-index: 2; width: 10px; height: 10px; display: none; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.24); }

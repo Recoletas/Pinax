@@ -21,6 +21,7 @@
         @select="enterPresetWorld"
       />
       <WorldbookExtraActions
+        @structured="openStructuredSettings"
         @import="openAdvanced('import')"
         @ai="openAdvanced('ai')"
       />
@@ -93,6 +94,10 @@ function enterPresetWorld(preset) {
 
 function openAdvanced(section) {
   router.push({ name: 'settings-worldbook-advanced', query: { section } })
+}
+
+function openStructuredSettings() {
+  router.push({ name: 'settings-structured' })
 }
 
 onMounted(async () => {

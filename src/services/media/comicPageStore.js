@@ -3,7 +3,7 @@ import { normalizeSourceRefs } from '../narrativeAssets'
 import { getDefaultComicPanelFrame } from './comicLayout'
 import { getMediaAssetDataUrl, listMediaAssets } from './mediaAssetStore'
 
-export const COMIC_PAGE_SCHEMA_VERSION = 3
+export const COMIC_PAGE_SCHEMA_VERSION = 5
 export const COMIC_PRODUCTION_STAGES = Object.freeze(['rough', 'line', 'flats', 'tones', 'render', 'effects'])
 
 const VALID_LAYOUTS = new Set(['strip-4', 'feature-4', 'page-6', 'feature-6', 'free'])
@@ -13,6 +13,7 @@ const VALID_COLOR_MODES = new Set(['color', 'monochrome'])
 const VALID_SHOT_SIZES = new Set(['extreme-wide', 'wide', 'medium', 'close', 'extreme-close', 'insert'])
 const VALID_CAMERA_ANGLES = new Set(['eye', 'high', 'low', 'bird', 'worm', 'dutch', 'pov'])
 const VALID_PERSPECTIVES = new Set(['flat', 'one-point', 'two-point', 'three-point', 'fisheye'])
+const VALID_VISUAL_BIBLE_STATUSES = new Set(['draft', 'confirmed'])
 
 export function createComicPage(input = {}) {
   const now = Date.now()
@@ -28,6 +29,13 @@ export function createComicPage(input = {}) {
     id: normalizeText(input.id) || createComicPageId(),
     schemaVersion: COMIC_PAGE_SCHEMA_VERSION,
     projectId,
+    sequenceId: normalizeNullableText(input.sequenceId),
+    sequenceTitle: normalizeText(input.sequenceTitle),
+    pageNumber: normalizePositiveInteger(input.pageNumber, 1),
+    adaptationCandidateId: normalizeNullableText(input.adaptationCandidateId),
+    visualBibleStatus: VALID_VISUAL_BIBLE_STATUSES.has(input.visualBibleStatus)
+      ? input.visualBibleStatus
+      : 'draft',
     title: normalizeText(input.title) || '未命名漫画页',
     sourceRefs: normalizeSourceRefs(input.sourceRefs, { projectId }),
     layout,
@@ -81,11 +89,37 @@ export function saveComicPage(input = {}, options = {}) {
   return page
 }
 
+export function saveComicPages(inputs = [], options = {}) {
+  const storage = resolveStorage(options.storage)
+  const current = readComicPages(storage)
+  const pages = (Array.isArray(inputs) ? inputs : []).map((input) => {
+    const existing = current.find((page) => page.id === input?.id)
+    return createComicPage({
+      ...existing,
+      ...input,
+      createdAt: existing?.createdAt || input?.createdAt,
+      updatedAt: Date.now()
+    })
+  })
+  const ids = new Set(pages.map((page) => page.id))
+  writeComicPages(storage, [...pages, ...current.filter((item) => !ids.has(item.id))])
+  return pages
+}
+
+export function listComicSequencePages(sequenceId, options = {}) {
+  const id = normalizeText(sequenceId)
+  if (!id) return []
+  return listComicPages({}, options)
+    .filter((page) => page.sequenceId === id)
+    .sort((left, right) => left.pageNumber - right.pageNumber)
+}
+
 export function buildComicPageManifest(input = {}, options = {}) {
   const page = createComicPage(input)
   return {
     format: 'pinax-comic-page',
     version: COMIC_PAGE_SCHEMA_VERSION,
+    manifestVersion: 2,
     exportedAt: new Date(options.now || Date.now()).toISOString(),
     page
   }
@@ -138,6 +172,71 @@ export function updateComicPanelStage(pageId, panelId, stage, patch = {}, option
   return saveComicPage({ ...page, panels, revision: page.revision + 1 }, options)
 }
 
+export function addComicPanelStageArtifact(pageId, panelId, stage, artifact = {}, options = {}) {
+  const artifactId = normalizeText(artifact.id)
+  if (!artifactId) throw new Error('漫画阶段产物缺少 MediaAsset ID')
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  const panel = page?.panels.find((item) => item.id === panelId)
+  if (!panel) return null
+  const current = panel.production[stage]
+  if (!current) throw new Error('无效的漫画制作阶段')
+  const lineage = normalizeArtifactLineage([
+    ...current.artifactLineage.filter((item) => item.id !== artifactId),
+    {
+      id: artifactId,
+      parentAssetId: artifact.parentAssetId,
+      inputRevision: artifact.inputRevision,
+      origin: artifact.origin,
+      createdAt: artifact.createdAt
+    }
+  ])
+  return updateComicPanelStage(pageId, panelId, stage, {
+    artifactIds: [...new Set([...current.artifactIds, artifactId])],
+    artifactLineage: lineage,
+    selectedArtifactId: options.select === false ? current.selectedArtifactId : artifactId,
+    inputRevision: options.select === false ? current.inputRevision : normalizeText(artifact.inputRevision),
+    status: 'review',
+    staleReason: '',
+    approvedAt: null,
+    error: null
+  }, options)
+}
+
+export function selectComicPanelStageArtifact(pageId, panelId, stage, artifactId, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  const panel = page?.panels.find((item) => item.id === panelId)
+  const current = panel?.production?.[stage]
+  if (!current || !current.artifactIds.includes(artifactId)) return null
+  const lineage = current.artifactLineage.find((item) => item.id === artifactId)
+  return updateComicPanelStage(pageId, panelId, stage, {
+    selectedArtifactId: artifactId,
+    inputRevision: lineage?.inputRevision || '',
+    status: 'review',
+    staleReason: '',
+    approvedAt: null,
+    error: null
+  }, options)
+}
+
+export function approveComicPanelStageArtifact(pageId, panelId, stage, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  const panel = page?.panels.find((item) => item.id === panelId)
+  const current = panel?.production?.[stage]
+  if (!current?.selectedArtifactId) throw new Error('请先选择阶段候选')
+  if (current.status !== 'review') throw new Error('只有待审阅候选可以确认')
+  const lineage = current.artifactLineage.find((item) => item.id === current.selectedArtifactId)
+  if (options.expectedInputRevision && lineage?.inputRevision !== options.expectedInputRevision) {
+    throw new Error('候选基于旧版分镜或上游，请重新生成后再确认')
+  }
+  return updateComicPanelStage(pageId, panelId, stage, {
+    status: 'approved',
+    inputRevision: lineage?.inputRevision || current.inputRevision,
+    approvedAt: options.now || Date.now(),
+    staleReason: '',
+    error: null
+  }, options)
+}
+
 export function updateComicVisualBible(pageId, patch = {}, options = {}) {
   const page = listComicPages({}, options).find((item) => item.id === pageId)
   if (!page) return null
@@ -146,11 +245,136 @@ export function updateComicVisualBible(pageId, patch = {}, options = {}) {
     ...patch,
     revision: page.visualBible.revision + 1
   }, { projectId: page.projectId })
-  const panels = page.panels.map((panel) => ({
-    ...panel,
-    production: markPanelStagesStale(panel.production, '视觉圣经已更新')
-  }))
-  return saveComicPage({ ...page, visualBible: nextVisualBible, panels, revision: page.revision + 1 }, options)
+  const targets = page.sequenceId ? listComicSequencePages(page.sequenceId, options) : [page]
+  const saved = saveComicPages(targets.map((target) => ({
+    ...target,
+    visualBible: nextVisualBible,
+    visualBibleStatus: 'draft',
+    panels: target.panels.map((panel) => ({
+      ...panel,
+      production: markPanelStagesStale(panel.production, '视觉圣经已更新')
+    })),
+    revision: target.revision + 1
+  })), options)
+  return saved.find((item) => item.id === pageId) || null
+}
+
+export function updateComicPageColorMode(pageId, colorMode, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  if (!page) return null
+  const nextColorMode = colorMode === 'monochrome' ? 'monochrome' : 'color'
+  if (page.colorMode === nextColorMode) return page
+  return saveComicPage({
+    ...page,
+    colorMode: nextColorMode,
+    visualBibleStatus: 'draft',
+    panels: page.panels.map((panel) => ({
+      ...panel,
+      production: markPanelStagesStale(panel.production, '色制已更新')
+    })),
+    revision: page.revision + 1
+  }, options)
+}
+
+export function updateComicPageStyleBible(pageId, styleBible, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  if (!page) return null
+  const nextStyleBible = normalizeText(styleBible)
+  if (page.styleBible === nextStyleBible) return page
+  const targets = page.sequenceId ? listComicSequencePages(page.sequenceId, options) : [page]
+  const saved = saveComicPages(targets.map((target) => ({
+    ...target,
+    styleBible: nextStyleBible,
+    visualBibleStatus: 'draft',
+    panels: target.panels.map((panel) => ({
+      ...panel,
+      production: markPanelStagesStale(panel.production, '统一画风已更新')
+    })),
+    revision: target.revision + 1
+  })), options)
+  return saved.find((item) => item.id === pageId) || null
+}
+
+export function updateComicPageComposition(pageId, input = {}, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  if (!page) return null
+  const pageGeometryChanged = compositionSignature({
+    format: page.format,
+    canvas: page.canvas
+  }) !== compositionSignature({
+    format: input.format ?? page.format,
+    canvas: input.canvas ?? page.canvas
+  })
+  const existingById = new Map(page.panels.map((panel) => [panel.id, panel]))
+  const panels = (Array.isArray(input.panels) ? input.panels : page.panels).map((panel) => {
+    const existing = existingById.get(panel.id)
+    if (!existing) return panel
+    const changed = pageGeometryChanged || compositionSignature({
+      frame: existing.frame,
+      direction: existing.direction
+    }) !== compositionSignature({
+      frame: panel.frame,
+      direction: panel.direction
+    })
+    if (!changed) return panel
+    return {
+      ...panel,
+      direction: {
+        ...panel.direction,
+        revision: normalizePositiveInteger(existing.direction?.revision, 1) + 1
+      },
+      production: markPanelStagesStale(panel.production, '分镜构图已更新')
+    }
+  })
+  return saveComicPage({
+    ...page,
+    format: input.format ?? page.format,
+    canvas: input.canvas ?? page.canvas,
+    layout: input.layout ?? page.layout,
+    panels,
+    revision: page.revision + 1
+  }, options)
+}
+
+export function updateComicSequenceVisualBible(sequenceId, patch = {}, options = {}) {
+  const pages = listComicSequencePages(sequenceId, options)
+  if (!pages.length) return []
+  const current = pages[0].visualBible
+  const nextVisualBible = normalizeVisualBible({
+    ...current,
+    ...patch,
+    revision: current.revision + 1
+  }, { projectId: pages[0].projectId })
+  return saveComicPages(pages.map((page) => ({
+    ...page,
+    visualBible: nextVisualBible,
+    visualBibleStatus: 'draft',
+    panels: page.panels.map((panel) => ({
+      ...panel,
+      production: markPanelStagesStale(panel.production, '视觉圣经已更新')
+    })),
+    revision: page.revision + 1
+  })), options)
+}
+
+export function confirmComicSequenceVisualBible(sequenceId, options = {}) {
+  const pages = listComicSequencePages(sequenceId, options)
+  if (!pages.length) return []
+  const bible = pages[0].visualBible
+  const hasReviewableContent = bible.references.length
+    || bible.palette.length
+    || bible.lineStyle
+    || bible.renderingNotes
+  if (!hasReviewableContent) throw new Error('视觉圣经为空，不能确认')
+  return saveComicPages(pages.map((page) => ({
+    ...page,
+    visualBibleStatus: 'confirmed',
+    revision: page.revision + 1
+  })), options)
+}
+
+export function canBatchGenerateComicPage(page = {}) {
+  return !page.sequenceId || page.visualBibleStatus === 'confirmed'
 }
 
 export function addComicPanelTake(pageId, panelId, mediaAssetId, options = {}) {
@@ -214,7 +438,7 @@ function normalizePanel(input = {}, fallbackOrder, context) {
     visual: String(input.visual || '').trim(),
     beat: normalizeBeat(input.beat),
     frame: normalizeFrame(input.frame || getDefaultComicPanelFrame(context.layout, fallbackOrder, context.panelCount)),
-    direction: normalizeDirection(input.direction),
+    direction: normalizeDirection(input.direction, context.projectId),
     dialogue: normalizeDialogue(input.dialogue),
     caption: String(input.caption || '').trim(),
     continuityRefs: normalizeSourceRefs(input.continuityRefs, context),
@@ -231,15 +455,39 @@ function normalizePanel(input = {}, fallbackOrder, context) {
 }
 
 function normalizeVisualBible(input = {}, context) {
+  const references = normalizeSemanticReferences(input.references, context.projectId)
+  const usesSemanticReferences = Array.isArray(input.references)
+  const semanticGroups = (kind) => references
+    .filter((reference) => reference.kind === kind)
+    .map((reference) => ({
+      entityRef: reference.sourceRef,
+      assetIds: reference.assetIds,
+      invariantNotes: reference.invariantNotes,
+      locked: reference.locked,
+      label: reference.label
+    }))
   return {
-    characterRefs: normalizeReferenceGroups(input.characterRefs, context.projectId),
-    locationRefs: normalizeReferenceGroups(input.locationRefs, context.projectId),
-    propRefs: normalizeReferenceGroups(input.propRefs, context.projectId),
-    styleAssetIds: normalizeStringList(input.styleAssetIds),
+    references,
+    characterRefs: usesSemanticReferences
+      ? semanticGroups('character')
+      : normalizeReferenceGroups(input.characterRefs, context.projectId),
+    locationRefs: usesSemanticReferences
+      ? semanticGroups('location')
+      : normalizeReferenceGroups(input.locationRefs, context.projectId),
+    propRefs: usesSemanticReferences
+      ? semanticGroups('prop')
+      : normalizeReferenceGroups(input.propRefs, context.projectId),
+    styleAssetIds: usesSemanticReferences
+      ? [...new Set(references
+          .filter((reference) => reference.kind === 'style')
+          .flatMap((reference) => reference.assetIds))]
+      : normalizeStringList(input.styleAssetIds),
     palette: normalizeStringList(input.palette, 16),
     lineStyle: normalizeText(input.lineStyle),
     renderingNotes: normalizeText(input.renderingNotes),
-    invariantNotes: normalizeStringList(input.invariantNotes, 20),
+    invariantNotes: usesSemanticReferences
+      ? normalizeStringList(references.flatMap((reference) => reference.invariantNotes), 20)
+      : normalizeStringList(input.invariantNotes, 20),
     revision: normalizePositiveInteger(input.revision, 1)
   }
 }
@@ -249,8 +497,30 @@ function normalizeReferenceGroups(groups, projectId) {
   return groups.slice(0, 60).map((group = {}) => ({
     entityRef: normalizeSourceRefs([group.entityRef], { projectId })[0] || null,
     assetIds: normalizeStringList(group.assetIds),
-    invariantNotes: normalizeStringList(group.invariantNotes, 16)
+    invariantNotes: normalizeStringList(group.invariantNotes, 16),
+    locked: group.locked !== false,
+    label: normalizeText(group.label)
   })).filter((group) => group.entityRef || group.assetIds.length)
+}
+
+function normalizeSemanticReferences(references, projectId) {
+  if (!Array.isArray(references)) return []
+  return references.slice(0, 60).map((reference = {}) => {
+    const sourceRef = normalizeSourceRefs([reference.sourceRef], { projectId })[0] || null
+    if (!sourceRef) return null
+    const kind = ['character', 'location', 'prop', 'style'].includes(reference.kind)
+      ? reference.kind
+      : 'style'
+    return {
+      id: normalizeText(reference.id) || `${kind}:${sourceRef.refType}:${sourceRef.refId}`,
+      kind,
+      label: normalizeText(reference.label) || sourceRef.refId,
+      sourceRef,
+      assetIds: normalizeStringList(reference.assetIds, 12),
+      invariantNotes: normalizeStringList(reference.invariantNotes, 16),
+      locked: reference.locked !== false
+    }
+  }).filter(Boolean)
 }
 
 function normalizeProduction(production, imageTakeIds, selectedTakeId, colorMode) {
@@ -286,6 +556,7 @@ function normalizeStageState(input = {}) {
       ? input.status
       : artifactIds.length ? 'review' : 'empty',
     artifactIds,
+    artifactLineage: normalizeArtifactLineage(input.artifactLineage, artifactIds),
     selectedArtifactId,
     inputRevision: normalizeText(input.inputRevision),
     staleReason: normalizeText(input.staleReason),
@@ -296,6 +567,30 @@ function normalizeStageState(input = {}) {
       retryable: Boolean(input.error.retryable)
     } : null
   }
+}
+
+function normalizeArtifactLineage(input, fallbackIds = []) {
+  const entries = Array.isArray(input) ? input : []
+  const normalized = entries.slice(0, 40).map((entry = {}) => ({
+    id: normalizeText(entry.id),
+    parentAssetId: normalizeNullableText(entry.parentAssetId),
+    inputRevision: normalizeText(entry.inputRevision),
+    origin: entry.origin === 'inpaint'
+      ? 'edited'
+      : (['generated', 'uploaded', 'edited'].includes(entry.origin) ? entry.origin : 'generated'),
+    createdAt: normalizeTimestamp(entry.createdAt, 0) || null
+  })).filter((entry) => entry.id)
+  const known = new Set(normalized.map((entry) => entry.id))
+  for (const id of fallbackIds) {
+    if (!known.has(id)) normalized.push({
+      id,
+      parentAssetId: null,
+      inputRevision: '',
+      origin: 'generated',
+      createdAt: null
+    })
+  }
+  return normalized
 }
 
 function createStageState() {
@@ -343,7 +638,7 @@ function normalizeFrame(input = {}) {
   }
 }
 
-function normalizeDirection(input = {}) {
+function normalizeDirection(input = {}, projectId = null) {
   return {
     revision: normalizePositiveInteger(input.revision, 1),
     notes: normalizeText(input.notes),
@@ -353,16 +648,68 @@ function normalizeDirection(input = {}) {
     focalPoint: normalizePoint(input.focalPoint),
     zoom: normalizeRangeNumber(input.zoom, 0.5, 3, 1),
     horizonY: input.horizonY === null || input.horizonY === undefined ? null : normalizeUnitNumber(input.horizonY, 0.5),
-    blocking: Array.isArray(input.blocking) ? input.blocking.slice(0, 20) : [],
-    motionVectors: Array.isArray(input.motionVectors) ? input.motionVectors.slice(0, 20) : [],
-    balloonSafeZones: Array.isArray(input.balloonSafeZones) ? input.balloonSafeZones.slice(0, 20) : []
+    blocking: normalizeBlocking(input.blocking, projectId),
+    motionVectors: normalizeMotionVectors(input.motionVectors),
+    balloonSafeZones: normalizeBalloonSafeZones(input.balloonSafeZones)
   }
+}
+
+function normalizeBlocking(input, projectId) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 20).map((item = {}, index) => ({
+    id: normalizeText(item.id) || `blocking_${index + 1}`,
+    label: normalizeText(item.label) || `人物 ${index + 1}`,
+    entityRef: normalizeSourceRefs([item.entityRef], { projectId })[0] || null,
+    box: normalizeBoxTuple(item.box, [0.32, 0.2, 0.36, 0.66]),
+    facing: normalizeText(item.facing)
+  }))
+}
+
+function normalizeMotionVectors(input) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 20).map((item = {}, index) => ({
+    id: normalizeText(item.id) || `motion_${index + 1}`,
+    label: normalizeText(item.label) || `动线 ${index + 1}`,
+    from: normalizeTuplePoint(item.from, [0.22, 0.7]),
+    to: normalizeTuplePoint(item.to, [0.76, 0.34])
+  }))
+}
+
+function normalizeBalloonSafeZones(input) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 20).map((item = {}, index) => ({
+    id: normalizeText(item.id) || `balloon_${index + 1}`,
+    label: normalizeText(item.label) || `留白 ${index + 1}`,
+    box: normalizeBoxTuple(item.box, [0.52, 0.08, 0.4, 0.2])
+  }))
+}
+
+function normalizeBoxTuple(input, fallback) {
+  const values = Array.isArray(input) ? input.map(Number) : fallback
+  const width = normalizeRangeNumber(values[2], 0.04, 1, fallback[2])
+  const height = normalizeRangeNumber(values[3], 0.04, 1, fallback[3])
+  return [
+    normalizeRangeNumber(values[0], 0, 1 - width, fallback[0]),
+    normalizeRangeNumber(values[1], 0, 1 - height, fallback[1]),
+    width,
+    height
+  ]
+}
+
+function normalizeTuplePoint(input, fallback) {
+  const values = Array.isArray(input) ? input.map(Number) : fallback
+  return [
+    normalizeUnitNumber(values[0], fallback[0]),
+    normalizeUnitNumber(values[1], fallback[1])
+  ]
 }
 
 function normalizeReferenceBindings(bindings) {
   if (!Array.isArray(bindings)) return []
   return bindings.slice(0, 40).map((binding = {}) => ({
-    role: normalizeText(binding.role) || 'style',
+    role: ['identity', 'costume', 'location', 'prop', 'style', 'pose', 'edge', 'depth'].includes(binding.role)
+      ? binding.role
+      : 'style',
     assetId: normalizeText(binding.assetId),
     entityRef: normalizeSourceRefs([binding.entityRef])[0] || null,
     region: Array.isArray(binding.region) ? binding.region.slice(0, 4).map((value) => normalizeUnitNumber(value, 0)) : null,
@@ -396,7 +743,9 @@ function normalizeLetteringStyle(input = {}, type = 'speech') {
     fontFamily,
     fontSize: normalizeRangeNumber(source.fontSize, 10, 72, type === 'sfx' ? 32 : 22),
     fontWeight,
-    textAlign
+    textAlign,
+    textDirection: source.textDirection === 'vertical' ? 'vertical' : 'horizontal',
+    rotation: normalizeRangeNumber(source.rotation, -180, 180, 0)
   }
 }
 
@@ -458,6 +807,10 @@ function normalizeRangeNumber(value, min, max, fallback) {
 function normalizeStringList(values, limit = 40) {
   if (!Array.isArray(values)) return []
   return [...new Set(values.map(normalizeText).filter(Boolean))].slice(0, limit)
+}
+
+function compositionSignature(value) {
+  return JSON.stringify(value ?? null)
 }
 
 function normalizeDialogue(dialogue) {

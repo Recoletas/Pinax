@@ -7,6 +7,11 @@ import {
   needsLlmMemoryCompaction,
   parseMemoryCompactionResult
 } from './memoryCompaction'
+import {
+  GENERATION_AGENT_LIMITS,
+  validateGenerationAgentTurnRequest
+} from '../../shared/generationToolContract'
+import { STRUCTURED_GENERATION_TIMEOUTS } from '../../shared/structuredSettingContract'
 
 const api = axios.create({
   baseURL: '/api',
@@ -115,7 +120,8 @@ export async function getResolvedApiSettings() {
     provider: localRaw.provider || null,
     baseUrl: localRaw.baseUrl || null,
     apiKey: localRaw.apiKey || null,
-    model: localRaw.model || null
+    model: localRaw.model || null,
+    format: localRaw.format || null
   }
 
   console.info('[API] Resolved settings (localStorage only):', {
@@ -126,6 +132,65 @@ export async function getResolvedApiSettings() {
   })
 
   return merged
+}
+
+function createNarrativeAgentError(error) {
+  const payload = error?.response?.data || {}
+  const normalized = new Error(
+    payload.error || payload.message || error?.message || '叙事工具请求失败'
+  )
+  normalized.code = payload.code || error?.code || 'NARRATIVE_PROVIDER_REQUEST_FAILED'
+  normalized.retryable = Boolean(payload.retryable)
+  normalized.requestId = payload.requestId || ''
+  normalized.status = Number(error?.response?.status || 0) || null
+  return normalized
+}
+
+/**
+ * Execute exactly one provider-neutral narrative agent turn.
+ * Tool execution stays in the browser; this endpoint only translates provider protocols.
+ */
+export async function sendNarrativeAgentTurn({
+  messages,
+  tools,
+  settings = null,
+  options = {},
+  requestId = '',
+  signal = null
+} = {}) {
+  const apiSettings = settings || await getResolvedApiSettings()
+  const validation = validateGenerationAgentTurnRequest({
+    requestId: requestId || createRequestId().replace(/^gen_/, 'nturn_'),
+    provider: {
+      id: apiSettings.provider,
+      baseUrl: apiSettings.baseUrl,
+      apiKey: apiSettings.apiKey,
+      model: apiSettings.model,
+      format: apiSettings.format
+    },
+    messages,
+    tools,
+    options
+  })
+  if (!validation.valid) {
+    const error = new Error(validation.error.message)
+    error.code = validation.error.code
+    error.retryable = false
+    throw error
+  }
+
+  try {
+    const response = await api.post('/generate/agent-turn', validation.request, {
+      signal: signal || undefined,
+      timeout: Math.min(
+        GENERATION_AGENT_LIMITS.maxTimeoutMs + 2000,
+        validation.request.options.timeoutMs + 2000
+      )
+    })
+    return response.data
+  } catch (error) {
+    throw createNarrativeAgentError(error)
+  }
 }
 
 /**
@@ -155,8 +220,16 @@ function normalizeGenerationOptions(options = {}) {
     normalized.response_format = options.response_format
   }
 
+  if (typeof options.format === 'string' && options.format.trim()) {
+    normalized.format = options.format.trim()
+  }
+
   if (Number.isFinite(Number(options.max_input_chars))) {
     normalized.max_input_chars = Math.max(1200, Math.floor(Number(options.max_input_chars)))
+  }
+
+  if (Number.isFinite(Number(options.timeout_ms))) {
+    normalized.timeout_ms = Math.max(1000, Math.min(120000, Math.floor(Number(options.timeout_ms))))
   }
 
   if (Number.isFinite(Number(options.retryCount))) {
@@ -177,6 +250,10 @@ function normalizeGenerationOptions(options = {}) {
 
   if (typeof options.attemptName === 'string' && options.attemptName.trim()) {
     normalized.attemptName = options.attemptName.trim()
+  }
+
+  if (typeof options.reasoning_effort === 'string' && options.reasoning_effort.trim()) {
+    normalized.reasoning_effort = options.reasoning_effort.trim()
   }
 
   return normalized
@@ -213,17 +290,21 @@ export async function sendChat(messages, character = null, worldId = null, setti
   }
 
   try {
-    const response = await api.post('/generate', {
-      messages,
-      character,
-      worldId,
-      userId,
-      provider: apiSettings.provider,
-      baseUrl: apiSettings.baseUrl,
-      apiKey: apiSettings.apiKey,
-      model: apiSettings.model,
-      ...generation
-    })
+    const response = await api.post(
+      '/generate',
+      {
+        messages,
+        character,
+        worldId,
+        userId,
+        provider: apiSettings.provider,
+        baseUrl: apiSettings.baseUrl,
+        apiKey: apiSettings.apiKey,
+        model: apiSettings.model,
+        ...generation
+      },
+      { timeout: generation.timeout_ms || 30000 }
+    )
 
     const meta = response?.data?.meta
     if (meta && (meta.truncatedInput || Number(meta.retryCount) > 0 || (Array.isArray(meta.warnings) && meta.warnings.length > 0))) {
@@ -241,12 +322,77 @@ export async function sendChat(messages, character = null, worldId = null, setti
 }
 
 /**
+ * Execute one structured worldbook generation request.
+ * The provider key remains browser-owned; the server only translates the
+ * request and returns a schema-validated draft envelope.
+ */
+export async function sendStructuredGeneration({
+  schemaId,
+  target,
+  context,
+  settings = null,
+  options = {},
+  signal = null
+} = {}) {
+  const apiSettings = settings || await getResolvedApiSettings()
+  if (!apiSettings.baseUrl || !apiSettings.apiKey || !apiSettings.model) {
+    const error = new Error('AI 配置不完整，请前往设置填写 API Key、Base URL 和模型名称')
+    error.code = 'STRUCTURED_GENERATION_REQUEST_INVALID'
+    throw error
+  }
+  const requestId = options.request_id || createRequestId().replace(/^gen_/, 'setting_')
+  try {
+    const requestedTimeoutMs = Number(options.timeout_ms || options.timeoutMs || STRUCTURED_GENERATION_TIMEOUTS.shortMs)
+    const response = await api.post('/generate/structured', {
+      schemaVersion: 1,
+      schemaId,
+      requestId,
+      provider: {
+        id: apiSettings.provider,
+        baseUrl: apiSettings.baseUrl,
+        apiKey: apiSettings.apiKey,
+        model: apiSettings.model,
+        format: apiSettings.format,
+        promptCacheKey: options.prompt_cache_key
+      },
+      target,
+      context,
+      options: {
+        maxTokens: Number(options.max_tokens || options.maxTokens || 1200),
+        temperature: Number.isFinite(Number(options.temperature)) ? Number(options.temperature) : 0.2,
+        timeoutMs: requestedTimeoutMs
+      }
+    }, {
+      signal: signal || undefined,
+      timeout: Math.min(
+        STRUCTURED_GENERATION_TIMEOUTS.maxMs + STRUCTURED_GENERATION_TIMEOUTS.clientGraceMs,
+        requestedTimeoutMs + STRUCTURED_GENERATION_TIMEOUTS.clientGraceMs
+      )
+    })
+    return response.data
+  } catch (error) {
+    const payload = error?.response?.data || {}
+    const status = Number(error?.response?.status || 0) || null
+    const hasStructuredRouteError = Boolean(payload?.code || payload?.requestId || payload?.error)
+    const message = status === 404 && !hasStructuredRouteError
+      ? '后端尚未加载结构化设定路由，请重启后端服务后重试'
+      : payload.error || error?.message || '结构化设定生成失败'
+    const normalized = new Error(message)
+    normalized.code = payload.code || error?.code || 'STRUCTURED_GENERATION_UPSTREAM_FAILED'
+    normalized.retryable = Boolean(payload.retryable)
+    normalized.requestId = payload.requestId || requestId
+    normalized.status = status
+    throw normalized
+  }
+}
+
+/**
  * 发送流式聊天请求
  * @param {Function} onChunk - 每次收到内容块时的回调: (chunk: { content?: string, reasoning_content?: string }) => void
  * @param {Function} onComplete - 完成时的回调: (meta: object) => void
  * @param {Function} onError - 错误时的回调: (error: Error) => void
  */
-export async function sendChatStream(messages, character = null, worldId = null, settings = null, generationOptions = null, callbacks = {}) {
+export async function sendChatStream(messages, character = null, worldId = null, settings = null, generationOptions = null, callbacks = {}, requestOptions = {}) {
   const { onChunk, onComplete, onError } = callbacks
   const apiSettings = settings || await getResolvedApiSettings()
   const userId = getOrCreatePreferenceUserId()
@@ -266,7 +412,16 @@ export async function sendChatStream(messages, character = null, worldId = null,
     ? Math.max(1000, Math.floor(Number(generationOptions.timeout_ms)))
     : 30000
   const abortController = new AbortController()
-  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs)
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    abortController.abort()
+  }, timeoutMs)
+  const onExternalAbort = () => abortController.abort(requestOptions.signal?.reason)
+  if (requestOptions.signal) {
+    if (requestOptions.signal.aborted) onExternalAbort()
+    else requestOptions.signal.addEventListener('abort', onExternalAbort, { once: true })
+  }
 
   try {
     const response = await fetch('/api/chat/stream', {
@@ -350,14 +505,16 @@ export async function sendChatStream(messages, character = null, worldId = null,
     return { content: fullContent }
   } catch (error) {
     if (error?.name === 'AbortError') {
-      const timeoutError = new Error('请求超时，请稍后重试')
-      if (onError) onError(timeoutError)
-      throw timeoutError
+      const abortError = new Error(timedOut ? '请求超时，请稍后重试' : '生成已取消')
+      abortError.code = timedOut ? 'NARRATIVE_STREAM_TIMEOUT' : 'NARRATIVE_AGENT_ABORTED'
+      if (onError) onError(abortError)
+      throw abortError
     }
     if (onError) onError(error)
     throw error
   } finally {
     clearTimeout(timeoutId)
+    requestOptions.signal?.removeEventListener?.('abort', onExternalAbort)
   }
 }
 
@@ -493,7 +650,8 @@ export async function testApiConnection(apiSettings) {
       baseUrl: apiSettings.baseUrl,
       apiKey: apiSettings.apiKey,
       provider: apiSettings.provider,
-      model: apiSettings.model
+      model: apiSettings.model,
+      format: apiSettings.format
     })
     return response.data
   } catch (error) {
@@ -1120,8 +1278,13 @@ function handleApiError(error) {
   console.error('API Error:', errorData || error.message)
   
   // 抛出一个友好的错误，包含后端返回的细节
-  const baseMessage = errorData?.message || errorData?.error?.message || errorData?.error || '请求失败，请检查网络或配置'
+  const timeoutMessage = error?.code === 'ECONNABORTED' ? 'AI 请求超时，请缩短输入或稍后重试' : ''
+  const baseMessage = errorData?.message || errorData?.error?.message || errorData?.error || timeoutMessage || '请求失败，请检查网络或配置'
   const code = errorData?.code
   const message = code ? `${baseMessage} [${code}]` : baseMessage
-  throw new Error(message)
+  const normalized = new Error(message)
+  normalized.code = code || error?.code || 'API_REQUEST_FAILED'
+  normalized.status = Number(error?.response?.status || 0) || null
+  normalized.retryable = Boolean(errorData?.retryable)
+  throw normalized
 }

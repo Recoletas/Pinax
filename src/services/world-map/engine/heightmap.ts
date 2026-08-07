@@ -107,9 +107,14 @@ export function generateHeightmap(
   // 第一次选 + 跑
   let { templateName, shapeIntent } = pickAndApply(0)
 
-  // 单阶段 post-template:FBM 噪声 + 边缘软化 + 模板保形海陆比 remap。
+  // 单阶段 post-template:FBM 噪声 + 模板保形海陆比 remap。
   // 跑在合同评估之前(landmass 形状需要 sea level 调整过的高度场)。
   // 每次 reroll 都会**完整**重跑这一段,合同通过后不再叠加。
+  //
+  // P0-2 de-banding:`softenMapEdges`(极地遮罩)**不**在 reroll 循环里跑 —
+  // 旧实现每次 reroll 都叠加一次极地下沉,合同循环最多 4 次,极地被压 4 遍,
+  // 把所有极地陆块压成水,陆块被迫集中到中纬条带 → 视觉条带。现在改为
+  // 合同通过后只跑一次(见下方 `softenMapEdges` 调用)。
   const runPostTemplate = (
     currentShapeIntent: TemplateShapeIntent | undefined,
     currentTemplateName: HeightmapTemplate,
@@ -120,8 +125,7 @@ export function generateHeightmap(
       const y = cells.p[i * 2 + 1]
       cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
     }
-    softenMapEdges(cells, width, height)
-    adjustSeaLevelTemplateAware(cells, landRatio, currentShapeIntent, currentTemplateName)
+    adjustSeaLevelTemplateAware(cells, landRatio, currentShapeIntent, currentTemplateName, realism?.shape?.latitudeShaping)
   }
   runPostTemplate(shapeIntent, templateName)
 
@@ -142,6 +146,16 @@ export function generateHeightmap(
   if (!contract.met) {
     console.warn(`[generateHeightmap] template contract NOT met after ${contractAttempt} rerolls: ${contract.reason}`)
   }
+
+  // P0-2 de-banding:`softenMapEdges`(极地遮罩 + 边缘衰减)**只跑一次**。
+  // 旧实现把它放在 `runPostTemplate` 里,合同 reroll 循环最多 4 次,
+  // 每次都叠加极地下沉 → 极地陆块被压 4 遍 → 陆地被迫集中到中纬条带。
+  // 现在合同通过后只跑一次,极地遮罩不再被指数级放大。
+  //
+  // 同时让极地遮罩线**沿 x 蜿蜒**(P0-2a):用低频 fbm 调制极地下沉强度,
+  // 不再是水平直线。`polarMaskFloor`(默认 0.28)可经 `realism.shape` 调节。
+  const polarMaskFloor = clamp(realism?.shape?.polarMaskFloor ?? 0.28, 0, 1)
+  softenMapEdges(cells, width, height, polarMaskFloor)
 
   // 合同通过(或放弃 reroll)后,直接进入板块边界地形 + 平滑。
   // **不**再叠加 FBM / 软化边缘:这两步已包含在 runPostTemplate 里,
@@ -173,14 +187,28 @@ function hash2D(x: number, y: number): number {
   return s - Math.floor(s)
 }
 
-/** 分形布朗运动：多层 hash 噪声叠加 */
+/**
+ * 分形布朗运动：多层 hash 噪声叠加。
+ *
+ * P0-3 de-banding:每个 octave 的采样坐标按 θᵢ = i·37° 旋转。
+ * 旧实现各 octave 共用同一 (x,y) 方向,频谱重叠 → 各 octave 的脊线/
+ * 谷线沿同方向对齐,宏观上呈现方向性条带。per-octave 旋转打乱这种
+ * 对齐,让 FBM 各层贡献的方向性互相抵消。
+ */
+const FBM_OCTAVE_ANGLE_DEG = 37
 function fbm2D(x: number, y: number, octaves: number): number {
+  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
   let v = 0
   let amp = 1
   let freq = 1
   let max = 0
   for (let i = 0; i < octaves; i++) {
-    v += amp * (hash2D(x * freq, y * freq) * 2 - 1)
+    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
+    const c = i === 0 ? 1 : Math.cos(i * theta)
+    const s = i === 0 ? 0 : Math.sin(i * theta)
+    const xr = x * c - y * s
+    const yr = x * s + y * c
+    v += amp * (hash2D(xr * freq, yr * freq) * 2 - 1)
     max += amp
     amp *= 0.5
     freq *= 2
@@ -192,7 +220,17 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 
-function softenMapEdges(cells: GridCells, width: number, height: number): void {
+/**
+ * 边缘 + 极地遮罩。
+ *
+ * P0-2 de-banding:
+ *  - 极地遮罩线**沿 x 蜿蜒**(不再是直线):用低频 fbm 调制极地下沉强度,
+ *    让极地衰减带的边界在 x 方向起伏,打破"上下 12% 全是水"的水平条带。
+ *  - `polarMaskFloor`(默认 0.28,经 `realism.shape.polarMaskFloor` 调节)
+ *    替代硬编码 0.28。
+ *  - 该函数**只跑一次**(在合同 reroll 循环之外),避免极地下沉被多次叠加。
+ */
+function softenMapEdges(cells: GridCells, width: number, height: number, polarMaskFloor = 0.28): void {
   for (let i = 0; i < cells.length; i++) {
     const x = cells.p[i * 2] / width
     const y = cells.p[i * 2 + 1] / height
@@ -206,7 +244,14 @@ function softenMapEdges(cells: GridCells, width: number, height: number): void {
     const poleDist = Math.min(y, 1 - y)
     if (poleDist >= 0.12) continue
     const polarFactor = clamp(poleDist / 0.12, 0, 1)
-    const shaped = 0.28 + polarFactor * polarFactor * 0.72
+    // P0-2a: 低频 fbm (频率 1.5,~1.5 个特征横跨整图) 调制极地下沉强度。
+    // nv ∈ [-1,1],映射到 [0.65, 1.35] 的强度倍率 → 极地衰减带的"有效宽度"
+    // 在 x 方向起伏,衰减线从直线变成蜿蜒曲线。
+    // 注：传入 y 而非常数 0.5,让同一 x 列的不同 y cell 获得不同的 meander,
+    //     否则蜿蜒只沿 x 变化、所有行同步 → 仍是行对齐条带。
+    const meander = 1 + fbm2D(x * 1.5, y, 3) * 0.35
+    const floor = clamp(polarMaskFloor * meander, 0, 1)
+    const shaped = floor + polarFactor * polarFactor * (1 - floor)
     cells.h[i] = lim(Math.round(cells.h[i] * shaped))
   }
 }

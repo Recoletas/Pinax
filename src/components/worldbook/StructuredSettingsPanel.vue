@@ -6,7 +6,7 @@
         <h2>结构化设定</h2>
       </div>
       <div class="panel-badges" aria-label="当前分区状态">
-        <span>{{ activeSection.label }} · {{ activeSection.fields.length }} 字段</span>
+        <span>{{ activeSection.label }} · {{ activeSection.fields.length }} 项</span>
         <span v-if="readyDraftCount > 0" class="draft-badge">{{ readyDraftCount }} 草稿</span>
       </div>
     </div>
@@ -24,7 +24,7 @@
         type="button"
         class="section-ai-btn"
         :class="`is-${sectionGenState}`"
-        :aria-label="`为分区「${activeSection.label}」批量生成 AI 草稿`"
+        :aria-label="`为「${activeSection.label}」批量生成 AI 草稿`"
         @click="onSectionAiClick"
       >
         <span class="ai-btn-text">{{ sectionAiButtonText }}</span>
@@ -33,9 +33,9 @@
         type="button"
         class="brief-toggle-btn"
         :aria-pressed="showBriefBar"
-        :aria-label="showBriefBar ? '收起用户 brief' : '展开用户 brief'"
+        :aria-label="showBriefBar ? '收起生成要求' : '补充生成要求'"
         @click="showBriefBar = !showBriefBar"
-      >{{ showBriefBar ? '收起 brief' : '加 brief' }}</button>
+      >{{ showBriefBar ? '收起要求' : '补充要求' }}</button>
     </nav>
 
     <div v-if="showBriefBar" class="brief-bar-wrapper">
@@ -50,41 +50,67 @@
       v-if="sectionGenState !== 'idle'"
       :state="sectionGenState"
       :progress="sectionGenProgress"
+      :phase="sectionGenPhase"
       :error="sectionGenError"
+      :retry-label="sectionRetryLabel"
       @retry="retrySectionGen"
     />
+    <div
+      v-if="sectionGenState === 'error' && sectionGenFailedFields.length"
+      class="generation-failed-fields"
+      role="status"
+    >
+      未通过校验：{{ failedFieldLabels }}。已生成内容仍保留在草稿中。
+    </div>
 
     <div v-if="feedback" class="feedback-line">{{ feedback }}</div>
 
-    <div class="fields-grid">
-      <SettingFieldCard
-        v-for="field in activeSection.fields"
-        :ref="(el) => registerFieldRef(field, el)"
-        :key="field.key"
-        :worldbook-id="props.worldbook.id"
-        :section="activeSection"
-        :field="field"
-        v-model="form[activeSectionKey][field.key]"
-        :working="workingKey === `${activeSectionKey}.${field.key}`"
-        :has-draft="hasDraftForField(field.key)"
-        @generate="generateField"
-        @convert-entry="convertCurrentField"
+    <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
+      <div class="fields-grid">
+        <SettingFieldCard
+          v-for="field in activeSection.fields"
+          :ref="(el) => registerFieldRef(field, el)"
+          :key="field.key"
+          :worldbook-id="props.worldbook.id"
+          :section="activeSection"
+          :field="field"
+          v-model="form[activeSectionKey][field.key]"
+          :working="workingKey === `${activeSectionKey}.${field.key}`"
+          :has-draft="hasDraftForField(field.key)"
+          @generate="generateField"
+          @saved="onFieldSaved"
+        />
+      </div>
+
+      <PlaceCatalog
+        v-if="activeSectionKey === 'world'"
+        :worldbook="props.worldbook"
         @saved="onFieldSaved"
       />
-    </div>
 
-    <SettingDraftReview
-      v-if="focusedDraft"
-      :draft="focusedDraft"
-      :current-field-value="focusedDraftCurrentValue"
-      :status="focusedDraftStatus"
-      @discard="discardFocusedDraft"
-      @update:content="updateFocusedDraftContent"
-      @save-field="saveDraftToField"
-      @convert-entry="convertDraftToEntry"
-      @copy="copyDraft"
-      @retry="retryFocusedDraft"
-    />
+      <SettingDraftReview
+        v-if="focusedDraft"
+        :draft="focusedDraft"
+        :current-field-value="focusedDraftCurrentValue"
+        :status="focusedDraftStatus"
+        :revision-instruction="focusedDraft.revisionInstruction || ''"
+        :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
+        :revision-error="focusedRevisionError"
+        :revision-history="focusedDraft.revisionHistory || []"
+        :revision-index="focusedDraft.revisionIndex || 0"
+        :can-import-to-experience="canImportFocusedDraftToExperience"
+        @discard="discardFocusedDraft"
+        @update:content="updateFocusedDraftContent"
+        @update:revision-instruction="updateFocusedDraftInstruction"
+        @save-field="saveDraftToField"
+        @copy="copyDraft"
+        @retry="retryFocusedDraft"
+        @revise="reviseFocusedDraft"
+        @previous-revision="previousRevision"
+        @next-revision="nextRevision"
+        @import-to-experience="importFocusedDraftToExperience"
+      />
+    </div>
 
     <details v-if="readyDraftCount > 0" class="draft-drawer" :open="false">
       <summary>本节已生成草稿（{{ readyDraftCount }}）</summary>
@@ -125,13 +151,18 @@ import {
 } from '../../services/settingPanelSchema'
 import {
   buildSettingPromptPreview,
+  generateSettingDraftRevision,
   generateSettingFieldDraft,
-  generateSettingSectionDraft
+  generateSettingSectionDraft,
+  isStructuredSettingRevisionCurrent
 } from '../../services/settingFieldGeneration'
+import { hashSettingDraftContent } from '../../../shared/settingDraftRevisionContract'
+import { parseCharacterCards } from '../../services/characterCard'
 import SettingFieldCard from './SettingFieldCard.vue'
 import SettingDraftReview from './SettingDraftReview.vue'
 import GenerationBriefBar from './GenerationBriefBar.vue'
 import GenerationStatus from './GenerationStatus.vue'
+import PlaceCatalog from './PlaceCatalog.vue'
 
 const props = defineProps({
   worldbook: { type: Object, required: true }
@@ -154,6 +185,10 @@ provide('dirtyRegistry', dirtyRegistry)
 const activeSection = computed(() => getSettingSection(activeSectionKey.value) || sections[0])
 
 const fieldRefs = new Map()
+function getWorldbookRevision(worldbook = props.worldbook) {
+  return String(worldbook?.updatedAt || worldbook?.revision || '').trim()
+}
+
 function registerFieldRef(field, el) {
   if (el) fieldRefs.set(field.key, el)
   else fieldRefs.delete(field.key)
@@ -201,30 +236,36 @@ function onFieldSaved(savedAt) {
 
 async function generateField({ sectionKey, fieldKey }) {
   const field = getSettingField(sectionKey, fieldKey)
+  const generationRevision = getWorldbookRevision()
   workingKey.value = `${sectionKey}.${fieldKey}`
   feedback.value = ''
   const promptPreview = buildSettingPromptPreview({
     worldbook: { ...props.worldbook, structuredSettings: form },
     sectionKey,
     fieldKey,
-    userBrief: ''
+    userBrief: sectionBrief.value
   })
   const result = await generateSettingFieldDraft({
     worldbook: { ...props.worldbook, structuredSettings: form },
     sectionKey,
     fieldKey,
-    userBrief: ''
+    userBrief: sectionBrief.value
   })
   workingKey.value = ''
   if (!result.ok) {
     feedback.value = result.reason
     return
   }
+  if (generationRevision && getWorldbookRevision() !== generationRevision) {
+    feedback.value = '世界书已在生成期间更新，本次草稿已丢弃，请重新生成。'
+    return
+  }
   setDraft(sectionKey, fieldKey, {
     fieldKey,
     fieldLabel: field.label,
     content: result.content,
-    promptPreview
+    promptPreview,
+    worldbookRevision: generationRevision
   })
   focusDraft(fieldKey)
 }
@@ -240,7 +281,21 @@ function updateDraftContentInternal(fieldKey, content) {
   if (!sectionMap) return
   const draft = sectionMap.get(fieldKey)
   if (draft) {
-    sectionMap.set(fieldKey, { ...draft, content })
+    const history = normalizeRevisionHistory(draft)
+    const currentIndex = Math.min(history.length - 1, Math.max(0, Number(draft.revisionIndex) || 0))
+    const nextHistory = history.slice(0, currentIndex + 1)
+    nextHistory[currentIndex] = {
+      ...nextHistory[currentIndex],
+      content: String(content || ''),
+      kind: nextHistory[currentIndex]?.kind === 'generated' ? 'edited' : nextHistory[currentIndex]?.kind
+    }
+    sectionMap.set(fieldKey, {
+      ...draft,
+      content: String(content || ''),
+      revisionHistory: nextHistory,
+      revisionIndex: currentIndex,
+      sourceDraftHash: hashSettingDraftContent(content)
+    })
     multiDrafts.value = new Map(multiDrafts.value)
     saveDraftState()
   }
@@ -250,21 +305,34 @@ function updateDraftContentInternal(fieldKey, content) {
 // 5 态：idle | pending | success | error | aborted
 const sectionGenState = ref('idle')
 const sectionGenProgress = ref('')
+const sectionGenPhase = ref('')
 const sectionGenError = ref('')
+const sectionGenFailedFields = ref([])
 const sectionBrief = ref('')
 const showBriefBar = ref(false)
 let sectionAbortController = null
 let sectionGenStartedAt = 0
+let revisionAbortController = null
+const revisionState = ref('idle')
+const revisionError = ref('')
+const revisionDraftKey = ref('')
 
 const sectionAiButtonText = computed(() => {
   switch (sectionGenState.value) {
-    case 'pending': return `中止 ${sectionGenProgress.value}`
+    case 'pending': return `中止${sectionGenPhase.value ? ` · ${sectionGenPhase.value}` : ''}`
     case 'success': return '已生成'
-    case 'error': return '重试整节'
+    case 'error': return sectionGenFailedFields.value.length ? `重试失败项（${sectionGenFailedFields.value.length}）` : '重试整节'
     case 'aborted': return '已中止'
     default: return 'AI 补全本节'
   }
 })
+
+const sectionRetryLabel = computed(() => sectionGenFailedFields.value.length
+  ? `重试失败项（${sectionGenFailedFields.value.length}）`
+  : '重试')
+const failedFieldLabels = computed(() => sectionGenFailedFields.value
+  .map((fieldKey) => getSettingField(activeSectionKey.value, fieldKey)?.label || fieldKey)
+  .join('、'))
 
 const BRIEF_LS_PREFIX = 'worldbook:brief:'
 function loadBrief() {
@@ -287,6 +355,9 @@ function onBriefChange(value) {
 // 切走 section → abort + 读新 brief + 重置 brief bar 隐藏
 watch(activeSectionKey, () => {
   abortSectionGen()
+  abortRevision()
+  revisionError.value = ''
+  revisionDraftKey.value = ''
   sectionBrief.value = loadBrief()
   showBriefBar.value = false
   restoreFocusedDraftForActiveSection()
@@ -295,6 +366,7 @@ watch(activeSectionKey, () => {
 
 onBeforeUnmount(() => {
   abortSectionGen()
+  abortRevision()
   saveDraftState()
 })
 
@@ -308,10 +380,20 @@ function abortSectionGen() {
   }
 }
 
+function abortRevision() {
+  if (revisionAbortController) {
+    revisionAbortController.abort()
+    revisionAbortController = null
+  }
+  if (revisionState.value === 'pending') revisionState.value = 'idle'
+}
+
 async function onSectionAiClick() {
   if (sectionGenState.value === 'pending') {
     abortSectionGen()
     sectionGenState.value = 'aborted'
+    sectionGenPhase.value = '已取消'
+    sectionGenProgress.value = ''
     return
   }
   await runSectionGen()
@@ -319,36 +401,59 @@ async function onSectionAiClick() {
 
 function retrySectionGen() {
   if (sectionGenState.value === 'error') {
-    runSectionGen()
+    runSectionGen({ fieldKeys: sectionGenFailedFields.value })
   }
 }
 
-async function runSectionGen() {
+async function runSectionGen({ fieldKeys = null } = {}) {
   abortSectionGen()
   const ac = new AbortController()
   sectionAbortController = ac
   sectionGenStartedAt = Date.now()
   sectionGenState.value = 'pending'
+  sectionGenPhase.value = '准备请求'
   sectionGenError.value = ''
+  sectionGenFailedFields.value = []
   const section = activeSection.value
-  sectionGenProgress.value = `0/${section.fields.length}`
+  const generationRevision = getWorldbookRevision()
+  const requestedFields = Array.isArray(fieldKeys) && fieldKeys.length
+    ? section.fields.filter((field) => fieldKeys.includes(field.key))
+    : section.fields
+  sectionGenProgress.value = `0/${requestedFields.length}`
   const results = await generateSettingSectionDraft({
     sectionKey: section.key,
     worldbook: { ...props.worldbook, structuredSettings: form },
     userBrief: sectionBrief.value,
     signal: ac.signal,
-    onProgress: ({ index, total }) => {
-      sectionGenProgress.value = `${index + 1}/${total}`
+    fieldKeys: requestedFields.map((field) => field.key),
+    onProgress: ({ index, total, phase }) => {
+      sectionGenPhase.value = phase === 'repairing'
+        ? '修复失败项'
+        : phase === 'validated'
+          ? '校验草稿'
+          : '请求模型'
+      sectionGenProgress.value = phase === 'validated' ? '' : `${Math.min(index + 1, total)}/${total}`
     }
   })
 
   // 应用成功结果到 multiDrafts；error 原因记录到 error（仅第一个失败的，避免一次性列多个）
   if (ac.signal.aborted) {
     sectionGenState.value = 'aborted'
+    sectionGenPhase.value = '已取消'
     sectionGenProgress.value = ''
+    sectionAbortController = null
+    return
+  }
+  if (generationRevision && getWorldbookRevision() !== generationRevision) {
+    sectionGenState.value = 'error'
+    sectionGenPhase.value = '需要刷新'
+    sectionGenError.value = '世界书已在生成期间更新，未应用旧草稿。请确认最新内容后重试。'
+    sectionGenFailedFields.value = requestedFields.map((field) => field.key)
+    sectionAbortController = null
     return
   }
   let firstError = ''
+  const failedFields = []
   for (const [fieldKey, result] of results) {
     if (result.ok) {
       const promptPreview = buildSettingPromptPreview({
@@ -361,20 +466,30 @@ async function runSectionGen() {
         fieldKey,
         fieldLabel: result.fieldLabel,
         content: result.content,
-        promptPreview
+        promptPreview,
+        worldbookRevision: generationRevision
       })
     } else if (!firstError) {
       firstError = `${result.fieldLabel || fieldKey}：${result.reason}`
+      failedFields.push(fieldKey)
+    } else {
+      failedFields.push(fieldKey)
     }
   }
+  sectionGenFailedFields.value = failedFields
   if (firstError) {
     sectionGenState.value = 'error'
+    sectionGenPhase.value = '需要重试'
     sectionGenError.value = firstError
   } else {
     sectionGenState.value = 'success'
+    sectionGenPhase.value = '完成'
     sectionGenProgress.value = ''
     setTimeout(() => {
-      if (sectionGenState.value === 'success') sectionGenState.value = 'idle'
+      if (sectionGenState.value === 'success') {
+        sectionGenState.value = 'idle'
+        sectionGenPhase.value = ''
+      }
     }, 2000)
   }
   sectionAbortController = null
@@ -382,6 +497,7 @@ async function runSectionGen() {
 
 // ---------- multiDrafts: Map<sectionKey, Map<fieldKey, draft>> ----------
 const DRAFT_LS_PREFIX = 'worldbook:setting-drafts:'
+const MAX_DRAFT_REVISIONS = 8
 const multiDrafts = ref(new Map())
 
 function getDraftStorageKey(worldbookId = props.worldbook?.id) {
@@ -396,9 +512,65 @@ function getSectionDrafts(sectionKey) {
   return multiDrafts.value.get(sectionKey)
 }
 
+function createDraftId() {
+  return `setting_draft_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeRevisionHistory(draft) {
+  const content = String(draft?.content || '')
+  const source = Array.isArray(draft?.revisionHistory)
+    ? draft.revisionHistory
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => ({
+        id: String(entry.id || createDraftId()),
+        content: String(entry.content || ''),
+        instruction: String(entry.instruction || ''),
+        createdAt: Number(entry.createdAt) || Date.now(),
+        kind: String(entry.kind || 'revision')
+      }))
+      .filter((entry) => entry.content)
+    : []
+  if (!source.length) {
+    return [{ id: `${draft?.draftId || createDraftId()}_base`, content, instruction: '', createdAt: Date.now(), kind: 'generated' }]
+  }
+  const index = Math.min(source.length - 1, Math.max(0, Number(draft?.revisionIndex) || 0))
+  if (source[index].content !== content) {
+    source[index] = { ...source[index], content, kind: source[index].kind === 'generated' ? 'edited' : source[index].kind }
+  }
+  if (source.length <= MAX_DRAFT_REVISIONS) return source
+  const start = Math.max(0, Math.min(index, source.length - MAX_DRAFT_REVISIONS))
+  return source.slice(start, start + MAX_DRAFT_REVISIONS)
+}
+
+function normalizeDraftRecord(sectionKey, fieldKey, draft) {
+  const field = getSettingField(sectionKey, fieldKey)
+  const content = String(draft?.content || '')
+  const revisionHistory = normalizeRevisionHistory({ ...draft, content })
+  let revisionIndex = Math.min(revisionHistory.length - 1, Math.max(0, Number(draft?.revisionIndex) || 0))
+  for (let index = revisionHistory.length - 1; index >= 0; index -= 1) {
+    if (revisionHistory[index].content === content) {
+      revisionIndex = index
+      break
+    }
+  }
+  return {
+    ...draft,
+    draftId: String(draft?.draftId || createDraftId()),
+    fieldKey,
+    fieldLabel: String(draft?.fieldLabel || field?.label || fieldKey),
+    content,
+    promptPreview: String(draft?.promptPreview || ''),
+    revisionHistory,
+    revisionIndex,
+    revisionInstruction: String(draft?.revisionInstruction || ''),
+    revisionNumber: Number(draft?.revisionNumber) || Math.max(0, revisionHistory.length - 1),
+    sourceDraftHash: hashSettingDraftContent(content)
+  }
+}
+
 function setDraft(sectionKey, fieldKey, draft) {
   const sectionMap = getSectionDrafts(sectionKey)
-  sectionMap.set(fieldKey, draft)
+  sectionMap.set(fieldKey, normalizeDraftRecord(sectionKey, fieldKey, draft))
   // 触发响应式更新
   multiDrafts.value = new Map(multiDrafts.value)
   saveDraftState()
@@ -408,7 +580,12 @@ function discardDraft(fieldKey) {
   const sectionMap = getSectionDrafts(activeSectionKey.value)
   sectionMap.delete(fieldKey)
   multiDrafts.value = new Map(multiDrafts.value)
-  if (focusedDraftKey.value === fieldKey) focusedDraftKey.value = null
+  if (focusedDraftKey.value === fieldKey) {
+    abortRevision()
+    revisionError.value = ''
+    revisionDraftKey.value = ''
+    focusedDraftKey.value = null
+  }
   saveDraftState()
 }
 
@@ -432,6 +609,13 @@ const focusedDraftStatus = computed(() => {
   }
   return null
 })
+const focusedRevisionError = computed(() => (
+  revisionDraftKey.value === focusedDraftKey.value ? revisionError.value : ''
+))
+const canImportFocusedDraftToExperience = computed(() => (
+  activeSectionKey.value === 'characters'
+  && ['protagonists', 'majorSupporting', 'npcs'].includes(focusedDraftKey.value)
+))
 
 const readyDraftEntries = computed(() => {
   const sectionMap = getSectionDrafts(activeSectionKey.value)
@@ -464,33 +648,187 @@ function updateFocusedDraftContent(content) {
   if (focusedDraftKey.value) updateDraftContentInternal(focusedDraftKey.value, content)
 }
 
+function updateFocusedDraftInstruction(instruction) {
+  if (!focusedDraftKey.value) return
+  const sectionMap = getSectionDrafts(activeSectionKey.value)
+  const draft = sectionMap.get(focusedDraftKey.value)
+  if (!draft) return
+  sectionMap.set(focusedDraftKey.value, {
+    ...draft,
+    revisionInstruction: String(instruction || '')
+  })
+  multiDrafts.value = new Map(multiDrafts.value)
+  saveDraftState()
+}
+
 function retryFocusedDraft() {
   retrySectionGen()
 }
 
-async function saveDraftToField() {
-  if (!focusedDraft.value || !focusedDraftKey.value) return
-  const fieldKey = focusedDraftKey.value
-  form[activeSectionKey.value][fieldKey] = focusedDraft.value.content
-  await saveField({ sectionKey: activeSectionKey.value, fieldKey })
-  discardDraft(fieldKey)
-  feedback.value = '已采纳到字段'
+function updateDraftRevision(sectionKey, fieldKey, nextContent, instruction, parentDraft) {
+  const sectionMap = getSectionDrafts(sectionKey)
+  const draft = sectionMap.get(fieldKey)
+  if (!draft || draft.draftId !== parentDraft.draftId) return false
+  const history = normalizeRevisionHistory(draft)
+  const currentIndex = Math.min(history.length - 1, Math.max(0, Number(draft.revisionIndex) || 0))
+  const branch = history.slice(0, currentIndex + 1)
+  branch.push({
+    id: `${draft.draftId}_r${Number(draft.revisionNumber || 0) + 1}`,
+    content: String(nextContent || ''),
+    instruction: String(instruction || ''),
+    createdAt: Date.now(),
+    kind: 'revision'
+  })
+  const trimmed = branch.length > MAX_DRAFT_REVISIONS ? branch.slice(-MAX_DRAFT_REVISIONS) : branch
+  sectionMap.set(fieldKey, {
+    ...draft,
+    content: String(nextContent || ''),
+    revisionHistory: trimmed,
+    revisionIndex: trimmed.length - 1,
+    revisionInstruction: '',
+    revisionNumber: Number(draft.revisionNumber || 0) + 1,
+    sourceDraftHash: hashSettingDraftContent(nextContent)
+  })
+  multiDrafts.value = new Map(multiDrafts.value)
+  saveDraftState()
+  return true
 }
 
-async function convertDraftToEntry() {
+async function reviseFocusedDraft() {
+  const fieldKey = focusedDraftKey.value
+  const draft = focusedDraft.value
+  const instruction = String(draft?.revisionInstruction || '').trim()
+  if (!fieldKey || !draft || !instruction) {
+    revisionDraftKey.value = fieldKey || ''
+    revisionError.value = '请先写下要保留、删除或补充的内容。'
+    revisionState.value = 'error'
+    return
+  }
+
+  abortRevision()
+  const ac = new AbortController()
+  revisionAbortController = ac
+  revisionDraftKey.value = fieldKey
+  revisionState.value = 'pending'
+  revisionError.value = ''
+  const sourceContent = String(draft.content || '')
+  const sourceHash = hashSettingDraftContent(sourceContent)
+  const generationRevision = getWorldbookRevision()
+  const result = await generateSettingDraftRevision({
+    worldbook: { ...props.worldbook, structuredSettings: form },
+    sectionKey: activeSectionKey.value,
+    fieldKey,
+    draftContent: sourceContent,
+    revisionInstruction: instruction,
+    previousVersions: Array.isArray(draft.revisionHistory)
+      ? draft.revisionHistory.slice(0, Math.max(0, Number(draft.revisionIndex) || 0))
+      : [],
+    sourceDraftHash: sourceHash,
+    signal: ac.signal
+  })
+
+  if (ac.signal.aborted) return
+  revisionAbortController = null
+  const currentDraft = getSectionDrafts(activeSectionKey.value).get(fieldKey)
+  if (
+    !currentDraft ||
+    currentDraft.draftId !== draft.draftId ||
+    hashSettingDraftContent(currentDraft.content) !== sourceHash ||
+    (generationRevision && getWorldbookRevision() !== generationRevision)
+  ) {
+    revisionState.value = 'error'
+    revisionError.value = '草稿或世界书已更新，本次修订未应用。请确认当前内容后重试。'
+    return
+  }
+  if (!result.ok) {
+    revisionState.value = 'error'
+    revisionError.value = result.reason || '修订失败，请稍后重试。'
+    return
+  }
+  updateDraftRevision(activeSectionKey.value, fieldKey, result.content, instruction, draft)
+  revisionState.value = 'success'
+  revisionError.value = ''
+  feedback.value = '已生成新的设定草稿版本'
+}
+
+function moveDraftRevision(direction) {
+  const fieldKey = focusedDraftKey.value
+  const draft = focusedDraft.value
+  if (!fieldKey || !draft) return
+  const history = normalizeRevisionHistory(draft)
+  const currentIndex = Math.min(history.length - 1, Math.max(0, Number(draft.revisionIndex) || 0))
+  const nextIndex = currentIndex + direction
+  if (nextIndex < 0 || nextIndex >= history.length) return
+  const next = history[nextIndex]
+  const sectionMap = getSectionDrafts(activeSectionKey.value)
+  sectionMap.set(fieldKey, {
+    ...draft,
+    content: next.content,
+    revisionHistory: history,
+    revisionIndex: nextIndex,
+    sourceDraftHash: hashSettingDraftContent(next.content)
+  })
+  multiDrafts.value = new Map(multiDrafts.value)
+  revisionState.value = 'idle'
+  revisionError.value = ''
+  saveDraftState()
+}
+
+function previousRevision() {
+  moveDraftRevision(-1)
+}
+
+function nextRevision() {
+  moveDraftRevision(1)
+}
+
+async function saveDraftToField() {
   if (!focusedDraft.value || !focusedDraftKey.value) return
+  const draftRevision = String(focusedDraft.value.worldbookRevision || '').trim()
+  const currentRevision = getWorldbookRevision()
+  if (!isStructuredSettingRevisionCurrent(draftRevision, currentRevision)) {
+    feedback.value = '世界书已更新，这份草稿已过期，请重新生成后再采纳。'
+    return
+  }
   const fieldKey = focusedDraftKey.value
   form[activeSectionKey.value][fieldKey] = focusedDraft.value.content
   await saveField({ sectionKey: activeSectionKey.value, fieldKey })
-  await worldStore.convertStructuredSettingToEntry(props.worldbook.id, activeSectionKey.value, fieldKey)
-  feedback.value = '已转为世界书条目'
   discardDraft(fieldKey)
+  feedback.value = '已更新世界书条目'
 }
 
 function copyDraft() {
   if (!focusedDraft.value) return
   navigator.clipboard.writeText(focusedDraft.value.content)
   feedback.value = '已复制'
+}
+
+function importFocusedDraftToExperience() {
+  const fieldKey = focusedDraftKey.value
+  const cards = parseCharacterCards(focusedDraft.value?.content)
+  if (!cards.length) {
+    feedback.value = '这份草稿没有识别出带姓名的角色卡，请先补充“姓名：”行。'
+    return
+  }
+
+  if (fieldKey === 'protagonists') {
+    const card = cards[0]
+    worldStore.saveWritingCharacter({
+      ...worldStore.writingCharacter,
+      ...card,
+      traits: Array.isArray(card.traits) ? card.traits : []
+    })
+    feedback.value = `已将「${card.name}」导入体验页主角档案`
+    return
+  }
+
+  cards.forEach((card) => {
+    worldStore.addEncounteredCharacter({
+      ...card,
+      source: 'structured-setting'
+    })
+  })
+  feedback.value = `已将 ${cards.length} 张角色卡导入体验页人物索引`
 }
 
 function serializeDraftState() {
@@ -565,13 +903,7 @@ function restoreDraftState() {
       for (const [fieldKey, draft] of Object.entries(sectionDrafts)) {
         const field = getSettingField(sectionKey, fieldKey)
         if (!field || !draft || typeof draft !== 'object') continue
-        sectionMap.set(fieldKey, {
-          ...draft,
-          fieldKey,
-          fieldLabel: String(draft.fieldLabel || field.label || fieldKey),
-          content: String(draft.content || ''),
-          promptPreview: String(draft.promptPreview || '')
-        })
+        sectionMap.set(fieldKey, normalizeDraftRecord(sectionKey, fieldKey, draft))
       }
       if (sectionMap.size > 0) restored.set(sectionKey, sectionMap)
     }
@@ -600,12 +932,6 @@ function restoreFocusedDraftForActiveSection() {
   const sectionMap = multiDrafts.value.get(activeSectionKey.value)
   if (sectionMap?.has(focusedDraftKey.value)) return
   focusedDraftKey.value = sectionMap?.keys().next().value || null
-}
-
-async function convertCurrentField({ sectionKey, fieldKey }) {
-  await saveField({ sectionKey, fieldKey })
-  await worldStore.convertStructuredSettingToEntry(props.worldbook.id, sectionKey, fieldKey)
-  feedback.value = '已转为世界书条目'
 }
 
 restoreDraftState()
@@ -836,10 +1162,23 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   background: color-mix(in srgb, var(--success) 7%, transparent);
 }
 
+.generation-failed-fields {
+  padding: 7px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--danger) 68%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .fields-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
   gap: 12px;
+}
+
+.settings-editor-layout {
+  display: contents;
 }
 
 @media (max-width: 720px) {
@@ -850,8 +1189,8 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 
 /* Theme 2 is a continuous setting manuscript, not a dashboard of cards. */
 .structured-settings-panel.is-continuous {
-  gap: 10px;
-  padding: 12px 16px 0;
+  gap: 12px;
+  padding: 14px 18px 0;
   border: 0;
   border-radius: 0;
   background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-primary));
@@ -859,7 +1198,7 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .structured-settings-panel.is-continuous .section-tabs {
-  padding: 0 0 8px;
+  padding: 0 0 10px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 17%, var(--border));
   border-radius: 0;
@@ -868,19 +1207,56 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 
 .structured-settings-panel.is-continuous .section-tab {
   border-radius: 2px;
+  padding: 9px 13px;
+  font-size: 14px;
+}
+
+.structured-settings-panel.is-continuous .section-ai-btn,
+.structured-settings-panel.is-continuous .brief-toggle-btn {
+  min-height: 36px;
+  padding-inline: 14px;
+  font-size: 14px;
+}
+
+.structured-settings-panel.is-continuous .structured-head h2 {
+  font-size: 24px;
+}
+
+.structured-settings-panel.is-continuous .panel-kicker {
+  font-size: 12px;
+}
+
+.structured-settings-panel.is-continuous .panel-badges {
+  font-size: 13px;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout.has-review {
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 0.8fr);
 }
 
 .structured-settings-panel.is-continuous .fields-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  width: min(100%, 980px);
-  margin-inline: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+  width: 100%;
+  margin: 0;
   border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, var(--border));
 }
 
+.structured-settings-panel.is-continuous .settings-editor-layout.has-review .fields-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
-  padding: 16px 4px 18px;
+  padding: 13px 6px 14px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, var(--border));
   border-radius: 0;
@@ -895,7 +1271,7 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-  min-height: 116px;
+  min-height: 132px;
   border-inline: 0;
   border-radius: 0;
   background: repeating-linear-gradient(
@@ -903,13 +1279,125 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
     transparent 0 30px,
     color-mix(in srgb, var(--archive-ink-soft) 9%, transparent) 30px 31px
   );
-  line-height: 31px;
+  font-size: 17px;
+  line-height: 34px;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) {
+  font-size: 17px;
+  font-weight: 720;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-type-pill) {
+  display: none;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn),
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint),
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
+  font-size: 14px;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(input) {
+  font-size: 16px;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
+  position: sticky;
+  top: 12px;
+  max-height: calc(var(--app-viewport-height, 100vh) - 230px);
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 97%, var(--accent));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .draft-head h3) {
+  font-size: 20px;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .text-area) {
+  min-height: 260px;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review summary) {
+  font-size: 14px;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .draft-kicker) {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .card-actions) {
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 12%, var(--border));
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn),
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn) {
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn) {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--archive-paper-soft));
+  color: color-mix(in srgb, var(--accent) 86%, var(--archive-ink));
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn) {
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary));
+  color: var(--text-secondary);
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn:hover),
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn:hover) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--archive-paper-soft));
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn:focus-visible),
+.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .structured-settings-panel.is-continuous .settings-editor-layout.has-review,
+  .structured-settings-panel.is-continuous .fields-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
+    position: static;
+    max-height: none;
+  }
 }
 
 @media (max-width: 720px) {
   .structured-settings-panel.is-continuous {
     padding: 12px 12px 0;
     border-radius: 0;
+  }
+
+  .structured-settings-panel.is-continuous .structured-head h2 {
+    font-size: 22px;
+  }
+
+  .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
+    min-height: 124px;
   }
 }
 

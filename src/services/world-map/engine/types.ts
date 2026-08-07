@@ -300,6 +300,8 @@ export interface VoronoiMapData {
   heightmapTemplate?: HeightmapTemplate
   /** 形状 intent(对应 `TemplateShapeIntent`) */
   shapeIntent?: import('./heightmap-templates').TemplateShapeIntent
+  /** 世界书约束在本次生成中的实际处理结果 */
+  constraintReport?: MapConstraintReport
 }
 
 /** 文化命名风格 */
@@ -412,6 +414,32 @@ export interface MapRealism {
     noiseScale?: number       // 默认 0.012
     noiseAmplitude?: number   // 默认 6
   }
+  /**
+   * 气候相干噪声（P0 de-banding）：温度/降水叠加低频空间噪声，打破纯
+   * 纬向条带分布。0=关闭（保留旧纬向行为），1=最大扰动。
+   */
+  climate?: {
+    /** 相干噪声强度 0-1，默认 0.3 */
+    noise?: number
+    /**
+     * 纬度权重 0-1，默认 1（纯纬向温度基线）。
+     * <1 时把温度基线按该权重向"赤道基线 × 噪声"混合，进一步弱化条带。
+     */
+    latitudeWeight?: number
+  }
+  /**
+   * 高度图形状调控（P0 de-banding）：让极地遮罩线蜿蜒、放松中纬陆块集中。
+   */
+  shape?: {
+    /** 极地遮罩下限 0-1，默认 0.28（softenMapEdges 极地带最低保留比例） */
+    polarMaskFloor?: number
+    /**
+     * 纬度塑造松弛度 0-1，默认 0（保留当前极地/近极地 cost 惩罚）。
+     * 调高 (0.4-0.5) 时按比例缩放 heightmap-template-aware 的极地 cost 惩罚，
+     * 缓解"陆地过度集中在中纬条带"。
+     */
+    latitudeShaping?: number
+  }
 }
 
 /** 世界书强约束（可选） */
@@ -424,6 +452,8 @@ export interface MapConstraints {
   rivers?: Array<{
     name: string
     sourceCell: number
+    sourceX?: number
+    sourceY?: number
     mouthHint?: string
   }>
   stateSeeds?: Array<{
@@ -432,6 +462,45 @@ export interface MapConstraints {
     radius?: number
     color?: string
   }>
+  /** 已确认的世界书地点绑定；坐标以地图画布像素为准 */
+  locations?: Array<{
+    id: string
+    name: string
+    aliases?: string[]
+    kind: 'burg' | 'site' | 'region' | 'state'
+    x: number
+    y: number
+    hard?: string[]
+    relationRefs?: Array<{
+      id?: string
+      name: string
+      relation?: 'parent' | 'state' | 'same-state' | 'different-state' | 'adjacent' | 'river' | 'route'
+    }>
+  }>
+  /** 已确认的区域/国家锚点；不伪装成聚落，只用于拓扑关系核验 */
+  anchors?: Array<{
+    id: string
+    name: string
+    aliases?: string[]
+    kind: 'region' | 'state'
+    x: number
+    y: number
+  }>
+  /** 已确认的世界书交通通道；优先参与道路求解，并在生成后核验 */
+  routes?: Array<{
+    name: string
+    from?: string
+    to?: string
+    sourceX?: number
+    sourceY?: number
+  }>
+}
+
+/** 世界书约束在地图生成中的处理报告 */
+export interface MapConstraintReport {
+  satisfied: Array<{ id?: string; name: string; kind?: string; reason: string; cellId?: number }>
+  relaxed: Array<{ id?: string; name: string; kind?: string; reason: string; cellId?: number }>
+  impossible: Array<{ id?: string; name: string; kind?: string; reason: string; cellId?: number }>
 }
 
 /** 地图生成配置（可由 AI 控制） */

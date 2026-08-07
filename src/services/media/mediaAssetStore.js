@@ -144,6 +144,8 @@ export async function addGeneratedImageToLibrary(libraryKey, entry = {}, options
     kind: 'image',
     purpose: options.purpose || 'illustration',
     sourceRefs: options.sourceRefs,
+    parentAssetId: entry.parentAssetId || options.parentAssetId,
+    generationJobId: entry.generationJobId || options.generationJobId,
     provider: entry.modelType,
     model: entry.modelId || entry.modelName,
     promptSnapshot: entry.prompt,

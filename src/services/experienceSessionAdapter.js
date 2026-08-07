@@ -1,5 +1,11 @@
 export function createExperienceSessionAdapter(onlineRoom) {
   const subscriptions = []
+  let requestSequence = 0
+
+  function createRequestId() {
+    requestSequence += 1
+    return `narrative_${Date.now().toString(36)}_${requestSequence.toString(36)}`
+  }
 
   function onNarrativeRequested(callback) {
     const handler = (evt) => {
@@ -42,18 +48,31 @@ export function createExperienceSessionAdapter(onlineRoom) {
     return true
   }
 
-  function submitAcceptedRuntimePatch(patch) {
+  function submitHostStatus(status) {
     if (!onlineRoom.isHost || !onlineRoom.isHost.value) return false
     if (typeof onlineRoom.sendCommand === 'function') {
-      onlineRoom.sendCommand('runtime.patch.accept', { payload: patch })
+      onlineRoom.sendCommand('narrative.status', { payload: status })
     }
     return true
   }
 
-  function requestNarrative(payload) {
-    if (!onlineRoom.isHost?.value) return false
-    onlineRoom.sendCommand?.('narrative.request', { payload })
+  function submitAcceptedRuntimePatch(patch, { requestId = '' } = {}) {
+    if (!onlineRoom.isHost || !onlineRoom.isHost.value) return false
+    if (typeof onlineRoom.sendCommand === 'function') {
+      onlineRoom.sendCommand('runtime.patch.accept', {
+        payload: { ...patch, requestId: String(requestId || '').trim() }
+      })
+    }
     return true
+  }
+
+  function requestNarrative(payload, requestId = createRequestId()) {
+    if (!onlineRoom.isHost?.value) return false
+    const normalizedRequestId = String(requestId || '').trim() || createRequestId()
+    onlineRoom.sendCommand?.('narrative.request', {
+      payload: { ...payload, requestId: normalizedRequestId }
+    })
+    return normalizedRequestId
   }
 
   function onActionSelected(callback) {
@@ -62,6 +81,10 @@ export function createExperienceSessionAdapter(onlineRoom) {
 
   function onRuntimePatchAccepted(callback) {
     return subscribeTo('runtime.patch.accepted', callback)
+  }
+
+  function onNarrativeStatus(callback) {
+    return subscribeTo('narrative.status', callback)
   }
 
   function subscribeTo(type, callback) {
@@ -86,9 +109,11 @@ export function createExperienceSessionAdapter(onlineRoom) {
     onNarrativeRequested,
     onNarrativeCompleted,
     submitHostCompletion,
+    submitHostStatus,
     submitAcceptedRuntimePatch,
     requestNarrative,
     onActionSelected,
+    onNarrativeStatus,
     onRuntimePatchAccepted,
     handleEvent
   }

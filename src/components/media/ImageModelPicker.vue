@@ -24,7 +24,7 @@ const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const modelTypes = IMAGE_MODEL_TYPES
-const templateHelpText = '支持 {{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{reference_image}}、{{reference_images_json}}。'
+const templateHelpText = '支持 {{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{reference_image}}、{{reference_images_json}}、{{mask_image}}、{{control_images_json}}。'
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)

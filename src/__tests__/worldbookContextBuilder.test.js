@@ -293,7 +293,7 @@ describe('worldbookContextBuilder', () => {
     expect(result.messages[0].content).not.toContain(longContent)
   })
 
-  it('includes concise structured settings before matched entries', () => {
+  it('does not inject the structured authoring shadow as global context', () => {
     const result = buildWorldbookContext({
       worldbook: {
         name: '雾港',
@@ -318,9 +318,10 @@ describe('worldbookContextBuilder', () => {
       tokenBudget: 2000
     })
 
-    expect(result.messages[0].content).toContain('【结构化设定】')
-    expect(result.messages[0].content).toContain('一句话故事：书记官追查吞噬姓名的雾。')
-    expect(result.messages[0].content).toContain('一致性规则：所有魔法都必须付出记忆代价。')
+    expect(result.messages[0].content).not.toContain('【结构化设定】')
+    expect(result.messages[0].content).not.toContain('一句话故事：书记官追查吞噬姓名的雾。')
+    expect(result.messages[0].content).not.toContain('一致性规则：所有魔法都必须付出记忆代价。')
+    expect(result.messages[0].content).toContain('◆ 【常驻规则】')
   })
 
   it('injects starter entries for promoted playable seed worlds on narrative init', () => {

@@ -53,12 +53,19 @@ function buildPageContinuity(page) {
   const refs = (Array.isArray(page.visualBibleRefs) ? page.visualBibleRefs : [])
     .map((entry) => [entry.refId, entry.note].filter(Boolean).join('：'))
     .filter(Boolean)
+  const semanticRefs = (Array.isArray(visualBible.references) ? visualBible.references : [])
+    .map((entry) => [
+      entry.label || entry.sourceRef?.refId,
+      ...(Array.isArray(entry.invariantNotes) ? entry.invariantNotes : [])
+    ].filter(Boolean).join('：'))
+    .filter(Boolean)
   return [
     page.styleBible,
     visualBible.lineStyle,
     visualBible.renderingNotes,
     ...(Array.isArray(visualBible.invariantNotes) ? visualBible.invariantNotes : []),
     ...(Array.isArray(page.continuityNotes) ? page.continuityNotes : []),
+    ...semanticRefs,
     ...refs
   ].map(clean).filter(Boolean).join('；')
 }
@@ -91,12 +98,48 @@ function buildDirection(direction = {}) {
     flat: '平面构图', 'one-point': '一点透视', 'two-point': '两点透视',
     'three-point': '三点透视', fisheye: '鱼眼透视'
   }
+  const blocking = (Array.isArray(direction.blocking) ? direction.blocking : [])
+    .map((item) => `${clean(item.label) || '人物'}位于${boxPosition(item.box)}`)
+    .filter(Boolean)
+    .join('、')
+  const motion = (Array.isArray(direction.motionVectors) ? direction.motionVectors : [])
+    .map((item) => `${clean(item.label) || '运动'}从${pointPosition(item.from)}指向${pointPosition(item.to)}`)
+    .filter(Boolean)
+    .join('、')
+  const balloonZones = (Array.isArray(direction.balloonSafeZones) ? direction.balloonSafeZones : [])
+    .map((item) => `${boxPosition(item.box)}保留干净负空间`)
+    .filter(Boolean)
+    .join('、')
   return [
     shotSizes[direction.shotSize],
     angles[direction.cameraAngle],
     perspectives[direction.perspective],
+    direction.focalPoint ? `视觉焦点在${pointPosition([direction.focalPoint.x, direction.focalPoint.y])}` : '',
+    direction.horizonY !== null && direction.horizonY !== undefined
+      ? `地平线约在画面高度 ${Math.round(Number(direction.horizonY) * 100)}%`
+      : '',
+    blocking ? `人物调度：${blocking}` : '',
+    motion ? `运动动线：${motion}` : '',
+    balloonZones ? `后期文字留白：${balloonZones}，不要绘制文字或气泡` : '',
     clean(direction.notes)
   ].filter(Boolean).join('，')
+}
+
+function boxPosition(box) {
+  const values = Array.isArray(box) ? box.map(Number) : []
+  return pointPosition([
+    (Number.isFinite(values[0]) ? values[0] : 0.5) + (Number.isFinite(values[2]) ? values[2] : 0) / 2,
+    (Number.isFinite(values[1]) ? values[1] : 0.5) + (Number.isFinite(values[3]) ? values[3] : 0) / 2
+  ])
+}
+
+function pointPosition(point) {
+  const values = Array.isArray(point) ? point.map(Number) : []
+  const x = Number.isFinite(values[0]) ? values[0] : 0.5
+  const y = Number.isFinite(values[1]) ? values[1] : 0.5
+  const horizontal = x < 0.34 ? '左侧' : x > 0.66 ? '右侧' : '中央'
+  const vertical = y < 0.34 ? '上方' : y > 0.66 ? '下方' : '中部'
+  return `${horizontal}${vertical}`
 }
 
 function stripVerbatimDialogue(value) {

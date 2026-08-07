@@ -9,15 +9,6 @@
     >
       {{ working ? '生成中…' : 'AI 生成' }}
     </button>
-    <button
-      v-if="modelValue"
-      type="button"
-      class="action-btn"
-      :aria-label="convertAriaLabel"
-      @click="$emit('convert-entry')"
-    >
-      转条目
-    </button>
   </div>
 </template>
 
@@ -26,15 +17,13 @@ import { computed } from 'vue'
 
 const props = defineProps({
   fieldLabel: { type: String, required: true },
-  modelValue: { type: String, default: '' },
   working: { type: Boolean, default: false },
   hasDraft: { type: Boolean, default: false }
 })
 
-defineEmits(['generate', 'convert-entry'])
+defineEmits(['generate'])
 
-const generateAriaLabel = computed(() => `为「${props.fieldLabel}」生成 AI 草稿`)
-const convertAriaLabel = computed(() => `将「${props.fieldLabel}」转为世界书条目`)
+const generateAriaLabel = computed(() => `为设定项「${props.fieldLabel}」生成 AI 草稿`)
 </script>
 
 <style scoped>

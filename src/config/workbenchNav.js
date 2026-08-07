@@ -13,7 +13,7 @@ export const ACTIVITY_ITEMS = [
     label: '设定',
     description: '结构化设定与世界书管理',
     icon: 'settings',
-    defaultRouteName: 'settings-worldbook'
+    defaultRouteName: 'settings-structured'
   },
   {
     key: 'writing',
@@ -78,14 +78,14 @@ export const SIDE_PANELS = {
     title: '设定',
     items: [
       {
-        routeName: 'settings-worldbook',
-        label: '世界书',
-        description: '预设、AI 提炼、随机生成入口'
-      },
-      {
         routeName: 'settings-structured',
         label: '结构化设定',
         description: '世界观、故事、角色与创作规则'
+      },
+      {
+        routeName: 'settings-worldbook',
+        label: '世界书',
+        description: '预设、文本导入与基调初始化'
       },
       {
         routeName: 'settings-world-map',

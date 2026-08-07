@@ -27,6 +27,13 @@ describe('runtimeEvents', () => {
     expect(STATE_PATH_ROOTS).toContain('goals')
     expect(STATE_PATH_ROOTS).toContain('inventory')
     expect(STATE_PATH_ROOTS).toContain('quests')
+    expect(STATE_PATH_ROOTS).toEqual(expect.arrayContaining([
+      'placeStates',
+      'characterStates',
+      'characterRelations',
+      'canonicalFacts',
+      'writingTime'
+    ]))
     expect(RUNTIME_EVENT_LIMIT).toBe(200)
   })
 
@@ -246,19 +253,67 @@ describe('runtimeEvents', () => {
     expect(event).toBe(events[3])
   })
 
-  it('state_delta ops targeting factionRelations / plotJournal / worldMapState are accepted by the allowlist', () => {
+  it('state_delta ops targeting controlled narrative roots are accepted by the allowlist', () => {
     const result = validateStateDelta([
       { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
       { op: 'push', path: 'plotJournal', value: { summary: 's' } },
+      {
+        op: 'merge',
+        path: 'placeStates',
+        value: { 'place:harbor': { status: '争夺中', controllerId: 'faction:tide', danger: 72 } }
+      },
+      {
+        op: 'merge',
+        path: 'characterStates',
+        value: {
+          'character:captain': {
+            status: '负伤',
+            alive: true,
+            placeId: 'place:harbor',
+            goal: '守住码头',
+            mood: 25,
+            knowledgeRefs: ['fact:signal']
+          }
+        }
+      },
+      {
+        op: 'merge',
+        path: 'characterRelations',
+        value: {
+          'relation:captain-heir': {
+            subjectId: 'character:captain',
+            objectId: 'character:heir',
+            kind: 'parent',
+            status: 'confirmed',
+            sourceRefs: ['history:lineage']
+          }
+        }
+      },
+      {
+        op: 'merge',
+        path: 'canonicalFacts',
+        value: {
+          'fact:captain-origin': {
+            subjectId: 'character:captain',
+            predicate: 'birthplace',
+            value: 'place:harbor',
+            status: 'confirmed',
+            confidence: 0.95,
+            sourceRefs: ['history:captain-origin']
+          }
+        }
+      },
+      { op: 'merge', path: 'writingTime', value: { eraId: 'crisis', year: 227, month: 9, day: 15 } },
       { op: 'merge', path: 'worldMapState', value: { currentScene: '灯痕码头' } }
     ])
 
     expect(result.valid).toBe(true)
-    expect(result.sanitized).toEqual([
+    expect(result.sanitized).toEqual(expect.arrayContaining([
       { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
       { op: 'push', path: 'plotJournal', value: { summary: 's' } },
+      { op: 'merge', path: 'writingTime', value: { eraId: 'crisis', year: 227, month: 9, day: 15 } },
       { op: 'merge', path: 'worldMapState', value: { currentScene: '灯痕码头' } }
-    ])
+    ]))
   })
 
   it('previews and applies constrained deltas without mutating the source state', () => {
@@ -299,6 +354,41 @@ describe('runtimeEvents', () => {
     ]).valid).toBe(false)
     expect(validateStateDelta([
       { op: 'inc', path: 'factionRelations', value: { 潮盐行会: 'a lot' } }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      { op: 'merge', path: 'placeStates', value: { harbor: { controllerId: 'faction:tide', secret: 'x' } } }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      { op: 'merge', path: 'characterStates', value: { captain: { knowledgeRefs: ['ok', { hidden: true }] } } }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      { op: 'merge', path: 'writingTime', value: { year: 227, hiddenCalendar: true } }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      {
+        op: 'merge',
+        path: 'characterRelations',
+        value: {
+          invalid: {
+            subjectId: 'captain',
+            objectId: 'heir',
+            kind: 'ancestor-from-another-timeline'
+          }
+        }
+      }
+    ]).valid).toBe(false)
+    expect(validateStateDelta([
+      {
+        op: 'merge',
+        path: 'canonicalFacts',
+        value: {
+          invalid: {
+            subjectId: 'captain',
+            predicate: 'origin',
+            value: { hidden: true }
+          }
+        }
+      }
     ]).valid).toBe(false)
 
     const state = { flags: { ledgerSeen: false } }

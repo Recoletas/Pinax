@@ -369,6 +369,7 @@
       v-if="showStoryboardVideoPanel"
       :context="storyboardVideoContext"
       :stale="!directorStoryboardIsCurrent"
+      :project-id="storyboardVideoContext?.document?.projectId || null"
       @close="showStoryboardVideoPanel = false"
       @archived="handleStoryboardVideoArchived"
       @shots-updated="handleStoryboardAgentShotsUpdated"
@@ -710,7 +711,10 @@ import {
 } from '../services/shotExporter'
 import {
   addNarrativeAsset,
-  listNarrativeAssets
+  createNarrativeAssetSourceRef,
+  listNarrativeAssets,
+  mergeSourceRefs,
+  normalizeContentRef
 } from '../services/narrativeAssets'
 import {
   addNarrativeImageAsset,
@@ -2789,9 +2793,15 @@ function buildDirectorSourceExcerpt() {
     .slice(0, 240)
 }
 
-function createDirectorExportFingerprint(shots, topic) {
+function createDirectorExportFingerprint(shots, topic, sourceRefs = []) {
   return JSON.stringify({
     topic: String(topic || '').trim(),
+    sourceRefs: sourceRefs.map((ref) => [
+      ref.refType,
+      ref.refId,
+      ref.projectId || '',
+      ref.version || ''
+    ]),
     shots: (shots || []).map((shot) => [
       shot.sequence,
       shot.assetId,
@@ -2809,6 +2819,31 @@ function createDirectorExportFingerprint(shots, topic) {
       JSON.stringify(shot.imageReferences || [])
     ])
   })
+}
+
+function buildDirectorSourceRefs() {
+  const inheritedRefs = []
+  const localRefs = []
+  for (const item of outline.value) {
+    const card = getOutlineCard(item)
+    if (!card) continue
+    const asset = getCardAsset(card)
+    localRefs.push(normalizeContentRef({
+      refType: 'canvas-card',
+      refId: card.id,
+      projectId: asset?.projectId ?? null,
+      excerpt: getCardFullContent(card)
+    }))
+    if (asset) {
+      inheritedRefs.push(...(asset.sourceRefs || []))
+      localRefs.push(createNarrativeAssetSourceRef(asset))
+    }
+  }
+  return mergeSourceRefs(inheritedRefs, localRefs)
+}
+
+function getDirectorProjectId(sourceRefs = []) {
+  return sourceRefs.find((ref) => ref?.projectId)?.projectId || null
 }
 
 function buildDirectorRawShots() {
@@ -2830,7 +2865,8 @@ function getDirectorStoryboardValidation(result) {
 
 function getDirectorExportContext() {
   const rawShots = buildDirectorRawShots()
-  const fingerprint = createDirectorExportFingerprint(rawShots, currentTopic.value)
+  const sourceRefs = buildDirectorSourceRefs()
+  const fingerprint = createDirectorExportFingerprint(rawShots, currentTopic.value, sourceRefs)
   if (lastDirectorExportContext.value && lastDirectorExportFingerprint.value === fingerprint) {
     return lastDirectorExportContext.value
   }
@@ -2838,12 +2874,14 @@ function getDirectorExportContext() {
   const sourceId = String(currentTopic.value || '').trim() || 'untitled-prose'
   const sourceTitle = String(currentTopic.value || '').trim() || '卡片画布'
   const result = saveValidatedStoryboardVersion({
+    projectId: getDirectorProjectId(sourceRefs),
     source: {
       sourceType: 'prose-card',
       sourceId,
       title: sourceTitle,
       excerpt: buildDirectorSourceExcerpt()
     },
+    sourceRefs,
     shots: rawShots,
     taskType: 'prose.directing.export',
     parameters: {
@@ -2901,6 +2939,7 @@ function handleStoryboardAgentShotsUpdated(shots, meta = {}) {
       documentId: current.document.id,
       projectId: current.document.projectId || null,
       source: current.document.source || {},
+      sourceRefs: current.document.sourceRefs || [],
       shots,
       taskType: meta.reason === 'agent-undo' ? 'storyboard.agent.undo' : 'storyboard.agent.review',
       parameters: {
@@ -3241,9 +3280,12 @@ async function generateImages() {
         createdAt: new Date().toISOString()
       }, {
         purpose: 'storyboard-reference',
-        sourceRefs: selectedCard.value?.assetId
-          ? [{ refType: 'narrative-asset', refId: selectedCard.value.assetId }]
-          : []
+        sourceRefs: (() => {
+          const asset = getCardAsset(selectedCard.value)
+          return asset
+            ? mergeSourceRefs([...(asset.sourceRefs || []), createNarrativeAssetSourceRef(asset)])
+            : []
+        })()
       })
       imageLibrary.value.unshift(entry)
     }

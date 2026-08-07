@@ -8,7 +8,7 @@
  *  - style='deltaic'     : 在入海口前生成 3 个分支
  */
 
-import type { GridCells, River } from './types'
+import type { GridCells, MapConstraints, River } from './types'
 import { getRiverName } from './name-pool'
 
 const SEA_LEVEL = 20
@@ -26,6 +26,7 @@ export function generateRivers(
   cells: GridCells,
   rng: () => number,
   realism: RiverRealism = { style: 'straight' },
+  constraints?: MapConstraints,
 ): River[] {
   const n = cells.length
 
@@ -175,7 +176,190 @@ export function generateRivers(
     if (rivers.length > 50) break // 限制河流数量
   }
 
+  applyConstrainedRiverPasses(cells, rivers, drainage, flux, assigned, constraints, realism, rng)
   return rivers
+}
+
+type RiverPass = { name: string; x: number; y: number }
+
+function normalizeRiverName(value: unknown): string {
+  return String(value || '').trim().toLocaleLowerCase('zh-Hans-CN').replace(/[\s·・_-]+/g, '')
+}
+
+function collectRiverPasses(constraints: MapConstraints | undefined): RiverPass[] {
+  const passes: RiverPass[] = []
+  for (const river of constraints?.rivers || []) {
+    const x = Number(river.sourceX)
+    const y = Number(river.sourceY)
+    if (river.name && Number.isFinite(x) && Number.isFinite(y)) passes.push({ name: river.name, x, y })
+  }
+  for (const location of constraints?.locations || []) {
+    for (const reference of location.relationRefs || []) {
+      if (reference.relation !== 'river' || !reference.name) continue
+      passes.push({ name: reference.name, x: Number(location.x), y: Number(location.y) })
+    }
+  }
+  const seen = new Set<string>()
+  return passes.filter((pass) => {
+    if (!Number.isFinite(pass.x) || !Number.isFinite(pass.y)) return false
+    const key = `${normalizeRiverName(pass.name)}:${pass.x.toFixed(2)}:${pass.y.toFixed(2)}`
+    if (!normalizeRiverName(pass.name) || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function nearestLandCell(cells: GridCells, x: number, y: number): number {
+  let nearest = -1
+  let nearestDistance = Infinity
+  for (let cell = 0; cell < cells.length; cell++) {
+    if (cells.h[cell] < SEA_LEVEL) continue
+    const dx = cells.p[cell * 2] - x
+    const dy = cells.p[cell * 2 + 1] - y
+    const distance = dx * dx + dy * dy
+    if (distance < nearestDistance) {
+      nearest = cell
+      nearestDistance = distance
+    }
+  }
+  return nearest
+}
+
+function traceRiverThroughCell(
+  cells: GridCells,
+  target: number,
+  drainage: Int32Array,
+  flux: Float32Array,
+): number[] {
+  const upstream: number[] = []
+  const visited = new Set<number>([target])
+  let current = target
+  for (let step = 0; step < 64; step++) {
+    const drainingCandidates = cells.c[current]
+      .filter(cell => drainage[cell] === current && cells.h[cell] >= SEA_LEVEL && !visited.has(cell))
+      .sort((a, b) => (flux[b] - flux[a]) || (cells.h[b] - cells.h[a]) || (a - b))
+    // A confirmed pass may be a river mouth or a dry lowland cell with no
+    // sampled upstream edge. Continue toward a higher adjacent land cell so
+    // the constrained branch still has a plausible downhill approach.
+    const fallbackCandidates = cells.c[current]
+      .filter(cell => cells.h[cell] >= cells.h[current] && cells.h[cell] >= SEA_LEVEL && !visited.has(cell))
+      .sort((a, b) => (cells.h[b] - cells.h[a]) || (flux[b] - flux[a]) || (a - b))
+    const next = drainingCandidates[0] ?? fallbackCandidates[0]
+    if (next === undefined) break
+    upstream.push(next)
+    visited.add(next)
+    current = next
+    if (upstream.length >= 8 && drainingCandidates.length === 0) break
+  }
+
+  const downstream: number[] = [target]
+  current = target
+  for (let step = 0; step < 1000; step++) {
+    const next = drainage[current]
+    if (next < 0 || next === current || visited.has(next)) break
+    downstream.push(next)
+    visited.add(next)
+    current = next
+    if (cells.h[next] < SEA_LEVEL) break
+  }
+  return [...upstream.reverse(), ...downstream]
+}
+
+function buildRiverGeometry(
+  cells: GridCells,
+  river: River,
+  path: number[],
+  flux: Float32Array,
+  realism: RiverRealism,
+  rng: () => number,
+): void {
+  const meanderAmp = realism.style === 'meandering' ? (realism.meanderAmplitude ?? 3) : 3
+  for (let index = 0; index < path.length; index++) {
+    const cell = path[index]
+    const x = cells.p[cell * 2]
+    const y = cells.p[cell * 2 + 1]
+    const progress = index / Math.max(1, path.length)
+    const meander = 0.5 + 1 / (index + 1) + Math.max(0.5 - progress, 0)
+    const offset = Math.sin(index * 1.5 + rng() * 3) * meander * meanderAmp
+    const angle = index < path.length - 1
+      ? Math.atan2(cells.p[path[index + 1] * 2 + 1] - y, cells.p[path[index + 1] * 2] - x)
+      : 0
+    river.points.push([
+      x + Math.cos(angle + Math.PI / 2) * offset,
+      y + Math.sin(angle + Math.PI / 2) * offset,
+    ])
+    river.widths.push(0.5 + Math.min(flux[cell] ** 0.5 / 15, 4) + progress * 2)
+  }
+}
+
+/**
+ * 世界书河流和“地点沿河”关系在自然排水完成后落到真实 drainage 上。
+ * 这里不改高度、不画任意直线：已有河流优先复用，否则只沿上下游链创建支流。
+ */
+function applyConstrainedRiverPasses(
+  cells: GridCells,
+  rivers: River[],
+  drainage: Int32Array,
+  flux: Float32Array,
+  assigned: Uint16Array,
+  constraints: MapConstraints | undefined,
+  realism: RiverRealism,
+  rng: () => number,
+): void {
+  for (const pass of collectRiverPasses(constraints)) {
+    const target = nearestLandCell(cells, pass.x, pass.y)
+    if (target < 0) continue
+    const named = rivers.find(river => normalizeRiverName(river.name) === normalizeRiverName(pass.name))
+    if (named?.cells.includes(target)) continue
+
+    const existingRiverId = assigned[target]
+    const existing = existingRiverId ? rivers.find(river => river.i === existingRiverId) : undefined
+    if (existing && !named) {
+      existing.name = pass.name
+      continue
+    }
+
+    const path = traceRiverThroughCell(cells, target, drainage, flux)
+    if (path.length < 3) continue
+    if (named) {
+      // Multiple confirmed places may reference the same river. The renderer
+      // already supports appended delta branches, so retain one named river.
+      const branch = path.filter(cell => !named.cells.includes(cell))
+      if (branch.length < 2) continue
+      named.cells.push(...branch)
+      buildRiverGeometry(cells, named, branch, flux, realism, rng)
+      named.length = named.cells.length
+      for (const cell of branch) {
+        if (cells.h[cell] >= SEA_LEVEL && assigned[cell] === 0) {
+          assigned[cell] = named.i
+          cells.r[cell] = named.i
+        }
+      }
+      continue
+    }
+
+    const riverId = rivers.reduce((max, river) => Math.max(max, river.i), 0) + 1
+    const river: River = {
+      i: riverId,
+      name: pass.name,
+      cells: path,
+      points: [],
+      widths: [],
+      source: path[0],
+      mouth: path[path.length - 1],
+      length: path.length,
+    }
+    const joined = path.find(cell => assigned[cell] > 0)
+    if (joined !== undefined) river.parent = assigned[joined]
+    buildRiverGeometry(cells, river, path, flux, realism, rng)
+    for (const cell of path) {
+      if (cells.h[cell] >= SEA_LEVEL && assigned[cell] === 0) {
+        assigned[cell] = riverId
+        cells.r[cell] = riverId
+      }
+    }
+    rivers.push(river)
+  }
 }
 
 /**

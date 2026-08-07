@@ -321,9 +321,112 @@
                   {{ group }}
                 </option>
               </select>
+              <button class="ghost-btn" :class="{ active: maintenanceOpen }" @click="toggleMaintenance">
+                AI 处理世界书
+              </button>
               <button class="primary-btn" @click="createEntry">新增条目</button>
             </div>
           </div>
+
+          <section v-if="maintenanceOpen" class="worldbook-maintenance" aria-labelledby="worldbook-maintenance-title">
+            <div class="maintenance-head">
+              <div>
+                <span class="panel-kicker">维护工作台</span>
+                <h3 id="worldbook-maintenance-title">用自然语言维护世界书</h3>
+                <p>模型只提出候选，确认后才会写入条目。</p>
+              </div>
+              <span class="maintenance-revision" v-if="maintenanceRevision">基于当前版本</span>
+            </div>
+            <div class="maintenance-modes" role="tablist" aria-label="世界书处理模式">
+              <button
+                v-for="mode in maintenanceModes"
+                :key="mode.value"
+                type="button"
+                :class="['maintenance-mode', { active: maintenanceMode === mode.value }]"
+                @click="maintenanceMode = mode.value"
+              >
+                <strong>{{ mode.label }}</strong>
+                <span>{{ mode.description }}</span>
+              </button>
+            </div>
+            <textarea
+              v-model.trim="maintenanceBrief"
+              class="text-area maintenance-brief"
+              rows="3"
+              :placeholder="maintenancePlaceholder"
+              :disabled="maintenanceWorking"
+            ></textarea>
+            <div class="maintenance-actions">
+              <span class="maintenance-scope">
+                {{ maintenanceMode === 'audit'
+                  ? `本地预筛 ${maintenanceCandidateCount} 个审查目标`
+                  : maintenanceMode === 'refine'
+                    ? `已选 ${selectedEntryIds.length} 条`
+                    : '读取当前世界书相关条目' }}
+              </span>
+              <button
+                type="button"
+                class="primary-btn"
+                :disabled="maintenanceWorking || !maintenanceCanRun"
+                @click="runMaintenance"
+              >
+                {{ maintenanceWorking ? '模型审阅中...' : maintenanceActionLabel }}
+              </button>
+            </div>
+            <div v-if="maintenanceError" class="maintenance-error" role="alert">{{ maintenanceError }}</div>
+            <div v-if="maintenanceStale" class="maintenance-stale" role="status">
+              世界书已在生成后发生变化，这批建议已过期。请重新运行审查，避免覆盖新的设定。
+            </div>
+            <div v-if="maintenanceSummary" class="maintenance-summary">{{ maintenanceSummary }}</div>
+            <div v-if="maintenanceCandidates.length" class="maintenance-candidates">
+              <article
+                v-for="candidate in maintenanceCandidates"
+                :key="candidate.id"
+                :class="['maintenance-candidate', `is-${candidate.status}`]"
+              >
+                <div class="candidate-head">
+                  <span class="candidate-action">{{ maintenanceActionLabelFor(candidate.action) }}</span>
+                  <span :class="['candidate-confidence', `is-${candidate.confidence}`]">{{ candidate.confidence }}</span>
+                  <span v-if="candidate.status === 'applied'" class="candidate-status">已采纳</span>
+                  <span v-else-if="candidate.status === 'ignored'" class="candidate-status">已忽略</span>
+                  <button
+                    v-if="candidate.proposedEntry && candidate.status === 'pending'"
+                    type="button"
+                    class="ghost-btn small"
+                    @click="toggleMaintenanceCandidateEdit(candidate)"
+                  >
+                    {{ candidate.editing ? '收起编辑' : '编辑建议' }}
+                  </button>
+                </div>
+                <p class="candidate-reason">{{ candidate.reason || '模型未提供额外说明。' }}</p>
+                <div v-if="candidate.proposedEntry && !candidate.editing" class="candidate-proposal">
+                  <strong>{{ candidate.proposedEntry.name }}</strong>
+                  <span>{{ entryTypeLabel(candidate.proposedEntry.type) }} · {{ candidate.proposedEntry.group || '未分组' }}</span>
+                  <p>{{ candidate.proposedEntry.content }}</p>
+                </div>
+                <div v-if="candidate.editor && candidate.editing" class="candidate-edit-form">
+                  <input v-model.trim="candidate.editor.name" class="text-input" type="text" placeholder="条目名称" />
+                  <select v-model="candidate.editor.type" class="select-input">
+                    <option v-for="type in entryTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                  </select>
+                  <input v-model.trim="candidate.editor.keysText" class="text-input" type="text" placeholder="主触发词，逗号分隔" />
+                  <input v-model.trim="candidate.editor.keysSecondaryText" class="text-input" type="text" placeholder="次级触发词，逗号分隔" />
+                  <input v-model.trim="candidate.editor.group" class="text-input" type="text" placeholder="分组" />
+                  <textarea v-model.trim="candidate.editor.content" class="text-area" rows="5" placeholder="条目正文"></textarea>
+                </div>
+                <div v-if="candidate.entryIds.length" class="candidate-links">
+                  涉及：{{ candidate.entryIds.map(entryName).join('、') }}
+                </div>
+                <div v-if="candidate.status === 'pending'" class="candidate-actions">
+                  <button type="button" class="primary-btn small" :disabled="maintenanceApplying || maintenanceStale" @click="applyMaintenanceCandidate(candidate)">
+                    {{ candidate.action === 'ignore' || candidate.action === 'conflict' ? '标记已处理' : '采纳建议' }}
+                  </button>
+                  <button type="button" class="ghost-btn small" :disabled="maintenanceApplying" @click="ignoreMaintenanceCandidate(candidate)">忽略</button>
+                </div>
+              </article>
+            </div>
+            <div v-else-if="maintenanceCompleted" class="maintenance-empty">没有需要处理的候选。</div>
+          </section>
 
           <div class="bulk-tools" v-if="filteredEntries.length">
             <span class="bulk-label">已选 {{ selectedEntryIds.length }} 条</span>
@@ -358,6 +461,7 @@
                 v-for="entry in filteredEntries"
                 :key="entry.id"
                 :class="['entry-item', { active: entry.id === selectedEntryId }]"
+                :data-entry-id="entry.id"
                 @click="pickEntry(entry.id)"
               >
                 <input
@@ -485,8 +589,11 @@
         <section v-if="editorTab === 'create'" class="card" data-section="create">
           <div class="card-head">
             <h2>新建 / 导入世界书</h2>
-            <span>从小说片段提炼、AI 生成、覆盖已有世界书</span>
+            <span>文本提炼用于迁移；AI 只建立创作基调，完整设定在结构化工作台维护</span>
           </div>
+
+          <div v-if="createError" class="import-error">{{ createError }}</div>
+          <div v-if="createInfo" class="import-success">{{ createInfo }}</div>
 
           <div class="create-section" data-section="import">
             <h3>从小说片段 / JSON 提炼</h3>
@@ -513,13 +620,11 @@
                 <span>优先尝试 AI 提炼</span>
               </label>
             </div>
-            <div v-if="createError" class="import-error">{{ createError }}</div>
-            <div v-if="createInfo" class="import-success">{{ createInfo }}</div>
             <div class="card-actions">
               <button class="primary-btn" :disabled="creatingWorldbook" @click="generateFromNovelText">生成导入预览</button>
               <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearNovel">清空</button>
             </div>
-            <div v-if="pendingImport" class="import-preview">
+            <div v-if="pendingImport && pendingImportKind !== 'foundation'" class="import-preview">
               <div class="import-preview-head">
                 <strong>{{ pendingImport.name }}</strong>
                 <span>{{ pendingImport.sourceLabel }}</span>
@@ -529,7 +634,13 @@
                 <div class="meta-item"><span>分组数</span><strong>{{ pendingImport.groups.length }}</strong></div>
               </div>
               <div class="card-actions">
-                <button class="primary-btn" :disabled="creatingWorldbook" @click="confirmImport">导入为新世界书</button>
+                <button
+                  class="primary-btn"
+                  :disabled="creatingWorldbook"
+                  @click="confirmImport"
+                >
+                  导入为新世界书
+                </button>
                 <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearPending">清空预览</button>
               </div>
             </div>
@@ -538,7 +649,10 @@
           <hr class="create-divider" />
 
           <div class="create-section" data-section="ai">
-            <h3>AI 生成世界书</h3>
+            <h3>AI 建立创作基调</h3>
+            <p class="create-section-description">
+              这里只建立世界概述、叙事基调和三条常驻基础约束。角色、地点、势力、历史与故事线在结构化设定中继续完成。
+            </p>
             <label>
               风格
               <select v-model="aiInput.genre" class="select-input">
@@ -559,7 +673,35 @@
               ></textarea>
             </label>
             <div class="card-actions">
-              <button class="primary-btn" :disabled="generatingAi" @click="generateFromBrief">AI 生成预览</button>
+              <button class="primary-btn" :disabled="generatingAi" @click="generateFromBrief">
+                {{ generationButtonLabel }}
+              </button>
+              <button class="ghost-btn" :disabled="generatingAi" @click="openStructuredSettings">
+                直接编辑结构化设定
+              </button>
+            </div>
+            <p v-if="generationPhase" class="generation-status">{{ generationStatusLabel }}</p>
+            <div v-if="pendingImport && pendingImportKind === 'foundation'" class="import-preview foundation-preview">
+              <div class="import-preview-head">
+                <strong>{{ pendingImport.name }}</strong>
+                <span>{{ pendingImport.sourceLabel }}</span>
+              </div>
+              <div class="import-meta-grid">
+                <div class="meta-item"><span>基础条目</span><strong>{{ pendingImport.entries.length }}</strong></div>
+                <div class="meta-item"><span>下一步</span><strong>结构化设定</strong></div>
+              </div>
+              <div class="preview-entry-list">
+                <div v-for="entry in pendingImport.entries" :key="entry.name" class="preview-entry-item">
+                  <span class="preview-entry-name">{{ entry.name }}</span>
+                  <span class="preview-entry-meta">常驻约束</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="primary-btn" :disabled="creatingWorldbook" @click="confirmImport">
+                  创建并进入结构化设定
+                </button>
+                <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearPending">清空预览</button>
+              </div>
             </div>
           </div>
         </section>
@@ -576,13 +718,20 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
 import {
   tryAiExtractEntries,
   tryAiGenerateFromBrief,
   buildPendingPayload,
+  createSourceDocument,
   createWorldbookFromPayload
 } from '../services/worldbookQuickImportHelpers'
+import {
+  findWorldbookAuditTargets,
+  runWorldbookMaintenance,
+  WORLDBOOK_MAINTENANCE_MODES
+} from '../services/worldbookMaintenance'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 
@@ -617,6 +766,35 @@ const groupError = ref('')
 const groupSuccess = ref('')
 const savingWorldbook = ref(false)
 const savingEntry = ref(false)
+const maintenanceOpen = ref(false)
+const maintenanceMode = ref(WORLDBOOK_MAINTENANCE_MODES.AUDIT)
+const maintenanceBrief = ref('')
+const maintenanceWorking = ref(false)
+const maintenanceApplying = ref(false)
+const maintenanceError = ref('')
+const maintenanceSummary = ref('')
+const maintenanceCandidates = ref([])
+const maintenanceRevision = ref('')
+const maintenanceTouchedEntryIds = ref(new Set())
+const maintenanceCompleted = ref(false)
+
+const maintenanceModes = [
+  {
+    value: WORLDBOOK_MAINTENANCE_MODES.CREATE,
+    label: '新增设定',
+    description: '按自然语言提出新内容'
+  },
+  {
+    value: WORLDBOOK_MAINTENANCE_MODES.AUDIT,
+    label: '审查整理',
+    description: '找重复、重叠和冲突'
+  },
+  {
+    value: WORLDBOOK_MAINTENANCE_MODES.REFINE,
+    label: '完善选中',
+    description: '围绕已选条目改写'
+  }
+]
 
 const editorTab = ref('base')
 const editorTabs = [
@@ -628,6 +806,34 @@ const editorTabs = [
   { key: 'create', label: '新建 / 导入' }
 ]
 
+const maintenanceCandidateCount = computed(() => findWorldbookAuditTargets(entries.value, {
+  brief: maintenanceBrief.value
+}).length)
+const maintenanceStale = computed(() => Boolean(maintenanceRevision.value)
+  && String(activeWorldbook.value?.updatedAt || '') !== maintenanceRevision.value)
+const maintenancePlaceholder = computed(() => {
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.AUDIT) {
+    return '可选：补充审查重点，例如“重点检查角色关系和历史年代是否冲突”。'
+  }
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.REFINE) {
+    return '例如：保留已有时间线，补充这个势力与北境盐路的利益关系，不要创造新年代。'
+  }
+  return '例如：增加一个控制北境盐路的商会，和霜港存在利益冲突，但不要改变已有历史。'
+})
+const maintenanceActionLabel = computed(() => {
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.AUDIT) return '开始审查'
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.REFINE) return '生成修改建议'
+  return '生成新增候选'
+})
+const maintenanceCanRun = computed(() => {
+  if (maintenanceWorking.value) return false
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.REFINE) {
+    return selectedEntryIds.value.length > 0 && Boolean(maintenanceBrief.value.trim())
+  }
+  if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.AUDIT) return maintenanceCandidateCount.value > 0
+  return Boolean(maintenanceBrief.value.trim())
+})
+
 // ----- 新建 / 导入 create tab 状态 -----
 const createInput = reactive({
   name: '',
@@ -638,14 +844,61 @@ const createInput = reactive({
 const aiInput = reactive({
   genre: 'fantasy',
   name: '',
-  brief: '',
-  targetCount: 8
+  brief: ''
 })
 const creatingWorldbook = ref(false)
 const generatingAi = ref(false)
 const pendingImport = ref(null)
+const pendingImportKind = ref('')
 const createError = ref('')
 const createInfo = ref('')
+const createDraftReady = ref(false)
+const generationPhase = ref('')
+const generationButtonLabel = computed(() => {
+  if (!generatingAi.value) return '生成基调预览'
+  if (generationPhase.value === 'generate') return '正在建立基调...'
+  return '正在准备...'
+})
+const generationStatusLabel = computed(() => {
+  if (generationPhase.value === 'generate') return '正在整理世界概述与创作边界...'
+  return '正在准备生成...'
+})
+
+function restoreCreateDraft() {
+  const draft = getItem(STORAGE_KEYS.WORLDBOOK_CREATE_DRAFT)
+  if (draft && typeof draft === 'object') {
+    createInput.name = String(draft.create?.name || '')
+    createInput.sourceText = String(draft.create?.sourceText || '')
+    createInput.targetCount = Math.max(3, Math.min(30, Number(draft.create?.targetCount) || 10))
+    createInput.useAiFirst = draft.create?.useAiFirst !== false
+    aiInput.genre = genreOptions.some((item) => item.value === draft.ai?.genre)
+      ? draft.ai.genre
+      : 'fantasy'
+    aiInput.name = String(draft.ai?.name || '')
+    aiInput.brief = String(draft.ai?.brief || '')
+  }
+  createDraftReady.value = true
+}
+
+watch(
+  () => ({
+    create: {
+      name: createInput.name,
+      sourceText: createInput.sourceText,
+      targetCount: createInput.targetCount,
+      useAiFirst: createInput.useAiFirst
+    },
+    ai: {
+      genre: aiInput.genre,
+      name: aiInput.name,
+      brief: aiInput.brief
+    }
+  }),
+  (draft) => {
+    if (createDraftReady.value) setItem(STORAGE_KEYS.WORLDBOOK_CREATE_DRAFT, draft)
+  },
+  { deep: true }
+)
 
 const genreOptions = [
   { value: 'fantasy', label: '奇幻冒险' },
@@ -671,6 +924,7 @@ async function generateFromNovelText() {
       const aiResult = await tryAiExtractEntries(sourceText, targetCount, createInput.name)
       if (aiResult.ok && aiResult.payload) {
         pendingImport.value = buildPendingPayload(aiResult.payload)
+        pendingImportKind.value = 'novel'
         createInfo.value = '已完成 AI 提炼，可直接导入。'
         return
       }
@@ -684,8 +938,13 @@ async function generateFromNovelText() {
       name: createInput.name || `提炼世界书 ${Date.now()}`,
       worldDescription: sourceText.slice(0, 500),
       sourceLabel: '本地提炼（回退）',
+      sourceDocuments: [createSourceDocument(sourceText, {
+        title: createInput.name ? `${createInput.name} · 导入原文` : '小说片段导入原文',
+        sourceLabel: '本地提炼（回退）'
+      })].filter(Boolean),
       entries: fallbackEntries
     })
+    pendingImportKind.value = 'novel'
     createInfo.value = '已使用本地提炼生成预览。'
   } catch (err) {
     createError.value = `生成预览失败：${err?.message || '未知错误'}`
@@ -704,22 +963,25 @@ async function generateFromBrief() {
     return
   }
   generatingAi.value = true
+  generationPhase.value = 'prepare'
   try {
-    const targetCount = Math.max(3, Math.min(30, aiInput.targetCount || 8))
     const genreLabel = genreOptions.find(o => o.value === aiInput.genre)?.label || '通用'
+    generationPhase.value = 'generate'
     const aiResult = await tryAiGenerateFromBrief({
-      genre: aiInput.genre, brief, targetCount, nameHint: aiInput.name, genreLabel
+      genre: aiInput.genre, brief, nameHint: aiInput.name, genreLabel
     })
     if (!aiResult.ok || !aiResult.payload) {
       createError.value = aiResult.reason || 'AI 生成失败。'
       return
     }
     pendingImport.value = buildPendingPayload(aiResult.payload)
-    createInfo.value = '已生成预览，可直接导入。'
+    pendingImportKind.value = 'foundation'
+    createInfo.value = '基调预览已完成。创建后将进入结构化设定继续完善。'
   } catch (err) {
     createError.value = `AI 生成失败：${err?.message || '未知错误'}`
   } finally {
     generatingAi.value = false
+    generationPhase.value = ''
   }
 }
 
@@ -727,10 +989,13 @@ async function confirmImport() {
   if (!pendingImport.value || creatingWorldbook.value) return
   creatingWorldbook.value = true
   try {
+    const importKind = pendingImportKind.value
+    const pendingName = pendingImport.value.name
     await createWorldbookFromPayload(worldStore, pendingImport.value)
-    createInfo.value = `已创建：${pendingImport.value.name}`
+    createInfo.value = `已创建：${pendingName}`
     pendingImport.value = null
-    await router.push({ name: 'settings-worldbook' })
+    pendingImportKind.value = ''
+    await router.push({ name: importKind === 'foundation' ? 'settings-structured' : 'settings-worldbook' })
   } catch (err) {
     createError.value = `导入失败：${err?.message || '未知错误'}`
   } finally {
@@ -744,10 +1009,12 @@ function clearNovel() {
   createError.value = ''
   createInfo.value = ''
   pendingImport.value = null
+  pendingImportKind.value = ''
 }
 
 function clearPending() {
   pendingImport.value = null
+  pendingImportKind.value = ''
   createError.value = ''
 }
 
@@ -942,6 +1209,24 @@ watch(() => route.query.section, async (section) => {
     }
   }
 }, { immediate: true })
+
+watch(
+  () => [String(route.query.entryId || ''), entries.value.map((entry) => entry.id).join('|')],
+  async ([entryId]) => {
+    if (!entryId || !entries.value.some((entry) => entry.id === entryId)) return
+    editorTab.value = 'entries'
+    entrySearch.value = ''
+    entryTypeFilter.value = 'all'
+    injectionModeFilter.value = 'all'
+    entryGroupFilter.value = 'all'
+    selectedEntryId.value = entryId
+    await nextTick()
+    const target = Array.from(document.querySelectorAll('[data-entry-id]'))
+      .find((element) => element.dataset.entryId === entryId)
+    target?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+  },
+  { immediate: true }
+)
 
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value)
@@ -1173,6 +1458,193 @@ function openExperience() {
 
 function openQuickImport() {
   router.push({ name: 'settings-worldbook' })
+}
+
+function openStructuredSettings() {
+  router.push({ name: 'settings-structured' })
+}
+
+function toggleMaintenance() {
+  maintenanceOpen.value = !maintenanceOpen.value
+  if (!maintenanceOpen.value) return
+  maintenanceError.value = ''
+  maintenanceCompleted.value = false
+}
+
+function resetMaintenanceResults() {
+  maintenanceError.value = ''
+  maintenanceSummary.value = ''
+  maintenanceCandidates.value = []
+  maintenanceRevision.value = ''
+  maintenanceTouchedEntryIds.value = new Set()
+  maintenanceCompleted.value = false
+}
+
+function maintenanceActionLabelFor(action) {
+  return {
+    create: '新增候选',
+    update: '改写建议',
+    merge: '合并建议',
+    retag: '整理标签',
+    conflict: '潜在冲突',
+    ignore: '建议保留'
+  }[action] || '审查结果'
+}
+
+function prepareMaintenanceCandidate(candidate) {
+  if (!candidate?.proposedEntry) return candidate
+  return {
+    ...candidate,
+    editing: false,
+    editor: {
+      ...candidate.proposedEntry,
+      keysText: candidate.proposedEntry.keys.join(', '),
+      keysSecondaryText: candidate.proposedEntry.keysSecondary.join(', ')
+    }
+  }
+}
+
+function toggleMaintenanceCandidateEdit(candidate) {
+  if (!candidate?.editor) return
+  candidate.editing = !candidate.editing
+}
+
+function getMaintenanceCandidateProposal(candidate) {
+  if (!candidate?.editor) return candidate?.proposedEntry || null
+  return {
+    name: String(candidate.editor.name || '').trim(),
+    type: candidate.editor.type,
+    keys: splitKeywords(candidate.editor.keysText),
+    keysSecondary: splitKeywords(candidate.editor.keysSecondaryText),
+    content: String(candidate.editor.content || '').trim(),
+    group: String(candidate.editor.group || '').trim(),
+    mode: candidate.editor.mode
+  }
+}
+
+function entryName(entryId) {
+  return entries.value.find((entry) => entry.id === entryId)?.name || entryId
+}
+
+async function runMaintenance() {
+  if (!activeWorldbook.value?.id || !maintenanceCanRun.value) return
+  maintenanceWorking.value = true
+  maintenanceError.value = ''
+  maintenanceSummary.value = ''
+  maintenanceCandidates.value = []
+  maintenanceTouchedEntryIds.value = new Set()
+  maintenanceCompleted.value = false
+  const sourceWorldbook = activeWorldbook.value
+  try {
+    const result = await runWorldbookMaintenance({
+      worldbook: sourceWorldbook,
+      mode: maintenanceMode.value,
+      brief: maintenanceBrief.value,
+      selectedEntryIds: selectedEntryIds.value
+    })
+    if (!result.ok) {
+      maintenanceError.value = result.reason || '世界书处理失败。'
+      return
+    }
+    maintenanceRevision.value = String(result.sourceRevision || sourceWorldbook.updatedAt || '')
+    maintenanceSummary.value = result.summary || '已生成候选，请逐项审阅。'
+    maintenanceCandidates.value = (result.candidates || []).map(prepareMaintenanceCandidate)
+    maintenanceCompleted.value = true
+  } catch (error) {
+    maintenanceError.value = error?.message || '世界书处理失败。'
+  } finally {
+    maintenanceWorking.value = false
+  }
+}
+
+function maintenanceRevisionIsCurrent() {
+  const currentRevision = String(activeWorldbook.value?.updatedAt || '')
+  return Boolean(maintenanceRevision.value) && currentRevision === maintenanceRevision.value
+}
+
+function maintenanceCandidateTouchesAppliedEntry(candidate) {
+  return (candidate?.entryIds || []).some((entryId) => maintenanceTouchedEntryIds.value.has(entryId))
+}
+
+function proposedEntryPayload(proposedEntry, existing = null) {
+  const injection = existing?.injection || {}
+  return {
+    name: proposedEntry.name,
+    type: proposedEntry.type,
+    keys: proposedEntry.keys,
+    keysSecondary: proposedEntry.keysSecondary,
+    content: proposedEntry.content,
+    injection: {
+      ...injection,
+      mode: proposedEntry.mode,
+      group: proposedEntry.group || injection.group || null
+    }
+  }
+}
+
+async function applyMaintenanceCandidate(candidate) {
+  if (!activeWorldbook.value?.id || !candidate || candidate.status !== 'pending') return
+  if (candidate.action === 'ignore' || candidate.action === 'conflict') {
+    candidate.status = 'applied'
+    return
+  }
+  if (!maintenanceRevisionIsCurrent()) {
+    maintenanceError.value = '世界书已经发生变化，这批建议已过期，请重新审查。'
+    return
+  }
+  if (maintenanceCandidateTouchesAppliedEntry(candidate)) {
+    maintenanceError.value = '这条建议涉及本批次中已经修改过的条目，请重新审查后再采纳，避免旧建议覆盖刚保存的内容。'
+    return
+  }
+
+  maintenanceApplying.value = true
+  maintenanceError.value = ''
+  try {
+    const proposal = getMaintenanceCandidateProposal(candidate)
+    if (!proposal) throw new Error('建议内容为空，请先编辑或重新生成。')
+
+    if (candidate.action === 'create') {
+      await worldStore.addEntry(activeWorldbook.value.id, {
+        ...proposal,
+        injection: {
+          mode: proposal.mode,
+          probability: proposal.mode === 'constant' ? 100 : 100,
+          cooldown: 0,
+          depth: proposal.mode === 'constant' ? 2 : 1,
+          excludeRecursion: false,
+          group: proposal.group || null
+        },
+        metadata: { importSource: 'worldbook-maintenance', basis: 'creative' }
+      })
+    } else {
+      const targetIds = candidate.entryIds.filter((id) => entries.value.some((entry) => entry.id === id))
+      const primaryId = targetIds[0]
+      const primary = entries.value.find((entry) => entry.id === primaryId)
+      if (!primary) throw new Error('建议对应的条目已经不存在。')
+      await worldStore.updateEntry(activeWorldbook.value.id, primaryId, proposedEntryPayload(proposal, primary))
+      if (candidate.action === 'merge') {
+        for (const entryId of targetIds.slice(1)) {
+          await worldStore.deleteEntry(activeWorldbook.value.id, entryId)
+        }
+      }
+    }
+    await worldStore.loadWorldbooksIndex()
+    maintenanceTouchedEntryIds.value = new Set([
+      ...maintenanceTouchedEntryIds.value,
+      ...(candidate.entryIds || [])
+    ])
+    maintenanceRevision.value = String(activeWorldbook.value?.updatedAt || maintenanceRevision.value)
+    candidate.status = 'applied'
+  } catch (error) {
+    maintenanceError.value = error?.message || '采纳世界书建议失败。'
+  } finally {
+    maintenanceApplying.value = false
+  }
+}
+
+function ignoreMaintenanceCandidate(candidate) {
+  if (!candidate || candidate.status !== 'pending') return
+  candidate.status = 'ignored'
 }
 
 async function selectWorldbook(worldbookId) {
@@ -1739,6 +2211,7 @@ async function exportActiveWorldbook() {
 }
 
 onMounted(async () => {
+  restoreCreateDraft()
   try {
     await worldStore.loadWorldbooksIndex()
     if (typeof worldStore.ensureActiveWorldbook === 'function') {
@@ -1750,6 +2223,7 @@ onMounted(async () => {
     console.error('[世界书·高级设置] 初始化失败:', e)
   }
 })
+
 </script>
 
 <style scoped>
@@ -1919,6 +2393,203 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
+.entry-tools .ghost-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
+}
+
+.worldbook-maintenance {
+  margin: 4px 0 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-primary));
+}
+
+.maintenance-head,
+.maintenance-actions,
+.candidate-head,
+.candidate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.maintenance-head h3 {
+  margin: 3px 0 2px;
+  font-size: 15px;
+}
+
+.maintenance-head p,
+.maintenance-summary,
+.maintenance-empty,
+.candidate-reason,
+.candidate-links {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.panel-kicker,
+.maintenance-revision,
+.maintenance-scope {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.maintenance-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+
+.maintenance-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.maintenance-mode span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.maintenance-mode.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+  color: var(--text-primary);
+}
+
+.maintenance-brief {
+  min-height: 74px;
+  margin-bottom: 10px;
+}
+
+.maintenance-actions {
+  justify-content: flex-end;
+}
+
+.maintenance-actions .maintenance-scope {
+  margin-right: auto;
+}
+
+.maintenance-error {
+  margin-top: 10px;
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.maintenance-stale {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 2px solid #b7791f;
+  background: color-mix(in srgb, #b7791f 8%, var(--bg-primary));
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.maintenance-summary {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.maintenance-candidates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.maintenance-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.maintenance-candidate.is-applied,
+.maintenance-candidate.is-ignored {
+  opacity: 0.62;
+}
+
+.candidate-action {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.candidate-confidence,
+.candidate-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.candidate-confidence.is-high {
+  color: #16805d;
+}
+
+.candidate-confidence.is-low {
+  color: #9b6b20;
+}
+
+.candidate-proposal {
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.candidate-proposal strong,
+.candidate-proposal span {
+  display: block;
+}
+
+.candidate-proposal span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.candidate-proposal p {
+  margin: 6px 0 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.candidate-edit-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.45fr);
+  gap: 7px;
+}
+
+.candidate-edit-form .text-area {
+  grid-column: 1 / -1;
+}
+
+.candidate-links {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -1988,6 +2659,327 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.create-section-description {
+  max-width: 720px;
+  margin: -2px 0 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.generation-status {
+  margin: -2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.research-toggle {
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.research-toggle svg {
+  color: var(--accent);
+}
+
+.research-panel {
+  border-top: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  padding: 12px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.research-panel__head,
+.research-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.research-panel__head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.research-panel__head strong,
+.research-preview__head strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.research-panel__head span,
+.research-preview__head span,
+.research-note,
+.research-status {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.research-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.research-settings-grid > label:not(.compact-label) {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.research-number {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.research-number .compact {
+  width: 68px;
+}
+
+.research-note,
+.research-status {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.research-status {
+  color: var(--accent);
+}
+
+.research-status.error {
+  color: var(--danger, #ef4444);
+}
+
+.research-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--warning, #b7791f);
+  background: color-mix(in srgb, var(--warning, #b7791f) 8%, transparent);
+}
+
+.research-review__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.research-review__copy strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.research-review__copy span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.research-conflict-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.research-conflict-list li {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.research-conflict-list span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.research-conflict-list em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.research-claim-ledger {
+  display: grid;
+  gap: 5px;
+}
+
+.research-claim-ledger__label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.research-claim-ledger ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.research-claim-ledger li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(74px, 0.4fr);
+  gap: 6px;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.research-claim-ledger li.stale {
+  color: var(--warning, #b7791f);
+}
+
+.research-claim-ledger b {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.research-claim-ledger small {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.research-review__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.research-review__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.research-preview {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.research-incremental-note,
+.research-revision-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.research-revision-note {
+  color: var(--accent);
+}
+
+.research-source-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+
+.research-source-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+}
+
+.research-source-list li.excluded {
+  opacity: 0.58;
+}
+
+.research-source-id {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.research-source-list a {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 20px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-source-list a:hover {
+  color: var(--accent);
+}
+
+.research-source-title {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-source-list a svg {
+  margin-left: 3px;
+  vertical-align: -2px;
+}
+
+.research-source-list p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.research-source-locator {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.research-source-evidence {
+  grid-column: 2;
+  color: var(--accent);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.research-source-exclude {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 2px;
 }
 
 .create-divider {
@@ -2454,6 +3446,38 @@ label {
   }
 
   .import-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .research-settings-grid,
+  .research-source-list {
+    grid-template-columns: 1fr;
+  }
+
+  .research-source-list li {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .maintenance-candidates {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .maintenance-modes {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-actions .maintenance-scope {
+    margin-right: 0;
+  }
+
+  .candidate-edit-form {
     grid-template-columns: 1fr;
   }
 }

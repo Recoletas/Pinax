@@ -4,7 +4,9 @@ import { getAssetKindLabel } from '../../services/narrativeAssets'
 
 const props = defineProps({
   assets: { type: Array, default: () => [] },
-  selectedId: { type: String, default: '' }
+  selectedId: { type: String, default: '' },
+  selectedIds: { type: Array, default: () => [] },
+  multi: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['select'])
@@ -58,6 +60,12 @@ function kindColor(kind) {
     'reference-image': '#ff7043'
   }[kind] || '#7c92ff'
 }
+
+function isSelected(assetId) {
+  return props.multi
+    ? props.selectedIds.includes(assetId)
+    : props.selectedId === assetId
+}
 </script>
 
 <template>
@@ -92,13 +100,13 @@ function kindColor(kind) {
             :key="asset.id"
             type="button"
             class="index-card"
-            :class="{ 'is-selected': selectedId === asset.id }"
+            :class="{ 'is-selected': isSelected(asset.id) }"
             :style="{
               '--card-tilt': ((groupIndex + assetIndex) % 3 === 0 ? -1.2 : (groupIndex + assetIndex) % 3 === 1 ? 0.65 : -0.35) + 'deg',
               '--card-shift': ((groupIndex + assetIndex) % 2 === 0 ? 0 : 2) + 'px'
             }"
-            :aria-label="`将素材用于当前漫画格：${asset.title || '无标题素材'}`"
-            :aria-pressed="selectedId === asset.id"
+            :aria-label="`${multi ? '切换改编素材' : '将素材用于当前漫画格'}：${asset.title || '无标题素材'}`"
+            :aria-pressed="isSelected(asset.id)"
             @click="emit('select', asset.id)"
           >
             <span class="index-card__source-dot" :style="{ background: group.color }" aria-hidden="true"></span>
@@ -106,7 +114,7 @@ function kindColor(kind) {
               <strong class="index-card__title">{{ asset.title || '无标题素材' }}</strong>
               <span class="index-card__meta">{{ statusLabel(asset.status) }}</span>
             </span>
-            <svg v-if="selectedId === asset.id" class="index-card__selected-mark" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <svg v-if="isSelected(asset.id)" class="index-card__selected-mark" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
               <path d="M3 8.5l3 3 7-7" />
             </svg>
           </button>

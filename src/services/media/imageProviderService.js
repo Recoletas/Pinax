@@ -26,9 +26,70 @@ const DEFAULT_IMAGE_OPTIONS = {
   height: 1024,
   count: 1,
   referenceImages: [],
+  controlImages: [],
+  maskImage: '',
   referenceStrength: 0.65,
   pollIntervalMs: 1000,
   maxPollAttempts: 60
+}
+
+export function getImageProviderCapabilities(config = {}) {
+  const type = String(config.type || '')
+  const template = String(config.requestTemplate || '')
+  const hasTemplateToken = (token) => template.includes(`{{${token}}}`)
+  if (type === 'http') {
+    const imageToImage = hasTemplateToken('reference_image') || hasTemplateToken('reference_images_json')
+    return {
+      textToImage: true,
+      imageToImage,
+      inpaint: imageToImage && hasTemplateToken('mask_image'),
+      identityReference: imageToImage,
+      controlImages: hasTemplateToken('control_images_json')
+    }
+  }
+  return {
+    minimax_image: {
+      textToImage: true,
+      imageToImage: false,
+      inpaint: false,
+      identityReference: false,
+      controlImages: false
+    },
+    openai_dalle: {
+      textToImage: true,
+      imageToImage: true,
+      inpaint: true,
+      identityReference: true,
+      controlImages: false
+    },
+    stability: {
+      textToImage: true,
+      imageToImage: true,
+      inpaint: false,
+      identityReference: true,
+      controlImages: false
+    },
+    sd_webui: {
+      textToImage: true,
+      imageToImage: true,
+      inpaint: true,
+      identityReference: true,
+      controlImages: false
+    },
+    comfyui: {
+      textToImage: true,
+      imageToImage: false,
+      inpaint: false,
+      identityReference: false,
+      controlImages: false
+    }
+  }[type] || {
+    textToImage: false,
+    imageToImage: false,
+    inpaint: false,
+    identityReference: false,
+    controlImages: false
+  }
 }
 
 export function createImageModelConfigDraft(type = 'sd_webui') {
@@ -86,6 +147,13 @@ export async function generateImage(config = {}, input = {}) {
   const options = normalizeImageOptions(input)
   const fetchImpl = getFetch(input.fetchImpl)
   const baseUrl = normalizeBaseUrl(config.baseUrl)
+  const capabilities = getImageProviderCapabilities(config)
+  if (options.maskImage && (!capabilities.inpaint || !options.referenceImages.length)) {
+    throw new Error('当前图片模型不支持带原图的局部遮罩修订')
+  }
+  if (options.controlImages.length && !capabilities.controlImages) {
+    throw new Error('当前图片模型不支持独立 pose/edge/depth 控制图')
+  }
 
   switch (config.type) {
     case 'sd_webui':
@@ -180,7 +248,7 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
 }
 
 async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {
-  const hasReferences = options.referenceImages.length > 0
+  const hasReferences = options.referenceImages.length > 0 || Boolean(options.maskImage)
   const response = await fetchImpl(`${requireBaseUrl(baseUrl)}/sdapi/v1/${hasReferences ? 'img2img' : 'txt2img'}`, {
     method: 'POST',
     headers: buildHeaders(config),
@@ -192,7 +260,13 @@ async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {
       height: options.height,
       ...(hasReferences ? {
         init_images: options.referenceImages.map((reference) => reference.data),
-        denoising_strength: Number((1 - options.referenceStrength).toFixed(2))
+        denoising_strength: Number((1 - options.referenceStrength).toFixed(2)),
+        ...(options.maskImage ? {
+          mask: options.maskImage,
+          inpainting_fill: 1,
+          inpaint_full_res: true,
+          mask_blur: 4
+        } : {})
       } : {})
     })
   })
@@ -310,6 +384,8 @@ function normalizeImageOptions(input) {
     height: normalizePositiveNumber(input.height, DEFAULT_IMAGE_OPTIONS.height),
     count: normalizePositiveNumber(input.count, DEFAULT_IMAGE_OPTIONS.count),
     referenceImages: normalizeReferenceImages(input.referenceImages),
+    controlImages: normalizeControlImages(input.controlImages),
+    maskImage: normalizeImageData(input.maskImage),
     referenceStrength: clampNumber(input.referenceStrength, 0.2, 0.9, DEFAULT_IMAGE_OPTIONS.referenceStrength),
     pollIntervalMs: normalizePositiveNumber(input.pollIntervalMs, DEFAULT_IMAGE_OPTIONS.pollIntervalMs),
     maxPollAttempts: normalizePositiveNumber(input.maxPollAttempts, DEFAULT_IMAGE_OPTIONS.maxPollAttempts)
@@ -327,6 +403,12 @@ function renderRequestTemplate(template, options) {
     aspect_ratio: `${options.width}:${options.height}`,
     reference_image: escapeJsonString(options.referenceImages[0]?.data || ''),
     reference_images_json: JSON.stringify(options.referenceImages.map((reference) => reference.data)),
+    control_images_json: JSON.stringify(options.controlImages.map((control) => ({
+      role: control.role,
+      image: control.data,
+      weight: control.weight
+    }))),
+    mask_image: escapeJsonString(options.maskImage),
     reference_strength: String(options.referenceStrength)
   }
 
@@ -446,6 +528,24 @@ function normalizeReferenceImages(images) {
     }))
 }
 
+function normalizeControlImages(images) {
+  if (!Array.isArray(images)) return []
+  return images
+    .filter((control) => typeof control?.data === 'string' && control.data.startsWith('data:image/'))
+    .slice(0, 4)
+    .map((control) => ({
+      id: String(control.id || ''),
+      role: ['pose', 'edge', 'depth'].includes(control.role) ? control.role : 'edge',
+      data: control.data,
+      weight: clampNumber(control.weight, 0.1, 1, 1)
+    }))
+}
+
+function normalizeImageData(value) {
+  const data = String(value || '')
+  return data.startsWith('data:image/') ? data : ''
+}
+
 function buildOpenAIEditRequest(config, options) {
   const form = new FormData()
   const configuredModel = String(config.defaultModel || '')
@@ -458,6 +558,7 @@ function buildOpenAIEditRequest(config, options) {
   options.referenceImages.forEach((reference, index) => {
     form.append('image[]', dataUrlToBlob(reference.data), `reference-${index + 1}.png`)
   })
+  if (options.maskImage) form.append('mask', dataUrlToBlob(options.maskImage), 'mask.png')
   return {
     url: 'https://api.openai.com/v1/images/edits',
     init: { method: 'POST', headers: buildAuthHeaders(config), body: form }

@@ -7,6 +7,7 @@
         :focus-history-node-id="focusHistoryNodeId"
         :focus-entry-id="focusEntryId"
         @open-settings="openFocusedPlaceSettings"
+        @open-worldbook="openWorldbookImport"
       />
       <PerfOverlay />
     </div>
@@ -27,8 +28,11 @@ const focusHistoryNodeId = computed(() => String(route.query.historyNodeId || ''
 const focusEntryId = computed(() => String(route.query.entryId || ''))
 
 function openFocusedPlaceSettings(placeId) {
-  if (!placeId) return
-  router.push({ name: 'settings-structured', query: { placeId } })
+  router.push({ name: 'settings-structured', query: placeId ? { placeId } : {} })
+}
+
+function openWorldbookImport() {
+  router.push({ name: 'settings-worldbook' })
 }
 </script>
 
