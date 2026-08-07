@@ -224,6 +224,11 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
   if (!prompt) throw new Error('MiniMax 图片提示词不能为空')
   if (prompt.length > 1500) throw new Error('MiniMax 图片提示词不能超过 1500 字符')
 
+  // 内置 MiniMax: key 由服务器持有, 经 /api/media/images 代理注入, 浏览器不接触真实 key
+  if (config.builtin === true || config.serverKey === true) {
+    return generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt })
+  }
+
   const response = await fetchImpl(`${buildMinimaxRoot(baseUrl)}/v1/image_generation`, {
     method: 'POST',
     headers: buildHeaders(config),
@@ -245,6 +250,33 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
   const base64 = payload?.data?.image_base64?.[0]
   if (typeof base64 === 'string' && base64.trim()) return `data:image/jpeg;base64,${base64}`
   return resolveImageCandidate(payload?.data?.image_urls?.[0], fetchImpl)
+}
+
+/**
+ * 内置 MiniMax: 图片生成经服务器 /api/media/images 代理。
+ * 浏览器提交哨兵/空 key + 生成参数, 服务器注入 MINIMAX_API_KEY 后转发 MiniMax。
+ */
+async function generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt }) {
+  const response = await fetchImpl('/api/media/images', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      prompt,
+      aspectRatio: normalizeMinimaxAspectRatio(options.width, options.height, model),
+      providerConfig: { apiKey: config.apiKey, baseUrl: config.baseUrl }
+    })
+  })
+  let payload = {}
+  try {
+    payload = await response.json()
+  } catch {
+    payload = {}
+  }
+  if (!response.ok || payload?.ok !== true) {
+    throw new Error(payload?.message || `MiniMax Image error: ${response.status || 'unknown'}`)
+  }
+  return resolveImageCandidate(payload.image, fetchImpl)
 }
 
 async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {

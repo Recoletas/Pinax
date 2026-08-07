@@ -10,15 +10,26 @@
 
 export const MINIMAX_SERVER_KEY_SENTINEL = 'minimax-server-key'
 
-export function resolveTextApiKey({ provider = '', baseUrl = '', apiKey = '' } = {}) {
-  const isMiniMax =
-    /minimax/i.test(String(provider)) || /minimaxi?\.com/i.test(String(baseUrl))
+/**
+ * 服务器 key 解析的通用实现 (按 baseUrl 判定 MiniMax)。
+ * - 命中 MiniMax 且 key 为空 / 哨兵 → 返回 process.env.MINIMAX_API_KEY; env 未配时返回 ''。
+ * - 其余情况原样返回传入 key。
+ * 图片/视频适配器 (server/media、server/routes/image.js) 与文本共用这一处解析。
+ */
+export function resolveMiniMaxApiKey({ baseUrl = '', apiKey = '' } = {}) {
+  const isMiniMax = /minimaxi?\.com/i.test(String(baseUrl))
   const serverKey =
     (typeof process !== 'undefined' && process.env && process.env.MINIMAX_API_KEY) || ''
   const key = String(apiKey || '')
-  // 命中 MiniMax 且 key 为空 / 哨兵 → 换服务器 key; env 未配时返回 '' (让上层给出明确报错)
   if ((!key || key === MINIMAX_SERVER_KEY_SENTINEL) && isMiniMax) {
     return serverKey || ''
   }
   return key
+}
+
+export function resolveTextApiKey({ provider = '', baseUrl = '', apiKey = '' } = {}) {
+  const isMiniMax =
+    /minimax/i.test(String(provider)) || /minimaxi?\.com/i.test(String(baseUrl))
+  if (!isMiniMax) return String(apiKey || '')
+  return resolveMiniMaxApiKey({ baseUrl, apiKey })
 }

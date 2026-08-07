@@ -4,7 +4,7 @@
 
 ## 默认（内置 MiniMax）报「服务器未配置 MINIMAX_API_KEY」
 
-内置 MiniMax 的 Key 由**服务器**持有，不存浏览器。报这个错 = 服务器还没配 Key：
+内置文本 / 图片 / 视频 MiniMax 的 Key 都由**服务器**持有，不存浏览器。报这个错 = 服务器还没配 Key：
 
 1. 找到服务器上的 `server/.env`（没有就复制 `server/.env.example` 为它）
 2. 填 `MINIMAX_API_KEY=你的Key`

@@ -282,6 +282,7 @@ describe('Director Types', () => {
 
 describe('Media services', () => {
   it('shares provider config and keeps generated binary data outside localStorage', async () => {
+    // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
     localStorage.removeItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS)
     localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
     localStorage.removeItem(STORAGE_KEYS.COMIC_PAGES)
@@ -453,7 +454,7 @@ describe('Media services', () => {
 
     const savedConfig = saveImageProviderConfig({ ...config, name: '统一图像服务' })
     saveImageProviderConfig({ ...savedConfig, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2/' })
-    expect(listImageProviderConfigs()).toEqual([
+    expect(listImageProviderConfigs().filter((c) => !c.builtin)).toEqual([
       expect.objectContaining({ id: savedConfig.id, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2' })
     ])
 
@@ -1527,8 +1528,8 @@ describe('Media services', () => {
 
     expect(listMediaAssets()).toHaveLength(0)
     expect(blobs.has(media.id)).toBe(false)
-    expect(deleteImageProviderConfig(savedConfig.id)).toEqual([])
-  })
+    expect(deleteImageProviderConfig(savedConfig.id).filter((c) => !c.builtin)).toEqual([])
+  }, 30000)
 })
 
 describe('ShotExporter', () => {

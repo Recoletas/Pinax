@@ -15,6 +15,7 @@ import advisorRouter from './routes/advisor.js'
 import openclawRouter from './routes/openclaw.js'
 import roomsRouter from './routes/rooms.js'
 import createMediaRouter from './routes/media.js'
+import createImageRouter from './routes/image.js'
 import researchRouter from './routes/research.js'
 import { setupWebSocket } from './realtime/wsHandler.js'
 import { startCleanupInterval, stopCleanupInterval } from './realtime/RoomRegistry.js'
@@ -37,6 +38,7 @@ app.use(cors())
 app.use(express.json({ limit: '16mb' }))
 
 const mediaRouter = createMediaRouter()
+const imageRouter = createImageRouter()
 app.use(roomsRouter)
 app.use('/api/game', gameRouter)
 app.use('/api/events', eventsRouter)
@@ -48,6 +50,7 @@ app.use('/api/advisor', advisorRouter)
 app.use('/api/openclaw', openclawRouter)
 app.use('/api/research', researchRouter)
 app.use(mediaRouter)
+app.use(imageRouter)
 
 app.use(express.static(join(__dirname, '../dist')))
 

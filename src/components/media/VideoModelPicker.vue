@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { videoJobService } from '../../services/media/videoJobService'
 import {
+  BUILTIN_VIDEO_CONFIG_ID,
   createVideoProviderConfigDraft,
   deleteVideoProviderConfig,
   listVideoProviderConfigs,
@@ -27,6 +28,7 @@ const localConfigs = ref([])
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
+const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_VIDEO_CONFIG_ID)
 const editingIsMinimax = computed(() => editingConfig.value?.providerId === 'minimax-video')
 const editingIsHailuo = computed(() => ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'].includes(editingConfig.value?.model))
 const editingResolutions = computed(() => editingIsHailuo.value ? ['768P', '1080P'] : ['720P', '1080P'])
@@ -56,6 +58,11 @@ function refreshConfigs() {
 function selectConfig(config) {
   emit('update:modelValue', config.id)
   showPicker.value = false
+}
+
+function useBuiltin() {
+  emit('update:modelValue', BUILTIN_VIDEO_CONFIG_ID)
+  closeConfig()
 }
 
 function addConfig() {
@@ -206,10 +213,15 @@ useTransientLayer({
               @keydown.space.prevent="selectConfig(config)"
             >
               <i aria-hidden="true"></i>
-              <span><strong>{{ config.name }}</strong><small>{{ providerLabel(config.providerId) }} · {{ config.model }}</small></span>
-              <button type="button" class="is-icon" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
+              <span>
+                <strong>{{ config.name }}<em v-if="config.builtin" class="video-model-badge">内置</em></strong>
+                <small>{{ providerLabel(config.providerId) }} · {{ config.model }}</small>
+                <small v-if="config.serverKey" class="video-model-server-note">已由服务器配置</small>
+              </span>
+              <button v-if="!config.builtin" type="button" class="is-icon" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
               </button>
+              <button v-else type="button" class="is-icon" title="查看内置 MiniMax" aria-label="查看内置 MiniMax" @click.stop="editConfig(config)">…</button>
             </div>
           </div>
           <p v-else class="video-model-empty">还没有视频模型配置。</p>
@@ -220,10 +232,25 @@ useTransientLayer({
       <div v-if="showConfig && editingConfig" class="video-model-overlay" @click.self="closeConfig">
         <section class="video-model-dialog video-model-dialog--config" role="dialog" aria-modal="true" aria-label="视频模型配置">
           <header>
-            <div><strong>{{ editingConfig.id ? '编辑视频配置' : '添加视频配置' }}</strong><small>{{ providerLabel(editingConfig.providerId) }}</small></div>
+            <div><strong>{{ editingIsBuiltin ? '内置 MiniMax' : (editingConfig.id ? '编辑视频配置' : '添加视频配置') }}</strong><small>{{ providerLabel(editingConfig.providerId) }}</small></div>
             <button type="button" class="is-icon" title="关闭" aria-label="关闭" @click="closeConfig">×</button>
           </header>
-          <div class="video-model-form">
+          <!-- 内置: 只读详情 -->
+          <div v-if="editingIsBuiltin" class="video-model-form video-model-form--readonly">
+            <div class="video-model-static-row"><span>名称</span><strong>{{ editingConfig.name }}</strong></div>
+            <div class="video-model-static-row"><span>渠道</span><strong>{{ providerLabel(editingConfig.providerId) }}</strong></div>
+            <div class="video-model-static-row"><span>API 地址</span><strong>{{ editingConfig.baseUrl }}</strong></div>
+            <div class="video-model-static-row"><span>模型</span><strong>{{ editingConfig.model }}</strong></div>
+            <div class="video-model-static-row"><span>默认分辨率</span><strong>{{ editingConfig.resolution }}</strong></div>
+            <div class="video-model-server-key">
+              <span>API Key</span>
+              <strong>已由服务器配置，无需填写</strong>
+              <p>使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置
+                <code>MINIMAX_API_KEY</code>，生成时会有明确报错。</p>
+            </div>
+          </div>
+          <!-- 用户配置 / 新增: 可编辑表单 -->
+          <div v-else class="video-model-form">
             <label><span>名称</span><input v-model="editingConfig.name" placeholder="例如：我的海螺视频" /></label>
             <label>
               <span>渠道</span>
@@ -261,9 +288,15 @@ useTransientLayer({
             <p v-if="connectionState.message" class="video-model-message" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
           </div>
           <footer>
-            <button v-if="editingConfig.id" type="button" class="is-danger" @click="removeConfig">删除</button>
-            <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
-            <button type="button" class="is-primary" :disabled="!canSaveConfig" @click="saveConfig">保存</button>
+            <template v-if="editingIsBuiltin">
+              <button type="button" class="is-primary" @click="useBuiltin">使用此模型</button>
+              <button type="button" @click="closeConfig">关闭</button>
+            </template>
+            <template v-else>
+              <button v-if="editingConfig.id" type="button" class="is-danger" @click="removeConfig">删除</button>
+              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
+              <button type="button" class="is-primary" :disabled="!canSaveConfig" @click="saveConfig">保存</button>
+            </template>
           </footer>
         </section>
       </div>
@@ -300,13 +333,25 @@ useTransientLayer({
 .video-model-option > span { display: grid; gap: 3px; min-width: 0; }
 .video-model-option strong, .video-model-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-model-option strong { font-size: 12px; }
+.video-model-option strong em { display: none; }
 .video-model-option small { color: var(--text-muted); font-size: 10px; }
+.video-model-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--archive-gold) 55%, var(--border)); border-radius: 3px; color: var(--archive-gold, var(--accent)); font-size: 9px; font-style: normal; vertical-align: 1px; }
+.video-model-server-note { color: var(--archive-gold, var(--accent)); }
 .video-model-empty { margin: 0; padding: 32px 16px; color: var(--text-muted); text-align: center; font-size: 12px; }
 .video-model-form { display: grid; gap: 11px; overflow-y: auto; padding: 14px 16px; }
 .video-model-form > label { display: grid; gap: 5px; }
 .video-model-form label > span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
 .video-model-form input, .video-model-form select, .video-model-form textarea { width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--archive-gold) 54%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); font: inherit; font-size: 12px; }
 .video-model-form textarea { resize: vertical; }
+.video-model-form--readonly { gap: 0; }
+.video-model-static-row { display: grid; gap: 4px; padding: 7px 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent); }
+.video-model-static-row span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
+.video-model-static-row strong { font-size: 12px; font-weight: 600; word-break: break-all; }
+.video-model-server-key { display: grid; gap: 5px; margin-top: 11px; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent); }
+.video-model-server-key span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
+.video-model-server-key strong { font-size: 12px; color: var(--archive-olive, var(--accent)); }
+.video-model-server-key p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.video-model-server-key code { padding: 0 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .video-model-checks { display: flex; flex-wrap: wrap; gap: 10px 16px; }
 .video-model-checks label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; }
 .video-model-checks input { width: auto; margin: 0; accent-color: var(--accent); }

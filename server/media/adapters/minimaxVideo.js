@@ -8,6 +8,7 @@
  */
 
 import { normalizeAdapterError, buildNoOutputError } from '../errorNormalization.js'
+import { MINIMAX_SERVER_KEY_SENTINEL, resolveMiniMaxApiKey } from '../../../shared/textModelKeys.js'
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com'
 const DEFAULT_MODEL = 'MiniMax-Hailuo-2.3'
@@ -38,9 +39,19 @@ export function createMinimaxVideoAdapter(options = {}) {
   const defaultModel = options.defaultModel || DEFAULT_MODEL
   const defaultPollMs = options.defaultPollMs ?? 10000
 
+  // 内置配置 (哨兵 key / 空 key) → 服务器 env key; 用户自带 key → 原样使用。
+  function resolveAuthKey(config) {
+    const raw = String(config.apiKey || '').trim()
+    if (raw && raw !== MINIMAX_SERVER_KEY_SENTINEL) return raw
+    return resolveMiniMaxApiKey({ baseUrl: config.baseUrl, apiKey: raw })
+  }
+
   function authHeaders(config) {
-    const key = String(config.apiKey || '').trim()
-    return key ? { Authorization: `Bearer ${key}` } : {}
+    const key = resolveAuthKey(config)
+    if (!key) {
+      throw makeHttpError(503, '服务器未配置 MINIMAX_API_KEY', 'server key missing')
+    }
+    return { Authorization: `Bearer ${key}` }
   }
 
   async function requestJson(transport, url, init, fallback) {
@@ -127,10 +138,10 @@ export function createMinimaxVideoAdapter(options = {}) {
   }
 
   async function testConnection(config) {
-    const key = String(config.apiKey || '').trim()
     const startedAt = Date.now()
+    const key = resolveAuthKey(config)
     if (!key) {
-      return connectionResult(false, false, false, 0, startedAt, '缺少 API Key')
+      return connectionResult(false, false, false, 0, startedAt, '服务器未配置 MINIMAX_API_KEY')
     }
     const transport = getFetch(fetchImpl || config.__fetchImpl)
     const url = `${buildBaseUrl(config.baseUrl || baseUrl)}/v1/query/video_generation?task_id=pinax_connection_probe`

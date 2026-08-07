@@ -6,6 +6,7 @@ import {
   testImageProviderConnection
 } from '../../services/media/imageProviderService'
 import {
+  BUILTIN_IMAGE_CONFIG_ID,
   deleteImageProviderConfig,
   listImageProviderConfigs,
   saveImageProviderConfig
@@ -28,6 +29,7 @@ const templateHelpText = '支持 {{prompt}}、{{negative_prompt}}、{{width}}、
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
+const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_IMAGE_CONFIG_ID)
 
 watch(() => props.configs, (configs) => {
   localConfigs.value = Array.isArray(configs) && configs.length
@@ -48,6 +50,11 @@ function refreshConfigs() {
 function selectConfig(config) {
   emit('update:modelValue', config.id)
   showPicker.value = false
+}
+
+function useBuiltin() {
+  emit('update:modelValue', BUILTIN_IMAGE_CONFIG_ID)
+  closeConfig()
 }
 
 function addConfig() {
@@ -194,14 +201,16 @@ useTransientLayer({
             >
               <span class="image-model-option__mark" aria-hidden="true"></span>
               <span class="image-model-option__copy">
-                <strong>{{ config.name }}</strong>
+                <strong>{{ config.name }}<em v-if="config.builtin" class="image-model-badge">内置</em></strong>
                 <span>{{ typeLabel(config.type) }}<template v-if="config.defaultModel"> · {{ config.defaultModel }}</template></span>
+                <small v-if="config.serverKey" class="image-model-server-note">已由服务器配置</small>
               </span>
-              <button type="button" class="image-model-option__edit" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
+              <button v-if="!config.builtin" type="button" class="image-model-option__edit" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>
                 </svg>
               </button>
+              <button v-else type="button" class="image-model-option__edit" title="查看内置 MiniMax" aria-label="查看内置 MiniMax" @click.stop="editConfig(config)">…</button>
             </div>
           </div>
           <p v-else class="image-model-empty">还没有图片模型配置。</p>
@@ -216,13 +225,28 @@ useTransientLayer({
         <section class="image-model-dialog image-model-dialog--config" role="dialog" aria-modal="true" aria-label="图片模型配置">
           <header class="image-model-dialog__header">
             <div>
-              <strong>{{ editingConfig.id ? '编辑模型配置' : '添加模型配置' }}</strong>
+              <strong>{{ editingIsBuiltin ? '内置 MiniMax' : (editingConfig.id ? '编辑模型配置' : '添加模型配置') }}</strong>
               <span>配置会供插画与漫画共用</span>
             </div>
             <button type="button" class="image-model-icon-btn" title="关闭" aria-label="关闭" @click="closeConfig">×</button>
           </header>
 
-          <div class="image-model-form">
+          <!-- 内置: 只读详情 -->
+          <div v-if="editingIsBuiltin" class="image-model-form image-model-form--readonly">
+            <div class="image-model-static-row"><span>名称</span><strong>{{ editingConfig.name }}</strong></div>
+            <div class="image-model-static-row"><span>类型</span><strong>{{ typeLabel(editingConfig.type) }}</strong></div>
+            <div class="image-model-static-row"><span>API 地址</span><strong>{{ editingConfig.baseUrl }}</strong></div>
+            <div class="image-model-static-row"><span>模型 ID</span><strong>{{ editingConfig.defaultModel }}</strong></div>
+            <div class="image-model-server-key">
+              <span>API Key</span>
+              <strong>已由服务器配置，无需填写</strong>
+              <p>使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置
+                <code>MINIMAX_API_KEY</code>，生成时会有明确报错。</p>
+            </div>
+          </div>
+
+          <!-- 用户配置 / 新增: 可编辑表单 -->
+          <div v-else class="image-model-form">
             <label><span>名称</span><input v-model="editingConfig.name" placeholder="例如：本地 SDXL" /></label>
             <label>
               <span>类型</span>
@@ -252,11 +276,17 @@ useTransientLayer({
           </div>
 
           <footer class="image-model-dialog__footer image-model-dialog__footer--config">
-            <button v-if="editingConfig.id" type="button" class="image-model-delete" @click="removeConfig">删除</button>
-            <button type="button" :disabled="connectionState.testing" @click="testConnection">
-              {{ connectionState.testing ? '测试中...' : '测试连通性' }}
-            </button>
-            <button type="button" class="image-model-add" :disabled="!editingConfig.name.trim()" @click="saveConfig">保存</button>
+            <template v-if="editingIsBuiltin">
+              <button type="button" class="image-model-add" @click="useBuiltin">使用此模型</button>
+              <button type="button" @click="closeConfig">关闭</button>
+            </template>
+            <template v-else>
+              <button v-if="editingConfig.id" type="button" class="image-model-delete" @click="removeConfig">删除</button>
+              <button type="button" :disabled="connectionState.testing" @click="testConnection">
+                {{ connectionState.testing ? '测试中...' : '测试连通性' }}
+              </button>
+              <button type="button" class="image-model-add" :disabled="!editingConfig.name.trim()" @click="saveConfig">保存</button>
+            </template>
           </footer>
         </section>
       </div>
@@ -329,11 +359,24 @@ useTransientLayer({
 .image-model-option__copy { display: grid; gap: 3px; min-width: 0; }
 .image-model-option__copy strong, .image-model-option__copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-model-option__copy strong { font-size: 12px; }
+.image-model-option__copy strong em { display: none; }
+.image-model-option__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-model-option__copy span { color: var(--text-muted); font-size: 10px; }
+.image-model-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--archive-gold) 55%, var(--border)); border-radius: 3px; color: var(--archive-gold, var(--accent)); font-size: 9px; font-style: normal; vertical-align: 1px; }
+.image-model-server-note { color: var(--archive-gold, var(--accent)); }
 .image-model-option__edit { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .image-model-empty { margin: 0; padding: 32px 16px; color: var(--text-muted); text-align: center; font-size: 12px; }
 
 .image-model-form { display: grid; gap: 11px; overflow-y: auto; padding: 14px 16px; }
+.image-model-form--readonly { gap: 0; }
+.image-model-static-row { display: grid; gap: 4px; padding: 7px 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent); }
+.image-model-static-row span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
+.image-model-static-row strong { font-size: 12px; font-weight: 600; word-break: break-all; }
+.image-model-server-key { display: grid; gap: 5px; margin-top: 11px; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent); }
+.image-model-server-key span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
+.image-model-server-key strong { font-size: 12px; color: var(--archive-olive, var(--accent)); }
+.image-model-server-key p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.image-model-server-key code { padding: 0 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .image-model-form label { display: grid; gap: 5px; }
 .image-model-form label > span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
 .image-model-form input, .image-model-form select, .image-model-form textarea { width: 100%; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--archive-gold) 54%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); font: inherit; font-size: 12px; }

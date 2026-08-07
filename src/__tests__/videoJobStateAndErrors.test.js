@@ -201,7 +201,7 @@ describe('videoJobStore state machine', () => {
       resolution: '768P',
       promptOptimizer: false
     }, { storage: videoConfigStorage })
-    expect(videoConfigModule.listVideoProviderConfigs({ storage: videoConfigStorage })).toEqual([
+    expect(videoConfigModule.listVideoProviderConfigs({ storage: videoConfigStorage }).filter((c) => !c.builtin)).toEqual([
       expect.objectContaining({
         id: savedVideoConfig.id,
         name: '我的海螺视频',
@@ -231,6 +231,7 @@ describe('videoJobStore state machine', () => {
       }]
     })
     localStorage.setItem('video_model_configs', JSON.stringify([savedVideoConfig]))
+    localStorage.setItem('video_model_selected', savedVideoConfig.id)
     const StoryboardVideoPanel = (await import('../components/media/StoryboardVideoPanel.vue')).default
     const wrapper = mount(StoryboardVideoPanel, { props: { context: { shots: storyboardShots } } })
     await flushPromises()

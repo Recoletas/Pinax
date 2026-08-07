@@ -10,6 +10,16 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-08-07 - 图片/视频模型内嵌 MiniMax（对齐文本内置模式）
+
+- 图片与视频模型此前没有内嵌：图片默认落盘一条空 key 的 `minimax-default`，不填 key 不能生成；视频没有默认配置，首次使用要自己加配置填 key。现在与文本模型一致——图片和视频各默认带一条「MiniMax（内置）」配置，默认选中、开箱即用、不可编辑/删除，API Key 由服务器持有。
+- 共用 `shared/textModelKeys.js`：新增 `resolveMiniMaxApiKey({baseUrl, apiKey})`——baseUrl 命中 minimaxi.com 且 key 为空/哨兵 `minimax-server-key` 时返回服务器 `MINIMAX_API_KEY`（未配返回空串）；`resolveTextApiKey` 重构为委托同一解析，行为不变。
+- 图片：`imageProviderConfigStore` 计算生成 `image-minimax-builtin`（模型 `image-01`），永不落盘；旧空 key 的 `minimax-default` 被内置取代并在读取时清理；`ensureDefaultImageConfig` 改 no-op。图片生成原本浏览器直连 api.minimaxi.com，内置 key 不能进浏览器，因此新增服务器代理 `server/routes/image.js` 的 `POST /api/media/images`（校验 prompt/模型，服务器注入 key 后转发 MiniMax，返回 base64 或 URL），`server/index.js` 挂载；`imageProviderService` 对 `builtin/serverKey` 配置走代理分支，用户配置仍直连。
+- 视频：`videoProviderConfigStore` 计算生成 `video-minimax-builtin`（模型 `MiniMax-Hailuo-2.3`、分辨率 768P），`toVideoProviderConfig` 对内置配置把 apiKey 置为哨兵；`server/media/adapters/minimaxVideo.js` 的 `resolveAuthKey` 把哨兵/空 key 换成服务器 env key，未配时报「服务器未配置 MINIMAX_API_KEY」。
+- 两个 picker（`ImageModelPicker` / `VideoModelPicker`）内置项显示「内置」badge +「已由服务器配置」，编辑按钮内置换「…」查看只读详情（含「已由服务器配置，无需填写」+ MINIMAX_API_KEY 提示），footer 只给「使用此模型」/关闭；`save/delete` 内置配置被拒。
+- 用户手册 07-settings「图片 / 视频模型」小节重写为与文本一致，08-faq 注明内置图片/视频同样依赖 `MINIMAX_API_KEY`。
+- 验证（2026-08-07，分支 `integration/online-agents-canvas-video-f`）：定向 vitest 23/23（integration 10 / videoJobStateAndErrors 1 / textProviderConfigStore 12）；Vite build 通过（17s）；重启 3001 后端后 curl 冒烟 `POST /api/media/images` 以哨兵 key 提交，服务器解析 env 真 key 并代理 MiniMax，返回 HTTP 200 `{ok:true, image: data:image/jpeg;base64,…}`（785KB 真实 JPEG，环境已配 MINIMAX_API_KEY；未配时该端点按设计返回 `400 ERR_SERVER_KEY_MISSING`）；组件级 UI probe 2/2（图片/视频 picker 首项「MiniMax（内置）」+「内置」badge +「已由服务器配置」、无编辑按钮（有「…」查看）、默认选中、只读详情只给「使用此模型」）；`git diff --check` 干净。注：此前 3001 后端是加入图片路由前的旧进程，`Cannot POST /api/media/images`，已 `pm2 restart pinax` 加载新路由。
+
 ## 2026-08-07 - 手册渲染修复 + 素材/画布点明插画漫画视频 + 新增漫画章节
 
 - 修复手册 markdown 渲染 bug：`用**「配置列表 + 新增」**模式` 因 CommonMark flanking 规则（`**` 夹在汉字与全角标点 `「」` 之间无法开/闭加粗）字面泄漏 `**`。改为 `用**配置列表 + 新增**模式`，全手册扫描确认无其他泄漏。

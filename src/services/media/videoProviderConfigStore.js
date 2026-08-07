@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '../../composables/useStorage'
+import { MINIMAX_SERVER_KEY_SENTINEL } from '../../../shared/textModelKeys'
 
 export const MINIMAX_VIDEO_MODELS = Object.freeze([
   'MiniMax-Hailuo-2.3',
@@ -11,6 +12,36 @@ export const VIDEO_PROVIDER_TYPES = Object.freeze([
   { value: 'minimax-video', label: 'MiniMax Video' },
   { value: 'generic-async-http', label: '自定义异步 HTTP' }
 ])
+
+export const BUILTIN_VIDEO_CONFIG_ID = 'video-minimax-builtin'
+
+/**
+ * 内置 MiniMax 视频配置 — 与文本模型内置模式对齐:
+ * 计算生成、永不落盘、默认选中、只读; API key 由服务器 .env 注入,
+ * 客户端提交哨兵 key, 服务器 adapter 换成真 key。
+ */
+export function createBuiltinMinimaxVideoConfig() {
+  return Object.freeze({
+    id: BUILTIN_VIDEO_CONFIG_ID,
+    name: 'MiniMax (内置)',
+    providerId: 'minimax-video',
+    model: MINIMAX_VIDEO_MODELS[0],
+    baseUrl: 'https://api.minimaxi.com',
+    apiKey: '',
+    resolution: '768P',
+    promptOptimizer: false,
+    fastPretreatment: false,
+    aigcWatermark: false,
+    submitUrl: '',
+    statusUrl: '',
+    submitBodyTemplate: '',
+    statusPath: '',
+    outputUrlPath: '',
+    builtin: true,
+    serverKey: true,
+    description: '由服务器提供密钥，开箱即用'
+  })
+}
 
 export function createVideoProviderConfigDraft(providerId = 'minimax-video') {
   if (providerId === 'generic-async-http') {
@@ -62,11 +93,14 @@ export function listVideoProviderConfigs(options = {}) {
       // A normalized read remains usable when migration writeback is blocked.
     }
   }
-  return normalized
+  return [createBuiltinMinimaxVideoConfig(), ...normalized]
 }
 
 export function saveVideoProviderConfig(input = {}, options = {}) {
   const storage = resolveStorage(options.storage)
+  if (input?.builtin || input?.id === BUILTIN_VIDEO_CONFIG_ID) {
+    throw new Error('内置 MiniMax 配置不可编辑')
+  }
   const config = normalizeVideoProviderConfig({
     ...input,
     id: String(input.id || createConfigId())
@@ -79,7 +113,9 @@ export function saveVideoProviderConfig(input = {}, options = {}) {
     throw new Error('自定义视频配置缺少提交地址或查询地址')
   }
 
-  const configs = listVideoProviderConfigs({ storage })
+  const configs = listVideoProviderConfigs({ storage }).filter(
+    (item) => item.id !== BUILTIN_VIDEO_CONFIG_ID
+  )
   const index = configs.findIndex((item) => item.id === config.id)
   if (index >= 0) configs[index] = config
   else configs.push(config)
@@ -90,9 +126,20 @@ export function saveVideoProviderConfig(input = {}, options = {}) {
 export function deleteVideoProviderConfig(configId, options = {}) {
   const storage = resolveStorage(options.storage)
   const id = String(configId || '').trim()
-  const configs = listVideoProviderConfigs({ storage }).filter((item) => item.id !== id)
+  if (id === BUILTIN_VIDEO_CONFIG_ID) {
+    throw new Error('内置 MiniMax 配置不可删除')
+  }
+  const configs = readConfigs(storage).filter((item) => item.id !== id)
   writeConfigs(storage, configs)
-  return configs
+  // 返回完整列表 (含内置), 供 picker 直接刷新
+  return listVideoProviderConfigs({ storage })
+}
+
+export function resolveSelectedVideoProviderConfig(options = {}) {
+  const storage = resolveStorage(options.storage)
+  const all = listVideoProviderConfigs({ storage })
+  const selectedId = getSelectedVideoProviderConfigId({ storage })
+  return all.find((c) => c.id === selectedId) || createBuiltinMinimaxVideoConfig()
 }
 
 export function getSelectedVideoProviderConfigId(options = {}) {
@@ -138,8 +185,10 @@ export function normalizeVideoProviderConfig(input = {}) {
 }
 
 export function toVideoProviderConfig(config = {}) {
+  // 内置配置 → 提交哨兵 key, 服务器 adapter 换成真实 env key
+  const builtin = config.builtin === true
   const common = {
-    apiKey: config.apiKey,
+    apiKey: builtin ? MINIMAX_SERVER_KEY_SENTINEL : config.apiKey,
     model: config.model
   }
   if (config.baseUrl) common.baseUrl = config.baseUrl
