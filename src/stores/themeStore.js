@@ -96,8 +96,9 @@ export const useThemeStore = defineStore('theme', {
       html.classList.remove('theme-dark', 'theme-light')
       html.classList.add(`theme-${this.colorScheme}`)
 
-      // 全局缩放: 二选一, 不能叠加 (zoom + transform 会缩成 0.56 而非 0.75)。
+      // 全局缩放: 二选一, 不能叠加 (zoom + transform 会缩成 0.56 而非 0.85)。
       // - Chrome/Safari/Edge: CSS zoom 自动调整布局盒, 不需要 width/height 补偿
+      //   但 zoom 把 body 缩到 85vh, 下面 15vh 露出 html 背景 → 必须给 html 上背景
       // - Firefox: 走 transform: scale() + width/height 补偿, 避免底部空白
       const body = document.body
       if (body) {
@@ -108,6 +109,10 @@ export const useThemeStore = defineStore('theme', {
           body.style.transformOrigin = ''
           body.style.width = ''
           body.style.minHeight = ''
+          // 关键: html 默认背景是白色 (浏览器默认), zoom 后 body 缩到 85vh,
+          // 下面 15vh 会露出白条。把 html 背景设为主题色解决。
+          // 用 --bg-primary 而不是 --bg-secondary, 保证与最外层兜底色一致。
+          html.style.backgroundColor = 'var(--bg-primary)'
         } else {
           const inverse = 1 / zoom
           body.style.zoom = ''
