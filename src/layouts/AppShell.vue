@@ -5,12 +5,10 @@ import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
-import DocsViewer from '../components/docs/DocsViewer.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
-import { useDocsViewer } from '../composables/useDocsViewer'
 import { useStorageHealth } from '../composables/useStorageHealth'
 
 const route = useRoute()
@@ -81,12 +79,11 @@ function onPageBeforeLeave(el) {
 const storageHealth = useStorageHealth()
 const storageChipLabel = computed(() => `存储 ${storageHealth.percent.value}%`)
 const settingsPopup = useSettingsPopup()
-const docsViewer = useDocsViewer()
 function openSettings(section) {
   settingsPopup.open(section)
 }
 function openDocs() {
-  docsViewer.open('README')
+  router.push({ name: 'docs' })
 }
 
 watch(() => route.fullPath, () => {
@@ -126,7 +123,12 @@ function handleGlobalKeydown(e) {
     if (target.getAttribute('role') === 'textbox') return
   }
   e.preventDefault()
-  docsViewer.toggle('README')
+  const isOnDocs = String(route.name) === 'docs'
+  if (isOnDocs) {
+    router.push('/')
+  } else {
+    router.push({ name: 'docs' })
+  }
 }
 
 function toggleDrawer() {
@@ -286,10 +288,6 @@ function handleSelectOnline() {
           ><WorkbenchIcon name="settings" :size="16" /></button>
         </div>
       </header>
-
-      <Transition name="modal-fade">
-        <DocsViewer v-if="docsViewer.isOpen.value" />
-      </Transition>
 
       <Transition name="modal-fade">
         <SettingsPopup v-if="settingsPopup.isOpen.value" />

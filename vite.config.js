@@ -20,6 +20,11 @@ export default defineConfig({
         target: 'ws://127.0.0.1:3001',
         ws: true,
         changeOrigin: true
+      },
+      // dev 下文档 markdown 由 Express 静态目录提供, 与生产 nginx 对齐
+      '/docs/user-manual': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true
       }
     }
   },

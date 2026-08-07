@@ -1,12 +1,13 @@
 {
   "chapters": [
-    { "id": "README", "title": "导言", "file": "README.md", "summary": "Pinax 是什么、能做什么、章节索引" },
-    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "五分钟跑通：配置第一个 LLM，跑出一段对话" },
-    { "id": "02-concepts", "title": "核心概念", "file": "02-concepts.md", "summary": "世界书、状态、机制、分镜这些黑话一次讲清" },
-    { "id": "03-features", "title": "功能与工作流", "file": "03-features.md", "summary": "当前主线路径和主要工作区怎么衔接" },
-    { "id": "04-configuration", "title": "详细配置", "file": "04-configuration.md", "summary": "provider 怎么选、Mem0 怎么开、localStorage 那些键都在存什么" },
-    { "id": "05-deployment", "title": "部署到公网", "file": "05-deployment.md", "summary": "这个项目跟其他 LLM 应用不一样的地方都在这节" },
-    { "id": "06-faq", "title": "常见问题", "file": "06-faq.md", "summary": "配了 key 还是报错、地图慢、顾问不响应……故障排查" },
-    { "id": "07-internal-test", "title": "内测说明", "file": "07-internal-test.md", "summary": "结构化地点目录、世界书导入和地图衔接的验收路径" }
+    { "id": "README", "title": "导言", "file": "README.md", "summary": "Pinax 是什么、能做什么、从哪开始", "group": "入门" },
+    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "几分钟内配好 AI、进入你的第一个世界", "group": "入门" },
+    { "id": "02-experience", "title": "体验模式", "file": "02-experience.md", "summary": "聊天、状态栏、机制按钮、里程碑、换世界", "group": "核心玩法" },
+    { "id": "03-worldbook", "title": "世界书与设定", "file": "03-worldbook.md", "summary": "结构化设定、世界书导入、地图", "group": "核心玩法" },
+    { "id": "04-materials", "title": "素材", "file": "04-materials.md", "summary": "收集金句与事件，一键送入画布", "group": "创作工作台" },
+    { "id": "05-writing", "title": "写作", "file": "05-writing.md", "summary": "书与章管理、AI 扩写改写续写、导出分镜", "group": "创作工作台" },
+    { "id": "06-storyboard", "title": "卡片画布", "file": "06-storyboard.md", "summary": "节点、时间轴、生图生视频、导出", "group": "创作工作台" },
+    { "id": "07-settings", "title": "设置详解", "file": "07-settings.md", "summary": "外观、AI 配置、存储与备份", "group": "参考" },
+    { "id": "08-faq", "title": "常见问题", "file": "08-faq.md", "summary": "配好 key 还是报错？数据丢了怎么找回？", "group": "参考" }
   ]
 }

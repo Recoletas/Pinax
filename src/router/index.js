@@ -12,6 +12,7 @@ const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
 const ComicStudio = () => import('../pages/ComicStudio.vue')
 const OnlineExperience = () => import('../pages/OnlineExperience.vue')
+const DocsPage = () => import('../pages/DocsPage.vue')
 
 const workbenchChildren = [
   {
@@ -138,6 +139,17 @@ const routes = [
     path: '/',
     component: AppShell,
     children: workbenchChildren
+  },
+  {
+    // 独立全页文档界面 —— 不套 AppShell, 对标 platform.minimaxi.com/docs。
+    // :chapterId 对应 manifest.json 里的章节 id, 缺省落到 README。
+    path: '/docs/:chapterId?',
+    name: 'docs',
+    component: DocsPage,
+    meta: {
+      hideGlobalMemory: true,
+      title: '使用指南'
+    }
   },
   { path: '/writing', redirect: { name: 'writing' } },
   { path: '/materials', redirect: { name: 'materials' } },
