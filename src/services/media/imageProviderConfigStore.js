@@ -42,6 +42,30 @@ export function deleteImageProviderConfig(configId, options = {}) {
   return configs
 }
 
+/**
+ * Phase D: 首次启动时幂等插入一条 MiniMax 默认图片配置。
+ * 若用户已有任何图片配置, 不动 (尊重用户自定义)。
+ * apiKey 留空 — 用户可在 UI 单独填, 不复用 text apiKey (用户可能用不同 key)。
+ */
+export function ensureDefaultImageConfig(options = {}) {
+  const storage = resolveStorage(options.storage)
+  const existing = readConfigs(storage)
+  if (existing.length > 0) return existing
+  const draft = createImageModelConfigDraft('minimax_image')
+  const config = normalizeImageProviderConfig({
+    ...draft,
+    id: 'minimax-default',
+    name: 'MiniMax Image',
+    type: 'minimax_image',
+    baseUrl: draft.baseUrl,
+    defaultModel: draft.defaultModel,
+    apiKey: ''
+  })
+  if (!config) return existing
+  writeConfigs(storage, [config])
+  return [config]
+}
+
 export function normalizeImageProviderConfig(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const fallback = createImageModelConfigDraft()

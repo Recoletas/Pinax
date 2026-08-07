@@ -486,7 +486,8 @@ import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
-import { getTextItem, removeItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getTextItem, getItem, setTextItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
+import { useTipState } from '../composables/useTipState'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
@@ -508,6 +509,7 @@ const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
 const router = useRouter()
+const tip = useTipState()
 const readingProfile = ref(getTextItem(STORAGE_KEYS.EXPERIENCE_READING_PROFILE) || 'standard')
 const readingProfileVars = computed(() => {
   const profiles = {
@@ -626,6 +628,46 @@ const showExperienceWorkChrome = computed(() => hasUserActionMessages.value)
 const hasUserActionMessages = computed(() => {
   return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
 })
+
+// Phase C3: Experience 首次访问 → 弹 "试试联机 + 其他页面" tip
+// 标记写入 STORAGE_KEYS.EXPERIENCE_FIRST_VISIT (避免与 EXPERIENCE_READING_PROFILE 冲突)
+function markFirstVisitIfNeeded() {
+  const visited = getItem(STORAGE_KEYS.EXPERIENCE_FIRST_VISIT)
+  if (visited) return
+  setItem(STORAGE_KEYS.EXPERIENCE_FIRST_VISIT, { at: Date.now() })
+  if (!tip.isSeen('experience-online-features')) {
+    // 推迟 600ms, 让页面渲染稳定后再弹
+    setTimeout(() => {
+      tip.showTip({
+        id: 'experience-online-features',
+        title: '试试联机 + 其他页面',
+        body: '右上角可以拉盟友/AI 协作者; 左侧抽屉切换 世界书 / 写作 / 素材 / 画布。',
+        variant: 'welcome',
+        autoHide: true
+      })
+    }, 600)
+  }
+}
+
+// Phase C4: 用户首次发消息 → 弹 "记忆已激活" tip
+let firstMessageWatchInstalled = false
+function installFirstMessageWatch() {
+  if (firstMessageWatchInstalled) return
+  firstMessageWatchInstalled = true
+  watch(hasUserActionMessages, (newV, oldV) => {
+    if (oldV === false && newV === true && !tip.isSeen('memory-first-message')) {
+      setTimeout(() => {
+        tip.showTip({
+          id: 'memory-first-message',
+          title: '记忆已激活',
+          body: '我说的话会自动整理成记忆。可在左下角 记忆 按钮查看。',
+          variant: 'success',
+          autoHide: true
+        })
+      }, 1800)
+    }
+  })
+}
 
 // UI-E10: sticky scene-stage indicator data — counts messages and derives
 // UI-E10-CLEAN: sceneStageIndicator + sceneIndicatorVisible computeds deleted
@@ -947,6 +989,10 @@ onMounted(async () => {
   }
 
   bindOnlineSession()
+
+  // Phase C3 + C4: Experience 首次访问 / 首次发消息 → 弹引导 tip
+  markFirstVisitIfNeeded()
+  installFirstMessageWatch()
 })
 
 onUnmounted(() => {

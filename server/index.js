@@ -50,6 +50,21 @@ app.use(mediaRouter)
 
 app.use(express.static(join(__dirname, '../dist')))
 
+// 用户手册静态资源 — DocsViewer 通过 /docs/user-manual/manifest.json 拿章节清单,
+// 通过 /docs/user-manual/<file>.md 拿章节正文。maxAge 5min + ETag 让前端可缓存。
+app.use(
+  '/docs/user-manual',
+  express.static(join(__dirname, '../docs/user-manual'), {
+    maxAge: '5m',
+    etag: true,
+    fallthrough: true,
+    setHeaders(res) {
+      // 让 manifest.json 也走缓存, 但避免被 CDN / 浏览器长期钉死
+      res.setHeader('Cache-Control', 'public, max-age=300')
+    }
+  })
+)
+
 // SPA fallback for Vue Router history mode — must come after /api routes
 app.use(/^\/(?!api\/|ws\/).*/, (req, res) => {
   res.sendFile(join(__dirname, '../dist/index.html'))

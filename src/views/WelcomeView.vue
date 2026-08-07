@@ -16,7 +16,9 @@
         </span>
         <span class="theme-label">{{ isDark ? '暗色' : '亮色' }}</span>
       </button>
-      <div class="variant-toggle" role="group" aria-label="主题版本">
+      <!-- 临时隐藏：经典/现代切换（用户要求只显示默认经典） -->
+      <!-- 还原方法：把 v-if="false" 改成 v-if="true"，或直接删除这个 v-if 包裹 -->
+      <div v-if="false" class="variant-toggle" role="group" aria-label="主题版本">
         <button
           type="button"
           class="variant-toggle__option"
@@ -125,7 +127,7 @@
                   <span class="welcome-onboarding__step-index">3</span>
                   <router-link
                     class="welcome-onboarding__step-link"
-                    to="/opening"
+                    to="/experience"
                     aria-label="步骤 3：开始开场"
                   >开始开场</router-link>
                   <span class="welcome-onboarding__step-status">{{ step3Done ? '✓' : '待开始' }}</span>
@@ -237,12 +239,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
+import { useTipState } from '../composables/useTipState'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
@@ -254,6 +257,7 @@ const { isDark, toggleTheme, isKao, setVariant } = useTheme()
 const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const settingsPopup = useSettingsPopup()
+const tip = useTipState()
 const router = useRouter()
 
 const featuredPreset = computed(() => seedWorldbookPresets[0] || null)
@@ -309,7 +313,7 @@ const primaryAction = computed(() => {
   if (state === 'start') {
     return {
       key: 'primary-start',
-      to: '/opening',
+      to: '/experience',
       label: '开始冒险',
       index: '01',
       variant: 'primary',
@@ -331,6 +335,29 @@ function handlePrimaryAction() {
     settingsPopup.open('ai')
   }
 }
+
+// Phase C1: 第一次进入 Welcome 时, 若没配 API Key, 弹 "从这里开始" tip
+onMounted(() => {
+  if (!hasApiKey.value && !tip.isSeen('welcome-to-settings')) {
+    tip.showTip({
+      id: 'welcome-to-settings',
+      title: '从这里开始',
+      body: '先点设置配置 API Key, 然后选世界书, 再开始你的冒险。',
+      cta: {
+        label: '打开设置',
+        action: () => settingsPopup.open('ai')
+      },
+      variant: 'welcome',
+      autoHide: false,
+      category: 'nav'
+    })
+  }
+})
+
+// 派生前提满足 (有 key 了) → 永久剔除这条 tip
+watch(hasApiKey, (v) => {
+  if (v) tip.markSeen('welcome-to-settings')
+})
 
 const secondaryActions = computed(() => [
   { key: 'new-world', to: '/settings/worldbook', label: '新世界', index: '02', variant: 'secondary', ariaLabel: '打开世界书快选（换 / 导入）' },

@@ -5,10 +5,12 @@ import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SidePanel from '../components/workbench/SidePanel.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
+import DocsViewer from '../components/docs/DocsViewer.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
+import { useDocsViewer } from '../composables/useDocsViewer'
 import { useStorageHealth } from '../composables/useStorageHealth'
 
 const route = useRoute()
@@ -79,8 +81,12 @@ function onPageBeforeLeave(el) {
 const storageHealth = useStorageHealth()
 const storageChipLabel = computed(() => `存储 ${storageHealth.percent.value}%`)
 const settingsPopup = useSettingsPopup()
+const docsViewer = useDocsViewer()
 function openSettings(section) {
   settingsPopup.open(section)
+}
+function openDocs() {
+  docsViewer.open('README')
 }
 
 watch(() => route.fullPath, () => {
@@ -109,6 +115,20 @@ function handleDrawerKeydown(e) {
   }
 }
 
+// 全局键盘快捷键: `?` 唤起 / 关闭文档。
+// 跳过 input / textarea / contentEditable, 避免用户在打字时误触。
+function handleGlobalKeydown(e) {
+  if (e.key !== '?' && e.key !== '/') return
+  const target = e.target
+  if (target instanceof HTMLElement) {
+    const tag = target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return
+    if (target.getAttribute('role') === 'textbox') return
+  }
+  e.preventDefault()
+  docsViewer.toggle('README')
+}
+
 function toggleDrawer() {
   drawerOpen.value = !drawerOpen.value
 }
@@ -119,10 +139,12 @@ function closeDrawer() {
 
 onMounted(() => {
   document.addEventListener('keydown', handleDrawerKeydown)
+  document.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleDrawerKeydown)
+  document.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 function handleSelectActivity(activityKey) {
@@ -249,6 +271,14 @@ function handleSelectOnline() {
           <button
             class="shell-meta-chip"
             type="button"
+            aria-label="打开文档"
+            data-test="shell-docs-chip"
+            title="文档 (?)"
+            @click="openDocs"
+          ><WorkbenchIcon name="book" :size="16" /></button>
+          <button
+            class="shell-meta-chip"
+            type="button"
             aria-label="打开设置"
             data-test="shell-settings-chip"
             @click="openSettings('appearance')"
@@ -256,6 +286,10 @@ function handleSelectOnline() {
           ><WorkbenchIcon name="settings" :size="16" /></button>
         </div>
       </header>
+
+      <Transition name="modal-fade">
+        <DocsViewer v-if="docsViewer.isOpen.value" />
+      </Transition>
 
       <Transition name="modal-fade">
         <SettingsPopup v-if="settingsPopup.isOpen.value" />

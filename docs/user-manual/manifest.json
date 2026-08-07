@@ -1,0 +1,12 @@
+{
+  "chapters": [
+    { "id": "README", "title": "导言", "file": "README.md", "summary": "Pinax 是什么、能做什么、章节索引" },
+    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "五分钟跑通：配置第一个 LLM，跑出一段对话" },
+    { "id": "02-concepts", "title": "核心概念", "file": "02-concepts.md", "summary": "世界书、状态、机制、分镜这些黑话一次讲清" },
+    { "id": "03-features", "title": "功能与工作流", "file": "03-features.md", "summary": "当前主线路径和主要工作区怎么衔接" },
+    { "id": "04-configuration", "title": "详细配置", "file": "04-configuration.md", "summary": "provider 怎么选、Mem0 怎么开、localStorage 那些键都在存什么" },
+    { "id": "05-deployment", "title": "部署到公网", "file": "05-deployment.md", "summary": "这个项目跟其他 LLM 应用不一样的地方都在这节" },
+    { "id": "06-faq", "title": "常见问题", "file": "06-faq.md", "summary": "配了 key 还是报错、地图慢、顾问不响应……故障排查" },
+    { "id": "07-internal-test", "title": "内测说明", "file": "07-internal-test.md", "summary": "结构化地点目录、世界书导入和地图衔接的验收路径" }
+  ]
+}

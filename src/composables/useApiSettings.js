@@ -16,8 +16,9 @@ const providers = [
 ]
 
 const DEFAULT_API_SETTINGS = {
-  provider: 'deepseek',
-  baseUrl: '',
+  // Phase D: 默认 MiniMax (Anthropic 兼容) — 用户开箱即用, 切其他模型仍自由
+  provider: 'MiniMax',
+  baseUrl: 'https://api.minimaxi.com/anthropic',
   apiKey: '',
   model: ''
 }
@@ -65,6 +66,24 @@ export function useApiSettings() {
     window.dispatchEvent(new CustomEvent('pinax:api-settings-updated', {
       detail: { settings: apiSettings.value }
     }))
+    // Phase C2: 配置完成后弹 "去导入体验" tip (App.vue 监听 pinax:show-tip 事件分发)
+    // 仅在确实有 apiKey 时弹, 避免空配置也触发
+    if (apiSettings.value?.apiKey?.trim()) {
+      window.dispatchEvent(new CustomEvent('pinax:show-tip', {
+        detail: {
+          id: 'settings-to-import',
+          title: '配置完成',
+          body: '现在去素材库点 导入, 选一个世界书, 体验开场。',
+          cta: {
+            label: '去打素材',
+            action: ({ router }) => router.push('/materials')
+          },
+          variant: 'success',
+          autoHide: false,
+          category: 'nav'
+        }
+      }))
+    }
   }
 
   function applyProvider(providerId) {
@@ -74,6 +93,10 @@ export function useApiSettings() {
     }
     if (providerId === 'deepseek' && !apiSettings.value.model) {
       apiSettings.value.model = 'deepseek-v4-flash'
+    }
+    // Phase D: 选 MiniMax 时自动填默认文本模型 (若 model 空)
+    if (providerId === 'MiniMax' && !apiSettings.value.model) {
+      apiSettings.value.model = 'MiniMax-Text-01'
     }
   }
 

@@ -25,6 +25,7 @@
 - **跨功能资产收口**：体验页当前会话消息、地点、历史节点和剧情日志的来源，已沿素材、章节/纲要、分镜版本、写作 ContextLedger、分镜 Agent 和视频任务保持可追溯；每个资产边界统一去重并限制为 12 条。漫画 M2-M6 已把语义视觉圣经、多页序列、自由构图、彩色/黑白阶段产物和文字出版导出串成可回退的 MediaAsset 谱系。下一步补对话保存前精简、revision/tags、拆分和全局检索，并进入 M7 连续性质检。
 - **媒体与联机专项完成首版接线**：URL 房间、服务端有序事件、房主生成叙事与受限运行时同步已接入现代体验页；MiniMax 视频已切到官方 `video_generation -> query -> files/retrieve` 协议，通用异步 HTTP adapter 继续保留。
 - **A-F 执行包已集成**：Agent 基础契约、画布视口/连线调度、联机服务端与客户端、视频网关和页面接线已汇合；完整验证通过，等待用户在现有服务中做双浏览器与真实 provider smoke。
+- **文档入口 + 引导 tip + MiniMax 默认 + UI 缩档 (2026-08-07)**：Mast 顶部新增「文档」chip + `?` 快捷键唤起 `DocsViewer`，章节列表由 `/docs/user-manual/manifest.json` 驱动。引导 tip 系统已落地 6 个 tip（Welcome→设置 / Settings 完成→素材 / Experience 首次→联机 / 首消息→记忆 / 资产自动识别 / 素材→画布），持久化 `pinax_tips_seen_v1`，`category='nav'` 的 tip 在路由切换时自动 dismiss。新增 `useTipState` 模块作用域状态机、`TipBanner` 组件（桌面顶部 / 移动端底部 sheet）、`pinax:show-tip` window 事件让非 Vue 模块也能触发。MiniMax 默认文本 (`provider: 'MiniMax'` + `applyProvider` 自动填 `MiniMax-Text-01`)、图片 (`ensureDefaultImageConfig()` 启动时幂等 push `minimax-default`)、视频 (已默认)。全局 UI 缩档默认 75%，AppearanceControls 新增 4 档 (100/85/75/65) radio，写入 `app_ui_zoom`。路由 `/opening` 2 处已统一为 `/experience`。测试基线更新为 32 files / 266 tests。
 - **Round 2 可见性与工作流已集成**：体验 mast 提供联机常驻入口；画布顶栏直接提供视频生成，导出菜单只保留导出；节点拖动以瞬时坐标渲染并在结束时写回原始模型，牌堆空白拖动移动整堆；顾问和漫画生命周期已接入。
 - **文档收口**：`docs/PLAN.md` 和 `docs/plan/pinax-integrated-product-roadmap.md` 是唯一产品计划入口，旧执行计划不再恢复。
 

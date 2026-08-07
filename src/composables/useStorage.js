@@ -71,6 +71,13 @@ export const STORAGE_KEYS = {
   PREFERENCE_USER_ID: 'preference_user_id',
   MEM0_SETTINGS: 'mem0_settings',
 
+  // 引导提示系统 (Phase B): 记录哪些 tip 已经被 dismiss / 永久剔除
+  PINAX_TIPS_SEEN: 'pinax_tips_seen_v1',
+
+  // Phase C3: Experience 页首次访问时间戳 (派生于 STORAGE_KEYS.EXPERIENCE_READING_PROFILE
+  // 是 string 的事实, 单独存避免冲突)
+  EXPERIENCE_FIRST_VISIT: 'pinax_experience_first_visit_v1',
+
   // 地理与世界地图
   GEOGRAPHY_DATA: 'geography_data',
   WORLD_NODES: 'world_nodes'

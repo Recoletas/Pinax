@@ -561,7 +561,8 @@ import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
-import { STORAGE_KEYS } from '../composables/useStorage'
+import { STORAGE_KEYS, getItem } from '../composables/useStorage'
+import { useTipState } from '../composables/useTipState'
 import { useGameStore } from '../stores/gameStore'
 import {
   addNarrativeAsset,
@@ -604,6 +605,7 @@ import {
 import { prepareMaterialAgentTransaction } from '../services/agents/creativeGraphAgentActions'
 
 const router = useRouter()
+const tip = useTipState()
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
 const {
@@ -791,6 +793,30 @@ onMounted(() => {
   // K3c (2026-06-27): 初始 auto-grow (loadNotes 触发 selectChapter,
   // selectChapter 里已调 autoResizeTextarea, 这里是 belt-and-suspenders)
   nextTick(() => autoResizeTextarea())
+
+  // Phase C6: 首次进入素材库, 若画布空, 弹 "素材入画布" tip
+  try {
+    const cards = getItem(STORAGE_KEYS.PROSE_CARDS_V1)
+    const hasCanvas = Array.isArray(cards) && cards.length > 0
+    if (!hasCanvas && !tip.isSeen('materials-to-canvas')) {
+      setTimeout(() => {
+        tip.showTip({
+          id: 'materials-to-canvas',
+          title: '素材入画布',
+          body: '右上角 "导当前到画布" 可导入选中素材; 选中多个后用 "导入" 批量入画布。',
+          cta: {
+            label: '去看画布',
+            action: () => router.push('/prose-essay')
+          },
+          variant: 'info',
+          autoHide: false,
+          category: 'nav'
+        })
+      }, 800)
+    }
+  } catch (e) {
+    console.warn('[Notes] C6 tip check failed:', e)
+  }
 })
 
 function loadSidekickImageModels(configs = null) {

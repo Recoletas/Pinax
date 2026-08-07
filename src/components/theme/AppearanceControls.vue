@@ -22,31 +22,68 @@ const current = computed(() =>
     || OPTIONS[0]
 )
 
+// Phase F: UI 缩放档位 — 用户反馈默认 100% 偏大, 默认改为 75%
+const ZOOM_OPTIONS = [
+  { value: 1, label: '100%', testId: 'ui-zoom-100' },
+  { value: 0.85, label: '85%', testId: 'ui-zoom-85' },
+  { value: 0.75, label: '75%', testId: 'ui-zoom-75' },
+  { value: 0.65, label: '65%', testId: 'ui-zoom-65' }
+]
+const currentZoom = computed(() => {
+  return ZOOM_OPTIONS.find((o) => o.value === themeStore.uiZoom) || ZOOM_OPTIONS[2]
+})
+
 function pick(option) {
   themeStore.setAppearance(option.variant, option.colorScheme)
+}
+
+function pickZoom(option) {
+  themeStore.setUiZoom(option.value)
 }
 </script>
 
 <template>
-  <fieldset class="appearance-controls" data-test="appearance-controls">
-    <legend class="appearance-controls__legend">外观</legend>
-    <label
-      v-for="opt in OPTIONS"
-      :key="opt.testId"
-      class="appearance-controls__option"
-      :data-test="opt.testId"
-      :class="{ 'is-active': current.testId === opt.testId }"
-    >
-      <input
-        type="radio"
-        name="appearance"
-        :value="opt.testId"
-        :checked="current.testId === opt.testId"
-        @change="pick(opt)"
-      />
-      <span>{{ opt.label }}</span>
-    </label>
-  </fieldset>
+  <div class="appearance-controls" data-test="appearance-controls">
+    <fieldset class="appearance-controls__group">
+      <legend class="appearance-controls__legend">外观</legend>
+      <label
+        v-for="opt in OPTIONS"
+        :key="opt.testId"
+        class="appearance-controls__option"
+        :data-test="opt.testId"
+        :class="{ 'is-active': current.testId === opt.testId }"
+      >
+        <input
+          type="radio"
+          name="appearance"
+          :value="opt.testId"
+          :checked="current.testId === opt.testId"
+          @change="pick(opt)"
+        />
+        <span>{{ opt.label }}</span>
+      </label>
+    </fieldset>
+
+    <fieldset class="appearance-controls__group">
+      <legend class="appearance-controls__legend">缩放</legend>
+      <label
+        v-for="opt in ZOOM_OPTIONS"
+        :key="opt.testId"
+        class="appearance-controls__option"
+        :data-test="opt.testId"
+        :class="{ 'is-active': currentZoom.testId === opt.testId }"
+      >
+        <input
+          type="radio"
+          name="ui-zoom"
+          :value="opt.testId"
+          :checked="currentZoom.testId === opt.testId"
+          @change="pickZoom(opt)"
+        />
+        <span>{{ opt.label }}</span>
+      </label>
+    </fieldset>
+  </div>
 </template>
 
 <style scoped>
@@ -54,12 +91,23 @@ function pick(option) {
   border: 0;
   padding: 0;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
+
+.appearance-controls__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
 .appearance-controls__legend {
   font-size: var(--fs-sm, 12px);
   color: var(--text-secondary, #5d5247);
   margin-bottom: 6px;
 }
+
 .appearance-controls__option {
   display: flex;
   align-items: center;
