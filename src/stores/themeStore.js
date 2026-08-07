@@ -89,6 +89,16 @@ export const useThemeStore = defineStore('theme', {
       try { localStorage.setItem(LS_UI_ZOOM, String(parsed)) } catch (_) { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
+    // 与 useViewportHeight.syncViewportHeight 同一公式: 布局高度 = 视口高 / zoom,
+    // 内容被 zoom 缩放后视觉上仍正好填满视口 (否则底部露出 html 背景白条)。
+    syncViewportHeightVar() {
+      if (typeof window === 'undefined' || !document?.documentElement) return
+      const height = Math.round(window.visualViewport?.height || window.innerHeight || 0)
+      if (!height) return
+      const layoutHeight = height / this.uiZoom
+      document.documentElement.style.setProperty('--app-viewport-height', `${layoutHeight}px`)
+      document.documentElement.style.setProperty('--app-viewport-half-height', `${layoutHeight / 2}px`)
+    },
     applyToHtml() {
       const html = document.documentElement
       html.classList.remove('theme-kao', 'theme-legacy')
@@ -97,21 +107,31 @@ export const useThemeStore = defineStore('theme', {
       html.classList.add(`theme-${this.colorScheme}`)
 
       // 全局缩放: 二选一, 不能叠加 (zoom + transform 会缩成 0.56 而非 0.85)。
-      // - Chrome/Safari/Edge: CSS zoom 自动调整布局盒, 不需要 width/height 补偿
-      //   但 zoom 把 body 缩到 85vh, 下面 15vh 露出 html 背景 → 必须给 html 上背景
-      // - Firefox: 走 transform: scale() + width/height 补偿, 避免底部空白
+      //
+      // 关键修复 (Playwright 实测验证): zoom/transform 只缩放元素本身, 但 CSS 里
+      // 所有 `--app-viewport-height: 100vh` (body/#app/AppShell 及 20+ 页面) 的
+      // 高度按未缩放坐标系解析 —— zoom 0.85 下它们只渲染 85vh, 视口底部露出
+      // html 背景就是我们看到的"白条/空白带"(legacy 下 #f3f3f3, 还带灰阴影接缝)。
+      // 给 html 设背景色只是换色, 空白带仍在。真正的修复是把该变量反补偿为
+      // `视口高 / zoom` (见 syncViewportHeightVar + useViewportHeight, 后者是
+      // 权威写入方, 兼移动端 URL bar 适配)。实测: shell 765px → 900px 填满视口,
+      // 灰阴影接缝消失, 幽灵滚动仅 3px。
       const body = document.body
       if (body) {
         const zoom = this.uiZoom
+        // 缩放值暴露给 useViewportHeight —— 它才是 --app-viewport-height 的权威
+        // 写入方 (要兼容移动端 URL bar 场景), 这里只补一次写, 保证 zoom 切换时
+        // 立即生效, 不用等 resize 事件。
+        document.documentElement.dataset.uiZoom = String(zoom)
+        this.syncViewportHeightVar()
         if (detectCssZoomSupport()) {
           body.style.zoom = String(zoom)
           body.style.transform = ''
           body.style.transformOrigin = ''
           body.style.width = ''
           body.style.minHeight = ''
-          // 关键: html 默认背景是白色 (浏览器默认), zoom 后 body 缩到 85vh,
-          // 下面 15vh 会露出白条。把 html 背景设为主题色解决。
-          // 用 --bg-primary 而不是 --bg-secondary, 保证与最外层兜底色一致。
+          // html 背景作兜底: 长页滚到底 / 回弹过滚动时, 露出的 canvas 用主题色
+          // 而不是浏览器默认白。用 --bg-primary 保证与最外层兜底色一致。
           html.style.backgroundColor = 'var(--bg-primary)'
         } else {
           const inverse = 1 / zoom
