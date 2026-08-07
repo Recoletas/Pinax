@@ -38,8 +38,6 @@ export default defineConfig({
           'markdown': ['marked', 'turndown'],
           // AI 服务
           'ai-services': [
-            './src/services/textExpander.js',
-            './src/services/textRewriter.js',
             './src/services/shotExporter.js'
           ]
         }

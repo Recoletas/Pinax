@@ -20,6 +20,13 @@
 - 用户手册 07-settings「图片 / 视频模型」小节重写为与文本一致，08-faq 注明内置图片/视频同样依赖 `MINIMAX_API_KEY`。
 - 验证（2026-08-07，分支 `integration/online-agents-canvas-video-f`）：定向 vitest 23/23（integration 10 / videoJobStateAndErrors 1 / textProviderConfigStore 12）；Vite build 通过（17s）；重启 3001 后端后 curl 冒烟 `POST /api/media/images` 以哨兵 key 提交，服务器解析 env 真 key 并代理 MiniMax，返回 HTTP 200 `{ok:true, image: data:image/jpeg;base64,…}`（785KB 真实 JPEG，环境已配 MINIMAX_API_KEY；未配时该端点按设计返回 `400 ERR_SERVER_KEY_MISSING`）；组件级 UI probe 2/2（图片/视频 picker 首项「MiniMax（内置）」+「内置」badge +「已由服务器配置」、无编辑按钮（有「…」查看）、默认选中、只读详情只给「使用此模型」）；`git diff --check` 干净。注：此前 3001 后端是加入图片路由前的旧进程，`Cannot POST /api/media/images`，已 `pm2 restart pinax` 加载新路由。
 
+## 2026-08-07 - 清理无运行引用的旧文件
+
+- 移除未被当前入口引用的旧 UI 快照：`WorkbenchPageHero.vue`、legacy `OpeningPage.vue`、legacy `StructuredSettingsPanel.vue` 和未接线的 `RuntimeConflictReview.vue`。
+- 移除已被 Agent Runtime 替代的 `textExpander.js`、`textRewriter.js`，以及无引用的 `poetryGeneration.js`、RPG 世界预设适配器、旧研究 Agent 和两个无引用 composable；同步删除 Vite 手动分包残留。
+- 移除未被部署脚本使用的重复 `ecosystem.config.cjs`，保留项目当前启动链使用的 `ecosystem.config.js`。
+- 地图引擎实验模块、测试专用历史 helper、当前世界书研究模块和历史计划/报告没有删除；本地演示媒体只加入 `.gitignore`，不触碰用户文件。
+
 ## 2026-08-07 - 手册渲染修复 + 素材/画布点明插画漫画视频 + 新增漫画章节
 
 - 修复手册 markdown 渲染 bug：`用**「配置列表 + 新增」**模式` 因 CommonMark flanking 规则（`**` 夹在汉字与全角标点 `「」` 之间无法开/闭加粗）字面泄漏 `**`。改为 `用**配置列表 + 新增**模式`，全手册扫描确认无其他泄漏。
