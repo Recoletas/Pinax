@@ -451,7 +451,10 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 1.75;
   color: var(--text-primary);
-  max-width: 880px;
+  /* 铺满视口下 880px 左对齐会留出 ~440px 右空区; 放宽阅读列并居中,
+     空区对称分布, 视觉上不再「右半边是空的」。超宽屏仍有舒适行长上限。 */
+  max-width: 1180px;
+  margin-inline: auto;
 }
 
 .docs-page__content :deep(h1),

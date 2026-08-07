@@ -19,7 +19,7 @@
 
 ## 2026-08-07 - 文档页铺满视口 + 文本模型配置统一为「配置列表 + 新增」
 
-- 文档页宽度：`.docs-page__layout` / 头部去掉 `max-width:1180px; margin:0 auto`（叠加 zoom 0.85 后原本只渲染 ~1003px 居中，两侧大块空白），正文阅读列放宽到 880px，现在铺满视口。
+- 文档页宽度：`.docs-page__layout` / 头部去掉 `max-width:1180px; margin:0 auto`（叠加 zoom 0.85 后原本只渲染 ~1003px 居中，两侧大块空白），正文阅读列放宽到 880px，现在铺满视口。后续微调：880px 左对齐在宽屏会留 ~440px 右空区，进一步放宽到 `max-width:1180px; margin-inline:auto` 居中，1440 视口实测内容 1003px、左右边距对称 113px。
 - 文本模型与图片/视频统一为「配置列表 + 新增」模式：新增 `textProviderConfigStore.js`（镜像 video store），`TextModelPicker.vue` + `ApiSettingsPanel.vue` 重写为 picker 交互（内置项只读，用户配置可任意编辑/删除）。
 - 内置 MiniMax 默认选中、开箱即用：`builtin:true, serverKey:true`，计算不落盘，key 由服务器 `server/.env` 的 `MINIMAX_API_KEY` 提供。客户端只拿到哨兵 `minimax-server-key`（真实 key 永不进浏览器），服务器在转发前替换。
 - 服务器新增零依赖 `server/loadEnv.js`（ESM import 最先执行）；`resolveTextApiKey` 在 chat/stream/test/models、agent-turn、结构化生成、text-model agent 四处统一注入；env 未配时返回「服务器未配置 MINIMAX_API_KEY」明确报错。
