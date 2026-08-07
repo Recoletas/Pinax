@@ -30,6 +30,8 @@
 
 ## Recently done
 
+- 2026-08-07：完成仓库死文件清理：移除未被现行路由、页面或 Agent Runtime 引用的旧 UI 快照、旧文本生成服务、无引用 composable、旧 RPG 世界预设适配器、旧研究 Agent 和重复 PM2 配置；同步清理 Vite 分包残留。地图引擎、测试专用 helper、当前世界书研究模块和历史文档保留。`docs/demo/` 与 `docs/presentation/` 仅加入 gitignore，不删除本地演示资产。
+
 - 2026-08-07：第一部分内测包整理完成。新增 [第一部分内测说明](./user-manual/07-internal-test.md)，明确结构化地点目录、概述整理、逐项采纳和地图衔接的操作顺序、通过标准与问题记录格式。当前 `npm run verify:full` 通过 31 files / 254 core tests、1 file / 12 visual tests、Vite/VitePress build 和 diff check；真实 provider 地点整理质量及现有服务双浏览器 smoke 仍待内测执行。
 - 2026-08-07：分支收口与项目说明完成。当前集成提交已准备快进合并到 `main`；`server-version` 未修改。README 补充当前产品方向、部署分支关系和服务器更新命令；新增 PolyForm Noncommercial 1.0.0 许可证及非商业 source-available 说明。演示媒体未纳入代码提交。
 - 2026-08-06：完成 G2.4-A 结构化地点目录 A0-A4 与 A5 本地门禁。结构化设定世界观分区可维护独立正式地点，支持完整 CRUD、删除影响确认和 `setting-places.v1` 分批整理审阅；逐项采纳使用概述 revision + 目标 entry fingerprint，不会因同批其他地点写入而整批过期。地图不再消费地理概述正文，只读取正式地点、显式关系和 geo-history。Luna 完成主体实现，Codex 修复 typed relation、编辑保留 binding/证据、metadata 合并、异常复位与移动布局。核心 188 + 视觉 12、Vite/VitePress build、diff check、主题2 1440/390 审计和两草稿逐项采纳浏览器 fixture 通过；真实 provider 地点整理质量 Gate 待执行。

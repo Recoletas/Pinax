@@ -73,6 +73,10 @@ docs/agent-runs/**/pids.txt
 LOCAL.md
 CLAUDE.local.md
 
+# Local demo exports (large, non-source artifacts)
+docs/demo/
+docs/presentation/
+
 # Editor
 .vscode/
 .idea/

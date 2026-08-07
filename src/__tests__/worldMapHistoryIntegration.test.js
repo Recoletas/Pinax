@@ -634,16 +634,12 @@ describe('GEO-HISTORY: map generation feeds a reviewed history draft', () => {
   it('keeps the same place context when crossing from the map to structured settings', () => {
     const page = readProjectFile('src/pages/StructuredSettings.vue')
     const workspace = readProjectFile('src/components/worldbook/StructuredSettingsWorkspace.vue')
-    const review = readProjectFile('src/components/worldbook/RuntimeConflictReview.vue')
 
     expect(page).toContain('route.query.placeId')
     expect(page).toContain('data-test="settings-place-context"')
     expect(page).toContain('openFocusedPlaceMap')
     expect(page).toContain("name: 'settings-world-map'")
-    expect(review).toContain('data-test="runtime-conflict-review"')
-    expect(review).toContain('gameStore.resolveRuntimeConflict')
-    expect(review).toContain('来源事件')
-    expect(review).toContain('采用所选分支')
+    expect(workspace).toContain('StructuredSettingsPanel')
   })
 
   it('exposes per-history-node and per-entry map entrances from the focused place context', () => {

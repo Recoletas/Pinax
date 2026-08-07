@@ -10,6 +10,13 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
 
+## 2026-08-07 - 清理无运行引用的旧文件
+
+- 移除未被当前入口引用的旧 UI 快照：`WorkbenchPageHero.vue`、legacy `OpeningPage.vue`、legacy `StructuredSettingsPanel.vue` 和未接线的 `RuntimeConflictReview.vue`。
+- 移除已被 Agent Runtime 替代的 `textExpander.js`、`textRewriter.js`，以及无引用的 `poetryGeneration.js`、RPG 世界预设适配器、旧研究 Agent 和两个无引用 composable；同步删除 Vite 手动分包残留。
+- 移除未被部署脚本使用的重复 `ecosystem.config.cjs`，保留项目当前启动链使用的 `ecosystem.config.js`。
+- 地图引擎实验模块、测试专用历史 helper、当前世界书研究模块和历史计划/报告没有删除；本地演示媒体只加入 `.gitignore`，不触碰用户文件。
+
 ## 2026-08-06 - 结构化地点目录取代地图正文猜测
 
 - 结构化设定的世界观分区在“地理环境”后新增连续式地点目录。城市、城镇、区域、河流和路线以独立世界书 `location` 条目维护，可搜索筛选、新建、编辑、删除并审阅关系影响；名称、别名、类型、尺度、上级、势力、地形提示、关键词、描述和有限 typed relations 共用统一地点合同。
