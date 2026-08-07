@@ -277,7 +277,7 @@ function handleSelectOnline() {
             data-test="shell-docs-chip"
             title="文档 (?)"
             @click="openDocs"
-          ><WorkbenchIcon name="book" :size="16" /></button>
+          ><WorkbenchIcon name="book" :size="16" /><span class="shell-meta-chip-label">文档</span></button>
           <button
             class="shell-meta-chip"
             type="button"
@@ -285,7 +285,7 @@ function handleSelectOnline() {
             data-test="shell-settings-chip"
             @click="openSettings('appearance')"
             title="设置"
-          ><WorkbenchIcon name="settings" :size="16" /></button>
+          ><WorkbenchIcon name="settings" :size="16" /><span class="shell-meta-chip-label">设置</span></button>
         </div>
       </header>
 
@@ -732,6 +732,7 @@ function handleSelectOnline() {
   padding: 0 12px 0 18px;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
   border-radius: 0;
   background: transparent;
@@ -742,15 +743,24 @@ function handleSelectOnline() {
   transition: border-color 0.16s ease, color 0.16s ease;
 }
 
+/* 带图标的 meta chip：图标即标记，不再画墨点，宽度随文字自适应 */
 .shell-meta-chip:has(svg) {
-  width: var(--control-height-md);
-  min-height: var(--control-height-md);
+  width: auto;
   justify-content: center;
-  padding: 0;
+  padding: 0 12px 0 14px;
 }
 
 .shell-meta-chip:has(svg)::before {
   display: none;
+}
+
+.shell-meta-chip-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .shell-meta-chip::before {
@@ -1071,6 +1081,10 @@ function handleSelectOnline() {
   .shell-meta-chip {
     font-size: 10px;
     padding: 0 10px;
+  }
+
+  .shell-meta-chip-label {
+    font-size: 10px;
   }
 
   .shell-subnav-btn {
