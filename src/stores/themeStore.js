@@ -8,12 +8,24 @@ export const VALID_COLOR_SCHEMES = ['light', 'dark']
 export const LS_VARIANT = 'app_theme_variant'
 export const LS_COLOR = 'app_theme'
 
-// Phase F: 全局 UI 缩放档位 (用户反馈默认 100% 偏大, 浏览器 75% 才合适)
+// Phase F: 全局 UI 缩放档位 (用户反馈默认 100% 偏大)
 // CSS `zoom` 是最干净的方案, Chrome/Safari/Edge 都支持; Firefox 不支持 zoom,
-// 通过额外应用 transform: scale() 兜底。
-export const DEFAULT_UI_ZOOM = 0.75
-export const VALID_UI_ZOOMS = [1, 0.85, 0.75, 0.65]
+// 用 transform: scale() 兜底 (注意: 两者只能选一个, 不能叠加)。
+export const DEFAULT_UI_ZOOM = 0.85
+export const VALID_UI_ZOOMS = [1, 0.95, 0.9, 0.85]
 export const LS_UI_ZOOM = 'app_ui_zoom'
+
+// 浏览器是否支持 CSS zoom (Chrome/Safari/Edge 支持, Firefox 不支持)
+function detectCssZoomSupport() {
+  if (typeof document === 'undefined') return false
+  try {
+    const probe = document.createElement('div')
+    probe.style.zoom = '1'
+    return probe.style.zoom === '1'
+  } catch (_) {
+    return false
+  }
+}
 
 export const useThemeStore = defineStore('theme', {
   state: () => ({
@@ -84,19 +96,26 @@ export const useThemeStore = defineStore('theme', {
       html.classList.remove('theme-dark', 'theme-light')
       html.classList.add(`theme-${this.colorScheme}`)
 
-      // 全局缩放: Chrome/Safari/Edge 用 zoom (一行解决),
-      // Firefox 走 transform: scale() 兜底。
+      // 全局缩放: 二选一, 不能叠加 (zoom + transform 会缩成 0.56 而非 0.75)。
+      // - Chrome/Safari/Edge: CSS zoom 自动调整布局盒, 不需要 width/height 补偿
+      // - Firefox: 走 transform: scale() + width/height 补偿, 避免底部空白
       const body = document.body
       if (body) {
-        body.style.zoom = String(this.uiZoom)
-        // Firefox 不支持 zoom, 用 transform 兜底。
-        // 注: 这里不补偿 width/height, 因为整体 viewport 不会因此滚出;
-        // 用户视觉上是 UI 缩小了, 这是我们想要的; 多余空间用背景填充或留空。
-        const inverse = 1 / this.uiZoom
-        body.style.transformOrigin = 'top left'
-        body.style.transform = `scale(${this.uiZoom})`
-        body.style.width = `${inverse * 100}%`
-        body.style.minHeight = `${inverse * 100}vh`
+        const zoom = this.uiZoom
+        if (detectCssZoomSupport()) {
+          body.style.zoom = String(zoom)
+          body.style.transform = ''
+          body.style.transformOrigin = ''
+          body.style.width = ''
+          body.style.minHeight = ''
+        } else {
+          const inverse = 1 / zoom
+          body.style.zoom = ''
+          body.style.transformOrigin = 'top left'
+          body.style.transform = `scale(${zoom})`
+          body.style.width = `${inverse * 100}%`
+          body.style.minHeight = `${inverse * 100}vh`
+        }
       }
     },
   },

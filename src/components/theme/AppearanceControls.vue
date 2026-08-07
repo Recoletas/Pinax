@@ -22,15 +22,15 @@ const current = computed(() =>
     || OPTIONS[0]
 )
 
-// Phase F: UI 缩放档位 — 用户反馈默认 100% 偏大, 默认改为 75%
+// Phase F (revised): UI 缩放档位 — 默认 85%, 不要太激进
 const ZOOM_OPTIONS = [
   { value: 1, label: '100%', testId: 'ui-zoom-100' },
-  { value: 0.85, label: '85%', testId: 'ui-zoom-85' },
-  { value: 0.75, label: '75%', testId: 'ui-zoom-75' },
-  { value: 0.65, label: '65%', testId: 'ui-zoom-65' }
+  { value: 0.95, label: '95%', testId: 'ui-zoom-95' },
+  { value: 0.9, label: '90%', testId: 'ui-zoom-90' },
+  { value: 0.85, label: '85%', testId: 'ui-zoom-85' }
 ]
 const currentZoom = computed(() => {
-  return ZOOM_OPTIONS.find((o) => o.value === themeStore.uiZoom) || ZOOM_OPTIONS[2]
+  return ZOOM_OPTIONS.find((o) => o.value === themeStore.uiZoom) || ZOOM_OPTIONS[3]
 })
 
 function pick(option) {
