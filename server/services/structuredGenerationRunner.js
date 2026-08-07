@@ -5,6 +5,7 @@ import {
   normalizeStructuredDraftPayload
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
+import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import {
   createStructuredCapabilityCache,
   downgradeStructuredProviderCapability,
@@ -220,7 +221,29 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
     req.once?.('aborted', abortRequest)
     res.once?.('close', abortClosedResponse)
     try {
-      const result = await runner(req.body || {}, { signal: controller.signal })
+      // 内置 MiniMax 客户端发来哨兵 key → 替换为服务器 env key (或给出明确报错)
+      const body = req.body || {}
+      if (body?.provider) {
+        body.provider.apiKey = resolveTextApiKey({
+          provider: body.provider.id,
+          baseUrl: body.provider.baseUrl,
+          apiKey: body.provider.apiKey
+        })
+        if (!body.provider.apiKey) {
+          const isMiniMaxUnconfigured =
+            /minimax/i.test(body.provider.id || '') || /minimaxi?\.com/i.test(body.provider.baseUrl || '')
+          if (isMiniMaxUnconfigured) {
+            return res.status(400).json(errorPayload(
+              new StructuredProviderError(
+                STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID,
+                '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
+              ),
+              body.requestId
+            ))
+          }
+        }
+      }
+      const result = await runner(body, { signal: controller.signal })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)
     } catch (error) {

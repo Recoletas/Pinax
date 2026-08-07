@@ -17,6 +17,16 @@
 - 生产文档查看器此前被 nginx SPA fallback 拦截：`/docs/user-manual/*` 返回 index.html 而非 JSON/MD。已加 `/docs/user-manual/` location（alias 到 `docs/user-manual/`），manifest 与章节现返回正确 MIME。
 - 266 测试全过，Vite build 通过。
 
+## 2026-08-07 - 文档页铺满视口 + 文本模型配置统一为「配置列表 + 新增」
+
+- 文档页宽度：`.docs-page__layout` / 头部去掉 `max-width:1180px; margin:0 auto`（叠加 zoom 0.85 后原本只渲染 ~1003px 居中，两侧大块空白），正文阅读列放宽到 880px，现在铺满视口。
+- 文本模型与图片/视频统一为「配置列表 + 新增」模式：新增 `textProviderConfigStore.js`（镜像 video store），`TextModelPicker.vue` + `ApiSettingsPanel.vue` 重写为 picker 交互（内置项只读，用户配置可任意编辑/删除）。
+- 内置 MiniMax 默认选中、开箱即用：`builtin:true, serverKey:true`，计算不落盘，key 由服务器 `server/.env` 的 `MINIMAX_API_KEY` 提供。客户端只拿到哨兵 `minimax-server-key`（真实 key 永不进浏览器），服务器在转发前替换。
+- 服务器新增零依赖 `server/loadEnv.js`（ESM import 最先执行）；`resolveTextApiKey` 在 chat/stream/test/models、agent-turn、结构化生成、text-model agent 四处统一注入；env 未配时返回「服务器未配置 MINIMAX_API_KEY」明确报错。
+- 老用户旧 `localStorage['apiSettings']` 一次性幂等迁移为「我的模型」可编辑配置（若旧配置即 MiniMax+空 key 则直接回退内置）；`getResolvedApiSettings`/`gameStore.loadApiSettings`/`useApiSettings`/`WelcomeView.hasApiKey` 全部改走新 store，`Boolean(apiKey)` 守卫零改动。
+- 用户手册 01-quickstart / 07-settings / 08-faq 已同步。内置 MiniMax 真正可用需在 `server/.env` 填 `MINIMAX_API_KEY=` 后重启服务器。
+- 验证（2026-08-07）：Vite build 通过；定向 vitest 13/13（textProviderConfigStore 12 + agentContracts 1）；服务器 curl 冒烟确认哨兵/空 key → 诚实报错；Playwright UI smoke 10/10（docs 铺满 1440、正文列 748=880×0.85、welcome 第 1 步 ✓、TextModelPicker 内置只读+新增可编辑、无 console error）；`git diff --check` 干净。分支 `integration/online-agents-canvas-video-f`，两个 commit（docs 全页界面+手册重组+铺满视口 / 文本模型配置统一）。
+
 ## 2026-08-06 - 结构化地点目录取代地图正文猜测
 
 - 结构化设定的世界观分区在“地理环境”后新增连续式地点目录。城市、城镇、区域、河流和路线以独立世界书 `location` 条目维护，可搜索筛选、新建、编辑、删除并审阅关系影响；名称、别名、类型、尺度、上级、势力、地形提示、关键词、描述和有限 typed relations 共用统一地点合同。

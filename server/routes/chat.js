@@ -5,6 +5,7 @@ import { memoryService } from '../services/memoryService.js'
 import { resolveGenerationToolProtocol } from '../../shared/generationToolContract.js'
 import { probeNarrativeProviderCapabilities } from '../services/providers/narrativeCapabilityProbe.js'
 import { probeStructuredProviderCapabilities } from '../services/structuredGenerationRunner.js'
+import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -360,7 +361,11 @@ export async function handleGenerateRequest(req, res) {
 
   const effectiveProvider = provider || 'openai'
   const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
-  const effectiveApiKey = apiKey
+  const effectiveApiKey = resolveTextApiKey({
+    provider: effectiveProvider,
+    baseUrl: effectiveBaseUrl,
+    apiKey
+  })
   const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
   const providerProtocol = resolveGenerationToolProtocol({
@@ -376,11 +381,14 @@ export async function handleGenerateRequest(req, res) {
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
   if (!effectiveApiKey) {
+    const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
     return sendApiError(
       res,
       400,
       'API_KEY_REQUIRED',
-      '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。',
+      isMiniMaxUnconfigured
+        ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
+        : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。',
       null,
       {
         requestId,
@@ -712,7 +720,11 @@ router.post('/stream', async (req, res) => {
 
   const effectiveProvider = provider || 'openai'
   const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
-  const effectiveApiKey = apiKey
+  const effectiveApiKey = resolveTextApiKey({
+    provider: effectiveProvider,
+    baseUrl: effectiveBaseUrl,
+    apiKey
+  })
   const effectiveModel = model || 'gpt-4o-mini'
   const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
   const providerProtocol = resolveGenerationToolProtocol({
@@ -728,10 +740,11 @@ router.post('/stream', async (req, res) => {
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
   if (!effectiveApiKey) {
+    const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
-    res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
+    res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: isMiniMaxUnconfigured ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。' : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
     return res.end()
   }
 
@@ -967,6 +980,7 @@ router.post('/stream', async (req, res) => {
 router.post('/models', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body
   const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
+  const effectiveApiKey = resolveTextApiKey({ provider, baseUrl: effectiveBaseUrl, apiKey })
 
   if (!effectiveBaseUrl) {
     return res.status(400).json({ error: 'baseUrl is required' })
@@ -974,8 +988,8 @@ router.post('/models', async (req, res) => {
 
   try {
     const headers = {}
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`
+    if (effectiveApiKey) {
+      headers['Authorization'] = `Bearer ${effectiveApiKey}`
     }
 
     // Different providers use different endpoints for model lists
@@ -1053,17 +1067,26 @@ router.post('/models', async (req, res) => {
 router.post('/test', async (req, res) => {
   const { baseUrl, apiKey, provider, model, format } = req.body
   const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
+  const effectiveApiKey = resolveTextApiKey({ provider, baseUrl: effectiveBaseUrl, apiKey })
 
   if (!effectiveBaseUrl) {
     return res.json({ ok: false, message: '请输入 Base URL' })
   }
-  if (!String(apiKey || '').trim()) return res.json({ ok: false, message: '请输入 API Key' })
+  if (!String(effectiveApiKey || '').trim()) {
+    const isMiniMaxUnconfigured = /minimax/i.test(provider || '') || /minimaxi?\.com/i.test(effectiveBaseUrl)
+    return res.json({
+      ok: false,
+      message: isMiniMaxUnconfigured
+        ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
+        : '请输入 API Key'
+    })
+  }
   if (!String(model || '').trim()) return res.json({ ok: false, message: '请输入模型名称' })
 
   const result = await probeNarrativeProviderCapabilities({
     id: provider,
     baseUrl: effectiveBaseUrl,
-    apiKey,
+    apiKey: effectiveApiKey,
     model,
     format
   })

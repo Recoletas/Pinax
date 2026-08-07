@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import { sendAction as apiSendAction, getState, recordMemory } from '../services/api'
 import {
+  resolveSelectedTextProviderConfig,
+  toResolvedTextApiSettings
+} from '../services/textProviderConfigStore'
+import {
   buildNarrativeFormatInstructions,
   ensureNarrativeMessage,
   getTrustedMessageSpeaker,
@@ -3508,9 +3512,16 @@ export const useGameStore = defineStore('game', {
     },
 
     loadApiSettings() {
-      const saved = localStorage.getItem('apiSettings')
-      if (saved) {
-        this.apiSettings = { ...this.apiSettings, ...JSON.parse(saved) }
+      // 文本模型配置现在走「配置列表 + 新增」模式 (textProviderConfigStore);
+      // 内置 MiniMax 时 apiKey 为哨兵, 由服务器替换为 env key。
+      const resolved = toResolvedTextApiSettings(resolveSelectedTextProviderConfig())
+      if (resolved) {
+        this.apiSettings = {
+          provider: resolved.provider || 'openai',
+          baseUrl: resolved.baseUrl || '',
+          apiKey: resolved.apiKey || '',
+          model: resolved.model || ''
+        }
       }
     }
   }

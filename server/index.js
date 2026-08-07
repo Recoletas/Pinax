@@ -1,3 +1,4 @@
+import './loadEnv.js' // 最先执行: 加载 server/.env 到 process.env
 import express from 'express'
 import cors from 'cors'
 import { createServer } from 'node:http'

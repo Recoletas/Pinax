@@ -245,6 +245,10 @@ import { useTheme } from '../composables/useTheme'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
+import {
+  resolveSelectedTextProviderConfig,
+  toResolvedTextApiSettings
+} from '../services/textProviderConfigStore'
 import { useTipState } from '../composables/useTipState'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import ArchiveStrip from '../components/folio/ArchiveStrip.vue'
@@ -261,7 +265,11 @@ const tip = useTipState()
 const router = useRouter()
 
 const featuredPreset = computed(() => seedWorldbookPresets[0] || null)
-const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
+// 直接从配置 store 解析 (内置 MiniMax 也视为「已配置」), 不受 gameStore 加载时机影响。
+const hasApiKey = computed(() => {
+  const resolved = toResolvedTextApiSettings(resolveSelectedTextProviderConfig())
+  return Boolean(String(resolved.apiKey || '').trim())
+})
 const hasWorldbooks = computed(() => (worldStore.worldbooksIndex || []).length > 0)
 const hasSessions = computed(() => (gameStore.sessions || []).length > 0)
 function openApiSettings() {

@@ -12,6 +12,10 @@ import {
   validateGenerationAgentTurnRequest
 } from '../../shared/generationToolContract'
 import { STRUCTURED_GENERATION_TIMEOUTS } from '../../shared/structuredSettingContract'
+import {
+  resolveSelectedTextProviderConfig,
+  toResolvedTextApiSettings
+} from './textProviderConfigStore'
 
 const api = axios.create({
   baseURL: '/api',
@@ -107,31 +111,25 @@ export async function getState(gameId) {
 // ---------------- AI 与 聊天 (核心修改区) ----------------
 
 /**
- * Read the per-browser API configuration.
+ * Read the resolved text-model configuration.
  *
- * Settings live ONLY in the user's localStorage. The server never sees
- * another user's API key, never persists them, and never has a global
- * `secrets.json` to leak. The frontend injects `apiKey` (and mem0 keys) into
- * the request body of every /api/* call that needs them.
+ * 用户自定义配置存浏览器 localStorage, 由 textProviderConfigStore 解析;
+ * 内置 MiniMax 由服务器 .env 提供密钥, 客户端拿到的是哨兵 apiKey
+ * (MINIMAX_SERVER_KEY_SENTINEL), 服务器在转发前替换为真实 key。
+ * 返回形状与旧版一致 ({ provider, baseUrl, apiKey, model, format }), 消费方零改动。
  */
 export async function getResolvedApiSettings() {
-  const localRaw = getItem(STORAGE_KEYS.API_SETTINGS) || {}
-  const merged = {
-    provider: localRaw.provider || null,
-    baseUrl: localRaw.baseUrl || null,
-    apiKey: localRaw.apiKey || null,
-    model: localRaw.model || null,
-    format: localRaw.format || null
-  }
+  const settings = toResolvedTextApiSettings(resolveSelectedTextProviderConfig())
 
-  console.info('[API] Resolved settings (localStorage only):', {
-    provider: merged.provider,
-    baseUrl: merged.baseUrl,
-    model: merged.model,
-    hasApiKey: Boolean(merged.apiKey)
+  console.info('[API] Resolved text settings:', {
+    provider: settings.provider,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    serverKey: settings.serverKey,
+    hasClientKey: Boolean(settings.apiKey && !settings.serverKey)
   })
 
-  return merged
+  return settings
 }
 
 function createNarrativeAgentError(error) {

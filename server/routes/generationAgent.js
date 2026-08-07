@@ -4,6 +4,7 @@ import {
   NarrativeProviderError,
   runToolCallingProviderTurn
 } from '../services/toolCallingProviderAdapter.js'
+import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 
 function statusForError(code) {
   if (code === 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED') return 422
@@ -48,6 +49,25 @@ export function createGenerationAgentTurnHandler({
         safeErrorPayload(validation.error, req.body?.requestId || req.body?.request_id || '')
       )
     }
+    // 客户端对内置 MiniMax 发送的是哨兵 key — 在此替换为服务器 env key (或给出明确报错)
+    const request = validation.request
+    request.provider.apiKey = resolveTextApiKey({
+      provider: request.provider.id,
+      baseUrl: request.provider.baseUrl,
+      apiKey: request.provider.apiKey
+    })
+    if (!request.provider.apiKey) {
+      const isMiniMaxUnconfigured =
+        /minimax/i.test(request.provider.id) || /minimaxi?\.com/i.test(request.provider.baseUrl)
+      return res.status(400).json(safeErrorPayload(
+        Object.assign(new Error(
+          isMiniMaxUnconfigured
+            ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
+            : 'provider.apiKey 不能为空'
+        ), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
+        request.requestId
+      ))
+    }
     const controller = new AbortController()
     const abortRequest = () => controller.abort()
     const abortClosedResponse = () => {
@@ -56,7 +76,7 @@ export function createGenerationAgentTurnHandler({
     req.once?.('aborted', abortRequest)
     res.once?.('close', abortClosedResponse)
     try {
-      const result = await runner(validation.request, { signal: controller.signal })
+      const result = await runner(request, { signal: controller.signal })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)
     } catch (error) {

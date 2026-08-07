@@ -1,4 +1,5 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
+import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
@@ -21,11 +22,15 @@ function extractText(data) {
 function resolveConfig(taskMeta) {
   const config = taskMeta?.options?.providerConfig || {}
   const baseUrl = String(config.baseUrl || '').trim().replace(/\/+$/, '')
-  const apiKey = String(config.apiKey || '').trim()
+  const providerId = String(config.provider || config.id || '').trim()
+  const apiKey = resolveTextApiKey({ provider: providerId, baseUrl, apiKey: config.apiKey })
   const model = String(config.model || '').trim()
   const format = config.format === 'anthropic' ? 'anthropic' : 'openai'
   if (!/^https?:\/\//i.test(baseUrl) || !apiKey || !model) {
-    const error = new Error('text-model provider 缺少有效的 baseUrl、apiKey 或 model')
+    const isMiniMax = /minimax/i.test(providerId) || /minimaxi?\.com/i.test(baseUrl)
+    const error = new Error(isMiniMax
+      ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
+      : 'text-model provider 缺少有效的 baseUrl、apiKey 或 model')
     error.code = 'AGENT_PROVIDER_CONFIG_INVALID'
     error.retryable = false
     throw error
@@ -43,6 +48,11 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
     ...(anthropic
       ? { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' }
       : { Authorization: `Bearer ${config.apiKey}` })
+  }
+  // MiniMax 的 Anthropic 兼容端点用 Bearer 而不是 x-api-key
+  if (anthropic && /minimaxi?\.com/i.test(url)) {
+    delete headers['x-api-key']
+    headers['Authorization'] = `Bearer ${config.apiKey}`
   }
   const body = anthropic
     ? {

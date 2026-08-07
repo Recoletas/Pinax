@@ -1,374 +1,97 @@
 <template>
   <div class="api-settings-panel">
-    <div class="api-section">
-      <div class="setting-item">
-        <label>API 提供商</label>
-        <select v-model="apiSettings.provider" class="input" @change="onProviderChange">
-          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </div>
-
-      <div class="setting-item">
-        <label>API Key</label>
-        <div class="api-key-input">
-          <input
-            :type="showApiKey ? 'text' : 'password'"
-            v-model="apiSettings.apiKey"
-            class="input"
-            placeholder="输入 API Key..."
-            autocomplete="off"
-          />
-          <button class="toggle-visibility" type="button" @click="showApiKey = !showApiKey">
-            {{ showApiKey ? '隐藏' : '显示' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="setting-item">
-        <label>Base URL (例如 https://api.deepseek.com/v1)</label>
-        <input
-          v-model="apiSettings.baseUrl"
-          class="input"
-          placeholder="请包含 /v1 路径"
-          list="provider-urls"
-          @blur="onUrlChange"
-        />
-        <datalist id="provider-urls">
-          <option v-for="p in providers" :key="p.id" :value="p.baseUrl" />
-        </datalist>
-      </div>
-
-      <div class="setting-item">
-        <label>模型 (例如 deepseek-chat)</label>
-        <div class="model-select-wrapper">
-          <input
-            v-model="apiSettings.model"
-            class="input"
-            :disabled="isLoading"
-            list="model-suggestions"
-            placeholder="选择或手动输入模型名称..."
-          />
-          <button
-            type="button"
-            class="reload-models-btn"
-            :disabled="isLoading || !apiSettings?.apiKey"
-            :title="isLoading ? '正在拉取...' : '重新拉取模型列表'"
-            aria-label="重新拉取模型列表"
-            @click="loadModels"
-          >
-            <span aria-hidden="true">⟳</span>
-          </button>
-          <datalist id="model-suggestions">
-            <option v-for="m in detectedModels" :key="m" :value="m"></option>
-          </datalist>
-          <span v-if="isLoading" class="loading-indicator">获取模型中...</span>
-        </div>
-      </div>
-
-      <div class="setting-presets">
-        <span class="presets-label">快速选择：</span>
-        <button
-          v-for="p in providers.slice(0, 8)"
-          :key="p.id"
-          class="preset-btn"
-          :class="{ active: apiSettings.provider === p.id }"
-          type="button"
-          @click="applyProvider(p.id)"
-        >
-          {{ p.name }}
-        </button>
-      </div>
-
-      <div class="setting-info">
-        <p>{{ currentProvider?.description || '建议：DeepSeek 模型请确保 Base URL 以 /v1 结尾' }}</p>
-      </div>
-
-      <div v-if="testResult" :class="['test-result', testResult.ok ? 'test-ok' : 'test-error']">
-        <strong>{{ testResult.message }}</strong>
-        <div v-if="testResult.structured" class="structured-test-result">
-          <span :class="testResult.structured.available ? 'capability-ok' : 'capability-error'">
-            结构化设定：{{ testResult.structured.available ? '可用' : '不可用' }}
-          </span>
-          <span v-if="testResult.structured.available">
-            实际模式：{{ testResult.structured.mode }} · {{ testResult.structured.protocol }}
-          </span>
-          <span v-if="testResult.structured.available">
-            reasoning：{{ testResult.structured.reasoningControl === 'none' ? '已关闭/无独立思考块' : testResult.structured.reasoningControl }}
-          </span>
-          <span v-if="testResult.structured.latencyMs">
-            探测：{{ testResult.structured.latencyMs }}ms
-          </span>
-          <span v-if="!testResult.structured.available && testResult.structured.message" class="capability-error">
-            {{ testResult.structured.message }}
-          </span>
-        </div>
-      </div>
-
-      <div class="panel-actions">
-        <button class="btn" type="button" @click="testConn" :disabled="testing || !apiSettings.baseUrl">
-          {{ testing ? '测试中...' : '测试连接' }}
-        </button>
-        <button class="btn btn-primary" type="button" @click="handleSave">
-          {{ saveFeedback ? '已保存' : '保存设置' }}
-        </button>
-      </div>
+    <div class="ai-settings-head">
+      <strong>AI 文本模型</strong>
+      <p>内置 MiniMax 开箱即用（密钥由服务器提供，不可编辑）。也可添加自己的模型配置，自定义配置可任意编辑、删除。</p>
     </div>
+
+    <TextModelPicker
+      :model-value="selectedId"
+      :configs="configs"
+      @update:model-value="handleSelect"
+      @configs-updated="handleConfigsUpdated"
+    />
+
+    <p v-if="currentNote" class="ai-settings-note" role="status">{{ currentNote }}</p>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useApiSettings } from '@/composables/useApiSettings'
+import { computed, onMounted, ref } from 'vue'
+import TextModelPicker from '../text/TextModelPicker.vue'
+import {
+  getSelectedTextProviderConfigId,
+  listTextProviderConfigs,
+  resolveSelectedTextProviderConfig,
+  saveSelectedTextProviderConfigId
+} from '../../services/textProviderConfigStore'
 
-const {
-  apiSettings,
-  isLoading,
-  detectedModels,
-  testResult,
-  testing,
-  currentProvider,
-  providers,
-  loadSettings,
-  saveToLocal,
-  applyProvider,
-  loadModels,
-  testConn
-} = useApiSettings()
+const selectedId = ref('')
+const configs = ref([])
 
-const showApiKey = ref(false)
-const isInitializing = ref(true)
-const saveFeedback = ref(false)
-
-onMounted(async () => {
-  await loadSettings()
-  if (apiSettings.value?.baseUrl && apiSettings.value?.apiKey) {
-    loadModels()
-  } else {
-    const p = providers.find(item => item.id === apiSettings.value?.provider)
-    if (p?.baseUrl) apiSettings.value.baseUrl = p.baseUrl
+const currentNote = computed(() => {
+  const resolved = resolveSelectedTextProviderConfig()
+  if (resolved?.builtin) {
+    return '当前使用内置 MiniMax：密钥由服务器配置，开箱即用。'
   }
-  isInitializing.value = false
+  return `当前使用「${resolved?.name || '自定义配置'}」，模型 ${resolved?.model || '—'}。`
 })
 
-function onProviderChange() {
-  if (isInitializing.value) return
-  applyProvider(apiSettings.value.provider)
-  if (apiSettings.value.provider === 'deepseek' && !apiSettings.value.model) {
-    apiSettings.value.model = 'deepseek-chat'
+onMounted(() => {
+  configs.value = listTextProviderConfigs()
+  const resolved = resolveSelectedTextProviderConfig()
+  selectedId.value = resolved.id
+  // 选中失效时收敛回内置, 保持 store 干净
+  if (getSelectedTextProviderConfigId() !== resolved.id) {
+    saveSelectedTextProviderConfigId(resolved.id)
   }
-  loadModels()
+})
+
+function handleSelect(id) {
+  selectedId.value = id
+  saveSelectedTextProviderConfigId(id)
 }
 
-async function onUrlChange() {
-  if (apiSettings.value?.baseUrl && apiSettings.value?.apiKey) {
-    loadModels()
-  }
-}
-
-function handleSave() {
-  saveToLocal()
-  saveFeedback.value = true
-  setTimeout(() => { saveFeedback.value = false }, 1800)
+function handleConfigsUpdated(next) {
+  configs.value = next
+  const resolved = resolveSelectedTextProviderConfig()
+  selectedId.value = resolved.id
 }
 </script>
 
 <style scoped>
 .api-settings-panel {
-  max-width: 520px;
-}
-
-.api-section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.setting-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.setting-item label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.input {
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  border-radius: 4px;
-  font-size: 13px;
-  transition: border-color 0.15s;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.input::placeholder {
-  color: var(--text-muted);
-}
-
-.input:disabled {
-  opacity: 0.5;
-}
-
-.api-key-input {
-  display: flex;
-  gap: 8px;
-}
-
-.api-key-input .input {
-  flex: 1;
-}
-
-.toggle-visibility {
-  padding: 0 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.toggle-visibility:hover {
-  background: var(--bg-hover);
-}
-
-.model-select-wrapper {
-  position: relative;
-}
-
-.loading-indicator {
-  font-size: 11px;
-  color: var(--accent);
-  margin-top: 4px;
-  display: block;
-}
-
-.setting-presets {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+.ai-settings-head {
+  display: grid;
   gap: 4px;
 }
 
-.presets-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-right: 4px;
-}
-
-.preset-btn {
-  font-size: 11px;
-  padding: 4px 8px;
-  cursor: pointer;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 4px;
-  transition: all 0.15s;
-}
-
-.preset-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.preset-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--surface-raised);
-}
-
-.setting-info {
-  padding: 12px;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
+.ai-settings-head strong {
   font-size: 13px;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.setting-info p {
+.ai-settings-head p {
   margin: 0;
-}
-
-.test-result {
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.structured-test-result {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 6px;
-  color: var(--text-secondary);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 
-.capability-ok {
-  color: var(--success, #3b7d5a);
-  font-weight: 700;
-}
-
-.capability-error {
-  color: var(--danger, #a34d4d);
-}
-
-.test-ok {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--text-primary);
-}
-
-.test-error {
-  background: color-mix(in srgb, var(--danger, #ef4444) 14%, transparent);
-  color: var(--danger, #ef4444);
-}
-
-.panel-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 8px;
-}
-
-.btn {
-  padding: 8px 16px;
-  cursor: pointer;
+.ai-settings-note {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold, var(--accent)) 45%, var(--border));
   border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 13px;
-  transition: all 0.15s;
-}
-
-.btn:hover {
-  background: var(--bg-hover);
-}
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: color-mix(in srgb, var(--surface-raised) 100%, transparent);
-}
-
-.btn-primary:hover {
-  filter: brightness(1.12);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-tertiary)) 80%, transparent);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 </style>

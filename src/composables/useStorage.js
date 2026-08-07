@@ -53,6 +53,10 @@ export const STORAGE_KEYS = {
   MEDIA_ASSETS: 'media_assets_v1',
   COMIC_PAGES: 'comic_pages_v1',
 
+  // 文本模型配置 (配置列表 + 新增模式, 同图片/视频)
+  TEXT_MODEL_CONFIGS: 'text_model_configs',
+  TEXT_MODEL_SELECTED: 'text_model_selected',
+
   // 可玩的世界书入口
   PLAYABLE_WORLD_ENTRY_INTENT: 'playable_world_entry_intent_v1',
 
