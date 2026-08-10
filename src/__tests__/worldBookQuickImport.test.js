@@ -137,6 +137,73 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     expect(cta.exists()).toBe(true)
   })
 
+  it('S17-3b: hero 显示当前世界书时，「开始冒险」不再重复生成新世界书', async () => {
+    const worldStore = mockWorldStoreLifecycle()
+    worldStore.worldbooksIndex = [{ id: 'wb-active', name: '我的世界', entryCount: 0 }]
+    worldStore.activeWorldbook = { id: 'wb-active', name: '我的世界', entries: [] }
+    worldStore.createWorldbook = vi.fn().mockResolvedValue({ id: 'wb-new' })
+    worldStore.setActiveWorldbook = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
+    await flushPromises()
+    const hero = wrapper.find('.worldbook-hero')
+    expect(hero.text()).toContain('我的世界')
+    await wrapper.find('[data-test="hero-cta"]').trigger('click')
+    await flushPromises()
+    expect(worldStore.createWorldbook).not.toHaveBeenCalled()
+  })
+
+  it('S17-3c: 同 preset 第二次点击直接复用既有副本，不新建第二份', async () => {
+    const worldStore = mockWorldStoreLifecycle()
+    worldStore.worldbooksIndex = [
+      { id: 'wb-existing', name: '边境王国副本', entryCount: 39, sourcePresetId: 'preset-border' }
+    ]
+    worldStore.findWorldbookByPreset = (presetId) =>
+      worldStore.worldbooksIndex.find((w) => w.sourcePresetId === presetId) || null
+    worldStore.createWorldbook = vi.fn().mockResolvedValue({ id: 'wb-new', name: '新的' })
+    worldStore.setActiveWorldbook = vi.fn().mockResolvedValue(undefined)
+    worldStore.loadWorldbooksIndex = vi.fn().mockResolvedValue(undefined)
+    const preset = { id: 'preset-border', name: '边境王国', entries: [], groups: [] }
+    const { enterPresetWorld } = await import('@/services/worldbookQuickImportHelpers')
+    const created = await enterPresetWorld(worldStore, { push: vi.fn() }, preset)
+    expect(created?.id).toBe('wb-existing')
+    expect(worldStore.createWorldbook).not.toHaveBeenCalled()
+  })
+
+  it('S17-3d: 旧版本副本没有 sourcePresetId，但内容签名一致时也能复用', async () => {
+    const worldStore = mockWorldStoreLifecycle()
+    const preset = {
+      id: 'preset-border',
+      name: '边境王国',
+      description: 'desc',
+      entries: [{ name: 'c2' }, { name: 'c1' }],
+      groups: []
+    }
+    const { presetSignature, enterPresetWorld } = await import('@/services/worldbookQuickImportHelpers')
+    const sig = presetSignature(preset)
+    // 旧版本产生的副本：没有 sourcePresetId，只有 presetSignature
+    worldStore.worldbooksIndex = [
+      { id: 'wb-legacy', name: '边境王国副本', entryCount: 39, presetSignature: sig }
+    ]
+    // store 的 getter 走 sourcePresetId → signature 兜底
+    worldStore.findWorldbookByPreset = (presetId, signature) => {
+      let m = worldStore.worldbooksIndex.find((w) => w.sourcePresetId === presetId)
+      if (m) return m
+      if (signature) {
+        m = worldStore.worldbooksIndex.find((w) => w.presetSignature === signature)
+        if (m) return m
+      }
+      return null
+    }
+    worldStore.createWorldbook = vi.fn().mockResolvedValue({ id: 'wb-new' })
+    worldStore.setActiveWorldbook = vi.fn().mockResolvedValue(undefined)
+    worldStore.loadWorldbooksIndex = vi.fn().mockResolvedValue(undefined)
+    worldStore.addEntry = vi.fn().mockResolvedValue(undefined)
+    worldStore.updateWorldbook = vi.fn().mockResolvedValue(undefined)
+    const created = await enterPresetWorld(worldStore, { push: vi.fn() }, preset)
+    expect(created?.id).toBe('wb-legacy')
+    expect(worldStore.createWorldbook).not.toHaveBeenCalled()
+  })
+
   it('S17-4: MyWorldbooks select 切换 → 调 worldStore.setActiveWorldbook', async () => {
     const worldStore = mockWorldStoreLifecycle()
     worldStore.worldbooksIndex = [
