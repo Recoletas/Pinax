@@ -5,16 +5,17 @@ import { ref } from 'vue'
  * caller (AppShell trigger, InputArea hint, WelcomeView onboarding) reads
  * and writes the same value without Pinia ceremony.
  *
- * open(tab?) — open with optional default section: 'appearance' | 'ai' | 'storage'.
+ * open(tab?) — open with optional default section: 'ai' | 'storage'.
+ * (外观/主题区已按用户要求移除，只有 AI 配置 与 存储。)
  */
 
 const isOpen = ref(false)
-const activeSection = ref('appearance')
+const activeSection = ref('ai')
 
-const VALID_SECTIONS = new Set(['appearance', 'ai', 'storage'])
+const VALID_SECTIONS = new Set(['ai', 'storage'])
 
-function open(section = 'appearance') {
-  activeSection.value = VALID_SECTIONS.has(section) ? section : 'appearance'
+function open(section = 'ai') {
+  activeSection.value = VALID_SECTIONS.has(section) ? section : 'ai'
   isOpen.value = true
 }
 

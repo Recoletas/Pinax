@@ -283,7 +283,7 @@ function handleSelectOnline() {
             type="button"
             aria-label="打开设置"
             data-test="shell-settings-chip"
-            @click="openSettings('appearance')"
+            @click="openSettings('ai')"
             title="设置"
           ><WorkbenchIcon name="settings" :size="16" /><span class="shell-meta-chip-label">设置</span></button>
         </div>

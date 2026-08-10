@@ -27,19 +27,7 @@
       </nav>
 
       <div class="settings-modal__body">
-        <section
-          v-show="activeSection === 'appearance'"
-          class="settings-section"
-          role="tabpanel"
-          aria-label="外观"
-        >
-          <!-- K5 (2026-06-27): 简化文案 — 不再分 "主题变体 + 明暗模式",
-               主题切换只切 variant (主题1/主题2). 明暗模式 由 WelcomeView
-               顶部单独的 light/dark pill 切, 不在 settings popup 里. -->
-          <p class="settings-section__hint">主题选择,切换后立即生效。</p>
-          <AppearanceControls />
-        </section>
-
+        <!-- 全局锁定主题2亮色：外观（主题/明暗/缩放）配置区已移除（用户要求） -->
         <section
           v-show="activeSection === 'ai'"
           class="settings-section"
@@ -107,7 +95,6 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
-import AppearanceControls from '../theme/AppearanceControls.vue'
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
@@ -125,8 +112,8 @@ const backupPlan = ref(null)
 const backupFeedback = ref('')
 const backupBusy = ref(false)
 
+// 全局锁定主题2亮色：外观 tab（主题/明暗/缩放）已移除（用户要求）
 const tabs = [
-  { key: 'appearance', label: '外观' },
   { key: 'ai', label: 'AI 配置' },
   { key: 'storage', label: '存储' }
 ]

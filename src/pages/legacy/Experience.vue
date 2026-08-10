@@ -27,7 +27,8 @@
           {{ assetSummaryLoading ? '整理中' : '整理素材' }}
         </button>
         <button class="action-btn" @click="showSessionPicker = true">会话</button>
-        <button class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+        <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
+        <button v-if="false" class="theme-toggle" type="button" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
           <span class="theme-icon">
             <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
               <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
