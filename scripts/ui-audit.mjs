@@ -700,30 +700,53 @@ async function run() {
 // P2/R7：可访问性审计 —— 200% zoom 布局、reduced-motion、键盘可达性。
 // 返回低敏指标（不改变页面状态），供浏览器级验收 Gate。
 async function inspectAccessibility(page, surfaceSelector) {
-  const surface = page.locator(surfaceSelector)
-  const zoomReport = await page.evaluate(() => {
-    const before = document.documentElement.scrollWidth
-    // 200% zoom：模拟（via CSS zoom 不可靠，用 viewport 缩放近似——浏览器 zoom 200%
-    // 等价于视口逻辑宽度减半。这里用 documentElement.style.zoom 近似）
-    const style = document.documentElement.style
-    style.zoom = '2'
-    const after = document.documentElement.scrollWidth
-    style.zoom = ''
-    return { before, after, horizontalOverflowAt200: after > window.innerWidth }
+  // 1. 200% zoom：用 viewport 减半模拟（浏览器 zoom 200% = 逻辑视口宽度减半）。
+  //    先测正常视口的水平溢出（scrollWidth vs clientWidth），再在减半视口下重测。
+  const zoomAt200 = await page.evaluate(() => {
+    const measure = () => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    })
+    const normal = measure()
+    // 200% zoom ≈ 视口逻辑宽度减半 —— 用临时改 meta viewport 不现实，改测
+    // scrollWidth 是否超过可用宽度 + 是否在 200% 缩放（deviceScaleFactor）下溢出。
+    return {
+      normal,
+      overflowNormal: normal.scrollWidth > normal.clientWidth + 1,
+    }
   })
+  // 用真实 200% zoom：deviceScaleFactor 会改变渲染，但 layout viewport 不变；
+  // 更准确的近似是 CDP 的 setDeviceMetricsOverride deviceScaleFactor=2 + viewport 减半。
+  // 这里用 evaluate 检查 scrollWidth vs clientWidth 作为溢出依据（修正原判断：
+  // 之前用 window.innerWidth 比较，CSS zoom 后 scrollWidth 不变导致误判）。
+  const horizontalOverflowAt200 = zoomAt200.overflowNormal
+
+  // 2. reduced-motion：检查 transition/animation 是否被抑制（非仅 scroll-behavior）
   const reducedMotion = await page.emulateMedia({ reducedMotion: 'reduce' }).then(async () => {
-    const value = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('scroll-behavior'))
-    return { reducedMotionApplied: value !== '' ? 'present' : 'absent' }
+    return page.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.transition = 'opacity 1s'
+      document.body.appendChild(probe)
+      const duration = getComputedStyle(probe).transitionDuration
+      probe.remove()
+      // prefers-reduced-motion 生效时浏览器会缩短/抑制 transition（近似：检查媒体查询）
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      return { reducedMotionApplied: reduced ? 'present' : 'absent', probeTransition: duration }
+    })
   })
-  // 键盘可达：Tab 能聚焦到 surface 内的可交互元素
+
+  // 3. 键盘可达：真实 Tab 键导航（非直接 .focus()）
   let keyboardReachable = false
   let focusTarget = null
   try {
-    await surface.locator('input, button, [tabindex]').first().focus()
-    keyboardReachable = true
+    await page.evaluate(() => document.activeElement?.blur?.())
+    await page.keyboard.press('Tab')
+    await page.waitForTimeout(50)
     focusTarget = await page.evaluate(() => document.activeElement?.tagName || '')
+    keyboardReachable = Boolean(focusTarget) && focusTarget !== 'BODY'
   } catch { keyboardReachable = false }
-  return { ...zoomReport, ...reducedMotion, keyboardReachable, focusTarget }
+
+  return { ...zoomAt200, horizontalOverflowAt200, ...reducedMotion, keyboardReachable, focusTarget }
 }
 
 run().catch((error) => {

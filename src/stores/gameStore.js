@@ -941,6 +941,8 @@ export const useGameStore = defineStore('game', {
     pendingTurnRecord: null,
     // R1b：当前活跃分支。regenerate 时新建分支并切换，displayMessages 按它过滤。
     activeBranchId: 'main',
+    // P1-3：新分支的分叉父 turn（重生成时记录，collectBranchTurnChain 回退用）
+    pendingBranchParentTurnId: null,
     // R6：仅下一轮导演注（由 executeExperienceAction 'director-note' 设置，发送时消费）
     pendingDirectorNote: null,
     // P1-5：最近一次已提交回合的回执（低敏摘要，体验页渲染用）
@@ -2653,9 +2655,12 @@ export const useGameStore = defineStore('game', {
       let current = null
       if (branchTurns.length > 0) {
         current = branchTurns[0]
+      } else if (this.pendingBranchParentTurnId && this.turnRecords[this.pendingBranchParentTurnId]) {
+        // P1-3：当前分支尚无 committed turn（新分支刚创建）→ 从明确的分叉父 turn 建链，
+        // 不依赖可能丢失的全局 lastCommittedTurnId。
+        current = this.turnRecords[this.pendingBranchParentTurnId]
       } else if (this.lastCommittedTurnId && this.turnRecords[this.lastCommittedTurnId]) {
-        // P0-1：当前分支尚无 committed turn（新分支刚创建/重生成中）→
-        // 回退到最近提交 turn 的链，保证新分支生成完成前不丢失前文。
+        // 兜底：无 pending 分叉父 turn 时回退到最近提交 turn 的链。
         current = this.turnRecords[this.lastCommittedTurnId]
       } else {
         return chain
@@ -2745,6 +2750,9 @@ export const useGameStore = defineStore('game', {
       const oldBranchId = this.activeBranchId || 'main'
       const newBranchId = `branch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       this.activeBranchId = newBranchId
+      // P1-3：记录分叉父 turn —— 新分支尚无 committed turn 时，collectBranchTurnChain
+      // 从它建链（而非依赖可能丢失的全局 lastCommittedTurnId）。
+      this.pendingBranchParentTurnId = parentTurn?.id || null
       // 标记被重写部分为 superseded（保留标记，供切换按钮定位）
       for (let i = index + 1; i < this.messages.length; i++) {
         const m = this.messages[i]
@@ -2776,16 +2784,12 @@ export const useGameStore = defineStore('game', {
         const sourceUserMessageId = targetMessage?.id || ''
         debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
         const outcome = await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
-        // P0-3：生成失败/取消时恢复原分支 —— 不把用户留在没有成功候选的新分支。
+        // P0-1：生成失败/取消时恢复原分支 —— 复用 switchBranch 的完整恢复逻辑
+        // （恢复该分支 postRuntimeSnapshot + 重算 superseded + 同步游标 + 重建 chatHistory），
+        // 保证旧回复重新可见的同时，地点/时间/角色状态也回到旧分支的提交后状态。
         if (outcome !== 'success' && this.activeBranchId === newBranchId) {
           debugLog('[regenerateFrom] generation failed, restore branch:', oldBranchId)
-          this.activeBranchId = oldBranchId
-          // 恢复被标记 superseded 的旧消息（重生成失败，旧回复应重新可见）
-          for (const m of this.messages || []) {
-            if (m && typeof m === 'object' && m.branchId !== newBranchId) m.superseded = false
-          }
-          this.rebuildChatHistory()
-          this.saveCurrentSession()
+          this.switchBranch(oldBranchId)
         }
         this._isRegenerating = false
         debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
@@ -2837,12 +2841,17 @@ export const useGameStore = defineStore('game', {
             }
             return { ok: false, error: 'MISSING_INDEX' }
           case 'branch':
-            // payload: { index } —— 从该消息处建立分支（保留旧消息，切新分支）
-            if (typeof payload.index === 'number') {
-              await this.regenerateFrom(payload.index)
+            // payload: { index } —— 从该消息处建立分支（保留旧消息，切新分支）。
+            // 无 index（/branch 菜单）时，从最后一条 user 消息处分支。
+            {
+              let branchIndex = payload.index
+              if (typeof branchIndex !== 'number') {
+                const lastUserIndex = (this.messages || []).findLastIndex((m) => m?.role === 'user')
+                branchIndex = lastUserIndex >= 0 ? lastUserIndex : 0
+              }
+              await this.regenerateFrom(branchIndex)
               return { ok: true }
             }
-            return { ok: false, error: 'MISSING_INDEX' }
           case 'director-note':
             // payload: { text } —— 设置仅下一轮导演注（由发送链路消费）
             this.pendingDirectorNote = String(payload.text || '').trim() || null
@@ -3289,6 +3298,7 @@ export const useGameStore = defineStore('game', {
           this.lastCommittedTurnId = turnRecord.id
           this.pendingTurnRecord = null
           this.lastTurnReceipt = receipt  // P1-5：体验页渲染最近一次回执
+          this.pendingBranchParentTurnId = null  // P1-3：新分支已 committed，清理回退游标
         }
 
         // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为一个事务落盘

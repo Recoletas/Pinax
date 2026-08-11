@@ -95,6 +95,11 @@ function buildSceneCast(worldbook, runtimeState) {
         status: text(character?.status || character?.state) || null,
         // 其他角色只给摘要：有角色卡条目时给前 60 字，否则 null
         summary: entry ? clip(entry.content, 60) : null,
+        // R4：SceneCast 字段 —— present/muted/talkativeness/lastSpokeTurnId
+        present: true,
+        muted: false,
+        talkativeness: 0.5,
+        lastSpokeTurnId: null,
       }
     })
     .filter((character) => character.name)
@@ -107,6 +112,12 @@ function buildSceneCast(worldbook, runtimeState) {
       role: 'speaker',
       // 主 speaker 完整角色卡
       characterCard: mainSpeaker.content,
+      // R4：主 speaker 由手动点名/导演选择触发
+      present: true,
+      muted: false,
+      talkativeness: 0.8,
+      lastSpokeTurnId: text(runtimeState?.lastSpokeTurnId) || null,
+      selectionReason: 'manual-direct',
     })
   }
   cast.push(...others.map((character) => ({ ...character, role: 'scene' })))

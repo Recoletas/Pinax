@@ -224,6 +224,7 @@
         <span>{{ cmd.label }}</span>
       </button>
     </div>
+    <div v-if="commandError" class="command-error">{{ commandError }}</div>
     <div class="input-row">
       <input
         v-model="inputText"
@@ -306,6 +307,8 @@ const showPromptInfo = ref(false)
 // R2：本轮导演注（仅下一轮生效）
 const directorNote = ref('')
 const showDirectorNote = ref(false)
+// P1-2：/ 命令执行错误提示
+const commandError = ref('')
 const showDetail = ref(false)
 const detailTab = ref('context')
 const showDialoguePanel = ref(false)
@@ -398,12 +401,14 @@ async function runCommand(match) {
   const result = await gameStore.executeExperienceAction(match.action)
   if (result?.ok) {
     inputText.value = ''
+    commandError.value = ''
     if (match.action.type === 'export' && result.result) {
       // 导出结果在 console 可查看（最小实现，不新增下载 UI）
       console.info('[export-session]', JSON.stringify(result.result, null, 2))
     }
   } else {
-    // 命令失败保留输入，提示
+    // 命令失败保留输入，显示错误原因
+    commandError.value = `/${match.command} 执行失败：${result?.error || '未知错误'}`
     inputText.value = `/${match.command}`
   }
 }
