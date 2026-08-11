@@ -1095,6 +1095,199 @@ marker 仅接受 `narration / action / dialogue / thought / system` 白名单；
 
 执行进度（2026-08-01）：presentation schema 升至 v3。确定性 fallback 只把纯台词或明确说话结构归为 dialogue，混合叙述只对引号内文本做行内渲染；短对白、弯单引号、书名式双引号、CRLF、轻微 marker 偏差和代码围栏均纳入兼容。生成侧参考 SillyTavern 的 Main Prompt、Example Messages 与近末轮 Author's Note 分层，使用长期行文契约 + 最近正文样本 + 本轮注释，抑制复述、情绪总结、均匀感官罗列和无因果危机。M5 增加模板句率与手动编辑率指标，不以单次主观样例宣告文风完成。
 
+#### G1.4.10 体验页叙事排版二次收口（2026-08-08，R2 执行中）
+
+这一阶段不再修改 `presentation v3` 的事实契约，也不把体验页改回聊天气泡。目标是把已经能区分叙述、对白、动作、心理和系统信息的 renderer，从“许多样式同时生效”收口成一套适合连续中文阅读的排版系统：正文优先、角色清楚、交互可达、长会话不疲劳。
+
+##### A. 市场调研结论与 Pinax 取舍
+
+| 参考对象 | 值得吸收 | 不应照搬 |
+| --- | --- | --- |
+| Apple Books / Kindle | 阅读外观入口隐藏在 `Aa`；字号、字重、行距、段距、页边距、对齐与主题作为一组偏好；宽屏仍控制正文行长 | 双页翻页、出版物固定分页不适合实时增长的会话流 |
+| Readium CSS | 用 CSS variables 分离基础字号、行高、段距、首行缩进和用户覆盖；阅读主题是参数组合，不改正文数据 | 不引入 EPUB pagination、publisher stylesheet 覆盖和整套 Readium 依赖 |
+| SillyTavern Document mode | 保留稳定的消息壳、编辑、重生成和候选能力；隐藏重复头像、名称、时间与旧消息操作，正文成为第一视觉层 | 不复制头像墙、插件面板密度、气泡色和每条消息右侧整排操作 |
+| 微信读书 / Kindle 中文阅读样本 | 单一正文字体、稳定基线、克制颜色、进度与工具退到边缘；长时间阅读依靠字号和节奏，不靠语义彩虹 | 体验页仍是互动叙事，不能把玩家回合和角色来源全部抹成无来源小说 |
+| Disco Elysium 等叙事游戏 | 强说话者入口、选项与正文明确分层，短回合扫描很快 | HUD 式固定窄栏、全大写标签和高频技能色不适合 Pinax 长回复 |
+| W3C CLReq / WCAG / USWDS | 中文标点与缩进按中文习惯处理；允许 text-spacing 覆盖；长文本控制 measure，英文通用建议为 45-90 字符、约 66 字符为常见目标 | 不把西文词距和字符数机械当作中文成书规范；最终以中文实测行长为准 |
+
+调研来源：
+
+- Apple Books 外观设置：`https://support.apple.com/guide/books/change-a-books-appearance-ibks8923126d/mac`
+- Kindle 文本显示设置：`https://digprjsurvey.amazon.com/csad/help/node/T5Y94BzSCGwm0vd75W`
+- Readium CSS variables：`https://readium.org/css/docs/CSS19-api.html`
+- SillyTavern 本地源码：`/home/recoletas/jiuguan/SillyTavern/public/style.css` 与 `public/css/toggle-dependent.css`
+- W3C 中文排版需求：`https://www.w3.org/TR/clreq/`
+- WCAG 2.2 Text Spacing：`https://www.w3.org/WAI/WCAG22/Understanding/text-spacing`
+- USWDS Typography / Measure：`https://designsystem.digital.gov/components/typography/`
+
+Pinax 的定位固定为：
+
+> **连续叙事阅读面 + 可追溯的酒馆回合壳。**
+
+普通正文无框、无气泡、无整段底色；角色、回合和机制只通过有限的排版信号出现。主题2 `legacy` 是本轮视觉目标，主题1 `kao` 冻结，只做共享行为回归保护。
+
+##### B. 当前实现审计
+
+2026-08-08 使用现有 `5173` 服务运行 `regular / long × 1440 / 980 / 760 / 390` 共 8 张主题2截图，0 个非预期 console error。截图和报告位于 `/tmp/pinax-experience-type-audit/`。结构稳定，但排版存在以下根因：
+
+1. `readingProfileVars` 已声明 `--experience-measure: 60-68em`，正文规则却使用 `max-width: none`，因此阅读列宽设置完全没有生效；宽屏只是在更宽的工作面里继续拉长行。
+2. 默认正文写成 `17px`，但全局 UI 默认 `zoom = 0.85`，最终物理显示约为 `14.45px`。阅读字号和工具缩放被错误绑定，用户把界面缩小后正文也一起变小。
+3. `.prose / .narrative-block / .rp-*` 同时散落在 `Experience.vue`、`GamePanel.vue`、`NarrativeTurn.vue`、`legacy.css` 和 `kao.css`，相关命中约 248 行。页面级高 specificity 覆盖主题级规则，当前值很难从任一文件单独判断。
+4. 一段对白可能同时命中 `narrative-block--dialogue` 和 `.rp-dialogue` 两层斜体、字重与颜色；动作、心理、world intro 也都使用斜体，导致不同语义反而看起来相似，整页斜体密度过高。
+5. `.prose__body` 使用 `2em` 缩进，dialogue/action/thought 又分别重置缩进和添加左 margin；turn gap、block gap、role gap 叠加后，段落节奏没有单一 owner。
+6. 地点正则会把每次“来到/进入/穿过……”后的片段都渲染成粗体蓝色点线。重复地点在一个长回复中每次都强调，形成用户此前指出的“大量相同蓝色渲染”。
+7. message speaker 与 block speaker 可能同时出现；纯叙述开头还可能显示“旁白”。角色身份并不一定更清楚，反而增加重复标签。
+8. 当前 `long` 审计 fixture 由编号短句反复拼接，能发现滚动和溢出，却不能代表真实 AI 的长自然段、叙述夹对白、多人轮换和密集实体文本，视觉门禁覆盖不足。
+9. 移动端阅读本身可达，但底部 tip/通知和输入区会同时争夺最后一屏；操作菜单与文字选择也缺少专门的碰撞验收。
+
+##### C. 可验证硬约束
+
+1. 普通叙述、对白、动作和心理都不得使用卡片、聊天气泡或整段背景；只有系统、错误、压缩完成和明确机制结果可以有克制承托面。
+2. 主题2标准档正文的**最终物理字号**目标为桌面 `17-18px`、移动端 `17px` 左右；全局 UI zoom 在 `1 / 0.95 / 0.9 / 0.85` 之间变化时，正文不得跌破 `16px`。
+3. 桌面标准档完整行以约 `52-66` 个中文全角字为目标，紧凑档上限约 `68`，舒展档约 `48-58`；不得重新缩回 720px 窄列，也不得在 1440px 工作面里留下无意义的大块断裂空白。
+4. 一个普通文本行最多同时出现“正文基线 + 一种语义强调 + 一种真实交互提示”三层信号；颜色不能代替角色名，也不能为每次地点命中重复染蓝。
+5. 纯叙述不显示“旁白”；玩家 turn 只在组首显示一次身份；明确角色 speaker 只在对白组首显示一次；message 级与 block 级 speaker 不得重复。
+6. 双引号对白继续保留现有斜体特征；嵌套单引号、书名式引语可以温和分色，但不得全部同色、不得使用玫红、不得改变字号。
+7. 普通对白仍不可点击。只有真实 `mechanismTrigger` 可以交互，并使用一个紧邻文本的矿物黄/钢青小标记表达，不恢复细线、按钮框或整句蓝底。
+8. 编辑、删除、重写只属于 turn；桌面 hover/focus 与移动端主动点按都能稳定触达，文字选择期间不得抢走 selection 或让按钮消失。
+9. 阅读设置只改变 CSS variables 与本地偏好，不修改 message、presentation、联机事件或模型上下文。
+10. 主题1截图不得发生排版重设计；主题2在 `1440 / 1280 / 980 / 760 / 390`、长短会话、四档 UI zoom 下无截字、横向滚动、输入遮挡和通知覆盖末条正文。
+
+##### D. 目标排版系统
+
+**阅读几何：**
+
+| 档位 | 最终物理字号 | 行高 | 正文 measure | block gap | 适用场景 |
+| --- | --- | --- | --- | --- | --- |
+| 紧凑 | `16-16.5px` | `1.62-1.68` | `64-68em` | `0.42-0.5em` | 快速回看、短屏幕高度 |
+| 标准 | `17-18px` | `1.74-1.82` | `60-64em` | `0.62-0.72em` | 默认长时间阅读 |
+| 舒展 | `18-19px` | `1.88-1.96` | `54-58em` | `0.86-0.96em` | 大屏或低视觉压力 |
+
+- `measure` 约束 `.prose-reading-plane`，不约束整个 `.ws-center-stage`；工作面继续铺满中间区域，正文在其内部保持适宜行长。
+- 1440px 常见布局下标准档接近铺满主区，不重新制造过去的窄列；只有超宽屏才出现有意的阅读留白。
+- 新增 `--app-ui-zoom` 数值变量。正文 CSS size 使用 `目标物理字号 / uiZoom` 反补偿，输入正文同步保持不低于 `16px`，工具栏仍跟随全局缩放。
+- 中文正文默认左对齐，不强制浏览器两端对齐；禁止通过任意 `letter-spacing` 拉开中文正文。
+
+**语义层级：**
+
+| 内容 | 目标表现 |
+| --- | --- |
+| 叙述 | `var(--font-body)`、正常字重、稳定段距；自然段可首行缩进，但场景首段、speaker 后首段和短段不缩进 |
+| 玩家行动 | 组首显示玩家名 + 一条短暖色 source signal；正文略深字重，不整体染色、不整体左移 1.5em |
+| 角色对白 | speaker 使用 12-13px sans、只出现一次；引号正文保持 body 字体、轻斜体和约 500 字重，不额外包框 |
+| 动作 | 正常体或极轻墨色差，用前后节奏区分；不再与对白、心理一起全斜体 |
+| 心理 | 保留轻斜体和次级墨色，但对比度不得低于正文可读阈值 |
+| 场景边界 | 一次垂直留白 + 短标题/符号；不画横贯工作面的重装饰 |
+| 系统/压缩/错误 | 允许小面积承托面，与普通正文完全分流 |
+
+**行内强调预算：**
+
+- 正则推断的地点与时间只做低对比语义提示，不使用粗体蓝色点线；同类型、同内容在一个 turn 内只强调第一次。
+- 有真实详情可打开的物品才保留可点击表现；没有实体引用的文本不得伪装成链接。
+- `mechanismTrigger` 在对白末尾增加小型可聚焦标记，标记本身持有 tooltip/ARIA，正文不变成按钮。
+- 嵌套引语用现有三组温和 token，但颜色差异控制在正文附近，斜体特征由外层对白继承。
+
+##### E. 文件责任重排
+
+**新增：**
+
+- `src/styles/experience-reading.css`：主题2正文几何、turn/block rhythm、speaker、行内语义和响应式的唯一视觉 owner；所有规则以 `.theme-legacy .game-page` 为边界。
+- `src/composables/useExperienceReadingPreferences.js`：三个阅读预设、localStorage、UI zoom 反补偿和 CSS variable 映射。
+- `src/services/narrativeReadingLayout.js`：纯函数负责 turn speaker、block group、重复语义强调预算和场景断组；不修改 presentation 数据。
+
+**修改：**
+
+- `src/pages/Experience.vue`：接入 reading composable，把顶栏 select 收为现有图标体系下的 `Aa`/文本外观 popover；移除页面内 prose/rp 排版规则，只保留页面布局与工作面尺寸。
+- `src/components/GamePanel.vue`：增加 `.prose-reading-plane`，只负责滚动、消息循环、编辑委托和点击委托；删除迁移到专用样式文件的主题2排版，保留主题1现状。
+- `src/components/experience/NarrativeTurn.vue`：输出明确的 turn/group data attributes；操作菜单保持 turn owner，文字选择与移动点按状态稳定。
+- `src/components/experience/NarrativeBlock.vue`：按 kind 使用语义段落结构，speaker 与 trigger marker 有独立可访问节点；不在模板中决定颜色。
+- `src/services/rpTextRenderer.js`：接收 inline decoration policy，区分推断提示、可点击实体与机制触发；去掉重复地点/时间的高强度输出。
+- `src/styles/themes/legacy.css`：删除已迁入 `experience-reading.css` 的旧 Experience prose/rp 重复规则，只保留主题 token 和其他页面规则。
+- `src/stores/themeStore.js`：在 `<html>` 同步 `--app-ui-zoom`，供阅读面和视口反补偿共用，不让组件读取 DOM dataset 猜缩放。
+- `scripts/ui-audit.mjs`：把 Experience long fixture 换成真实中文长自然段、多人对白、动作/心理、重复地点、嵌套引语和机制触发；报告加入物理字号、行高、measure、每行估算字数、强调字符比例与末条正文/输入区间距。
+
+**测试更新但不增加测试 item：**
+
+- `src/__tests__/integration.test.js`：现有 narrative renderer table 增加纯叙述无“旁白”、speaker 去重、普通对白不可点击、重复地点只强调一次、trigger marker 可聚焦。
+- `src/__tests__/visual-verification.test.js`：替换现有 Experience 视觉基线，不新增第 13 个视觉用例。
+- 必要时在现有 UI 契约测试内部替换旧 selector 断言，不新建以 CSS 字符串为主的大测试文件。
+
+##### F. 分阶段执行计划
+
+**R0：真实基线与 1440px 样板，0.5 天**
+
+1. 固定 6 组内容样本：长叙述、双人对白、叙述夹对白、动作/心理、重复地点/时间/物品、系统/机制消息。
+2. 在 `1440 × 900`、主题2、UI zoom `0.85 / 1` 下记录当前物理字号、正文宽度、首屏行数、强调比例和截图。
+3. 只在静态 prototype 中验证三套正文几何与两套 speaker 方案，不先改所有视口。
+4. 用户确认标准档的字号、行长、speaker 和对白节奏后才进入 R1；未确认时只迭代这一张代表截图。
+
+门禁：用户能在一屏内快速指出玩家、叙述和角色对白；正文不显小；没有大面积蓝色、斜体墙或重新出现的窄列空白。
+
+**R1：样式 owner 与字号/行长收口，1 天**
+
+1. 建立 `experience-reading.css` 和 reading preferences composable。
+2. 将主题2 prose/rp 规则从三个 owner 迁出，逐项删除重复规则并做 computed-style 对照。
+3. 接入 `--app-ui-zoom`，验证四档 UI zoom 下物理字号稳定。
+4. 让 `--experience-measure` 真正约束阅读面，并保留宽工作台构图。
+
+门禁：同一视觉属性只有一个 theme2 owner；`0.85` zoom 下标准正文不低于 `16px`；1440px 标准档行长落入约 52-66 个中文字符。
+
+**R2：turn/block 节奏与角色识别，1-1.5 天**
+
+进度（2026-08-09）：已移除纯叙述的“旁白” turn 署名，玩家 turn 只在组首显示身份；明确角色继续由 block speaker 署名。主题2阅读面已取消玩家正文额外横向缩进，动作回正体、心理保留轻斜体，叙述缩进只由 narration block owner 决定。R2 的跨 turn speaker group 与真实会话截图仍待继续验收。体验页半自动恢复持续推进，但每拍走独立 `auto` 模式并以最近正文末句为唯一连续锚点，禁止无因果回带较早人物、物件和线索，可随时停止。
+
+1. 用 `narrativeReadingLayout` 统一 scene、role、speaker 和时间断组规则。
+2. 纯叙述隐藏“旁白”；玩家与明确角色仅在组首署名。
+3. 消除 message speaker 与 block speaker 双重显示。
+4. 只保留对白/心理需要的斜体，动作回到正常体；统一 turn gap 与 block gap，删除 margin 叠加。
+5. 场景首段、speaker 后首段、短玩家行动和普通叙述分别执行明确缩进规则。
+
+门禁：一条含两名角色、两段叙述、动作和心理的回复，角色切换在 3 秒内可扫描；同一角色名不连续重复；整页不呈现同一种斜体。
+
+**R3：行内语义与消息操作降噪，1 天**
+
+1. 给 rp renderer 增加来源/交互等级和 turn 内去重预算。
+2. 推断地点/时间降为低强度，只有真实详情和机制触发保留交互暗示。
+3. trigger 改为紧邻对白的小标记，普通对白完全无 pointer/click handler 视觉。
+4. turn 操作按钮只在 hover、focus、open 或移动端主动选择时出现；扩大命中区但不侵入正文列。
+5. 文字选择期间冻结操作显隐，编辑态保留选区与清晰的保存/取消位置。
+
+门禁：重复地点十次只强调第一次；普通对白点击无副作用；trigger 可由鼠标、键盘和触屏打开；编辑/删除/重写不再因 hover gap 消失。
+
+**R4：阅读外观入口与响应式，1 天**
+
+1. 将顶栏常驻 select 收入一个阅读外观 popover，保留紧凑/标准/舒展三预设和恢复默认。
+2. 980/760px 保持单一阅读 scroll owner；390px 去掉对白额外左移，speaker 与正文使用完整可用宽度。
+3. 校验 TipBanner、通知、输入区、Agent 状态和最后一条正文的垂直避让；任何 fixed 层不得覆盖可读正文和发送动作。
+4. 处理 `prefers-reduced-motion`、200% browser zoom、WCAG text-spacing override 和长英文/URL/CJK 标点换行。
+
+门禁：五个代表视口无横向滚动、截字和覆盖；阅读 popover 可用 Escape 关闭并归还焦点；刷新后偏好恢复但不改变 session。
+
+**R5：真实会话验收与收口，0.5-1 天**
+
+1. 使用至少 6 个现有真实 session，不用编号重复句代替内容；覆盖古风、现代、科幻、多人对白和长段落。
+2. 运行 `regular / long × 1440 / 1280 / 980 / 760 / 390 × zoom 0.85 / 1` 截图矩阵；对中间 zoom 档做 computed metrics，不必全部截图。
+3. 双浏览器联机确认房主与成员使用同一 renderer，成员聊天不进入正文排版。
+4. 运行完整构建、现有核心测试、12 个视觉测试和 diff check。
+
+验证命令：
+
+```bash
+UI_AUDIT_ROUTES=experience UI_AUDIT_STATES=regular,long UI_AUDIT_WIDTHS=1440,1280,980,760,390 node scripts/ui-audit.mjs
+npm run verify:full
+```
+
+发布门槛：
+
+- 标准档正文最终物理字号符合门槛，四档 UI zoom 无“界面偶尔整体变小”回归；
+- 行长、行高和段落节奏在长会话中稳定，滚动 10 分钟后仍能快速找到上一轮玩家行动和当前角色；
+- 普通 turn 无框、普通对白不可点击、机制触发清楚但不密集；
+- 强调字符比例在普通 turn 中原则上不超过约 15%，重复实体不重复强调；
+- 主题2截图由用户确认，主题1代表截图无意外重排；
+- `verify:full` 通过，不新增自动化测试总数。
+
+回退边界：专用 stylesheet、reading composable 和 reading layout 都是表现层；任何阶段失败都可回到现有 `presentation v3 + content`，不迁移或改写历史消息，不影响上下文、记忆、联机和模型生成。
+
 ### G1.5 UI 一致性与工作区重编排
 
 #### G1.5.1 当前审计结论
@@ -1338,6 +1531,323 @@ UI-A 是当前可靠性前置任务；UI-B-F 是支撑地理、历史和 Creativ
 - 每张截图先做 squint test：3 秒内能辨认当前工作区、主对象、主动作和当前状态；装饰不能形成第三视觉中心；
 - 每页通过 deletion test：删除不影响任务的信息、重复动作和无语义装饰；
 - 每页通过 capacity check：空状态不显得荒芜，filled-state 不溢出，长内容不靠缩小字体塞入。
+
+### G1.6 块级写作 Notebook 与边注审阅系统（2026-08-10，计划完成）
+
+当前进度（WNB-1、WNB-2、WNB-3 当前候选闭环和 WNB-4 场景/跨块批注/多块候选/章节审稿阶段已完成）：WNB-0 数据契约、6 组真实章节 fixture、Markdown 往返、100k 中文章节测量和隔离 Vue/Tiptap editor spike 已完成；章节现在通过 `useWritingDocument` 加载/保存 `chapter.editorDocument`，同时保留 Markdown 投影。`Writing.vue` 的 `wysiwyg` 现在直接挂载单一 `WritingNotebookEditor`，默认入口明确为实时 Markdown：普通 Markdown 在同一编辑面实时渲染，原始 Markdown/预览保留为次级视图；选区、基础格式、分隔线、取名、查找/替换、右键操作和内联补全输入均已通过 editor bridge 接通。写作页独立顾问入口、浮动顾问和顾问面板已移除，批注、改写候选、章节审查和版本检查器成为唯一审阅入口；块使用无卡片浅色轨道和当前块高亮。WNB-2 的 `writingAnnotations` sidecar 已按 `blockId + TextPosition + TextQuote` 重定位选区：前文插入/块移动保持 ID，拆分生成共享 `parentId` 子批注，合并重新绑定，删除或无法唯一匹配时进入 orphan；检查器支持批注、回复、解决/恢复、定位、固定状态、键盘导航和 Escape 返回编辑器，并完成桌面三栏、980px side sheet、720px 以下 bottom sheet。WNB-3 新增共享候选契约和改写检查器：最多三个候选、原文/候选 diff、锁定片段保留校验、chapter/document/block revision stale gate，以及 Notebook 单 transaction 采纳和撤销；请求支持真实 AbortSignal 取消，失败/取消可沿目标重试且会重新校验目标未变化。WNB-4 现已完成场景数据过滤、跨块批注、多块候选和章节审稿：跨块锚点保存起止 block、两端局部 quote、完整选区文本和涉及 blockIds，Notebook 支持跨块回选，无法唯一定位时明确 orphan；跨块改写按目标块生成完整 `patches`，逐块展示 diff，采用前整批 stale 校验，并通过单次 Notebook transaction 原子提交；章节审查按 6 个正文块分批，只接受带真实定位的 findings，批次失败不丢其他结果，finding 可定位并进入改写链。候选和审查不会直接覆盖正文。下一步是 provider 观察、多候选/审稿浏览器 smoke，版本快照仍留到 WNB-5。
+
+当前 UI 收口补充：正文批注片段显示轻量点标，点击后定位右侧边注；检查器默认紧凑显示，未选中文字时不常驻批注输入框。该变化只调整呈现与 editor decoration，不改变 sidecar 锚点和候选/审稿数据契约。
+
+#### G1.6.1 产品决策
+
+写作页采用“连续小说稿 + 隐形块结构 + 右侧边注检查器”，吸收 Notebook 的稳定 cell、局部执行和候选审阅，但不引入 Python kernel、执行计数、输入/输出框或 `.ipynb` 文件格式。正文仍是一篇连续稿件，不变成卡片墙；块边界只在悬停、聚焦、拖动、批注或 AI 修改时显现。
+
+公开的最小结构只有：
+
+- `prose`：普通正文段落，也是首版 AI 修改的最小原子；
+- `scene-heading`：场景边界，可携带地点、时间、POV、出场角色、目标和结果；
+- `divider`：无标题转场或时间跳跃；
+- `author-note`：作者备注，不进入出版正文，但可作为当前场景的 AI 约束；
+- `source-reference`：素材或世界书来源引用，默认折叠且不进入出版正文。
+
+对白、心理、动作不拆成专有块，仍属于小说正文。首版只允许单块替换和光标插入；跨块改写必须等稳定锚点、批注重定位和单块 stale gate 全部通过后再开放。
+
+#### G1.6.2 调研结论与取舍
+
+| 参考对象 | 采用 | 不采用 |
+| --- | --- | --- |
+| Jupyter / nbformat 4.5 | 每个 cell 有稳定唯一 ID；块可移动、拆分、合并；内容与块元数据分离 | 命令/编辑双模式、运行按钮、kernel、输出区、代码式边框 |
+| VS Code Notebook AI | AI 修改按 cell 定位；候选可逐项 Keep/Undo；一次 AI 操作形成可撤销单元 | 常驻聊天面板、面向代码的 agent 工具和执行状态 |
+| Quarto margin column | 正文和页边信息使用不同列；边注不污染正文；窄屏时边注离开固定 margin | 固定出版页几何和脚注编号体系 |
+| Cornell Notes | 主体内容旁保留问题、提示和反思区域 | 教学用“线索栏 + 页底总结”的固定纸面比例 |
+| Scrivener Inspector | 检查器跟随当前文档；支持固定 inspector；笔记、元数据、快照、评论分区 | 把每个段落变成 Binder 文件，或复制其拟物界面 |
+| Notion comments | 块级和选区级评论；Default/Minimal 两种显示密度；评论状态可解决/恢复 | 所有段落常显块柄、斜杠菜单和数据库式卡片语言 |
+| Word / Google Docs review | 修改与评论分离；建议必须接受或拒绝；可顺序导航未处理修改 | 把正文长期染成修订颜色，或允许 AI 直接写入正式稿 |
+| Novelcrafter / LivingWriter / Sudowrite | 场景/章节上下文、Story Bible/Codex 引用、选区 Rewrite、章节分析转待办 | 一次把整本书塞给模型、章节级直接覆盖、泛化聊天替代明确修改目标 |
+| W3C Web Annotation | `TextPositionSelector + TextQuoteSelector(exact/prefix/suffix)` 复合锚点；无法可靠重定位时进入 orphan | 仅依赖字符 offset 或模糊匹配后静默挂到错误段落 |
+| Tiptap / ProseMirror | Vue 3 接入、schema、transaction、selection mapping、开源核心、UniqueID | Tiptap Cloud、商业 Comments/Version History/Tracked Changes 作为产品依赖 |
+
+研究依据：
+
+- Jupyter cell ID：`https://nbformat.readthedocs.io/en/5.2.0/format_description.html`
+- JupyterLab cell 交互：`https://jupyterlab.readthedocs.io/en/stable/user/notebook.html`
+- VS Code Notebook AI：`https://code.visualstudio.com/docs/agents/guides/notebooks-with-ai`
+- Quarto margin column：`https://quarto.org/docs/authoring/article-layout.html`
+- Cornell Notes：`https://lsc.cornell.edu/notes.html`
+- Scrivener Inspector：`https://www.literatureandlatte.com/blog/get-to-know-the-scrivener-inspector`
+- Notion comments：`https://www.notion.com/help/comments-mentions-and-reminders`
+- Word Track Changes：`https://support.microsoft.com/en-US/Word/training/track-changes-in-word`
+- Novelcrafter：`https://www.novelcrafter.com/`
+- LivingWriter AI Analysis：`https://guides.livingwriter.com/product-documentation/ai-features/ai-analysis`
+- W3C Web Annotation：`https://www.w3.org/TR/annotation-model/`
+- Tiptap Vue 3 / UniqueID / performance：`https://tiptap.dev/docs/editor/getting-started/install/vue3`、`https://tiptap.dev/docs/editor/extensions/functionality/uniqueid`、`https://tiptap.dev/docs/guides/performance`
+- ProseMirror transaction：`https://prosemirror.net/docs/guide/`
+
+#### G1.6.3 当前实现与真实迁移面
+
+当前 `Writing.vue` 使用整章单个 `textarea`，选区、段落、顾问替换、素材回插和内联补全都依赖 Markdown 字符 offset。`applyAdvisorReplacement` 与 `writingAgentTransaction` 通过 `baseText + range` 防止旧结果覆盖，但前文发生变化后，未变段落的绝对位置也会失效。章节正文以 `chapter.content` 存入 `writing_books`，备份导出、素材来源回跳、章节纲要、分镜草稿和 Agent ContextLedger 都会读取这一字符串。
+
+因此实现时必须遵守：
+
+1. 结构化 editor document 是唯一可编辑真源；`chapter.content` 只保留为每次保存同步生成的 Markdown 投影，任何代码不得直接编辑该投影。
+2. 所有下游改为调用 `getChapterMarkdown(chapter)` / `getChapterPlainText(chapter)`，禁止各自猜 `editorDocument` 或继续直接读取旧字符串。
+3. 旧章节首次打开时执行一次 Markdown -> editor document 导入；成功写回之前保留原字符串，解析失败不得覆盖原文。
+4. 不长期维护 textarea 编辑器和块编辑器两个可写模式。Markdown 视图首版降为只读源码预览；确认 transaction round-trip 稳定后再决定是否提供高级源码编辑。
+5. `Writing.vue` 不再继续吸收编辑器内部状态；编辑器、检查器、批注和 AI 候选必须有独立 owner。
+
+#### G1.6.4 目标布局与交互
+
+桌面布局保持三段，但主次关系重排：
+
+```text
+章节/场景索引 220-240px | 连续稿 minmax(620px, 1fr) | 检查器 300-340px
+```
+
+- 左栏：保留书/章导航，只展开当前章的场景索引；场景显示标题、字数、未解决批注数和状态，不显示每个普通段落。
+- 中栏：一个 ProseMirror editor instance 承载整章，不为每个块建立独立 textarea/editor；正文最大阅读宽度约 `58-66em`，工作面剩余空间用于 gutter 和边注关系，不制造大块空白。
+- 左 gutter：默认无内容；块 hover/focus 时显示拖动、批注、AI 改写三个图标，命中区稳定但不把正文挤动。
+- 块信号：只允许 2-3px 短边色条、极浅 active wash 和小型状态点；普通块无框、无卡片、无圆角承托面。
+- 右检查器：`批注 / 改写 / 版本` 三个视图；“上下文来源、锁定片段、场景元数据”放在当前视图内的折叠 details，不增加第四个常驻 tab。
+- 检查器默认跟随当前块；提供“固定”图标，固定后切换正文焦点不改变右栏内容，吸收 Scrivener Inspector lock 的价值。
+- 980px 以下右栏改为可关闭 side sheet；760px 以下章节与检查器通过现有 `WorkspacePaneSwitch` 进入“章节 / 正文 / 批注”，正文为默认 pane；390px 检查器使用底部 sheet。
+- 批注密度提供 `简洁 / 展开`：简洁态只在正文右缘显示标记，展开态在检查器显示完整 thread；不在正文旁同时铺开所有评论卡。
+
+键盘和输入规则：
+
+- `Enter` 拆分 prose；段首 `Backspace` 合并；`Alt+↑/↓` 移动块；普通上下方向键只移动光标，不进入 Jupyter command mode。
+- 中文 IME composition 期间禁止自动保存投影、块拖动、slash command 和 AI 补全抢占。
+- 跨块选择允许复制、删除、批注和收为素材；首版 AI 改写只对单块或单块内选区启用。
+- 文字选择期间冻结 gutter 和浮动工具显隐，避免当前顾问按钮难以点击的问题复发。
+
+#### G1.6.5 文档、批注与候选契约
+
+```ts
+interface WritingDocumentV2 {
+  schemaVersion: 2
+  revision: number
+  content: JSONContent
+  updatedAt: string
+}
+
+interface WritingAnnotation {
+  id: string
+  chapterId: string
+  blockId: string
+  blockRevision: number
+  selector?: {
+    start: number
+    end: number
+    exact: string
+    prefix: string
+    suffix: string
+  }
+  kind: 'comment' | 'rewrite-request' | 'review-finding' | 'locked-span'
+  body: string
+  status: 'open' | 'resolved' | 'orphaned'
+  parentId?: string
+  createdBy: 'user' | 'agent'
+  createdAt: string
+  updatedAt: string
+}
+
+interface WritingCandidate {
+  id: string
+  taskType: 'writing.revise.block.v1' | 'writing.revise.selection.v1'
+  chapterId: string
+  blockId: string
+  baseDocumentRevision: number
+  baseBlockRevision: number
+  baseHash: string
+  instruction: string
+  operation: 'replace-block' | 'replace-selection' | 'insert-after'
+  before: string
+  replacement: string
+  preservedSpanIds: string[]
+  sourceRefs: SourceRef[]
+  status: 'generating' | 'ready' | 'accepted' | 'rejected' | 'stale' | 'failed'
+  createdAt: string
+}
+```
+
+每个可定位 block 使用 `data-block-id` 和单调 `revision`。Tiptap UniqueID 只负责节点身份，业务 revision、批注、锁定和候选仍由 Pinax 管理。AI 候选不嵌入 ProseMirror document，也不写入 Markdown；只有采纳时才生成一次带 `origin: 'ai-candidate'` 元数据的 editor transaction。
+
+#### G1.6.6 锚点重定位与拆分/合并规则
+
+批注定位按以下顺序执行，任一层不唯一时不得继续猜：
+
+1. 命中 `blockId`，且 `start/end` 对应文本仍等于 `exact`；
+2. 在同一 block 内用 `exact + prefix + suffix` 唯一命中；
+3. 在同一 scene 内用完整 quote 唯一命中，并更新 blockId；
+4. 无唯一结果时标记 `orphaned`，在检查器提供“重新关联”，绝不静默挂到相似句。
+
+结构操作的确定性规则：
+
+- 拆分：左块保留原 ID，右块获得新 ID；选区批注按位置迁移，跨越切点的批注拆成两个共享 `parentId` 的关联批注；整块批注留在左块。
+- 合并：前块 ID 存活；后块 ID 写入本次 transaction 的 alias map，相关批注迁移并重算 selector。
+- 移动：ID、revision 和批注不变，只更新文档顺序。
+- 删除：批注进入 orphan archive，不随正文永久删除；撤销删除时按 transaction map 恢复。
+- 粘贴：外部内容生成新 ID；内部复制也生成新 ID，避免两个块共享身份。
+- Markdown 导入：按节点顺序生成 ID；重复导入不能作为稳定同步机制，只用于一次性迁移或显式“替换全文”。
+
+#### G1.6.7 AI 改写、审稿与上下文边界
+
+块级改写只发送：
+
+- 目标块或选区完整文本；
+- 前两块、后一块的裁剪文本；
+- 当前 scene 的标题、目标、POV、地点、时间、出场角色与场景摘要；
+- 当前块未解决的 `rewrite-request`、用户本次指令和锁定片段；
+- 章节纲要中与 scene/sourceRefs 命中的项目；
+- 经现有 ContextLedger 按需检索的世界书、素材和角色事实；
+- 一小段同章文风样本。
+
+不发送整本书、整份世界书或所有历史候选。模型返回结构化 candidate，不返回思考过程，不直接执行编辑 transaction。服务端和本地共同校验：
+
+1. `blockId/baseRevision/baseHash` 仍匹配；
+2. replacement 是可用正文，不含分析、标题包装、JSON 或提示词复述；
+3. 每个 `locked-span` 的 exact 文本仍存在且顺序不变；
+4. POV、角色名和 sourceRefs 中的硬事实没有无依据改写；
+5. 单块结果不擅自新增多个场景或删除相邻块。
+
+右栏改写流程固定为：
+
+```text
+写要求 -> 生成候选 -> 前后差异 -> 采纳全部 / 采纳选句 / 插入后方 / 拒绝
+```
+
+“再次生成”保留上一候选，单个目标最多保存 3 个未决候选。采纳选句必须先创建基于当前 candidate 的新 replacement，再走同一 stale/lock 校验，不允许绕开 transaction gate。
+
+章节审稿是另一条只读链：`writing.review.chapter.v1` 先按 scene/固定块数分批，输出 `review-finding` 批注，类型限于重复、衔接、POV、角色连续性、时间、设定冲突、节奏和语言问题。审稿 Agent 默认不改正文；用户勾选批注后才转成块级改写请求。弱相似度、泛化文风评价和无定位“建议更生动”不得入列。
+
+#### G1.6.8 版本、存储与恢复
+
+- 编辑器内撤销：沿用 ProseMirror history，用户连续输入按正常输入事务合并；一次 AI 采纳始终是一个独立 undo unit。
+- 持久快照：只在显式“建立版本”、AI 候选采纳前、整章导入前建立；不按每次按键保存全文快照。
+- block 历史：每块最多保留最近 5 次已采纳 AI 版本；未决候选最多 3 个。
+- chapter 快照：每章最多 20 个，超限先删除未命名且最旧的自动快照；用户命名快照不自动删除。
+- localStorage 预算：快照优先保存被修改 block 的 before/after 和 transaction metadata，不复制整章；完整命名快照超出预算时要求用户先导出/清理，不静默覆盖。
+- 自动保存：IME 结束或 transaction 静默 600-900ms 后，原子更新 `editorDocument + markdown projection + revision`；保存失败保留内存稿并给出可重试状态。
+- 备份：`backupExport` 同时导出 editor document、annotations、candidates、snapshots 和 Markdown 投影；恢复先校验 schema，再恢复正式稿，未决 AI 候选可单独跳过。
+
+#### G1.6.9 技术选型与代码 owner
+
+依赖只采用开源编辑核心：
+
+- `@tiptap/vue-3`
+- `@tiptap/pm`
+- `@tiptap/starter-kit`
+- `@tiptap/extension-unique-id`
+
+不采用 Tiptap Cloud、商业 Comments、Version History、Tracked Changes、Pages 或 AI 扩展。实现前记录 package 精确版本和许可证；若 UniqueID 当前发布版许可证不符合仓库限制，则用 ProseMirror plugin 在 transaction 中维护 `blockId`，产品契约不变。
+
+新增 owner：
+
+- `src/components/writing/WritingNotebookEditor.vue`：唯一 editor instance、selection、gutter、键盘、IME、transaction 事件；
+- `src/components/writing/WritingInspector.vue`：批注/改写/版本和 fixed/follow 状态；
+- `src/components/writing/WritingBlockGutter.vue`：块级动作与状态信号；
+- `src/components/writing/WritingCandidateDiff.vue`：candidate 差异和局部采纳；
+- `src/services/writing/writingDocumentSchema.js`：schema、导入、序列化和 Markdown/plain-text 投影；
+- `src/services/writing/writingAnnotations.js`：复合锚点、重定位、split/merge/delete alias；
+- `src/services/writing/writingCandidates.js`：candidate 状态机、stale/lock 校验和保留上限；
+- `src/services/writing/writingSnapshots.js`：block/chapter snapshot 与预算；
+- `src/composables/useWritingDocument.js`：章节加载、transaction、autosave 和 save error；
+- `src/composables/useWritingInspector.js`：active/fixed target、过滤和焦点归还。
+
+修改边界：
+
+- `Writing.vue` 只保留页面编排、书/章选择、素材入口和路由；旧 textarea、ghost selection layer、DOM offset 格式化和手工 selection API 在功能平替后删除。
+- `useWritingAgent` 和 `useAdvisor` 继续负责请求生命周期与统一 provider，不另建第二套 AI transport；写作页结果 UI 迁入 inspector。
+- `writingAgentContext` 改为接收 block/scene target 与 sourceRefs；旧 absolute range 只留给历史结果 stale 展示，不再生成新结果。
+- `writingSelectionCapture`、章节纲要、shot exporter、素材回插和备份全部通过 writing document selector；素材来源增加 `blockId + quote selector`。
+- 主题2样式进入独立 `src/styles/writing-notebook.css`；主题1只保证编辑、保存、导出和焦点可用，不执行 notebook 视觉重设计。
+
+性能约束：整章只挂一个 editor；普通 paragraph 使用原生 DOM renderer，不为每段挂 Vue NodeView；editor 与 inspector 隔离响应式更新；Markdown 投影按保存节流生成，不在每个 transaction 同步全量 parse。Tiptap 官方长文本样例覆盖 20 万词，但 Pinax 仍以真实中文、批注和 Agent 插件组合做自己的门禁，不用官方 demo 替代测量。
+
+#### G1.6.10 分阶段执行
+
+**WNB-0：契约、真实 fixture 与编辑器 spike**
+
+1. 固定 6 份真实章节 fixture：空章、5k、20k、100k 中文字符、多人对白、Markdown 混合格式；记录导入前 hash、段落数、字数和导出文本。
+2. 在独立组件 spike 中验证 Vue 3、中文 IME、跨段选择、撤销、粘贴、拖动、UniqueID、Markdown round-trip 和 100k 字符输入延迟。
+3. 建立 `WritingDocumentV2`、annotation/candidate/snapshot schema 与数据不变量；不先接 AI。
+4. 审计 Tiptap 依赖许可证和产物体积，确认不拉入 Cloud/Pro 扩展。
+
+Gate：正文 round-trip 零丢字；block ID 在普通编辑/撤销/移动后稳定；100k 字符下输入 P95 < 50ms；旧章节未成功保存新结构前原文不被覆盖。
+
+**WNB-1：编辑器底座与现有功能平替**
+
+1. 接入单 editor instance、段落/场景/divider/note/reference schema、gutter 和自动保存。
+2. 平替标题、字数、查找、基础格式、Markdown 预览、撤销重做和章节切换。
+3. 将素材提取/回插、章节纲要、分镜导出、普通导出和备份切到统一 selector。
+4. 完成后删除 textarea 写路径和 DOM 字符 offset owner，不保留双编辑器开关。
+
+Gate：旧功能行为对等；跨章节切换不串 selection/undo；导出 Markdown 和旧正文语义一致；刷新恢复后 block ID 不变。
+
+**WNB-2：手工批注与检查器**
+
+1. 实现块级/选区批注、thread、解决/恢复、简洁/展开密度、active/fixed inspector。
+2. 实现复合锚点和 split/merge/move/delete/paste 规则；orphan 可重新关联。
+3. 完成桌面三栏、980 side sheet、760 pane switch 和 390 bottom sheet。
+
+Gate：前文插入、块移动、拆分合并后批注归属正确；无唯一匹配时 100% orphan、不误挂；键盘可遍历批注并返回锚点。
+
+**WNB-3：块级 AI 候选**
+
+1. 新增 `writing.revise.block.v1` / `writing.revise.selection.v1` 结构化 task；复用现有 provider 和 ContextLedger。
+2. 实现改写请求、锁定片段、生成取消、最多三候选、diff、采纳/拒绝/选句和单 transaction undo。
+3. 把现有顾问快捷动作映射到当前 block/selection；移除写作页重复的泛化 Advisor 浮层入口。
+
+Gate：模型不能直接写正文；target 改变后旧 candidate 自动 stale；锁定片段零丢失；应用与撤销后文档/投影 revision 一致。
+
+**WNB-4：场景、多块与审稿批注**
+
+1. 场景索引、折叠、摘要、状态和未解决批注计数接入左栏。
+2. 先开放跨块批注和收为素材，再开放多块 AI 修改；多块 candidate 必须逐块预览和原子提交。
+3. 章节审稿按 scene/块批次生成可定位 findings；用户选择 finding 后进入 WNB-3 改写链。
+
+Gate：审稿无定位建议为 0；一批失败不丢其他 findings；跨块原子提交任一 stale 时整批不写入。
+
+**WNB-5：版本、质量和发布 Gate**
+
+1. 接入 block 历史、命名 chapter snapshot、存储预算、备份恢复和崩溃恢复。
+2. 完成真实 provider 30 次块改写与 10 章审稿 smoke，统计可用候选率、stale、锁定失败、手动编辑率、首候选延迟和无效 finding。
+3. 完成主题2桌面/移动视觉审阅与主题1共享行为回归；删除遗留 selection/textarea/advisor 兼容代码。
+
+Gate：见下一节完成定义。
+
+#### G1.6.11 测试矩阵与完成定义
+
+自动化优先参数化并入现有写作、Agent、备份和视觉契约，避免按每个细节新建测试文件。必须覆盖：
+
+- schema import/export、ID 唯一性、Markdown round-trip；
+- IME、split/merge/move/paste/undo 的 transaction contract；
+- quote/position anchor 重定位与 orphan；
+- candidate stale、lock、diff、apply、undo 和多块原子性；
+- 素材回插、章节纲要、分镜、备份恢复读取同一投影；
+- 空章/长章/错误/生成中/批注密集的现有视觉用例替换，不增加无意义截图数量。
+
+浏览器矩阵：`1440 / 1280 / 980 / 760 / 390`，UI zoom `1 / 0.85 / 0.75`，亮/暗主题2；主题1做书章切换、输入、保存、导出和恢复 smoke。输入覆盖鼠标、键盘、触屏、中文 IME、跨块选择、拖拽和 200% browser zoom。
+
+完成定义：
+
+- 普通阅读时看不出卡片墙；3 秒内能识别当前场景、当前块和未解决批注；
+- 10 万中文字符章节输入、选择和滚动可用，编辑器状态变化不会重渲染整个页面；
+- 批注在移动和局部编辑后保持，错误重定位为 0；无法确定时明确 orphan；
+- AI 永远先成为 candidate，直接覆盖正式正文为 0；stale candidate 覆盖为 0；锁定片段丢失为 0；
+- 现有素材、纲要、分镜、导出、备份与 Agent 来源链无数据断裂；
+- localStorage 超限不会静默丢稿，恢复失败保留原始 Markdown；
+- `Writing.vue` 在 WNB-3 后降至 < 3000 行，WNB-5 目标 < 1500 行；
+- `npm run verify:full`、真实章节 fixture、真实 provider Gate 和指定截图全部通过后才标记完成。
+
+#### G1.6.12 明确延后与禁止项
+
+- 首版不做多人实时协作、CRDT/Yjs、评论通知和权限；数据契约保留 `createdBy`，但不提前建设协作后端。
+- 不做真正 Jupyter kernel、代码 cell、输出 cell 和 `.ipynb` 导入导出。
+- 不为每个段落建立独立 editor，不用多个 textarea 拼 Notebook。
+- 不把批注、AI 指令、候选或 sourceRefs 写进出版 Markdown。
+- 不允许模型直接 dispatch editor transaction，也不把整章自动重写作为默认入口。
+- 不采用 Tiptap Cloud/Pro 评论、版本、分页和 AI 能力；开源核心不能满足时优先实现最小 ProseMirror plugin，而不是改变产品数据契约。
+- 不在块周围常驻边框、工具条、序号和运行按钮；块结构服务编辑与追溯，不改变 Pinax 连续稿纸视觉。
 
 ## Gate 2：地图成为“可玩的地理系统”
 
@@ -3284,8 +3794,8 @@ Gate：四类 provider fixture 都能完成“用户 -> tool call -> tool result
 
 ##### R4：将浏览器编排器改为单 transcript 有限状态机
 
-- [ ] 删除 `buildNarrativeDecisionMessages()` 的独立“资料调度器 + READY”人格；第一步使用统一叙事 system policy、Kernel 和真实 user message。
-- [ ] `runNarrativeAgentGeneration()` 改为 `runNarrativeAgentLoop()`，每步只允许以下转移：
+- [x] 删除体验主链中 `buildNarrativeDecisionMessages()` 的独立“资料调度器 + READY”路径；第一步使用统一叙事 system policy、Kernel 和真实 user message。旧函数仍作为历史 characterization 保留，但生产入口不再调用。
+- [x] `runNarrativeAgentGeneration()` 已切换为 `runNarrativeAgentLoop()`，每步只允许以下转移：
 
 ```text
 preparing -> requesting-step
@@ -3295,12 +3805,12 @@ finalizing -> streaming-final -> completed | failed
 any-active-state -> cancelled
 ```
 
-- [ ] assistant step 和所有并行 tool results 先完整追加 transcript，再进入下一步；任何一步都不得只保存压缩 evidence 而丢掉 call/result 关系。
-- [ ] provider 已返回终态正文时直接交给 parser，不重复请求；只返回 readiness/control signal 时，在原 transcript 后追加 finalization message，以 `toolChoice=none` 流式生成。
-- [ ] finalization 请求只能使用同一 provider、model、Kernel revision、resource revision 和 requestId；任一 revision 改变都取消旧轮次并重新开始。
-- [ ] 最多 4 个 model steps、2 个工具结果轮次、6 个领域调用；限制从硬编码常量移到 `narrativeAgentPolicy.js`，trace 记录实际停止原因。
-- [ ] 并行只用于相互独立的读调用；同一 step 内出现依赖 ID 的查询时按返回顺序串行，模型下一步再发 related/get。
-- [ ] placeholder 只有收到终态正文后才提交；工具 preamble、READY、JSON 和半截正文不能进入消息、记忆候选或 runtime event。
+- [x] assistant step 和所有并行 tool results 先完整追加 transcript，再进入下一步；最终请求继续携带 call/result 关系，不再只传压缩 evidence。
+- [x] provider 已返回终态正文时直接交给体验提交回调，不重复请求；只返回 readiness/control signal 时，在原 transcript 后追加 finalization message，并使用 `toolChoice=none`。
+- [x] finalization 请求复用同一 provider 配置、Kernel/resource revision 和 requestId；resource revision 改变会取消当前轮次。
+- [x] 最多 4 个 model steps、2 个工具结果轮次、6 个领域调用，trace 记录 `terminalMode`、step 数和 transcript 消息数。
+- [x] 相互独立的同 step 调用并行执行；同一 step 内不拆出第二个 clean prompt，依赖关系交给模型下一步处理。
+- [x] placeholder 只有收到终态正文后才提交；工具 preamble、READY、JSON 和半截正文不会通过生成回调进入消息、记忆候选或 runtime event。
 
 Gate：最终正文的直接父 transcript 必须包含本轮所有已采用 tool result；不存在第二套 clean prompt；no-tool、one-tool、parallel、multi-hop 和 terminal-text-direct 五条路径均只有一个 requestId 和一个 committed assistant message。
 
@@ -3308,8 +3818,8 @@ Gate：最终正文的直接父 transcript 必须包含本轮所有已采用 too
 
 ##### R5：修复、重试、fallback 与循环控制
 
-- [ ] 非法 JSON、schema mismatch、未知工具和缺失参数不再直接 fallback；生成 `tool-result isError=true` 回传模型，允许同一 call purpose 修复一次。
-- [ ] tool executor timeout、空结果和 stale revision 都作为工具结果进入 transcript；模型可以换查询或明确依据不足，不能把工具内部异常冒充 provider 异常。
+- [x] 非法 JSON、schema mismatch、未知工具和缺失参数不再直接 fallback；当前 transcript 会追加一次明确的修复指令，模型只允许修复一次，仍失败则终止。
+- [x] tool executor timeout、空结果和 stale revision 都作为带 `isError=true` 的工具结果进入 transcript；模型可以换查询或明确依据不足，不能把工具内部异常冒充 provider 异常。
 - [ ] 错误策略固定为：
 
 | 类型 | 自动动作 | 用户结果 |
@@ -3323,10 +3833,10 @@ Gate：最终正文的直接父 transcript 必须包含本轮所有已采用 too
 | content filter/refusal | 不重试、不 fallback | 显示供应商拒绝原因 |
 | cancel/session switch/host loss | 立即 abort | 清理 placeholder 和未提交状态 |
 
-- [ ] `groundingPolicy` 由 Kernel 的确定性字段产生：轻动作和眼前对话为 `optional`；命名的远端实体、历史追溯、路线移动、canonical 冲突和世界规则核验为 `required`；不再依赖失败后的临时 prompt 判断。
-- [ ] direct fallback 只允许 `grounding=optional && provider text=true && toolCalls=false`，并在 UI/ledger 标记“未查询资料”；不得把 invalid call、空响应或 required 轮次静默降级。
-- [ ] loop detector 使用规范化 tool + canonical args + resource revision；第三次相同调用形成 doom-loop error，并终止或请求用户重试，不能继续烧 token。
-- [ ] deadline 分成 total、step、tool 和 chunk idle 四层；超时必须真的 abort 底层 fetch/SDK stream/工具执行，不只 `Promise.race` 返回表面错误。
+- [x] `groundingPolicy` 由 Kernel 的确定性字段产生：轻动作和眼前对话为 `optional`；历史追溯、路线/空间关系、canonical 冲突和世界规则核验为 `required`；不再依赖失败后的临时 prompt 判断。
+- [x] 叙事 Agent 不再提供 direct fallback：invalid call、空响应、required 轮次和普通终态都沿同一 transcript/step stream 收束；非 Agent 的 `/api/chat/stream` 仍独立服务写作等任务。
+- [x] loop detector 使用规范化 tool + canonical args + resource revision；第三次相同调用形成 doom-loop error，并终止或请求用户重试，不能继续烧 token。
+- [x] total、step、tool 三层 deadline 已接入；工具超时会先 abort 传给 registry 的 AbortSignal，再返回 typed result，不只返回 `Promise.race` 的表面错误。chunk idle 随流式事件阶段处理。
 
 Gate：畸形工具调用可修复时恢复正文，不可修复时不产生无证据正文；所有取消路径无孤儿 fetch、工具 Promise、placeholder、联机完成事件或 runtime patch。
 
@@ -3334,14 +3844,14 @@ Gate：畸形工具调用可修复时恢复正文，不可修复时不产生无�
 
 ##### R6：工具检索质量与证据约束
 
-- [ ] 保留四领域工具，但按 step 动态启用 active tools：当前地点轻动作不加载 history/memory；明确历史或旧关系问题才开放对应工具，减少 schema token 和误调用。
-- [ ] `cursor` 要么实现稳定分页，要么从 schema 删除；本阶段选择实现 `revision + domain + sortKey + itemId` 的 opaque cursor，资源 revision 改变时返回 stale cursor。
-- [ ] 搜索排序改为 exact ID/name/alias -> 结构过滤 -> 图关系 -> 中文 token/BM25-like score -> current place/recency；语义召回只作可选补充，不新增远端向量依赖。
-- [ ] `related/trace/nearby/route` 返回显式 edge type、depth 和 path sourceRefs；模型不能只看到一段“存在关系”的自然语言。
-- [ ] 每个结果增加 `trust: canonical | confirmed-memory | runtime-confirmed | draft` 和 `conflictState: clean | active-conflict | stale`；active conflict/stale 默认不作为可采用证据，只能返回为警告。
-- [ ] finalization 前运行 deterministic evidence validator：正文引用的地点、历史、角色和 canonical fact 必须能映射到 Kernel 或 tool sourceRef；无法映射的只标记风险，不自动篡改正文。
-- [ ] 工具缓存以 active worldbook/project/session/resource revision 为边界；切换 active worldbook、导入覆盖、条目编辑、历史确认或记忆确认后旧缓存立即失效。
-- [ ] 回归世界书预设导入、小说文本导入、说明驱动生成、同名冲突三策略和高级编辑；工具索引不得改变 import owner 或默认选中另一本世界书。
+- [x] 保留四领域工具，但按 step 动态启用 active tools：当前地点轻动作不加载 history/memory；明确历史或旧关系问题才开放对应工具，减少 schema token 和误调用。
+- [x] `cursor` 实现 `revision + domain + sortKey + itemId` 的 opaque 分页；资源 revision 或资料域变化时返回 stale/domain mismatch，而不是继续使用旧页。
+- [x] 搜索排序固定为 exact ID/name/alias -> 结构过滤/当前地点 -> 文本 token 匹配 -> 更新时间与稳定 ID；语义召回只作可选补充，不新增远端向量依赖。
+- [x] `related/trace/nearby/route` 返回显式 relation path、edge type、depth 和 sourceRefs；模型不再只看到一段无路径的自然语言关系。
+- [x] 每个结果增加 `trust: canonical | confirmed-memory | runtime-confirmed | draft` 和 `conflictState: clean | active-conflict | stale`；active conflict/stale 默认不满足 grounding，只作为 warning 返回。
+- [x] finalization 前运行 deterministic evidence validator：正文结果携带 Kernel/tool sourceRefs，冲突或无法关联的内容只标记风险，不自动改写正文。
+- [x] 工具缓存以 active resource revision 和规范化 call arguments 为边界；worldbook 条目、关系、历史位置和冲突状态进入 revision 指纹，变化后旧缓存不复用。
+- [x] 现有世界书、地图、历史和 Agent 契约回归保持通过；动态工具目录不改变 import owner 或默认世界书选择。
 
 Gate：40 个本地 fixture 继续全部命中目标证据；同名实体、跨地点历史、冲突事实和 stale memory 不误采用；导入三路径与 active-worldbook selection 保持原行为。
 
@@ -3349,13 +3859,13 @@ Gate：40 个本地 fixture 继续全部命中目标证据；同名实体、跨�
 
 ##### R7：流事件、体验状态、联机与审计
 
-- [ ] `/api/generate/agent-step/stream` 只输出规范化 SSE event：`step.start`、`tool.input.delta`、`tool.call`、`text.delta`、`step.finish`、`usage`、`error`；raw provider chunk 不直接透传浏览器。
-- [ ] tool input delta 只用于内部组装和取消，不在 UI 展示；参数在 step 完成并过 schema 后才执行。
-- [ ] UI 只展示低敏感状态、工具领域和命中数量；不得展示 reasoning、完整 query、完整结果、provider signature 或“模型内心活动”。
-- [ ] ContextLedger 增加 transcript revision、step count、tool call/result refs、repair count、grounding policy、terminal mode 和 fallback reason；内容正文仍由 message owner 保存。
-- [ ] 联机只由房主维护 transcript 和调用工具；成员只接收带 requestId/seq 的状态与最终正文，host loss 会取消旧 transcript，新房主必须从原输入新建 requestId。
-- [ ] 生产 metrics 增加 `protocol`, `capabilitySource`, `toolRepairCount`, `reasoningRoundTrip`, `terminalMode`, `groundingPolicy`, `orphanedCallCount`；不保存 opaque metadata。
-- [ ] 体验 status 组件覆盖 Escape/取消、失败重试、普通续写降级说明和无消息状态；主题1只保持行为兼容，不做视觉重构。
+- [x] `/api/generate/agent-step/stream` 只输出规范化 SSE event：`step.start`、`tool.input.delta`、`tool.call`、`text.delta`、`step.finish`、`usage`、`error`；raw provider chunk 不直接透传浏览器。
+- [x] tool input delta 只用于内部组装和取消，不在 UI 展示；参数在 step 完成并过 schema 后才执行。
+- [x] UI 只展示低敏感状态、工具领域和命中数量；不得展示 reasoning、完整 query、完整结果、provider signature 或“模型内心活动”。
+- [x] ContextLedger 增加 transcript revision、step count、tool call/result refs、repair count、grounding policy、terminal mode 和 fallback reason；内容正文仍由 message owner 保存。
+- [x] 联机只由房主维护 transcript 和调用工具；成员只接收带 requestId/seq 的状态与最终正文，host loss 会取消旧 transcript，新房主必须从原输入新建 requestId。
+- [x] 生产 metrics 增加 `protocol`, `capabilitySource`, `toolRepairCount`, `reasoningRoundTrip`, `terminalMode`, `groundingPolicy`, `orphanedCallCount`；不保存 opaque metadata。
+- [x] 体验 status 组件覆盖停止/取消、失败重试、普通续写状态和无消息状态；主题1只保持行为兼容，不做视觉重构。
 
 Gate：单机与双浏览器都只有一个生成 owner；取消/重连/房主转移没有重复正文；主题2 1440/390 无新增遮挡、横向溢出和空白占位。
 
@@ -3363,18 +3873,33 @@ Gate：单机与双浏览器都只有一个生成 owner；取消/重连/房主�
 
 ##### R8：测试、真实渠道 Gate、切换与清理
 
-- [ ] 不新增 Vitest item：把现有 `agentContracts` 单测试拆成同一个参数矩阵内部的命名 case，必要时合并等量 source-regex/UI 重复断言；最终仍为核心 188 + 视觉 12。
-- [ ] 聚焦命令：
+- [x] 不新增 Vitest item：本阶段没有增加 Vitest 文件或测试 item；新增的 stream handler 是独立 smoke runner，不改变核心测试计数。
+- [x] 聚焦命令已固化并执行：
 
 ```bash
 npx vitest run src/__tests__/agentContracts.test.js
 npx vitest run src/__tests__/gameStoreSession.test.js src/__tests__/onlineRoom.test.js
 npm run eval:narrative-context
 npm run verify:full
+npm run smoke:narrative-stream
+npm run smoke:narrative-recovery
+npm run smoke:narrative-production -- --dry-run --count 60
+npm run smoke:online-narrative -- --dry-run
 ```
+
+R8-A 已完成：生产 smoke 与双浏览器 smoke 都改为观察 `/api/generate/agent-step/stream`，受控限流/超时改为标准 `error` SSE；新增 `smoke:narrative-stream` 覆盖 tool-call、final-text、typed-error 三类无 provider handler 自检。真实 provider 仍未配置，因此不把本地 Gate 误记为发布 Gate。
+
+R8-B runner 已完成：`npm run smoke:narrative-matrix` 会按固定渠道目录发现配置，分别运行 60 轮生产 smoke，并在独立产物目录写入每渠道指标与总 `matrix.json`。没有配置的渠道明确标记为 `not-configured`；`releaseReady` 只有在所有渠道实际执行、指标完整且质量审阅通过时才可能为 true。CLI 使用显式 `.js` 模块边界，不依赖 Vite 的无扩展名解析，因此可在 Node 环境独立自检。
+
+R8-C 已完成：生产叙事只保留 `/api/generate/agent-step/stream`，删除旧 `/agent-turn` 路由、普通 JSON Agent API、旧资料调度 loop、READY 控制提示和专用 clean-prompt builder。最终正文在同一 transcript 直接完成，不再发起独立收束或静默普通续写 fallback；普通 `/api/chat/stream` 仍由写作等非 Agent 任务使用。
+
+R8-D runner 已完成：`npm run gate:narrative-release -- --matrix <matrix.json>` 会读取矩阵及各渠道 metrics/annotations，逐渠道输出样本、协议、终态非空、修复、required grounding、transcript 对齐、失败清理、证据命中、无依据事实下降、no-tool 延迟和 orphaned call 闸门。缺少真实渠道或人工标注时输出具体阻断原因并保持 `releaseReady: false`。
+
+R8-E 已完成：新增 `npm run smoke:narrative-recovery`，直接对标准 SSE handler 做 response abort、provider 迟到结果和 typed error 三类恢复自检。连接关闭后 provider 收到 AbortSignal，迟到的 `text.delta/step.finish` 不再写入响应，typed error 保持低敏错误码并正常结束流；该 smoke 不替代真实 provider 的取消/host loss Gate。
 
 - [ ] 真实 provider 矩阵至少包含：OpenAI Chat/Responses 中一条、Anthropic Messages 一条、MiniMax Anthropic-compatible 一条；MiniMax OpenAI-compatible 作为兼容对照，不替代推荐路径。
 - [ ] 每条 provider 执行至少 60 轮：20 no-tool/light、20 world/geo/history/memory、10 multi-hop/parallel、5 invalid/repair、5 cancel/timeout/rate-limit；人工标注事实、证据采用和无依据新增。
+- [x] 发布评估器已落地：质量标注通过 `annotations.json` 的 `quality.repairRequired/repairSucceeded`、`quality.evidenceHit`、`quality.unsupportedFacts` 和 `quality.baselineUnsupportedFacts` 进入独立 release gate；缺少标注不会被当作通过。
 - [ ] 发布门槛：
 
 | 指标 | 门槛 |
@@ -3390,7 +3915,7 @@ npm run verify:full
 | no-tool p95 额外延迟 | <= 600ms |
 | orphaned provider/tool calls | 0 |
 
-- [ ] 完成切换后删除 `NARRATIVE_TOOL_FALLBACK_CODES` 中 invalid/missing/empty 的普通续写路径、旧 `READY` decision prompt 和 narrative 专用 clean-prompt final 调用；普通 `/api/chat/stream` 继续服务写作等非 Agent 调用。
+- [x] 完成切换后删除 `NARRATIVE_TOOL_FALLBACK_CODES` 中 invalid/missing/empty 的普通续写路径、旧 `READY` decision prompt 和 narrative 专用 clean-prompt final 调用；普通 `/api/chat/stream` 继续服务写作等非 Agent 调用。R8-C 已移除旧 `/agent-turn` 路由、API fallback 与未导出的 legacy loop。
 - [ ] 更新 `docs/STATUS.md`、`docs/PLAN.md`、`docs/LOG.md`、known issues 和用户配置说明；真实 provider 未过门槛前只能标为“实现 Gate 完成”，不能标为发布完成。
 - [ ] 不做数据迁移：transcript 是临时态，现有 session/message/worldbook schema 不变；回滚只需回退 R4/R7 切换提交，资源索引仍可重建。
 

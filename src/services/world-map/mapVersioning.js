@@ -32,11 +32,35 @@ function entryFingerprint(entry) {
   })
 }
 
-function findMatchingBurg(entry, mapData) {
+function findMatchingBurg(entry, mapData, binding = {}) {
   const aliases = new Set(entryAliases(entry))
-  if (!aliases.size) return null
-  return (Array.isArray(mapData?.burgs) ? mapData.burgs : [])
-    .find((burg) => burg?.i > 0 && aliases.has(normalize(burg.name))) || null
+  const burgs = Array.isArray(mapData?.burgs) ? mapData.burgs : []
+
+  // 1. 名称/别名精确匹配（原有行为）
+  if (aliases.size) {
+    const byName = burgs.find((burg) => burg?.i > 0 && aliases.has(normalize(burg.name)))
+    if (byName) return { burg: byName, method: 'name' }
+  }
+
+  // 2. 空间邻近回退：名称匹配失败时，找旧坐标附近的 burg（audit B1）。
+  //    避免重生成后 confirmed 地点因新地图无同名 burg 而直接 unmatched，
+  //    旧坐标成"幽灵绑定"。阈值 = 对角线 3%（比 kept 的 1.5% 宽，作为回退）。
+  const oldX = Number(binding.x)
+  const oldY = Number(binding.y)
+  if (Number.isFinite(oldX) && Number.isFinite(oldY)) {
+    const diagonal = Math.hypot(Number(mapData?.width) || 1200, Number(mapData?.height) || 800) || 1
+    const maxDist = diagonal * 0.03
+    let nearest = null
+    let nearestDist = maxDist
+    for (const burg of burgs) {
+      if (!burg || !(burg.i > 0) || !Number.isFinite(Number(burg.x)) || !Number.isFinite(Number(burg.y))) continue
+      const d = Math.hypot(Number(burg.x) - oldX, Number(burg.y) - oldY)
+      if (d < nearestDist) { nearest = burg; nearestDist = d }
+    }
+    if (nearest) return { burg: nearest, method: 'spatial' }
+  }
+
+  return null
 }
 
 function findConstraintIssue(entry, mapData) {
@@ -94,23 +118,41 @@ export function buildMapReplacementReview({
   const diagonal = Math.hypot(Number(nextMap?.width) || 1200, Number(nextMap?.height) || 800) || 1
   const items = entries.map((entry) => {
     const binding = entry.mapBinding || {}
-    const matched = findMatchingBurg(entry, nextMap)
+    const matched = findMatchingBurg(entry, nextMap, binding)
     const issue = findConstraintIssue(entry, nextMap)
-    const suggested = matched
-      ? { x: Number(matched.x), y: Number(matched.y), burgId: Number(matched.i), name: String(matched.name || '') }
+    const matchMethod = matched?.method || null
+    const matchedBurg = matched?.burg || null
+    const suggested = matchedBurg
+      ? { x: Number(matchedBurg.x), y: Number(matchedBurg.y), burgId: Number(matchedBurg.i), name: String(matchedBurg.name || '') }
       : null
     const movedDistance = suggested
       ? Math.hypot(Number(binding.x) - suggested.x, Number(binding.y) - suggested.y)
       : Infinity
-    let status = suggested && movedDistance <= diagonal * 0.015 ? 'kept' : (suggested ? 'moved' : 'unmatched')
+    // 状态判定：
+    //   - 名称匹配 + 移动 ≤ 1.5% 对角线 → kept（原位附近）
+    //   - 名称匹配 + 移动较大 → moved（位置变化但同名）
+    //   - 空间回退匹配 → moved（附 matchMethod:'spatial'，不算 kept 因为不是同名）
+    //   - 无匹配 → unmatched
+    let status = 'unmatched'
+    if (suggested) {
+      if (matchMethod === 'name' && movedDistance <= diagonal * 0.015) status = 'kept'
+      else status = 'moved'
+    }
     if (issue) status = 'conflict'
+    // reason 文案区分名称匹配 vs 空间回退
+    let reason = issue?.reason
+    if (!reason) {
+      if (!suggested) reason = '新地图没有同名或别名地点，也不会随机分配位置'
+      else if (matchMethod === 'spatial') reason = '新地图无同名地点，但旧坐标附近找到聚落，建议确认是否相同'
+      else if (status === 'kept') reason = '同名或别名地点保持在原位置附近'
+      else reason = '找到同名或别名地图地点，位置将发生变化'
+    }
     return {
       entryId: String(entry.id),
       name: entryName(entry) || String(entry.id),
       status,
-      reason: issue?.reason || (suggested
-        ? (status === 'kept' ? '同名或别名地点保持在原位置附近' : '找到同名或别名地图地点，位置将发生变化')
-        : '新地图没有同名或别名地点，不会随机分配位置'),
+      matchMethod,
+      reason,
       previous: {
         x: Number(binding.x),
         y: Number(binding.y),

@@ -12,6 +12,8 @@ export const NARRATIVE_TOOL_LIMITS = Object.freeze({
   maxToolResultRounds: 2
 })
 
+export const NARRATIVE_TOOL_CURSOR_VERSION = 1
+
 export const NARRATIVE_READ_TOOLS = Object.freeze({
   world_lookup: Object.freeze({
     actions: Object.freeze(['search', 'get', 'related']),
@@ -143,6 +145,9 @@ export function validateNarrativeToolInput(name, rawInput) {
     limit: requestedLimit,
     cursor: text(parsed.cursor)
   }
+  if (input.cursor.length > 512) {
+    return error('NARRATIVE_CURSOR_TOO_LONG', 'cursor 超过长度上限')
+  }
   const actionError = validateActionInput(name, input)
   if (actionError) {
     return error('NARRATIVE_TOOL_ARGUMENTS_INVALID', actionError)
@@ -214,12 +219,79 @@ function toolInputSchema(actions) {
   }
 }
 
-export function getNarrativeToolCatalog() {
-  return NARRATIVE_READ_TOOL_NAMES.map((name) => ({
+export function resolveNarrativeActiveToolNames(input = '', options = {}) {
+  const normalized = text(input)
+  const names = new Set(['world_lookup', 'geo_lookup'])
+  const explicitHistory = /历史|史实|追溯|因果|年代|时间线|旧关系|过去/.test(normalized)
+  const explicitMemory = /记忆|记得|回想|曾经|之前确认|已知/.test(normalized)
+  if (explicitHistory || options.hasHistory === true) names.add('history_lookup')
+  if (explicitMemory || options.hasMemory === true) names.add('memory_lookup')
+  return NARRATIVE_READ_TOOL_NAMES.filter((name) => names.has(name))
+}
+
+export function getNarrativeToolCatalog(options = {}) {
+  const activeTools = Array.isArray(options.activeTools) && options.activeTools.length > 0
+    ? new Set(options.activeTools)
+    : null
+  return NARRATIVE_READ_TOOL_NAMES
+    .filter((name) => !activeTools || activeTools.has(name))
+    .map((name) => ({
     name,
     description: NARRATIVE_READ_TOOLS[name].description,
     inputSchema: toolInputSchema(NARRATIVE_READ_TOOLS[name].actions)
-  }))
+    }))
+}
+
+function encodeCursor(value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function decodeCursor(value) {
+  const normalized = text(value).replace(/-/g, '+').replace(/_/g, '/')
+  if (!normalized) return null
+  try {
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='))
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    return null
+  }
+}
+
+export function createNarrativeCursor({
+  revision = '',
+  domain = '',
+  sortKey = '',
+  itemId = ''
+} = {}) {
+  if (!text(revision) || !text(domain) || !text(sortKey) || !text(itemId)) return ''
+  return encodeCursor({
+    version: NARRATIVE_TOOL_CURSOR_VERSION,
+    revision: text(revision),
+    domain: text(domain),
+    sortKey: text(sortKey),
+    itemId: text(itemId)
+  })
+}
+
+export function parseNarrativeCursor(value, { revision = '', domain = '' } = {}) {
+  const parsed = decodeCursor(value)
+  if (!parsed || parsed.version !== NARRATIVE_TOOL_CURSOR_VERSION) {
+    return { valid: false, error: { code: 'NARRATIVE_CURSOR_INVALID', message: 'cursor 格式无效' } }
+  }
+  if (text(revision) && parsed.revision !== text(revision)) {
+    return { valid: false, error: { code: 'NARRATIVE_CURSOR_STALE', message: 'cursor 对应的资源 revision 已变化' } }
+  }
+  if (text(domain) && parsed.domain !== text(domain)) {
+    return { valid: false, error: { code: 'NARRATIVE_CURSOR_DOMAIN_MISMATCH', message: 'cursor 不属于当前资料域' } }
+  }
+  if (!text(parsed.sortKey) || !text(parsed.itemId)) {
+    return { valid: false, error: { code: 'NARRATIVE_CURSOR_INVALID', message: 'cursor 缺少稳定排序位置' } }
+  }
+  return { valid: true, cursor: parsed }
 }
 
 export function stableNarrativeSerialize(value) {

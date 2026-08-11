@@ -780,12 +780,8 @@ export async function enterPresetWorld(worldStore, router, preset, action = null
   }
 
   if (router && typeof router.push === 'function') {
-    // S17 user feedback: /opening 是 5C v3.5 vibe UI splash 页 (旧版开场), 跟世界书页的
-    // 撕角档案册语境不连贯. 主页 "开始冒险" 直进 /experience (Experience.vue
-    // workstation: 聊条 + quest + status), 跳过中间 splash. savePlayableWorldEntryIntent
-    // 保留以便将来 /opening 还想用; 现在 experience.vue 不读这个 intent, 是 dead-write
-    // 但代价小 (1 个 localStorage entry). 后续如果要彻底干净可删.
-    router.push({ name: 'experience' })
+    // 体验页以 worldbookId 作为显式入口意图，避免它恢复到另一本世界书的旧会话。
+    router.push({ name: 'experience', query: { worldbookId: created.id } })
   }
 
   return created

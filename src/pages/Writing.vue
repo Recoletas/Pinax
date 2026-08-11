@@ -287,26 +287,25 @@
                   data-test="capture-selection"
                   @click="captureSelectionAsAsset"
                 >收为素材</button>
+                <button
+                  v-if="!isKao"
+                  class="tool-btn annotation-toolbar-btn"
+                  :class="{ active: inspectorOpen && inspectorTab === 'comments' }"
+                  type="button"
+                  :disabled="!selectedText"
+                  title="为选中文字添加批注"
+                  @click="openAnnotationInspector"
+                >
+                  批注<span v-if="openAnnotationCount" class="annotation-toolbar-count">{{ openAnnotationCount }}</span>
+                </button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">查找</button>
               </div>
-              <div class="toolbar-sep"></div>
-              <div class="toolbar-group">
-                <button
-                  class="tool-btn ai-btn"
-                  title="打开写作专业任务"
-                  @pointerdown="captureAdvisorSelection"
-                  @click.stop="openAdvisorFromAction"
-                >
-                  <WorkbenchIcon name="sparkles" :size="14" />
-                  <span>顾问</span>
-                </button>
-              </div>
               <div class="toolbar-spacer"></div>
               <div class="mode-switch">
-                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="所见即所得">编辑</button>
+                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="在同一编辑面实时渲染 Markdown">实时</button>
                 <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown">Markdown</button>
                 <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
               </div>
@@ -352,59 +351,26 @@
               <button class="tool-btn sm close" @click="showFindReplace = false">×</button>
             </div>
 
-            <div class="editor-container" v-if="editorMode === 'wysiwyg'">
-              <div
-                v-if="advisorSelectionVisible"
-                class="advisor-selection-layer"
-                :style="editorTypographyStyle"
-                aria-hidden="true"
-              >
-                <div class="advisor-selection-scroll" :style="copilotGhostScrollStyle">
-                  <span>{{ advisorSelectionBefore }}</span><mark>{{ advisorSelectionText }}</mark><span>{{ advisorSelectionAfter }}</span>
-                </div>
-              </div>
-              <div class="editor-ghost-layer" v-if="copilotVisible && copilotSuggestion" :style="editorTypographyStyle" aria-hidden="true">
-                <div class="editor-ghost-scroll" :style="copilotGhostScrollStyle">
-                  <span>{{ copilotGhostBefore }}</span><span class="ghost-text">{{ copilotSuggestion }}</span><span>{{ copilotGhostAfter }}</span>
-                </div>
-              </div>
-              <textarea
-                v-model="markdownContent"
-                class="wall__dossier-textarea prose-textarea"
-                :class="{
-                  'with-copilot-ghost': copilotVisible && copilotSuggestion,
-                  'with-advisor-selection': advisorSelectionVisible
-                }"
-                placeholder="开始写作..."
-                ref="editorRef"
-                :style="editorTypographyStyle"
-                @input="onMarkdownInput"
-                @keydown="onTextAreaKeydown"
-                @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-                @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-                @scroll="onEditorScroll"
-                @compositionstart="onWritingCompositionStart"
-                @compositionend="onWritingCompositionEnd"
-                @paste="onWritingPaste"
-                @drop="onWritingPaste"
-              ></textarea>
-            </div>
+            <WritingNotebookEditor
+              v-if="editorMode === 'wysiwyg'"
+              ref="notebookEditorRef"
+              :model-value="markdownContent"
+              :document="writingDocument"
+              :annotations="chapterAnnotations"
+              :active-annotation-id="activeAnnotationId"
+              :style="notebookEditorStyle"
+              @update:modelValue="onNotebookMarkdown"
+              @update:document="onNotebookDocumentUpdate"
+              @selection-change="onNotebookSelectionChange"
+              @annotation-click="handleInlineAnnotationClick"
+              @input="onNotebookInput"
+              @context-menu="showContextMenu"
+            />
             <div v-if="editorMode === 'markdown'" class="markdown-editor-container">
-              <div
-                v-if="advisorSelectionVisible"
-                class="advisor-selection-layer is-markdown"
-                :style="editorTypographyStyle"
-                aria-hidden="true"
-              >
-                <div class="advisor-selection-scroll" :style="copilotGhostScrollStyle">
-                  <span>{{ advisorSelectionBefore }}</span><mark>{{ advisorSelectionText }}</mark><span>{{ advisorSelectionAfter }}</span>
-                </div>
-              </div>
               <textarea
                 v-model="markdownContent"
                 ref="editorRef"
                 class="wall__dossier-textarea markdown-textarea"
-                :class="{ 'with-advisor-selection': advisorSelectionVisible }"
                 placeholder="开始写作（Markdown）..."
                 @input="onMarkdownInput"
                 @keydown="onTextAreaKeydown"
@@ -442,6 +408,259 @@
           </div>
         </template>
       </section>
+
+      <aside
+        v-if="!isKao"
+        class="writing-inspector"
+        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned }"
+        aria-label="写作检查器"
+      >
+        <header class="writing-inspector__head">
+          <div>
+            <strong>边注</strong>
+            <span v-if="openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
+          </div>
+          <div class="writing-inspector__head-actions">
+            <button
+              class="writing-inspector__icon-btn"
+              type="button"
+              :class="{ active: inspectorPinned }"
+              :aria-pressed="inspectorPinned.toString()"
+              title="固定检查器"
+              @click="inspectorPinned = !inspectorPinned"
+            >⌖</button>
+            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="inspectorOpen = false">×</button>
+          </div>
+        </header>
+
+        <nav class="writing-inspector__tabs" aria-label="检查器视图">
+          <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
+          <button type="button" :class="{ active: inspectorTab === 'rewrite' }" @click="inspectorTab = 'rewrite'">改写</button>
+          <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">版本</button>
+        </nav>
+
+        <div v-if="inspectorTab === 'comments'" class="writing-inspector__body">
+          <div class="writing-inspector__density">
+            <button type="button" :class="{ active: annotationScope === 'block' }" @click="annotationScope = 'block'">块</button>
+            <button type="button" :class="{ active: annotationScope === 'scene' }" @click="annotationScope = 'scene'">场景</button>
+            <button type="button" :class="{ active: annotationScope === 'chapter' }" @click="annotationScope = 'chapter'">全章</button>
+            <span class="writing-inspector__density-spacer" aria-hidden="true"></span>
+            <button type="button" class="writing-review-trigger" :disabled="reviewLoading || !selectedChapterId" @click="runChapterReview">
+              {{ reviewLoading ? `审查中 ${reviewCompletedBatches}/${reviewTotalBatches}` : '章节审查' }}
+            </button>
+            <button v-if="reviewLoading" type="button" class="writing-review-trigger is-quiet" @click="cancelChapterReview">停止</button>
+          </div>
+          <p v-if="reviewError" class="writing-review-status is-error" role="alert">{{ reviewError }}</p>
+          <p v-else-if="reviewStatus" class="writing-review-status">{{ reviewStatus }}</p>
+
+          <div class="writing-inspector__list" :class="`is-${annotationDensity}`">
+            <article
+              v-for="annotation in activeBlockAnnotations"
+              :key="annotation.id"
+              class="writing-annotation"
+              :class="[`is-${annotation.status}`, { 'is-active': activeAnnotationId === annotation.id, 'is-reply': Boolean(annotation.parentId) }]"
+              role="button"
+              tabindex="0"
+              :aria-label="`${getWritingAnnotationLabel(annotation)}：${annotation.body}`"
+              @click="locateAnnotation(annotation)"
+              @focus="activeAnnotationId = annotation.id"
+              @keydown="handleAnnotationKeydown($event, annotation, activeBlockAnnotations.indexOf(annotation))"
+            >
+              <header>
+                <span>{{ annotation.reviewType ? `${annotation.reviewType} · ` : '' }}{{ getWritingAnnotationLabel(annotation) }}</span>
+                <time>{{ annotation.status === 'orphaned' ? '需处理' : annotation.status === 'resolved' ? '已解决' : '待处理' }}</time>
+              </header>
+              <p>{{ annotation.body }}</p>
+              <div v-if="annotationDensity === 'expanded'" class="writing-annotation__quote">“{{ annotation.range?.exact || annotation.selector?.exact || '无选区' }}”</div>
+              <footer>
+                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startAnnotationReply(annotation)">回复</button>
+                <button v-if="annotation.status === 'open'" type="button" @click.stop="setAnnotationStatus(annotation.id, 'resolved')">标记解决</button>
+                <button v-else type="button" @click.stop="setAnnotationStatus(annotation.id, 'open')">恢复</button>
+                <button v-if="annotation.kind === 'review-finding' && annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">进入改写</button>
+                <button v-if="annotation.status === 'orphaned'" type="button" @click.stop="reanchorAnnotation(annotation)">用当前选区重关联</button>
+              </footer>
+            </article>
+            <div v-if="!activeBlockAnnotations.length" class="writing-inspector__empty">这段还没有批注。</div>
+          </div>
+
+          <div v-if="selectedText || replyTargetAnnotation" class="writing-inspector__composer">
+            <div v-if="replyTargetAnnotation" class="writing-inspector__reply-target">
+              回复：{{ replyTargetAnnotation.body.slice(0, 56) }}{{ replyTargetAnnotation.body.length > 56 ? '…' : '' }}
+              <button type="button" @click="replyTargetAnnotationId = null">取消回复</button>
+            </div>
+            <div v-if="selectedText" class="writing-inspector__selection">选中：{{ selectedText.slice(0, 90) }}{{ selectedText.length > 90 ? '…' : '' }}</div>
+            <textarea v-model="annotationDraft" rows="3" placeholder="写下对这段文字的批注、疑问或修改要求" @keydown.meta.enter.prevent="createAnnotationFromSelection" @keydown.ctrl.enter.prevent="createAnnotationFromSelection"></textarea>
+            <button type="button" :disabled="!canCreateAnnotation" @click="createAnnotationFromSelection">{{ replyTargetAnnotation ? '回复' : '添加批注' }}</button>
+          </div>
+          <div v-else class="writing-inspector__composer-hint">选中正文中的一小段，批注会贴在片段旁边。</div>
+        </div>
+
+        <div v-else-if="inspectorTab === 'rewrite'" class="writing-inspector__body writing-rewrite-panel">
+          <div v-if="rewriteTarget" class="writing-rewrite-panel__context">
+            <strong>{{ rewriteTarget.text }}</strong>
+            <small v-if="rewriteTarget">修订 {{ rewriteTarget.documentRevision }} · {{ rewriteTarget.kind === 'multi-selection' ? `跨块选区（${rewriteTarget.blocks?.length || 0}块）` : rewriteTarget.kind === 'selection' ? '选区' : '当前块' }}</small>
+          </div>
+          <textarea
+            v-model="rewriteInstruction"
+            class="writing-rewrite-panel__input"
+            rows="3"
+            placeholder="告诉改写要保留或解决什么，例如：压缩重复动作，保留冷静语气"
+            @keydown.meta.enter.prevent="generateRewriteCandidates"
+            @keydown.ctrl.enter.prevent="generateRewriteCandidates"
+          ></textarea>
+          <div class="writing-rewrite-panel__actions">
+            <button type="button" :disabled="rewriteLoading || !canGenerateRewrite" @click="generateRewriteCandidates">
+              {{ rewriteLoading ? '生成中…' : '生成候选' }}
+            </button>
+            <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">取消</button>
+            <button v-if="rewriteError && !rewriteLoading && rewriteTarget" type="button" class="is-quiet" @click="retryRewriteCandidates">重试</button>
+            <button v-if="selectedText && rewriteTarget && rewriteTarget.kind !== 'multi-selection'" type="button" class="is-quiet" @click="lockCurrentRewriteSelection">锁定选中片段</button>
+            <button v-if="rewriteUndoReceipt" type="button" class="is-quiet" @click="undoRewriteCandidate">撤销采用</button>
+          </div>
+          <p v-if="rewriteError" class="writing-rewrite-panel__error" role="alert">{{ rewriteError }}</p>
+          <div v-if="rewriteLockedSegments.length" class="writing-rewrite-panel__locks">
+            <span>已锁定</span>
+            <em v-for="segment in rewriteLockedSegments" :key="`${segment.start}-${segment.end}`">{{ segment.text }}</em>
+          </div>
+          <div v-if="rewriteCandidates.length" class="writing-rewrite-panel__candidates">
+            <article
+              v-for="candidate in rewriteCandidates"
+              :key="candidate.id"
+              class="writing-rewrite-candidate"
+              :class="{ 'is-selected': selectedRewriteCandidateId === candidate.id, 'is-stale': candidate.status === 'stale', 'is-applied': candidate.status === 'applied' }"
+              @click="selectedRewriteCandidateId = candidate.id"
+            >
+              <header>
+                <button type="button" class="writing-rewrite-candidate__select" @click.stop="selectedRewriteCandidateId = candidate.id">
+                  {{ candidate.label }}
+                </button>
+                <span>{{ candidate.status === 'stale' ? '已过期' : candidate.status === 'applied' ? '已采用' : '待审阅' }}</span>
+              </header>
+              <p v-if="candidate.rationale">{{ candidate.rationale }}</p>
+              <div v-if="candidate.patches?.length" class="writing-rewrite-patches" aria-label="跨块改写差异">
+                <section v-for="(patch, patchIndex) in candidate.patches" :key="`${candidate.id}-${patch.blockId}`" class="writing-rewrite-patch">
+                  <small>块 {{ patchIndex + 1 }}</small>
+                  <div class="writing-rewrite-diff">
+                    <div><small>原文</small><span v-for="(part, index) in patch.diff.before" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                    <div><small>候选</small><span v-for="(part, index) in patch.diff.after" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                  </div>
+                </section>
+              </div>
+              <div v-else class="writing-rewrite-diff" aria-label="改写差异">
+                <div><small>原文</small><span v-for="(part, index) in candidate.diff.before" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                <div><small>候选</small><span v-for="(part, index) in candidate.diff.after" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+              </div>
+              <footer>
+                <button type="button" :disabled="candidate.status !== 'ready'" @click.stop="applyRewriteCandidate(candidate)">{{ candidate.patches?.length ? '整批采用' : '采用' }}</button>
+                <button type="button" class="is-quiet" :disabled="candidate.status === 'applied'" @click.stop="dismissRewriteCandidate(candidate)">忽略</button>
+              </footer>
+            </article>
+          </div>
+          <div v-else-if="!rewriteLoading" class="writing-rewrite-panel__empty">
+            选中正文后生成候选。
+          </div>
+        </div>
+
+        <div v-else class="writing-inspector__body writing-version-panel">
+          <div class="writing-version-panel__current">
+            <div>
+              <span>当前章节</span>
+              <strong>{{ currentChapterTitle || '未命名章节' }}</strong>
+            </div>
+            <div class="writing-version-panel__revision" aria-label="当前修订">
+              <small>修订</small>
+              <b>{{ writingDocument?.revision || 0 }}</b>
+            </div>
+          </div>
+          <section class="writing-quality-panel" aria-label="章节质量检查">
+            <header class="writing-quality-panel__head">
+              <div>
+                <span class="writing-quality-panel__eyebrow">发布前检查</span>
+                <strong>章节质量</strong>
+              </div>
+              <span class="writing-quality-panel__state" :class="`is-${writingQualityReport.status}`">
+                {{ writingQualityReport.status === 'blocked' ? '暂不可发布' : writingQualityReport.status === 'attention' ? '建议处理' : '可以发布' }}
+              </span>
+            </header>
+            <div class="writing-quality-panel__metrics" aria-label="质量检查统计">
+              <span><b>{{ writingQualityReport.summary.blockers }}</b> 阻断</span>
+              <span><b>{{ writingQualityReport.summary.warnings }}</b> 警告</span>
+              <span><b>{{ writingQualityReport.summary.info }}</b> 提示</span>
+            </div>
+            <p class="writing-quality-panel__hint">
+              {{ writingQualityReport.status === 'ready' ? '当前正文、批注与保存状态没有阻断项。' : '先处理阻断项，再将章节交给出版或分镜流程。' }}
+            </p>
+            <div v-if="writingQualityReport.issues.length" class="writing-quality-panel__issues">
+              <article v-for="item in writingQualityReport.issues" :key="item.id" class="writing-quality-issue" :class="`is-${item.severity}`">
+                <div class="writing-quality-issue__mark" aria-hidden="true"></div>
+                <div class="writing-quality-issue__copy">
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.detail }}</p>
+                </div>
+                <button v-if="item.annotationId || item.blockId" type="button" class="writing-quality-issue__locate" @click="locateQualityIssue(item)">定位</button>
+              </article>
+            </div>
+            <p v-else class="writing-quality-panel__empty">没有发现需要处理的质量问题。</p>
+          </section>
+          <div class="writing-version-panel__create">
+            <input v-model="snapshotLabel" type="text" maxlength="80" placeholder="给这次快照命名" @keydown.enter.prevent="createCurrentWritingSnapshot()">
+            <button type="button" :disabled="!selectedChapterId" @click="createCurrentWritingSnapshot()">保存快照</button>
+          </div>
+          <p v-if="snapshotStatus" class="writing-version-panel__status" role="status">{{ snapshotStatus }}</p>
+          <section v-if="writingRecoveryDraft" class="writing-recovery-entry" aria-label="未保存草稿">
+            <header>
+              <div>
+                <strong>发现未保存草稿</strong>
+                <small>修订 {{ writingRecoveryDraft.documentRevision }} · {{ formatWritingSnapshotTime(writingRecoveryDraft.createdAt) }}</small>
+              </div>
+              <span>未写入章节</span>
+            </header>
+            <p>这份草稿是在正文保存前留下的恢复副本，恢复会先保留当前正文。</p>
+            <footer>
+              <button type="button" @click="restoreWritingRecoveryDraft">恢复草稿</button>
+              <button type="button" class="is-quiet" @click="discardWritingRecoveryDraft">丢弃</button>
+            </footer>
+          </section>
+          <div v-if="writingSnapshots.length" class="writing-version-panel__list" aria-label="章节快照列表">
+            <article v-for="snapshot in writingSnapshots" :key="snapshot.id" class="writing-version-entry">
+              <header>
+                <div>
+                  <strong>{{ snapshot.label }}</strong>
+                  <small>{{ getWritingSnapshotReasonLabel(snapshot.reason) }} · 修订 {{ snapshot.documentRevision }}</small>
+                </div>
+                <time :datetime="snapshot.createdAt">{{ formatWritingSnapshotTime(snapshot.createdAt) }}</time>
+              </header>
+              <p>{{ snapshot.wordCount.toLocaleString() }} 字 · {{ snapshot.chapterTitle || '未命名章节' }}</p>
+              <footer>
+                <button type="button" @click="restoreWritingSnapshot(snapshot)">恢复到这里</button>
+                <button type="button" class="is-quiet" @click="removeWritingSnapshot(snapshot)">删除</button>
+              </footer>
+            </article>
+          </div>
+          <div v-else class="writing-version-panel__empty">
+            当前章节还没有快照。保存关键改写前的版本，之后可以从这里恢复。
+          </div>
+          <section v-if="writingBlockHistory.length" class="writing-block-history">
+            <header class="writing-block-history__head">
+              <strong>块历史</strong>
+              <small>只记录已保存的块变更</small>
+            </header>
+            <article v-for="entry in writingBlockHistory" :key="entry.id" class="writing-block-history__entry">
+              <header>
+                <div>
+                  <strong>{{ entry.blockKind === 'scene-heading' ? '场景标题' : '正文块' }}</strong>
+                  <small>修订 {{ entry.fromDocumentRevision }} → {{ entry.toDocumentRevision }} · {{ formatWritingSnapshotTime(entry.createdAt) }}</small>
+                </div>
+                <span>{{ entry.previousText.length.toLocaleString() }} 字</span>
+              </header>
+              <p>{{ entry.previousText.slice(0, 120) }}{{ entry.previousText.length > 120 ? '…' : '' }}</p>
+              <button type="button" :disabled="!canRestoreWritingBlockHistory(entry)" @click="restoreWritingBlockHistory(entry)">{{ canRestoreWritingBlockHistory(entry) ? '恢复此块' : '块已不存在' }}</button>
+            </article>
+          </section>
+        </div>
+      </aside>
+
+      <button v-if="!isKao && !inspectorOpen" class="writing-inspector__reopen" type="button" title="打开检查器" @click="inspectorOpen = true">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
     </main>
 
     <MediaGenerationDrawer
@@ -611,35 +830,6 @@
       </div>
     </Transition>
 
-    <GmPersonaLauncher
-      kicker="写作顾问"
-      title="这段该收束、扩写还是换焦点"
-      body="我先看当前章节和素材结构，再给你一个够轻、但能继续推进的写法。"
-      avatarLabel="作"
-      caption="写作顾问"
-      captionHint="写作入口"
-      :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
-      @open="openAdvisorFromAction"
-    />
-
-    <AdvisorPanel
-      :isOpen="advisorOpen"
-      :messages="advisorMessages"
-      :results="advisorResults"
-      :loading="advisorLoading"
-      :quickQuestions="advisorQuickActions"
-      :notice="consistencyNotice"
-      :contextLabel="advisorContextLabel"
-      :returnFocus="restoreAdvisorSelection"
-      :emptyText="'统一智能顾问可帮助你修正选区、收束段落、体检章节，并给出轻量续写建议。'"
-      @close="handleCloseAdvisor"
-      @ask="handleAskAdvisor"
-      @apply-result="applyAdvisorResult"
-      @undo-result="undoAdvisorResult"
-      @undo-domain-result="undoAdvisorDomainAction"
-      @dismiss-result="dismissAdvisorResult"
-      @convert-result="convertAdvisorSuggestion"
-    />
   </div>
 </template>
 
@@ -650,19 +840,17 @@ import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
-import { useAdvisor } from '../composables/useAdvisor'
 import { extractWritingSuggestionWindow } from '../services/writingSuggestion'
 import { useWritingAgent } from '../composables/useWritingAgent'
 import { useWorldStore } from '../stores/worldStore'
 import { useGameStore } from '../stores/gameStore'
 import { useEditorHistory } from '../composables/useEditorHistory'
 import MediaGenerationDrawer from '../components/media/MediaGenerationDrawer.vue'
-import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
-import AdvisorPanel from '../components/AdvisorPanel.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WritingInlineCompletion from '../components/writing/WritingInlineCompletion.vue'
+import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   ASSET_KINDS,
@@ -671,7 +859,6 @@ import {
   getAssetSourceDetail,
   addNarrativeAsset,
   createNarrativeAssetSourceRef,
-  deleteNarrativeAsset,
   listNarrativeAssets,
   mergeSourceRefs,
   normalizeContentRef,
@@ -693,17 +880,11 @@ import {
   normalizeChapterOutlineItems,
   removeChapterOutlineItem
 } from '../services/chapterOutline'
-import { applyAdvisorReplacement } from '../services/advisorResultApplier'
+import { requestAdvisorTask } from '../services/advisorTaskService'
 import {
   applyWritingAgentTransaction,
   undoWritingAgentTransaction
 } from '../services/agents/writingAgentTransaction'
-import {
-  buildSuggestionDomainAction,
-  buildWritingProfessionalActions,
-  buildWritingProfessionalTarget,
-  normalizeWritingProfessionalAction
-} from '../services/agents/writingProfessionalActions'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
@@ -716,29 +897,64 @@ import {
 } from '../services/writingSelectionCapture'
 import { wrapMarkdownSelection } from '../services/markdownWrap'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
+import { useWritingDocument } from '../composables/useWritingDocument'
+import {
+  createWritingAnnotation,
+  createWritingSelector,
+  getWritingAnnotationLabel,
+  normalizeWritingAnnotations,
+  reconcileWritingAnnotations,
+  updateWritingAnnotationStatus
+} from '../services/writing/writingAnnotations.js'
+import {
+  buildWritingCandidateDiff,
+  createWritingCandidateRequest,
+  getWritingCandidateStaleReason,
+  normalizeWritingCandidateResponse
+} from '../services/writing/writingCandidates.js'
+import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
+import {
+  cloneWritingSnapshotDocument,
+  createWritingSnapshot,
+  getWritingSnapshotReasonLabel,
+  getWritingSnapshotRestoreGuard
+} from '../../shared/writingSnapshotContract.js'
+import {
+  deleteWritingSnapshot,
+  deleteWritingSnapshotsForChapter,
+  listWritingSnapshots,
+  saveWritingSnapshot
+} from '../services/writing/writingSnapshots.js'
+import {
+  appendWritingBlockHistory,
+  deleteWritingBlockHistoryForChapter,
+  listWritingBlockHistory
+} from '../services/writing/writingBlockHistory.js'
+import {
+  clearWritingRecoveryDraft,
+  listWritingRecoveryDrafts,
+  saveWritingRecoveryDraft
+} from '../services/writing/writingRecovery.js'
+import { buildWritingBlockHistoryEntries } from '../../shared/writingBlockHistoryContract.js'
+import { buildWritingQualityReport } from '../../shared/writingQualityContract.js'
 
 const router = useRouter()
 const route = useRoute()
 const { isDark, isKao, toggleTheme } = useTheme()
 const {
-  advisorOpen,
-  advisorMessages,
-  advisorResults,
-  advisorLoading,
-  pendingReviewCount,
-  pendingReminderVisible,
-  consistencyNotice,
-  askAdvisor,
-  openAdvisor: openAdvisorPanel,
-  closeAdvisor,
-  updateAdvisorResultStatus
-} = useAdvisor()
+  clear: clearWritingDocument,
+  document: writingDocument,
+  getBlockAtPosition: getWritingBlockAtPosition,
+  loadChapterDocument,
+  readChapterSource,
+  syncFromMarkdown,
+  persistChapterDocument
+} = useWritingDocument()
 const worldStore = useWorldStore()
 const gameStore = useGameStore()
 
 const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
 const copilotCursorPos = ref(0)
-const advisorSelectionSnapshot = ref(null)
 const copilotScrollTop = ref(0)
 const copilotScrollLeft = ref(0)
 
@@ -753,27 +969,55 @@ const newBookTitle = ref('')
 const newBookDesc = ref('')
 const newBookInput = ref(null)
 const editorRef = ref(null)
+const notebookEditorRef = ref(null)
+const notebookSelection = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
+const notebookEditorActive = computed(() => editorMode.value === 'wysiwyg')
 
-const editorTypographyStyle = computed(() => ({
-  fontFamily: editorFont.value,
-  fontSize: editorFontSize.value,
-  fontWeight: editorBold.value ? 'bold' : 'normal',
-  fontStyle: editorItalic.value ? 'italic' : 'normal',
-  textDecoration: editorUnderline.value ? 'underline' : 'none'
-}))
-
-const copilotGhostBefore = computed(() => markdownContent.value.slice(0, copilotCursorPos.value))
-const copilotGhostAfter = computed(() => markdownContent.value.slice(copilotCursorPos.value))
-const copilotGhostScrollStyle = computed(() => ({
-  transform: `translate(${-copilotScrollLeft.value}px, ${-copilotScrollTop.value}px)`
+const notebookEditorStyle = computed(() => ({
+  '--notebook-font-family': editorFont.value,
+  '--notebook-font-size': editorFontSize.value,
+  '--notebook-font-weight': editorBold.value ? '700' : '400',
+  '--notebook-font-style': editorItalic.value ? 'italic' : 'normal',
+  '--notebook-text-decoration': editorUnderline.value ? 'underline' : 'none'
 }))
 
 const rightWidth = ref(210)
 const isRightCollapsed = ref(false)
 const resizing = ref(null)
 const selectedText = ref('')
+const chapterAnnotations = ref([])
+const activeAnnotationId = ref(null)
+const replyTargetAnnotationId = ref(null)
+const annotationDraft = ref('')
+const annotationScope = ref('block')
+const rewriteInstruction = ref('')
+const rewriteTarget = ref(null)
+const rewriteCandidates = ref([])
+const selectedRewriteCandidateId = ref(null)
+const rewriteLockedSegments = ref([])
+const rewriteLoading = ref(false)
+const rewriteError = ref('')
+const rewriteUndoReceipt = ref(null)
+const reviewLoading = ref(false)
+const reviewError = ref('')
+const reviewStatus = ref('')
+const reviewCompletedBatches = ref(0)
+const reviewTotalBatches = ref(0)
+const writingSnapshots = ref([])
+const writingBlockHistory = ref([])
+const writingRecoveryDraft = ref(null)
+const snapshotLabel = ref('')
+const snapshotStatus = ref('')
+let rewriteRequestVersion = 0
+let rewriteAbortController = null
+let reviewAbortController = null
+let recoveryTimeout = null
+const inspectorTab = ref('comments')
+const inspectorOpen = ref(true)
+const inspectorPinned = ref(false)
+const annotationDensity = ref('compact')
 const editorHistory = useEditorHistory()
 const canUndo = editorHistory.canUndo
 const canRedo = editorHistory.canRedo
@@ -876,7 +1120,9 @@ const {
   getContext: getWritingAgentPageContext,
   getSnapshot: () => ({
     content: markdownContent.value,
-    cursorPos: copilotCursorPos.value
+    cursorPos: copilotCursorPos.value,
+    documentRevision: Number(writingDocument.value?.revision || 0),
+    blockTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   })
 })
 
@@ -892,7 +1138,7 @@ let saveTimeout = null
 let titleTimeout = null
 
 const shouldLockPageScroll = computed(() => {
-  return assetInboxOpen.value || showNewBookModal.value || advisorOpen.value
+  return assetInboxOpen.value || showNewBookModal.value
 })
 
 useBodyScrollLock(shouldLockPageScroll)
@@ -900,15 +1146,25 @@ useBodyScrollLock(shouldLockPageScroll)
 onMounted(() => {
   pendingBackJump.value = parseSelectionBackJump(route.query)
   pendingInsertBack.value = parseInsertBackQuery(route.query)
+  if (window.matchMedia?.('(max-width: 720px)').matches) {
+    inspectorOpen.value = false
+  }
   loadBooks()
   refreshAssetInbox()
   if (pendingBackJump.value) tryApplyPendingBackJump()
   if (pendingInsertBack.value) tryApplyPendingInsertBack()
   document.addEventListener('keydown', handleChapterDrawerKeydown)
+  document.addEventListener('keydown', handleWritingInspectorKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleChapterDrawerKeydown)
+  document.removeEventListener('keydown', handleWritingInspectorKeydown)
+  if (recoveryTimeout) {
+    clearTimeout(recoveryTimeout)
+    recoveryTimeout = null
+  }
+  if (saveStatus.value === 'unsaved') writeCurrentWritingRecoveryDraft()
 })
 
 function openChapterDrawer() {
@@ -928,6 +1184,14 @@ function handleChapterDrawerKeydown(event) {
   closeChapterDrawer()
 }
 
+function handleWritingInspectorKeydown(event) {
+  if (event.key !== 'Escape' || !inspectorOpen.value) return
+  if (!event.target?.closest?.('.writing-inspector')) return
+  event.preventDefault()
+  inspectorOpen.value = false
+  nextTick(() => notebookEditorRef.value?.focus?.())
+}
+
 const previewHtml = computed(() => markdownToHtml(markdownContent.value))
 const copilotReferenceLabel = computed(() => {
   if (!copilotReferenceAsset.value) return ''
@@ -940,6 +1204,114 @@ const copilotReferencePreview = computed(() => {
 })
 const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
+const activeWritingBlock = computed(() => {
+  const selection = notebookSelection.value
+  if (notebookEditorActive.value && selection?.blockId) {
+    return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
+  }
+  return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
+})
+function getAnnotationBlockIds(annotation) {
+  return Array.from(new Set([
+    annotation?.blockId,
+    ...(Array.isArray(annotation?.range?.blockIds) ? annotation.range.blockIds : []),
+    annotation?.range?.start?.blockId,
+    annotation?.range?.end?.blockId
+  ].filter(Boolean)))
+}
+const sceneIndex = computed(() => {
+  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
+  if (!nodes.length) return []
+
+  const scenes = []
+  let current = null
+  nodes.forEach((node, index) => {
+    const attrs = node?.attrs || {}
+    const text = (node?.content || []).map((item) => item?.text || '').join('').trim()
+    const blockId = attrs.blockId || `scene-block-${index}`
+    const kind = attrs.kind || 'prose'
+    if (kind === 'scene-heading') {
+      current = {
+        id: blockId,
+        blockId,
+        title: text || `未命名场景 ${scenes.length + 1}`,
+        anchorText: text,
+        blockIds: [],
+        blockCount: 0,
+        openCount: 0,
+        annotationCount: 0
+      }
+      scenes.push(current)
+    } else if (!current) {
+      current = {
+        id: `scene-intro-${selectedChapterId.value || 'chapter'}`,
+        blockId,
+        title: '开篇',
+        anchorText: text,
+        blockIds: [],
+        blockCount: 0,
+        openCount: 0,
+        annotationCount: 0
+      }
+      scenes.push(current)
+    }
+
+    current.blockIds.push(blockId)
+    current.blockCount += 1
+  })
+  return scenes.map((scene) => {
+    const sceneAnnotations = chapterAnnotations.value.filter((annotation) => (
+      getAnnotationBlockIds(annotation).some((blockId) => scene.blockIds.includes(blockId))
+    ))
+    return {
+      ...scene,
+      annotationCount: sceneAnnotations.length,
+      openCount: sceneAnnotations.filter((annotation) => annotation.status !== 'resolved').length
+    }
+  })
+})
+const activeScene = computed(() => {
+  const blockId = activeWritingBlock.value?.blockId
+  return sceneIndex.value.find((scene) => scene.blockIds.includes(blockId))
+    || sceneIndex.value[0]
+    || null
+})
+const activeBlockAnnotations = computed(() => {
+  if (annotationScope.value === 'chapter') return chapterAnnotations.value
+
+  const blockId = inspectorPinned.value
+    ? chapterAnnotations.value.find((annotation) => annotation.id === activeAnnotationId.value)?.blockId
+    : activeWritingBlock.value?.blockId
+  if (annotationScope.value === 'scene') {
+    const blockIds = new Set(activeScene.value?.blockIds || [])
+    return chapterAnnotations.value.filter((annotation) => getAnnotationBlockIds(annotation).some((id) => blockIds.has(id)))
+  }
+  if (!blockId) return chapterAnnotations.value
+  return chapterAnnotations.value.filter((annotation) => getAnnotationBlockIds(annotation).includes(blockId))
+})
+const replyTargetAnnotation = computed(() => chapterAnnotations.value.find(
+  (annotation) => annotation.id === replyTargetAnnotationId.value
+))
+const openAnnotationCount = computed(() => chapterAnnotations.value.filter((annotation) => annotation.status === 'open').length)
+const orphanAnnotationCount = computed(() => chapterAnnotations.value.filter((annotation) => annotation.status === 'orphaned').length)
+const writingQualityReport = computed(() => buildWritingQualityReport({
+  document: writingDocument.value,
+  annotations: chapterAnnotations.value,
+  recoveryDraft: writingRecoveryDraft.value,
+  saveStatus: saveStatus.value,
+  snapshots: writingSnapshots.value,
+  blockHistory: writingBlockHistory.value
+}))
+const canGenerateRewrite = computed(() => Boolean(
+  selectedChapterId.value && getCurrentRewriteTarget()?.text?.trim()
+))
+const canCreateAnnotation = computed(() => Boolean(
+  selectedChapterId.value
+  && annotationDraft.value.trim()
+  && (replyTargetAnnotation.value
+    ? replyTargetAnnotation.value.status !== 'orphaned'
+    : selectedText.value.trim() && activeWritingBlock.value?.blockId)
+))
 
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -1051,7 +1423,29 @@ function goBack() {
 }
 
 function readLiveWritingSelectionSnapshot() {
-  const editor = editorRef.value
+  if (notebookEditorActive.value && notebookSelection.value) {
+    const selection = notebookSelection.value
+    const selected = String(selection.text || '')
+    const beforeTail = String(selection.beforeText || '').slice(-160)
+    const anchor = selected ? `${beforeTail}${selected}` : beforeTail
+    const anchorIndex = anchor ? markdownContent.value.indexOf(anchor) : -1
+    const start = selected && anchorIndex >= 0
+      ? anchorIndex + beforeTail.length
+      : selected ? markdownContent.value.indexOf(selected) : markdownContent.value.length
+    const safeStart = start >= 0 ? start : markdownContent.value.length
+    return {
+      start: safeStart,
+      end: selected ? safeStart + selected.length : safeStart,
+      text: selected,
+      hasSelection: Boolean(selected),
+      editorFrom: Number(selection.from || 1),
+      editorTo: Number(selection.to || selection.from || 1)
+    }
+  }
+
+  const editor = notebookEditorActive.value
+    ? notebookEditorRef.value?.getRootElement?.()
+    : editorRef.value
   const text = markdownContent.value || ''
   const fallbackStart = Math.max(0, Math.min(text.length, copilotCursorPos.value || 0))
   const rawStart = editor?.selectionStart ?? fallbackStart
@@ -1069,9 +1463,6 @@ function readLiveWritingSelectionSnapshot() {
 }
 
 function getWritingSelectionSnapshot() {
-  if (advisorOpen.value && advisorSelectionSnapshot.value) {
-    return { ...advisorSelectionSnapshot.value }
-  }
   return readLiveWritingSelectionSnapshot()
 }
 
@@ -1127,7 +1518,7 @@ function collectWritingContext() {
   }
 }
 
-function buildAdvisorActionContext(action = {}) {
+function buildWritingTaskContext(task = {}) {
   const selection = getWritingSelectionSnapshot()
   const paragraph = getWritingParagraphSnapshot(selection.start)
   const contextWindow = extractWritingSuggestionWindow(markdownContent.value || '', selection.start, {
@@ -1137,10 +1528,11 @@ function buildAdvisorActionContext(action = {}) {
 
   return {
     ...collectWritingContext(),
-    advisorAction: {
-      scope: action.scope || 'chapter',
-      label: action.label || action.question || '',
-      question: action.question || ''
+    writingTask: {
+      scope: task.scope || 'chapter',
+      label: task.label || task.question || '',
+      question: task.question || '',
+      taskType: task.taskType || ''
     },
     selection,
     paragraph,
@@ -1150,315 +1542,18 @@ function buildAdvisorActionContext(action = {}) {
   }
 }
 
-const advisorQuickActions = computed(() => {
-  const snapshot = advisorOpen.value && advisorSelectionSnapshot.value
-    ? advisorSelectionSnapshot.value
-    : readLiveWritingSelectionSnapshot()
-  const hasSelection = Boolean(String(snapshot.text || '').trim())
-  const paragraph = getWritingParagraphSnapshot(snapshot.start)
-  return buildWritingProfessionalActions({
-    hasSelection,
-    hasParagraph: paragraph.hasParagraph
-  })
-})
-
-const advisorContextLabel = computed(() => {
-  const snapshot = advisorSelectionSnapshot.value
-  if (!snapshot) return ''
-  if (snapshot.hasSelection) {
-    const preview = snapshot.text.replace(/\s+/g, ' ').trim()
-    return `选区 ${snapshot.end - snapshot.start} 字 · ${preview.slice(0, 48)}${preview.length > 48 ? '…' : ''}`
-  }
-  return `光标位置 ${snapshot.start}`
-})
-const advisorSelectionVisible = computed(() =>
-  advisorOpen.value && Boolean(advisorSelectionSnapshot.value?.hasSelection)
-)
-const advisorSelectionBefore = computed(() => {
-  const snapshot = advisorSelectionSnapshot.value
-  return snapshot ? markdownContent.value.slice(0, snapshot.start) : ''
-})
-const advisorSelectionText = computed(() => advisorSelectionSnapshot.value?.text || '')
-const advisorSelectionAfter = computed(() => {
-  const snapshot = advisorSelectionSnapshot.value
-  return snapshot ? markdownContent.value.slice(snapshot.end) : markdownContent.value
-})
-
-async function handleAskAdvisor(input) {
-  const action = normalizeWritingProfessionalAction(input)
-  if (!action.question || action.disabled) return
-
-  const context = buildAdvisorActionContext(action)
-  await askAdvisor({
-    label: action.label,
-    question: action.question,
-    scope: action.scope,
-    taskType: action.taskType,
-    target: buildWritingProfessionalTarget(action, context),
-    options: {
-      editorMode: editorMode.value,
-      chapterId: selectedChapterId.value
-    }
-  }, () => context)
-}
-
-function applyAdvisorResult(result) {
-  if (Array.isArray(result?.actions) && result.actions.length) {
-    return applyAgentActionsResult(result)
-  }
-
-  const before = markdownContent.value || ''
-  const cursorBefore = readCurrentEditorCursor(before)
-  const applied = applyAdvisorReplacement(before, result)
-  if (!applied.ok) {
-    updateAdvisorResultStatus(result?.id, 'stale', applied.message)
-    return
-  }
-
-  markdownContent.value = applied.content
-  if (editorRef.value) {
-    editorRef.value.value = applied.content
-  }
-  syncMarkdownToEditor()
-  onContentChange()
-
-  selectedText.value = ''
-  result.applyReceipt = {
-    type: 'writing-agent-transaction',
-    resultId: result.id,
-    chapterId: selectedChapterId.value,
-    before,
-    after: applied.content,
-    cursorBefore,
-    cursorAfter: applied.cursorPos,
-    appliedAt: Date.now()
-  }
-  updateAdvisorResultStatus(result.id, 'applied', '修改已应用到正文。')
-
-  nextTick(() => {
-    if (!editorRef.value) return
-    editorRef.value.focus()
-    editorRef.value.setSelectionRange(applied.cursorPos, applied.cursorPos)
-    syncCopilotCursorFromEditor()
-  })
-}
-
-function applyAgentActionsResult(result) {
-  const before = markdownContent.value || ''
-  const transaction = applyWritingAgentTransaction(before, result.actions, {
-    resultId: result.id,
-    chapterId: selectedChapterId.value,
-    cursorBefore: readCurrentEditorCursor(before)
-  })
-  if (!transaction.ok) {
-    updateAdvisorResultStatus(
-      result.id,
-      'stale',
-      `修改未应用：${transaction.reason}${Number.isFinite(transaction.actionIndex) ? `（动作 ${transaction.actionIndex + 1}）` : ''}`
-    )
-    return
-  }
-
-  markdownContent.value = transaction.content
-  if (editorRef.value) {
-    editorRef.value.value = transaction.content
-  }
-  syncMarkdownToEditor()
-  onContentChange()
-  result.applyReceipt = transaction.receipt
-  updateAdvisorResultStatus(result.id, 'applied', `已原子应用 ${result.actions.length} 个修改。`)
-
-  nextTick(() => {
-    if (!editorRef.value) return
-    editorRef.value.focus()
-    editorRef.value.setSelectionRange(transaction.cursorPos, transaction.cursorPos)
-    syncCopilotCursorFromEditor()
-  })
-}
-
-function undoAdvisorResult(result) {
-  const undone = undoWritingAgentTransaction(
-    markdownContent.value || '',
-    result?.applyReceipt,
-    selectedChapterId.value
-  )
-  if (!undone.ok) {
-    if (result) {
-      result.status = 'stale'
-      result.statusDetail = '正文或章节已变化，不能撤销这次修改。'
-      result._agentResult = result._agentResult
-        ? { ...result._agentResult, status: 'stale', staleReason: undone.reason }
-        : result._agentResult
-    }
-    return
-  }
-  markdownContent.value = undone.content
-  if (editorRef.value) editorRef.value.value = undone.content
-  syncMarkdownToEditor()
-  onContentChange()
-  result.applyReceipt = null
-  result._agentResult = result._agentResult
-    ? { ...result._agentResult, status: 'completed', appliedAt: null, acknowledgedAt: null }
-    : result._agentResult
-  updateAdvisorResultStatus(result.id, 'completed', '已撤销，可重新审阅后应用。')
-  nextTick(() => {
-    editorRef.value?.focus()
-    editorRef.value?.setSelectionRange(undone.cursorPos, undone.cursorPos)
-    syncCopilotCursorFromEditor()
-  })
-}
-
-// WA-C: side effect executor. Dispatch by `type` and call the
-// existing store/service helper. Returns a short human-readable
-// summary for the result status detail.
-function applyAgentSideEffect(se) {
-  if (!se || typeof se !== 'object' || !se.type) return null
-
-  if (se.type === 'add-outline-item') {
-    if (!se.item) return null
-    addAgentOutlineItem(se.item)
-    return `已添加纲要「${se.item.title || '未命名'}」`
-  }
-
-  if (se.type === 'create-asset') {
-    if (!se.asset) return null
-    try {
-      addNarrativeAsset(se.asset)
-      refreshAssetInbox()
-      return `已创建素材「${se.asset.title || '未命名'}」`
-    } catch (err) {
-      return `素材创建失败:${err?.message || '未知错误'}`
-    }
-  }
-
-  if (se.type === 'set-reference') {
-    if (se.assetId === null) {
-      copilotReferenceAsset.value = null
-      return '已清除引用素材'
-    }
-    const asset = findNarrativeAssetById(se.assetId)
-    if (!asset) return `引用素材 ${se.assetId} 不存在,已忽略`
-    copilotReferenceAsset.value = {
-      id: asset.id,
-      title: asset.title || '',
-      kind: asset.kind,
-      source: asset.source,
-      content: String(asset.content || '').trim()
-    }
-    return `已设为引用素材「${asset.title || asset.id}」`
-  }
-
-  return null
-}
-
-function addAgentOutlineItem(item) {
-  if (!item || !item.title) return null
-  const next = [item, ...chapterOutlineItems.value]
-  chapterOutlineItems.value = normalizeChapterOutlineItems(next)
-  syncChapterOutlineToCurrentChapter()
-  return chapterOutlineItems.value[0]
-}
-
-function findNarrativeAssetById(assetId) {
-  if (!assetId) return null
-  try {
-    const all = listNarrativeAssets({ status: null })
-    return all.find((a) => a.id === assetId) || null
-  } catch {
-    return null
-  }
-}
-
 function readCurrentEditorCursor(content) {
+  if (notebookEditorActive.value && notebookSelection.value) {
+    const snapshot = readLiveWritingSelectionSnapshot()
+    return Number.isFinite(snapshot.end) ? snapshot.end : String(content || '').length
+  }
   if (!editorRef.value) return String(content || '').length
   const start = Number(editorRef.value.selectionStart)
   if (!Number.isFinite(start)) return String(content || '').length
   return Math.max(0, Math.min(String(content || '').length, start))
 }
 
-function dismissAdvisorResult(result) {
-  if (!result?.id) return
-  updateAdvisorResultStatus(result.id, 'dismissed')
-}
-
-function convertAdvisorSuggestion(payload) {
-  const domainAction = buildSuggestionDomainAction(payload?.type, payload?.suggestion, {
-    index: payload?.index,
-    resultId: payload?.result?.id,
-    chapterId: selectedChapterId.value,
-    projectId: selectedBookId.value
-  })
-  if (!domainAction) return
-
-  if (domainAction.type === 'outline-item') {
-    const outlineItem = addAgentOutlineItem(domainAction.item)
-    payload.result.domainReceipt = {
-      type: 'outline-item',
-      id: outlineItem.id,
-      chapterId: selectedChapterId.value
-    }
-    payload.result.statusDetail = '这条建议已加入当前章节纲要。'
-    return
-  }
-
-  if (domainAction.type === 'create-asset') {
-    const asset = addNarrativeAsset(domainAction.asset)
-    refreshAssetInbox()
-    payload.result.domainReceipt = {
-      type: 'create-asset',
-      id: asset.id,
-      chapterId: selectedChapterId.value
-    }
-    payload.result.statusDetail = `已保存到素材收件箱：${asset.title}`
-  }
-}
-
-function undoAdvisorDomainAction(result) {
-  const receipt = result?.domainReceipt
-  if (!receipt || receipt.chapterId !== selectedChapterId.value) {
-    if (result) result.statusDetail = '章节已经变化，不能撤销这次转换。'
-    return
-  }
-  if (receipt.type === 'outline-item') {
-    chapterOutlineItems.value = removeChapterOutlineItem(chapterOutlineItems.value, receipt.id)
-    syncChapterOutlineToCurrentChapter()
-    result.statusDetail = '已从当前章节纲要移除。'
-  } else if (receipt.type === 'create-asset') {
-    deleteNarrativeAsset(receipt.id)
-    refreshAssetInbox()
-    result.statusDetail = '已从素材收件箱移除。'
-  }
-  result.domainReceipt = null
-}
-
-function openAdvisorFromAction() {
-  assetInboxOpen.value = false
-  if (!advisorSelectionSnapshot.value || !advisorOpen.value) {
-    captureAdvisorSelection()
-  }
-  openAdvisorPanel()
-}
-
-function captureAdvisorSelection() {
-  advisorSelectionSnapshot.value = readLiveWritingSelectionSnapshot()
-}
-
-function handleCloseAdvisor() {
-  closeAdvisor()
-}
-
-function restoreAdvisorSelection() {
-  const editor = editorRef.value
-  const snapshot = advisorSelectionSnapshot.value
-  if (!editor || !snapshot) return editor
-  editor.setSelectionRange(snapshot.start, snapshot.end)
-  copilotCursorPos.value = snapshot.start
-  selectedText.value = snapshot.text
-  return editor
-}
-
 function openAssetInbox() {
-  closeAdvisor()
   assetInboxOpen.value = true
   refreshAssetInbox()
   nextTick(() => {
@@ -1547,6 +1642,7 @@ function buildCopilotAssetContext(asset) {
 function getWritingAgentPageContext() {
   const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
   const currentChapter = selectedBook?.chapters?.find((chapter) => chapter.id === selectedChapterId.value)
+  const blockTarget = getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   return {
     content: markdownContent.value,
     cursorPos: copilotCursorPos.value,
@@ -1554,6 +1650,8 @@ function getWritingAgentPageContext() {
     bookTitle: selectedBook?.title || '',
     chapterId: selectedChapterId.value || null,
     chapterTitle: currentChapterTitle.value,
+    documentRevision: Number(writingDocument.value?.revision || 0),
+    blockTarget,
     sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     outlineItems: chapterOutlineItems.value,
     referenceAsset: copilotReferenceAsset.value,
@@ -1834,8 +1932,8 @@ function exportChapterStoryboardDraft() {
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   const chapterTitle = currentChapterTitle.value || chapter?.title || '当前章节'
   const shots = extractShotsFromChapter({
+    chapter,
     chapterTitle,
-    chapterContent: markdownContent.value,
     outlineItems: chapterOutlineItems.value
   })
 
@@ -1921,7 +2019,6 @@ function rejectSelectedAssets() {
 
 watch(assetInboxOpen, (open) => {
   if (open) {
-    closeAdvisor()
     refreshAssetInbox()
     nextTick(() => {
       if (!assetInboxActiveId.value && inboxAssets.value.length) {
@@ -1933,18 +2030,223 @@ watch(assetInboxOpen, (open) => {
   selectedInboxAssetIds.value = []
 })
 
-watch(advisorOpen, (open) => {
-  if (!open) return
-  assetInboxOpen.value = false
-  selectedInboxAssetIds.value = []
-})
-
 function quickNoteWordCount(text) {
   const normalized = String(text || '').trim()
   if (!normalized) return 0
   const chineseChars = (normalized.match(/[一-龥]/g) || []).length
   const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
   return chineseChars + englishWords
+}
+
+function resetRewriteState() {
+  rewriteRequestVersion += 1
+  rewriteAbortController?.abort()
+  rewriteAbortController = null
+  rewriteLoading.value = false
+  rewriteError.value = ''
+  rewriteTarget.value = null
+  rewriteCandidates.value = []
+  selectedRewriteCandidateId.value = null
+  rewriteLockedSegments.value = []
+  rewriteUndoReceipt.value = null
+}
+
+function loadChapterSnapshots(chapterId) {
+  writingSnapshots.value = chapterId ? listWritingSnapshots(chapterId) : []
+  writingBlockHistory.value = chapterId ? listWritingBlockHistory(chapterId) : []
+  const recoveryDraft = chapterId ? listWritingRecoveryDrafts(chapterId)[0] : null
+  if (recoveryDraft) {
+    const recoveryGuard = getWritingSnapshotRestoreGuard(recoveryDraft, {
+      chapterId,
+      documentRevision: writingDocument.value?.revision || 0,
+      markdown: markdownContent.value
+    })
+    if (!recoveryGuard) {
+      clearWritingRecoveryDraft(chapterId)
+      writingRecoveryDraft.value = null
+    } else {
+      writingRecoveryDraft.value = recoveryDraft
+    }
+  } else {
+    writingRecoveryDraft.value = null
+  }
+  snapshotStatus.value = ''
+}
+
+function formatWritingSnapshotTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知时间'
+  return date.toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function createCurrentWritingSnapshot({ label = snapshotLabel.value, reason = 'manual', quiet = false } = {}) {
+  if (!selectedChapterId.value) return null
+  if (!saveCurrentChapter()) {
+    snapshotStatus.value = '当前正文保存失败，未创建快照。'
+    return null
+  }
+  const snapshot = createWritingSnapshot({
+    chapterId: selectedChapterId.value,
+    chapterTitle: currentChapterTitle.value,
+    label: label || (reason === 'manual' ? `修订 ${writingDocument.value?.revision || 0}` : ''),
+    reason,
+    document: writingDocument.value,
+    markdown: markdownContent.value,
+    annotations: chapterAnnotations.value
+  })
+  if (!snapshot) {
+    snapshotStatus.value = '当前章节过大或结构无效，未能创建快照。'
+    return null
+  }
+
+  const result = saveWritingSnapshot(snapshot)
+  if (!result.ok) {
+    snapshotStatus.value = result.reason === 'storage-budget-exceeded'
+      ? '快照空间已达到上限，请删除旧版本后重试。'
+      : '快照保存失败，当前正文未受影响。'
+    return null
+  }
+
+  writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
+  snapshotLabel.value = ''
+  if (!quiet) snapshotStatus.value = `已保存「${snapshot.label}」`
+  return snapshot
+}
+
+function restoreWritingSnapshot(snapshot) {
+  if (!snapshot || !selectedChapterId.value) return false
+  const guard = getWritingSnapshotRestoreGuard(snapshot, {
+    chapterId: selectedChapterId.value,
+    documentRevision: writingDocument.value?.revision || 0,
+    markdown: markdownContent.value
+  })
+  if (guard === 'chapter-mismatch') {
+    snapshotStatus.value = '这个快照不属于当前章节，未执行恢复。'
+    return false
+  }
+  if (guard && typeof window !== 'undefined' && !window.confirm('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？')) {
+    return false
+  }
+
+  const checkpoint = createCurrentWritingSnapshot({
+    label: `恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
+    reason: 'before-restore',
+    quiet: true
+  })
+  if (!checkpoint) {
+    snapshotStatus.value = '恢复已停止：无法先保存当前正文的恢复前检查点。'
+    return false
+  }
+
+  const document = cloneWritingSnapshotDocument(snapshot)
+  const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
+  if (!document || !chapter) {
+    snapshotStatus.value = '快照结构无效，未执行恢复。'
+    return false
+  }
+
+  chapter.editorDocument = document
+  chapter.editorDocumentSchemaVersion = document.schemaVersion
+  chapter.content = snapshot.markdown
+  chapter.contentFormat = 'md'
+  chapter.annotations = normalizeWritingAnnotations(snapshot.annotations, chapter.id)
+  if (!saveChapters()) {
+    snapshotStatus.value = '恢复失败：章节正文无法写入，原正文仍保留在当前页面。'
+    return false
+  }
+  selectChapter(selectedChapterId.value)
+  snapshotStatus.value = `已恢复「${snapshot.label}」 · 当前修订 ${document.revision}`
+  saveStatus.value = 'saved'
+  return true
+}
+
+function restoreWritingRecoveryDraft() {
+  if (!writingRecoveryDraft.value) return
+  if (!restoreWritingSnapshot(writingRecoveryDraft.value)) return
+  clearWritingRecoveryDraft(selectedChapterId.value)
+  writingRecoveryDraft.value = null
+  snapshotStatus.value = '已恢复未保存草稿，并保留恢复前检查点。'
+}
+
+function discardWritingRecoveryDraft() {
+  if (!selectedChapterId.value) return
+  clearWritingRecoveryDraft(selectedChapterId.value)
+  writingRecoveryDraft.value = null
+  snapshotStatus.value = '已丢弃未保存草稿，当前正文未改变。'
+}
+
+function canRestoreWritingBlockHistory(entry) {
+  return Boolean(
+    entry?.blockId &&
+    writingDocument.value?.content?.some((node) => node?.attrs?.blockId === entry.blockId)
+  )
+}
+
+function restoreWritingBlockHistory(entry) {
+  if (!canRestoreWritingBlockHistory(entry)) {
+    snapshotStatus.value = '这个块已经不存在，无法单独恢复。'
+    return
+  }
+  if (!notebookEditorActive.value || !notebookEditorRef.value) {
+    snapshotStatus.value = '块级恢复请先切回所见即所得编辑面。'
+    return
+  }
+  const checkpoint = createCurrentWritingSnapshot({
+    label: `块恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
+    reason: 'before-restore',
+    quiet: true
+  })
+  if (!checkpoint) {
+    snapshotStatus.value = '恢复已停止：无法保存块恢复前检查点。'
+    return
+  }
+  if (!notebookEditorRef.value.replaceBlockText(entry.blockId, entry.previousText)) {
+    snapshotStatus.value = '编辑器未接受这次块恢复。'
+    return
+  }
+  snapshotStatus.value = `已恢复块历史 · 修订 ${entry.fromDocumentRevision}`
+}
+
+function writeCurrentWritingRecoveryDraft() {
+  if (!selectedChapterId.value || !writingDocument.value) return null
+  const draft = createWritingSnapshot({
+    chapterId: selectedChapterId.value,
+    chapterTitle: currentChapterTitle.value,
+    label: '未保存草稿',
+    reason: 'crash-recovery',
+    document: writingDocument.value,
+    markdown: markdownContent.value,
+    annotations: chapterAnnotations.value
+  })
+  if (!draft) return null
+  const result = saveWritingRecoveryDraft(draft)
+  if (result.ok) writingRecoveryDraft.value = draft
+  return result.ok ? draft : null
+}
+
+function scheduleWritingRecoveryDraft() {
+  if (recoveryTimeout) clearTimeout(recoveryTimeout)
+  recoveryTimeout = setTimeout(() => {
+    recoveryTimeout = null
+    writeCurrentWritingRecoveryDraft()
+  }, 250)
+}
+
+function removeWritingSnapshot(snapshot) {
+  if (!snapshot?.id) return
+  if (typeof window !== 'undefined' && !window.confirm(`删除「${snapshot.label}」？正文不会改变。`)) return
+  const result = deleteWritingSnapshot(snapshot.id)
+  if (!result.ok) {
+    snapshotStatus.value = '删除快照失败。'
+    return
+  }
+  writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
+  snapshotStatus.value = `已删除「${snapshot.label}」`
 }
 
 function loadBooks() {
@@ -1959,7 +2261,13 @@ function loadBooks() {
 }
 
 function saveBooks() {
-  localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books.value))
+  try {
+    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books.value))
+    return true
+  } catch {
+    saveStatus.value = 'error'
+    return false
+  }
 }
 
 function ensureInitialBookSelection() {
@@ -1982,7 +2290,13 @@ function openBook(bookId, options = {}) {
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
+      clearWritingDocument()
       chapterOutlineItems.value = []
+      chapterAnnotations.value = []
+      activeAnnotationId.value = null
+      replyTargetAnnotationId.value = null
+      annotationDraft.value = ''
+      resetRewriteState()
       clearCopilotReference({ silent: true })
     }
     return
@@ -1996,7 +2310,13 @@ function openBook(bookId, options = {}) {
     currentChapterTitle.value = ''
     editorContent.value = ''
     markdownContent.value = ''
+    clearWritingDocument()
     chapterOutlineItems.value = []
+    chapterAnnotations.value = []
+    activeAnnotationId.value = null
+    replyTargetAnnotationId.value = null
+    annotationDraft.value = ''
+    resetRewriteState()
     clearCopilotReference({ silent: true })
   }
   saveStatus.value = 'saved'
@@ -2011,25 +2331,71 @@ function selectChapter(chapterId) {
   if (selectedChapterId.value && selectedChapterId.value !== chapterId) {
     saveCurrentChapter()
   }
+  cancelChapterReview()
   copilotCancel()
+  resetRewriteState()
   clearCopilotReference({ silent: true })
+  annotationScope.value = 'block'
   selectedChapterId.value = chapterId
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
     currentChapterTitle.value = chapter.title || ''
-    const raw = chapter.content || ''
-    const format = chapter.contentFormat || (looksLikeHtml(raw) ? 'html' : 'md')
-    markdownContent.value = format === 'md' ? raw : htmlToMarkdown(raw)
+    const { raw, format } = readChapterSource(chapter)
+    const fallbackMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
+    markdownContent.value = loadChapterDocument(chapter, fallbackMarkdown)
     editorContent.value = markdownToHtml(markdownContent.value)
     chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
+    chapterAnnotations.value = reconcileWritingAnnotations(
+      chapter.annotations,
+      writingDocument.value,
+      chapter.id
+    )
+    loadChapterSnapshots(chapter.id)
+    activeAnnotationId.value = null
+    replyTargetAnnotationId.value = null
+    annotationDraft.value = ''
     editorHistory.clear()
     nextTick(() => {
       if (editorRef.value) editorRef.value.value = markdownContent.value
     })
   } else {
     chapterOutlineItems.value = []
+    chapterAnnotations.value = []
+    activeAnnotationId.value = null
+    replyTargetAnnotationId.value = null
+    annotationDraft.value = ''
+    clearWritingDocument()
+    loadChapterSnapshots(null)
   }
   closeChapterDrawer()
+}
+
+function locateQualityIssue(issue) {
+  if (!issue) return
+  if (issue.annotationId) {
+    const annotation = chapterAnnotations.value.find((item) => item.id === issue.annotationId)
+    if (annotation && annotation.status !== 'orphaned') {
+      locateAnnotation(annotation)
+      return
+    }
+  }
+  if (!issue.blockId) return
+
+  inspectorOpen.value = true
+  inspectorTab.value = 'comments'
+  const focused = notebookEditorActive.value
+    ? Boolean(notebookEditorRef.value?.focusBlock?.(issue.blockId))
+    : false
+  if (focused) return
+
+  const block = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === issue.blockId)
+  const blockText = (block?.content || []).map((item) => item?.text || '').join('')
+  const offset = blockText ? markdownContent.value.indexOf(blockText) : -1
+  if (editorRef.value) {
+    const position = offset >= 0 ? offset : 0
+    editorRef.value.focus()
+    editorRef.value.setSelectionRange(position, position + blockText.length)
+  }
 }
 
 function createNewBook() {
@@ -2075,6 +2441,9 @@ function createNewChapter() {
 }
 
 function deleteChapter(chapterId) {
+  deleteWritingSnapshotsForChapter(chapterId)
+  deleteWritingBlockHistoryForChapter(chapterId)
+  clearWritingRecoveryDraft(chapterId)
   chapters.value = chapters.value.filter(c => c.id !== chapterId)
   if (selectedChapterId.value === chapterId) {
     selectedChapterId.value = chapters.value.length > 0 ? chapters.value[0].id : null
@@ -2085,12 +2454,19 @@ function deleteChapter(chapterId) {
       editorContent.value = ''
       markdownContent.value = ''
       chapterOutlineItems.value = []
+      loadChapterSnapshots(null)
     }
   }
   saveChapters()
 }
 
 function deleteBook(bookId) {
+  const bookToDelete = books.value.find((book) => book.id === bookId)
+  for (const chapter of bookToDelete?.chapters || []) {
+    deleteWritingSnapshotsForChapter(chapter.id)
+    deleteWritingBlockHistoryForChapter(chapter.id)
+    clearWritingRecoveryDraft(chapter.id)
+  }
   books.value = books.value.filter(b => b.id !== bookId)
   saveBooks()
   if (selectedBookId.value === bookId) {
@@ -2113,24 +2489,45 @@ function saveChapters() {
   if (book) {
     book.chapters = chapters.value
     book.updatedAt = new Date().toISOString()
-    saveBooks()
+    return saveBooks()
   }
+  return false
 }
 
 function saveCurrentChapter() {
-  if (!selectedChapterId.value) return
+  if (!selectedChapterId.value) return false
 
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
-  if (chapter) {
-    chapter.title = currentChapterTitle.value
-    syncFromCurrentEditor()
-    chapter.content = markdownContent.value
-    chapter.contentFormat = 'md'
-    chapter.outlineItems = normalizeChapterOutlineItems(chapterOutlineItems.value)
-    chapter.wordCount = wordCount.value
-    chapter.updatedAt = new Date().toISOString()
-    saveChapters()
+  if (!chapter) return false
+
+  const previousDocument = chapter.editorDocument || null
+  chapter.title = currentChapterTitle.value
+  syncFromCurrentEditor()
+  const nextDocument = persistChapterDocument(chapter, markdownContent.value)
+  chapter.outlineItems = normalizeChapterOutlineItems(chapterOutlineItems.value)
+  chapterAnnotations.value = reconcileWritingAnnotations(
+    chapterAnnotations.value,
+    writingDocument.value,
+    chapter.id
+  )
+  chapter.annotations = normalizeWritingAnnotations(chapterAnnotations.value, chapter.id)
+  chapter.wordCount = wordCount.value
+  chapter.updatedAt = new Date().toISOString()
+  const saved = saveChapters()
+  if (saved && previousDocument) {
+    const historyEntries = buildWritingBlockHistoryEntries({
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      previousDocument,
+      nextDocument,
+      source: 'manual-save'
+    })
+    if (historyEntries.length) {
+      appendWritingBlockHistory(historyEntries)
+      writingBlockHistory.value = listWritingBlockHistory(chapter.id)
+    }
   }
+  return saved
 }
 
 function onTitleChange() {
@@ -2159,6 +2556,12 @@ function autoFormat() {
 
 // 插入分隔线
 function insertSeparator() {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    notebookEditorRef.value.insertDivider()
+    onContentChange()
+    return
+  }
+
   const editor = editorRef.value
   if (!editor) return
   const start = editor.selectionStart ?? markdownContent.value.length
@@ -2259,6 +2662,14 @@ function doGenerateName() {
 }
 
 function selectName(item) {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    notebookEditorRef.value.insertText(typeof item === 'string' ? item : item.en)
+    onContentChange()
+    showNameGen.value = false
+    generatedNames.value = []
+    return
+  }
+
   const editor = editorRef.value
   if (!editor) return
   const name = typeof item === 'string' ? item : item.en
@@ -2295,7 +2706,9 @@ function updateSelectionStyle() {
     return
   }
 
-  const editor = editorRef.value
+  const editor = notebookEditorActive.value
+    ? notebookEditorRef.value?.getRootElement?.()
+    : editorRef.value
   if (!editor) {
     hasSelection.value = false
     return
@@ -2348,6 +2761,14 @@ function toggleStyle(style) {
 }
 
 function applyStyleToSelection(style) {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    if (['bold', 'italic', 'strike', 'code'].includes(style)) {
+      notebookEditorRef.value.toggleMark(style)
+      onContentChange()
+    }
+    return
+  }
+
   const editor = editorRef.value
   if (!editor) return
   editor.focus()
@@ -2393,6 +2814,11 @@ function clearSelectionStyle() {
   // TODO(undo-redo): document.execCommand('removeFormat') is contenteditable-only
   // and does not work on textarea.
   if (editorMode.value !== 'wysiwyg') return
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    notebookEditorRef.value.clearMarks()
+    onContentChange()
+    return
+  }
   const editor = editorRef.value
   if (!editor) return
   editor.focus()
@@ -2443,8 +2869,13 @@ function searchFind() {
 function highlightFind() {
   nextTick(() => {
     if (findResults.value.length === 0) return
-    const pos = findResults.value[findCurrent.value]
     if (editorMode.value === 'markdown') return
+    if (notebookEditorActive.value && notebookEditorRef.value) {
+      notebookEditorRef.value.selectText(findText.value, findCurrent.value)
+      notebookEditorRef.value.focus()
+      return
+    }
+    const pos = findResults.value[findCurrent.value]
     if (!editorRef.value) return
     setSelectionByTextOffsets(pos, pos + findText.value.length)
     editorRef.value.focus()
@@ -2454,6 +2885,13 @@ function highlightFind() {
 // 替换一处
 function replaceOne() {
   if (!findText.value || findResults.value.length === 0) return
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    const replaced = notebookEditorRef.value.replaceText(findText.value, replaceText.value, findCurrent.value)
+    if (!replaced) return
+    searchFind()
+    onContentChange()
+    return
+  }
   const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
   const pos = findResults.value[findCurrent.value]
   const nextText = text.substring(0, pos) + replaceText.value + text.substring(pos + findText.value.length)
@@ -2470,6 +2908,14 @@ function replaceOne() {
 // 替换全部
 function replaceAll() {
   if (!findText.value) return
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    const replaced = notebookEditorRef.value.replaceAll(findText.value, replaceText.value)
+    if (!replaced) return
+    findResults.value = []
+    findCurrent.value = 0
+    onContentChange()
+    return
+  }
   const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
   const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
   const nextText = text.replace(regex, replaceText.value)
@@ -2518,6 +2964,16 @@ function captureSelectionAsAsset() {
 }
 
 function applyBackJumpToTextarea(jump) {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    const offset = Math.max(0, Number(jump.offset) || 0)
+    const length = Math.max(0, Number(jump.length) || 0)
+    const selected = String(markdownContent.value || '').slice(offset, offset + length)
+    notebookEditorRef.value.focus()
+    if (selected) notebookEditorRef.value.selectText(selected)
+    selectedText.value = selected
+    syncCopilotCursorFromEditor()
+    return
+  }
   const ta = editorRef.value
   if (!ta) return
   const text = String(ta.value || markdownContent.value || '')
@@ -2710,11 +3166,16 @@ function tryApplyPendingInsertBack() {
 function onContentChange() {
   syncFromCurrentEditor()
   saveStatus.value = 'unsaved'
+  scheduleWritingRecoveryDraft()
   if (saveTimeout) clearTimeout(saveTimeout)
   saveTimeout = setTimeout(() => {
     saveStatus.value = 'saving'
-    saveCurrentChapter()
-    setTimeout(() => { saveStatus.value = 'saved' }, 300)
+    const saved = saveCurrentChapter()
+    if (saved) {
+      clearWritingRecoveryDraft(selectedChapterId.value)
+      writingRecoveryDraft.value = null
+    }
+    setTimeout(() => { saveStatus.value = saved ? 'saved' : 'error' }, 300)
   }, 1000)
 }
 
@@ -2758,6 +3219,15 @@ function onWritingPaste() {
 
 function syncCopilotCursorFromEditor(options = {}) {
   const { cancelOnMove = false } = options
+  if (notebookEditorActive.value) {
+    const snapshot = readLiveWritingSelectionSnapshot()
+    if (cancelOnMove && copilotVisible.value && snapshot.end !== copilotCursorPos.value) {
+      copilotCancel()
+    }
+    copilotCursorPos.value = snapshot.end
+    selectedText.value = snapshot.text
+    return
+  }
   const editor = editorRef.value
   if (!editor || typeof editor.selectionStart !== 'number') return
   const text = markdownContent.value || ''
@@ -2792,11 +3262,18 @@ function acceptWritingSuggestion(mode = 'all') {
   )
   if (!result) return
   markdownContent.value = result.content
-  if (editor) editor.value = result.content
-  editorHistory.push(editor)
+  if (editor) {
+    editor.value = result.content
+    editorHistory.push(editor)
+  }
   syncMarkdownToEditor()
   onContentChange()
   nextTick(() => {
+    if (notebookEditorActive.value && notebookEditorRef.value) {
+      notebookEditorRef.value.focus()
+      syncCopilotCursorFromEditor()
+      return
+    }
     if (editorRef.value) {
       editorRef.value.setSelectionRange(result.newCursorPos, result.newCursorPos)
       editorRef.value.focus()
@@ -2816,6 +3293,11 @@ function undoWritingSuggestionApply() {
   syncMarkdownToEditor()
   onContentChange()
   nextTick(() => {
+    if (notebookEditorActive.value && notebookEditorRef.value) {
+      notebookEditorRef.value.focus()
+      syncCopilotCursorFromEditor()
+      return
+    }
     editorRef.value?.setSelectionRange(result.cursorPos, result.cursorPos)
     editorRef.value?.focus()
     syncCopilotCursorFromEditor()
@@ -2825,7 +3307,10 @@ function undoWritingSuggestionApply() {
 function retryCopilotSuggestion() {
   syncCopilotCursorFromEditor()
   copilotManualTrigger()
-  nextTick(() => editorRef.value?.focus())
+  nextTick(() => {
+    if (notebookEditorActive.value) notebookEditorRef.value?.focus()
+    else editorRef.value?.focus()
+  })
 }
 
 function onTextAreaKeydown(e) {
@@ -2903,7 +3388,11 @@ function showContextMenu(e) {
   if (editorMode.value !== 'wysiwyg') return
   const sel = window.getSelection()
   selectedText.value = sel ? sel.toString() : ''
-  const rect = editorRef.value.getBoundingClientRect()
+  const root = notebookEditorActive.value
+    ? notebookEditorRef.value?.getRootElement?.()
+    : editorRef.value
+  if (!root) return
+  const rect = root.getBoundingClientRect()
   contextMenu.value = {
     show: true,
     x: Math.min(e.clientX, rect.right - 160),
@@ -2913,6 +3402,19 @@ function showContextMenu(e) {
 
 function ctxAction(action) {
   if (editorMode.value !== 'wysiwyg') return
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    switch (action) {
+      case 'undo': notebookEditorRef.value.undo(); break
+      case 'redo': notebookEditorRef.value.redo(); break
+      case 'delete': notebookEditorRef.value.deleteSelection(); onContentChange(); break
+      case 'selectAll': notebookEditorRef.value.selectAll(); break
+      case 'copy': document.execCommand('copy'); break
+      case 'cut': document.execCommand('cut'); onContentChange(); break
+      case 'paste': document.execCommand('paste'); break
+    }
+    contextMenu.value.show = false
+    return
+  }
   const editor = editorRef.value
   if (!editor) return
   editor.focus()
@@ -2981,6 +3483,952 @@ function setEditorPlainText(text) {
   editorContent.value = markdownToHtml(text)
 }
 
+function onNotebookMarkdown(markdown) {
+  markdownContent.value = String(markdown || '')
+  editorContent.value = markdownToHtml(markdownContent.value)
+  onContentChange()
+}
+
+function onNotebookDocumentUpdate(document) {
+  const previousDocument = writingDocument.value
+  writingDocument.value = document
+  chapterAnnotations.value = reconcileWritingAnnotations(
+    chapterAnnotations.value,
+    document,
+    selectedChapterId.value,
+    previousDocument
+  )
+  markRewriteCandidatesStale()
+}
+
+function onNotebookSelectionChange(selection) {
+  notebookSelection.value = selection
+  const snapshot = readLiveWritingSelectionSnapshot()
+  copilotCursorPos.value = snapshot.end
+  selectedText.value = snapshot.text
+  hasSelection.value = Boolean(selection?.text)
+  if (!inspectorPinned.value && selection?.blockId) {
+    activeAnnotationId.value = chapterAnnotations.value.find((annotation) => (
+      annotation.blockId === selection.blockId && annotation.status === 'open'
+    ))?.id || null
+  }
+}
+
+function openAnnotationInspector() {
+  inspectorOpen.value = true
+  inspectorTab.value = 'comments'
+  if (!selectedText.value.trim()) {
+    quickNoteStatus.value = '先选中需要批注的文字'
+    return
+  }
+  nextTick(() => {
+    document.querySelector('.writing-inspector__composer textarea')?.focus()
+  })
+}
+
+function handleInlineAnnotationClick(annotationId) {
+  const annotation = chapterAnnotations.value.find((item) => item.id === annotationId)
+  if (annotation) locateAnnotation(annotation)
+}
+
+function getWritingNodeText(node) {
+  return (node?.content || []).map((item) => item?.text || '').join('')
+}
+
+function getCurrentWritingBlockDescriptors() {
+  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
+  const descriptors = []
+  let probe = 0
+  for (const node of nodes) {
+    const blockId = node?.attrs?.blockId
+    const text = getWritingNodeText(node)
+    let descriptor = null
+    if (blockId) {
+      for (let position = probe; position <= markdownContent.value.length; position += 1) {
+        const candidate = getWritingBlockAtPosition(position, markdownContent.value)
+        if (candidate?.blockId === blockId) {
+          descriptor = { ...candidate, text }
+          break
+        }
+      }
+    }
+    descriptor ||= {
+      blockId: blockId || null,
+      blockRevision: Number(node?.attrs?.revision || 0),
+      start: probe,
+      end: probe + text.length,
+      text
+    }
+    descriptors.push(descriptor)
+    probe = Math.max(probe + 1, descriptor.end + 1)
+  }
+  return descriptors
+}
+
+function buildRewriteSelectionBlocks(startBlockId, endBlockId, selection) {
+  const descriptors = getCurrentWritingBlockDescriptors()
+  const startIndex = descriptors.findIndex((block) => block.blockId === startBlockId)
+  const endIndex = descriptors.findIndex((block) => block.blockId === endBlockId)
+  if (startIndex < 0 || endIndex < startIndex) return []
+
+  const notebook = notebookEditorActive.value && notebookSelection.value === selection
+  const startEditorBlock = notebookEditorRef.value?.findBlockRange?.(startBlockId)
+  const endEditorBlock = notebookEditorRef.value?.findBlockRange?.(endBlockId)
+  const first = descriptors[startIndex]
+  const last = descriptors[endIndex]
+  const startOffset = notebook
+    ? Math.max(0, Number(selection.from || startEditorBlock?.from || 0) - Number(startEditorBlock?.from || 0))
+    : Math.max(0, Number(selection.start || 0) - first.start)
+  const endOffset = notebook
+    ? Math.max(0, Number(selection.to || endEditorBlock?.from || 0) - Number(endEditorBlock?.from || 0))
+    : Math.max(0, Number(selection.end || 0) - last.start)
+
+  return descriptors.slice(startIndex, endIndex + 1).map((block, index, selectedBlocks) => {
+    const isFirst = index === 0
+    const isLast = index === selectedBlocks.length - 1
+    const localStart = isFirst ? Math.min(startOffset, block.text.length) : 0
+    const localEnd = isLast ? Math.min(endOffset, block.text.length) : block.text.length
+    const targetRange = {
+      start: block.start + localStart,
+      end: block.start + Math.max(localStart, localEnd)
+    }
+    let editorRange = null
+    if (notebook) {
+      const editorBlock = notebookEditorRef.value?.findBlockRange?.(block.blockId)
+      if (editorBlock) {
+        editorRange = {
+          from: isFirst ? editorBlock.from + localStart : editorBlock.from,
+          to: isLast ? editorBlock.from + Math.max(localStart, localEnd) : editorBlock.to
+        }
+      }
+    }
+    return {
+      blockId: block.blockId,
+      blockRevision: Number(block.blockRevision || 0),
+      text: block.text.slice(localStart, localEnd),
+      baseText: block.text.slice(localStart, localEnd),
+      range: targetRange,
+      editorRange,
+      startOffset: localStart,
+      endOffset: localEnd
+    }
+  })
+}
+
+function getCurrentRewriteTarget() {
+  if (!selectedChapterId.value) return null
+  const selection = readLiveWritingSelectionSnapshot()
+  const block = getWritingBlockAtPosition(selection.start, markdownContent.value)
+  if (!block?.blockId) return null
+
+  if (selection.hasSelection && selection.text.trim()) {
+    const notebookRange = notebookEditorActive.value ? notebookSelection.value : null
+    const startBlockId = notebookRange?.startBlockId || selection.blockId || block.blockId
+    const endBlockId = notebookRange?.endBlockId || getWritingBlockAtPosition(Math.max(selection.start, selection.end - 1), markdownContent.value)?.blockId || startBlockId
+    if (startBlockId && endBlockId && startBlockId !== endBlockId) {
+      const blocks = buildRewriteSelectionBlocks(startBlockId, endBlockId, notebookRange || selection)
+      if (blocks.length > 1) {
+        return {
+          kind: 'multi-selection',
+          chapterId: selectedChapterId.value,
+          blockId: startBlockId,
+          blockIds: blocks.map((item) => item.blockId),
+          text: selection.text,
+          blocks,
+          range: { start: blocks[0].range.start, end: blocks[blocks.length - 1].range.end },
+          editorRange: null,
+          documentRevision: Number(writingDocument.value?.revision || 0)
+        }
+      }
+    }
+    return {
+      kind: 'selection',
+      chapterId: selectedChapterId.value,
+      blockId: selection.blockId || block.blockId,
+      blockRevision: Number(selection.blockRevision ?? block.blockRevision ?? 0),
+      text: selection.text,
+      range: { start: selection.start, end: selection.end },
+      editorRange: Number.isFinite(Number(selection.editorFrom)) && Number.isFinite(Number(selection.editorTo))
+        ? { from: Number(selection.editorFrom), to: Number(selection.editorTo) }
+        : null,
+      documentRevision: Number(writingDocument.value?.revision || 0)
+    }
+  }
+
+  return {
+    kind: 'block',
+    chapterId: selectedChapterId.value,
+    blockId: block.blockId,
+    blockRevision: Number(block.blockRevision || 0),
+    text: block.text,
+    range: { start: block.start, end: block.end },
+    editorRange: null,
+    documentRevision: Number(writingDocument.value?.revision || 0)
+  }
+}
+
+function getCurrentRewriteComparison(targetOverride = null) {
+  const target = targetOverride || rewriteTarget.value
+  if (!target) return null
+  if (target.kind === 'multi-selection') {
+    const blocks = (target.blocks || []).map((targetBlock) => {
+      const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === targetBlock.blockId)
+      const fullText = getWritingNodeText(node)
+      const text = fullText.slice(
+        Math.max(0, Number(targetBlock.startOffset || 0)),
+        Math.max(Number(targetBlock.startOffset || 0), Number(targetBlock.endOffset ?? fullText.length))
+      )
+      return {
+        blockId: targetBlock.blockId,
+        blockRevision: Number(node?.attrs?.revision || 0),
+        text
+      }
+    })
+    return {
+      chapterId: selectedChapterId.value,
+      documentRevision: Number(writingDocument.value?.revision || 0),
+      blocks
+    }
+  }
+  const block = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === target.blockId)
+  const blockText = getWritingNodeText(block)
+  const text = target.kind === 'selection'
+    ? markdownContent.value.slice(target.range.start, target.range.end)
+    : blockText
+  return {
+    chapterId: selectedChapterId.value,
+    documentRevision: Number(writingDocument.value?.revision || 0),
+    blockId: target.blockId,
+    blockRevision: Number(block?.attrs?.revision || 0),
+    text
+  }
+}
+
+function markRewriteCandidatesStale() {
+  const current = getCurrentRewriteComparison()
+  if (!current) return
+  rewriteCandidates.value = rewriteCandidates.value.map((candidate) => {
+    if (candidate.status === 'applied' || candidate.status === 'dismissed') return candidate
+    const reason = getWritingCandidateStaleReason(candidate, current)
+    return reason
+      ? { ...candidate, status: 'stale', statusDetail: reason }
+      : candidate
+  })
+}
+
+function lockCurrentRewriteSelection() {
+  const target = rewriteTarget.value
+  const selection = readLiveWritingSelectionSnapshot()
+  if (!target || !selection.hasSelection || !selection.text.trim()) return
+  if (target.kind === 'multi-selection') {
+    rewriteError.value = '跨块改写暂不支持锁定片段，请先改写单个块。'
+    return
+  }
+  if (selection.start < target.range.start || selection.end > target.range.end) {
+    rewriteError.value = '锁定片段必须位于当前改写目标内。'
+    return
+  }
+  if (selection.start === target.range.start && selection.end === target.range.end) {
+    rewriteError.value = '请在当前改写目标内再选中一小段，不能锁定整个目标。'
+    return
+  }
+  const segment = {
+    text: selection.text,
+    start: selection.start - target.range.start,
+    end: selection.end - target.range.start
+  }
+  if (!rewriteLockedSegments.value.some((item) => item.text === segment.text && item.start === segment.start)) {
+    rewriteLockedSegments.value = [...rewriteLockedSegments.value, segment].slice(0, 8)
+    rewriteCandidates.value = rewriteCandidates.value.map((candidate) => ({
+      ...candidate,
+      lockedSegments: [...(candidate.lockedSegments || []), segment]
+    }))
+  }
+  rewriteError.value = ''
+}
+
+function isRewriteTargetStillCurrent(target) {
+  if (!target || target.chapterId !== selectedChapterId.value) return false
+  if (Number(target.documentRevision) !== Number(writingDocument.value?.revision || 0)) return false
+  if (target.kind === 'multi-selection') {
+    const current = getCurrentRewriteComparison(target)
+    return Boolean(current?.blocks?.length === target.blocks?.length
+      && current.blocks.every((block, index) => (
+        block.blockId === target.blocks[index]?.blockId
+        && block.text === target.blocks[index]?.text
+      )))
+  }
+  const block = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === target.blockId)
+  if (!block) return false
+  const blockText = (block.content || []).map((item) => item?.text || '').join('')
+  const currentText = target.kind === 'selection'
+    ? markdownContent.value.slice(target.range.start, target.range.end)
+    : blockText
+  return currentText === target.text
+}
+
+async function generateRewriteCandidates(targetOverride = null) {
+  if (targetOverride && !isRewriteTargetStillCurrent(targetOverride)) {
+    rewriteError.value = '原改写目标已经变化，请重新选中正文后再生成。'
+    return
+  }
+
+  const target = targetOverride || getCurrentRewriteTarget()
+  if (!target?.text?.trim()) {
+    rewriteError.value = '先把光标放入正文块，或选中需要改写的文字。'
+    return
+  }
+
+  rewriteAbortController?.abort()
+  const abortController = new AbortController()
+  rewriteAbortController = abortController
+  const requestVersion = ++rewriteRequestVersion
+  rewriteLoading.value = true
+  rewriteError.value = ''
+  rewriteTarget.value = target
+  rewriteCandidates.value = []
+  selectedRewriteCandidateId.value = null
+
+  const scope = target.kind === 'block' ? 'paragraph' : 'selection'
+  const taskType = target.kind === 'block' ? 'writing.fix.paragraph' : 'writing.fix.selection'
+  const question = rewriteInstruction.value.trim() || (target.kind === 'block'
+    ? '请修正当前正文块，处理重复、语病和衔接，但不要无依据扩写。'
+    : '请改写当前选区，保持原意、视角和人物语气，减少重复并改善节奏。')
+  const request = createWritingCandidateRequest({
+    target,
+    documentRevision: target.documentRevision,
+    chapterId: selectedChapterId.value,
+    question
+  })
+
+  try {
+    const context = buildWritingTaskContext({ scope, question, taskType })
+    const taskResult = await requestAdvisorTask({
+      context,
+      question,
+      scope,
+      taskType,
+      target: request.target,
+      options: {
+        editorMode: editorMode.value,
+        chapterId: selectedChapterId.value,
+        candidateCount: 3,
+        lockedSegments: rewriteLockedSegments.value,
+        multiBlock: target.kind === 'multi-selection',
+        targetBlocks: target.blocks || []
+      },
+      signal: abortController.signal
+    })
+    if (requestVersion !== rewriteRequestVersion) return
+
+    const targetBlocksById = new Map((target.blocks || []).map((block) => [block.blockId, block]))
+    const candidates = normalizeWritingCandidateResponse(taskResult.result, request).map((candidate) => {
+      const patches = candidate.patches?.map((patch) => {
+        const targetBlock = targetBlocksById.get(patch.blockId)
+        return {
+          ...patch,
+          baseText: targetBlock?.baseText || patch.baseText,
+          targetRange: targetBlock?.range || patch.targetRange,
+          editorRange: targetBlock?.editorRange || patch.editorRange,
+          startOffset: targetBlock?.startOffset,
+          endOffset: targetBlock?.endOffset,
+          diff: buildWritingCandidateDiff(targetBlock?.baseText || patch.baseText, patch.replacement)
+        }
+      })
+      return {
+        ...candidate,
+        kind: target.kind,
+        chapterId: selectedChapterId.value,
+        documentRevision: target.documentRevision,
+        blockId: target.blockId,
+        blockRevision: target.blockRevision,
+        targetRange: target.range,
+        lockedSegments: rewriteLockedSegments.value,
+        patches,
+        status: 'ready',
+        diff: target.kind === 'multi-selection'
+          ? null
+          : buildWritingCandidateDiff(target.text, candidate.text)
+      }
+    })
+    if (!candidates.length) throw new Error('模型未返回可审阅的改写候选')
+    rewriteCandidates.value = candidates
+    selectedRewriteCandidateId.value = candidates[0].id
+  } catch (error) {
+    if (requestVersion === rewriteRequestVersion) {
+      rewriteError.value = error?.code === 'AGENT_REQUEST_ABORTED'
+        ? '本次生成已取消，可重新生成。'
+        : error?.message || '改写候选生成失败'
+    }
+  } finally {
+    if (requestVersion === rewriteRequestVersion) {
+      rewriteLoading.value = false
+      if (rewriteAbortController === abortController) rewriteAbortController = null
+    }
+  }
+}
+
+function cancelRewriteGeneration() {
+  rewriteRequestVersion += 1
+  rewriteAbortController?.abort()
+  rewriteAbortController = null
+  rewriteLoading.value = false
+  rewriteError.value = '本次生成已取消，可重新生成。'
+}
+
+function retryRewriteCandidates() {
+  if (rewriteLoading.value || !rewriteTarget.value) return
+  generateRewriteCandidates(rewriteTarget.value)
+}
+
+function applyRewriteCandidate(candidate) {
+  if (!candidate || candidate.status !== 'ready') return
+  const current = getCurrentRewriteComparison()
+  const staleReason = getWritingCandidateStaleReason(candidate, current)
+  if (staleReason) {
+    candidate.status = 'stale'
+    candidate.statusDetail = staleReason
+    rewriteError.value = '正文或目标块已经变化，这条候选已过期，请重新生成。'
+    return
+  }
+
+  const lockedSegments = candidate.lockedSegments || []
+  if (!candidate.patches && lockedSegments.some((segment) => !candidate.text.includes(segment.text))) {
+    rewriteError.value = '候选没有保留全部锁定片段，不能采用。'
+    return
+  }
+
+  createCurrentWritingSnapshot({
+    label: `改写前 · 修订 ${writingDocument.value?.revision || 0}`,
+    reason: 'before-rewrite',
+    quiet: true
+  })
+
+  const before = markdownContent.value
+  let applied = false
+  let fallbackAfter = ''
+  if (notebookEditorActive.value && candidate.kind === 'multi-selection') {
+    applied = Boolean(notebookEditorRef.value?.replaceBlockRanges?.(candidate.patches))
+  } else if (notebookEditorActive.value && candidate.kind === 'selection' && rewriteTarget.value?.editorRange) {
+    applied = Boolean(notebookEditorRef.value?.replaceTextRange?.(
+      rewriteTarget.value.editorRange.from,
+      rewriteTarget.value.editorRange.to,
+      candidate.text
+    ))
+  } else if (notebookEditorActive.value && candidate.kind === 'block') {
+    applied = Boolean(notebookEditorRef.value?.replaceBlockText?.(candidate.blockId, candidate.text))
+  } else {
+    const actions = candidate.patches
+      ? candidate.patches.map((patch) => ({
+        type: 'text-patch',
+        range: patch.targetRange,
+        content: patch.replacement,
+        baseText: patch.baseText
+      }))
+      : [{
+        type: 'text-patch',
+        range: candidate.targetRange,
+        content: candidate.text,
+        baseText: candidate.baseText
+      }]
+    if (actions.some((action) => !action.range)) {
+      rewriteError.value = '候选缺少可应用的正文范围，请重新生成。'
+      return
+    }
+    const transaction = applyWritingAgentTransaction(before, actions, {
+      resultId: candidate.id,
+      chapterId: selectedChapterId.value,
+      cursorBefore: readCurrentEditorCursor(before)
+    })
+    if (!transaction.ok) {
+      candidate.status = 'stale'
+      candidate.statusDetail = transaction.reason
+      rewriteError.value = '正文已变化，候选没有应用。'
+      return
+    }
+    fallbackAfter = transaction.content
+    markdownContent.value = transaction.content
+    syncMarkdownToEditor()
+    onContentChange()
+    applied = true
+  }
+
+  if (!applied) {
+    rewriteError.value = '编辑器没有接受这次改写，请重新生成。'
+    return
+  }
+
+  candidate.status = 'applied'
+  rewriteError.value = ''
+  rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
+  nextTick(() => {
+    rewriteUndoReceipt.value = {
+      chapterId: selectedChapterId.value,
+      before,
+      after: fallbackAfter || markdownContent.value,
+      editorTransaction: notebookEditorActive.value && !fallbackAfter
+    }
+    notebookEditorRef.value?.focus?.()
+    syncCopilotCursorFromEditor()
+  })
+}
+
+function dismissRewriteCandidate(candidate) {
+  if (!candidate) return
+  candidate.status = 'dismissed'
+  rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
+}
+
+function undoRewriteCandidate() {
+  const receipt = rewriteUndoReceipt.value
+  if (!receipt || receipt.chapterId !== selectedChapterId.value || markdownContent.value !== receipt.after) {
+    rewriteError.value = '正文已经继续变化，不能撤销这次采用。'
+    return
+  }
+  if (receipt.editorTransaction && notebookEditorRef.value?.undo?.()) {
+    rewriteUndoReceipt.value = null
+    return
+  }
+  const undone = undoWritingAgentTransaction(markdownContent.value, {
+    type: 'writing-agent-transaction',
+    chapterId: receipt.chapterId,
+    before: receipt.before,
+    after: receipt.after,
+    cursorBefore: readCurrentEditorCursor(receipt.before)
+  }, selectedChapterId.value)
+  if (!undone.ok) {
+    rewriteError.value = '正文已经继续变化，不能撤销这次采用。'
+    return
+  }
+  markdownContent.value = undone.content
+  syncMarkdownToEditor()
+  onContentChange()
+  rewriteUndoReceipt.value = null
+}
+
+function buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact }) {
+  if (!startBlock?.blockId || !endBlock?.blockId || !exact) return null
+  const startExact = startBlock.text.slice(localStart, Math.min(startBlock.text.length, localStart + 48)) || (startBlock.text ? exact.slice(0, 48) : '')
+  const endExact = endBlock.text.slice(Math.max(0, localEnd - 48), localEnd) || (endBlock.text ? exact.slice(-48) : '')
+  const startSelector = createWritingSelector({
+    text: startExact,
+    start: localStart,
+    end: localStart + startExact.length,
+    fullText: startBlock.text
+  })
+  const endSelector = createWritingSelector({
+    text: endExact,
+    start: Math.max(0, localEnd - endExact.length),
+    end: localEnd,
+    fullText: endBlock.text
+  })
+  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
+  const startIndex = nodes.findIndex((node) => node?.attrs?.blockId === startBlock.blockId)
+  const endIndex = nodes.findIndex((node) => node?.attrs?.blockId === endBlock.blockId)
+  const blockIds = startIndex >= 0 && endIndex >= startIndex
+    ? nodes.slice(startIndex, endIndex + 1).map((node) => node?.attrs?.blockId).filter(Boolean)
+    : [startBlock.blockId, endBlock.blockId]
+
+  return {
+    block: startBlock,
+    selector: startSelector,
+    range: {
+      start: {
+        blockId: startBlock.blockId,
+        blockRevision: startBlock.blockRevision,
+        offset: localStart
+      },
+      end: {
+        blockId: endBlock.blockId,
+        blockRevision: endBlock.blockRevision,
+        offset: localEnd
+      },
+      blockIds,
+      exact,
+      ...(startExact ? { startSelector } : {}),
+      ...(endExact ? { endSelector } : {})
+    }
+  }
+}
+
+function getAnnotationSelectionContext() {
+  if (!selectedChapterId.value) return null
+
+  if (notebookEditorActive.value && notebookSelection.value?.text) {
+    const selection = notebookSelection.value
+    const startBlockId = selection.startBlockId || selection.blockId
+    const endBlockId = selection.endBlockId || startBlockId
+    const startNode = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === startBlockId)
+    const endNode = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === endBlockId)
+    const startRange = notebookEditorRef.value?.findBlockRange?.(startBlockId)
+    const endRange = notebookEditorRef.value?.findBlockRange?.(endBlockId)
+    if (!startNode || !endNode || !startRange || !endRange) return null
+    const startBlock = {
+      blockId: startBlockId,
+      blockRevision: Number(startNode.attrs?.revision || 0),
+      text: (startNode.content || []).map((item) => item?.text || '').join('')
+    }
+    const endBlock = {
+      blockId: endBlockId,
+      blockRevision: Number(endNode.attrs?.revision || 0),
+      text: (endNode.content || []).map((item) => item?.text || '').join('')
+    }
+    return buildAnnotationRangeContext({
+      startBlock,
+      endBlock,
+      localStart: Math.max(0, Number(selection.from) - startRange.from),
+      localEnd: Math.max(0, Number(selection.to) - endRange.from),
+      exact: selection.text
+    })
+  }
+
+  const snapshot = readLiveWritingSelectionSnapshot()
+  if (!snapshot?.hasSelection) return null
+  const startBlock = getWritingBlockAtPosition(snapshot.start, markdownContent.value)
+  const endBlock = getWritingBlockAtPosition(Math.max(snapshot.start, snapshot.end - 1), markdownContent.value)
+  if (!startBlock?.blockId || !endBlock?.blockId) return null
+  const localStart = Math.max(0, snapshot.start - startBlock.start)
+  const localEnd = Math.max(0, snapshot.end - endBlock.start)
+  const exact = snapshot.text || (startBlock.blockId === endBlock.blockId
+    ? startBlock.text.slice(localStart, localEnd)
+    : [startBlock.text.slice(localStart), endBlock.text.slice(0, localEnd)].join('\n'))
+  return buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact })
+}
+
+function getAnnotationReplyContext(annotation) {
+  const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === annotation?.blockId)
+  if (!node || !annotation?.selector?.exact) return null
+  const text = (node.content || []).map((item) => item?.text || '').join('')
+  return {
+    block: {
+      blockId: annotation.blockId,
+      blockRevision: Number(node.attrs?.revision || 0),
+      text
+    },
+    selector: { ...annotation.selector }
+  }
+}
+
+function createAnnotationFromSelection() {
+  const body = annotationDraft.value.trim()
+  const replyTarget = replyTargetAnnotation.value
+  const context = replyTarget
+    ? getAnnotationReplyContext(replyTarget)
+    : getAnnotationSelectionContext()
+  if (!context) {
+    quickNoteStatus.value = replyTarget ? '原批注已失去定位，无法回复' : '请先在正文中选中需要批注的片段'
+    return
+  }
+  if (!body) return
+
+  const annotation = createWritingAnnotation({
+    chapterId: selectedChapterId.value,
+    blockId: context.block.blockId,
+    blockRevision: context.block.blockRevision,
+    selector: context.selector,
+    range: context.range,
+    body,
+    kind: 'comment',
+    parentId: replyTarget?.id || null
+  })
+  chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
+  activeAnnotationId.value = annotation.id
+  replyTargetAnnotationId.value = null
+  annotationDraft.value = ''
+  inspectorOpen.value = true
+  inspectorTab.value = 'comments'
+  quickNoteStatus.value = '批注已添加'
+  onContentChange()
+}
+
+function startAnnotationReply(annotation) {
+  if (!annotation || annotation.status === 'orphaned') return
+  activeAnnotationId.value = annotation.id
+  replyTargetAnnotationId.value = annotation.id
+  annotationDraft.value = ''
+  inspectorOpen.value = true
+  inspectorTab.value = 'comments'
+  nextTick(() => document.querySelector('.writing-inspector__composer textarea')?.focus())
+}
+
+function setAnnotationStatus(annotationId, status) {
+  chapterAnnotations.value = updateWritingAnnotationStatus(
+    chapterAnnotations.value,
+    annotationId,
+    status
+  )
+  if (status === 'open') activeAnnotationId.value = annotationId
+  onContentChange()
+}
+
+function buildChapterReviewBatches() {
+  const blocks = getCurrentWritingBlockDescriptors()
+    .filter((block) => block?.blockId && String(block.text || '').trim())
+    .map((block) => ({
+      blockId: block.blockId,
+      blockRevision: Number(block.blockRevision || 0),
+      kind: block.kind || 'prose',
+      text: String(block.text || '')
+    }))
+  const batches = []
+  for (let index = 0; index < blocks.length; index += 6) {
+    batches.push(blocks.slice(index, index + 6))
+  }
+  return batches
+}
+
+function createReviewAnnotation(finding, reviewBlocks, reviewBatchId) {
+  const startBlock = reviewBlocks.find((block) => block.blockId === finding.start.blockId)
+  const endBlock = reviewBlocks.find((block) => block.blockId === finding.end.blockId)
+  if (!startBlock || !endBlock) return null
+  const context = buildAnnotationRangeContext({
+    startBlock,
+    endBlock,
+    localStart: finding.start.offset,
+    localEnd: finding.end.offset,
+    exact: finding.exact
+  })
+  if (!context) return null
+  return createWritingAnnotation({
+    chapterId: selectedChapterId.value,
+    blockId: context.block.blockId,
+    blockRevision: context.block.blockRevision,
+    selector: context.selector,
+    range: context.range,
+    body: finding.body,
+    kind: 'review-finding',
+    createdBy: 'agent',
+    reviewType: finding.kind,
+    severity: finding.severity,
+    reviewBatchId
+  })
+}
+
+function reviewAnnotationFingerprint(annotation) {
+  return [
+    annotation?.kind,
+    annotation?.reviewType,
+    annotation?.range?.start?.blockId || annotation?.blockId,
+    annotation?.range?.start?.offset ?? annotation?.selector?.start,
+    annotation?.range?.end?.blockId || annotation?.blockId,
+    annotation?.range?.end?.offset ?? annotation?.selector?.end,
+    annotation?.body
+  ].join('|')
+}
+
+async function runChapterReview() {
+  if (reviewLoading.value || !selectedChapterId.value) return
+  const reviewChapterId = selectedChapterId.value
+  const reviewDocumentRevision = Number(writingDocument.value?.revision || 0)
+  const batches = buildChapterReviewBatches()
+  if (!batches.length) {
+    reviewError.value = '当前章节没有可审查的正文块。'
+    reviewStatus.value = ''
+    return
+  }
+
+  reviewAbortController?.abort()
+  const controller = new AbortController()
+  reviewAbortController = controller
+  reviewLoading.value = true
+  reviewError.value = ''
+  reviewStatus.value = ''
+  reviewCompletedBatches.value = 0
+  reviewTotalBatches.value = batches.length
+  const findings = []
+  let failedBatches = 0
+
+  try {
+    for (let index = 0; index < batches.length; index += 1) {
+      if (controller.signal.aborted) break
+      const reviewBlocks = batches[index]
+      const question = '审查这批正文，只返回有明确定位的高价值问题；不要改写正文。优先指出重复、衔接断裂、视角/角色连续性、时间或设定冲突。'
+      try {
+        const taskResult = await requestAdvisorTask({
+          context: {
+            chapterTitle: currentChapterTitle.value,
+            wordCount: wordCount.value,
+            chapterOutline: buildChapterOutlineContext(chapterOutlineItems.value),
+            reviewBlocks
+          },
+          question,
+          scope: 'chapter',
+          taskType: 'writing.chapter.health',
+          target: {
+            kind: 'chapter-review',
+            id: reviewChapterId,
+            revision: String(reviewDocumentRevision),
+            blockIds: reviewBlocks.map((block) => block.blockId)
+          },
+          options: {
+            chapterId: reviewChapterId,
+            chapterReview: true,
+            reviewBlocks
+          },
+          signal: controller.signal
+        })
+        const batchFindings = normalizeWritingReviewFindings(taskResult.result?.findings, {
+          blocks: reviewBlocks,
+          maxFindings: 8
+        })
+        findings.push(...batchFindings.map((finding) => ({ finding, reviewBlocks, batchIndex: index })))
+      } catch (error) {
+        if (controller.signal.aborted || error?.code === 'AGENT_REQUEST_ABORTED') break
+        failedBatches += 1
+      } finally {
+        reviewCompletedBatches.value = index + 1
+      }
+    }
+
+    if (selectedChapterId.value !== reviewChapterId
+      || Number(writingDocument.value?.revision || 0) !== reviewDocumentRevision) {
+      reviewError.value = '章节或正文已变化，本次审查结果已丢弃，请重新审查。'
+      return
+    }
+
+    const existing = new Set(chapterAnnotations.value.map(reviewAnnotationFingerprint))
+    const annotations = findings
+      .map(({ finding, reviewBlocks, batchIndex }) => createReviewAnnotation(
+        finding,
+        reviewBlocks,
+        `${reviewChapterId}:review:${reviewDocumentRevision}:${batchIndex}`
+      ))
+      .filter((annotation) => annotation && !existing.has(reviewAnnotationFingerprint(annotation)))
+
+    if (annotations.length) {
+      chapterAnnotations.value = [...annotations, ...chapterAnnotations.value]
+      annotationScope.value = 'chapter'
+      inspectorOpen.value = true
+      inspectorTab.value = 'comments'
+      onContentChange()
+    }
+
+    if (controller.signal.aborted) {
+      reviewError.value = annotations.length ? `已停止，保留 ${annotations.length} 条审查发现。` : '章节审查已停止。'
+    } else if (failedBatches && annotations.length) {
+      reviewError.value = `已完成 ${batches.length - failedBatches}/${batches.length} 批，保留 ${annotations.length} 条发现；失败批次可重试。`
+    } else if (failedBatches) {
+      reviewError.value = `${failedBatches} 批审查失败，未写入无定位建议。`
+    } else {
+      reviewStatus.value = annotations.length
+        ? `审查完成，新增 ${annotations.length} 条可定位发现。`
+        : '审查完成，当前批次没有发现明确问题。'
+    }
+  } finally {
+    reviewLoading.value = false
+    if (reviewAbortController === controller) reviewAbortController = null
+  }
+}
+
+function cancelChapterReview() {
+  reviewAbortController?.abort()
+}
+
+function startRewriteFromAnnotation(annotation) {
+  if (!annotation || annotation.status === 'orphaned') return
+  locateAnnotation(annotation, { tab: 'rewrite' })
+}
+
+function locateAnnotation(annotation, { tab = 'comments' } = {}) {
+  if (!annotation) return
+  activeAnnotationId.value = annotation.id
+  inspectorOpen.value = true
+  inspectorTab.value = tab
+  if (annotation.status === 'orphaned') return
+
+  const exact = annotation.selector?.exact
+  const range = annotation.range
+  if (!exact && !range?.exact) return
+  nextTick(() => {
+    let selected = range
+      ? notebookEditorRef.value?.selectBlockRange?.(
+          range.start.blockId,
+          range.start.offset,
+          range.end.blockId,
+          range.end.offset
+        )
+      : notebookEditorRef.value?.selectText?.(exact, 0, annotation.blockId)
+    if (!selected && range && editorRef.value) {
+      const startExact = range.startSelector?.exact || exact
+      const endExact = range.endSelector?.exact || startExact
+      const start = markdownContent.value.indexOf(startExact)
+      const endStart = start >= 0 ? markdownContent.value.indexOf(endExact, start + startExact.length) : -1
+      if (start >= 0 && endStart >= start) {
+        editorRef.value.focus()
+        editorRef.value.setSelectionRange(start, endStart + endExact.length)
+        selected = true
+      }
+    }
+    if (!selected) return
+    selectedText.value = range?.exact || exact
+    hasSelection.value = true
+    notebookEditorRef.value?.focus?.()
+    if (tab === 'rewrite') {
+      rewriteTarget.value = getCurrentRewriteTarget()
+      rewriteInstruction.value = annotation.body
+    }
+  })
+}
+
+function handleAnnotationKeydown(event, annotation, index) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    locateAnnotation(annotation)
+    return
+  }
+
+  const annotations = activeBlockAnnotations.value
+  if (!annotations.length) return
+  let nextIndex = index
+  if (event.key === 'ArrowDown') nextIndex = Math.min(annotations.length - 1, index + 1)
+  if (event.key === 'ArrowUp') nextIndex = Math.max(0, index - 1)
+  if (event.key === 'Home') nextIndex = 0
+  if (event.key === 'End') nextIndex = annotations.length - 1
+  if (nextIndex === index) return
+
+  event.preventDefault()
+  const cards = Array.from(event.currentTarget?.parentElement?.querySelectorAll('.writing-annotation') || [])
+  cards[nextIndex]?.focus()
+  activeAnnotationId.value = annotations[nextIndex].id
+}
+
+function reanchorAnnotation(annotation) {
+  const context = getAnnotationSelectionContext()
+  if (!context) {
+    quickNoteStatus.value = '先选中新的对应文字，再重新关联批注'
+    return
+  }
+
+  chapterAnnotations.value = chapterAnnotations.value.map((item) => {
+    if (item.id !== annotation?.id) return item
+    return {
+      ...item,
+      blockId: context.block.blockId,
+      blockRevision: context.block.blockRevision,
+      selector: context.selector,
+      ...(context.range ? { range: context.range } : {}),
+      status: 'open',
+      resolution: 'manually-reanchored',
+      updatedAt: new Date().toISOString()
+    }
+  })
+  activeAnnotationId.value = annotation.id
+  quickNoteStatus.value = '批注已重新关联'
+  onContentChange()
+}
+
+function onNotebookInput(payload = {}) {
+  syncCopilotCursorFromEditor()
+  if (!copilotEnabled.value || payload.composing || payload.inputType !== 'input') return
+  writingAgentOnInput({
+    content: markdownContent.value,
+    cursorPos: copilotCursorPos.value,
+    hasSelection: Boolean(selectedText.value),
+    inputType: payload.inputType,
+    composing: false
+  })
+}
+
 function switchEditorMode(mode) {
   if (editorMode.value === mode) return
   copilotCancel()
@@ -2998,12 +4446,14 @@ function switchEditorMode(mode) {
 
 function syncMarkdownToEditor() {
   editorContent.value = markdownToHtml(markdownContent.value || '')
+  if (notebookEditorActive.value) {
+    writingDocument.value = syncFromMarkdown(markdownContent.value || '')
+  }
 }
 
 function syncFromCurrentEditor() {
-  if (editorMode.value === 'wysiwyg' && editorRef.value) {
-    markdownContent.value = editorRef.value.value
-    editorContent.value = markdownToHtml(markdownContent.value)
+  if (notebookEditorActive.value) {
+    editorContent.value = markdownToHtml(markdownContent.value || '')
     return
   }
   if (editorMode.value === 'markdown') {

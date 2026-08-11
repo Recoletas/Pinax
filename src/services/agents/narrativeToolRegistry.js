@@ -1,6 +1,7 @@
 import {
   NARRATIVE_AGENT_SCHEMA_VERSION,
   createNarrativeToolError,
+  parseNarrativeCursor,
   stableNarrativeSerialize,
   validateNarrativeToolCall
 } from '../../../shared/narrativeAgentContract'
@@ -15,6 +16,13 @@ const EXECUTORS = Object.freeze({
   geo_lookup: executeGeoLookup,
   history_lookup: executeHistoryLookup,
   memory_lookup: executeMemoryLookup
+})
+
+const TOOL_DOMAINS = Object.freeze({
+  world_lookup: 'world',
+  geo_lookup: 'geo',
+  history_lookup: 'history',
+  memory_lookup: 'memory'
 })
 
 function text(value) {
@@ -48,6 +56,20 @@ export function createNarrativeToolRegistry({
     if (!index?.byId || !index?.byDomain) {
       return createNarrativeToolError(call, 'NARRATIVE_RESOURCE_INDEX_MISSING', '叙事资源索引不可用')
     }
+    if (call.arguments.cursor) {
+      const cursor = parseNarrativeCursor(call.arguments.cursor, {
+        revision: index.revision,
+        domain: TOOL_DOMAINS[call.name]
+      })
+      if (!cursor.valid) {
+        return createNarrativeToolError(
+          call,
+          cursor.error.code,
+          cursor.error.message,
+          { retryable: cursor.error.code === 'NARRATIVE_CURSOR_STALE' }
+        )
+      }
+    }
     const executor = EXECUTORS[call.name]
     if (!executor) {
       return createNarrativeToolError(call, 'NARRATIVE_TOOL_UNKNOWN', `未知叙事工具：${call.name}`)
@@ -69,9 +91,14 @@ export function createNarrativeToolRegistry({
         revision: index.revision,
         items: output.items,
         truncated: output.truncated,
-        nextCursor: '',
-        warnings: output.truncated ? ['result-char-limit'] : [],
+        warnings: [
+          ...(output.truncated ? ['result-char-limit'] : []),
+          ...(output.items.some((item) => item.conflictState === 'active-conflict') ? ['active-conflict'] : []),
+          ...(output.items.some((item) => item.conflictState === 'stale') ? ['stale-evidence'] : []),
+          ...(output.items.some((item) => item.eligibleEvidence === false) ? ['non-canonical-evidence'] : [])
+        ],
         chars: output.chars,
+        nextCursor: output.nextCursor || '',
         cached: false
       }
       cache.set(cacheKey, result)

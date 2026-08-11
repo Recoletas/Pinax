@@ -106,15 +106,24 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
   const callIds = new Set()
   const textParts = []
   const reasoningParts = []
+  const parts = []
+  let refusalDetected = false
   for (const item of output) {
     if (item?.type === 'message' || item?.type === 'output_text') {
       const value = collectText(item)
-      if (value) textParts.push(value)
+      if (value) {
+        textParts.push(value)
+        parts.push({ type: 'text', text: value })
+      }
       continue
     }
     if (item?.type === 'refusal') {
+      refusalDetected = true
       const value = collectText(item)
-      if (value) textParts.push(value)
+      if (value) {
+        textParts.push(value)
+        parts.push({ type: 'refusal', text: value })
+      }
       continue
     }
     if (item?.type === 'reasoning') {
@@ -124,6 +133,7 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
         text: '',
         ...(opaque ? { opaque: { encryptedContent: opaque } } : {})
       })
+      parts.push(reasoningParts.at(-1))
       continue
     }
     if (item?.type !== 'function_call') continue
@@ -142,6 +152,7 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
     }
     callIds.add(id)
     calls.push(validation.call)
+    parts.push({ type: 'tool-call', toolCallId: id, toolName: validation.call.name, input: validation.call.arguments })
   }
   if (calls.length > NARRATIVE_TOOL_LIMITS.maxCallsPerRound) {
     protocolError('NARRATIVE_PROVIDER_TOOL_CALLS_TOO_MANY', 'Responses 单轮工具调用超过上限')
@@ -150,6 +161,16 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
     typeof data?.output_text === 'string' ? data.output_text : []
   ).join('\n').trim()
   const status = text(data?.status)
+  const incompleteReason = text(data?.incomplete_details?.reason)
+  if (refusalDetected) {
+    protocolError('NARRATIVE_PROVIDER_REFUSAL', '上游拒绝生成叙事正文')
+  }
+  if (!calls.length && !finalText && incompleteReason === 'content_filter') {
+    protocolError('NARRATIVE_PROVIDER_CONTENT_FILTER', '上游因内容安全策略拒绝返回正文')
+  }
+  if (!calls.length && !finalText && incompleteReason === 'max_output_tokens') {
+    protocolError('NARRATIVE_PROVIDER_OUTPUT_TRUNCATED', '上游在返回正文前达到输出长度上限')
+  }
   if (!calls.length && !finalText && status !== 'incomplete') {
     protocolError('NARRATIVE_PROVIDER_EMPTY_RESPONSE', 'Responses 没有返回工具调用或最终文本')
   }
@@ -161,7 +182,7 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
     kind: calls.length ? 'tool_calls' : 'final_ready',
     calls,
     text: finalText,
-    parts: reasoningParts,
+    parts,
     finishReason: calls.length ? 'tool_calls' : (status === 'incomplete' ? 'length' : 'stop'),
     usage: normalizeGenerationUsage(data?.usage)
   }

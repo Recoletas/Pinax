@@ -6,6 +6,8 @@
  * 本文件只导出纯函数；generate.ts 在 generateHeightmap 之后调用。
  */
 import type { GridCells } from './types'
+import { fbmHash } from './noise'
+import { inferCanvasHeight } from './math'
 
 const SEA_LEVEL = 20
 
@@ -20,37 +22,12 @@ export interface CoastParams {
 
 export type CoastMode = 'low' | 'high' | 'both'
 
-/** 简单确定性 hash（per-call 时用 cell 坐标） */
-function hash2D(x: number, y: number): number {
-  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
-  return s - Math.floor(s)
-}
-
 /**
  * 分形布朗运动：多层 hash 噪声叠加。
  *
  * P0-3 de-banding: per-octave 旋转（见 heightmap.ts::fbm2D）。
+ * 实现收敛至 engine/noise.ts::fbmHash（audit-pass2-plan Phase C2）。
  */
-const FBM_OCTAVE_ANGLE_DEG = 37
-function fbm(x: number, y: number, octaves: number): number {
-  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
-  let v = 0
-  let amp = 1
-  let freq = 1
-  let max = 0
-  for (let i = 0; i < octaves; i++) {
-    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
-    const c = i === 0 ? 1 : Math.cos(i * theta)
-    const s = i === 0 ? 0 : Math.sin(i * theta)
-    const xr = x * c - y * s
-    const yr = x * s + y * c
-    v += amp * (hash2D(xr * freq, yr * freq) * 2 - 1)
-    max += amp
-    amp *= 0.5
-    freq *= 2
-  }
-  return v / max
-}
 
 /**
  * 计算 cell 的高纬因子：赤道附近=0，极地=1
@@ -85,15 +62,8 @@ function collectBoundaryCells(cells: GridCells, h: Uint8Array, n: number): numbe
 /**
  * 推算画布高度（cells.p 中 y 最大值）— perturbCoast 内部用，避免
  * 在签名里加 height 参数以保持向后兼容。
+ * 实现收敛至 engine/math.ts::inferCanvasHeight（audit-pass2-plan Phase C1）。
  */
-function inferCanvasHeight(cells: GridCells, n: number): number {
-  let h = 0
-  for (let i = 0; i < n; i++) {
-    const y = cells.p[i * 2 + 1]
-    if (y > h) h = y
-  }
-  return h || 1
-}
 
 /** 内部 worker：执行一层 fbm 扰动，可被 mode='both' 复用 */
 function perturbOnce(
@@ -115,7 +85,7 @@ function perturbOnce(
     if (waterNeighbors < 2) continue
     const x = cells.p[id * 2]
     const y = cells.p[id * 2 + 1]
-    const noise = fbm(x * noiseScale, y * noiseScale, 4)
+    const noise = fbmHash(x * noiseScale, y * noiseScale, 4)
     let amp = baseAmplitude
     if (latitudeScale > 0 && canvasH > 0) {
       const yNorm = y / canvasH

@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
+import { resolveSelectedTextProviderConfig } from '@/services/textProviderConfigStore'
 import { useLocalDemo } from './useLocalDemo'
 
 // UI-E11-A: single source of truth for the workstation topstrip / left
@@ -19,7 +20,7 @@ import { useLocalDemo } from './useLocalDemo'
 //
 // UI-E13-BIG1: extended with demoState so the right rail + topstrip
 // can show real local-demo scene (location / characters / events)
-// when no AI config exists. useLocalDemo is a sibling composable
+// while the current conversation is empty. useLocalDemo is a sibling composable
 // (no store mutation); we just expose its current scene as a
 // computed here so right rail components don't have to call 2
 // composables.
@@ -84,9 +85,22 @@ export function useWorkstationMeta() {
 
   const isEmpty = computed(() => totalCount.value === 0)
 
-  // UI-E13-BIG1: isDemoMode = true when no real messages yet.
-  // Experience.vue + right rail use this to decide whether to show
-  // the "本地演示场景" banner + demo state, or the real chat.
+  // The local demo is an empty-state presentation, not an AI-configuration
+  // probe. Built-in MiniMax is valid even though its real key is resolved on
+  // the server and is therefore not stored in localStorage.
+  const hasConfiguredAi = computed(() => {
+    try {
+      const config = resolveSelectedTextProviderConfig()
+      if (config?.builtin) return true
+      return Boolean(config?.baseUrl && config?.apiKey && config?.model)
+    } catch {
+      return false
+    }
+  })
+
+  // UI-E13-BIG1: true when no real messages yet. Keep this independent from
+  // AI availability so the offline sample controls remain usable alongside a
+  // configured provider.
   const isDemoMode = computed(() => totalCount.value === 0)
 
   // UI-E13-BIG1: demo scene reference. Exposed so right rail can
@@ -122,6 +136,7 @@ export function useWorkstationMeta() {
     currentSection,
     totalCount,
     isEmpty,
+    hasConfiguredAi,
     isDemoMode,
     demoScene,
     demoEventsCount,

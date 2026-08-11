@@ -103,7 +103,7 @@ export function generateMap(
     width = 1200,
     height = 800,
     seed = String(Math.floor(Math.random() * 1e10)),
-    pointCount = 6000,
+    pointCount = 12000,  // 形状优化：6000→12000，cellSize 从 12.6px→8.9px，海岸线锯齿减半
     landRatio = 0.45,
     continentCount,  // legacy alias for plateCount（保留兼容）
     stateCount = 8,
@@ -358,7 +358,7 @@ export async function generateMapAsync(
     width = 1200,
     height = 800,
     seed = String(Math.floor(Math.random() * 1e10)),
-    pointCount = 6000,
+    pointCount = 12000,  // 形状优化：6000→12000，cellSize 从 12.6px→8.9px，海岸线锯齿减半
     landRatio = 0.45,
     continentCount,  // legacy alias for plateCount（保留兼容）
     stateCount = 8,

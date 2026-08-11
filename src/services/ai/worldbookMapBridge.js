@@ -10,6 +10,7 @@
 
 import { ENTRY_TYPE_ALIASES, ENTRY_TYPE_PRIORITY } from '../worldbookContextBuilder'
 import { isPlaceOverviewEntry } from '../../../shared/placeEntryContract.js'
+import { BIOMES } from '../world-map/engine/climate'
 
 const LORE_CONTEXT_TOP_N = 5
 const CONTENT_PREVIEW_CHARS = 50
@@ -330,6 +331,68 @@ export function buildMapNativePlaceInventory(mapData, worldbook, markers = []) {
       || b.population - a.population
       || a.name.localeCompare(b.name, 'zh-Hans-CN')
     ))
+}
+
+/**
+ * 地图原生地点的 kind → 中文标签（供 inventory 展示与 promote 描述共用）。
+ */
+export function mapNativeKindLabel(kind) {
+  return ({ capital: '首都', port: '港口', city: '城市', town: '城镇', village: '村落' })[kind] || '聚落'
+}
+
+/**
+ * 为 promoteNativePlace 生成富信息描述（audit B2）。
+ * 原 promote 只写"X是一处城镇。位于Y。"，信息密度低；
+ * 现从 place + mapData 提取人口规模/港口/国家/地理特征/沿河等上下文，
+ * 组装成 2-4 句自然描述。
+ *
+ * @param {object} place - buildMapNativePlaceInventory 返回的 place 项
+ * @param {object} mapData - VoronoiMapData（用于查 biome / 河流）
+ * @returns {string} 组装后的 content
+ */
+export function describeNativePlaceForPromotion(place, mapData) {
+  if (!place?.name) return ''
+  const kindLabel = mapNativeKindLabel(place.kind)
+  const facts = [`${place.name}是一处${kindLabel}。`]
+
+  // 人口规模描述
+  const pop = Number(place.population) || 0
+  if (place.kind === 'capital') {
+    facts.push('为一国之都，人口稠密、商旅云集。')
+  } else if (pop >= 28) {
+    facts.push('城池颇具规模，人丁兴旺。')
+  } else if (pop >= 8) {
+    facts.push('是一处熙攘的集镇。')
+  } else {
+    facts.push('是一处宁静的小村落。')
+  }
+
+  // 所属国家
+  if (place.stateName) {
+    facts.push(`隶属${place.stateName}。`)
+  }
+
+  // 港口
+  if (place.port) {
+    facts.push('临近可通航水域，具备港口之利。')
+  }
+
+  // 地理特征（biome）+ 沿河
+  const cellId = Number(place.cellId)
+  if (Number.isInteger(cellId) && mapData?.cells) {
+    const biomeId = Number(mapData.cells.biome?.[cellId])
+    const biome = Number.isFinite(biomeId) ? BIOMES[biomeId] : null
+    if (biome?.name && biome.id !== 0) {
+      facts.push(`地处${biome.name}。`)
+    }
+    // 沿河：cells.r[cellId] > 0 表示有河流经过
+    const riverId = Number(mapData.cells.r?.[cellId])
+    if (Number.isFinite(riverId) && riverId > 0) {
+      facts.push('畔河而建。')
+    }
+  }
+
+  return facts.join('')
 }
 
 /**

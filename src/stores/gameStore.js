@@ -2453,7 +2453,7 @@ export const useGameStore = defineStore('game', {
     async sendAction(text, options = {}) {
       if (!text.trim()) return
 
-      const { hidden = false } = options
+      const { hidden = false, narrativeMode = '' } = options
 
       // 隐藏命令不显示在 UI 中，但加入 AI 上下文
       if (!hidden) {
@@ -2475,7 +2475,7 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
 
       if (this.useAI) {
-        await this.generateAIResponse()
+        await this.generateAIResponse({ narrativeMode })
       } else {
         this.isLoading = true
         try {
@@ -2607,7 +2607,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse() {
+    async generateAIResponse({ narrativeMode = '' } = {}) {
       this.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -2629,7 +2629,9 @@ export const useGameStore = defineStore('game', {
         const worldbook = worldStore.activeWorldbook
         const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
         const isInitGeneration = this._isRegenerating ? false : !hasAssistantHistory
-        productionMode = isInitGeneration ? 'init' : 'continue'
+        productionMode = isInitGeneration
+          ? 'init'
+          : narrativeMode === 'auto-advance' ? 'auto' : 'continue'
         const narrativeProjectId = this.worldId || worldbook?.id || ''
         const narrativeSessionId = this.currentSessionId || ''
         const sceneSummaryResolution = resolveNarrativeSceneSummary({
@@ -2709,11 +2711,11 @@ export const useGameStore = defineStore('game', {
 
         let fullContent = ''
         let cleanContent = ''
-        const maxTokens = isInitGeneration ? 1500 : 800
+        const maxTokens = isInitGeneration ? 1500 : productionMode === 'auto' ? 460 : 800
         const agentRun = await runNarrativeAgentGeneration({
           kernel: narrativeKernel,
           registry: narrativeRegistry,
-          mode: isInitGeneration ? 'init' : 'continue',
+          mode: productionMode,
           formatInstructions: buildNarrativeFormatInstructions(),
           worldId: this.worldId,
           settings: this.apiSettings,
@@ -2911,6 +2913,15 @@ export const useGameStore = defineStore('game', {
             : (/^NARRATIVE_(PROVIDER_|AGENT_DECISION_INVALID)/.test(productionError?.code || '')
                 ? false
                 : null),
+          protocol: trace?.protocol || 'agent-sse-v1',
+          capabilitySource: trace?.capabilitySource || (this.apiSettings?.capabilities ? 'probe' : 'static-default'),
+          toolRepairCount: trace?.toolRepairCount ?? trace?.repairCount,
+          reasoningRoundTrip: trace?.reasoningRoundTrip,
+          terminalMode: trace?.terminalMode,
+          groundingPolicy: trace?.groundingPolicy?.level,
+          orphanedCallCount: trace?.orphanedCallCount,
+          fallbackReason: trace?.fallbackReason,
+          transcriptRevision: trace?.transcriptRevision,
           timing,
           tools: {
             rounds: completedAgentRun?.toolRounds ?? timing.toolRounds,

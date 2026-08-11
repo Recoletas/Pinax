@@ -10,7 +10,14 @@ let injectedPreload = null
 // for migrated workbench surfaces as theme 2 becomes product-ready.
 const VARIANT_CSS = {
   kao: () => import('../../styles/themes/kao.css'),
-  legacy: () => import('../../styles/themes/legacy.css'),
+  // G1.4.10 R1: experience-reading.css is the single visual owner for theme 2
+  // Experience page typography. Loaded together with legacy.css so the legacy
+  // variant gets both the toolbox chrome and the reading-plane geometry in
+  // one dynamic chunk.
+  legacy: () => Promise.all([
+    import('../../styles/themes/legacy.css'),
+    import('../../styles/experience-reading.css'),
+  ]),
 }
 
 const FONT_HREF = '/src/assets/fonts/LXGWWenKai-Regular.woff2' // Vite resolves at build

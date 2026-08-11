@@ -1453,7 +1453,8 @@ function selectFirstEntry() {
 }
 
 function openExperience() {
-  router.push({ name: 'experience' })
+  const worldbookId = activeWorldbook.value?.id || ''
+  router.push({ name: 'experience', query: worldbookId ? { worldbookId } : {} })
 }
 
 function openQuickImport() {

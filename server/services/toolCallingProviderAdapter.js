@@ -14,6 +14,10 @@ import {
   buildOpenAIResponsesRequest,
   parseOpenAIResponsesToolResponse
 } from './providers/openAiResponsesToolAdapter.js'
+import {
+  buildMiniMaxToolRequest,
+  parseMiniMaxToolResponse
+} from './providers/minimaxToolAdapter.js'
 
 function text(value) {
   return String(value ?? '').trim()
@@ -95,7 +99,12 @@ function providerHeaders(request, resolved) {
 }
 
 function requestBody(request, protocol) {
-  if (protocol === 'anthropic') return buildAnthropicToolRequest(request)
+  if (protocol === 'anthropic') {
+    if (/minimax/i.test(request.provider?.id || '') || /minimaxi?\.com/i.test(request.provider?.baseUrl || '')) {
+      return buildMiniMaxToolRequest(request)
+    }
+    return buildAnthropicToolRequest(request)
+  }
   if (protocol === 'openai-responses') {
     return buildOpenAIResponsesRequest({
       provider: request.provider,
@@ -125,6 +134,13 @@ function requestToTranscript(request) {
     schemaVersion: 1,
     requestId: request.requestId,
     messages: request.messages.map((message, index) => {
+      if (Array.isArray(message.parts) && message.parts.length > 0) {
+        return {
+          id: `${request.requestId}:message:${index}`,
+          role: message.role,
+          parts: message.parts
+        }
+      }
       const parts = []
       if (message.content) {
         parts.push({ type: 'text', text: message.content })
@@ -162,7 +178,12 @@ function parseResponse(data, request, resolved) {
     provider: request.provider.id,
     model: request.provider.model
   }
-  if (resolved.protocol === 'anthropic') return parseAnthropicToolResponse(data, meta)
+  if (resolved.protocol === 'anthropic') {
+    if (/minimax/i.test(resolved.id) || /minimaxi?\.com/i.test(resolved.url)) {
+      return parseMiniMaxToolResponse(data, meta)
+    }
+    return parseAnthropicToolResponse(data, meta)
+  }
   if (resolved.protocol === 'openai-responses') return parseOpenAIResponsesToolResponse(data, meta)
   // Some OpenAI-compatible gateways expose /chat/completions while returning
   // Responses-shaped payloads. Parse the payload shape instead of reporting a
@@ -209,12 +230,17 @@ export async function runToolCallingProviderTurn(rawRequest, options = {}) {
     })
     if (!response?.ok) {
       const status = Number(response?.status || 0)
+      const isConfigurationFailure = status === 401 || status === 403
       throw new NarrativeProviderError(
-        'NARRATIVE_PROVIDER_UPSTREAM_FAILED',
-        `工具模型请求失败（${status || 'network'}）`,
+        isConfigurationFailure
+          ? 'NARRATIVE_PROVIDER_CONFIGURATION_INVALID'
+          : 'NARRATIVE_PROVIDER_UPSTREAM_FAILED',
+        isConfigurationFailure
+          ? '工具模型鉴权失败，请检查 API Key 与渠道配置'
+          : `工具模型请求失败（${status || 'network'}）`,
         {
           status,
-          retryable: status === 408 || status === 429 || status >= 500
+          retryable: !isConfigurationFailure && (status === 408 || status === 429 || status >= 500)
         }
       )
     }

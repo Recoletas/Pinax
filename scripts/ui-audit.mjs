@@ -1,6 +1,7 @@
 import { chromium } from 'playwright'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import * as r0Samples from './fixtures/experience-r0-samples.js'
 
 const baseUrl = process.env.UI_AUDIT_BASE_URL || `http://127.0.0.1:${process.env.PORT || '5173'}`
 const outputDir = resolve(process.env.UI_AUDIT_OUTPUT || '/tmp/pinax-ui-audit')
@@ -35,12 +36,23 @@ const activeRoutes = requestedRoutes.size
 function makeFixture(state) {
   if (state === 'empty') return {}
   const long = state === 'long'
-  const repeat = long ? 16 : 2
-  const passage = '雾港的潮声穿过旧仓库，陆晨曦在褪色航海图上标出信号出现的位置。'
-  const longPassage = Array.from({ length: repeat }, (_, index) => `${index + 1}. ${passage}`).join('\n\n')
-  const manuscriptPassage = Array.from({ length: long ? 84 : 8 }, (_, index) => (
-    `第 ${index + 1} 段　${passage}她沿着潮痕继续核对航道编号，直到远处灯塔的轮廓从雾中显现。`
-  )).join('\n\n')
+  // R0 (G1.4.10): replace numbered repeated passage with 6 realistic narrative
+  // samples covering the 6 scenarios the plan calls out (长叙述 / 双人对白 /
+  // 叙述夹对白 / 动作心理 / 重复实体 / 系统机制). `regular` uses the common
+  // Pinax shape (叙述夹对白); `long` rotates through all six so the audit
+  // captures the full typography stress surface, not a single repeated loop.
+  const passage = r0Samples.sampleNarrationWithDialogue
+  const samplePool = [
+    r0Samples.sampleLongNarration,
+    r0Samples.sampleDuoDialogue,
+    r0Samples.sampleNarrationWithDialogue,
+    r0Samples.sampleActionThought,
+    r0Samples.sampleRepeatedEntities,
+    r0Samples.sampleSystemMechanism,
+  ]
+  const longPassage = samplePool.join('\n\n')
+  const longManuscriptRepeat = Array.from({ length: 2 }, () => samplePool.join('\n\n')).join('\n\n')
+  const manuscriptPassage = long ? longManuscriptRepeat : passage
   const now = 1_788_883_200_000
   const assets = [
     ['asset-event', 'event', '雾港信号', longPassage],
@@ -215,6 +227,298 @@ async function triggerActionScenario(page, state) {
   return { assertion: 'visible alert after failed generation request', passed: true }
 }
 
+const PHYSICAL_FONT_SAMPLE_SELECTORS = [
+  '.prose__body',
+  '.narrative-block',
+  '.rp-dialogue',
+  '.rp-location',
+  '.rp-time'
+]
+const MEASURE_WIDTH_SAMPLE_SELECTORS = ['.prose__body', '.narrative-block']
+// R1 fix (G1.4.10): narrative-block is the wrapper that contains dialogue/action/thought
+// children. Counting it as one of the emphasis kinds made every prose character
+// count as emphasis, collapsing the metric. The denominator must be the total
+// prose text (all .prose__body text), and emphasis must only include the actual
+// inline tokens (rp-*).
+const EMPHASIS_KIND_SELECTORS = {
+  'rp-dialogue': '.rp-dialogue',
+  'rp-action': '.rp-action',
+  'rp-thought': '.rp-thought',
+  'rp-location': '.rp-location',
+  'rp-time': '.rp-time',
+  'rp-item': '.rp-item',
+  'rp-world-intro': '.rp-world-intro'
+}
+
+function parseFontSize(value) {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  if (trimmed.endsWith('px')) return Number.parseFloat(trimmed)
+  const numeric = Number.parseFloat(trimmed)
+  if (!Number.isFinite(numeric)) return trimmed
+  return numeric
+}
+
+function parseLineHeight(value, computedFontSize) {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  if (trimmed === 'normal') {
+    return { kind: 'normal', value: 'normal', px: null }
+  }
+  if (trimmed.endsWith('px')) {
+    return { kind: 'px', value: trimmed, px: Number.parseFloat(trimmed) }
+  }
+  const numeric = Number.parseFloat(trimmed)
+  if (!Number.isFinite(numeric)) return { kind: 'raw', value: trimmed, px: null }
+  const fontPx = typeof computedFontSize === 'number' && Number.isFinite(computedFontSize)
+    ? computedFontSize
+    : null
+  const px = fontPx ? Number((fontPx * numeric).toFixed(2)) : null
+  return { kind: 'unitless', value: numeric, px }
+}
+
+function parseLetterSpacing(value, computedFontSize) {
+  if (value === undefined || value === null) return null
+  const trimmed = String(value).trim()
+  if (!trimmed || trimmed === 'normal') return { kind: 'normal', value: trimmed || 'normal', px: 0 }
+  if (trimmed.endsWith('px')) {
+    return { kind: 'px', value: trimmed, px: Number.parseFloat(trimmed) }
+  }
+  const numeric = Number.parseFloat(trimmed)
+  if (!Number.isFinite(numeric)) return { kind: 'raw', value: trimmed, px: null }
+  const fontPx = typeof computedFontSize === 'number' && Number.isFinite(computedFontSize)
+    ? computedFontSize
+    : null
+  const px = fontPx ? Number((fontPx * numeric).toFixed(3)) : null
+  return { kind: 'em-or-pc', value: numeric, px }
+}
+
+function resolveCssVar(value) {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  return trimmed.length ? trimmed : null
+}
+
+async function inspectExperienceTypography(page) {
+  return page.evaluate(({
+    fontSampleSelectors,
+    measureSelectors,
+    emphasisSelectors
+  }) => {
+    const parseFontSize = (value) => {
+      if (!value) return null
+      const trimmed = String(value).trim()
+      if (!trimmed) return null
+      if (trimmed.endsWith('px')) return Number.parseFloat(trimmed)
+      const numeric = Number.parseFloat(trimmed)
+      if (!Number.isFinite(numeric)) return trimmed
+      return numeric
+    }
+    const parseLineHeight = (value, computedFontSize) => {
+      if (!value) return null
+      const trimmed = String(value).trim()
+      if (!trimmed) return null
+      if (trimmed === 'normal') return { kind: 'normal', value: 'normal', px: null }
+      if (trimmed.endsWith('px')) {
+        return { kind: 'px', value: trimmed, px: Number.parseFloat(trimmed) }
+      }
+      const numeric = Number.parseFloat(trimmed)
+      if (!Number.isFinite(numeric)) return { kind: 'raw', value: trimmed, px: null }
+      const fontPx = typeof computedFontSize === 'number' && Number.isFinite(computedFontSize)
+        ? computedFontSize
+        : null
+      const px = fontPx ? Number((fontPx * numeric).toFixed(2)) : null
+      return { kind: 'unitless', value: numeric, px }
+    }
+    const parseLetterSpacing = (value, computedFontSize) => {
+      if (value === undefined || value === null) return null
+      const trimmed = String(value).trim()
+      if (!trimmed || trimmed === 'normal') return { kind: 'normal', value: trimmed || 'normal', px: 0 }
+      if (trimmed.endsWith('px')) {
+        return { kind: 'px', value: trimmed, px: Number.parseFloat(trimmed) }
+      }
+      const numeric = Number.parseFloat(trimmed)
+      if (!Number.isFinite(numeric)) return { kind: 'raw', value: trimmed, px: null }
+      const fontPx = typeof computedFontSize === 'number' && Number.isFinite(computedFontSize)
+        ? computedFontSize
+        : null
+      const px = fontPx ? Number((fontPx * numeric).toFixed(3)) : null
+      return { kind: 'em-or-pc', value: numeric, px }
+    }
+    const resolveCssVar = (value) => {
+      if (!value) return null
+      const trimmed = String(value).trim()
+      return trimmed.length ? trimmed : null
+    }
+    const viewportHeight = window.innerHeight
+    const scrollToBottom = () => {
+      const doc = document.documentElement
+      const body = document.body
+      const scrollHeight = Math.max(
+        body ? body.scrollHeight : 0,
+        doc ? doc.scrollHeight : 0
+      )
+      const target = Math.max(0, scrollHeight - window.innerHeight)
+      window.scrollTo({ top: target, left: 0, behavior: 'instant' })
+    }
+    scrollToBottom()
+
+    const fontSamples = []
+    for (const selector of fontSampleSelectors) {
+      const element = document.querySelector(selector)
+      if (!element) continue
+      const style = getComputedStyle(element)
+      const computedFontSize = parseFontSize(style.fontSize)
+      const closest = element.closest('[style*="--experience-prose-size"], [style*="--experience-measure"]')
+        || element.closest('.ws-center-stage')
+        || element.closest('[data-reading-profile]')
+        || document.body
+      const closestStyle = closest ? getComputedStyle(closest) : null
+      const proseSizeVar = closestStyle ? closestStyle.getPropertyValue('--experience-prose-size').trim() : ''
+      const measureVar = closestStyle ? closestStyle.getPropertyValue('--experience-measure').trim() : ''
+      const ancestorVarSource = closest ? (closest.matches('[data-reading-profile]')
+        || (closestStyle && (closestStyle.getPropertyValue('--experience-prose-size').trim() || closestStyle.getPropertyValue('--experience-measure').trim())))
+          ? closest.matches('[data-reading-profile]')
+            ? 'data-reading-profile'
+            : 'inline-style-or-ancestor'
+          : 'fallback-ancestor'
+        : null
+      fontSamples.push({
+        selector,
+        className: typeof element.className === 'string' ? element.className.slice(0, 160) : null,
+        fontSizePx: computedFontSize,
+        fontSizeRaw: style.fontSize,
+        lineHeight: parseLineHeight(style.lineHeight, typeof computedFontSize === 'number' ? computedFontSize : null),
+        letterSpacing: parseLetterSpacing(style.letterSpacing, typeof computedFontSize === 'number' ? computedFontSize : null),
+        cssVars: {
+          proseSize: resolveCssVar(proseSizeVar),
+          measure: resolveCssVar(measureVar)
+        },
+        ancestorVarSource
+      })
+    }
+
+    const widthSamples = []
+    for (const selector of measureSelectors) {
+      const matches = document.querySelectorAll(selector)
+      for (let index = 0; index < matches.length && widthSamples.length < 3; index += 1) {
+        const element = matches[index]
+        const box = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        const closest = element.closest('[style*="--experience-measure"]')
+          || element.closest('.ws-center-stage')
+          || document.body
+        const measureVar = closest ? getComputedStyle(closest).getPropertyValue('--experience-measure').trim() : ''
+        widthSamples.push({
+          selector,
+          className: typeof element.className === 'string' ? element.className.slice(0, 160) : null,
+          widthPx: Math.round(box.width * 100) / 100,
+          clientWidth: element.clientWidth,
+          offsetWidth: element.offsetWidth,
+          measureVar: resolveCssVar(measureVar)
+        })
+      }
+    }
+
+    const emphasisKinds = Object.entries(emphasisSelectors).map(([kind, selector]) => {
+      const elements = document.querySelectorAll(selector)
+      let charCount = 0
+      for (const element of elements) {
+        const text = element.textContent || ''
+        charCount += Array.from(text.replace(/\s+/g, '')).length
+      }
+      return { kind, selector, charCount }
+    })
+    // R1 fix: denominator = total prose characters across all .prose__body
+    // containers. Inline tokens (rp-*) overlap with prose so the kind sum can
+    // exceed the denominator; we report raw charCount for transparency and
+    // report `percent` against total prose, plus `hardCap15` flag and
+    // `softTarget8to12` band membership so R3 has a single number to enforce.
+    let totalProseChars = 0
+    const proseBodies = document.querySelectorAll('.prose__body')
+    for (const body of proseBodies) {
+      const text = body.textContent || ''
+      totalProseChars += Array.from(text.replace(/\s+/g, '')).length
+    }
+    const emphasisTotal = emphasisKinds.reduce((sum, entry) => sum + entry.charCount, 0)
+    const emphasisRatio = emphasisKinds
+      .map((entry) => ({
+        kind: entry.kind,
+        charCount: entry.charCount,
+        percent: totalProseChars > 0
+          ? Number(((entry.charCount / totalProseChars) * 100).toFixed(2))
+          : 0
+      }))
+      .sort((a, b) => b.percent - a.percent)
+    const emphasisRatioSummary = {
+      denominator: totalProseChars,
+      numeratorSum: emphasisTotal,
+      percent: totalProseChars > 0
+        ? Number(((emphasisTotal / totalProseChars) * 100).toFixed(2))
+        : 0,
+      hardCap15: totalProseChars > 0 && (emphasisTotal / totalProseChars) * 100 > 15,
+      softTarget8to12: totalProseChars > 0
+        ? ((emphasisTotal / totalProseChars) * 100 >= 8 && (emphasisTotal / totalProseChars) * 100 <= 12)
+        : false
+    }
+
+    scrollToBottom()
+    const allProse = document.querySelectorAll('.prose')
+    const lastProse = allProse.length ? allProse[allProse.length - 1] : null
+    const composerRoot = document.querySelector('.input-area')
+      || document.querySelector('textarea')
+      || document.querySelector('[contenteditable="true"]')
+    const lastProseRect = lastProse ? lastProse.getBoundingClientRect() : null
+    const composerRect = composerRoot ? composerRoot.getBoundingClientRect() : null
+    const scrollY = window.scrollY || window.pageYOffset || 0
+    let gapPx = null
+    let inputsCoverLastProse = null
+    let lastProseBottom = null
+    let composerTop = null
+    let composerPosition = null
+    let composerTopStrategy = null
+    if (lastProseRect && composerRect) {
+      lastProseBottom = Math.round((lastProseRect.bottom + scrollY) * 100) / 100
+      composerTop = Math.round((composerRect.top + scrollY) * 100) / 100
+      composerPosition = composerRoot ? getComputedStyle(composerRoot).position : null
+      gapPx = Math.round((composerRect.top - lastProseRect.bottom) * 100) / 100
+      inputsCoverLastProse = composerRect.top < lastProseRect.bottom
+      composerTopStrategy = composerRoot.matches('.input-area')
+        ? 'input-area'
+        : composerRoot.matches('textarea')
+          ? 'textarea'
+          : composerRoot.matches('[contenteditable="true"]')
+            ? 'contenteditable'
+            : 'fallback'
+    } else if (lastProseRect) {
+      lastProseBottom = Math.round((lastProseRect.bottom + scrollY) * 100) / 100
+    }
+
+    return {
+      viewportHeight,
+      fontSamples,
+      widthSamples,
+      emphasisRatio,
+      emphasisRatioSummary,
+      lastMessageInputGap: {
+        gapPx,
+        lastProseBottom,
+        composerTop,
+        composerPosition,
+        inputsCoverLastProse,
+        composerTopStrategy,
+        scrollY: Math.round(scrollY * 100) / 100
+      }
+    }
+  }, {
+    fontSampleSelectors: PHYSICAL_FONT_SAMPLE_SELECTORS,
+    measureSelectors: MEASURE_WIDTH_SAMPLE_SELECTORS,
+    emphasisSelectors: EMPHASIS_KIND_SELECTORS
+  })
+}
+
 async function inspectPage(page, surfaceSelectors) {
   return page.evaluate((selectors) => {
     const viewport = { width: window.innerWidth, height: window.innerHeight }
@@ -324,6 +628,9 @@ async function run() {
         await page.waitForTimeout(700)
         const actionScenario = await triggerActionScenario(page, state)
         const metrics = await inspectPage(page, route.surfaces)
+        const typographyMetrics = route.id === 'experience'
+          ? await inspectExperienceTypography(page)
+          : null
         const screenshot = `${route.id}-${state}-${width}.png`
         const screenshotWarnings = []
         try {
@@ -349,7 +656,7 @@ async function run() {
           await writeFile(resolve(outputDir, screenshot), Buffer.from(capture.data, 'base64'))
           await cdp.detach()
         }
-        report.entries.push({
+        const entry = {
           route: route.id,
           path: route.path,
           state,
@@ -361,7 +668,11 @@ async function run() {
           actionScenario,
           screenshotWarnings,
           ...metrics
-        })
+        }
+        if (route.id === 'experience') {
+          entry.r0TypographyMetrics = typographyMetrics
+        }
+        report.entries.push(entry)
         await page.close()
         }
         await context.close()

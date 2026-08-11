@@ -62,8 +62,9 @@
         aria-label="记录流"
       >
         <!-- UI-E13-BIG1: local demo banner — shown when isDemoMode
-             (no real messages yet). Replaces the previous "AI 配置
-             不完整" empty error with a usable local state: 3-scene
+             (no real messages yet). It remains useful alongside a
+             configured provider: the buttons are offline-only, while
+             the input surface can still use the configured AI.
              script + 继续 / 切场景 buttons that don't depend on AI.
              When the user clicks 继续, useLocalDemo.applyLocalAction
              returns a synthetic event payload; Experience.vue calls
@@ -79,7 +80,7 @@
             <span class="ws-demo-banner__scene">{{ demoSceneTitle }}</span>
             <span class="ws-demo-banner__step">{{ demoStepLabel }}</span>
           </div>
-          <p class="ws-demo-banner__hint">未配置 AI, 切到本地手动推进。下方按钮不依赖网络, 仅改写 localStorage 与当前会话。</p>
+          <p class="ws-demo-banner__hint">{{ demoBannerHint }}</p>
           <div class="ws-demo-banner__actions">
             <button class="action-btn primary" type="button" @click="handleLocalDemoEvent('continue')">继续</button>
             <button class="action-btn" type="button" @click="handleLocalDemoEvent('scene')">切场景</button>
@@ -94,8 +95,15 @@
           @show-inline-detail="handleInlineDetail"
           @quick-action="handleQuickAction"
         />
-        <NarrativeAgentStatus :status="visibleNarrativeAgentStatus" />
-        <InputArea @send="handleSend" />
+        <NarrativeAgentStatus :status="visibleNarrativeAgentStatus" @retry="retryNarrativeGeneration" />
+        <InputArea
+          :auto-advance="autoAdvanceEnabled"
+          :auto-advance-available="canUseAutoAdvance"
+          :auto-advance-pending="autoAdvancePending"
+          @send="handleSend"
+          @manual-input="handleManualInput"
+          @toggle-auto-advance="toggleAutoAdvance"
+        />
       </main>
       <button
         v-if="!showSessionPicker && codexSheetOpen"
@@ -198,7 +206,10 @@
       <SessionPicker
         v-if="showSessionPicker"
         :busy="isStarting"
+        :worldbooks="worldStore.worldbooksIndex"
+        :selected-worldbook-id="sessionPickerWorldbookId"
         @select="handleSessionSelect"
+        @update:selected-worldbook-id="sessionPickerWorldbookId = $event"
         @create="handleSessionCreate"
         @delete="handleSessionDelete"
       />
@@ -464,7 +475,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, proxyRefs, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useGeographyStore } from '../stores/geographyStore'
@@ -488,6 +499,7 @@ import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, getItem, setTextItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useTipState } from '../composables/useTipState'
+import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
 import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
@@ -509,39 +521,14 @@ const gameStore = useGameStore()
 const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
 const router = useRouter()
+const route = useRoute()
 const tip = useTipState()
-const readingProfile = ref(getTextItem(STORAGE_KEYS.EXPERIENCE_READING_PROFILE) || 'standard')
-const readingProfileVars = computed(() => {
-  const profiles = {
-    compact: {
-      '--experience-prose-size': '16px',
-      '--experience-leading': '1.68',
-      '--experience-measure': '68em',
-      '--experience-block-gap': '0.45em'
-    },
-    standard: {
-      '--experience-prose-size': '17px',
-      '--experience-leading': '1.78',
-      '--experience-measure': '64em',
-      '--experience-block-gap': '0.72em'
-    },
-    relaxed: {
-      '--experience-prose-size': '18px',
-      '--experience-leading': '1.96',
-      '--experience-measure': '60em',
-      '--experience-block-gap': '0.96em'
-    }
-  }
-  return profiles[readingProfile.value] || profiles.standard
-})
-watch(readingProfile, (profile) => {
-  const normalized = ['compact', 'standard', 'relaxed'].includes(profile) ? profile : 'standard'
-  if (normalized !== profile) {
-    readingProfile.value = normalized
-    return
-  }
-  setTextItem(STORAGE_KEYS.EXPERIENCE_READING_PROFILE, normalized)
-})
+// G1.4.10 R1: reading profile / measure / zoom reverse-compensation moved to
+// a single composable. The composable reads uiZoom from themeStore so the
+// emitted --experience-prose-size = physicalFontSize / uiZoom, keeping the
+// rendered font at 17.5px even under global zoom 0.85. CSS owners is now
+// `src/styles/experience-reading.css` (loaded via ThemeAssets for variant=legacy).
+const { profileName: readingProfile, cssVars: readingProfileVars } = useExperienceReadingPreferences()
 // UI-E11-A: workstation topstrip / left rail / right rail all read from
 // this single source of truth. Replaces the 6 record-folio computeds
 // (recordCaseNo / recordVolume / recordTime / recordCharacters /
@@ -593,6 +580,10 @@ watch(() => gameStore.narrativeAgentStatus, (status) => {
     message: String(status.message || '').replace(/\s+/g, ' ').trim().slice(0, 180),
     toolRounds: Math.max(0, Number(status.toolRounds) || 0),
     totalCalls: Math.max(0, Number(status.totalCalls ?? status.callCount) || 0),
+    stepIndex: Math.max(0, Number(status.stepIndex) || 0),
+    terminalMode: String(status.terminalMode || '').trim().slice(0, 80),
+    protocol: String(status.protocol || '').trim().slice(0, 40),
+    groundingPolicy: String(status.groundingPolicy || '').trim().slice(0, 40),
     at: Number(status.at) || Date.now()
   }
   const statusKey = [
@@ -618,6 +609,7 @@ watch([
 })
 
 const selectedWorldbookId = ref('')
+const sessionPickerWorldbookId = ref('')
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
 const hasSelectedWorldbook = computed(() => Boolean(selectedWorldbookId.value && activeWorldbook.value))
 const playableWorldTitle = computed(() => {
@@ -676,12 +668,110 @@ function installFirstMessageWatch() {
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
 const isStarting = ref(false)
+const autoAdvanceEnabled = ref(false)
+const autoAdvancePending = ref(false)
+const autoAdvanceRequestActive = ref(false)
+let autoAdvanceTimer = null
 const activeCodexSection = ref('events')
 const codexSheetOpen = ref(false)
 const codexTriggerRef = ref(null)
 const codexSheetRef = ref(null)
+const canUseAutoAdvance = computed(() => !props.onlineSession && Boolean(gameStore.currentSessionId) && !isStarting.value)
+
+async function retryNarrativeGeneration() {
+  if (props.onlineSession || gameStore.isLoading) return
+  await gameStore.generateAIResponse()
+}
+const isLocalDemoSequence = computed(() => {
+  const messages = gameStore.messages || []
+  return messages.length === 0 || messages.every((message) => message?.source === 'local-demo')
+})
+
+function clearAutoAdvanceTimer() {
+  if (autoAdvanceTimer !== null) {
+    clearTimeout(autoAdvanceTimer)
+    autoAdvanceTimer = null
+  }
+}
+
+function stopAutoAdvance({ abortRunning = false } = {}) {
+  clearAutoAdvanceTimer()
+  autoAdvancePending.value = false
+  autoAdvanceEnabled.value = false
+  if (abortRunning && autoAdvanceRequestActive.value && gameStore.isLoading) {
+    gameStore.cancelNarrativeGeneration?.('auto-advance-stopped')
+  }
+}
+
+function scheduleAutoAdvance(delay = 1300) {
+  clearAutoAdvanceTimer()
+  if (!autoAdvanceEnabled.value || !canUseAutoAdvance.value) return
+  autoAdvancePending.value = true
+  autoAdvanceTimer = setTimeout(() => {
+    autoAdvanceTimer = null
+    void runAutoAdvance()
+  }, delay)
+}
+
+async function runAutoAdvance() {
+  autoAdvancePending.value = false
+  if (!autoAdvanceEnabled.value || !canUseAutoAdvance.value) return
+  if (gameStore.isLoading) {
+    return
+  }
+
+  if (isLocalDemoSequence.value) {
+    if (handleLocalDemoEvent('continue')) scheduleAutoAdvance(900)
+    else stopAutoAdvance()
+    return
+  }
+
+  autoAdvanceRequestActive.value = true
+  const messageCount = gameStore.messages.length
+  try {
+    await handleSend('自动续写：只承接最后一个可见动作或台词。', {
+      hidden: true,
+      source: 'auto-advance',
+      narrativeMode: 'auto-advance'
+    })
+    const generated = gameStore.messages.slice(messageCount)
+      .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
+    if (generated && autoAdvanceEnabled.value) scheduleAutoAdvance(900)
+    else stopAutoAdvance()
+  } catch {
+    // 生成函数会记录具体错误；半自动只负责收回本次待续状态。
+    stopAutoAdvance()
+  } finally {
+    autoAdvanceRequestActive.value = false
+  }
+}
+
+function toggleAutoAdvance() {
+  if (autoAdvanceEnabled.value) {
+    stopAutoAdvance({ abortRunning: true })
+    return
+  }
+  if (!canUseAutoAdvance.value) return
+  autoAdvanceEnabled.value = true
+  // 半自动立即起步；自动轮次只接住最近正文的结尾，而不是把隐藏命令
+  // 作为普通用户意图扩展到整段历史。
+  scheduleAutoAdvance(300)
+}
+
+function handleManualInput() {
+  // 已经开始倒计时或自动请求时，输入意味着用户接管；仅“已准备”时
+  // 不取消，避免用户写完行动后还得重新开启半自动。
+  if (autoAdvancePending.value || autoAdvanceRequestActive.value) {
+    stopAutoAdvance({ abortRunning: true })
+  }
+}
+
 watch(showSessionPicker, (open) => {
   if (open && codexSheetOpen.value) closeCodexSheet({ restoreFocus: false })
+  if (open) stopAutoAdvance()
+  if (open) {
+    sessionPickerWorldbookId.value = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
+  }
 })
 const codexUpdates = ref({
   time: 0,
@@ -764,6 +854,12 @@ const demoStepLabel = computed(() => {
   const total = Number(meta.demoEventsCount || 0)
   if (!total) return '0 / 0'
   return `${Number(meta.demoEventIndex || 0) + 1} / ${total}`
+})
+const demoBannerHint = computed(() => {
+  if (meta.hasConfiguredAi) {
+    return '当前是本地演示场景。下方按钮只推进示例, 不调用 AI; 在输入区发送内容即可使用已配置的文本模型。'
+  }
+  return '未配置可用的 AI 模型, 当前使用本地手动推进。下方按钮不依赖网络, 仅改写 localStorage 与当前会话。'
 })
 
 const codexCharacterCount = computed(() => (gameStore.encounteredCharacters || []).length)
@@ -880,6 +976,7 @@ trackCodexCount('events', codexEventCount)
 // behavior. This is the per-brief "≥1 button has real local
 // behavior" — both 继续 and 切场景 are real local.
 function handleQuickAction(action) {
+  stopAutoAdvance()
   if (action === 'note') {
     quickNoteOpen.value = true
     return
@@ -919,9 +1016,9 @@ function handleQuickAction(action) {
 //      change (per E10 hard rules).
 function handleLocalDemoEvent(action) {
   const event = meta.applyLocalAction(action)
-  if (!event) return
+  if (!event) return false
   const msg = meta.buildEventMessage(event)
-  if (!msg) return
+  if (!msg) return false
   // gameStore doesn't have an explicit "append one message" method
   // that doesn't trigger an AI request, so we do it through the
   // existing save-current-session flow that handleSend uses. Read
@@ -934,6 +1031,7 @@ function handleLocalDemoEvent(action) {
       try { gameStore.saveCurrentSession() } catch (e) { /* ignore */ }
     }
   }
+  return true
 }
 
 onMounted(async () => {
@@ -943,8 +1041,15 @@ onMounted(async () => {
   await worldStore.loadWorldbooksIndex()
   gameStore.loadSessions()
 
-  const activeSession = gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-  const targetWorldbookId = worldStore.activeWorldbookId || ''
+  const requestedWorldbookId = typeof route.query.worldbookId === 'string'
+    ? route.query.worldbookId.trim()
+    : ''
+  const hasRequestedWorldbook = Boolean(requestedWorldbookId
+    && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
+  const activeSession = !hasRequestedWorldbook
+    ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
+    : null
+  const targetWorldbookId = hasRequestedWorldbook ? requestedWorldbookId : (worldStore.activeWorldbookId || '')
   const allLatestSession = !activeSession && Array.isArray(gameStore.sessions) && gameStore.sessions.length
     ? [...gameStore.sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
     : null
@@ -954,9 +1059,26 @@ onMounted(async () => {
   const latestStoredSession = worldbookLatestSession || allLatestSession
   let loadedExistingSession = false
 
-  if (activeSession) {
+  if (hasRequestedWorldbook) {
+    const requestedSession = gameStore.getLatestSessionForWorldbook(targetWorldbookId)
+    if (requestedSession) {
+      gameStore.loadSession(requestedSession.id)
+      loadedExistingSession = true
+    } else {
+      await worldStore.setActiveWorldbook(targetWorldbookId)
+      gameStore.createSession({
+        worldbookId: targetWorldbookId,
+        inheritRuntimeState: false
+      })
+    }
+    selectedWorldbookId.value = targetWorldbookId
+    sessionPickerWorldbookId.value = targetWorldbookId
+    await worldStore.setActiveWorldbook(targetWorldbookId)
+    showSessionPicker.value = false
+  } else if (activeSession) {
     gameStore.loadSession(activeSession.id)
     selectedWorldbookId.value = activeSession.worldbookId || activeSession.worldId || ''
+    sessionPickerWorldbookId.value = selectedWorldbookId.value
     if (selectedWorldbookId.value) {
       await worldStore.setActiveWorldbook(selectedWorldbookId.value)
     }
@@ -964,6 +1086,7 @@ onMounted(async () => {
   } else if (latestStoredSession) {
     gameStore.loadSession(latestStoredSession.id)
     selectedWorldbookId.value = latestStoredSession.worldbookId || latestStoredSession.worldId || ''
+    sessionPickerWorldbookId.value = selectedWorldbookId.value
     if (selectedWorldbookId.value) {
       await worldStore.setActiveWorldbook(selectedWorldbookId.value)
     }
@@ -977,6 +1100,7 @@ onMounted(async () => {
     } else {
       selectedWorldbookId.value = worldStore.activeWorldbookId || ''
     }
+    sessionPickerWorldbookId.value = selectedWorldbookId.value
     showSessionPicker.value = false
   }
 
@@ -996,6 +1120,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopAutoAdvance({ abortRunning: true })
   window.removeEventListener('story-mechanism-ready', handleMechanismReady)
   window.removeEventListener('keydown', handleCodexKeydown)
   clearMechanismNotice()
@@ -1230,7 +1355,7 @@ async function handleSessionCreate() {
   if (isStarting.value) return
   try {
     isStarting.value = true
-    const worldbookId = selectedWorldbookId.value || ''
+    const worldbookId = sessionPickerWorldbookId.value || selectedWorldbookId.value || ''
     if (!worldbookId) {
       openWorldbookQuickImport()
       return
@@ -1243,6 +1368,7 @@ async function handleSessionCreate() {
       await worldStore.setActiveWorldbook(worldbookId)
     }
     selectedWorldbookId.value = worldbookId
+    sessionPickerWorldbookId.value = worldbookId
     showSessionPicker.value = false
     if (!props.onlineSession) {
       await gameStore.initGame()
@@ -1349,13 +1475,23 @@ const dialoguePanelMessages = computed(() => {
 })
 
 async function handleSend(text, options = {}) {
+  const source = options?.source || 'manual-input'
+  const isAutoAdvance = source === 'auto-advance'
+  const shouldAutoFollow = !isAutoAdvance && autoAdvanceEnabled.value && canUseAutoAdvance.value
   clearPlayableWorldEntryIntent()
   if (props.onlineSession) {
     if (!props.onlineSession.isConnected?.value) return
     props.onlineSession.proposeAction?.(text)
     return
   }
+  const messageCount = gameStore.messages.length
   await gameStore.sendAction(text, options)
+  if (!isAutoAdvance && shouldAutoFollow && autoAdvanceEnabled.value) {
+    const generated = gameStore.messages.slice(messageCount)
+      .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
+    if (generated) scheduleAutoAdvance(900)
+    else stopAutoAdvance()
+  }
 }
 
 function bindOnlineSession() {

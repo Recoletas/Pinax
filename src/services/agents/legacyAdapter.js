@@ -70,6 +70,14 @@ export function adaptLegacyContextToEnvelope({
           sourceRefs: []
         })
       }
+      if (Array.isArray(context.reviewBlocks) && context.reviewBlocks.length) {
+        blocks.push({
+          kind: 'scene',
+          content: `【章节审查目标块】\n${JSON.stringify(context.reviewBlocks)}`,
+          priority: 1100,
+          sourceRefs: []
+        })
+      }
       blocks.push({
         kind: 'raw',
         content: JSON.stringify({

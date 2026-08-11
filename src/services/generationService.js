@@ -1,5 +1,5 @@
 import { runGenerationRetryPlan } from './generationRetry'
-import { sendChatStream, sendNarrativeAgentTurn } from './api'
+import { sendChatStream, sendNarrativeAgentStepStream } from './api'
 import { PROMPT_REGISTRY_VERSION } from './promptRegistry'
 
 export async function runGenerationTask({
@@ -78,7 +78,7 @@ export async function runNarrativeAgentTurn({
   if (!Array.isArray(tools) || tools.length === 0) {
     throw new Error('runNarrativeAgentTurn requires non-empty tools')
   }
-  return sendNarrativeAgentTurn({
+  return sendNarrativeAgentStepStream({
     messages,
     tools,
     settings,

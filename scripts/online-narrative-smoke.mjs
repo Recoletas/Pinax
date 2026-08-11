@@ -83,7 +83,7 @@ function watchTraffic(page, label) {
   const events = []
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname
-    if (path === '/api/generate/agent-turn' || path === '/api/chat') {
+    if (path === '/api/generate/agent-step/stream' || path === '/api/chat') {
       requests.push({ label, path, method: request.method() })
     }
   })
@@ -127,6 +127,7 @@ async function run() {
         'both contexts join one URL room',
         'member submits proposal and host selects it',
         'member makes zero model requests',
+        'host uses the normalized agent step stream',
         'host records one narrative production run',
         'one requestId has one requested event and one completed event'
       ]
@@ -202,6 +203,7 @@ async function run() {
       requestIdMatches: Boolean(requestId)
         && completed[0]?.payload?.requestId === requestId,
       hostOwnsGeneration: hostTraffic.requests.length >= 2
+        && hostTraffic.requests.some((request) => request.path === '/api/generate/agent-step/stream')
         && hostMetrics.events?.length === 1,
       memberMakesNoModelRequest: memberTraffic.requests.length === 0
         && (memberMetrics.events?.length || 0) === 0
@@ -218,6 +220,7 @@ async function run() {
         status: [...uniqueEvents.values()].filter((event) => event.type === 'narrative.status').length,
         completed: completed.length
       },
+      streamRequests: hostTraffic.requests.filter((request) => request.path === '/api/generate/agent-step/stream').length,
       checks,
       passed: Object.values(checks).every(Boolean)
     }

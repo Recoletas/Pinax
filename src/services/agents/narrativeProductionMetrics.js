@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '../../composables/useStorage'
+import { STORAGE_KEYS } from '../../composables/useStorage.js'
 
 export const NARRATIVE_PRODUCTION_METRICS_SCHEMA_VERSION = 1
 export const NARRATIVE_PRODUCTION_METRICS_LIMIT = 120
@@ -134,11 +134,22 @@ export function normalizeNarrativeProductionRun(input = {}) {
     errorCode,
     retryable: Boolean(input.retryable),
     protocolOk,
+    protocol: text(input.protocol, 40),
+    capabilitySource: text(input.capabilitySource, 40),
+    toolRepairCount: boundedNumber(input.toolRepairCount, 0, 100),
+    reasoningRoundTrip: text(input.reasoningRoundTrip, 40),
+    terminalMode: text(input.terminalMode, 80),
+    groundingPolicy: text(input.groundingPolicy, 40),
+    orphanedCallCount: boundedNumber(input.orphanedCallCount, 0, 100),
+    fallbackReason: text(input.fallbackReason, 120),
+    transcriptRevision: text(input.transcriptRevision, 120),
     timing: {
       totalMs: boundedNumber(input.timing?.totalMs, 0, 10 * 60 * 1000),
       decisionMs: boundedNumber(input.timing?.decisionMs, 0, 10 * 60 * 1000),
       firstTokenMs: boundedNumber(input.timing?.firstTokenMs, 0, 10 * 60 * 1000),
-      streamMs: boundedNumber(input.timing?.streamMs, 0, 10 * 60 * 1000)
+      streamMs: boundedNumber(input.timing?.streamMs, 0, 10 * 60 * 1000),
+      outputChars: boundedNumber(input.timing?.outputChars, 0, 2 * 1024 * 1024),
+      estimatedOutputTokens: boundedNumber(input.timing?.estimatedOutputTokens, 0, 1024 * 1024)
     },
     tools: {
       rounds: boundedNumber(input.tools?.rounds, 0, 20),

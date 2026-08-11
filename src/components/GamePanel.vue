@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-container" ref="scrollContainer">
+  <div class="chat-container prose-reading-plane" ref="scrollContainer">
     <!-- UI-E11-B: 0-state hero block. v-if gated on displayMessages.length === 0
          so once the first message lands, the hero disappears and the
          conversation takes the full column. CharacterPortrait narrator
@@ -179,24 +179,11 @@ const showSpeakerLabel = (msg, index) => {
   if (!msg || msg.type === 'scene') return false
   const blocks = messageBlocks(msg)
   const hasBlockSpeaker = blocks.some((block) => Boolean(block?.speaker))
-  const hasUnassignedDialogue = blocks.some((block) => block?.kind === 'dialogue' && !block?.speaker)
 
-  // Player input always needs an owner. Assistant dialogue also keeps a
-  // turn-level identity when neither the protocol nor the legacy text names
-  // its speaker; explicit block speakers remain the more precise label.
-  if (msg.role === 'user') return true
-  if (hasUnassignedDialogue) return true
+  // 纯叙述不伪造“旁白”署名。玩家只在新的玩家回合组首留一次身份，
+  // 明确角色由 block speaker 负责；来源不明的对白保持无署名而非猜测角色。
+  if (msg.role === 'user') return isOpeningTurn(index)
   if (hasBlockSpeaker) return false
-  if (isOpeningTurn(index)) return true
-  // Also show when the speaker changed within the same role (e.g.
-  // assistant turn handing off to a different character) — the
-  // displayName will differ from the previous one.
-  if (index > 0) {
-    const prev = displayMessages.value[index - 1]
-    if (prev && prev.type !== 'scene' && displayName(msg) !== displayName(prev)) {
-      return true
-    }
-  }
   return false
 }
 

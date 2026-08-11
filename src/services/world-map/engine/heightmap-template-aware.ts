@@ -29,6 +29,8 @@
 import type { GridCells, HeightmapTemplate } from './types'
 import { getLargestLandmass } from './shape-metrics'
 import type { TemplateShapeIntent } from './heightmap-templates'
+import { hash2D, fbmValue, smooth01, lerp } from './noise'
+import { clamp, inferCanvasHeight } from './math'
 
 const SEA_LEVEL = 20
 const LO = 8   // 过渡带下界
@@ -78,6 +80,17 @@ const NEAR_POLAR_BAND = 0.40
  */
 let LATITUDE_SHAPING = 0
 
+/**
+ * 纬度偏移（形状优化改动 2）：让极地惩罚的参考纬度偏离赤道。
+ *
+ * 此前所有地图的陆地都呈"以赤道为中心的对称钟形分布"，因为 polarFactor
+ * 固定以 yFrac=0.5 为赤道。加 LATITUDE_BIAS 后，每次生成的极地参考线
+ * 会整体北移或南移（由 seed 派生），让有的大陆偏北、有的偏南。
+ *
+ * 范围 [-0.08, +0.08]。由 adjustSeaLevelTemplateAware 入口设置。
+ */
+let LATITUDE_BIAS = 0
+
 /** 极地 cost 惩罚缩放因子：(1 - latitudeShaping)。0=完全松弛，1=当前行为。 */
 function polarPenaltyScale(): number {
   return 1 - LATITUDE_SHAPING
@@ -87,9 +100,12 @@ function polarPenaltyScale(): number {
  * 极地衰减因子(0=极地,1=赤道),与 `coast.ts::polarFactor` 行为一致。
  * 极地区域应让 macroReshape 的翻动**显著衰减**,避免被极地放大成
  * 大片绿洲,推反 `softenMapEdges` 的极地海冰带。
+ *
+ * 形状优化改动 2：yFrac 先减去 LATITUDE_BIAS，让极地参考线偏离赤道。
  */
 function polarFactor(yFrac: number): number {
-  return clamp(yFrac < 0.5 ? yFrac / POLAR_BAND : (1 - yFrac) / POLAR_BAND, 0, 1)
+  const shifted = yFrac - LATITUDE_BIAS
+  return clamp(shifted < 0.5 ? shifted / POLAR_BAND : (1 - shifted) / POLAR_BAND, 0, 1)
 }
 
 /**
@@ -98,59 +114,13 @@ function polarFactor(yFrac: number): number {
  * `polar-realism` 合同的"非全绿洲"要求保留足够干冷生物群系空间。
  */
 function nearPolarFactor(yFrac: number): number {
-  return clamp(yFrac < 0.5 ? yFrac / NEAR_POLAR_BAND : (1 - yFrac) / NEAR_POLAR_BAND, 0, 1)
+  const shifted = yFrac - LATITUDE_BIAS
+  return clamp(shifted < 0.5 ? shifted / NEAR_POLAR_BAND : (1 - shifted) / NEAR_POLAR_BAND, 0, 1)
 }
 
-function hash2D(x: number, y: number): number {
-  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
-  return s - Math.floor(s)
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
-
-function smooth01(t: number): number {
-  return t * t * (3 - 2 * t)
-}
-
-function valueNoise2D(x: number, y: number): number {
-  const x0 = Math.floor(x)
-  const y0 = Math.floor(y)
-  const tx = smooth01(x - x0)
-  const ty = smooth01(y - y0)
-  const a = hash2D(x0, y0)
-  const b = hash2D(x0 + 1, y0)
-  const c = hash2D(x0, y0 + 1)
-  const d = hash2D(x0 + 1, y0 + 1)
-  return lerp(lerp(a, b, tx), lerp(c, d, tx), ty) * 2 - 1
-}
-
-/** P0-3 de-banding: per-octave 旋转角度（见 heightmap.ts 同名常量说明）。 */
-const FBM_OCTAVE_ANGLE_DEG = 37
-function fbm2D(x: number, y: number, octaves: number): number {
-  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
-  let v = 0
-  let amp = 1
-  let freq = 1
-  let max = 0
-  for (let i = 0; i < octaves; i++) {
-    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
-    const c = i === 0 ? 1 : Math.cos(i * theta)
-    const s = i === 0 ? 0 : Math.sin(i * theta)
-    const xr = x * c - y * s
-    const yr = x * s + y * c
-    v += amp * valueNoise2D(xr * freq, yr * freq)
-    max += amp
-    amp *= 0.5
-    freq *= 2
-  }
-  return v / max
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v))
-}
+// hash2D / lerp / smooth01 / valueNoise2D / fbmValue(value 变体) / clamp /
+// inferCanvasHeight 收敛至 engine/noise.ts 与 engine/math.ts
+// （audit-pass2-plan Phase C1/C2）。本文件 fbm 调用全部是 value 变体 → fbmValue。
 
 function smoothstep(edge0: number, edge1: number, value: number): number {
   const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
@@ -169,15 +139,8 @@ function countLand(cells: GridCells): number {
  * 推算画布高度(归一化分母),与 `coast.ts::inferCanvasHeight` 同思路。
  * `polarFactor` / `nearPolarFactor` 期望 0..1 的 yFrac,直接把像素 y 传
  * 进去会被 clamp 截到 1(无差别),所以必须先除以画布高度。
+ * 实现收敛至 engine/math.ts::inferCanvasHeight（audit-pass2-plan Phase C1）。
  */
-function inferCanvasHeight(cells: GridCells, n: number): number {
-  let h = 0
-  for (let i = 0; i < n; i++) {
-    const y = cells.p[i * 2 + 1]
-    if (y > h) h = y
-  }
-  return h || 1
-}
 
 function heightSignatureOffset(cells: GridCells): { ox: number; oy: number } {
   let sum = 0
@@ -194,9 +157,9 @@ function heightSignatureOffset(cells: GridCells): { ox: number; oy: number } {
 function macroLandformBias(x: number, y: number, ox: number, oy: number): number {
   // 先用极低频噪声扭曲采样域,再取低频 FBM。这样得到的是连续大海湾 /
   // 大半岛,不是逐 cell 的碎边。
-  const wx = fbm2D((x + ox) * LANDFORM_DOMAIN_SCALE, (y + oy) * LANDFORM_DOMAIN_SCALE, 2) * 170
-  const wy = fbm2D((x + ox + 311) * LANDFORM_DOMAIN_SCALE, (y + oy - 197) * LANDFORM_DOMAIN_SCALE, 2) * 170
-  return fbm2D((x + ox + wx) * LANDFORM_WARP_SCALE, (y + oy + wy) * LANDFORM_WARP_SCALE, 4)
+  const wx = fbmValue((x + ox) * LANDFORM_DOMAIN_SCALE, (y + oy) * LANDFORM_DOMAIN_SCALE, 2) * 170
+  const wy = fbmValue((x + ox + 311) * LANDFORM_DOMAIN_SCALE, (y + oy - 197) * LANDFORM_DOMAIN_SCALE, 2) * 170
+  return fbmValue((x + ox + wx) * LANDFORM_WARP_SCALE, (y + oy + wy) * LANDFORM_WARP_SCALE, 4)
 }
 
 /**
@@ -325,8 +288,8 @@ function warpedLocalForProfile(
 ): { x: number; y: number; radial: number; angle01: number } {
   const local = rotatedLocal(cells, cellId, comp, profile.extX, profile.extY)
   const warpScale = 0.006
-  const wx = fbm2D((local.x + profile.seed) * warpScale, (local.y - profile.seed) * warpScale, 3) * profile.extX * 0.12
-  const wy = fbm2D((local.x - profile.seed * 0.7) * warpScale, (local.y + profile.seed) * warpScale, 3) * profile.extY * 0.12
+  const wx = fbmValue((local.x + profile.seed) * warpScale, (local.y - profile.seed) * warpScale, 3) * profile.extX * 0.12
+  const wy = fbmValue((local.x - profile.seed * 0.7) * warpScale, (local.y + profile.seed) * warpScale, 3) * profile.extY * 0.12
   const x = local.x + wx
   const y = local.y + wy
   const radial = Math.hypot(x / profile.extX, y / profile.extY)
@@ -367,7 +330,7 @@ function componentLandformScore(
 ): number {
   const local = warpedLocalForProfile(cells, cellId, comp, profile)
   const angular = periodicNoise1D(local.angle01 * 6, 6, profile.seed + 211.9) * (isSingleContinent ? 0.30 : 0.18)
-  const detail = fbm2D(
+  const detail = fbmValue(
     (local.x + profile.seed * 1.7) * 0.009,
     (local.y - profile.seed * 0.8) * 0.009,
     3,
@@ -599,7 +562,7 @@ function splitOverconnectedContinents(
       const across = p.across / maxAcross
       if (Math.abs(along) > 1.04) continue
 
-      const meander = fbm2D(
+      const meander = fbmValue(
         along * 2.1 + largest.size * 0.013 + attempt * 17,
         largest.centroid.x * 0.003 + largest.centroid.y * 0.002,
         3,
@@ -608,7 +571,15 @@ function splitOverconnectedContinents(
 
       // 多大陆模板出现单一超大陆时,这些 cell 本质是模板/阈值陆桥。
       // 这里不再只切低海拔;否则高一点的模板残留会把海峡重新焊住。
-      cells.h[cellId] = 8 + Math.floor(hash2D(cellId, attempt + 0.626) * 5)
+      // 形状优化：切割带不全切深水——约 12% 的 cell 残留为低岛（海峡岛链），
+      // 模拟大陆分离时残留的碎片，让海峡不再是"干净笔直的水带"。
+      const fragmentRoll = hash2D(cellId * 1.7, attempt + 3.14)
+      if (fragmentRoll > 0.88) {
+        // 残留低岛（海峡岛链）
+        cells.h[cellId] = SEA_LEVEL + 1 + Math.floor(fragmentRoll * 4)
+      } else {
+        cells.h[cellId] = 8 + Math.floor(hash2D(cellId, attempt + 0.626) * 5)
+      }
       cutCount++
     }
     if (cutCount === 0) return
@@ -644,7 +615,7 @@ function forceContinentalSeparation(
     const along = p.along / maxAlong
     const across = p.across / maxAcross
     if (Math.abs(along) > 0.98) continue
-    const meander = fbm2D(along * 2.4 + largest.size * 0.019, largest.centroid.x * 0.004, 3) * 0.18
+    const meander = fbmValue(along * 2.4 + largest.size * 0.019, largest.centroid.x * 0.004, 3) * 0.18
     const channelDist = Math.abs(across - meander)
     if (channelDist > 0.22) continue
     candidates.push({
@@ -716,7 +687,7 @@ function restoreTargetLandRatio(
         if (landNeighbors === 0) continue
         const x = cells.p[i * 2]
         const y = cells.p[i * 2 + 1]
-        const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+        const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
         const insideLargestBbox = bbox
           ? x >= bbox.minX && x <= bbox.maxX && y >= bbox.minY && y <= bbox.maxY
           : false
@@ -752,7 +723,7 @@ function restoreTargetLandRatio(
     if (h < SEA_LEVEL || h > 34 || !isBoundaryLand(cells, i)) continue
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
-    const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+    const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
     erode.push({ i, score: -Math.abs(h - SEA_LEVEL) - bias * 2 + hash2D(i, 0.613) })
   }
   erode.sort((a, b) => b.score - a.score)
@@ -961,7 +932,7 @@ function transitionFlip(cells: GridCells, targetLandRatio: number): void {
     if (needMoreLand ? h >= SEA_LEVEL : h < SEA_LEVEL) continue
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
-    const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+    const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
     const pf = polarFactor(y / canvasH)
     // 增陆时优先翻 bias>0 的水格；减陆时优先翻 bias<0 的陆格。
     const directionalBias = needMoreLand ? -bias * BIAS_GAIN : bias * BIAS_GAIN
@@ -1013,7 +984,7 @@ function macroReshape(cells: GridCells): void {
     if (h < LO || h > HI) continue
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
-    const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+    const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
     const pf = polarFactor(y / canvasH)
     const npf = nearPolarFactor(y / canvasH)
     // 极地 + 近极地双重 cost 惩罚。极地带(y < 12% / y > 88%)惩罚
@@ -1182,10 +1153,12 @@ function compactLandmassErosion(cells: GridCells): void {
     if (cellH < LO || cellH > SHAPE_ERODE_HI) continue
     const x = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
-    const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+    const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
     const pf = polarFactor(y / canvasH)
     const npf = nearPolarFactor(y / canvasH)
-    const polarPenalty = (1 - pf) * 180 + (1 - npf) * 120
+    // 修复：补上漏乘的 polarPenaltyScale()（audit: 6 处极地 cost 唯一漏乘的）
+    // 不加则 latitudeShaping 配置对 B-3 compact 阶段无效。
+    const polarPenalty = ((1 - pf) * 180 + (1 - npf) * 120) * polarPenaltyScale()
 
     if (largestSet.has(i)) {
       if (!isBoundaryLand(cells, i)) continue
@@ -1303,7 +1276,7 @@ function deepBayCarve(
       const ny = clamp((y - minY) / h, 0, 1)
       const alongBase = side < 2 ? ny : nx
       const sideDepth = side === 0 ? nx : side === 1 ? 1 - nx : side === 2 ? ny : 1 - ny
-      const meander = fbm2D(sideDepth * 4.2 + seed * 0.01, pass * 13.7, 3) * 0.055
+      const meander = fbmValue(sideDepth * 4.2 + seed * 0.01, pass * 13.7, 3) * 0.055
       const along = clamp(alongBase + meander, 0, 1)
       const alongDist = Math.abs(along - center)
       if (alongDist > width) continue
@@ -1316,7 +1289,7 @@ function deepBayCarve(
       const pf = polarFactor(y / canvasH)
       const npf = nearPolarFactor(y / canvasH)
       const polarPenalty = ((1 - pf) * 150 + (1 - npf) * 85) * polarPenaltyScale()
-      const bias = fbm2D(x * FBM_SCALE, y * FBM_SCALE, 3)
+      const bias = fbmValue(x * FBM_SCALE, y * FBM_SCALE, 3)
       candidates.push({
         i: cellId,
         h: cellH,
@@ -1338,6 +1311,221 @@ function deepBayCarve(
       const cellId = candidates[k].i
       cells.h[cellId] = 5 + Math.floor(hash2D(cellId, pass + 0.251) * 6)
     }
+  }
+}
+
+/**
+ * 岛屿生成（形状优化新增阶段）。
+ *
+ * 引擎此前完全没有主动造岛逻辑——cc=6 配置只有 3 个小岛（总 13 cells），
+ * 大海里空空荡荡。本函数在远海随机散布小岛群，增加自然感。
+ *
+ * 策略：
+ *  1. 遍历水格，筛出"远海候选"= 自己是水 + 所有邻居也是水（离陆地 ≥1 环）
+ *  2. 用 hash2D(坐标) 给每个候选打分，分数高于阈值的成为种子点
+ *  3. 每个种子点 BFS 扩散 2-5 格成小岛，高度 25-40
+ *  4. 极地岛屿更小（polarFactor 缩减扩散层数）
+ *
+ * 总量控制：约 0.3-0.5% 的 cell 成为岛屿。岛屿 <50 cell，
+ * 被 getLandmassMetrics2(minSize:50) 过滤，不影响 continents 合同的 componentCount。
+ */
+function seedIslands(cells: GridCells): void {
+  const n = cells.length
+  if (n === 0) return
+  const canvasH = inferCanvasHeight(cells, n)
+
+  // 第 1 步：收集远海候选（水格且无陆地邻居）
+  const deepSea: number[] = []
+  for (let i = 0; i < n; i++) {
+    if (cells.h[i] >= SEA_LEVEL) continue
+    if (hasLandNeighbor(cells, i)) continue
+    deepSea.push(i)
+  }
+  if (deepSea.length < 20) return  // 远海太少（大陆已破碎），不强制造岛
+
+  // 第 2 步：用连续场先确定群岛带，再用 hash 取稀疏种子。
+  // 单独对坐标做 hash 只会得到均匀散点，不会形成有空间连续性的群岛。
+  const ISLAND_SEED_THRESHOLD = 0.992  // 约 0.8% 的候选成为种子
+  const seeds: number[] = []
+  for (const i of deepSea) {
+    const x = cells.p[i * 2]
+    const y = cells.p[i * 2 + 1]
+    const islandField = fbmValue(x * 0.003 + 17.4, y * 0.003 - 29.1, 2)
+    // 连续场决定“哪里适合出现群岛”，hash 只负责在群岛带内抽稀。
+    if (islandField > 0.52 && hash2D(x * 0.003 + 0.7, y * 0.003 + 1.3) > ISLAND_SEED_THRESHOLD) {
+      seeds.push(i)
+    }
+  }
+
+  // 第 3 步：每个种子点 BFS 扩散成小岛
+  for (const seed of seeds) {
+    const x = cells.p[seed * 2]
+    const y = cells.p[seed * 2 + 1]
+    const pf = polarFactor(y / canvasH)
+    // pf 极地≈0、赤道≈1。极地岛屿 2 层，赤道岛屿 5 层
+    const layers = Math.max(2, Math.round(2 + pf * 3))
+    const baseHeight = 25 + Math.floor(hash2D(x * 0.01, y * 0.01) * 15)  // 25-40
+    // 方向偏置：用低频噪声给岛屿一个"主轴方向"，让扩散非各向同性，
+    // 产生长条/新月/L形岛屿而非圆形 blob（圆形是 BFS 均匀扩散的特征）。
+    const elongationAngle = hash2D(x * 0.01, y * 0.01 + 5.5) * Math.PI  // 0..π 主轴方向
+    const elongationStrength = 0.3 + hash2D(x * 0.01 + 9.9, y * 0.01) * 0.4  // 0.3..0.7 拉伸强度
+
+    const queue: number[] = [seed]
+    const visited = new Set<number>([seed])
+    let layer = 0
+    cells.h[seed] = baseHeight
+    while (queue.length > 0 && layer < layers) {
+      const nextQueue: number[] = []
+      for (const cellId of queue) {
+        for (const nb of cells.c[cellId] || []) {
+          if (visited.has(nb)) continue
+          visited.add(nb)
+          if (cells.h[nb] >= SEA_LEVEL) continue  // 不并入已有陆地
+          // 方向偏置：邻居相对种心的方向与主轴的夹角越小，扩散概率越高
+          const dx = cells.p[nb * 2] - x
+          const dy = cells.p[nb * 2 + 1] - y
+          const dirAngle = Math.atan2(dy, dx)
+          const angleDiff = Math.abs(Math.cos(dirAngle - elongationAngle))  // 0..1，沿主轴=1
+          const directionalBias = 0.4 + angleDiff * elongationStrength  // 0.4..1.1
+          const spreadChance = (0.75 - layer * 0.15) * directionalBias
+          if (hash2D(cells.p[nb * 2] * 0.017, cells.p[nb * 2 + 1] * 0.017) > spreadChance) continue
+          cells.h[nb] = Math.max(SEA_LEVEL, baseHeight - Math.floor(layer * 3))
+          nextQueue.push(nb)
+        }
+      }
+      queue.length = 0
+      queue.push(...nextQueue)
+      layer++
+    }
+
+    // 岛屿边缘破碎化：对刚生成的岛屿边界 cell 做随机 erode，
+    // 让岛屿轮廓不规则（打破 BFS 的圆形特征）。
+    // 只翻"刚生成的、且翻掉后岛屿仍 ≥1 cell"的边缘 cell。
+    const islandBorder = []
+    for (const cellId of visited) {
+      if (cells.h[cellId] < SEA_LEVEL) continue
+      // 检查是否是岛屿边界（有水邻居）
+      for (const nb of cells.c[cellId] || []) {
+        if (cells.h[nb] < SEA_LEVEL) { islandBorder.push(cellId); break }
+      }
+    }
+    // 随机翻掉约 25% 的边界 cell（用 hash2D deterministic）
+    for (const cellId of islandBorder) {
+      if (hash2D(cellId * 2.3, x * 0.01 + 7.7) > 0.75) {
+        // 确保不会清空整个岛屿（至少保留种子点）
+        if (cellId !== seed) cells.h[cellId] = Math.max(0, SEA_LEVEL - 3)
+      }
+    }
+  }
+}
+
+/** 水格邻居是否存在（与 hasLandNeighbor 对称） */
+function hasWaterNeighbor(cells: GridCells, i: number): boolean {
+  for (const nb of cells.c[i]) {
+    if (cells.h[nb] < SEA_LEVEL) return true
+  }
+  return false
+}
+
+/** 为当前陆地建立稳定 component label，供海岸生长阶段阻止跨大陆搭桥。 */
+function buildLandComponentLabels(cells: GridCells): { labels: Int32Array; sizes: number[] } {
+  const labels = new Int32Array(cells.length)
+  labels.fill(-1)
+  const sizes: number[] = []
+  let next = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells.h[i] < SEA_LEVEL || labels[i] !== -1) continue
+    const queue = [i]
+    labels[i] = next
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const cellId = queue[cursor]
+      for (const neighbor of cells.c[cellId]) {
+        if (cells.h[neighbor] < SEA_LEVEL || labels[neighbor] !== -1) continue
+        labels[neighbor] = next
+        queue.push(neighbor)
+      }
+    }
+    sizes[next] = queue.length
+    next++
+  }
+  return { labels, sizes }
+}
+
+/**
+ * 海岸破碎化（形状优化新增阶段）。
+ *
+ * 让大陆边缘出现半岛、尖角、小缺口——增加自然感。
+ * 此前大陆 fill=54-60%（偏高），边缘过于平滑规整。
+ *
+ * 安全策略（grow 为主 + 轻量安全 erode，保护连通性）：
+ *  - grow：可生长水格（水且有陆邻居）按分数翻成低陆（造半岛/尖角）
+ *  - erode：只翻"安全 cell"= 高度刚过海平面(20-22) 且只有 1 个陆邻居的边界 cell
+ *    （翻掉它最多让 1 个邻居变成海岸，不会切断陆块连通）
+ *  - grow 量 > erode 量（净增由 restoreTargetLandRatio 补偿）
+ */
+function coastalFragmentation(cells: GridCells): void {
+  const n = cells.length
+  if (n === 0) return
+
+  // 形状优化：提高破碎率让大陆边缘更不规则（图像反馈：边缘仍呈块状锯齿）。
+  const GROW_RATE = 0.10
+  const ERODE_RATE = 0.08
+  const { labels: componentLabels, sizes: componentSizes } = buildLandComponentLabels(cells)
+  const majorSizeThreshold = Math.max(80, Math.round(n * 0.035))
+
+  // grow 候选：水格 + 有陆邻居
+  const growCandidates: Array<{ i: number; score: number }> = []
+  // erode 候选：陆地过渡带(≤SEA+8) + 恰好 1 个陆邻居（安全：翻掉不切断连通）。
+  // 放宽高度上限(SEA+2→SEA+8)让更多半岛尖端可被 erode，形成海湾凹入，打破直线边缘。
+  const erodeCandidates: Array<{ i: number; score: number }> = []
+  for (let i = 0; i < n; i++) {
+    const h = cells.h[i]
+    const x = cells.p[i * 2]
+    const y = cells.p[i * 2 + 1]
+    const score = fbmValue(x * FBM_SCALE * 2.5, y * FBM_SCALE * 2.5, 3)
+    if (h < SEA_LEVEL) {
+      if (hasLandNeighbor(cells, i)) growCandidates.push({ i, score })
+    } else if (h <= SEA_LEVEL + 8 && hasWaterNeighbor(cells, i)) {
+      // 数陆邻居数：恰好 1 个才安全（"死胡同"/半岛尖端 cell）
+      let landNbs = 0
+      for (const nb of cells.c[i]) if (cells.h[nb] >= SEA_LEVEL) landNbs++
+      if (landNbs === 1) erodeCandidates.push({ i, score })
+    }
+  }
+
+  growCandidates.sort((a, b) => b.score - a.score)
+  erodeCandidates.sort((a, b) => b.score - a.score)
+
+  const growCount = Math.floor(growCandidates.length * GROW_RATE)
+  const erodeCount = Math.floor(erodeCandidates.length * ERODE_RATE)
+  // 按顺序应用并重新检查邻居归属。只接受连接到一个已有/已生长陆块的候选，
+  // 这样会形成半岛和海湾，但不会用一个高分水格把两块大陆焊成一块。
+  const grownComponent = new Map<number, number>()
+  let grown = 0
+  for (const candidate of growCandidates) {
+    if (grown >= growCount) break
+    const adjacentComponents = new Set<number>()
+    for (const neighbor of cells.c[candidate.i]) {
+      if (cells.h[neighbor] < SEA_LEVEL) continue
+      const grownLabel = grownComponent.get(neighbor)
+      if (grownLabel !== undefined) adjacentComponents.add(grownLabel)
+      else if (componentLabels[neighbor] >= 0) adjacentComponents.add(componentLabels[neighbor])
+    }
+    const majorComponents = [...adjacentComponents].filter(id => componentSizes[id] >= majorSizeThreshold)
+    // 只阻止主要大陆之间的桥接。孤岛/碎片之间的自然并入仍然允许，
+    // 否则一次海岸破碎化会过度改变原有高度场。
+    if (majorComponents.length > 1) continue
+    const componentId = majorComponents[0] ?? adjacentComponents.values().next().value
+    if (componentId === undefined) continue
+    cells.h[candidate.i] = SEA_LEVEL + 3 + Math.floor(hash2D(candidate.i, 0.77) * 5)
+    grownComponent.set(candidate.i, componentId)
+    grown++
+  }
+  // 防桥接可能让实际 grow 少于候选上限；侵蚀不能继续按旧数量执行，
+  // 否则“形状优化”会偷偷改变总陆地面积，后续 ratio 修复也可能找不到等量补陆位置。
+  const safeErodeCount = Math.min(erodeCount, grown)
+  for (let k = 0; k < safeErodeCount; k++) {
+    cells.h[erodeCandidates[k].i] = Math.max(0, SEA_LEVEL - 5 - Math.floor(hash2D(erodeCandidates[k].i, 0.33) * 5))
   }
 }
 
@@ -1393,6 +1581,11 @@ export function adjustSeaLevelTemplateAware(
   // P0-4: 设置极地惩罚松弛度（clamp 到 [0,1]，默认 0 = 当前行为）。
   const ls = latitudeShaping ?? 0
   LATITUDE_SHAPING = Number.isFinite(ls) ? (ls < 0 ? 0 : ls > 1 ? 1 : ls) : 0
+  // 形状优化改动 2：纬度偏移（由 cells 几何特征派生，保证同 seed 同结果）。
+  // 让极地参考线偏离赤道，打破"所有地图陆地都以赤道为中心对称"的模式。
+  const firstY = cells.p[1] || 0
+  const biasSeed = hash2D(cells.length * 0.013 + 0.7, firstY * 0.003 + 1.3)
+  LATITUDE_BIAS = (biasSeed - 0.5) * 0.16  // [-0.08, +0.08]
   macroHeightWarp(cells, targetLandRatio)
   globalShiftApproach(cells, targetLandRatio)
   transitionFlip(cells, targetLandRatio)
@@ -1400,10 +1593,17 @@ export function adjustSeaLevelTemplateAware(
   splitOverconnectedContinents(cells, shapeIntent, templateName)
   macroReshape(cells)
   silhouetteLandformReshape(cells)
+  coastalFragmentation(cells)  // 形状优化：海岸半岛/尖角（受控 grow/erode，保护连通性）
   compactLandmassErosion(cells)
   deepBayCarve(cells, targetLandRatio)
+  seedIslands(cells)  // 形状优化：远海岛屿生成（在 restoreTargetLandRatio 之前，量小不触发反吃）
   splitOverconnectedContinents(cells, shapeIntent, templateName)
-  restoreTargetLandRatio(cells, targetLandRatio, shapeIntent, templateName)
+  // 大陆分离必须发生在面积收尾之前。此前这里先补齐陆地、再切海峡，
+  // 会让 forceContinentalSeparation 直接抵消一部分 targetLandRatio，
+  // 多大陆地图最终常年比设定值少 5~10 个百分点。
   forceContinentalSeparation(cells, shapeIntent, templateName)
+  // 收尾阶段会跳过拥有两个以上陆邻居的分离通道，因此既能补足面积，
+  // 又不会把刚建立的大陆间海峡重新填回去。
+  restoreTargetLandRatio(cells, targetLandRatio, shapeIntent, templateName)
   rescueZeroLand(cells, 0.01)
 }

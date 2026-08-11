@@ -130,6 +130,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
       taskType: normalizedTaskType,
       advice: run.advice,
       target: clippedEnvelope.target,
+      options,
       meta: {
         requestId,
         provider: run.provider,

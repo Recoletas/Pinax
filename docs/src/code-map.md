@@ -35,7 +35,7 @@
 | --- | --- |
 | 生成编排 | `engine/generate.ts`, `engine/index.ts` |
 | 高程图 / 模板 | `engine/heightmap.ts`, `engine/heightmap-templates.ts`, `engine/enforceTemplateContract.ts`, `engine/shape-metrics.ts` |
-| 板块 / 地形 | `engine/tectonics.ts`, `engine/boundary-terrain.ts`, `engine/tectonic-data.ts` |
+| 板块 / 地形 | `engine/tectonics.ts`, `engine/heightmap.ts`, `engine/tectonic-data.ts` |
 | 海岸 / 河流 | `engine/coast.ts`, `engine/coastline.ts`, `engine/rivers.ts` |
 | 聚落 / 国家 / 边界 | `engine/settlements.ts`, `engine/nations.ts`, `engine/borderlands.ts` |
 | 渲染 | `engine/renderer.ts`, `engine/renderer-pipeline.ts`, `engine/style-presets.ts` |
@@ -55,7 +55,7 @@
 | 职责 | 关键文件 |
 | --- | --- |
 | 记忆 | `src/services/memorySync.js`, `src/services/memoryCandidates.js`, `src/composables/useMem0Scope.js` |
-| 顾问 | `src/services/advisorTaskService.js`, `src/services/advisorResultApplier.js`, `src/composables/useAdvisor.js` |
+| 顾问 | `src/services/advisorTaskService.js`, `src/composables/useAdvisor.js` |
 | 通用生成 | `src/services/generationService.js`, `src/services/generationFeatureServices.js`, `src/services/generationRetry.js` |
 
 ### 素材 / 画布 / 导出

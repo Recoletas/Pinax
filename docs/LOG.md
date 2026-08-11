@@ -8,7 +8,65 @@
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
-- 当前验证基线：核心 23 个文件 / 188 个用例，视觉 12 个用例，总量保持 200；全量测试与文档构建在本轮收口时重跑。
+- 当前验证基线：核心 39 个文件 / 306 个用例，视觉 12 个用例；完整验证仍保持不新增测试项。
+
+## 2026-08-11 - 体验页酒馆能力对齐计划审阅
+
+- 对照当前体验页、G1.4/G4.6、现有 Agent/联机/世界书/记忆/备份链和本地 SillyTavern 1.17.0，审阅并重写外部产出的 7126 行 cross-source parity 计划。
+- 原计划将 60 个来源模式拆成约 55 个新文件，存在跨产品范围失控、重复 SSE/Abort/loop guard/provider/vector/backup、只建 contract/store/component 不接线，以及为每个小字段新增测试文件等问题。
+- 修订版改为 R0-R7：基线、回合事务与非破坏性分支、导演注与上下文回执、世界书激活语义、场景角色编排、记忆与恢复、有限输入动作、基于测量的性能与可访问性。首要风险明确为 `regenerateFrom()` 截断正文却没有同步回滚运行时状态。
+- 计划从属于 G1.4/G4.6；不依赖 Superpowers 工作流，不新增产品主线。本轮只改文档，未改变运行行为。完整 `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）。
+
+## 2026-08-11 - 死文件清理与共享进度收口
+
+- 删除零调用的旧写作结果应用器、未接入的地图边界地形实验和与现行 renderer 重复的国家纹理 helper；同步修正代码地图与地图 ADR/RFC，不改变现有运行路径。
+- 删除已被长期日志吸收的临时 WNB/G4.6 阶段报告和已执行完的审计草稿；保留当前体验排版基线、WNB-0 spike、R5/R7 证据报告和酒馆能力对齐计划。
+- `docs/STATUS.md` 收敛为当前事实、最多十项最近完成和可执行下一步，历史细节继续以本日志及主路线图为准。
+
+## 2026-08-11 - 写作页顾问收口 + 实时 Markdown 编辑面
+
+- 移除写作页独立的顾问按钮、浮动顾问入口、顾问面板和选区遮罩；批注、改写候选、章节审查和版本检查器成为唯一的写作审阅入口。改写/审查仍复用现有任务请求链路，不改变候选 stale 校验、原子采用和取消重试。
+- Notebook 默认编辑面明确标为“实时 Markdown”：普通 Markdown 在同一编辑面实时显示标题、强调、引用等格式，原始 Markdown 与阅读预览保留为辅助模式。块不使用卡片，改为浅色纵向轨道，当前块获得更强标记，便于扫描段落边界。
+- 体验页使用的 `:::narration` / `:::dialogue` 等传输标记在进入写作 Notebook 时复用叙事解析器剥离，只保留正文，不会作为控制行泄漏到写作内容。
+- 右侧改写面移除无目标时的长说明，只在存在目标时显示目标片段；无候选状态收缩为单句提示。完整 `npm run verify:full` 通过（39 个核心文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）；现有服务上的主题2写作页 1440/390 审计为 2 captures、0 console errors，窄屏三列残留已修复。未启动或重启服务。
+
+## 2026-08-11 - WNB 边注界面减负
+
+- Notebook 正文现在会为可定位批注增加轻量片段下划线和旁侧点标，点击点标直接打开并定位对应批注；orphan 批注不伪造正文标记，已解决批注只在当前激活时保留标记。
+- 检查器收窄为“批注 / 改写 / 版本”三项工作入口：移除重复的“当前稿件”层级、默认长引用、场景上下文、简洁/展开切换和无选区时常驻的大输入框；块/场景/全章过滤与章节审查仍保留，选中文字后才展开批注输入区。左侧场景索引展示也移除，避免与正文和批注范围重复占位。
+- 只改界面和 editor decoration，不改变 `writingAnnotations` sidecar、锚点重定位、回复/解决/改写和版本数据。`npm run build`、`git diff --check` 已通过，完整 `verify:full` 在本轮最后重跑。
+
+## 2026-08-10 - WNB-5 章节质量与发布 Gate
+
+- 版本检查器新增本地确定性质量报告，统一读取当前结构化文档、批注、章节审查发现、保存状态、恢复草稿、快照和块历史，不调用上游模型，也不修改正文。
+- 报告将空章、未保存/正在保存、恢复草稿、失去定位批注和高优先级未处理审查发现列为阻断；过长正文块、相邻高度重复和缺少场景边界列为警告或提示。每项支持回到对应块或批注。
+- 质量契约断言并入现有写作测试项；定向测试、完整 `npm run verify:full`、Vite/VitePress build 与 `git diff --check` 均通过（39 个核心测试文件 / 306 个用例、12 个视觉用例）。未启动或重启 dev server。
+
+## 2026-08-10 - G4.6.13 R3 供应商 transcript 保真 adapter
+
+- OpenAI Chat/Responses、Anthropic 和 MiniMax Anthropic-compatible adapter 现在保留 text/refusal/reasoning/tool-call/tool-result parts；同一轮的调用 ID 和结果顺序不被压成字符串。
+- MiniMax 使用独立 adapter 处理 Anthropic-compatible thinking 和 Bearer 认证边界；能力开关控制 parallel/strict，不再在保守配置下盲发高级参数。
+- refusal、content filter、length、empty、非法调用和重复调用 ID 形成稳定 provider error；API key 和完整 reasoning 不进入返回对象。契约断言仍并入 `agentContracts` 的单测试项。
+
+## 2026-08-10 - G4.6.13 R4 单 transcript 浏览器编排器
+
+- 体验主链新增 `runNarrativeAgentLoop()` 有限状态机，第一步直接使用统一叙事 policy、Kernel 和真实 user message；不再先走独立资料调度器再用压缩 evidence 重建 clean prompt。
+- assistant tool call、并行工具结果、provider reasoning opaque metadata 和最终 assistant 正文沿同一临时 transcript 推进；同一轮始终复用一个 `requestId`，资源 revision 变化会取消当前轮次。
+- provider 已返回终态正文时直接提交；只有 `READY` 等控制信号才在原 transcript 追加一次 `toolChoice=none` 收束请求。最多 4 个模型步骤、2 轮工具结果和 6 个领域调用，重复调用仍在同一轮内阻断。
+- 空响应、旧调度超时和非法工具协议不再静默触发普通 clean-prompt 正文；工具 preamble、READY、JSON 和半截正文不会进入体验消息。新增契约断言并入既有 `agentContracts` 单测试项，未启动服务。
+
+## 2026-08-08 - 体验页本地演示提示与内置 AI 状态对齐
+
+- 空会话的本地演示状态原本直接显示“未配置 AI”，把“暂无真实消息”和“没有模型配置”混成了同一件事；现在通过文本模型配置 store 判断当前生效配置，内置 MiniMax 和完整自定义配置会显示可使用 AI 的提示。
+- “继续 / 切场景”仍明确是离线演示操作，只改写 localStorage 与当前会话；用户从输入区发送内容时继续沿用已配置的文本模型。
+
+## 2026-08-08 - 大陆生成第二轮收口
+
+- 海岸破碎化在生长水格时记录原始主要陆块标签，并在每次翻转后重新检查邻居归属，禁止用一格浅滩把两块主要大陆焊成一块；小型碎片仍可自然并入，避免过度切碎地图。
+- 大陆分离提前到 `restoreTargetLandRatio` 之前执行。此前收尾补陆后再切海峡，会让多大陆样本的最终陆地面积被再次削减；现在收尾阶段会保护拥有多个陆邻居的分离通道，再补齐可安全扩张的海岸。
+- `detectFeatures()` 的 flood-fill 区域标记从 `Uint8Array` 改为 `Uint32Array`。20k cell 地图在碎片较多时可能超过 255 个区域，旧标记会回绕并造成队列膨胀，已修复并通过大地图性能回归。
+- 当前视觉回归基线反映极地边缘衰减后的实际结果：`visual-cc1` 陆地比例约 0.399、`visual-cc4` 约 0.355、`visual-cc6` 约 0.418。`landRatio` 仍是高度图阶段目标，极地边缘衰减会进一步减少可见陆地；这项差异保留为后续地图视觉调参点，不伪装成精确比例保证。
+- 验证：`npm run verify:full` 退出码 0；核心 38 个测试文件 / 301 个用例、视觉 1 个文件 / 12 个用例，Vite/VitePress build 与 `git diff --check` 通过；未启动服务。
 
 ## 2026-08-07 - 图片/视频模型内嵌 MiniMax（对齐文本内置模式）
 
@@ -2061,3 +2119,171 @@ Deferred（按重要性排序，不在本 commit）：
 - 世界书导入先匹配同名/别名真实对象，再按聚落层级、港口、沿河、海拔、生境、所属国家及地点关系评分现有对象。遗迹、洞穴和矿山只在明确地形条件下匹配 terrain cell；没有充分地理信息的地点留在“未绑定”，不再制造可见假点。
 - 修复候选标记已存在但清单仍显示“未绑定”的状态重算错误；候选保存真实 `cellId/mapObjectId`，村、镇、城、港口、遗迹保留对应标记类型。
 - 1200-cell 真实引擎审计：青禾村匹配现有低层级聚落，白帆港匹配 harbor 单元，断脊遗迹匹配高度 80 的山地单元，无名旧地保持未绑定。定向地图/历史 23 tests 通过，测试 item 总数未增加。
+# 2026-08-09 - 世界书体验入口归属修复
+
+- 设定页、世界书编辑页、世界书主页当前世界书和预设世界入口统一以 `worldbookId` 路由查询传递进入目标。
+- 体验页收到有效目标后只恢复该世界书最近会话；无会话时创建该世界书的新空会话，避免当前会话来自其他世界书时覆盖用户入口。
+- 会话选择页新增明确的「新会话世界书」选择，不再以旧会话作为新会话的隐式来源。
+- 验证：定向 Vitest 34/34 与 `npm run build` 通过；未启动或重启服务。
+# 2026-08-09 - 体验半自动续写与阅读排版 R2 启动
+
+- 体验输入区新增仅限单人会话的「半自动」开关。开启后立即等待 0.3 秒自动承接，并在每拍完成后继续；输入接管、手动快捷动作、会话切换、再次点击停止或离开页面都会清理定时器，停止自动请求时只取消自动发起的请求。自动请求走独立 `auto` 叙事模式，只锚定最近 assistant 正文的最后一个动作、台词或现场变化；较早人物、物件和线索不得无触发回带，单拍预算缩到 460 tokens。联机继续由房主控制，不在成员端伪造自动行动。
+- 空会话中的本地演示同样按既有事件序列推进，到末尾才停止；真实内容不改变会话数据结构、模型上下文或 worldbook。
+- 叙事资料调度达到两轮证据预算后直接使用已取得的证据生成正文，不再额外请求一次 READY；调度超时、轮次或决策次数限制会降级为普通正文生成。普通“继续”与当前场景展开不再先请求资料调度模型，减少等待和无关检索。
+- 参考 SillyTavern 的 continue nudge、近历史 Author's Note、示例消息和可选重复惩罚做法，Pinax 不把采样惩罚硬编码给所有渠道；改为加强靠近末轮的中文行文契约：每轮只引入一个影响现场的新细节，已出现的物件/感官/动作只在构成新因果时回收，禁止把材质、颜色、拟声堆成氛围清单，也不以无因果异象强行吊胃口。
+- G1.4.10 R2 首批规则已进入主题2阅读面：纯叙述隐藏“旁白”署名，玩家只在回合组首显示身份，明确角色由 block speaker 署名；叙述首行缩进单独归 narration owner，玩家正文不再额外左移，动作使用正常体，心理保留轻斜体。
+- 验证：`npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite 与 VitePress build、`git diff --check`）；未启动或重启服务。
+
+# 2026-08-10 - 块级写作 Notebook 与边注审阅计划
+
+- 完成 G1.6 方案调研与实施计划。产品形态确定为连续小说稿上的隐形 block、场景结构和右侧 `批注 / 改写 / 版本` 检查器；借鉴 Jupyter cell ID、Quarto margin、Cornell Notes、Scrivener Inspector、Notion/Word review 与写作类 AI 产品，但不引入 kernel、`.ipynb`、卡片墙或常驻代码式运行控件。
+- 数据层确定使用单一 Tiptap/ProseMirror document 作为编辑真源，Markdown 仅作为素材、分镜、导出和旧链路的派生投影。批注使用 W3C 风格的 `blockId + TextPosition + TextQuote(exact/prefix/suffix)` 复合锚点，并明确 split/merge/move/delete/paste 的迁移与 orphan 规则。
+- AI 改写只产生带 block/document revision、base hash、锁定片段和 sourceRefs 的 candidate；用户审阅后才通过单一 editor transaction 应用。章节审稿只产生可定位批注，不直接重写正文。
+- 技术选型只采用 Tiptap/ProseMirror 开源核心与 UniqueID，Pinax 自行实现批注、候选和快照 sidecar，不依赖 Tiptap Cloud 或商业 Comments/Version History/Tracked Changes。计划拆为 WNB-0 至 WNB-5，先做真实长章、中文 IME、round-trip、许可证和性能 spike，再平替现有 textarea 链。
+
+## WNB-0 数据层 spike
+
+- 新增 `writingDocumentSchema`、6 组 Markdown fixture 和 `npm run spike:writing-notebook`。当前不改写作页，只验证结构化导入、块 ID 唯一、空白和混合 Markdown 往返、100k 中文章节测量，以及单块改写不影响邻块。
+- 首轮发现并修复分隔线 token 在重建时额外增加换行的问题。最终 6/6 fixture 通过；100k 中文章节本机单次导入耗时 7.69ms。该数值是 Node spike 指标，浏览器 IME、选择和滚动性能仍属于下一步编辑器 spike。
+- 阶段报告见 `docs/agent-runs/g1.6-wnb-0-spike.md`。数据契约先独立验证，默认 `Writing.vue` 编辑器没有被替换，避免在完成旧正文往返验证前扩大页面风险。
+- 随后完成隔离 Vue spike：安装 Tiptap/ProseMirror 开源核心，新增 `WritingNotebookEditor.vue`，默认写作页通过 `?notebookSpike=1` 才启用。真实浏览器在桌面和手机视口均无挂载错误或横向溢出；输入会递增 document/block revision。默认编辑器仍保持不变，下一步进入 WNB-1 的数据真源接线。
+
+## WNB-1 章节存储接线
+
+- 新增 `useWritingDocument`。章节加载优先使用有效 `chapter.editorDocument`，旧章节从 Markdown 一次导入；保存同时写入结构化文档、schema version 2 和现有 Markdown 投影，未增加新的 localStorage key。
+- 浏览器验证覆盖旧 textarea 与 Notebook spike 两条路径。修复修改段落后丢失块间空白的问题，确保标题、正文和分隔关系不会因为单块内容变化而粘连。默认 Notebook 入口仍未切换，下一刀迁移备份/纲要/素材/分镜读取边界。
+
+## WNB-1 统一章节投影读取
+
+- 新增 `getChapterDocument`、`getChapterMarkdown`、`getChapterPlainText`，统一判断结构化 sidecar 是否有效；缺失或损坏时安全回退旧 `chapter.content`，不覆盖原文。
+- 章节分镜导出改为接收章节对象并优先读取结构化文档，旧的 `chapterContent` 参数仍可供外部调用。`writing-notebook-r0-spike` 增加结构化优先与旧章节回退门禁。
+- 写作 Agent 请求增加当前块 `blockId`、`blockRevision` 和 Markdown 范围；如果 sidecar 尚未跟上正在编辑的 Markdown，则临时从当前正文解析块，避免旧章节投影污染补全上下文。
+- 兼容 textarea 的 Markdown 回写新增 `mergeWritingDocumentFromMarkdown`，精确匹配优先、同位置同类型作为修改回退；未变块保持 ID，修改块递增 revision，新段落生成新 ID。
+- 写作页章节加载改用 `readChapterSource()`，统一返回正文与格式；有效结构化章节直接使用 Markdown 投影，旧 HTML 仍通过原有兼容转换。
+- Notebook spike 增加编辑器 API bridge：选区事件、焦点、插入文本、撤销/重做、选区读取和基础 mark；写作页分隔线、取名、顾问选区和基础格式操作在 spike 模式复用该 API，默认编辑器未切换。
+- 验证：Notebook projection spike 通过；`npm run verify:full` 通过（39 个核心测试文件 / 306 个核心用例、12 个视觉用例，Vite/VitePress build 与 `git diff --check` 均通过）。
+
+## 2026-08-10 - WNB-1 默认编辑面切换
+
+- `Writing.vue` 的 `wysiwyg` 模式现在直接挂载 `WritingNotebookEditor`，移除旧的所见即所得 textarea 分支；Markdown 与预览仍作为次级视图，单一 Tiptap/ProseMirror 实例成为默认编辑真源。
+- editor bridge 补齐选区的 ProseMirror 位置、块 ID/revision、选区恢复、水平分隔线、查找定位、单处/全部替换、清除 mark、右键菜单、输入事件和内联补全接线。顾问打开/关闭后能够回到原选区，外部顾问 transaction 通过 Markdown 投影回灌 Notebook。
+- 修复 Notebook 选区回调错误：使用 `ResolvedPos.node(depth)` 读取块节点，避免首次输入时出现 `doc.node is not a function` 并中断 update 事件。分隔线改为真实 `horizontalRule` 节点，避免把分隔文本塞进正文造成多余换行。
+- Notebook 正文宽度收敛到 `62em`，字号/字体/字重/斜体等沿用现有写作页控制项，不改变主题2整体纸面风格。
+
+## 2026-08-10 - WNB-2 手工批注与检查器
+
+- 新增 `src/services/writing/writingAnnotations.js`，批注不写入出版 Markdown，而是作为章节 sidecar 保存 `chapterId`、`blockId`、块 revision 和 `TextPositionSelector + TextQuoteSelector(exact/prefix/suffix)`。加载章节、Notebook 文档更新和保存前都会重定位批注；前文插入和块移动保持稳定 ID，段落拆分生成共享 `parentId` 子批注，合并重新绑定，块删除、引文消失或不唯一时统一标记 `orphaned`。
+- `Writing.vue` 接入批注检查器：选中文字后可写入用户批注，点击条目可以回到原选区；支持 `open/resolved/orphaned` 状态、回复 thread、恢复、简洁/展开密度和“用当前选区重关联”。检查器提供 `批注 / 改写 / 版本` 三个稳定入口，后两者仍分别留给 WNB-3 candidate 和 WNB-5 snapshot，不提前伪造功能。
+- 主题2桌面使用章节索引 / 连续稿 / 304px 检查器三栏；980px 以下检查器变为可关闭右侧 sheet；720px 以下变为 bottom sheet 且默认收起，正文优先可读。主题1未做视觉重设计。
+- 浏览器 smoke 验证批注写入 `writing_books` 的章节 sidecar、跨段拆分迁移、回复 thread、键盘 Enter 回选正文和主题1隔离；主题2写作页 1440/980/390 审计共 3 captures、0 unexpected console errors。`npm run build` 和 `npm run spike:writing-notebook` 通过；本轮最终 `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未增加测试 item，未启动或重启服务。
+
+## 2026-08-10 - WNB-3 块级 AI 候选第一切片
+
+- 新增共享 `writingCandidateContract` 和写作候选检查器。`writing.fix.selection` / `writing.fix.paragraph` 现在可请求最多 3 个候选；服务端兼容旧的单 `replacement`，候选正文会经过本地拒答/空内容/重复过滤。
+- 写作检查器的“改写”页接管候选审阅：用户看到当前目标、改写要求、原文/候选 diff 和候选理由，正文不因模型返回而变化。选中的正文片段可以锁定，采用前校验章节、文档、块 revision、目标原文和锁定片段；目标变化后候选标记 stale。
+- Notebook 选区和块级采用都通过单次 ProseMirror transaction，提供撤销；Markdown 兼容路径继续复用已有 `writingAgentTransaction`。候选状态只在当前页面内保留，不写入出版 Markdown，版本快照留给 WNB-5。
+- 候选契约 smoke 与 `npm run spike:writing-notebook` 通过；`npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）。UI audit 已尝试但受限环境 Chromium 在 sandbox_host 启动阶段失败，未启动或重启服务，未增加测试 item。下一步补真实取消/重试和 provider 观察。
+
+## 2026-08-10 - WNB-3 真实取消与重试
+
+- `requestAdvisorTask` 现在接受可选 `AbortSignal` 并把它传给 Axios；取消统一为 `AGENT_REQUEST_ABORTED`，请求 trace 使用 `cancelled` 状态，避免把用户主动取消误计为 provider 失败。
+- 写作检查器每次候选生成使用独立 `AbortController`。取消会真实中止当前请求、清理旧控制器和 loading；失败或取消后可以沿原目标重试，迟到响应不能恢复旧候选。
+- 重试前重新验证 chapter/document/block revision 和目标原文；目标已被编辑或章节已切换时不重发，要求用户重新确定目标。保留锁定片段和用户改写意见，不增加正文自动写入路径。
+- `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未增加测试 item，未启动或重启服务。真实 provider 多候选质量/延迟/空响应观察仍待可用渠道。
+
+## 2026-08-10 - WNB-4 场景索引第一大阶段
+
+- 复用现有 `scene-heading` 文档块构建主题2左侧场景索引；没有新增存储字段或迁移层。每个场景显示标题、块数量和未解决批注数量，正文没有场景标题时自动归入“开篇”。
+- 点击场景会优先调用 Notebook 的 `blockId` 定位，Markdown 模式使用场景锚文本定位；移动端仍通过已有章节 sheet 打开，不改变主题1布局。
+- 写作检查器新增“块 / 场景 / 全章”批注范围。场景范围只读取当前场景的 blockId 集合，未解决批注计数与索引共用同一批注状态，不复制第二套批注数据。
+- `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未增加测试 item，未启动或重启服务。下一步是跨块批注与多块候选的逐块预览/原子提交。
+
+## 2026-08-10 - WNB-4 跨块批注阶段
+
+- 批注契约升为 v2。跨块批注保存起始/结束 blockId、两端 revision 和局部 TextQuote、完整选区文本以及连续涉及的 blockIds；单块批注仍使用原有 selector。
+- 选区创建不再限制在单块内；Notebook 通过起止块范围回选，Markdown 通过两端 quote 回选。场景和全章过滤按 `range.blockIds` 聚合，不会因为批注起点在另一个块而漏掉。
+- 编辑后按稳定 blockId 和两端 quote 重定位；块缺失、顺序非法或 quote 不唯一时标记 orphan，不静默挂到相似文本。跨块批注契约断言并入现有写作测试项，测试数量不增加。
+- 定向 `writingSelectionCapture` 6/6、`npm run build` 和完整 `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未启动或重启服务。下一步是多块 AI 候选逐块 diff 和 stale 后整批原子提交。
+
+## 2026-08-10 - WNB-4 多块 AI 候选与原子提交
+
+- 写作候选契约升为 v2。跨块选区请求现在携带有序目标块清单；服务端 prompt 要求每个候选为每个目标块返回一条完整 `patch`，blockId 必须逐字匹配，不允许漏块、合并、拆分或新增目标块。
+- 客户端对每个 patch 做本地正文校验，并按目标块补回稳定范围、编辑器范围、block revision 和 baseText。候选检查器逐块显示原文/候选 diff；跨块候选不能使用单块锁定片段，采用按钮明确显示为“整批采用”。
+- 采用前统一校验 chapter/document revision、全部 blockId、block revision 和每块 baseText。Notebook 使用一个 ProseMirror transaction 逆序替换多个范围，Markdown 使用同一批 text-patch transaction；任一块 stale、缺失范围或重叠时整批拒绝，不产生部分写回。
+- 定向契约冒烟、`writingSelectionCapture` 6/6、`npm run build` 和完整 `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未增加测试 item，未启动或重启服务。下一步是 provider 观察和多候选浏览器 smoke，版本快照仍留给 WNB-5。
+
+## 2026-08-10 - WNB-4 章节审稿批注阶段
+
+- 新增 `writingReviewContract`，章节审查只接受八类问题：重复、衔接、POV、角色连续性、时间、设定冲突、节奏和语言。finding 必须携带真实目标块、局部 offset 和逐字 exact；弱相似度和“更生动”类泛化建议在本地直接丢弃。
+- Writing 检查器新增“章节审查”。正文按每批 6 个块发送，单批失败不会中止其他批次；成功结果生成 `review-finding` 批注，保留类型、严重度、批次和跨块范围。章节或正文 revision 在请求期间变化时，所有迟到 findings 整批丢弃。
+- 审查批注可以定位原文并点击“进入改写”，随后复用 WNB-3 的单块/多块候选链；审查任务不返回 replacement，也不直接修改正文。
+- 服务端新增章节审查 JSON 输出约束与 findings 归一化；定向契约 smoke、`npm run build` 和完整 `npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`），未增加测试 item，未启动或重启服务。下一步是 provider 观察、多候选/审稿浏览器 smoke，版本快照仍留给 WNB-5。
+
+## 2026-08-10 - WNB-5 版本快照第一大阶段
+
+- 新增 `shared/writingSnapshotContract.js` 与 `writing_snapshots_v1` sidecar 存储。快照保存当前章节的结构化 `editorDocument`、Markdown 投影、批注、文档 revision、正文 hash 和字数；单章最多保留 20 个，并设置总存储预算，写入失败会在版本页明确反馈，不静默覆盖正文。
+- 写作检查器的“版本”页已从占位改为可用工作流：可命名保存当前章节、按时间/修订浏览、删除和恢复。改写候选通过 stale 校验后会先留“改写前”检查点；恢复前会自动留“恢复前”检查点，并在当前正文已变化时要求确认。恢复只替换当前章节结构化文档、Markdown 投影和批注，不影响其他章节。
+- 新快照 key 已加入 Pinax 全量备份；章节删除会清理该章节快照。快照契约断言并入既有写作测试项，保持 39 个核心测试文件 / 306 个用例与 12 个视觉用例的数量不增加。定向写作测试、完整 `npm run verify:full` 和 `git diff --check` 已通过，未启动或重启服务。
+
+## 2026-08-10 - WNB-5 块历史与崩溃恢复第二大阶段
+
+- 新增 `shared/writingBlockHistoryContract.js` 与 `writing_block_history_v1`。每次正文成功保存时，按稳定 `blockId` 对比前一份结构化文档，只记录发生变化且仍存在的块的旧文本、前后 document/block revision 和来源；每章最多 120 条，总量受存储预算限制。
+- 版本检查器增加“块历史”。仍存在的块可在 Notebook 中通过单块 transaction 恢复；恢复前自动保存整章“块恢复前”检查点，块被删除或当前为 Markdown 编辑面时不会伪造成功。
+- 新增 `writing_recovery_drafts_v1`。编辑变化后延迟写入每章一份恢复草稿，章节写入成功才清理；刷新或崩溃后会在版本页提示恢复，恢复失败不会清掉草稿。快照、块历史和恢复草稿均纳入 Pinax backup，删除章节/书籍同步清理。
+- 定向写作测试 6/6、完整 `npm run verify:full` 与 Vite/VitePress build 已通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、`git diff --check`），未启动或重启服务。
+## 2026-08-11 - G4.6.13 R5 叙事工具修复、截止与证据门禁
+
+- 体验叙事主链继续使用同一临时 transcript。provider 空响应、坏工具调用和非法参数不再静默转普通正文：在同一 requestId 下最多发起一次指数退避重试，并追加一次带错误码的修复指令；再次失败直接保留 typed error。
+- 工具执行增加独立 AbortController，与总生成 signal 联动。工具超时会中止传入 registry 的执行 signal 后再回传 `NARRATIVE_TOOL_TIMEOUT`；空结果转为 `NARRATIVE_TOOL_EMPTY_RESULT`，查询中 resource revision 改变转为 `NARRATIVE_TOOL_RESULT_STALE`，这些结果均以 `isError=true` 进入 transcript。
+- 新增确定性的 `narrativeAgentPolicy`：历史/时间追溯、路线空间关系、世界规则/既有设定核验和明确事实调查进入 `required` grounding；轻动作与当前对话保持 `optional`。required 本轮没有可用条目证据时阻止正文提交。
+- 工具调用按规范化名称、参数和资源 revision 计数，第三次相同调用形成 `NARRATIVE_AGENT_DOOM_LOOP` 并停止继续烧 token。401/403 在 provider adapter 中归类为配置错误，不参与重试；408/429/5xx/network 只在 deadline 内退避重试一次。
+- 验证：叙事契约新增 R5 修复、grounding、空证据和 doom-loop 断言，定向 `agentContracts` + `gameStoreSession` 共 23 个用例通过。全量 `verify:full` 待本阶段收口后执行；未启动或重启服务。
+## 2026-08-11 - G4.6.13 R6 检索质量与证据约束
+
+- Kernel 根据当前输入动态开放资料域：普通当前动作只提供 world/geo，明确历史追溯才开放 history，明确记忆回溯才开放 memory，减少无关 schema 与误检索。
+- 叙事工具加入带 `revision + domain + sortKey + itemId` 的 opaque cursor。排序优先稳定 ID/名称/别名与结构化匹配，再按 token、当前地点、更新时间和稳定 ID 收口；旧 revision 或错误资料域的 cursor 返回 typed stale/mismatch error。
+- related/trace/route 结果携带 relation path、edge type、depth 和 sourceRefs；资源结果统一增加 `trust`、`conflictState`、`conflictRefs`、`eligibleEvidence`。active-conflict/stale/draft 结果仍可作为检索提示，但不会满足 required grounding。
+- finalization 前新增 `validateNarrativeEvidence()`，输出关联 sourceRefs、正文命中的可信条目和冲突警告；工具缓存和资源 revision 指纹覆盖条目关系、历史地点、冲突状态和记忆状态，变化后不复用旧结果。
+- 验证：`agentContracts`、`gameStoreSession`、`onlineRoom` 共 24 个用例通过；未启动或重启服务。R7 的标准 SSE、联机审计和真实 provider Gate 尚未开始。
+
+## 2026-08-11 - G4.6.13 R7 流事件、联机状态与生产审计
+
+- 新增 `shared/narrativeAgentStreamContract.js`，把单步 Agent 输出规范化为 `step.start`、`tool.input.delta`、`tool.call`、`text.delta`、`step.finish`、`usage`、`error` 七类 SSE 事件。服务端 `/api/generate/agent-step/stream` 只发送标准化事件，不透传 provider 原始 chunk；工具输入事件仅供浏览器内部重组，仍由浏览器执行只读资料工具。
+- `src/services/api.js` 新增 SSE reader、事件解析和响应归约；体验生成默认走事件流后重组为现有 provider-neutral response，单 transcript、repair、grounding 和终态提交逻辑保持同一 owner。新增协议字段没有进入 UI 正文。
+- ContextLedger 增加 agent 审计摘要：transcript revision、step count、tool call/result refs、repair count、grounding policy、terminal mode 和 fallback reason。production metrics 增加 protocol、capabilitySource、toolRepairCount、reasoningRoundTrip、terminalMode、groundingPolicy、orphanedCallCount 和 transcriptRevision，opaque reasoning metadata 不落盘。
+- 联机状态允许请求当前步骤、收束、重试、修复和资料刷新阶段；房主继续唯一维护 transcript、调用工具和最终正文，成员只收到带 requestId/seq 的状态与完成事件。体验输入位增加停止生成，错误状态增加重试。
+- 验证：`agentContracts`、`gameStoreSession`、`onlineRoom` 共 24/24；`npm run verify:full` 通过（39 个核心测试文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、VitePress build、`git diff --check`）。未启动或重启服务。R8 仍负责真实 provider 矩阵、取消/超时/限流 Gate 和发布收口。
+
+## 2026-08-11 - G4.6.13 R8-A Gate runner 与协议自检
+
+- 生产叙事 smoke 从旧 `/api/generate/agent-turn` 切到 `/api/generate/agent-step/stream`；受控 rate-limit/timeout 不再伪造 JSON HTTP 失败，而是返回标准化 `error` SSE，验证当前前端 reader 的 typed error 路径。
+- 双浏览器联机 smoke 现在要求房主至少发出一个 normalized agent step stream 请求，成员仍必须零模型请求；报告记录 `streamRequests`，不把旧 endpoint 命中当作成功证据。
+- 新增 `npm run smoke:narrative-stream`，用本地 handler runner 覆盖 tool-call 事件序列、tool input 重组、final text 和 typed provider error；不需要 provider key，不会把本地协议自检误称为真实渠道 Gate。
+- 验证：`npm run smoke:narrative-stream`、`npm run smoke:narrative-production -- --dry-run --count 60`、`npm run smoke:online-narrative -- --dry-run`、`npm run eval:narrative-context` 均通过；真实三渠道 60 轮矩阵与 R8 发布门槛仍待可用配置。
+
+## 2026-08-11 - G4.6.13 R8-B 真实渠道矩阵执行器
+
+- 新增 `scripts/narrative-provider-matrix.mjs` 和 `npm run smoke:narrative-matrix`。执行器固定发现 OpenAI Chat、OpenAI Responses、Anthropic Messages、MiniMax Anthropic-compatible 四个渠道；每个已配置渠道独立运行生产 smoke，输出渠道目录和汇总 `matrix.json`。
+- 未配置渠道保持 `not-configured`，不发起伪造请求；即使使用 `--allow-incomplete`，`releaseReady` 仍为 false。矩阵默认每渠道 60 轮，配置文件只读取 `provider/baseUrl/apiKey/model`，不把密钥写入产物。
+- 修复生产指标模块的显式 `.js` 导入，使 Node CLI 不再依赖 Vite 的无扩展名模块解析。
+- 验证：`node --check scripts/narrative-provider-matrix.mjs`、dry-run 矩阵和不存在配置目录的 60 轮不完整矩阵均通过；真实 provider、人工质量标注和发布 Gate 仍待执行，未启动或重启服务。
+
+## 2026-08-11 - G4.6.13 R8-C 生产叙事链清理
+
+- 体验叙事 Agent 现在只通过 `/api/generate/agent-step/stream` 访问 provider；移除旧 `/agent-turn` Express 路由、`sendNarrativeAgentTurn` JSON API、generation service 的分支 fallback 和遗留的资料调度 loop。
+- 删除旧 READY decision prompt 与 `buildNarrativeFinalMessages` clean-prompt builder。模型返回最终正文后，编排器在同一 transcript 做证据校验并直接提交，不再追加独立收束请求，也不再把失败静默改成普通叙事请求。
+- `/api/chat/stream` 未受影响，继续服务写作、顾问和其他非叙事 Agent 任务；生产/联机 smoke 已只观察 normalized step stream。
+- 验证：Agent 契约 1/1、Node 语法检查、`git diff --check` 通过；完整 `verify:full` 待本轮文档收口后执行，未启动或重启服务。
+
+## 2026-08-11 - G4.6.13 R8-D 发布闸门执行器
+
+- 新增 `scripts/narrative-release-gate.mjs` 和 `npm run gate:narrative-release`。它读取 R8-B 的 `matrix.json` 及各渠道 `metrics.json`/`annotations.json`，把样本、协议、终态非空、工具轮次、repair、required grounding、transcript 对齐、失败清理、证据命中、无依据事实下降、no-tool p95 和 orphaned calls 展开为逐项 gate。
+- 人工标注字段固定为 `repairRequired/repairSucceeded`、`evidenceHit`、`unsupportedFacts/baselineUnsupportedFacts`；标注缺失显示明确 `reason`，不按空值或默认值放行。`--allow-incomplete` 只影响进程退出码，不改变 `releaseReady`。
+- 指标归一化补回脱敏的 `timing.outputChars` 与 `estimatedOutputTokens`，release gate 可真实判断终态正文非空率。
+- 验证：无 provider 矩阵运行 release gate 正确输出四个渠道未配置和阻断原因；Agent 契约测试、Node 检查、diff 检查通过，未启动或重启服务。真实 60 轮矩阵和人工质量标注仍待执行。
+
+## 2026-08-11 - G4.6.13 R8-E 取消与迟到结果恢复 smoke
+
+- 新增 `scripts/narrative-recovery-smoke.mjs` 和 `npm run smoke:narrative-recovery`，直接运行标准 SSE handler 的三类无 provider 场景：response abort、provider 迟到结果、typed error。
+- 响应关闭后 provider 真实收到 AbortSignal；连接销毁后迟到结果不会写入终态 `text.delta` 或 `step.finish`；typed error 仍保留标准错误码、retryable 和结束信号。
+- 验证：`responseAbort`、`lateResultDiscarded`、`typedErrorVisible` 全部为 true；`agentContracts`、`onlineRoom` 定向测试和 diff check 通过，未启动或重启服务。真实 provider 取消和 host loss 仍待执行。

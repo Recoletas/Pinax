@@ -1,6 +1,8 @@
 import {
   NARRATIVE_TOOL_LIMITS,
-  createNarrativeRevision
+  createNarrativeRevision,
+  createNarrativeCursor,
+  parseNarrativeCursor
 } from '../../../shared/narrativeAgentContract'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
 
@@ -35,6 +37,23 @@ function normalizeRelations(values = []) {
   }).slice(0, 32)
 }
 
+function resolveTrust(input, domain, sourceRefs) {
+  const explicit = text(input.trust)
+  if (['canonical', 'confirmed-memory', 'runtime-confirmed', 'draft'].includes(explicit)) return explicit
+  if (domain === 'memory') return 'confirmed-memory'
+  if (sourceRefs.some((ref) => ref.startsWith('runtime-event:'))) return 'runtime-confirmed'
+  if (sourceRefs.some((ref) => ref.startsWith('worldbook-entry:'))) return 'canonical'
+  return domain === 'world' || domain === 'geo' ? 'draft' : 'runtime-confirmed'
+}
+
+function resolveConflictState(input) {
+  if (input.stale === true || text(input.conflictState).toLowerCase() === 'stale') return 'stale'
+  if (text(input.conflictState).toLowerCase() === 'active-conflict' || input.conflicted === true) {
+    return 'active-conflict'
+  }
+  return 'clean'
+}
+
 function tokenize(value) {
   const normalized = text(value).toLowerCase()
   const tokens = normalized.match(/[a-z0-9_-]+|[\u3400-\u9fff]+/g) || []
@@ -52,6 +71,7 @@ function tokenize(value) {
 function resource(input) {
   const aliases = unique(input.aliases || [])
   const summary = clip(input.summary, NARRATIVE_TOOL_LIMITS.maxGetItemChars)
+  const sourceRefs = unique(input.sourceRefs || [])
   const searchableText = [
     input.id,
     input.title,
@@ -74,7 +94,10 @@ function resource(input) {
     scopeId: text(input.scopeId),
     time: input.time || null,
     relations: normalizeRelations(input.relations || []),
-    sourceRefs: unique(input.sourceRefs || []),
+    sourceRefs,
+    trust: resolveTrust(input, text(input.domain), sourceRefs),
+    conflictState: resolveConflictState(input),
+    conflictRefs: unique(input.conflictRefs || []),
     updatedAt: Number(input.updatedAt || 0),
     searchableText,
     tokens: tokenize(searchableText)
@@ -99,6 +122,7 @@ function worldResources(worldbook) {
           .slice(0, 24)
           .map((entry) => relation('worldbook-entry', entry?.id)),
         sourceRefs: [`worldbook:${worldbookId}:overview`],
+        trust: 'canonical',
         updatedAt: worldbook?.updatedAt
       })]
     : []
@@ -121,6 +145,9 @@ function worldResources(worldbook) {
           ...(relations.tags || []).map((id) => relation('tag', id))
         ],
         sourceRefs: [`worldbook-entry:${text(entry?.id)}`],
+        trust: 'canonical',
+        conflictState: entry?.conflictState || entry?.metadata?.conflictState,
+        conflictRefs: entry?.conflictRefs || entry?.metadata?.conflictRefs,
         updatedAt: entry?.metadata?.updatedAt || worldbook?.updatedAt
       })
     })
@@ -148,6 +175,12 @@ function geoResources(worldbook) {
       ...(entity.ref?.routeIds || []).map((id) => relation('route', id))
     ],
     sourceRefs: [`place:${entity.placeId}`],
+    trust: entity.entryIds?.length ? 'canonical' : 'draft',
+    conflictState: entity.ref?.bindingStatus === 'stale'
+      ? 'stale'
+      : entity.ref?.bindingStatus === 'conflict'
+        ? 'active-conflict'
+        : 'clean',
     updatedAt: worldbook?.updatedAt
   }))
 }
@@ -178,6 +211,13 @@ function historyNodeResource(node, kind, worldbook) {
       to: text(node?.windowEnd || node?.timeRange?.to || node?.date || node?.year)
     },
     sourceRefs: [`history:${text(node?.id)}`],
+    trust: kind === 'player-history' ? 'runtime-confirmed' : 'canonical',
+    conflictState: node?.stale === true || node?.status === 'stale'
+      ? 'stale'
+      : node?.conflicts?.length || node?.conflictState === 'active-conflict'
+        ? 'active-conflict'
+        : 'clean',
+    conflictRefs: node?.conflictIds || node?.conflictRefs || [],
     updatedAt: node?.capturedAt || node?.updatedAt || worldbook?.updatedAt
   })
 }
@@ -211,6 +251,9 @@ function memoryResources(memories = []) {
         ...(memory?.metadata?.sourceRefs || []).map((id) => relation('source', id))
       ],
       sourceRefs: [`memory:${text(memory?.id)}`],
+      trust: 'confirmed-memory',
+      conflictState: memory?.metadata?.conflictState || (memory?.status === 'stale' ? 'stale' : 'clean'),
+      conflictRefs: memory?.metadata?.conflictRefs || [],
       updatedAt: memory?.updatedAt || memory?.createdAt
     }))
     .filter((item) => item.id && item.summary)
@@ -230,12 +273,24 @@ export function createNarrativeResourceSnapshotRevision(snapshot = {}) {
     entries: (worldbook?.entries || []).map((entry) => [
       text(entry?.id),
       Number(entry?.metadata?.updatedAt || 0),
-      text(entry?.content)
+      text(entry?.content),
+      text(entry?.name),
+      entry?.keys || [],
+      entry?.relations || {},
+      text(entry?.conflictState || entry?.metadata?.conflictState)
     ]),
     history: [
       ...(worldbook?.geoHistory?.nodes || []),
       ...(worldbook?.geoHistory?.playerNodes || [])
-    ].map((node) => [text(node?.id), text(node?.summary), Number(node?.updatedAt || node?.capturedAt || 0)]),
+    ].map((node) => [
+      text(node?.id),
+      text(node?.summary),
+      Number(node?.updatedAt || node?.capturedAt || 0),
+      text(node?.placeId || node?.placeRef?.placeId),
+      node?.relations || [],
+      node?.conflicts || [],
+      node?.stale === true
+    ]),
     memories: (snapshot?.memories || []).map((memory) => [
       text(memory?.id),
       text(memory?.status),
@@ -345,9 +400,61 @@ function scoreResource(item, query, currentPlaceId = '') {
   return { score, reasons }
 }
 
+function sortKey(score, updatedAt = 0) {
+  return `${String(Math.max(0, Math.round(score))).padStart(6, '0')}:${String(Math.max(0, Number(updatedAt) || 0)).padStart(20, '0')}`
+}
+
+function cursorFailure(parsed) {
+  const error = new Error(parsed?.error?.message || '叙事 cursor 无效')
+  error.code = parsed?.error?.code || 'NARRATIVE_CURSOR_INVALID'
+  return error
+}
+
+function pageResources(resources, {
+  revision,
+  domain,
+  input = {},
+  ranked = false
+} = {}) {
+  const source = Array.isArray(resources) ? resources : []
+  const cursorResult = input.cursor
+    ? parseNarrativeCursor(input.cursor, { revision, domain })
+    : { valid: true, cursor: null }
+  if (!cursorResult.valid) throw cursorFailure(cursorResult)
+  const cursor = cursorResult.cursor
+  const rankedResources = source.map((item, index) => ({
+    item,
+    sortKey: ranked
+      ? (item._searchSortKey || sortKey(item._searchScore, item.updatedAt))
+      : String(index).padStart(8, '0')
+  }))
+  let startIndex = 0
+  if (cursor) {
+    startIndex = rankedResources.findIndex((entry) => (
+      entry.sortKey > cursor.sortKey
+      || (entry.sortKey === cursor.sortKey && entry.item.id > cursor.itemId)
+    ))
+    if (startIndex < 0) startIndex = rankedResources.length
+  }
+  const limit = Math.max(1, Number(input.limit) || NARRATIVE_TOOL_LIMITS.maxItems)
+  const selected = rankedResources.slice(startIndex, startIndex + limit)
+  const output = selected.map((entry) => entry.item)
+  const hasMore = startIndex + limit < rankedResources.length
+  const nextCursor = hasMore && selected.length > 0
+    ? createNarrativeCursor({
+        revision,
+        domain,
+        sortKey: selected[selected.length - 1].sortKey,
+        itemId: selected[selected.length - 1].item.id
+      })
+    : ''
+  Object.defineProperty(output, 'nextCursor', { value: nextCursor, enumerable: false })
+  return output
+}
+
 export function searchNarrativeResources(index, domain, input = {}, options = {}) {
   const candidates = index?.byDomain?.get(domain) || []
-  return candidates
+  const ranked = candidates
     .filter((item) => matchesFilters(item, input.filters))
     .map((item) => ({ item, match: scoreResource(item, input.query, options.currentPlaceId) }))
     .filter((entry) => !input.query || entry.match.score > 0)
@@ -356,33 +463,66 @@ export function searchNarrativeResources(index, domain, input = {}, options = {}
       || right.item.updatedAt - left.item.updatedAt
       || left.item.id.localeCompare(right.item.id)
     ))
-    .slice(0, input.limit || NARRATIVE_TOOL_LIMITS.maxItems)
-    .map((entry) => ({ ...entry.item, matchReasons: entry.match.reasons }))
+    .map((entry) => ({
+      ...entry.item,
+      matchReasons: entry.match.reasons,
+      _searchSortKey: sortKey(entry.match.score, entry.item.updatedAt),
+      _searchScore: entry.match.score
+    }))
+  const paged = pageResources(ranked, {
+    revision: index?.revision,
+    domain,
+    input,
+    ranked: true
+  })
+  const output = paged.map(({ _searchSortKey, _searchScore, ...item }) => item)
+  Object.defineProperty(output, 'nextCursor', {
+    value: paged.nextCursor || '',
+    enumerable: false
+  })
+  return output
 }
 
-export function getNarrativeResources(index, domain, ids = [], filters = {}) {
-  return ids
+export function getNarrativeResources(index, domain, ids = [], filters = {}, options = {}) {
+  const resources = ids
     .map((id) => index?.byId?.get(id))
     .filter((item) => item?.domain === domain && matchesFilters(item, filters))
     .map((item) => ({ ...item, matchReasons: ['exact-id'] }))
+  return pageResources(resources, {
+    revision: index?.revision,
+    domain,
+    input: { ...filters, cursor: options.cursor, limit: options.limit }
+  })
 }
 
-export function getRelatedNarrativeResources(index, domain, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems) {
+export function getRelatedNarrativeResources(index, domain, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems, options = {}) {
   const sourceIds = new Set(ids)
   const targetIds = new Set()
+  const sourcePaths = []
   for (const id of ids) {
     const source = index?.byId?.get(id)
-    for (const item of source?.relations || []) targetIds.add(item.targetId)
+    for (const item of source?.relations || []) {
+      targetIds.add(item.targetId)
+      sourcePaths.push({ from: id, to: item.targetId, edgeType: item.type, depth: 1 })
+    }
   }
-  return (index?.byDomain?.get(domain) || [])
+  const resources = (index?.byDomain?.get(domain) || [])
     .filter((item) => !sourceIds.has(item.id))
     .filter((item) => targetIds.has(item.id) || item.relations.some((relationItem) => sourceIds.has(relationItem.targetId)))
     .filter((item) => matchesFilters(item, filters))
-    .slice(0, limit)
-    .map((item) => ({ ...item, matchReasons: ['relation-hop'] }))
+    .map((item) => ({
+      ...item,
+      matchReasons: ['relation-hop'],
+      relationPath: sourcePaths.filter((path) => path.to === item.id).slice(0, 4)
+    }))
+  return pageResources(resources, {
+    revision: index?.revision,
+    domain,
+    input: { ...filters, limit, cursor: options.cursor }
+  })
 }
 
-export function traceNarrativeHistory(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems) {
+export function traceNarrativeHistory(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems, options = {}) {
   const queue = [...ids]
   const seen = new Set()
   const result = []
@@ -403,7 +543,24 @@ export function traceNarrativeHistory(index, ids = [], filters = {}, limit = NAR
       if (candidate.relations.some((relationItem) => relationItem.targetId === id)) queue.push(candidate.id)
     }
   }
-  return result
+  const output = pageResources(result, {
+    revision: index?.revision,
+    domain: 'history',
+    input: { ...filters, limit, cursor: options.cursor }
+  })
+  return output.map((item, index) => ({
+    ...item,
+    depth: index === 0 ? 0 : 1,
+    relationPath: item.relations
+      .filter((relationItem) => ids.includes(relationItem.targetId) || relationItem.type.includes('history'))
+      .slice(0, 4)
+      .map((relationItem) => ({
+        from: item.id,
+        to: relationItem.targetId,
+        edgeType: relationItem.type,
+        depth: index === 0 ? 0 : 1
+      }))
+  }))
 }
 
 export function toNarrativeToolItems(resources = [], action = 'search') {
@@ -419,10 +576,17 @@ export function toNarrativeToolItems(resources = [], action = 'search') {
       id: item.id,
       type: item.type,
       title: item.title,
+      aliases: item.aliases.slice(0, 8),
       summary,
       relations: item.relations.slice(0, 12),
+      relationPath: (item.relationPath || []).slice(0, 8),
+      depth: Number.isFinite(Number(item.depth)) ? Number(item.depth) : 0,
       sourceRefs: item.sourceRefs.slice(0, 12),
-      matchReasons: (item.matchReasons || []).slice(0, 6)
+      matchReasons: (item.matchReasons || []).slice(0, 6),
+      trust: item.trust || 'draft',
+      conflictState: item.conflictState || 'clean',
+      conflictRefs: (item.conflictRefs || []).slice(0, 8),
+      eligibleEvidence: item.trust !== 'draft' && item.conflictState === 'clean'
     }
     const chars = JSON.stringify(output).length
     if (usedChars + chars > NARRATIVE_TOOL_LIMITS.maxResultChars) {
@@ -432,5 +596,10 @@ export function toNarrativeToolItems(resources = [], action = 'search') {
     usedChars += chars
     items.push(output)
   }
-  return { items, truncated, chars: usedChars }
+  return {
+    items,
+    truncated,
+    chars: usedChars,
+    nextCursor: resources.nextCursor || ''
+  }
 }

@@ -1,7 +1,8 @@
 import {
   NARRATIVE_AGENT_SCHEMA_VERSION,
   createNarrativeRevision,
-  getNarrativeToolCatalog
+  getNarrativeToolCatalog,
+  resolveNarrativeActiveToolNames
 } from '../../../shared/narrativeAgentContract'
 import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
 
@@ -196,7 +197,8 @@ export function buildNarrativeKernel({
     }, text(worldbook?.writingStyle) ? [`worldbook:${text(worldbook?.id)}:style`] : [])
   ]
 
-  const toolCatalog = getNarrativeToolCatalog()
+  const activeToolNames = resolveNarrativeActiveToolNames(latestUser?.content)
+  const toolCatalog = getNarrativeToolCatalog({ activeTools: activeToolNames })
   const revision = createNarrativeRevision('nar', {
     projectId: text(projectId || worldbook?.id),
     sessionId: text(sessionId),
@@ -210,6 +212,7 @@ export function buildNarrativeKernel({
     sessionId: text(sessionId),
     blocks,
     toolCatalog,
+    activeToolNames,
     budget: {
       maxChars: Object.values(BLOCK_LIMITS).reduce((total, value) => total + value, 0),
       usedChars: blocks.reduce((total, block) => total + block.chars, 0),

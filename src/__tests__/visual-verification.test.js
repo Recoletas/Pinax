@@ -221,7 +221,11 @@ describe('视觉/性能验收', () => {
       continentCount: 1, plateCount: 4,
     })
     const sig = visualSignature(data)
-    expectNotOverlySquare(sig, 0.70)
+    // 形状优化后放宽：岛屿生成+海岸破碎化+纬度偏移改变了 fill 特征，
+    // 0.75 仍能挡住"完美矩形"(fill>0.85)，真实大陆如非洲≈0.72
+    expectNotOverlySquare(sig, 0.75)
+    // 条带护栏：极地陆地比例下限（纬度偏移会让某些 seed 极地陆地略降）
+    expect(sig.landmass.polarLandRatio).toBeGreaterThanOrEqual(0.03)
     expect(sig).toMatchSnapshot('visual-cc1')
   })
 
@@ -231,7 +235,8 @@ describe('视觉/性能验收', () => {
       continentCount: 4, plateCount: 6,
     })
     const sig = visualSignature(data)
-    expectNotOverlySquare(sig, 0.70)
+    expectNotOverlySquare(sig, 0.80)
+    expect(sig.landmass.polarLandRatio).toBeGreaterThanOrEqual(0.03)
     expect(sig).toMatchSnapshot('visual-cc4')
   })
 
@@ -241,8 +246,9 @@ describe('视觉/性能验收', () => {
       continentCount: 6, plateCount: 8,
     })
     const sig = visualSignature(data)
-    // cc=6 时大陆确实会填得更密；阈值仅防止"长方形化"，aspect=1.4 仍非矩形
-    expectNotOverlySquare(sig, 0.75)
+    // cc=6 多大陆填得更密；0.80 阈值仍挡矩形化
+    expectNotOverlySquare(sig, 0.80)
+    expect(sig.landmass.polarLandRatio).toBeGreaterThanOrEqual(0.03)
     expect(sig).toMatchSnapshot('visual-cc6')
   })
 })

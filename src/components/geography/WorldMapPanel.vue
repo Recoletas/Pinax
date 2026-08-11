@@ -463,7 +463,7 @@ import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
 import { useWorldStore } from '../../stores/worldStore'
 import { buildVoronoiMapPrompt, parseVoronoiMapConfig } from '../../services/ai/voronoiMapAdapter'
-import { buildMapNativePlaceInventory, buildWorldbookLocationMarkers, buildWorldbookPlaceInventory, compileWorldbookMapConstraints, extractMapSeedsFromWorldbook } from '../../services/ai/worldbookMapBridge'
+import { buildMapNativePlaceInventory, buildWorldbookLocationMarkers, buildWorldbookPlaceInventory, compileWorldbookMapConstraints, describeNativePlaceForPromotion, extractMapSeedsFromWorldbook, mapNativeKindLabel } from '../../services/ai/worldbookMapBridge'
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
 import { extractMapSemantics } from '../../services/worldHistory/mapSemantics'
@@ -884,10 +884,6 @@ async function switchWorldbookSource(worldbookId) {
   }
 }
 
-function mapNativeKindLabel(kind) {
-  return ({ capital: '首都', port: '港口', city: '城市', town: '城镇', village: '村落' })[kind] || '聚落'
-}
-
 function focusNativePlace(place) {
   mapRendererRef.value?.focusCoordinates?.(Number(place?.x), Number(place?.y))
 }
@@ -903,11 +899,7 @@ async function promoteNativePlace(place) {
     const mapId = activeNode.value?.id
       ? `map-${activeNode.value.id}-${latestMapData.value?.seed || 'current'}`
       : `map-${latestMapData.value?.seed || 'current'}`
-    const locationFacts = [
-      `${place.name}是一处${mapNativeKindLabel(place.kind)}。`,
-      place.stateName ? `当前地图中位于${place.stateName}。` : '',
-      place.port ? '临近可通航水域并具备港口条件。' : '',
-    ].filter(Boolean).join('')
+    const locationFacts = describeNativePlaceForPromotion(place, latestMapData.value)
     const entry = {
       id: entryId,
       name: place.name,

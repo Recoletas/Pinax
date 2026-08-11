@@ -16,6 +16,8 @@ import { HEIGHTMAP_TEMPLATES, applyTemplate, resolveHeightmapTemplate, type Temp
 import { adjustSeaLevelTemplateAware } from './heightmap-template-aware'
 import { evaluateContract } from './enforceTemplateContract'
 import { seedRandom } from './random'
+import { hash2D, fbmHash } from './noise'
+import { clamp } from './math'
 
 function lim(v: number): number {
   return Math.max(0, Math.min(100, v))
@@ -123,9 +125,15 @@ export function generateHeightmap(
       if (cells.h[i] <= SEA_LEVEL + 4) continue
       const x = cells.p[i * 2]
       const y = cells.p[i * 2 + 1]
-      cells.h[i] += Math.round(fbm2D(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
+      cells.h[i] += Math.round(fbmHash(x * FBM_SCALE, y * FBM_SCALE, 4) * FBM_AMP)
     }
-    adjustSeaLevelTemplateAware(cells, landRatio, currentShapeIntent, currentTemplateName, realism?.shape?.latitudeShaping)
+    adjustSeaLevelTemplateAware(
+      cells,
+      landRatio,
+      currentShapeIntent,
+      currentTemplateName,
+      realism?.shape?.latitudeShaping,
+    )
   }
   runPostTemplate(shapeIntent, templateName)
 
@@ -180,45 +188,8 @@ export function generateHeightmap(
 }
 
 // ── 工具 ────────────────────────────────────────────
-
-/** 简单确定性 hash（per-call 时用 cell 坐标） */
-function hash2D(x: number, y: number): number {
-  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
-  return s - Math.floor(s)
-}
-
-/**
- * 分形布朗运动：多层 hash 噪声叠加。
- *
- * P0-3 de-banding:每个 octave 的采样坐标按 θᵢ = i·37° 旋转。
- * 旧实现各 octave 共用同一 (x,y) 方向,频谱重叠 → 各 octave 的脊线/
- * 谷线沿同方向对齐,宏观上呈现方向性条带。per-octave 旋转打乱这种
- * 对齐,让 FBM 各层贡献的方向性互相抵消。
- */
-const FBM_OCTAVE_ANGLE_DEG = 37
-function fbm2D(x: number, y: number, octaves: number): number {
-  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
-  let v = 0
-  let amp = 1
-  let freq = 1
-  let max = 0
-  for (let i = 0; i < octaves; i++) {
-    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
-    const c = i === 0 ? 1 : Math.cos(i * theta)
-    const s = i === 0 ? 0 : Math.sin(i * theta)
-    const xr = x * c - y * s
-    const yr = x * s + y * c
-    v += amp * (hash2D(xr * freq, yr * freq) * 2 - 1)
-    max += amp
-    amp *= 0.5
-    freq *= 2
-  }
-  return v / max
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
+// hash2D / fbm2D / clamp 收敛至 engine/noise.ts 与 engine/math.ts
+// （audit-pass2-plan Phase C1/C2）。
 
 /**
  * 边缘 + 极地遮罩。
@@ -230,6 +201,11 @@ function clamp(v: number, min: number, max: number): number {
  *    替代硬编码 0.28。
  *  - 该函数**只跑一次**(在合同 reroll 循环之外),避免极地下沉被多次叠加。
  */
+// 极地衰减带宽度（与 heightmap-template-aware.ts::POLAR_BAND 保持一致）。
+// 注：两处独立声明而非共享 import，因为 template-aware 的 POLAR_BAND 是模块内常量，
+// 此处提出常量仅为消除本函数内的硬编码 0.12。修改时请同步两处。
+const POLAR_BAND = 0.12
+
 function softenMapEdges(cells: GridCells, width: number, height: number, polarMaskFloor = 0.28): void {
   for (let i = 0; i < cells.length; i++) {
     const x = cells.p[i * 2] / width
@@ -241,15 +217,17 @@ function softenMapEdges(cells: GridCells, width: number, height: number, polarMa
       cells.h[i] = lim(Math.round(cells.h[i] * shaped))
     }
 
-    const poleDist = Math.min(y, 1 - y)
-    if (poleDist >= 0.12) continue
-    const polarFactor = clamp(poleDist / 0.12, 0, 1)
-    // P0-2a: 低频 fbm (频率 1.5,~1.5 个特征横跨整图) 调制极地下沉强度。
-    // nv ∈ [-1,1],映射到 [0.65, 1.35] 的强度倍率 → 极地衰减带的"有效宽度"
-    // 在 x 方向起伏,衰减线从直线变成蜿蜒曲线。
-    // 注：传入 y 而非常数 0.5,让同一 x 列的不同 y cell 获得不同的 meander,
-    //     否则蜿蜒只沿 x 变化、所有行同步 → 仍是行对齐条带。
-    const meander = 1 + fbm2D(x * 1.5, y, 3) * 0.35
+    // 条带修复：边界位置扰动。
+    // 低频 fbm（~1.5 个特征横跨整图）计算一次，双重用途：
+    //   - bandWarp：小幅度(±0.04)偏移 poleDist → 边界从 y=0.12 水平直线变成蜿蜒曲线
+    //   - meander：大幅度(±0.35)调制 polarMaskFloor → 衰减深度起伏
+    // 此前 meander 只调深度不调边界，边界仍是直线 → 上下两片整齐水带。现在双管齐下。
+    const nv = fbmHash(x * 1.5, y, 3)
+    const bandWarp = nv * 0.04
+    const poleDist = Math.min(y, 1 - y) + bandWarp
+    if (poleDist >= POLAR_BAND) continue
+    const polarFactor = clamp(poleDist / POLAR_BAND, 0, 1)
+    const meander = 1 + nv * 0.35
     const floor = clamp(polarMaskFloor * meander, 0, 1)
     const shaped = floor + polarFactor * polarFactor * (1 - floor)
     cells.h[i] = lim(Math.round(cells.h[i] * shaped))
@@ -258,49 +236,10 @@ function softenMapEdges(cells: GridCells, width: number, height: number, polarMa
 
 /**
  * @deprecated Round 2 Stage 2 起被 `adjustSeaLevelTemplateAware`（在
- * `heightmap-template-aware.ts`）替代。保留为内部 helper 备用 — 行为与
- * Round 1.5 一致：step ±10 × 6 attempts = 60 max shift。
- *
- * 历史步幅：
- *   原版：       step ±12 × 4 attempts = 48 max shift
- *   Round 1：    step ±3 → ±6 × 4 attempts = 24 max shift（plan 阶段 6 要求限幅）
- *   Round 1.5：  step ±10 × 6 attempts = 60 max shift
- *
- * Round 1 退到 ±6 × 4 = 24 在 pangea / mediterranean 类高基线模板下
- * 完全拉不到目标 0.45 landRatio（实测 cc=1 pangea 0.658, cc=6
- * mediterranean 0.613）。Round 1.5 给到 60 max shift，2.4× 余量
- * 应对最坏基线。
- *
- * 落入容差（±0.025）即提前返回；末尾不再做 ±N 强制截断。
+ * `heightmap-template-aware.ts`）替代。
+ * 详见 audit-pass2-plan Phase B2：该函数零调用方，已删除。
+ * 历史步幅记录见 git blame（step ±10 × 6 attempts = 60 max shift）。
  */
-function adjustSeaLevel(cells: GridCells, targetLandRatio: number): void {
-  const heights = Array.from(cells.h)
-  if (heights.length === 0) return
-  heights.sort((a, b) => a - b)
-  const targetWater = clamp(Math.floor(cells.length * (1 - targetLandRatio)), 0, heights.length - 1)
-  const seaLevel = heights[targetWater]
-  let shift = SEA_LEVEL - seaLevel
-  if (shift === 0) return
-
-  let attempts = 0
-  while (shift !== 0 && attempts++ < 6) {
-    const step = clamp(shift, -10, 10)
-    for (let i = 0; i < cells.length; i++) {
-      cells.h[i] = Math.max(0, Math.min(100, cells.h[i] + step))
-    }
-
-    let land = 0
-    for (let i = 0; i < cells.length; i++) {
-      if (cells.h[i] >= SEA_LEVEL) land++
-    }
-    const landRatio = land / cells.length
-    if (Math.abs(landRatio - targetLandRatio) <= 0.025) return
-
-    const nextHeights = Array.from(cells.h).sort((a, b) => a - b)
-    const nextSeaLevel = nextHeights[targetWater]
-    shift = SEA_LEVEL - nextSeaLevel
-  }
-}
 
 function applyPlateBoundaryRelief(
   cells: GridCells,

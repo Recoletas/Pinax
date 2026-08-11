@@ -4,6 +4,11 @@ import { buildWorldbookContext } from './worldbookContextBuilder'
 
 const MAX_SUMMARY_CHARS = 520
 const MAX_ARRAY_ITEMS = 6
+// sourceRefs 上限须与 emergenceScheduler.MAX_SOURCE_REFS 对齐，
+// 否则 scheduler 输出 8 条 → LLM round-trip 后被这里截到 6 条，静默丢弃 2 条。
+// （audit-pass2-plan Phase A2；participants/factions/changes 仍用 MAX_ARRAY_ITEMS=6，
+//  与 scheduler 的 MAX_PARTICIPANTS=6 / MAX_FACTIONS=4 细粒度上限保持一致。）
+const MAX_SOURCE_REFS = 8
 const MAX_CHOICES = 3
 
 function normalizeText(value) {
@@ -72,7 +77,7 @@ function normalizeSourceRefs(rawRefs) {
       id: normalizeText(ref.id)
     }))
     .filter((ref) => ref.id)
-    .slice(0, MAX_ARRAY_ITEMS)
+    .slice(0, MAX_SOURCE_REFS)
 }
 
 /**

@@ -14,6 +14,11 @@ const HEARTBEAT_INTERVAL_MS = 30_000
 const HEARTBEAT_TIMEOUT_MS = 60_000
 const NARRATIVE_STATUS_PHASES = new Set([
   'deciding',
+  'requesting-step',
+  'finalizing',
+  'retrying-step',
+  'repairing-step',
+  'resource-refreshed',
   'executing-tools',
   'tools-complete',
   'ready',
@@ -349,6 +354,10 @@ function normalizeNarrativeStatus (input) {
     message: String(payload.message || '').replace(/\s+/g, ' ').trim().slice(0, 180),
     toolRounds: Math.max(0, Math.min(2, Number(payload.toolRounds) || 0)),
     totalCalls: Math.max(0, Math.min(6, Number(payload.totalCalls ?? payload.callCount) || 0)),
+    stepIndex: Math.max(0, Math.min(20, Number(payload.stepIndex) || 0)),
+    terminalMode: String(payload.terminalMode || '').trim().slice(0, 80),
+    protocol: String(payload.protocol || '').trim().slice(0, 40),
+    groundingPolicy: String(payload.groundingPolicy || '').trim().slice(0, 40),
     at: Number(payload.at) || Date.now()
   }
 }

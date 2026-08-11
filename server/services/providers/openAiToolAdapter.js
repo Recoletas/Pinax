@@ -17,11 +17,21 @@ function protocolError(code, message) {
 }
 
 function openAiMessage(message) {
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  const partText = parts
+    .filter((part) => part?.type === 'text' || part?.type === 'refusal')
+    .map((part) => text(part.text))
+    .filter(Boolean)
+    .join('\n')
+  const partCalls = parts
+    .filter((part) => part?.type === 'tool-call')
+    .map((part) => ({ id: part.toolCallId, name: part.toolName, arguments: part.input }))
+  const toolCalls = message.toolCalls?.length ? message.toolCalls : partCalls
   if (message.role === 'assistant' && message.toolCalls?.length) {
     return {
       role: 'assistant',
-      content: message.content || null,
-      tool_calls: message.toolCalls.map((call) => ({
+      content: message.content || partText || null,
+      tool_calls: toolCalls.map((call) => ({
         id: call.id,
         type: 'function',
         function: {
@@ -31,17 +41,32 @@ function openAiMessage(message) {
       }))
     }
   }
+  if (message.role === 'assistant' && toolCalls.length) {
+    return {
+      role: 'assistant',
+      content: message.content || partText || null,
+      tool_calls: toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.arguments) }
+      }))
+    }
+  }
   if (message.role === 'tool') {
     return {
       role: 'tool',
       tool_call_id: message.toolCallId,
-      content: message.content
+      content: message.content || JSON.stringify(message.parts?.find((part) => part?.type === 'tool-result')?.output || {})
     }
   }
-  return { role: message.role, content: message.content }
+  return { role: message.role, content: message.content || partText }
 }
 
 export function buildOpenAIToolRequest(request) {
+  const capabilities = request.options?.capabilities
+  const parallelToolCalls = capabilities
+    ? capabilities.parallelToolCalls === true
+    : request.options?.parallelToolCalls !== false
   return {
     model: request.provider.model,
     messages: request.messages.map(openAiMessage),
@@ -50,11 +75,12 @@ export function buildOpenAIToolRequest(request) {
       function: {
         name: tool.name,
         description: tool.description,
-        parameters: tool.inputSchema
+        parameters: tool.inputSchema,
+        ...(capabilities?.strictSchema === true ? { strict: true } : {})
       }
     })),
-    tool_choice: 'auto',
-    parallel_tool_calls: request.options?.parallelToolCalls !== false,
+    tool_choice: request.options?.toolChoice || 'auto',
+    ...(parallelToolCalls ? { parallel_tool_calls: true } : {}),
     max_tokens: request.options?.maxTokens || 1200,
     temperature: request.options?.temperature ?? 0.2
   }
@@ -124,6 +150,16 @@ export function parseOpenAIToolResponse(data, meta = {}) {
   }
   const responseText = extractText(message?.content) || extractAlternateText(message, data)
   const finishReason = text(choice?.finish_reason)
+  const refusal = text(message?.refusal || choice?.refusal)
+  if (!calls.length && refusal) {
+    protocolError('NARRATIVE_PROVIDER_REFUSAL', refusal.slice(0, 240))
+  }
+  if (!calls.length && !responseText && finishReason === 'content_filter') {
+    protocolError('NARRATIVE_PROVIDER_CONTENT_FILTER', '上游因内容安全策略拒绝返回正文')
+  }
+  if (!calls.length && !responseText && finishReason === 'length') {
+    protocolError('NARRATIVE_PROVIDER_OUTPUT_TRUNCATED', '上游在返回正文前达到输出长度上限')
+  }
   if (calls.length === 0 && finishReason === 'tool_calls') {
     protocolError('NARRATIVE_PROVIDER_TOOL_CALL_MISSING', '上游声明 tool_calls 但没有返回有效调用')
   }
@@ -150,6 +186,16 @@ export function parseOpenAIToolResponse(data, meta = {}) {
     kind: calls.length > 0 ? 'tool_calls' : 'final_ready',
     calls,
     text: responseText,
+    parts: [
+      ...(responseText ? [{ type: 'text', text: responseText }] : []),
+      ...(hasReasoning ? [{ type: 'reasoning', text: '' }] : []),
+      ...calls.map((call) => ({
+        type: 'tool-call',
+        toolCallId: call.id,
+        toolName: call.name,
+        input: call.arguments
+      }))
+    ],
     finishReason: finishReason || (calls.length > 0 ? 'tool_calls' : 'stop'),
     usage: normalizeGenerationUsage(data?.usage)
   }

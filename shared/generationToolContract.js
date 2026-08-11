@@ -184,6 +184,75 @@ function normalizeTools(rawTools) {
   return { valid: true, tools }
 }
 
+const GENERATION_PART_TYPES = new Set(['text', 'reasoning', 'refusal', 'tool-call', 'tool-result'])
+const GENERATION_OPAQUE_KEYS = new Set(['signature', 'redactedData', 'encryptedContent', 'reasoningContent'])
+
+function normalizeMessageParts(rawParts, index, role, allowedToolNames) {
+  if (rawParts == null) return { valid: true, parts: [] }
+  if (!Array.isArray(rawParts) || rawParts.length === 0 || rawParts.length > 12) {
+    return contractError('NARRATIVE_MESSAGE_PARTS_INVALID', `messages[${index}].parts 数量无效`)
+  }
+  const parts = []
+  for (let partIndex = 0; partIndex < rawParts.length; partIndex += 1) {
+    const rawPart = rawParts[partIndex]
+    const type = text(rawPart?.type)
+    if (!GENERATION_PART_TYPES.has(type)) {
+      return contractError('NARRATIVE_MESSAGE_PART_TYPE_INVALID', `messages[${index}].parts[${partIndex}] 类型不受支持`)
+    }
+    if (type === 'text' || type === 'refusal') {
+      const value = text(rawPart?.text)
+      if (!value) return contractError('NARRATIVE_MESSAGE_PART_EMPTY', `messages[${index}].parts[${partIndex}] 文本为空`)
+      parts.push({ type, text: value.slice(0, GENERATION_AGENT_LIMITS.maxMessageChars) })
+      continue
+    }
+    if (type === 'reasoning') {
+      const opaque = rawPart?.opaque && typeof rawPart.opaque === 'object' && !Array.isArray(rawPart.opaque)
+        ? Object.fromEntries(Object.entries(rawPart.opaque)
+          .filter(([key]) => GENERATION_OPAQUE_KEYS.has(key))
+          .slice(0, 8))
+        : undefined
+      parts.push({
+        type,
+        text: '',
+        ...(Object.keys(opaque || {}).length ? { opaque } : {})
+      })
+      continue
+    }
+    if (role === 'assistant' && type === 'tool-call') {
+      const validation = validateGenerationToolCall({
+        id: rawPart.toolCallId,
+        name: rawPart.toolName,
+        arguments: rawPart.input
+      })
+      if (!validation.valid) return contractError(validation.error.code, validation.error.message, { messageIndex: index })
+      if (!allowedToolNames.has(validation.call.name)) {
+        return contractError('GENERATION_TOOL_NOT_DECLARED', `messages[${index}] 调用了未声明工具：${validation.call.name}`)
+      }
+      parts.push({
+        type,
+        toolCallId: validation.call.id,
+        toolName: validation.call.name,
+        input: validation.call.arguments
+      })
+      continue
+    }
+    if (role === 'tool' && type === 'tool-result') {
+      const toolCallId = text(rawPart.toolCallId)
+      const toolName = text(rawPart.toolName)
+      const output = rawPart.output && typeof rawPart.output === 'object' && !Array.isArray(rawPart.output)
+        ? rawPart.output
+        : null
+      if (!toolCallId || !allowedToolNames.has(toolName) || !output) {
+        return contractError('NARRATIVE_TOOL_RESULT_INVALID', `messages[${index}].parts[${partIndex}] 工具结果无效`)
+      }
+      parts.push({ type, toolCallId, toolName, output, isError: rawPart.isError === true })
+      continue
+    }
+    return contractError('NARRATIVE_MESSAGE_PART_ROLE_INVALID', `messages[${index}].parts[${partIndex}] 与 role 不匹配`)
+  }
+  return { valid: true, parts }
+}
+
 function normalizeMessage(raw, index, allowedToolNames) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return contractError('NARRATIVE_MESSAGE_INVALID', `messages[${index}] 必须是对象`)
@@ -199,7 +268,16 @@ function normalizeMessage(raw, index, allowedToolNames) {
   if (content.length > maxChars) {
     return contractError('NARRATIVE_MESSAGE_TOO_LONG', `messages[${index}] 超过 ${maxChars} 字符`)
   }
-  const message = { role, content }
+  const partsResult = normalizeMessageParts(raw.parts, index, role, allowedToolNames)
+  if (!partsResult.valid) return partsResult
+  const message = {
+    role,
+    content,
+    ...(partsResult.parts.length ? { parts: partsResult.parts } : {})
+  }
+  const partToolCalls = partsResult.parts
+    .filter((part) => part.type === 'tool-call')
+    .map((part) => ({ id: part.toolCallId, name: part.toolName, arguments: part.input }))
   if (role === 'assistant' && Array.isArray(raw.toolCalls) && raw.toolCalls.length > 0) {
     const toolCalls = []
     for (const rawCall of raw.toolCalls) {
@@ -213,10 +291,13 @@ function normalizeMessage(raw, index, allowedToolNames) {
       toolCalls.push(validation.call)
     }
     message.toolCalls = toolCalls
+  } else if (role === 'assistant' && partToolCalls.length > 0) {
+    message.toolCalls = partToolCalls
   }
   if (role === 'tool') {
-    message.toolCallId = text(raw.toolCallId || raw.tool_call_id)
-    message.name = text(raw.name)
+    const resultPart = partsResult.parts.find((part) => part.type === 'tool-result')
+    message.toolCallId = text(raw.toolCallId || raw.tool_call_id || resultPart?.toolCallId)
+    message.name = text(raw.name || resultPart?.toolName)
     if (!message.toolCallId || !allowedToolNames.has(message.name)) {
       return contractError('NARRATIVE_TOOL_RESULT_INVALID', `messages[${index}] 缺少有效 toolCallId/name`)
     }
@@ -261,13 +342,35 @@ function normalizeOptions(raw = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1000 || timeoutMs > GENERATION_AGENT_LIMITS.maxTimeoutMs) {
     return contractError('NARRATIVE_TIMEOUT_INVALID', `timeoutMs 必须在 1000-${GENERATION_AGENT_LIMITS.maxTimeoutMs} 之间`)
   }
+  const rawCapabilities = raw?.capabilities
+  const capabilities = rawCapabilities && typeof rawCapabilities === 'object' && !Array.isArray(rawCapabilities)
+    ? {
+        ...(rawCapabilities.toolCalls != null ? { toolCalls: rawCapabilities.toolCalls === true } : {}),
+        ...(rawCapabilities.parallelToolCalls != null ? { parallelToolCalls: rawCapabilities.parallelToolCalls === true } : {}),
+        ...(rawCapabilities.strictSchema != null ? { strictSchema: rawCapabilities.strictSchema === true } : {}),
+        ...(rawCapabilities.reasoningRoundTrip ? { reasoningRoundTrip: text(rawCapabilities.reasoningRoundTrip) } : {})
+      }
+    : null
+  const toolChoice = raw?.toolChoice ?? raw?.tool_choice
+  if (toolChoice != null && !['auto', 'none', 'required'].includes(toolChoice)
+    && !(typeof toolChoice === 'object' && !Array.isArray(toolChoice))) {
+    return contractError('NARRATIVE_TOOL_CHOICE_INVALID', 'toolChoice 不是受支持的值')
+  }
+  const thinking = raw?.thinking
+  if (thinking != null && typeof thinking !== 'boolean'
+    && !(typeof thinking === 'object' && !Array.isArray(thinking))) {
+    return contractError('NARRATIVE_THINKING_INVALID', 'thinking 必须是布尔值或对象')
+  }
   return {
     valid: true,
     options: {
       maxTokens,
       temperature,
       timeoutMs: Math.floor(timeoutMs),
-      parallelToolCalls: raw?.parallelToolCalls !== false
+      parallelToolCalls: raw?.parallelToolCalls !== false,
+      ...(capabilities ? { capabilities } : {}),
+      ...(toolChoice != null ? { toolChoice } : {}),
+      ...(thinking != null ? { thinking } : {})
     }
   }
 }

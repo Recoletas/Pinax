@@ -54,6 +54,45 @@ function structuredSettingRef(sectionKey, fieldKey) {
   return `${sectionKey}.${fieldKey}`
 }
 
+// 用户编辑过的 structured entry 不再被 syncStructuredEntries 覆盖 name/type/injection。
+// 仅同步 keys（保持索引新鲜），其余字段保持用户最后一次编辑的结果。
+// 见 audit-pass2-plan Phase A1：避免 reload 后静默丢失用户对 PlaceCatalog 的编辑。
+const STRUCTURED_USER_TOUCHED_KEY = 'userTouched'
+
+// 判断一个 structured entry 当前字段是否仍为「默认填充形态」。
+// 用于 loadWorldbook 迁移：仍为默认形态 → 视作未被用户编辑（userTouched=false），
+// 允许后续同步继续刷新；已偏离默认 → 保守视作用户编辑过（userTouched=true）。
+function isStructuredEntryInDefaultShape(entry, field) {
+  if (!entry || !field) return false
+  if (entry.name !== field.label) return false
+  const inj = entry.injection || {}
+  const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
+  // 默认 injection 形态（与下方新建分支保持一致）
+  if (inj.mode !== (isConstant ? 'constant' : 'selective')) return false
+  if (inj.probability !== 100) return false
+  if (inj.cooldown !== 0) return false
+  if (inj.depth !== (isConstant ? 2 : 1)) return false
+  if (inj.excludeRecursion !== false) return false
+  if (inj.group !== field.defaultGroup) return false
+  return true
+}
+
+// 根据 ref（sectionKey.fieldKey）或 entry 自带的 sourceSection/sourceField/name
+// 在 SETTING_SECTIONS 中找到对应的 field 定义。找不到返回 null。
+function findStructuredFieldByRef(ref, entry) {
+  for (const section of SETTING_SECTIONS) {
+    for (const field of section.fields) {
+      const candidateRef = structuredSettingRef(section.key, field.key)
+      if (ref && candidateRef === ref) return field
+      if (
+        (entry?.metadata?.sourceSection === section.key || !entry?.metadata?.sourceSection) &&
+        (entry?.metadata?.sourceField === field.key || entry?.name === field.label)
+      ) return field
+    }
+  }
+  return null
+}
+
 function syncStructuredEntries(entries, structuredSettings) {
   const nextEntries = entries.map((entry) => ({
     ...entry,
@@ -78,13 +117,31 @@ function syncStructuredEntries(entries, structuredSettings) {
         continue
       }
 
-      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
       const baseEntry = existingIndex >= 0 ? nextEntries[existingIndex] : null
-      const contentChanged = !baseEntry || baseEntry.content !== content
-      const now = Date.now()
+      // A1 守卫：用户编辑过的 entry 只同步 keys（保持索引新鲜），不动 name/type/injection。
+      const userTouched = Boolean(baseEntry?.metadata?.[STRUCTURED_USER_TOUCHED_KEY])
       const characterKeys = field.entryType === 'character'
         ? parseCharacterCards(content).map((card) => card.name)
         : []
+
+      if (userTouched && baseEntry) {
+        // 仅刷新 keys 与 content（内容源仍在 structuredSettings），其余字段保留用户编辑。
+        const keysChanged = content !== baseEntry.content
+        nextEntries[existingIndex] = {
+          ...baseEntry,
+          keys: [...new Set([field.label, ...characterKeys, ...(baseEntry.keys || [])])],
+          content,
+          metadata: {
+            ...baseEntry.metadata,
+            updatedAt: keysChanged ? Date.now() : (baseEntry.metadata?.updatedAt || Date.now())
+          }
+        }
+        continue
+      }
+
+      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
+      const contentChanged = !baseEntry || baseEntry.content !== content
+      const now = Date.now()
       const entry = {
         ...(baseEntry || {}),
         id: baseEntry?.id || `entry_structured_${section.key}_${field.key}`,
@@ -152,10 +209,28 @@ function normalizeGeoHistory(raw) {
 function normalizeWorldbook(raw = {}) {
   const source = decodeStored(raw, {})
   const structuredSettings = normalizeStructuredSettings(source.structuredSettings)
-  const syncedEntries = syncStructuredEntries(
-    ensureArray(decodeStored(source.entries, [])),
-    structuredSettings
-  )
+  // A1.4 迁移守卫：旧存档的 structured entry 没有 userTouched 字段。
+  // 用 heuristic 判断当前字段是否仍为默认填充形态：
+  //   仍为默认 → userTouched=false（允许 sync 继续刷新，等价于旧行为）
+  //   已偏离默认 → userTouched=true（保守保护，视作用户编辑过）
+  const rawEntries = ensureArray(decodeStored(source.entries, [])).map((entry) => {
+    if (!entry || typeof entry !== 'object') return entry
+    const isStructured = entry.metadata?.importSource === 'structured-setting' ||
+      Boolean(entry.metadata?.structuredSettingRef)
+    if (!isStructured) return entry
+    if (Object.prototype.hasOwnProperty.call(entry.metadata || {}, STRUCTURED_USER_TOUCHED_KEY)) {
+      return entry // 已有明确标记，保留
+    }
+    const ref = entry.metadata?.structuredSettingRef ||
+      structuredSettingRef(entry.metadata?.sourceSection, entry.metadata?.sourceField)
+    const field = findStructuredFieldByRef(ref, entry)
+    const touched = field ? !isStructuredEntryInDefaultShape(entry, field) : true
+    return {
+      ...entry,
+      metadata: { ...entry.metadata, [STRUCTURED_USER_TOUCHED_KEY]: touched }
+    }
+  })
+  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings)
   const entries = syncedEntries.map((entry) => (
     entry?.type === 'location' && !isPlaceOverviewEntry(entry)
       ? createPlaceEntryPatch(entry, entry)
@@ -530,6 +605,15 @@ export const useWorldStore = defineStore('world', {
       if (entryIdx < 0) throw new Error('条目不存在')
 
       const entry = worldbook.entries[entryIdx]
+      // A1.3 守卫：structured entry 被用户编辑了「sync 会覆盖的字段」
+      // (name/type/injection) 时，标记 userTouched，避免后续 reload 被静默还原。
+      const isStructuredEntry = entry.metadata?.importSource === 'structured-setting' ||
+        Boolean(entry.metadata?.structuredSettingRef)
+      const touchedByUser = isStructuredEntry && (
+        Object.prototype.hasOwnProperty.call(updates, 'name') ||
+        Object.prototype.hasOwnProperty.call(updates, 'type') ||
+        Object.prototype.hasOwnProperty.call(updates, 'injection')
+      )
       const updatedBase = {
         ...entry,
         ...updates,
@@ -537,7 +621,8 @@ export const useWorldStore = defineStore('world', {
         metadata: {
           ...entry.metadata,
           ...(updates.metadata && typeof updates.metadata === 'object' ? updates.metadata : {}),
-          updatedAt: Date.now()
+          updatedAt: Date.now(),
+          ...(touchedByUser ? { [STRUCTURED_USER_TOUCHED_KEY]: true } : {})
         }
       }
 

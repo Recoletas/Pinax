@@ -70,12 +70,14 @@ import {
 } from '@/services/settingPlaceGeneration'
 import { extractTextContent } from '../../server/routes/chat'
 
+const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
+
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
     useRoute: () => ({ name: 'settings-worldbook', query: {} }),
-    useRouter: () => ({ push: vi.fn() }),
+    useRouter: () => ({ push: routerPush }),
     RouterLink: { template: '<a><slot /></a>' }
   }
 })
@@ -105,6 +107,7 @@ function mockWorldStoreLifecycle() {
 describe('WorldBookQuickImport 主页 (S17 简化)', () => {
   beforeEach(() => {
     localStorage.clear()
+    routerPush.mockClear()
   })
 
   it('S17-1: 渲染 1 屏 4 段 (SettingsSectionNav + Hero + MyWorldbooks + Preset + Extra)', async () => {
@@ -137,7 +140,7 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     expect(cta.exists()).toBe(true)
   })
 
-  it('S17-4: MyWorldbooks select 切换 → 调 worldStore.setActiveWorldbook', async () => {
+  it('S17-4: 当前世界书入口保留选择，并带该世界书进入体验', async () => {
     const worldStore = mockWorldStoreLifecycle()
     worldStore.worldbooksIndex = [
       { id: 'wb-1', name: '边境小镇', entryCount: 12 },
@@ -151,6 +154,14 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     expect(select.exists()).toBe(true)
     await select.setValue('wb-2')
     expect(worldStore.setActiveWorldbook).toHaveBeenCalledWith('wb-2')
+
+    worldStore.activeWorldbook = worldStore.worldbooksIndex[1]
+    await nextTick()
+    await wrapper.find('[data-test="hero-cta"]').trigger('click')
+    expect(routerPush).toHaveBeenLastCalledWith({
+      name: 'experience',
+      query: { worldbookId: 'wb-2' }
+    })
   })
 
   it('S17-5: 辅助入口突出结构化设定，保留导入与基调初始化', async () => {

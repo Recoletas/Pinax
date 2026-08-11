@@ -7,6 +7,10 @@ import {
   buildNarrativeGateStorage,
   summarizeScenarioMatrix
 } from './lib/narrative-gate-fixture.mjs'
+import {
+  createNarrativeAgentStreamEvent,
+  serializeNarrativeAgentSseEvent
+} from '../shared/narrativeAgentStreamContract.js'
 
 const METRICS_KEY = 'pinax_narrative_production_metrics_v1'
 
@@ -119,6 +123,17 @@ function controlledError(fault) {
   }
 }
 
+function controlledStreamError(fault, requestId = 'controlled-r7') {
+  const response = controlledError(fault)
+  return serializeNarrativeAgentSseEvent(createNarrativeAgentStreamEvent('error', {
+    ...response.body,
+    message: response.body.error
+  }, {
+    requestId,
+    seq: 1
+  }))
+}
+
 function redactDiagnostic(value, secrets = []) {
   let output = String(value || '')
   for (const secret of secrets) {
@@ -163,14 +178,18 @@ async function run() {
   })
 
   let activeFault = ''
-  await page.route('**/api/generate/agent-turn', async (route) => {
+  await page.route('**/api/generate/agent-step/stream', async (route) => {
     if (!activeFault) return route.continue()
-    const response = controlledError(activeFault)
+    const fault = activeFault
     activeFault = ''
     return route.fulfill({
-      status: response.status,
-      contentType: 'application/json',
-      body: JSON.stringify(response.body)
+      status: 200,
+      contentType: 'text/event-stream',
+      headers: {
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive'
+      },
+      body: controlledStreamError(fault, `controlled-${Date.now().toString(36)}`)
     })
   })
 
@@ -262,6 +281,7 @@ async function run() {
         totals[item.outcome] = (totals[item.outcome] || 0) + 1
         return totals
       }, {}),
+      protocol: 'agent-sse-v1',
       consoleErrors: [...new Set(consoleErrors)]
     }
     await Promise.all([

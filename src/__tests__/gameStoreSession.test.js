@@ -39,7 +39,7 @@ describe('gameStore sessions', () => {
     vi.mocked(runNarrativeAgentTurn).mockReset()
     vi.mocked(runNarrativeAgentTurn).mockResolvedValue({
       kind: 'final_ready',
-      text: 'READY',
+      text: '暮湾钟楼仍然沉默。',
       calls: [],
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
     })
@@ -67,6 +67,10 @@ describe('gameStore sessions', () => {
     expect(session.runtimeState.messages).toEqual([])
     expect(session.runtimeState.writingCharacter.name).toBe('User')
     expect(gameStore.currentSessionId).toBe(session.id)
+
+    const explicitlyScoped = gameStore.createSession({ title: '第二章', worldbookId: 'wb_beta' })
+    expect(explicitlyScoped.worldbookId).toBe('wb_beta')
+    expect(explicitlyScoped.worldId).toBe('wb_beta')
   })
 
   it('keeps the current place on extracted activity records', () => {
@@ -1014,18 +1018,19 @@ describe('gameStore sessions', () => {
           }
         }]
       })
-      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: '旧书店的铜钥匙在掌心发凉。', calls: [] })
 
     await gameStore.generateAIResponse()
 
-    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    expect(streamTask.taskType).toBe('narrative.continue')
-    expect(streamTask.baseMessages).toHaveLength(3)
-    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
-    expect(streamTask.baseMessages[0].content).toContain('旧书店在西街。')
-    expect(streamTask.baseMessages[0].content).toContain('玩家刚拿到铜钥匙。')
-    expect(streamTask.baseMessages[0].content).not.toContain('其他作品记忆')
-    expect(streamTask.baseMessages[0].content).not.toContain('待确认记忆')
+    const finalAgentRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
+    expect(finalAgentRequest.messages.map((message) => message.role)).toEqual([
+      'system', 'system', 'user', 'assistant', 'tool'
+    ])
+    const memoryToolResult = finalAgentRequest.messages.find((message) => message.role === 'tool')
+    expect(memoryToolResult.content).toContain('旧书店在西街。')
+    expect(memoryToolResult.content).toContain('玩家刚拿到铜钥匙。')
+    expect(memoryToolResult.content).not.toContain('其他作品记忆')
+    expect(memoryToolResult.content).not.toContain('待确认记忆')
     expect(gameStore.lastMemoryContext).toBe('')
     expect(gameStore.lastMemoryRecall.source).toBe('narrative-tools')
     expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
@@ -1088,12 +1093,12 @@ describe('gameStore sessions', () => {
           }
         ]
       })
-      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: '核对规则后，钟楼方向传来一声闷响。', calls: [] })
 
     await gameStore.generateAIResponse()
 
-    const sentMessages = vi.mocked(runGenerationStreamTask).mock.calls[0][0].baseMessages
-    expect(sentMessages).toHaveLength(3)
+    const sentMessages = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0].messages
+    expect(sentMessages.length).toBeGreaterThan(3)
     expect(sentMessages[0].role).toBe('system')
     expect(sentMessages[1].role).toBe('system')
     expect(sentMessages[1].content).toContain('本轮作者注释')
@@ -1147,8 +1152,8 @@ describe('gameStore sessions', () => {
       })
     ]))
     expect(gameStore.lastNarrativeContextAudit.tools).toMatchObject({
-      retainedResults: 1,
-      prunedResults: 1
+      retainedResults: 2,
+      prunedResults: 0
     })
     const productionMetrics = JSON.parse(
       localStorage.getItem(STORAGE_KEYS.NARRATIVE_PRODUCTION_METRICS)
@@ -1161,7 +1166,7 @@ describe('gameStore sessions', () => {
       tools: {
         rounds: 1,
         calls: 2,
-        evidenceCount: 1,
+        evidenceCount: 2,
         errorCount: 0
       },
       cleanup: {
@@ -1250,12 +1255,14 @@ describe('gameStore sessions', () => {
           }
         }]
       })
-      .mockResolvedValueOnce({ kind: 'final_ready', text: 'READY', calls: [] })
+      .mockResolvedValueOnce({ kind: 'final_ready', text: '铜钥匙在掌心留下了温度。', calls: [] })
 
     await gameStore.generateAIResponse()
 
-    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const finalEvidence = streamTask.baseMessages[0].content
+    const finalEvidence = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0].messages
+      .filter((message) => message.role === 'tool')
+      .map((message) => message.content)
+      .join('\n')
     expect(finalEvidence).toContain('旧书店在西街尽头')
     expect(finalEvidence).toContain('钟楼顶层拿到了铜钥匙')
     expect(finalEvidence).not.toContain('另一部作品')
@@ -1283,10 +1290,10 @@ describe('gameStore sessions', () => {
 
     await gameStore.generateAIResponse()
 
-    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    expect(streamTask.baseMessages).toHaveLength(3)
-    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
-    expect(streamTask.baseMessages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
+    const directRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
+    expect(directRequest.messages).toHaveLength(3)
+    expect(directRequest.messages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(directRequest.messages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
     const recall = gameStore.lastMemoryRecall
     expect(recall).not.toBeNull()
     expect(recall.includedCount).toBe(0)
@@ -1345,21 +1352,20 @@ describe('gameStore sessions', () => {
           }]
         }
       }
-      return { kind: 'final_ready', text: 'READY', calls: [] }
+      return { kind: 'final_ready', text: '暮湾的第一班蒸汽车准时进站。', calls: [] }
     })
 
     await gameStore.generateAIResponse()
 
-    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    expect(streamTask.taskType).toBe('narrative.init')
-    expect(streamTask.generationOptions.max_tokens).toBe(1500)
-    expect(streamTask.baseMessages).toHaveLength(3)
-    expect(streamTask.baseMessages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
-    expect(streamTask.baseMessages[0].content).toContain('开场困境')
-    expect(streamTask.baseMessages[0].content).toContain('暮湾主城')
-    expect(streamTask.baseMessages[0].content).toContain('银藤学院')
-    expect(streamTask.baseMessages[0].content).toContain('北境灰墙')
-    expect(streamTask.baseMessages[0].content).not.toContain('【世界书：边境王国 · 雾潮暮湾】')
+    const initRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
+    expect(initRequest.messages.length).toBeGreaterThan(3)
+    expect(initRequest.messages.slice(0, 3).map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    const initToolEvidence = initRequest.messages.filter((message) => message.role === 'tool').map((message) => message.content).join('\n')
+    expect(initToolEvidence).toContain('开场困境')
+    expect(initToolEvidence).toContain('暮湾主城')
+    expect(initToolEvidence).toContain('银藤学院')
+    expect(initToolEvidence).toContain('北境灰墙')
+    expect(initRequest.messages[0].content).not.toContain('【世界书：边境王国 · 雾潮暮湾】')
     expect(gameStore.lastWorldbookContext).toBeNull()
     expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
       toolRounds: 2,
@@ -1451,8 +1457,7 @@ describe('gameStore sessions', () => {
 
     await gameStore.sendAction('先去钟楼')
 
-    const streamTask = vi.mocked(runGenerationStreamTask).mock.calls[0][0]
-    const sentMessages = streamTask.baseMessages
+    const sentMessages = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0].messages
     expect(sentMessages).toBeDefined()
 
     const sources = gameStore.runtimeEvents.map((event) => event.source)

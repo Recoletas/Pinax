@@ -199,7 +199,8 @@ export function calculateTemperature(
   // noise=0 → 不加扰动（保留旧纯纬向行为）；>0 时温度基线 += (noise-0.5)*12*noise。
   // latitudeWeight<1 时把纬向基线按该权重向"赤道基线 × (0.5+noise)"混合，
   // 进一步弱化条带（赤道基线对纬度不敏感，混合后温度对 y 的依赖变弱）。
-  const climateNoise = clamp01(realism?.climate?.noise ?? 0.3)
+  // 默认 0.5（条带修复：原 0.3 扰动太小，盖不过纬度分段跳变）。
+  const climateNoise = clamp01(realism?.climate?.noise ?? 0.5)
   const latitudeWeight = clamp01(realism?.climate?.latitudeWeight ?? 1)
 
   // 基础温度
@@ -308,6 +309,24 @@ export function calculateTemperature(
 // ── 降水 ────────────────────────────────────────────
 
 /**
+ * 连续纬度降水基线（条带修复：替代原 lat<0.3/0.5/0.7 硬阶梯）。
+ *
+ * lat ∈ [0,1]，0=赤道 1=极地。对应真实气候带：
+ *   赤道雨带(ITCZ) → 副热带高压带(沙漠) → 温带西风带 → 极地干燥
+ *
+ * 5 个锚点用 smoothstep 连续插值，消除分段边界的降水跳变（原阶梯在
+ * lat=0.3 两侧从 ~80 跳到 ~37，是 biome 水平色带的主因）。
+ * 锚点值与原阶梯基线对齐（取中值），保证宏观干燥/湿润分布不变。
+ */
+function latitudePrecipBaseline(lat: number): number {
+  const smooth = (t: number) => t * t * (3 - 2 * t)
+  if (lat <= 0.3) return 85 - smooth(lat / 0.3) * 10        // 85→75（赤道雨带）
+  if (lat <= 0.5) return 75 - smooth((lat - 0.3) / 0.2) * 40 // 75→35（副热带干燥）
+  if (lat <= 0.7) return 35 + smooth((lat - 0.5) / 0.2) * 20 // 35→55（温带）
+  return 55 - smooth((lat - 0.7) / 0.3) * 35                 // 55→20（极地干燥）
+}
+
+/**
  * 计算降水量
  * 接入风场：迎风坡多雨，背风坡干燥（雨影效应）
  */
@@ -325,19 +344,17 @@ export function calculatePrecipitation(
 
   // P0 de-banding: 用相干噪声缩放纬向降水基线，让干/湿斑块在 x 方向蜿蜒，
   // 不再是整纬度行同雨量。noise=0 → 不缩放（保留旧 rng() 行为）。
-  const climateNoise = clamp01(realism?.climate?.noise ?? 0.3)
+  // 默认 0.5（条带修复：原 0.3 扰动太小，盖不过纬度分段跳变）。
+  const climateNoise = clamp01(realism?.climate?.noise ?? 0.5)
 
   for (let i = 0; i < n; i++) {
     const px = cells.p[i * 2]
     const y = cells.p[i * 2 + 1]
     const lat = Math.abs(y / height - 0.5) * 2
 
-    // 基础降水（纬向条带 + rng() 白噪声微扰）
-    let prec = 0
-    if (lat < 0.3) prec = 70 + rng() * 20
-    else if (lat < 0.5) prec = 25 + rng() * 25
-    else if (lat < 0.7) prec = 45 + rng() * 25
-    else prec = 15 + rng() * 15
+    // 连续纬度降水基线（条带修复：原 lat<0.3/0.5/0.7 硬阶梯 → 边界跳变 → biome 水平色带）。
+    // 改为 smoothstep 在锚点间连续插值，消除分段边界的视觉跳变 + 保留少量白噪声。
+    let prec = latitudePrecipBaseline(lat) + rng() * 10
 
     // P0-1: 相干噪声让干/湿斑块在空间上蜿蜒（不再纯纬向）。
     // (1 + (nv-0)*climateNoise)：nv∈[-1,1] → 缩放因子 ∈ [1-noise, 1+noise]。

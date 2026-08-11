@@ -1,5 +1,7 @@
 import { validateServerTaskType, isNewEnvelopePayload } from './agentTaskAllowlist.js'
 import { validateWritingReplacement } from '../../shared/writingReplacementContract.js'
+import { normalizeWritingCandidates } from '../../shared/writingCandidateContract.js'
+import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
 
 export const ADVISOR_TASK_MODES = {
   'writing.fix.selection': 'replace',
@@ -120,7 +122,7 @@ function parseSectionedAdvice(text) {
   }
 }
 
-function buildAdvisorResult(taskType, advice) {
+function buildAdvisorResult(taskType, advice, options = {}) {
   const parsed = parseAdvisorJson(advice)
   const sectioned = parseSectionedAdvice(advice)
   const base = parsed && typeof parsed === 'object'
@@ -138,6 +140,32 @@ function buildAdvisorResult(taskType, advice) {
     issues: Array.isArray(base.issues) ? base.issues : [],
     action: Array.isArray(base.action) ? base.action : [],
     stalePolicy: base.stalePolicy || 'require-same-base-text'
+  }
+
+  if (taskType === 'writing.fix.selection' || taskType === 'writing.fix.paragraph') {
+    result.candidates = normalizeWritingCandidates(base.candidates, {
+      text: result.replacement,
+      resultId: taskType,
+      baseText: result.baseText,
+      targetRange: result.targetRange,
+      blocks: options.targetBlocks,
+      multiBlock: Boolean(options.multiBlock),
+      lockedSegments: options.lockedSegments
+    })
+  }
+
+  if (taskType === 'writing.chapter.health' && options.chapterReview) {
+    result.findings = normalizeWritingReviewFindings(base.findings, {
+      blocks: options.reviewBlocks,
+      maxFindings: 8
+    })
+    result.issues = result.findings.map((finding) => ({
+      type: 'review-finding',
+      severity: finding.severity,
+      message: finding.body,
+      kind: finding.kind,
+      blockIds: finding.blockIds
+    }))
   }
 
   if (result.mode === 'replace') {
@@ -178,9 +206,9 @@ function formatAdvice(rawAdvice, result) {
   return result.summary || rawAdvice || '未获取到有效建议'
 }
 
-export function createAdvisorTaskResponse({ taskType, advice, target = null, meta = null } = {}) {
+export function createAdvisorTaskResponse({ taskType, advice, target = null, meta = null, options = {} } = {}) {
   const normalizedTaskType = normalizeAdvisorTaskType(taskType)
-  const result = attachTargetMetadata(buildAdvisorResult(normalizedTaskType, advice), target)
+  const result = attachTargetMetadata(buildAdvisorResult(normalizedTaskType, advice, options), target)
 
   return {
     taskType: normalizedTaskType,

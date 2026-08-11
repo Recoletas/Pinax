@@ -32,7 +32,7 @@
 
 - `polygon-clipping` —— 引擎里**没有**多边形布尔代码（grep 0 命中）
 - `unique-names-generator` —— `name-pool.ts` 是策划过的主题名池，不是过程化拼接
-- BFS 洪泛（`borderlands.ts` / `boundary-terrain.ts` / `features.ts` / `tectonic-data.ts` / `heightmap-templates.ts` / `wind.ts`） —— 分层遍历，层数是 BFS 本身的意义
+- BFS 洪泛（`borderlands.ts` / `features.ts` / `tectonic-data.ts` / `heightmap-templates.ts` / `wind.ts`） —— 分层遍历，层数是 BFS 本身的意义
 - `rivers.ts` 排水 —— 陡降法，不是最短路径
 - `climate.ts::SpatialGrid` —— 均匀格桶哈希，对此访问模式比 `d3-quadtree`/`rbush` 更快
 - `heightmap-templates.ts` 整体删除 —— 这是 2026-06-05 原始方案外的判断；06-08 后当前实现已恢复模板语义，删除不再适用

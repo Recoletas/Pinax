@@ -25,6 +25,16 @@ function routeResources(index, input) {
       { type: 'to', targetId: to.id },
       ...sharedRoutes.map((targetId) => ({ type: 'route', targetId }))
     ],
+    relationPath: [
+      { from: from.id, to: to.id, edgeType: 'route', depth: 1 },
+      ...sharedRoutes.map((targetId) => ({
+        from: from.id,
+        to: targetId,
+        edgeType: 'bound-route',
+        depth: 1
+      }))
+    ],
+    depth: 1,
     sourceRefs: [...new Set([...from.sourceRefs, ...to.sourceRefs])],
     matchReasons: ['shared-route']
   }]
@@ -56,7 +66,7 @@ export function executeGeoLookup(index, input, context = {}) {
       ? getNarrativeResources(index, 'geo', [context.currentPlaceId], input.filters)
       : []
   }
-  if (input.action === 'get') return getNarrativeResources(index, 'geo', input.ids, input.filters)
+  if (input.action === 'get') return getNarrativeResources(index, 'geo', input.ids, input.filters, input)
   if (input.action === 'route') return routeResources(index, input)
   const ids = input.ids.length > 0
     ? input.ids

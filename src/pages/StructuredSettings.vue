@@ -111,7 +111,8 @@ const placeEntityIndex = computed(() => buildPlaceEntityIndex(activeWorldbook.va
 const focusedPlace = computed(() => resolvePlaceEntity(placeEntityIndex.value, String(route.query.placeId || '')))
 
 function openExperience() {
-  router.push({ name: 'experience' })
+  const worldbookId = activeWorldbook.value?.id || ''
+  router.push({ name: 'experience', query: worldbookId ? { worldbookId } : {} })
 }
 
 function openFocusedPlaceMap(kind = '', itemId = '') {

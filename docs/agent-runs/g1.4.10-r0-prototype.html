@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1.4.10 R0 prototype — 1440 × 900 — 阅读几何 + speaker 验证</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #222222;
+    --ink-soft: #666666;
+    --ink-mute: #999999;
+    --ink-emphasis: #1f2937;
+    --line: #d6d6d6;
+    --probe-bg: #fafafa;
+    --probe-border: #e2e2e2;
+    --font: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    min-width: 1180px;
+    min-height: 100vh;
+  }
+  header.page-title {
+    height: 72px;
+    padding: 16px 24px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  header.page-title h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  header.page-title p {
+    margin: 6px 0 0;
+    color: var(--ink-soft);
+    font-size: 12px;
+  }
+  main.columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--bg);
+  }
+  .col {
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .col:last-child { border-bottom: none; }
+  .col header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 10px 24px 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--probe-bg);
+  }
+  .col header h2 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .col header .measure-label {
+    margin-top: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .col .scroll {
+    padding: 8px 24px 24px;
+  }
+  /* reading plane geometry */
+  .reading-plane {
+    --prose-size: 17.5px;
+    --leading: 1.78;
+    --measure: 60em;        /* overridden per column */
+    --block-gap: 0.72em;
+    font-size: var(--prose-size);
+    line-height: var(--leading);
+    color: var(--ink);
+  }
+  .reading-plane .sample {
+    margin: 0 auto var(--block-gap);
+    max-width: var(--measure);
+    padding: 8px 6px 0;
+  }
+  .reading-plane .sample + .sample {
+    border-top: 1px dotted var(--probe-border);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .reading-plane p {
+    margin: 0 0 calc(var(--block-gap) * 0.6);
+    text-indent: 2em;
+  }
+  .reading-plane p.no-indent { text-indent: 0; }
+  .reading-plane p.last { margin-bottom: 0; }
+  /* Variant A — Markdown ">" style, shown once at group start */
+  .speaker-line-a {
+    font-style: italic;
+    color: var(--ink-emphasis);
+    text-indent: 0;
+    margin: 0 0 calc(var(--block-gap) * 0.35);
+  }
+  .speaker-line-a::before {
+    content: "> ";
+    color: var(--ink-soft);
+    font-style: normal;
+  }
+  /* Variant B — small sans-serif label, sans-serif label above each line */
+  .speaker-label-b {
+    display: block;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+    margin: calc(var(--block-gap) * 0.4) 0 2px;
+    text-indent: 0;
+  }
+  /* Dialogue styling shared by both variants */
+  .rp-dialogue, .q {
+    font-style: italic;
+    font-weight: 500;
+  }
+  .rp-dialogue em, .q em {
+    font-style: italic;
+    color: var(--ink-emphasis);
+  }
+  /* Action and thought tags — emphasize by contrast, not by italics */
+  .rp-action {
+    color: var(--ink);
+    font-style: normal;
+  }
+  .rp-thought {
+    font-style: italic;
+    color: var(--ink-soft);
+  }
+  .rp-system {
+    color: var(--ink-emphasis);
+    background: var(--probe-bg);
+    border-left: 2px solid var(--ink-soft);
+    padding: 8px 10px;
+    margin: calc(var(--block-gap) * 0.6) 0;
+    text-indent: 0;
+    font-size: calc(var(--prose-size) - 1px);
+  }
+  .variant-sep {
+    height: 1px;
+    background: var(--line);
+    margin: 14px 8px 10px;
+    position: relative;
+  }
+  .variant-sep::after {
+    content: attr(data-label);
+    position: absolute;
+    top: -8px;
+    left: 8px;
+    padding: 0 6px;
+    background: var(--bg);
+    color: var(--ink-soft);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .meta-line {
+    font-size: 11px;
+    color: var(--ink-mute);
+    text-indent: 0;
+    margin: 4px 0 0;
+  }
+  .probe {
+    font-size: 10px;
+    color: var(--ink-mute);
+    text-indent: 0;
+    margin: 0 0 4px;
+  }
+</style>
+</head>
+<body>
+
+<header class="page-title">
+  <h1>G1.4.10 R0 prototype — 1440 × 900 — 阅读几何 + speaker 验证</h1>
+  <p>三档真实阅读几何 × 两套 speaker，从上到下；每档均使用完整 1440px 阅读面。</p>
+</header>
+
+<main class="columns">
+
+  <!-- Profile 1: compact 17px / 64em -->
+  <section class="col">
+    <header>
+      <h2>Compact</h2>
+      <div class="measure-label">17px · measure 64em · block-gap 0.45em</div>
+    </header>
+    <div class="scroll">
+      <div class="reading-plane" id="col-compact">
+        <!-- generated by script below -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Profile 2: standard 17.5px / 62em -->
+  <section class="col">
+    <header>
+      <h2>Standard</h2>
+      <div class="measure-label">17.5px · measure 62em · block-gap 0.72em</div>
+    </header>
+    <div class="scroll">
+      <div class="reading-plane" id="col-standard">
+        <!-- generated by script below -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Profile 3: relaxed 18px / 60em -->
+  <section class="col">
+    <header>
+      <h2>Relaxed</h2>
+      <div class="measure-label">18px · measure 60em · block-gap 0.96em</div>
+    </header>
+    <div class="scroll">
+      <div class="reading-plane" id="col-relaxed">
+        <!-- generated by script below -->
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ----------------------------------------------------------------
+// Embedded R0 sample fixtures (verbatim from
+// scripts/fixtures/experience-r0-samples.js, ESM markers preserved)
+// ----------------------------------------------------------------
+const sampleLongNarration = `:::narration
+雾港的潮声在凌晨两点从未真正停过。陆晨曦推开仓库侧门时，海雾正从门缝涌进，把地面的盐渍染成更深的灰。墙上那幅航海图已经泛黄，边角被海风卷起又压回去，反反复复留下数不清的折痕。她把煤油灯靠近图面，沿航道编号往下数，到第七条标记时停住了手指。
+
+灯芯在玻璃罩里抖了一下，远处灯塔的轮廓从雾中显现了一次，又被更浓的水汽吞掉。那座灯塔熄灭了十七年，按理不该有任何光源。陆晨曦没有立刻记录，只是把航海图往灯下挪了挪，让褪色的航线和窗外真实的海面叠在一起。
+
+她转身走回木桌前坐下，把铅笔削尖。仓库里只剩下潮声、煤油灯偶尔爆出的细微噼啪，以及她自己在航海图空白处落笔的极轻声响。整座雾港都还睡着，她要把那条信号再描一遍，才能等到天亮。`;
+
+const sampleDuoDialogue = `:::narration
+灯在两人之间晃了一下。
+:::dialogue|陆晨曦
+"你最近在港口见过沈家船队的人吗？"
+:::dialogue|沈砚
+"见过。昨夜两点他们靠岸，吃水线比以往深。"
+:::dialogue|陆晨曦
+"装的什么？"
+:::dialogue|沈砚
+沈砚没说话，只把一张压皱的单据递过来。灯下的墨迹还新，单据上写的目的地，是一座十七年前就该关闭的灯塔。
+:::dialogue|陆晨曦
+"调头吧，这趟不值得。"
+:::dialogue|沈砚
+沈砚摇头，把单据重新折好塞回大衣内袋：你不去，我去。`;
+
+const sampleNarrationWithDialogue = `:::narration
+仓库外的雾比昨夜更厚，潮声被压成了一道细线。陆晨曦没抬头，背对着门继续在航海图上描信号出现的弧线。脚步声在木地板上停住，她认得出那是沈砚的鞋跟。
+
+她把铅笔搁下，转过半个身子，等对方先开口。
+:::dialogue|陆晨曦
+"你来得正好。第七条航道的信号周期又短了三秒。"
+:::dialogue|陆晨曦
+"旧灯塔的人真醒了不成？"
+
+沈砚没接话，只是把大衣领口理了理，把一张被海水洇湿的纸条放到航海图边缘。
+:::narration
+纸条上的墨迹已经化开大半，只剩一个地名还能辨认——正是那座十七年前熄灭的灯塔。陆晨曦这才把灯拨亮一点。`;
+
+const sampleActionThought = `:::action|陆晨曦
+她把航海图从墙上取下，平铺在桌面上，用四只空墨水瓶压住四角。窗外雾港的钟楼敲了一下，凌晨两点。她俯身贴近纸面，睫毛几乎要碰到那些褪色的航线。
+:::thought|陆晨曦
+第七条航道的弧度比昨夜更圆，像有人重新校准过发射角。
+:::action|陆晨曦
+陆晨曦伸手去够铅笔，指尖在桌沿撞到沈砚留下的那张纸条。她没有立刻看，只是把纸条按原样翻到背面，继续在航海图空白处标下今晚的信号。
+:::thought|陆晨曦
+如果是误判，明天就能驳回；如果是真信号，整座雾港的旧账都得重新算。
+:::action|陆晨曦
+她直起腰，把航海图折好放进抽屉，连同纸条一起压到底层。`;
+
+const sampleRepeatedEntities = `:::narration
+雾港的夜被一场大雾压得很低。陆晨曦坐在雾港旧仓库里，面前摊开十七年前她亲手绘制的航海图。航海图的边角已经发脆，海水渍沿着图上的第三条航道洇出一片暗色。她把航海图推近灯火，又一次核对雾港近三日的潮汐记录。
+
+潮汐记录显示，雾港外海每隔九十分钟会出现一次与十七年前相同的回波。十七年前那次回波之后，雾港北端的灯塔便宣布关闭。如今航海图上原有的七条航线只剩两条还能辨认，陆晨曦在航海图旁另起一张新纸，把新航线一条条描下。
+
+她在航海图的注脚里写下："如果十七年前的信号是真的，今天雾港仍要重画这七条航线。"桌上摊着的旧航海图听不见她的声音，雾港外只有潮声和她落笔的沙沙声，一笔一笔，直到窗外雾港的天边泛白。`;
+
+const sampleSystemMechanism = `:::dialogue|陆晨曦
+"它今晚还会来一次。"
+:::narration
+沈砚把航海图往灯下又推了几寸，但她的视线没有跟上。她在等陆晨曦先把话说完。
+:::system
+【压缩归档触发】本幕已累计 12 轮对话，自动压缩上一次仓库口供摘要（保留地点：雾港；时间锚点：十七年前；关键物证：航海图）并写入雾港档案卷三。如需保留完整口供，请在 5 分钟内点击「暂停压缩」。
+:::dialogue|陆晨曦
+"先记下来，我还要再对一次信号。"`;
+
+const SAMPLES = [
+  { id: 'long-narration',     label: 'Sample 1 · 长叙述',         text: sampleLongNarration },
+  { id: 'duo-dialogue',       label: 'Sample 2 · 双人对白',       text: sampleDuoDialogue },
+  { id: 'narration-dialogue', label: 'Sample 3 · 叙述夹对白',     text: sampleNarrationWithDialogue },
+  { id: 'action-thought',     label: 'Sample 4 · 动作 / 心理',    text: sampleActionThought },
+  { id: 'repeated-entities',  label: 'Sample 5 · 重复地点 / 时间', text: sampleRepeatedEntities },
+  { id: 'system-mechanism',   label: 'Sample 6 · 系统 / 机制',     text: sampleSystemMechanism }
+];
+
+// ----------------------------------------------------------------
+// Markers recognised by src/services/narrativePresentation.js
+//   :::narration        (default prose)
+//   :::action|<name>    (action line)
+//   :::dialogue|<name>  (dialogue line)
+//   :::thought|<name>   (thought line)
+//   :::system           (system line)
+// ----------------------------------------------------------------
+function parseMarkers(text) {
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let current = null;
+  function flush() {
+    if (current && current.body.trim().length) {
+      blocks.push(current);
+    }
+    current = null;
+  }
+  const markerRe = /^:::(narration|action|dialogue|thought|system)(?:\|([^\n]+))?$/;
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    const m = line.match(markerRe);
+    if (m) {
+      flush();
+      current = {
+        kind: m[1],
+        speaker: m[2] ? m[2].trim() : null,
+        body: ''
+      };
+    } else if (current) {
+      current.body += (current.body ? '\n' : '') + raw;
+    } else if (line.length) {
+      // implicit narration
+      current = { kind: 'narration', speaker: null, body: raw };
+    }
+  }
+  flush();
+  return blocks;
+}
+
+// Group consecutive blocks by speaker (kind === dialogue|action|thought)
+// so a speaker label is emitted only at the *group start* (variant A)
+// and only once per group in variant B.
+function groupBySpeaker(blocks) {
+  const groups = [];
+  let cur = null;
+  for (const b of blocks) {
+    const speakered = b.kind === 'dialogue' || b.kind === 'action' || b.kind === 'thought';
+    if (speakered && cur && cur.speaker === b.speaker && cur.kind === b.kind) {
+      cur.blocks.push(b);
+    } else {
+      if (cur) groups.push(cur);
+      cur = speakered
+        ? { speaker: b.speaker, kind: b.kind, blocks: [b] }
+        : { speaker: null, kind: b.kind, blocks: [b] };
+    }
+  }
+  if (cur) groups.push(cur);
+  return groups;
+}
+
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Render a body line: detect quoted segments and wrap them in <em class="q">.
+function renderBody(body) {
+  // collapse internal blank lines
+  const paras = body.split(/\n+/).map(p => p.trim()).filter(Boolean);
+  if (paras.length === 0) return '';
+  return paras.map(p => {
+    const html = escapeHtml(p).replace(/"([^"]+)"/g, '<em class="q">"$1"</em>');
+    return `<p class="no-indent">${html}</p>`;
+  }).join('');
+}
+
+function renderSample(sample, variant /* 'A' | 'B' */) {
+  const blocks = parseMarkers(sample.text);
+  const groups = groupBySpeaker(blocks);
+  const parts = [];
+  parts.push(`<div class="sample" data-sample="${sample.id}">`);
+  parts.push(`<div class="probe">${escapeHtml(sample.label)} · variant ${variant}</div>`);
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const speaker = g.speaker;
+    if (speaker) {
+      if (variant === 'A') {
+        parts.push(`<p class="speaker-line-a no-indent">${escapeHtml(speaker)}</p>`);
+      } else {
+        parts.push(`<span class="speaker-label-b">${escapeHtml(speaker)}</span>`);
+      }
+    }
+    for (const b of g.blocks) {
+      const klass =
+        b.kind === 'dialogue' ? 'rp-dialogue' :
+        b.kind === 'action'   ? 'rp-action'   :
+        b.kind === 'thought'  ? 'rp-thought'  :
+        b.kind === 'system'   ? 'rp-system'   : '';
+      if (klass === 'rp-system') {
+        // render system lines as a single div, body may contain line breaks
+        parts.push(`<div class="${klass}">${escapeHtml(b.body).replace(/\n/g, '<br>')}</div>`);
+      } else {
+        parts.push(`<div class="${klass}">${renderBody(b.body)}</div>`);
+      }
+    }
+  }
+  parts.push(`</div>`);
+  return parts.join('');
+}
+
+function renderColumn(rootId, proseSize, measure, blockGap, samples) {
+  const root = document.getElementById(rootId);
+  root.style.setProperty('--prose-size', proseSize);
+  root.style.setProperty('--measure', measure);
+  root.style.setProperty('--block-gap', blockGap);
+  const out = [];
+  samples.forEach((s, idx) => {
+    out.push(renderSample(s, 'A'));
+    // split between variant A and B with a hairline + label
+    out.push(`<div class="variant-sep" data-label="Variant A → B"></div>`);
+    out.push(renderSample(s, 'B'));
+    if (idx < samples.length - 1) {
+      out.push(`<hr style="border:none;border-top:1px dashed var(--probe-border);margin:14px 8px;">`);
+    }
+  });
+  // final meta line: confirms geometry used
+  out.push(`<p class="meta-line">column ${rootId} · font-size=${proseSize} · measure=${measure} · block-gap=${blockGap} · line-height 1.78</p>`);
+  root.innerHTML = out.join('');
+}
+
+renderColumn('col-compact',  '17px',   '64em', '0.45em', SAMPLES);
+renderColumn('col-standard', '17.5px', '62em', '0.72em', SAMPLES);
+renderColumn('col-relaxed',  '18px',   '60em', '0.96em', SAMPLES);
+</script>
+
+</body>
+</html>

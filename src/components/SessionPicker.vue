@@ -2,13 +2,27 @@
   <div class="session-picker">
     <div class="picker-header">
       <span class="picker-title">选择会话</span>
-      <button class="new-btn" :disabled="busy" @click="handleCreate">
+      <button class="new-btn" :disabled="busy || !selectedWorldbookId" @click="handleCreate">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v14M5 12h14"/>
         </svg>
         新建会话
       </button>
     </div>
+
+    <label class="worldbook-target">
+      <span>新会话世界书</span>
+      <select
+        :value="selectedWorldbookId"
+        :disabled="busy || worldbooks.length === 0"
+        @change="emit('update:selected-worldbook-id', $event.target.value)"
+      >
+        <option value="">选择世界书</option>
+        <option v-for="worldbook in worldbooks" :key="worldbook.id" :value="worldbook.id">
+          {{ worldbook.name || '未命名世界书' }}
+        </option>
+      </select>
+    </label>
 
     <div class="session-list" v-if="sessions.length > 0">
       <div
@@ -36,7 +50,7 @@
 
     <div v-else class="empty-state">
       <p>暂无保存的会话</p>
-      <button class="new-btn" :disabled="busy" @click="handleCreate">创建第一个会话</button>
+      <button class="new-btn" :disabled="busy || !selectedWorldbookId" @click="handleCreate">创建第一个会话</button>
     </div>
   </div>
 </template>
@@ -46,9 +60,11 @@ import { computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
-const emit = defineEmits(['select', 'create', 'delete'])
+const emit = defineEmits(['select', 'create', 'delete', 'update:selected-worldbook-id'])
 const props = defineProps({
   busy: { type: Boolean, default: false },
+  worldbooks: { type: Array, default: () => [] },
+  selectedWorldbookId: { type: String, default: '' }
 })
 
 const sessions = computed(() => gameStore.sessions || [])
@@ -111,6 +127,32 @@ function handleDelete(session) {
   flex-shrink: 0;
 }
 
+.worldbook-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.worldbook-target select {
+  min-width: 180px;
+  max-width: min(360px, 60vw);
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.worldbook-target select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .picker-title {
   font-size: 18px;
   font-weight: 600;
@@ -135,6 +177,11 @@ function handleDelete(session) {
 
 .new-btn:hover {
   background: var(--accent-hover);
+}
+
+.new-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .session-list {
@@ -244,5 +291,27 @@ function handleDelete(session) {
 .empty-state p {
   font-size: 15px;
   margin-bottom: 20px;
+}
+
+@media (max-width: 640px) {
+  .session-picker {
+    padding: 18px;
+  }
+
+  .picker-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .worldbook-target {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .worldbook-target select {
+    max-width: none;
+    width: 100%;
+  }
 }
 </style>

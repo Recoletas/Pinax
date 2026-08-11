@@ -89,9 +89,9 @@ Hill 1 80-85 20-30 40-60
     Hill 6-7 15-30 25-75 15-85
     Multiply 0.6 land 0 0
     Hill 8-10 5-10 15-85 20-80
-    Range 1-2 30-60 5-15 25-75
-    Range 1-2 30-60 80-95 25-75
-    Range 0-3 30-60 80-90 20-80
+    Range 1-2 30-60 5-15 15-85
+    Range 1-2 30-60 80-95 15-85
+    Range 0-3 30-60 80-90 15-85
     Strait 2 vertical 0 0
     Strait 1 vertical 0 0
 Smooth 3 0 0 0
@@ -214,11 +214,11 @@ Smooth 3 0 0 0`,
     template: `Range 3 70 15-85 20-80
 Hill 2-3 50-70 15-45 20-80
 Hill 2-3 50-70 65-85 20-80
-Hill 4-6 20-25 15-85 20-80
+Hill 4-6 20-25 15-85 15-85
 Multiply 0.5 land 0 0
 Smooth 2 0 0 0
-Range 3-4 20-50 15-35 20-45
-Range 2-4 20-50 65-85 45-80
+Range 3-4 20-50 15-35 15-85
+Range 2-4 20-50 65-85 15-85
 Strait 3-7 vertical 0 0
 Trough 6-8 20-50 15-85 45-65
 Pit 5-6 20-30 10-90 10-90`,
@@ -364,6 +364,8 @@ export function pickTemplate(
 //     azgaar/Fantasy-Map-Generator/src/modules/heightmap-generator.ts） ──
 
 import type { GridCells, HeightmapTemplate } from './types'
+import { hash2D, valueNoise2D, fbmValue, smooth01, lerp } from './noise'
+import { clamp } from './math'
 
 /** 解析 "1-2" → rand(1, 2) 或 "5" → 5。Azgaar 模板里的所有数字参数都走这个 */
 function getNumberInRange(r: string, rng: () => number): number {
@@ -386,52 +388,9 @@ function lim(v: number): number {
   return Math.max(0, Math.min(100, v))
 }
 
-function hash2D(x: number, y: number): number {
-  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
-  return s - Math.floor(s)
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
-
-function smooth01(t: number): number {
-  return t * t * (3 - 2 * t)
-}
-
-function valueNoise2D(x: number, y: number): number {
-  const x0 = Math.floor(x)
-  const y0 = Math.floor(y)
-  const tx = smooth01(x - x0)
-  const ty = smooth01(y - y0)
-  const a = hash2D(x0, y0)
-  const b = hash2D(x0 + 1, y0)
-  const c = hash2D(x0, y0 + 1)
-  const d = hash2D(x0 + 1, y0 + 1)
-  return lerp(lerp(a, b, tx), lerp(c, d, tx), ty) * 2 - 1
-}
-
-/** P0-3 de-banding: per-octave 旋转（见 heightmap.ts::fbm2D）。 */
-const FBM_OCTAVE_ANGLE_DEG = 37
-function fbm2D(x: number, y: number, octaves: number): number {
-  const theta = FBM_OCTAVE_ANGLE_DEG * Math.PI / 180
-  let v = 0
-  let amp = 1
-  let freq = 1
-  let max = 0
-  for (let i = 0; i < octaves; i++) {
-    // 旋转 iθ：xr = x·cos(iθ) - y·sin(iθ)；yr = x·sin(iθ) + y·cos(iθ)。
-    const c = i === 0 ? 1 : Math.cos(i * theta)
-    const s = i === 0 ? 0 : Math.sin(i * theta)
-    const xr = x * c - y * s
-    const yr = x * s + y * c
-    v += amp * valueNoise2D(xr * freq, yr * freq)
-    max += amp
-    amp *= 0.5
-    freq *= 2
-  }
-  return v / max
-}
+// hash2D / lerp / smooth01 / valueNoise2D / fbm2D(value 变体) 收敛至
+// engine/noise.ts（audit-pass2-plan Phase C2）。本文件 fbm 调用是 value 变体 → fbmValue。
+// lim 暂保留（等价 clamp(v,0,100)，见 Phase C3 暂不动）。
 
 /** 解析 "15-85" → 15% 到 85% of length 的随机点 */
 function getPointInRange(range: string, length: number, rng: () => number): number {
@@ -457,15 +416,12 @@ function getRangeSpan(range: string): number {
  * Round 2 修复:原 `wrapCoord` 是 toroidal 折回([0, length) 区间),
  * 会把画布一侧的偏移绕到另一侧,造出不自然跨边界陆块。改为
  * clamp 边界,边缘形状被截断而非扭曲。
+ * 直接复用 engine/math.ts::clamp（原 clampCoord 与 clamp 同语义）。
  */
 function wrapCoord(v: number, length: number): number {
-  return clampCoord(v, 0, length)
+  return clamp(v, 0, length)
 }
 
-/** clamp [lo, hi] 区间。供反轴向偏移的端点修正。 */
-function clampCoord(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v))
-}
 
 /** Voronoi 网格下找离 (x, y) 最近的 cellId（Azgaar 原版是规则格 → 直接 floor） */
 function findGridCell(x: number, y: number, cells: GridCells): number {
@@ -679,16 +635,16 @@ function addRange(
       // 距离在平移 + clamp 前算(unclamped 空间),保持 Azgaar 原版
       // distance 约束语义;clamp 后可能 start/end 更近,但那是不可避免
       // 的边界截断。
-      const cx0 = clampCoord(startX, 0, width)
-      const cy0 = clampCoord(startY, 0, height)
-      const cx1 = clampCoord(endX, 0, width)
-      const cy1 = clampCoord(endY, 0, height)
+      const cx0 = clamp(startX, 0, width)
+      const cy0 = clamp(startY, 0, height)
+      const cx1 = clamp(endX, 0, width)
+      const cy1 = clamp(endY, 0, height)
       dist = Math.abs(cy1 - cy0) + Math.abs(cx1 - cx0)
       limit++
     } while ((dist < width / 8 || dist > width / 3) && limit < 50)
     // 边界 clamp(不再 toroidal wrap,避免不自然跨边界陆块)
-    endX = clampCoord(endX, 0, width)
-    endY = clampCoord(endY, 0, height)
+    endX = clamp(endX, 0, width)
+    endY = clamp(endY, 0, height)
 
     const startCellId = findGridCell(startX, startY, cells)
     const endCellId = findGridCell(endX, endY, cells)
@@ -798,15 +754,15 @@ function addTrough(
     do {
       endX = rng() * width * 0.8 + width * 0.1 + dx
       endY = rng() * height * 0.7 + height * 0.15 + dy
-      const cx0 = clampCoord(startX, 0, width)
-      const cy0 = clampCoord(startY, 0, height)
-      const cx1 = clampCoord(endX, 0, width)
-      const cy1 = clampCoord(endY, 0, height)
+      const cx0 = clamp(startX, 0, width)
+      const cy0 = clamp(startY, 0, height)
+      const cx1 = clamp(endX, 0, width)
+      const cy1 = clamp(endY, 0, height)
       dist = Math.abs(cy1 - cy0) + Math.abs(cx1 - cx0)
       limit++
     } while ((dist < width / 8 || dist > width / 2) && limit < 50)
-    endX = clampCoord(endX, 0, width)
-    endY = clampCoord(endY, 0, height)
+    endX = clamp(endX, 0, width)
+    endY = clamp(endY, 0, height)
 
     const startCellId = findGridCell(startX, startY, cells)
     const endCellId = findGridCell(endX, endY, cells)
@@ -988,7 +944,7 @@ function templateMask(
     const y = cells.p[i * 2 + 1]
     const nx = (2 * x) / width - 1
     const ny = (2 * y) / height - 1
-    const warp = fbm2D(x * 0.0037 + power * 17.17, y * 0.0037 - power * 9.91, 3) * 0.16
+    const warp = fbmValue(x * 0.0037 + power * 17.17, y * 0.0037 - power * 9.91, 3) * 0.16
     let distance = 1 - Math.min(1.25, Math.hypot(nx, ny) / Math.SQRT2 + warp)
     distance = Math.max(0, distance)
     if (power < 0) distance = 1 - distance

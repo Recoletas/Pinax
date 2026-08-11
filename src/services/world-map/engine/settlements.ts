@@ -18,6 +18,7 @@
 
 import type { GridCells, Feature, BiomeDef } from './types'
 import { BIOMES } from './climate'
+import { clamp } from './math'
 
 const SEA_LEVEL = 20
 const POLAR_NORTH = 0.85
@@ -27,9 +28,7 @@ const DESERT_BIOMES = new Set<number>([1, 2]) // 热带沙漠、寒带荒漠
 const HOSTILE_BIOMES = new Set<number>([9, 10, 11]) // 针叶林、苔原、冰川
 const HABITABLE_BIOMES = new Set<number>([3, 4, 5, 6, 7, 8]) // 草原~雨林
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v))
-}
+// clamp 收敛至 engine/math.ts（audit-pass2-plan Phase C1）。
 
 /** 0..1:BIOMES[id].habitability/100。biome 缺失返回 0。 */
 export function habitabilityOfBiome(biomeId: number): number {

@@ -103,7 +103,7 @@ function getTaskInstruction(taskType) {
   return instruction
 }
 
-function getTaskOutputInstruction(taskType) {
+function getTaskOutputInstruction(taskType, options = {}) {
   if (taskType === 'writing.continue.light') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
@@ -119,6 +119,40 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
   if (taskType === 'writing.fix.selection'
     || taskType === 'writing.fix.paragraph'
     || taskType === 'materials.refine') {
+    const candidateCount = Math.max(1, Math.min(3, Math.floor(Number(options.candidateCount) || 1)))
+    if (candidateCount > 1 && taskType !== 'materials.refine') {
+      if (options.multiBlock) {
+        return `输出要求：只输出一个 JSON 对象，不要 Markdown、分析或思考过程。格式：
+{
+  "task": "${taskType}",
+  "mode": "candidates",
+  "summary": "一句话",
+  "candidates": [
+    {
+      "id": "candidate-1",
+      "label": "克制",
+      "rationale": "一句话说明取舍",
+      "patches": [
+        { "blockId": "必须与目标块完全一致", "replacement": "完整替换该块选中片段" }
+      ]
+    }
+  ],
+  "issues": []
+}
+最多返回 ${candidateCount} 个候选。每个候选必须对上下文列出的每个目标块各返回一条 patch，blockId 必须逐字一致且顺序一致；不得遗漏、合并、拆分或新增目标块。replacement 只能是对应块选中片段的完整替换文本，不得包含标题、序号、Markdown、解释或思考过程。不得改写未列出的文字，不得编造上下文没有的事实。任一目标块无法处理时，不要返回半套 patches。`
+      }
+      return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
+{
+  "task": "${taskType}",
+  "mode": "candidates",
+  "summary": "一句话",
+  "candidates": [
+    { "id": "candidate-1", "label": "克制", "replacement": "完整替换文本", "rationale": "一句话说明取舍" }
+  ],
+  "issues": []
+}
+最多返回 ${candidateCount} 个候选。每个 replacement 都必须是完整替换文本，不能包含分析、标题、序号或 Markdown；候选之间只改变表达策略，不编造上下文没有的事实。必须直接处理上下文中标为“必须处理”的原文。`
+    }
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
   "task": "${taskType}",
@@ -128,6 +162,28 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
   "issues": []
 }
 必须直接处理上下文中标为“必须处理”的原文。不得索要选区、段落或其他已提供内容；无法完成时也不得返回占位替换文本。`
+  }
+
+  if (taskType === 'writing.chapter.health' && options.chapterReview) {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown、分析或思考过程。格式：
+{
+  "task": "writing.chapter.health",
+  "mode": "review",
+  "summary": "一句话总结本批次",
+  "findings": [
+    {
+      "id": "finding-1",
+      "kind": "重复|衔接|POV|角色连续性|时间|设定冲突|节奏|语言",
+      "severity": "low|medium|high",
+      "body": "指出具体问题以及为什么影响当前文本",
+      "start": { "blockId": "目标块 ID", "offset": 0 },
+      "end": { "blockId": "目标块 ID", "offset": 8 },
+      "exact": "必须与 start/end 范围逐字一致的原文"
+    }
+  ],
+  "issues": []
+}
+只审查任务选项中列出的目标块。每条 finding 必须有真实 blockId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。只返回重复、衔接、视角、角色连续性、时间、设定冲突、节奏或语言问题，不要泛泛评价“更生动”“加强描写”。不得返回 replacement、action，不得修改正文，不得引用目标块之外的内容。最多返回 8 条，并按实际严重度排序。`
   }
 
   if (taskType === 'materials.classify') {
@@ -333,7 +389,7 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
   return [
     `任务类型：${taskType}`,
     getTaskInstruction(taskType),
-    getTaskOutputInstruction(taskType),
+    getTaskOutputInstruction(taskType, promptOptions),
     targetText ? `目标文本/范围：\n${targetText}` : '',
     optionsText ? `任务选项：\n${optionsText}` : '',
     `当前创作上下文：\n${contextText}`,

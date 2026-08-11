@@ -4,7 +4,7 @@ export const CONTEXT_PREVIEW_LIMIT = 120
 export const CONTEXT_LEDGER_PART_LIMIT = 40
 
 const VALID_SOURCES = new Set(['worldbook', 'runtime', 'memory', 'chat', 'generation'])
-const VALID_PARTITIONS = new Set(['kernel', 'tool', 'summary', 'fallback'])
+const VALID_PARTITIONS = new Set(['kernel', 'tool', 'summary', 'transcript', 'fallback'])
 
 function normalizeText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -45,6 +45,7 @@ export function createContextLedger({
     sessionId: normalizeText(sessionId),
     worldbookId: normalizeText(worldbookId),
     createdAt: Number.isFinite(Number(createdAt)) ? Number(createdAt) : Date.now(),
+    agent: null,
     parts: []
   }
 }

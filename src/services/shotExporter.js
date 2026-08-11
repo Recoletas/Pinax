@@ -15,6 +15,7 @@ import {
   inferToneFromEmotion
 } from '../types/director'
 import { getAssetKindLabel } from './narrativeAssets'
+import { getChapterMarkdown } from './writing/writingDocumentSchema.js'
 
 /**
  * @typedef {Object} Shot
@@ -213,12 +214,14 @@ export function extractShotsFromNarrativeAssets({ assets, sourceLabel = '' }) {
 /**
  * 从章节纲要或正文提取分镜列表
  * @param {object} options - 选项
+ * @param {object} [options.chapter] - 章节对象；存在结构化文档时优先读取其 Markdown 投影
  * @param {string} [options.chapterTitle] - 章节标题
  * @param {string} [options.chapterContent] - 章节正文
  * @param {Array} [options.outlineItems] - 章节纲要项
  * @returns {Shot[]} 分镜列表
  */
-export function extractShotsFromChapter({ chapterTitle = '', chapterContent = '', outlineItems = [] } = {}) {
+export function extractShotsFromChapter({ chapter = null, chapterTitle = '', chapterContent = '', outlineItems = [] } = {}) {
+  const resolvedChapterContent = chapter ? getChapterMarkdown(chapter) : String(chapterContent || '')
   const normalizedOutline = Array.isArray(outlineItems)
     ? outlineItems.filter((item) => String(item?.content || '').trim()).slice(0, 12)
     : []
@@ -230,7 +233,7 @@ export function extractShotsFromChapter({ chapterTitle = '', chapterContent = ''
       content: item.content || '',
       assetKind: item.assetKind || 'chapter'
     }))
-    : splitChapterContentIntoBlocks(chapterContent).slice(0, 12).map((content, index) => ({
+    : splitChapterContentIntoBlocks(resolvedChapterContent).slice(0, 12).map((content, index) => ({
       id: `chapter_${index + 1}`,
       title: summarizeShotTitle(content, chapterTitle || `章节片段 ${index + 1}`),
       content,

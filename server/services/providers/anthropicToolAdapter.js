@@ -18,14 +18,23 @@ function protocolError(code, message) {
 
 function assistantContent(message) {
   const content = []
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  if (parts.length) {
+    for (const part of parts) {
+      if (part?.type === 'text' && text(part.text)) content.push({ type: 'text', text: part.text })
+      if (part?.type === 'reasoning') {
+        if (part.opaque?.signature) content.push({ type: 'thinking', thinking: '', signature: part.opaque.signature })
+        else if (part.opaque?.redactedData) content.push({ type: 'redacted_thinking', data: part.opaque.redactedData })
+      }
+      if (part?.type === 'tool-call') content.push({
+        type: 'tool_use', id: part.toolCallId, name: part.toolName, input: part.input
+      })
+    }
+    return content
+  }
   if (message.content) content.push({ type: 'text', text: message.content })
   for (const call of message.toolCalls || []) {
-    content.push({
-      type: 'tool_use',
-      id: call.id,
-      name: call.name,
-      input: call.arguments
-    })
+    content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments })
   }
   return content
 }
@@ -44,10 +53,12 @@ function anthropicMessages(messages = []) {
       continue
     }
     if (message.role === 'tool') {
+      const resultPart = message.parts?.find((part) => part?.type === 'tool-result')
       const block = {
         type: 'tool_result',
         tool_use_id: message.toolCallId,
-        content: message.content
+        content: message.content || JSON.stringify(resultPart?.output || {}),
+        ...(resultPart?.isError ? { is_error: true } : {})
       }
       const previous = output.at(-1)
       if (
@@ -72,7 +83,9 @@ export function buildAnthropicToolRequest(request) {
     .map((message) => message.content)
     .filter(Boolean)
     .join('\n\n')
-  return {
+  const capabilities = request.options?.capabilities
+  const toolChoice = request.options?.toolChoice
+  const body = {
     model: request.provider.model,
     max_tokens: request.options?.maxTokens || 1200,
     temperature: request.options?.temperature ?? 0.2,
@@ -83,14 +96,34 @@ export function buildAnthropicToolRequest(request) {
       description: tool.description,
       input_schema: tool.inputSchema
     })),
-    tool_choice: { type: 'auto' }
+    tool_choice: toolChoice === 'none'
+      ? { type: 'none' }
+      : toolChoice === 'required'
+        ? { type: 'any' }
+        : (toolChoice && typeof toolChoice === 'object' ? toolChoice : { type: 'auto' })
   }
+  if (capabilities && capabilities.parallelToolCalls === false) {
+    body.tool_choice = { type: 'auto', disable_parallel_tool_use: true }
+  }
+  if (toolChoice === 'none') {
+    delete body.tools
+    delete body.tool_choice
+  }
+  if (request.options?.thinking) {
+    const thinking = typeof request.options.thinking === 'object' ? request.options.thinking : {}
+    body.thinking = {
+      type: 'enabled',
+      budget_tokens: Math.max(256, Number(thinking.budget_tokens || thinking.budgetTokens || 1024))
+    }
+  }
+  return body
 }
 
 export function parseAnthropicToolResponse(data, meta = {}) {
   const calls = []
   const callIds = new Set()
   const texts = []
+  const parts = []
   const toolBlocks = (Array.isArray(data?.content) ? data.content : [])
     .filter((block) => block?.type === 'tool_use')
   if (toolBlocks.length > NARRATIVE_TOOL_LIMITS.maxCallsPerRound) {
@@ -102,6 +135,16 @@ export function parseAnthropicToolResponse(data, meta = {}) {
   for (const block of Array.isArray(data?.content) ? data.content : []) {
     if (block?.type === 'text' && text(block?.text)) {
       texts.push(text(block.text))
+      parts.push({ type: 'text', text: text(block.text) })
+      continue
+    }
+    if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+      parts.push({
+        type: 'reasoning',
+        text: '',
+        ...(block.type === 'thinking' && block.signature ? { opaque: { signature: block.signature } } : {}),
+        ...(block.type === 'redacted_thinking' && block.data ? { opaque: { redactedData: block.data } } : {})
+      })
       continue
     }
     if (block?.type !== 'tool_use') continue
@@ -125,9 +168,21 @@ export function parseAnthropicToolResponse(data, meta = {}) {
     }
     callIds.add(rawCallId)
     calls.push(validation.call)
+    parts.push({
+      type: 'tool-call',
+      toolCallId: validation.call.id,
+      toolName: validation.call.name,
+      input: validation.call.arguments
+    })
   }
   const responseText = texts.join('\n')
   const finishReason = text(data?.stop_reason)
+  if (finishReason === 'refusal') {
+    protocolError('NARRATIVE_PROVIDER_REFUSAL', '上游拒绝生成叙事正文')
+  }
+  if (!calls.length && !responseText && finishReason === 'max_tokens') {
+    protocolError('NARRATIVE_PROVIDER_OUTPUT_TRUNCATED', '上游在返回正文前达到输出长度上限')
+  }
   if (calls.length === 0 && finishReason === 'tool_use') {
     protocolError('NARRATIVE_PROVIDER_TOOL_CALL_MISSING', '上游声明 tool_use 但没有返回有效调用')
   }
@@ -150,6 +205,7 @@ export function parseAnthropicToolResponse(data, meta = {}) {
     kind: calls.length > 0 ? 'tool_calls' : 'final_ready',
     calls,
     text: responseText,
+    parts,
     finishReason: finishReason || (calls.length > 0 ? 'tool_use' : 'end_turn'),
     usage: normalizeGenerationUsage(data?.usage)
   }

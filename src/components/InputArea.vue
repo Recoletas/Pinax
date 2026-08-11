@@ -129,6 +129,19 @@
         <span class="quick-btn__icon" aria-hidden="true">💬</span>
         <span class="quick-btn__label">对话模式</span>
       </button>
+      <button
+        v-if="autoAdvanceAvailable"
+        type="button"
+        :class="['quick-btn', 'auto-advance-btn', { active: autoAdvance }]"
+        :aria-pressed="autoAdvance"
+        :title="autoAdvance ? '正在半自动推进；再次点击停止' : '立即开始半自动推进，可随时停止'"
+        @click="emit('toggle-auto-advance')"
+      >
+        <Pause v-if="autoAdvance" :size="13" stroke-width="1.8" aria-hidden="true" />
+        <Play v-else :size="13" stroke-width="1.8" aria-hidden="true" />
+        <span class="quick-btn__label">{{ autoAdvance ? '停止自动' : '半自动' }}</span>
+        <span v-if="autoAdvancePending" class="sr-only">将在本段完成后继续推进</span>
+      </button>
     </div>
 
     <!-- 角色选择面板 -->
@@ -188,16 +201,25 @@
         @keydown.meta.enter.prevent="handleSend"
         @keydown.ctrl.enter.prevent="handleSend"
         @keydown.escape="inputText = ''"
-        @input="updatePromptInfo"
+        @input="handleInput"
         :disabled="gameStore.isLoading"
       />
       <button
+        v-if="gameStore.isLoading"
+        class="send-btn stop-btn"
+        type="button"
+        title="停止生成"
+        @click="gameStore.cancelNarrativeGeneration('user-cancelled')"
+      >
+        <span>停止</span>
+      </button>
+      <button
+        v-else
         class="send-btn"
         @click="handleSend"
-        :disabled="gameStore.isLoading || !inputText.trim()"
+        :disabled="!inputText.trim()"
       >
-        <span v-if="!gameStore.isLoading">发送</span>
-        <span v-else class="loading-spinner"></span>
+        <span>发送</span>
       </button>
 
       <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
@@ -212,6 +234,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { Pause, Play } from 'lucide-vue-next'
 import { useGameStore } from '../stores/gameStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
@@ -219,7 +242,12 @@ import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
 import { estimateTokens } from '../composables/useTokenEstimate'
 import { buildNarrativeFormatInstructions } from '../services/narrativePresentation'
 
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'manual-input', 'toggle-auto-advance'])
+const props = defineProps({
+  autoAdvance: { type: Boolean, default: false },
+  autoAdvanceAvailable: { type: Boolean, default: false },
+  autoAdvancePending: { type: Boolean, default: false }
+})
 const gameStore = useGameStore()
 const settingsPopup = useSettingsPopup()
 const hasApiKey = computed(() => Boolean(String(gameStore.apiSettings?.apiKey || '').trim()))
@@ -284,7 +312,7 @@ onUnmounted(() => {
 
 function handleSend() {
   if (inputText.value.trim()) {
-    emit('send', inputText.value.trim())
+    emit('send', inputText.value.trim(), { source: 'manual-input' })
     inputText.value = ''
   }
 }
@@ -292,7 +320,12 @@ function handleSend() {
 function handleQuickAction(command) {
   // 发送隐藏命令，不在聊天中显示
   const prompt = quickActionPrompts[command] || command
-  emit('send', prompt, { hidden: true })
+  emit('send', prompt, { hidden: true, source: 'quick-action' })
+}
+
+function handleInput() {
+  updatePromptInfo()
+  if (inputText.value.trim()) emit('manual-input')
 }
 
 async function handleCompress() {
@@ -490,6 +523,18 @@ function updatePromptInfo() {
 .quick-btn:only-child { border-radius: 6px; border-right: none; }
 .quick-btn:hover { background: var(--bg-hover); }
 .quick-btn:active { background: var(--accent-light); }
+
+.auto-advance-btn {
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.auto-advance-btn.active {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+  color: var(--text-primary);
+}
 
 /* UI-E18-FIX3: hide emoji icon in default (steel-blue dossier) theme
    — the colorful emoji (▶ 🌿 💬 💭) read as chat-sticker decoration,

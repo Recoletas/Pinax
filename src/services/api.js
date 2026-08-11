@@ -11,6 +11,10 @@ import {
   GENERATION_AGENT_LIMITS,
   validateGenerationAgentTurnRequest
 } from '../../shared/generationToolContract'
+import {
+  parseNarrativeAgentSseEvent,
+  reduceNarrativeAgentStreamEvents
+} from '../../shared/narrativeAgentStreamContract'
 import { STRUCTURED_GENERATION_TIMEOUTS } from '../../shared/structuredSettingContract'
 import {
   resolveSelectedTextProviderConfig,
@@ -145,20 +149,22 @@ function createNarrativeAgentError(error) {
 }
 
 /**
- * Execute exactly one provider-neutral narrative agent turn.
- * Tool execution stays in the browser; this endpoint only translates provider protocols.
+ * Execute one provider step over the normalized SSE protocol. The stream is
+ * reduced back to the existing provider-neutral response shape so the browser
+ * remains the owner of tool execution and the transcript state machine.
  */
-export async function sendNarrativeAgentTurn({
+export async function sendNarrativeAgentStepStream({
   messages,
   tools,
   settings = null,
   options = {},
   requestId = '',
-  signal = null
+  signal = null,
+  onEvent = null
 } = {}) {
   const apiSettings = settings || await getResolvedApiSettings()
   const validation = validateGenerationAgentTurnRequest({
-    requestId: requestId || createRequestId().replace(/^gen_/, 'nturn_'),
+    requestId: requestId || createRequestId().replace(/^gen_/, 'nstream_'),
     provider: {
       id: apiSettings.provider,
       baseUrl: apiSettings.baseUrl,
@@ -177,17 +183,86 @@ export async function sendNarrativeAgentTurn({
     throw error
   }
 
-  try {
-    const response = await api.post('/generate/agent-turn', validation.request, {
-      signal: signal || undefined,
-      timeout: Math.min(
-        GENERATION_AGENT_LIMITS.maxTimeoutMs + 2000,
-        validation.request.options.timeoutMs + 2000
-      )
-    })
-    return response.data
-  } catch (error) {
-    throw createNarrativeAgentError(error)
+  const response = await fetch('/api/generate/agent-step/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify(validation.request),
+    signal: signal || undefined
+  })
+  if (!response.ok) {
+    let payload = {}
+    try {
+      payload = await response.json()
+    } catch {
+      payload = { error: `叙事 Agent 流请求失败（${response.status}）` }
+    }
+    const error = new Error(payload.error || '叙事 Agent 流请求失败')
+    error.code = payload.code || 'NARRATIVE_PROVIDER_REQUEST_FAILED'
+    error.retryable = Boolean(payload.retryable)
+    error.requestId = payload.requestId || validation.request.requestId
+    error.status = response.status
+    throw error
+  }
+  if (!response.body?.getReader) {
+    const error = new Error('浏览器不支持叙事 Agent 事件流')
+    error.code = 'NARRATIVE_STREAM_UNSUPPORTED'
+    error.retryable = false
+    throw error
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const events = []
+  let buffer = ''
+  const consume = (chunk) => {
+    buffer += chunk
+    const frames = buffer.split(/\n\n/)
+    buffer = frames.pop() || ''
+    for (const frame of frames) {
+      const event = parseNarrativeAgentSseEvent(frame)
+      if (!event) continue
+      events.push(event)
+      onEvent?.(event)
+    }
+  }
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    consume(decoder.decode(value, { stream: true }))
+  }
+  consume(decoder.decode())
+  if (buffer.trim()) {
+    const event = parseNarrativeAgentSseEvent(buffer)
+    if (event) {
+      events.push(event)
+      onEvent?.(event)
+    }
+  }
+  const reduced = reduceNarrativeAgentStreamEvents(events)
+  if (reduced.error) {
+    const error = new Error(reduced.error.message || '叙事 Agent 事件流失败')
+    error.code = reduced.error.code || 'NARRATIVE_PROVIDER_REQUEST_FAILED'
+    error.retryable = Boolean(reduced.error.retryable)
+    error.requestId = validation.request.requestId
+    throw error
+  }
+  return {
+    schemaVersion: 1,
+    requestId: validation.request.requestId,
+    kind: reduced.kind,
+    calls: reduced.calls,
+    text: reduced.text,
+    parts: [
+      ...(reduced.text ? [{ type: 'text', text: reduced.text }] : []),
+      ...reduced.calls.map((call) => ({
+        type: 'tool-call',
+        toolCallId: call.id,
+        toolName: call.name,
+        input: call.arguments
+      }))
+    ],
+    usage: reduced.usage,
+    streamEvents: events.length
   }
 }
 

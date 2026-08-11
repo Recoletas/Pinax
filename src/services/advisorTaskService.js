@@ -130,7 +130,8 @@ export async function requestAdvisorTask({
   scope,
   target = null,
   options = {},
-  mode
+  mode,
+  signal = null
 } = {}) {
   const normalizedQuestion = normalizeQuestion(question)
 
@@ -170,7 +171,9 @@ export async function requestAdvisorTask({
       mode,
       requestId,
       clientStartedAt: traceBase.startedAt
-    }))
+    }), {
+      signal: signal || undefined
+    })
 
     recordAgentRequestTrace({
       ...traceBase,
@@ -180,10 +183,18 @@ export async function requestAdvisorTask({
     })
     return normalizeAdvisorResult(response.data, built.taskType)
   } catch (error) {
-    const normalized = normalizeAdvisorError(error)
+    const aborted = Boolean(signal?.aborted)
+      || error?.code === 'ERR_CANCELED'
+      || error?.name === 'CanceledError'
+    const normalized = aborted
+      ? Object.assign(new Error('生成已取消'), {
+          code: 'AGENT_REQUEST_ABORTED',
+          retryable: false
+        })
+      : normalizeAdvisorError(error)
     recordAgentRequestTrace({
       ...traceBase,
-      status: 'failed',
+      status: aborted ? 'cancelled' : 'failed',
       completedAt: Date.now(),
       error: { code: normalized.code, retryable: normalized.retryable }
     })

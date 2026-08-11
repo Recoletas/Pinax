@@ -3,11 +3,10 @@
 - **状态**: accepted
 - **日期**: 2026-06-04
 - **领域**: world-map
-- **当前实现注记（2026-06-08）**: 本 ADR 记录 06-04 的原始方向。Round 1 / Round 2 已恢复 14 个 Azgaar `heightmapTemplate` 语义入口、`heightmap-templates.ts`、`parseTemplate.ts` 和 `enforceTemplateContract.ts`；当前 owning surface 以 [`../code-map.md`](../code-map.md) 为准。
+- **当前实现注记（2026-08-11）**: 本 ADR 记录 06-04 的原始方向。Round 1 / Round 2 已恢复 14 个 Azgaar `heightmapTemplate` 语义入口、`heightmap-templates.ts`、`parseTemplate.ts` 和 `enforceTemplateContract.ts`；未接入的 `boundary-terrain.ts` 已删除，边界效果由当前 `heightmap.ts` / `tectonics.ts` 管线持有。当前 owning surface 以 [`../code-map.md`](../code-map.md) 为准。
 - **影响范围**:
   - `src/services/world-map/engine/tectonics.ts`（新增 `generatePlates` + `detectPlateBoundaries`，纯板块生成、不读 `cells.h`）
   - `src/services/world-map/engine/heightmap.ts`（重写：板块 base → 噪声 → 边界效果 → mask → sea-level → smooth）
-  - `src/services/world-map/engine/boundary-terrain.ts`（4 个 `apply*` 函数：convergent range / divergent rift / transform shear / volcanic arc）
   - `src/services/world-map/engine/tectonic-data.ts`（`computeTectonicData` 6 个并行数组；**修重复调用 bug**）
   - **删除**：`heightmap-templates.ts` 整体 + `HeightmapTemplate` 类型 + `realism.level: 'classic' | 'azgaar' | 'geologic'` 三档开关
   - `MapRealism` 简化：仅保留可独立调节的数值（`rivers.style` / `meanderAmplitude` / `coast.noiseScale/Amplitude` / `tectonics.rangeWidth/riftDepth`）

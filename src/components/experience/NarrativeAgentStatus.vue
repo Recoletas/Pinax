@@ -11,6 +11,12 @@
       <span class="narrative-agent-status__signal" aria-hidden="true"></span>
       <span class="narrative-agent-status__label">{{ view.label }}</span>
       <span v-if="view.meta" class="narrative-agent-status__meta">{{ view.meta }}</span>
+      <button
+        v-if="view.isError && !view.isOnline"
+        type="button"
+        class="narrative-agent-status__retry"
+        @click="$emit('retry')"
+      >重试</button>
     </div>
   </Transition>
 </template>
@@ -21,11 +27,17 @@ import { computed } from 'vue'
 const props = defineProps({
   status: { type: Object, default: null }
 })
+defineEmits(['retry'])
 
 const PHASE_LABELS = {
   deciding: '核对当前场景',
   'executing-tools': '查阅相关资料',
   'tools-complete': '资料已就绪',
+  'requesting-step': '请求当前一步',
+  finalizing: '整理最终正文',
+  'retrying-step': '重新请求当前一步',
+  'repairing-step': '修复资料调用',
+  'resource-refreshed': '资料已更新，继续核对',
   ready: '准备续写',
   streaming: '续写现场',
   complete: '正文已生成'
@@ -53,7 +65,8 @@ const view = computed(() => {
       ? String(status.message || '生成失败，请稍后重试').trim()
       : (PHASE_LABELS[phase] || '整理当前现场'),
     meta,
-    isError
+    isError,
+    isOnline: Boolean(status.online)
   }
 })
 </script>
@@ -106,6 +119,18 @@ const view = computed(() => {
 .narrative-agent-status.is-error .narrative-agent-status__signal {
   background: color-mix(in srgb, var(--accent-rose) 74%, var(--archive-ink));
   animation: none;
+}
+
+.narrative-agent-status__retry {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-rose) 36%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 .narrative-status-enter-active,

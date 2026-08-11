@@ -80,19 +80,23 @@ export {
   toNarrativeToolItems
 } from './narrativeResourceIndex'
 export { createNarrativeToolRegistry } from './narrativeToolRegistry'
+export { validateNarrativeEvidence } from './narrativeEvidenceValidator'
 export {
   appendNarrativeContextAudit,
   buildNarrativeContextAudit
 } from './narrativeContextAudit'
 export {
   NARRATIVE_AGENT_RUNTIME_LIMITS,
-  buildNarrativeDecisionMessages,
-  buildNarrativeFinalMessages,
   createNarrativeAgentContextLedger,
   pruneNarrativeToolResults,
-  runNarrativeAgentGeneration,
-  runNarrativeToolLoop
+  runNarrativeAgentLoop,
+  runNarrativeAgentGeneration
 } from './narrativeAgentOrchestrator'
+export {
+  classifyNarrativeRecoveryError,
+  deriveNarrativeGroundingPolicy,
+  hasNarrativeGroundingEvidence
+} from './narrativeAgentPolicy'
 export {
   NARRATIVE_SCENE_SUMMARY_LIMITS,
   normalizeNarrativeSceneSummary,

@@ -236,7 +236,6 @@ smooth(cells, 1, 1)
 
 ### 不变
 
-- `__tests__/boundary-terrain.test.js` —— 直接测 `apply*` 函数，不动
 - `__tests__/coast.test.js` —— 直接测 `perturbCoast`，不动
 - `__tests__/tectonic-data.test.js` —— 直接测 `computeTectonicData`，不动
 - `__tests__/borderlands.test.js` —— 渲染层，不动

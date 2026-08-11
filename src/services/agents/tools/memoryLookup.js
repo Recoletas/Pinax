@@ -27,7 +27,7 @@ export function executeMemoryLookup(index, input, context = {}) {
   if ((input.filters.scopes || []).length > 0 && filters.scopes.length === 0) return []
   const scopedInput = { ...input, filters }
   const resources = input.action === 'get'
-    ? getNarrativeResources(index, 'memory', input.ids, filters)
+    ? getNarrativeResources(index, 'memory', input.ids, filters, input)
     : searchNarrativeResources(index, 'memory', scopedInput, context)
   return resources.filter((item) => isOwnedMemory(item, context))
 }

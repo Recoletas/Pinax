@@ -1,0 +1,447 @@
+/* ============================================================================
+ * G1.4.10 R1: theme 2 (legacy) Experience page typography system.
+ * Single visual owner for reading geometry, prose column, block rhythm,
+ * speaker label, and inline emphasis.
+ *
+ * Replaces / consolidates rules previously scattered across:
+ *   - src/styles/themes/legacy.css (lines ~263–498 — prose, rp-*, scene-break,
+ *     compression-complete)
+ *   - src/styles/main.css (lines ~721–851 — global .rp-* fallback re-bound
+ *     for v-html injected content)
+ *   - src/pages/Experience.vue (lines ~2410–2588 — chat-container,
+ *     .prose / .narrative-block / .rp-* overrides scoped under
+ *     .game-page.game-page)
+ *   - src/components/GamePanel.vue (.prose / .prose__editor chrome — edit-mode
+ *     only, NOT migrated here)
+ *
+ * All selectors scoped under `.theme-legacy .game-page` to prevent leakage
+ * to theme 1 (kao) which is frozen.
+ *
+ * CSS variables consumed from useExperienceReadingPreferences:
+ *   --experience-prose-size       (CSS font-size, reverse-compensated for uiZoom)
+ *   --experience-physical-font-size (target physical px; documentation only)
+ *   --experience-measure          (62em standard, max-width on .prose-reading-plane)
+ *   --experience-leading          (1.78 standard)
+ *   --experience-block-gap        (0.72em standard)
+ *   --experience-ui-zoom          (current uiZoom, exposed for any zoom-aware rules)
+ *
+ * Out of scope (left in place):
+ *   - theme-kao overrides (theme 1 frozen)
+ *   - theme-dark overrides
+ *   - compression-complete styles (.prose.compression-complete / .rp-* quote
+ *     variants — still emitted from text pipeline, can be revisited separately)
+ *   - Edit-mode chrome (.prose--editing, .prose__editor, .tavern-textarea,
+ *     .prose__edit-actions) — these are interactive states owned by
+ *     GamePanel.vue / NarrativeTurn.vue / Experience.vue scoped CSS
+ *   - Scene break / drop cap / turn role border — also interactive / stateful
+ *     chrome; will fold in once narrativeBlock visibility contract lands in R2
+ * ============================================================================ */
+
+/* Anchor selector. Scoped under both .theme-legacy (visual variant) and
+   .game-page (Experience page wrapper) so the rules never bleed into the
+   setting / media / canvas pages or into theme 1. */
+.theme-legacy .game-page { /* reset any prior zoom leakage; ok to leave empty */ }
+
+/* ============================================================================
+ * Reading plane container — the single element that constrains prose width.
+ * Every block inside the prose column lives at this measure. This is the
+ * ONLY place max-width is allowed for the prose geometry.
+ *
+ * Migration sources:
+ *   - Experience.vue:2414 (.chat-container horizontal padding — preserved)
+ *   - Experience.vue:2420–2434 (.prose max-width/letter-spacing reset)
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane {
+  max-width: var(--experience-measure, 62em);
+  margin-inline: auto;
+  font-size: var(--experience-prose-size, 17.5px);
+  line-height: var(--experience-leading, 1.78);
+  color: var(--archive-ink, #0f172a);
+  font-family: var(--font-body, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif);
+}
+
+/* ============================================================================
+ * Prose column wrapper (.prose) — the conversation turn block.
+ *
+ * Migration source: Experience.vue:2420–2434 (typography reset)
+ *                  legacy.css:270–281 (legacy defaults — superseded)
+ *                  legacy.css:282–302 (role border-left / same-role gap)
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .prose {
+  margin: 0 0 var(--experience-block-gap, 0.72em);
+  padding: 0;
+  border-left: 0;
+  background: transparent;
+  width: 100%;
+  max-width: none;
+  letter-spacing: 0;
+  text-indent: 0;
+  text-rendering: optimizeLegibility;
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: inherit;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 96%, transparent);
+}
+
+/* Tight gap between consecutive .prose turns within a single speaker run.
+   Distinct from --experience-block-gap (which separates runs). 4px is what
+   Experience.vue:2436–2438 shipped; keep it. */
+.theme-legacy .game-page .prose-reading-plane .prose + .prose {
+  margin-top: 4px;
+}
+
+/* User turns get a little more breathing room on either side than the
+   internal turn-to-turn gap. Migrated from Experience.vue:2440–2449. */
+.theme-legacy .game-page .prose-reading-plane .prose--user,
+.theme-legacy .game-page .prose-reading-plane .prose--user-role {
+  margin-top: 1.15em;
+  margin-bottom: 0.95em;
+}
+.theme-legacy .game-page .prose-reading-plane .prose--user + .prose--assistant,
+.theme-legacy .game-page .prose-reading-plane .prose--user-role + .prose--assistant-role {
+  margin-top: 1.2em;
+}
+
+/* ============================================================================
+ * Speaker label (legacy `.prose__speaker`, NOT narrative-block__speaker)
+ * — Display small caps / role-colored. Used by the legacy `.prose` chrome
+ * path; narrative-block__speaker (mode B) lives below.
+ *
+ * Migration source: Experience.vue:2451–2484
+ *                  legacy.css:305–323 (legacy defaults — superseded)
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .prose__speaker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin-bottom: 9px;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 78%, transparent);
+  font-family: var(--font-sans, -apple-system, "Helvetica Neue", Arial, sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
+  text-indent: 0;
+}
+
+.theme-legacy .game-page .prose-reading-plane .prose__speaker::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  display: inline-block;
+  background: color-mix(in srgb, var(--experience-signal-cool, #719da8) 74%, var(--archive-olive-strong, #1e3a8a));
+}
+
+.theme-legacy .game-page .prose-reading-plane .prose__speaker--user {
+  color: color-mix(in srgb, var(--archive-olive-strong, #1e3a8a) 86%, var(--archive-ink, #0f172a));
+}
+.theme-legacy .game-page .prose-reading-plane .prose__speaker--user::before {
+  background: color-mix(in srgb, var(--experience-signal-warm, #d8c84f) 72%, var(--archive-olive-strong, #1e3a8a));
+}
+.theme-legacy .game-page .prose-reading-plane .prose__speaker--system::before {
+  background: color-mix(in srgb, var(--archive-ink-soft, #475569) 40%, transparent);
+}
+
+/* Speaker separator is hidden in the Experience layout — the dot prefix on
+   .prose__speaker is the only speaker signal. Migrated from
+   Experience.vue:2486–2488. */
+.theme-legacy .game-page .prose-reading-plane .prose__sep {
+  display: none;
+}
+
+/* ============================================================================
+ * Body — text-indent on the body block per the 段首缩进 rule, but opening
+ * turns flatten it (no indent for opening). Migration from Experience.vue:
+ * 2490–2495 + 2531–2565 (drop-cap neutralisation); legacy.css:328–336
+ * (legacy text-indent rule — superseded).
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .prose__body {
+  display: block;
+  text-indent: 2em;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.theme-legacy .game-page .prose-reading-plane .prose__body p {
+  margin: 0;
+}
+
+/* Drop cap explicitly disabled in the reading-plane layout — Experience.vue
+   scoped CSS already neutralises it (.game-page.game-page .prose--opening
+   .prose__body::first-letter). Reproduce the neutralisation here so the
+   reading-plane system owns the full geometry even before Experience.vue's
+   scoped CSS lands. */
+.theme-legacy .game-page .prose-reading-plane .prose--opening .prose__body::first-letter {
+  float: none;
+  margin: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* User body — left-indented, slightly stronger weight for the voice line.
+   Migration: Experience.vue:2539–2545. */
+.theme-legacy .game-page .prose-reading-plane .prose--user .prose__body,
+.theme-legacy .game-page .prose-reading-plane .prose--user-role .prose__body {
+  padding-left: 1.5em;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 86%, var(--archive-olive-strong, #1e3a8a));
+  font-weight: 550;
+  text-indent: 0;
+}
+
+/* System / compression-complete body — softer ink, italic. Migration:
+   Experience.vue:2547–2553. Note: compression-complete styles themselves
+   are out-of-scope per the task brief; this only covers the body styling
+   for the legacy `.prose.compression-complete` case which is what the
+   Experience scoped CSS actually selects. */
+.theme-legacy .game-page .prose-reading-plane .prose--system .prose__body,
+.theme-legacy .game-page .prose-reading-plane .prose.compression-complete .prose__body {
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 76%, transparent);
+  font-size: 15px;
+  font-style: italic;
+  text-indent: 0;
+}
+
+/* ============================================================================
+ * Narrative-block rhythm (mode B — the rendered reading layout).
+ *
+ * Each .narrative-block is one kind-of-text unit (narration / dialogue /
+ * action / thought / world-intro). .narrative-block__speaker appears ONLY
+ * on the first block of a contiguous speaker group (R2 deliverable is
+ * responsible for assigning the .narrative-block--speaker-start class;
+ * this CSS just styles it).
+ *
+ * Migration source: Experience.vue:2497–2537
+ *                  legacy.css:270–498 (legacy `.prose` rules do not cover
+ *                    .narrative-block — those classes live in the reading
+ *                    layout's renderer only)
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .narrative-block {
+  margin: 0 0 0.58em;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Tighter gap between consecutive narrative blocks within the same turn.
+   Distinct from .prose + .prose (turn-to-turn) which is 4px. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block + .narrative-block {
+  margin-top: 0;
+}
+
+/* Dialogue — the only block kind that earns italic + slight indent. Per the
+   R1 sign-off: "only real quote dialogue gets light italic; action/thought
+   back to upright." Migration: Experience.vue:2501–2507. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--dialogue {
+  margin: 0.35em 0 0.72em 1.15em;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 88%, var(--archive-olive-strong, #1e3a8a));
+  font-style: italic;
+  font-weight: 520;
+  text-indent: 0;
+}
+
+/* R2: narration owns the Chinese first-line indent. A speaker-led opening,
+   dialogue and short action stay flush so the eye can find a role switch
+   without accumulating nested left offsets. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--narration {
+  text-indent: 2em;
+}
+
+.theme-legacy .game-page .prose-reading-plane .narrative-block--speaker-start,
+.theme-legacy .game-page .prose-reading-plane .narrative-block--dialogue,
+.theme-legacy .game-page .prose-reading-plane .narrative-block--action,
+.theme-legacy .game-page .prose-reading-plane .narrative-block--thought {
+  text-indent: 0;
+}
+
+/* Action / thought use rhythm and restrained ink rather than another boxed
+   voice. Action returns to upright; thought retains a single light italic cue. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--action,
+.theme-legacy .game-page .prose-reading-plane .narrative-block--thought {
+  margin-left: 0;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 88%, var(--archive-ink, #0f172a));
+  font-style: normal;
+  font-weight: inherit;
+  text-indent: 0;
+}
+
+.theme-legacy .game-page .prose-reading-plane .narrative-block--thought {
+  color: color-mix(in srgb, var(--archive-olive-strong, #1e3a8a) 58%, var(--archive-ink-soft, #475569));
+  font-style: italic;
+}
+
+/* World-intro — soft italic, muted ink. Migration: Experience.vue
+   scoped CSS doesn't currently cover this; defaulted here so any future
+   reading layout using .narrative-block--world-intro inherits the
+   geometric pattern without bleeding warm-archive tone. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--world-intro {
+  font-style: normal;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 88%, var(--archive-ink, #0f172a));
+}
+
+/* ============================================================================
+ * Speaker label for narrative-block (mode B). 13px sans-serif, soft ink.
+ * ONLY the first block of a contiguous speaker group wears the label —
+ * R2 owns the classification; this CSS just styles whatever has
+ * .narrative-block--speaker-start.
+ *
+ * Migration source: Experience.vue:2521–2537 (legacy default was 12px /
+ * 700 — R1 sign-off freezes mode B at 13px / 500)
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .narrative-block__speaker {
+  display: block;
+  width: max-content;
+  margin: 0 0 4px;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 78%, transparent);
+  font-family: var(--font-sans, -apple-system, "Helvetica Neue", Arial, sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  font-style: normal;
+  text-indent: 0;
+}
+
+/* Speaker-group separator — when a new .narrative-block--speaker-start
+   follows another, push it down a beat (0.9em). Migrated from
+   Experience.vue:2535–2537. */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--speaker-start + .narrative-block--speaker-start {
+  margin-top: 0.9em;
+}
+
+.theme-legacy .game-page .prose-reading-plane .narrative-block--speaker-start:not(:first-child) {
+  margin-top: 0.9em;
+}
+
+.theme-legacy .game-page .prose-reading-plane .prose--user .prose__body,
+.theme-legacy .game-page .prose-reading-plane .prose--user-role .prose__body {
+  padding-left: 0;
+  font-weight: 520;
+}
+
+/* ============================================================================
+ * Inline emphasis tokens (.rp-*) — v-html injected.
+ *
+ * R1 sign-off freezes location/time/item as low-contrast tone-shift only;
+ * only real entities with evidence get click affordance in R3. Migration
+ * source: main.css:721–851 (global .rp-* re-bound to archive tokens) +
+ * legacy.css:446–489 (legacy defaults — superseded).
+ *
+ * Hard cap on inline emphasis: 15% of any given turn (soft band 8–12%).
+ * The hard cap is enforced by the reading-layout service (R3 deliverable);
+ * this CSS just owns the per-token styling.
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue {
+  font-style: italic;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 84%, var(--archive-olive-strong, #1e3a8a));
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-action {
+  font-style: italic;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 86%, var(--archive-rose, #476f9f));
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-thought {
+  font-style: italic;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 84%, transparent);
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-world-intro {
+  font-style: italic;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--archive-ink, #0f172a) 88%, var(--archive-olive, #2563eb));
+}
+
+/* Per R1 sign-off: location / time / item stay LOW CONTRAST (soft tone
+   shift only). No border, no underline, no click affordance — R3 will add
+   turn-level dedup and real-entity click affordance. */
+.theme-legacy .game-page .prose-reading-plane .rp-location,
+.theme-legacy .game-page .prose-reading-plane .rp-time,
+.theme-legacy .game-page .prose-reading-plane .rp-item {
+  font-style: normal;
+  font-weight: inherit;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 80%, transparent);
+  text-decoration: none;
+  background: transparent;
+  cursor: inherit;
+}
+
+/* Quote-soft / quote-warm / quote-neutral — subtle italic, soft ink.
+   Migration: main.css:742–753 + Experience.vue:2573–2583. These survive
+   only because the legacy theme still emits them from the marker pipeline;
+   R3 may collapse them into a single .rp-dialogue path. */
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-soft,
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-warm,
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-neutral {
+  font-style: italic;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 88%, transparent);
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-soft {
+  color: color-mix(in srgb, var(--archive-olive-strong, #1e3a8a) 68%, var(--archive-ink, #0f172a));
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-warm {
+  color: color-mix(in srgb, var(--archive-gold, #94a3b8) 58%, var(--archive-ink, #0f172a));
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue-quote-neutral {
+  color: color-mix(in srgb, var(--archive-ink-soft, #475569) 86%, var(--archive-ink, #0f172a));
+}
+
+/* Mechanism trigger — the old "◆ … 触发" affordance. Migrated from
+   main.css:805–826 + Experience.vue:2585–2588. Kept here for theme-legacy
+   parity until R3 audits whether the trigger UI still ships with the
+   reading layout. */
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue.mechanism-trigger {
+  font-weight: 800;
+  color: color-mix(in srgb, var(--archive-olive-strong, #1e3a8a) 86%, var(--archive-ink, #0f172a));
+  text-decoration: underline dotted color-mix(in srgb, var(--archive-olive, #2563eb) 64%, transparent);
+  text-underline-offset: 4px;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--archive-gold, #94a3b8) 28%, transparent);
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue.mechanism-trigger::before {
+  content: '◆';
+  margin-right: 0.22em;
+  font-style: normal;
+  font-weight: inherit;
+  color: var(--archive-rose, #476f9f);
+}
+
+.theme-legacy .game-page .prose-reading-plane .rp-dialogue.mechanism-trigger::after {
+  content: ' 触发';
+  font-family: var(--font-sans, -apple-system, "Helvetica Neue", Arial, sans-serif);
+  font-size: 0.72em;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--archive-rose, #476f9f);
+}
+
+/* ============================================================================
+ * Reduced-motion — disable any transitions the reading-plane system owns.
+ * This file doesn't ship transitions today, but if the prose column gains
+ * a column-width transition in R4, gate it here. Currently a no-op safety
+ * net that matches the contract pattern in legacy.css:492–497.
+ * ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy .game-page .prose-reading-plane .prose,
+  .theme-legacy .game-page .prose-reading-plane .narrative-block,
+  .theme-legacy .game-page .prose-reading-plane .prose__speaker,
+  .theme-legacy .game-page .prose-reading-plane .narrative-block__speaker {
+    transition: none;
+  }
+}
+/* END G1.4.10 R1: theme 2 Experience page typography system */

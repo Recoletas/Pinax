@@ -24,6 +24,22 @@ import {
   buildWritingProfessionalActions,
   buildWritingProfessionalTarget
 } from '@/services/agents/writingProfessionalActions'
+import {
+  createWritingAnnotation,
+  createWritingSelector,
+  reconcileWritingAnnotations
+} from '@/services/writing/writingAnnotations'
+import { createWritingDocument } from '@/services/writing/writingDocumentSchema'
+import {
+  createWritingSnapshot,
+  getWritingSnapshotRestoreGuard,
+  normalizeWritingSnapshots
+} from '../../shared/writingSnapshotContract.js'
+import {
+  buildWritingBlockHistoryEntries,
+  normalizeWritingBlockHistory
+} from '../../shared/writingBlockHistoryContract.js'
+import { buildWritingQualityReport } from '../../shared/writingQualityContract.js'
 
 describe('writingSelectionCapture core flow', () => {
   beforeEach(() => {
@@ -183,6 +199,33 @@ describe('writingSelectionCapture core flow', () => {
       }
     ])).toMatchObject({ ok: false, reason: 'invalid-replacement', actionIndex: 0 })
 
+    const crossBlockDocument = {
+      content: [
+        { attrs: { blockId: 'block-a', revision: 2 }, content: [{ text: '甲段。' }] },
+        { attrs: { blockId: 'block-b', revision: 4 }, content: [{ text: '乙段。' }] }
+      ]
+    }
+    const crossBlockAnnotation = createWritingAnnotation({
+      chapterId: 'chapter-1',
+      blockId: 'block-a',
+      blockRevision: 2,
+      selector: createWritingSelector({ text: '段。', start: 1, end: 3, fullText: '甲段。' }),
+      range: {
+        start: { blockId: 'block-a', blockRevision: 2, offset: 1 },
+        end: { blockId: 'block-b', blockRevision: 4, offset: 1 },
+        blockIds: ['block-a', 'block-b'],
+        exact: '段。\n乙',
+        startSelector: createWritingSelector({ text: '段。', start: 1, end: 3, fullText: '甲段。' }),
+        endSelector: createWritingSelector({ text: '乙', start: 0, end: 1, fullText: '乙段。' })
+      },
+      body: '检查两个段落之间的衔接。'
+    })
+    expect(reconcileWritingAnnotations([crossBlockAnnotation], crossBlockDocument, 'chapter-1')[0]).toMatchObject({
+      status: 'open',
+      resolution: 'cross-block-range',
+      range: { exact: '段。\n乙', blockIds: ['block-a', 'block-b'] }
+    })
+
     expect(buildWritingProfessionalActions({ hasSelection: false, hasParagraph: true }))
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ label: '扩写选区', disabled: true, taskType: 'writing.fix.selection' }),
@@ -218,5 +261,85 @@ describe('writingSelectionCapture core flow', () => {
         source: { chapterId: 'chapter-1' }
       }
     })
+
+    const writingDocument = createWritingDocument('第一段。\n\n第二段。')
+    writingDocument.revision = 4
+    const snapshot = createWritingSnapshot({
+      chapterId: 'chapter-1',
+      chapterTitle: '雨夜',
+      label: '改写前',
+      reason: 'before-rewrite',
+      document: writingDocument,
+      markdown: '第一段。\n\n第二段。',
+      annotations: []
+    })
+    expect(snapshot).toMatchObject({
+      chapterId: 'chapter-1',
+      documentRevision: 4,
+      reason: 'before-rewrite',
+      label: '改写前'
+    })
+    expect(normalizeWritingSnapshots([snapshot, { ...snapshot, id: 'bad', editorDocument: null }], 'chapter-1'))
+      .toHaveLength(1)
+    expect(getWritingSnapshotRestoreGuard(snapshot, {
+      chapterId: 'chapter-1',
+      documentRevision: 4,
+      markdown: '第一段。\n\n第二段。'
+    })).toBeNull()
+    expect(getWritingSnapshotRestoreGuard(snapshot, {
+      chapterId: 'chapter-1',
+      documentRevision: 5,
+      markdown: '已被修改。'
+    })).toBe('current-chapter-changed')
+
+    const previousWritingDocument = createWritingDocument('旧段落。\n\n第二段。')
+    previousWritingDocument.revision = 2
+    const nextWritingDocument = JSON.parse(JSON.stringify(previousWritingDocument))
+    nextWritingDocument.revision = 3
+    nextWritingDocument.content[0].content[0].text = '新段落。'
+    nextWritingDocument.content[0].attrs.revision = 1
+    const blockHistory = buildWritingBlockHistoryEntries({
+      chapterId: 'chapter-1',
+      chapterTitle: '雨夜',
+      previousDocument: previousWritingDocument,
+      nextDocument: nextWritingDocument
+    })
+    expect(blockHistory).toHaveLength(1)
+    expect(blockHistory[0]).toMatchObject({
+      previousText: '旧段落。',
+      currentText: '新段落。',
+      fromDocumentRevision: 2,
+      toDocumentRevision: 3
+    })
+    expect(normalizeWritingBlockHistory(blockHistory)).toHaveLength(1)
+
+    const qualityReport = buildWritingQualityReport({
+      document: nextWritingDocument,
+      annotations: [{
+        id: 'orphan-1',
+        status: 'orphaned',
+        blockId: 'block-a',
+        body: '需要重新关联'
+      }, {
+        id: 'finding-1',
+        kind: 'review-finding',
+        status: 'open',
+        severity: 'high',
+        blockId: 'block-b',
+        body: '高优先级问题'
+      }],
+      snapshots: [snapshot],
+      blockHistory,
+      saveStatus: 'saved'
+    })
+    expect(qualityReport).toMatchObject({
+      schemaVersion: 1,
+      status: 'blocked',
+      summary: { blockers: 2, orphanAnnotations: 1, snapshots: 1, blockHistory: 1 }
+    })
+    expect(qualityReport.issues.map((item) => item.kind)).toEqual(expect.arrayContaining([
+      'orphan-annotation',
+      'open-review-finding'
+    ]))
   })
 })

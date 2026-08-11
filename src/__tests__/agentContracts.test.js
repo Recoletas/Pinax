@@ -79,7 +79,9 @@ import {
 import { createAdvisorTaskResponse } from '../../server/services/advisorTaskService'
 import {
   NARRATIVE_READ_TOOL_NAMES,
+  createNarrativeCursor,
   getNarrativeToolCatalog,
+  parseNarrativeCursor,
   validateNarrativeToolCall
 } from '../../shared/narrativeAgentContract'
 import {
@@ -90,9 +92,11 @@ import {
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
 import {
   createNarrativeResourceIndex,
-  getNarrativeResourceIndex
+  getNarrativeResourceIndex,
+  searchNarrativeResources
 } from '../services/agents/narrativeResourceIndex'
 import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
+import { validateNarrativeEvidence } from '../services/agents/narrativeEvidenceValidator'
 import {
   buildOpenAIToolRequest,
   parseOpenAIToolResponse
@@ -101,6 +105,10 @@ import {
   buildAnthropicToolRequest,
   parseAnthropicToolResponse
 } from '../../server/services/providers/anthropicToolAdapter'
+import {
+  buildMiniMaxToolRequest,
+  parseMiniMaxToolResponse
+} from '../../server/services/providers/minimaxToolAdapter'
 import {
   resolveToolCallingProvider,
   runToolCallingProviderTurn
@@ -118,13 +126,15 @@ import {
   resolveNarrativeProviderCapabilities
 } from '../../server/services/providers/providerCapabilityResolver'
 import { probeNarrativeProviderCapabilities } from '../../server/services/providers/narrativeCapabilityProbe'
-import { createGenerationAgentTurnHandler } from '../../server/routes/generationAgent'
 import {
-  buildNarrativeFinalMessages,
   pruneNarrativeToolResults,
-  runNarrativeAgentGeneration,
-  runNarrativeToolLoop
+  runNarrativeAgentLoop,
+  runNarrativeAgentGeneration
 } from '../services/agents/narrativeAgentOrchestrator'
+import {
+  deriveNarrativeGroundingPolicy,
+  hasNarrativeGroundingEvidence
+} from '../services/agents/narrativeAgentPolicy'
 import { resolveNarrativeSceneSummary } from '../services/agents/narrativeSceneSummary'
 import {
   createNarrativeProductionObserver,
@@ -706,9 +716,23 @@ describe('agentContracts', function () {
       return block.kind === 'continuity'
     }).sourceRefs).toContain('runtime-event:evt-signal-state')
     expect(JSON.stringify(narrativeKernel)).not.toContain('这一段很长的世界简介')
-    expect(narrativeKernel.toolCatalog.map(function (tool) { return tool.name })).toEqual(
-      NARRATIVE_READ_TOOL_NAMES
-    )
+    expect(narrativeKernel.toolCatalog.map(function (tool) { return tool.name })).toEqual([
+      'world_lookup',
+      'geo_lookup'
+    ])
+    expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual(NARRATIVE_READ_TOOL_NAMES)
+    var historicalKernel = buildNarrativeKernel({
+      worldbook: narrativeWorldbook,
+      runtimeState: narrativeRuntime,
+      messages: [{ id: 'history-turn', role: 'user', content: '请追溯这条信号的历史。' }],
+      projectId: 'wb-narrative',
+      sessionId: 'session-1'
+    })
+    expect(historicalKernel.toolCatalog.map(function (tool) { return tool.name })).toEqual([
+      'world_lookup',
+      'geo_lookup',
+      'history_lookup'
+    ])
     var longNarrativeMessages = [
       { id: 'long-1', role: 'assistant', content: '陆晨曦抵达生态区观测舱，发现异常信号。' },
       { id: 'long-2', role: 'user', content: '我把异常信号记录在纸质日记里。' },
@@ -804,8 +828,49 @@ describe('agentContracts', function () {
       items: [expect.objectContaining({
         id: 'entry-chu',
         type: 'character',
-        sourceRefs: ['worldbook-entry:entry-chu']
+        sourceRefs: ['worldbook-entry:entry-chu'],
+        trust: 'canonical',
+        conflictState: 'clean',
+        eligibleEvidence: true
       })]
+    })
+    var pagedWorldResources = searchNarrativeResources(narrativeIndex, 'world', {
+      query: '',
+      limit: 1
+    })
+    expect(pagedWorldResources).toHaveLength(1)
+    expect(pagedWorldResources.nextCursor).toBeTruthy()
+    expect(parseNarrativeCursor(pagedWorldResources.nextCursor, {
+      revision: narrativeIndex.revision,
+      domain: 'world'
+    })).toMatchObject({ valid: true })
+    expect(parseNarrativeCursor(createNarrativeCursor({
+      revision: 'old-revision',
+      domain: 'world',
+      sortKey: '000001:00000000000000000001',
+      itemId: 'old-item'
+    }), {
+      revision: narrativeIndex.revision,
+      domain: 'world'
+    })).toMatchObject({
+      valid: false,
+      error: { code: 'NARRATIVE_CURSOR_STALE' }
+    })
+    var pagedWorldResourcesNext = searchNarrativeResources(narrativeIndex, 'world', {
+      query: '',
+      limit: 1,
+      cursor: pagedWorldResources.nextCursor
+    })
+    expect(pagedWorldResourcesNext[0].id).not.toBe(pagedWorldResources[0].id)
+    var evidenceReport = validateNarrativeEvidence({
+      finalText: '褚岩要求核对信号。',
+      kernel: narrativeKernel,
+      toolResults: [worldLookup]
+    })
+    expect(evidenceReport).toMatchObject({
+      status: 'covered',
+      trustedItemCount: 1,
+      sourceRefs: expect.arrayContaining(['worldbook-entry:entry-chu'])
     })
     var geoLookup = await narrativeRegistry.execute({
       id: 'call-geo',
@@ -978,6 +1043,15 @@ describe('agentContracts', function () {
         parameters: expect.objectContaining({ type: 'object' })
       }
     })
+    var conservativeOpenAiRequest = buildOpenAIToolRequest({
+      ...providerTurnRequest,
+      options: {
+        ...providerTurnRequest.options,
+        capabilities: { parallelToolCalls: false, strictSchema: true }
+      }
+    })
+    expect(conservativeOpenAiRequest).not.toHaveProperty('parallel_tool_calls')
+    expect(conservativeOpenAiRequest.tools[0].function.strict).toBe(true)
     var openAiToolTurn = parseOpenAIToolResponse({
       id: 'chatcmpl-tool',
       choices: [{
@@ -1109,6 +1183,38 @@ describe('agentContracts', function () {
       text: '褚岩正在舰桥指挥舱。',
       usage: { inputTokens: 140, outputTokens: 18, totalTokens: 158 }
     })
+    var minimaxRequest = buildMiniMaxToolRequest({
+      ...anthropicTurnRequest,
+      options: { ...anthropicTurnRequest.options, thinking: { budgetTokens: 512 } }
+    })
+    expect(minimaxRequest).toMatchObject({
+      thinking: { type: 'enabled', budget_tokens: 512 },
+    })
+    expect(minimaxRequest.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant' })
+    ]))
+    var minimaxParts = parseMiniMaxToolResponse({
+      content: [
+        { type: 'thinking', thinking: 'hidden', signature: 'round-trip-signature' },
+        { type: 'tool_use', id: 'minimax-call-r3', name: 'world_lookup', input: { action: 'search', query: '褚岩', limit: 2 } }
+      ],
+      stop_reason: 'tool_use'
+    }, { provider: 'MiniMax', model: 'MiniMax-M2.7' })
+    expect(minimaxParts.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'round-trip-signature' } }),
+      expect.objectContaining({ type: 'tool-call', toolCallId: 'minimax-call-r3' })
+    ]))
+    expect(function () {
+      parseOpenAIToolResponse({
+        choices: [{ finish_reason: 'length', message: { content: '' } }]
+      })
+    }).toThrow(/输出长度上限/)
+    expect(function () {
+      parseAnthropicToolResponse({
+        stop_reason: 'refusal',
+        content: [{ type: 'text', text: '拒绝' }]
+      })
+    }).toThrow(/拒绝生成/)
 
     expect(NARRATIVE_TOOL_PROTOCOL_FIXTURES.openAiChat.response.choices[0].finish_reason).toBe('tool_calls')
     expect(NARRATIVE_TOOL_PROTOCOL_FIXTURES.openAiChat.argumentDeltas).toHaveLength(2)
@@ -1539,118 +1645,6 @@ describe('agentContracts', function () {
       retryable: false
     })
 
-    var routeResponse = {
-      statusCode: 200,
-      payload: null,
-      status: function (statusCode) {
-        this.statusCode = statusCode
-        return this
-      },
-      json: function (payload) {
-        this.payload = payload
-        return this
-      }
-    }
-    var routeHandler = createGenerationAgentTurnHandler({
-      runner: async function (request) {
-        return {
-          schemaVersion: GENERATION_AGENT_TURN_SCHEMA_VERSION,
-          requestId: request.requestId,
-          kind: 'final_ready',
-          text: '完成',
-          calls: [],
-          finishReason: 'stop',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
-        }
-      }
-    })
-    await routeHandler({ body: providerTurnRequest, once: function () {} }, routeResponse)
-    expect(routeResponse).toMatchObject({
-      statusCode: 200,
-      payload: {
-        requestId: 'provider-turn-1',
-        kind: 'final_ready',
-        text: '完成'
-      }
-    })
-    var unsupportedResponse = {
-      ...routeResponse,
-      statusCode: 200,
-      payload: null
-    }
-    await createGenerationAgentTurnHandler()({
-      body: {
-        ...providerTurnRequest,
-        provider: {
-          id: 'cohere',
-          baseUrl: 'https://api.cohere.ai/v2',
-          apiKey: 'must-not-leak',
-          model: 'command-r'
-        }
-      },
-      once: function () {}
-    }, unsupportedResponse)
-    expect(unsupportedResponse).toMatchObject({
-      statusCode: 422,
-      payload: {
-        code: 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED'
-      }
-    })
-    expect(JSON.stringify(unsupportedResponse.payload)).not.toContain('must-not-leak')
-
-    var orchestratorDecisions = [
-      {
-        kind: 'tool_calls',
-        calls: [
-          {
-            id: 'loop-world-1',
-            name: 'world_lookup',
-            arguments: { action: 'search', query: '褚岩', limit: 3 }
-          },
-          {
-            id: 'loop-geo-1',
-            name: 'geo_lookup',
-            arguments: { action: 'current', limit: 3 }
-          }
-        ],
-        usage: { inputTokens: 50, outputTokens: 12, totalTokens: 62 }
-      },
-      {
-        kind: 'tool_calls',
-        calls: [{
-          id: 'loop-history-1',
-          name: 'history_lookup',
-          arguments: { action: 'search', query: '伪装信号', limit: 3 }
-        }],
-        usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90 }
-      },
-      {
-        kind: 'final_ready',
-        text: 'READY',
-        calls: [],
-        usage: { inputTokens: 100, outputTokens: 2, totalTokens: 102 }
-      }
-    ]
-    var orchestratorStatuses = []
-    var orchestratorRun = await runNarrativeToolLoop({
-      kernel: narrativeKernel,
-      registry: narrativeRegistry,
-      settings: providerTurnRequest.provider,
-      requestId: 'narrative-loop-1',
-      decisionRunner: async function () {
-        return orchestratorDecisions.shift()
-      },
-      onStatus: function (status) {
-        orchestratorStatuses.push(status.phase)
-      }
-    })
-    expect(orchestratorRun).toMatchObject({
-      requestId: 'narrative-loop-1',
-      toolRounds: 2,
-      totalCalls: 3,
-      usage: { inputTokens: 230, outputTokens: 24, totalTokens: 254 }
-    })
-    expect(orchestratorRun.toolResults).toHaveLength(3)
     var prunedToolEvidence = pruneNarrativeToolResults([
       worldLookup,
       { ...worldLookup, callId: 'same-evidence-later' },
@@ -1661,134 +1655,137 @@ describe('agentContracts', function () {
       prunedCount: 1
     })
     expect(prunedToolEvidence.results[0].callId).toBe('same-evidence-later')
-    expect(orchestratorStatuses).toEqual(expect.arrayContaining([
-      'deciding',
-      'executing-tools',
-      'tools-complete',
-      'ready'
-    ]))
-    var finalNarrativeMessages = buildNarrativeFinalMessages({
+    var transcriptRequests = []
+    var transcriptLoop = await runNarrativeAgentLoop({
       kernel: narrativeKernel,
-      toolResults: orchestratorRun.toolResults,
-      mode: 'continue',
-      formatInstructions: '使用 :::narration 与 :::dialogue 标记。'
-    })
-    expect(finalNarrativeMessages).toHaveLength(3)
-    expect(finalNarrativeMessages[0].role).toBe('system')
-    expect(finalNarrativeMessages[0].content).toContain(narrativeKernel.revision)
-    expect(finalNarrativeMessages[0].content).toContain('world_lookup')
-    expect(finalNarrativeMessages[0].content).toContain('每个自然段只承担一个推进')
-    expect(finalNarrativeMessages[0].content).not.toContain('secret-provider-key')
-    expect(finalNarrativeMessages[1]).toMatchObject({ role: 'system' })
-    expect(finalNarrativeMessages[1].content).toContain('本轮作者注释')
-    expect(finalNarrativeMessages[1].content).toContain('邻近正文样本')
-    expect(finalNarrativeMessages[2]).toMatchObject({
-      role: 'user',
-      content: '我去找褚岩核对信号。'
-    })
-
-    var duplicateExecutions = 0
-    var duplicateRegistry = {
-      revision: 'dup-revision',
-      execute: async function (call) {
-        duplicateExecutions += 1
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'single-transcript-loop',
+      decisionRunner: async function (request) {
+        transcriptRequests.push(request)
+        if (transcriptRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'single-transcript-call',
+              name: 'world_lookup',
+              arguments: { action: 'search', query: '褚岩', limit: 1 }
+            }],
+            parts: [
+              { type: 'reasoning', text: 'should-not-be-visible', opaque: { signature: 'opaque-r4' } },
+              { type: 'tool-call', toolCallId: 'single-transcript-call', toolName: 'world_lookup', input: { action: 'search', query: '褚岩', limit: 1 } }
+            ],
+            usage: { inputTokens: 12, outputTokens: 4 }
+          }
+        }
         return {
-          ok: true,
-          callId: call.id,
-          tool: call.name,
-          action: call.arguments.action,
-          revision: 'dup-revision',
-          items: [],
-          warnings: []
+          kind: 'final_ready',
+          text: '核对资料后，站台上的铜鸟转向了门口。',
+          calls: [],
+          usage: { inputTokens: 18, outputTokens: 14 }
         }
       }
+    })
+    expect(transcriptRequests).toHaveLength(2)
+    expect(transcriptRequests[0].requestId).toBe('single-transcript-loop')
+    expect(transcriptRequests[1].requestId).toBe('single-transcript-loop')
+    expect(transcriptRequests[1].messages.some(function (message) {
+      return message.role === 'assistant' && message.toolCalls?.[0]?.id === 'single-transcript-call'
+    })).toBe(true)
+    expect(transcriptRequests[1].messages.some(function (message) {
+      return message.role === 'tool' && message.toolCallId === 'single-transcript-call'
+    })).toBe(true)
+    expect(transcriptRequests[1].messages.find(function (message) {
+      return message.role === 'assistant'
+    }).parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'opaque-r4' } })
+    ]))
+    expect(transcriptLoop).toMatchObject({
+      finalText: '核对资料后，站台上的铜鸟转向了门口。',
+      trace: {
+        status: 'ready',
+        terminalMode: 'direct-text',
+        steps: 2
+      }
+    })
+    expect(transcriptLoop.transcript.messages.some(function (message) {
+      return message.parts.some((part) => part.type === 'tool-result' && part.toolCallId === 'single-transcript-call')
+    })).toBe(true)
+
+    var optionalGroundingKernel = {
+      ...narrativeKernel,
+      blocks: narrativeKernel.blocks.map(function (block) {
+        return block.kind === 'turn'
+          ? { ...block, content: { ...block.content, input: '继续' } }
+          : block
+      })
     }
-    var duplicateRun = await runNarrativeToolLoop({
-      kernel: narrativeKernel,
-      registry: duplicateRegistry,
+    expect(deriveNarrativeGroundingPolicy({ kernel: narrativeKernel }).level).toBe('required')
+    expect(deriveNarrativeGroundingPolicy({ kernel: optionalGroundingKernel }).level).toBe('optional')
+    expect(hasNarrativeGroundingEvidence([worldLookup])).toBe(true)
+    expect(hasNarrativeGroundingEvidence([{ ok: false, items: [] }])).toBe(false)
+
+    var repairRequests = []
+    var repairedNarrativeRun = await runNarrativeAgentLoop({
+      kernel: optionalGroundingKernel,
+      registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
-      requestId: 'narrative-loop-duplicates',
-      decisionRunner: async function (_, context) {
-        if (context.decisionIndex > 0) return { kind: 'final_ready', calls: [] }
+      requestId: 'narrative-r5-repair',
+      decisionRunner: async function (request) {
+        repairRequests.push(request)
+        if (repairRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'bad-call',
+              name: 'world_lookup',
+              arguments: { action: 'get', limit: 1 }
+            }]
+          }
+        }
+        return { kind: 'final_ready', text: '修复后的正文', calls: [] }
+      }
+    })
+    expect(repairRequests).toHaveLength(2)
+    expect(repairRequests[1].messages.some(function (message) {
+      return message.role === 'user' && message.content.includes('上一轮资料调度未通过校验')
+    })).toBe(true)
+    expect(repairedNarrativeRun).toMatchObject({
+      finalText: '修复后的正文',
+      trace: { repairCount: 1 }
+    })
+
+    await expect(runNarrativeAgentLoop({
+      kernel: narrativeKernel,
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-r5-grounding-gate',
+      decisionRunner: async function () {
+        return { kind: 'final_ready', text: '没有核对资料的正文', calls: [] }
+      }
+    })).rejects.toMatchObject({ code: 'NARRATIVE_GROUNDING_REQUIRED' })
+
+    await expect(runNarrativeAgentLoop({
+      kernel: optionalGroundingKernel,
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-r5-doom-loop',
+      decisionRunner: async function () {
         return {
           kind: 'tool_calls',
           calls: ['a', 'b', 'c'].map(function (suffix) {
             return {
-              id: `duplicate-${suffix}`,
+              id: `doom-${suffix}`,
               name: 'world_lookup',
-              arguments: { action: 'search', query: '褚岩', limit: 3 }
+              arguments: { action: 'search', query: '褚岩', limit: 1 }
             }
           })
         }
       }
-    })
-    expect(duplicateExecutions).toBe(2)
-    expect(duplicateRun.toolResults[2]).toMatchObject({
-      ok: false,
-      error: { code: 'NARRATIVE_TOOL_LOOP_BLOCKED' }
-    })
-    var largeResultRegistry = {
-      revision: 'large-result-revision',
-      execute: async function (call) {
-        return {
-          ok: true,
-          callId: call.id,
-          tool: call.name,
-          action: call.arguments.action,
-          revision: 'large-result-revision',
-          items: [{
-            id: call.id,
-            type: 'entry',
-            title: call.id,
-            summary: '长资料'.repeat(1200),
-            sourceRefs: [`worldbook-entry:${call.id}`],
-            matchReasons: ['test']
-          }],
-          warnings: []
-        }
-      }
-    }
-    var largeResultRun = await runNarrativeToolLoop({
-      kernel: narrativeKernel,
-      registry: largeResultRegistry,
-      settings: providerTurnRequest.provider,
-      decisionRunner: async function (_, context) {
-        if (context.decisionIndex > 0) return { kind: 'final_ready', calls: [] }
-        return {
-          kind: 'tool_calls',
-          calls: ['1', '2', '3', '4'].map(function (suffix) {
-            return {
-              id: `large-${suffix}`,
-              name: 'world_lookup',
-              arguments: { action: 'search', query: `资料-${suffix}`, limit: 1 }
-            }
-          })
-        }
-      }
-    })
-    expect(largeResultRun.toolResults.reduce(function (total, result) {
-      return total + JSON.stringify(result).length
-    }, 0)).toBeLessThanOrEqual(7200)
-    expect(largeResultRun.toolResults.some(function (result) {
-      return result.truncated === true
-    })).toBe(true)
-    var abortedNarrativeLoop = new AbortController()
-    abortedNarrativeLoop.abort()
-    await expect(runNarrativeToolLoop({
-      kernel: narrativeKernel,
-      registry: narrativeRegistry,
-      settings: providerTurnRequest.provider,
-      signal: abortedNarrativeLoop.signal,
-      decisionRunner: async function () {
-        throw new Error('should not run')
-      }
-    })).rejects.toMatchObject({
-      code: 'NARRATIVE_AGENT_ABORTED'
-    })
+    })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_DOOM_LOOP' })
 
-    var fallbackStatuses = []
     var fallbackStreamCalls = 0
-    var fallbackRun = await runNarrativeAgentGeneration({
+    await expect(runNarrativeAgentGeneration({
       kernel: narrativeKernel,
       registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
@@ -1800,21 +1797,54 @@ describe('agentContracts', function () {
       },
       streamRunner: async function (request) {
         fallbackStreamCalls += 1
-        expect(request.baseMessages[0].content).toContain('只输出最终故事正文')
-        request.callbacks.onChunk?.({ content: '普通叙事回退正文' })
-        request.callbacks.onComplete?.({ content: '普通叙事回退正文' })
+        request.callbacks.onComplete?.({ content: '不应触发第二套正文请求' })
+      }
+    })).rejects.toMatchObject({ code: 'NARRATIVE_PROVIDER_EMPTY_RESPONSE' })
+    expect(fallbackStreamCalls).toBe(0)
+
+    await expect(runNarrativeAgentGeneration({
+      kernel: narrativeKernel,
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-tool-timeout-fallback',
+      decisionRunner: async function () {
+        throw Object.assign(new Error('叙事资料查询超时'), {
+          code: 'NARRATIVE_AGENT_DECISION_TIMEOUT'
+        })
       },
-      onStatus: function (status) {
-        fallbackStatuses.push(status)
+      streamRunner: async function (request) {
+        fallbackStreamCalls += 1
+        request.callbacks.onComplete?.({ content: '超时后的普通叙事正文' })
+      }
+    })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_DECISION_TIMEOUT' })
+    expect(fallbackStreamCalls).toBe(0)
+
+    var bypassedDecisionCalls = 0
+    var bypassedRun = await runNarrativeAgentGeneration({
+      kernel: {
+        ...narrativeKernel,
+        blocks: narrativeKernel.blocks.map(function (block) {
+          return block.kind === 'turn'
+            ? { ...block, content: { ...block.content, input: '继续' } }
+            : block
+        })
+      },
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-continue-bypass',
+      decisionRunner: async function () {
+        bypassedDecisionCalls += 1
+        return { kind: 'final_ready', text: '承接后的正文', calls: [] }
+      },
+      streamRunner: async function (request) {
+        request.callbacks.onComplete?.({ content: '承接后的正文' })
       }
     })
-    expect(fallbackRun).toMatchObject({ fallback: true, toolRounds: 0, totalCalls: 0 })
-    expect(fallbackRun.trace).toMatchObject({ status: 'fallback', fallbackCode: 'NARRATIVE_PROVIDER_EMPTY_RESPONSE' })
-    expect(fallbackStreamCalls).toBe(1)
-    expect(fallbackStatuses).toEqual(expect.arrayContaining([
-      expect.objectContaining({ fallback: true, phase: 'streaming' }),
-      expect.objectContaining({ fallback: true, phase: 'complete' })
-    ]))
+    expect(bypassedDecisionCalls).toBe(1)
+    expect(bypassedRun).toMatchObject({
+      finalText: '承接后的正文',
+      trace: { status: 'ready', terminalMode: 'direct-text' }
+    })
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

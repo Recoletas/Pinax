@@ -11,7 +11,10 @@ const SEA_LEVEL = 20
 /** 检测所有地理特征 */
 export function detectFeatures(cells: GridCells): Feature[] {
   const n = cells.length
-  const assigned = new Uint8Array(n) // 0=未分配
+  // featureId 会随着海洋、湖泊、岛屿和碎片数量增长，20k cell 地图可能超过
+  // 255 个区域；Uint8Array 回绕后会把已分配区域重新当成未分配，导致 flood-fill
+  // 队列无限膨胀。使用 32 位标记保持与 featureId 的整数语义一致。
+  const assigned = new Uint32Array(n) // 0=未分配
   const features: Feature[] = [{ i: 0, type: 'ocean', cells: 0, cellIds: [], border: [] }] // 占位
 
   let featureId = 1
