@@ -82,6 +82,7 @@ import {
   normalizeTurnRecords,
   TURN_RECORD_LIMIT,
 } from '../../shared/narrativeTurnContract.js'
+import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
 
 const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
@@ -939,6 +940,8 @@ export const useGameStore = defineStore('game', {
     pendingTurnRecord: null,
     // R1b：当前活跃分支。regenerate 时新建分支并切换，displayMessages 按它过滤。
     activeBranchId: 'main',
+    // R6：仅下一轮导演注（由 executeExperienceAction 'director-note' 设置，发送时消费）
+    pendingDirectorNote: null,
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -2690,6 +2693,57 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
     },
 
+    // R6：统一动作 dispatcher —— 按钮/快捷键/命令走同一入口。
+    // 首批动作映射到现有 store 方法；返回 { ok, result? } 供调用方判断。
+    async executeExperienceAction(input) {
+      const action = normalizeExperienceAction(input)
+      if (!action) return { ok: false, error: 'UNKNOWN_ACTION' }
+      const { type, payload } = action
+      try {
+        switch (type) {
+          case 'stop':
+            this.cancelNarrativeGeneration('action:stop')
+            return { ok: true }
+          case 'retry':
+            // payload: { index } —— 重写后续
+            if (typeof payload.index === 'number') {
+              await this.regenerateFrom(payload.index)
+              return { ok: true }
+            }
+            return { ok: false, error: 'MISSING_INDEX' }
+          case 'branch':
+            // payload: { index } —— 从该消息处建立分支（保留旧消息，切新分支）
+            if (typeof payload.index === 'number') {
+              await this.regenerateFrom(payload.index)
+              return { ok: true }
+            }
+            return { ok: false, error: 'MISSING_INDEX' }
+          case 'director-note':
+            // payload: { text } —— 设置仅下一轮导演注（由发送链路消费）
+            this.pendingDirectorNote = String(payload.text || '').trim() || null
+            return { ok: true }
+          case 'speaker':
+            // payload: { name } —— 手动点名角色（仅当前回合）
+            if (payload.name) {
+              this.dialogueCharacter = { name: String(payload.name), ...(payload.details || {}) }
+              return { ok: true }
+            }
+            return { ok: false, error: 'MISSING_NAME' }
+          case 'compress':
+            await this.compressContext()
+            return { ok: true }
+          case 'continue':
+          case 'export':
+            // continue/export 无 store 侧映射（UI 侧处理），标记已识别
+            return { ok: false, error: 'NOT_IMPLEMENTED_IN_STORE' }
+          default:
+            return { ok: false, error: 'UNKNOWN_ACTION' }
+        }
+      } catch (e) {
+        return { ok: false, error: e?.message || 'ACTION_FAILED' }
+      }
+    },
+
     // R1b：检查 index 之后是否还有其它分支的 assistant 消息（切换按钮显示条件）。
     hasCandidateAfter(index) {
       const after = this.messages.slice(index + 1)
@@ -3004,14 +3058,23 @@ export const useGameStore = defineStore('game', {
 
           if (hasDialogue || hasItem || hasLocation) {
             const eventType = hasLocation ? 'location_discovery' : hasItem ? 'item_acquisition' : 'dialogue'
+            // R5：记忆候选结构化上下文 —— 谁、在哪、何时、哪个回合
+            // （metadata 原样落库，供追溯"谁对谁说了什么关键事实"）
+            const speaker = this.dialogueCharacter?.name || this.playerCharacter?.name || '主角'
+            const place = this.worldMapState?.currentScene || ''
+            const time = this.writingTime ? `${this.writingTime.year || ''}-${this.writingTime.month || ''}-${this.writingTime.day || ''}` : ''
             recordMemory(
               cleanContent,
               eventType,
               {
-                character: this.playerCharacter?.name || '主角',
+                character: speaker,
                 scope: 'session',
                 scopeId: this.currentSessionId || '',
-                sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`
+                sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`,
+                speaker,
+                place,
+                time,
+                turnId: turnRecord?.id || '',
               }
             ).catch(() => {}) // 静默失败
           }

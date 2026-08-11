@@ -128,4 +128,25 @@ describe('回合事务与非破坏性重试', () => {
     const turn = gameStore.turnRecords['narrative_turn2']
     expect(turn.postRuntimeSnapshot).toBeDefined()
   })
+
+  it('R6: executeExperienceAction 统一分发 —— speaker/compress/未知动作', async () => {
+    // speaker：手动点名角色
+    const speakerResult = await gameStore.executeExperienceAction({ type: 'speaker', payload: { name: '林舟' } })
+    expect(speakerResult.ok).toBe(true)
+    expect(gameStore.dialogueCharacter.name).toBe('林舟')
+
+    // director-note：设置仅下一轮导演注
+    const noteResult = await gameStore.executeExperienceAction({ type: 'director-note', payload: { text: '让气氛更紧张' } })
+    expect(noteResult.ok).toBe(true)
+    expect(gameStore.pendingDirectorNote).toBe('让气氛更紧张')
+
+    // compress：正常执行（不抛错）
+    const compressResult = await gameStore.executeExperienceAction({ type: 'compress' })
+    expect(compressResult.ok).toBe(true)
+
+    // 未知动作 → typed error
+    const unknownResult = await gameStore.executeExperienceAction({ type: 'fly-to-moon' })
+    expect(unknownResult.ok).toBe(false)
+    expect(unknownResult.error).toBe('UNKNOWN_ACTION')
+  })
 })

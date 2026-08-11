@@ -251,6 +251,16 @@ function memoryResources(memories = []) {
         ...(memory?.metadata?.sourceRefs || []).map((id) => relation('source', id))
       ],
       sourceRefs: [`memory:${text(memory?.id)}`],
+      // R5：记忆 provenance —— 候选的结构化上下文（谁/在哪/何时/哪个回合），供追溯
+      provenance: {
+        source: 'memory-candidate',
+        candidateId: memory?.id,
+        speaker: memory?.metadata?.speaker || null,
+        place: memory?.metadata?.place || null,
+        time: memory?.metadata?.time || null,
+        turnId: memory?.metadata?.turnId || null,
+        sourceRef: memory?.sourceRef || null,
+      },
       trust: 'confirmed-memory',
       conflictState: memory?.metadata?.conflictState || (memory?.status === 'stale' ? 'stale' : 'clean'),
       conflictRefs: memory?.metadata?.conflictRefs || [],
