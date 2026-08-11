@@ -5,6 +5,8 @@ import {
   parseNarrativeCursor
 } from '../../../shared/narrativeAgentContract'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
+// P1-5：与 worldbookContextBuilder 共用同一关键词匹配原语
+import { keyMatches } from '../worldbookContextBuilder'
 
 const CACHE_LIMIT = 4
 const indexCache = new Map()
@@ -384,11 +386,14 @@ function scoreResource(item, query, currentPlaceId = '') {
     score += 120
     reasons.push('exact-id')
   }
-  const names = [item.title, ...item.aliases].map((value) => text(value).toLowerCase())
-  if (names.includes(normalizedQuery)) {
+  // P1-5：名称/别名匹配与 worldbookContextBuilder 共用同一 keyMatches 原语
+  // （默认小写子串；条目可声明 caseSensitive/wholeWord 时按需生效）。
+  const names = [item.title, ...item.aliases].filter(Boolean)
+  const exactName = names.find((value) => keyMatches(query, value))
+  if (exactName) {
     score += 90
     reasons.push('exact-name')
-  } else if (names.some((value) => value.includes(normalizedQuery))) {
+  } else if (names.some((value) => text(value).toLowerCase().includes(normalizedQuery))) {
     score += 55
     reasons.push('name-contains')
   }

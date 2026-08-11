@@ -52,7 +52,8 @@ function deterministicRoll(entryId, seed) {
 }
 
 // P1-5：关键词匹配 —— 默认小写子串；wholeWord 要求词边界（拉丁文本），caseSensitive 区分大小写。
-function keyMatches(text, key, { caseSensitive = false, wholeWord = false } = {}) {
+// 导出供 narrativeResourceIndex 共用同一 matcher 原语。
+export function keyMatches(text, key, { caseSensitive = false, wholeWord = false } = {}) {
   const raw = String(key || '').trim()
   if (!raw) return false
   const hay = String(text || '')
