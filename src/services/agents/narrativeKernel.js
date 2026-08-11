@@ -60,7 +60,13 @@ function hardRuleEntries(worldbook) {
 // R4：场景角色编排 —— 构建 scene cast。
 // 主 speaker（dialogueCharacter）给完整角色卡（从 worldbook character 条目取 content），
 // 其他在场角色给受限摘要（id/name/status，不含卡正文），避免人格合并。
-// 每个角色带稳定 speakerId（speakerIdOf(name)），供 dialogue block 追溯。
+// P1-6：speakerId 优先用 worldbook character 条目 id（稳定 character ID，改名不变），
+// 无条目时 fallback 到名字 hash。
+function speakerIdFor(name, entry) {
+  if (entry?.id) return `char:${entry.id}`
+  return speakerIdOf(name)
+}
+
 function buildSceneCast(worldbook, runtimeState) {
   const characterEntries = (Array.isArray(worldbook?.entries) ? worldbook.entries : [])
     .filter((entry) => text(entry?.type).toLowerCase() === 'character')
@@ -84,7 +90,7 @@ function buildSceneCast(worldbook, runtimeState) {
       const name = text(character?.name || character)
       const entry = characterEntries.find((c) => c.name === name)
       return {
-        speakerId: speakerIdOf(name),
+        speakerId: speakerIdFor(name, entry),
         name,
         status: text(character?.status || character?.state) || null,
         // 其他角色只给摘要：有角色卡条目时给前 60 字，否则 null
@@ -96,7 +102,7 @@ function buildSceneCast(worldbook, runtimeState) {
   const cast = []
   if (mainSpeaker) {
     cast.push({
-      speakerId: speakerIdOf(mainSpeaker.name),
+      speakerId: speakerIdFor(mainSpeaker.name, mainSpeaker),
       name: mainSpeaker.name,
       role: 'speaker',
       // 主 speaker 完整角色卡

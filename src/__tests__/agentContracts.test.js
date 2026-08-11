@@ -2843,7 +2843,13 @@ describe('agentContracts', function () {
     expect(receipt.toolResults).toEqual({ ok: 1, failed: 1, total: 2 })
     expect(receipt.provider).toBe('minimax')
     expect(receipt.tokens.total).toBe(15)
-    expect(receipt.directorNote).toBe('让气氛更紧张')
+    // P1-5：回执只存导演注摘要（scope/chars/revision），不存完整文本
+    expect(receipt.directorNote).toEqual({
+      scope: 'next-turn',
+      chars: 6,
+      revision: expect.stringMatching(/^dir_/),
+      used: true
+    })
     // 隐私：不含完整 prompt / apiKey
     expect(JSON.stringify(receipt)).not.toContain('apiKey')
   })
@@ -2875,7 +2881,8 @@ describe('agentContracts', function () {
     const main = members.find(function (member) { return member.role === 'speaker' })
     expect(main.name).toBe('褚岩')
     expect(main.characterCard).toContain('沉稳的军师')
-    expect(main.speakerId).toMatch(/^spk_/)
+    // P1-6：speakerId 优先用 worldbook entry id（稳定 character ID，改名不变）
+    expect(main.speakerId).toBe('char:char_yan')
     // 其他角色（林舟）只给受限摘要，无完整卡
     const other = members.find(function (member) { return member.name === '林舟' })
     expect(other.role).toBe('scene')

@@ -47,6 +47,7 @@ export function createNarrativeTurnRecord({
     oldBranchAssistantId: null,  // R1b：旧分支最后一条 assistant 消息 id（切换按钮定位）
     directorNote: null,          // R2：本轮导演注（仅下一轮生效）
     receipt: null,               // R2：回合回执（低敏摘要）
+    memoryCandidateIds: [],      // P1-6：本回合产生的记忆候选 id（追溯/分支隔离）
     detachedMessageIds: [],
     status: 'pending',
     createdAt,
@@ -103,6 +104,7 @@ export function normalizeNarrativeTurnRecord(input) {
     oldBranchAssistantId: input.oldBranchAssistantId ? String(input.oldBranchAssistantId) : null,
     directorNote: input.directorNote != null ? String(input.directorNote).trim() || null : null,
     receipt: (input.receipt && typeof input.receipt === 'object') ? input.receipt : null,
+    memoryCandidateIds: Array.isArray(input.memoryCandidateIds) ? input.memoryCandidateIds.map(String) : [],
     detachedMessageIds: Array.isArray(input.detachedMessageIds) ? input.detachedMessageIds.map(String) : [],
     status,
     createdAt: Number(input.createdAt) || Date.now(),

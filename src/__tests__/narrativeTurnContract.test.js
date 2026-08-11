@@ -10,7 +10,7 @@ import {
   createNarrativeTurnRecord,
   commitNarrativeTurnRecord
 } from '../../shared/narrativeTurnContract.js'
-import { createDestructiveRegenerateFixture } from './fixtures/narrativeTurnFixtures'
+import { createDestructiveRegenerateFixture, createEmptySessionFixture, createRegularSessionFixture, createLongSessionFixture, createToolCallSessionFixture, createStreamingFailureFixture, createOnlineSessionFixture } from './fixtures/narrativeTurnFixtures'
 
 // 回合事务与非破坏性重试回归测试。
 // 见 docs/superpowers/plans/2026-08-11-sillytavern-experience-parity.md R1。
@@ -148,5 +148,32 @@ describe('回合事务与非破坏性重试', () => {
     const unknownResult = await gameStore.executeExperienceAction({ type: 'fly-to-moon' })
     expect(unknownResult.ok).toBe(false)
     expect(unknownResult.error).toBe('UNKNOWN_ACTION')
+  })
+
+  it('P2-7: 六类体验 fixture 结构完整（验收证据）', () => {
+    // 1. 空会话
+    const empty = createEmptySessionFixture()
+    expect(empty.messages).toEqual([])
+    expect(empty.activeBranchId).toBe('main')
+    // 2. 常规会话
+    const regular = createRegularSessionFixture()
+    expect(regular.messages.length).toBe(4)
+    expect(regular.runtimeEvents.length).toBe(4)
+    // 3. 长会话（可指定轮数）
+    const long = createLongSessionFixture(40)
+    expect(long.messages.length).toBe(80)
+    expect(long.runtimeEvents.length).toBe(80)
+    // 4. 工具调用会话
+    const tool = createToolCallSessionFixture()
+    expect(tool.toolCalls.length).toBe(2)
+    expect(tool.toolCalls.every((call) => typeof call.ok === 'boolean')).toBe(true)
+    // 5. 流式失败会话
+    const fail = createStreamingFailureFixture()
+    expect(fail.preFailureSnapshot.worldMapState.currentScene).toBe('森林边缘')
+    // 6. 联机会话
+    const online = createOnlineSessionFixture()
+    expect(online.memberRequestCounts['member-host']).toBe(1)
+    expect(online.memberRequestCounts['member-a']).toBe(0)
+    expect(online.events[online.events.length - 1].type).toBe('narrative.completed')
   })
 })

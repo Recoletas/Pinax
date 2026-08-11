@@ -942,6 +942,8 @@ export const useGameStore = defineStore('game', {
     activeBranchId: 'main',
     // R6：仅下一轮导演注（由 executeExperienceAction 'director-note' 设置，发送时消费）
     pendingDirectorNote: null,
+    // P1-5：最近一次已提交回合的回执（低敏摘要，体验页渲染用）
+    lastTurnReceipt: null,
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -1923,6 +1925,7 @@ export const useGameStore = defineStore('game', {
       // R1a：回合事务记录随 session 持久化（LRU ≤50，含全量 preRuntimeSnapshot）
       this.sessions[idx].turnRecords = normalizeTurnRecords(this.turnRecords)
       this.sessions[idx].lastCommittedTurnId = this.lastCommittedTurnId || null
+      this.sessions[idx].activeBranchId = this.activeBranchId || 'main'  // P0-4：活动分支持久化
       this.sessions[idx].worldId = worldbookId
       this.sessions[idx].worldbookId = worldbookId
       this.sessions[idx].updatedAt = Date.now()
@@ -1995,6 +1998,7 @@ export const useGameStore = defineStore('game', {
       // R1a：恢复回合事务记录（供 regenerate 回滚）
       this.turnRecords = normalizeTurnRecords(session.turnRecords || {})
       this.lastCommittedTurnId = session.lastCommittedTurnId || null
+      this.activeBranchId = session.activeBranchId || 'main'  // P0-4：恢复活动分支
       this.pendingTurnRecord = null
       this.worldId = session.worldbookId || session.worldId || this.worldId || ''
       this.isPlaying = true
@@ -2529,11 +2533,18 @@ export const useGameStore = defineStore('game', {
       if (!text.trim()) return
 
       const { hidden = false, narrativeMode = '', directorNote = '' } = options
+      // P1-5：导演注消费 —— options 显式传入优先，否则消费 pendingDirectorNote（dispatcher 设置）
+      const effectiveDirectorNote = directorNote || this.pendingDirectorNote || ''
+      // 发送时标记 pending 已被消费（成功提交后清空；失败保留在 generateAIResponse catch）
+      const consumedPendingDirectorNote = effectiveDirectorNote === this.pendingDirectorNote
+      if (consumedPendingDirectorNote) this.pendingDirectorNote = null
 
       // 隐藏命令不显示在 UI 中，但加入 AI 上下文
+      let userMessageId = ''
       if (!hidden) {
+        userMessageId = createMessageId('user')
         this.messages.push({
-          id: createMessageId('user'),
+          id: userMessageId,
           role: 'user',
           content: text,
           timestamp: Date.now(),
@@ -2552,7 +2563,7 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
 
       if (this.useAI) {
-        await this.generateAIResponse({ narrativeMode, directorNote })
+        await this.generateAIResponse({ narrativeMode, directorNote: effectiveDirectorNote, userMessageId })
       } else {
         this.isLoading = true
         try {
@@ -2733,9 +2744,31 @@ export const useGameStore = defineStore('game', {
             await this.compressContext()
             return { ok: true }
           case 'continue':
+            // P1-6：继续上一回复 —— 若最后一条是 assistant，追加"继续"引导重新生成
+            {
+              const last = this.messages[this.messages.length - 1]
+              if (this.isLoading) return { ok: false, error: 'BUSY' }
+              await this.generateAIResponse({ narrativeMode: last?.role === 'assistant' ? 'continue' : '' })
+              return { ok: true }
+            }
           case 'export':
-            // continue/export 无 store 侧映射（UI 侧处理），标记已识别
-            return { ok: false, error: 'NOT_IMPLEMENTED_IN_STORE' }
+            // P1-6：导出当前会话（消息 + 回合记录 + 活动分支），供备份/分享
+            return {
+              ok: true,
+              result: {
+                sessionId: this.currentSessionId || '',
+                branchId: this.activeBranchId || 'main',
+                messages: (this.messages || []).map((m) => ({
+                  id: m?.id || null,
+                  role: m?.role || m?.type || '',
+                  content: m?.content || '',
+                  branchId: m?.branchId || null,
+                  superseded: Boolean(m?.superseded),
+                })),
+                turnRecords: this.turnRecords || {},
+                lastCommittedTurnId: this.lastCommittedTurnId || null,
+              }
+            }
           default:
             return { ok: false, error: 'UNKNOWN_ACTION' }
         }
@@ -2765,7 +2798,11 @@ export const useGameStore = defineStore('game', {
     rebuildChatHistory() {
       // 从当前的 messages 完整重建 chatHistory
       // 保留 user 和 assistant 消息（不包括 system）
+      // P0-2：过滤 superseded（被其它分支替代的旧回复）和非活动分支消息，
+      //       避免旧分支污染新一轮上下文。
+      const activeBranch = this.activeBranchId || 'main'
       const history = this.messages
+        .filter((m) => m && !m.superseded && (!m.branchId || m.branchId === activeBranch))
         .map(m => {
           if (m.role === 'system' || m.type === 'system') return null
           return {
@@ -2809,7 +2846,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse({ narrativeMode = '', directorNote = '' } = {}) {
+    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '' } = {}) {
       this.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -2834,6 +2871,9 @@ export const useGameStore = defineStore('game', {
         turnRecord = createNarrativeTurnRecord({
           id: requestId,
           parentTurnId: this.lastCommittedTurnId || null,
+          // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
+          branchId: this.activeBranchId || 'main',
+          userMessageIds: userMessageId ? [userMessageId] : [],
           preRuntimeSnapshot: this.getRuntimeSnapshot(),
         })
         this.pendingTurnRecord = turnRecord
@@ -3023,26 +3063,9 @@ export const useGameStore = defineStore('game', {
           }
         })
 
-        // R1a：回合事务提交 —— 正文已写入、assistant turn event 已追加。
-        // 把 turn record 标记为 committed 并存入 turnRecords（供 regenerate 回滚）。
-        if (turnRecord) {
-          const targetMsg = getPlaceholder()
-          // R2：回合回执（低敏摘要，聚合 ledger + agentRun）
-          const receipt = buildTurnReceipt({
-            ledger: this.lastContextLedger,
-            run: completedAgentRun,
-            sceneSummary: this.narrativeSceneSummary,
-            directorNote,
-          })
-          commitNarrativeTurnRecord(turnRecord, {
-            assistantMessageIds: targetMsg?.id ? [targetMsg.id] : [],
-            directorNote: String(directorNote || '').trim() || null,
-            receipt,
-          })
-          this.turnRecords[turnRecord.id] = turnRecord
-          this.lastCommittedTurnId = turnRecord.id
-          this.pendingTurnRecord = null
-        }
+        // P0-3：回合事务提交**延迟**到所有 state 修改之后（见 productionOutcome 前）。
+        // 正文已写入但 turn record 尚未 committed —— 后续步骤（状态提取/机制/记忆）失败
+        // 时 catch 会回滚 preRuntimeSnapshot，不留"正文已提交、状态未提交"的半成功回合。
 
         // 保存当前会话
         if (this.currentSessionId) {
@@ -3076,7 +3099,15 @@ export const useGameStore = defineStore('game', {
                 time,
                 turnId: turnRecord?.id || '',
               }
-            ).catch(() => {}) // 静默失败
+            ).then((res) => {
+              // P1-6：记忆候选入回合事务 —— 记录本回合产生的候选 id，供追溯/分支隔离
+              if (res?.candidate?.id && turnRecord) {
+                turnRecord.memoryCandidateIds = [...new Set([
+                  ...(turnRecord.memoryCandidateIds || []),
+                  res.candidate.id
+                ])]
+              }
+            }).catch(() => {}) // 静默失败
           }
         }
 
@@ -3110,6 +3141,28 @@ export const useGameStore = defineStore('game', {
             this.saveCurrentSession()
           }
         }
+
+        // P0-3：回合事务提交 —— 所有 state 修改（extractAndUpdateState/机制/记忆）完成后，
+        // 才把 turn record 标记 committed。正文、状态、回执作为同一事务原子提交。
+        if (turnRecord) {
+          const targetMsg = getPlaceholder()
+          const receipt = buildTurnReceipt({
+            ledger: this.lastContextLedger,
+            run: completedAgentRun,
+            sceneSummary: this.narrativeSceneSummary,
+            directorNote,
+          })
+          commitNarrativeTurnRecord(turnRecord, {
+            assistantMessageIds: targetMsg?.id ? [targetMsg.id] : [],
+            directorNote: String(directorNote || '').trim() || null,
+            receipt,
+          })
+          this.turnRecords[turnRecord.id] = turnRecord
+          this.lastCommittedTurnId = turnRecord.id
+          this.pendingTurnRecord = null
+          this.lastTurnReceipt = receipt  // P1-5：体验页渲染最近一次回执
+        }
+
         productionOutcome = 'success'
       } catch (e) {
         productionError = e
@@ -3126,6 +3179,10 @@ export const useGameStore = defineStore('game', {
           failNarrativeTurnRecord(turnRecord)
           this.applyRuntimeSnapshot(turnRecord.preRuntimeSnapshot)
           this.pendingTurnRecord = null
+        }
+        // P1-5：导演注失败保留 —— 本回合的导演注未消费，恢复到 pending 供重试
+        if (directorNote && !this.pendingDirectorNote) {
+          this.pendingDirectorNote = String(directorNote).trim() || null
         }
         if (!controller.signal.aborted && e?.code !== 'NARRATIVE_AGENT_ABORTED') {
           console.error('AI Error:', e)

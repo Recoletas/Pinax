@@ -35,6 +35,13 @@
         </span>
       </div>
 
+      <!-- P1-5：本回合回执摘要（低敏：命中条目数 / 工具数 / 导演注摘要） -->
+      <div v-if="gameStore.lastTurnReceipt" class="receipt-summary">
+        <span class="receipt-item">命中世界书 {{ gameStore.lastTurnReceipt.worldbookEntryCount || 0 }} 条</span>
+        <span class="receipt-item">工具 {{ gameStore.lastTurnReceipt.toolResults?.total || 0 }} 次</span>
+        <span v-if="gameStore.lastTurnReceipt.directorNote" class="receipt-item">导演注 {{ gameStore.lastTurnReceipt.directorNote.chars }} 字</span>
+      </div>
+
       <button class="detail-btn" @click="showDetail = true">
         查看详情
       </button>

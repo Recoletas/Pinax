@@ -1057,7 +1057,21 @@ export function buildTurnReceipt({ ledger = null, run = null, sceneSummary = nul
       output: Number(usage?.outputTokens ?? 0),
       total: Number(usage?.totalTokens ?? 0),
     },
-    directorNote: directorNote ? String(directorNote) : null,
+    // P1-5：回执只存导演注摘要（scope/revision/chars），不存完整文本
+    directorNote: directorNote ? (function () {
+      const raw = String(directorNote)
+      let hash = 2166136261
+      for (let i = 0; i < raw.length; i++) {
+        hash ^= raw.charCodeAt(i)
+        hash = (hash * 16777619) >>> 0
+      }
+      return {
+        scope: 'next-turn',
+        chars: raw.length,
+        revision: `dir_${hash.toString(16)}`,
+        used: true,
+      }
+    })() : null,
   }
 }
 

@@ -269,7 +269,8 @@ export function matchWorldbookEntries({
   starterEntryLimits: starterLimits = {},
   historyEntryIds = null,
   respectProbability = true,
-  scanSeed = 0  // R3：确定性概率种子（同 seed 同命中集）
+  scanSeed = 0,  // R3：确定性概率种子（同 seed 同命中集）
+  boundContext = null  // P1-6：place/character/sourceRef 绑定上下文
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -299,6 +300,14 @@ export function matchWorldbookEntries({
     }
   }
 
+  // P1-6：bound 绑定上下文归一化 —— placeIds/characterIds/sourceRefs 集合
+  const boundPlaceIds = new Set((boundContext?.placeIds || runtimeState?.placeIds || [])
+    .map((id) => String(id || '').trim()).filter(Boolean))
+  const boundCharacterIds = new Set((boundContext?.characterIds || runtimeState?.characterIds || [])
+    .map((id) => String(id || '').trim()).filter(Boolean))
+  const boundSourceRefs = new Set((boundContext?.sourceRefs || [])
+    .map((ref) => String(ref || '').trim()).filter(Boolean))
+
   for (const rawEntry of worldbook.entries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry) continue
@@ -311,6 +320,27 @@ export function matchWorldbookEntries({
         matchedKeysLabel: '历史节点绑定'
       })
       seenIds.add(entry.id)
+    }
+
+    // P1-6：bound 绑定 —— placeId/characterId/sourceRef 直接绑定激活。
+    // 从 entry.relations（{placeIds, characterIds}）或 metadata 读绑定目标。
+    if (!seenIds.has(entry.id)) {
+      const relations = entry.relations && typeof entry.relations === 'object' ? entry.relations : {}
+      const entryPlaceIds = Array.isArray(relations.placeIds) ? relations.placeIds : []
+      const entryCharacterIds = Array.isArray(relations.characterIds) ? relations.characterIds : []
+      const entrySourceRef = String(entry.metadata?.sourceRef || relations.sourceRef || '').trim()
+      const boundByPlace = entryPlaceIds.some((id) => boundPlaceIds.has(String(id || '').trim()))
+      const boundByCharacter = entryCharacterIds.some((id) => boundCharacterIds.has(String(id || '').trim()))
+      const boundBySourceRef = Boolean(entrySourceRef && boundSourceRefs.has(entrySourceRef))
+      if (boundByPlace || boundByCharacter || boundBySourceRef) {
+        matchedEntries.push({
+          ...entry,
+          matchReason: 'bound',
+          matchedKeys: [],
+          matchedKeysLabel: boundByPlace ? '地点绑定' : boundByCharacter ? '角色绑定' : '来源绑定'
+        })
+        seenIds.add(entry.id)
+      }
     }
 
     const mode = String(entry.injection?.mode || 'selective')
@@ -401,7 +431,8 @@ export function buildWorldbookContext({
   includeStarterEntries = false,
   starterEntryLimits = {},
   historyEntryIds = null,
-  scanSeed = 0  // R3：确定性概率种子
+  scanSeed = 0,  // R3：确定性概率种子
+  boundContext = null  // P1-6：place/character/sourceRef 绑定上下文
 } = {}) {
   const warnings = []
   let contextLedger = createContextLedger({
@@ -446,7 +477,8 @@ export function buildWorldbookContext({
     includeStarterEntries,
     starterEntryLimits,
     historyEntryIds,
-    scanSeed
+    scanSeed,
+    boundContext
   })
 
   if (matchedEntries.length === 0) {
