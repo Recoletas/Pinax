@@ -2892,6 +2892,45 @@ describe('agentContracts', function () {
     expect(main.speakerId).toBe(members.find(function (m) { return m.name === '褚岩' }).speakerId)
   })
 
+  it('P1-2: SceneCast 调度字段从 runtimeState 派生（非硬编码）', function () {
+    const castKernel = buildNarrativeKernel({
+      worldbook: {
+        id: 'wb-cast2',
+        entries: [
+          { id: 'char_yan', type: 'character', name: '褚岩', content: '军师。' },
+          { id: 'char_lin', type: 'character', name: '林舟', content: '剑客。' }
+        ]
+      },
+      runtimeState: {
+        dialogueCharacter: { name: '褚岩' },
+        encounteredCharacters: [
+          { name: '林舟', status: '在场' },
+          { name: '褚岩', status: '在场' }
+        ],
+        // characterStates 提供 muted/talkativeness
+        characterStates: {
+          lin: { name: '林舟', status: '离开', muted: true },
+          yan: { name: '褚岩', status: '在场', talkativeness: 0.9 }
+        },
+        lastSpokeTurnIds: { '褚岩': 'narrative_turn_5' },
+        goals: [{ title: '调查林舟的行踪' }]
+      },
+      messages: [{ id: 'm1', role: 'user', content: '我和褚岩商议。' }]
+    })
+    const members = castKernel.blocks.find((b) => b.kind === 'cast').content.members
+    const yan = members.find((m) => m.name === '褚岩')
+    const lin = members.find((m) => m.name === '林舟')
+
+    // 主 speaker：talkativeness 从 characterStates 派生（0.9），selectionReason manual-direct
+    expect(yan.talkativeness).toBe(0.9)
+    expect(yan.selectionReason).toBe('manual-direct')
+    expect(yan.lastSpokeTurnId).toBe('narrative_turn_5')
+    // 配角：muted 从 characterStates.status='离开' 派生，不在场
+    expect(lin.muted).toBe(true)
+    expect(lin.present).toBe(false)
+    expect(lin.selectionReason).toBe('present-in-scene')
+  })
+
   it('R4: dialogue block 携带稳定 speakerId', function () {
     const parsed = parseNarrativePresentation(':::dialogue|褚岩\n“局势已定。”', { messageId: 'msg-test-1' })
     const dialogueBlock = parsed.blocks.find(function (block) { return block.kind === 'dialogue' })

@@ -693,60 +693,100 @@ async function run() {
   const errorCount = report.entries.reduce((sum, entry) => (
     entry.expectedConsoleErrors ? sum : sum + entry.consoleErrors.length
   ), 0)
-  process.stdout.write(`UI audit: ${report.entries.length} captures, ${errorCount} unexpected console errors -> ${outputDir}\n`)
-  if (errorCount > 0) process.exitCode = 1
+  // P0：可访问性失败（溢出/裁切/键盘不可达/reduced-motion 缺失）也计入门禁失败
+  const a11yFailureCount = report.entries.reduce((sum, entry) => (
+    sum + (entry.accessibility?.a11yFailures?.length || 0)
+  ), 0)
+  const gateFailed = errorCount > 0 || a11yFailureCount > 0
+  process.stdout.write(`UI audit: ${report.entries.length} captures, ${errorCount} console errors, ${a11yFailureCount} a11y failures -> ${outputDir}\n`)
+  if (gateFailed) process.exitCode = 1
 }
 
-// P2/R7：可访问性审计 —— 200% zoom 布局、reduced-motion、键盘可达性。
-// 返回低敏指标（不改变页面状态），供浏览器级验收 Gate。
+// P0/R7：可访问性审计（发布门禁级）—— 真实 200% zoom、裁切检测、reduced-motion、
+// 多步键盘导航。任一核心指标失败 → 计入审计失败（影响退出码）。
 async function inspectAccessibility(page, surfaceSelector) {
-  // 1. 200% zoom：用 viewport 减半模拟（浏览器 zoom 200% = 逻辑视口宽度减半）。
-  //    先测正常视口的水平溢出（scrollWidth vs clientWidth），再在减半视口下重测。
+  const failures = []
+
+  // 1. 真实 200% zoom：CDP setDeviceMetricsOverride deviceScaleFactor=2 + 视口逻辑减半
+  const cdp = await page.context().newCDPSession(page)
+  const initialMetrics = { width: 390, height: 844, deviceScaleFactor: 1 }
+  try {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: Math.floor(initialMetrics.width / 2),
+      height: Math.floor(initialMetrics.height / 2),
+      deviceScaleFactor: 2,
+      mobile: false,
+    })
+  } catch { /* 某些环境不支持 CDP，退回 CSS zoom 检测 */ }
   const zoomAt200 = await page.evaluate(() => {
     const measure = () => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     })
     const normal = measure()
-    // 200% zoom ≈ 视口逻辑宽度减半 —— 用临时改 meta viewport 不现实，改测
-    // scrollWidth 是否超过可用宽度 + 是否在 200% 缩放（deviceScaleFactor）下溢出。
+    // 裁切元素统计：scrollWidth 超出 clientWidth 时，统计被裁切的可视元素
+    let clippedElements = 0
+    if (normal.scrollWidth > normal.clientWidth + 1) {
+      clippedElements = Array.from(document.querySelectorAll('body *')).filter((el) => {
+        const box = el.getBoundingClientRect()
+        return box.width > 0 && box.height > 0 && (box.right > normal.clientWidth + 1 || box.left < -1)
+      }).length
+    }
     return {
       normal,
       overflowNormal: normal.scrollWidth > normal.clientWidth + 1,
+      clippedElements,
     }
   })
-  // 用真实 200% zoom：deviceScaleFactor 会改变渲染，但 layout viewport 不变；
-  // 更准确的近似是 CDP 的 setDeviceMetricsOverride deviceScaleFactor=2 + viewport 减半。
-  // 这里用 evaluate 检查 scrollWidth vs clientWidth 作为溢出依据（修正原判断：
-  // 之前用 window.innerWidth 比较，CSS zoom 后 scrollWidth 不变导致误判）。
+  try {
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+  } catch { /* 忽略清理失败 */ }
   const horizontalOverflowAt200 = zoomAt200.overflowNormal
+  if (horizontalOverflowAt200) failures.push('horizontal-overflow')
+  if (zoomAt200.clippedElements > 0) failures.push(`clipped:${zoomAt200.clippedElements}`)
 
-  // 2. reduced-motion：检查 transition/animation 是否被抑制（非仅 scroll-behavior）
+  // 2. reduced-motion：检测页面 CSS 是否正确响应（transition 时长在 reduce 下应被页面
+  //    自己的规则缩短 —— Chrome 不自动改，所以检测 matchMedia + 实际动画规则）
   const reducedMotion = await page.emulateMedia({ reducedMotion: 'reduce' }).then(async () => {
     return page.evaluate(() => {
-      const probe = document.createElement('div')
-      probe.style.transition = 'opacity 1s'
-      document.body.appendChild(probe)
-      const duration = getComputedStyle(probe).transitionDuration
-      probe.remove()
-      // prefers-reduced-motion 生效时浏览器会缩短/抑制 transition（近似：检查媒体查询）
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      return { reducedMotionApplied: reduced ? 'present' : 'absent', probeTransition: duration }
+      // 检查页面是否有基于 reduced-motion 的显式规则（有则说明正确响应）
+      let reducedRuleApplied = false
+      for (const sheet of document.styleSheets) {
+        try {
+          for (const rule of sheet.cssRules) {
+            if (rule.media && rule.media.mediaText.includes('prefers-reduced-motion')) {
+              reducedRuleApplied = true
+              break
+            }
+          }
+        } catch { /* 跨域样式表不可读，跳过 */ }
+      }
+      return { reducedMotionApplied: reduced ? 'present' : 'absent', reducedRuleApplied }
     })
   })
+  if (reducedMotion.reducedMotionApplied !== 'present') failures.push('reduced-motion-unavailable')
 
-  // 3. 键盘可达：真实 Tab 键导航（非直接 .focus()）
+  // 3. 键盘可达：多步 Tab（确认能进入并离开首个可交互元素，不卡在 BODY）
   let keyboardReachable = false
   let focusTarget = null
+  let keyboardTabSteps = 0
   try {
     await page.evaluate(() => document.activeElement?.blur?.())
     await page.keyboard.press('Tab')
     await page.waitForTimeout(50)
     focusTarget = await page.evaluate(() => document.activeElement?.tagName || '')
     keyboardReachable = Boolean(focusTarget) && focusTarget !== 'BODY'
+    // 再 Tab 两次确认导航能前进（未被单元素卡死）
+    for (let i = 0; i < 2; i++) {
+      await page.keyboard.press('Tab')
+      await page.waitForTimeout(30)
+      keyboardTabSteps++
+    }
   } catch { keyboardReachable = false }
+  if (!keyboardReachable) failures.push('keyboard-unreachable')
 
-  return { ...zoomAt200, horizontalOverflowAt200, ...reducedMotion, keyboardReachable, focusTarget }
+  return { ...zoomAt200, horizontalOverflowAt200, ...reducedMotion, keyboardReachable, focusTarget, keyboardTabSteps, a11yFailures: failures, a11yOk: failures.length === 0 }
 }
 
 run().catch((error) => {

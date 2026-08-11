@@ -80,6 +80,30 @@ function buildSceneCast(worldbook, runtimeState) {
 
   const mainSpeakerName = text(runtimeState?.dialogueCharacter?.name)
   const mainSpeaker = characterEntries.find((entry) => entry.name === mainSpeakerName)
+
+  // P1-2：从 runtimeState 派生角色调度字段（非硬编码）——
+  //   characterStates[characterId] 提供 muted/status/talkativeness 权重
+  //   lastSpokeTurnIds[name] 提供最近发言回合
+  //   goals 提供角色活跃度（有相关目标 → 更可能发言）
+  const characterStates = runtimeState?.characterStates || {}
+  const lastSpokeTurnIds = runtimeState?.lastSpokeTurnIds || {}
+  const goalNames = (Array.isArray(runtimeState?.goals) ? runtimeState.goals : [])
+    .map((goal) => text(goal?.title || goal?.text || goal))
+    .filter(Boolean)
+
+  const deriveRoleFields = (name) => {
+    const state = Object.values(characterStates).find((s) => text(s?.name || s?.characterId) === name) || {}
+    const status = text(state?.status || state?.state || '在场')
+    const muted = state?.muted === true || /^(离开|不在场|沉默|muted|absent)$/i.test(status)
+    const talkativeness = Number(state?.talkativeness) || (goalNames.some((g) => g.includes(name)) ? 0.7 : 0.5)
+    return {
+      present: /^(在场|present|active)$/i.test(status) || !/^(离开|不在场|absent)$/i.test(status),
+      muted,
+      talkativeness: Math.max(0, Math.min(1, talkativeness)),
+      lastSpokeTurnId: text(lastSpokeTurnIds[name]) || null,
+    }
+  }
+
   const others = (Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : [])
     .slice(-8)
     .filter((character) => {
@@ -95,11 +119,9 @@ function buildSceneCast(worldbook, runtimeState) {
         status: text(character?.status || character?.state) || null,
         // 其他角色只给摘要：有角色卡条目时给前 60 字，否则 null
         summary: entry ? clip(entry.content, 60) : null,
-        // R4：SceneCast 字段 —— present/muted/talkativeness/lastSpokeTurnId
-        present: true,
-        muted: false,
-        talkativeness: 0.5,
-        lastSpokeTurnId: null,
+        // R4：SceneCast 字段 —— present/muted/talkativeness/lastSpokeTurnId（状态派生）
+        ...deriveRoleFields(name),
+        selectionReason: 'present-in-scene',
       }
     })
     .filter((character) => character.name)
@@ -112,11 +134,8 @@ function buildSceneCast(worldbook, runtimeState) {
       role: 'speaker',
       // 主 speaker 完整角色卡
       characterCard: mainSpeaker.content,
-      // R4：主 speaker 由手动点名/导演选择触发
-      present: true,
-      muted: false,
-      talkativeness: 0.8,
-      lastSpokeTurnId: text(runtimeState?.lastSpokeTurnId) || null,
+      // R4：主 speaker 由手动点名触发
+      ...deriveRoleFields(mainSpeaker.name),
       selectionReason: 'manual-direct',
     })
   }

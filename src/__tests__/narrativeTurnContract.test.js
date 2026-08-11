@@ -311,4 +311,36 @@ describe('回合事务与非破坏性重试', () => {
     const t100 = timings.find((t) => t.rounds === 100)
     expect(t800.medianMs).toBeLessThan(t100.medianMs * 8 + 20)
   })
+
+  it('P0-1: 重生成失败后恢复旧分支的 post snapshot（正文与状态一致）', async () => {
+    const fixture = createDestructiveRegenerateFixture()
+    const turn = setupResidualTurn(fixture)
+
+    // provider 失败
+    vi.mocked(runNarrativeAgentTurn).mockRejectedValue(
+      Object.assign(new Error('provider down'), { code: 'NARRATIVE_AGENT_FAILED' })
+    )
+    gameStore.useAI = true
+
+    // 当前是 turn2 的 post state（酒馆/day3）
+    expect(gameStore.worldMapState.currentScene).toBe('酒馆')
+
+    // regenerate 失败 → 应恢复旧分支（main）+ 旧分支 post snapshot
+    await gameStore.regenerateFrom(2)
+
+    // 恢复 main 分支
+    expect(gameStore.activeBranchId).toBe('main')
+    // 旧分支 post snapshot 恢复：状态回到 turn2 提交后（酒馆/day3）
+    expect(gameStore.worldMapState.currentScene).toBe('酒馆')
+    expect(gameStore.writingTime.day).toBe(3)
+    // 旧回复重新可见（superseded 被取消）
+    expect(gameStore.messages.some((m) => m.id === 'msg_a2' && !m.superseded)).toBe(true)
+  })
+
+  it('P2-1: 空会话 /branch 返回 NO_USER_TURN', async () => {
+    gameStore.messages = []
+    const result = await gameStore.executeExperienceAction({ type: 'branch' })
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('NO_USER_TURN')
+  })
 })

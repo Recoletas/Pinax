@@ -239,13 +239,26 @@ export function createRestorePlan(input, storage = localStorage) {
     else overwrite.push(key)
   }
 
+  // P1-3：checkpoint 校验 —— 备份 experience 摘要与当前会话对比。
+  // 备份的回合 checkpoint 比当前更新 → 说明恢复会覆盖更新的会话，标记提示。
+  let checkpointNotice = null
+  const backupCheckpoint = backup?.experience?.checkpoint
+  if (backupCheckpoint?.turnId && backupCheckpoint?.committedAt) {
+    const currentCheckpoint = buildExperienceBackupSummary().checkpoint
+    if (currentCheckpoint?.committedAt > backupCheckpoint.committedAt) {
+      checkpointNotice = `备份回合检查点(${backupCheckpoint.turnId}, ${backupCheckpoint.committedAt}) 早于当前会话(${currentCheckpoint.committedAt})，恢复将回退更新的回合历史`
+    }
+  }
+
   return {
     valid: incompatible.length === 0,
     version,
     add,
     overwrite,
     skip,
-    incompatible
+    incompatible,
+    checkpoint: backupCheckpoint || null,
+    checkpointNotice
   }
 }
 

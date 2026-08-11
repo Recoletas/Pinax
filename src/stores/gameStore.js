@@ -2842,12 +2842,14 @@ export const useGameStore = defineStore('game', {
             return { ok: false, error: 'MISSING_INDEX' }
           case 'branch':
             // payload: { index } —— 从该消息处建立分支（保留旧消息，切新分支）。
-            // 无 index（/branch 菜单）时，从最后一条 user 消息处分支。
+            // 无 index（/branch 菜单）时，从最后一条 user 消息处分支；
+            // 空会话（无 user 消息）返回明确错误，不从助手开场消息分支。
             {
               let branchIndex = payload.index
               if (typeof branchIndex !== 'number') {
                 const lastUserIndex = (this.messages || []).findLastIndex((m) => m?.role === 'user')
-                branchIndex = lastUserIndex >= 0 ? lastUserIndex : 0
+                if (lastUserIndex < 0) return { ok: false, error: 'NO_USER_TURN' }
+                branchIndex = lastUserIndex
               }
               await this.regenerateFrom(branchIndex)
               return { ok: true }
