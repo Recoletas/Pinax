@@ -368,7 +368,9 @@ function handleInput() {
 }
 
 async function handleCompress() {
-  const result = await gameStore.compressContext()
+  // P1-5：压缩走统一 dispatcher
+  const actionResult = await gameStore.executeExperienceAction({ type: 'compress', source: 'compress-btn' })
+  const result = actionResult.ok ? { compressed: true } : { compressed: false }
   if (result.compressed) {
     gameStore.messages.push({
       role: 'system',

@@ -27,6 +27,7 @@ import { buildGeoHistoryRuntimeContext } from '../services/worldHistory/runtimeC
 import { buildEmergenceCandidates } from '../services/worldHistory/emergenceScheduler'
 import { generateEmergenceEventDraft } from '../services/generationEmergence'
 import {
+  archiveMemoryCandidate,
   listScopedActiveMemoryCandidates
 } from '../services/memoryCandidates'
 import {
@@ -2635,6 +2636,69 @@ export const useGameStore = defineStore('game', {
       return records.find((r) => r.userMessageIds?.includes(String(messageId))) || null
     },
 
+    // P0-1：当前分支可见消息 id 集合 —— 基于 turn 祖先链。
+    // 从当前分支最新 committed turn 沿 parentTurnId 回溯，收集链上每个 turn 的
+    // user/assistant 消息 id。嵌套分叉时，只有祖先链上的消息可见，
+    // 子分支独有历史不会被误提升为共享。
+    collectBranchTurnChain(branchId) {
+      const chain = new Set()
+      if (!branchId) return chain
+      const records = Object.values(this.turnRecords || {})
+        .filter((r) => r?.status === 'committed')
+      const branchTurns = records
+        .filter((r) => r.branchId === branchId)
+        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
+      if (branchTurns.length === 0) return chain  // 新分支尚无 committed turn
+      let current = branchTurns[0]
+      const guard = new Set()
+      while (current && !guard.has(current.id)) {
+        guard.add(current.id)
+        chain.add(current.id)
+        current = current.parentTurnId ? this.turnRecords[current.parentTurnId] : null
+      }
+      return chain
+    },
+
+    // P0-1：当前分支可见消息 id 集合（含祖先链 turn 的消息 + 无 branchId 的共享历史）。
+    currentBranchVisibleMessageIds() {
+      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
+      const ids = new Set()
+      for (const turnId of chain) {
+        const turn = this.turnRecords[turnId]
+        if (!turn) continue
+        for (const id of [...(turn.userMessageIds || []), ...(turn.assistantMessageIds || [])]) {
+          ids.add(id)
+        }
+      }
+      return ids
+    },
+
+    // P1-4：当前分支链上的 turn id 集合（记忆候选分支隔离用）。
+    currentBranchTurnIds() {
+      return this.collectBranchTurnChain(this.activeBranchId || 'main')
+    },
+
+    // P1-4：构建记忆候选分支过滤函数。
+    // 候选 id 若出现在"非当前分支链"的 turn.memoryCandidateIds 里 → 排除（分支 A 的记忆不污染 B）。
+    // 手动/共享候选（不在任何 turn 记录里）→ 保留。
+    buildBranchMemoryFilter() {
+      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
+      // 反向映射：候选 id → 所属 turn id
+      const candidateToTurn = {}
+      for (const turn of Object.values(this.turnRecords || {})) {
+        for (const candidateId of turn.memoryCandidateIds || []) {
+          if (!candidateToTurn[candidateId]) candidateToTurn[candidateId] = []
+          candidateToTurn[candidateId].push(turn.id)
+        }
+      }
+      return (memory) => {
+        const turnIds = candidateToTurn[memory?.id]
+        if (!turnIds || turnIds.length === 0) return true  // 共享/手动候选保留
+        // 候选属于当前分支链上的 turn → 保留；否则排除
+        return turnIds.some((turnId) => chain.has(turnId))
+      }
+    },
+
     async regenerateFrom(index) {
       debugLog('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
       // 1. 确保游戏在播放状态
@@ -2652,19 +2716,13 @@ export const useGameStore = defineStore('game', {
       }
 
       // R1b：不再截断 messages —— 旧消息保留在数组。
-      // 被重写部分（index 之后）的旧分支消息标记 superseded（被新分支替代，过滤隐藏）。
-      // P0-1 修复：index 及之前的消息是**共享前缀**（分叉点之前的历史），
-      // 清除其 branchId —— 这样切换新分支后 rebuildChatHistory 不会把触发重生成的
-      // 用户输入过滤掉。
+      // P0-3 修正：**不再清除任何 branchId** —— 可见性由 turn 链决定
+      // （见 rebuildChatHistory / currentBranchVisibleMessageIds），
+      // 避免嵌套分叉时把子分支独有历史误提升为全局共享。
       const oldBranchId = this.activeBranchId || 'main'
       const newBranchId = `branch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       this.activeBranchId = newBranchId
-      // 共享前缀：index 及之前的消息清除 branchId（跨分支总显示）
-      for (let i = 0; i <= index; i++) {
-        const m = this.messages[i]
-        if (m && typeof m === 'object' && m.branchId) delete m.branchId
-      }
-      // 标记被重写部分为 superseded（含旧分支和 main 的旧回复）
+      // 标记被重写部分为 superseded（保留标记，供切换按钮定位）
       for (let i = index + 1; i < this.messages.length; i++) {
         const m = this.messages[i]
         if (m && typeof m === 'object') m.superseded = true
@@ -2688,7 +2746,10 @@ export const useGameStore = defineStore('game', {
         this._isRegenerating = true
         // P0-3：新 turn 作为旧 turn 的 sibling（同父级），并传入源用户消息 id，
         // 让生成出的 turnRecord 正确关联到触发重生成的 user 消息。
-        const branchParentTurnId = parentTurn?.parentTurnId || parentTurn?.id || null
+        // P0-2：新 turn 是旧 turn 的 sibling —— parentTurnId 取旧 turn 的父 turn。
+        // 首回合（parentTurn.parentTurnId 为 null）时新候选也是根 sibling（null），
+        // 不能 fallback 到旧 turn.id（那会变成子回合）。
+        const branchParentTurnId = parentTurn?.parentTurnId ?? null
         const sourceUserMessageId = targetMessage?.id || ''
         debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
         await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
@@ -2814,11 +2875,11 @@ export const useGameStore = defineStore('game', {
     rebuildChatHistory() {
       // 从当前的 messages 完整重建 chatHistory
       // 保留 user 和 assistant 消息（不包括 system）
-      // P0-2：过滤 superseded（被其它分支替代的旧回复）和非活动分支消息，
-      //       避免旧分支污染新一轮上下文。
-      const activeBranch = this.activeBranchId || 'main'
+      // P0-1：可见性由 turn 链决定 —— 当前分支祖先链上的消息 + 无 branchId 的共享历史。
+      // 不使用"清除 branchId"或简单分支过滤（嵌套分叉会污染）。
+      const visibleIds = this.currentBranchVisibleMessageIds()
       const history = this.messages
-        .filter((m) => m && !m.superseded && (!m.branchId || m.branchId === activeBranch))
+        .filter((m) => m && !m.superseded && (!m.branchId || visibleIds.has(m.id)))
         .map(m => {
           if (m.role === 'system' || m.type === 'system') return null
           return {
@@ -2940,11 +3001,17 @@ export const useGameStore = defineStore('game', {
           sessionId: narrativeSessionId,
           limitPerScope: 100
         }).filter((memory) => ['project', 'session'].includes(memory.scope))
+
+        // P1-4：记忆分支隔离 —— 排除属于非当前分支链 turn 产生的候选。
+        // 手动/共享候选（不在任何 turn 的 memoryCandidateIds 里）保留。
+        const branchMemoryFilter = this.buildBranchMemoryFilter()
+        const narrativeMemoriesFiltered = branchMemoryFilter ? narrativeMemories.filter(branchMemoryFilter) : narrativeMemories
+
         const narrativeIndex = getNarrativeResourceIndex({
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
           worldbook,
-          memories: narrativeMemories
+          memories: narrativeMemoriesFiltered
         })
         const narrativeRegistry = createNarrativeToolRegistry({
           index: narrativeIndex,
@@ -3154,9 +3221,7 @@ export const useGameStore = defineStore('game', {
               detail: mechanism
             }))
           }
-          if (this.currentSessionId) {
-            this.saveCurrentSession()
-          }
+          // P0-3：不再在 commit 前保存会话（commit 后统一保存）
         }
 
         // P0-3：回合事务提交 —— 所有 state 修改（extractAndUpdateState/机制/记忆）完成后，
@@ -3200,6 +3265,13 @@ export const useGameStore = defineStore('game', {
         if (turnRecord?.preRuntimeSnapshot) {
           failNarrativeTurnRecord(turnRecord)
           this.applyRuntimeSnapshot(turnRecord.preRuntimeSnapshot)
+          // P0-3：恢复后重建 chatHistory —— applyRuntimeSnapshot 不碰消息层，
+          // 但正文已写入 chatHistory，必须重建避免"正文残留但回合未提交"。
+          this.rebuildChatHistory()
+          // P0-3：归档本回合已入队的记忆候选（状态提取前已真实入库，失败必须清理）
+          for (const candidateId of turnRecord.memoryCandidateIds || []) {
+            try { archiveMemoryCandidate(candidateId, { note: 'turn-failed' }) } catch { /* 尽力而为 */ }
+          }
           this.pendingTurnRecord = null
         }
         // P1-5：导演注失败保留 —— 本回合的导演注未消费，恢复到 pending 供重试

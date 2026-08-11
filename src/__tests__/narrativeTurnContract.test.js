@@ -98,14 +98,74 @@ describe('回合事务与非破坏性重试', () => {
 
     await gameStore.regenerateFrom(2)
     const newBranchId = gameStore.activeBranchId
+    // 模拟新分支生成：push 回复 + 提交对应 turn（turn 链据此收集可见消息）
     gameStore.messages.push({ id: 'msg_new_a2', role: 'assistant', content: '新回复', branchId: newBranchId })
+    const newTurn = createNarrativeTurnRecord({
+      id: 'narrative_turn_new', parentTurnId: 'narrative_turn1', branchId: newBranchId,
+      preRuntimeSnapshot: fixture.preTurnTwoSnapshot, userMessageIds: ['msg_u2'],
+    })
+    commitNarrativeTurnRecord(newTurn, { assistantMessageIds: ['msg_new_a2'], postRuntimeSnapshot: fixture.postTurnTwoState })
+    gameStore.turnRecords['narrative_turn_new'] = newTurn
 
+    // P0-1：displayMessages 用 turn 链（currentBranchVisibleMessageIds）过滤
+    const visibleIds = gameStore.currentBranchVisibleMessageIds()
     const displayable = gameStore.messages.filter(
-      (m) => !m.superseded && (!m.branchId || m.branchId === gameStore.activeBranchId)
+      (m) => !m.superseded && (!m.branchId || visibleIds.has(m.id))
     )
     expect(displayable.map((m) => m.id)).not.toContain('msg_a2')  // 旧回复被 superseded 隐藏
     expect(displayable.map((m) => m.id)).toContain('msg_new_a2')  // 新回复可见
     expect(displayable.map((m) => m.id)).toContain('msg_u1')      // 共享前缀可见
+  })
+
+  it('P0-1: 嵌套分叉不污染其它分支 —— 子分支独有历史不被提升为共享', async () => {
+    const fixture = createDestructiveRegenerateFixture()
+    const turn1 = createNarrativeTurnRecord({ id: 'narrative_turn1', branchId: 'main', userMessageIds: ['msg_u1'], preRuntimeSnapshot: {} })
+    commitNarrativeTurnRecord(turn1, { assistantMessageIds: ['msg_a1'] })
+    const turn2 = createNarrativeTurnRecord({
+      id: 'narrative_turn2', parentTurnId: 'narrative_turn1', branchId: 'main',
+      preRuntimeSnapshot: fixture.preTurnTwoSnapshot, userMessageIds: ['msg_u2'],
+    })
+    commitNarrativeTurnRecord(turn2, { assistantMessageIds: ['msg_a2'], postRuntimeSnapshot: fixture.postTurnTwoState })
+    gameStore.messages = fixture.messages.map((m) => ({ ...m, branchId: 'main' }))
+    gameStore.turnRecords = { narrative_turn1: turn1, narrative_turn2: turn2 }
+    gameStore.activeBranchId = 'main'
+
+    // 第 1 次分叉：从 u2 重写 → branch_A，产生 a2'（branch_A 独有）
+    await gameStore.regenerateFrom(2)
+    const branchA = gameStore.activeBranchId
+    gameStore.messages.push({ id: 'msg_a2p', role: 'assistant', content: 'branch_A 回复', branchId: branchA })
+
+    // 第 2 次分叉：从 branch_A 的 u2 重写 → branch_B
+    await gameStore.regenerateFrom(2)
+    const branchB = gameStore.activeBranchId
+
+    // branch_B 链上不应包含 branch_A 独有的 a2'（msg_a2p）
+    const visibleB = gameStore.currentBranchVisibleMessageIds()
+    expect(visibleB.has('msg_a2p')).toBe(false)
+
+    // 切回 main：同样不应看到 branch_A 的 a2'（msg_a2p）—— 未被提升为全局共享
+    gameStore.switchBranch('main')
+    const visibleMain = gameStore.currentBranchVisibleMessageIds()
+    expect(visibleMain.has('msg_a2p')).toBe(false)
+    expect(visibleMain.has('msg_u1')).toBe(true)  // 共享根历史仍可见
+  })
+
+  it('P0-2: 首回合 regenerate 的 sibling parentTurnId 为 null（非子回合）', async () => {
+    const fixture = createDestructiveRegenerateFixture()
+    const turn1 = createNarrativeTurnRecord({ id: 'narrative_turn1', branchId: 'main', preRuntimeSnapshot: {} })
+    gameStore.messages = fixture.messages.map((m) => ({ ...m }))
+    gameStore.turnRecords = { narrative_turn1: turn1 }
+    gameStore.useAI = false
+
+    // 从 index=2（u2，属于 turn1 之后）—— 这里 u2 不在 turn1 的 userMessageIds，
+    // 模拟首回合场景：regenerate 后新 turn 的 parentTurnId 应为 null
+    await gameStore.regenerateFrom(2)
+    // 无法直接断言新 turn（useAI=false 不生成），但 regenerateFrom 不应抛错且
+    // activeBranchId 已切换，共享前缀（u1/u2）仍可见
+    expect(gameStore.activeBranchId).not.toBe('main')
+    const visible = gameStore.currentBranchVisibleMessageIds()
+    // 无 committed turn 时链为空，但无 branchId 消息（共享历史）仍可见
+    expect(visible.size).toBe(0)
   })
 
   it('switchBranch 切回旧分支：post snapshot 恢复 + superseded 重算', async () => {

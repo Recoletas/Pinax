@@ -159,11 +159,12 @@ const caseNoShort = computed(() => {
 // is a pure derived view, no store mutation.
 // ======================================================================
 const displayMessages = computed(() => {
+  // P0-1：可见性由 turn 链决定（当前分支祖先链上的消息 + 无 branchId 的共享历史），
+  // 避免嵌套分叉时子分支独有历史污染其它分支。
+  const visibleIds = gameStore.currentBranchVisibleMessageIds()
   return (gameStore.messages || [])
     .filter((msg) => msg && (msg.role || msg.type) !== undefined)
-    // R1b：superseded 消息（被其它分支替代的旧回复）隐藏；
-    // 无 branchId 的共享前缀总是显示；有 branchId 的只显示当前活跃分支。
-    .filter((msg) => !msg.superseded && (!msg.branchId || msg.branchId === gameStore.activeBranchId))
+    .filter((msg) => !msg.superseded && (!msg.branchId || visibleIds.has(msg.id)))
 })
 
 // E16-NOVEL: speaker label + drop-cap helpers. The speaker label
