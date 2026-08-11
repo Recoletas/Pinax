@@ -554,7 +554,7 @@ export function buildPendingPayload({
  * 1) createWorldbook  → 2) 循环 addEntry → 3) 更新 groups → 4) setActive。
  * 返回创建后的 worldbook（含 id / name）。
  */
-export async function createWorldbookFromPayload(worldStore, payload) {
+export async function createWorldbookFromPayload(worldStore, payload, options = {}) {
   if (!worldStore || typeof worldStore.createWorldbook !== 'function') {
     throw new Error('createWorldbookFromPayload 需要有效的 worldStore')
   }
@@ -573,7 +573,9 @@ export async function createWorldbookFromPayload(worldStore, payload) {
     description: normalizedPayload.description || normalizedPayload.worldDescription || '',
     research: normalizedPayload.research,
     structuredSettings: normalizedPayload.structuredSettings,
-    sourceDocuments: normalizedPayload.sourceDocuments
+    sourceDocuments: normalizedPayload.sourceDocuments,
+    sourcePresetId: options.sourcePresetId || null,
+    presetSignature: options.presetSignature || null
   })
 
   for (const entry of normalizedPayload.entries) {
@@ -740,6 +742,19 @@ export async function tryAiGenerateFromBrief({ genre, genreLabel: explicitGenreL
 
 // ----- One-click preset world flow -----
 
+// preset 内容签名：稳定、可复算，用于识别旧版本产生的、没带 sourcePresetId 的「同源」副本。
+// 取 preset.name + description 前 80 字符 + 所有条目 name 排序后拼接，足够区分各预设。
+// 导出供测试 / 调试复算使用。
+export function presetSignature(preset) {
+  if (!preset) return ''
+  const entryNames = (Array.isArray(preset.entries) ? preset.entries : [])
+    .map((e) => normalizeText(e?.name))
+    .filter(Boolean)
+    .sort()
+    .join('|')
+  return `${normalizeText(preset.name)}${normalizeText(preset.description).slice(0, 80)}${entryNames}`
+}
+
 /**
  * 一键进入 preset 世界：导入预设 → setActive → 写入 playable world entry intent → 跳转 /opening。
  * - `preset`：seedWorldbookPresets 任意一项
@@ -748,6 +763,32 @@ export async function tryAiGenerateFromBrief({ genre, genreLabel: explicitGenreL
  */
 export async function enterPresetWorld(worldStore, router, preset, action = null) {
   if (!preset) return null
+
+  // 同 preset 重复点击时复用既有副本，避免「每次点都新建一份一模一样」。
+  // store 内部会先按 sourcePresetId（新副本）匹配，没命中再按 presetSignature（旧副本兜底）匹配。
+  const signature = presetSignature(preset)
+  const existing = typeof worldStore?.findWorldbookByPreset === 'function'
+    ? worldStore.findWorldbookByPreset(preset.id, signature)
+    : null
+  if (existing) {
+    if (typeof worldStore.setActiveWorldbook === 'function') {
+      await worldStore.setActiveWorldbook(existing.id)
+    }
+    const intentAction = action || buildPlayableWorldActionHooks(preset)[0]
+    if (intentAction) {
+      savePlayableWorldEntryIntent({
+        worldbookId: existing.id,
+        worldbookName: existing.name,
+        presetId: preset.id,
+        presetName: preset.name,
+        action: intentAction
+      })
+    }
+    if (router && typeof router.push === 'function') {
+      router.push({ name: 'experience' })
+    }
+    return existing
+  }
 
   const openingHook = normalizeText(preset.openingHook)
   const worldDescription = [
@@ -766,7 +807,10 @@ export async function enterPresetWorld(worldStore, router, preset, action = null
     groups: preset.groups
   })
 
-  const created = await createWorldbookFromPayload(worldStore, payload)
+  const created = await createWorldbookFromPayload(worldStore, payload, {
+    sourcePresetId: preset.id,
+    presetSignature: signature
+  })
 
   const resolvedAction = action || buildPlayableWorldActionHooks(preset)[0]
   if (resolvedAction) {

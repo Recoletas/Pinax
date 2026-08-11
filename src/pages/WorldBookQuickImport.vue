@@ -74,7 +74,10 @@ function activeWorldbookToPreset(worldbook) {
     name: worldbook?.name || '当前世界书',
     genreLabel: orgs[0] ? `${orgs[0]} 势力` : '我的世界书',
     openingHook,
-    entries
+    entries,
+    // 标记该卡展示的是「当前已存在的世界书」，而不是待导入的 preset。
+    // 「开始冒险」应直接进入它，而非再走一次 preset 导入 → 生成重复世界书。
+    isActiveWorldbook: true
   }
 }
 
@@ -84,9 +87,14 @@ async function onWorldbookChange(id) {
   }
 }
 
-function enterDefaultWorld(preset) {
-  if (heroUsesActiveWorldbook.value) {
-    router.push({ name: 'experience', query: { worldbookId: activeWorldbook.value.id } })
+async function enterDefaultWorld(preset) {
+  if (!preset) return
+  // hero 展示的是当前世界书本身：直接进入体验，不再重复生成一份。
+  if (heroUsesActiveWorldbook.value || preset.isActiveWorldbook) {
+    router.push({
+      name: 'experience',
+      query: { worldbookId: activeWorldbook.value?.id || preset.id }
+    })
     return
   }
   helperEnterPresetWorld(worldStore, router, preset).catch((err) => {

@@ -27,9 +27,27 @@ const currentChapterId = computed(() => {
   return Array.isArray(id) ? id[0] : id
 })
 
-const currentChapter = computed(() => {
-  if (!manifest.value) return null
-  return manifest.value.chapters.find((c) => c.id === currentChapterId.value) || null
+// 章节参数可能是清单里的 id（01-quickstart）、文件名（01-quickstart.md）或 README.md。
+// 统一解析到真实章节；同时兜底 URL 里残留的 .md 形式（旧整页跳转留下的地址/书签/历史）。
+function resolveChapter(rawId) {
+  if (!manifest.value || !rawId) return null
+  const plain = String(rawId).split(/[?#]/)[0]
+  return (
+    manifest.value.chapters.find((c) => c.id === plain) ||
+    manifest.value.chapters.find((c) => c.file === plain) ||
+    manifest.value.chapters.find((c) => `${c.id}.md` === plain) ||
+    null
+  )
+}
+
+const currentChapter = computed(() => resolveChapter(currentChapterId.value))
+
+// 正文里跨章节链接是 [文本](./XX.md) 形式：marked 原样输出 <a href="./XX.md">。
+// 若让浏览器默认处理，会整页跳转到 /docs/XX.md，路由匹配到 chapterId="XX.md"，
+// 清单里找不到对应章节 → 空白页。这里建 file → id 映射，点击时改走 SPA 路由。
+const chapterByFile = computed(() => {
+  if (!manifest.value) return new Map()
+  return new Map(manifest.value.chapters.map((c) => [c.file, c.id]))
 })
 
 // 按 manifest 的 group 字段分组的导航树。
@@ -63,7 +81,7 @@ async function loadManifest() {
 }
 
 async function loadChapter(chapterId) {
-  const meta = manifest.value?.chapters.find((c) => c.id === chapterId)
+  const meta = resolveChapter(chapterId)
   if (!meta) return
   const token = ++fetchToken.value
   chapterLoading.value = true
@@ -85,6 +103,33 @@ async function loadChapter(chapterId) {
 function selectChapter(chapterId) {
   if (chapterId === currentChapterId.value) return
   router.push({ name: 'docs', params: { chapterId } })
+}
+
+// 拦截正文内的 <a> 点击：外部链接/锚点走浏览器默认；站内 ./XX.md 映射成
+// /docs/XX 走 Vue Router（避免整页跳转后清单匹配不上 → 空白页）。中键 /
+// Ctrl/Cmd 点击时在新标签打开解析后的正确地址。
+function onContentClick(event) {
+  const anchor = event.target?.closest?.('a[href]')
+  if (!anchor) return
+  const href = (anchor.getAttribute('href') || '').trim()
+  if (!href) return
+  // 外部协议 / 纯锚点 / 协议相对：交回浏览器默认行为
+  if (/^(?:https?:|mailto:|tel:|ftp:|#|\/\/|data:)/i.test(href)) return
+  event.preventDefault()
+  // 去掉 ./ 前缀与 #fragment / ?query，只留路径
+  const clean = href.replace(/^\.\/+/, '').split(/[?#]/)[0]
+  if (clean.endsWith('.md')) {
+    const id = chapterByFile.value.get(clean) || clean.slice(0, -3)
+    const resolved = router.resolve({ name: 'docs', params: { chapterId: id } })
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) {
+      window.open(resolved.href, '_blank', 'noopener')
+    } else if (id !== currentChapterId.value) {
+      router.push(resolved)
+    }
+    return
+  }
+  // 站内绝对路径（如 /experience、/writing）交给应用路由
+  if (clean.startsWith('/')) router.push(clean)
 }
 
 function retryChapter() {
@@ -117,6 +162,17 @@ watch(
     })
   },
   { immediate: false }
+)
+
+// URL 兜底：若地址栏是 .md / 文件名形式（如旧整页跳转留下的 /docs/01-quickstart.md），
+// 解析出真实章节后把地址规整回 /docs/<id>，让地址栏、侧栏高亮、后退行为都基于规范 id。
+watch(
+  () => currentChapter.value?.id,
+  (resolvedId) => {
+    if (resolvedId && resolvedId !== currentChapterId.value) {
+      router.replace({ name: 'docs', params: { chapterId: resolvedId } })
+    }
+  }
 )
 
 // 关闭移动端侧栏
@@ -203,8 +259,8 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="docs-page__nav-item"
-                  :class="{ 'is-active': ch.id === currentChapterId }"
-                  :aria-current="ch.id === currentChapterId ? 'page' : 'false'"
+                  :class="{ 'is-active': ch.id === currentChapter?.id }"
+                  :aria-current="ch.id === currentChapter?.id ? 'page' : 'false'"
                   :data-test="`docs-nav-${ch.id}`"
                   @click="selectChapter(ch.id)"
                 >
@@ -239,6 +295,7 @@ onBeforeUnmount(() => {
             class="docs-page__content"
             data-test="docs-content"
             v-html="sanitizedHtml"
+            @click="onContentClick"
           />
           <p v-else class="docs-page__hint">无内容</p>
         </article>

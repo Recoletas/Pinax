@@ -343,6 +343,22 @@ export const useWorldStore = defineStore('world', {
     charactersByWorldbook: (state) => (worldbookId) => {
       if (!worldbookId) return state.characters.filter(c => !c.worldEntryId)
       return state.characters.filter(c => c.worldEntryId?.startsWith(worldbookId))
+    },
+
+    // 同一 preset 多次点「一键导入」时，命中既有副本直接激活，避免重复建书。
+    // 优先按显式 sourcePresetId 字段匹配（新版副本）。
+    // 兜底按内容签名匹配（旧版副本没有 sourcePresetId，但 preset 内容签名一致），
+    // 这样清空缓存前已有的「边境王国」副本也能被识别并复用，而不是继续复制。
+    findWorldbookByPreset: (state) => (presetId, signature = null) => {
+      if (presetId) {
+        const tagged = state.worldbooksIndex.find((w) => w?.sourcePresetId === presetId)
+        if (tagged) return tagged
+      }
+      if (signature) {
+        const matches = state.worldbooksIndex.filter((w) => w?.presetSignature === signature)
+        if (matches.length) return matches[0]
+      }
+      return null
     }
   },
 
@@ -408,6 +424,10 @@ export const useWorldStore = defineStore('world', {
         entriesMap: {}, // id -> entry 便于快速查找
         groups: [],
         sourceDocuments: Array.isArray(data.sourceDocuments) ? data.sourceDocuments : [],
+        // 一键预设世界书携带 preset 来源；同 preset 重复点「开始冒险」复用既有副本。
+        sourcePresetId: data.sourcePresetId || null,
+        // 内容签名兜底：旧版本产生的副本没有 sourcePresetId，签名相同即视为同源。
+        presetSignature: data.presetSignature || null,
         // 预设 / AI 生成 / 导入若已带地图历史则挂上；否则 null（不阻塞）。
         geoHistory: normalizeGeoHistory(data.geoHistory),
         structuredSettings: normalizeStructuredSettings(data.structuredSettings),
@@ -423,7 +443,9 @@ export const useWorldStore = defineStore('world', {
         author: worldbook.author,
         entryCount: 0,
         createdAt: worldbook.createdAt,
-        updatedAt: worldbook.updatedAt
+        updatedAt: worldbook.updatedAt,
+        sourcePresetId: worldbook.sourcePresetId,
+        presetSignature: worldbook.presetSignature
       })
       await this.saveWorldbooksIndex()
       this.activeWorldbook = worldbook
@@ -455,6 +477,8 @@ export const useWorldStore = defineStore('world', {
       if (Object.prototype.hasOwnProperty.call(updates, 'author')) indexEntry.author = updates.author
       indexEntry.entryCount = updated.entries.length
       indexEntry.updatedAt = updated.updatedAt
+      if (updated.sourcePresetId) indexEntry.sourcePresetId = updated.sourcePresetId
+      if (updated.presetSignature) indexEntry.presetSignature = updated.presetSignature
       await this.saveWorldbooksIndex()
 
       if (this.activeWorldbook?.id === worldbookId) {

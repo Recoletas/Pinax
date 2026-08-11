@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
-// 临时改：默认改为 legacy（用户要求首页只显示经典）— 还原方法：把 'legacy' 改回 'kao'
+// 全局锁定「主题2 · 亮色」：variant 固定 legacy、colorScheme 固定 light，
+// initTheme 不再读 localStorage（见下），所有主题切换 UI 已隐藏。
 export const DEFAULT_VARIANT = 'legacy'
 export const DEFAULT_COLOR_SCHEME = 'light'
 export const VALID_VARIANTS = ['kao', 'legacy']
@@ -36,23 +37,17 @@ export const useThemeStore = defineStore('theme', {
   }),
   actions: {
     initTheme() {
-      // localStorage can throw SecurityError in Safari private mode or with
-      // storage disabled. Treat any read failure as "no stored value" so the
-      // store falls through to defaults and still applies the theme to <html>.
-      let v = null
-      let c = null
+      // 全局锁定「主题2 · 亮色」(legacy + light)：不再读取 localStorage 里的
+      // variant / colorScheme，即使旧数据存了主题1或暗色也一律回归默认。
+      // 缩放的 stored 值仍保留（用户手动调过的 85/90/95/100% 会继续生效）。
       let z = null
       try {
-        v = localStorage.getItem(LS_VARIANT)
-        c = localStorage.getItem(LS_COLOR)
         z = localStorage.getItem(LS_UI_ZOOM)
       } catch (_) {
-        v = null
-        c = null
         z = null
       }
-      this.variant = VALID_VARIANTS.includes(v) ? v : DEFAULT_VARIANT
-      this.colorScheme = VALID_COLOR_SCHEMES.includes(c) ? c : DEFAULT_COLOR_SCHEME
+      this.variant = DEFAULT_VARIANT
+      this.colorScheme = DEFAULT_COLOR_SCHEME
       const parsedZoom = Number(z)
       this.uiZoom = VALID_UI_ZOOMS.includes(parsedZoom) ? parsedZoom : DEFAULT_UI_ZOOM
       this.applyToHtml()

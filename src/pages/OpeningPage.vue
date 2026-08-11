@@ -154,7 +154,8 @@
           <span>换世界</span>
           <strong>CHANGE</strong>
         </button>
-        <button class="opening-rail-btn" type="button" data-rail-index="02" @click="toggleTheme">
+        <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
+        <button v-if="false" class="opening-rail-btn" type="button" data-rail-index="02" @click="toggleTheme">
           <span>{{ isDark ? '暗色' : '亮色' }}</span>
           <strong>{{ isDark ? 'MOON' : 'SUN' }}</strong>
         </button>

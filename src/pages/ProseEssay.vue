@@ -80,7 +80,9 @@
           >
             <span class="prose-top__chip-label">素材库</span>
           </router-link>
+          <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
           <button
+            v-if="false"
             class="prose-top__chip prose-top__chip--mode"
             type="button"
             @click="toggleTheme"
