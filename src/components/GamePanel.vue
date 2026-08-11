@@ -98,6 +98,7 @@
         :turn-speaker="displayName(msg)"
         :compression-complete="isCompressionCompleteMessage(msg)"
         :can-edit="(msg.role || msg.type) !== 'system'"
+        :has-candidates="msg.role === 'user' && gameStore.hasCandidateAfter(index)"
         :render-content="(block) => renderBlockContent(msg, block, index)"
         @body-click="onTextWrapperClick(index, msg, $event)"
         @editor-keydown="onEditorKeydown"
@@ -106,6 +107,7 @@
         @edit="startEdit(index, msg.content)"
         @delete="gameStore.deleteMessage(index)"
         @regenerate="gameStore.regenerateFrom(index)"
+        @switch-candidate="onSwitchCandidate(index, msg)"
       />
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
@@ -159,6 +161,9 @@ const caseNoShort = computed(() => {
 const displayMessages = computed(() => {
   return (gameStore.messages || [])
     .filter((msg) => msg && (msg.role || msg.type) !== undefined)
+    // R1b：superseded 消息（被其它分支替代的旧回复）隐藏；
+    // 无 branchId 的共享前缀总是显示；有 branchId 的只显示当前活跃分支。
+    .filter((msg) => !msg.superseded && (!msg.branchId || msg.branchId === gameStore.activeBranchId))
 })
 
 // E16-NOVEL: speaker label + drop-cap helpers. The speaker label
@@ -212,6 +217,18 @@ const startEdit = (index, text) => {
 
 const cancelEdit = () => {
   editingIndex.value = -1
+}
+
+// R1b：切换回复版本 —— 在当前 user 消息后的所有候选分支间循环。
+const onSwitchCandidate = (index, msg) => {
+  const branches = gameStore.candidateBranchesAfter(index)
+  const current = gameStore.activeBranchId
+  if (branches.length === 0) return
+  // 把当前分支也纳入循环（切回当前即从旧分支回到新分支）
+  if (current && !branches.includes(current)) branches.push(current)
+  const idx = branches.indexOf(current)
+  const next = branches[(idx + 1) % branches.length]
+  if (next && next !== current) gameStore.switchBranch(next)
 }
 
 const saveEdit = (index) => {
@@ -303,7 +320,7 @@ onMounted(() => {
   if (displayMessages.value.length > 0) scroll()
 })
 
-watch(() => gameStore.messages.length, (length, previousLength) => {
+watch(() => displayMessages.value.length, (length, previousLength) => {
   if (length > previousLength) scroll()
 })
 </script>

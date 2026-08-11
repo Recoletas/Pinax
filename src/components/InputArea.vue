@@ -191,6 +191,19 @@
         </div>
       </div>
     </div>
+    <!-- R2：本轮导演注（仅下一轮生效，注入 kernel，不进聊天列表） -->
+    <div v-if="showDirectorNote" class="director-note-row">
+      <input
+        v-model="directorNote"
+        type="text"
+        class="input director-note-input"
+        placeholder="本轮导演注：仅本次回复生效（如「让气氛更紧张」）"
+        @keyup.enter="handleSend"
+        @keydown.meta.enter.prevent="handleSend"
+        @keydown.ctrl.enter.prevent="handleSend"
+        @keydown.escape="directorNote = ''"
+      />
+    </div>
     <div class="input-row">
       <input
         v-model="inputText"
@@ -225,6 +238,11 @@
       <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
           <path d="M7 0h1v9h-1V0zm0 10h1v4h-1v-4zM4 4h1v6H4V4zm6 2h1v4h-1V6z"/>
+        </svg>
+      </button>
+      <button class="info-btn" :class="{ 'info-btn--active': showDirectorNote }" @click="showDirectorNote = !showDirectorNote" title="本轮导演注">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 3l9 5-9 5-9-5 9-5zm0 8.5L19 12v5l-7 4-7-4v-5l7 .5z"/>
         </svg>
       </button>
     </div>
@@ -265,6 +283,9 @@ function handleStorageUpdated(event) {
 }
 const inputText = ref('')
 const showPromptInfo = ref(false)
+// R2：本轮导演注（仅下一轮生效）
+const directorNote = ref('')
+const showDirectorNote = ref(false)
 const showDetail = ref(false)
 const detailTab = ref('context')
 const showDialoguePanel = ref(false)
@@ -311,9 +332,13 @@ onUnmounted(() => {
 })
 
 function handleSend() {
+  const note = directorNote.value.trim()
   if (inputText.value.trim()) {
-    emit('send', inputText.value.trim(), { source: 'manual-input' })
+    emit('send', inputText.value.trim(), { source: 'manual-input', directorNote: note || undefined })
     inputText.value = ''
+    // R2：导演注仅下一轮生效，提交后清空
+    directorNote.value = ''
+    showDirectorNote.value = false
   }
 }
 

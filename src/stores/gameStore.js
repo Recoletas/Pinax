@@ -58,6 +58,7 @@ import { getNarrativeResourceIndex } from '../services/agents/narrativeResourceI
 import { buildNarrativeContextAudit } from '../services/agents/narrativeContextAudit'
 import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
 import {
+  buildTurnReceipt,
   createNarrativeAgentContextLedger,
   runNarrativeAgentGeneration
 } from '../services/agents/narrativeAgentOrchestrator'
@@ -73,6 +74,14 @@ import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { debounce, flushPending } from '../composables/useDebounce'
 import { useWorldStore } from './worldStore'
 import { parseCharacterCards } from '../services/characterCard'
+import {
+  createMessageId,
+  createNarrativeTurnRecord,
+  commitNarrativeTurnRecord,
+  failNarrativeTurnRecord,
+  normalizeTurnRecords,
+  TURN_RECORD_LIMIT,
+} from '../../shared/narrativeTurnContract.js'
 
 const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
@@ -922,6 +931,14 @@ export const useGameStore = defineStore('game', {
 
     // 运行时事件侧车 (v1 append-only, ≤200 events per session)
     runtimeEvents: [],
+
+    // R1a：回合事务记录（id → NarrativeTurnRecord，LRU ≤50）。
+    // 每条含 preRuntimeSnapshot，供 regenerate/失败回滚恢复 runtime state。
+    turnRecords: {},
+    lastCommittedTurnId: null,
+    pendingTurnRecord: null,
+    // R1b：当前活跃分支。regenerate 时新建分支并切换，displayMessages 按它过滤。
+    activeBranchId: 'main',
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -1900,6 +1917,9 @@ export const useGameStore = defineStore('game', {
         worldMap: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
         activities: cloneState(this.activities, [])
       }
+      // R1a：回合事务记录随 session 持久化（LRU ≤50，含全量 preRuntimeSnapshot）
+      this.sessions[idx].turnRecords = normalizeTurnRecords(this.turnRecords)
+      this.sessions[idx].lastCommittedTurnId = this.lastCommittedTurnId || null
       this.sessions[idx].worldId = worldbookId
       this.sessions[idx].worldbookId = worldbookId
       this.sessions[idx].updatedAt = Date.now()
@@ -1969,6 +1989,10 @@ export const useGameStore = defineStore('game', {
         Array.isArray(runtimeState.runtimeEvents) ? runtimeState.runtimeEvents : [],
         RUNTIME_EVENT_LIMIT
       )
+      // R1a：恢复回合事务记录（供 regenerate 回滚）
+      this.turnRecords = normalizeTurnRecords(session.turnRecords || {})
+      this.lastCommittedTurnId = session.lastCommittedTurnId || null
+      this.pendingTurnRecord = null
       this.worldId = session.worldbookId || session.worldId || this.worldId || ''
       this.isPlaying = true
       this.saveSessions()
@@ -2058,6 +2082,54 @@ export const useGameStore = defineStore('game', {
           RUNTIME_EVENT_LIMIT
         )
       }
+    },
+
+    // R1a：从 preRuntimeSnapshot 恢复 runtime state（回合事务失败/regenerate 回滚用）。
+    // 复用 loadSession 的 normalize 模式；不恢复 messages/chatHistory（由调用方单独处理）。
+    applyRuntimeSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return
+      const s = snapshot
+      this.placeStates = normalizePlaceStates(s.placeStates)
+      this.characterStates = normalizeCharacterStates(s.characterStates)
+      this.characterRelations = normalizeCharacterRelations(s.characterRelations)
+      this.canonicalFacts = normalizeCanonicalFacts(s.canonicalFacts)
+      this.worldMapState = normalizeWorldMapState(s.worldMapState || DEFAULT_WORLD_MAP_STATE)
+      this.historyNode = cloneState(s.historyNode || null, null)
+      this.narrativeSceneSummary = normalizeNarrativeSceneSummary(s.narrativeSceneSummary)
+      this.activities = cloneState(s.activities || [], [])
+      const adventureState = normalizeAdventureState(s)
+      this.goals = adventureState.goals
+      this.encounteredCharacters = adventureState.encounteredCharacters
+      this.factionRelations = adventureState.factionRelations
+      this.keyChoices = adventureState.keyChoices
+      this.plotJournal = adventureState.plotJournal
+      this.adventureTriggers = cloneState(adventureState.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers)
+      this.adventureTriggerHistory = cloneState(adventureState.adventureTriggerHistory, [])
+      this.adventureTriggerCooldownUntil = adventureState.adventureTriggerCooldownUntil || 0
+      this.emergenceCandidates = cloneState(adventureState.emergenceCandidates, [])
+      this.emergenceDismissedIds = cloneState(adventureState.emergenceDismissedIds, [])
+      this.emergenceDraft = cloneState(adventureState.emergenceDraft, null)
+      this.adventureTriggerPendingType = null
+      this.player = cloneState(s.player || this.player, { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 })
+      this.inventory = cloneState(s.inventory || this.inventory, [])
+      this.quests = cloneState(s.quests || this.quests, [])
+      this.flags = cloneState(s.flags || this.flags, {})
+      this.npcRelations = cloneState(s.npcRelations || this.npcRelations, {})
+      this.discoveredPlaces = cloneState(s.discoveredPlaces || this.discoveredPlaces, [])
+      this.completedQuests = cloneState(s.completedQuests || this.completedQuests, [])
+      this.activeMechanism = s.activeMechanism ?? null
+      this.mechanismContext = cloneState(s.mechanismContext || null, null)
+      this.milestoneEvent = cloneState(s.milestoneEvent || null, null)
+      this.dialogueMode = !!s.dialogueMode
+      this.dialogueCharacter = cloneState(s.dialogueCharacter || null, null)
+      this.writingCharacter = normalizeWritingCharacter(s.writingCharacter || DEFAULT_WRITING_CHARACTER)
+      this.writingTime = normalizeWritingTime(s.writingTime || DEFAULT_WRITING_TIME)
+      this.runtimeEvents = capRuntimeEvents(
+        Array.isArray(s.runtimeEvents) ? s.runtimeEvents : [],
+        RUNTIME_EVENT_LIMIT
+      )
+      // 立即落盘（不依赖 500ms debouncer），崩溃/刷新不丢恢复结果
+      this.flushSaveSessions()
     },
 
     appendRuntimeEvent(input = {}) {
@@ -2453,14 +2525,16 @@ export const useGameStore = defineStore('game', {
     async sendAction(text, options = {}) {
       if (!text.trim()) return
 
-      const { hidden = false, narrativeMode = '' } = options
+      const { hidden = false, narrativeMode = '', directorNote = '' } = options
 
       // 隐藏命令不显示在 UI 中，但加入 AI 上下文
       if (!hidden) {
         this.messages.push({
+          id: createMessageId('user'),
           role: 'user',
           content: text,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          branchId: this.activeBranchId  // R1b：区分分支
         })
       }
       this.chatHistory.push({ role: 'user', content: text })
@@ -2475,7 +2549,7 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
 
       if (this.useAI) {
-        await this.generateAIResponse({ narrativeMode })
+        await this.generateAIResponse({ narrativeMode, directorNote })
       } else {
         this.isLoading = true
         try {
@@ -2485,6 +2559,7 @@ export const useGameStore = defineStore('game', {
             for (const event of response.events) {
               if (event.type !== 'system' && event.type !== 'time_advance') {
                 this.messages.push({
+                  id: createMessageId('assistant'),
                   role: 'assistant',
                   content: event.description,
                   timestamp: Date.now()
@@ -2494,6 +2569,7 @@ export const useGameStore = defineStore('game', {
           }
           if (response.timeAdvanced) {
             this.messages.push({
+              id: createMessageId('system'),
               role: 'system',
               content: `时间已推进：${response.timeDescription}`,
               timestamp: Date.now()
@@ -2502,7 +2578,7 @@ export const useGameStore = defineStore('game', {
           this.saveCurrentSession()
         } catch (e) {
           this.lastError = e.message
-          this.messages.push({ role: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
+          this.messages.push({ id: createMessageId('system'), role: 'system', content: `错误：${e.message}`, timestamp: Date.now() })
         } finally {
           this.isLoading = false
         }
@@ -2535,20 +2611,57 @@ export const useGameStore = defineStore('game', {
 
     // --- 新增：核心”执行”功能 ---
     // 点击某条消息的”执行”按钮时调用
+    // R1a：根据消息 id 反查所属的 turnRecord。
+    // 优先精确匹配 assistantMessageIds；其次匹配 userMessageIds（用于从 user 消息 regenerate）。
+    findTurnByMessageId(messageId) {
+      if (!messageId) return null
+      const records = Object.values(this.turnRecords || {})
+      const byAssistant = records.find((r) => r.assistantMessageIds?.includes(String(messageId)))
+      if (byAssistant) return byAssistant
+      return records.find((r) => r.userMessageIds?.includes(String(messageId))) || null
+    },
+
     async regenerateFrom(index) {
       debugLog('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
       // 1. 确保游戏在播放状态
       this.isPlaying = true
 
-      // 2. 截断消息列表，只保留到当前点击的这一条
-      this.messages = this.messages.slice(0, index + 1);
-      debugLog('[regenerateFrom] messages count after slice:', this.messages.length)
+      // R1a：非破坏性重试。
+      // 1a. 找到目标消息所属的回合，回滚到该回合开始前的 runtime state。
+      const targetMessage = this.messages[index]
+      const parentTurn = targetMessage?.id ? this.findTurnByMessageId(targetMessage.id) : null
+      if (parentTurn?.preRuntimeSnapshot) {
+        debugLog('[regenerateFrom] rollback runtime state to pre-turn snapshot:', parentTurn.id)
+        this.applyRuntimeSnapshot(parentTurn.preRuntimeSnapshot)
+      } else {
+        debugLog('[regenerateFrom] no matching turn record; skip state rollback')
+      }
 
-      // 3. 重新构建 AI 记忆
+      // R1b：不再截断 messages —— 旧消息保留在数组。
+      // 被重写部分（index 之后）的旧分支消息标记 superseded（被新分支替代，过滤隐藏），
+      // 共享前缀（index 及之前）无 branchId 总是显示。
+      const oldBranchId = this.activeBranchId || 'main'
+      const newBranchId = `branch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+      this.activeBranchId = newBranchId
+      // 标记被重写部分为 superseded（含旧分支和 main 的旧回复）
+      for (let i = index + 1; i < this.messages.length; i++) {
+        const m = this.messages[i]
+        if (m && typeof m === 'object') m.superseded = true
+      }
+      // 旧分支的最后一条 assistant 消息记入 parentTurn（切换按钮定位用）
+      const lastOldAssistant = [...this.messages].reverse().find((m) => (
+        m?.role === 'assistant' && (m.branchId || 'main') === oldBranchId
+      ))
+      if (parentTurn && lastOldAssistant?.id) {
+        parentTurn.oldBranchAssistantId = lastOldAssistant.id
+      }
+      debugLog('[regenerateFrom] switch branch to:', newBranchId, 'oldBranch:', oldBranchId)
+
+      // 2. 重新构建 AI 记忆
       this.rebuildChatHistory();
       debugLog('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
 
-      // 4. 如果开启了 AI，立即触发重新生成
+      // 3. 如果开启了 AI，立即触发重新生成
       if (this.useAI) {
         // 标记为重写后续，避免触发初始化逻辑
         this._isRegenerating = true
@@ -2557,6 +2670,41 @@ export const useGameStore = defineStore('game', {
         this._isRegenerating = false
         debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
+    },
+
+    // R1b：切换候选/分支。恢复该分支的 post snapshot + 重建 chatHistory。
+    switchBranch(branchId) {
+      if (!branchId || branchId === this.activeBranchId) return
+      const turn = Object.values(this.turnRecords || {}).find((r) => r?.branchId === branchId)
+      if (turn?.postRuntimeSnapshot) {
+        this.applyRuntimeSnapshot(turn.postRuntimeSnapshot)
+      }
+      // 重算 superseded：目标分支的消息解除标记，其他分支的消息标记（隐藏）
+      for (const m of this.messages || []) {
+        if (!m || typeof m !== 'object') continue
+        if (m.branchId && m.branchId !== branchId) m.superseded = true
+        else m.superseded = false
+      }
+      this.activeBranchId = branchId
+      this.rebuildChatHistory()
+      this.saveCurrentSession()
+    },
+
+    // R1b：检查 index 之后是否还有其它分支的 assistant 消息（切换按钮显示条件）。
+    hasCandidateAfter(index) {
+      const after = this.messages.slice(index + 1)
+      const currentBranch = this.activeBranchId || 'main'
+      return after.some((m) => m?.role === 'assistant' && (m.branchId || 'main') !== currentBranch)
+    },
+
+    // R1b：列出当前 user 消息之后的所有分支 id（切换按钮在候选间循环）。
+    candidateBranchesAfter(index) {
+      const after = this.messages.slice(index + 1)
+      const seen = new Set()
+      for (const m of after) {
+        if (m?.role === 'assistant' && m?.branchId) seen.add(m.branchId)
+      }
+      return [...seen]
     },
 
     // --- 新增：辅助方法，确保界面和 AI 记忆完全一致 ---
@@ -2607,7 +2755,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse({ narrativeMode = '' } = {}) {
+    async generateAIResponse({ narrativeMode = '', directorNote = '' } = {}) {
       this.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -2622,8 +2770,19 @@ export const useGameStore = defineStore('game', {
       let productionError = null
       let productionKernel = null
       let completedAgentRun = null
+      // R1a：回合事务。在 provider 调用前抓取 preRuntimeSnapshot，失败时回滚。
+      let turnRecord = null
       try {
         this.loadApiSettings()
+
+        // R1a：生成前快照 —— 覆盖当前位置/时间/角色/关系/事实/目标/事件/记忆游标。
+        // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
+        turnRecord = createNarrativeTurnRecord({
+          id: requestId,
+          parentTurnId: this.lastCommittedTurnId || null,
+          preRuntimeSnapshot: this.getRuntimeSnapshot(),
+        })
+        this.pendingTurnRecord = turnRecord
 
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
@@ -2661,7 +2820,8 @@ export const useGameStore = defineStore('game', {
           messages: this.chatHistory,
           sceneSummary: this.narrativeSceneSummary,
           projectId: narrativeProjectId,
-          sessionId: narrativeSessionId
+          sessionId: narrativeSessionId,
+          authorNote: directorNote  // R2：本轮导演注
         })
         productionKernel = narrativeKernel
         const narrativeMemories = listScopedActiveMemoryCandidates({
@@ -2703,7 +2863,8 @@ export const useGameStore = defineStore('game', {
           content: '',
           timestamp: Date.now(),
           dialogueMode: !!this.dialogueCharacter,
-          isStreaming: true
+          isStreaming: true,
+          branchId: this.activeBranchId  // R1b：区分分支
         }, messageIndex)
         placeholderId = placeholder.id
         this.messages.push(placeholder)
@@ -2808,6 +2969,27 @@ export const useGameStore = defineStore('game', {
           }
         })
 
+        // R1a：回合事务提交 —— 正文已写入、assistant turn event 已追加。
+        // 把 turn record 标记为 committed 并存入 turnRecords（供 regenerate 回滚）。
+        if (turnRecord) {
+          const targetMsg = getPlaceholder()
+          // R2：回合回执（低敏摘要，聚合 ledger + agentRun）
+          const receipt = buildTurnReceipt({
+            ledger: this.lastContextLedger,
+            run: completedAgentRun,
+            sceneSummary: this.narrativeSceneSummary,
+            directorNote,
+          })
+          commitNarrativeTurnRecord(turnRecord, {
+            assistantMessageIds: targetMsg?.id ? [targetMsg.id] : [],
+            directorNote: String(directorNote || '').trim() || null,
+            receipt,
+          })
+          this.turnRecords[turnRecord.id] = turnRecord
+          this.lastCommittedTurnId = turnRecord.id
+          this.pendingTurnRecord = null
+        }
+
         // 保存当前会话
         if (this.currentSessionId) {
           this.saveCurrentSession()
@@ -2844,6 +3026,11 @@ export const useGameStore = defineStore('game', {
         // 从 AI 回复中提取状态更新
         this.extractAndUpdateState(cleanContent)
 
+        // R1b：state 提取完成后补抓 post snapshot（候选切换时恢复该分支的 state）
+        if (turnRecord) {
+          turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot()
+        }
+
         // 检测机制触发（战斗、交易、任务、对话）
         const mechanism = this.detectMechanismTriggers(cleanContent)
         if (mechanism) {
@@ -2870,10 +3057,17 @@ export const useGameStore = defineStore('game', {
         if (placeholderIndex >= 0) {
           this.messages.splice(placeholderIndex, 1)
         }
+        // R1a：回合事务失败回滚 —— 恢复生成前的 runtime state。
+        // 取消/失败都不应留下"半提交"的 state（地点/时间/角色被改了但正文没提交）。
+        if (turnRecord?.preRuntimeSnapshot) {
+          failNarrativeTurnRecord(turnRecord)
+          this.applyRuntimeSnapshot(turnRecord.preRuntimeSnapshot)
+          this.pendingTurnRecord = null
+        }
         if (!controller.signal.aborted && e?.code !== 'NARRATIVE_AGENT_ABORTED') {
           console.error('AI Error:', e)
           this.lastError = e.message
-          this.messages.push({ role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() })
+          this.messages.push({ id: createMessageId('system'), role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() })
           this.setNarrativeAgentStatus({
             phase: 'error',
             code: e?.code || 'NARRATIVE_AGENT_FAILED',

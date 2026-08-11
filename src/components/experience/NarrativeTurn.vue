@@ -12,10 +12,12 @@ const props = defineProps({
   turnSpeaker: { type: String, default: '' },
   compressionComplete: { type: Boolean, default: false },
   canEdit: { type: Boolean, default: true },
-  renderContent: { type: Function, required: true }
+  renderContent: { type: Function, required: true },
+  // R1b：该 user 消息之后是否有其它分支的 assistant 回复（显示"切换回复版本"按钮）
+  hasCandidates: { type: Boolean, default: false }
 })
 
-defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate'])
+defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate'])
 
 function shouldShowBlockSpeaker(block, index) {
   if (!block?.speaker) return false
@@ -45,6 +47,7 @@ function shouldShowBlockSpeaker(block, index) {
         <button type="button" class="prose__action" title="编辑内容" aria-label="编辑内容" @click="$emit('edit')"><WorkbenchIcon name="pencil" :size="13" /></button>
         <button type="button" class="prose__action prose__action--delete" title="删除" aria-label="删除消息" @click="$emit('delete')"><WorkbenchIcon name="trash" :size="13" /></button>
         <button v-if="message.role === 'user'" type="button" class="prose__action prose__action--regen" title="重写后续" aria-label="重写后续" @click="$emit('regenerate')"><WorkbenchIcon name="refresh" :size="13" /></button>
+        <button v-if="message.role === 'user' && hasCandidates" type="button" class="prose__action prose__action--branch" title="切换回复版本" aria-label="切换回复版本" @click="$emit('switch-candidate')"><WorkbenchIcon name="network" :size="13" /></button>
       </span>
     </details>
   </div>

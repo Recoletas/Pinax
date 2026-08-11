@@ -34,6 +34,7 @@ import {
   adaptLegacyContextToEnvelope
 } from '../services/agents/legacyAdapter'
 import {
+  ADVISOR_TASK_TIMEOUT_MS,
   buildAdvisorProviderOptions,
   buildAdvisorRequestPayload
 } from '../services/advisorTaskService'
@@ -42,7 +43,14 @@ import {
   validateServerTaskType
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
-import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
+import {
+  buildTextModelRequestBody,
+  parseTextModelResponse,
+  resolveTextModelMaxTokens,
+  runTextModelAgent,
+  TEXT_MODEL_PROVIDER
+} from '../../server/services/textModelAgentProvider'
+import { normalizeWritingCandidates } from '../../shared/writingCandidateContract'
 import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
@@ -127,6 +135,7 @@ import {
 } from '../../server/services/providers/providerCapabilityResolver'
 import { probeNarrativeProviderCapabilities } from '../../server/services/providers/narrativeCapabilityProbe'
 import {
+  buildTurnReceipt,
   pruneNarrativeToolResults,
   runNarrativeAgentLoop,
   runNarrativeAgentGeneration
@@ -2356,6 +2365,72 @@ describe('agentContracts', function () {
       code: 'AGENT_PROVIDER_CONFIG_INVALID',
       retryable: false
     })
+    expect(parseTextModelResponse({
+      choices: [{
+        finish_reason: 'stop',
+        message: {
+          content: null,
+          output_text: '{"mode":"replace","replacement":"她停下脚步。"}'
+        }
+      }]
+    }, 'openai').content).toContain('她停下脚步')
+    expect(parseTextModelResponse({
+      content: [
+        { type: 'thinking', thinking: '分析选区' },
+        { type: 'text', text: '{"mode":"replace","replacement":"她收起了信。"}' }
+      ],
+      stop_reason: 'end_turn'
+    }, 'anthropic')).toMatchObject({
+      content: expect.stringContaining('她收起了信'),
+      hasReasoning: true,
+      finishReason: 'end_turn'
+    })
+    expect(parseTextModelResponse({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: '', reasoning_content: '还在推理' }
+      }]
+    }, 'openai')).toMatchObject({
+      content: '',
+      hasReasoning: true,
+      truncated: true
+    })
+    expect(resolveTextModelMaxTokens({
+      taskType: 'writing.fix.selection',
+      options: { candidateCount: 3 }
+    })).toBeGreaterThanOrEqual(2400)
+    expect(buildTextModelRequestBody({
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-flash',
+      format: 'openai'
+    }, '改写当前选区', {
+      taskType: 'writing.fix.selection',
+      options: { candidateCount: 3 }
+    }, 0)).toMatchObject({
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' },
+      max_tokens: 3000
+    })
+    expect(ADVISOR_TASK_TIMEOUT_MS).toBeGreaterThan(TEXT_MODEL_PROVIDER.timeoutMs)
+    expect(normalizeWritingCandidates([
+      { id: 'same', replacement: '她停下脚步。' },
+      { id: 'changed', replacement: '她在门前收住脚步。' },
+      { id: 'duplicate', replacement: '她在门前收住脚步。' }
+    ], {
+      baseText: '她停下脚步。',
+      resultId: 'rewrite'
+    }).map(function (candidate) { return candidate.id })).toEqual(['changed'])
+    expect(function () {
+      createAdvisorTaskResponse({
+        taskType: 'writing.fix.selection',
+        advice: JSON.stringify({
+          mode: 'candidates',
+          candidates: [{ replacement: '她停下脚步。' }]
+        }),
+        target: { type: 'selection', text: '她停下脚步。', revision: 'rev-noop' },
+        options: { candidateCount: 3 }
+      })
+    }).toThrow('模型返回的候选没有实际修改正文')
     expect(buildAdvisorProviderOptions({
       provider: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic',
@@ -2702,5 +2777,72 @@ describe('agentContracts', function () {
     })
     expect(structuredProbeFetch).toHaveBeenCalledTimes(1)
     expect(structuredProbeFetch.mock.calls[0][1].body).toContain('json_schema')
+  })
+
+  it('R2：导演注注入 kernel note block + turn receipt 低敏聚合', function () {
+    // 1. 导演注：带 authorNote 时 kernel 出现 note block，且插在 style 之前
+    const notedKernel = buildNarrativeKernel({
+      worldbook: {
+        id: 'wb-note',
+        writingStyle: '克制',
+        forbidden: '禁用',
+        rules: [],
+        entries: [],
+        id: 'wb-note'
+      },
+      runtimeState: {
+        worldMapState: { currentScene: '大厅' },
+        writingTime: { day: 1 }
+      },
+      messages: [{ id: 'm1', role: 'user', content: '我环顾四周。' }],
+      authorNote: '让气氛更紧张一些'
+    })
+    const noteBlocks = notedKernel.blocks.filter(function (block) { return block.kind === 'note' })
+    expect(noteBlocks.length).toBe(1)
+    expect(noteBlocks[0].content.text).toContain('让气氛更紧张')
+    // note 块位于 style 块之前
+    const kinds = notedKernel.blocks.map(function (block) { return block.kind })
+    expect(kinds.indexOf('note')).toBeLessThan(kinds.indexOf('style'))
+
+    // 2. 导演注为空时无 note block（不污染默认 kernel）
+    const plainKernel = buildNarrativeKernel({
+      worldbook: { id: 'wb-note', rules: [], entries: [] },
+      runtimeState: {},
+      messages: [{ id: 'm1', role: 'user', content: '我环顾四周。' }]
+    })
+    expect(plainKernel.blocks.some(function (block) { return block.kind === 'note' })).toBe(false)
+
+    // 3. buildTurnReceipt：聚合 ledger + run，输出低敏回执
+    const receipt = buildTurnReceipt({
+      ledger: {
+        parts: [
+          { partition: 'kernel', sourceRefs: ['worldbook-entry:ent_1', 'worldbook-entry:ent_2', 'runtime-event:evt_1'], chars: 120 },
+          { partition: 'tool', title: 'world_lookup', sourceRefs: ['worldbook-entry:ent_1'], warning: '' },
+          { partition: 'tool', title: '运行状态', warning: '' }
+        ]
+      },
+      run: {
+        provider: 'minimax',
+        model: 'MiniMax-Text-01',
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        timing: { totalMs: 300, firstTokenMs: 80 },
+        finalToolResults: [
+          { tool: 'world_lookup', error: null },
+          { tool: 'world_lookup', error: new Error('fail') }
+        ]
+      },
+      sceneSummary: { revision: 'sum-1' },
+      directorNote: '让气氛更紧张'
+    })
+    expect(receipt.worldbookEntryIds).toEqual(['ent_1', 'ent_2'])
+    expect(receipt.worldbookEntryCount).toBe(2)
+    expect(receipt.tools.length).toBe(1)  // 只统计工具 part，排除"运行状态"
+    expect(receipt.tools[0].name).toBe('world_lookup')
+    expect(receipt.toolResults).toEqual({ ok: 1, failed: 1, total: 2 })
+    expect(receipt.provider).toBe('minimax')
+    expect(receipt.tokens.total).toBe(15)
+    expect(receipt.directorNote).toBe('让气氛更紧张')
+    // 隐私：不含完整 prompt / apiKey
+    expect(JSON.stringify(receipt)).not.toContain('apiKey')
   })
 })

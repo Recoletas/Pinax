@@ -13,6 +13,7 @@ const BLOCK_LIMITS = Object.freeze({
   summary: 1800,
   recent: 3600,
   continuity: 1600,
+  note: 400,   // R2：本轮导演注
   style: 600
 })
 
@@ -87,7 +88,8 @@ export function buildNarrativeKernel({
   messages = [],
   sceneSummary = null,
   projectId = '',
-  sessionId = ''
+  sessionId = '',
+  authorNote = ''  // R2：本轮导演注（仅下一轮生效，用户输入）
 } = {}) {
   const recent = compactMessages(messages)
   const latestUser = [...recent].reverse().find((message) => message.role === 'user') || null
@@ -192,6 +194,8 @@ export function buildNarrativeKernel({
       ...(text(historyNode?.id) ? [`history:${text(historyNode.id)}`] : []),
       ...causality.sourceEventIds.map((eventId) => `runtime-event:${eventId}`)
     ]),
+    // R2：本轮导演注（用户输入，仅下一轮生效）。插在文风之前，优先级高于文风。
+    ...(text(authorNote) ? [makeBlock('note', { text: clip(authorNote, BLOCK_LIMITS.note) }, [])] : []),
     makeBlock('style', {
       fingerprint: clip(worldbook?.writingStyle, BLOCK_LIMITS.style - 40)
     }, text(worldbook?.writingStyle) ? [`worldbook:${text(worldbook?.id)}:style`] : [])

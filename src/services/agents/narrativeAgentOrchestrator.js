@@ -994,8 +994,76 @@ export async function runNarrativeAgentGeneration({
   }
 }
 
+/**
+ * R2：回合回执（低敏摘要）。
+ *
+ * 从 ContextLedger + agentRun 聚合"本轮 AI 实际用了什么"：
+ *   - 命中的世界书条目 id（ledger kernel part 的 sourceRefs）
+ *   - 工具调用/结果（名称 + 成功/失败 + 证据 refs 计数）
+ *   - 预算（kernel chars + truncated 块）
+ *   - provider/model + 耗时 + token 汇总
+ *
+ * 明确不含：API key、Base URL、完整 prompt、隐藏 reasoning（隐私约束）。
+ */
+export function buildTurnReceipt({ ledger = null, run = null, sceneSummary = null, directorNote = null } = {}) {
+  const kernelPart = (Array.isArray(ledger?.parts) ? ledger.parts : []).find((part) => part?.partition === 'kernel')
+  const toolParts = (Array.isArray(ledger?.parts) ? ledger.parts : []).filter((part) => part?.partition === 'tool' && part?.title && part?.title !== '运行状态')
+  const summaryPart = (Array.isArray(ledger?.parts) ? ledger.parts : []).find((part) => part?.partition === 'summary')
+
+  // 世界书条目：从 kernel part 的 sourceRefs 提取 worldbook-entry:*
+  const worldbookEntryIds = (kernelPart?.sourceRefs || [])
+    .map((ref) => String(ref || ''))
+    .filter((ref) => ref.startsWith('worldbook-entry:'))
+    .map((ref) => ref.slice('worldbook-entry:'.length))
+    .filter(Boolean)
+    .slice(0, 32)
+
+  const tools = toolParts.slice(0, 16).map((part) => ({
+    name: String(part.title || ''),
+    ok: !part.warning,
+    evidenceRefs: Array.isArray(part.sourceRefs) ? part.sourceRefs.length : 0,
+  }))
+
+  const usage = run?.usage || {}
+  const timing = run?.timing || {}
+  const results = run?.finalToolResults || run?.toolResults || []
+  const toolOk = results.filter((result) => !result?.error).length
+  const toolFail = results.length - toolOk
+
+  return {
+    schemaVersion: 1,
+    worldbookEntryIds,
+    worldbookEntryCount: worldbookEntryIds.length,
+    budget: {
+      usedChars: Number(ledger?.kernelUsedChars ?? kernelPart?.chars ?? 0),
+      truncatedBlocks: Array.isArray(ledger?.agent?.truncatedBlocks)
+        ? ledger.agent.truncatedBlocks
+        : (kernelPart?.truncated ? ['kernel'] : []),
+    },
+    summaryRevision: summaryPart?.content?.includes('/')
+      ? String(summaryPart.content.split('/')[0].trim() || '')
+      : (sceneSummary?.revision || ''),
+    tools,
+    toolCount: tools.length,
+    toolResults: { ok: toolOk, failed: toolFail, total: results.length },
+    provider: String(run?.provider || ''),
+    model: String(run?.model || ''),
+    timingMs: {
+      total: Number(timing?.totalMs ?? 0),
+      firstToken: Number(timing?.firstTokenMs ?? 0),
+    },
+    tokens: {
+      input: Number(usage?.inputTokens ?? 0),
+      output: Number(usage?.outputTokens ?? 0),
+      total: Number(usage?.totalTokens ?? 0),
+    },
+    directorNote: directorNote ? String(directorNote) : null,
+  }
+}
+
 export default {
   NARRATIVE_AGENT_RUNTIME_LIMITS,
+  buildTurnReceipt,
   createNarrativeAgentContextLedger,
   pruneNarrativeToolResults,
   runNarrativeAgentLoop,
