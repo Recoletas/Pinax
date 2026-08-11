@@ -2898,4 +2898,20 @@ describe('agentContracts', function () {
     expect(dialogueBlock.speaker).toBe('褚岩')
     expect(dialogueBlock.speakerId).toMatch(/^spk_/)
   })
+
+  it('P1-5: speakerMap 覆盖 speakerId —— 与 SceneCast 的 char:entryId 对齐', function () {
+    const parsed = parseNarrativePresentation(':::dialogue|褚岩\n“局势已定。”', {
+      messageId: 'msg-test-2',
+      speakerMap: { '褚岩': 'char:char_yan' }
+    })
+    const dialogueBlock = parsed.blocks.find(function (block) { return block.kind === 'dialogue' })
+    // 名字→稳定 id 映射生效：speakerId 不再是名字 hash，而是 cast 的 char id
+    expect(dialogueBlock.speakerId).toBe('char:char_yan')
+    // 角色改名后（映射键更新）仍能追溯同一角色
+    const renamed = parseNarrativePresentation(':::dialogue|褚岩大人\n“局势已定。”', {
+      messageId: 'msg-test-3',
+      speakerMap: { '褚岩大人': 'char:char_yan' }
+    })
+    expect(renamed.blocks.find(function (block) { return block.kind === 'dialogue' }).speakerId).toBe('char:char_yan')
+  })
 })

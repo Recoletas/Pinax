@@ -35,7 +35,9 @@ export function ensureNarrativeMessage(message = {}, index = 0) {
       messageId: normalized.id,
       complete: true,
       fallbackSpeaker: getTrustedMessageSpeaker(normalized),
-      role: normalized.role
+      role: normalized.role,
+      // P1-5：消息可携带 speakerMap（名字→稳定 id），与 SceneCast 对齐
+      speakerMap: normalized.speakerMap || null
     })
   }
   return normalized
@@ -52,7 +54,9 @@ export function parseNarrativePresentation(text, options = {}) {
   const sourceText = complete ? String(text || '') : trimPendingMarkerLine(text)
   const messageId = String(options.messageId || 'message')
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
-  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker })
+  // P1-5：speakerMap（名字→稳定 id）覆盖 speakerId，与 SceneCast 对齐
+  const speakerMap = options.speakerMap && typeof options.speakerMap === 'object' ? options.speakerMap : null
+  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap })
   if (structured) return structured
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
@@ -67,6 +71,7 @@ export function parseNarrativePresentation(text, options = {}) {
 export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   const complete = options.complete !== false
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
+  const speakerMap = options.speakerMap && typeof options.speakerMap === 'object' ? options.speakerMap : null
   const lines = String(text || '').split(/\r?\n/)
   const blocks = []
   let current = null
@@ -78,7 +83,7 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
     if (value) {
       const speaker = current.speaker || (current.kind === 'dialogue' ? fallbackSpeaker : '')
       const speakerSource = current.speaker ? 'marker' : (speaker ? 'message' : '')
-      blocks.push(createBlock(current.kind, value, speaker, messageId, blocks.length, speakerSource))
+      blocks.push(createBlock(current.kind, value, speaker, messageId, blocks.length, speakerSource, speakerMap))
     }
     current = null
   }
@@ -193,14 +198,23 @@ function normalizeExplicitSpeaker(value) {
 }
 
 // R4：基于 speaker 名字的稳定 id（改名后 hash 变化，但同一名字跨消息稳定）。
-// 用于 dialogue block 的 speakerId 与 SceneCast 的角色 id 对齐。
+// P1-5：可被 speakerMap 覆盖 —— 传入 cast 的角色映射时，speakerId 与
+// SceneCast 的 char:entryId 对齐（角色改名不漂移）。
 export function speakerIdOf(name) {
   const cleaned = normalizeSpeaker(name)
   if (!cleaned) return ''
   return `spk_${hashText(cleaned).toString(16)}`
 }
 
-function createBlock(kind, text, speaker, messageId, index, speakerSource = '') {
+// 解析 speakerId：优先用 speakerMap（名字→稳定 id），否则 fallback 名字 hash。
+function resolveSpeakerId(name, speakerMap) {
+  const cleaned = normalizeSpeaker(name)
+  if (!cleaned) return ''
+  const mapped = speakerMap?.[cleaned]
+  return mapped ? String(mapped) : speakerIdOf(cleaned)
+}
+
+function createBlock(kind, text, speaker, messageId, index, speakerSource = '', speakerMap = null) {
   const normalizedKind = BLOCK_KINDS.has(kind) ? kind : 'narration'
   const normalizedText = String(text || '').trim()
   const normalizedSpeaker = normalizeSpeaker(speaker)
@@ -208,7 +222,7 @@ function createBlock(kind, text, speaker, messageId, index, speakerSource = '') 
     id: `block_${hashText(`${messageId}|${index}|${normalizedKind}|${normalizedText}`)}`,
     kind: normalizedKind,
     text: normalizedText,
-    ...(normalizedSpeaker ? { speaker: normalizedSpeaker, speakerId: speakerIdOf(normalizedSpeaker) } : {}),
+    ...(normalizedSpeaker ? { speaker: normalizedSpeaker, speakerId: resolveSpeakerId(normalizedSpeaker, speakerMap) } : {}),
     ...(speakerSource ? { speakerSource } : {})
   }
 }

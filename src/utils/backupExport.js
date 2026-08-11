@@ -87,7 +87,9 @@ export const PINAX_BACKUP_DYNAMIC_PREFIXES = Object.freeze([
   'worldbook:brief:'
 ])
 
-export const BACKUP_VERSION = 1
+// P1-5：备份版本 2 —— 新增 experience 摘要节（回合/检查点 + 记忆 revision）。
+// 现有 key-value 打包不变（向后兼容），版本 2 只增加摘要供恢复校验。
+export const BACKUP_VERSION = 2
 
 /**
  * Resolve the actual key set at export time so per-world and per-section
@@ -123,8 +125,48 @@ export function buildBackup() {
     exportedAt: new Date().toISOString(),
     app: 'Pinax',
     keyCount: included,
-    keys: entries
+    keys: entries,
+    // P1-5：体验回合/检查点 + 记忆 revision 摘要（低敏，供恢复校验）
+    experience: buildExperienceBackupSummary()
   }
+}
+
+// P1-5：从 WRITING_SESSIONS + MEMORY_CANDIDATES 提取体验摘要。
+// 低敏：只含回合数量/分支/最新 committed turn id/记忆候选 revision，不含正文。
+function buildExperienceBackupSummary() {
+  const summary = { sessionCount: 0, branchCount: 0, turnCount: 0, memoryRevision: 0, hasTurnData: false }
+  try {
+    const sessionsRaw = localStorage.getItem('writing_sessions')
+    if (sessionsRaw) {
+      const sessions = JSON.parse(sessionsRaw)
+      const sessionList = Array.isArray(sessions) ? sessions : (sessions?.sessions || [])
+      summary.sessionCount = sessionList.length
+      let turnCount = 0
+      const branchIds = new Set()
+      for (const session of sessionList) {
+        const turnRecords = session?.turnRecords || {}
+        const turns = Object.values(turnRecords || {})
+        turnCount += turns.length
+        for (const turn of turns) {
+          if (turn?.branchId) branchIds.add(turn.branchId)
+          if (turn?.id === session?.lastCommittedTurnId) summary.lastCommittedTurnId = turn.id
+        }
+      }
+      summary.turnCount = turnCount
+      summary.branchCount = branchIds.size
+      summary.hasTurnData = turnCount > 0
+    }
+    const memoryRaw = localStorage.getItem('memory_candidates_v1')
+    if (memoryRaw) {
+      try {
+        const candidates = JSON.parse(memoryRaw)
+        const list = Array.isArray(candidates) ? candidates : (candidates?.candidates || [])
+        // memory revision = 候选最大 createdAt（单调递增，可作版本游标）
+        summary.memoryRevision = (list || []).reduce((max, c) => Math.max(max, Number(c?.createdAt) || 0), 0)
+      } catch { /* 记忆数据解析失败则保持 0 */ }
+    }
+  } catch { /* 摘要提取失败不影响备份本体 */ }
+  return summary
 }
 
 function invalidRestorePlan(...reasons) {
@@ -160,7 +202,8 @@ export function createRestorePlan(input, storage = localStorage) {
   }
 
   const version = Number(backup.schemaVersion ?? backup.version)
-  if (!Number.isInteger(version) || version !== BACKUP_VERSION) {
+  // P1-5：允许恢复旧版本（BACKUP_VERSION=2 只是新增 experience 摘要，key-value 打包不变）
+  if (!Number.isInteger(version) || version < 1 || version > BACKUP_VERSION) {
     return invalidRestorePlan(`不支持的备份版本：${Number.isFinite(version) ? version : '未知'}`)
   }
   if (!backup.keys || typeof backup.keys !== 'object' || Array.isArray(backup.keys)) {

@@ -2678,6 +2678,19 @@ export const useGameStore = defineStore('game', {
       return this.collectBranchTurnChain(this.activeBranchId || 'main')
     },
 
+    // P1-5：从 lastNarrativeKernel 的 cast block 构建 名字→speakerId 映射。
+    // 供 dialogue block 解析时覆盖 speakerId（与 SceneCast 对齐，改名不漂移）。
+    buildCastSpeakerMap() {
+      const castBlock = (this.lastNarrativeKernel?.blocks || []).find((block) => block?.kind === 'cast')
+      const members = castBlock?.content?.members || []
+      const map = {}
+      for (const member of members) {
+        if (member?.name && member?.speakerId) map[member.name] = member.speakerId
+      }
+      return Object.keys(map).length > 0 ? map : null
+    },
+
+
     // P1-4：构建记忆候选分支过滤函数。
     // 候选 id 若出现在"非当前分支链"的 turn.memoryCandidateIds 里 → 排除（分支 A 的记忆不污染 B）。
     // 手动/共享候选（不在任何 turn 记录里）→ 保留。
@@ -3042,7 +3055,10 @@ export const useGameStore = defineStore('game', {
           timestamp: Date.now(),
           dialogueMode: !!this.dialogueCharacter,
           isStreaming: true,
-          branchId: this.activeBranchId  // R1b：区分分支
+          branchId: this.activeBranchId,  // R1b：区分分支
+          // P1-5：携带 cast 的 speakerMap（名字→稳定 id），dialogue block 解析时
+          // speakerId 与 SceneCast 对齐，角色改名不漂移
+          speakerMap: this.buildCastSpeakerMap()
         }, messageIndex)
         placeholderId = placeholder.id
         this.messages.push(placeholder)
