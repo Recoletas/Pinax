@@ -211,6 +211,19 @@
         @keydown.escape="directorNote = ''"
       />
     </div>
+    <!-- P1-5：/ 命令建议菜单 -->
+    <div v-if="showCommandMenu" class="command-menu">
+      <button
+        v-for="cmd in commandSuggestions"
+        :key="cmd.command"
+        type="button"
+        class="command-menu-item"
+        @click="runCommand(cmd)"
+      >
+        <code>/{{ cmd.command }}</code>
+        <span>{{ cmd.label }}</span>
+      </button>
+    </div>
     <div class="input-row">
       <input
         v-model="inputText"
@@ -298,6 +311,21 @@ const detailTab = ref('context')
 const showDialoguePanel = ref(false)
 const newCharName = ref('')
 const newCharDesc = ref('')
+// P1-5：/ 命令建议菜单（映射到 executeExperienceAction）
+const commandSuggestions = computed(() => {
+  const text = inputText.value.trim()
+  if (!text.startsWith('/')) return []
+  const query = text.slice(1).toLowerCase()
+  const commands = [
+    { command: 'stop', label: '停止生成', action: { type: 'stop' } },
+    { command: 'continue', label: '继续上一回复', action: { type: 'continue' } },
+    { command: 'compress', label: '压缩上下文', action: { type: 'compress' } },
+    { command: 'export', label: '导出会话', action: { type: 'export' } },
+    { command: 'branch', label: '从此处建立分支', action: { type: 'branch', payload: {} } }
+  ]
+  return commands.filter((cmd) => cmd.command.includes(query) || cmd.label.includes(query))
+})
+const showCommandMenu = computed(() => commandSuggestions.value.length > 0 && inputText.value.trim().startsWith('/'))
 
 const systemPromptContent = `【身份】你是 Pinax 的中文小说叙述者，负责承接创作者的输入，写出下一段正在发生的正文。
 
@@ -344,15 +372,39 @@ onUnmounted(() => {
 })
 
 function handleSend() {
+  const trimmed = inputText.value.trim()
+  // P1-5：/ 命令 —— 精确匹配命令菜单项时走 dispatcher，不发送普通文本
+  if (trimmed.startsWith('/')) {
+    const match = commandSuggestions.value.find((cmd) => `/${cmd.command}` === trimmed)
+    if (match) {
+      runCommand(match)
+      return
+    }
+  }
   const note = directorNote.value.trim()
-  if (inputText.value.trim()) {
+  if (trimmed) {
     // P1-4：导演注同步写入 store.pendingDirectorNote —— 失败时保留供重试恢复
     if (note) gameStore.pendingDirectorNote = note
-    emit('send', inputText.value.trim(), { source: 'manual-input', directorNote: note || undefined })
+    emit('send', trimmed, { source: 'manual-input', directorNote: note || undefined })
     inputText.value = ''
     // R2：导演注仅下一轮生效，提交后清空 UI（失败时 store.pendingDirectorNote 保留）
     directorNote.value = ''
     showDirectorNote.value = false
+  }
+}
+
+// P1-5：执行 / 命令 —— 走统一 dispatcher，返回 action receipt
+async function runCommand(match) {
+  const result = await gameStore.executeExperienceAction(match.action)
+  if (result?.ok) {
+    inputText.value = ''
+    if (match.action.type === 'export' && result.result) {
+      // 导出结果在 console 可查看（最小实现，不新增下载 UI）
+      console.info('[export-session]', JSON.stringify(result.result, null, 2))
+    }
+  } else {
+    // 命令失败保留输入，提示
+    inputText.value = `/${match.command}`
   }
 }
 

@@ -551,6 +551,21 @@
                     分组
                     <input v-model.trim="entryForm.injectionGroup" class="text-input" type="text" placeholder="例如：地理设定" />
                   </label>
+                  <label>
+                    次级词判定
+                    <select v-model="entryForm.injectionSecondaryMode" class="select-input">
+                      <option value="any">任一命中（any）</option>
+                      <option value="all">全部命中（all）</option>
+                    </select>
+                  </label>
+                  <label class="checkbox-line" title="拉丁文本要求词边界匹配（中文默认短语匹配）">
+                    <input v-model="entryForm.injectionWholeWord" type="checkbox" />
+                    <span>整词匹配</span>
+                  </label>
+                  <label class="checkbox-line" title="区分大小写（拉丁文本）">
+                    <input v-model="entryForm.injectionCaseSensitive" type="checkbox" />
+                    <span>区分大小写</span>
+                  </label>
                 </div>
                 <label class="checkbox-line">
                   <input v-model="entryForm.excludeRecursion" type="checkbox" />
@@ -1039,7 +1054,10 @@ const entryForm = reactive({
   injectionCooldown: 0,
   injectionDepth: 1,
   excludeRecursion: false,
-  injectionGroup: ''
+  injectionGroup: '',
+  injectionSecondaryMode: 'any',
+  injectionWholeWord: false,
+  injectionCaseSensitive: false
 })
 
 const entryTypes = [
@@ -1330,7 +1348,11 @@ function normalizeInjection(injection = {}) {
     cooldown: clampNumber(injection?.cooldown, 0, 0, 99999),
     depth: clampNumber(injection?.depth, 1, 1, 99),
     excludeRecursion: Boolean(injection?.excludeRecursion),
-    group: String(injection?.group || '').trim() || null
+    group: String(injection?.group || '').trim() || null,
+    // R3：激活语义字段（builder 已支持，编辑 UI 补全）
+    secondaryMode: injection?.secondaryMode === 'all' ? 'all' : 'any',
+    wholeWord: Boolean(injection?.wholeWord),
+    caseSensitive: Boolean(injection?.caseSensitive)
   }
 }
 
@@ -1431,6 +1453,10 @@ function syncEntryForm(entry) {
   entryForm.injectionDepth = injection.depth
   entryForm.excludeRecursion = injection.excludeRecursion
   entryForm.injectionGroup = injection.group || ''
+  // R3：激活语义字段回填
+  entryForm.injectionSecondaryMode = injection.secondaryMode || 'any'
+  entryForm.injectionWholeWord = Boolean(injection.wholeWord)
+  entryForm.injectionCaseSensitive = Boolean(injection.caseSensitive)
 }
 
 function resetEntryForm() {
@@ -1729,7 +1755,10 @@ async function saveEntry() {
       cooldown: entryForm.injectionCooldown,
       depth: entryForm.injectionDepth,
       excludeRecursion: entryForm.excludeRecursion,
-      group: entryForm.injectionGroup
+      group: entryForm.injectionGroup,
+      secondaryMode: entryForm.injectionSecondaryMode,
+      wholeWord: entryForm.injectionWholeWord,
+      caseSensitive: entryForm.injectionCaseSensitive
     })
 
     await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {

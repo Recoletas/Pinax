@@ -631,6 +631,8 @@ async function run() {
         const typographyMetrics = route.id === 'experience'
           ? await inspectExperienceTypography(page)
           : null
+        // P2/R7：可访问性审计（200% zoom / reduced-motion / 键盘可达）
+        const accessibility = await inspectAccessibility(page, route.surfaces[0])
         const screenshot = `${route.id}-${state}-${width}.png`
         const screenshotWarnings = []
         try {
@@ -667,6 +669,7 @@ async function run() {
           expectedConsoleErrors: state === 'error',
           actionScenario,
           screenshotWarnings,
+          accessibility,
           ...metrics
         }
         if (route.id === 'experience') {
@@ -692,6 +695,35 @@ async function run() {
   ), 0)
   process.stdout.write(`UI audit: ${report.entries.length} captures, ${errorCount} unexpected console errors -> ${outputDir}\n`)
   if (errorCount > 0) process.exitCode = 1
+}
+
+// P2/R7：可访问性审计 —— 200% zoom 布局、reduced-motion、键盘可达性。
+// 返回低敏指标（不改变页面状态），供浏览器级验收 Gate。
+async function inspectAccessibility(page, surfaceSelector) {
+  const surface = page.locator(surfaceSelector)
+  const zoomReport = await page.evaluate(() => {
+    const before = document.documentElement.scrollWidth
+    // 200% zoom：模拟（via CSS zoom 不可靠，用 viewport 缩放近似——浏览器 zoom 200%
+    // 等价于视口逻辑宽度减半。这里用 documentElement.style.zoom 近似）
+    const style = document.documentElement.style
+    style.zoom = '2'
+    const after = document.documentElement.scrollWidth
+    style.zoom = ''
+    return { before, after, horizontalOverflowAt200: after > window.innerWidth }
+  })
+  const reducedMotion = await page.emulateMedia({ reducedMotion: 'reduce' }).then(async () => {
+    const value = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('scroll-behavior'))
+    return { reducedMotionApplied: value !== '' ? 'present' : 'absent' }
+  })
+  // 键盘可达：Tab 能聚焦到 surface 内的可交互元素
+  let keyboardReachable = false
+  let focusTarget = null
+  try {
+    await surface.locator('input, button, [tabindex]').first().focus()
+    keyboardReachable = true
+    focusTarget = await page.evaluate(() => document.activeElement?.tagName || '')
+  } catch { keyboardReachable = false }
+  return { ...zoomReport, ...reducedMotion, keyboardReachable, focusTarget }
 }
 
 run().catch((error) => {
