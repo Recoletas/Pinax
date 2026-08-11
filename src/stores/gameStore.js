@@ -2608,7 +2608,9 @@ export const useGameStore = defineStore('game', {
           messageId: this.messages[index].id,
           complete: true,
           fallbackSpeaker: getTrustedMessageSpeaker(this.messages[index]),
-          role: this.messages[index].role
+          role: this.messages[index].role,
+          // P1-4：编辑重解析也带 speakerMap（保持 speakerId 与 cast 对齐）
+          speakerMap: this.messages[index].speakerMap || null
         })
         this.rebuildChatHistory(); // 同步 AI 记忆
         this.saveCurrentSession()
@@ -2648,8 +2650,16 @@ export const useGameStore = defineStore('game', {
       const branchTurns = records
         .filter((r) => r.branchId === branchId)
         .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
-      if (branchTurns.length === 0) return chain  // 新分支尚无 committed turn
-      let current = branchTurns[0]
+      let current = null
+      if (branchTurns.length > 0) {
+        current = branchTurns[0]
+      } else if (this.lastCommittedTurnId && this.turnRecords[this.lastCommittedTurnId]) {
+        // P0-1：当前分支尚无 committed turn（新分支刚创建/重生成中）→
+        // 回退到最近提交 turn 的链，保证新分支生成完成前不丢失前文。
+        current = this.turnRecords[this.lastCommittedTurnId]
+      } else {
+        return chain
+      }
       const guard = new Set()
       while (current && !guard.has(current.id)) {
         guard.add(current.id)
@@ -2765,7 +2775,18 @@ export const useGameStore = defineStore('game', {
         const branchParentTurnId = parentTurn?.parentTurnId ?? null
         const sourceUserMessageId = targetMessage?.id || ''
         debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
-        await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
+        const outcome = await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
+        // P0-3：生成失败/取消时恢复原分支 —— 不把用户留在没有成功候选的新分支。
+        if (outcome !== 'success' && this.activeBranchId === newBranchId) {
+          debugLog('[regenerateFrom] generation failed, restore branch:', oldBranchId)
+          this.activeBranchId = oldBranchId
+          // 恢复被标记 superseded 的旧消息（重生成失败，旧回复应重新可见）
+          for (const m of this.messages || []) {
+            if (m && typeof m === 'object' && m.branchId !== newBranchId) m.superseded = false
+          }
+          this.rebuildChatHistory()
+          this.saveCurrentSession()
+        }
         this._isRegenerating = false
         debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
@@ -2780,6 +2801,9 @@ export const useGameStore = defineStore('game', {
         .filter((r) => r?.branchId === branchId && r?.postRuntimeSnapshot)
         .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
       const turn = branchTurns[0] || null
+      // P0-2：同步提交游标到目标分支最新 turn —— 否则切分支后继续生成，
+      // 新 turn 会以其它分支的回合作父节点，重新造成跨分支污染。
+      if (turn?.id) this.lastCommittedTurnId = turn.id
       if (turn?.postRuntimeSnapshot) {
         this.applyRuntimeSnapshot(turn.postRuntimeSnapshot)
       }
@@ -3097,7 +3121,9 @@ export const useGameStore = defineStore('game', {
                   messageId: targetMessage.id,
                   complete: false,
                   fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role
+                  role: targetMessage.role,
+                  // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
+                  speakerMap: targetMessage.speakerMap || null
                 })
                 cleanContent = parsed.content
                 targetMessage.content = cleanContent
@@ -3112,7 +3138,9 @@ export const useGameStore = defineStore('game', {
                   messageId: targetMessage.id,
                   complete: true,
                   fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role
+                  role: targetMessage.role,
+                  // P1-4：完成解析也带 speakerMap
+                  speakerMap: targetMessage.speakerMap || null
                 })
                 cleanContent = parsed.content
                 targetMessage.content = cleanContent
@@ -3144,7 +3172,9 @@ export const useGameStore = defineStore('game', {
           messageId: completedMessage?.id,
           complete: true,
           fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),
-          role: completedMessage?.role
+          role: completedMessage?.role,
+          // P1-4：最终清洗解析也带 speakerMap
+          speakerMap: completedMessage?.speakerMap || null
         }).content
         if (!cleanContent || messageIndex < 0) {
           throw Object.assign(new Error('模型没有返回可用正文'), {
@@ -3374,6 +3404,8 @@ export const useGameStore = defineStore('game', {
           }
         })
       }
+      // P0-3：返回生成结果（'success' | 'error' | 'cancelled'），供 regenerateFrom 失败恢复分支
+      return productionOutcome
     },
 
     // 从 AI 回复中提取并更新状态

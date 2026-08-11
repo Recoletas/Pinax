@@ -150,6 +150,55 @@ describe('回合事务与非破坏性重试', () => {
     expect(visibleMain.has('msg_u1')).toBe(true)  // 共享根历史仍可见
   })
 
+  it('P0-1: 重生成新分支（无 committed turn 时）不丢失前文 —— chatHistory 保留共享历史', async () => {
+    const fixture = createDestructiveRegenerateFixture()
+    const turn1 = createNarrativeTurnRecord({ id: 'narrative_turn1', branchId: 'main', userMessageIds: ['msg_u1'], preRuntimeSnapshot: {} })
+    commitNarrativeTurnRecord(turn1, { assistantMessageIds: ['msg_a1'] })
+    const turn2 = createNarrativeTurnRecord({
+      id: 'narrative_turn2', parentTurnId: 'narrative_turn1', branchId: 'main',
+      preRuntimeSnapshot: fixture.preTurnTwoSnapshot, userMessageIds: ['msg_u2'],
+    })
+    commitNarrativeTurnRecord(turn2, { assistantMessageIds: ['msg_a2'], postRuntimeSnapshot: fixture.postTurnTwoState })
+    gameStore.messages = fixture.messages.map((m) => ({ ...m, branchId: 'main' }))
+    gameStore.turnRecords = { narrative_turn1: turn1, narrative_turn2: turn2 }
+    gameStore.lastCommittedTurnId = 'narrative_turn2'
+    gameStore.activeBranchId = 'main'
+    gameStore.useAI = false
+
+    // regenerate 切换到新分支，但新分支尚无 committed turn
+    await gameStore.regenerateFrom(2)
+    expect(gameStore.activeBranchId).not.toBe('main')
+    // 新分支链为空 → collectBranchTurnChain 回退到 lastCommittedTurnId（turn2）的链
+    const chain = gameStore.collectBranchTurnChain(gameStore.activeBranchId)
+    expect(chain.size).toBeGreaterThan(0)
+    // rebuildChatHistory 应包含前文（u1/a1/u2），而非只剩 system prompt
+    gameStore.rebuildChatHistory()
+    const contents = gameStore.chatHistory.map((m) => m.content || '')
+    expect(contents.some((c) => c.includes('我走进城镇入口'))).toBe(true)  // u1 前文保留
+    expect(contents.some((c) => c.includes('你站在城镇入口'))).toBe(true)  // a1 前文保留
+    expect(gameStore.chatHistory.length).toBeGreaterThan(1)  // 不只是 system prompt
+  })
+
+  it('P0-2: switchBranch 同步 lastCommittedTurnId —— 切分支后生成不跨分支污染', async () => {
+    const fixture = createDestructiveRegenerateFixture()
+    const turn1 = createNarrativeTurnRecord({ id: 'narrative_turn1', branchId: 'main', userMessageIds: ['msg_u1'], preRuntimeSnapshot: {} })
+    commitNarrativeTurnRecord(turn1, { assistantMessageIds: ['msg_a1'] })
+    const turnA = createNarrativeTurnRecord({
+      id: 'narrative_turn_a', parentTurnId: 'narrative_turn1', branchId: 'branch_a',
+      preRuntimeSnapshot: fixture.preTurnTwoSnapshot, userMessageIds: ['msg_u2'],
+    })
+    commitNarrativeTurnRecord(turnA, { assistantMessageIds: ['msg_a2'], postRuntimeSnapshot: fixture.postTurnTwoState })
+    gameStore.messages = fixture.messages.map((m) => ({ ...m, branchId: 'main' }))
+    gameStore.turnRecords = { narrative_turn1: turn1, narrative_turn_a: turnA }
+    gameStore.lastCommittedTurnId = 'narrative_turn1'
+    gameStore.activeBranchId = 'main'
+
+    // 切到 branch_a → lastCommittedTurnId 应同步为 turn_a
+    gameStore.switchBranch('branch_a')
+    expect(gameStore.lastCommittedTurnId).toBe('narrative_turn_a')
+    expect(gameStore.activeBranchId).toBe('branch_a')
+  })
+
   it('P0-2: 首回合 regenerate 的 sibling parentTurnId 为 null（非子回合）', async () => {
     const fixture = createDestructiveRegenerateFixture()
     const turn1 = createNarrativeTurnRecord({ id: 'narrative_turn1', branchId: 'main', preRuntimeSnapshot: {} })
