@@ -106,7 +106,7 @@
         @cancel-edit="cancelEdit"
         @edit="startEdit(index, msg.content)"
         @delete="gameStore.deleteMessage(index)"
-        @regenerate="gameStore.regenerateFrom(index)"
+        @regenerate="gameStore.executeExperienceAction({ type: 'retry', payload: { index }, source: 'regenerate-btn' })"
         @switch-candidate="onSwitchCandidate(index, msg)"
       />
     </template>

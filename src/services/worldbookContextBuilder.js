@@ -51,6 +51,25 @@ function deterministicRoll(entryId, seed) {
   return (hash % 1000) / 1000
 }
 
+// P1-5：关键词匹配 —— 默认小写子串；wholeWord 要求词边界（拉丁文本），caseSensitive 区分大小写。
+function keyMatches(text, key, { caseSensitive = false, wholeWord = false } = {}) {
+  const raw = String(key || '').trim()
+  if (!raw) return false
+  const hay = String(text || '')
+  if (caseSensitive) {
+    if (!wholeWord) return hay.includes(raw)
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(raw)}(?:$|[^\\p{L}\\p{N}])`, 'u').test(hay)
+  }
+  const hayLower = hay.toLowerCase()
+  const keyLower = raw.toLowerCase()
+  if (!wholeWord) return hayLower.includes(keyLower)
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(keyLower)}(?:$|[^\\p{L}\\p{N}])`, 'u').test(hayLower)
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // R3：装饰字段标注 —— 这些注入字段被 UI/存储支持，但 builder 运行时不消费。
 // 返回被设置了的字段名数组，供预览显示"运行时不生效"。
 function ignoredInjectionFieldsOf(entry) {
@@ -300,9 +319,13 @@ export function matchWorldbookEntries({
     }
   }
 
-  // P1-6：bound 绑定上下文归一化 —— placeIds/characterIds/sourceRefs 集合
-  const boundPlaceIds = new Set((boundContext?.placeIds || runtimeState?.placeIds || [])
-    .map((id) => String(id || '').trim()).filter(Boolean))
+  // P1-6：bound 绑定上下文归一化 —— placeIds/characterIds/sourceRefs 集合。
+  // P1-5：自动从 runtimeState.worldMapState.placeId 派生 place 绑定（生产路径默认可用）。
+  const runtimePlaceId = runtimeState?.worldMapState?.placeId || runtimeState?.placeId || ''
+  const boundPlaceIds = new Set([
+    ...(boundContext?.placeIds || runtimeState?.placeIds || []),
+    ...(runtimePlaceId ? [runtimePlaceId] : [])
+  ].map((id) => String(id || '').trim()).filter(Boolean))
   const boundCharacterIds = new Set((boundContext?.characterIds || runtimeState?.characterIds || [])
     .map((id) => String(id || '').trim()).filter(Boolean))
   const boundSourceRefs = new Set((boundContext?.sourceRefs || [])
@@ -376,20 +399,28 @@ export function matchWorldbookEntries({
     const matchedKeys = []
     const matchedSecondaryKeys = []
 
+    // P1-5：wholeWord/caseSensitive 选项（从 entry.injection 读，默认小写子串）
+    const caseSensitive = entry.injection?.caseSensitive === true
+    const wholeWord = entry.injection?.wholeWord === true
+
     for (const key of primaryKeys) {
-      const normalizedKey = String(key || '').toLowerCase().trim()
-      if (normalizedKey && scanText.includes(normalizedKey) && !matchedKeys.includes(String(key).trim())) {
+      if (keyMatches(scanText, key, { caseSensitive, wholeWord }) && !matchedKeys.includes(String(key).trim())) {
         matchedKeys.push(String(key).trim())
       }
     }
     for (const key of secondaryKeys) {
-      const normalizedKey = String(key || '').toLowerCase().trim()
-      if (normalizedKey && scanText.includes(normalizedKey) && !matchedSecondaryKeys.includes(String(key).trim())) {
+      if (keyMatches(scanText, key, { caseSensitive, wholeWord }) && !matchedSecondaryKeys.includes(String(key).trim())) {
         matchedSecondaryKeys.push(String(key).trim())
       }
     }
 
-    const matched = matchedKeys.length > 0
+    // P1-5：selective any/all —— 主键命中后，次键按 any（任一命中）或 all（全部命中）判定。
+    // 默认 any（主键命中即激活，次键作排序提升）；all 模式要求次键全部命中才激活。
+    const secondaryMode = entry.injection?.secondaryMode || 'any'
+    let matched = matchedKeys.length > 0
+    if (matched && secondaryKeys.length > 0 && secondaryMode === 'all') {
+      matched = matchedSecondaryKeys.length === secondaryKeys.length
+    }
 
     if (matched && !seenIds.has(entry.id)) {
       matchedEntries.push({

@@ -680,7 +680,10 @@ const canUseAutoAdvance = computed(() => !props.onlineSession && Boolean(gameSto
 
 async function retryNarrativeGeneration() {
   if (props.onlineSession || gameStore.isLoading) return
-  await gameStore.generateAIResponse()
+  // P1-4：重试消费 pendingDirectorNote（失败保留的导演注），不再丢失
+  const pendingNote = gameStore.pendingDirectorNote || ''
+  if (pendingNote) gameStore.pendingDirectorNote = null
+  await gameStore.generateAIResponse({ directorNote: pendingNote })
 }
 const isLocalDemoSequence = computed(() => {
   const messages = gameStore.messages || []

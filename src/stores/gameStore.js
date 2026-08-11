@@ -2652,11 +2652,18 @@ export const useGameStore = defineStore('game', {
       }
 
       // R1b：不再截断 messages —— 旧消息保留在数组。
-      // 被重写部分（index 之后）的旧分支消息标记 superseded（被新分支替代，过滤隐藏），
-      // 共享前缀（index 及之前）无 branchId 总是显示。
+      // 被重写部分（index 之后）的旧分支消息标记 superseded（被新分支替代，过滤隐藏）。
+      // P0-1 修复：index 及之前的消息是**共享前缀**（分叉点之前的历史），
+      // 清除其 branchId —— 这样切换新分支后 rebuildChatHistory 不会把触发重生成的
+      // 用户输入过滤掉。
       const oldBranchId = this.activeBranchId || 'main'
       const newBranchId = `branch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       this.activeBranchId = newBranchId
+      // 共享前缀：index 及之前的消息清除 branchId（跨分支总显示）
+      for (let i = 0; i <= index; i++) {
+        const m = this.messages[i]
+        if (m && typeof m === 'object' && m.branchId) delete m.branchId
+      }
       // 标记被重写部分为 superseded（含旧分支和 main 的旧回复）
       for (let i = index + 1; i < this.messages.length; i++) {
         const m = this.messages[i]
@@ -2679,8 +2686,12 @@ export const useGameStore = defineStore('game', {
       if (this.useAI) {
         // 标记为重写后续，避免触发初始化逻辑
         this._isRegenerating = true
+        // P0-3：新 turn 作为旧 turn 的 sibling（同父级），并传入源用户消息 id，
+        // 让生成出的 turnRecord 正确关联到触发重生成的 user 消息。
+        const branchParentTurnId = parentTurn?.parentTurnId || parentTurn?.id || null
+        const sourceUserMessageId = targetMessage?.id || ''
         debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
-        await this.generateAIResponse()
+        await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
         this._isRegenerating = false
         debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
@@ -2689,7 +2700,12 @@ export const useGameStore = defineStore('game', {
     // R1b：切换候选/分支。恢复该分支的 post snapshot + 重建 chatHistory。
     switchBranch(branchId) {
       if (!branchId || branchId === this.activeBranchId) return
-      const turn = Object.values(this.turnRecords || {}).find((r) => r?.branchId === branchId)
+      // P0-3：取该分支**最新** committed turn（按 committedAt 降序），
+      // 避免多回合分支恢复到过早状态。
+      const branchTurns = Object.values(this.turnRecords || {})
+        .filter((r) => r?.branchId === branchId && r?.postRuntimeSnapshot)
+        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
+      const turn = branchTurns[0] || null
       if (turn?.postRuntimeSnapshot) {
         this.applyRuntimeSnapshot(turn.postRuntimeSnapshot)
       }
@@ -2846,7 +2862,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '' } = {}) {
+    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null } = {}) {
       this.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -2870,7 +2886,8 @@ export const useGameStore = defineStore('game', {
         // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
         turnRecord = createNarrativeTurnRecord({
           id: requestId,
-          parentTurnId: this.lastCommittedTurnId || null,
+          // P0-3：重生成时传 sibling 父 turn id；正常生成走 lastCommittedTurnId
+          parentTurnId: parentTurnId != null ? parentTurnId : (this.lastCommittedTurnId || null),
           // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
           branchId: this.activeBranchId || 'main',
           userMessageIds: userMessageId ? [userMessageId] : [],
@@ -3066,11 +3083,7 @@ export const useGameStore = defineStore('game', {
         // P0-3：回合事务提交**延迟**到所有 state 修改之后（见 productionOutcome 前）。
         // 正文已写入但 turn record 尚未 committed —— 后续步骤（状态提取/机制/记忆）失败
         // 时 catch 会回滚 preRuntimeSnapshot，不留"正文已提交、状态未提交"的半成功回合。
-
-        // 保存当前会话
-        if (this.currentSessionId) {
-          this.saveCurrentSession()
-        }
+        // P0-2：commit 前**不**保存会话 —— 崩溃不留下无 committed turn 的正文。
 
         // 记录重要的叙事事件到记忆系统
         if (cleanContent && cleanContent.length > 20) {
@@ -3086,28 +3099,32 @@ export const useGameStore = defineStore('game', {
             const speaker = this.dialogueCharacter?.name || this.playerCharacter?.name || '主角'
             const place = this.worldMapState?.currentScene || ''
             const time = this.writingTime ? `${this.writingTime.year || ''}-${this.writingTime.month || ''}-${this.writingTime.day || ''}` : ''
-            recordMemory(
-              cleanContent,
-              eventType,
-              {
-                character: speaker,
-                scope: 'session',
-                scopeId: this.currentSessionId || '',
-                sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`,
-                speaker,
-                place,
-                time,
-                turnId: turnRecord?.id || '',
-              }
-            ).then((res) => {
-              // P1-6：记忆候选入回合事务 —— 记录本回合产生的候选 id，供追溯/分支隔离
-              if (res?.candidate?.id && turnRecord) {
+            // P0-2：await 记忆写入 —— 候选 id 在回合事务提交前收集，随 commit 后统一保存，
+            // 避免"回合已提交、候选 id 异步迟到且未保存"的不一致。
+            try {
+              const memRes = await recordMemory(
+                cleanContent,
+                eventType,
+                {
+                  character: speaker,
+                  scope: 'session',
+                  scopeId: this.currentSessionId || '',
+                  sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`,
+                  speaker,
+                  place,
+                  time,
+                  turnId: turnRecord?.id || '',
+                }
+              )
+              if (memRes?.candidate?.id && turnRecord) {
                 turnRecord.memoryCandidateIds = [...new Set([
                   ...(turnRecord.memoryCandidateIds || []),
-                  res.candidate.id
+                  memRes.candidate.id
                 ])]
               }
-            }).catch(() => {}) // 静默失败
+            } catch {
+              // 记忆写入失败不阻塞正文提交（候选是尽力而为）
+            }
           }
         }
 
@@ -3161,6 +3178,11 @@ export const useGameStore = defineStore('game', {
           this.lastCommittedTurnId = turnRecord.id
           this.pendingTurnRecord = null
           this.lastTurnReceipt = receipt  // P1-5：体验页渲染最近一次回执
+        }
+
+        // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为一个事务落盘
+        if (this.currentSessionId) {
+          this.saveCurrentSession()
         }
 
         productionOutcome = 'success'

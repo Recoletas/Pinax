@@ -229,7 +229,7 @@
         class="send-btn stop-btn"
         type="button"
         title="停止生成"
-        @click="gameStore.cancelNarrativeGeneration('user-cancelled')"
+        @click="gameStore.executeExperienceAction({ type: 'stop', source: 'stop-btn' })"
       >
         <span>停止</span>
       </button>
@@ -331,6 +331,11 @@ onMounted(() => {
   refreshApiSettings()
   window.addEventListener('pinax:api-settings-updated', handleApiSettingsUpdated)
   window.addEventListener('storage', handleStorageUpdated)
+  // P1-4：失败保留的导演注恢复显示（重试后可见）
+  if (gameStore.pendingDirectorNote) {
+    directorNote.value = gameStore.pendingDirectorNote
+    showDirectorNote.value = true
+  }
 })
 
 onUnmounted(() => {
@@ -341,9 +346,11 @@ onUnmounted(() => {
 function handleSend() {
   const note = directorNote.value.trim()
   if (inputText.value.trim()) {
+    // P1-4：导演注同步写入 store.pendingDirectorNote —— 失败时保留供重试恢复
+    if (note) gameStore.pendingDirectorNote = note
     emit('send', inputText.value.trim(), { source: 'manual-input', directorNote: note || undefined })
     inputText.value = ''
-    // R2：导演注仅下一轮生效，提交后清空
+    // R2：导演注仅下一轮生效，提交后清空 UI（失败时 store.pendingDirectorNote 保留）
     directorNote.value = ''
     showDirectorNote.value = false
   }

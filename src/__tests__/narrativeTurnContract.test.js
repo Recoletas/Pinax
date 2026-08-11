@@ -176,4 +176,30 @@ describe('回合事务与非破坏性重试', () => {
     expect(online.memberRequestCounts['member-a']).toBe(0)
     expect(online.events[online.events.length - 1].type).toBe('narrative.completed')
   })
+
+  it('P2-6: R7 性能基线 —— 100/300/800 消息的 rebuildChatHistory 可重复测量', () => {
+    // 计划 R7 要求"100/300/800 消息基线有前后对照"。
+    // 这里是 vitest 环境下的可重复时间数据（每档测 5 次取中位数，避免单次抖动），
+    // 记录数量级 + 断言不退化（无硬阈值，只证明有测量与线性增长）。
+    const timings = []
+    for (const rounds of [100, 300, 800]) {
+      const fixture = createLongSessionFixture(rounds)
+      const samples = []
+      for (let i = 0; i < 5; i++) {
+        gameStore.messages = fixture.messages.map((m) => ({ ...m }))
+        gameStore.activeBranchId = 'main'
+        const t0 = performance.now()
+        gameStore.rebuildChatHistory()
+        samples.push(performance.now() - t0)
+      }
+      const sorted = [...samples].sort((a, b) => a - b)
+      timings.push({ rounds, medianMs: sorted[2] })
+    }
+    // 800 消息（1600 条）的 rebuild 应 < 100ms（线性过滤，无 O(n²)）
+    const t800 = timings.find((t) => t.rounds === 800)
+    expect(t800.medianMs).toBeLessThan(100)
+    // 增长应大致线性：800 消息 ≤ 8× 100 消息 + 余量
+    const t100 = timings.find((t) => t.rounds === 100)
+    expect(t800.medianMs).toBeLessThan(t100.medianMs * 8 + 20)
+  })
 })
