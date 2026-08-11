@@ -192,14 +192,23 @@ function normalizeExplicitSpeaker(value) {
   return /^(?:他|她|它|他们|她们|对方|有人|那人|来人|声音)$/.test(speaker) ? '' : speaker
 }
 
+// R4：基于 speaker 名字的稳定 id（改名后 hash 变化，但同一名字跨消息稳定）。
+// 用于 dialogue block 的 speakerId 与 SceneCast 的角色 id 对齐。
+export function speakerIdOf(name) {
+  const cleaned = normalizeSpeaker(name)
+  if (!cleaned) return ''
+  return `spk_${hashText(cleaned).toString(16)}`
+}
+
 function createBlock(kind, text, speaker, messageId, index, speakerSource = '') {
   const normalizedKind = BLOCK_KINDS.has(kind) ? kind : 'narration'
   const normalizedText = String(text || '').trim()
+  const normalizedSpeaker = normalizeSpeaker(speaker)
   return {
     id: `block_${hashText(`${messageId}|${index}|${normalizedKind}|${normalizedText}`)}`,
     kind: normalizedKind,
     text: normalizedText,
-    ...(speaker ? { speaker } : {}),
+    ...(normalizedSpeaker ? { speaker: normalizedSpeaker, speakerId: speakerIdOf(normalizedSpeaker) } : {}),
     ...(speakerSource ? { speakerSource } : {})
   }
 }

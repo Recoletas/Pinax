@@ -41,6 +41,35 @@ export const WORLDBOOK_WARNING_LABELS = {
   'structured-settings-truncated': '结构化设定因预算不足被截断'
 }
 
+// R3：确定性概率 —— 用 entry.id + seed 派生一个稳定 [0,1) 值，替代 Math.random()。
+function deterministicRoll(entryId, seed) {
+  const s = String(entryId || '') + '#' + String(seed)
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  }
+  return (hash % 1000) / 1000
+}
+
+// R3：装饰字段标注 —— 这些注入字段被 UI/存储支持，但 builder 运行时不消费。
+// 返回被设置了的字段名数组，供预览显示"运行时不生效"。
+function ignoredInjectionFieldsOf(entry) {
+  const inj = entry?.injection || {}
+  const ignored = []
+  const FIELD_LABELS = {
+    depth: '深度',
+    cooldown: '冷却',
+    excludeRecursion: '排除递归',
+    group: '分组'
+  }
+  for (const [field, label] of Object.entries(FIELD_LABELS)) {
+    const value = inj[field]
+    const isSet = value != null && value !== '' && value !== false && value !== 0
+    if (isSet) ignored.push(label)
+  }
+  return ignored
+}
+
 function normalizeEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const id = String(entry.id || '').trim()
@@ -239,7 +268,8 @@ export function matchWorldbookEntries({
   includeStarterEntries = false,
   starterEntryLimits: starterLimits = {},
   historyEntryIds = null,
-  respectProbability = true
+  respectProbability = true,
+  scanSeed = 0  // R3：确定性概率种子（同 seed 同命中集）
 } = {}) {
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
@@ -297,18 +327,35 @@ export function matchWorldbookEntries({
       continue
     }
 
+    // R3：确定性概率 —— 用 entry.id 的确定性 hash 而非 Math.random()。
+    // 同 seed 同命中集（满足 R3 第 5 条"相同 seed 得到相同命中顺序"）。
     const probability = Number(entry.injection?.probability ?? 100)
-    if (respectProbability && probability < 100 && Math.random() * 100 > probability) {
-      continue
+    if (respectProbability && probability < 100) {
+      const hashSeed = typeof scanSeed === 'number' ? scanSeed : 0
+      const roll = deterministicRoll(entry.id, hashSeed)
+      if (roll * 100 > probability) {
+        continue
+      }
     }
 
-    const allKeys = [...entry.keys, ...entry.keysSecondary]
+    // R3：selective 语义 —— 主键（keys）命中是激活条件；keysSecondary 作精确化。
+    // 之前 keysSecondary 混入 OR 键池与主键等价；现在主键命中才激活，
+    // 次键命中数量用于排序提升（精确匹配优先）。
+    const primaryKeys = Array.isArray(entry.keys) ? entry.keys : []
+    const secondaryKeys = Array.isArray(entry.keysSecondary) ? entry.keysSecondary : []
     const matchedKeys = []
+    const matchedSecondaryKeys = []
 
-    for (const key of allKeys) {
+    for (const key of primaryKeys) {
       const normalizedKey = String(key || '').toLowerCase().trim()
       if (normalizedKey && scanText.includes(normalizedKey) && !matchedKeys.includes(String(key).trim())) {
         matchedKeys.push(String(key).trim())
+      }
+    }
+    for (const key of secondaryKeys) {
+      const normalizedKey = String(key || '').toLowerCase().trim()
+      if (normalizedKey && scanText.includes(normalizedKey) && !matchedSecondaryKeys.includes(String(key).trim())) {
+        matchedSecondaryKeys.push(String(key).trim())
       }
     }
 
@@ -319,7 +366,10 @@ export function matchWorldbookEntries({
         ...entry,
         matchReason: 'keyword',
         matchedKeys,
-        matchedKeysLabel: matchedKeys.join('、')
+        matchedSecondaryKeys,
+        matchedKeysLabel: [...matchedKeys, ...matchedSecondaryKeys].join('、'),
+        // R3：装饰字段标注 —— UI 显示但运行时不生效的注入字段
+        ignoredInjectionFields: ignoredInjectionFieldsOf(entry)
       })
       seenIds.add(entry.id)
     }
@@ -333,6 +383,9 @@ export function matchWorldbookEntries({
     const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : 1)
       - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : 1)
     if (modeDelta !== 0) return modeDelta
+    // R3：次键命中多的排前面（selective 精确化优先）
+    const secondaryDelta = (b.matchedSecondaryKeys?.length || 0) - (a.matchedSecondaryKeys?.length || 0)
+    if (secondaryDelta !== 0) return secondaryDelta
     const priorityDelta = getTypePriority(a.type) - getTypePriority(b.type)
     if (priorityDelta !== 0) return priorityDelta
     return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN')
@@ -347,7 +400,8 @@ export function buildWorldbookContext({
   scanDepth = DEFAULT_SCAN_DEPTH,
   includeStarterEntries = false,
   starterEntryLimits = {},
-  historyEntryIds = null
+  historyEntryIds = null,
+  scanSeed = 0  // R3：确定性概率种子
 } = {}) {
   const warnings = []
   let contextLedger = createContextLedger({
@@ -391,7 +445,8 @@ export function buildWorldbookContext({
     scanDepth,
     includeStarterEntries,
     starterEntryLimits,
-    historyEntryIds
+    historyEntryIds,
+    scanSeed
   })
 
   if (matchedEntries.length === 0) {

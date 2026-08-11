@@ -98,6 +98,7 @@ import {
   validateGenerationAgentTurnRequest
 } from '../../shared/generationToolContract'
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
+import { parseNarrativePresentation } from '../services/narrativePresentation'
 import {
   createNarrativeResourceIndex,
   getNarrativeResourceIndex,
@@ -707,6 +708,7 @@ describe('agentContracts', function () {
       'rules',
       'turn',
       'scene',
+      'cast',
       'recent',
       'continuity',
       'style'
@@ -2844,5 +2846,49 @@ describe('agentContracts', function () {
     expect(receipt.directorNote).toBe('让气氛更紧张')
     // 隐私：不含完整 prompt / apiKey
     expect(JSON.stringify(receipt)).not.toContain('apiKey')
+  })
+
+  it('R4: scene cast —— 主 speaker 完整角色卡 + 其他角色受限摘要 + 稳定 speakerId', function () {
+    const castKernel = buildNarrativeKernel({
+      worldbook: {
+        id: 'wb-cast',
+        writingStyle: '克制',
+        rules: [],
+        entries: [
+          { id: 'char_yan', type: 'character', name: '褚岩', content: '沉稳的军师，说话简短有力。' },
+          { id: 'char_lin', type: 'character', name: '林舟', content: '急性子的少年剑客。' }
+        ]
+      },
+      runtimeState: {
+        dialogueCharacter: { name: '褚岩' },
+        encounteredCharacters: [
+          { name: '林舟', status: '在场' },
+          { name: '褚岩', status: '在场' }
+        ]
+      },
+      messages: [{ id: 'm1', role: 'user', content: '我和褚岩商议对策。' }]
+    })
+    const castBlock = castKernel.blocks.find(function (block) { return block.kind === 'cast' })
+    expect(castBlock).toBeDefined()
+    const members = castBlock.content.members
+    // 主 speaker（褚岩）带完整角色卡
+    const main = members.find(function (member) { return member.role === 'speaker' })
+    expect(main.name).toBe('褚岩')
+    expect(main.characterCard).toContain('沉稳的军师')
+    expect(main.speakerId).toMatch(/^spk_/)
+    // 其他角色（林舟）只给受限摘要，无完整卡
+    const other = members.find(function (member) { return member.name === '林舟' })
+    expect(other.role).toBe('scene')
+    expect(other.summary).toContain('急性子')
+    expect(other.characterCard).toBeUndefined()
+    // speakerId 稳定：同一名字两次调用结果一致
+    expect(main.speakerId).toBe(members.find(function (m) { return m.name === '褚岩' }).speakerId)
+  })
+
+  it('R4: dialogue block 携带稳定 speakerId', function () {
+    const parsed = parseNarrativePresentation(':::dialogue|褚岩\n“局势已定。”', { messageId: 'msg-test-1' })
+    const dialogueBlock = parsed.blocks.find(function (block) { return block.kind === 'dialogue' })
+    expect(dialogueBlock.speaker).toBe('褚岩')
+    expect(dialogueBlock.speakerId).toMatch(/^spk_/)
   })
 })

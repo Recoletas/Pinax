@@ -541,4 +541,109 @@ describe('worldbookContextBuilder', () => {
     expect(result.matchedEntries[0].id).toBe('overlap-entry')
     expect(result.matchedEntries[0].matchReason).toBe('history')
   })
+
+  it('R3: selective 语义 —— 主键未命中时次键命中不激活', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        id: 'wb-r3',
+        name: 'R3世界书',
+        entries: [
+          {
+            id: 'e-selective',
+            name: '选择性条目',
+            type: 'lore',
+            content: '只有主键命中才应该出现。',
+            keys: ['酒馆老板'],
+            keysSecondary: ['铁匠'],
+            injection: { mode: 'selective' }
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '我去找铁匠打听消息。' }]
+    })
+    // 主键'酒馆老板'未命中（文本只有'铁匠'）→ 不激活
+    expect(result.matchedEntries.find((entry) => entry.id === 'e-selective')).toBeUndefined()
+  })
+
+  it('R3: selective 主键命中 + 次键命中时排序提升', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        id: 'wb-r3b',
+        name: 'R3世界书',
+        entries: [
+          {
+            id: 'e-main-only',
+            name: '仅主键',
+            type: 'lore',
+            content: '主键命中。',
+            keys: ['酒馆'],
+            keysSecondary: [],
+            injection: { mode: 'selective' }
+          },
+          {
+            id: 'e-main-plus-secondary',
+            name: '主键+次键',
+            type: 'lore',
+            content: '主键和次键都命中。',
+            keys: ['酒馆'],
+            keysSecondary: ['老板'],
+            injection: { mode: 'selective' }
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '我在酒馆找老板谈谈。' }]
+    })
+    const ids = result.matchedEntries.map((entry) => entry.id)
+    expect(ids).toContain('e-main-only')
+    expect(ids).toContain('e-main-plus-secondary')
+    // 次键命中的条目排前面
+    expect(ids.indexOf('e-main-plus-secondary')).toBeLessThan(ids.indexOf('e-main-only'))
+  })
+
+  it('R3: 确定性 —— 同 seed 两次命中集相同', () => {
+    const worldbook = {
+      id: 'wb-r3c',
+      name: 'R3世界书',
+      entries: [
+        {
+          id: 'e-prob',
+          name: '概率条目',
+          type: 'lore',
+          content: '50% 概率注入。',
+          keys: ['钟楼'],
+          injection: { mode: 'selective', probability: 50 }
+        }
+      ]
+    }
+    const chat = [{ role: 'user', content: '我去钟楼看看。' }]
+    const first = buildWorldbookContext({ worldbook, chatHistory: chat, scanSeed: 42 })
+    const second = buildWorldbookContext({ worldbook, chatHistory: chat, scanSeed: 42 })
+    // 同 seed → 命中集一致（确定性）
+    expect(first.matchedEntries.map((e) => e.id)).toEqual(second.matchedEntries.map((e) => e.id))
+  })
+
+  it('R3: 装饰字段标注 —— depth/cooldown/group 被标注为运行时不生效', () => {
+    const result = buildWorldbookContext({
+      worldbook: {
+        id: 'wb-r3d',
+        name: 'R3世界书',
+        entries: [
+          {
+            id: 'e-decor',
+            name: '装饰条目',
+            type: 'lore',
+            content: '带装饰字段。',
+            keys: ['码头'],
+            injection: { mode: 'selective', depth: 3, cooldown: 2, group: '场景' }
+          }
+        ]
+      },
+      chatHistory: [{ role: 'user', content: '我走向码头。' }]
+    })
+    const entry = result.matchedEntries.find((e) => e.id === 'e-decor')
+    expect(entry).toBeDefined()
+    expect(entry.ignoredInjectionFields).toContain('深度')
+    expect(entry.ignoredInjectionFields).toContain('冷却')
+    expect(entry.ignoredInjectionFields).toContain('分组')
+  })
 })

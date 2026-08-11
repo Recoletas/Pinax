@@ -5,6 +5,7 @@ import {
   resolveNarrativeActiveToolNames
 } from '../../../shared/narrativeAgentContract'
 import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
+import { speakerIdOf } from '../narrativePresentation'
 
 const BLOCK_LIMITS = Object.freeze({
   rules: 900,
@@ -13,6 +14,7 @@ const BLOCK_LIMITS = Object.freeze({
   summary: 1800,
   recent: 3600,
   continuity: 1600,
+  cast: 1200,   // R4：场景角色编排
   note: 400,   // R2：本轮导演注
   style: 600
 })
@@ -53,6 +55,56 @@ function hardRuleEntries(worldbook) {
       content: clip(entry.content, 180)
     }))
     .filter((entry) => entry.id && entry.content)
+}
+
+// R4：场景角色编排 —— 构建 scene cast。
+// 主 speaker（dialogueCharacter）给完整角色卡（从 worldbook character 条目取 content），
+// 其他在场角色给受限摘要（id/name/status，不含卡正文），避免人格合并。
+// 每个角色带稳定 speakerId（speakerIdOf(name)），供 dialogue block 追溯。
+function buildSceneCast(worldbook, runtimeState) {
+  const characterEntries = (Array.isArray(worldbook?.entries) ? worldbook.entries : [])
+    .filter((entry) => text(entry?.type).toLowerCase() === 'character')
+    .slice(0, 12)
+    .map((entry) => ({
+      id: text(entry.id),
+      name: text(entry.name),
+      content: clip(entry.content, 300),
+    }))
+    .filter((entry) => entry.name)
+
+  const mainSpeakerName = text(runtimeState?.dialogueCharacter?.name)
+  const mainSpeaker = characterEntries.find((entry) => entry.name === mainSpeakerName)
+  const others = (Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : [])
+    .slice(-8)
+    .filter((character) => {
+      const name = text(character?.name || character)
+      return name && name !== mainSpeakerName
+    })
+    .map((character) => {
+      const name = text(character?.name || character)
+      const entry = characterEntries.find((c) => c.name === name)
+      return {
+        speakerId: speakerIdOf(name),
+        name,
+        status: text(character?.status || character?.state) || null,
+        // 其他角色只给摘要：有角色卡条目时给前 60 字，否则 null
+        summary: entry ? clip(entry.content, 60) : null,
+      }
+    })
+    .filter((character) => character.name)
+
+  const cast = []
+  if (mainSpeaker) {
+    cast.push({
+      speakerId: speakerIdOf(mainSpeaker.name),
+      name: mainSpeaker.name,
+      role: 'speaker',
+      // 主 speaker 完整角色卡
+      characterCard: mainSpeaker.content,
+    })
+  }
+  cast.push(...others.map((character) => ({ ...character, role: 'scene' })))
+  return cast
 }
 
 function makeBlock(kind, content, sourceRefs = []) {
@@ -107,6 +159,8 @@ export function buildNarrativeKernel({
   const time = runtimeState?.writingTime || {}
   const historyNode = runtimeState?.historyNode || null
   const causality = buildRuntimeCausalityContext({ runtimeState })
+  // R4：场景角色编排 —— 主 speaker 完整卡 + 其他角色摘要
+  const cast = buildSceneCast(worldbook, runtimeState)
 
   const blocks = [
     makeBlock('rules', {
@@ -152,6 +206,8 @@ export function buildNarrativeKernel({
       ...(text(place.placeId) ? [`place:${text(place.placeId)}`] : []),
       ...characters.map((character) => `character:${character.id || character.name}`)
     ]),
+    // R4：场景角色编排 —— 主 speaker 完整角色卡 + 其他角色受限摘要
+    ...(cast.length > 0 ? [makeBlock('cast', { members: cast }, cast.map((member) => `character:${member.name}`))] : []),
     ...(text(sceneSummary?.summary)
       ? [makeBlock('summary', {
           revision: text(sceneSummary.revision),
