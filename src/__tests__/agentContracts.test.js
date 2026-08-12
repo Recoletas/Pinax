@@ -2892,7 +2892,7 @@ describe('agentContracts', function () {
     expect(main.speakerId).toBe(members.find(function (m) { return m.name === '褚岩' }).speakerId)
   })
 
-  it('P1-2: SceneCast 调度字段从 runtimeState 派生（非硬编码）', function () {
+  it('P1-2: SceneCast 使用真实持久化状态并自动选择可解释 speaker', function () {
     const castKernel = buildNarrativeKernel({
       worldbook: {
         id: 'wb-cast2',
@@ -2902,33 +2902,33 @@ describe('agentContracts', function () {
         ]
       },
       runtimeState: {
-        dialogueCharacter: { name: '褚岩' },
         encounteredCharacters: [
-          { name: '林舟', status: '在场' },
-          { name: '褚岩', status: '在场' }
+          { id: 'char_lin', name: '林舟', status: '离开' },
+          { id: 'char_yan', name: '褚岩', status: '在场' }
         ],
-        // characterStates 提供 muted/talkativeness
+        // 与 gameStore normalizeCharacterStates 的真实 shape 一致：身份在 key 上。
         characterStates: {
-          lin: { name: '林舟', status: '离开', muted: true },
-          yan: { name: '褚岩', status: '在场', talkativeness: 0.9 }
+          char_lin: { status: '离开', placeId: 'gate', goal: '追踪密使' },
+          char_yan: { status: '在场', placeId: 'hall', goal: '调查信号' }
         },
-        lastSpokeTurnIds: { '褚岩': 'narrative_turn_5' },
-        goals: [{ title: '调查林舟的行踪' }]
+        goals: [{ title: '与褚岩调查信号', status: 'active' }]
       },
-      messages: [{ id: 'm1', role: 'user', content: '我和褚岩商议。' }]
+      messages: [
+        { id: 'turn-4', role: 'assistant', name: '褚岩', content: '先核对记录。' },
+        { id: 'turn-5', role: 'user', content: '请褚岩判断这段信号。' }
+      ]
     })
     const members = castKernel.blocks.find((b) => b.kind === 'cast').content.members
     const yan = members.find((m) => m.name === '褚岩')
     const lin = members.find((m) => m.name === '林舟')
 
-    // 主 speaker：talkativeness 从 characterStates 派生（0.9），selectionReason manual-direct
-    expect(yan.talkativeness).toBe(0.9)
-    expect(yan.selectionReason).toBe('manual-direct')
-    expect(yan.lastSpokeTurnId).toBe('narrative_turn_5')
-    // 配角：muted 从 characterStates.status='离开' 派生，不在场
+    expect(yan.role).toBe('speaker')
+    expect(yan.selectionReason).toBe('user-mentioned')
+    expect(yan.lastSpokeTurnId).toBe('turn-4')
+    expect(yan.talkativeness).toBeGreaterThan(0.5)
     expect(lin.muted).toBe(true)
     expect(lin.present).toBe(false)
-    expect(lin.selectionReason).toBe('present-in-scene')
+    expect(lin.role).toBe('scene')
   })
 
   it('R4: dialogue block 携带稳定 speakerId', function () {
@@ -2952,5 +2952,26 @@ describe('agentContracts', function () {
       speakerMap: { '褚岩大人': 'char:char_yan' }
     })
     expect(renamed.blocks.find(function (block) { return block.kind === 'dialogue' }).speakerId).toBe('char:char_yan')
+  })
+
+  it('P0: 同行 marker（:::narration 内容）正确解析 —— 不把 marker 原样显示在正文', function () {
+    // 回归：AI 常把 marker 与内容写在同一行，此前 MARKER_RE 要求独立行导致 marker 泄漏进正文
+    const raw = [
+      ':::narration 皮货商说着弯下腰去拢他那堆皮货。',
+      ':::dialogue|我 “慢着。”',
+      ':::narration 我走完最后两级楼梯。',
+      ':::dialogue|我 “铜币你收是不收？”'
+    ].join('\n')
+    const parsed = parseNarrativePresentation(raw, { messageId: 'msg-inline', complete: true })
+    // content 与 blocks 均不含 marker
+    expect(parsed.content.includes(':::')).toBe(false)
+    expect(parsed.blocks.some(function (block) { return block.text.includes(':::') })).toBe(false)
+    // 同行 marker 内容正确归入 block，speaker 不被内容吞掉
+    const dialogueBlocks = parsed.blocks.filter(function (block) { return block.kind === 'dialogue' })
+    expect(dialogueBlocks.length).toBe(2)
+    expect(dialogueBlocks[0].speaker).toBe('我')
+    expect(dialogueBlocks[0].text).toBe('“慢着。”')
+    expect(parsed.blocks[0].kind).toBe('narration')
+    expect(parsed.blocks[0].text).toContain('皮货商说着')
   })
 })

@@ -1,6 +1,6 @@
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
-const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:\|([^\n|]{1,80}))?\s*$/i
-const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|]+(?:\|[^\n]*)?\s*$/
+const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:\|([^\s|]{1,80}))?\s*(.*)$/i
+const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|]+(?:\|[^\n]*)?\s*(.*)$/
 
 export const NARRATIVE_PRESENTATION_VERSION = 3
 export const NARRATIVE_BLOCK_KINDS = Object.freeze([...BLOCK_KINDS])
@@ -95,12 +95,19 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
       sawMarker = true
       flush()
       current = { kind: marker[1].toLowerCase(), speaker: normalizeSpeaker(marker[2]), lines: [] }
+      // 修复：AI 常把 marker 与内容写在同一行（如 `:::narration 皮货商...`），
+      // 剩余内容（捕获组 3）作为该 block 的首行，避免 marker 原样显示在正文。
+      const inlineContent = String(marker[3] || '').trim()
+      if (inlineContent) current.lines.push(inlineContent)
       continue
     }
-    if (UNKNOWN_MARKER_RE.test(line)) {
+    const unknownMarker = line.match(UNKNOWN_MARKER_RE)
+    if (unknownMarker) {
       sawMarker = true
       flush()
       current = { kind: 'narration', speaker: '', lines: [] }
+      const inlineContent = String(unknownMarker[1] || '').trim()
+      if (inlineContent) current.lines.push(inlineContent)
       continue
     }
     if (current) current.lines.push(line)
