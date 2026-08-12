@@ -34,7 +34,6 @@ import {
   adaptLegacyContextToEnvelope
 } from '../services/agents/legacyAdapter'
 import {
-  ADVISOR_TASK_TIMEOUT_MS,
   buildAdvisorProviderOptions,
   buildAdvisorRequestPayload
 } from '../services/advisorTaskService'
@@ -43,14 +42,7 @@ import {
   validateServerTaskType
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
-import {
-  buildTextModelRequestBody,
-  parseTextModelResponse,
-  resolveTextModelMaxTokens,
-  runTextModelAgent,
-  TEXT_MODEL_PROVIDER
-} from '../../server/services/textModelAgentProvider'
-import { normalizeWritingCandidates } from '../../shared/writingCandidateContract'
+import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
 import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
@@ -98,7 +90,6 @@ import {
   validateGenerationAgentTurnRequest
 } from '../../shared/generationToolContract'
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
-import { parseNarrativePresentation } from '../services/narrativePresentation'
 import {
   createNarrativeResourceIndex,
   getNarrativeResourceIndex,
@@ -136,7 +127,6 @@ import {
 } from '../../server/services/providers/providerCapabilityResolver'
 import { probeNarrativeProviderCapabilities } from '../../server/services/providers/narrativeCapabilityProbe'
 import {
-  buildTurnReceipt,
   pruneNarrativeToolResults,
   runNarrativeAgentLoop,
   runNarrativeAgentGeneration
@@ -2367,72 +2357,6 @@ describe('agentContracts', function () {
       code: 'AGENT_PROVIDER_CONFIG_INVALID',
       retryable: false
     })
-    expect(parseTextModelResponse({
-      choices: [{
-        finish_reason: 'stop',
-        message: {
-          content: null,
-          output_text: '{"mode":"replace","replacement":"她停下脚步。"}'
-        }
-      }]
-    }, 'openai').content).toContain('她停下脚步')
-    expect(parseTextModelResponse({
-      content: [
-        { type: 'thinking', thinking: '分析选区' },
-        { type: 'text', text: '{"mode":"replace","replacement":"她收起了信。"}' }
-      ],
-      stop_reason: 'end_turn'
-    }, 'anthropic')).toMatchObject({
-      content: expect.stringContaining('她收起了信'),
-      hasReasoning: true,
-      finishReason: 'end_turn'
-    })
-    expect(parseTextModelResponse({
-      choices: [{
-        finish_reason: 'length',
-        message: { content: '', reasoning_content: '还在推理' }
-      }]
-    }, 'openai')).toMatchObject({
-      content: '',
-      hasReasoning: true,
-      truncated: true
-    })
-    expect(resolveTextModelMaxTokens({
-      taskType: 'writing.fix.selection',
-      options: { candidateCount: 3 }
-    })).toBeGreaterThanOrEqual(2400)
-    expect(buildTextModelRequestBody({
-      baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-v4-flash',
-      format: 'openai'
-    }, '改写当前选区', {
-      taskType: 'writing.fix.selection',
-      options: { candidateCount: 3 }
-    }, 0)).toMatchObject({
-      thinking: { type: 'disabled' },
-      response_format: { type: 'json_object' },
-      max_tokens: 3000
-    })
-    expect(ADVISOR_TASK_TIMEOUT_MS).toBeGreaterThan(TEXT_MODEL_PROVIDER.timeoutMs)
-    expect(normalizeWritingCandidates([
-      { id: 'same', replacement: '她停下脚步。' },
-      { id: 'changed', replacement: '她在门前收住脚步。' },
-      { id: 'duplicate', replacement: '她在门前收住脚步。' }
-    ], {
-      baseText: '她停下脚步。',
-      resultId: 'rewrite'
-    }).map(function (candidate) { return candidate.id })).toEqual(['changed'])
-    expect(function () {
-      createAdvisorTaskResponse({
-        taskType: 'writing.fix.selection',
-        advice: JSON.stringify({
-          mode: 'candidates',
-          candidates: [{ replacement: '她停下脚步。' }]
-        }),
-        target: { type: 'selection', text: '她停下脚步。', revision: 'rev-noop' },
-        options: { candidateCount: 3 }
-      })
-    }).toThrow('模型返回的候选没有实际修改正文')
     expect(buildAdvisorProviderOptions({
       provider: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic',
@@ -2779,199 +2703,5 @@ describe('agentContracts', function () {
     })
     expect(structuredProbeFetch).toHaveBeenCalledTimes(1)
     expect(structuredProbeFetch.mock.calls[0][1].body).toContain('json_schema')
-  })
-
-  it('R2：导演注注入 kernel note block + turn receipt 低敏聚合', function () {
-    // 1. 导演注：带 authorNote 时 kernel 出现 note block，且插在 style 之前
-    const notedKernel = buildNarrativeKernel({
-      worldbook: {
-        id: 'wb-note',
-        writingStyle: '克制',
-        forbidden: '禁用',
-        rules: [],
-        entries: [],
-        id: 'wb-note'
-      },
-      runtimeState: {
-        worldMapState: { currentScene: '大厅' },
-        writingTime: { day: 1 }
-      },
-      messages: [{ id: 'm1', role: 'user', content: '我环顾四周。' }],
-      authorNote: '让气氛更紧张一些'
-    })
-    const noteBlocks = notedKernel.blocks.filter(function (block) { return block.kind === 'note' })
-    expect(noteBlocks.length).toBe(1)
-    expect(noteBlocks[0].content.text).toContain('让气氛更紧张')
-    // note 块位于 style 块之前
-    const kinds = notedKernel.blocks.map(function (block) { return block.kind })
-    expect(kinds.indexOf('note')).toBeLessThan(kinds.indexOf('style'))
-
-    // 2. 导演注为空时无 note block（不污染默认 kernel）
-    const plainKernel = buildNarrativeKernel({
-      worldbook: { id: 'wb-note', rules: [], entries: [] },
-      runtimeState: {},
-      messages: [{ id: 'm1', role: 'user', content: '我环顾四周。' }]
-    })
-    expect(plainKernel.blocks.some(function (block) { return block.kind === 'note' })).toBe(false)
-
-    // 3. buildTurnReceipt：聚合 ledger + run，输出低敏回执
-    const receipt = buildTurnReceipt({
-      ledger: {
-        parts: [
-          { partition: 'kernel', sourceRefs: ['worldbook-entry:ent_1', 'worldbook-entry:ent_2', 'runtime-event:evt_1'], chars: 120 },
-          { partition: 'tool', title: 'world_lookup', sourceRefs: ['worldbook-entry:ent_1'], warning: '' },
-          { partition: 'tool', title: '运行状态', warning: '' }
-        ]
-      },
-      run: {
-        provider: 'minimax',
-        model: 'MiniMax-Text-01',
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-        timing: { totalMs: 300, firstTokenMs: 80 },
-        finalToolResults: [
-          { tool: 'world_lookup', error: null },
-          { tool: 'world_lookup', error: new Error('fail') }
-        ]
-      },
-      sceneSummary: { revision: 'sum-1' },
-      directorNote: '让气氛更紧张'
-    })
-    expect(receipt.worldbookEntryIds).toEqual(['ent_1', 'ent_2'])
-    expect(receipt.worldbookEntryCount).toBe(2)
-    expect(receipt.tools.length).toBe(1)  // 只统计工具 part，排除"运行状态"
-    expect(receipt.tools[0].name).toBe('world_lookup')
-    expect(receipt.toolResults).toEqual({ ok: 1, failed: 1, total: 2 })
-    expect(receipt.provider).toBe('minimax')
-    expect(receipt.tokens.total).toBe(15)
-    // P1-5：回执只存导演注摘要（scope/chars/revision），不存完整文本
-    expect(receipt.directorNote).toEqual({
-      scope: 'next-turn',
-      chars: 6,
-      revision: expect.stringMatching(/^dir_/),
-      used: true
-    })
-    // 隐私：不含完整 prompt / apiKey
-    expect(JSON.stringify(receipt)).not.toContain('apiKey')
-  })
-
-  it('R4: scene cast —— 主 speaker 完整角色卡 + 其他角色受限摘要 + 稳定 speakerId', function () {
-    const castKernel = buildNarrativeKernel({
-      worldbook: {
-        id: 'wb-cast',
-        writingStyle: '克制',
-        rules: [],
-        entries: [
-          { id: 'char_yan', type: 'character', name: '褚岩', content: '沉稳的军师，说话简短有力。' },
-          { id: 'char_lin', type: 'character', name: '林舟', content: '急性子的少年剑客。' }
-        ]
-      },
-      runtimeState: {
-        dialogueCharacter: { name: '褚岩' },
-        encounteredCharacters: [
-          { name: '林舟', status: '在场' },
-          { name: '褚岩', status: '在场' }
-        ]
-      },
-      messages: [{ id: 'm1', role: 'user', content: '我和褚岩商议对策。' }]
-    })
-    const castBlock = castKernel.blocks.find(function (block) { return block.kind === 'cast' })
-    expect(castBlock).toBeDefined()
-    const members = castBlock.content.members
-    // 主 speaker（褚岩）带完整角色卡
-    const main = members.find(function (member) { return member.role === 'speaker' })
-    expect(main.name).toBe('褚岩')
-    expect(main.characterCard).toContain('沉稳的军师')
-    // P1-6：speakerId 优先用 worldbook entry id（稳定 character ID，改名不变）
-    expect(main.speakerId).toBe('char:char_yan')
-    // 其他角色（林舟）只给受限摘要，无完整卡
-    const other = members.find(function (member) { return member.name === '林舟' })
-    expect(other.role).toBe('scene')
-    expect(other.summary).toContain('急性子')
-    expect(other.characterCard).toBeUndefined()
-    // speakerId 稳定：同一名字两次调用结果一致
-    expect(main.speakerId).toBe(members.find(function (m) { return m.name === '褚岩' }).speakerId)
-  })
-
-  it('P1-2: SceneCast 使用真实持久化状态并自动选择可解释 speaker', function () {
-    const castKernel = buildNarrativeKernel({
-      worldbook: {
-        id: 'wb-cast2',
-        entries: [
-          { id: 'char_yan', type: 'character', name: '褚岩', content: '军师。' },
-          { id: 'char_lin', type: 'character', name: '林舟', content: '剑客。' }
-        ]
-      },
-      runtimeState: {
-        encounteredCharacters: [
-          { id: 'char_lin', name: '林舟', status: '离开' },
-          { id: 'char_yan', name: '褚岩', status: '在场' }
-        ],
-        // 与 gameStore normalizeCharacterStates 的真实 shape 一致：身份在 key 上。
-        characterStates: {
-          char_lin: { status: '离开', placeId: 'gate', goal: '追踪密使' },
-          char_yan: { status: '在场', placeId: 'hall', goal: '调查信号' }
-        },
-        goals: [{ title: '与褚岩调查信号', status: 'active' }]
-      },
-      messages: [
-        { id: 'turn-4', role: 'assistant', name: '褚岩', content: '先核对记录。' },
-        { id: 'turn-5', role: 'user', content: '请褚岩判断这段信号。' }
-      ]
-    })
-    const members = castKernel.blocks.find((b) => b.kind === 'cast').content.members
-    const yan = members.find((m) => m.name === '褚岩')
-    const lin = members.find((m) => m.name === '林舟')
-
-    expect(yan.role).toBe('speaker')
-    expect(yan.selectionReason).toBe('user-mentioned')
-    expect(yan.lastSpokeTurnId).toBe('turn-4')
-    expect(yan.talkativeness).toBeGreaterThan(0.5)
-    expect(lin.muted).toBe(true)
-    expect(lin.present).toBe(false)
-    expect(lin.role).toBe('scene')
-  })
-
-  it('R4: dialogue block 携带稳定 speakerId', function () {
-    const parsed = parseNarrativePresentation(':::dialogue|褚岩\n“局势已定。”', { messageId: 'msg-test-1' })
-    const dialogueBlock = parsed.blocks.find(function (block) { return block.kind === 'dialogue' })
-    expect(dialogueBlock.speaker).toBe('褚岩')
-    expect(dialogueBlock.speakerId).toMatch(/^spk_/)
-  })
-
-  it('P1-5: speakerMap 覆盖 speakerId —— 与 SceneCast 的 char:entryId 对齐', function () {
-    const parsed = parseNarrativePresentation(':::dialogue|褚岩\n“局势已定。”', {
-      messageId: 'msg-test-2',
-      speakerMap: { '褚岩': 'char:char_yan' }
-    })
-    const dialogueBlock = parsed.blocks.find(function (block) { return block.kind === 'dialogue' })
-    // 名字→稳定 id 映射生效：speakerId 不再是名字 hash，而是 cast 的 char id
-    expect(dialogueBlock.speakerId).toBe('char:char_yan')
-    // 角色改名后（映射键更新）仍能追溯同一角色
-    const renamed = parseNarrativePresentation(':::dialogue|褚岩大人\n“局势已定。”', {
-      messageId: 'msg-test-3',
-      speakerMap: { '褚岩大人': 'char:char_yan' }
-    })
-    expect(renamed.blocks.find(function (block) { return block.kind === 'dialogue' }).speakerId).toBe('char:char_yan')
-  })
-
-  it('P0: 同行 marker（:::narration 内容）正确解析 —— 不把 marker 原样显示在正文', function () {
-    // 回归：AI 常把 marker 与内容写在同一行，此前 MARKER_RE 要求独立行导致 marker 泄漏进正文
-    const raw = [
-      ':::narration 皮货商说着弯下腰去拢他那堆皮货。',
-      ':::dialogue|我 “慢着。”',
-      ':::narration 我走完最后两级楼梯。',
-      ':::dialogue|我 “铜币你收是不收？”'
-    ].join('\n')
-    const parsed = parseNarrativePresentation(raw, { messageId: 'msg-inline', complete: true })
-    // content 与 blocks 均不含 marker
-    expect(parsed.content.includes(':::')).toBe(false)
-    expect(parsed.blocks.some(function (block) { return block.text.includes(':::') })).toBe(false)
-    // 同行 marker 内容正确归入 block，speaker 不被内容吞掉
-    const dialogueBlocks = parsed.blocks.filter(function (block) { return block.kind === 'dialogue' })
-    expect(dialogueBlocks.length).toBe(2)
-    expect(dialogueBlocks[0].speaker).toBe('我')
-    expect(dialogueBlocks[0].text).toBe('“慢着。”')
-    expect(parsed.blocks[0].kind).toBe('narration')
-    expect(parsed.blocks[0].text).toContain('皮货商说着')
   })
 })

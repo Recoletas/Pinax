@@ -498,7 +498,7 @@ export async function runNarrativeAgentLoop({
   signal = null,
   mode = 'continue',
   formatInstructions = '',
-  maxTokens = 800,
+  maxTokens = 1600,  // 修复输出截断：原 800 对中文叙事偏小
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn
 } = {}) {
@@ -561,8 +561,8 @@ export async function runNarrativeAgentLoop({
       requestId: turnRequestId,
       options: {
         maxTokens: mode === 'init'
-          ? Math.max(1500, Number(maxTokens) || 1500)
-          : Math.max(1, Number(maxTokens) || 800),
+          ? Math.max(2000, Number(maxTokens) || 2000)
+          : Math.max(1, Number(maxTokens) || 1600),
         temperature: 0.2,
         timeoutMs: NARRATIVE_AGENT_RUNTIME_LIMITS.decisionTimeoutMs,
         parallelToolCalls: true,
@@ -952,7 +952,7 @@ export async function runNarrativeAgentGeneration({
   mode = 'continue',
   formatInstructions = '',
   worldId = '',
-  maxTokens = 800,
+  maxTokens = 1600,  // 修复输出截断：原 800 对中文叙事偏小
   callbacks = {},
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn

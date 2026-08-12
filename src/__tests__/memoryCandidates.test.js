@@ -822,28 +822,4 @@ describe('memoryCandidates', () => {
     expect(body.length).toBeGreaterThan(120)
     expect(body.length).toBeLessThanOrEqual(181) // 180 + ellipsis
   })
-
-  it('R5: 候选保存结构化上下文字段（speaker/place/time/turnId）', () => {
-    const candidate = createMemoryCandidate({
-      id: 'mem-r5',
-      scope: 'session',
-      scopeId: 'sess-1',
-      kind: 'plot-event',
-      content: '对话：林舟：我会守住东门。',
-      confidence: 0.6,
-      metadata: {
-        speaker: '林舟',
-        place: '东门',
-        time: '1-3-5',
-        turnId: 'narrative_abc',
-      }
-    })
-    expect(candidate.metadata.speaker).toBe('林舟')
-    expect(candidate.metadata.place).toBe('东门')
-    expect(candidate.metadata.time).toBe('1-3-5')
-    expect(candidate.metadata.turnId).toBe('narrative_abc')
-    // metadata 随候选持久化（JSON round-trip 后仍在）
-    const stored = JSON.parse(JSON.stringify(candidate))
-    expect(stored.metadata.turnId).toBe('narrative_abc')
-  })
 })

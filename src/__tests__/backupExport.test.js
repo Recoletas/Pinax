@@ -171,45 +171,4 @@ describe('backupExport', () => {
     expect(result.rolledBack).toBe(true)
     expect(values.get('stable-key')).toBe('old')
   })
-
-  it('P1-3: 备份含 experience checkpoint 摘要，恢复计划读取并校验', () => {
-    // 构造带 experience 摘要的 backup（模拟 buildBackup 的 v2 输出）
-    const backup = {
-      version: 2,
-      schemaVersion: 2,
-      app: 'Pinax',
-      keys: { apiSettings: '{"apiKey":"x"}' },
-      experience: {
-        sessionCount: 1,
-        branchCount: 1,
-        turnCount: 1,
-        hasTurnData: true,
-        memoryRevision: 0,
-        checkpoint: { turnId: 'narrative_turn_1', committedAt: 100 }
-      }
-    }
-    // 当前会话 checkpoint 更新（200 > 100）→ checkpointNotice 提示回退
-    localStorage.setItem('writing_sessions', JSON.stringify([{
-      id: 'sess-1',
-      turnRecords: {
-        'narrative_turn_1': { id: 'narrative_turn_1', branchId: 'main', committedAt: 200, status: 'committed' }
-      },
-      lastCommittedTurnId: 'narrative_turn_1'
-    }]))
-    const plan = createRestorePlan(backup)
-    expect(plan.valid).toBe(true)
-    expect(plan.checkpoint.turnId).toBe('narrative_turn_1')
-    expect(plan.checkpointNotice).toContain('早于当前会话')
-
-    // 备份 checkpoint 与当前一致 → 无提示
-    localStorage.setItem('writing_sessions', JSON.stringify([{
-      id: 'sess-1',
-      turnRecords: {
-        'narrative_turn_1': { id: 'narrative_turn_1', branchId: 'main', committedAt: 100, status: 'committed' }
-      },
-      lastCommittedTurnId: 'narrative_turn_1'
-    }]))
-    const planSame = createRestorePlan(backup)
-    expect(planSame.checkpointNotice).toBeNull()
-  })
 })

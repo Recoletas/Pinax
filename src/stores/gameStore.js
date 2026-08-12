@@ -3101,7 +3101,11 @@ export const useGameStore = defineStore('game', {
 
         let fullContent = ''
         let cleanContent = ''
-        const maxTokens = isInitGeneration ? 1500 : productionMode === 'auto' ? 460 : 800
+        // 修复输出截断：原 init=1500/常规=800/auto=460 对中文叙事偏小，
+        // 且工具调用（决策+参数）与正文共用同一 maxTokens 预算，模型常在
+        // 生成正文前触顶（NARRATIVE_PROVIDER_OUTPUT_TRUNCATED）。整体提高：
+        //   init=2000（开场长叙事）、常规=1600、auto=800（短续写）。
+        const maxTokens = isInitGeneration ? 2000 : productionMode === 'auto' ? 800 : 1600
         const agentRun = await runNarrativeAgentGeneration({
           kernel: narrativeKernel,
           registry: narrativeRegistry,
