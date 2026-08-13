@@ -87,7 +87,7 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
     thread?.currentObjective ? `当前场景目标：${clip(thread.currentObjective, 160)}` : '',
     thread?.immediateObstacle ? `眼前阻力：${clip(thread.immediateObstacle, 120)}` : '',
     thread?.activeQuestion ? `待回应：${clip(thread.activeQuestion, 120)}` : '',
-    `目标长度约 ${range.min}-${range.max} 个中文字符；这是评测区间，不是硬凑字数。`,
+    `这段正文应写到约 ${range.min}-${range.max} 个中文字符；写足一个完整的场景拍，不要在刚过一半就收束。`,
     style ? `既定文风：${style}` : '',
     anchor ? `连续锚点（从最后一段承接）：${anchor}` : '',
     sample ? `邻近正文样本：${sample}` : '',

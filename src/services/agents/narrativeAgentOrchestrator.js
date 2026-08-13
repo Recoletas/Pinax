@@ -488,11 +488,15 @@ function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = B
   if (['refusal', 'content_filter', 'safety'].includes(finishReason)) return false
   if (BREVITY_REQUEST_RE.test(String(turnInput || ''))) return false
   const content = text(response.text)
-  // 已达到 intent+展开度目标下限的 70% → 视为足够，不补全。
-  if (cjkCount(content) >= minTargetChars) return false
+  const chars = cjkCount(content)
+  // 达到 intent+展开度目标下限 → 视为足够，不补全。
+  if (chars >= minTargetChars) return false
   // 极短且非截断 → 刻意的简短回答（如"好""嗯""知道了"），不扩写。
-  if (cjkCount(content) < BOUNDED_COMPLETION_ULTRA_SHORT) return false
-  return !/[。！？!?…”』」"']$/.test(content.slice(-1))
+  if (chars < BOUNDED_COMPLETION_ULTRA_SHORT) return false
+  // 短片段（<180 字）且带自然落点（句号/问号/收尾引号）→ 视为完整短对白或短答，不扩写。
+  if (chars < BOUNDED_COMPLETION_MIN_CHARS && /[。！？!?…”』」"']$/.test(content.slice(-1))) return false
+  // 中长但仍低于目标下限（如 700 字的 respond）→ 补全一次，把单次生成拉满。
+  return true
 }
 
 // C5：正文是否缺少自然落点（句末标点/收尾引号）—— 用于 incomplete 标记。
@@ -835,11 +839,11 @@ export async function runNarrativeAgentLoop({
         })
         if (!terminalFinishReason) terminalFinishReason = text(response.finishReason)
         terminalText = terminalText ? `${terminalText}${response.text}` : response.text
-        // C5/Q1：有界补全 —— 低于"当前 intent+展开度目标下限的 70%"且无自然落点时，
-        // 同一 transcript 内最多补全一次。
+        // C5/Q1：有界补全 —— 低于"当前 intent+展开度目标下限"且不是完整短片段时，
+        // 同一 transcript 内最多补全一次，把单次生成拉满。
         const currentTurnInput = (kernel?.blocks || []).find((block) => block.kind === 'turn')?.content?.input || ''
         const turnIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
-        const minTargetChars = Math.round(intentCharRange(turnIntent, { expansion }).min * 0.7)
+        const minTargetChars = intentCharRange(turnIntent, { expansion }).min
         if (!boundedCompletionUsed
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
           && shouldBoundedComplete(response, currentTurnInput, minTargetChars)) {
