@@ -139,20 +139,22 @@ function turnInstructionText(turn, mode, intent) {
   return input || '继续当前故事'
 }
 
-// Q3：BeatPlan 作为 control message 追加到同一 transcript（压缩为低敏指令，不重复整段计划全文）。
+// Q3/Q4：BeatPlan 作为 control message 追加到同一 transcript（压缩为低敏指令，不重复整段计划全文）。
 function buildBeatPlanControlMessage(plan = {}) {
   return [
-    '【本轮叙事拍计划｜据此写正文，不偏离】',
+    '【本轮叙事拍计划｜必须执行】',
     plan.responseObligation ? `回应义务：${plan.responseObligation}` : '',
     Array.isArray(plan.causalSteps) && plan.causalSteps.length
       ? `因果步骤：${plan.causalSteps.join(' → ')}`
       : '',
-    plan.revealOrChange ? `最终变化：${plan.revealOrChange}` : '',
-    plan.endCondition ? `结束条件：${plan.endCondition}` : '',
+    plan.revealOrChange ? `最终必须落地：${plan.revealOrChange}` : '',
+    plan.endCondition ? `写到这个状态就停下：${plan.endCondition}` : '',
     Array.isArray(plan.avoidRepeats) && plan.avoidRepeats.length
       ? `不要重复：${plan.avoidRepeats.join('、')}`
       : '',
-    plan.targetChars ? `目标约 ${plan.targetChars} 字` : ''
+    plan.targetChars ? `目标约 ${plan.targetChars} 字` : '',
+    '按因果步骤推进正文；revealOrChange 必须在正文里发生，不能只暗示。',
+    '只用环境/气氛/光影/身体反应填满长度、没有变化发生 —— 不合格，重写这段。'
   ].filter(Boolean).join('\n')
 }
 
@@ -1020,25 +1022,29 @@ export async function runNarrativeAgentLoop({
 }
 
 function finalModeInstructions(mode) {
-  // C3：按 intent 提供完整叙事拍指令（替代旧的短碎片约束）
+  // C3/Q1：按 intent 提供完整叙事拍指令（替代旧的短碎片约束）。
+  // Q4：把"必须有可辨认的变化落地、禁止纯描写"写进每轮硬性要求。
   if (mode === 'init') {
     return [
-      '这是新会话开篇。根据 Kernel 与工具证据建立世界氛围，再自然引出主角和眼前场景。',
+      '这是新会话开篇。用一个可见、可听或可触的现场事实开场，再让人物进入动作，建立局部目标和可行动条件。',
       '不要照搬固定示例，不要复用占位姓名；没有证据的世界事实不要自行补造。',
-      '开篇应留下可行动的具体情境。'
+      '开篇不算"写背景"：第一段就要有人物的动作或决定，而不是先铺三百字环境。'
     ].join('\n')
   }
   if (mode === 'auto') {
     return [
       '这是自动推进的一拍。推进 NPC、环境或既有因果造成的后果，保持人物、地点和动作链连续。',
       '不要替玩家决定、行动或产生心理结论。',
-      '一个完整场景拍通常包含承接→反应→发展→自然落点，不是一句短碎片。'
+      '本拍必须让至少一项变化落地：信息被确认/否定、关系改变、目标进展、障碍生效或行动产生后果。',
+      '只写环境、气氛、光影或身体反应而没有这些变化 —— 不合格，重写这段。'
     ].join('\n')
   }
   // continue / respond / extend
   return [
     '回应玩家刚刚的输入，推进一个有因果发展的完整场景拍。',
-    '保持视角、语气、地点与角色连续；不得替玩家追加未输入的选择、决定或心理结论。'
+    '保持视角、语气、地点与角色连续；不得替玩家追加未输入的选择、决定或心理结论。',
+    '本回合必须有至少一项可辨认的变化落地：信息被确认/否定、关系改变、目标进展、障碍生效或行动产生后果。',
+    '环境、气氛、光影、声响和身体反应只有在改变判断、动作或信息时才保留；没有变化只有描写的正文不合格。'
   ].join('\n')
 }
 

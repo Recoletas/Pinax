@@ -257,7 +257,7 @@ export function getNarrativeToolCatalog(options = {}) {
   if (!activeTools || activeTools.has(NARRATIVE_BEAT_PLAN_TOOL)) {
     catalog.push({
       name: NARRATIVE_BEAT_PLAN_TOOL,
-      description: '内部控制调用：提交本轮叙事拍计划（schema 约束），校验通过后据此写正文。不是世界资料查询，不计入证据。',
+      description: '内部控制调用：提交本轮叙事拍计划（schema 约束）。causalSteps 每一步必须是信息/关系/目标/局势的变化，不是环境描写；revealOrChange 是正文最终必须落地的变化；endCondition 是正文可自然停下的状态。校验通过后据此写正文。不是世界资料查询，不计入证据。',
       inputSchema: narrativeBeatPlanToolSchema()
     })
   }
