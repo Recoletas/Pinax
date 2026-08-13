@@ -1342,6 +1342,11 @@ describe('gameStore sessions', () => {
     expect(gameStore.messages[0].segments).toHaveLength(3)
     const secondTurn = gameStore.turnRecords[gameStore.lastCommittedTurnId]
     expect(secondTurn.parentTurnId).toBe(firstExtensionTurnId)
+
+    // Q2：SceneThread 软状态随生成构建，且随 pre/post 快照保存（第二次续写的 pre 快照应含首轮线程）。
+    expect(gameStore.sceneThread).not.toBeNull()
+    expect(gameStore.sceneThread.id).toMatch(/^scene_/)
+    expect(secondTurn.preRuntimeSnapshot.sceneThread).not.toBeNull()
   })
 
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {

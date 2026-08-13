@@ -67,6 +67,8 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
   const style = clip(findBlock(kernel, 'style')?.fingerprint, 240)
   // C2.4：优先用 ContinuityFrame 的 assistantTail + lastBlock 作连续锚点，回退到 recent 切句。
   const frame = continuityFrame(kernel)
+  // Q2：场景线程（本场景正在完成什么）
+  const thread = findBlock(kernel, 'continuity')?.sceneThread || null
   const sample = clip(frame?.assistantTail || latestAssistantSample(kernel), 360)
   const lastBlock = frame?.lastBlock || null
   const anchor = lastBlock
@@ -81,6 +83,10 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
         : effectiveIntent === 'advance'
           ? '推进 NPC、环境或既有因果造成的后果，保持人物、地点和动作链连续；不得替玩家作决定。'
           : '回应玩家刚刚的输入，推进一个有因果发展的完整场景拍。',
+    // Q2：场景线程 —— 给模型一个"本场景正在完成什么"的稳定锚点。
+    thread?.currentObjective ? `当前场景目标：${clip(thread.currentObjective, 160)}` : '',
+    thread?.immediateObstacle ? `眼前阻力：${clip(thread.immediateObstacle, 120)}` : '',
+    thread?.activeQuestion ? `待回应：${clip(thread.activeQuestion, 120)}` : '',
     `目标长度约 ${range.min}-${range.max} 个中文字符；这是评测区间，不是硬凑字数。`,
     style ? `既定文风：${style}` : '',
     anchor ? `连续锚点（从最后一段承接）：${anchor}` : '',

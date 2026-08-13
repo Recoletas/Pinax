@@ -68,6 +68,8 @@ import {
   normalizeNarrativeSceneSummary,
   resolveNarrativeSceneSummary
 } from '../services/agents/narrativeSceneSummary'
+import { normalizeNarrativeSceneThread } from '../../shared/narrativeSceneThreadContract'
+import { buildNarrativeSceneThread } from '../services/agents/narrativeSceneThread'
 import {
   createNarrativeProductionObserver,
   recordNarrativeProductionRun
@@ -814,7 +816,8 @@ function createEmptySessionRuntime() {
     emergenceDraft: null,
     runtimeEvents: [],
     historyNode: null,
-    narrativeSceneSummary: null
+    narrativeSceneSummary: null,
+    sceneThread: null
   }
 }
 
@@ -957,6 +960,8 @@ export const useGameStore = defineStore('game', {
     lastNarrativeAgentTrace: null,
     narrativeAgentStatus: null,
     narrativeSceneSummary: null,
+    // Q2：SceneThread 软状态（随 pre/post 快照、分支、撤销、刷新、备份恢复）
+    sceneThread: null,
 
     // 运行时事件侧车 (v1 append-only, ≤200 events per session)
     runtimeEvents: [],
@@ -1987,6 +1992,7 @@ export const useGameStore = defineStore('game', {
       this.worldMapState = normalizeWorldMapState(session.worldState?.worldMap || runtimeState.worldMapState || DEFAULT_WORLD_MAP_STATE)
       this.historyNode = cloneState(runtimeState.historyNode || null, null)
       this.narrativeSceneSummary = normalizeNarrativeSceneSummary(runtimeState.narrativeSceneSummary)
+      this.sceneThread = normalizeNarrativeSceneThread(runtimeState.sceneThread || null)
       this.activities = cloneState(session.worldState?.activities || runtimeState.activities || [], [])
       const adventureState = normalizeAdventureState(runtimeState)
       this.goals = adventureState.goals
@@ -2107,6 +2113,7 @@ export const useGameStore = defineStore('game', {
         worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
         historyNode: cloneState(this.historyNode, null),
         narrativeSceneSummary: cloneState(this.narrativeSceneSummary, null),
+        sceneThread: cloneState(this.sceneThread, null),
         activeMechanism: this.activeMechanism,
         mechanismContext: cloneState(this.mechanismContext, null),
         milestoneEvent: cloneState(this.milestoneEvent, null),
@@ -2133,6 +2140,7 @@ export const useGameStore = defineStore('game', {
       this.worldMapState = normalizeWorldMapState(s.worldMapState || DEFAULT_WORLD_MAP_STATE)
       this.historyNode = cloneState(s.historyNode || null, null)
       this.narrativeSceneSummary = normalizeNarrativeSceneSummary(s.narrativeSceneSummary)
+      this.sceneThread = normalizeNarrativeSceneThread(s.sceneThread || null)
       this.activities = cloneState(s.activities || [], [])
       const adventureState = normalizeAdventureState(s)
       this.goals = adventureState.goals
@@ -3147,10 +3155,23 @@ export const useGameStore = defineStore('game', {
         // C2.3：ContinuityFrame —— 从当前分支可见消息（带 presentation）派生，
         // 供 turn note 做连续锚点（替代从 recent block 重新切句）。
         const continuityVisibleIds = this.currentBranchVisibleMessageIds()
+        const continuityMessages = (this.messages || []).filter((m) => (
+          m && !m.superseded && (!m.branchId || continuityVisibleIds.has(m.id))
+        ))
+        // Q2：SceneThread —— 场景未变化时复用，否则重建（软状态，随快照/分支/撤销/刷新恢复）。
+        this.sceneThread = buildNarrativeSceneThread({
+          previous: this.sceneThread,
+          runtimeState: {
+            worldMapState: this.worldMapState,
+            writingTime: this.writingTime,
+            goals: this.goals,
+            encounteredCharacters: this.encounteredCharacters,
+            historyNode: this.historyNode
+          },
+          messages: continuityMessages
+        })
         const continuityFrame = buildNarrativeContinuityFrame({
-          messages: (this.messages || []).filter((m) => (
-            m && !m.superseded && (!m.branchId || continuityVisibleIds.has(m.id))
-          )),
+          messages: continuityMessages,
           runtimeState: {
             worldMapState: this.worldMapState,
             writingTime: this.writingTime,
@@ -3181,7 +3202,8 @@ export const useGameStore = defineStore('game', {
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
           authorNote: directorNote,  // R2：本轮导演注
-          continuityFrame
+          continuityFrame,
+          sceneThread: this.sceneThread
         })
         productionKernel = narrativeKernel
         const narrativeMemories = listScopedActiveMemoryCandidates({
@@ -4094,6 +4116,7 @@ export const useGameStore = defineStore('game', {
       this.lastNarrativeAgentTrace = null
       this.narrativeAgentStatus = null
       this.narrativeSceneSummary = null
+      this.sceneThread = null
       this.isLoading = false
       this.lastError = null
       this.quickNoteImportMode = false

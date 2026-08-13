@@ -256,7 +256,8 @@ export function buildNarrativeKernel({
   projectId = '',
   sessionId = '',
   authorNote = '',  // R2：本轮导演注（仅下一轮生效，用户输入）
-  continuityFrame = null  // C2.3：ContinuityFrame（无 LLM 结构化连续性，供 turn note/transcript 使用）
+  continuityFrame = null,  // C2.3：ContinuityFrame（无 LLM 结构化连续性，供 turn note/transcript 使用）
+  sceneThread = null       // Q2：SceneThread 软状态（跨回合场景线程）
 } = {}) {
   const recent = compactMessages(messages)
   const latestUser = [...recent].reverse().find((message) => message.role === 'user') || null
@@ -346,6 +347,7 @@ export function buildNarrativeKernel({
         }))
         .filter((choice) => choice.label),
       frame: continuityFrame || null,
+      sceneThread: sceneThread || null,
       activeHistory: historyNode
         ? {
             id: text(historyNode.id),
