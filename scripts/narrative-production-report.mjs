@@ -4,6 +4,7 @@ import {
   normalizeNarrativeProductionRun,
   summarizeNarrativeProductionMetrics
 } from '../src/services/agents/narrativeProductionMetrics.js'
+import { summarizeNarrativeQuality } from './lib/narrative-quality-metrics.mjs'
 
 function usage() {
   return [
@@ -137,141 +138,6 @@ function buildComparison(current, baseline) {
       current.rates.unsupportedFactReduction,
       baseline.rates.unsupportedFactReduction
     )
-  }
-}
-
-// --- 叙事质量自动指标（C7）--- 纯文本启发式，不依赖 LLM。输入统一为 turns：[{ input, response }]。
-function cleanText(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim()
-}
-
-function cjkCount(value) {
-  const matches = String(value ?? '').match(/[\u4e00-\u9fff]/g)
-  return matches ? matches.length : 0
-}
-
-function splitSentences(value) {
-  return String(value ?? '')
-    .split(/[。！？!?…]+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-}
-
-function charGrams(value, size) {
-  const source = cleanText(value)
-  const set = new Set()
-  for (let index = 0; index + size <= source.length; index += 1) {
-    set.add(source.slice(index, index + size))
-  }
-  return set
-}
-
-// 1. 短回合率：正文 < 240 中文字的回合比例（不含明确短答场景的标注）。
-function shortTurnRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (!list.length) return null
-  const short = list.filter((turn) => cjkCount(turn?.response) < 240).length
-  return ratio(short, list.length)
-}
-
-// 2. 相邻开头相似率：相邻 assistant 开头 80 字的 3-gram/Jaccard ≥0.6 的比例。
-function openingSimilarityRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (list.length < 2) return null
-  let similar = 0
-  let pairs = 0
-  for (let index = 1; index < list.length; index += 1) {
-    const prev = charGrams(cleanText(list[index - 1]?.response).slice(0, 80), 3)
-    const curr = charGrams(cleanText(list[index]?.response).slice(0, 80), 3)
-    if (!prev.size || !curr.size) continue
-    pairs += 1
-    let intersection = 0
-    for (const gram of curr) if (prev.has(gram)) intersection += 1
-    const union = prev.size + curr.size - intersection
-    if (union && intersection / union >= 0.6) similar += 1
-  }
-  return ratio(similar, pairs)
-}
-
-// 3. 末尾锚点命中率：上一轮末句与下一轮开头共享 ≥1 个 2-gram 的比例。
-function tailAnchorCarryRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (list.length < 2) return null
-  let carried = 0
-  let pairs = 0
-  for (let index = 1; index < list.length; index += 1) {
-    const tail = splitSentences(list[index - 1]?.response).at(-1) || ''
-    const head = cleanText(list[index]?.response).slice(0, 120)
-    if (!tail || !head) continue
-    pairs += 1
-    const bigrams = charGrams(tail, 2)
-    let hit = false
-    for (let cursor = 0; cursor + 2 <= head.length; cursor += 1) {
-      if (bigrams.has(head.slice(cursor, cursor + 2))) { hit = true; break }
-    }
-    if (hit) carried += 1
-  }
-  return ratio(carried, pairs)
-}
-
-// 4. 段落碎片率：大量单句短段（≥4 段且 <30 字短段占比 ≥60%）的回合比例。
-function fragmentedParagraphRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (!list.length) return null
-  const fragmented = list.filter((turn) => {
-    const blocks = String(turn?.response || '')
-      .split(/\n\s*\n+/)
-      .map((block) => block.trim())
-      .filter(Boolean)
-    const shortBlocks = blocks.filter((block) => cjkCount(block) > 0 && cjkCount(block) < 30)
-    return blocks.length >= 4 && shortBlocks.length / blocks.length >= 0.6
-  }).length
-  return ratio(fragmented, list.length)
-}
-
-// 5. 无来源新专名率：正文出现输入中不存在的候选专名（2-4 字连续短语）的比例。
-function unexplainedNoveltyRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (!list.length) return null
-  const candidateNouns = (value) => new Set(
-    (String(value ?? '').match(/[\u4e00-\u9fff]{2,4}/g) || [])
-  )
-  let novel = 0
-  let evaluated = 0
-  for (const turn of list) {
-    const inputNouns = candidateNouns(turn?.input)
-    const responseNouns = candidateNouns(turn?.response)
-    if (!responseNouns.size) continue
-    evaluated += 1
-    if ([...responseNouns].some((noun) => !inputNouns.has(noun))) novel += 1
-  }
-  return ratio(novel, evaluated)
-}
-
-// 6. 玩家控制权违规率：替玩家决定/行动/总结心理的回合比例（启发式）。
-function playerAgencyViolationRate(turns = []) {
-  const list = Array.isArray(turns) ? turns : []
-  if (!list.length) return null
-  const PATTERNS = [
-    /你(决定|选择|打算|会|要)去/,
-    /你感到|你意识到|你明白|你知道|你觉得/,
-    /你(转身|走出|伸手|点头|摇头)/
-  ]
-  const violating = list.filter((turn) => (
-    PATTERNS.some((pattern) => pattern.test(String(turn?.response || '')))
-  )).length
-  return ratio(violating, list.length)
-}
-
-function summarizeNarrativeQuality(turns = []) {
-  return {
-    turnCount: turns.length,
-    shortTurnRate: shortTurnRate(turns),
-    openingSimilarityRate: openingSimilarityRate(turns),
-    tailAnchorCarryRate: tailAnchorCarryRate(turns),
-    fragmentedParagraphRate: fragmentedParagraphRate(turns),
-    unexplainedNoveltyRate: unexplainedNoveltyRate(turns),
-    playerAgencyViolationRate: playerAgencyViolationRate(turns)
   }
 }
 

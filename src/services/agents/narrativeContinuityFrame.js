@@ -23,6 +23,7 @@ function stableHash(value) {
 export function buildNarrativeContinuityFrame({ messages = [], runtimeState = {} } = {}) {
   const list = Array.isArray(messages) ? messages : []
   const lastAssistant = [...list].reverse().find((message) => message?.role === 'assistant') || null
+  const lastUser = [...list].reverse().find((message) => message?.role === 'user') || null
   const lastBlocks = Array.isArray(lastAssistant?.presentation?.blocks)
     ? lastAssistant.presentation.blocks
     : []
@@ -32,6 +33,13 @@ export function buildNarrativeContinuityFrame({ messages = [], runtimeState = {}
   const cast = Array.isArray(runtimeState?.encounteredCharacters)
     ? runtimeState.encounteredCharacters.slice(-8)
     : []
+  const historyNode = runtimeState?.historyNode || null
+  const openThreads = (Array.isArray(historyNode?.unresolvedHooks)
+    ? historyNode.unresolvedHooks
+    : [])
+    .map(clean)
+    .filter(Boolean)
+    .slice(0, 4)
 
   const frame = {
     place: {
@@ -48,6 +56,11 @@ export function buildNarrativeContinuityFrame({ messages = [], runtimeState = {}
       month: clean(runtimeState?.writingTime?.month),
       day: clean(runtimeState?.writingTime?.day)
     },
+    playerLastAction: clean(lastUser?.content).slice(0, 200),
+    // 最后一条是 user → 玩家刚行动、等待回应；否则是接续/推进。
+    pendingExchange: lastUser != null && lastAssistant != null
+      ? (list.length && list[list.length - 1]?.role === 'user')
+      : (lastUser != null),
     assistantTail: clipTail(lastAssistant?.content || '', 500),
     lastBlock: lastBlock
       ? {
@@ -59,12 +72,21 @@ export function buildNarrativeContinuityFrame({ messages = [], runtimeState = {}
     activeGoal: activeGoal
       ? { id: clean(activeGoal.id), title: clean(activeGoal.title || activeGoal) }
       : null,
+    immediateObstacle: openThreads[0] || clean(activeGoal?.title || activeGoal) || null,
+    openThreads,
     castPositions: cast
       .map((character) => ({ name: clean(character.name), status: clean(character.status || character.state) }))
       .filter((character) => character.name)
   }
 
-  return { ...frame, revision: stableHash(frame) }
+  const sourceRefs = [
+    lastAssistant?.id ? `message:${lastAssistant.id}` : '',
+    lastUser?.id ? `message:${lastUser.id}` : '',
+    frame.place.placeId ? `place:${frame.place.placeId}` : '',
+    historyNode?.id ? `history:${historyNode.id}` : ''
+  ].filter(Boolean)
+
+  return { ...frame, sourceRefs, revision: stableHash({ ...frame, sourceRefs }) }
 }
 
 export default { buildNarrativeContinuityFrame }

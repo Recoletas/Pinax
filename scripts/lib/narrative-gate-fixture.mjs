@@ -77,8 +77,7 @@ const scenarioTemplates = Object.freeze([
   }
 ])
 
-export function buildNarrativeGateScenarioMatrix(count = 60, { includeControlledFailures = true } = {}) {
-  const total = Math.max(1, Math.min(120, Number(count) || 60))
+export function buildNarrativeGateScenarioMatrix(count = 60, { includeControlledFailures = true } = {}) {  const total = Math.max(1, Math.min(120, Number(count) || 60))
   const scenarios = Array.from({ length: total }, (_, index) => {
     const template = scenarioTemplates[index % scenarioTemplates.length]
     const cycle = Math.floor(index / scenarioTemplates.length) + 1
@@ -114,6 +113,100 @@ export function buildNarrativeGateScenarioMatrix(count = 60, { includeControlled
     }
   }
   return scenarios
+}
+
+// C0：6 组连续叙事 fixture，每组 6-8 轮，混合 respond（玩家输入）→ extend（续接）→ advance（半自动推进）。
+// 每组 `turns` 里 intent 为 respond 时带 action；extend/advance 的 action 留空（由驱动端发 nudge）。
+const continuityGroups = Object.freeze([
+  {
+    id: 'dialogue-continuous',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '陆晨曦在舰桥叫住褚岩：“信号的事，我要和你对一下时间线。”' },
+      { intent: 'extend', action: '' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '“你三天前下令变轨，依据是什么？”' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '“把导航组的原始波形调出来，我要看同步回波。”' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '“那如果回波是人为伪装的，谁最可能伪造？”' }
+    ]
+  },
+  {
+    id: 'action-chase',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '我追出观测舱，沿着 A-17 通道向舰桥跑去。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '我撞开舱门，朝走廊尽头喊了一声。' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '我抓住扶手借力跃过闸门，继续向前。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '我停下喘气，看向通道尽头的应急灯。' }
+    ]
+  },
+  {
+    id: 'quiet-investigation',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '我蹲下来，用指尖抹过舱门底部的一道划痕。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '我凑近细看划痕的走向和深浅。' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '我打开手电，沿着划痕一直照到墙角。' },
+      { intent: 'extend', action: '' }
+    ]
+  },
+  {
+    id: 'multi-person-scene',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '舰桥里褚岩、导航组长和值班兵都在等我开口。' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '“我先说结论，再放波形。”我扫过三人的脸。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '“导航组先回答，回波和变轨是不是同步的。”' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '“值班兵，把三天前的舱门记录调出来。”' }
+    ]
+  },
+  {
+    id: 'scene-transition',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '我从舰桥离开，走向导航计算区。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '穿过 A-17 通道时，灯光忽然暗了一瞬。' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '我走进导航计算区，屏幕上跳动着旧波形。' },
+      { intent: 'extend', action: '' }
+    ]
+  },
+  {
+    id: 'long-truncation',
+    category: 'continuity',
+    turns: [
+      { intent: 'respond', action: '我把三天来的所有波形、变轨命令和回波重叠在同一张图上，开始逐段比对。' },
+      { intent: 'extend', action: '' },
+      { intent: 'advance', action: '' },
+      { intent: 'respond', action: '重叠图里有一个时段对不上，我放大那一格继续看。' },
+      { intent: 'extend', action: '' },
+      { intent: 'respond', action: '我把对不上的那一段单独导出，准备拿去给褚岩看。' }
+    ]
+  }
+])
+
+export function buildNarrativeContinuityMatrix(count = 6) {
+  const total = Math.max(1, Math.min(6, Number(count) || 6))
+  return continuityGroups.slice(0, total).map((group, index) => ({
+    ...group,
+    groupIndex: index + 1,
+    runId: `continuity-${group.id}`,
+    turns: group.turns.map((turn, turnIndex) => ({
+      ...turn,
+      turnIndex: turnIndex + 1
+    }))
+  }))
 }
 
 function buildWorldbook() {

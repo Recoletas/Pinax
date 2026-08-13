@@ -5,6 +5,7 @@ import {
   normalizeNarrativeProductionRun,
   summarizeNarrativeProductionMetrics
 } from '../src/services/agents/narrativeProductionMetrics.js'
+import { summarizeNarrativeQuality } from './lib/narrative-quality-metrics.mjs'
 
 const REQUIRED_SAMPLE = 60
 
@@ -87,7 +88,39 @@ function gate(name, value, required, met, reason = '') {
   return { name, value, required, met: Boolean(met), ...(reason ? { reason } : {}) }
 }
 
-function buildChannelGate(channel, metrics, annotations) {
+// C7：叙事质量发布阈值（计划 §7.3/§7.4）。quality 由 review-cases.json 计算。
+function qualityGates(quality) {
+  const missing = (name) => gate(name, null, null, false, '缺少 review-cases.json')
+  if (!quality) {
+    return {
+      shortTurnRate: missing('shortTurnRate'),
+      openingSimilarityRate: missing('openingSimilarityRate'),
+      fragmentedParagraphRate: missing('fragmentedParagraphRate'),
+      tailAnchorCarryRate: missing('tailAnchorCarryRate'),
+      playerAgencyViolation: missing('playerAgencyViolation')
+    }
+  }
+  const has = (value) => value != null
+  return {
+    shortTurnRate: gate('shortTurnRate', quality.shortTurnRate, 0.1,
+      has(quality.shortTurnRate) && quality.shortTurnRate <= 0.1,
+      has(quality.shortTurnRate) ? '' : '样本不足'),
+    openingSimilarityRate: gate('openingSimilarityRate', quality.openingSimilarityRate, 0.08,
+      has(quality.openingSimilarityRate) && quality.openingSimilarityRate <= 0.08,
+      has(quality.openingSimilarityRate) ? '' : '样本不足（需多轮）'),
+    fragmentedParagraphRate: gate('fragmentedParagraphRate', quality.fragmentedParagraphRate, 0.1,
+      has(quality.fragmentedParagraphRate) && quality.fragmentedParagraphRate <= 0.1,
+      has(quality.fragmentedParagraphRate) ? '' : '样本不足'),
+    tailAnchorCarryRate: gate('tailAnchorCarryRate', quality.tailAnchorCarryRate, 0.9,
+      has(quality.tailAnchorCarryRate) && quality.tailAnchorCarryRate >= 0.9,
+      has(quality.tailAnchorCarryRate) ? '' : '样本不足（需多轮）'),
+    playerAgencyViolation: gate('playerAgencyViolation', quality.playerAgencyViolationRate, 0,
+      has(quality.playerAgencyViolationRate) && quality.playerAgencyViolationRate === 0,
+      has(quality.playerAgencyViolationRate) ? '' : '样本不足')
+  }
+}
+
+function buildChannelGate(channel, metrics, annotations, reviewCases = null) {
   const rawEvents = Array.isArray(metrics?.events) ? metrics.events : []
   const byRunId = annotationMap(annotations)
   const pairs = rawEvents.map((raw) => ({
@@ -142,6 +175,12 @@ function buildChannelGate(channel, metrics, annotations) {
   const aligned = completed.filter(({ event }) => (
     event.orphanedCallCount === 0 && Boolean(event.transcriptRevision)
   ))
+  const quality = reviewCases
+    ? summarizeNarrativeQuality((Array.isArray(reviewCases) ? reviewCases : []).map((item) => ({
+        input: item?.action || '',
+        response: item?.response || ''
+      })))
+    : null
   const gates = {
     sampleSize: gate(
       'sampleSize',
@@ -228,7 +267,8 @@ function buildChannelGate(channel, metrics, annotations) {
       events.reduce((total, event) => total + event.orphanedCallCount, 0),
       0,
       events.length > 0 && events.every((event) => event.orphanedCallCount === 0)
-    )
+    ),
+    ...qualityGates(quality)
   }
   return {
     id: channel.id,
@@ -272,7 +312,8 @@ async function main() {
       ? join(options.annotationsDir, channel.id, 'annotations.json')
       : join(channel.outputDir, 'annotations.json')
     const annotations = await readOptionalJson(annotationPath)
-    channels.push(buildChannelGate(channel, metrics, annotations))
+    const reviewCases = await readOptionalJson(join(channel.outputDir, 'review-cases.json'))
+    channels.push(buildChannelGate(channel, metrics, annotations, reviewCases))
   }
   const report = {
     schemaVersion: 1,

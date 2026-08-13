@@ -1329,6 +1329,19 @@ describe('gameStore sessions', () => {
     expect(gameStore.messages[0].segments).toHaveLength(2)
     expect(gameStore.messages[0].content).toContain('雨水沿着舷窗滑落。')
     expect(gameStore.messages[0].content).toContain('打湿了甲板上的缆绳。')
+
+    // P0-2：第二次续写以第一次 extension turn 为父，形成 base → ext1 → ext2 祖先链。
+    const firstExtensionTurnId = gameStore.lastCommittedTurnId
+    vi.mocked(runNarrativeAgentTurn).mockResolvedValue({
+      kind: 'final_ready',
+      text: '缆绳尽头系着半枚铜扣。',
+      calls: []
+    })
+    await gameStore.generateAIResponse({ intent: 'extend' })
+    expect(gameStore.messages).toHaveLength(1)
+    expect(gameStore.messages[0].segments).toHaveLength(3)
+    const secondTurn = gameStore.turnRecords[gameStore.lastCommittedTurnId]
+    expect(secondTurn.parentTurnId).toBe(firstExtensionTurnId)
   })
 
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {

@@ -2667,10 +2667,15 @@ export const useGameStore = defineStore('game', {
     // 优先精确匹配 assistantMessageIds；其次匹配 userMessageIds（用于从 user 消息 regenerate）。
     findTurnByMessageId(messageId) {
       if (!messageId) return null
-      const records = Object.values(this.turnRecords || {})
-      const byAssistant = records.find((r) => r.assistantMessageIds?.includes(String(messageId)))
-      if (byAssistant) return byAssistant
-      return records.find((r) => r.userMessageIds?.includes(String(messageId))) || null
+      // C4：一条消息可能被 base turn（assistantMessageIds）与多个 extension turn（baseMessageId）
+      // 同时引用；返回最新提交者，使连续续写形成 base → ext1 → ext2 的祖先链。
+      return Object.values(this.turnRecords || {})
+        .filter((record) => (
+          record.assistantMessageIds?.includes(String(messageId))
+          || record.baseMessageId === String(messageId)
+          || record.userMessageIds?.includes(String(messageId))
+        ))
+        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))[0] || null
     },
 
     // C4：当前分支最后一条可见、已提交的 assistant 消息（extend 目标）。
@@ -3128,7 +3133,8 @@ export const useGameStore = defineStore('game', {
             worldMapState: this.worldMapState,
             writingTime: this.writingTime,
             goals: this.goals,
-            encounteredCharacters: this.encounteredCharacters
+            encounteredCharacters: this.encounteredCharacters,
+            historyNode: this.historyNode
           }
         })
         const narrativeKernel = buildNarrativeKernel({
@@ -3325,6 +3331,8 @@ export const useGameStore = defineStore('game', {
             code: 'NARRATIVE_STREAM_EMPTY'
           })
         }
+        // C4：extend 只消费新 segment 做状态提取/记忆/机制，避免重复消费整篇聚合正文。
+        const stateContent = extensionTarget ? (finalParsed.content || '') : cleanContent
         // C4：extend 原地更新最后一条 assistant chatHistory；否则追加新条目。
         if (extensionTarget) {
           const lastAssistantIdx = this.chatHistory.map((m) => m.role).lastIndexOf('assistant')
@@ -3349,12 +3357,12 @@ export const useGameStore = defineStore('game', {
         // 时 catch 会回滚 preRuntimeSnapshot，不留"正文已提交、状态未提交"的半成功回合。
         // P0-2：commit 前**不**保存会话 —— 崩溃不留下无 committed turn 的正文。
 
-        // 记录重要的叙事事件到记忆系统
-        if (cleanContent && cleanContent.length > 20) {
+        // 记录重要的叙事事件到记忆系统（C4：只消费新 segment）
+        if (stateContent && stateContent.length > 20) {
           // 检测是否有重要事件（对话、物品获得、地点发现等）
-          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(cleanContent)
-          const hasItem = /获得|发现.*物品|得到/.test(cleanContent)
-          const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(cleanContent)
+          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(stateContent)
+          const hasItem = /获得|发现.*物品|得到/.test(stateContent)
+          const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(stateContent)
 
           if (hasDialogue || hasItem || hasLocation) {
             const eventType = hasLocation ? 'location_discovery' : hasItem ? 'item_acquisition' : 'dialogue'
@@ -3367,7 +3375,7 @@ export const useGameStore = defineStore('game', {
             // 避免"回合已提交、候选 id 异步迟到且未保存"的不一致。
             try {
               const memRes = await recordMemory(
-                cleanContent,
+                stateContent,
                 eventType,
                 {
                   character: speaker,
@@ -3392,22 +3400,22 @@ export const useGameStore = defineStore('game', {
           }
         }
 
-        // 内联事件标记保留（对话、物品等可点击查看）
-        const inlineEvents = this.detectInlineEvents(cleanContent, messageIndex)
+        // 内联事件标记保留（对话、物品等可点击查看）—— C4：只消费新 segment
+        const inlineEvents = this.detectInlineEvents(stateContent, messageIndex)
         if (inlineEvents.length > 0) {
           this.addInlineEvents(inlineEvents)
         }
 
-        // 从 AI 回复中提取状态更新
-        this.extractAndUpdateState(cleanContent)
+        // 从 AI 回复中提取状态更新 —— C4：只消费新 segment
+        this.extractAndUpdateState(stateContent)
 
         // R1b：state 提取完成后补抓 post snapshot（候选切换时恢复该分支的 state）
         if (turnRecord) {
           turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot()
         }
 
-        // 检测机制触发（战斗、交易、任务、对话）
-        const mechanism = this.detectMechanismTriggers(cleanContent)
+        // 检测机制触发（战斗、交易、任务、对话）—— C4：只消费新 segment
+        const mechanism = this.detectMechanismTriggers(stateContent)
         if (mechanism) {
           const targetMessage = getPlaceholder()
           if (targetMessage) {

@@ -122,6 +122,18 @@ function appendTranscript(transcript, message, options = {}) {
   return result.transcript
 }
 
+// C1/C4：transcript 末尾的"当前指令"按 intent 决定。
+// respond 用真实玩家输入；extend/advance 用续写/推进 nudge，不再把 Kernel 里陈旧的 turn.input
+// 当作最后一条 user 消息（否则模型会重复响应旧行动，而非承接正文）。
+function turnInstructionText(turn, mode, intent) {
+  const input = text(turn?.content?.input)
+  const effectiveIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
+  if (mode === 'init') return input || '开始故事'
+  if (effectiveIntent === 'extend') return '（继续）从最后一句正文直接续写，完成当前动作链，不重述前文。'
+  if (effectiveIntent === 'advance') return '（推进）承接最后一个可见动作或台词继续，推进环境与既有因果，不替玩家作决定。'
+  return input || '继续当前故事'
+}
+
 function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstructions, requestId }) {
   const turn = (kernel?.blocks || []).find((block) => block.kind === 'turn')
   const systemContent = [
@@ -175,7 +187,7 @@ function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstruct
         role: 'user',
         parts: [{
           type: 'text',
-          text: text(turn?.content?.input) || (mode === 'init' ? '开始故事' : '继续当前故事')
+          text: turnInstructionText(turn, mode, intent)
         }]
       }
     ]
@@ -432,7 +444,8 @@ const BOUNDED_COMPLETION_MIN_CHARS = 180
 function shouldBoundedComplete(response = {}) {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
-  if (finishReason) return false
+  // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"极短未完成"判断。
+  if (['refusal', 'content_filter', 'safety'].includes(finishReason)) return false
   const content = text(response.text)
   if (content.length >= BOUNDED_COMPLETION_MIN_CHARS) return false
   return !/[。！？!?…”』」"']$/.test(content.slice(-1))

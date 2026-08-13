@@ -6,13 +6,13 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 酒馆能力对齐 R0-R7 已完成实现：回合事务/分支/导演注/世界书激活/场景角色/记忆/输入动作/性能与无障碍审计；剩余真实 provider 矩阵与双浏览器联机验收 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验叙事连续性 C1-C6 已实现、C7 只搭自动化脚手架；真实 provider 多轮 A/B 与双浏览器 Gate 仍待手动跑 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
-- **体验叙事 Agent**：G4.6.13 R0-R8 代码链已完成单 transcript 工具循环、typed repair、grounding、动态工具域、规范化 SSE、联机房主权威、生产矩阵和恢复 smoke；真实 provider 样本与质量标注尚未完成。下一阶段按酒馆能力对齐计划先解决回合事务、重生成与运行时状态一致性。
+- **体验叙事 Agent**：G4.6.13 R0-R8 与酒馆能力对齐 R0-R7 的基础代码链已完成。当前质量问题已定位：隐藏 continue 被写成 user turn，recent 只保留长回复开头，三层 prompt 反复要求“小步/短小后果”，半自动以短周期重复生成。专项 C0-C7 将先隔离生成 intent，再建立 ContinuityFrame、同消息续接和多轮质量 Gate；真实 provider 样本、质量标注与双浏览器联机验收仍未完成。
 - **体验阅读**：G1.4 M1-M4 与排版 R0-R2 已完成；主题2标准档为物理 `17.5px`、`62em` 阅读宽度、克制 speaker label 和有限强调。仍需真实 provider 的角色识别/marker 指标及双浏览器联机回归。
 - **写作 Notebook**：当前最高优先级为 WNB-6A。现有 schema v2 将每个顶层段落当作业务 block，Enter 因而直接创建新块；目标改为 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落，单元通过场景/分隔线、体验回合导入或显式 split 创建。一次成功的体验 assistant 回合默认导入为一个带完整来源的单元，但可拆分/合并且来源不丢。实施顺序是 schema v3、一次转换、批注/候选/版本改用 `unitId + nodeId`、体验导入事务和 UI/Gate；之后再继续常用 Markdown、`targets[]` 和查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
@@ -23,6 +23,8 @@
 
 ## Recently done
 
+- 2026-08-13：完成体验页叙事连续性调研并制定 C0-C7 计划。代码证据确认当前短碎输出并非只由 token 上限造成：continue/auto 被当作隐藏 user turn，最近上下文截掉长回复尾部，voice policy 多次要求“一小步/短小后果”；本地 SillyTavern 对照确认 continue 应延长最后 assistant 内容。计划收敛到 intent 隔离、ContinuityFrame、真实角色 transcript、同消息 segment 事务、有界补全和真实渠道多轮 A/B。
+- 2026-08-11：收口酒馆能力对齐复验问题：SceneCast 改用真实持久化角色状态并按用户点名/目标自动选择 speaker；旧 checkpoint、记忆 revision 和分支差异恢复需要显式确认；UI audit 使用各自真实视口的 200% 有效宽度、核心控件 Tab 与实际 reduced-motion 动画作为失败门禁，390px/200% 顶部工具区改为两列重排。
 - 2026-08-11：修复写作 Notebook 长文档当前视觉行漂移。此前 `coordsAtPos()` 的缩放后 viewport 坐标被直接写入 `body.zoom` 下的 CSS 定位，误差随正文纵向位置累积；现统一转换回局部 CSS 坐标，并补偿 top/left/width/line-height。0.85 缩放第 80 段浏览器样本从约 `-491px` 误差收敛到行内居中的约 `-5px`。
 - 2026-08-11：修复写作空行命令与续写采纳链。续写恢复为光标后的 ProseMirror ghost text，Notebook 不再显示右下角候选/撤销浮条；生成中、失败和重试也使用同一低干扰行内位置。支持点击或 Tab 全部采纳、Ctrl/Command+右方向键采纳一句、Esc 忽略，并由原生事务插入和撤销。旧损坏节点可将成对 `**`、`*`、反引号恢复为 mark，普通引用可无损往返。
 - 2026-08-11：WNB-6 精确采用 Cmd Markdown 编辑字体栈；当前段与光标视觉行分层定位。空段命令菜单改为单列级联：一级四项常驻，修改/结构子菜单从右侧展开且不覆盖一级；上下选择、左右展开/收起，删除字母快捷键和一级双列布局。中文 IME 不被抢占，AI 段落修改继续复用边注候选链。
@@ -32,18 +34,11 @@
 - 2026-08-11：清理零调用运行时文件和已被长期日志吸收的临时阶段报告；同步代码地图与地图 ADR/RFC，并合并远端主题2锁定、文档链接修复和世界书预设幂等复用修改。
 - 2026-08-11：审阅并重写体验页 SillyTavern/cross-source 对齐计划，收敛为 R0-R7，优先处理正文、运行时、记忆和分支事务一致性。
 - 2026-08-11：写作页移除独立顾问入口，Notebook 成为默认实时 Markdown 编辑面；正文拖选后在光标收束端显示“批注 / 素材”浮条并使用主题蓝色选区。批注草稿改为选区旁就地输入，范围筛选与解决/恢复入口删除；批注可原位编辑、按批注改写或直接删除，版本页收敛为最近检查点。
-- 2026-08-11：G4.6.13 R3-R8 完成 provider transcript 保真、单 transcript 循环、检索证据、SSE、矩阵 Gate 与取消恢复 smoke。
-- 2026-08-10：WNB-1 至 WNB-5 完成章节文档真源、批注、候选、章节审查、版本快照、块历史、恢复和质量 Gate。
-- 2026-08-08：地图数学/噪声 consolidation、条带检测、海岸 meander 与高 cell 特征索引完成，固定 seed 与性能基线通过。
-- 2026-08-07：MiniMax 文本、图片、视频内置配置完成，图片走服务器代理，视频走异步任务协议。
-- 2026-08-07：文档查看器、用户手册、引导 tip 和工作区入口完成首轮收口。
-- 2026-08-06：素材插画、独立漫画制作页、画布视频入口和联机可见入口完成集成。
-- 2026-08-02：结构化设定 S0-S8、世界书维护工作台和地理/历史字段截断修复完成代码门禁。
 
 ## Next up
 
-1. 执行体验对齐 R0/R1：固定破坏性重生成 fixture，建立最小回合事务和运行时回滚，再评估候选/分支完整模型。
-2. 用已保存配置执行 G1.2.2 和 G4.6.13 真实 provider Gate，记录协议、延迟、usage、证据命中和失败恢复。
+1. 执行体验叙事连续性 C0-C3：固定多轮 baseline，隔离 respond/extend/advance，建立 ContinuityFrame 和完整叙事拍；先解决短碎、重复起势和尾部丢失。
+2. 执行 C4-C7：同消息续接事务、有界补全、半自动暂停条件和真实 provider 多轮 A/B；随后完成双浏览器 host loss、分支与房主 AI 配置 Gate。
 3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。
