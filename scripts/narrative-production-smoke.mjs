@@ -5,6 +5,7 @@ import process from 'node:process'
 import {
   buildNarrativeGateScenarioMatrix,
   buildNarrativeGateStorage,
+  buildNarrativeContinuityMatrix,
   summarizeScenarioMatrix
 } from './lib/narrative-gate-fixture.mjs'
 import {
@@ -24,6 +25,7 @@ function usage() {
     '  --output <dir>     Artifact directory (default /tmp/pinax-narrative-production)',
     '  --timeout <ms>     Per-round timeout (default 120000)',
     '  --no-faults        Do not replace the final two rounds with controlled failures',
+    '  --continuity       Drive the 6 multi-turn continuity groups (respond->extend->advance)',
     '  --dry-run          Validate and print the scenario matrix without network access',
     '  --help             Show this message'
   ].join('\n')
@@ -37,6 +39,7 @@ function parseArgs(argv) {
     output: '/tmp/pinax-narrative-production',
     timeout: 120000,
     includeFaults: true,
+    continuity: false,
     dryRun: false,
     help: false
   }
@@ -45,6 +48,7 @@ function parseArgs(argv) {
     if (token === '--help' || token === '-h') options.help = true
     else if (token === '--dry-run') options.dryRun = true
     else if (token === '--no-faults') options.includeFaults = false
+    else if (token === '--continuity') options.continuity = true
     else if (['--base-url', '--config', '--count', '--output', '--timeout'].includes(token)) {
       const value = argv[index + 1]
       if (!value || value.startsWith('--')) throw new Error(`${token} requires a value`)
@@ -149,12 +153,47 @@ async function run() {
     process.stdout.write(`${usage()}\n`)
     return
   }
-  const scenarios = buildNarrativeGateScenarioMatrix(options.count, {
-    includeControlledFailures: options.includeFaults
-  })
-  const matrix = summarizeScenarioMatrix(scenarios)
+  // C0/P0-1：--continuity 走 6 组多轮连续矩阵（respond→extend→advance），否则用旧的单轮矩阵。
+  let driveItems
+  let matrix
+  if (options.continuity) {
+    const groups = buildNarrativeContinuityMatrix(6)
+    driveItems = groups.flatMap((group) => group.turns.map((turn) => ({
+      id: `${group.id}-t${turn.turnIndex}`,
+      group: group.id,
+      category: group.category,
+      intent: turn.intent,
+      input: turn.intent === 'respond' ? turn.action
+        : turn.intent === 'extend' ? '/continue'
+        : '/advance',
+      canonicalFacts: [],
+      forbiddenFacts: [],
+      controlledFault: ''
+    })))
+    matrix = { mode: 'continuity', groups: groups.length, turns: driveItems.length }
+  } else {
+    const scenarios = buildNarrativeGateScenarioMatrix(options.count, {
+      includeControlledFailures: options.includeFaults
+    })
+    driveItems = scenarios.map((scenario) => ({
+      id: scenario.runId || scenario.id,
+      group: '',
+      category: scenario.category,
+      intent: 'respond',
+      input: scenario.action,
+      canonicalFacts: scenario.canonicalFacts,
+      forbiddenFacts: scenario.forbiddenFacts,
+      controlledFault: scenario.controlledFault
+    }))
+    matrix = summarizeScenarioMatrix(scenarios)
+  }
   if (options.dryRun) {
-    process.stdout.write(`${JSON.stringify({ dryRun: true, matrix }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({
+      dryRun: true,
+      continuity: options.continuity,
+      matrix,
+      driveItems: driveItems.map((item) => ({ id: item.id, intent: item.intent, group: item.group }))
+    }, null, 2)}\n`)
     return
   }
   if (!options.config) throw new Error('--config is required unless --dry-run is used')
@@ -202,12 +241,11 @@ async function run() {
     await page.locator('.input-area .input').waitFor({ state: 'visible', timeout: 30000 })
 
     const reviewCases = []
-    for (let index = 0; index < scenarios.length; index += 1) {
-      const scenario = scenarios[index]
+    for (let index = 0; index < driveItems.length; index += 1) {
+      const item = driveItems[index]
       const before = await metrics(page)
-      const beforeAssistantCount = await page.locator('.prose[data-role="assistant"]').count()
-      activeFault = scenario.controlledFault
-      await page.locator('.input-area .input').fill(scenario.action)
+      activeFault = item.controlledFault
+      await page.locator('.input-area .input').fill(item.input)
       await page.locator('.input-area .send-btn').click()
       await page.waitForFunction(
         ({ key, count }) => {
@@ -230,31 +268,29 @@ async function run() {
       const event = current.events.at(-1)
       let responseText = ''
       if (event?.outcome === 'success') {
-        await page.waitForFunction(
-          (count) => {
-            const messages = document.querySelectorAll('.prose[data-role="assistant"]')
-            if (messages.length <= count) return false
-            const body = messages[messages.length - 1]?.querySelector('.prose__body')
-            return Boolean(body?.textContent?.trim())
-          },
-          beforeAssistantCount,
-          { timeout: 10000 }
-        )
+        // respond/advance 是新消息；extend 续接到同一条 —— 统一读最后一条 assistant 正文。
+        await page.waitForFunction(() => {
+          const messages = document.querySelectorAll('.prose[data-role="assistant"]')
+          const body = messages[messages.length - 1]?.querySelector('.prose__body')
+          return Boolean(body?.textContent?.trim())
+        }, null, { timeout: 10000 })
         responseText = await page.locator('.prose[data-role="assistant"] .prose__body').last().innerText()
       }
       reviewCases.push({
         runId: event?.runId || '',
-        scenarioId: scenario.id,
-        category: scenario.category,
-        action: scenario.action,
-        canonicalFacts: scenario.canonicalFacts,
-        forbiddenFacts: scenario.forbiddenFacts,
-        controlledFault: scenario.controlledFault,
+        scenarioId: item.id,
+        group: item.group,
+        intent: item.intent,
+        category: item.category,
+        action: item.input,
+        canonicalFacts: item.canonicalFacts,
+        forbiddenFacts: item.forbiddenFacts,
+        controlledFault: item.controlledFault,
         outcome: event?.outcome || 'missing',
         response: responseText
       })
       process.stderr.write(
-        `[narrative-smoke] ${index + 1}/${scenarios.length} ${scenario.id} ${event?.outcome || 'missing'}\n`
+        `[narrative-smoke] ${index + 1}/${driveItems.length} ${item.id} ${item.intent} ${event?.outcome || 'missing'}\n`
       )
     }
 

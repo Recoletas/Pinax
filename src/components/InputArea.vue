@@ -323,6 +323,7 @@ const commandSuggestions = computed(() => {
   const commands = [
     { command: 'stop', label: '停止生成', action: { type: 'stop' } },
     { command: 'continue', label: '继续上一回复', action: { type: 'continue' } },
+    { command: 'advance', label: '推进一拍', action: { type: 'advance' } },
     { command: 'compress', label: '压缩上下文', action: { type: 'compress' } },
     { command: 'export', label: '导出会话', action: { type: 'export' } },
     { command: 'branch', label: '从此处建立分支', action: { type: 'branch', payload: {} } }

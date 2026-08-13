@@ -57,7 +57,8 @@ export function openingSimilarityRate(turns = []) {
   return ratio(similar, pairs)
 }
 
-// 3. 末尾锚点命中率：上一轮末句与下一轮开头共享 ≥1 个 3-gram 的比例（比 2-gram 更能区分真承接与噪声）。
+// 3. 末尾锚点命中率：上一轮末句中的候选专名/关键名词在下一轮开头复现，或末句 3-gram 接续。
+//    比纯字符 n-gram 更贴近"人物/动作/台词得到承接"的语义。
 export function tailAnchorCarryRate(turns = []) {
   const list = Array.isArray(turns) ? turns : []
   if (list.length < 2) return null
@@ -65,13 +66,19 @@ export function tailAnchorCarryRate(turns = []) {
   let pairs = 0
   for (let index = 1; index < list.length; index += 1) {
     const tail = splitSentences(list[index - 1]?.response).at(-1) || ''
-    const head = cleanText(list[index]?.response).slice(0, 120)
+    const head = cleanText(list[index]?.response).slice(0, 150)
     if (!tail || !head) continue
     pairs += 1
-    const trigrams = charGrams(tail, 3)
+    const tailNouns = (tail.match(/[\u4e00-\u9fff]{2,4}/g) || []).filter((token) => !NOVELTY_STOPLIST.has(token))
     let hit = false
-    for (let cursor = 0; cursor + 3 <= head.length; cursor += 1) {
-      if (trigrams.has(head.slice(cursor, cursor + 3))) { hit = true; break }
+    for (const noun of tailNouns) {
+      if (head.includes(noun)) { hit = true; break }
+    }
+    if (!hit) {
+      const trigrams = charGrams(tail, 3)
+      for (let cursor = 0; cursor + 3 <= head.length; cursor += 1) {
+        if (trigrams.has(head.slice(cursor, cursor + 3))) { hit = true; break }
+      }
     }
     if (hit) carried += 1
   }
@@ -104,9 +111,10 @@ const NOVELTY_STOPLIST = new Set([
 export function unexplainedNoveltyRate(turns = []) {
   const list = Array.isArray(turns) ? turns : []
   if (!list.length) return null
+  // P1-4：known 只纳入"截至当前回合之前"的输入与回复中的专名，避免未来信息泄漏。
   const known = new Set()
-  for (const turn of list) {
-    for (const token of (String(turn?.input || '').match(/[\u4e00-\u9fff]{2,4}/g) || [])) {
+  const foldNouns = (text) => {
+    for (const token of (String(text || '').match(/[\u4e00-\u9fff]{2,4}/g) || [])) {
       if (!NOVELTY_STOPLIST.has(token)) known.add(token)
     }
   }
@@ -114,11 +122,15 @@ export function unexplainedNoveltyRate(turns = []) {
   let evaluated = 0
   for (const turn of list) {
     const responseTokens = String(turn?.response || '').match(/[\u4e00-\u9fff]{2,4}/g) || []
-    if (!responseTokens.length) continue
-    evaluated += 1
-    const unseen = [...new Set(responseTokens)]
-      .filter((token) => !NOVELTY_STOPLIST.has(token) && !known.has(token))
-    if (unseen.length > 0) novel += 1
+    if (responseTokens.length) {
+      evaluated += 1
+      const unseen = [...new Set(responseTokens)]
+        .filter((token) => !NOVELTY_STOPLIST.has(token) && !known.has(token))
+      if (unseen.length > 0) novel += 1
+    }
+    // 本回合结束后才把它的输入/回复纳入已知（供后续回合）
+    foldNouns(turn?.input)
+    foldNouns(turn?.response)
   }
   return ratio(novel, evaluated)
 }

@@ -435,19 +435,30 @@ function validateNarrativeStepResponse(response) {
   return response
 }
 
+function cjkCount(value) {
+  const matches = String(value ?? '').match(/[\u4e00-\u9fff]/g)
+  return matches ? matches.length : 0
+}
+
 // C5：有界补全 —— 判断一次 final_ready 是否需要补全。
 //   finishReason 为 length/max_tokens/max_output_tokens → 必然补全；
-//   否则仅当正文很短（<180 字）且没有自然落点（句末标点/收尾引号）时补全一次。
+//   否则仅当正文为中等长度（≥12 字、<180 字）且没有自然落点时补全一次；
+//   极短（<12 字）的常规 stop 视为刻意的简短回答，不扩写；输入明确要求简短也不补全。
 const BOUNDED_LENGTH_FINISH_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens'])
 const BOUNDED_COMPLETION_MIN_CHARS = 180
+const BOUNDED_COMPLETION_ULTRA_SHORT = 12
+const BREVITY_REQUEST_RE = /(简短|一句话|只说|简单说|不要展开|一笔带过|短答|只用.{0,6}字)/
 
-function shouldBoundedComplete(response = {}) {
+function shouldBoundedComplete(response = {}, turnInput = '') {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
   // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"极短未完成"判断。
   if (['refusal', 'content_filter', 'safety'].includes(finishReason)) return false
+  if (BREVITY_REQUEST_RE.test(String(turnInput || ''))) return false
   const content = text(response.text)
   if (content.length >= BOUNDED_COMPLETION_MIN_CHARS) return false
+  // 极短且非截断 → 刻意的简短回答（如"好""嗯""知道了"），不扩写。
+  if (cjkCount(content) < BOUNDED_COMPLETION_ULTRA_SHORT) return false
   return !/[。！？!?…”』」"']$/.test(content.slice(-1))
 }
 
@@ -760,9 +771,10 @@ export async function runNarrativeAgentLoop({
         if (!terminalFinishReason) terminalFinishReason = text(response.finishReason)
         terminalText = terminalText ? `${terminalText}${response.text}` : response.text
         // C5：有界补全 —— 截断或过短且无自然落点时，同一 transcript 内最多补全一次。
+        const currentTurnInput = (kernel?.blocks || []).find((block) => block.kind === 'turn')?.content?.input || ''
         if (!boundedCompletionUsed
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
-          && shouldBoundedComplete(response)) {
+          && shouldBoundedComplete(response, currentTurnInput)) {
           boundedCompletionUsed = true
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:complete:${stepIndex}`,

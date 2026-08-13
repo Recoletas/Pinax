@@ -19,6 +19,7 @@ export const EXPERIENCE_ACTION_TYPES = Object.freeze([
   'stop',
   'retry',
   'continue',
+  'advance',
   'branch',
   'director-note',
   'speaker',

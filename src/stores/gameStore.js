@@ -2667,13 +2667,17 @@ export const useGameStore = defineStore('game', {
     // 优先精确匹配 assistantMessageIds；其次匹配 userMessageIds（用于从 user 消息 regenerate）。
     findTurnByMessageId(messageId) {
       if (!messageId) return null
-      // C4：一条消息可能被 base turn（assistantMessageIds）与多个 extension turn（baseMessageId）
-      // 同时引用；返回最新提交者，使连续续写形成 base → ext1 → ext2 的祖先链。
+      // C4/P0-2：只认 committed 且在当前分支祖先链上的回合，避免选中 failed/撤销回合或其它分支的 extension。
+      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
       return Object.values(this.turnRecords || {})
         .filter((record) => (
-          record.assistantMessageIds?.includes(String(messageId))
-          || record.baseMessageId === String(messageId)
-          || record.userMessageIds?.includes(String(messageId))
+          record.status === 'committed'
+          && chain.has(record.id)
+          && (
+            record.assistantMessageIds?.includes(String(messageId))
+            || record.baseMessageId === String(messageId)
+            || record.userMessageIds?.includes(String(messageId))
+          )
         ))
         .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))[0] || null
     },
@@ -2924,6 +2928,13 @@ export const useGameStore = defineStore('game', {
               await this.generateAIResponse({ intent: 'extend' })
               return { ok: true }
             }
+          case 'advance':
+            // C6/评测：推进一个 advance beat（NPC/环境/既有因果），不替玩家作决定。
+            {
+              if (this.isLoading) return { ok: false, error: 'BUSY' }
+              await this.generateAIResponse({ intent: 'advance' })
+              return { ok: true }
+            }
           case 'export':
             // P1-6：导出当前会话（消息 + 回合记录 + 活动分支），供备份/分享
             return {
@@ -2943,7 +2954,8 @@ export const useGameStore = defineStore('game', {
               }
             }
           case 'undo-extension':
-            // C4：撤销最后一段续接 —— 移除最后一个 segment，恢复前一正文 + 状态快照。
+            // C4：撤销最后一段续接 —— 移除最后一个 segment，恢复前一正文 + 状态快照，
+            // 并归档该回合记忆候选、清除机制触发，作为完整事务回滚。
             {
               const targetId = String(payload.messageId || '').trim()
               const target = (this.messages || []).find((m) => m?.id === targetId)
@@ -2957,11 +2969,17 @@ export const useGameStore = defineStore('game', {
                 this.applyRuntimeSnapshot(extensionTurn.preRuntimeSnapshot)
               }
               if (extensionTurn) {
+                // P0-3：归档本回合产生的记忆候选，避免 failed turn 被归一化丢弃后候选作为共享记忆残留。
+                for (const candidateId of extensionTurn.memoryCandidateIds || []) {
+                  try { archiveMemoryCandidate(candidateId, { note: 'extension-undone' }) } catch { /* 尽力而为 */ }
+                }
                 extensionTurn.status = 'failed'
                 if (this.lastCommittedTurnId === extensionTurn.id) {
                   this.lastCommittedTurnId = extensionTurn.parentTurnId || null
                 }
               }
+              // P0-3：撤销可能由本段续接触发的机制面板。
+              target.mechanismTrigger = null
               target.segments = removed
               target.content = removed
                 .map((segment) => String(segment.cleanContent || '').trim())
@@ -2975,6 +2993,8 @@ export const useGameStore = defineStore('game', {
                 blocks: removed.flatMap((segment) => (Array.isArray(segment.blocks) ? segment.blocks : [])),
                 hasMarkers: removed.some((segment) => (Array.isArray(segment.blocks) ? segment.blocks : []).length > 0)
               }
+              // P0-3：移除引用被撤销消息的未消费 inlineEvents（按 messageId 关联）。
+              this.inlineEvents = (this.inlineEvents || []).filter((event) => event?.messageId !== targetId)
               this.rebuildChatHistory()
               this.saveCurrentSession()
               return { ok: true }

@@ -18,6 +18,7 @@
     "verify:contract": "vitest run",
     "verify:post": "vite build && git diff --check",
     "verify:full": "vitest run && vite build && git diff --check && vitepress build docs/src",
+    "verify:browser": "node scripts/ui-audit.mjs && node scripts/online-narrative-smoke.mjs",
     "docs:dev": "vitepress dev docs/src",
     "docs:build": "vitepress build docs/src",
     "docs:preview": "vitepress preview docs/src",
