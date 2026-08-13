@@ -38,6 +38,27 @@
         </section>
 
         <section
+          v-show="activeSection === 'experience'"
+          class="settings-section"
+          role="tabpanel"
+          aria-label="体验"
+        >
+          <label class="settings-field-label" id="narrative-expansion-label">叙事展开度</label>
+          <p class="settings-field-hint">影响一次生成的目标长度与 token 预算；不改阅读排版。明确短答、纯确认或导演注要求简短时不受此限制。</p>
+          <nav class="settings-tabs" role="group" aria-labelledby="narrative-expansion-label">
+            <button
+              v-for="level in expansion.levels"
+              :key="level.key"
+              class="settings-tab"
+              :class="{ active: expansion.levelName === level.key }"
+              :aria-pressed="(expansion.levelName === level.key).toString()"
+              type="button"
+              @click="expansion.setLevel(level.key)"
+            >{{ level.label }}</button>
+          </nav>
+        </section>
+
+        <section
           v-show="activeSection === 'storage'"
           class="settings-section"
           role="tabpanel"
@@ -79,8 +100,15 @@
             <strong>备份已读取，确认后才会写入</strong>
             <span>新增 {{ backupPlan.add.length }} · 覆盖 {{ backupPlan.overwrite.length }} · 跳过 {{ backupPlan.skip.length }}</span>
             <span v-if="backupPlan.incompatible.length" class="backup-review__error">{{ backupPlan.incompatible.join('；') }}</span>
+            <div v-if="backupPlan.restoreWarnings?.length" class="backup-review__warnings" role="alert">
+              <span v-for="warning in backupPlan.restoreWarnings" :key="warning">{{ warning }}</span>
+              <label class="backup-review__consent">
+                <input v-model="backupRiskAccepted" type="checkbox">
+                <span>我了解恢复会替换这些较新的数据</span>
+              </label>
+            </div>
             <div class="backup-review__actions">
-              <button class="settings-btn settings-btn--primary" type="button" data-test="backup-restore-confirm" :disabled="backupBusy || !backupPlan.valid" @click="confirmBackupRestore">
+              <button class="settings-btn settings-btn--primary" type="button" data-test="backup-restore-confirm" :disabled="backupBusy || !backupPlan.valid || (backupPlan.requiresRiskConfirmation && !backupRiskAccepted)" @click="confirmBackupRestore">
                 {{ backupBusy ? '写入中...' : '确认导入' }}
               </button>
               <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
@@ -99,8 +127,10 @@ import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
+import { useExperienceNarrativeExpansion } from '../../composables/useExperienceNarrativeExpansion'
 
 const { close, activeSection, isOpen } = useSettingsPopup()
+const expansion = useExperienceNarrativeExpansion()
 
 const storageHealth = useStorageHealth()
 const storageTopKeys = computed(() => storageHealth.getTopKeys(10))
@@ -111,10 +141,12 @@ const backupText = ref('')
 const backupPlan = ref(null)
 const backupFeedback = ref('')
 const backupBusy = ref(false)
+const backupRiskAccepted = ref(false)
 
 // 全局锁定主题2亮色：外观 tab（主题/明暗/缩放）已移除（用户要求）
 const tabs = [
   { key: 'ai', label: 'AI 配置' },
+  { key: 'experience', label: '体验' },
   { key: 'storage', label: '存储' }
 ]
 
@@ -145,6 +177,7 @@ async function handleBackupFile(event) {
   try {
     backupText.value = await file.text()
     backupPlan.value = createRestorePlan(backupText.value)
+    backupRiskAccepted.value = false
     if (!backupPlan.value.valid) {
       backupFeedback.value = backupPlan.value.incompatible.join('；') || '备份不可导入'
       backupPlan.value = null
@@ -158,13 +191,17 @@ async function handleBackupFile(event) {
 function cancelBackupRestore() {
   backupPlan.value = null
   backupText.value = ''
+  backupRiskAccepted.value = false
 }
 
 function confirmBackupRestore() {
   if (!backupPlan.value || backupBusy.value) return
+  if (backupPlan.value.requiresRiskConfirmation && !backupRiskAccepted.value) return
   backupBusy.value = true
   try {
-    const result = restoreBackup(backupText.value)
+    const result = restoreBackup(backupText.value, {
+      acceptRestoreRisk: backupRiskAccepted.value,
+    })
     if (result.success) {
       backupFeedback.value = `已导入 ${result.written.length} 个键，跳过 ${result.skipped.length} 个键。`
       cancelBackupRestore()
@@ -305,6 +342,19 @@ watch(isOpen, async (open) => {
   color: var(--text-secondary);
 }
 
+.settings-field-label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-field-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .storage-summary {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -404,6 +454,30 @@ watch(isOpen, async (open) => {
 
 .backup-review__error {
   color: var(--danger);
+}
+
+.backup-review__warnings {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+
+.backup-review__warnings > span {
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--warning, var(--accent)) 62%, var(--border));
+}
+
+.backup-review__consent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.backup-review__consent input {
+  accent-color: var(--accent);
 }
 
 .backup-review__actions {

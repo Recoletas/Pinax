@@ -156,6 +156,10 @@ import {
   serializeNarrativeTranscript
 } from '../../shared/narrativeTranscriptContract.js'
 import {
+  intentCharRange,
+  narrativeExpansionFactor
+} from '../../shared/narrativeGenerationIntentContract.js'
+import {
   STRUCTURED_GENERATION_SCHEMA_IDS,
   STRUCTURED_GENERATION_TIMEOUTS,
   getStructuredSettingSchema,
@@ -1873,6 +1877,17 @@ describe('agentContracts', function () {
     expect(completedRun.finalText).toBe('雨水沿着舷窗滑落，打湿了甲板上的缆绳。')
     expect(completedRun.trace.boundedCompletion).toBe(true)
     expect(completedRun.trace.incomplete).toBe(false)
+
+    // Q1：叙事展开度映射 —— compact/standard/expanded 缩放 intent 字符区间与 token 预算。
+    var standardRespond = intentCharRange('respond', {})
+    var compactRespond = intentCharRange('respond', { expansion: 'compact' })
+    var expandedRespond = intentCharRange('respond', { expansion: 'expanded' })
+    expect(standardRespond.min).toBe(900)
+    expect(standardRespond.max).toBe(1500)
+    expect(compactRespond.min).toBe(Math.round(900 * 0.65))
+    expect(expandedRespond.max).toBe(Math.round(1500 * 1.35))
+    expect(narrativeExpansionFactor('expanded')).toBe(1.35)
+    expect(narrativeExpansionFactor('unknown')).toBe(1)
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

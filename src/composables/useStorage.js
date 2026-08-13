@@ -67,6 +67,7 @@ export const STORAGE_KEYS = {
   GAME_SETTINGS: 'gameSettings',
   API_SETTINGS: 'apiSettings',
   EXPERIENCE_READING_PROFILE: 'experience_reading_profile_v1',
+  EXPERIENCE_NARRATIVE_EXPANSION: 'experience_narrative_expansion_v1',
   AGENT_RUNTIME_POLICY: 'pinax_agent_runtime_policy_v1',
   AGENT_RUNTIME_METRICS: 'pinax_agent_runtime_metrics_v1',
   NARRATIVE_PRODUCTION_METRICS: 'pinax_narrative_production_metrics_v1',

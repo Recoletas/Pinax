@@ -18,6 +18,7 @@ import {
   buildNarrativeTurnNote,
   buildNarrativeVoiceContract
 } from './narrativeVoicePolicy'
+import { intentCharRange } from '../../../shared/narrativeGenerationIntentContract'
 import {
   classifyNarrativeRecoveryError,
   deriveNarrativeGroundingPolicy,
@@ -134,7 +135,7 @@ function turnInstructionText(turn, mode, intent) {
   return input || '继续当前故事'
 }
 
-function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstructions, requestId }) {
+function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstructions, requestId, expansion = 'standard' }) {
   const turn = (kernel?.blocks || []).find((block) => block.kind === 'turn')
   const systemContent = [
     '你是 Pinax 的中文小说叙述者和资料使用者。当前请求使用同一份临时 transcript。',
@@ -179,7 +180,7 @@ function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstruct
       {
         id: `${requestId}:system:turn-note`,
         role: 'system',
-        parts: [{ type: 'text', text: buildNarrativeTurnNote(kernel, { mode, intent }) }]
+        parts: [{ type: 'text', text: buildNarrativeTurnNote(kernel, { mode, intent, expansion }) }]
       },
       ...historyParts,
       {
@@ -449,14 +450,15 @@ const BOUNDED_COMPLETION_MIN_CHARS = 180
 const BOUNDED_COMPLETION_ULTRA_SHORT = 12
 const BREVITY_REQUEST_RE = /(简短|一句话|只说|简单说|不要展开|一笔带过|短答|只用.{0,6}字)/
 
-function shouldBoundedComplete(response = {}, turnInput = '') {
+function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = BOUNDED_COMPLETION_MIN_CHARS) {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
-  // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"极短未完成"判断。
+  // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"低于目标下限"判断。
   if (['refusal', 'content_filter', 'safety'].includes(finishReason)) return false
   if (BREVITY_REQUEST_RE.test(String(turnInput || ''))) return false
   const content = text(response.text)
-  if (content.length >= BOUNDED_COMPLETION_MIN_CHARS) return false
+  // 已达到 intent+展开度目标下限的 70% → 视为足够，不补全。
+  if (cjkCount(content) >= minTargetChars) return false
   // 极短且非截断 → 刻意的简短回答（如"好""嗯""知道了"），不扩写。
   if (cjkCount(content) < BOUNDED_COMPLETION_ULTRA_SHORT) return false
   return !/[。！？!?…”』」"']$/.test(content.slice(-1))
@@ -580,12 +582,17 @@ export async function runNarrativeAgentLoop({
     'NARRATIVE_AGENT_TIMEOUT',
     '叙事生成超时'
   )
+  // Q1：展开度（compact/standard/expanded）来自 settings（客户端字段，不发送到 provider）。
+  const expansion = ['compact', 'standard', 'expanded'].includes(text(settings?.expansion))
+    ? text(settings.expansion)
+    : 'standard'
   let transcript = createInitialNarrativeTranscript({
     kernel,
     mode,
     intent,
     formatInstructions,
-    requestId: turnRequestId
+    requestId: turnRequestId,
+    expansion
   })
   const toolResults = []
   const traceCalls = []
@@ -770,11 +777,14 @@ export async function runNarrativeAgentLoop({
         })
         if (!terminalFinishReason) terminalFinishReason = text(response.finishReason)
         terminalText = terminalText ? `${terminalText}${response.text}` : response.text
-        // C5：有界补全 —— 截断或过短且无自然落点时，同一 transcript 内最多补全一次。
+        // C5/Q1：有界补全 —— 低于"当前 intent+展开度目标下限的 70%"且无自然落点时，
+        // 同一 transcript 内最多补全一次。
         const currentTurnInput = (kernel?.blocks || []).find((block) => block.kind === 'turn')?.content?.input || ''
+        const turnIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
+        const minTargetChars = Math.round(intentCharRange(turnIntent, { expansion }).min * 0.7)
         if (!boundedCompletionUsed
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
-          && shouldBoundedComplete(response, currentTurnInput)) {
+          && shouldBoundedComplete(response, currentTurnInput, minTargetChars)) {
           boundedCompletionUsed = true
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:complete:${stepIndex}`,

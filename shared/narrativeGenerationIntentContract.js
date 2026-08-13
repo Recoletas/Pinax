@@ -38,11 +38,29 @@ export function intentToOrchestratorMode(intent) {
 
 /**
  * intent → 建议输出长度区间（中文字符）。
+ * 基础区间为"标准"展开度，可按叙事展开度（compact/standard/expanded）缩放。
  */
-export function intentCharRange(intent) {
+const INTENT_BASE_RANGES = Object.freeze({
+  open: { min: 1200, max: 1800 },
+  respond: { min: 900, max: 1500 },
+  advance: { min: 800, max: 1400 },
+  extend: { min: 500, max: 900 }
+})
+
+const EXPANSION_FACTORS = Object.freeze({
+  compact: 0.65,
+  standard: 1,
+  expanded: 1.35
+})
+
+export function narrativeExpansionFactor(expansion) {
+  const key = String(expansion || '').toLowerCase()
+  return EXPANSION_FACTORS[key] ?? 1
+}
+
+export function intentCharRange(intent, { expansion = 'standard' } = {}) {
   const i = normalizeNarrativeIntent(intent)
-  if (i === 'respond') return { min: 450, max: 1000 }
-  if (i === 'extend') return { min: 250, max: 700 }
-  if (i === 'advance') return { min: 350, max: 800 }
-  return { min: 600, max: 1200 } // open
+  const base = INTENT_BASE_RANGES[i] || INTENT_BASE_RANGES.respond
+  const factor = narrativeExpansionFactor(expansion)
+  return { min: Math.round(base.min * factor), max: Math.round(base.max * factor) }
 }

@@ -72,7 +72,7 @@ import {
   createNarrativeProductionObserver,
   recordNarrativeProductionRun
 } from '../services/agents/narrativeProductionMetrics'
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, getTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { debounce, flushPending } from '../composables/useDebounce'
 import { useWorldStore } from './worldStore'
 import { parseCharacterCards } from '../services/characterCard'
@@ -85,7 +85,7 @@ import {
   TURN_RECORD_LIMIT,
 } from '../../shared/narrativeTurnContract.js'
 import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
-import { normalizeNarrativeIntent, intentToOrchestratorMode } from '../../shared/narrativeGenerationIntentContract.js'
+import { normalizeNarrativeIntent, intentToOrchestratorMode, narrativeExpansionFactor } from '../../shared/narrativeGenerationIntentContract.js'
 
 const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
@@ -920,6 +920,8 @@ export const useGameStore = defineStore('game', {
       baseUrl: '',
       model: ''
     },
+    // Q1：叙事展开度（紧凑/标准/展开），只影响生成目标长度与 token 预算。
+    narrativeExpansion: 'standard',
     playerCharacter: {
       name: 'User', // 默认名，用户可以改
       avatar: ''    // 玩家头像
@@ -3254,9 +3256,11 @@ export const useGameStore = defineStore('game', {
         let cleanContent = ''
         // 修复输出截断：原 init=1500/常规=800/auto=460 对中文叙事偏小，
         // 且工具调用（决策+参数）与正文共用同一 maxTokens 预算，模型常在
-        // C1+C3：maxTokens 按 intent 决定 —— advance 不再只有 800（短碎片），
-        // 给完整场景拍足够预算。open=2000, 其他=1600。
-        const maxTokens = isInitGeneration ? 2000 : 1600
+        // Q1：maxTokens 按 intent 决定，并按叙事展开度缩放 —— open 基 3000、其他基 2600，
+        // 足以容纳 BeatPlan/工具结果与完整场景正文。展开度由 resolveNarrativeExpansion() 读取。
+        const expansionLevel = this.resolveNarrativeExpansion()
+        const baseTokens = isInitGeneration ? 3000 : 2600
+        const maxTokens = Math.min(5000, Math.round(baseTokens * narrativeExpansionFactor(expansionLevel)))
         const agentRun = await runNarrativeAgentGeneration({
           kernel: narrativeKernel,
           registry: narrativeRegistry,
@@ -3264,7 +3268,7 @@ export const useGameStore = defineStore('game', {
           intent: effectiveIntent,  // C1：传 intent 给 orchestrator（供 turn note）
           formatInstructions: buildNarrativeFormatInstructions(),
           worldId: this.worldId,
-          settings: this.apiSettings,
+          settings: { ...this.apiSettings, expansion: expansionLevel },
           requestId,
           signal: controller.signal,
           maxTokens,
@@ -4216,6 +4220,15 @@ export const useGameStore = defineStore('game', {
           model: resolved.model || ''
         }
       }
+    },
+
+    // Q1：读取叙事展开度（紧凑/标准/展开），来自独立 localStorage 键。
+    resolveNarrativeExpansion() {
+      const raw = String(getTextItem(STORAGE_KEYS.EXPERIENCE_NARRATIVE_EXPANSION) || '').toLowerCase()
+      const valid = ['compact', 'standard', 'expanded']
+      const level = valid.includes(raw) ? raw : 'standard'
+      this.narrativeExpansion = level
+      return level
     }
   }
 })

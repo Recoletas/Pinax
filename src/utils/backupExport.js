@@ -55,6 +55,7 @@ export const PINAX_BACKUP_KEYS = [
   STORAGE_KEYS.GAME_SETTINGS,
   STORAGE_KEYS.API_SETTINGS,
   STORAGE_KEYS.EXPERIENCE_READING_PROFILE,
+  STORAGE_KEYS.EXPERIENCE_NARRATIVE_EXPANSION,
   STORAGE_KEYS.AGENT_RUNTIME_POLICY,
   STORAGE_KEYS.AGENT_RUNTIME_METRICS,
   STORAGE_KEYS.NARRATIVE_PRODUCTION_METRICS,
@@ -127,20 +128,38 @@ export function buildBackup() {
     keyCount: included,
     keys: entries,
     // P1-5：体验回合/检查点 + 记忆 revision 摘要（低敏，供恢复校验）
-    experience: buildExperienceBackupSummary()
+    experience: buildExperienceBackupSummary(localStorage)
   }
 }
 
 // P1-5：从 WRITING_SESSIONS + MEMORY_CANDIDATES 提取体验摘要。
 // 低敏：只含回合数量/分支/最新 committed turn id/记忆候选 revision，不含正文。
-function buildExperienceBackupSummary() {
+function stableRevision(items) {
+  const source = items
+    .map((item) => [item?.id, item?.revision, item?.status, item?.updatedAt || item?.createdAt].join(':'))
+    .sort()
+    .join('|')
+  let hash = 2166136261
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${items.length}:${(hash >>> 0).toString(36)}`
+}
+
+function textValue(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function buildExperienceBackupSummary(storage = localStorage) {
   const summary = {
     sessionCount: 0, branchCount: 0, turnCount: 0, memoryRevision: 0, hasTurnData: false,
+    branches: [],
     // P1-4：checkpoint 元数据 —— 最新 committed turn 的时间锚点（版本校验用）
     checkpoint: { turnId: null, committedAt: 0 }
   }
   try {
-    const sessionsRaw = localStorage.getItem('writing_sessions')
+    const sessionsRaw = storage.getItem('writing_sessions')
     if (sessionsRaw) {
       const sessions = JSON.parse(sessionsRaw)
       const sessionList = Array.isArray(sessions) ? sessions : (sessions?.sessions || [])
@@ -150,6 +169,7 @@ function buildExperienceBackupSummary() {
       for (const session of sessionList) {
         const turnRecords = session?.turnRecords || {}
         const turns = Object.values(turnRecords || {})
+        const sessionBranchIds = [...new Set(turns.map((turn) => textValue(turn?.branchId)).filter(Boolean))].sort()
         turnCount += turns.length
         for (const turn of turns) {
           if (turn?.branchId) branchIds.add(turn.branchId)
@@ -162,19 +182,23 @@ function buildExperienceBackupSummary() {
             }
           }
         }
+        summary.branches.push({
+          sessionId: textValue(session?.id),
+          activeBranchId: textValue(session?.activeBranchId || 'main'),
+          branchIds: sessionBranchIds,
+          lastCommittedTurnId: textValue(session?.lastCommittedTurnId),
+        })
       }
       summary.turnCount = turnCount
       summary.branchCount = branchIds.size
       summary.hasTurnData = turnCount > 0
     }
-    const memoryRaw = localStorage.getItem('memory_candidates_v1')
+    const memoryRaw = storage.getItem('memory_candidates_v1')
     if (memoryRaw) {
       try {
         const candidates = JSON.parse(memoryRaw)
         const list = Array.isArray(candidates) ? candidates : (candidates?.candidates || [])
-        // memory revision = 候选数量 + 最大 createdAt 的组合（比单一时间戳更能反映版本变化）
-        const maxCreatedAt = (list || []).reduce((max, c) => Math.max(max, Number(c?.createdAt) || 0), 0)
-        summary.memoryRevision = (list || []).length * 1000000 + maxCreatedAt
+        summary.memoryRevision = stableRevision(list || [])
       } catch { /* 记忆数据解析失败则保持 0 */ }
     }
   } catch { /* 摘要提取失败不影响备份本体 */ }
@@ -188,7 +212,9 @@ function invalidRestorePlan(...reasons) {
     add: [],
     overwrite: [],
     skip: [],
-    incompatible: reasons.filter(Boolean)
+    incompatible: reasons.filter(Boolean),
+    restoreWarnings: [],
+    requiresRiskConfirmation: false,
   }
 }
 
@@ -242,13 +268,33 @@ export function createRestorePlan(input, storage = localStorage) {
   // P1-3：checkpoint 校验 —— 备份 experience 摘要与当前会话对比。
   // 备份的回合 checkpoint 比当前更新 → 说明恢复会覆盖更新的会话，标记提示。
   let checkpointNotice = null
+  let memoryRevisionNotice = null
+  let branchMetadataNotice = null
   const backupCheckpoint = backup?.experience?.checkpoint
   if (backupCheckpoint?.turnId && backupCheckpoint?.committedAt) {
-    const currentCheckpoint = buildExperienceBackupSummary().checkpoint
+    const currentCheckpoint = buildExperienceBackupSummary(storage).checkpoint
     if (currentCheckpoint?.committedAt > backupCheckpoint.committedAt) {
       checkpointNotice = `备份回合检查点(${backupCheckpoint.turnId}, ${backupCheckpoint.committedAt}) 早于当前会话(${currentCheckpoint.committedAt})，恢复将回退更新的回合历史`
     }
   }
+  const currentExperience = buildExperienceBackupSummary(storage)
+  const backupMemoryRevision = backup?.experience?.memoryRevision
+  if (
+    backupMemoryRevision !== undefined
+    && backupMemoryRevision !== null
+    && currentExperience.memoryRevision
+    && String(currentExperience.memoryRevision) !== String(backupMemoryRevision)
+  ) {
+    memoryRevisionNotice = '备份的记忆版本与当前数据不同，恢复将替换现有记忆候选状态'
+  }
+  if (
+    Array.isArray(backup?.experience?.branches)
+    && currentExperience.branches.length > 0
+    && JSON.stringify(backup.experience.branches) !== JSON.stringify(currentExperience.branches)
+  ) {
+    branchMetadataNotice = '备份的会话分支与当前数据不同，恢复将替换当前分支位置与回合链'
+  }
+  const restoreWarnings = [checkpointNotice, memoryRevisionNotice, branchMetadataNotice].filter(Boolean)
 
   return {
     valid: incompatible.length === 0,
@@ -258,7 +304,11 @@ export function createRestorePlan(input, storage = localStorage) {
     skip,
     incompatible,
     checkpoint: backupCheckpoint || null,
-    checkpointNotice
+    checkpointNotice,
+    memoryRevisionNotice,
+    branchMetadataNotice,
+    restoreWarnings,
+    requiresRiskConfirmation: restoreWarnings.length > 0
   }
 }
 
@@ -269,7 +319,11 @@ export function createRestorePlan(input, storage = localStorage) {
  * or storage failure restores the values changed during this attempt so a
  * partial import cannot silently leave the app in a mixed version.
  */
-export function restoreBackup(input, { storage = localStorage, overwrite = true } = {}) {
+export function restoreBackup(input, {
+  storage = localStorage,
+  overwrite = true,
+  acceptRestoreRisk = false,
+} = {}) {
   const plan = createRestorePlan(input, storage)
   if (!plan.valid) {
     return {
@@ -278,6 +332,15 @@ export function restoreBackup(input, { storage = localStorage, overwrite = true 
       plan,
       written: [],
       skipped: []
+    }
+  }
+  if (plan.requiresRiskConfirmation && !acceptRestoreRisk) {
+    return {
+      success: false,
+      reason: 'restore-risk-not-accepted',
+      plan,
+      written: [],
+      skipped: [],
     }
   }
 
