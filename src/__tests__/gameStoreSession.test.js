@@ -1004,7 +1004,16 @@ describe('gameStore sessions', () => {
     ]
     localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify(records))
 
+    // Q3：respond 先提交 BeatPlan，再触发 memory_lookup，最后写正文。
     vi.mocked(runNarrativeAgentTurn)
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [{
+          id: 'beat-plan-call',
+          name: 'submit_narrative_beat_plan',
+          arguments: { responseObligation: '回应玩家', causalSteps: ['承接', '发展'], revealOrChange: '变化', endCondition: '完成' }
+        }]
+      })
       .mockResolvedValueOnce({
         kind: 'tool_calls',
         calls: [{
@@ -1024,9 +1033,11 @@ describe('gameStore sessions', () => {
 
     const finalAgentRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
     expect(finalAgentRequest.messages.map((message) => message.role)).toEqual([
-      'system', 'system', 'assistant', 'user', 'assistant', 'tool'
+      'system', 'system', 'assistant', 'user', 'assistant', 'tool', 'user', 'assistant', 'tool'
     ])
-    const memoryToolResult = finalAgentRequest.messages.find((message) => message.role === 'tool')
+    const memoryToolResult = finalAgentRequest.messages.find((message) => (
+      message.role === 'tool' && message.content.includes('旧书店在西街。')
+    ))
     expect(memoryToolResult.content).toContain('旧书店在西街。')
     expect(memoryToolResult.content).toContain('玩家刚拿到铜钥匙。')
     expect(memoryToolResult.content).not.toContain('其他作品记忆')
@@ -1034,9 +1045,12 @@ describe('gameStore sessions', () => {
     expect(gameStore.lastMemoryContext).toBe('')
     expect(gameStore.lastMemoryRecall.source).toBe('narrative-tools')
     expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
-      toolRounds: 1,
-      totalCalls: 1,
-      calls: [expect.objectContaining({ tool: 'memory_lookup' })]
+      toolRounds: 2,
+      totalCalls: 2,
+      calls: [
+        expect.objectContaining({ tool: 'submit_narrative_beat_plan' }),
+        expect.objectContaining({ tool: 'memory_lookup' })
+      ]
     })
   })
 
@@ -1078,6 +1092,14 @@ describe('gameStore sessions', () => {
     ]))
 
     vi.mocked(runNarrativeAgentTurn)
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [{
+          id: 'beat-plan-call',
+          name: 'submit_narrative_beat_plan',
+          arguments: { responseObligation: '回应玩家', causalSteps: ['承接', '发展'], revealOrChange: '变化', endCondition: '完成' }
+        }]
+      })
       .mockResolvedValueOnce({
         kind: 'tool_calls',
         calls: [
@@ -1139,7 +1161,7 @@ describe('gameStore sessions', () => {
       indexed: {
         counts: expect.objectContaining({ world: 1, memory: 1 })
       },
-      tools: { rounds: 1, calls: 2 }
+      tools: { rounds: 2, calls: 3 }
     })
     expect(gameStore.lastNarrativeContextAudit.queryPreview).toBe('继续。')
     expect(gameStore.lastContextLedger.parts.map((part) => part.partition)).toEqual(
@@ -1154,7 +1176,7 @@ describe('gameStore sessions', () => {
       })
     ]))
     expect(gameStore.lastNarrativeContextAudit.tools).toMatchObject({
-      retainedResults: 2,
+      retainedResults: 3,
       prunedResults: 0
     })
     const productionMetrics = JSON.parse(
@@ -1166,9 +1188,9 @@ describe('gameStore sessions', () => {
       outcome: 'success',
       protocolOk: true,
       tools: {
-        rounds: 1,
-        calls: 2,
-        evidenceCount: 2,
+        rounds: 2,
+        calls: 3,
+        evidenceCount: 3,
         errorCount: 0
       },
       cleanup: {
@@ -1290,11 +1312,22 @@ describe('gameStore sessions', () => {
       { role: 'user', content: '我去找一间旧书店。' }
     ]
 
+    // Q3：respond 先提交 BeatPlan 再写正文 —— mock 第一轮返回计划调用。
+    vi.mocked(runNarrativeAgentTurn).mockResolvedValueOnce({
+      kind: 'tool_calls',
+      calls: [{
+        id: 'beat-plan-call',
+        name: 'submit_narrative_beat_plan',
+        arguments: { responseObligation: '回应玩家', causalSteps: ['承接', '发展'], revealOrChange: '变化', endCondition: '完成' }
+      }]
+    })
     await gameStore.generateAIResponse()
 
     const directRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
-    expect(directRequest.messages).toHaveLength(4)
-    expect(directRequest.messages.map((message) => message.role)).toEqual(['system', 'system', 'assistant', 'user'])
+    expect(directRequest.messages).toHaveLength(7)
+    expect(directRequest.messages.map((message) => message.role)).toEqual([
+      'system', 'system', 'assistant', 'user', 'assistant', 'tool', 'user'
+    ])
     expect(directRequest.messages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
     const recall = gameStore.lastMemoryRecall
     expect(recall).not.toBeNull()
@@ -1302,7 +1335,7 @@ describe('gameStore sessions', () => {
     expect(recall.totalItems).toBe(0)
     expect(recall.source).toBe('narrative-tools')
     expect(gameStore.lastMemoryContext).toBe('')
-    expect(vi.mocked(runNarrativeAgentTurn)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(runNarrativeAgentTurn)).toHaveBeenCalledTimes(2)
   })
 
   it('extends the last assistant message in place without creating a new message (C4)', async () => {

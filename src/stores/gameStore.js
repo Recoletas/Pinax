@@ -3628,6 +3628,11 @@ export const useGameStore = defineStore('game', {
           finishReason: trace?.finishReason,
           boundedCompletion: trace?.boundedCompletion,
           incomplete: trace?.incomplete,
+          plan: {
+            revision: trace?.planRevision,
+            mode: trace?.beatMode,
+            targetChars: trace?.targetChars
+          },
           timing,
           tools: {
             rounds: completedAgentRun?.toolRounds ?? timing.toolRounds,

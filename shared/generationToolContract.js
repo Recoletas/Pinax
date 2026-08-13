@@ -2,12 +2,14 @@ import {
   NARRATIVE_READ_TOOL_NAMES,
   validateNarrativeToolCall
 } from './narrativeAgentContract.js'
+import { NARRATIVE_BEAT_PLAN_TOOL } from './narrativeBeatPlanContract.js'
 
 export const GENERATION_AGENT_TURN_SCHEMA_VERSION = 1
 
 export const WORLD_BOOK_RESEARCH_TOOL_NAMES = Object.freeze(['web_search'])
 export const GENERATION_TOOL_NAMES = Object.freeze([
   ...NARRATIVE_READ_TOOL_NAMES,
+  NARRATIVE_BEAT_PLAN_TOOL,
   ...WORLD_BOOK_RESEARCH_TOOL_NAMES
 ])
 
@@ -21,7 +23,7 @@ export const GENERATION_AGENT_LIMITS = Object.freeze({
   maxMessageChars: 8000,
   maxToolResultChars: 7200,
   maxInputChars: 24000,
-  maxTools: 4,
+  maxTools: 5,
   maxTokens: 8192,
   maxTimeoutMs: 45000
 })
@@ -91,7 +93,9 @@ function validateWorldBookSearchCall(rawCall = {}) {
 
 export function validateGenerationToolCall(rawCall = {}) {
   const name = text(rawCall?.name || rawCall?.function?.name)
-  if (NARRATIVE_READ_TOOL_NAMES.includes(name)) return validateNarrativeToolCall(rawCall)
+  if (NARRATIVE_READ_TOOL_NAMES.includes(name) || name === NARRATIVE_BEAT_PLAN_TOOL) {
+    return validateNarrativeToolCall(rawCall)
+  }
   if (WORLD_BOOK_RESEARCH_TOOL_NAMES.includes(name)) return validateWorldBookSearchCall(rawCall)
   return contractError('GENERATION_TOOL_UNKNOWN', `未知生成工具：${name || 'empty'}`)
 }

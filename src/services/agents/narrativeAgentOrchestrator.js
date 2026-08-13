@@ -20,6 +20,10 @@ import {
 } from './narrativeVoicePolicy'
 import { intentCharRange } from '../../../shared/narrativeGenerationIntentContract'
 import {
+  NARRATIVE_BEAT_PLAN_TOOL,
+  narrativeBeatPlanRevision
+} from '../../../shared/narrativeBeatPlanContract'
+import {
   classifyNarrativeRecoveryError,
   deriveNarrativeGroundingPolicy,
   hasNarrativeGroundingEvidence
@@ -135,11 +139,36 @@ function turnInstructionText(turn, mode, intent) {
   return input || '继续当前故事'
 }
 
+// Q3：BeatPlan 作为 control message 追加到同一 transcript（压缩为低敏指令，不重复整段计划全文）。
+function buildBeatPlanControlMessage(plan = {}) {
+  return [
+    '【本轮叙事拍计划｜据此写正文，不偏离】',
+    plan.responseObligation ? `回应义务：${plan.responseObligation}` : '',
+    Array.isArray(plan.causalSteps) && plan.causalSteps.length
+      ? `因果步骤：${plan.causalSteps.join(' → ')}`
+      : '',
+    plan.revealOrChange ? `最终变化：${plan.revealOrChange}` : '',
+    plan.endCondition ? `结束条件：${plan.endCondition}` : '',
+    Array.isArray(plan.avoidRepeats) && plan.avoidRepeats.length
+      ? `不要重复：${plan.avoidRepeats.join('、')}`
+      : '',
+    plan.targetChars ? `目标约 ${plan.targetChars} 字` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function requiresBeatPlanFor(intent, mode) {
+  const effective = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
+  return ['open', 'respond', 'advance'].includes(effective)
+}
+
 function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstructions, requestId, expansion = 'standard' }) {
   const turn = (kernel?.blocks || []).find((block) => block.kind === 'turn')
   const systemContent = [
     '你是 Pinax 的中文小说叙述者和资料使用者。当前请求使用同一份临时 transcript。',
     '你可以按需调用只读叙事工具核对世界书、地理、历史或已确认记忆；工具结果返回后必须沿用本 transcript。',
+    requiresBeatPlanFor(intent, mode)
+      ? 'open/respond/advance 时先调用 submit_narrative_beat_plan 提交本轮叙事拍计划（schema 约束），校验通过后再写正文；extend 复用已有计划，不再规划。'
+      : '',
     '如果已经有足够依据，直接输出最终故事正文；不要输出 JSON、工具名、分析过程或内部状态。',
     finalModeInstructions(mode),
     buildNarrativeVoiceContract(),
@@ -508,6 +537,8 @@ function sleepWithSignal(ms, signal) {
 
 function normalizeEmptyToolResult(call, result) {
   if (result?.ok === false) return result
+  // Q3：BeatPlan 是内部计划调用，不是资料查询 —— 空 items 是正常形态。
+  if (text(call?.name) === NARRATIVE_BEAT_PLAN_TOOL) return result
   if (!Array.isArray(result?.items) || result.items.length === 0) {
     return createNarrativeToolError(call, 'NARRATIVE_TOOL_EMPTY_RESULT', '资料查询没有返回可用条目', {
       retryable: true
@@ -610,6 +641,14 @@ export async function runNarrativeAgentLoop({
   let terminalText = ''
   let terminalFinishReason = ''
   let boundedCompletionUsed = false
+  // Q3：BeatPlan 计划先行 —— open/respond/advance 先计划再写正文；extend 复用当前计划。
+  const requiresBeatPlan = requiresBeatPlanFor(intent, mode)
+  const requestTools = requiresBeatPlan
+    ? kernel.toolCatalog
+    : (kernel.toolCatalog || []).filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
+  let beatPlan = null
+  let beatPlanRevision = ''
+  let beatPlanRepairs = 0
   const groundingPolicy = deriveNarrativeGroundingPolicy({ kernel, mode })
 
   const ensureActive = () => {
@@ -631,7 +670,7 @@ export async function runNarrativeAgentLoop({
     })
     const request = () => decisionRunner({
       messages: transcriptToGenerationMessages(transcript),
-      tools: kernel.toolCatalog,
+      tools: requestTools,
       settings,
       requestId: turnRequestId,
       options: {
@@ -755,6 +794,10 @@ export async function runNarrativeAgentLoop({
         finishReason: text(terminalFinishReason),
         boundedCompletion: boundedCompletionUsed,
         incomplete: boundedCompletionUsed && isIncompleteText(finalText),
+        // Q3：低敏计划元数据（不存计划全文）。
+        planRevision: text(beatPlanRevision),
+        beatMode: beatPlan ? text(beatPlan.mode) : '',
+        targetChars: beatPlan ? (Number(beatPlan.targetChars) || 0) : 0,
         calls: traceCalls
       },
       baseMessages: transcriptToGenerationMessages(normalized.transcript)
@@ -770,6 +813,17 @@ export async function runNarrativeAgentLoop({
       const calls = Array.isArray(response?.calls) ? response.calls : []
 
       if (response?.kind === 'final_ready' && calls.length === 0) {
+        // Q3：计划先行 —— open/respond/advance 未提交 BeatPlan 时要求先规划（最多一次修复）。
+        if (requiresBeatPlan && !beatPlan && beatPlanRepairs < 1) {
+          beatPlanRepairs += 1
+          transcript = appendTranscript(transcript, {
+            id: `${turnRequestId}:user:plan-required:${stepIndex}`,
+            role: 'user',
+            parts: [{ type: 'text', text: '请先调用 submit_narrative_beat_plan 提交本轮叙事拍计划（responseObligation / causalSteps / revealOrChange / endCondition 必填），校验通过后再写正文；不要跳过计划直接输出。' }]
+          })
+          stepIndex += 1
+          continue
+        }
         transcript = appendTranscript(transcript, {
           id: `${turnRequestId}:assistant:${stepIndex}`,
           role: 'assistant',
@@ -903,6 +957,22 @@ export async function runNarrativeAgentLoop({
           }]
         }, { allowPendingToolCalls: remainingEntries > 0 })
       }
+      // Q3：BeatPlan 校验通过后，把计划作为 control message 追加到同一 transcript，
+      // 供下一步 prose 使用；extend 不重新规划（工具目录已剔除）。
+      if (requiresBeatPlan && !beatPlan) {
+        const planEntry = executed.find((entry) => (
+          entry.result?.tool === NARRATIVE_BEAT_PLAN_TOOL && entry.result?.ok !== false
+        ))
+        if (planEntry?.result?.plan) {
+          beatPlan = planEntry.result.plan
+          beatPlanRevision = planEntry.result.planRevision || narrativeBeatPlanRevision(beatPlan)
+          transcript = appendTranscript(transcript, {
+            id: `${turnRequestId}:user:beat-plan:${stepIndex}`,
+            role: 'user',
+            parts: [{ type: 'text', text: buildBeatPlanControlMessage(beatPlan) }]
+          })
+        }
+      }
       if (staleResourceObserved) {
         activeResourceRevision = text(registry.revision)
         status(onStatus, 'resource-refreshed', {
@@ -987,7 +1057,11 @@ export function createNarrativeAgentContextLedger({
       repairCount: Number(run?.trace?.repairCount || 0),
       groundingPolicy: text(run?.trace?.groundingPolicy?.level || 'optional'),
       terminalMode: text(run?.trace?.terminalMode || 'direct-text'),
-      fallbackReason: text(run?.trace?.fallbackReason)
+      fallbackReason: text(run?.trace?.fallbackReason),
+      // Q3：低敏计划元数据
+      planRevision: text(run?.trace?.planRevision),
+      beatMode: text(run?.trace?.beatMode),
+      targetChars: Number(run?.trace?.targetChars || 0)
     }
   }
   const summaryBlock = (kernel?.blocks || []).find((block) => block.kind === 'summary')
@@ -1145,6 +1219,12 @@ export function buildTurnReceipt({ ledger = null, run = null, sceneSummary = nul
     summaryRevision: summaryPart?.content?.includes('/')
       ? String(summaryPart.content.split('/')[0].trim() || '')
       : (sceneSummary?.revision || ''),
+    // Q3：低敏计划摘要（不存计划全文）
+    plan: {
+      revision: String(run?.trace?.planRevision || ''),
+      mode: String(run?.trace?.beatMode || ''),
+      targetChars: Number(run?.trace?.targetChars || 0),
+    },
     tools,
     toolCount: tools.length,
     toolResults: { ok: toolOk, failed: toolFail, total: results.length },

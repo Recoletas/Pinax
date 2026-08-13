@@ -10,6 +10,10 @@ import { executeWorldLookup } from './tools/worldLookup'
 import { executeGeoLookup } from './tools/geoLookup'
 import { executeHistoryLookup } from './tools/historyLookup'
 import { executeMemoryLookup } from './tools/memoryLookup'
+import {
+  NARRATIVE_BEAT_PLAN_TOOL,
+  narrativeBeatPlanRevision
+} from '../../../shared/narrativeBeatPlanContract'
 
 const EXECUTORS = Object.freeze({
   world_lookup: executeWorldLookup,
@@ -52,6 +56,24 @@ export function createNarrativeToolRegistry({
     const call = validation.call
     if (options.signal?.aborted) {
       return createNarrativeToolError(call, 'NARRATIVE_TOOL_ABORTED', '工具调用已取消')
+    }
+    // Q3：BeatPlan 是内部控制调用 —— 不查询资源索引，不计入 grounding evidence。
+    if (call.name === NARRATIVE_BEAT_PLAN_TOOL) {
+      const plan = call.arguments || {}
+      return {
+        schemaVersion: NARRATIVE_AGENT_SCHEMA_VERSION,
+        ok: true,
+        callId: call.id,
+        tool: call.name,
+        action: 'submit',
+        plan,
+        planRevision: narrativeBeatPlanRevision(plan),
+        items: [],
+        truncated: false,
+        warnings: [],
+        chars: JSON.stringify(plan).length,
+        cached: false
+      }
     }
     if (!index?.byId || !index?.byDomain) {
       return createNarrativeToolError(call, 'NARRATIVE_RESOURCE_INDEX_MISSING', '叙事资源索引不可用')

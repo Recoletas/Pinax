@@ -1,3 +1,9 @@
+import {
+  NARRATIVE_BEAT_PLAN_TOOL,
+  narrativeBeatPlanToolSchema,
+  validateNarrativeBeatPlanInput
+} from './narrativeBeatPlanContract.js'
+
 export const NARRATIVE_AGENT_SCHEMA_VERSION = 1
 
 export const NARRATIVE_TOOL_LIMITS = Object.freeze({
@@ -103,6 +109,13 @@ function validateActionInput(name, input) {
 }
 
 export function validateNarrativeToolInput(name, rawInput) {
+  // Q3：BeatPlan 是内部控制调用，不是世界资料查询 —— 走独立 schema 校验。
+  if (name === NARRATIVE_BEAT_PLAN_TOOL) {
+    const parsed = parseArguments(rawInput)
+    const validation = validateNarrativeBeatPlanInput(parsed || {})
+    if (!validation.valid) return validation
+    return { valid: true, input: validation.plan }
+  }
   const definition = NARRATIVE_READ_TOOLS[name]
   if (!definition) {
     return error('NARRATIVE_TOOL_UNKNOWN', `未知叙事工具：${text(name) || 'empty'}`)
@@ -221,25 +234,34 @@ function toolInputSchema(actions) {
 
 export function resolveNarrativeActiveToolNames(input = '', options = {}) {
   const normalized = text(input)
-  const names = new Set(['world_lookup', 'geo_lookup'])
+  const names = new Set(['world_lookup', 'geo_lookup', NARRATIVE_BEAT_PLAN_TOOL])
   const explicitHistory = /历史|史实|追溯|因果|年代|时间线|旧关系|过去/.test(normalized)
   const explicitMemory = /记忆|记得|回想|曾经|之前确认|已知/.test(normalized)
   if (explicitHistory || options.hasHistory === true) names.add('history_lookup')
   if (explicitMemory || options.hasMemory === true) names.add('memory_lookup')
-  return NARRATIVE_READ_TOOL_NAMES.filter((name) => names.has(name))
+  // BeatPlan 内部工具单独追加（不在 read tools 枚举里；extend 时由 orchestrator 从目录剔除）
+  return [...NARRATIVE_READ_TOOL_NAMES.filter((name) => names.has(name)), NARRATIVE_BEAT_PLAN_TOOL]
 }
 
 export function getNarrativeToolCatalog(options = {}) {
   const activeTools = Array.isArray(options.activeTools) && options.activeTools.length > 0
     ? new Set(options.activeTools)
     : null
-  return NARRATIVE_READ_TOOL_NAMES
+  const catalog = NARRATIVE_READ_TOOL_NAMES
     .filter((name) => !activeTools || activeTools.has(name))
     .map((name) => ({
     name,
     description: NARRATIVE_READ_TOOLS[name].description,
     inputSchema: toolInputSchema(NARRATIVE_READ_TOOLS[name].actions)
     }))
+  if (!activeTools || activeTools.has(NARRATIVE_BEAT_PLAN_TOOL)) {
+    catalog.push({
+      name: NARRATIVE_BEAT_PLAN_TOOL,
+      description: '内部控制调用：提交本轮叙事拍计划（schema 约束），校验通过后据此写正文。不是世界资料查询，不计入证据。',
+      inputSchema: narrativeBeatPlanToolSchema()
+    })
+  }
+  return catalog
 }
 
 function encodeCursor(value) {

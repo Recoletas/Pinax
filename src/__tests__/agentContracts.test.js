@@ -159,6 +159,7 @@ import {
   intentCharRange,
   narrativeExpansionFactor
 } from '../../shared/narrativeGenerationIntentContract.js'
+import { validateNarrativeBeatPlanInput } from '../../shared/narrativeBeatPlanContract.js'
 import {
   STRUCTURED_GENERATION_SCHEMA_IDS,
   STRUCTURED_GENERATION_TIMEOUTS,
@@ -723,9 +724,13 @@ describe('agentContracts', function () {
     expect(JSON.stringify(narrativeKernel)).not.toContain('这一段很长的世界简介')
     expect(narrativeKernel.toolCatalog.map(function (tool) { return tool.name })).toEqual([
       'world_lookup',
-      'geo_lookup'
+      'geo_lookup',
+      'submit_narrative_beat_plan'
     ])
-    expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual(NARRATIVE_READ_TOOL_NAMES)
+    expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual([
+      ...NARRATIVE_READ_TOOL_NAMES,
+      'submit_narrative_beat_plan'
+    ])
     var historicalKernel = buildNarrativeKernel({
       worldbook: narrativeWorldbook,
       runtimeState: narrativeRuntime,
@@ -736,7 +741,8 @@ describe('agentContracts', function () {
     expect(historicalKernel.toolCatalog.map(function (tool) { return tool.name })).toEqual([
       'world_lookup',
       'geo_lookup',
-      'history_lookup'
+      'history_lookup',
+      'submit_narrative_beat_plan'
     ])
     var longNarrativeMessages = [
       { id: 'long-1', role: 'assistant', content: '陆晨曦抵达生态区观测舱，发现异常信号。' },
@@ -1668,7 +1674,23 @@ describe('agentContracts', function () {
       requestId: 'single-transcript-loop',
       decisionRunner: async function (request) {
         transcriptRequests.push(request)
+        // Q3：respond 计划先行 —— 第一步先提交 BeatPlan，再查资料，最后写正文。
         if (transcriptRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家对信号时间线的询问',
+                causalSteps: ['确认变轨依据', '调出原始波形'],
+                revealOrChange: '玩家确认了变轨与回波的时间关系',
+                endCondition: '时间线对不上的时段被指出'
+              }
+            }]
+          }
+        }
+        if (transcriptRequests.length === 2) {
           return {
             kind: 'tool_calls',
             calls: [{
@@ -1691,17 +1713,20 @@ describe('agentContracts', function () {
         }
       }
     })
-    expect(transcriptRequests).toHaveLength(2)
+    expect(transcriptRequests).toHaveLength(3)
     expect(transcriptRequests[0].requestId).toBe('single-transcript-loop')
     expect(transcriptRequests[1].requestId).toBe('single-transcript-loop')
     expect(transcriptRequests[1].messages.some(function (message) {
+      return message.role === 'user' && message.content.includes('本轮叙事拍计划')
+    })).toBe(true)
+    expect(transcriptRequests[2].messages.some(function (message) {
       return message.role === 'assistant' && message.toolCalls?.[0]?.id === 'single-transcript-call'
     })).toBe(true)
-    expect(transcriptRequests[1].messages.some(function (message) {
+    expect(transcriptRequests[2].messages.some(function (message) {
       return message.role === 'tool' && message.toolCallId === 'single-transcript-call'
     })).toBe(true)
-    expect(transcriptRequests[1].messages.find(function (message) {
-      return message.role === 'assistant' && message.toolCalls?.length
+    expect(transcriptRequests[2].messages.find(function (message) {
+      return message.role === 'assistant' && message.toolCalls?.[0]?.id === 'single-transcript-call'
     }).parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'opaque-r4' } })
     ]))
@@ -1710,9 +1735,10 @@ describe('agentContracts', function () {
       trace: {
         status: 'ready',
         terminalMode: 'direct-text',
-        steps: 2
+        steps: 3
       }
     })
+    expect(transcriptLoop.trace.planRevision).toMatch(/^bp_/)
     expect(transcriptLoop.transcript.messages.some(function (message) {
       return message.parts.some((part) => part.type === 'tool-result' && part.toolCallId === 'single-transcript-call')
     })).toBe(true)
@@ -1738,7 +1764,23 @@ describe('agentContracts', function () {
       requestId: 'narrative-r5-repair',
       decisionRunner: async function (request) {
         repairRequests.push(request)
+        // Q3：respond 先规划，再触发一次坏的资料调用（验证 repair），最后写正文。
         if (repairRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['核对', '确认'],
+                revealOrChange: '确认变化',
+                endCondition: '核对完成'
+              }
+            }]
+          }
+        }
+        if (repairRequests.length === 2) {
           return {
             kind: 'tool_calls',
             calls: [{
@@ -1751,8 +1793,8 @@ describe('agentContracts', function () {
         return { kind: 'final_ready', text: '修复后的正文。', calls: [] }
       }
     })
-    expect(repairRequests).toHaveLength(2)
-    expect(repairRequests[1].messages.some(function (message) {
+    expect(repairRequests).toHaveLength(3)
+    expect(repairRequests[2].messages.some(function (message) {
       return message.role === 'user' && message.content.includes('上一轮资料调度未通过校验')
     })).toBe(true)
     expect(repairedNarrativeRun).toMatchObject({
@@ -1839,19 +1881,36 @@ describe('agentContracts', function () {
       requestId: 'narrative-continue-bypass',
       decisionRunner: async function () {
         bypassedDecisionCalls += 1
+        // Q3：respond 先提交计划，再直接写正文。
+        if (bypassedDecisionCalls === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['承接', '推进'],
+                revealOrChange: '推进完成',
+                endCondition: '承接到位'
+              }
+            }]
+          }
+        }
         return { kind: 'final_ready', text: '承接后的正文。', calls: [] }
       },
       streamRunner: async function (request) {
         request.callbacks.onComplete?.({ content: '承接后的正文。' })
       }
     })
-    expect(bypassedDecisionCalls).toBe(1)
+    expect(bypassedDecisionCalls).toBe(2)
     expect(bypassedRun).toMatchObject({
       finalText: '承接后的正文。',
       trace: { status: 'ready', terminalMode: 'direct-text' }
     })
 
     // C5：有界补全 —— finishReason=length 时同一 transcript 内自动补全一次，聚合为同一正文。
+    // Q3：respond 先提交 BeatPlan，再触发截断正文与一次补全。
     var completionCalls = 0
     var completedRun = await runNarrativeAgentGeneration({
       kernel: {
@@ -1868,12 +1927,27 @@ describe('agentContracts', function () {
       decisionRunner: async function () {
         completionCalls += 1
         if (completionCalls === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['承接', '发展'],
+                revealOrChange: '发展完成',
+                endCondition: '动作链完成'
+              }
+            }]
+          }
+        }
+        if (completionCalls === 2) {
           return { kind: 'final_ready', text: '雨水沿着舷窗滑落，', finishReason: 'length', calls: [] }
         }
         return { kind: 'final_ready', text: '打湿了甲板上的缆绳。', calls: [] }
       }
     })
-    expect(completionCalls).toBe(2)
+    expect(completionCalls).toBe(3)
     expect(completedRun.finalText).toBe('雨水沿着舷窗滑落，打湿了甲板上的缆绳。')
     expect(completedRun.trace.boundedCompletion).toBe(true)
     expect(completedRun.trace.incomplete).toBe(false)
@@ -1888,6 +1962,25 @@ describe('agentContracts', function () {
     expect(expandedRespond.max).toBe(Math.round(1500 * 1.35))
     expect(narrativeExpansionFactor('expanded')).toBe(1.35)
     expect(narrativeExpansionFactor('unknown')).toBe(1)
+
+    // Q3：BeatPlan schema 校验 —— 拒绝空 responseObligation / 不足 2 个因果步骤 / 缺 endCondition。
+    expect(validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: ['确认依据', '调出波形'],
+      revealOrChange: '关系确认',
+      endCondition: '核对完成'
+    }).valid).toBe(true)
+    expect(validateNarrativeBeatPlanInput({
+      causalSteps: ['a', 'b'],
+      revealOrChange: 'c',
+      endCondition: 'd'
+    }).valid).toBe(false)
+    expect(validateNarrativeBeatPlanInput({
+      responseObligation: 'x',
+      causalSteps: ['a'],
+      revealOrChange: 'c',
+      endCondition: 'd'
+    }).valid).toBe(false)
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

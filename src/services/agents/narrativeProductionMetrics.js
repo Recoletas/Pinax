@@ -140,6 +140,11 @@ export function normalizeNarrativeProductionRun(input = {}) {
     finishReason: text(input.finishReason, 40) || null,
     boundedCompletion: Boolean(input.boundedCompletion),
     incomplete: Boolean(input.incomplete),
+    plan: {
+      revision: text(input.plan?.revision || input.planRevision, 120),
+      mode: text(input.plan?.mode || input.beatMode, 40),
+      targetChars: boundedNumber(input.plan?.targetChars || input.targetChars, 0, 20000)
+    },
     online: Boolean(input.online),
     outcome,
     errorCode,
