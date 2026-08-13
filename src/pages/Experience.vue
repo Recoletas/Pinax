@@ -672,6 +672,10 @@ const autoAdvanceEnabled = ref(false)
 const autoAdvancePending = ref(false)
 const autoAdvanceRequestActive = ref(false)
 let autoAdvanceTimer = null
+// C6：半自动节奏 —— 一次自动会话最多推进 N 个完整 beat，间隔阅读友好。
+const autoAdvanceBeatCount = ref(0)
+const AUTO_ADVANCE_MAX_BEATS = 3
+const AUTO_ADVANCE_INTERVAL_MS = 1500
 const activeCodexSection = ref('events')
 const codexSheetOpen = ref(false)
 const codexTriggerRef = ref(null)
@@ -701,9 +705,28 @@ function stopAutoAdvance({ abortRunning = false } = {}) {
   clearAutoAdvanceTimer()
   autoAdvancePending.value = false
   autoAdvanceEnabled.value = false
+  autoAdvanceBeatCount.value = 0
   if (abortRunning && autoAdvanceRequestActive.value && gameStore.isLoading) {
     gameStore.cancelNarrativeGeneration?.('auto-advance-stopped')
   }
+}
+
+// C6：半自动暂停条件 —— 决策点/场景转折/机制触发时停下，不无限推进。
+function shouldPauseAutoAdvance(content, placeIdBefore) {
+  const text = String(content || '').trim()
+  if (!text) return false
+  // 直接向玩家提问（问句结尾）
+  if (/[？?]$/.test(text)) return true
+  // 地点切换
+  if (placeIdBefore && gameStore.worldMapState?.placeId
+    && placeIdBefore !== gameStore.worldMapState.placeId) {
+    return true
+  }
+  // 机制触发（战斗/交易/任务/对话面板）
+  const latestAssistant = [...(gameStore.messages || [])].reverse()
+    .find((message) => message?.role === 'assistant')
+  if (latestAssistant?.mechanismTrigger) return true
+  return false
 }
 
 function scheduleAutoAdvance(delay = 1300) {
@@ -730,7 +753,9 @@ async function runAutoAdvance() {
   }
 
   autoAdvanceRequestActive.value = true
+  autoAdvanceBeatCount.value += 1
   const messageCount = gameStore.messages.length
+  const placeIdBefore = gameStore.worldMapState?.placeId || ''
   try {
     await handleSend('自动续写：只承接最后一个可见动作或台词。', {
       hidden: true,
@@ -739,8 +764,16 @@ async function runAutoAdvance() {
     })
     const generated = gameStore.messages.slice(messageCount)
       .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    if (generated && autoAdvanceEnabled.value) scheduleAutoAdvance(900)
-    else stopAutoAdvance()
+    const latestAssistant = [...gameStore.messages].reverse()
+      .find((message) => message?.role === 'assistant' && String(message?.content || '').trim())
+    // C6：达到连续上限，或出现决策点/场景转折/机制触发 → 停止，不再排下一拍。
+    const shouldPause = autoAdvanceBeatCount.value >= AUTO_ADVANCE_MAX_BEATS
+      || shouldPauseAutoAdvance(latestAssistant?.content || '', placeIdBefore)
+    if (generated && autoAdvanceEnabled.value && !shouldPause) {
+      scheduleAutoAdvance(AUTO_ADVANCE_INTERVAL_MS)
+    } else {
+      stopAutoAdvance()
+    }
   } catch {
     // 生成函数会记录具体错误；半自动只负责收回本次待续状态。
     stopAutoAdvance()
@@ -756,6 +789,7 @@ function toggleAutoAdvance() {
   }
   if (!canUseAutoAdvance.value) return
   autoAdvanceEnabled.value = true
+  autoAdvanceBeatCount.value = 0
   // 半自动立即起步；自动轮次只接住最近正文的结尾，而不是把隐藏命令
   // 作为普通用户意图扩展到整段历史。
   scheduleAutoAdvance(300)
@@ -1490,9 +1524,11 @@ async function handleSend(text, options = {}) {
   const messageCount = gameStore.messages.length
   await gameStore.sendAction(text, options)
   if (!isAutoAdvance && shouldAutoFollow && autoAdvanceEnabled.value) {
+    // C6：用户手动输入开启新一轮自动会话，重置 beat 计数；间隔阅读友好。
+    autoAdvanceBeatCount.value = 0
     const generated = gameStore.messages.slice(messageCount)
       .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    if (generated) scheduleAutoAdvance(900)
+    if (generated) scheduleAutoAdvance(AUTO_ADVANCE_INTERVAL_MS)
     else stopAutoAdvance()
   }
 }
@@ -3139,6 +3175,23 @@ function quickNoteWordCount(text) {
 
   .game-page .input-area {
     padding: 9px 16px 12px;
+  }
+}
+
+/* 390px viewport at 200% zoom leaves roughly 195 CSS px. Preserve every
+   top-strip action by reflowing the four controls instead of clipping the
+   session switch at the right edge. */
+@media (max-width: 260px) {
+  .game-page .ws-topstrip__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .game-page .ws-topstrip__session-chip {
+    padding-left: 0;
+  }
+
+  .game-page .ws-topstrip__session-chip-btn {
+    width: 100%;
   }
 }
 

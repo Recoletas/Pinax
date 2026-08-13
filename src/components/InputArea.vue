@@ -117,6 +117,7 @@
         class="quick-btn"
         @click="handleQuickAction(action.command)"
         :disabled="gameStore.isLoading"
+        :title="action.title || ''"
       >
         <!-- UI-E18-FIX3: emoji icon was rendered inline next to the
              label. In theme-legacy (steel-blue dossier, COMPETITION
@@ -345,7 +346,7 @@ const systemPromptContent = `【身份】你是 Pinax 的中文小说叙述者�
 ${buildNarrativeFormatInstructions()}`
 
 const quickActions = [
-  { label: '继续', icon: '▶', command: 'continue' },
+  { label: '继续', icon: '▶', command: 'continue', title: '继续上一段正文（延长上一条回复，不新增回合）' },
   { label: '场景', icon: '🌿', command: 'scene' },
   { label: '对话', icon: '💬', command: 'dialogue' },
   { label: '心理', icon: '💭', command: 'inner' }
