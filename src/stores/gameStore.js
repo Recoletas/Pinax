@@ -2992,6 +2992,7 @@ export const useGameStore = defineStore('game', {
       let messageIndex = -1
       let placeholderId = ''
       let productionMode = 'continue'
+      let effectiveIntent = ''
       let productionOutcome = 'error'
       let productionError = null
       let productionKernel = null
@@ -3019,7 +3020,7 @@ export const useGameStore = defineStore('game', {
         const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
         // C1：显式 intent 优先；否则按历史推断（无 assistant 历史 → open）。
         // normalizeNarrativeIntent 对空值恒返回 'respond'，故这里先判断是否显式传入。
-        const effectiveIntent = (intent != null && String(intent).trim() !== '')
+        effectiveIntent = (intent != null && String(intent).trim() !== '')
           ? normalizeNarrativeIntent(intent)
           : (!hasAssistantHistory ? 'open' : 'respond')
         const isInitGeneration = effectiveIntent === 'open'
@@ -3404,6 +3405,7 @@ export const useGameStore = defineStore('game', {
           provider: this.apiSettings?.provider,
           model: this.apiSettings?.model,
           mode: productionMode,
+          intent: effectiveIntent,
           outcome: productionOutcome,
           errorCode: productionError?.code,
           retryable: productionError?.retryable,
@@ -3421,6 +3423,9 @@ export const useGameStore = defineStore('game', {
           orphanedCallCount: trace?.orphanedCallCount,
           fallbackReason: trace?.fallbackReason,
           transcriptRevision: trace?.transcriptRevision,
+          finishReason: trace?.finishReason,
+          boundedCompletion: trace?.boundedCompletion,
+          incomplete: trace?.incomplete,
           timing,
           tools: {
             rounds: completedAgentRun?.toolRounds ?? timing.toolRounds,

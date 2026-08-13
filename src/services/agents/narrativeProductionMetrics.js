@@ -24,6 +24,13 @@ function optionalBoolean(value) {
   return typeof value === 'boolean' ? value : null
 }
 
+const NARRATIVE_INTENTS = new Set(['open', 'respond', 'extend', 'advance'])
+
+function normalizeIntent(value) {
+  const raw = text(value, 20)
+  return NARRATIVE_INTENTS.has(raw) ? raw : null
+}
+
 function resolveStorage(storage) {
   if (storage) return storage
   if (typeof window !== 'undefined') return window.localStorage
@@ -129,6 +136,10 @@ export function normalizeNarrativeProductionRun(input = {}) {
     provider: text(input.provider, 40),
     model: text(input.model, 80),
     mode: input.mode === 'init' ? 'init' : 'continue',
+    intent: normalizeIntent(input.intent),
+    finishReason: text(input.finishReason, 40) || null,
+    boundedCompletion: Boolean(input.boundedCompletion),
+    incomplete: Boolean(input.incomplete),
     online: Boolean(input.online),
     outcome,
     errorCode,
@@ -224,6 +235,16 @@ function ratio(numerator, denominator) {
   return Number((numerator / denominator).toFixed(4))
 }
 
+function countBy(items, keyOf) {
+  const counts = {}
+  for (const item of items) {
+    const key = keyOf(item)
+    if (key == null || key === '') continue
+    counts[key] = (counts[key] || 0) + 1
+  }
+  return counts
+}
+
 export function summarizeNarrativeProductionMetrics(input = []) {
   const rawEvents = Array.isArray(input) ? input : input?.events
   const events = (Array.isArray(rawEvents) ? rawEvents : []).map(normalizeNarrativeProductionRun)
@@ -299,6 +320,12 @@ export function summarizeNarrativeProductionMetrics(input = []) {
       error: failures.length,
       cancelled: events.length - completed.length,
       qualityLabeled: qualityEvents.length
+    },
+    generation: {
+      intents: countBy(events, (event) => event.intent),
+      finishReasons: countBy(events, (event) => event.finishReason),
+      boundedCompletion: events.filter((event) => event.boundedCompletion).length,
+      incomplete: events.filter((event) => event.incomplete).length
     },
     rates: {
       success: ratio(successes.length, completed.length),

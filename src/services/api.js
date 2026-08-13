@@ -252,6 +252,7 @@ export async function sendNarrativeAgentStepStream({
     kind: reduced.kind,
     calls: reduced.calls,
     text: reduced.text,
+    finishReason: reduced.finishReason || '',
     parts: [
       ...(reduced.text ? [{ type: 'text', text: reduced.text }] : []),
       ...reduced.calls.map((call) => ({

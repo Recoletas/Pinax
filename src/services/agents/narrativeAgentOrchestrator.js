@@ -423,6 +423,28 @@ function validateNarrativeStepResponse(response) {
   return response
 }
 
+// C5：有界补全 —— 判断一次 final_ready 是否需要补全。
+//   finishReason 为 length/max_tokens/max_output_tokens → 必然补全；
+//   否则仅当正文很短（<180 字）且没有自然落点（句末标点/收尾引号）时补全一次。
+const BOUNDED_LENGTH_FINISH_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens'])
+const BOUNDED_COMPLETION_MIN_CHARS = 180
+
+function shouldBoundedComplete(response = {}) {
+  const finishReason = text(response.finishReason).toLowerCase()
+  if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
+  if (finishReason) return false
+  const content = text(response.text)
+  if (content.length >= BOUNDED_COMPLETION_MIN_CHARS) return false
+  return !/[。！？!?…”』」"']$/.test(content.slice(-1))
+}
+
+// C5：正文是否缺少自然落点（句末标点/收尾引号）—— 用于 incomplete 标记。
+function isIncompleteText(value) {
+  const content = text(value)
+  if (!content) return false
+  return !/[。！？!?…”』」"']$/.test(content.slice(-1))
+}
+
 function createRepairMessage(requestId, count, error) {
   const code = text(error?.code) || 'NARRATIVE_AGENT_STEP_INVALID'
   return {
@@ -553,6 +575,10 @@ export async function runNarrativeAgentLoop({
   let providerRetryCount = 0
   let repairCount = 0
   let staleResourceObserved = false
+  // C5：有界补全状态 —— 同一 turn 内最多一次自动 extend，聚合为同一正文。
+  let terminalText = ''
+  let terminalFinishReason = ''
+  let boundedCompletionUsed = false
   const groundingPolicy = deriveNarrativeGroundingPolicy({ kernel, mode })
 
   const ensureActive = () => {
@@ -694,6 +720,10 @@ export async function runNarrativeAgentLoop({
         fallbackReason: '',
         staleResourceObserved,
         evidenceReport,
+        // C5：有界补全 —— 记录本回合是否因截断/过短触发过一次补全，以及最终是否仍未自然落点。
+        finishReason: text(terminalFinishReason),
+        boundedCompletion: boundedCompletionUsed,
+        incomplete: boundedCompletionUsed && isIncompleteText(finalText),
         calls: traceCalls
       },
       baseMessages: transcriptToGenerationMessages(normalized.transcript)
@@ -714,7 +744,22 @@ export async function runNarrativeAgentLoop({
           role: 'assistant',
           parts: assistantParts
         })
-        return finish(response.text)
+        if (!terminalFinishReason) terminalFinishReason = text(response.finishReason)
+        terminalText = terminalText ? `${terminalText}${response.text}` : response.text
+        // C5：有界补全 —— 截断或过短且无自然落点时，同一 transcript 内最多补全一次。
+        if (!boundedCompletionUsed
+          && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
+          && shouldBoundedComplete(response)) {
+          boundedCompletionUsed = true
+          transcript = appendTranscript(transcript, {
+            id: `${turnRequestId}:user:complete:${stepIndex}`,
+            role: 'user',
+            parts: [{ type: 'text', text: '（继续）从最后一句直接续写，完成当前动作链，不重述前文。' }]
+          })
+          stepIndex += 1
+          continue
+        }
+        return finish(terminalText)
       }
 
       if (response?.kind !== 'tool_calls' || calls.length === 0) {

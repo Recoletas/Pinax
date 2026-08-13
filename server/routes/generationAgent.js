@@ -101,7 +101,8 @@ export function createGenerationAgentStepStreamHandler({
         status: result.kind,
         terminalMode: result.kind === 'final_ready' ? 'provider-text' : 'tool-dispatch',
         toolRounds: result.kind === 'tool_calls' ? 1 : 0,
-        totalCalls: result.calls?.length || 0
+        totalCalls: result.calls?.length || 0,
+        finishReason: result.finishReason || ''
       })
       if (!res.writableEnded) res.end()
     } catch (error) {

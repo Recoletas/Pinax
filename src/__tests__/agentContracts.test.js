@@ -1744,7 +1744,7 @@ describe('agentContracts', function () {
             }]
           }
         }
-        return { kind: 'final_ready', text: '修复后的正文', calls: [] }
+        return { kind: 'final_ready', text: '修复后的正文。', calls: [] }
       }
     })
     expect(repairRequests).toHaveLength(2)
@@ -1752,7 +1752,7 @@ describe('agentContracts', function () {
       return message.role === 'user' && message.content.includes('上一轮资料调度未通过校验')
     })).toBe(true)
     expect(repairedNarrativeRun).toMatchObject({
-      finalText: '修复后的正文',
+      finalText: '修复后的正文。',
       trace: { repairCount: 1 }
     })
 
@@ -1835,17 +1835,44 @@ describe('agentContracts', function () {
       requestId: 'narrative-continue-bypass',
       decisionRunner: async function () {
         bypassedDecisionCalls += 1
-        return { kind: 'final_ready', text: '承接后的正文', calls: [] }
+        return { kind: 'final_ready', text: '承接后的正文。', calls: [] }
       },
       streamRunner: async function (request) {
-        request.callbacks.onComplete?.({ content: '承接后的正文' })
+        request.callbacks.onComplete?.({ content: '承接后的正文。' })
       }
     })
     expect(bypassedDecisionCalls).toBe(1)
     expect(bypassedRun).toMatchObject({
-      finalText: '承接后的正文',
+      finalText: '承接后的正文。',
       trace: { status: 'ready', terminalMode: 'direct-text' }
     })
+
+    // C5：有界补全 —— finishReason=length 时同一 transcript 内自动补全一次，聚合为同一正文。
+    var completionCalls = 0
+    var completedRun = await runNarrativeAgentGeneration({
+      kernel: {
+        ...narrativeKernel,
+        blocks: narrativeKernel.blocks.map(function (block) {
+          return block.kind === 'turn'
+            ? { ...block, content: { ...block.content, input: '继续' } }
+            : block
+        })
+      },
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-bounded-completion',
+      decisionRunner: async function () {
+        completionCalls += 1
+        if (completionCalls === 1) {
+          return { kind: 'final_ready', text: '雨水沿着舷窗滑落，', finishReason: 'length', calls: [] }
+        }
+        return { kind: 'final_ready', text: '打湿了甲板上的缆绳。', calls: [] }
+      }
+    })
+    expect(completionCalls).toBe(2)
+    expect(completedRun.finalText).toBe('雨水沿着舷窗滑落，打湿了甲板上的缆绳。')
+    expect(completedRun.trace.boundedCompletion).toBe(true)
+    expect(completedRun.trace.incomplete).toBe(false)
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

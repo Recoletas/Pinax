@@ -73,6 +73,7 @@ export function createNarrativeAgentStreamEvent(type, payload = {}, meta = {}) {
     event.terminalMode = text(payload.terminalMode, 80)
     event.toolRounds = boundedInt(payload.toolRounds, 0, 20)
     event.totalCalls = boundedInt(payload.totalCalls, 0, 100)
+    event.finishReason = text(payload.finishReason, 80)
   } else if (type === 'usage') {
     event.usage = cleanUsage(payload.usage || payload)
   } else if (type === 'error') {
@@ -108,6 +109,7 @@ export function reduceNarrativeAgentStreamEvents(events = []) {
   let finalText = ''
   let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   let error = null
+  let finishReason = ''
   for (const event of Array.isArray(events) ? events : []) {
     if (event?.type === 'tool.input.delta' && event.callId) {
       inputs.set(event.callId, event.input || {})
@@ -120,14 +122,16 @@ export function reduceNarrativeAgentStreamEvents(events = []) {
       })
     } else if (event?.type === 'text.delta') {
       finalText += String(event.content || '')
+    } else if (event?.type === 'step.finish') {
+      finishReason = text(event.finishReason, 80)
     } else if (event?.type === 'usage') {
       usage = cleanUsage(event.usage)
     } else if (event?.type === 'error') {
       error = event
     }
   }
-  if (error) return { error, calls, finalText, usage }
-  return { kind: calls.length ? 'tool_calls' : 'final_ready', calls, text: finalText, usage }
+  if (error) return { error, calls, finalText, usage, finishReason }
+  return { kind: calls.length ? 'tool_calls' : 'final_ready', calls, text: finalText, usage, finishReason }
 }
 
 export default {
