@@ -32,6 +32,34 @@ function activeQuestionFrom(blocks = []) {
   return ''
 }
 
+const REPETITION_STOPLIST = new Set([
+  '没有', '什么', '这个', '那个', '一个', '一下', '自己', '我们', '你们', '他们',
+  '这里', '那里', '现在', '已经', '还是', '但是', '因为', '所以', '如果', '然后',
+  '可能', '应该', '一定', '很多', '一些', '开始', '继续', '仍然', '忽然', '仿佛'
+])
+
+// Q4：从最近两轮 assistant 正文提取重复出现的 2-4 字短语（动作/意象），最多 limit 个，
+// 作为 BeatPlan avoidRepeats 的种子；旧动作产生新后果时仍允许回收。
+function extractRecentRepetitions(messages = [], limit = 6) {
+  const recent = [...messages].reverse().slice(0, 2)
+  const blocks = recent.flatMap((message) => (
+    Array.isArray(message?.presentation?.blocks) ? message.presentation.blocks : []
+  ))
+  if (!blocks.length) return []
+  const counts = new Map()
+  for (const block of blocks) {
+    for (const token of (String(block.text || '').match(/[\u4e00-\u9fff]{2,4}/g) || [])) {
+      if (REPETITION_STOPLIST.has(token)) continue
+      counts.set(token, (counts.get(token) || 0) + 1)
+    }
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([token]) => token)
+}
+
 export function buildNarrativeSceneThread({ previous = null, runtimeState = {}, messages = [] } = {}) {
   if (previous && !shouldStartNewSceneThread(previous, runtimeState)) {
     return normalizeNarrativeSceneThread(previous)
@@ -79,7 +107,7 @@ export function buildNarrativeSceneThread({ previous = null, runtimeState = {}, 
     activeQuestion: activeQuestionFrom(blocks) || null,
     cast,
     establishedProgress: [],
-    recentRepetitions: [],
+    recentRepetitions: extractRecentRepetitions(messages),
     exitConditions: [],
     createdAt: now,
     updatedAt: now

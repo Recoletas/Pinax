@@ -766,6 +766,8 @@ export async function runNarrativeAgentLoop({
       evidenceReport,
       usage,
       transcript: normalized.transcript,
+      // Q4：本轮 BeatPlan（结构化字段，供 gameStore 写回 SceneThread；不写入长期 metrics）。
+      beatPlan: beatPlan || null,
       trace: {
         requestId: turnRequestId,
         status: 'ready',
@@ -840,10 +842,14 @@ export async function runNarrativeAgentLoop({
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
           && shouldBoundedComplete(response, currentTurnInput, minTargetChars)) {
           boundedCompletionUsed = true
+          // Q4：补全提示携带同一 BeatPlan 的 endCondition，不重新起势。
+          const completionHint = beatPlan?.endCondition
+            ? `（继续）按本轮叙事拍计划从最后一句续写，写到结束条件：${beatPlan.endCondition}；不重述前文。`
+            : '（继续）从最后一句直接续写，完成当前动作链，不重述前文。'
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:complete:${stepIndex}`,
             role: 'user',
-            parts: [{ type: 'text', text: '（继续）从最后一句直接续写，完成当前动作链，不重述前文。' }]
+            parts: [{ type: 'text', text: completionHint }]
           })
           stepIndex += 1
           continue

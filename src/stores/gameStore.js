@@ -68,7 +68,7 @@ import {
   normalizeNarrativeSceneSummary,
   resolveNarrativeSceneSummary
 } from '../services/agents/narrativeSceneSummary'
-import { normalizeNarrativeSceneThread } from '../../shared/narrativeSceneThreadContract'
+import { normalizeNarrativeSceneThread, sceneThreadRevision } from '../../shared/narrativeSceneThreadContract'
 import { buildNarrativeSceneThread } from '../services/agents/narrativeSceneThread'
 import {
   createNarrativeProductionObserver,
@@ -3455,6 +3455,12 @@ export const useGameStore = defineStore('game', {
         // 从 AI 回复中提取状态更新 —— C4：只消费新 segment
         this.extractAndUpdateState(stateContent)
 
+        // Q4：写回 SceneThread —— 把本轮 BeatPlan 的有效变化/人物 meaningful move 写入软状态，
+        // 并在 post snapshot 之前完成，保证分支/撤销/刷新恢复一致。
+        if (this.sceneThread && completedAgentRun?.beatPlan) {
+          this.sceneThread = this.applyBeatPlanToSceneThread(this.sceneThread, completedAgentRun.beatPlan)
+        }
+
         // R1b：state 提取完成后补抓 post snapshot（候选切换时恢复该分支的 state）
         if (turnRecord) {
           turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot()
@@ -4257,6 +4263,34 @@ export const useGameStore = defineStore('game', {
       const level = valid.includes(raw) ? raw : 'standard'
       this.narrativeExpansion = level
       return level
+    },
+
+    // Q4：把本轮 BeatPlan 写回 SceneThread 软状态（有效变化、人物 meaningful move）。
+    applyBeatPlanToSceneThread(thread, beatPlan) {
+      if (!thread || !beatPlan || typeof beatPlan !== 'object') return thread
+      const progress = []
+      if (beatPlan.revealOrChange) progress.push(beatPlan.revealOrChange)
+      for (const step of (Array.isArray(beatPlan.causalSteps) ? beatPlan.causalSteps : [])) {
+        progress.push(step)
+      }
+      const moves = Array.isArray(beatPlan.characterMoves) ? beatPlan.characterMoves : []
+      const cast = (Array.isArray(thread.cast) ? thread.cast : []).map((member) => {
+        const move = moves.find((m) => m.character === member.name || m.character === member.characterId)
+        if (!move) return member
+        return {
+          ...member,
+          immediateIntent: move.intent || member.immediateIntent,
+          lastMeaningfulMove: move.action || member.lastMeaningfulMove
+        }
+      })
+      const next = normalizeNarrativeSceneThread({
+        ...thread,
+        establishedProgress: progress.filter(Boolean).slice(-3),
+        cast,
+        currentObjective: beatPlan.revealOrChange || thread.currentObjective,
+        updatedAt: Date.now()
+      })
+      return { ...next, revision: sceneThreadRevision(next) }
     }
   }
 })
