@@ -33,6 +33,9 @@ export function createNarrativeTurnRecord({
   preRuntimeSnapshot = null,
   userMessageIds = [],
   createdAt = Date.now(),
+  kind = 'normal',        // C4：'normal' | 'extension'（同消息续接）
+  baseMessageId = null,   // C4：extension 指向被续接的 assistant 消息
+  segmentId = null,       // C4：extension 本次追加的 segment id
 } = {}) {
   const tid = String(id || '').trim()
   if (!tid) throw new Error('createNarrativeTurnRecord: id is required')
@@ -49,6 +52,9 @@ export function createNarrativeTurnRecord({
     receipt: null,               // R2：回合回执（低敏摘要）
     memoryCandidateIds: [],      // P1-6：本回合产生的记忆候选 id（追溯/分支隔离）
     detachedMessageIds: [],
+    kind: kind === 'extension' ? 'extension' : 'normal',
+    baseMessageId: baseMessageId ? String(baseMessageId) : null,
+    segmentId: segmentId ? String(segmentId) : null,
     status: 'pending',
     createdAt,
     committedAt: null,
@@ -58,7 +64,7 @@ export function createNarrativeTurnRecord({
 /**
  * 标记 turn record 为已提交（生成成功 + state delta 应用后）。
  */
-export function commitNarrativeTurnRecord(record, { assistantMessageIds = [], postRuntimeSnapshot = null, directorNote = null, receipt = null, committedAt = Date.now() } = {}) {
+export function commitNarrativeTurnRecord(record, { assistantMessageIds = [], postRuntimeSnapshot = null, directorNote = null, receipt = null, segmentId = null, committedAt = Date.now() } = {}) {
   if (!record) return record
   record.status = 'committed'
   record.committedAt = committedAt
@@ -70,6 +76,8 @@ export function commitNarrativeTurnRecord(record, { assistantMessageIds = [], po
   if (directorNote != null) record.directorNote = String(directorNote).trim() || null
   // R2：回合回执（低敏摘要）
   if (receipt && typeof receipt === 'object') record.receipt = receipt
+  // C4：extension 提交时记录本次 segment id
+  if (segmentId) record.segmentId = String(segmentId)
   return record
 }
 
@@ -106,6 +114,9 @@ export function normalizeNarrativeTurnRecord(input) {
     receipt: (input.receipt && typeof input.receipt === 'object') ? input.receipt : null,
     memoryCandidateIds: Array.isArray(input.memoryCandidateIds) ? input.memoryCandidateIds.map(String) : [],
     detachedMessageIds: Array.isArray(input.detachedMessageIds) ? input.detachedMessageIds.map(String) : [],
+    kind: input.kind === 'extension' ? 'extension' : 'normal',
+    baseMessageId: input.baseMessageId ? String(input.baseMessageId) : null,
+    segmentId: input.segmentId ? String(input.segmentId) : null,
     status,
     createdAt: Number(input.createdAt) || Date.now(),
     committedAt: Number(input.committedAt) || Date.now(),

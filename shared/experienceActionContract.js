@@ -23,7 +23,8 @@ export const EXPERIENCE_ACTION_TYPES = Object.freeze([
   'director-note',
   'speaker',
   'compress',
-  'export'
+  'export',
+  'undo-extension'
 ])
 
 export function normalizeExperienceAction(input) {

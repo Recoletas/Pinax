@@ -434,7 +434,7 @@ async function sendOpeningAction() {
   const ready = await ensureWorldAdventureSession({ initIfEmpty: false })
   if (!ready) return
   clearPlayableWorldEntryIntent()
-  await gameStore.sendAction(action.command, { hidden: true })
+  await gameStore.sendAction(action.command, { hidden: true, intent: 'open' })
   router.push({ name: 'experience' })
 }
 
@@ -447,7 +447,7 @@ async function enterHistoryNode(rawNode) {
   const ready = await ensureWorldAdventureSession({ initIfEmpty: false })
   if (!ready) return
   clearPlayableWorldEntryIntent()
-  await gameStore.sendAction(intent.action.command, { hidden: true })
+  await gameStore.sendAction(intent.action.command, { hidden: true, intent: 'open' })
   router.push({ name: 'experience' })
 }
 

@@ -1305,6 +1305,32 @@ describe('gameStore sessions', () => {
     expect(vi.mocked(runNarrativeAgentTurn)).toHaveBeenCalledTimes(1)
   })
 
+  it('extends the last assistant message in place without creating a new message (C4)', async () => {
+    const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '续接测试', worldbookId: 'project-1' })
+    gameStore.messages = [
+      { id: 'assist-1', role: 'assistant', content: '雨水沿着舷窗滑落。', timestamp: 1 }
+    ]
+    gameStore.chatHistory = [
+      { role: 'system', content: '你是叙述者。' },
+      { role: 'assistant', content: '雨水沿着舷窗滑落。' }
+    ]
+    vi.mocked(runNarrativeAgentTurn).mockResolvedValue({
+      kind: 'final_ready',
+      text: '打湿了甲板上的缆绳。',
+      calls: []
+    })
+    await gameStore.generateAIResponse({ intent: 'extend' })
+    expect(gameStore.messages).toHaveLength(1)
+    expect(gameStore.messages[0].id).toBe('assist-1')
+    expect(Array.isArray(gameStore.messages[0].segments)).toBe(true)
+    expect(gameStore.messages[0].segments).toHaveLength(2)
+    expect(gameStore.messages[0].content).toContain('雨水沿着舷窗滑落。')
+    expect(gameStore.messages[0].content).toContain('打湿了甲板上的缆绳。')
+  })
+
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {
     const preset = seedWorldbookPresets[0]
     const worldStore = useWorldStore()

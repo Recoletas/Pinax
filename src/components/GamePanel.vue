@@ -99,6 +99,7 @@
         :compression-complete="isCompressionCompleteMessage(msg)"
         :can-edit="(msg.role || msg.type) !== 'system'"
         :has-candidates="msg.role === 'user' && gameStore.hasCandidateAfter(index)"
+        :can-undo-extension="(msg.role || msg.type) === 'assistant' && Array.isArray(msg.segments) && msg.segments.length > 1"
         :render-content="(block) => renderBlockContent(msg, block, index)"
         @body-click="onTextWrapperClick(index, msg, $event)"
         @editor-keydown="onEditorKeydown"
@@ -108,6 +109,7 @@
         @delete="gameStore.deleteMessage(index)"
         @regenerate="gameStore.executeExperienceAction({ type: 'retry', payload: { index }, source: 'regenerate-btn' })"
         @switch-candidate="onSwitchCandidate(index, msg)"
+        @undo-extension="gameStore.executeExperienceAction({ type: 'undo-extension', payload: { messageId: msg.id }, source: 'undo-btn' })"
       />
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>

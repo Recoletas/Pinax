@@ -14,10 +14,12 @@ const props = defineProps({
   canEdit: { type: Boolean, default: true },
   renderContent: { type: Function, required: true },
   // R1b：该 user 消息之后是否有其它分支的 assistant 回复（显示"切换回复版本"按钮）
-  hasCandidates: { type: Boolean, default: false }
+  hasCandidates: { type: Boolean, default: false },
+  // C4：该 assistant 消息是否有多段续接（显示"撤销本次续接"按钮）
+  canUndoExtension: { type: Boolean, default: false }
 })
 
-defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate'])
+defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension'])
 
 function shouldShowBlockSpeaker(block, index) {
   if (!block?.speaker) return false
@@ -45,6 +47,7 @@ function shouldShowBlockSpeaker(block, index) {
       </summary>
       <span class="prose__actions-menu">
         <button type="button" class="prose__action" title="编辑内容" aria-label="编辑内容" @click="$emit('edit')"><WorkbenchIcon name="pencil" :size="13" /></button>
+        <button v-if="canUndoExtension" type="button" class="prose__action prose__action--undo" title="撤销本次续接" aria-label="撤销本次续接" @click="$emit('undo-extension')"><WorkbenchIcon name="undo-extension" :size="13" /></button>
         <button type="button" class="prose__action prose__action--delete" title="删除" aria-label="删除消息" @click="$emit('delete')"><WorkbenchIcon name="trash" :size="13" /></button>
         <button v-if="message.role === 'user'" type="button" class="prose__action prose__action--regen" title="重写后续" aria-label="重写后续" @click="$emit('regenerate')"><WorkbenchIcon name="refresh" :size="13" /></button>
         <button v-if="message.role === 'user' && hasCandidates" type="button" class="prose__action prose__action--branch" title="切换回复版本" aria-label="切换回复版本" @click="$emit('switch-candidate')"><WorkbenchIcon name="network" :size="13" /></button>

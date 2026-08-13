@@ -187,6 +187,29 @@ function normalizeTextValue(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+// C4：同消息续接 —— 合并 base 与新增 parsed 正文，保留 blocks 避免 marker 接缝。
+function combineExtensionContent(extensionBase, newParsed) {
+  if (!extensionBase) return { content: newParsed.content, presentation: newParsed }
+  const baseBlocks = Array.isArray(extensionBase.presentation?.blocks)
+    ? extensionBase.presentation.blocks
+    : []
+  const content = [extensionBase.content, newParsed.content]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+  return {
+    content,
+    presentation: {
+      version: 3,
+      source: 'model-structured',
+      status: 'complete',
+      content,
+      blocks: [...baseBlocks, ...(newParsed.blocks || [])],
+      hasMarkers: baseBlocks.length > 0 || newParsed.hasMarkers === true
+    }
+  }
+}
+
 function buildStableRuntimeId(prefix, value, fallback = 'item') {
   const token = normalizeTextValue(value).slice(0, 24) || fallback
   return `${prefix}_${token}`
@@ -2650,6 +2673,16 @@ export const useGameStore = defineStore('game', {
       return records.find((r) => r.userMessageIds?.includes(String(messageId))) || null
     },
 
+    // C4：当前分支最后一条可见、已提交的 assistant 消息（extend 目标）。
+    findLastVisibleAssistantMessage() {
+      const visibleIds = this.currentBranchVisibleMessageIds()
+      return [...(this.messages || [])].reverse().find((message) => (
+        message?.role === 'assistant'
+        && !message.superseded
+        && (!message.branchId || visibleIds.has(message.id))
+      )) || null
+    },
+
     // P0-1：当前分支可见消息 id 集合 —— 基于 turn 祖先链。
     // 从当前分支最新 committed turn 沿 parentTurnId 回溯，收集链上每个 turn 的
     // user/assistant 消息 id。嵌套分叉时，只有祖先链上的消息可见，
@@ -2904,6 +2937,43 @@ export const useGameStore = defineStore('game', {
                 lastCommittedTurnId: this.lastCommittedTurnId || null,
               }
             }
+          case 'undo-extension':
+            // C4：撤销最后一段续接 —— 移除最后一个 segment，恢复前一正文 + 状态快照。
+            {
+              const targetId = String(payload.messageId || '').trim()
+              const target = (this.messages || []).find((m) => m?.id === targetId)
+              if (!target || !Array.isArray(target.segments) || target.segments.length <= 1) {
+                return { ok: false, error: 'NO_EXTENSION' }
+              }
+              const removed = target.segments.slice(0, -1)
+              const removedSegment = target.segments[target.segments.length - 1]
+              const extensionTurn = removedSegment?.turnId ? this.turnRecords[removedSegment.turnId] : null
+              if (extensionTurn?.preRuntimeSnapshot) {
+                this.applyRuntimeSnapshot(extensionTurn.preRuntimeSnapshot)
+              }
+              if (extensionTurn) {
+                extensionTurn.status = 'failed'
+                if (this.lastCommittedTurnId === extensionTurn.id) {
+                  this.lastCommittedTurnId = extensionTurn.parentTurnId || null
+                }
+              }
+              target.segments = removed
+              target.content = removed
+                .map((segment) => String(segment.cleanContent || '').trim())
+                .filter(Boolean)
+                .join('\n\n')
+              target.presentation = {
+                version: 3,
+                source: 'model-structured',
+                status: 'complete',
+                content: target.content,
+                blocks: removed.flatMap((segment) => (Array.isArray(segment.blocks) ? segment.blocks : [])),
+                hasMarkers: removed.some((segment) => (Array.isArray(segment.blocks) ? segment.blocks : []).length > 0)
+              }
+              this.rebuildChatHistory()
+              this.saveCurrentSession()
+              return { ok: true }
+            }
           default:
             return { ok: false, error: 'UNKNOWN_ACTION' }
         }
@@ -2997,23 +3067,13 @@ export const useGameStore = defineStore('game', {
       let productionError = null
       let productionKernel = null
       let completedAgentRun = null
+      // C4：同消息续接目标 + 回滚基线（catch 回滚时也要用，故声明在 try 外）
+      let extensionTarget = null
+      let extensionBase = null
       // R1a：回合事务。在 provider 调用前抓取 preRuntimeSnapshot，失败时回滚。
       let turnRecord = null
       try {
         this.loadApiSettings()
-
-        // R1a：生成前快照 —— 覆盖当前位置/时间/角色/关系/事实/目标/事件/记忆游标。
-        // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
-        turnRecord = createNarrativeTurnRecord({
-          id: requestId,
-          // P0-3：重生成时传 sibling 父 turn id；正常生成走 lastCommittedTurnId
-          parentTurnId: parentTurnId != null ? parentTurnId : (this.lastCommittedTurnId || null),
-          // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
-          branchId: this.activeBranchId || 'main',
-          userMessageIds: userMessageId ? [userMessageId] : [],
-          preRuntimeSnapshot: this.getRuntimeSnapshot(),
-        })
-        this.pendingTurnRecord = turnRecord
 
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
@@ -3023,6 +3083,29 @@ export const useGameStore = defineStore('game', {
         effectiveIntent = (intent != null && String(intent).trim() !== '')
           ? normalizeNarrativeIntent(intent)
           : (!hasAssistantHistory ? 'open' : 'respond')
+        // C4：extend → 同消息续接目标（当前分支最后一条可见已提交 assistant）。
+        extensionTarget = effectiveIntent === 'extend' ? this.findLastVisibleAssistantMessage() : null
+        const baseTurnId = extensionTarget
+          ? (this.findTurnByMessageId(extensionTarget.id)?.id || null)
+          : null
+
+        // R1a：生成前快照 —— 覆盖当前位置/时间/角色/关系/事实/目标/事件/记忆游标。
+        // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
+        turnRecord = createNarrativeTurnRecord({
+          id: requestId,
+          // C4：extension 以 base turn 为父；否则重生成传 sibling 父、正常生成走 lastCommittedTurnId
+          parentTurnId: extensionTarget
+            ? baseTurnId
+            : (parentTurnId != null ? parentTurnId : (this.lastCommittedTurnId || null)),
+          // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
+          branchId: this.activeBranchId || 'main',
+          userMessageIds: userMessageId ? [userMessageId] : [],
+          preRuntimeSnapshot: this.getRuntimeSnapshot(),
+          kind: extensionTarget ? 'extension' : 'normal',
+          baseMessageId: extensionTarget?.id || null,
+        })
+        this.pendingTurnRecord = turnRecord
+
         const isInitGeneration = effectiveIntent === 'open'
         productionMode = intentToOrchestratorMode(effectiveIntent)
         const narrativeProjectId = this.worldId || worldbook?.id || ''
@@ -3111,21 +3194,34 @@ export const useGameStore = defineStore('game', {
           counts: { project: 0, session: 0 }
         }
 
-        messageIndex = this.messages.length
-        const placeholder = ensureNarrativeMessage({
-          role: 'assistant',
-          name: this.dialogueCharacter?.name || this.aiCharacter.name,
-          content: '',
-          timestamp: Date.now(),
-          dialogueMode: !!this.dialogueCharacter,
-          isStreaming: true,
-          branchId: this.activeBranchId,  // R1b：区分分支
-          // P1-5：携带 cast 的 speakerMap（名字→稳定 id），dialogue block 解析时
-          // speakerId 与 SceneCast 对齐，角色改名不漂移
-          speakerMap: this.buildCastSpeakerMap()
-        }, messageIndex)
-        placeholderId = placeholder.id
-        this.messages.push(placeholder)
+        // C4：extend → 复用目标消息（同消息续接）；否则新建 placeholder。extensionBase 作为回滚基线。
+        extensionBase = null
+        if (extensionTarget) {
+          extensionTarget.isStreaming = true
+          extensionBase = {
+            content: extensionTarget.content || '',
+            presentation: extensionTarget.presentation || null,
+            segments: extensionTarget.segments || null
+          }
+          placeholderId = extensionTarget.id
+          messageIndex = this.messages.findIndex((message) => message?.id === extensionTarget.id)
+        } else {
+          messageIndex = this.messages.length
+          const placeholder = ensureNarrativeMessage({
+            role: 'assistant',
+            name: this.dialogueCharacter?.name || this.aiCharacter.name,
+            content: '',
+            timestamp: Date.now(),
+            dialogueMode: !!this.dialogueCharacter,
+            isStreaming: true,
+            branchId: this.activeBranchId,  // R1b：区分分支
+            // P1-5：携带 cast 的 speakerMap（名字→稳定 id），dialogue block 解析时
+            // speakerId 与 SceneCast 对齐，角色改名不漂移
+            speakerMap: this.buildCastSpeakerMap()
+          }, messageIndex)
+          placeholderId = placeholder.id
+          this.messages.push(placeholder)
+        }
         const getPlaceholder = () => this.messages.find((message) => message?.id === placeholderId)
 
         let fullContent = ''
@@ -3170,9 +3266,10 @@ export const useGameStore = defineStore('game', {
                   // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
                   speakerMap: targetMessage.speakerMap || null
                 })
-                cleanContent = parsed.content
-                targetMessage.content = cleanContent
-                targetMessage.presentation = parsed
+                const combined = combineExtensionContent(extensionBase, parsed)
+                cleanContent = combined.content
+                targetMessage.content = combined.content
+                targetMessage.presentation = combined.presentation
               }
             },
             onComplete: () => {
@@ -3187,9 +3284,10 @@ export const useGameStore = defineStore('game', {
                   // P1-4：完成解析也带 speakerMap
                   speakerMap: targetMessage.speakerMap || null
                 })
-                cleanContent = parsed.content
-                targetMessage.content = cleanContent
-                targetMessage.presentation = parsed
+                const combined = combineExtensionContent(extensionBase, parsed)
+                cleanContent = combined.content
+                targetMessage.content = combined.content
+                targetMessage.presentation = combined.presentation
               }
             },
             onError: (error) => {
@@ -3213,20 +3311,28 @@ export const useGameStore = defineStore('game', {
           worldbookId: narrativeProjectId
         })
 
-        cleanContent = parseNarrativePresentation(fullContent, {
+        const finalParsed = parseNarrativePresentation(fullContent, {
           messageId: completedMessage?.id,
           complete: true,
           fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),
           role: completedMessage?.role,
           // P1-4：最终清洗解析也带 speakerMap
           speakerMap: completedMessage?.speakerMap || null
-        }).content
+        })
+        cleanContent = combineExtensionContent(extensionBase, finalParsed).content
         if (!cleanContent || messageIndex < 0) {
           throw Object.assign(new Error('模型没有返回可用正文'), {
             code: 'NARRATIVE_STREAM_EMPTY'
           })
         }
-        this.chatHistory.push({ role: 'assistant', content: cleanContent })
+        // C4：extend 原地更新最后一条 assistant chatHistory；否则追加新条目。
+        if (extensionTarget) {
+          const lastAssistantIdx = this.chatHistory.map((m) => m.role).lastIndexOf('assistant')
+          if (lastAssistantIdx >= 0) this.chatHistory[lastAssistantIdx].content = cleanContent
+          else this.chatHistory.push({ role: 'assistant', content: cleanContent })
+        } else {
+          this.chatHistory.push({ role: 'assistant', content: cleanContent })
+        }
 
         // 追加运行时事件侧车 (v1: capped append-only envelope)
         this.appendRuntimeEvent({
@@ -3319,6 +3425,38 @@ export const useGameStore = defineStore('game', {
         // 才把 turn record 标记 committed。正文、状态、回执作为同一事务原子提交。
         if (turnRecord) {
           const targetMsg = getPlaceholder()
+          // C4：extension 把新正文写为 segment（首次 extend 时先包装 base segment）。
+          if (extensionTarget) {
+            const now = Date.now()
+            const segments = Array.isArray(targetMsg.segments)
+              ? targetMsg.segments
+              : [{
+                  id: createMessageId('segment'),
+                  turnId: baseTurnId || '',
+                  intent: 'respond',
+                  rawContent: '',
+                  cleanContent: extensionBase.content,
+                  blocks: extensionBase.presentation?.blocks || [],
+                  createdAt: targetMsg.timestamp || now,
+                  sourceRequestId: null,
+                  base: true
+                }]
+            const segmentId = createMessageId('segment')
+            segments.push({
+              id: segmentId,
+              turnId: turnRecord.id,
+              intent: 'extend',
+              rawContent: fullContent,
+              cleanContent: finalParsed.content,
+              blocks: finalParsed.blocks || [],
+              createdAt: now,
+              sourceRequestId: requestId
+            })
+            // 注意：extractAndUpdateState 可能触发 saveCurrentSession（normalize 重排 messages），
+            // 因此必须写回当前 messages 中的对象（targetMsg），而非早期缓存的 extensionTarget。
+            targetMsg.segments = segments
+            turnRecord.segmentId = segmentId
+          }
           const receipt = buildTurnReceipt({
             ledger: this.lastContextLedger,
             run: completedAgentRun,
@@ -3326,9 +3464,10 @@ export const useGameStore = defineStore('game', {
             directorNote,
           })
           commitNarrativeTurnRecord(turnRecord, {
-            assistantMessageIds: targetMsg?.id ? [targetMsg.id] : [],
+            assistantMessageIds: extensionTarget ? [] : (targetMsg?.id ? [targetMsg.id] : []),
             directorNote: String(directorNote || '').trim() || null,
             receipt,
+            segmentId: extensionTarget ? turnRecord.segmentId : null,
           })
           this.turnRecords[turnRecord.id] = turnRecord
           this.lastCommittedTurnId = turnRecord.id
@@ -3348,9 +3487,18 @@ export const useGameStore = defineStore('game', {
         productionOutcome = controller.signal.aborted || e?.code === 'NARRATIVE_AGENT_ABORTED'
           ? 'cancelled'
           : 'error'
-        const placeholderIndex = this.messages.findIndex((message) => message?.id === placeholderId)
-        if (placeholderIndex >= 0) {
-          this.messages.splice(placeholderIndex, 1)
+        // C4：extension 失败 → 恢复目标消息基线（不删除已有消息）；否则移除 placeholder。
+        if (extensionTarget) {
+          const rollbackTarget = this.messages.find((message) => message?.id === placeholderId) || extensionTarget
+          rollbackTarget.isStreaming = false
+          rollbackTarget.content = extensionBase.content
+          rollbackTarget.presentation = extensionBase.presentation
+          rollbackTarget.segments = extensionBase.segments
+        } else {
+          const placeholderIndex = this.messages.findIndex((message) => message?.id === placeholderId)
+          if (placeholderIndex >= 0) {
+            this.messages.splice(placeholderIndex, 1)
+          }
         }
         // R1a：回合事务失败回滚 —— 恢复生成前的 runtime state。
         // 取消/失败都不应留下"半提交"的 state（地点/时间/角色被改了但正文没提交）。
