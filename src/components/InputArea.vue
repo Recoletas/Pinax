@@ -334,7 +334,7 @@ const systemPromptContent = `【身份】你是 Pinax 的中文小说叙述者�
 
 【行文原则】
 - 从上一句造成的动作、声音、位置变化或直接回应继续，不复述输入
-- 每段只推进一个可观察变化，使用具体名词和动词
+- 一个回合包含承接→反应→发展→自然落点，按语义组织段落
 - 用停顿、措辞、动作和身体反应呈现情绪，不替读者总结
 - 台词回应眼前的人和事，不借角色之口朗读设定
 
@@ -352,10 +352,10 @@ const quickActions = [
 ]
 
 const quickActionPrompts = {
-  continue: '沿着上一段最后一个可见动作或台词继续，只推进一个可观察变化，不复述上一段。',
+  continue: '沿着上一段最后一个动作或台词继续，推进一个完整的场景拍，不复述上一段。',
   scene: '停留在当前地点，选取一个会影响人物行动的环境细节展开，不罗列景物。',
   dialogue: '让当前在场角色回应上一句或眼前动作；台词服务于各自目的，不用台词讲解设定。',
-  inner: '从一个身体反应或犹豫切入，只写当前人物能意识到的念头，不总结情绪。'
+  inner: '从一个身体反应或犹豫切入，写当前人物能意识到的念头，不总结情绪。'
 }
 
 onMounted(() => {
@@ -414,9 +414,14 @@ async function runCommand(match) {
 }
 
 function handleQuickAction(command) {
-  // 发送隐藏命令，不在聊天中显示
+  // C1.4：'continue' 走 dispatcher（extend intent，不新增 user turn）；
+  // 其余快捷（scene/dialogue/inner）保持隐藏 sendAction，但标记 advance（半自动推进）。
+  if (command === 'continue') {
+    gameStore.executeExperienceAction({ type: 'continue', source: 'quick-action' })
+    return
+  }
   const prompt = quickActionPrompts[command] || command
-  emit('send', prompt, { hidden: true, source: 'quick-action' })
+  emit('send', prompt, { hidden: true, source: 'quick-action', intent: 'advance' })
 }
 
 function handleInput() {

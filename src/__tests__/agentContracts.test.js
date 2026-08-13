@@ -1697,7 +1697,7 @@ describe('agentContracts', function () {
       return message.role === 'tool' && message.toolCallId === 'single-transcript-call'
     })).toBe(true)
     expect(transcriptRequests[1].messages.find(function (message) {
-      return message.role === 'assistant'
+      return message.role === 'assistant' && message.toolCalls?.length
     }).parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'opaque-r4' } })
     ]))

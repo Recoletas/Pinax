@@ -1024,7 +1024,7 @@ describe('gameStore sessions', () => {
 
     const finalAgentRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
     expect(finalAgentRequest.messages.map((message) => message.role)).toEqual([
-      'system', 'system', 'user', 'assistant', 'tool'
+      'system', 'system', 'assistant', 'user', 'assistant', 'tool'
     ])
     const memoryToolResult = finalAgentRequest.messages.find((message) => message.role === 'tool')
     expect(memoryToolResult.content).toContain('旧书店在西街。')
@@ -1102,7 +1102,9 @@ describe('gameStore sessions', () => {
     expect(sentMessages[0].role).toBe('system')
     expect(sentMessages[1].role).toBe('system')
     expect(sentMessages[1].content).toContain('本轮作者注释')
-    expect(sentMessages[2].role).toBe('user')
+    // C2.2：transcript 注入真实历史后，前两条 system 之后是历史 assistant/user。
+    expect(sentMessages[2].role).toBe('assistant')
+    expect(sentMessages.at(-1).role).toBe('tool')
     expect(sentMessages[0].content).toContain('所有线索必须有代价')
     expect(sentMessages[0].content).toContain(':::narration')
     expect(sentMessages[0].content).not.toContain('【写作上下文】')
@@ -1291,8 +1293,8 @@ describe('gameStore sessions', () => {
     await gameStore.generateAIResponse()
 
     const directRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
-    expect(directRequest.messages).toHaveLength(3)
-    expect(directRequest.messages.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(directRequest.messages).toHaveLength(4)
+    expect(directRequest.messages.map((message) => message.role)).toEqual(['system', 'system', 'assistant', 'user'])
     expect(directRequest.messages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
     const recall = gameStore.lastMemoryRecall
     expect(recall).not.toBeNull()

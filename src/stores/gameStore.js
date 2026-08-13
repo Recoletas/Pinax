@@ -55,6 +55,7 @@ import {
 } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
+import { buildNarrativeContinuityFrame } from '../services/agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../services/agents/narrativeResourceIndex'
 import { buildNarrativeContextAudit } from '../services/agents/narrativeContextAudit'
 import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
@@ -84,6 +85,7 @@ import {
   TURN_RECORD_LIMIT,
 } from '../../shared/narrativeTurnContract.js'
 import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
+import { normalizeNarrativeIntent, intentToOrchestratorMode } from '../../shared/narrativeGenerationIntentContract.js'
 
 const DEFAULT_WORLD_MAP_STATE = {
   map: { countries: [] },
@@ -2554,19 +2556,27 @@ export const useGameStore = defineStore('game', {
           branchId: this.activeBranchId  // R1b：区分分支
         })
       }
-      this.chatHistory.push({ role: 'user', content: text })
-      this.appendRuntimeEvent({
-        type: 'turn',
-        source: 'user',
-        payload: {
-          preview: String(text || '').slice(0, 200),
-          hidden: !!hidden
-        }
-      })
+      // C1：hidden 控制指令（extend/advance）不写入 chatHistory、runtime user event，
+      // 避免控制指令被误认为玩家行动、挤占最近历史。
+      if (!hidden) {
+        this.chatHistory.push({ role: 'user', content: text })
+        this.appendRuntimeEvent({
+          type: 'turn',
+          source: 'user',
+          payload: {
+            preview: String(text || '').slice(0, 200),
+            hidden: false
+          }
+        })
+      }
       this.saveCurrentSession()
 
       if (this.useAI) {
-        await this.generateAIResponse({ narrativeMode, directorNote: effectiveDirectorNote, userMessageId })
+        // C1：推断 intent（hidden → extend/advance，可见 → respond，无历史 → open）
+        const intent = hidden
+          ? normalizeNarrativeIntent(options.intent || (options.source === 'auto-advance' ? 'advance' : 'extend'))
+          : (this.chatHistory.filter((m) => m.role === 'assistant').length === 0 ? 'open' : 'respond')
+        await this.generateAIResponse({ narrativeMode, directorNote: effectiveDirectorNote, userMessageId, intent })
       } else {
         this.isLoading = true
         try {
@@ -2869,11 +2879,11 @@ export const useGameStore = defineStore('game', {
             await this.compressContext()
             return { ok: true }
           case 'continue':
-            // P1-6：继续上一回复 —— 若最后一条是 assistant，追加"继续"引导重新生成
+            // C1.4：继续上一回复 —— 走 extend intent（不新增 user turn，从最后一句直接续接）
             {
               const last = this.messages[this.messages.length - 1]
               if (this.isLoading) return { ok: false, error: 'BUSY' }
-              await this.generateAIResponse({ narrativeMode: last?.role === 'assistant' ? 'continue' : '' })
+              await this.generateAIResponse({ intent: 'extend' })
               return { ok: true }
             }
           case 'export':
@@ -2971,7 +2981,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null } = {}) {
+    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null, intent = null } = {}) {
       this.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -3007,10 +3017,13 @@ export const useGameStore = defineStore('game', {
         const worldStore = useWorldStore()
         const worldbook = worldStore.activeWorldbook
         const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
-        const isInitGeneration = this._isRegenerating ? false : !hasAssistantHistory
-        productionMode = isInitGeneration
-          ? 'init'
-          : narrativeMode === 'auto-advance' ? 'auto' : 'continue'
+        // C1：显式 intent 优先；否则按历史推断（无 assistant 历史 → open）。
+        // normalizeNarrativeIntent 对空值恒返回 'respond'，故这里先判断是否显式传入。
+        const effectiveIntent = (intent != null && String(intent).trim() !== '')
+          ? normalizeNarrativeIntent(intent)
+          : (!hasAssistantHistory ? 'open' : 'respond')
+        const isInitGeneration = effectiveIntent === 'open'
+        productionMode = intentToOrchestratorMode(effectiveIntent)
         const narrativeProjectId = this.worldId || worldbook?.id || ''
         const narrativeSessionId = this.currentSessionId || ''
         const sceneSummaryResolution = resolveNarrativeSceneSummary({
@@ -3020,6 +3033,20 @@ export const useGameStore = defineStore('game', {
           sessionId: narrativeSessionId
         })
         this.narrativeSceneSummary = sceneSummaryResolution.summary
+        // C2.3：ContinuityFrame —— 从当前分支可见消息（带 presentation）派生，
+        // 供 turn note 做连续锚点（替代从 recent block 重新切句）。
+        const continuityVisibleIds = this.currentBranchVisibleMessageIds()
+        const continuityFrame = buildNarrativeContinuityFrame({
+          messages: (this.messages || []).filter((m) => (
+            m && !m.superseded && (!m.branchId || continuityVisibleIds.has(m.id))
+          )),
+          runtimeState: {
+            worldMapState: this.worldMapState,
+            writingTime: this.writingTime,
+            goals: this.goals,
+            encounteredCharacters: this.encounteredCharacters
+          }
+        })
         const narrativeKernel = buildNarrativeKernel({
           worldbook,
           runtimeState: {
@@ -3041,7 +3068,8 @@ export const useGameStore = defineStore('game', {
           sceneSummary: this.narrativeSceneSummary,
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
-          authorNote: directorNote  // R2：本轮导演注
+          authorNote: directorNote,  // R2：本轮导演注
+          continuityFrame
         })
         productionKernel = narrativeKernel
         const narrativeMemories = listScopedActiveMemoryCandidates({
@@ -3103,13 +3131,14 @@ export const useGameStore = defineStore('game', {
         let cleanContent = ''
         // 修复输出截断：原 init=1500/常规=800/auto=460 对中文叙事偏小，
         // 且工具调用（决策+参数）与正文共用同一 maxTokens 预算，模型常在
-        // 生成正文前触顶（NARRATIVE_PROVIDER_OUTPUT_TRUNCATED）。整体提高：
-        //   init=2000（开场长叙事）、常规=1600、auto=800（短续写）。
-        const maxTokens = isInitGeneration ? 2000 : productionMode === 'auto' ? 800 : 1600
+        // C1+C3：maxTokens 按 intent 决定 —— advance 不再只有 800（短碎片），
+        // 给完整场景拍足够预算。open=2000, 其他=1600。
+        const maxTokens = isInitGeneration ? 2000 : 1600
         const agentRun = await runNarrativeAgentGeneration({
           kernel: narrativeKernel,
           registry: narrativeRegistry,
           mode: productionMode,
+          intent: effectiveIntent,  // C1：传 intent 给 orchestrator（供 turn note）
           formatInstructions: buildNarrativeFormatInstructions(),
           worldId: this.worldId,
           settings: this.apiSettings,

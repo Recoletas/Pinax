@@ -122,7 +122,7 @@ function appendTranscript(transcript, message, options = {}) {
   return result.transcript
 }
 
-function createInitialNarrativeTranscript({ kernel, mode, formatInstructions, requestId }) {
+function createInitialNarrativeTranscript({ kernel, mode, intent, formatInstructions, requestId }) {
   const turn = (kernel?.blocks || []).find((block) => block.kind === 'turn')
   const systemContent = [
     '你是 Pinax 的中文小说叙述者和资料使用者。当前请求使用同一份临时 transcript。',
@@ -141,6 +141,21 @@ function createInitialNarrativeTranscript({ kernel, mode, formatInstructions, re
       }))
     })
   ].filter(Boolean).join('\n\n')
+
+  // C2.2：把真实 user/assistant role messages 注入 transcript（Kernel recent 只留引用）。
+  // 去掉末尾的 user（它就是本轮 turn.input，已由 user:turn 承载），避免双写。
+  const recentMessages = Array.isArray(kernel?.recentMessages) ? kernel.recentMessages : []
+  const historyMessages = recentMessages.length > 0 && recentMessages[recentMessages.length - 1]?.role === 'user'
+    ? recentMessages.slice(0, -1)
+    : recentMessages
+  const historyParts = historyMessages
+    .filter((message) => message?.content)
+    .map((message, index) => ({
+      id: `${requestId}:history:${index}`,
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      parts: [{ type: 'text', text: text(message.content) }]
+    }))
+
   return createNarrativeTranscript({
     requestId,
     messages: [
@@ -152,8 +167,9 @@ function createInitialNarrativeTranscript({ kernel, mode, formatInstructions, re
       {
         id: `${requestId}:system:turn-note`,
         role: 'system',
-        parts: [{ type: 'text', text: buildNarrativeTurnNote(kernel, { mode }) }]
+        parts: [{ type: 'text', text: buildNarrativeTurnNote(kernel, { mode, intent }) }]
       },
+      ...historyParts,
       {
         id: `${requestId}:user:turn`,
         role: 'user',
@@ -497,8 +513,9 @@ export async function runNarrativeAgentLoop({
   requestId = '',
   signal = null,
   mode = 'continue',
+  intent = null,  // C1：intent 传给 turn note
   formatInstructions = '',
-  maxTokens = 1600,  // 修复输出截断：原 800 对中文叙事偏小
+  maxTokens = 1600,
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn
 } = {}) {
@@ -520,6 +537,7 @@ export async function runNarrativeAgentLoop({
   let transcript = createInitialNarrativeTranscript({
     kernel,
     mode,
+    intent,
     formatInstructions,
     requestId: turnRequestId
   })
@@ -846,6 +864,7 @@ export async function runNarrativeAgentLoop({
 }
 
 function finalModeInstructions(mode) {
+  // C3：按 intent 提供完整叙事拍指令（替代旧的短碎片约束）
   if (mode === 'init') {
     return [
       '这是新会话开篇。根据 Kernel 与工具证据建立世界氛围，再自然引出主角和眼前场景。',
@@ -855,14 +874,15 @@ function finalModeInstructions(mode) {
   }
   if (mode === 'auto') {
     return [
-      '这是连续自动推进的一拍。只承接最近一条 assistant 正文最后留下的动作、台词或现场变化，不回顾场景，也不重新铺陈开头。',
-      '最后一条正文没有直接出现的人物、物件和线索不得重新带回；除非它们由最后动作明确触发。',
-      '只写一个短小后果，停在玩家可以回应的事实；不得替玩家决定、行动或产生心理结论。'
+      '这是自动推进的一拍。推进 NPC、环境或既有因果造成的后果，保持人物、地点和动作链连续。',
+      '不要替玩家决定、行动或产生心理结论。',
+      '一个完整场景拍通常包含承接→反应→发展→自然落点，不是一句短碎片。'
     ].join('\n')
   }
+  // continue / respond / extend
   return [
-    '承接玩家刚刚的输入推进一小步，保持视角、语气、地点与角色连续。',
-    '不得替玩家追加未输入的选择、决定或心理结论。'
+    '回应玩家刚刚的输入，推进一个有因果发展的完整场景拍。',
+    '保持视角、语气、地点与角色连续；不得替玩家追加未输入的选择、决定或心理结论。'
   ].join('\n')
 }
 
@@ -950,9 +970,10 @@ export async function runNarrativeAgentGeneration({
   requestId = '',
   signal = null,
   mode = 'continue',
+  intent = null,  // C1：intent 透传给 turn note
   formatInstructions = '',
   worldId = '',
-  maxTokens = 1600,  // 修复输出截断：原 800 对中文叙事偏小
+  maxTokens = 1600,
   callbacks = {},
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn
@@ -964,6 +985,7 @@ export async function runNarrativeAgentGeneration({
     requestId,
     signal,
     mode,
+    intent,
     formatInstructions,
     maxTokens,
     onStatus,
