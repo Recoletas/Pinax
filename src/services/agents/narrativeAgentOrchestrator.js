@@ -529,13 +529,15 @@ function isIncompleteText(value) {
 
 function createRepairMessage(requestId, count, error) {
   const code = text(error?.code) || 'NARRATIVE_AGENT_STEP_INVALID'
+  // P6：BeatPlan 校验失败走修复循环 —— 明确告知模型补全计划字段再提交，不要跳过计划。
+  const isBeatPlanRepair = /^NARRATIVE_BEAT_PLAN_/.test(code)
+  const instruction = isBeatPlanRepair
+    ? `上一轮叙事拍计划未通过校验（${code}）。请重新调用 submit_narrative_beat_plan 提交一份合法计划（responseObligation / causalSteps / revealOrChange / endCondition 必填），校验通过后再写正文；不要跳过计划直接输出。`
+    : `上一轮资料调度未通过校验（${code}）。请重新判断：需要资料时只调用一个已提供的只读工具并使用合法 JSON 参数；资料不需要时直接输出最终正文。不要输出思考过程、工具名或内部状态。`
   return {
     id: `${requestId}:user:repair:${count}`,
     role: 'user',
-    parts: [{
-      type: 'text',
-      text: `上一轮资料调度未通过校验（${code}）。请重新判断：需要资料时只调用一个已提供的只读工具并使用合法 JSON 参数；资料不需要时直接输出最终正文。不要输出思考过程、工具名或内部状态。`
-    }]
+    parts: [{ type: 'text', text: instruction }]
   }
 }
 

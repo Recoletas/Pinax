@@ -10,7 +10,7 @@ export const NARRATIVE_BEAT_PLAN_SCHEMA_VERSION = 1
 export const NARRATIVE_BEAT_PLAN_TOOL = 'submit_narrative_beat_plan'
 
 export const NARRATIVE_BEAT_PLAN_LIMITS = Object.freeze({
-  minCausalSteps: 2,
+  minCausalSteps: 1,
   maxCausalSteps: 4,
   maxCharacterMoves: 6,
   maxFunctionalDetails: 2,

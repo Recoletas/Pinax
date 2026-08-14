@@ -1802,6 +1802,57 @@ describe('agentContracts', function () {
       trace: { repairCount: 1 }
     })
 
+    // P6：BeatPlan 校验失败走修复循环而非硬错误 —— 模型先交缺 endCondition 的非法计划，
+    // 收到定向修复消息后重新提交合法计划，再写正文。
+    var beatPlanRepairRequests = []
+    var beatPlanRepairedRun = await runNarrativeAgentLoop({
+      kernel: optionalGroundingKernel,
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-beat-plan-repair',
+      decisionRunner: async function (request) {
+        beatPlanRepairRequests.push(request)
+        if (beatPlanRepairRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'bad-beat-plan',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['核对'],
+                revealOrChange: '确认变化'
+              }
+            }]
+          }
+        }
+        if (beatPlanRepairRequests.length === 2) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'good-beat-plan',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['核对', '确认'],
+                revealOrChange: '确认变化',
+                endCondition: '核对完成'
+              }
+            }]
+          }
+        }
+        return { kind: 'final_ready', text: '修复计划后的正文。', calls: [] }
+      }
+    })
+    expect(beatPlanRepairRequests).toHaveLength(3)
+    expect(beatPlanRepairRequests[1].messages.some(function (message) {
+      return message.role === 'user' && message.content.includes('上一轮叙事拍计划未通过校验（NARRATIVE_BEAT_PLAN_END_REQUIRED）')
+    })).toBe(true)
+    expect(beatPlanRepairedRun).toMatchObject({
+      finalText: '修复计划后的正文。',
+      trace: { repairCount: 1 }
+    })
+
     await expect(runNarrativeAgentLoop({
       kernel: narrativeKernel,
       registry: narrativeRegistry,
@@ -2008,7 +2059,7 @@ describe('agentContracts', function () {
     expect(narrativeExpansionFactor('expanded')).toBe(1.35)
     expect(narrativeExpansionFactor('unknown')).toBe(1)
 
-    // Q3：BeatPlan schema 校验 —— 拒绝空 responseObligation / 不足 2 个因果步骤 / 缺 endCondition。
+    // Q3：BeatPlan schema 校验 —— 拒绝空 responseObligation / 空 causalSteps / 缺 endCondition。
     expect(validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: ['确认依据', '调出波形'],
@@ -2022,7 +2073,7 @@ describe('agentContracts', function () {
     }).valid).toBe(false)
     expect(validateNarrativeBeatPlanInput({
       responseObligation: 'x',
-      causalSteps: ['a'],
+      causalSteps: [],
       revealOrChange: 'c',
       endCondition: 'd'
     }).valid).toBe(false)
