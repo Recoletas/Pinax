@@ -2046,7 +2046,7 @@ describe('agentContracts', function () {
     expect(completedRun.trace.incomplete).toBe(false)
 
     // P6：补全保守 —— 自然落点且 ≥70% 目标下限（651/900 字）不再补全；
-    // targetChars 由应用写入（respond standard = 1500），模型自报值（50）无效。
+    // targetChars 由应用写入（respond standard = 950），模型自报值（50）无效。
     var conservativeCalls = 0
     var conservativeRun = await runNarrativeAgentLoop({
       kernel: narrativeKernel,
@@ -2088,7 +2088,7 @@ describe('agentContracts', function () {
     })
     expect(conservativeCalls).toBe(3)
     expect(conservativeRun.trace.boundedCompletion).toBe(false)
-    expect(conservativeRun.trace.targetChars).toBe(1500)
+    expect(conservativeRun.trace.targetChars).toBe(950)
 
     // P1：资料预算耗尽 → 强制完成，不再抛『两轮限制』。
     // 模型先规划、连查两轮资料（预算=2），第三轮资料请求被闸门拦截（控制消息），
@@ -2148,10 +2148,10 @@ describe('agentContracts', function () {
     var standardRespond = intentCharRange('respond', {})
     var compactRespond = intentCharRange('respond', { expansion: 'compact' })
     var expandedRespond = intentCharRange('respond', { expansion: 'expanded' })
-    expect(standardRespond.min).toBe(900)
-    expect(standardRespond.max).toBe(1500)
-    expect(compactRespond.min).toBe(Math.round(900 * 0.65))
-    expect(expandedRespond.max).toBe(Math.round(1500 * 1.35))
+    expect(standardRespond.min).toBe(600)
+    expect(standardRespond.max).toBe(950)
+    expect(compactRespond.min).toBe(Math.round(600 * 0.65))
+    expect(expandedRespond.max).toBe(Math.round(950 * 1.35))
     expect(narrativeExpansionFactor('expanded')).toBe(1.35)
     expect(narrativeExpansionFactor('unknown')).toBe(1)
 
@@ -2167,13 +2167,22 @@ describe('agentContracts', function () {
       revealOrChange: 'c',
       endCondition: 'd'
     }).valid).toBe(false)
-    // P6：causalSteps 容错 —— 空数组合法（不再拒绝），顿号分隔的字符串被归一化为数组。
+    // P6/P3：causalSteps 容错 —— 顿号分隔字符串归一化为数组；空数组无因果内容则拒绝。
     expect(validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: [],
       revealOrChange: 'c',
       endCondition: 'd'
-    }).valid).toBe(true)
+    }).valid).toBe(false)
+    // P3：最小因果语义 —— 无因果步骤但有带 action+result 的角色动作仍合法。
+    var moveOnlyPlan = validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: [],
+      revealOrChange: 'c',
+      endCondition: 'd',
+      characterMoves: [{ character: '陆晨曦', action: '翻阅日志', result: '翻出铜扣' }]
+    })
+    expect(moveOnlyPlan.valid).toBe(true)
     var sloppyPlan = validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: '核对、确认',

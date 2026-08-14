@@ -145,8 +145,15 @@ function turnInstructionText(turn, mode, intent) {
   return input || '继续当前故事'
 }
 
-// Q3/Q4：BeatPlan 作为 control message 追加到同一 transcript（压缩为低敏指令，不重复整段计划全文）。
+// Q3/Q4/P3：BeatPlan 作为 control message 追加到同一 transcript（压缩为低敏指令，不重复整段计划全文）。
+const SCENE_MODE_GUIDANCE = {
+  dialogue: '对话为主：2-4 次有效发言；动作只在改变潜台词、位置或关系时出现；不能用神态代替回答。',
+  action: '动作为主：动作 → 阻力 → 可观察后果；环境只保留会影响动作的部分。',
+  investigation: '调查为主：线索 → 判断 → 新问题或可执行方向；不得连续堆"异常、微妙、难以言喻"。',
+  transition: '过渡为主：地点/时间变化 → 保留连续锚点 → 到达后的第一个新事实；不写长篇旅途气氛。'
+}
 function buildBeatPlanControlMessage(plan = {}) {
+  const mode = String(plan.mode || '').trim().toLowerCase()
   return [
     '【本轮叙事拍计划｜必须执行】',
     plan.responseObligation ? `回应义务：${plan.responseObligation}` : '',
@@ -158,7 +165,8 @@ function buildBeatPlanControlMessage(plan = {}) {
     Array.isArray(plan.avoidRepeats) && plan.avoidRepeats.length
       ? `不要重复：${plan.avoidRepeats.join('、')}`
       : '',
-    plan.targetChars ? `目标约 ${plan.targetChars} 字` : '',
+    SCENE_MODE_GUIDANCE[mode] || '',
+    plan.targetChars ? `目标约 ${plan.targetChars} 字（软预期，不以字数验收）` : '',
     '按因果步骤推进正文；revealOrChange 必须在正文里发生，不能只暗示。',
     '只用环境/气氛/光影/身体反应填满长度、没有变化发生 —— 不合格，重写这段。'
   ].filter(Boolean).join('\n')
@@ -478,15 +486,14 @@ function cjkCount(value) {
   return matches ? matches.length : 0
 }
 
-// C5/P6：有界补全 —— 保守触发，同一 turn 内最多补全一次（boundedCompletionUsed 门控）：
+// C5/P3：有界补全 —— 只在正文结构上不完整时触发一次（boundedCompletionUsed 门控）：
 //   截断（finishReason=length/max_tokens/max_output_tokens）→ 必然补全；
-//   未完（正文没有自然落点，半截句子）→ 补全；
-//   低于目标下限 70% 且未到 BeatPlan endCondition → 补全一次拉满；
-//   其余（达标 / ≥70% 自然落点 / 完整短片段 / 极短刻意 / 明确要求简短）→ 不补。
+//   未完（没有自然落点，半截句子/未闭合引号）→ 补全一次收完整；
+//   其余（自然落点、达标、极短刻意、明确要求简短、已到 endCondition）→ 不补。
+// P3：删除按字符下限（含 <70%）补全的条件 —— 不为了凑字数追加景物和身体反应；
+// 短但完整的回复可以过，长但没有变化的回复不应被认为更好。
 const BOUNDED_LENGTH_FINISH_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens'])
-const BOUNDED_COMPLETION_MIN_CHARS = 180
 const BOUNDED_COMPLETION_ULTRA_SHORT = 12
-const BOUNDED_COMPLETION_FLOOR_RATIO = 0.7
 const BREVITY_REQUEST_RE = /(简短|一句话|只说|简单说|不要展开|一笔带过|短答|只用.{0,6}字)/
 
 // P6：正文是否已到达 BeatPlan 的 endCondition（结束条件在文中出现，
@@ -502,28 +509,21 @@ function reachedEndCondition(content, endCondition) {
   return false
 }
 
-function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = BOUNDED_COMPLETION_MIN_CHARS, endCondition = '') {
+function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = 0, endCondition = '') {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
-  // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"低于目标下限"判断。
+  // 拒绝/内容过滤等结束原因不补全。
   if (['refusal', 'content_filter', 'safety'].includes(finishReason)) return false
   if (BREVITY_REQUEST_RE.test(String(turnInput || ''))) return false
   const content = text(response.text)
   const chars = cjkCount(content)
-  // 极短且非截断 → 刻意的简短回答（如"好""嗯""知道了"），不扩写。
+  // 极短且非截断 → 刻意的简短回答（如”好””嗯””知道了”），不扩写。
   if (chars < BOUNDED_COMPLETION_ULTRA_SHORT) return false
   // 已到 BeatPlan 结束条件 → 视为刻意收束，不再续写。
   if (endCondition && reachedEndCondition(content, endCondition)) return false
-  // 达到 intent+展开度目标下限 → 视为足够，不补全。
-  if (chars >= minTargetChars) return false
-  // 未完（没有自然落点，半截句子）→ 补全一次，把句子收完整。
+  // 未完（没有自然落点，半截句子/未闭合引号）→ 补全一次，把句子收完整。
   if (isIncompleteText(content)) return true
-  // ≥70% 目标下限且带自然落点 → 保守不补（不再为每个回合多跑一次）。
-  if (chars >= minTargetChars * BOUNDED_COMPLETION_FLOOR_RATIO) return false
-  // 完整短片段（<180 字且句末有标点/收尾引号）→ 视为完整短对白或短答，不扩写。
-  if (chars < BOUNDED_COMPLETION_MIN_CHARS && /[。！？!?…”』」"']$/.test(content.slice(-1))) return false
-  // <70% 且未到 endCondition → 补全一次，把单次生成拉满。
-  return true
+  return false
 }
 
 // C5：正文是否缺少自然落点（句末标点/收尾引号）—— 用于 incomplete 标记。

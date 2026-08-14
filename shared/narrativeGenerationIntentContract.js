@@ -37,14 +37,15 @@ export function intentToOrchestratorMode(intent) {
 }
 
 /**
- * intent → 建议输出长度区间（中文字符）。
- * 基础区间为"标准"展开度，可按叙事展开度（compact/standard/expanded）缩放。
+ * intent → 建议输出长度区间（中文字符，软预期，不参与完整性验收）。
+ * 基准为"标准"展开度；compact 0.65 / expanded 1.35 缩放。
+ * P3：区间收紧为「完整场景拍」而非「篇幅」，短但完整可过。
  */
 const INTENT_BASE_RANGES = Object.freeze({
-  open: { min: 1200, max: 1800 },
-  respond: { min: 900, max: 1500 },
-  advance: { min: 800, max: 1400 },
-  extend: { min: 500, max: 900 }
+  open: { min: 750, max: 1200 },
+  respond: { min: 600, max: 950 },
+  advance: { min: 600, max: 950 },
+  extend: { min: 350, max: 650 }
 })
 
 const EXPANSION_FACTORS = Object.freeze({

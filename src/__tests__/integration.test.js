@@ -122,6 +122,7 @@ import {
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
+import { buildNarrativeVoiceContract } from '../services/agents/narrativeVoicePolicy'
 // P4：可信说话者注册表
 import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 // P6：SceneThread 滚动合并
@@ -421,12 +422,39 @@ describe('Narrative presentation contract', () => {
     })
     expect(movedThread.id).not.toBe(firstThread.id)
     expect(movedThread.id).toMatch(/^scene_tavern/)
+
+    // P3：主要参与者切换 → 新线程（最近角色与线程 cast 无交集）
+    const castThread = buildNarrativeSceneThread({
+      previous: null,
+      runtimeState: {
+        worldMapState: { placeId: 'dock' },
+        writingTime: { eraName: 'x' },
+        encounteredCharacters: [{ id: 'c1', name: '阿贵' }, { id: 'c2', name: '老周' }]
+      },
+      messages: []
+    })
+    expect(castThread.cast.map((member) => member.name)).toEqual(['阿贵', '老周'])
+    const switchedCastThread = buildNarrativeSceneThread({
+      previous: castThread,
+      runtimeState: {
+        worldMapState: { placeId: 'dock' },
+        writingTime: { eraName: 'x' },
+        encounteredCharacters: [{ id: 'c3', name: '屠夫' }, { id: 'c4', name: '马贩' }]
+      },
+      messages: rollingMessages
+    })
+    // 参与者完全更换 → 线程重建（cast 刷新为新角色，而非滚动复用旧 cast）
+    expect(switchedCastThread.cast.map((member) => member.name)).toEqual(['屠夫', '马贩'])
+    expect(switchedCastThread.revision).not.toBe(castThread.revision)
   })
 
   it('keeps stable ids and one prompt format contract', () => {
     expect(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
       .toBe(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
     expect(buildNarrativeFormatInstructions()).toContain(':::dialogue|角色名')
+    // P3：五条行文契约收敛 + 自然段空行要求
+    expect(buildNarrativeVoiceContract()).toContain('先回应玩家输入，再推进一个已有因果')
+    expect(buildNarrativeFormatInstructions()).toContain('自然段之间必须用空行分隔')
   })
 })
 

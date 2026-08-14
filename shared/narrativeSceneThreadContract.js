@@ -108,7 +108,7 @@ function timeChanged(thread, runtimeState) {
 }
 
 /**
- * 场景切换条件：地点显著变化、时间跳跃、当前目标完成、或尚无线程。
+ * 场景切换条件：地点显著变化、时间跳跃、当前目标完成、主要参与者切换、或尚无线程。
  */
 export function shouldStartNewSceneThread(thread, runtimeState = {}) {
   if (!thread) return true
@@ -118,6 +118,16 @@ export function shouldStartNewSceneThread(thread, runtimeState = {}) {
   // 当前目标已标记完成 → 换线程（上层写回 status，这里兜底）
   const objectiveStatus = text(runtimeState?.activeGoal?.status).toLowerCase()
   if (objectiveStatus === 'completed' || objectiveStatus === '完成') return true
+  // P3：主要参与者切换 —— 最近遇到的 8 个角色与线程 cast 完全无交集时视为新场景。
+  const threadCastNames = new Set((thread.cast || []).map((member) => text(member?.name)).filter(Boolean))
+  const recentNames = (Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : [])
+    .slice(-8)
+    .map((character) => text(character?.name || character))
+    .filter(Boolean)
+  if (threadCastNames.size > 0 && recentNames.length > 0
+    && !recentNames.some((name) => threadCastNames.has(name))) {
+    return true
+  }
   return false
 }
 

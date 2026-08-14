@@ -107,6 +107,13 @@ export function validateNarrativeBeatPlanInput(rawInput) {
   if (!plan.endCondition) {
     return error('NARRATIVE_BEAT_PLAN_END_REQUIRED', 'endCondition 不能为空：正文写到什么状态可以自然停下')
   }
+  // P3：最小因果语义 —— 至少一个非空因果步骤，或一个带 action+result 的角色动作；
+  // 保证计划有可执行的变化链，不再允许"零变化只堆描写"的计划。
+  const hasCausalStep = plan.causalSteps.length >= 1
+  const hasMoveWithResult = plan.characterMoves.some((move) => move.action && move.result)
+  if (!hasCausalStep && !hasMoveWithResult) {
+    return error('NARRATIVE_BEAT_PLAN_NO_CAUSAL_CONTENT', 'BeatPlan 必须包含至少一个因果步骤，或一个带 action+result 的角色动作')
+  }
   const serialized = JSON.stringify(plan)
   if (serialized.length > NARRATIVE_BEAT_PLAN_LIMITS.maxChars) {
     return error('NARRATIVE_BEAT_PLAN_TOO_LONG', 'BeatPlan 超过长度上限')
