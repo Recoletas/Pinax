@@ -75,7 +75,15 @@
           :aria-activedescendant="`writing-subcommand-${commandMenu.activeIndex}`"
           :style="{ maxHeight: `${commandMenu.maxHeight}px` }"
         >
-          <div class="writing-command-submenu__title">{{ activeWritingSection.label }}</div>
+          <div class="writing-command-submenu__title">
+            <!-- W2：子菜单标题可点击返回一级（移动端二级视图的返回入口） -->
+            <button
+              type="button"
+              class="writing-command-submenu__back"
+              :aria-label="`返回 ${activeWritingSection.label} 上一级`"
+              @click="leaveWritingCommandSection()"
+            >← <span>{{ activeWritingSection.label }}</span></button>
+          </div>
           <button
             v-for="(command, index) in activeWritingCommands"
             :id="`writing-subcommand-${index}`"
@@ -447,7 +455,13 @@ function positionCommandMenu(view) {
   const menuWidth = 300
   const visualWidth = Math.min(menuWidth * scale, window.innerWidth - 24)
   const visualLeft = Math.max(12, Math.min(coordinates.left, window.innerWidth - visualWidth - 12))
-  const visualTop = Math.max(12, coordinates.bottom + 8)
+  // W2：菜单靠近底部或键盘时向上展开（估算高度 = 根菜单 + 子菜单 + 边距）
+  const estimatedHeight = Math.min(360 * scale, window.innerHeight * 0.65)
+  const below = coordinates.bottom + 8
+  const fitsBelow = below + estimatedHeight <= window.innerHeight - 12
+  const visualTop = fitsBelow
+    ? Math.max(12, below)
+    : Math.max(12, coordinates.top - estimatedHeight - 8)
   commandMenu.value.top = Math.round(visualTop / scale)
   commandMenu.value.left = Math.round(visualLeft / scale)
   commandMenu.value.width = Math.round(visualWidth / scale)
@@ -1422,6 +1436,22 @@ defineExpose({
   border-bottom: 1px solid var(--hairline, rgba(50, 80, 108, 0.13));
   color: var(--notebook-muted);
   font: 600 11px/1.2 var(--font-sans, sans-serif);
+}
+
+/* W2：子菜单返回按钮（≥44px 触控目标） */
+.writing-command-submenu__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--notebook-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .writing-command-menu__item.is-active {
