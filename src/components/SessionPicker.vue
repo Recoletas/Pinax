@@ -2,6 +2,13 @@
   <div class="session-picker">
     <div class="picker-header">
       <span class="picker-title">选择会话</span>
+      <!-- M4：移动端关闭入口（桌面也保留，44px 触控目标） -->
+      <button
+        class="picker-close"
+        type="button"
+        aria-label="关闭会话选择"
+        @click="emit('close')"
+      >×</button>
       <button class="new-btn" :disabled="busy || !selectedWorldbookId" @click="handleCreate">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v14M5 12h14"/>
@@ -60,7 +67,7 @@ import { computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
-const emit = defineEmits(['select', 'create', 'delete', 'update:selected-worldbook-id'])
+const emit = defineEmits(['select', 'create', 'delete', 'update:selected-worldbook-id', 'close'])
 const props = defineProps({
   busy: { type: Boolean, default: false },
   worldbooks: { type: Array, default: () => [] },
@@ -125,6 +132,20 @@ function handleDelete(session) {
   justify-content: space-between;
   margin-bottom: 20px;
   flex-shrink: 0;
+  gap: 10px;
+}
+
+/* M4：关闭按钮 ≥44px 触控目标 */
+.picker-close {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, inherit);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .worldbook-target {

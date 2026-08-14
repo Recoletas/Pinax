@@ -16,7 +16,14 @@
                 identifying info, the title is the page landmark. -->
           <div class="ws-topstrip__main">
             <span class="ws-topstrip__title">体验</span>
-            <span class="ws-topstrip__mobile-session" :title="currentSessionLabel">{{ currentSessionLabel }}</span>
+            <!-- M4：移动端会话切换入口 —— 点会话名打开会话选择（桌面隐藏，靠会话芯片） -->
+            <button
+              class="ws-topstrip__mobile-session"
+              type="button"
+              :title="currentSessionLabel"
+              aria-label="切换会话"
+              @click="showSessionPicker = true"
+            >{{ currentSessionLabel }}</button>
           </div>
           <div class="ws-topstrip__actions">
             <label class="ws-topstrip__reading-control" title="调整正文阅读节奏">
@@ -212,6 +219,7 @@
         @update:selected-worldbook-id="sessionPickerWorldbookId = $event"
         @create="handleSessionCreate"
         @delete="handleSessionDelete"
+        @close="showSessionPicker = false"
       />
     </div>
 
@@ -2905,6 +2913,14 @@ function quickNoteWordCount(text) {
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* M4：会话名成为可点按钮 —— 重置按钮默认外观，保留 44px 触控高度 */
+    padding: 8px 4px;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+    min-height: 44px;
+    line-height: 1.2;
   }
 
   .game-page .ws-topstrip__chip {
@@ -3644,6 +3660,12 @@ function quickNoteWordCount(text) {
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
     left: 8px;
     width: auto;
+  }
+
+  /* M4：sheet 关闭按钮 ≥44px 触控目标 */
+  .game-page .ws-dossier-bar__close {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
