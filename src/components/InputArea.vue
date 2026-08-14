@@ -1353,4 +1353,32 @@ function updatePromptInfo() {
     font-size: 12px;
   }
 }
+
+/* M2：移动输入区 —— 快捷操作单行横向滚动（不再换行堆叠）、
+   底部安全区（iPhone 手势区）由 env() 预留，不写死 bottom。 */
+@media (max-width: 760px) {
+  .input-area {
+    padding: 0.6rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .quick-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .quick-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .auto-advance-btn {
+    margin-left: 6px;
+  }
+}
 </style>
