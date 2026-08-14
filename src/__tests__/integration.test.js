@@ -271,6 +271,23 @@ describe('Narrative presentation contract', () => {
     expect(dialogueProtected.blocks).toHaveLength(1)
     expect(dialogueProtected.blocks[0].text).toBe('他厉声喝道：「站住！别动！」')
 
+    // Fix：模型模仿控制消息输出【正文】等小节标题 —— parser 清理，不进正文。
+    const bracketHeader = parseNarrativePresentation(':::narration\n【正文】\n猎户二人站起身。\n【旁白】', {
+      messageId: 'bracket-header'
+    })
+    expect(bracketHeader.blocks.map((block) => block.text)).toEqual(['猎户二人站起身。'])
+
+    // Fix：单换行也是段落边界 —— 模型用单换行分段时不再塌成一大块。
+    const singleNewline = parseNarrativePresentation(
+      ':::narration\n柳洵眉心微动，认出左边那人。\n他往西面山口扫了一眼，暮色里只看得见一条灰白的山脊线，风声从山口灌进来。\n次日清晨，他在渡口等到了那条船。',
+      { messageId: 'single-newline' }
+    )
+    expect(singleNewline.blocks.map((block) => block.text)).toEqual([
+      '柳洵眉心微动，认出左边那人。',
+      '他往西面山口扫了一眼，暮色里只看得见一条灰白的山脊线，风声从山口灌进来。',
+      '次日清晨，他在渡口等到了那条船。'
+    ])
+
     const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
       messageId: 'preamble'
     })
@@ -459,7 +476,8 @@ describe('Narrative presentation contract', () => {
     expect(buildNarrativeFormatInstructions()).toContain(':::dialogue|角色名')
     // P3：五条行文契约收敛 + 自然段空行要求
     expect(buildNarrativeVoiceContract()).toContain('先回应玩家输入，再推进一个已有因果')
-    expect(buildNarrativeFormatInstructions()).toContain('自然段之间必须用空行分隔')
+    expect(buildNarrativeFormatInstructions()).toContain('自然段之间用换行分隔')
+    expect(buildNarrativeFormatInstructions()).toContain('不要输出"【正文】"')
   })
 })
 

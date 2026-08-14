@@ -14,7 +14,8 @@ export function buildNarrativeFormatInstructions() {
     '【叙事输出格式】',
     'marker 只是传输协议，不是正文。每个自然段或说话人切换时使用一次，不要把每句话拆成一块；不要输出 HTML、JSON、颜色说明或其他控制标签。',
     '允许的类型只有：:::narration、:::action|角色名、:::dialogue|角色名、:::thought|角色名、:::system。',
-    'marker 与正文之间换行；一个自然段 1-3 个句子，自然段之间必须用空行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
+    'marker 与正文之间换行；一个自然段 1-3 个句子，自然段之间用换行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
+    '正文直接以叙述或对白开始；不要输出"【正文】""【旁白】"之类的小节标题、序号或任何框架说明。',
     '台词使用中文引号「」或“”；叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
     '示例：\n:::narration\n雨水沿着舷窗滑落。\n\n风声从甲板缝隙里灌进来。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
     '如果没有明显语义切换，可以只输出一个 narration 块，但段与段之间仍要空行。'
@@ -169,11 +170,12 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   }
 }
 
-// P6：按空行把一段文本拆成自然段（保留段内换行）。
+// P4：按换行把一段文本拆成自然段 —— 空行和单换行都算段落边界
+//（模型常用单换行分段；只认空行会让多句块塌成一大段）。
 function splitParagraphs(value) {
   const source = String(value || '').trim()
   if (!source) return []
-  return source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
+  return source.split(/\n+/).map((part) => part.trim()).filter(Boolean)
 }
 
 // P4：语义段落优先 —— 只有异常长且无空行的未署名 narration 才兜底拆分。
@@ -265,10 +267,12 @@ function scanInlineMarkers(line) {
   return matches
 }
 
-// P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内的 :::kind|speaker），
-// 保留正文；这是已知 marker 切块后的兜底，处理未知 marker 与边界情况。
+// P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内 :::kind|speaker）与
+// 模型模仿控制消息输出的【正文】【旁白】【回应】等小节标题 token，保留正文。
 function sanitizeTransportMarkers(text) {
-  return String(text || '').replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
+  return String(text || '')
+    .replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
+    .replace(/[【\[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
 }
 
 function trimPendingMarkerLine(text) {

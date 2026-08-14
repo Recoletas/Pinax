@@ -1771,6 +1771,18 @@ describe('agentContracts', function () {
     }).parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'opaque-r4' } })
     ]))
+    // Fix：transcript 历史含 BeatPlan tool-call 时，后续请求必须继续声明该工具，
+    // 否则请求校验报 GENERATION_TOOL_NOT_DECLARED（messages[N] 调用了未声明工具）。
+    expect(transcriptRequests[2].tools.map(function (tool) { return tool.name })).toContain('submit_narrative_beat_plan')
+    // 且真实客户端契约校验（历史 tool-call 只能调已声明工具）在该请求上通过。
+    var turnRequestShape = validateGenerationAgentTurnRequest({
+      requestId: 'undeclared-tool-check',
+      provider: providerTurnRequest.provider,
+      messages: transcriptRequests[2].messages,
+      tools: transcriptRequests[2].tools,
+      options: providerTurnRequest.options
+    })
+    expect(turnRequestShape.valid).toBe(true)
     expect(transcriptLoop).toMatchObject({
       finalText: '核对资料后，站台上的铜鸟转向了门口。',
       trace: {

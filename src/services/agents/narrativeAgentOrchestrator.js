@@ -680,7 +680,9 @@ export async function runNarrativeAgentLoop({
   let boundedCompletionUsed = false
   // Q3：BeatPlan 计划先行 —— open/respond/advance 先计划再写正文；extend 复用当前计划。
   const requiresBeatPlan = requiresBeatPlanFor(intent, mode)
-  let requestTools = requiresBeatPlan
+  // P1：工具目录整轮保持声明（transcript 历史含 BeatPlan tool-call，请求校验
+  // 要求历史消息只调用已声明工具）；"计划通过后不再规划"由 control message 约束。
+  const requestTools = requiresBeatPlan
     ? kernel.toolCatalog
     : (kernel.toolCatalog || []).filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
   let beatPlan = null
@@ -1066,13 +1068,15 @@ export async function runNarrativeAgentLoop({
           // P6：targetChars 以应用写入值为准（覆盖模型自报），control message 与 trace 同源。
           beatPlan = { ...planEntry.result.plan, targetChars: appTargetChars }
           beatPlanRevision = planEntry.result.planRevision || narrativeBeatPlanRevision(beatPlan)
-          // P1：正文步骤起超时切换为 60s；正文请求不再暴露 BeatPlan 工具。
+          // P1：正文步骤起超时切换为 60s。
+          // 注意：BeatPlan 工具保持在目录里 —— transcript 历史已含它的 tool-call，
+          // 请求校验要求历史消息只调用已声明工具（移除会触发
+          // GENERATION_TOOL_NOT_DECLARED 硬错误）；"不再规划"由 control message 约束。
           stepTimeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs
-          requestTools = requestTools.filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:beat-plan:${stepIndex}`,
             role: 'user',
-            parts: [{ type: 'text', text: buildBeatPlanControlMessage(beatPlan) }]
+            parts: [{ type: 'text', text: `${buildBeatPlanControlMessage(beatPlan)}\n计划已确认，不要再调用 submit_narrative_beat_plan，直接写正文。` }]
           })
         }
       }
