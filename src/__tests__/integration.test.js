@@ -226,6 +226,14 @@ describe('Narrative presentation contract', () => {
     ])
     expect(structured.content).not.toContain(':::')
 
+    // P6：同一 marker 块内按空行拆分自然段 —— 多段正文拆成多个 block，content 保持原样。
+    const multiParagraph = parseNarrativePresentation(':::narration\n段一。继续一段。\n\n段二。\n\n段三。', {
+      messageId: 'multi-para'
+    })
+    expect(multiParagraph.blocks.map((block) => block.kind)).toEqual(['narration', 'narration', 'narration'])
+    expect(multiParagraph.blocks.map((block) => block.text)).toEqual(['段一。继续一段。', '段二。', '段三。'])
+    expect(multiParagraph.content).toBe('段一。继续一段。\n\n段二。\n\n段三。')
+
     const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
       messageId: 'preamble'
     })
