@@ -259,7 +259,10 @@ export async function runToolCallingProviderTurn(rawRequest, options = {}) {
     }
   } catch (error) {
     if (error instanceof NarrativeProviderError) throw error
-    if (text(error?.code).startsWith('NARRATIVE_PROVIDER_')) {
+    // P6：适配器 protocolError / 工具调用校验抛出的任何带 code 的错误都透传
+    //（含 NARRATIVE_BEAT_PLAN_*、NARRATIVE_TOOL_ARGUMENTS_INVALID 等底层校验码），
+    // 供客户端修复循环按真实错误码定向修复。
+    if (text(error?.code)) {
       throw new NarrativeProviderError(
         error.code,
         error.message || '工具模型返回了非法响应',

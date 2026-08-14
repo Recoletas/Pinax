@@ -141,7 +141,7 @@ export function parseOpenAIToolResponse(data, meta = {}) {
     })
     if (!validation.valid) {
       protocolError(
-        'NARRATIVE_PROVIDER_TOOL_CALL_INVALID',
+        validation.error.code || 'NARRATIVE_PROVIDER_TOOL_CALL_INVALID',
         `OpenAI-compatible 返回非法工具调用：${validation.error.code}`
       )
     }

@@ -148,7 +148,7 @@ export function parseOpenAIResponsesToolResponse(data, meta = {}) {
       arguments: parsed
     })
     if (!validation.valid) {
-      protocolError('NARRATIVE_PROVIDER_TOOL_CALL_INVALID', `Responses 返回非法工具调用：${validation.error.code}`)
+      protocolError(validation.error.code || 'NARRATIVE_PROVIDER_TOOL_CALL_INVALID', `Responses 返回非法工具调用：${validation.error.code}`)
     }
     callIds.add(id)
     calls.push(validation.call)

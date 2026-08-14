@@ -1652,7 +1652,7 @@ describe('agentContracts', function () {
         })
       }
     })).rejects.toMatchObject({
-      code: 'NARRATIVE_PROVIDER_TOOL_CALL_INVALID',
+      code: 'NARRATIVE_TOOL_ARGUMENTS_INVALID',
       retryable: false
     })
 
@@ -2059,7 +2059,7 @@ describe('agentContracts', function () {
     expect(narrativeExpansionFactor('expanded')).toBe(1.35)
     expect(narrativeExpansionFactor('unknown')).toBe(1)
 
-    // Q3：BeatPlan schema 校验 —— 拒绝空 responseObligation / 空 causalSteps / 缺 endCondition。
+    // Q3：BeatPlan schema 校验 —— 拒绝空 responseObligation / 缺 endCondition；causalSteps 可空。
     expect(validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: ['确认依据', '调出波形'],
@@ -2071,12 +2071,23 @@ describe('agentContracts', function () {
       revealOrChange: 'c',
       endCondition: 'd'
     }).valid).toBe(false)
+    // P6：causalSteps 容错 —— 空数组合法（不再拒绝），顿号分隔的字符串被归一化为数组。
     expect(validateNarrativeBeatPlanInput({
-      responseObligation: 'x',
+      responseObligation: '回应玩家',
       causalSteps: [],
       revealOrChange: 'c',
       endCondition: 'd'
-    }).valid).toBe(false)
+    }).valid).toBe(true)
+    var sloppyPlan = validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: '核对、确认',
+      revealOrChange: 'c',
+      endCondition: 'd',
+      characterMoves: { character: '陆晨曦', action: '翻阅日志' }
+    })
+    expect(sloppyPlan.valid).toBe(true)
+    expect(sloppyPlan.plan.causalSteps).toEqual(['核对', '确认'])
+    expect(sloppyPlan.plan.characterMoves).toHaveLength(1)
     // P6：result 可选 —— 缺 result 的动作仍通过（真实模型常省略），带 result 的保留。
     expect(validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',

@@ -10,7 +10,7 @@ export const NARRATIVE_BEAT_PLAN_SCHEMA_VERSION = 1
 export const NARRATIVE_BEAT_PLAN_TOOL = 'submit_narrative_beat_plan'
 
 export const NARRATIVE_BEAT_PLAN_LIMITS = Object.freeze({
-  minCausalSteps: 1,
+  minCausalSteps: 0,
   maxCausalSteps: 4,
   maxCharacterMoves: 6,
   maxFunctionalDetails: 2,
@@ -23,10 +23,14 @@ function text(value, limit = NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit)
 }
 
+// P6：容错归一化 —— 真实模型常把数组写成顿号/逗号分隔的字符串（"a、b"），
+// 只接受数组会把这类计划误判为空而拒绝。
 function stringArray(value, limit) {
-  if (!Array.isArray(value)) return []
+  const raw = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' ? value.split(/[、,，;；\n]+/) : [])
   const output = []
-  for (const item of value) {
+  for (const item of raw) {
     const cleaned = text(item)
     if (!cleaned || output.includes(cleaned)) continue
     output.push(cleaned)
@@ -36,8 +40,10 @@ function stringArray(value, limit) {
 }
 
 function moveArray(value) {
-  if (!Array.isArray(value)) return []
-  return value.slice(0, NARRATIVE_BEAT_PLAN_LIMITS.maxCharacterMoves).map((move) => ({
+  const list = Array.isArray(value)
+    ? value
+    : (value && typeof value === 'object' && !Array.isArray(value) ? [value] : [])
+  return list.slice(0, NARRATIVE_BEAT_PLAN_LIMITS.maxCharacterMoves).map((move) => ({
     character: text(move?.character || move?.name, 80),
     intent: text(move?.intent || move?.immediateIntent),
     action: text(move?.action),
@@ -47,8 +53,10 @@ function moveArray(value) {
 }
 
 function detailArray(value) {
-  if (!Array.isArray(value)) return []
-  return value.slice(0, NARRATIVE_BEAT_PLAN_LIMITS.maxFunctionalDetails).map((item) => ({
+  const list = Array.isArray(value)
+    ? value
+    : (value && typeof value === 'object' && !Array.isArray(value) ? [value] : [])
+  return list.slice(0, NARRATIVE_BEAT_PLAN_LIMITS.maxFunctionalDetails).map((item) => ({
     detail: text(item?.detail),
     affects: text(item?.affects)
   })).filter((item) => item.detail)
@@ -83,9 +91,6 @@ export function validateNarrativeBeatPlanInput(rawInput) {
   const plan = normalizeNarrativeBeatPlan(rawInput)
   if (!plan.responseObligation) {
     return error('NARRATIVE_BEAT_PLAN_OBLIGATION_REQUIRED', 'responseObligation 不能为空：本轮玩家输入必须得到什么回应')
-  }
-  if (plan.causalSteps.length < NARRATIVE_BEAT_PLAN_LIMITS.minCausalSteps) {
-    return error('NARRATIVE_BEAT_PLAN_STEPS_TOO_FEW', `causalSteps 至少 ${NARRATIVE_BEAT_PLAN_LIMITS.minCausalSteps} 个有因果顺序的变化`)
   }
   if (plan.causalSteps.length > NARRATIVE_BEAT_PLAN_LIMITS.maxCausalSteps) {
     return error('NARRATIVE_BEAT_PLAN_STEPS_TOO_MANY', `causalSteps 至多 ${NARRATIVE_BEAT_PLAN_LIMITS.maxCausalSteps} 个`)
@@ -143,7 +148,6 @@ export function narrativeBeatPlanToolSchema() {
       responseObligation: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars },
       causalSteps: {
         type: 'array',
-        minItems: NARRATIVE_BEAT_PLAN_LIMITS.minCausalSteps,
         maxItems: NARRATIVE_BEAT_PLAN_LIMITS.maxCausalSteps,
         items: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars }
       },

@@ -161,8 +161,9 @@ export function parseAnthropicToolResponse(data, meta = {}) {
       arguments: block?.input
     })
     if (!validation.valid) {
+      // P6：透传底层校验码（如 NARRATIVE_BEAT_PLAN_*），让客户端修复循环能给出定向提示
       protocolError(
-        'NARRATIVE_PROVIDER_TOOL_CALL_INVALID',
+        validation.error.code || 'NARRATIVE_PROVIDER_TOOL_CALL_INVALID',
         `Anthropic-compatible 返回非法工具调用：${validation.error.code}`
       )
     }

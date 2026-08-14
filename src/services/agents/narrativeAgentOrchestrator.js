@@ -37,8 +37,8 @@ export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
   maxModelSteps: 4,
   maxToolResultChars: 7200,
   toolTimeoutMs: 800,
-  decisionTimeoutMs: 12000,
-  agentTimeoutMs: 45000,
+  decisionTimeoutMs: 20000,
+  agentTimeoutMs: 60000,
   repeatedCallLimit: 2,
   maxProviderRetries: 1,
   maxToolRepairs: 1
