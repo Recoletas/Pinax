@@ -24,6 +24,8 @@
 ## Recently done
 
 - 2026-08-14：执行叙事运行时收口计划 P0-P5。P0 trace 分阶段记录 + parser 块统计；P1 BeatPlan 独立资料预算、超时按阶段分配、geo 条件暴露；P2 `NarrativeKernel.activatedLore` 确定性接入世界书 matcher（starter 零配额 + 概述回退）；P3 BeatPlan 最小因果、软区间无硬补、五条行文契约、SceneThread 参与者切换；P4 语义分段（260 字/4 句兜底、2-3 句分组、短段合并）+ 桌面段距；P5 清理过时注释并更新本状态。191 tests 保持 ≤200。剩真实渠道 3×3 验收。
+- 2026-08-14：补齐叙事回归边界：BeatPlan 工具目录在整轮 transcript 生命周期内保持声明，避免后续请求因历史 tool-call 被契约拒绝；清理【正文】等小节标题并将 presentation schema 升到 v5，使旧消息按单换行语义分段规则重新解析。定向 contract 测试覆盖真实请求 shape、legacy 标题和版本迁移。
+- 2026-08-14：补齐旧会话与空正文边界：loadSession 将 presentation v5 迁移结果回写持久化 session；无 marker 的长正文也走语义分段；仅有协议标题的模型响应不再进入 gameStore 空正文错误路径，而是按可重试空响应处理。
 - 2026-08-14：复核体验页 Agent 运行时调研并重写为当前收口计划。代码确认“两轮限制”由 BeatPlan 与资料工具共用计数导致，“叙事工具超时”实际是 provider 模型步骤 20 秒超时；现有世界书 matcher 已具备常驻、绑定、关键词、starter 和预算能力，但生产 NarrativeKernel 未接入。计划先止血运行时，再接世界书、收紧因果拍，最后修复逐句分段与桌面密度；runtimeEvents v2、Goal domain、风格硬重试延期。
 - 2026-08-13：完成体验页叙事连续性调研并制定 C0-C7 计划。代码证据确认当前短碎输出并非只由 token 上限造成：continue/auto 被当作隐藏 user turn，最近上下文截掉长回复尾部，voice policy 多次要求“一小步/短小后果”；本地 SillyTavern 对照确认 continue 应延长最后 assistant 内容。计划收敛到 intent 隔离、ContinuityFrame、真实角色 transcript、同消息 segment 事务、有界补全和真实渠道多轮 A/B。
 - 2026-08-11：收口酒馆能力对齐复验问题：SceneCast 改用真实持久化角色状态并按用户点名/目标自动选择 speaker；旧 checkpoint、记忆 revision 和分支差异恢复需要显式确认；UI audit 使用各自真实视口的 200% 有效宽度、核心控件 Tab 与实际 reduced-motion 动画作为失败门禁，390px/200% 顶部工具区改为两列重排。

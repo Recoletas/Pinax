@@ -283,7 +283,7 @@ function normalizeAssistantTranscriptParts(response = {}) {
 
 function emitNarrativeFinalText(callbacks, value) {
   const content = text(value)
-  if (!content) {
+  if (!hasNarrativeBody(content)) {
     throw runtimeError('NARRATIVE_PROVIDER_EMPTY_RESPONSE', '上游没有返回可提交的最终正文')
   }
   callbacks?.onChunk?.({ content, source: 'narrative-transcript' })
@@ -454,7 +454,7 @@ function validateNarrativeStepResponse(response) {
     throw runtimeError('NARRATIVE_AGENT_STEP_INVALID', '模型没有返回有效的工具调用或最终正文', true)
   }
   if (response.kind === 'final_ready') {
-    if (!text(response.text)) {
+    if (!hasNarrativeBody(response.text)) {
       throw runtimeError('NARRATIVE_PROVIDER_EMPTY_RESPONSE', '上游没有返回可用的最终正文', true)
     }
     if (Array.isArray(response.calls) && response.calls.length > 0) {
@@ -478,6 +478,13 @@ function validateNarrativeStepResponse(response) {
     }
   }
   return response
+}
+
+function hasNarrativeBody(value) {
+  return String(value ?? '')
+    .replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
+    .replace(/[【\[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
+    .trim().length > 0
 }
 
 function cjkCount(value) {
@@ -682,9 +689,11 @@ export async function runNarrativeAgentLoop({
   const requiresBeatPlan = requiresBeatPlanFor(intent, mode)
   // P1：工具目录整轮保持声明（transcript 历史含 BeatPlan tool-call，请求校验
   // 要求历史消息只调用已声明工具）；"计划通过后不再规划"由 control message 约束。
-  const requestTools = requiresBeatPlan
-    ? kernel.toolCatalog
-    : (kernel.toolCatalog || []).filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
+  // Keep the complete catalog for the entire transcript lifetime. A later
+  // request may still carry an earlier BeatPlan tool-call in its history;
+  // removing the tool for extend/follow-up makes the provider contract reject
+  // an otherwise valid transcript as GENERATION_TOOL_NOT_DECLARED.
+  const requestTools = kernel.toolCatalog || []
   let beatPlan = null
   let beatPlanRevision = ''
   let beatPlanRepairs = 0
@@ -1059,7 +1068,8 @@ export async function runNarrativeAgentLoop({
         }, { allowPendingToolCalls: remainingEntries > 0 })
       }
       // Q3：BeatPlan 校验通过后，把计划作为 control message 追加到同一 transcript，
-      // 供下一步 prose 使用；extend 不重新规划（工具目录已剔除）。
+      // 供下一步 prose 使用；后续步骤仍声明完整工具目录，但由 control message
+      // 约束模型不要重复提交 BeatPlan。
       if (requiresBeatPlan && !beatPlan) {
         const planEntry = executed.find((entry) => (
           entry.result?.tool === NARRATIVE_BEAT_PLAN_TOOL && entry.result?.ok !== false

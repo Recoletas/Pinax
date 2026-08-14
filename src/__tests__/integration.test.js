@@ -227,12 +227,12 @@ describe('Narrative presentation contract', () => {
     ])
     expect(structured.content).not.toContain(':::')
 
-    // P4：同一 marker 块按空行拆分自然段；相邻短未署名 narration 合并（≤180 字）。
+    // P4：同一 marker 块按空行拆分自然段；明确段落边界不被短块合并。
     const multiParagraph = parseNarrativePresentation(':::narration\n段一。继续一段。\n\n段二。\n\n段三。', {
       messageId: 'multi-para'
     })
     expect(multiParagraph.blocks.map((block) => block.text)).toEqual([
-      '段一。继续一段。段二。段三。'
+      '段一。继续一段。', '段二。', '段三。'
     ])
 
     // P6：模型把 marker 写进行中（`。」 :::narration 柳洵`）时按行内 marker 切块，
@@ -322,6 +322,15 @@ describe('Narrative presentation contract', () => {
     ])
     expect(legacy.blocks.slice(1, 4).every((block) => block.speakerSource === 'text')).toBe(true)
 
+    const legacyHeader = parseNarrativePresentation('【正文】\n“继续前进。”', { messageId: 'legacy-header' })
+    expect(legacyHeader.content).toBe('“继续前进。”')
+
+    const legacyLong = parseNarrativePresentation(
+      '第一句先落在门口。第二句说明他看见了什么。第三句让他做出动作。第四句带来一个后果。第五句留下新的问题。',
+      { messageId: 'legacy-long' }
+    )
+    expect(legacyLong.blocks.length).toBe(2)
+
     const messageFallback = parseNarrativePresentation('“继续。”', {
       messageId: 'fallback-speaker',
       fallbackSpeaker: '褚岩'
@@ -391,18 +400,31 @@ describe('Narrative presentation contract', () => {
     })
     expect(leaked.presentation.blocks.map((block) => block.text).join('\n')).not.toContain(':::')
     expect(leaked.presentation.blocks[0].text).toBe('雨水沿着舷窗滑落。')
-    // 无泄漏的新消息不被重解析（版本 4 且 block.text 干净）
+    // 无泄漏的新消息不被重解析（版本 5 且 block.text 干净）
     const clean = ensureNarrativeMessage({
       id: 'clean-msg',
       role: 'assistant',
       content: '雨水沿着舷窗滑落。',
       presentation: {
-        version: 4,
+        version: 5,
         source: 'model-structured',
         blocks: [{ id: 'c1', kind: 'narration', text: '雨水沿着舷窗滑落。' }]
       }
     })
     expect(clean.presentation.blocks[0].text).toBe('雨水沿着舷窗滑落。')
+
+    const oldPresentation = ensureNarrativeMessage({
+      id: 'old-presentation',
+      role: 'assistant',
+      content: ':::narration\n第一段。\n第二段。',
+      presentation: {
+        version: 4,
+        source: 'model-structured',
+        blocks: [{ id: 'old-1', kind: 'narration', text: '第一段。第二段。' }]
+      }
+    })
+    expect(oldPresentation.presentation.version).toBe(5)
+    expect(oldPresentation.presentation.blocks.map((block) => block.text)).toEqual(['第一段。', '第二段。'])
 
     // P6：场景未切换也刷新 thread（滚动合并）—— 保留地点/时间/目标，刷新滚动字段。
     const firstThread = buildNarrativeSceneThread({

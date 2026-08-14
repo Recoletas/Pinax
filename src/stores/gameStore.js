@@ -2011,6 +2011,13 @@ export const useGameStore = defineStore('game', {
       this.currentSessionId = session.id
       const runtimeState = session.runtimeState || {}
       this.messages = normalizeNarrativeMessages(cloneState(session.messages || runtimeState.messages || [], []))
+      // Presentation normalization is a data migration, not only a render
+      // concern. Persist it immediately so an old conversation does not
+      // revert to the pre-v5 paragraph layout after the next reload.
+      session.messages = cloneState(this.messages, [])
+      if (session.runtimeState && Array.isArray(session.runtimeState.messages)) {
+        session.runtimeState.messages = cloneState(this.messages, [])
+      }
       this.chatHistory = cloneState(session.chatHistory || runtimeState.chatHistory || [], [])
       const character = cloneState(session.worldState?.character || runtimeState.writingCharacter || DEFAULT_WRITING_CHARACTER, DEFAULT_WRITING_CHARACTER)
       this.writingCharacter = normalizeWritingCharacter(character)
@@ -3473,7 +3480,8 @@ export const useGameStore = defineStore('game', {
           worldbookId: narrativeProjectId
         })
 
-        const finalParsed = parseNarrativePresentation(fullContent, {
+        const finalSource = String(agentRun.finalText || fullContent || completedMessage?.content || '')
+        const finalParsed = parseNarrativePresentation(finalSource, {
           messageId: completedMessage?.id,
           complete: true,
           fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),

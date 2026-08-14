@@ -1774,6 +1774,9 @@ describe('agentContracts', function () {
     // Fix：transcript 历史含 BeatPlan tool-call 时，后续请求必须继续声明该工具，
     // 否则请求校验报 GENERATION_TOOL_NOT_DECLARED（messages[N] 调用了未声明工具）。
     expect(transcriptRequests[2].tools.map(function (tool) { return tool.name })).toContain('submit_narrative_beat_plan')
+    expect(transcriptRequests.every(function (request) {
+      return request.tools.some(function (tool) { return tool.name === 'submit_narrative_beat_plan' })
+    })).toBe(true)
     // 且真实客户端契约校验（历史 tool-call 只能调已声明工具）在该请求上通过。
     var turnRequestShape = validateGenerationAgentTurnRequest({
       requestId: 'undeclared-tool-check',

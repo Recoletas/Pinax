@@ -6,7 +6,7 @@ const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
 // P3：所有围栏变体
 const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
 
-export const NARRATIVE_PRESENTATION_VERSION = 4
+export const NARRATIVE_PRESENTATION_VERSION = 5
 export const NARRATIVE_BLOCK_KINDS = Object.freeze([...BLOCK_KINDS])
 
 export function buildNarrativeFormatInstructions() {
@@ -43,8 +43,7 @@ export function ensureNarrativeMessage(message = {}, index = 0) {
   const normalized = { ...message }
   if (!normalized.id) normalized.id = createNarrativeMessageId(normalized, index)
   const presentationNeedsRefresh = !normalized.presentation
-    || (normalized.presentation.source === 'parser'
-      && Number(normalized.presentation.version || 0) < NARRATIVE_PRESENTATION_VERSION)
+    || Number(normalized.presentation.version || 0) < NARRATIVE_PRESENTATION_VERSION
     || presentationHasLeakedMarkers(normalized.presentation)
   if (presentationNeedsRefresh && normalized.content && normalized.type !== 'scene') {
     normalized.presentation = parseNarrativePresentation(normalized.content, {
@@ -76,12 +75,13 @@ export function parseNarrativePresentation(text, options = {}) {
   const speakerRegistry = Array.isArray(options.speakerRegistry) ? options.speakerRegistry : null
   const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap, speakerRegistry })
   if (structured) return structured
+  const legacyBlocks = parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker, speakerRegistry })
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'parser',
     status: complete ? 'complete' : 'provisional',
-    content: sourceText,
-    blocks: parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker, speakerRegistry }),
+    content: legacyBlocks.map((block) => block.text).join('\n\n'),
+    blocks: legacyBlocks,
     hasMarkers: false
   }
 }
@@ -105,12 +105,18 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
       // P6：同一 marker 块内按空行拆分自然段 —— 每个段落一个 block，
       // CSS 的段首缩进 / 段落间距（.narrative-block--narration 等）才生效；
       // 无空行的未署名 narration 再走句子级兜底（模型把整轮压成一行时）。
-      for (const paragraph of splitParagraphs(value)) {
+      const paragraphs = splitParagraphs(value)
+      for (const paragraph of paragraphs) {
         const chunks = current.kind === 'narration' && !speaker
           ? splitNarrationSentences(paragraph)
           : [paragraph]
         for (const chunk of chunks) {
-          blocks.push(createBlock(current.kind, chunk, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry))
+          const block = createBlock(current.kind, chunk, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry)
+          // Preserve explicit model line breaks. The short-block compactor is
+          // only allowed to merge parser-created fragments, not author/model
+          // paragraph boundaries.
+          if (paragraphs.length > 1) block.paragraphBoundary = true
+          blocks.push(block)
         }
       }
     }
@@ -157,15 +163,17 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   // P4 规则 5：合并相邻的短未署名 narration（无说话者切换、合并后 ≤180 字）
   const mergedBlocks = mergeAdjacentShortNarration(blocks)
   // P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内 :::kind|speaker）
-  for (const block of mergedBlocks) {
+  const sanitizedBlocks = mergedBlocks.filter((block) => {
     block.text = sanitizeTransportMarkers(block.text)
-  }
+    delete block.paragraphBoundary
+    return Boolean(block.text)
+  })
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'model-structured',
     status: complete ? 'complete' : 'provisional',
-    content: mergedBlocks.map((block) => block.text).join('\n\n'),
-    blocks: mergedBlocks,
+    content: sanitizedBlocks.map((block) => block.text).join('\n\n'),
+    blocks: sanitizedBlocks,
     hasMarkers: true
   }
 }
@@ -243,7 +251,8 @@ function mergeAdjacentShortNarration(blocks) {
     const previous = output[output.length - 1]
     const isShort = block.kind === 'narration' && !block.speaker && block.text.length < 35
     const previousIsShort = previous && previous.kind === 'narration' && !previous.speaker && previous.text.length < 35
-    if (previousIsShort && isShort && previous.text.length + block.text.length <= 180) {
+    if (previousIsShort && isShort && !previous.paragraphBoundary && !block.paragraphBoundary
+      && previous.text.length + block.text.length <= 180) {
       output[output.length - 1] = { ...previous, text: `${previous.text}${block.text}` }
       continue
     }
@@ -270,9 +279,15 @@ function scanInlineMarkers(line) {
 // P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内 :::kind|speaker）与
 // 模型模仿控制消息输出的【正文】【旁白】【回应】等小节标题 token，保留正文。
 function sanitizeTransportMarkers(text) {
-  return String(text || '')
+  const withoutMarkers = String(text || '')
     .replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
+  return sanitizeNarrativeSectionTitles(withoutMarkers)
+}
+
+function sanitizeNarrativeSectionTitles(text) {
+  return String(text || '')
     .replace(/[【\[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
+    .trim()
 }
 
 function trimPendingMarkerLine(text) {
@@ -293,16 +308,18 @@ function parseLegacyBlocks(text, messageId, options = {}) {
   const paragraphs = source.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
   for (const paragraph of paragraphs) {
     for (const line of paragraph.split('\n').map((value) => value.trim()).filter(Boolean)) {
-      const action = line.match(/^\*([^*\n]+)\*$/)
-      const thought = line.match(/^[（(]([^）)\n]+)[）)]$/)
+      const cleanLine = sanitizeNarrativeSectionTitles(line)
+      if (!cleanLine) continue
+      const action = cleanLine.match(/^\*([^*\n]+)\*$/)
+      const thought = cleanLine.match(/^[（(]([^）)\n]+)[）)]$/)
       if (action) blocks.push(createBlock('action', action[1], '', messageId, blocks.length))
       else if (thought) blocks.push(createBlock('thought', thought[1], '', messageId, blocks.length))
-      else if (isDialogueDominant(line)) {
-        const explicitSpeaker = extractExplicitDialogueSpeaker(line)
+      else if (isDialogueDominant(cleanLine)) {
+        const explicitSpeaker = extractExplicitDialogueSpeaker(cleanLine)
         const speaker = explicitSpeaker || fallbackSpeaker
         blocks.push(createBlock(
           'dialogue',
-          line,
+          cleanLine,
           speaker,
           messageId,
           blocks.length,
@@ -311,7 +328,11 @@ function parseLegacyBlocks(text, messageId, options = {}) {
           speakerRegistry
         ))
       }
-      else blocks.push(createBlock('narration', line, '', messageId, blocks.length))
+      else {
+        for (const chunk of splitNarrationSentences(cleanLine)) {
+          blocks.push(createBlock('narration', chunk, '', messageId, blocks.length))
+        }
+      }
     }
   }
   return blocks
