@@ -153,16 +153,18 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   flush()
 
   if (!sawMarker || (complete && blocks.length === 0)) return null
-  // P3：transport sanitizer —— 移除残留的协议头（行首 :::kind|speaker）
-  for (const block of blocks) {
+  // P4 规则 5：合并相邻的短未署名 narration（无说话者切换、合并后 ≤180 字）
+  const mergedBlocks = mergeAdjacentShortNarration(blocks)
+  // P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内 :::kind|speaker）
+  for (const block of mergedBlocks) {
     block.text = sanitizeTransportMarkers(block.text)
   }
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'model-structured',
     status: complete ? 'complete' : 'provisional',
-    content: blocks.map((block) => block.text).join('\n\n'),
-    blocks,
+    content: mergedBlocks.map((block) => block.text).join('\n\n'),
+    blocks: mergedBlocks,
     hasMarkers: true
   }
 }
@@ -174,29 +176,78 @@ function splitParagraphs(value) {
   return source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
 }
 
-// P6：句子级兜底分段 —— 用户要求宁可碎不可合并。
-// 未署名 narration 一律按句界拆段：句末标点（。！？…!?）后即段落边界；
-// 引号（「『“‘”」』’）内的叹号/问号不拆，保护对白完整性。
+// P4：语义段落优先 —— 只有异常长且无空行的未署名 narration 才兜底拆分。
+// 触发条件：>260 中文字符 或 >4 个完整句子；目标 2-3 句、约 90-180 字一组。
 function splitNarrationSentences(value) {
   const source = String(value || '').trim()
   if (!source) return []
-  const OPEN_QUOTE = /[「『“‘]/
-  const CLOSE_QUOTE = /[」』”’]/
-  const SENTENCE_END = /[。！？…!?]/
-  const parts = []
+  const sentences = splitIntoSentences(source)
+  const cjkCount = (source.match(/[\u4e00-\u9fff]/g) || []).length
+  if (cjkCount <= 260 && sentences.length <= 4) return [source]
+  return groupSentences(sentences)
+}
+
+// P4：句子级切分 —— 成对引号（「『“‘”」』’）内不拆，短台词与归属动作保留在同一段。
+function splitIntoSentences(source) {
+  const sentences = []
   let buffer = ''
   let depth = 0
   for (const char of source) {
     buffer += char
-    if (OPEN_QUOTE.test(char)) depth += 1
-    else if (CLOSE_QUOTE.test(char)) depth = Math.max(0, depth - 1)
-    else if (depth === 0 && SENTENCE_END.test(char)) {
-      parts.push(buffer.trim())
+    if (/[「『“‘]/.test(char)) depth += 1
+    else if (/[」』”’]/.test(char)) depth = Math.max(0, depth - 1)
+    else if (depth === 0 && /[。！？…!?]/.test(char)) {
+      sentences.push(buffer.trim())
       buffer = ''
     }
   }
-  if (buffer.trim()) parts.push(buffer.trim())
-  return parts.filter(Boolean)
+  if (buffer.trim()) sentences.push(buffer.trim())
+  return sentences.filter(Boolean)
+}
+
+const DIALOGUE_START_RE = /^[“「『‘]/
+const TRANSITION_MARKER_RE = /(?:次日|翌日|隔天|清晨|傍晚|黄昏|深夜|黎明|夜里|上午|中午|下午|晚上|来到|走到|回到|穿过|进入|抵达|离开)/
+
+// P4：以 2-3 句、约 90-180 字为目标的段落分组；角色切换、时间/地点转换处优先断开。
+function groupSentences(sentences) {
+  const groups = []
+  let current = []
+  let currentChars = 0
+  for (const sentence of sentences) {
+    const length = sentence.length
+    const startsDialogue = DIALOGUE_START_RE.test(sentence)
+    const isTransition = TRANSITION_MARKER_RE.test(sentence)
+    if (current.length > 0 && (
+      current.length >= 3
+      || currentChars + length > 180
+      || startsDialogue
+      || isTransition
+    )) {
+      groups.push(current.join(''))
+      current = []
+      currentChars = 0
+    }
+    current.push(sentence)
+    currentChars += length
+  }
+  if (current.length) groups.push(current.join(''))
+  return groups
+}
+
+// P4 规则 5：合并相邻的短未署名 narration（<35 字，合并后 ≤180 字，无说话者切换）。
+function mergeAdjacentShortNarration(blocks) {
+  const output = []
+  for (const block of blocks) {
+    const previous = output[output.length - 1]
+    const isShort = block.kind === 'narration' && !block.speaker && block.text.length < 35
+    const previousIsShort = previous && previous.kind === 'narration' && !previous.speaker && previous.text.length < 35
+    if (previousIsShort && isShort && previous.text.length + block.text.length <= 180) {
+      output[output.length - 1] = { ...previous, text: `${previous.text}${block.text}` }
+      continue
+    }
+    output.push(block)
+  }
+  return output
 }
 
 // P6：扫描一行内任意位置出现的已知 marker（模型常把 `:::` 写进行中）。

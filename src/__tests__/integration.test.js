@@ -227,37 +227,42 @@ describe('Narrative presentation contract', () => {
     ])
     expect(structured.content).not.toContain(':::')
 
-    // P6：同一 marker 块按空行拆分自然段，段内再按句界拆 —— 宁可碎不可合并。
+    // P4：同一 marker 块按空行拆分自然段；相邻短未署名 narration 合并（≤180 字）。
     const multiParagraph = parseNarrativePresentation(':::narration\n段一。继续一段。\n\n段二。\n\n段三。', {
       messageId: 'multi-para'
     })
     expect(multiParagraph.blocks.map((block) => block.text)).toEqual([
-      '段一。', '继续一段。', '段二。', '段三。'
+      '段一。继续一段。段二。段三。'
     ])
 
     // P6：模型把 marker 写进行中（`。」 :::narration 柳洵`）时按行内 marker 切块，
-    // marker 不泄漏进正文，同一行可连续出现多个 marker。
+    // marker 不泄漏进正文，同一行可连续出现多个 marker；相邻短叙述合并。
     const inlineMarkers = parseNarrativePresentation(
       '猎户二人站起身。 :::narration 柳洵眉心微动。 :::dialogue|阿贵 「哎，柳公子——」 :::narration 阿贵没再开口。',
       { messageId: 'inline-markers' }
     )
     expect(inlineMarkers.blocks.map((block) => `${block.kind}:${block.speaker || ''}`)).toEqual([
-      'narration:', 'narration:', 'dialogue:阿贵', 'narration:'
+      'narration:', 'dialogue:阿贵', 'narration:'
     ])
     expect(inlineMarkers.blocks.map((block) => block.text)).toEqual([
-      '猎户二人站起身。', '柳洵眉心微动。', '「哎，柳公子——」', '阿贵没再开口。'
+      '猎户二人站起身。柳洵眉心微动。', '「哎，柳公子——」', '阿贵没再开口。'
     ])
     expect(inlineMarkers.content).not.toContain(':::')
 
-    // P6：模型把整轮正文压成一行（句子间空格分隔、无 marker 无空行）时的句子级兜底分段。
+    // P4：短块（≤260 字且 ≤4 句）不拆；异常长块（>4 句）按 2-3 句/90-180 字分组，
+    // 时间/地点转换处优先断开；引号内叹号问号不拆。
     const squeezed = parseNarrativePresentation(
       ':::narration\n柳洵眉心微动。 他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。 三日，够拖成要命的痨病。',
       { messageId: 'squeezed' }
     )
-    expect(squeezed.blocks.map((block) => block.text)).toEqual([
-      '柳洵眉心微动。',
-      '他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。',
-      '三日，够拖成要命的痨病。'
+    expect(squeezed.blocks).toHaveLength(1)
+    const longBlock = parseNarrativePresentation(
+      ':::narration\n他沿着堤岸走了半里，风把斗笠吹得歪向一边。 河水在暮色里泛着碎光。 他停下来，把灯笼往水里照了照。 次日清晨，他在渡口等到了那条船。 船夫递过一张纸条。 纸上只有两个字：西边。',
+      { messageId: 'long-block' }
+    )
+    expect(longBlock.blocks.map((block) => block.text)).toEqual([
+      '他沿着堤岸走了半里，风把斗笠吹得歪向一边。河水在暮色里泛着碎光。他停下来，把灯笼往水里照了照。',
+      '次日清晨，他在渡口等到了那条船。船夫递过一张纸条。纸上只有两个字：西边。'
     ])
     // 引号内的叹号/问号不拆 —— 对白完整性受保护
     const dialogueProtected = parseNarrativePresentation(':::narration\n他厉声喝道：「站住！别动！」', {

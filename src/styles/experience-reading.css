@@ -230,6 +230,17 @@
   line-height: inherit;
 }
 
+/* P4 桌面阅读密度：连续 narration 段距收窄（0.58em → 0.42em），
+   说话者切换与 user/assistant 回合仍保留较明显间距；移动端维持现状。 */
+@media (min-width: 1101px) {
+  .theme-legacy .game-page .prose-reading-plane .narrative-block {
+    margin-bottom: 0.42em;
+  }
+  .theme-legacy .game-page .prose-reading-plane .narrative-block--speaker-start:not(:first-child) {
+    margin-top: 0.9em;
+  }
+}
+
 /* Tighter gap between consecutive narrative blocks within the same turn.
    Distinct from .prose + .prose (turn-to-turn) which is 4px. */
 .theme-legacy .game-page .prose-reading-plane .narrative-block + .narrative-block {
