@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import NarrativeBlock from './NarrativeBlock.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
@@ -21,6 +22,19 @@ const props = defineProps({
 
 defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension'])
 
+// M3：触屏不常驻显示消息操作 —— 点消息主体显示一次性操作入口
+const actionsOpen = ref(false)
+const isCoarsePointer = () => (
+  typeof window !== 'undefined'
+  && window.matchMedia?.('(hover: none), (pointer: coarse)').matches
+)
+
+function handleBodyClick(event) {
+  emit('body-click', event)
+  if (event?.target?.closest?.('button, a, .mechanism-trigger, [data-inline-type], textarea, input')) return
+  if (isCoarsePointer()) actionsOpen.value = !actionsOpen.value
+}
+
 function shouldShowBlockSpeaker(block, index) {
   if (!block?.speaker) return false
   if (index === 0) return true
@@ -34,14 +48,14 @@ function shouldShowBlockSpeaker(block, index) {
   <div class="prose" :class="[`prose--${message.role || 'assistant'}`, `prose--${message.role || 'assistant'}-role`, { 'compression-complete': compressionComplete, 'prose--opening': opening, 'prose--editing': editing }]" :data-global-index="index" :data-role="message.role">
     <span v-if="showTurnSpeaker" class="prose__speaker" :class="`prose__speaker--${message.role || 'assistant'}`">{{ turnSpeaker }}</span><span v-if="showTurnSpeaker" class="prose__sep" aria-hidden="true">&emsp;</span>
     <span v-if="editing" class="prose__editor" contenteditable="true" spellcheck="false" :data-editing-index="index" @keydown="$emit('editor-keydown', $event)" @click.stop></span>
-    <div v-else class="prose__body" @click="$emit('body-click', $event)">
+    <div v-else class="prose__body" @click="handleBodyClick($event)">
       <NarrativeBlock v-for="(block, blockIndex) in blocks" :key="block.id || `${index}-${blockIndex}`" :block="block" :show-speaker="shouldShowBlockSpeaker(block, blockIndex)" :render-content="renderContent" />
     </div>
     <span v-if="editing" class="prose__edit-actions">
       <button type="button" class="tavern-btn primary" @click="$emit('save-edit')">保存修改</button>
       <button type="button" class="tavern-btn" @click="$emit('cancel-edit')">取消</button>
     </span>
-    <details v-if="!editing && canEdit" class="prose__actions" @click.stop>
+    <details v-if="!editing && canEdit" class="prose__actions" :class="{ 'is-tapped': actionsOpen }" @click.stop>
       <summary class="prose__actions-trigger" aria-label="消息操作" title="消息操作">
         <WorkbenchIcon name="more" :size="15" />
       </summary>
@@ -238,7 +252,15 @@ function shouldShowBlockSpeaker(block, index) {
 }
 
 @media (hover: none), (pointer: coarse) {
+  /* M3：触屏不常驻显示消息操作 —— 点消息主体后显示一次性入口 */
   .prose__actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .prose__actions.is-tapped,
+  .prose__actions:focus-within,
+  .prose__actions[open] {
     opacity: 1;
     pointer-events: auto;
   }
