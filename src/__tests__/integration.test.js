@@ -226,13 +226,13 @@ describe('Narrative presentation contract', () => {
     ])
     expect(structured.content).not.toContain(':::')
 
-    // P6：同一 marker 块内按空行拆分自然段 —— 多段正文拆成多个 block，content 保持原样。
+    // P6：同一 marker 块按空行拆分自然段，段内再按句界拆 —— 宁可碎不可合并。
     const multiParagraph = parseNarrativePresentation(':::narration\n段一。继续一段。\n\n段二。\n\n段三。', {
       messageId: 'multi-para'
     })
-    expect(multiParagraph.blocks.map((block) => block.kind)).toEqual(['narration', 'narration', 'narration'])
-    expect(multiParagraph.blocks.map((block) => block.text)).toEqual(['段一。继续一段。', '段二。', '段三。'])
-    expect(multiParagraph.content).toBe('段一。继续一段。\n\n段二。\n\n段三。')
+    expect(multiParagraph.blocks.map((block) => block.text)).toEqual([
+      '段一。', '继续一段。', '段二。', '段三。'
+    ])
 
     // P6：模型把 marker 写进行中（`。」 :::narration 柳洵`）时按行内 marker 切块，
     // marker 不泄漏进正文，同一行可连续出现多个 marker。
@@ -253,15 +253,17 @@ describe('Narrative presentation contract', () => {
       ':::narration\n柳洵眉心微动。 他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。 三日，够拖成要命的痨病。',
       { messageId: 'squeezed' }
     )
-    expect(squeezed.blocks).toHaveLength(3)
     expect(squeezed.blocks.map((block) => block.text)).toEqual([
       '柳洵眉心微动。',
       '他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。',
       '三日，够拖成要命的痨病。'
     ])
-    // 1-2 个句子的正常短块不拆
-    const shortBlock = parseNarrativePresentation(':::narration\n他握紧了刀。', { messageId: 'short-block' })
-    expect(shortBlock.blocks).toHaveLength(1)
+    // 引号内的叹号/问号不拆 —— 对白完整性受保护
+    const dialogueProtected = parseNarrativePresentation(':::narration\n他厉声喝道：「站住！别动！」', {
+      messageId: 'dialogue-protected'
+    })
+    expect(dialogueProtected.blocks).toHaveLength(1)
+    expect(dialogueProtected.blocks[0].text).toBe('他厉声喝道：「站住！别动！」')
 
     const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
       messageId: 'preamble'

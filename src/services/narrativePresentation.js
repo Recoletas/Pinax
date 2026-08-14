@@ -174,17 +174,29 @@ function splitParagraphs(value) {
   return source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
 }
 
-// P6：句子级兜底分段 —— 模型把整轮正文压成一行、句子间用空格分隔时，
-// 按「句末标点 + 空格」边界拆成多个自然段（未署名 narration、无换行、≥2 个空格边界才拆）。
+// P6：句子级兜底分段 —— 用户要求宁可碎不可合并。
+// 未署名 narration 一律按句界拆段：句末标点（。！？…!?）后即段落边界；
+// 引号（「『“‘”」』’）内的叹号/问号不拆，保护对白完整性。
 function splitNarrationSentences(value) {
   const source = String(value || '').trim()
-  if (!source || source.includes('\n')) return [source]
-  const boundaries = source.match(/[。！？…!?][”"』」’]?\s+/g)
-  if (!boundaries || boundaries.length < 2) return [source]
-  return source
-    .split(/(?<=[。！？…!?][”"』」’]?)\s+(?=[^\s，。！？…!?])/)
-    .map((part) => part.trim())
-    .filter(Boolean)
+  if (!source) return []
+  const OPEN_QUOTE = /[「『“‘]/
+  const CLOSE_QUOTE = /[」』”’]/
+  const SENTENCE_END = /[。！？…!?]/
+  const parts = []
+  let buffer = ''
+  let depth = 0
+  for (const char of source) {
+    buffer += char
+    if (OPEN_QUOTE.test(char)) depth += 1
+    else if (CLOSE_QUOTE.test(char)) depth = Math.max(0, depth - 1)
+    else if (depth === 0 && SENTENCE_END.test(char)) {
+      parts.push(buffer.trim())
+      buffer = ''
+    }
+  }
+  if (buffer.trim()) parts.push(buffer.trim())
+  return parts.filter(Boolean)
 }
 
 // P6：扫描一行内任意位置出现的已知 marker（模型常把 `:::` 写进行中）。
