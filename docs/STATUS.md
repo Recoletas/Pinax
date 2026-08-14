@@ -23,6 +23,7 @@
 
 ## Recently done
 
+- 2026-08-14：执行体验页与写作页移动端适配计划 M0-M4 + W1-W3。M0 实测 390px 基线（装饰 contour 溢出、52px 死重左内边距、顶栏双行、触屏操作常驻）；M1 移动工作区骨架（overflow-x:clip、顶栏单行 65→36px、右栏近全宽 sheet、单滚动容器）；M2 输入区（快捷操作单行横向滚动、safe-area、键盘复用 visualViewport）；M3 触屏消息操作点按显示；M4 会话切换入口恢复 + sheet 关闭按钮 44px；W1 写作抽屉骨架确认、W2 命令菜单底部翻转 + 子菜单返回。320/360/390/412px 无横向滚动、输入区与发送按钮可见、桌面无回归；ui-audit experience 全宽度 0 console/0 a11y。剩真实手机与微信内置浏览器验收（M5/W4）。
 - 2026-08-14：执行叙事运行时收口计划 P0-P5。P0 trace 分阶段记录 + parser 块统计；P1 BeatPlan 独立资料预算、超时按阶段分配、geo 条件暴露；P2 `NarrativeKernel.activatedLore` 确定性接入世界书 matcher（starter 零配额 + 概述回退）；P3 BeatPlan 最小因果、软区间无硬补、五条行文契约、SceneThread 参与者切换；P4 语义分段（260 字/4 句兜底、2-3 句分组、短段合并）+ 桌面段距；P5 清理过时注释并更新本状态。191 tests 保持 ≤200。剩真实渠道 3×3 验收。
 - 2026-08-14：补齐叙事回归边界：BeatPlan 工具目录在整轮 transcript 生命周期内保持声明，避免后续请求因历史 tool-call 被契约拒绝；清理【正文】等小节标题并将 presentation schema 升到 v5，使旧消息按单换行语义分段规则重新解析。定向 contract 测试覆盖真实请求 shape、legacy 标题和版本迁移。
 - 2026-08-14：补齐旧会话与空正文边界：loadSession 将 presentation v5 迁移结果回写持久化 session；无 marker 的长正文也走语义分段；仅有协议标题的模型响应不再进入 gameStore 空正文错误路径，而是按可重试空响应处理。
