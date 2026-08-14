@@ -2026,14 +2026,14 @@ describe('agentContracts', function () {
       revealOrChange: 'c',
       endCondition: 'd'
     }).valid).toBe(false)
-    // P6：角色动作必须有 result —— 缺 result 的动作拒绝，带 result 的通过且保留。
+    // P6：result 可选 —— 缺 result 的动作仍通过（真实模型常省略），带 result 的保留。
     expect(validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: ['a', 'b'],
       revealOrChange: 'c',
       endCondition: 'd',
       characterMoves: [{ character: '陆晨曦', action: '翻阅日志' }]
-    }).valid).toBe(false)
+    }).valid).toBe(true)
     var withResultPlan = validateNarrativeBeatPlanInput({
       responseObligation: '回应玩家',
       causalSteps: ['a', 'b'],

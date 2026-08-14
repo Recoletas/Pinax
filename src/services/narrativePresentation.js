@@ -8,7 +8,7 @@ const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
 // P3：所有围栏变体
 const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
 
-export const NARRATIVE_PRESENTATION_VERSION = 3
+export const NARRATIVE_PRESENTATION_VERSION = 4
 export const NARRATIVE_BLOCK_KINDS = Object.freeze([...BLOCK_KINDS])
 
 export function buildNarrativeFormatInstructions() {
@@ -30,12 +30,22 @@ export function createNarrativeMessageId(message = {}, index = 0) {
   return `msg_${hashText(seed)}`
 }
 
+// P3：旧 parser 可能把 marker 协议头残留进 block.text（老对话的 :::narration 泄漏）。
+// 检测到即触发一次重解析，不依赖版本号（避免把新消息的 verified speaker 打回名字 hash）。
+function presentationHasLeakedMarkers(presentation) {
+  if (!presentation || !Array.isArray(presentation.blocks)) return false
+  return presentation.blocks.some((block) => (
+    /^\s*:::\s*[a-z]+\b/i.test(String(block?.text || ''))
+  ))
+}
+
 export function ensureNarrativeMessage(message = {}, index = 0) {
   const normalized = { ...message }
   if (!normalized.id) normalized.id = createNarrativeMessageId(normalized, index)
   const presentationNeedsRefresh = !normalized.presentation
     || (normalized.presentation.source === 'parser'
       && Number(normalized.presentation.version || 0) < NARRATIVE_PRESENTATION_VERSION)
+    || presentationHasLeakedMarkers(normalized.presentation)
   if (presentationNeedsRefresh && normalized.content && normalized.type !== 'scene') {
     normalized.presentation = parseNarrativePresentation(normalized.content, {
       messageId: normalized.id,

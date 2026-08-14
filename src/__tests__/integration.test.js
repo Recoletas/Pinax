@@ -118,6 +118,7 @@ import { runGenerationRetryPlan } from '../services/generationRetry'
 import {
   buildNarrativeFormatInstructions,
   createNarrativeMessageId,
+  ensureNarrativeMessage,
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
@@ -310,6 +311,36 @@ describe('Narrative presentation contract', () => {
     // 未提供注册表时保持旧行为（兼容 ensureNarrativeMessage 重解析路径）
     const noRegistry = parseNarrativePresentation(':::dialogue|路人甲\n“喂？”', { messageId: 'no-registry' })
     expect(noRegistry.blocks[0].speakerId).toMatch(/^spk_/)
+
+    // P3：老对话泄漏修复 —— ensureNarrativeMessage 检测到 block.text 残留 marker 即重解析，
+    // 不依赖版本号（避免把新消息的 verified speaker 打回名字 hash）。
+    const leaked = ensureNarrativeMessage({
+      id: 'leak-msg',
+      role: 'assistant',
+      content: ':::narration\n雨水沿着舷窗滑落。\n:::dialogue|陆晨曦\n“信号还在吗？”',
+      presentation: {
+        version: 3,
+        source: 'model-structured',
+        blocks: [
+          { id: 'b1', kind: 'narration', text: ':::narration\n雨水沿着舷窗滑落。' },
+          { id: 'b2', kind: 'dialogue', speaker: '陆晨曦', speakerId: 'spk_x', text: ':::dialogue|陆晨曦\n“信号还在吗？”' }
+        ]
+      }
+    })
+    expect(leaked.presentation.blocks.map((block) => block.text).join('\n')).not.toContain(':::')
+    expect(leaked.presentation.blocks[0].text).toBe('雨水沿着舷窗滑落。')
+    // 无泄漏的新消息不被重解析（版本 4 且 block.text 干净）
+    const clean = ensureNarrativeMessage({
+      id: 'clean-msg',
+      role: 'assistant',
+      content: '雨水沿着舷窗滑落。',
+      presentation: {
+        version: 4,
+        source: 'model-structured',
+        blocks: [{ id: 'c1', kind: 'narration', text: '雨水沿着舷窗滑落。' }]
+      }
+    })
+    expect(clean.presentation.blocks[0].text).toBe('雨水沿着舷窗滑落。')
 
     // P6：场景未切换也刷新 thread（滚动合并）—— 保留地点/时间/目标，刷新滚动字段。
     const firstThread = buildNarrativeSceneThread({
