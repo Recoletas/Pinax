@@ -1375,6 +1375,24 @@ function updatePromptInfo() {
     padding: 6px 10px;
     font-size: 12px;
     flex-shrink: 0;
+    /* M2/M5：主要触控目标 ≥44px 可触区域（含 padding 的可视高度提到 40px，
+       触控热区通过 ::before 扩到 44px，不增加布局高度） */
+    position: relative;
+  }
+
+  .quick-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+
+  .send-btn {
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .auto-advance-btn {

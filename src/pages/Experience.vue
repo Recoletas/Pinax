@@ -3653,19 +3653,30 @@ function quickNoteWordCount(text) {
     overflow: hidden;
   }
 
-  /* 右栏（现场索引）在移动端为近全宽 sheet，不再排正文下方 */
+  /* 右栏（现场索引）在移动端为近全宽 sheet，不再排正文下方。
+     顶边让开应用壳 mast（约 53px）—— 否则 sheet 标题栏的关闭按钮被 mast
+     的「联机」子导航盖住，点 × 会误跳 /experience/online。 */
   .game-page.game-page .ws-right-rail {
-    top: max(8px, env(safe-area-inset-top, 0px));
+    top: calc(61px + env(safe-area-inset-top, 0px));
     right: 8px;
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
     left: 8px;
     width: auto;
   }
 
-  /* M4：sheet 关闭按钮 ≥44px 触控目标 */
+  /* M4/M5：sheet 关闭按钮 ≥44px 触控目标 */
   .game-page .ws-dossier-bar__close {
     min-width: 44px;
     min-height: 44px;
+  }
+
+  /* M5：顶栏主要按钮 ≥44px CSS 触控目标（视觉随 0.85 全局缩放） */
+  .game-page.game-page .ws-topstrip__codex-toggle,
+  .game-page.game-page .ws-topstrip__settings-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
