@@ -309,6 +309,18 @@
   text-indent: 0;
 }
 
+/* 短色标 — 说话人 label 前的 3px 色条，与 .prose__speaker::before 同语言，
+   只标角色切换、不抢正文视觉。 */
+.theme-legacy .game-page .prose-reading-plane .narrative-block__speaker::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.9em;
+  margin-right: 0.45em;
+  vertical-align: -0.08em;
+  background: color-mix(in srgb, var(--experience-signal-cool, #719da8) 74%, var(--archive-olive-strong, #1e3a8a));
+}
+
 /* Speaker-group separator — when a new .narrative-block--speaker-start
    follows another, push it down a beat (0.9em). Migrated from
    Experience.vue:2535–2537. */
