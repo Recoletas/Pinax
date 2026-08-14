@@ -57,6 +57,71 @@ export function createWritingSelector({ text, start = 0, end = start, fullText =
   }
 }
 
+export function resolveAnnotationLaneLayout(items, { gap = 12, minTop = 0 } = {}) {
+  const positioned = (Array.isArray(items) ? items : [])
+    .map((item, index) => ({
+      id: String(item?.id || ''),
+      height: Math.max(1, Number(item?.height) || 1),
+      desiredCenter: Number(item?.desiredCenter),
+      anchored: Number.isFinite(Number(item?.desiredCenter)),
+      index
+    }))
+    .filter((item) => item.id)
+    .sort((left, right) => {
+      if (left.anchored !== right.anchored) return left.anchored ? -1 : 1
+      if (!left.anchored) return left.index - right.index
+      return left.desiredCenter - right.desiredCenter || left.index - right.index
+    })
+
+  const layout = {}
+  let cursor = Math.max(0, Number(minTop) || 0)
+  for (const item of positioned) {
+    const idealTop = item.anchored ? item.desiredCenter - item.height / 2 : cursor
+    const top = Math.max(cursor, idealTop, Number(minTop) || 0)
+    layout[item.id] = {
+      top,
+      height: item.height,
+      anchored: item.anchored,
+      anchorOffset: item.anchored ? item.desiredCenter - (top + item.height / 2) : 0
+    }
+    cursor = top + item.height + Math.max(0, Number(gap) || 0)
+  }
+  return layout
+}
+
+export function resolveSelectionActionPosition(anchor, {
+  viewportWidth = 0,
+  viewportHeight = 0,
+  width = 132,
+  height = 34,
+  gap = 8,
+  margin = 10,
+  scale = 1
+} = {}) {
+  if (!anchor || !viewportWidth || !viewportHeight) return null
+  const safeWidth = Math.max(1, Number(width) || 132)
+  const safeHeight = Math.max(1, Number(height) || 34)
+  const safeGap = Math.max(0, Number(gap) || 0)
+  const safeMargin = Math.max(0, Number(margin) || 0)
+  const safeScale = Math.max(0.1, Number(scale) || 1)
+  const visualWidth = safeWidth * safeScale
+  const visualHeight = safeHeight * safeScale
+  const anchorLeft = Number(anchor.left) || 0
+  const anchorRight = Number(anchor.right) || anchorLeft
+  const anchorTop = Number(anchor.top) || 0
+  const anchorBottom = Number(anchor.bottom) || anchorTop
+  let left = anchorRight + safeGap
+  let top = anchorBottom + safeGap
+
+  if (left + visualWidth > viewportWidth - safeMargin) left = anchorLeft - visualWidth - safeGap
+  if (top + visualHeight > viewportHeight - safeMargin) top = anchorTop - visualHeight - safeGap
+
+  return {
+    left: Math.round(Math.max(safeMargin, Math.min(left, viewportWidth - visualWidth - safeMargin)) / safeScale),
+    top: Math.round(Math.max(safeMargin, Math.min(top, viewportHeight - visualHeight - safeMargin)) / safeScale)
+  }
+}
+
 export function createWritingAnnotation({
   chapterId,
   blockId,
@@ -91,6 +156,36 @@ export function createWritingAnnotation({
     createdAt: timestamp,
     updatedAt: timestamp
   }
+}
+
+export function updateWritingAnnotationBody(annotations, annotationId, body) {
+  const nextBody = asText(body).trim()
+  if (!nextBody || !annotationId) return Array.isArray(annotations) ? annotations : []
+  const timestamp = now()
+  return (Array.isArray(annotations) ? annotations : []).map((annotation) => (
+    annotation?.id === annotationId
+      ? { ...annotation, body: nextBody, updatedAt: timestamp }
+      : annotation
+  ))
+}
+
+export function deleteWritingAnnotation(annotations, annotationId) {
+  if (!annotationId) return normalizeWritingAnnotations(annotations)
+  const list = normalizeWritingAnnotations(annotations)
+  const removedIds = new Set([annotationId])
+  let changed = true
+
+  while (changed) {
+    changed = false
+    list.forEach((annotation) => {
+      if (annotation.parentId && removedIds.has(annotation.parentId) && !removedIds.has(annotation.id)) {
+        removedIds.add(annotation.id)
+        changed = true
+      }
+    })
+  }
+
+  return list.filter((annotation) => !removedIds.has(annotation.id))
 }
 
 function normalizeWritingRange(range) {
@@ -414,7 +509,7 @@ export function updateWritingAnnotationStatus(annotations, annotationId, status)
 
 export function getWritingAnnotationLabel(annotation) {
   if (annotation?.status === 'resolved') return '已解决'
-  if (annotation?.status === 'orphaned') return '待重新关联'
+  if (annotation?.status === 'orphaned') return '原文已变化'
   if (annotation?.kind === 'rewrite-request') return '改写要求'
   if (annotation?.kind === 'review-finding') return '审阅发现'
   if (annotation?.kind === 'locked-span') return '锁定片段'

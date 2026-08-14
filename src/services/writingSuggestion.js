@@ -20,6 +20,15 @@ export function normalizeWritingSuggestion(rawText, maxLength = 180) {
     .replace(/^以下是(?:续写|补全|建议)?[:：]?\s*/i, '')
     .replace(/^```(?:\w+)?\s*/i, '')
     .replace(/```$/i, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^\s)]+(?:\s+"[^"]*")?\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1$2')
+    .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1$2')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
     .trim()
   if (!text) return ''
 

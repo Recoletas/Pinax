@@ -16,6 +16,8 @@ export const ADVISOR_TASK_TYPES = {
   continue: 'writing.continue.light'
 }
 
+export const ADVISOR_TASK_TIMEOUT_MS = 80000
+
 function normalizeQuestion(question) {
   const text = String(question || '').trim()
   if (!text) {
@@ -172,7 +174,8 @@ export async function requestAdvisorTask({
       requestId,
       clientStartedAt: traceBase.startedAt
     }), {
-      signal: signal || undefined
+      signal: signal || undefined,
+      timeout: ADVISOR_TASK_TIMEOUT_MS
     })
 
     recordAgentRequestTrace({

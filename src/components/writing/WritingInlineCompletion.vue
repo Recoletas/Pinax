@@ -129,6 +129,7 @@ defineEmits(['accept-unit', 'accept-all', 'retry', 'undo', 'dismiss'])
     bottom: 12px !important;
     flex-wrap: wrap;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

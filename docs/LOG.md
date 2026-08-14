@@ -8,7 +8,37 @@
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
-- 当前验证基线：核心 39 个文件 / 306 个用例，视觉 12 个用例；完整验证仍保持不新增测试项。
+- 当前验证基线：核心 40 个文件 / 322 个用例，视觉 12 个用例。
+
+## 2026-08-11 - WNB-6A 写作单元重构调研
+
+- 对照 JupyterLab 与 nbformat 确认：Enter 在 edit mode 内编辑当前 cell，一个 Markdown cell 可以承载多行、多段正文并拥有稳定 cell id；cell 的创建、split 和 merge 是显式 notebook 操作。Pinax 当前 schema v2 把每个 ProseMirror 顶层段落直接赋予业务 `blockId`，因此 Enter 即新块，段落、AI 单元和版本单元被错误合并为同一层。
+- 方案改为 `排版节点 -> writingUnit -> scene`：一个 unit 包含多个标题/段落/列表，Enter 只新增内部段落；unit 承担稳定来源、revision、Agent 上下文和版本，节点承担精确选区与批注。普通界面保持连续小说稿，不复制 Jupyter 的框、command mode、运行按钮和输出区。
+- 一次成功的体验 assistant 回合是最可靠的初始 unit 来源边界，导入时保留 session/branch/turn/message/worldbook 引用；它不是不可变编辑边界。作者拆分时来源继承，合并时来源去重并集，AI 的上下文单元与实际 patch 范围保持分离。
+- Cmd Markdown 只借连续输入、即时排版、快捷格式、目录与批注，不恢复源码/预览双模式，也不引入博客发布、图表和技术文章工具。知乎只借编辑/阅读连续性、长文低干扰和按小节校对，不复制公开文章、社交分发与运营结构。
+- 主路线图新增 schema v3、一次转换、批注/候选/版本迁移、体验回合导入和浏览器 Gate；该阶段先于 `targets[]` 与查找同类。本轮只完成调研与计划，没有改动运行行为。
+- 完整 `npm run verify:full` 通过（40 个核心测试文件 / 321 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）；未启动或重启服务。
+
+## 2026-08-11 - WNB-6 当前段与空段命令
+
+- 通过真实页面计算样式确认 Cmd Markdown 编辑区使用 `Menlo, Ubuntu Mono, Consolas, Courier New, Microsoft Yahei, Hiragino Sans GB, WenQuanYi Micro Hei, sans-serif`，Notebook 默认字体与字体选择项已精确切换到该栈，不再使用上一轮近似的普通无衬线方案。
+- 当前排版段背景从 4% 降至 2.5%，另根据 ProseMirror caret 坐标和实际 `line-height` 绘制只覆盖光标视觉行的 3.5% 浅层；滚动、选区变化和失焦同步更新，不改变正文尺寸和行宽。
+- 空段聚焦时显示“按空格或 / 调出工具”。命令改为 AI 续写、改写上一段、扩写上一段、精简上一段、审查本章、小节标题、引用/题记和场景分隔；删除正文、多级标题和列表堆叠。桌面两列四行完整可见，窄屏单列；方向键、Home/End、Enter、Esc、字母直达和 IME 保护保持有效。
+- AI 续写复用内联补全，章节审查复用分批审查；三种上一段修改先生成精确范围边注，再在边注内生成候选 diff，用户采用前正文不变。可控 503 浏览器检查确认失败时边注和原文均保留，没有静默写回。
+- 完整 `npm run verify:full` 通过：40 个核心测试文件 / 322 个用例、12 个视觉用例、Vite/VitePress build 和 `git diff --check` 全部通过。
+- 首次聚焦不一定产生 ProseMirror selection transaction，因此 focus 现在会显式刷新 Live Preview decoration，blur 会关闭菜单。浏览器检查覆盖空章命令执行、1440/390 普通正文和横向溢出，未启动或重启服务。
+- 完整 `npm run verify:full` 通过：40 个核心测试文件 / 321 个用例、12 个视觉用例、Vite/VitePress build 和 `git diff --check` 全部通过。
+
+## 2026-08-11 - WNB-6 Live Preview 与关联批注计划
+
+- 复核当前实现后确认：默认 Notebook 已是结构化富文本编辑面，但列表和代码块仍会在导入时压平成普通段落，此前“完整实时 Markdown”表述不成立。第一切片只在光标所在标题、引用块的语法槽露出 `#` / `>` 标记，普通阅读状态不增加噪声；随后按实际使用反馈删除源码/阅读模式，只保留这一实时编辑面。
+- 新增 WNB-6 执行阶段：补齐常用 Markdown 节点往返；把一条批注扩展为有序 `targets[]` 并通过“加入当前批注”收集非连续片段；“查找同类”先在当前章/书本地召回，再由模型复核 8-12 条短名单；用户确认后才并入同一边注。
+- 多目标改写继续使用候选与 stale gate，以单 transaction 全有或全无地提交。明确不以浏览器原生非连续 DOM 选区作为状态真源，不把整章/整本直接交给模型搜索，也不复制成多条相同批注。
+- 删除模式入口前先修复了源码编辑后切回实时预览未同步 `writingDocument` 的模式往返错误，确保历史临时编辑不会丢失；当前产品界面已不再暴露该模式。
+- 根据实际写作路径删除源码与阅读模式，只保留 Notebook 实时编辑面。新增中文友好的标题输入规则：段首第二个 `#` 直接转二级标题，第三个升级三级标题，`#标题` 无需空格也能转换；移动端语法槽禁止换行，`###` 不再折成竖排。
+- Chromium 在 1440/390 下确认 `## -> h2 -> ### -> h3`、单一编辑面、零横向溢出和零 console error；完整 `npm run verify:full` 通过（40 个核心测试文件 / 313 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）。未启动或重启服务。
+- 标题不再切换到独立展示字体，继承正文同一字体。Live Preview 扩展到段落任意位置的粗体、斜体、删除线和行内代码：输入规则继续由 Tiptap 转换，光标进入已格式化片段时局部显示成对 Markdown 标记，移开后只保留排版结果。
+- Chromium 在 1440/390 下确认四类行内格式、局部标记、标题/正文同字体、零横向溢出和零 console error；完整 `npm run verify:full` 通过（40 个核心测试文件 / 319 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）。
 
 ## 2026-08-11 - 体验页酒馆能力对齐计划审阅
 
@@ -31,12 +61,17 @@
 - Notebook 默认编辑面明确标为“实时 Markdown”：普通 Markdown 在同一编辑面实时显示标题、强调、引用等格式，原始 Markdown 与阅读预览保留为辅助模式。块不使用卡片，改为浅色纵向轨道，当前块获得更强标记，便于扫描段落边界。
 - 体验页使用的 `:::narration` / `:::dialogue` 等传输标记在进入写作 Notebook 时复用叙事解析器剥离，只保留正文，不会作为控制行泄漏到写作内容。
 - 右侧改写面移除无目标时的长说明，只在存在目标时显示目标片段；无候选状态收缩为单句提示。完整 `npm run verify:full` 通过（39 个核心文件 / 306 个用例、12 个视觉用例、Vite/VitePress build、`git diff --check`）；现有服务上的主题2写作页 1440/390 审计为 2 captures、0 console errors，窄屏三列残留已修复。未启动或重启服务。
+- 编辑面移除“实时 Markdown · 块数 · 修订”状态行；批注正文统一放入右侧检查器的边注轨道，默认显示全章并按 DOM 选区中点对齐。移除段内 widget 与针对有批注段落的单独行宽压缩；对齐换算考虑页面 zoom，相邻批注使用可测试的最小间距避让。
+- 写作页取消正文编辑器与右侧检查器各自滚动：桌面端二者归入 `wall__main` 的同一滚动工作区，窄屏检查器改为正文后的普通工作区内容，不再以悬浮 sheet 覆盖正文。
 
 ## 2026-08-11 - WNB 边注界面减负
 
 - Notebook 正文现在会为可定位批注增加轻量片段下划线和旁侧点标，点击点标直接打开并定位对应批注；orphan 批注不伪造正文标记，已解决批注只在当前激活时保留标记。
-- 检查器收窄为“批注 / 改写 / 版本”三项工作入口：移除重复的“当前稿件”层级、默认长引用、场景上下文、简洁/展开切换和无选区时常驻的大输入框；块/场景/全章过滤与章节审查仍保留，选中文字后才展开批注输入区。左侧场景索引展示也移除，避免与正文和批注范围重复占位。
-- 只改界面和 editor decoration，不改变 `writingAnnotations` sidecar、锚点重定位、回复/解决/改写和版本数据。`npm run build`、`git diff --check` 已通过，完整 `verify:full` 在本轮最后重跑。
+- 检查器收窄为“批注 / 版本”两项工作入口：批注支持原位编辑；停止创建线程式回复，已有 `parentId` 回复折叠成根批注的补充记录；按批注改写直接在当前边注内展示要求、当前候选 diff 与采用操作。
+- 删除块/场景/全章过滤和解决/恢复状态操作；新批注输入不再固定在检查器底部，而是与保存后的边注使用同一选区中点定位和避让。删除批注会级联清理旧补充记录与正文标记，采用改写后也直接删除其来源批注；失效锚点只提示原文已变化并允许删除。
+- 实时编辑面将“收为素材 / 批注”移至选区光标收束端浮条，顶栏不再重复占位；浮条处理应用 zoom、视口边缘翻转和滚动收起，正文选区统一为主题蓝色。
+- 选区浮条改用批注气泡与加入素材图标，并锁定中文标签横排不换行，避免缩放或窄空间下文字逐字竖排。
+- 版本视图只渲染当前修订、未保存恢复稿和最近三份快照；较早检查点只提示数量，块历史与质量 Gate 不再挤入 304px 默认窄栏。底层 sidecar、候选 stale gate、快照和块历史存储契约保持不变。
 
 ## 2026-08-10 - WNB-5 章节质量与发布 Gate
 
@@ -2289,3 +2324,23 @@ Deferred（按重要性排序，不在本 commit）：
 - 新增 `scripts/narrative-recovery-smoke.mjs` 和 `npm run smoke:narrative-recovery`，直接运行标准 SSE handler 的三类无 provider 场景：response abort、provider 迟到结果、typed error。
 - 响应关闭后 provider 真实收到 AbortSignal；连接销毁后迟到结果不会写入终态 `text.delta` 或 `step.finish`；typed error 仍保留标准错误码、retryable 和结束信号。
 - 验证：`responseAbort`、`lateResultDiscarded`、`typedErrorVisible` 全部为 true；`agentContracts`、`onlineRoom` 定向测试和 diff check 通过，未启动或重启服务。真实 provider 取消和 host loss 仍待执行。
+
+## 2026-08-11 - 写作批注 text-model 空响应修复
+
+- 确认“按批注改写”复用 Advisor task 上下文和结果协议，实际 provider 为当前配置的直连 `text-model`，不依赖 OpenClaw。
+- 重写直连 provider 响应解析，覆盖 OpenAI、Anthropic 和 MiniMax 兼容字段及 Responses 式嵌套输出；推理块只用于错误诊断，不会进入候选正文。
+- 将空响应、推理独占、输出截断和上游拒绝分开编码；前三类限定修复一次，第二次降低 temperature 并要求只返回完整 JSON。三候选改写预算由固定 1200 提高到 3000 token，修复请求上限 3600。
+- 真实 DeepSeek V4 Flash 日志确认默认 thinking 消耗了输出预算并以 `finish_reason=length` 截断。Advisor 约束 JSON 任务现在显式发送 `thinking.type=disabled` 和 `response_format=json_object`；`/advisor/task` 的 Axios 上限由全局 30 秒独立调整为 80 秒，覆盖服务端首轮 45 秒与修复轮 30 秒，用户取消 signal 保持有效。
+- 补上候选质量门禁：提示词明确禁止原样复制和候选重复；共享候选契约丢弃与原文逐字相同的单块方案及全部 patch 均无变化的跨块方案。首轮所有候选均无变化时，`/advisor/task` 在同一请求内自动进行一次语义修复；第二次仍无变化才返回 `AGENT_CANDIDATES_UNCHANGED`。
+- 回归断言合并进现有 `agentContracts` 用例，不单独增加测试 item。`npm run verify:full` 通过：40 个核心测试文件 / 313 个用例、12 个视觉用例、Vite/VitePress build 和 `git diff --check` 全部通过；未启动或重启服务。
+
+## 2026-08-11 - 写作空行命令与续写采纳修复
+
+- 空行 `Space` / `/` 菜单改为 Teleport 到 body 的 caret 定位浮层，使用 viewport 坐标与全局缩放补偿，始终从光标下方展开；打开时保存 ProseMirror 选区锚点，只有真实选区移动才关闭。菜单内部自行滚动活动项，方向键不再通过整页 `scrollIntoView` 引发消失。
+- 命令菜单进一步收敛为固定单列：一级仅显示 AI 续写、修改上一段、审查本章和插入结构；修改与结构各自通过右侧级联面板显示三项二级菜单，一级不会被替换，当前父项保持高亮。删除字母快捷键、Home/End 和一级双列布局，上下选择、右键展开、左键收起，只有可展开项显示右箭头。主题2 真实页面验证两个面板同时可见且相邻无覆盖，菜单无快捷键残留。
+- `WritingInlineCompletion` 增加实际候选正文预览。模型返回的粗体、斜体、引用、标题、列表、链接、删除线和代码包装会在候选归一化阶段降为纯正文，不把 Markdown 控制符写进小说正文。
+- Notebook 采纳改为 ProseMirror 单事务纯文本插入，使用编辑器原生 history 撤销；旧 textarea 路径继续保留原字符串事务。浏览器 smoke 验证菜单位于空行下方、连续 12 次方向键仍可见、`**续写**` 采纳后不显示裸标记且原有粗体 mark 保持。
+- 第二轮排查确认旧错误链已经可能把 `**`、`*`、反引号等作为普通文本写入结构化节点。载入投影新增保守恢复：仅处理无既有 mark、无原始 Markdown 保真信息且存在成对控制符的节点；普通单星号文本保持不变。普通 `>` 引用新增独立 `quote` 类型，不再降成普通段落或被误写成“作者注”。
+- 续写候选不再使用右下角浮动状态卡。新增 ProseMirror widget decoration，把候选、生成中和失败状态绑定到请求时 caret；候选保持无框弱化文字，支持点击/Tab 全部采纳、Ctrl/Command+右方向键采纳一句、Esc 忽略。Notebook 路径在采纳前后都不会重新出现右下角“已写入正文”浮条。
+- 修复 Notebook 当前视觉行在长文档中的累计漂移。根因是 `coordsAtPos()` / `getBoundingClientRect()` 已返回缩放后的视觉坐标，而绝对定位元素仍处在 `body.zoom` 的 CSS 坐标系中，旧实现造成二次缩放。新增纯 geometry helper 同时换算 top、left、width、caret height 与 line height；0.85 缩放第 80 段从 `-490.9px` 收敛为 `-5.1px`，1.0 缩放为 `-6.4px` 的正常垂直居中。
+- 完整 `npm run verify:full` 通过：40 个核心测试文件 / 332 个用例、12 个视觉用例、Vite/VitePress build 和 `git diff --check` 全部通过；未启动或重启服务。

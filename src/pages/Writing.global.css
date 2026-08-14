@@ -225,6 +225,53 @@
   font-size: 10px;
 }
 
+.writing-selection-actions {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  width: 138px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 38%, var(--archive-paper-strong));
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, white);
+  box-shadow:
+    0 7px 20px color-mix(in srgb, var(--archive-ink) 13%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 72%, transparent);
+}
+
+.writing-selection-actions > span {
+  width: 1px;
+  height: 14px;
+  background: color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+}
+
+.writing-selection-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 0 auto;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+  cursor: pointer;
+}
+
+.writing-selection-actions button:hover,
+.writing-selection-actions button:focus-visible {
+  background: color-mix(in srgb, var(--archive-olive) 10%, transparent);
+  color: var(--archive-olive-strong);
+  outline: none;
+}
+
 .writing-page .writing-inspector__body {
   min-height: 0;
   flex: 1 1 auto;
@@ -266,10 +313,7 @@
   color: var(--archive-ink-soft);
   font-family: var(--font-sans);
   font-size: 10px;
-}
-
-.writing-page .writing-inspector__density-spacer {
-  flex: 1 1 auto;
+  justify-content: flex-end;
 }
 
 .writing-page .writing-inspector__density button {
@@ -289,48 +333,67 @@
 }
 
 .writing-page .writing-inspector__list {
-  display: grid;
-  align-content: start;
-  gap: 0;
+  position: relative;
+  min-height: var(--annotation-lane-height, 240px);
   padding: 0 14px;
 }
 
 .writing-page .writing-annotation {
+  position: absolute;
+  right: 10px;
+  left: 14px;
   display: grid;
-  gap: 7px;
-  padding: 12px 0;
-  border-top: 1px solid color-mix(in srgb, var(--archive-ink-soft) 12%, transparent);
+  gap: 5px;
+  padding: 8px 0 9px 15px;
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
 
-.writing-page .writing-annotation:first-child {
-  border-top: 0;
+.writing-page .writing-annotation::before {
+  position: absolute;
+  top: calc(50% + var(--annotation-anchor-offset, 0px));
+  left: 0;
+  width: 8px;
+  height: 1px;
+  content: '';
+  background: color-mix(in srgb, var(--archive-gold) 68%, var(--archive-ink-soft));
+  transform: translateY(-50%);
+  transition: width 120ms ease, background-color 120ms ease;
 }
 
 .writing-page .writing-annotation:hover,
 .writing-page .writing-annotation.is-active {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--archive-olive) 8%, transparent), transparent 80%);
+  color: var(--archive-ink);
+  outline: none;
 }
 
-.writing-page .writing-annotation header,
-.writing-page .writing-annotation footer {
+.writing-page .writing-annotation:hover::before,
+.writing-page .writing-annotation:focus-visible::before,
+.writing-page .writing-annotation.is-active::before {
+  width: 11px;
+  background: var(--archive-olive-strong);
+}
+
+.writing-page .writing-annotation > header,
+.writing-page .writing-annotation > footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.writing-page .writing-annotation header {
+.writing-page .writing-annotation > header {
   color: var(--archive-olive-strong);
   font-family: var(--font-sans);
   font-size: 10px;
 }
 
-.writing-page .writing-annotation header time {
+.writing-page .writing-annotation > header time {
   color: var(--archive-ink-soft);
 }
 
-.writing-page .writing-annotation p {
+.writing-page .writing-annotation > p {
   margin: 0;
   color: var(--archive-ink);
   font-size: 13px;
@@ -350,17 +413,10 @@
 }
 
 .writing-page .writing-annotation.is-orphaned {
-  border-left: 2px solid var(--archive-gold);
-  padding-left: 9px;
+  opacity: 0.7;
 }
 
-.writing-page .writing-annotation.is-reply {
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--archive-olive) 30%, transparent);
-}
-
-.writing-page .writing-annotation footer {
+.writing-page .writing-annotation > footer {
   justify-content: flex-start;
   gap: 12px;
   max-height: 0;
@@ -370,20 +426,20 @@
   transition: opacity 120ms ease, max-height 120ms ease;
 }
 
-.writing-page .writing-annotation:hover footer,
-.writing-page .writing-annotation:focus-within footer,
-.writing-page .writing-annotation.is-active footer {
+.writing-page .writing-annotation:hover > footer,
+.writing-page .writing-annotation:focus-within > footer,
+.writing-page .writing-annotation.is-active > footer {
   max-height: 40px;
   opacity: 1;
   pointer-events: auto;
 }
 
 .writing-page .writing-annotation footer button,
-.writing-page .writing-inspector__placeholder button,
-.writing-page .writing-inspector__composer > button {
-  min-height: 26px;
-  padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+.writing-page .writing-inspector__placeholder button {
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
   background: transparent;
   color: var(--archive-ink-soft);
   font: inherit;
@@ -392,10 +448,113 @@
 }
 
 .writing-page .writing-annotation footer button:hover,
-.writing-page .writing-inspector__placeholder button:hover,
-.writing-page .writing-inspector__composer > button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--archive-olive) 52%, transparent);
+.writing-page .writing-inspector__placeholder button:hover {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 52%, transparent);
   color: var(--archive-olive-strong);
+}
+
+.writing-page .writing-annotation footer button.is-danger:hover {
+  border-bottom-color: color-mix(in srgb, var(--archive-rose) 48%, transparent);
+  color: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-ink));
+}
+
+.writing-page .writing-annotation__edit {
+  width: 100%;
+  min-height: 64px;
+  padding: 6px 0;
+  resize: vertical;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+  background: transparent;
+  color: var(--archive-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.writing-page .writing-annotation__edit:focus {
+  border-color: color-mix(in srgb, var(--archive-olive) 58%, transparent);
+  outline: none;
+}
+
+.writing-page .writing-annotation__edit-actions,
+.writing-page .writing-annotation-rewrite__choices {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.writing-page .writing-annotation__edit-actions button,
+.writing-page .writing-annotation-rewrite__choices button {
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.writing-page .writing-annotation__edit-actions button:hover:not(:disabled),
+.writing-page .writing-annotation-rewrite__choices button:hover,
+.writing-page .writing-annotation-rewrite__choices button.active {
+  border-bottom-color: var(--archive-olive);
+  color: var(--archive-olive-strong);
+}
+
+.writing-page .writing-annotation__edit-actions button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.writing-page .writing-annotation__supplements {
+  display: grid;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px dotted color-mix(in srgb, var(--archive-ink-soft) 20%, transparent);
+}
+
+.writing-page .writing-annotation__supplements p {
+  margin: 0;
+  color: var(--archive-ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.writing-page .writing-annotation__supplements span {
+  margin-right: 6px;
+  color: var(--archive-olive-strong);
+  font-family: var(--font-sans);
+  font-size: 9px;
+}
+
+.writing-page .writing-annotation-rewrite {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 26%, transparent);
+}
+
+.writing-page .writing-annotation-rewrite .writing-rewrite-panel__input {
+  width: 100%;
+  min-height: 56px;
+  margin: 0;
+}
+
+.writing-page .writing-annotation-rewrite .writing-rewrite-panel__actions,
+.writing-page .writing-annotation-rewrite .writing-rewrite-panel__error,
+.writing-page .writing-annotation-rewrite .writing-rewrite-panel__candidates {
+  margin: 0;
+  padding: 0;
+}
+
+.writing-page .writing-annotation-rewrite .writing-rewrite-candidate {
+  gap: 6px;
+  padding: 8px 0 0;
 }
 
 .writing-page .writing-inspector__empty {
@@ -405,83 +564,98 @@
   line-height: 1.6;
 }
 
-.writing-page .writing-inspector__composer {
+.writing-page .writing-annotation-composer {
+  position: absolute;
+  right: 10px;
+  left: 14px;
   display: grid;
-  gap: 8px;
-  margin-top: auto;
-  padding: 12px 14px 14px;
-  border-top: 1px solid color-mix(in srgb, var(--archive-ink-soft) 14%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+  gap: 7px;
+  padding: 9px 0 10px 15px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
 }
 
-.writing-page .writing-inspector__composer-hint {
-  margin-top: auto;
-  padding: 12px 14px 14px;
-  border-top: 1px solid color-mix(in srgb, var(--archive-ink-soft) 10%, transparent);
-  color: var(--archive-ink-soft);
-  font-size: 11px;
-  line-height: 1.5;
+.writing-page .writing-annotation-composer::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 11px;
+  height: 1px;
+  content: '';
+  background: var(--archive-olive-strong);
+  transform: translateY(-50%);
 }
 
-.writing-page .writing-inspector__selection {
-  max-height: 3.2em;
-  overflow: hidden;
-  color: var(--archive-ink-soft);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.writing-page .writing-inspector__reply-target {
+.writing-page .writing-annotation-composer > header,
+.writing-page .writing-annotation-composer > footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--archive-olive-strong);
-  font-size: 11px;
-  line-height: 1.5;
+  gap: 10px;
 }
 
-.writing-page .writing-inspector__reply-target button {
-  flex: 0 0 auto;
-  padding: 0;
+.writing-page .writing-annotation-composer > header {
+  justify-content: space-between;
+  color: var(--archive-olive-strong);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.writing-page .writing-annotation-composer > header button {
+  padding: 0 2px;
   border: 0;
   background: transparent;
   color: var(--archive-ink-soft);
   font: inherit;
+  font-size: 16px;
   cursor: pointer;
 }
 
-.writing-page .writing-inspector__reply-target button:hover {
-  color: var(--archive-olive-strong);
+.writing-page .writing-annotation-composer > p {
+  max-height: 2.9em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
-.writing-page .writing-inspector__composer textarea {
+.writing-page .writing-annotation-composer textarea {
   width: 100%;
   resize: vertical;
-  min-height: 68px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
+  min-height: 62px;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+  background: transparent;
   color: var(--archive-ink);
   font: inherit;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
-.writing-page .writing-inspector__composer textarea:focus {
+.writing-page .writing-annotation-composer textarea:focus {
   border-color: color-mix(in srgb, var(--archive-olive) 56%, transparent);
-  outline: 2px solid color-mix(in srgb, var(--archive-olive) 14%, transparent);
-  outline-offset: 0;
+  outline: none;
 }
 
-.writing-page .writing-inspector__composer > button {
-  justify-self: start;
-  border-color: color-mix(in srgb, var(--archive-olive) 42%, transparent);
+.writing-page .writing-annotation-composer > footer button {
+  min-height: 25px;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.writing-page .writing-annotation-composer > footer button:first-child {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 42%, transparent);
   color: var(--archive-olive-strong);
 }
 
-.writing-page .writing-inspector__composer > button:disabled {
+.writing-page .writing-annotation-composer > footer button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
 }
@@ -920,6 +1094,14 @@
   color: var(--archive-ink-soft);
   font-size: 12px;
   line-height: 1.65;
+}
+
+.writing-page .writing-version-panel__more {
+  margin: 0;
+  padding: 0 14px 14px;
+  color: var(--archive-ink-soft);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .writing-page .writing-rewrite-panel {
@@ -1441,10 +1623,6 @@
   border-color: color-mix(in srgb, var(--archive-olive) 34%, transparent);
 }
 
-.writing-page .mode-switch {
-  border-color: color-mix(in srgb, var(--archive-ink-soft) 20%, transparent);
-}
-
 .writing-page .editor-container {
   width: 100%;
   padding: 18px 0 26px;
@@ -1465,8 +1643,7 @@
   line-height: 1.9;
 }
 
-.theme-legacy .writing-page .wall__dossier-textarea,
-.theme-legacy .writing-page .editor-preview {
+.theme-legacy .writing-page .wall__dossier-textarea {
   max-width: 880px;
   margin-inline: auto;
 }
@@ -1720,5 +1897,94 @@
 @media (max-width: 720px) {
   .theme-legacy .writing-page .wall__main {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Keep the manuscript and its annotation workspace under one scroll owner.
+   The dossier editor and inspector used to scroll independently, which made
+   the right-hand review surface behave like a floating panel instead of part
+   of the document. */
+@media (min-width: 981px) {
+  .theme-legacy .writing-page .wall__main {
+    align-items: start;
+    overflow: auto;
+  }
+
+  .theme-legacy .writing-page .wall__dossier {
+    align-self: start;
+    height: max-content;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .writing-notebook-editor {
+    height: auto;
+  }
+
+  .theme-legacy .writing-page .writing-notebook-editor__surface {
+    flex: none;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .writing-notebook-editor__surface .ProseMirror {
+    min-height: auto;
+  }
+
+  .theme-legacy .writing-page .writing-inspector {
+    position: static;
+    align-self: start;
+    height: max-content;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .writing-inspector__body {
+    flex: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 980px) {
+  .theme-legacy .writing-page .writing-inspector {
+    grid-column: 2;
+    grid-row: 2;
+    position: static;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
+
+  .theme-legacy .writing-page .writing-inspector:not(.is-open) {
+    display: none;
+  }
+
+  .theme-legacy .writing-page .writing-inspector__body {
+    flex: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .writing-inspector__list {
+    display: grid;
+    align-content: start;
+    gap: 0;
+    min-height: 0;
+  }
+
+  .theme-legacy .writing-page .writing-annotation,
+  .theme-legacy .writing-page .writing-annotation-composer {
+    position: relative;
+    top: auto !important;
+    right: auto;
+    left: auto;
+  }
+
+}
+
+@media (max-width: 720px) {
+  .theme-legacy .writing-page .writing-inspector {
+    grid-column: 1;
+    grid-row: 2;
   }
 }

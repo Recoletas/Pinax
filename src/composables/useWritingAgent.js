@@ -400,6 +400,22 @@ export function useWritingAgent(options = {}) {
     return result
   }
 
+  function consume(mode = 'all') {
+    if (!suggestion.value) return ''
+    const inserted = mode === 'unit'
+      ? firstSuggestionUnit(suggestion.value)
+      : suggestion.value
+    suggestion.value = mode === 'unit'
+      ? suggestion.value.slice(inserted.length)
+      : ''
+    lastReceipt.value = null
+    recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'accepted', {
+      chars: inserted.length,
+      reason: `${mode}:editor`
+    })
+    return inserted
+  }
+
   function setEnabled(nextEnabled) {
     enabled.value = Boolean(nextEnabled)
     setAgentRuntimeEnabled(enabled.value)
@@ -429,6 +445,7 @@ export function useWritingAgent(options = {}) {
     onInput,
     manualTrigger,
     accept,
+    consume,
     cancel,
     suppress,
     finishComposition,

@@ -1,3 +1,6 @@
+// P4：可信说话者注册表（verified/unresolved/message-fallback 三种 trust 状态）
+import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
+
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
 // P3：接受 | 或全角冒号（：）作为 speaker 分隔符
 const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:[|：]([^\s|：]{1,80}))?\s*(.*)$/i
@@ -59,14 +62,16 @@ export function parseNarrativePresentation(text, options = {}) {
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
   // P1-5：speakerMap（名字→稳定 id）覆盖 speakerId，与 SceneCast 对齐
   const speakerMap = options.speakerMap && typeof options.speakerMap === 'object' ? options.speakerMap : null
-  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap })
+  // P4：可信说话者注册表（cast/世界书/运行时角色），未提供时退回旧行为
+  const speakerRegistry = Array.isArray(options.speakerRegistry) ? options.speakerRegistry : null
+  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap, speakerRegistry })
   if (structured) return structured
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'parser',
     status: complete ? 'complete' : 'provisional',
     content: sourceText,
-    blocks: parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker }),
+    blocks: parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker, speakerRegistry }),
     hasMarkers: false
   }
 }
@@ -75,6 +80,7 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   const complete = options.complete !== false
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
   const speakerMap = options.speakerMap && typeof options.speakerMap === 'object' ? options.speakerMap : null
+  const speakerRegistry = Array.isArray(options.speakerRegistry) ? options.speakerRegistry : null
   const lines = String(text || '').split(/\r?\n/)
   const blocks = []
   let current = null
@@ -86,7 +92,7 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
     if (value) {
       const speaker = current.speaker || (current.kind === 'dialogue' ? fallbackSpeaker : '')
       const speakerSource = current.speaker ? 'marker' : (speaker ? 'message' : '')
-      blocks.push(createBlock(current.kind, value, speaker, messageId, blocks.length, speakerSource, speakerMap))
+      blocks.push(createBlock(current.kind, value, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry))
     }
     current = null
   }
@@ -153,6 +159,7 @@ function parseLegacyBlocks(text, messageId, options = {}) {
   if (!source) return []
   const blocks = []
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)
+  const speakerRegistry = Array.isArray(options.speakerRegistry) ? options.speakerRegistry : null
   const paragraphs = source.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
   for (const paragraph of paragraphs) {
     for (const line of paragraph.split('\n').map((value) => value.trim()).filter(Boolean)) {
@@ -169,7 +176,9 @@ function parseLegacyBlocks(text, messageId, options = {}) {
           speaker,
           messageId,
           blocks.length,
-          explicitSpeaker ? 'text' : (speaker ? 'message' : '')
+          explicitSpeaker ? 'text' : (speaker ? 'message' : ''),
+          null,
+          speakerRegistry
         ))
       }
       else blocks.push(createBlock('narration', line, '', messageId, blocks.length))
@@ -235,17 +244,42 @@ function resolveSpeakerId(name, speakerMap) {
   return mapped ? String(mapped) : speakerIdOf(cleaned)
 }
 
-function createBlock(kind, text, speaker, messageId, index, speakerSource = '', speakerMap = null) {
+// P4：可信说话者注册表决定 trust。
+// - verified：注册表命中 → 显示 speaker label + 稳定 speakerId
+// - message-fallback：消息 name 级 fallback（可信）→ 显示 label，id 走 cast/名字映射
+// - unresolved：未知 marker/text 名称 → 未署名对白（保留 speakerRaw 供诊断，不创建 speakerId）
+function createBlock(kind, text, speaker, messageId, index, speakerSource = '', speakerMap = null, speakerRegistry = null) {
   const normalizedKind = BLOCK_KINDS.has(kind) ? kind : 'narration'
   const normalizedText = String(text || '').trim()
   const normalizedSpeaker = normalizeSpeaker(speaker)
-  return {
+  const block = {
     id: `block_${hashText(`${messageId}|${index}|${normalizedKind}|${normalizedText}`)}`,
     kind: normalizedKind,
-    text: normalizedText,
-    ...(normalizedSpeaker ? { speaker: normalizedSpeaker, speakerId: resolveSpeakerId(normalizedSpeaker, speakerMap) } : {}),
-    ...(speakerSource ? { speakerSource } : {})
+    text: normalizedText
   }
+  if (normalizedSpeaker) {
+    if (speakerRegistry) {
+      const resolved = resolveSpeakerName(speakerRegistry, normalizedSpeaker)
+      if (resolved.verified) {
+        block.speaker = resolved.displayName
+        block.speakerId = resolved.speakerId
+        block.speakerTrust = 'verified'
+      } else if (speakerSource === 'message') {
+        block.speaker = normalizedSpeaker
+        block.speakerId = resolveSpeakerId(normalizedSpeaker, speakerMap)
+        block.speakerTrust = 'message-fallback'
+        block.speakerRaw = resolved.speakerRaw
+      } else {
+        block.speakerTrust = 'unresolved'
+        block.speakerRaw = resolved.speakerRaw
+      }
+    } else {
+      block.speaker = normalizedSpeaker
+      block.speakerId = resolveSpeakerId(normalizedSpeaker, speakerMap)
+    }
+  }
+  if (speakerSource) block.speakerSource = speakerSource
+  return block
 }
 
 export function getTrustedMessageSpeaker(message = {}) {

@@ -146,7 +146,7 @@ function buildAdvisorResult(taskType, advice, options = {}) {
     result.candidates = normalizeWritingCandidates(base.candidates, {
       text: result.replacement,
       resultId: taskType,
-      baseText: result.baseText,
+      baseText: result.baseText || options.targetBaseText,
       targetRange: result.targetRange,
       blocks: options.targetBlocks,
       multiBlock: Boolean(options.multiBlock),
@@ -179,6 +179,15 @@ function buildAdvisorResult(taskType, advice, options = {}) {
     result.replacement = validation.text
   }
 
+  if ((taskType === 'writing.fix.selection' || taskType === 'writing.fix.paragraph')
+    && result.mode === 'candidates'
+    && !result.candidates?.length) {
+    const error = new Error('模型返回的候选没有实际修改正文，请调整批注要求后重试')
+    error.code = 'AGENT_CANDIDATES_UNCHANGED'
+    error.retryable = true
+    throw error
+  }
+
   return result
 }
 
@@ -208,7 +217,10 @@ function formatAdvice(rawAdvice, result) {
 
 export function createAdvisorTaskResponse({ taskType, advice, target = null, meta = null, options = {} } = {}) {
   const normalizedTaskType = normalizeAdvisorTaskType(taskType)
-  const result = attachTargetMetadata(buildAdvisorResult(normalizedTaskType, advice, options), target)
+  const result = attachTargetMetadata(buildAdvisorResult(normalizedTaskType, advice, {
+    ...options,
+    targetBaseText: typeof target?.text === 'string' ? target.text : ''
+  }), target)
 
   return {
     taskType: normalizedTaskType,

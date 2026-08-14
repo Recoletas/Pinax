@@ -19,7 +19,12 @@ const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .filter(Boolean))
 
 const routes = [
-  { id: 'experience', path: '/experience', surfaces: ['.ws-layout', '.ws-center-stage', '.ws-right-rail'] },
+  {
+    id: 'experience',
+    path: '/experience',
+    surfaces: ['.ws-layout', '.ws-center-stage', '.ws-right-rail'],
+    keyboardTargets: ['.input-area .input', '.input-area .send-btn', '.prose__actions-trigger']
+  },
   { id: 'writing', path: '/writing', surfaces: ['.writing-page', '.manuscript-body'] },
   { id: 'materials', path: '/materials', surfaces: ['.notes-content-area', '.material-drawer', '.reading-deck', '.notes-sidekick'] },
   { id: 'prose-essay', path: '/prose-essay', surfaces: ['.prose-essay-page', '.pe-main', '.card-wall', '.left-panel'] },
@@ -632,7 +637,7 @@ async function run() {
           ? await inspectExperienceTypography(page)
           : null
         // P2/R7：可访问性审计（200% zoom / reduced-motion / 键盘可达）
-        const accessibility = await inspectAccessibility(page, route.surfaces[0])
+        const accessibility = await inspectAccessibility(page, route)
         const screenshot = `${route.id}-${state}-${width}.png`
         const screenshotWarnings = []
         try {
@@ -704,43 +709,82 @@ async function run() {
 
 // P0/R7：可访问性审计（发布门禁级）—— 真实 200% zoom、裁切检测、reduced-motion、
 // 多步键盘导航。任一核心指标失败 → 计入审计失败（影响退出码）。
-async function inspectAccessibility(page, surfaceSelector) {
+async function inspectAccessibility(page, route) {
   const failures = []
+  const surfaceSelector = route.surfaces[0]
+  const keyboardTargets = route.keyboardTargets || [
+    `${surfaceSelector} input`,
+    `${surfaceSelector} textarea`,
+    `${surfaceSelector} button`,
+    `${surfaceSelector} [tabindex]`,
+  ]
 
-  // 1. 真实 200% zoom：CDP setDeviceMetricsOverride deviceScaleFactor=2 + 视口逻辑减半
+  // 1. 200% 有效布局视口：保持设备像素比，将当前 CSS viewport 的宽高分别减半。
+  // 浏览器页面缩放 200% 对响应式布局的关键影响就是可用 CSS viewport 减半。
   const cdp = await page.context().newCDPSession(page)
-  const initialMetrics = { width: 390, height: 844, deviceScaleFactor: 1 }
+  const initialViewport = page.viewportSize()
+  const deviceScaleFactor = await page.evaluate(() => window.devicePixelRatio || 1)
+  let zoomEmulated = false
   try {
     await cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: Math.floor(initialMetrics.width / 2),
-      height: Math.floor(initialMetrics.height / 2),
-      deviceScaleFactor: 2,
+      width: Math.max(1, Math.floor(initialViewport.width / 2)),
+      height: Math.max(1, Math.floor(initialViewport.height / 2)),
+      deviceScaleFactor,
       mobile: false,
     })
-  } catch { /* 某些环境不支持 CDP，退回 CSS zoom 检测 */ }
-  const zoomAt200 = await page.evaluate(() => {
+    zoomEmulated = true
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  } catch {
+    failures.push('zoom-emulation-unavailable')
+  }
+  const zoomAt200 = await page.evaluate(({ surfaceSelector, keyboardTargets }) => {
     const measure = () => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
+      innerWidth: window.innerWidth,
     })
     const normal = measure()
-    // 裁切元素统计：scrollWidth 超出 clientWidth 时，统计被裁切的可视元素
-    let clippedElements = 0
-    if (normal.scrollWidth > normal.clientWidth + 1) {
-      clippedElements = Array.from(document.querySelectorAll('body *')).filter((el) => {
-        const box = el.getBoundingClientRect()
-        return box.width > 0 && box.height > 0 && (box.right > normal.clientWidth + 1 || box.left < -1)
-      }).length
-    }
+    const coreElements = [
+      document.querySelector(surfaceSelector),
+      ...keyboardTargets.flatMap((selector) => Array.from(document.querySelectorAll(selector))),
+    ].filter(Boolean)
+    const clippedCore = coreElements.filter((element) => {
+      const box = element.getBoundingClientRect()
+      if (box.width <= 0 || box.height <= 0) return false
+      const style = getComputedStyle(element)
+      if (style.display === 'none' || style.visibility === 'hidden') return false
+      return box.right > normal.clientWidth + 1 || box.left < -1 || element.scrollWidth > element.clientWidth + 1
+    }).map((element) => ({
+      tag: element.tagName,
+      className: typeof element.className === 'string' ? element.className : '',
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      rect: {
+        left: Math.round(element.getBoundingClientRect().left),
+        right: Math.round(element.getBoundingClientRect().right),
+      },
+      overflowChildren: Array.from(element.querySelectorAll('*')).filter((child) => {
+        const parentBox = element.getBoundingClientRect()
+        const childBox = child.getBoundingClientRect()
+        return childBox.right > parentBox.right + 1 || childBox.left < parentBox.left - 1
+      }).map((child) => ({
+        tag: child.tagName,
+        className: typeof child.className === 'string' ? child.className : '',
+        left: Math.round(child.getBoundingClientRect().left),
+        right: Math.round(child.getBoundingClientRect().right),
+      })).slice(0, 8),
+    }))
     return {
       normal,
       overflowNormal: normal.scrollWidth > normal.clientWidth + 1,
-      clippedElements,
+      clippedElements: clippedCore.length,
+      clippedCore,
     }
-  })
+  }, { surfaceSelector, keyboardTargets })
   try {
     await cdp.send('Emulation.clearDeviceMetricsOverride')
   } catch { /* 忽略清理失败 */ }
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
   const horizontalOverflowAt200 = zoomAt200.overflowNormal
   if (horizontalOverflowAt200) failures.push('horizontal-overflow')
   if (zoomAt200.clippedElements > 0) failures.push(`clipped:${zoomAt200.clippedElements}`)
@@ -748,45 +792,66 @@ async function inspectAccessibility(page, surfaceSelector) {
   // 2. reduced-motion：检测页面 CSS 是否正确响应（transition 时长在 reduce 下应被页面
   //    自己的规则缩短 —— Chrome 不自动改，所以检测 matchMedia + 实际动画规则）
   const reducedMotion = await page.emulateMedia({ reducedMotion: 'reduce' }).then(async () => {
-    return page.evaluate(() => {
+    return page.evaluate((surfaceSelector) => {
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      // 检查页面是否有基于 reduced-motion 的显式规则（有则说明正确响应）
-      let reducedRuleApplied = false
-      for (const sheet of document.styleSheets) {
-        try {
-          for (const rule of sheet.cssRules) {
-            if (rule.media && rule.media.mediaText.includes('prefers-reduced-motion')) {
-              reducedRuleApplied = true
-              break
-            }
-          }
-        } catch { /* 跨域样式表不可读，跳过 */ }
-      }
-      return { reducedMotionApplied: reduced ? 'present' : 'absent', reducedRuleApplied }
-    })
+      const surface = document.querySelector(surfaceSelector)
+      const animatedElements = surface
+        ? Array.from(surface.querySelectorAll('*')).filter((element) => {
+            const style = getComputedStyle(element)
+            const durations = style.animationDuration.split(',').map((value) => Number.parseFloat(value) || 0)
+            return style.animationName !== 'none' && durations.some((duration) => duration > 0.02)
+          }).length
+        : 0
+      return { reducedMotionApplied: reduced ? 'present' : 'absent', animatedElements }
+    }, surfaceSelector)
   })
   if (reducedMotion.reducedMotionApplied !== 'present') failures.push('reduced-motion-unavailable')
+  if (reducedMotion.animatedElements > 0) failures.push(`reduced-motion-animations:${reducedMotion.animatedElements}`)
 
-  // 3. 键盘可达：多步 Tab（确认能进入并离开首个可交互元素，不卡在 BODY）
+  // 3. 键盘可达：从页面起点真实 Tab，必须进入该路由的核心操作，而非任意按钮。
   let keyboardReachable = false
   let focusTarget = null
   let keyboardTabSteps = 0
   try {
-    await page.evaluate(() => document.activeElement?.blur?.())
-    await page.keyboard.press('Tab')
-    await page.waitForTimeout(50)
-    focusTarget = await page.evaluate(() => document.activeElement?.tagName || '')
-    keyboardReachable = Boolean(focusTarget) && focusTarget !== 'BODY'
-    // 再 Tab 两次确认导航能前进（未被单元素卡死）
-    for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      document.activeElement?.blur?.()
+      document.body.focus()
+    })
+    for (let index = 0; index < 80; index += 1) {
       await page.keyboard.press('Tab')
-      await page.waitForTimeout(30)
       keyboardTabSteps++
+      const focused = await page.evaluate(({ surfaceSelector, keyboardTargets }) => {
+        const active = document.activeElement
+        if (!active || active === document.body) return null
+        const inSurface = Boolean(active.closest(surfaceSelector))
+        const isCore = keyboardTargets.some((selector) => active.matches(selector))
+        return {
+          inSurface,
+          isCore,
+          target: active.getAttribute('aria-label') || active.getAttribute('title') || active.className || active.tagName,
+        }
+      }, { surfaceSelector, keyboardTargets })
+      if (focused?.inSurface && focused?.isCore) {
+        keyboardReachable = true
+        focusTarget = String(focused.target)
+        break
+      }
     }
   } catch { keyboardReachable = false }
   if (!keyboardReachable) failures.push('keyboard-unreachable')
 
-  return { ...zoomAt200, horizontalOverflowAt200, ...reducedMotion, keyboardReachable, focusTarget, keyboardTabSteps, a11yFailures: failures, a11yOk: failures.length === 0 }
+  return {
+    initialViewport,
+    zoomEmulated,
+    ...zoomAt200,
+    horizontalOverflowAt200,
+    ...reducedMotion,
+    keyboardReachable,
+    focusTarget,
+    keyboardTabSteps,
+    a11yFailures: failures,
+    a11yOk: failures.length === 0,
+  }
 }
 
 run().catch((error) => {

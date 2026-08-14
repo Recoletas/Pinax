@@ -121,6 +121,8 @@ import {
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
+// P4：可信说话者注册表
+import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
@@ -263,6 +265,49 @@ describe('Narrative presentation contract', () => {
     const tolerantMarkers = parseMarkedBlocks('```text\r\n :::dialogue|甲\r\n未闭合\r\n:::unknown\r\n文本\r\n```', 'bad')
     expect(tolerantMarkers.content).toBe('未闭合\n\n文本')
     expect(tolerantMarkers.content).not.toContain(':::unknown')
+
+    // P4：可信说话者注册表 —— verified 显示 label + 稳定 id；未知名称 → 未署名对白。
+    const registry = buildSpeakerRegistry({
+      player: { name: '林墨' },
+      cast: [{ speakerId: 'char:c-1', name: '陆晨曦' }],
+      encountered: [{ id: 'e-1', name: '褚岩' }],
+      worldbookCharacters: [{ id: 'w-1', name: '掌柜' }]
+    })
+    expect(registry.some((entry) => entry.speakerId === 'player')).toBe(true)
+    expect(registry.some((entry) => entry.speakerId === 'char:c-1')).toBe(true)
+    expect(registry.some((entry) => entry.speakerId === 'char:e-1')).toBe(true)
+    expect(registry.some((entry) => entry.speakerId === 'char:w-1')).toBe(true)
+
+    const trusted = parseNarrativePresentation(':::dialogue|陆晨曦\n“信号还在吗？”\n:::dialogue|掌柜\n“客官要点什么？”\n:::dialogue|林墨\n“我先看看。”\n:::dialogue|不存在的人\n“喂？”', {
+      messageId: 'registry',
+      speakerRegistry: registry
+    })
+    const trustMap = Object.fromEntries(trusted.blocks.map((block) => [block.speaker || block.speakerRaw, block.speakerTrust]))
+    expect(trustMap['陆晨曦']).toBe('verified')
+    expect(trusted.blocks[0].speakerId).toBe('char:c-1')
+    expect(trustMap['掌柜']).toBe('verified')
+    expect(trustMap['林墨']).toBe('verified')
+    expect(trustMap['不存在的人']).toBe('unresolved')
+    expect(trusted.blocks[3].speaker).toBeUndefined()
+    expect(trusted.blocks[3].speakerId).toBeUndefined()
+    expect(trusted.blocks[3].speakerRaw).toBe('不存在的人')
+    expect(resolveSpeakerName(registry, '陆晨曦').verified).toBe(true)
+    expect(resolveSpeakerName(registry, '路人甲').verified).toBe(false)
+
+    // message-fallback（消息 name 级）在未命中注册表时仍显示 label（无伪造 speakerId 也不丢）
+    const registryFallback = parseNarrativePresentation('“继续。”', {
+      messageId: 'registry-fallback',
+      fallbackSpeaker: '值班员',
+      speakerRegistry: registry
+    })
+    expect(registryFallback.blocks[0]).toMatchObject({
+      speaker: '值班员', speakerSource: 'message', speakerTrust: 'message-fallback'
+    })
+    expect(registryFallback.blocks[0].speakerId).toMatch(/^spk_/)
+
+    // 未提供注册表时保持旧行为（兼容 ensureNarrativeMessage 重解析路径）
+    const noRegistry = parseNarrativePresentation(':::dialogue|路人甲\n“喂？”', { messageId: 'no-registry' })
+    expect(noRegistry.blocks[0].speakerId).toMatch(/^spk_/)
   })
 
   it('keeps stable ids and one prompt format contract', () => {

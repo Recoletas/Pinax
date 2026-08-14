@@ -3,7 +3,8 @@ import { parseNarrativePresentation } from '../narrativePresentation.js'
 
 export const WRITING_DOCUMENT_SCHEMA_VERSION = 2
 
-const BLOCK_TYPES = new Set(['prose', 'scene-heading', 'divider', 'author-note', 'source-reference'])
+const BLOCK_TYPES = new Set(['prose', 'scene-heading', 'divider', 'quote', 'author-note', 'source-reference'])
+const LITERAL_INLINE_MARKDOWN_PATTERN = /(\*\*|__)[^\n]+?\1|(^|[^*])\*[^*\n]+?\*(?!\*)|(^|[^_])_[^_\n]+?_(?!_)|~~[^\n]+?~~|`[^`\n]+?`|\[[^\]\n]+\]\([^\s)]+\)/
 
 function hashText(value) {
   let hash = 2166136261
@@ -62,6 +63,7 @@ function classifyToken(token) {
     const text = tokenPlainText(token).trim()
     if (/^(作者注|author note|author's note)\s*[:：]/i.test(text)) return 'author-note'
     if (/^(来源|source)\s*[:：]/i.test(text)) return 'source-reference'
+    return 'quote'
   }
   return 'prose'
 }
@@ -83,6 +85,8 @@ function blockNode(token, index, leadingMarkdown) {
 
   const type = kind === 'scene-heading'
     ? 'sceneHeading'
+    : kind === 'quote'
+      ? 'quote'
     : kind === 'author-note'
       ? 'authorNote'
       : kind === 'source-reference'
@@ -119,6 +123,7 @@ function renderNode(node) {
   if (node.type === 'divider') return '---\n'
   const text = renderInline(node.content)
   if (node.type === 'sceneHeading') return `${'#'.repeat(Math.max(1, attrs.level || 1))} ${text}\n`
+  if (node.type === 'quote') return `> ${text}\n`
   if (node.type === 'authorNote') return `> 作者注：${text}\n`
   if (node.type === 'sourceReference') return `> 来源：${text}\n`
   return `${text}\n`
@@ -130,7 +135,8 @@ function isUntouched(node) {
 }
 
 function getNodeText(node) {
-  return (node?.content || []).map((item) => item.text || '').join('')
+  if (typeof node?.text === 'string') return node.text
+  return (node?.content || []).map(getNodeText).join('')
 }
 
 export function createWritingDocument(markdown = '') {
@@ -272,19 +278,44 @@ export function getWritingBlockAtPosition(document, position = 0) {
 function editorNodeTypeForWritingNode(node) {
   if (node?.type === 'sceneHeading') return 'heading'
   if (node?.type === 'divider') return 'horizontalRule'
-  if (node?.type === 'authorNote' || node?.type === 'sourceReference') return 'blockquote'
+  if (node?.type === 'quote' || node?.type === 'authorNote' || node?.type === 'sourceReference') return 'blockquote'
   return 'paragraph'
 }
 
 function writingKindForEditorNode(node) {
   if (node?.type === 'heading') return 'scene-heading'
   if (node?.type === 'horizontalRule') return 'divider'
-  if (node?.type === 'blockquote') return node?.attrs?.blockKind === 'source-reference' ? 'source-reference' : 'author-note'
+  if (node?.type === 'blockquote') {
+    if (node?.attrs?.blockKind === 'source-reference') return 'source-reference'
+    if (node?.attrs?.blockKind === 'author-note') return 'author-note'
+    return 'quote'
+  }
   return 'prose'
+}
+
+function recoverLiteralInlineMarkdown(node) {
+  const content = Array.isArray(node?.content) ? node.content : []
+  if (node?.attrs?.rawMarkdown != null || !content.length) return content
+  if (content.some((item) => item?.type !== 'text' || item?.marks?.length)) return content
+  const text = content.map((item) => item.text || '').join('')
+  if (!LITERAL_INLINE_MARKDOWN_PATTERN.test(text)) return content
+  return inlineContent({ text, tokens: marked.Lexer.lexInline(text) })
+}
+
+function editorInlineContent(node) {
+  const content = Array.isArray(node?.content) ? node.content : []
+  if (node?.type !== 'blockquote') return content
+  const flattened = []
+  content.forEach((child, index) => {
+    if (index > 0) flattened.push({ type: 'text', text: '\n' })
+    flattened.push(...(child?.content || []))
+  })
+  return flattened
 }
 
 export function writingDocumentToEditorContent(document) {
   return (document?.content || []).map((node) => {
+    const inline = recoverLiteralInlineMarkdown(node)
     const editorNode = {
       type: editorNodeTypeForWritingNode(node),
       attrs: {
@@ -294,7 +325,11 @@ export function writingDocumentToEditorContent(document) {
       }
     }
     if (node.type === 'sceneHeading') editorNode.attrs.level = Number(node.attrs?.level || 1)
-    if (node.type !== 'divider') editorNode.content = node.content || [{ type: 'text', text: '' }]
+    if (node.type !== 'divider') {
+      editorNode.content = editorNode.type === 'blockquote'
+        ? [{ type: 'paragraph', content: inline }]
+        : inline
+    }
     return editorNode
   })
 }
@@ -304,7 +339,8 @@ export function editorContentToWritingDocument(content, previousDocument = null)
   const nodes = (content?.content || content || []).map((node, index) => {
     const blockId = node.attrs?.blockId || `block-editor-${index + 1}`
     const kind = writingKindForEditorNode(node)
-    const text = getNodeText(node)
+    const inline = editorInlineContent(node)
+    const text = inline.map(getNodeText).join('')
     const previous = previousById.get(blockId)
     const previousRevision = Number(previous?.attrs?.revision || 0)
     const unchanged = previous?.attrs?.originalText === text
@@ -323,9 +359,19 @@ export function editorContentToWritingDocument(content, previousDocument = null)
     }
     if (node.type === 'heading') attrs.level = Number(node.attrs?.level || 1)
     return {
-      type: node.type === 'heading' ? 'sceneHeading' : node.type === 'horizontalRule' ? 'divider' : node.type === 'blockquote' ? (kind === 'source-reference' ? 'sourceReference' : 'authorNote') : 'paragraph',
+      type: node.type === 'heading'
+        ? 'sceneHeading'
+        : node.type === 'horizontalRule'
+          ? 'divider'
+          : node.type === 'blockquote'
+            ? kind === 'source-reference'
+              ? 'sourceReference'
+              : kind === 'author-note'
+                ? 'authorNote'
+                : 'quote'
+            : 'paragraph',
       attrs,
-      ...(node.type === 'horizontalRule' ? {} : { content: node.content || [] })
+      ...(node.type === 'horizontalRule' ? {} : { content: inline })
     }
   })
   return {

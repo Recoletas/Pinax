@@ -6,14 +6,14 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验叙事连续性 C1-C6 已实现、C7 只搭自动化脚手架；真实 provider 多轮 A/B 与双浏览器 Gate 仍待手动跑 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验故事质量 Q1-Q4 已接入但真实验收未通过；下一阶段修复存储回收、marker/speaker、对白排版和 SceneThread 写回闭环 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
-- **体验叙事 Agent**：G4.6.13 R0-R8 与酒馆能力对齐 R0-R7 的基础代码链已完成。当前质量问题已定位：隐藏 continue 被写成 user turn，recent 只保留长回复开头，三层 prompt 反复要求“小步/短小后果”，半自动以短周期重复生成。专项 C0-C7 将先隔离生成 intent，再建立 ContinuityFrame、同消息续接和多轮质量 Gate；真实 provider 样本、质量标注与双浏览器联机验收仍未完成。
-- **体验阅读**：G1.4 M1-M4 与排版 R0-R2 已完成；主题2标准档为物理 `17.5px`、`62em` 阅读宽度、克制 speaker label 和有限强调。仍需真实 provider 的角色识别/marker 指标及双浏览器联机回归。
+- **体验叙事 Agent**：G4.6.13、酒馆能力对齐和基础连续性代码链已完成；故事质量 Q1-Q4 的展开度、SceneThread 与 BeatPlan 已接入。用户真实试用证明短句式回复有所改善，但重复动作、无功能描写和跨轮目标漂移仍在；根因包括同场 SceneThread 不刷新、outcome 被写成下一轮 objective，以及按完整字符下限补全放大填充描写。真实体验 Gate 未通过。
+- **体验阅读**：G1.4 M1-M4 与排版 R0-R2 已完成，但当前删除只移除 message，回合快照仍重复保存完整正文；marker parser 对变体和流式边界覆盖不足；任意模型 speaker 字符串都能生成身份；对白样式分散在三个 owner。下一阶段按内容完整性与角色对白第三阶段计划收口。
 - **写作 Notebook**：当前最高优先级为 WNB-6A。现有 schema v2 将每个顶层段落当作业务 block，Enter 因而直接创建新块；目标改为 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落，单元通过场景/分隔线、体验回合导入或显式 split 创建。一次成功的体验 assistant 回合默认导入为一个带完整来源的单元，但可拆分/合并且来源不丢。实施顺序是 schema v3、一次转换、批注/候选/版本改用 `unitId + nodeId`、体验导入事务和 UI/Gate；之后再继续常用 Markdown、`targets[]` 和查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
 - **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布已接视频生成。剩余漫画 M7 连续性质检、真实图像/视频 smoke 和跨资产 revision/tag 收口。
@@ -37,8 +37,8 @@
 
 ## Next up
 
-1. 执行体验叙事连续性 C0-C3：固定多轮 baseline，隔离 respond/extend/advance，建立 ContinuityFrame 和完整叙事拍；先解决短碎、重复起势和尾部丢失。
-2. 执行 C4-C7：同消息续接事务、有界补全、半自动暂停条件和真实 provider 多轮 A/B；随后完成双浏览器 host loss、分支与房主 AI 配置 Gate。
+1. 执行体验第三阶段 P0-P3：冻结最小复现，剔除 snapshot 正文副本，建立引用感知删除事务，拆开续写篇幅/阅读密度，并保证 marker 在流式和持久化中不泄漏。
+2. 执行 P4-P6：建立可信可发言实体注册表，统一对白样式 owner，修正 SceneThread 的同场刷新、objective/outcome 和保守补全；以 3 个场景各 3 轮真实复读收口。
 3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。

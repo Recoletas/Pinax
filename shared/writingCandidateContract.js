@@ -47,6 +47,12 @@ function normalizeLockedSegments(segments) {
     .slice(0, 12)
 }
 
+function isUnchangedWritingText(value, baseText) {
+  const source = safeString(baseText).replace(/\r\n/g, '\n').trim()
+  if (!source) return false
+  return safeString(value).replace(/\r\n/g, '\n').trim() === source
+}
+
 function normalizeWritingPatch(raw, fallback = {}) {
   const blockId = safeString(raw?.blockId || fallback.blockId).trim()
   if (!blockId) return null
@@ -94,6 +100,7 @@ function normalizeWritingPatches(rawPatches, fallback = {}) {
 function buildMultiBlockCandidate(raw, index, fallback) {
   const patches = normalizeWritingPatches(raw?.patches, fallback)
   if (!patches.length) return null
+  if (patches.every((patch) => isUnchangedWritingText(patch.replacement, patch.baseText))) return null
   const text = patches.map((patch) => patch.replacement).join('\n')
   const baseText = patches.map((patch) => patch.baseText).join('\n')
   return {
@@ -129,6 +136,7 @@ export function normalizeWritingCandidates(rawCandidates, fallback = {}) {
     }
     const text = safeString(raw?.replacement ?? raw?.text ?? raw?.content).trim()
     if (!validateWritingReplacement(text).valid) return
+    if (isUnchangedWritingText(text, fallback.baseText)) return
     if (candidates.some((candidate) => candidate.text === text)) return
     candidates.push({
       schemaVersion: WRITING_CANDIDATE_SCHEMA_VERSION,
@@ -156,7 +164,10 @@ export function normalizeWritingCandidates(rawCandidates, fallback = {}) {
     if (candidate) candidates.push(candidate)
   }
 
-  if (!candidates.length && fallback.text && validateWritingReplacement(fallback.text).valid) {
+  if (!candidates.length
+    && fallback.text
+    && validateWritingReplacement(fallback.text).valid
+    && !isUnchangedWritingText(fallback.text, fallback.baseText)) {
     candidates.push({
       schemaVersion: WRITING_CANDIDATE_SCHEMA_VERSION,
       id: `${safeString(fallback.resultId, 'writing-candidate')}-1`,

@@ -1534,13 +1534,13 @@ UI-A 是当前可靠性前置任务；UI-B-F 是支撑地理、历史和 Creativ
 
 ### G1.6 块级写作 Notebook 与边注审阅系统（2026-08-10，计划完成）
 
-当前进度（WNB-1、WNB-2、WNB-3 当前候选闭环和 WNB-4 场景/跨块批注/多块候选/章节审稿阶段已完成）：WNB-0 数据契约、6 组真实章节 fixture、Markdown 往返、100k 中文章节测量和隔离 Vue/Tiptap editor spike 已完成；章节现在通过 `useWritingDocument` 加载/保存 `chapter.editorDocument`，同时保留 Markdown 投影。`Writing.vue` 的 `wysiwyg` 现在直接挂载单一 `WritingNotebookEditor`，默认入口明确为实时 Markdown：普通 Markdown 在同一编辑面实时渲染，原始 Markdown/预览保留为次级视图；选区、基础格式、分隔线、取名、查找/替换、右键操作和内联补全输入均已通过 editor bridge 接通。写作页独立顾问入口、浮动顾问和顾问面板已移除，批注、改写候选、章节审查和版本检查器成为唯一审阅入口；块使用无卡片浅色轨道和当前块高亮。WNB-2 的 `writingAnnotations` sidecar 已按 `blockId + TextPosition + TextQuote` 重定位选区：前文插入/块移动保持 ID，拆分生成共享 `parentId` 子批注，合并重新绑定，删除或无法唯一匹配时进入 orphan；检查器支持批注、回复、解决/恢复、定位、固定状态、键盘导航和 Escape 返回编辑器，并完成桌面三栏、980px side sheet、720px 以下 bottom sheet。WNB-3 新增共享候选契约和改写检查器：最多三个候选、原文/候选 diff、锁定片段保留校验、chapter/document/block revision stale gate，以及 Notebook 单 transaction 采纳和撤销；请求支持真实 AbortSignal 取消，失败/取消可沿目标重试且会重新校验目标未变化。WNB-4 现已完成场景数据过滤、跨块批注、多块候选和章节审稿：跨块锚点保存起止 block、两端局部 quote、完整选区文本和涉及 blockIds，Notebook 支持跨块回选，无法唯一定位时明确 orphan；跨块改写按目标块生成完整 `patches`，逐块展示 diff，采用前整批 stale 校验，并通过单次 Notebook transaction 原子提交；章节审查按 6 个正文块分批，只接受带真实定位的 findings，批次失败不丢其他结果，finding 可定位并进入改写链。候选和审查不会直接覆盖正文。下一步是 provider 观察、多候选/审稿浏览器 smoke，版本快照仍留到 WNB-5。
+当前进度（WNB-1、WNB-2、WNB-3 当前候选闭环和 WNB-4 场景/跨块批注/多块候选/章节审稿阶段已完成）：WNB-0 数据契约、6 组真实章节 fixture、Markdown 往返、100k 中文章节测量和隔离 Vue/Tiptap editor spike 已完成；章节现在通过 `useWritingDocument` 加载/保存 `chapter.editorDocument`，同时保留 Markdown 投影。`Writing.vue` 只挂载单一 `WritingNotebookEditor` 实时编辑面，不再保留源码/阅读模式切换；选区、基础格式、分隔线、取名、查找/替换、右键操作和内联补全输入均已通过 editor bridge 接通。写作页独立顾问入口、浮动顾问和顾问面板已移除，批注、改写候选、章节审查和版本检查器成为唯一审阅入口；块使用无卡片浅色轨道和当前块高亮。WNB-2 的 `writingAnnotations` sidecar 已按 `blockId + TextPosition + TextQuote` 重定位选区：前文插入/块移动保持 ID，拆分生成共享 `parentId` 子批注，合并重新绑定，删除或无法唯一匹配时进入 orphan。WNB-3 新增共享候选契约和改写检查器：最多三个候选、原文/候选 diff、锁定片段保留校验、chapter/document/block revision stale gate，以及 Notebook 单 transaction 采纳和撤销。WNB-4 已完成场景数据过滤、跨块批注、多块候选和章节审稿，候选和审查不会直接覆盖正文。WNB-5 已完成版本、恢复和质量 Gate；当前进入 WNB-6 的常用 Markdown、多片段批注与查找同类。
 
-当前 UI 收口补充：正文批注片段显示轻量点标，点击后定位右侧边注；检查器默认紧凑显示，未选中文字时不常驻批注输入框。该变化只调整呈现与 editor decoration，不改变 sidecar 锚点和候选/审稿数据契约。
+当前 UI 收口补充：正文选区统一为主题蓝色，实时编辑面在选区光标收束端显示“批注 / 素材”浮条，并处理应用 zoom 与视口翻转；顶栏只在原始 Markdown 辅助模式保留对应入口。新批注输入和已保存批注都在右侧边注轨道按 DOM 选区中点定位，并对相邻边注就近避让；不再向段落插入 widget，也不在检查器底部弹出输入卡。块/场景/全章过滤与解决/恢复状态入口已删除；批注只保留原位编辑、按批注改写和级联删除，采用改写后同步删除来源批注。旧 `parentId` 回复折叠为补充记录，版本默认只显示最近三份检查点。窄屏没有足够边栏空间时检查器成为正文后的顺序列表。
 
 #### G1.6.1 产品决策
 
-写作页采用“连续小说稿 + 隐形块结构 + 右侧边注检查器”，吸收 Notebook 的稳定 cell、局部执行和候选审阅，但不引入 Python kernel、执行计数、输入/输出框或 `.ipynb` 文件格式。正文仍是一篇连续稿件，不变成卡片墙；块边界只在悬停、聚焦、拖动、批注或 AI 修改时显现。
+写作页采用“连续小说稿 + 隐形写作单元 + 右侧边注检查器”，吸收 Notebook 的稳定 cell、显式拆分/合并和候选审阅，但不引入 Python kernel、执行计数、输入/输出框或 `.ipynb` 文件格式。排版段落不是写作单元：一个写作单元可包含多段正文，正文仍是一篇连续稿件，不变成卡片墙；单元边界只在悬停、聚焦、批注或 AI 修改时显现。
 
 公开的最小结构只有：
 
@@ -1607,14 +1607,15 @@ UI-A 是当前可靠性前置任务；UI-B-F 是支撑地理、历史和 Creativ
 - 中栏：一个 ProseMirror editor instance 承载整章，不为每个块建立独立 textarea/editor；正文最大阅读宽度约 `58-66em`，工作面剩余空间用于 gutter 和边注关系，不制造大块空白。
 - 左 gutter：默认无内容；块 hover/focus 时显示拖动、批注、AI 改写三个图标，命中区稳定但不把正文挤动。
 - 块信号：只允许 2-3px 短边色条、极浅 active wash 和小型状态点；普通块无框、无卡片、无圆角承托面。
-- 右检查器：`批注 / 改写 / 版本` 三个视图；“上下文来源、锁定片段、场景元数据”放在当前视图内的折叠 details，不增加第四个常驻 tab。
+- 右检查器：只保留 `批注 / 版本` 两个顶层视图；改写属于具体批注的内联操作，不建立第三个常驻 tab。
 - 检查器默认跟随当前块；提供“固定”图标，固定后切换正文焦点不改变右栏内容，吸收 Scrivener Inspector lock 的价值。
 - 980px 以下右栏改为可关闭 side sheet；760px 以下章节与检查器通过现有 `WorkspacePaneSwitch` 进入“章节 / 正文 / 批注”，正文为默认 pane；390px 检查器使用底部 sheet。
-- 批注密度提供 `简洁 / 展开`：简洁态只在正文右缘显示标记，展开态在检查器显示完整 thread；不在正文旁同时铺开所有评论卡。
+- 批注正文属于右侧检查器内的边注轨道：桌面端的新建输入与已保存批注都按选区中点显示，并与编辑面共享滚动；窄屏改为检查器内的顺序列表。正文内只有不改变行宽的 inline decoration，不插入 widget。边注提供原位编辑、定位、按批注改写和删除；不保留解决/恢复状态入口，历史回复仅折叠显示为补充记录。批注不写入出版 Markdown。
 
 键盘和输入规则：
 
-- `Enter` 拆分 prose；段首 `Backspace` 合并；`Alt+↑/↓` 移动块；普通上下方向键只移动光标，不进入 Jupyter command mode。
+- `Enter` 只在当前写作单元内新建正文段落，`Shift+Enter` 插入软换行；不再把每次回车解释为新写作单元。
+- 写作单元只通过场景标题/分隔线、体验回合导入或显式“从此处分开”创建；单元起点的 `Backspace` 不隐式吞并来源边界，合并必须从轻量单元操作执行。普通方向键只移动光标，不引入 Jupyter command mode。
 - 中文 IME composition 期间禁止自动保存投影、块拖动、slash command 和 AI 补全抢占。
 - 跨块选择允许复制、删除、批注和收为素材；首版 AI 改写只对单块或单块内选区启用。
 - 文字选择期间冻结 gutter 和浮动工具显隐，避免当前顾问按钮难以点击的问题复发。
@@ -1669,7 +1670,7 @@ interface WritingCandidate {
 }
 ```
 
-每个可定位 block 使用 `data-block-id` 和单调 `revision`。Tiptap UniqueID 只负责节点身份，业务 revision、批注、锁定和候选仍由 Pinax 管理。AI 候选不嵌入 ProseMirror document，也不写入 Markdown；只有采纳时才生成一次带 `origin: 'ai-candidate'` 元数据的 editor transaction。
+每个写作单元使用稳定 `unitId + unitRevision`，其内部标题、段落、列表等排版节点使用 `nodeId`；两者不得继续共用含混的 `blockId`。Tiptap UniqueID 只负责节点身份，单元 revision、来源、批注、锁定和候选仍由 Pinax 管理。AI 候选不嵌入 ProseMirror document，也不写入 Markdown；只有采纳时才生成一次带 `origin: 'ai-candidate'` 元数据的 editor transaction。
 
 #### G1.6.6 锚点重定位与拆分/合并规则
 
@@ -1814,6 +1815,77 @@ Gate：审稿无定位建议为 0；一批失败不丢其他 findings；跨块�
 3. 完成主题2桌面/移动视觉审阅与主题1共享行为回归；删除遗留 selection/textarea/advisor 兼容代码。
 
 Gate：见下一节完成定义。
+
+**WNB-6：真实 Live Preview、多片段批注与查找同类（当前执行）**
+
+调研后的取舍：Obsidian 的 Live Preview 是“排版结果常显、当前编辑位置局部露出语法”，不是在富文本与源码之间反复切页；Tiptap Markdown 扩展目前仍是 beta，且 Markdown 转换不承载评论数据，因此不替换 Pinax 已有的结构化文档真源与批注 sidecar。W3C Web Annotation 允许一个批注拥有多个 target，ProseMirror 也能表示多 range selection，但浏览器原生非连续选区难以跨输入、滚动和重定位稳定保存。Pinax 因此采用显式“收集片段”流程，而不把 Ctrl 多选 DOM 当作状态真源。查找同类吸收 VS Code semantic search 的分层检索思路：本地确定性召回负责广搜，模型只复核短名单，不把整章或整本直接交给模型搜索。
+
+1. **先修正写作单元模型**：当前 schema 把每个顶层段落都赋予 `blockId`，导致 Enter 直接制造业务块、版本和 AI 目标过碎。升级为 `WritingDocumentV3 -> WritingUnit[] -> block+`：`writingUnit` 是含稳定 `unitId` 的 Tiptap wrapper，可容纳多个标题、段落、列表和引用；内部节点只承担排版与精确锚点。该阶段必须先于多片段批注和查找同类。
+2. **Live Preview 可见化**：只保留一个实时编辑面，删除源码/阅读切换。光标进入标题、引用、列表、代码块或行内 mark 时局部露出 Markdown 标记；当前第一切片已覆盖标题、引用、粗体、斜体、删除线和行内代码。不能把尚未覆盖列表与代码块的投影描述为完整 Live Preview。
+3. **常用 Markdown 往返**：在新单元 schema 内补齐有序/无序/任务列表、围栏代码及语言、链接和既有标题/引用/分隔线，禁止继续把列表和代码块压平成普通段落；每类节点必须通过 Markdown -> document -> Markdown 文本无损和编辑 transaction 门禁。
+4. **多片段批注契约**：`WritingAnnotation` 增加有序 `targets[]`；每个 target 保存 `unitId + nodeId + revision + TextQuote + TextPosition`。用户通过正文选区浮条“加入当前批注”收集不连续片段；正文用克制的青蓝关联标记，右侧仍只显示一条边注。
+5. **查找同类**：先按稳定单元/段落/句切分当前章或当前书，使用字符 n-gram、词项重合、结构模式和距离/多样性做本地召回；仅把 8-12 条短片段交给模型复核。用户勾选后才加入该批注的 `targets[]`，模型失败时保留本地结果，不伪造自动结论。
+6. **多目标改写**：每个 target 生成独立 patch，并沿用单 transaction 原子提交。任一 target 缺失、重叠、unit/node revision stale 或候选与原文相同，整批拒绝，不允许部分写回。
+
+**WNB-6A 写作单元详细设计（当前最高优先）**
+
+数据层分为三层，不再用“块”同时指代三种对象：
+
+```ts
+interface WritingUnitV3 {
+  type: 'writingUnit'
+  attrs: {
+    unitId: string
+    unitRevision: number
+    kind: 'passage' | 'scene' | 'note' | 'source'
+    sceneId?: string
+    originRefs: WritingOriginRef[]
+  }
+  content: EditorBlockNode[] // 1..n 个标题、段落、列表、引用等
+}
+```
+
+- **排版节点**：段落、标题、列表项等；Enter 只新增段落节点。`nodeId` 服务选区、批注和 transaction mapping，不单独出现在版本栏或 AI 任务列表。
+- **写作单元**：局部创作、来源、版本和 Agent 上下文的稳定容器；可以包含多段小说正文。单元内部编辑使 `unitRevision` 单调增加。
+- **场景**：章节导航和上下文范围，可包含多个写作单元；场景标题不是每段正文的容器，也不强迫长场景成为一个巨大 AI 改写目标。
+
+体验页与写作页的对应关系：
+
+- 一次**已经提交成功的 assistant 回合**默认导入为一个写作单元，保留 `sessionId / branchId / turnId / messageId / worldbookId` 来源；回合内叙述、对白和动作解析成同一单元内的多个排版节点。
+- 这个一对一关系是最好的**初始来源边界**，但不是永久编辑边界。单次生成可能跨越两个节拍或过长，作者可显式拆分；两个短回合也可合并。拆分后的两个单元都保留原 `originRefs`，合并时来源去重并集，回跳和审计不丢失。
+- 玩家输入与 assistant 正文不混成同一出版单元；玩家输入作为来源上下文保留，需要写入小说时由用户明确采纳或由改编任务生成候选。
+
+交互规则：
+
+- `Enter` 新段落，`Shift+Enter` 软换行；连续写十段仍是一个写作单元。
+- 场景标题、分隔线和体验回合导入可以创建自然单元；其他拆分通过光标附近的轻量“从此处分开”动作，合并通过相邻单元操作。可以提供 Jupyter 同源的 `Ctrl/Cmd+Shift+-` 快捷键，但不引入 Edit/Command 双模式。
+- 单元边界只在当前单元、来源回跳、批注或 AI 候选存在时显示短边信号；不画 cell 外框，不显示执行序号、运行按钮或输出区。
+- AI 的“上下文单元”和“实际修改范围”分开：上下文可读取当前单元、相邻单元和所属场景，patch 仍只覆盖用户选区或模型明确定位的段落范围，避免一个长回合被整块重写。
+
+直接实施顺序：
+
+1. 建立 schema v3 fixture 和 `writingUnit` Tiptap node，冻结 Enter/显式 split/merge/move/undo、IME 与 Markdown 投影契约。
+2. 一次性把现有 schema v2 文档转换为 v3，按场景标题/分隔线聚合连续正文；迁移完成后删除“每段一个业务 block”的运行路径，不长期维护双 schema 编辑逻辑。
+3. 改写批注、候选、快照、块历史和质量 Gate，使其分别消费 `unitId` 与 `nodeId`；历史 UI 的“块”统一改称“片段”或“写作单元”。
+4. 体验页提交链增加明确的“收进稿件”事务，将一次 assistant 回合转换成一个带来源的单元；分支重生成不得静默覆盖已导入稿件，只产生新来源 revision。
+5. 收口 UI：普通输入看不到单元卡片；当前单元仅显示轻量边缘信号和必要操作。完成后再继续 `targets[]` 与查找同类。
+
+Gate：同一单元连续 Enter 20 次后 `unitId` 数量不变；显式 split/merge 可单 transaction 撤销且正文零丢失；批注跨 split/merge 要么精确迁移、要么明确 orphan；体验回合导入保留完整来源并允许回跳；AI 候选不能因单元过长而默认覆盖整单元；10 万字、中文 IME、1440/980/390 和 200% zoom 通过。
+
+Gate：1440/980/390 下语法槽不改变普通段落行宽；10 万字章节查找可取消且不阻塞输入；同类结果零自动写入；同一 target 零重复；旧批注读取无数据丢失；多目标采用满足全有或全无；常用 Markdown 往返不丢正文。明确不引入浏览器原生非连续选区作为 owner、不把整本正文直接发送给模型、不新增第二套评论系统。
+
+研究依据：
+
+- Obsidian Live Preview 与默认编辑视图：`https://help.obsidian.md/Live+preview+update`、`https://obsidian.md/help/settings`
+- Tiptap Markdown 双向转换及 beta 边界：`https://tiptap.dev/docs/editor/markdown`、`https://tiptap.dev/docs/editor/markdown/api/editor`
+- W3C Web Annotation 多 target：`https://www.w3.org/TR/annotation-model/`
+- ProseMirror SelectionRange：`https://prosemirror.net/docs/ref/`
+- Word 非连续选择与页边评论：`https://support.microsoft.com/en-gb/topic/how-to-select-items-that-are-not-next-to-each-other-8b9c1be9-cca3-935a-7cbf-94403aa48d2e`、`https://support.microsoft.com/en-US/Word/using-modern-comments-in-word`
+- VS Code semantic search：`https://code.visualstudio.com/docs/agents/reference/workspace-context`
+- JupyterLab cell 编辑/命令模式与显式 cell 操作：`https://jupyterlab.readthedocs.io/en/latest/user/notebook.html`、`https://jupyterlab.readthedocs.io/en/4.4.x/user/commands.html`
+- nbformat 多行 Markdown cell 与稳定 cell id：`https://nbformat.readthedocs.io/en/5.2.0/format_description.html`
+- Cmd Markdown 的同步预览、快捷格式、目录与批注：`https://www.zybuluo.com/cmd/`、`https://www.zybuluo.com/mdeditor`
+- 知乎长篇创作与按小节 AI 校对：`https://www.zhihu.com/parker/campaign/1886006781253224212`
 
 #### G1.6.11 测试矩阵与完成定义
 
@@ -3167,6 +3239,8 @@ server.ready / presence.sync / event.append / error / pong
 - <https://github.com/hack-chat/main/blob/master/commands/core/join.js>
 
 ### G4.6 体验叙事 Agent 与按需世界上下文
+
+当前质量专项：[体验页叙事连续性与可读性计划](./experience-narrative-continuity-plan.md)。该计划不替换 G4.6.13 的单 transcript、工具证据和回合事务，而是在其上修复隐藏 continue 污染玩家历史、长回复尾部丢失、短碎提示词和半自动重复起势；执行顺序为 C0-C7，首个用户可验收切片是 C0-C3。
 
 定位：把体验页从“生成前一次性拼装世界书、记忆和运行时文本，再进行一次流式生成”升级为受控的叙事 Agent。地理、历史、世界书和记忆继续由现有 store / service 持有，模型只通过少量只读工具按需取得证据；最终叙事仍沿用现有流式文本协议、阅读渲染和候选状态事务。
 

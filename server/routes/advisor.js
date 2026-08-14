@@ -111,14 +111,14 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   const ledger = createAgentContextLedger(clippedEnvelope)
 
   try {
-    const run = await runAdvisorAgent({
+    const runOnce = (activeQuestion) => runAdvisorAgent({
       providerId: String(options?.agentProvider || 'text-model'),
       fallbackProviderId: options?.fallbackProvider
         ? String(options.fallbackProvider)
         : null,
       capability: taskValidation.definition.capability,
       envelope: clippedEnvelope,
-      question,
+      question: activeQuestion,
       taskMeta: {
         taskType: normalizedTaskType,
         target: clippedEnvelope.target,
@@ -126,7 +126,9 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         mode
       }
     })
-    res.json(createAdvisorTaskResponse({
+    let run = await runOnce(question)
+    let semanticRepairCount = 0
+    const buildResponse = () => createAdvisorTaskResponse({
       taskType: normalizedTaskType,
       advice: run.advice,
       target: clippedEnvelope.target,
@@ -137,9 +139,20 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         targetRevision: clippedEnvelope.target.revision,
         sourceRefs: collectAgentEnvelopeSourceRefs(clippedEnvelope),
         budget: clippedEnvelope.budget,
-        ledger
+        ledger,
+        semanticRepairCount
       }
-    }))
+    })
+    let response
+    try {
+      response = buildResponse()
+    } catch (error) {
+      if (error.code !== 'AGENT_CANDIDATES_UNCHANGED') throw error
+      semanticRepairCount = 1
+      run = await runOnce(`${question}\n\n上一次候选与目标原文相同。请严格按批注要求产生实际文字改动，且候选之间不得重复。`)
+      response = buildResponse()
+    }
+    res.json(response)
   } catch (error) {
     const message = error.message || '获取建议失败'
     if (message.includes('缺少 context 或 question 参数')) {

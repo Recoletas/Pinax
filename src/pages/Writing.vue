@@ -79,7 +79,7 @@
     ></button>
 
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
-    <main class="wall__main">
+    <main ref="writingMainRef" class="wall__main">
       <!-- 左：5 层书架 + 章节档案夹 -->
       <aside id="writing-chapter-shelf" ref="chapterShelfRef" class="wall__shelf" :class="{ 'is-mobile-open': chapterDrawerOpen }" :tabindex="chapterDrawerOpen ? -1 : undefined" aria-label="章节书架">
         <div
@@ -199,9 +199,10 @@
 
         <template v-else>
           <WritingInlineCompletion
+            v-if="!notebookEditorActive"
             :generating="copilotGenerating"
-            :visible="copilotVisible"
-            :can-undo="writingAgentCanUndo"
+            :visible="false"
+            :can-undo="copilotCanUndo"
             :error="copilotError"
             :cooling-down="writingAgentCoolingDown"
             :matched-count="copilotMatchedEntries.length"
@@ -225,6 +226,7 @@
                 <div class="font-panel" v-if="showFontPanel" @click.stop>
                   <div class="fp-row"><span class="fp-label">字体</span>
                     <select class="fp-select" v-model="editorFont">
+                      <option value="Menlo, 'Ubuntu Mono', Consolas, 'Courier New', 'Microsoft Yahei', 'Hiragino Sans GB', 'WenQuanYi Micro Hei', sans-serif">Cmd Markdown</option>
                       <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
                       <option value="'SimSun', serif">宋体</option>
                       <option value="'KaiTi', serif">楷体</option>
@@ -279,7 +281,7 @@
                 </div>
               </div>
               <div class="toolbar-sep"></div>
-              <div class="toolbar-group">
+              <div v-if="editorMode === 'markdown'" class="toolbar-group">
                 <button
                   class="tool-btn capture-selection-btn"
                   type="button"
@@ -300,16 +302,11 @@
                   批注<span v-if="openAnnotationCount" class="annotation-toolbar-count">{{ openAnnotationCount }}</span>
                 </button>
               </div>
-              <div class="toolbar-sep"></div>
+              <div v-if="editorMode === 'markdown'" class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">查找</button>
               </div>
               <div class="toolbar-spacer"></div>
-              <div class="mode-switch">
-                <button class="tool-btn" :class="{ active: editorMode === 'wysiwyg' }" @click="switchEditorMode('wysiwyg')" title="在同一编辑面实时渲染 Markdown">实时</button>
-                <button class="tool-btn" :class="{ active: editorMode === 'markdown' }" @click="switchEditorMode('markdown')" title="Markdown">Markdown</button>
-                <button class="tool-btn" :class="{ active: editorMode === 'preview' }" @click="switchEditorMode('preview')" title="预览">预览</button>
-              </div>
             </div>
 
             <div v-if="copilotReferenceAsset" class="copilot-reference-bar">
@@ -353,38 +350,49 @@
             </div>
 
             <WritingNotebookEditor
-              v-if="editorMode === 'wysiwyg'"
               ref="notebookEditorRef"
               :model-value="markdownContent"
               :document="writingDocument"
               :annotations="chapterAnnotations"
               :active-annotation-id="activeAnnotationId"
+              :inline-suggestion="copilotSuggestion"
+              :inline-suggestion-visible="copilotVisible"
+              :inline-suggestion-generating="copilotGenerating"
+              :inline-suggestion-error="copilotError"
               :style="notebookEditorStyle"
               @update:modelValue="onNotebookMarkdown"
               @update:document="onNotebookDocumentUpdate"
               @selection-change="onNotebookSelectionChange"
               @annotation-click="handleInlineAnnotationClick"
+              @writing-command="handleNotebookWritingCommand"
+              @accept-inline-suggestion="acceptWritingSuggestion"
+              @dismiss-inline-suggestion="copilotCancel"
+              @retry-inline-suggestion="retryCopilotSuggestion"
+              @ready="scheduleAnnotationLayout"
               @input="onNotebookInput"
               @context-menu="showContextMenu"
             />
-            <div v-if="editorMode === 'markdown'" class="markdown-editor-container">
-              <textarea
-                v-model="markdownContent"
-                ref="editorRef"
-                class="wall__dossier-textarea markdown-textarea"
-                placeholder="开始写作（Markdown）..."
-                @input="onMarkdownInput"
-                @keydown="onTextAreaKeydown"
-                @keyup="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-                @click="syncCopilotCursorFromEditor({ cancelOnMove: true })"
-                @scroll="onEditorScroll"
-              ></textarea>
-            </div>
-            <div
-              v-if="editorMode === 'preview'"
-              class="wall__dossier-textarea editor-preview"
-              v-html="previewHtml"
-            ></div>
+            <Teleport to="body">
+              <div
+                v-if="selectionActionsVisible"
+                class="writing-selection-actions"
+                :style="selectionToolbarStyle"
+                role="toolbar"
+                aria-label="选中文字操作"
+                @mousedown.prevent
+                @click.stop
+              >
+                <button type="button" title="为选中文字添加批注" @click="openAnnotationFromSelectionMenu">
+                  <WorkbenchIcon name="message-square" :size="14" />
+                  <span>批注</span>
+                </button>
+                <span aria-hidden="true"></span>
+                <button type="button" title="把选中文字收为素材" @click="captureSelectionFromMenu">
+                  <WorkbenchIcon name="bookmark-plus" :size="14" />
+                  <span>素材</span>
+                </button>
+              </div>
+            </Teleport>
 
             <div class="dossier-footer">
               <span class="dossier-footer-stat">{{ wordCount.toLocaleString() }} 字</span>
@@ -413,6 +421,7 @@
       <aside
         v-if="!isKao"
         class="writing-inspector"
+        ref="writingInspectorRef"
         :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned }"
         aria-label="写作检查器"
       >
@@ -435,17 +444,12 @@
         </header>
 
         <nav class="writing-inspector__tabs" aria-label="检查器视图">
-          <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
-          <button type="button" :class="{ active: inspectorTab === 'rewrite' }" @click="inspectorTab = 'rewrite'">改写</button>
+          <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注</button>
           <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">版本</button>
         </nav>
 
         <div v-if="inspectorTab === 'comments'" class="writing-inspector__body">
           <div class="writing-inspector__density">
-            <button type="button" :class="{ active: annotationScope === 'block' }" @click="annotationScope = 'block'">块</button>
-            <button type="button" :class="{ active: annotationScope === 'scene' }" @click="annotationScope = 'scene'">场景</button>
-            <button type="button" :class="{ active: annotationScope === 'chapter' }" @click="annotationScope = 'chapter'">全章</button>
-            <span class="writing-inspector__density-spacer" aria-hidden="true"></span>
             <button type="button" class="writing-review-trigger" :disabled="reviewLoading || !selectedChapterId" @click="runChapterReview">
               {{ reviewLoading ? `审查中 ${reviewCompletedBatches}/${reviewTotalBatches}` : '章节审查' }}
             </button>
@@ -454,111 +458,135 @@
           <p v-if="reviewError" class="writing-review-status is-error" role="alert">{{ reviewError }}</p>
           <p v-else-if="reviewStatus" class="writing-review-status">{{ reviewStatus }}</p>
 
-          <div class="writing-inspector__list" :class="`is-${annotationDensity}`">
+          <div
+            ref="annotationLaneRef"
+            class="writing-inspector__list"
+            :style="annotationLaneStyle"
+          >
             <article
-              v-for="annotation in activeBlockAnnotations"
+              v-for="annotation in marginAnnotations"
               :key="annotation.id"
               class="writing-annotation"
-              :class="[`is-${annotation.status}`, { 'is-active': activeAnnotationId === annotation.id, 'is-reply': Boolean(annotation.parentId) }]"
+              :class="[`is-${annotation.status}`, { 'is-active': activeAnnotationId === annotation.id }]"
               role="button"
               tabindex="0"
               :aria-label="`${getWritingAnnotationLabel(annotation)}：${annotation.body}`"
+              :ref="(element) => setAnnotationNoteRef(element, annotation.id)"
+              :style="getAnnotationNoteStyle(annotation)"
               @click="locateAnnotation(annotation)"
               @focus="activeAnnotationId = annotation.id"
-              @keydown="handleAnnotationKeydown($event, annotation, activeBlockAnnotations.indexOf(annotation))"
+              @keydown="handleAnnotationKeydown($event, annotation, marginAnnotations.indexOf(annotation))"
             >
               <header>
                 <span>{{ annotation.reviewType ? `${annotation.reviewType} · ` : '' }}{{ getWritingAnnotationLabel(annotation) }}</span>
-                <time>{{ annotation.status === 'orphaned' ? '需处理' : annotation.status === 'resolved' ? '已解决' : '待处理' }}</time>
               </header>
-              <p>{{ annotation.body }}</p>
-              <div v-if="annotationDensity === 'expanded'" class="writing-annotation__quote">“{{ annotation.range?.exact || annotation.selector?.exact || '无选区' }}”</div>
+              <template v-if="editingAnnotationId === annotation.id">
+                <textarea
+                  v-model="annotationEditDraft"
+                  class="writing-annotation__edit"
+                  rows="3"
+                  aria-label="编辑批注"
+                  @click.stop
+                  @keydown.meta.enter.prevent="saveAnnotationEdit(annotation)"
+                  @keydown.ctrl.enter.prevent="saveAnnotationEdit(annotation)"
+                  @keydown.esc.prevent="cancelAnnotationEdit"
+                ></textarea>
+                <div class="writing-annotation__edit-actions" @click.stop>
+                  <button type="button" :disabled="!annotationEditDraft.trim()" @click="saveAnnotationEdit(annotation)">保存</button>
+                  <button type="button" @click="cancelAnnotationEdit">取消</button>
+                </div>
+              </template>
+              <p v-else>{{ annotation.body }}</p>
+              <div v-if="getAnnotationSupplements(annotation).length" class="writing-annotation__supplements">
+                <p v-for="item in getAnnotationSupplements(annotation)" :key="item.id"><span>补充</span>{{ item.body }}</p>
+              </div>
               <footer>
-                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startAnnotationReply(annotation)">回复</button>
-                <button v-if="annotation.status === 'open'" type="button" @click.stop="setAnnotationStatus(annotation.id, 'resolved')">标记解决</button>
-                <button v-else type="button" @click.stop="setAnnotationStatus(annotation.id, 'open')">恢复</button>
-                <button v-if="annotation.kind === 'review-finding' && annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">进入改写</button>
-                <button v-if="annotation.status === 'orphaned'" type="button" @click.stop="reanchorAnnotation(annotation)">用当前选区重关联</button>
+                <button type="button" @click.stop="startAnnotationEdit(annotation)">编辑</button>
+                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">按批注改写</button>
+                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)">删除</button>
               </footer>
+
+              <section
+                v-if="rewriteTarget?.annotationId === annotation.id"
+                class="writing-annotation-rewrite"
+                aria-label="按当前批注改写"
+                @click.stop
+              >
+                <textarea
+                  v-model="rewriteInstruction"
+                  class="writing-rewrite-panel__input"
+                  rows="2"
+                  aria-label="改写要求"
+                  @keydown.meta.enter.prevent="generateRewriteCandidates(rewriteTarget)"
+                  @keydown.ctrl.enter.prevent="generateRewriteCandidates(rewriteTarget)"
+                ></textarea>
+                <div class="writing-rewrite-panel__actions">
+                  <button type="button" :disabled="rewriteLoading || !rewriteTarget?.text" @click="generateRewriteCandidates(rewriteTarget)">
+                    {{ rewriteLoading ? '生成中…' : rewriteCandidates.length ? '重新生成' : '生成改写' }}
+                  </button>
+                  <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">停止</button>
+                  <button v-if="rewriteError && !rewriteLoading" type="button" class="is-quiet" @click="retryRewriteCandidates">重试</button>
+                  <button type="button" class="is-quiet" @click="closeAnnotationRewrite">收起</button>
+                </div>
+                <p v-if="rewriteError" class="writing-rewrite-panel__error" role="alert">{{ rewriteError }}</p>
+                <div v-if="rewriteCandidates.length > 1" class="writing-annotation-rewrite__choices" aria-label="改写候选">
+                  <button
+                    v-for="(candidate, candidateIndex) in rewriteCandidates"
+                    :key="candidate.id"
+                    type="button"
+                    :class="{ active: selectedRewriteCandidateId === candidate.id }"
+                    @click="selectedRewriteCandidateId = candidate.id"
+                  >{{ candidateIndex + 1 }}</button>
+                </div>
+                <article v-if="selectedRewriteCandidate" class="writing-rewrite-candidate is-selected">
+                  <p v-if="selectedRewriteCandidate.rationale">{{ selectedRewriteCandidate.rationale }}</p>
+                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" aria-label="跨块改写差异">
+                    <section v-for="(patch, patchIndex) in selectedRewriteCandidate.patches" :key="patch.blockId" class="writing-rewrite-patch">
+                      <small>片段 {{ patchIndex + 1 }}</small>
+                      <div class="writing-rewrite-diff">
+                        <div><small>原文</small><span v-for="(part, index) in patch.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                        <div><small>候选</small><span v-for="(part, index) in patch.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                      </div>
+                    </section>
+                  </div>
+                  <div v-else class="writing-rewrite-diff" aria-label="改写差异">
+                    <div><small>原文</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                    <div><small>候选</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                  </div>
+                  <footer>
+                    <button type="button" :disabled="selectedRewriteCandidate.status !== 'ready'" @click="applyRewriteCandidate(selectedRewriteCandidate)">{{ selectedRewriteCandidate.patches?.length ? '整批采用' : '采用' }}</button>
+                    <button type="button" class="is-quiet" @click="dismissRewriteCandidate(selectedRewriteCandidate)">忽略</button>
+                  </footer>
+                </article>
+              </section>
             </article>
-            <div v-if="!activeBlockAnnotations.length" class="writing-inspector__empty">这段还没有批注。</div>
-          </div>
-
-          <div v-if="selectedText || replyTargetAnnotation" class="writing-inspector__composer">
-            <div v-if="replyTargetAnnotation" class="writing-inspector__reply-target">
-              回复：{{ replyTargetAnnotation.body.slice(0, 56) }}{{ replyTargetAnnotation.body.length > 56 ? '…' : '' }}
-              <button type="button" @click="replyTargetAnnotationId = null">取消回复</button>
-            </div>
-            <div v-if="selectedText" class="writing-inspector__selection">选中：{{ selectedText.slice(0, 90) }}{{ selectedText.length > 90 ? '…' : '' }}</div>
-            <textarea v-model="annotationDraft" rows="3" placeholder="写下对这段文字的批注、疑问或修改要求" @keydown.meta.enter.prevent="createAnnotationFromSelection" @keydown.ctrl.enter.prevent="createAnnotationFromSelection"></textarea>
-            <button type="button" :disabled="!canCreateAnnotation" @click="createAnnotationFromSelection">{{ replyTargetAnnotation ? '回复' : '添加批注' }}</button>
-          </div>
-          <div v-else class="writing-inspector__composer-hint">选中正文中的一小段，批注会贴在片段旁边。</div>
-        </div>
-
-        <div v-else-if="inspectorTab === 'rewrite'" class="writing-inspector__body writing-rewrite-panel">
-          <div v-if="rewriteTarget" class="writing-rewrite-panel__context">
-            <strong>{{ rewriteTarget.text }}</strong>
-            <small v-if="rewriteTarget">修订 {{ rewriteTarget.documentRevision }} · {{ rewriteTarget.kind === 'multi-selection' ? `跨块选区（${rewriteTarget.blocks?.length || 0}块）` : rewriteTarget.kind === 'selection' ? '选区' : '当前块' }}</small>
-          </div>
-          <textarea
-            v-model="rewriteInstruction"
-            class="writing-rewrite-panel__input"
-            rows="3"
-            placeholder="告诉改写要保留或解决什么，例如：压缩重复动作，保留冷静语气"
-            @keydown.meta.enter.prevent="generateRewriteCandidates"
-            @keydown.ctrl.enter.prevent="generateRewriteCandidates"
-          ></textarea>
-          <div class="writing-rewrite-panel__actions">
-            <button type="button" :disabled="rewriteLoading || !canGenerateRewrite" @click="generateRewriteCandidates">
-              {{ rewriteLoading ? '生成中…' : '生成候选' }}
-            </button>
-            <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">取消</button>
-            <button v-if="rewriteError && !rewriteLoading && rewriteTarget" type="button" class="is-quiet" @click="retryRewriteCandidates">重试</button>
-            <button v-if="selectedText && rewriteTarget && rewriteTarget.kind !== 'multi-selection'" type="button" class="is-quiet" @click="lockCurrentRewriteSelection">锁定选中片段</button>
-            <button v-if="rewriteUndoReceipt" type="button" class="is-quiet" @click="undoRewriteCandidate">撤销采用</button>
-          </div>
-          <p v-if="rewriteError" class="writing-rewrite-panel__error" role="alert">{{ rewriteError }}</p>
-          <div v-if="rewriteLockedSegments.length" class="writing-rewrite-panel__locks">
-            <span>已锁定</span>
-            <em v-for="segment in rewriteLockedSegments" :key="`${segment.start}-${segment.end}`">{{ segment.text }}</em>
-          </div>
-          <div v-if="rewriteCandidates.length" class="writing-rewrite-panel__candidates">
-            <article
-              v-for="candidate in rewriteCandidates"
-              :key="candidate.id"
-              class="writing-rewrite-candidate"
-              :class="{ 'is-selected': selectedRewriteCandidateId === candidate.id, 'is-stale': candidate.status === 'stale', 'is-applied': candidate.status === 'applied' }"
-              @click="selectedRewriteCandidateId = candidate.id"
+            <form
+              v-show="annotationComposerOpen"
+              class="writing-annotation-composer"
+              :ref="(element) => setAnnotationNoteRef(element, 'annotation-draft')"
+              :style="annotationDraftAnchor ? getAnnotationNoteStyle(annotationDraftAnchor) : undefined"
+              @submit.prevent="createAnnotationFromSelection"
             >
               <header>
-                <button type="button" class="writing-rewrite-candidate__select" @click.stop="selectedRewriteCandidateId = candidate.id">
-                  {{ candidate.label }}
-                </button>
-                <span>{{ candidate.status === 'stale' ? '已过期' : candidate.status === 'applied' ? '已采用' : '待审阅' }}</span>
+                <span>新批注</span>
+                <button type="button" title="取消批注" aria-label="取消批注" @click="closeAnnotationComposer">×</button>
               </header>
-              <p v-if="candidate.rationale">{{ candidate.rationale }}</p>
-              <div v-if="candidate.patches?.length" class="writing-rewrite-patches" aria-label="跨块改写差异">
-                <section v-for="(patch, patchIndex) in candidate.patches" :key="`${candidate.id}-${patch.blockId}`" class="writing-rewrite-patch">
-                  <small>块 {{ patchIndex + 1 }}</small>
-                  <div class="writing-rewrite-diff">
-                    <div><small>原文</small><span v-for="(part, index) in patch.diff.before" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                    <div><small>候选</small><span v-for="(part, index) in patch.diff.after" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                  </div>
-                </section>
-              </div>
-              <div v-else class="writing-rewrite-diff" aria-label="改写差异">
-                <div><small>原文</small><span v-for="(part, index) in candidate.diff.before" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                <div><small>候选</small><span v-for="(part, index) in candidate.diff.after" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-              </div>
+              <p>“{{ selectedText.slice(0, 72) }}{{ selectedText.length > 72 ? '…' : '' }}”</p>
+              <textarea
+                v-model="annotationDraft"
+                rows="3"
+                placeholder="写下批注或修改要求"
+                aria-label="批注内容"
+                @keydown.meta.enter.prevent="createAnnotationFromSelection"
+                @keydown.ctrl.enter.prevent="createAnnotationFromSelection"
+                @keydown.esc.prevent="closeAnnotationComposer"
+              ></textarea>
               <footer>
-                <button type="button" :disabled="candidate.status !== 'ready'" @click.stop="applyRewriteCandidate(candidate)">{{ candidate.patches?.length ? '整批采用' : '采用' }}</button>
-                <button type="button" class="is-quiet" :disabled="candidate.status === 'applied'" @click.stop="dismissRewriteCandidate(candidate)">忽略</button>
+                <button type="submit" :disabled="!canCreateAnnotation">添加</button>
+                <button type="button" @click="closeAnnotationComposer">取消</button>
               </footer>
-            </article>
-          </div>
-          <div v-else-if="!rewriteLoading" class="writing-rewrite-panel__empty">
-            选中正文后生成候选。
+            </form>
+            <div v-if="!marginAnnotations.length && !annotationComposerOpen" class="writing-inspector__empty">选中正文后即可添加边注。</div>
           </div>
         </div>
 
@@ -573,36 +601,6 @@
               <b>{{ writingDocument?.revision || 0 }}</b>
             </div>
           </div>
-          <section class="writing-quality-panel" aria-label="章节质量检查">
-            <header class="writing-quality-panel__head">
-              <div>
-                <span class="writing-quality-panel__eyebrow">发布前检查</span>
-                <strong>章节质量</strong>
-              </div>
-              <span class="writing-quality-panel__state" :class="`is-${writingQualityReport.status}`">
-                {{ writingQualityReport.status === 'blocked' ? '暂不可发布' : writingQualityReport.status === 'attention' ? '建议处理' : '可以发布' }}
-              </span>
-            </header>
-            <div class="writing-quality-panel__metrics" aria-label="质量检查统计">
-              <span><b>{{ writingQualityReport.summary.blockers }}</b> 阻断</span>
-              <span><b>{{ writingQualityReport.summary.warnings }}</b> 警告</span>
-              <span><b>{{ writingQualityReport.summary.info }}</b> 提示</span>
-            </div>
-            <p class="writing-quality-panel__hint">
-              {{ writingQualityReport.status === 'ready' ? '当前正文、批注与保存状态没有阻断项。' : '先处理阻断项，再将章节交给出版或分镜流程。' }}
-            </p>
-            <div v-if="writingQualityReport.issues.length" class="writing-quality-panel__issues">
-              <article v-for="item in writingQualityReport.issues" :key="item.id" class="writing-quality-issue" :class="`is-${item.severity}`">
-                <div class="writing-quality-issue__mark" aria-hidden="true"></div>
-                <div class="writing-quality-issue__copy">
-                  <strong>{{ item.title }}</strong>
-                  <p>{{ item.detail }}</p>
-                </div>
-                <button v-if="item.annotationId || item.blockId" type="button" class="writing-quality-issue__locate" @click="locateQualityIssue(item)">定位</button>
-              </article>
-            </div>
-            <p v-else class="writing-quality-panel__empty">没有发现需要处理的质量问题。</p>
-          </section>
           <div class="writing-version-panel__create">
             <input v-model="snapshotLabel" type="text" maxlength="80" placeholder="给这次快照命名" @keydown.enter.prevent="createCurrentWritingSnapshot()">
             <button type="button" :disabled="!selectedChapterId" @click="createCurrentWritingSnapshot()">保存快照</button>
@@ -622,8 +620,8 @@
               <button type="button" class="is-quiet" @click="discardWritingRecoveryDraft">丢弃</button>
             </footer>
           </section>
-          <div v-if="writingSnapshots.length" class="writing-version-panel__list" aria-label="章节快照列表">
-            <article v-for="snapshot in writingSnapshots" :key="snapshot.id" class="writing-version-entry">
+          <div v-if="recentWritingSnapshots.length" class="writing-version-panel__list" aria-label="最近章节快照">
+            <article v-for="snapshot in recentWritingSnapshots" :key="snapshot.id" class="writing-version-entry">
               <header>
                 <div>
                   <strong>{{ snapshot.label }}</strong>
@@ -639,25 +637,11 @@
             </article>
           </div>
           <div v-else class="writing-version-panel__empty">
-            当前章节还没有快照。保存关键改写前的版本，之后可以从这里恢复。
+            当前章节还没有快照。
           </div>
-          <section v-if="writingBlockHistory.length" class="writing-block-history">
-            <header class="writing-block-history__head">
-              <strong>块历史</strong>
-              <small>只记录已保存的块变更</small>
-            </header>
-            <article v-for="entry in writingBlockHistory" :key="entry.id" class="writing-block-history__entry">
-              <header>
-                <div>
-                  <strong>{{ entry.blockKind === 'scene-heading' ? '场景标题' : '正文块' }}</strong>
-                  <small>修订 {{ entry.fromDocumentRevision }} → {{ entry.toDocumentRevision }} · {{ formatWritingSnapshotTime(entry.createdAt) }}</small>
-                </div>
-                <span>{{ entry.previousText.length.toLocaleString() }} 字</span>
-              </header>
-              <p>{{ entry.previousText.slice(0, 120) }}{{ entry.previousText.length > 120 ? '…' : '' }}</p>
-              <button type="button" :disabled="!canRestoreWritingBlockHistory(entry)" @click="restoreWritingBlockHistory(entry)">{{ canRestoreWritingBlockHistory(entry) ? '恢复此块' : '块已不存在' }}</button>
-            </article>
-          </section>
+          <p v-if="writingSnapshots.length > recentWritingSnapshots.length" class="writing-version-panel__more">
+            另有 {{ writingSnapshots.length - recentWritingSnapshots.length }} 个较早检查点保留在本地。
+          </p>
         </div>
       </aside>
 
@@ -902,10 +886,13 @@ import { useWritingDocument } from '../composables/useWritingDocument'
 import {
   createWritingAnnotation,
   createWritingSelector,
+  deleteWritingAnnotation,
   getWritingAnnotationLabel,
   normalizeWritingAnnotations,
   reconcileWritingAnnotations,
-  updateWritingAnnotationStatus
+  resolveAnnotationLaneLayout,
+  resolveSelectionActionPosition,
+  updateWritingAnnotationBody
 } from '../services/writing/writingAnnotations.js'
 import {
   buildWritingCandidateDiff,
@@ -937,7 +924,6 @@ import {
   saveWritingRecoveryDraft
 } from '../services/writing/writingRecovery.js'
 import { buildWritingBlockHistoryEntries } from '../../shared/writingBlockHistoryContract.js'
-import { buildWritingQualityReport } from '../../shared/writingQualityContract.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -971,6 +957,14 @@ const newBookDesc = ref('')
 const newBookInput = ref(null)
 const editorRef = ref(null)
 const notebookEditorRef = ref(null)
+const writingMainRef = ref(null)
+const writingInspectorRef = ref(null)
+const annotationLaneRef = ref(null)
+const annotationNoteRefs = new Map()
+const annotationLaneLayout = ref({})
+const annotationLaneHeight = ref(240)
+let annotationLayoutFrame = 0
+let annotationResizeObserver = null
 const notebookSelection = ref(null)
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
@@ -990,9 +984,11 @@ const resizing = ref(null)
 const selectedText = ref('')
 const chapterAnnotations = ref([])
 const activeAnnotationId = ref(null)
-const replyTargetAnnotationId = ref(null)
+const editingAnnotationId = ref(null)
+const annotationEditDraft = ref('')
 const annotationDraft = ref('')
-const annotationScope = ref('block')
+const annotationComposerOpen = ref(false)
+const annotationComposerContext = ref(null)
 const rewriteInstruction = ref('')
 const rewriteTarget = ref(null)
 const rewriteCandidates = ref([])
@@ -1018,7 +1014,9 @@ let recoveryTimeout = null
 const inspectorTab = ref('comments')
 const inspectorOpen = ref(true)
 const inspectorPinned = ref(false)
-const annotationDensity = ref('compact')
+const annotationLaneStyle = computed(() => ({
+  '--annotation-lane-height': `${annotationLaneHeight.value}px`
+}))
 const editorHistory = useEditorHistory()
 const canUndo = editorHistory.canUndo
 const canRedo = editorHistory.canRedo
@@ -1052,7 +1050,7 @@ function onChapterDragEnd() {
   dragIndex.value = -1
   dropTargetIndex.value = -1
 }
-const editorFont = ref("'Microsoft YaHei', sans-serif")
+const editorFont = ref("Menlo, 'Ubuntu Mono', Consolas, 'Courier New', 'Microsoft Yahei', 'Hiragino Sans GB', 'WenQuanYi Micro Hei', sans-serif")
 const showFindReplace = ref(false)
 const findText = ref('')
 const replaceText = ref('')
@@ -1072,6 +1070,7 @@ const editorUnderline = ref(false)
 const hasSelection = ref(false)
 const selectionFontSize = ref('16px')
 const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
+const selectionActionsVisible = ref(false)
 const pendingBackJump = ref(null)
 const pendingInsertBack = ref(null)
 const canCaptureSelection = computed(() => Boolean(
@@ -1099,6 +1098,7 @@ const assetActionHelpEntries = [
 const assetActionHelpMap = Object.fromEntries(assetActionHelpEntries.map((item) => [item.key, item.description]))
 const copilotReferenceAsset = ref(null)
 const chapterOutlineItems = ref([])
+const notebookCopilotCanUndo = ref(false)
 const {
   enabled: copilotEnabled,
   setEnabled: setWritingAgentEnabled,
@@ -1112,6 +1112,7 @@ const {
   onInput: writingAgentOnInput,
   manualTrigger: copilotManualTrigger,
   accept: writingAgentAccept,
+  consume: writingAgentConsume,
   cancel: copilotCancel,
   suppress: suppressWritingAgent,
   finishComposition: finishWritingAgentComposition,
@@ -1126,6 +1127,7 @@ const {
     blockTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   })
 })
+const copilotCanUndo = computed(() => writingAgentCanUndo.value || notebookCopilotCanUndo.value)
 
 function toggleAgentRuntime() {
   setWritingAgentEnabled(!copilotEnabled.value)
@@ -1156,11 +1158,19 @@ onMounted(() => {
   if (pendingInsertBack.value) tryApplyPendingInsertBack()
   document.addEventListener('keydown', handleChapterDrawerKeydown)
   document.addEventListener('keydown', handleWritingInspectorKeydown)
+  document.addEventListener('pointerdown', dismissSelectionActions)
+  window.addEventListener('resize', scheduleAnnotationLayout)
+  window.addEventListener('scroll', hideSelectionActions, true)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleChapterDrawerKeydown)
   document.removeEventListener('keydown', handleWritingInspectorKeydown)
+  document.removeEventListener('pointerdown', dismissSelectionActions)
+  window.removeEventListener('resize', scheduleAnnotationLayout)
+  window.removeEventListener('scroll', hideSelectionActions, true)
+  annotationResizeObserver?.disconnect()
+  if (annotationLayoutFrame) cancelAnimationFrame(annotationLayoutFrame)
   if (recoveryTimeout) {
     clearTimeout(recoveryTimeout)
     recoveryTimeout = null
@@ -1193,7 +1203,6 @@ function handleWritingInspectorKeydown(event) {
   nextTick(() => notebookEditorRef.value?.focus?.())
 }
 
-const previewHtml = computed(() => markdownToHtml(markdownContent.value))
 const copilotReferenceLabel = computed(() => {
   if (!copilotReferenceAsset.value) return ''
   const title = String(copilotReferenceAsset.value.title || '').trim() || '未命名素材'
@@ -1212,106 +1221,128 @@ const activeWritingBlock = computed(() => {
   }
   return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
 })
-function getAnnotationBlockIds(annotation) {
-  return Array.from(new Set([
-    annotation?.blockId,
-    ...(Array.isArray(annotation?.range?.blockIds) ? annotation.range.blockIds : []),
-    annotation?.range?.start?.blockId,
-    annotation?.range?.end?.blockId
-  ].filter(Boolean)))
-}
-const sceneIndex = computed(() => {
-  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
-  if (!nodes.length) return []
-
-  const scenes = []
-  let current = null
-  nodes.forEach((node, index) => {
-    const attrs = node?.attrs || {}
-    const text = (node?.content || []).map((item) => item?.text || '').join('').trim()
-    const blockId = attrs.blockId || `scene-block-${index}`
-    const kind = attrs.kind || 'prose'
-    if (kind === 'scene-heading') {
-      current = {
-        id: blockId,
-        blockId,
-        title: text || `未命名场景 ${scenes.length + 1}`,
-        anchorText: text,
-        blockIds: [],
-        blockCount: 0,
-        openCount: 0,
-        annotationCount: 0
-      }
-      scenes.push(current)
-    } else if (!current) {
-      current = {
-        id: `scene-intro-${selectedChapterId.value || 'chapter'}`,
-        blockId,
-        title: '开篇',
-        anchorText: text,
-        blockIds: [],
-        blockCount: 0,
-        openCount: 0,
-        annotationCount: 0
-      }
-      scenes.push(current)
-    }
-
-    current.blockIds.push(blockId)
-    current.blockCount += 1
-  })
-  return scenes.map((scene) => {
-    const sceneAnnotations = chapterAnnotations.value.filter((annotation) => (
-      getAnnotationBlockIds(annotation).some((blockId) => scene.blockIds.includes(blockId))
-    ))
-    return {
-      ...scene,
-      annotationCount: sceneAnnotations.length,
-      openCount: sceneAnnotations.filter((annotation) => annotation.status !== 'resolved').length
-    }
-  })
+const rootAnnotations = computed(() => {
+  const ids = new Set(chapterAnnotations.value.map((annotation) => annotation.id))
+  return chapterAnnotations.value.filter((annotation) => (
+    annotation.status !== 'resolved'
+      && (!annotation.parentId || !ids.has(annotation.parentId))
+  ))
 })
-const activeScene = computed(() => {
-  const blockId = activeWritingBlock.value?.blockId
-  return sceneIndex.value.find((scene) => scene.blockIds.includes(blockId))
-    || sceneIndex.value[0]
-    || null
-})
-const activeBlockAnnotations = computed(() => {
-  if (annotationScope.value === 'chapter') return chapterAnnotations.value
-
-  const blockId = inspectorPinned.value
-    ? chapterAnnotations.value.find((annotation) => annotation.id === activeAnnotationId.value)?.blockId
-    : activeWritingBlock.value?.blockId
-  if (annotationScope.value === 'scene') {
-    const blockIds = new Set(activeScene.value?.blockIds || [])
-    return chapterAnnotations.value.filter((annotation) => getAnnotationBlockIds(annotation).some((id) => blockIds.has(id)))
+const marginAnnotations = computed(() => rootAnnotations.value)
+const annotationDraftAnchor = computed(() => {
+  const context = annotationComposerContext.value
+  if (!annotationComposerOpen.value || !context?.block?.blockId || !context?.range) return null
+  return {
+    id: 'annotation-draft',
+    blockId: context.block.blockId,
+    selector: context.selector,
+    range: context.range,
+    status: 'open'
   }
-  if (!blockId) return chapterAnnotations.value
-  return chapterAnnotations.value.filter((annotation) => getAnnotationBlockIds(annotation).includes(blockId))
 })
-const replyTargetAnnotation = computed(() => chapterAnnotations.value.find(
-  (annotation) => annotation.id === replyTargetAnnotationId.value
-))
-const openAnnotationCount = computed(() => chapterAnnotations.value.filter((annotation) => annotation.status === 'open').length)
-const orphanAnnotationCount = computed(() => chapterAnnotations.value.filter((annotation) => annotation.status === 'orphaned').length)
-const writingQualityReport = computed(() => buildWritingQualityReport({
-  document: writingDocument.value,
-  annotations: chapterAnnotations.value,
-  recoveryDraft: writingRecoveryDraft.value,
-  saveStatus: saveStatus.value,
-  snapshots: writingSnapshots.value,
-  blockHistory: writingBlockHistory.value
-}))
-const canGenerateRewrite = computed(() => Boolean(
-  selectedChapterId.value && getCurrentRewriteTarget()?.text?.trim()
-))
+
+function getAnnotationSupplements(annotation) {
+  return chapterAnnotations.value.filter((item) => item.parentId === annotation?.id)
+}
+
+function setAnnotationNoteRef(element, annotationId) {
+  const previous = annotationNoteRefs.get(annotationId)
+  if (previous && previous !== element) annotationResizeObserver?.unobserve(previous)
+  if (element) {
+    annotationNoteRefs.set(annotationId, element)
+    annotationResizeObserver?.observe(element)
+  } else {
+    annotationNoteRefs.delete(annotationId)
+  }
+}
+
+function getAnnotationNoteStyle(annotation) {
+  const position = annotationLaneLayout.value[annotation.id]
+  if (!position) return undefined
+  const maxOffset = Math.max(0, position.height / 2 - 8)
+  const anchorOffset = Math.max(-maxOffset, Math.min(maxOffset, position.anchorOffset))
+  return {
+    top: `${position.top}px`,
+    '--annotation-anchor-offset': `${anchorOffset}px`
+  }
+}
+
+function setupAnnotationResizeObserver() {
+  if (annotationResizeObserver || typeof ResizeObserver === 'undefined') return
+  const root = notebookEditorRef.value?.getRootElement?.()
+  if (!root) return
+  annotationResizeObserver = new ResizeObserver(() => scheduleAnnotationLayout())
+  annotationResizeObserver.observe(root)
+  if (writingMainRef.value) annotationResizeObserver.observe(writingMainRef.value)
+  annotationNoteRefs.forEach((note) => annotationResizeObserver.observe(note))
+}
+
+function refreshAnnotationLayout() {
+  setupAnnotationResizeObserver()
+  if (
+    !window.matchMedia?.('(min-width: 981px)').matches
+    || !inspectorOpen.value
+    || inspectorTab.value !== 'comments'
+  ) {
+    annotationLaneLayout.value = {}
+    annotationLaneHeight.value = 0
+    return
+  }
+
+  const lane = annotationLaneRef.value
+  const root = notebookEditorRef.value?.getRootElement?.()
+  if (!lane || !root) return
+  const laneRect = lane.getBoundingClientRect()
+  const rootRect = root.getBoundingClientRect()
+  const laneScale = lane.offsetHeight > 0 ? laneRect.height / lane.offsetHeight : 1
+  const safeScale = Number.isFinite(laneScale) && laneScale > 0 ? laneScale : 1
+  const layoutAnnotations = annotationDraftAnchor.value
+    ? [...marginAnnotations.value, annotationDraftAnchor.value]
+    : marginAnnotations.value
+  const items = layoutAnnotations.map((annotation) => {
+    const note = annotationNoteRefs.get(annotation.id)
+    const metrics = annotation.status === 'orphaned'
+      ? null
+      : notebookEditorRef.value?.getAnnotationAnchorMetrics?.(annotation)
+    return {
+      id: annotation.id,
+      height: note?.offsetHeight || 64,
+      desiredCenter: metrics ? (metrics.viewportY - laneRect.top) / safeScale : undefined
+    }
+  })
+  const layout = resolveAnnotationLaneLayout(items, { gap: 14 })
+  annotationLaneLayout.value = layout
+  const notesBottom = Object.values(layout).reduce(
+    (maximum, item) => Math.max(maximum, item.top + item.height),
+    0
+  )
+  annotationLaneHeight.value = Math.max(240, (rootRect.bottom - laneRect.top) / safeScale, notesBottom + 24)
+}
+
+function scheduleAnnotationLayout() {
+  if (annotationLayoutFrame) cancelAnimationFrame(annotationLayoutFrame)
+  annotationLayoutFrame = requestAnimationFrame(() => {
+    annotationLayoutFrame = 0
+    nextTick(refreshAnnotationLayout)
+  })
+}
+
+watch(
+  [marginAnnotations, annotationDraftAnchor, activeAnnotationId, inspectorOpen, inspectorTab, () => writingDocument.value?.revision],
+  scheduleAnnotationLayout,
+  { deep: true, flush: 'post' }
+)
+
+const openAnnotationCount = computed(() => rootAnnotations.value.filter((annotation) => annotation.status === 'open').length)
+const selectedRewriteCandidate = computed(() => rewriteCandidates.value.find(
+  (candidate) => candidate.id === selectedRewriteCandidateId.value
+) || rewriteCandidates.value[0] || null)
+const recentWritingSnapshots = computed(() => writingSnapshots.value.slice(0, 3))
 const canCreateAnnotation = computed(() => Boolean(
   selectedChapterId.value
   && annotationDraft.value.trim()
-  && (replyTargetAnnotation.value
-    ? replyTargetAnnotation.value.status !== 'orphaned'
-    : selectedText.value.trim() && activeWritingBlock.value?.blockId)
+  && selectedText.value.trim()
+  && activeWritingBlock.value?.blockId
 ))
 
 const turndownService = new TurndownService({
@@ -2045,6 +2076,7 @@ function resetRewriteState() {
   rewriteAbortController = null
   rewriteLoading.value = false
   rewriteError.value = ''
+  rewriteInstruction.value = ''
   rewriteTarget.value = null
   rewriteCandidates.value = []
   selectedRewriteCandidateId.value = null
@@ -2295,7 +2327,7 @@ function openBook(bookId, options = {}) {
       chapterOutlineItems.value = []
       chapterAnnotations.value = []
       activeAnnotationId.value = null
-      replyTargetAnnotationId.value = null
+      editingAnnotationId.value = null
       annotationDraft.value = ''
       resetRewriteState()
       clearCopilotReference({ silent: true })
@@ -2315,8 +2347,10 @@ function openBook(bookId, options = {}) {
     chapterOutlineItems.value = []
     chapterAnnotations.value = []
     activeAnnotationId.value = null
-    replyTargetAnnotationId.value = null
+    editingAnnotationId.value = null
     annotationDraft.value = ''
+    annotationComposerOpen.value = false
+    annotationComposerContext.value = null
     resetRewriteState()
     clearCopilotReference({ silent: true })
   }
@@ -2336,7 +2370,6 @@ function selectChapter(chapterId) {
   copilotCancel()
   resetRewriteState()
   clearCopilotReference({ silent: true })
-  annotationScope.value = 'block'
   selectedChapterId.value = chapterId
   const chapter = chapters.value.find(c => c.id === chapterId)
   if (chapter) {
@@ -2353,7 +2386,7 @@ function selectChapter(chapterId) {
     )
     loadChapterSnapshots(chapter.id)
     activeAnnotationId.value = null
-    replyTargetAnnotationId.value = null
+    editingAnnotationId.value = null
     annotationDraft.value = ''
     editorHistory.clear()
     nextTick(() => {
@@ -2363,7 +2396,7 @@ function selectChapter(chapterId) {
     chapterOutlineItems.value = []
     chapterAnnotations.value = []
     activeAnnotationId.value = null
-    replyTargetAnnotationId.value = null
+    editingAnnotationId.value = null
     annotationDraft.value = ''
     clearWritingDocument()
     loadChapterSnapshots(null)
@@ -3184,28 +3217,6 @@ function onEditorInput() {
   onContentChange()
 }
 
-function onMarkdownInput(event) {
-  if (editorMode.value === 'wysiwyg' && editorRef.value) {
-    markdownContent.value = editorRef.value.value
-    editorHistory.push(editorRef.value)
-  }
-  syncCopilotCursorFromEditor()
-  syncMarkdownToEditor()
-  onContentChange()
-
-  // Only ordinary typing may schedule an inline completion. Paste, drop,
-  // history operations, and IME composition are explicitly suppressed.
-  if (copilotEnabled.value && editorRef.value) {
-    writingAgentOnInput({
-      content: markdownContent.value,
-      cursorPos: copilotCursorPos.value,
-      hasSelection: Boolean(selectedText.value),
-      inputType: event?.inputType || '',
-      composing: Boolean(event?.isComposing)
-    })
-  }
-}
-
 function onWritingCompositionStart() {
   suppressWritingAgent('composition')
 }
@@ -3252,6 +3263,15 @@ function onEditorScroll(event) {
 }
 
 function acceptWritingSuggestion(mode = 'all') {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    const inserted = writingAgentConsume(mode)
+    if (!inserted) return
+    const accepted = notebookEditorRef.value.insertPlainText(inserted)
+    if (!accepted) return
+    notebookCopilotCanUndo.value = true
+    syncCopilotCursorFromEditor()
+    return
+  }
   const editor = editorRef.value
   if (editor) {
     syncCopilotCursorFromEditor()
@@ -3284,6 +3304,11 @@ function acceptWritingSuggestion(mode = 'all') {
 }
 
 function undoWritingSuggestionApply() {
+  if (notebookCopilotCanUndo.value && notebookEditorActive.value) {
+    notebookEditorRef.value?.undo()
+    notebookCopilotCanUndo.value = false
+    return
+  }
   const result = writingAgentUndo(markdownContent.value)
   if (!result.ok) return
   markdownContent.value = result.content
@@ -3500,6 +3525,7 @@ function onNotebookDocumentUpdate(document) {
     previousDocument
   )
   markRewriteCandidatesStale()
+  scheduleAnnotationLayout()
 }
 
 function onNotebookSelectionChange(selection) {
@@ -3508,6 +3534,28 @@ function onNotebookSelectionChange(selection) {
   copilotCursorPos.value = snapshot.end
   selectedText.value = snapshot.text
   hasSelection.value = Boolean(selection?.text)
+  if (selection?.text?.trim() && selection.cursorRect) {
+    const bodyZoom = Number.parseFloat(window.getComputedStyle(document.body).zoom) || 1
+    const position = resolveSelectionActionPosition(selection.cursorRect, {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      width: 138,
+      scale: bodyZoom
+    })
+    if (position) {
+      selectionToolbarStyle.value = {
+        top: `${position.top}px`,
+        left: `${position.left}px`
+      }
+      selectionActionsVisible.value = true
+    }
+  } else {
+    hideSelectionActions()
+  }
+  if (annotationComposerOpen.value && selection?.text) {
+    annotationComposerContext.value = getAnnotationSelectionContext()
+    scheduleAnnotationLayout()
+  }
   if (!inspectorPinned.value && selection?.blockId) {
     activeAnnotationId.value = chapterAnnotations.value.find((annotation) => (
       annotation.blockId === selection.blockId && annotation.status === 'open'
@@ -3515,15 +3563,112 @@ function onNotebookSelectionChange(selection) {
   }
 }
 
-function openAnnotationInspector() {
+function hideSelectionActions() {
+  selectionActionsVisible.value = false
+}
+
+function dismissSelectionActions(event) {
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('.writing-selection-actions, .writing-notebook-editor__surface')) return
+  hideSelectionActions()
+}
+
+function openAnnotationFromSelectionMenu() {
+  hideSelectionActions()
+  openAnnotationInspector()
+}
+
+function captureSelectionFromMenu() {
+  hideSelectionActions()
+  captureSelectionAsAsset()
+}
+
+const quickAiRewriteInstructions = {
+  'ai-rewrite-previous': '改写上一段，保持事实、视角和人物语气不变，改善句式、节奏与上下文衔接。',
+  'ai-expand-previous': '扩写上一段，补足必要动作、感官和因果信息，不添加无依据的新设定，不重复已有描写。',
+  'ai-shorten-previous': '精简上一段，删除重复解释、弱信息和拖沓动作，保留关键事实、人物语气与必要意象。'
+}
+
+async function handleNotebookWritingCommand(command = {}) {
+  if (command.id === 'ai-continue') {
+    if (!copilotEnabled.value) {
+      quickNoteStatus.value = '写作 AI 当前已关闭，请先启用写作补全。'
+      return
+    }
+    syncCopilotCursorFromEditor()
+    await copilotManualTrigger()
+    return
+  }
+
+  if (command.id === 'ai-review-chapter') {
+    inspectorOpen.value = true
+    inspectorTab.value = 'comments'
+    await runChapterReview()
+    return
+  }
+
+  const instruction = quickAiRewriteInstructions[command.id]
+  const previousBlock = command.previousBlock
+  if (!instruction || !previousBlock?.blockId || !String(previousBlock.text || '').trim()) {
+    quickNoteStatus.value = '上一段没有可交给 AI 修改的正文。'
+    return
+  }
+
+  const selected = notebookEditorRef.value?.selectBlockRange?.(
+    previousBlock.blockId,
+    0,
+    previousBlock.blockId,
+    String(previousBlock.text).length
+  )
+  if (!selected) {
+    quickNoteStatus.value = '无法定位上一段，请把光标放回正文后重试。'
+    return
+  }
+
+  await nextTick()
+  const context = getAnnotationSelectionContext()
+  const target = getCurrentRewriteTarget()
+  if (!context || !target?.text?.trim()) {
+    quickNoteStatus.value = '上一段定位已经变化，请重新打开命令。'
+    return
+  }
+
+  resetRewriteState()
+  const annotation = createWritingAnnotation({
+    chapterId: selectedChapterId.value,
+    blockId: context.block.blockId,
+    blockRevision: context.block.blockRevision,
+    selector: context.selector,
+    range: context.range,
+    body: instruction,
+    kind: 'comment'
+  })
+  chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
+  activeAnnotationId.value = annotation.id
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
-  if (!selectedText.value.trim()) {
+  rewriteInstruction.value = instruction
+  rewriteTarget.value = { ...target, annotationId: annotation.id }
+  onContentChange()
+  await nextTick()
+  scheduleAnnotationLayout()
+  await generateRewriteCandidates(rewriteTarget.value)
+}
+
+function openAnnotationInspector() {
+  const context = getAnnotationSelectionContext()
+  inspectorOpen.value = true
+  inspectorTab.value = 'comments'
+  if (!selectedText.value.trim() || !context) {
     quickNoteStatus.value = '先选中需要批注的文字'
     return
   }
+  annotationComposerContext.value = context
+  annotationComposerOpen.value = true
+  activeAnnotationId.value = null
   nextTick(() => {
-    document.querySelector('.writing-inspector__composer textarea')?.focus()
+    scheduleAnnotationLayout()
+    document.querySelector('.writing-annotation-composer textarea')?.focus()
   })
 }
 
@@ -3962,6 +4107,11 @@ function applyRewriteCandidate(candidate) {
   candidate.status = 'applied'
   rewriteError.value = ''
   rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
+  if (rewriteTarget.value?.annotationId) {
+    chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, rewriteTarget.value.annotationId)
+    activeAnnotationId.value = null
+    onContentChange()
+  }
   nextTick(() => {
     rewriteUndoReceipt.value = {
       chapterId: selectedChapterId.value,
@@ -3969,6 +4119,11 @@ function applyRewriteCandidate(candidate) {
       after: fallbackAfter || markdownContent.value,
       editorTransaction: notebookEditorActive.value && !fallbackAfter
     }
+    rewriteTarget.value = null
+    rewriteCandidates.value = []
+    selectedRewriteCandidateId.value = null
+    rewriteInstruction.value = ''
+    scheduleAnnotationLayout()
     notebookEditorRef.value?.focus?.()
     syncCopilotCursorFromEditor()
   })
@@ -4096,28 +4251,11 @@ function getAnnotationSelectionContext() {
   return buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact })
 }
 
-function getAnnotationReplyContext(annotation) {
-  const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === annotation?.blockId)
-  if (!node || !annotation?.selector?.exact) return null
-  const text = (node.content || []).map((item) => item?.text || '').join('')
-  return {
-    block: {
-      blockId: annotation.blockId,
-      blockRevision: Number(node.attrs?.revision || 0),
-      text
-    },
-    selector: { ...annotation.selector }
-  }
-}
-
 function createAnnotationFromSelection() {
   const body = annotationDraft.value.trim()
-  const replyTarget = replyTargetAnnotation.value
-  const context = replyTarget
-    ? getAnnotationReplyContext(replyTarget)
-    : getAnnotationSelectionContext()
+  const context = annotationComposerContext.value || getAnnotationSelectionContext()
   if (!context) {
-    quickNoteStatus.value = replyTarget ? '原批注已失去定位，无法回复' : '请先在正文中选中需要批注的片段'
+    quickNoteStatus.value = '请先在正文中选中需要批注的片段'
     return
   }
   if (!body) return
@@ -4129,36 +4267,56 @@ function createAnnotationFromSelection() {
     selector: context.selector,
     range: context.range,
     body,
-    kind: 'comment',
-    parentId: replyTarget?.id || null
+    kind: 'comment'
   })
   chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
   activeAnnotationId.value = annotation.id
-  replyTargetAnnotationId.value = null
-  annotationDraft.value = ''
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
   quickNoteStatus.value = '批注已添加'
   onContentChange()
+  nextTick(() => closeAnnotationComposer({ restoreFocus: false }))
 }
 
-function startAnnotationReply(annotation) {
-  if (!annotation || annotation.status === 'orphaned') return
-  activeAnnotationId.value = annotation.id
-  replyTargetAnnotationId.value = annotation.id
+function closeAnnotationComposer({ restoreFocus = true } = {}) {
+  annotationComposerOpen.value = false
+  annotationComposerContext.value = null
   annotationDraft.value = ''
-  inspectorOpen.value = true
-  inspectorTab.value = 'comments'
-  nextTick(() => document.querySelector('.writing-inspector__composer textarea')?.focus())
+  setAnnotationNoteRef(null, 'annotation-draft')
+  scheduleAnnotationLayout()
+  if (restoreFocus) nextTick(() => notebookEditorRef.value?.focus?.())
 }
 
-function setAnnotationStatus(annotationId, status) {
-  chapterAnnotations.value = updateWritingAnnotationStatus(
-    chapterAnnotations.value,
-    annotationId,
-    status
-  )
-  if (status === 'open') activeAnnotationId.value = annotationId
+function startAnnotationEdit(annotation) {
+  if (!annotation) return
+  activeAnnotationId.value = annotation.id
+  editingAnnotationId.value = annotation.id
+  annotationEditDraft.value = annotation.body
+  nextTick(() => document.querySelector('.writing-annotation__edit')?.focus())
+}
+
+function cancelAnnotationEdit() {
+  editingAnnotationId.value = null
+  annotationEditDraft.value = ''
+}
+
+function saveAnnotationEdit(annotation) {
+  const body = annotationEditDraft.value.trim()
+  if (!annotation?.id || !body) return
+  chapterAnnotations.value = updateWritingAnnotationBody(chapterAnnotations.value, annotation.id, body)
+  editingAnnotationId.value = null
+  annotationEditDraft.value = ''
+  quickNoteStatus.value = '批注已更新'
+  onContentChange()
+}
+
+function deleteAnnotation(annotation) {
+  if (!annotation?.id) return
+  chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, annotation.id)
+  if (activeAnnotationId.value === annotation.id) activeAnnotationId.value = null
+  if (editingAnnotationId.value === annotation.id) cancelAnnotationEdit()
+  if (rewriteTarget.value?.annotationId === annotation.id) closeAnnotationRewrite()
+  quickNoteStatus.value = '批注已删除'
   onContentChange()
 }
 
@@ -4298,7 +4456,6 @@ async function runChapterReview() {
 
     if (annotations.length) {
       chapterAnnotations.value = [...annotations, ...chapterAnnotations.value]
-      annotationScope.value = 'chapter'
       inspectorOpen.value = true
       inspectorTab.value = 'comments'
       onContentChange()
@@ -4327,11 +4484,29 @@ function cancelChapterReview() {
 
 function startRewriteFromAnnotation(annotation) {
   if (!annotation || annotation.status === 'orphaned') return
-  locateAnnotation(annotation, { tab: 'rewrite' })
+  resetRewriteState()
+  locateAnnotation(annotation)
+  nextTick(() => nextTick(() => {
+    const target = getCurrentRewriteTarget()
+    if (!target?.text?.trim()) {
+      rewriteError.value = '这条批注已无法定位到可改写正文。'
+      rewriteTarget.value = { annotationId: annotation.id, text: '' }
+      return
+    }
+    rewriteTarget.value = { ...target, annotationId: annotation.id }
+    rewriteInstruction.value = annotation.body
+    scheduleAnnotationLayout()
+  }))
+}
+
+function closeAnnotationRewrite() {
+  resetRewriteState()
+  scheduleAnnotationLayout()
 }
 
 function locateAnnotation(annotation, { tab = 'comments' } = {}) {
   if (!annotation) return
+  closeAnnotationComposer({ restoreFocus: false })
   activeAnnotationId.value = annotation.id
   inspectorOpen.value = true
   inspectorTab.value = tab
@@ -4364,10 +4539,6 @@ function locateAnnotation(annotation, { tab = 'comments' } = {}) {
     selectedText.value = range?.exact || exact
     hasSelection.value = true
     notebookEditorRef.value?.focus?.()
-    if (tab === 'rewrite') {
-      rewriteTarget.value = getCurrentRewriteTarget()
-      rewriteInstruction.value = annotation.body
-    }
   })
 }
 
@@ -4378,7 +4549,7 @@ function handleAnnotationKeydown(event, annotation, index) {
     return
   }
 
-  const annotations = activeBlockAnnotations.value
+  const annotations = marginAnnotations.value
   if (!annotations.length) return
   let nextIndex = index
   if (event.key === 'ArrowDown') nextIndex = Math.min(annotations.length - 1, index + 1)
@@ -4393,33 +4564,9 @@ function handleAnnotationKeydown(event, annotation, index) {
   activeAnnotationId.value = annotations[nextIndex].id
 }
 
-function reanchorAnnotation(annotation) {
-  const context = getAnnotationSelectionContext()
-  if (!context) {
-    quickNoteStatus.value = '先选中新的对应文字，再重新关联批注'
-    return
-  }
-
-  chapterAnnotations.value = chapterAnnotations.value.map((item) => {
-    if (item.id !== annotation?.id) return item
-    return {
-      ...item,
-      blockId: context.block.blockId,
-      blockRevision: context.block.blockRevision,
-      selector: context.selector,
-      ...(context.range ? { range: context.range } : {}),
-      status: 'open',
-      resolution: 'manually-reanchored',
-      updatedAt: new Date().toISOString()
-    }
-  })
-  activeAnnotationId.value = annotation.id
-  quickNoteStatus.value = '批注已重新关联'
-  onContentChange()
-}
-
 function onNotebookInput(payload = {}) {
   syncCopilotCursorFromEditor()
+  if (payload.inputType !== 'writing-agent') notebookCopilotCanUndo.value = false
   if (!copilotEnabled.value || payload.composing || payload.inputType !== 'input') return
   writingAgentOnInput({
     content: markdownContent.value,
@@ -4428,21 +4575,6 @@ function onNotebookInput(payload = {}) {
     inputType: payload.inputType,
     composing: false
   })
-}
-
-function switchEditorMode(mode) {
-  if (editorMode.value === mode) return
-  copilotCancel()
-  syncFromCurrentEditor()
-  editorMode.value = mode
-  if (mode !== 'wysiwyg') {
-    hasSelection.value = false
-  }
-  if (mode === 'wysiwyg') {
-    nextTick(() => {
-      if (editorRef.value) editorRef.value.value = markdownContent.value
-    })
-  }
 }
 
 function syncMarkdownToEditor() {

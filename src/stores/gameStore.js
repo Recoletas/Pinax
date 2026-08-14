@@ -11,6 +11,8 @@ import {
   normalizeNarrativeMessages,
   parseNarrativePresentation
 } from '../services/narrativePresentation'
+// P4：可信说话者注册表（verified/unresolved/message-fallback）
+import { buildSpeakerRegistry as buildSpeakerRegistryEntries } from '../../shared/narrativeSpeakerContract'
 import {
   formatAdventureStoryboardSeedContent,
   generateAdventureProseDraft,
@@ -2687,7 +2689,9 @@ export const useGameStore = defineStore('game', {
           fallbackSpeaker: getTrustedMessageSpeaker(this.messages[index]),
           role: this.messages[index].role,
           // P1-4：编辑重解析也带 speakerMap（保持 speakerId 与 cast 对齐）
-          speakerMap: this.messages[index].speakerMap || null
+          speakerMap: this.messages[index].speakerMap || null,
+          // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+          speakerRegistry: this.buildSpeakerRegistry()
         })
         this.rebuildChatHistory(); // 同步 AI 记忆
         this.saveCurrentSession()
@@ -2850,6 +2854,24 @@ export const useGameStore = defineStore('game', {
         if (member?.name && member?.speakerId) map[member.name] = member.speakerId
       }
       return Object.keys(map).length > 0 ? map : null
+    },
+
+    // P4：构建可信说话者注册表 —— player / 当前对白角色 / SceneCast / 运行时角色 / 世界书角色。
+    // 只认这些来源的名字；marker 里的未知名字 → 未署名对白（不创建 speakerId）。
+    buildSpeakerRegistry() {
+      const worldStore = useWorldStore()
+      const worldbookEntries = Array.isArray(worldStore.activeWorldbook?.entries) ? worldStore.activeWorldbook.entries : []
+      const castBlock = (this.lastNarrativeKernel?.blocks || []).find((block) => block?.kind === 'cast')
+      const castMembers = castBlock?.content?.members || []
+      return buildSpeakerRegistryEntries({
+        player: this.playerCharacter || null,
+        dialogueCharacter: this.dialogueCharacter || null,
+        cast: castMembers,
+        encountered: this.encounteredCharacters || [],
+        worldbookCharacters: worldbookEntries
+          .filter((entry) => normalizeTextValue(entry?.type).toLowerCase() === 'character')
+          .map((entry) => ({ id: entry.id, name: entry.name || entry.keys?.[0] }))
+      })
     },
 
 
@@ -3401,7 +3423,9 @@ export const useGameStore = defineStore('game', {
                   fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
                   role: targetMessage.role,
                   // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
-                  speakerMap: targetMessage.speakerMap || null
+                  speakerMap: targetMessage.speakerMap || null,
+                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+                  speakerRegistry: this.buildSpeakerRegistry()
                 })
                 const combined = combineExtensionContent(extensionBase, parsed)
                 cleanContent = combined.content
@@ -3419,7 +3443,9 @@ export const useGameStore = defineStore('game', {
                   fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
                   role: targetMessage.role,
                   // P1-4：完成解析也带 speakerMap
-                  speakerMap: targetMessage.speakerMap || null
+                  speakerMap: targetMessage.speakerMap || null,
+                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+                  speakerRegistry: this.buildSpeakerRegistry()
                 })
                 const combined = combineExtensionContent(extensionBase, parsed)
                 cleanContent = combined.content
@@ -3454,7 +3480,9 @@ export const useGameStore = defineStore('game', {
           fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),
           role: completedMessage?.role,
           // P1-4：最终清洗解析也带 speakerMap
-          speakerMap: completedMessage?.speakerMap || null
+          speakerMap: completedMessage?.speakerMap || null,
+          // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+          speakerRegistry: this.buildSpeakerRegistry()
         })
         cleanContent = combineExtensionContent(extensionBase, finalParsed).content
         if (!cleanContent || messageIndex < 0) {
