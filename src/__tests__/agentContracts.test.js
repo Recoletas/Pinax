@@ -991,6 +991,15 @@ describe('agentContracts', function () {
         provider: { format: 'openai' }
       }
     })
+    // P1：模型步骤超时上限放宽到 100s（计划 35s / 正文 60s / 补全 45s 均在范围内）。
+    expect(validateGenerationAgentTurnRequest({
+      ...providerTurnRequest,
+      options: { ...providerTurnRequest.options, timeoutMs: 60000 }
+    }).valid).toBe(true)
+    expect(validateGenerationAgentTurnRequest({
+      ...providerTurnRequest,
+      options: { ...providerTurnRequest.options, timeoutMs: 100001 }
+    }).valid).toBe(false)
     expect(resolveGenerationToolProtocol({
       id: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic'
