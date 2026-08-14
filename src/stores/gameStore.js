@@ -3461,7 +3461,6 @@ export const useGameStore = defineStore('game', {
         completedAgentRun = agentRun
         const completedMessage = getPlaceholder()
         messageIndex = this.messages.findIndex((message) => message?.id === placeholderId)
-        this.lastNarrativeAgentTrace = agentRun.trace
         this.lastNarrativeContextAudit = buildNarrativeContextAudit({
           kernel: narrativeKernel,
           index: narrativeIndex,
@@ -3484,6 +3483,20 @@ export const useGameStore = defineStore('game', {
           // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
           speakerRegistry: this.buildSpeakerRegistry()
         })
+        // P0：parser 可观察性 —— 块数 / 平均块长 / 最长块长（供诊断分段问题）。
+        {
+          const blockChars = (finalParsed?.blocks || []).map((block) => String(block?.text || '').length)
+          this.lastNarrativeAgentTrace = {
+            ...agentRun.trace,
+            presentationStats: {
+              blockCount: blockChars.length,
+              avgBlockChars: blockChars.length
+                ? Math.round(blockChars.reduce((sum, value) => sum + value, 0) / blockChars.length)
+                : 0,
+              maxBlockChars: blockChars.length ? Math.max(...blockChars) : 0
+            }
+          }
+        }
         cleanContent = combineExtensionContent(extensionBase, finalParsed).content
         if (!cleanContent || messageIndex < 0) {
           throw Object.assign(new Error('模型没有返回可用正文'), {

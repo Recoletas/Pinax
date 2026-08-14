@@ -82,6 +82,7 @@ import {
   createNarrativeCursor,
   getNarrativeToolCatalog,
   parseNarrativeCursor,
+  resolveNarrativeActiveToolNames,
   validateNarrativeToolCall
 } from '../../shared/narrativeAgentContract'
 import {
@@ -1743,6 +1744,16 @@ describe('agentContracts', function () {
       return message.parts.some((part) => part.type === 'tool-result' && part.toolCallId === 'single-transcript-call')
     })).toBe(true)
 
+    // P0/P1：分阶段可观察性 —— 计划不占资料轮次；plan/evidence/write 分别计数。
+    expect(transcriptLoop.trace.phases).toMatchObject({
+      plan: { rounds: 1 },
+      evidence: { rounds: 1 },
+      write: { rounds: 1 }
+    })
+    expect(transcriptLoop.trace.evidenceRounds).toBe(1)
+    expect(transcriptLoop.trace.evidenceExhausted).toBe(false)
+    expect(transcriptLoop.trace.stepTimeouts).toMatchObject({ plan: 35000, write: 60000 })
+
     var optionalGroundingKernel = {
       ...narrativeKernel,
       blocks: narrativeKernel.blocks.map(function (block) {
@@ -2047,6 +2058,60 @@ describe('agentContracts', function () {
     expect(conservativeCalls).toBe(3)
     expect(conservativeRun.trace.boundedCompletion).toBe(false)
     expect(conservativeRun.trace.targetChars).toBe(1500)
+
+    // P1：资料预算耗尽 → 强制完成，不再抛『两轮限制』。
+    // 模型先规划、连查两轮资料（预算=2），第三轮资料请求被闸门拦截（控制消息），
+    // 随后请求带 toolChoice none 并直接写正文。
+    var budgetCalls = 0
+    var budgetExhaustedRun = await runNarrativeAgentLoop({
+      kernel: optionalGroundingKernel,
+      registry: narrativeRegistry,
+      settings: providerTurnRequest.provider,
+      requestId: 'narrative-evidence-budget',
+      decisionRunner: async function (request) {
+        budgetCalls += 1
+        if (budgetCalls === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'budget-beat-plan',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['核对', '确认'],
+                revealOrChange: '确认变化',
+                endCondition: '核对完成'
+              }
+            }]
+          }
+        }
+        if (budgetCalls === 2 || budgetCalls === 3 || budgetCalls === 4) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'budget-lookup-' + budgetCalls,
+              name: 'world_lookup',
+              arguments: { action: 'search', query: '褚岩', limit: 1 }
+            }]
+          }
+        }
+        if (budgetCalls === 5) {
+          // 第三轮资料请求已被预算闸门拦截 → 请求应带 toolChoice none
+          expect(request.options.toolChoice).toBe('none')
+          return { kind: 'final_ready', text: '预算耗尽后用现有资料完成的正文。', calls: [] }
+        }
+        throw new Error('unexpected extra step')
+      }
+    })
+    expect(budgetCalls).toBe(5)
+    expect(budgetExhaustedRun.trace.evidenceExhausted).toBe(true)
+    expect(budgetExhaustedRun.trace.evidenceRounds).toBe(2)
+    expect(budgetExhaustedRun.finalText).toBe('预算耗尽后用现有资料完成的正文。')
+
+    // P1：geo 不再无条件暴露 —— 无地点且无路线询问时不启用 geo_lookup。
+    expect(resolveNarrativeActiveToolNames('继续前进')).not.toContain('geo_lookup')
+    expect(resolveNarrativeActiveToolNames('继续前进', { hasPlace: true })).toContain('geo_lookup')
+    expect(resolveNarrativeActiveToolNames('山口的路怎么走')).toContain('geo_lookup')
 
     // Q1：叙事展开度映射 —— compact/standard/expanded 缩放 intent 字符区间与 token 预算。
     var standardRespond = intentCharRange('respond', {})

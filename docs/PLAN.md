@@ -17,6 +17,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 - [体验页叙事连续性与可读性计划](./plan/experience-narrative-continuity-plan.md)：从属于 G1.4/G4.6，修复续写被当成隐藏用户回合、尾部上下文丢失、短碎提示词和半自动重复起势；以 ContinuityFrame、同消息续接事务和真实 provider 多轮 A/B 收口。
 - [体验页故事生成质量第二阶段计划](./plan/experience-story-generation-quality-plan.md)：从属于 G1.4/G4.6，在 intent、segment 和回合事务基础上，以 SceneThread、同 transcript BeatPlan、展开度和功能性细节约束解决生成量不足、人物动作重复、描写堆叠与故事缺少局部目标。
 - [体验页内容完整性与角色对白第三阶段计划](./plan/experience-content-integrity-and-dialogue-plan.md)：承接第二阶段真实验收未通过项，修复删除后存储不回收、生成篇幅与阅读密度混淆、marker 泄漏、说话者误识别、对白样式多 owner 和 SceneThread 错误写回。
+- [体验页叙事运行时与阅读体验收口计划](./plan/agent-runtime-architecture-research-20260814.md)：复核前三轮体验计划后的当前执行真源；先修工具轮次与 provider 超时，再把现有世界书 matcher 接入 NarrativeKernel，以因果拍替代硬字符下限，并收口语义分段与桌面阅读密度。
 
 ## 当前优先级
 

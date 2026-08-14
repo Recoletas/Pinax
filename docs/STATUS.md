@@ -6,14 +6,14 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验故事质量 Q1-Q4 已接入但真实验收未通过；下一阶段修复存储回收、marker/speaker、对白排版和 SceneThread 写回闭环 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验第三阶段 P0-P6 已接入但真实验收仍未通过；下一阶段按叙事运行时收口计划修复工具轮次、provider 超时、世界书接入、因果拍与语义分段 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
-- **体验叙事 Agent**：G4.6.13、酒馆能力对齐和基础连续性代码链已完成；故事质量 Q1-Q4 的展开度、SceneThread 与 BeatPlan 已接入。用户真实试用证明短句式回复有所改善，但重复动作、无功能描写和跨轮目标漂移仍在；根因包括同场 SceneThread 不刷新、outcome 被写成下一轮 objective，以及按完整字符下限补全放大填充描写。真实体验 Gate 未通过。
-- **体验阅读**：G1.4 M1-M4 与排版 R0-R2 已完成，但当前删除只移除 message，回合快照仍重复保存完整正文；marker parser 对变体和流式边界覆盖不足；任意模型 speaker 字符串都能生成身份；对白样式分散在三个 owner。下一阶段按内容完整性与角色对白第三阶段计划收口。
+- **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4 与内容完整性 P0-P6 已接入。真实试用仍暴露两个运行时硬失败：BeatPlan 与资料工具共用两轮预算，以及 provider 模型步骤使用 20 秒硬超时；生产 NarrativeKernel 也尚未接入现有世界书 matcher。正文仍受高字符下限、允许空因果步骤和重复行文规则影响，真实体验 Gate 未通过。当前执行真源为 2026-08-14 叙事运行时收口计划。
+- **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成；近期逐句兜底把每个未署名 narration 句子拆成 block，叠加段距后造成桌面空旷。下一阶段恢复语义自然段，只对异常长块兜底，并限定在主题2做桌面密度微调。
 - **写作 Notebook**：当前最高优先级为 WNB-6A。现有 schema v2 将每个顶层段落当作业务 block，Enter 因而直接创建新块；目标改为 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落，单元通过场景/分隔线、体验回合导入或显式 split 创建。一次成功的体验 assistant 回合默认导入为一个带完整来源的单元，但可拆分/合并且来源不丢。实施顺序是 schema v3、一次转换、批注/候选/版本改用 `unitId + nodeId`、体验导入事务和 UI/Gate；之后再继续常用 Markdown、`targets[]` 和查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
 - **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布已接视频生成。剩余漫画 M7 连续性质检、真实图像/视频 smoke 和跨资产 revision/tag 收口。
@@ -23,6 +23,7 @@
 
 ## Recently done
 
+- 2026-08-14：复核体验页 Agent 运行时调研并重写为当前收口计划。代码确认“两轮限制”由 BeatPlan 与资料工具共用计数导致，“叙事工具超时”实际是 provider 模型步骤 20 秒超时；现有世界书 matcher 已具备常驻、绑定、关键词、starter 和预算能力，但生产 NarrativeKernel 未接入。计划先止血运行时，再接世界书、收紧因果拍，最后修复逐句分段与桌面密度；runtimeEvents v2、Goal domain、风格硬重试延期。
 - 2026-08-13：完成体验页叙事连续性调研并制定 C0-C7 计划。代码证据确认当前短碎输出并非只由 token 上限造成：continue/auto 被当作隐藏 user turn，最近上下文截掉长回复尾部，voice policy 多次要求“一小步/短小后果”；本地 SillyTavern 对照确认 continue 应延长最后 assistant 内容。计划收敛到 intent 隔离、ContinuityFrame、真实角色 transcript、同消息 segment 事务、有界补全和真实渠道多轮 A/B。
 - 2026-08-11：收口酒馆能力对齐复验问题：SceneCast 改用真实持久化角色状态并按用户点名/目标自动选择 speaker；旧 checkpoint、记忆 revision 和分支差异恢复需要显式确认；UI audit 使用各自真实视口的 200% 有效宽度、核心控件 Tab 与实际 reduced-motion 动画作为失败门禁，390px/200% 顶部工具区改为两列重排。
 - 2026-08-11：修复写作 Notebook 长文档当前视觉行漂移。此前 `coordsAtPos()` 的缩放后 viewport 坐标被直接写入 `body.zoom` 下的 CSS 定位，误差随正文纵向位置累积；现统一转换回局部 CSS 坐标，并补偿 top/left/width/line-height。0.85 缩放第 80 段浏览器样本从约 `-491px` 误差收敛到行内居中的约 `-5px`。
@@ -37,8 +38,8 @@
 
 ## Next up
 
-1. 执行体验第三阶段 P0-P3：冻结最小复现，剔除 snapshot 正文副本，建立引用感知删除事务，拆开续写篇幅/阅读密度，并保证 marker 在流式和持久化中不泄漏。
-2. 执行 P4-P6：建立可信可发言实体注册表，统一对白样式 owner，修正 SceneThread 的同场刷新、objective/outcome 和保守补全；以 3 个场景各 3 轮真实复读收口。
+1. 执行体验叙事运行时收口 P0-P1：补 plan/evidence/write 可观察性，拆分控制与资料预算，资料耗尽时有界完成，并按模型步骤纠正超时与错误文案。
+2. 执行 P2-P4：把现有世界书 matcher 接入 NarrativeKernel，取消硬字符下限补全，恢复最小因果拍与 SceneThread 正确写回，再把逐句 narration 拆分改为异常长段兜底并微调桌面密度。
 3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。

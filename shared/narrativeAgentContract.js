@@ -234,7 +234,10 @@ function toolInputSchema(actions) {
 
 export function resolveNarrativeActiveToolNames(input = '', options = {}) {
   const normalized = text(input)
-  const names = new Set(['world_lookup', 'geo_lookup', NARRATIVE_BEAT_PLAN_TOOL])
+  // P1：geo 不再无条件暴露 —— 当前有地点或用户显式问路线/地形时才启用。
+  const explicitGeo = /地点|地图|地形|方位|路线|街道|港口|山口|峡谷|哪里|怎么走|所在/.test(normalized)
+  const names = new Set(['world_lookup', NARRATIVE_BEAT_PLAN_TOOL])
+  if (explicitGeo || options.hasPlace === true) names.add('geo_lookup')
   const explicitHistory = /历史|史实|追溯|因果|年代|时间线|旧关系|过去/.test(normalized)
   const explicitMemory = /记忆|记得|回想|曾经|之前确认|已知/.test(normalized)
   if (explicitHistory || options.hasHistory === true) names.add('history_lookup')

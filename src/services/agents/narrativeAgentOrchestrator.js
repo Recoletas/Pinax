@@ -32,13 +32,19 @@ import { validateNarrativeEvidence } from './narrativeEvidenceValidator'
 
 export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
   maxToolRounds: NARRATIVE_TOOL_LIMITS.maxToolResultRounds,
+  // P1：资料查询轮独立计数（1 正常 + 1 条件恢复）；BeatPlan 控制步骤不占此预算。
+  maxEvidenceRounds: 2,
   maxCallsPerRound: NARRATIVE_TOOL_LIMITS.maxCallsPerRound,
   maxCallsPerTurn: NARRATIVE_TOOL_LIMITS.maxCallsPerTurn,
-  maxModelSteps: 4,
+  maxModelSteps: 8,
   maxToolResultChars: 7200,
+  // P1：本地资料查询 —— 超时作为 unavailable 结果交给正文阶段，不终止整轮。
   toolTimeoutMs: 800,
-  decisionTimeoutMs: 20000,
-  agentTimeoutMs: 60000,
+  // P1：模型步骤按阶段分配超时（trace 记录），整轮只做保护上限。
+  planStepTimeoutMs: 35000,
+  writeStepTimeoutMs: 60000,
+  completionStepTimeoutMs: 45000,
+  agentTimeoutMs: 100000,
   repeatedCallLimit: 2,
   maxProviderRetries: 1,
   maxToolRepairs: 1
@@ -332,7 +338,7 @@ async function executeToolWithTimeout(
   }
   timeoutId = setTimeout(() => {
     timedOut = true
-    controller.abort(runtimeError('NARRATIVE_TOOL_TIMEOUT', '本地资料查询超时', true))
+    controller.abort(runtimeError('NARRATIVE_LOCAL_LOOKUP_TIMEOUT', '本地资料查询超时，已使用现有资料继续', true))
   }, timeoutMs)
   try {
     const execution = Promise.resolve().then(() => registry.execute(call, { signal: controller.signal }))
@@ -341,7 +347,7 @@ async function executeToolWithTimeout(
       new Promise((resolve) => {
         const onAbort = () => {
           if (timedOut) {
-            resolve(createNarrativeToolError(call, 'NARRATIVE_TOOL_TIMEOUT', '本地资料查询超时', {
+            resolve(createNarrativeToolError(call, 'NARRATIVE_LOCAL_LOOKUP_TIMEOUT', '本地资料查询超时，已使用现有资料继续', {
               retryable: true
             }))
           } else if (signal?.aborted) {
@@ -640,7 +646,7 @@ export async function runNarrativeAgentLoop({
     signal,
     NARRATIVE_AGENT_RUNTIME_LIMITS.agentTimeoutMs,
     'NARRATIVE_AGENT_TIMEOUT',
-    '叙事生成超时'
+    '本轮生成超过总时限'
   )
   // Q1：展开度（compact/standard/expanded）来自 settings（客户端字段，不发送到 provider）。
   const expansion = ['compact', 'standard', 'expanded'].includes(text(settings?.expansion))
@@ -675,13 +681,25 @@ export async function runNarrativeAgentLoop({
   let boundedCompletionUsed = false
   // Q3：BeatPlan 计划先行 —— open/respond/advance 先计划再写正文；extend 复用当前计划。
   const requiresBeatPlan = requiresBeatPlanFor(intent, mode)
-  const requestTools = requiresBeatPlan
+  let requestTools = requiresBeatPlan
     ? kernel.toolCatalog
     : (kernel.toolCatalog || []).filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
   let beatPlan = null
   let beatPlanRevision = ''
   let beatPlanRepairs = 0
   const groundingPolicy = deriveNarrativeGroundingPolicy({ kernel, mode })
+  // P1：资料查询轮独立预算；耗尽后强制完成（toolChoice none），不再整轮判死。
+  let evidenceRounds = 0
+  let evidenceExhausted = false
+  // P1：模型步骤按阶段分配超时（计划 35s / 正文 60s / 补全 45s）。
+  let stepTimeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.planStepTimeoutMs
+  // P0：分阶段可观察性 —— plan / evidence / write / completion 的轮数与耗时。
+  const phaseStats = {
+    plan: { rounds: 0, durationMs: 0 },
+    evidence: { rounds: 0, durationMs: 0 },
+    write: { rounds: 0, durationMs: 0 },
+    completion: { rounds: 0, durationMs: 0 }
+  }
 
   const ensureActive = () => {
     if (linkedAbort.signal.aborted) {
@@ -710,11 +728,12 @@ export async function runNarrativeAgentLoop({
           ? Math.max(2000, Number(maxTokens) || 2000)
           : Math.max(1, Number(maxTokens) || 1600),
         temperature: 0.2,
-        timeoutMs: NARRATIVE_AGENT_RUNTIME_LIMITS.decisionTimeoutMs,
+        timeoutMs: stepTimeoutMs,
         parallelToolCalls: true,
         streamEvents: true,
         ...(settings?.capabilities ? { capabilities: settings.capabilities } : {}),
-        toolChoice: 'auto'
+        // P1：资料预算耗尽后强制完成（不再暴露工具），避免模型继续空转。
+        toolChoice: evidenceExhausted ? 'none' : 'auto'
       },
       signal: linkedAbort.signal
     }, {
@@ -832,6 +851,16 @@ export async function runNarrativeAgentLoop({
         planRevision: text(beatPlanRevision),
         beatMode: beatPlan ? text(beatPlan.mode) : '',
         targetChars: beatPlan ? (Number(beatPlan.targetChars) || 0) : 0,
+        // P0/P1：分阶段可观察性 —— 各阶段轮数与耗时、资料预算、阶段超时预算。
+        phases: phaseStats,
+        evidenceRounds,
+        evidenceExhausted,
+        stepTimeouts: {
+          plan: NARRATIVE_AGENT_RUNTIME_LIMITS.planStepTimeoutMs,
+          write: NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs,
+          completion: NARRATIVE_AGENT_RUNTIME_LIMITS.completionStepTimeoutMs,
+          agent: NARRATIVE_AGENT_RUNTIME_LIMITS.agentTimeoutMs
+        },
         calls: traceCalls
       },
       baseMessages: transcriptToGenerationMessages(normalized.transcript)
@@ -841,10 +870,21 @@ export async function runNarrativeAgentLoop({
   try {
     while (stepIndex < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps) {
       ensureActive()
+      const stepStartedAt = Date.now()
       const response = await requestStep()
+      const stepDurationMs = Date.now() - stepStartedAt
       usage = sumUsage(usage, response?.usage)
       const assistantParts = normalizeAssistantTranscriptParts(response)
       const calls = Array.isArray(response?.calls) ? response.calls : []
+      // P0：按阶段累计轮数与耗时（plan / evidence / write / completion）。
+      {
+        const hasDataCalls = calls.some((call) => text(call?.name) !== NARRATIVE_BEAT_PLAN_TOOL)
+        const phase = response?.kind === 'final_ready'
+          ? (boundedCompletionUsed ? 'completion' : 'write')
+          : (hasDataCalls ? 'evidence' : 'plan')
+        phaseStats[phase].rounds += 1
+        phaseStats[phase].durationMs += stepDurationMs
+      }
 
       if (response?.kind === 'final_ready' && calls.length === 0) {
         // Q3：计划先行 —— open/respond/advance 未提交 BeatPlan 时要求先规划（最多一次修复）。
@@ -873,6 +913,8 @@ export async function runNarrativeAgentLoop({
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
           && shouldBoundedComplete(response, currentTurnInput, minTargetChars, beatPlan?.endCondition || '')) {
           boundedCompletionUsed = true
+          // P1：补全步骤超时独立预算（45s）。
+          stepTimeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.completionStepTimeoutMs
           // Q4：补全提示携带同一 BeatPlan 的 endCondition，不重新起势。
           const completionHint = beatPlan?.endCondition
             ? `（继续）按本轮叙事拍计划从最后一句续写，写到结束条件：${beatPlan.endCondition}；不重述前文。`
@@ -894,8 +936,27 @@ export async function runNarrativeAgentLoop({
           '模型没有返回有效的工具调用或最终正文'
         )
       }
-      if (toolRounds >= NARRATIVE_AGENT_RUNTIME_LIMITS.maxToolRounds) {
-        throw runtimeError('NARRATIVE_TOOL_ROUND_LIMIT', '叙事资料查询超过两轮限制')
+      const isEvidenceRound = calls.some((call) => text(call?.name) !== NARRATIVE_BEAT_PLAN_TOOL)
+      // P1：资料查询预算（1 正常 + 1 条件恢复）。耗尽后不再抛错判死：
+      // 追加 typed 控制消息并要求以现有资料直接完成（toolChoice none）。
+      if (isEvidenceRound && evidenceRounds >= NARRATIVE_AGENT_RUNTIME_LIMITS.maxEvidenceRounds) {
+        if (evidenceExhausted) {
+          throw runtimeError('NARRATIVE_TOOL_ROUND_LIMIT', '连续两轮仍在查询资料，已终止本轮')
+        }
+        evidenceExhausted = true
+        stepTimeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs
+        transcript = appendTranscript(transcript, {
+          id: `${turnRequestId}:user:evidence-budget:${stepIndex}`,
+          role: 'user',
+          parts: [{ type: 'text', text: '已达到资料查询上限（NARRATIVE_EVIDENCE_BUDGET_EXHAUSTED）。请使用现有资料与上下文直接输出最终正文，不再调用任何工具。' }]
+        })
+        status(onStatus, 'evidence-budget-exhausted', {
+          stepIndex,
+          evidenceRounds,
+          totalCalls
+        })
+        stepIndex += 1
+        continue
       }
       if (totalCalls + calls.length > NARRATIVE_AGENT_RUNTIME_LIMITS.maxCallsPerTurn) {
         throw runtimeError('NARRATIVE_TOOL_BUDGET_EXCEEDED', '本轮工具调用数量已达上限')
@@ -907,9 +968,11 @@ export async function runNarrativeAgentLoop({
         parts: assistantParts
       }, { allowPendingToolCalls: true })
       toolRounds += 1
+      if (isEvidenceRound) evidenceRounds += 1
       status(onStatus, 'executing-tools', {
         stepIndex,
         toolRounds,
+        evidenceRounds,
         callCount: calls.length,
         totalCalls
       })
@@ -959,7 +1022,7 @@ export async function runNarrativeAgentLoop({
       for (let index = 0; index < executed.length; index += 1) {
         const entry = executed[index]
         const remainingEntries = executed.length - index - 1
-        const reserveForFutureRound = toolRounds < NARRATIVE_AGENT_RUNTIME_LIMITS.maxToolRounds
+        const reserveForFutureRound = evidenceRounds < NARRATIVE_AGENT_RUNTIME_LIMITS.maxEvidenceRounds
           ? NARRATIVE_AGENT_RUNTIME_LIMITS.maxCallsPerRound * 240
           : 0
         const allowance = Math.max(
@@ -1004,6 +1067,9 @@ export async function runNarrativeAgentLoop({
           // P6：targetChars 以应用写入值为准（覆盖模型自报），control message 与 trace 同源。
           beatPlan = { ...planEntry.result.plan, targetChars: appTargetChars }
           beatPlanRevision = planEntry.result.planRevision || narrativeBeatPlanRevision(beatPlan)
+          // P1：正文步骤起超时切换为 60s；正文请求不再暴露 BeatPlan 工具。
+          stepTimeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs
+          requestTools = requestTools.filter((tool) => tool.name !== NARRATIVE_BEAT_PLAN_TOOL)
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:beat-plan:${stepIndex}`,
             role: 'user',

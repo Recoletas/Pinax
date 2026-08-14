@@ -276,7 +276,7 @@ export async function runToolCallingProviderTurn(rawRequest, options = {}) {
       const externallyAborted = Boolean(options.signal?.aborted)
       throw new NarrativeProviderError(
         externallyAborted ? 'NARRATIVE_PROVIDER_ABORTED' : 'NARRATIVE_PROVIDER_TIMEOUT',
-        externallyAborted ? '叙事工具请求已取消' : '叙事工具请求超时',
+        externallyAborted ? '叙事工具请求已取消' : '叙事模型响应超时',
         { retryable: !externallyAborted }
       )
     }

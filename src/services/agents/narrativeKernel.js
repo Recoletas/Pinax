@@ -379,7 +379,10 @@ export function buildNarrativeKernel({
     }, text(worldbook?.writingStyle) ? [`worldbook:${text(worldbook?.id)}:style`] : [])
   ]
 
-  const activeToolNames = resolveNarrativeActiveToolNames(latestUser?.content)
+  // P1：geo 仅在当前有地点或用户问路线时暴露（options.hasPlace）
+  const activeToolNames = resolveNarrativeActiveToolNames(latestUser?.content, {
+    hasPlace: Boolean(text(place.placeId))
+  })
   const toolCatalog = getNarrativeToolCatalog({ activeTools: activeToolNames })
   const revision = createNarrativeRevision('nar', {
     projectId: text(projectId || worldbook?.id),
