@@ -2,6 +2,8 @@
 
 状态：Q1-Q4 代码已接入，真实体验 Gate 未通过；后续修正转入 [体验页内容完整性与角色对白第三阶段计划](./experience-content-integrity-and-dialogue-plan.md)。日期：2026-08-13。归属：`G1.4 Experience Reading`、`G4.6 Narrative Context Runtime`。
 
+> **已由 [agent-runtime-architecture-research-20260814.md](./agent-runtime-architecture-research-20260814.md) 收口**：本计划的运行时/质量/阅读相关改动已并入该收口计划（P0-P5）；剩余内容仅作历史参考，不再单独执行。
+
 本计划承接 [体验页叙事连续性与可读性计划](./experience-narrative-continuity-plan.md)。上一阶段已经解决生成 intent、隐藏控制消息、同消息续接、基础 ContinuityFrame、回合事务和半自动上限；本阶段不重做这些基础设施，只处理真实使用中仍然存在的故事质量问题。
 
 ## 1. 当前问题

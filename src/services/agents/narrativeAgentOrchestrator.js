@@ -31,7 +31,6 @@ import {
 import { validateNarrativeEvidence } from './narrativeEvidenceValidator'
 
 export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
-  maxToolRounds: NARRATIVE_TOOL_LIMITS.maxToolResultRounds,
   // P1：资料查询轮独立计数（1 正常 + 1 条件恢复）；BeatPlan 控制步骤不占此预算。
   maxEvidenceRounds: 2,
   maxCallsPerRound: NARRATIVE_TOOL_LIMITS.maxCallsPerRound,

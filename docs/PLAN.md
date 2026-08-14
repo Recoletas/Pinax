@@ -53,7 +53,7 @@ Cmd Markdown 交互取舍的第一切片已落地：正文精确采用其编辑�
 
 ### G4.6.13 当前进度
 
-R0-R7 已完成实现 Gate。体验主链现在由 `runNarrativeAgentLoop()` 驱动：assistant tool call、并行 tool result、reasoning opaque metadata 和最终 assistant 正文都保留在同一临时 transcript。工具目录会按用户输入只开放当前需要的资料域；检索使用带 resource revision 的 opaque cursor、稳定排序和关系路径；结果携带 trust/conflict/stale 状态，最终正文生成 evidence report，required grounding 不接受冲突或 draft-only 证据。非法调用/空协议响应最多进入一次同 transcript 修复；工具超时会真实中止 registry signal，第三次规范化重复调用会形成 doom-loop error。单步 provider 请求现在经标准 SSE 事件流进入浏览器，并在内存中重组为现有 transcript 响应；ContextLedger、metrics 和联机状态记录低敏审计字段，终态文本直接提交。只有 READY 等控制信号才在同一 `requestId` 和原 transcript 上追加一次 `toolChoice=none` 收束请求。最多 4 个模型步骤、2 轮工具结果、6 个领域调用。Agent 契约测试继续并入单一测试项，未增加测试数量。下一步是 R8 真实渠道 Gate、取消/重连 smoke 与发布收口。
+R0-R7 已完成实现 Gate，2026-08-14 叙事运行时收口计划 P0-P5 已并入。体验主链由 `runNarrativeAgentLoop()` 驱动：assistant tool call、并行 tool result、reasoning opaque metadata 和最终 assistant 正文保留在同一临时 transcript；trace 分 plan/evidence/write/completion 四阶段记录轮数与耗时。工具目录按用户输入只开放当前需要的资料域（geo 仅在有地点或问路线时暴露）；BeatPlan 是控制步骤，不占资料轮次（资料预算 1 正常 + 1 恢复），预算耗尽追加 typed 消息并以 `toolChoice=none` 强制完成，不再抛“两轮限制”。模型步骤超时按阶段分配（计划 35s / 正文 60s / 补全 45s），整轮 100s 保护上限；本地查询超时作为 unavailable 结果交给正文阶段。生产 NarrativeKernel 通过 `activatedLore` 确定性接入世界书 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。长度改软区间（open 750-1200 / respond 600-950 / advance 600-950 / extend 350-650），删除按字符下限补全，BeatPlan 需最小因果内容，行文契约收敛五条 + 四种场景模式。非法调用/空协议响应最多进入一次同 transcript 修复；ContextLedger、metrics 和联机状态记录低敏审计字段。Agent 契约测试继续并入单一测试项，未增加测试数量。下一步是真实渠道 3×3 验收、取消/重连 smoke 与发布收口。
 
 本轮 WNB 边注与编辑面收口：正文拖选使用主题蓝色，并在光标收束端显示只含“批注 / 素材”的轻量浮条；浮条按应用 zoom 反补偿、视口边缘翻转，滚动或点击编辑区外时收起。新批注输入与已保存批注都在检查器边注轨道按选区中点排布，相邻项就近避让；不再把 widget 插入段落、在检查器底部弹出输入卡，或通过块/场景/全章过滤隐藏边注。批注可原位编辑、按批注改写和直接删除，采用改写后同步删除来源批注；历史回复折叠为补充记录。版本只显示最近三份检查点。窄屏无足够边栏空间时检查器改为正文后的工作区内容。
 

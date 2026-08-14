@@ -2,6 +2,8 @@
 
 状态：待执行。日期：2026-08-13。归属：`G1.4 Experience Reading`、`G4.6 Narrative Context Runtime`。
 
+> **已由 [agent-runtime-architecture-research-20260814.md](./agent-runtime-architecture-research-20260814.md) 收口**：本计划的运行时/质量/阅读相关改动已并入该收口计划（P0-P5）；剩余内容仅作历史参考，不再单独执行。
+
 本计划承接 [体验页叙事连续性与可读性计划](./experience-narrative-continuity-plan.md) 与 [体验页故事生成质量第二阶段计划](./experience-story-generation-quality-plan.md)。第二阶段的 intent、SceneThread、BeatPlan、较长生成预算和一次有界补全已经接入，但用户真实试用只证明“短句式回复有所改善”，没有通过整体质量验收。本阶段不再扩大 Agent 数量，也不继续堆叠文风禁句，而是修正数据生命周期、传输标记、说话者身份、阅读样式和 SceneThread 闭环。
 
 ## 1. 本轮验收结论
