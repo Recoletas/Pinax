@@ -829,6 +829,34 @@ function cloneState(value, fallback) {
   }
 }
 
+// P1：applyRuntimeSnapshot 实际读取的字段 —— turn/session 快照只保留这些，
+// 不再随每个回合快照复制完整 messages/chatHistory（正文已被多份保存导致二次增长）。
+const RUNTIME_SNAPSHOT_KEYS = Object.freeze([
+  'player', 'inventory', 'quests', 'flags', 'activities',
+  'goals', 'encounteredCharacters', 'factionRelations', 'keyChoices', 'plotJournal',
+  'adventureTriggers', 'adventureTriggerHistory', 'adventureTriggerCooldownUntil',
+  'emergenceCandidates', 'emergenceDismissedIds', 'emergenceDraft',
+  'npcRelations', 'discoveredPlaces', 'completedQuests',
+  'writingCharacter', 'writingTime', 'placeStates', 'characterStates',
+  'characterRelations', 'canonicalFacts', 'worldMapState', 'historyNode',
+  'narrativeSceneSummary', 'sceneThread', 'activeMechanism', 'mechanismContext',
+  'milestoneEvent', 'dialogueMode', 'dialogueCharacter', 'runtimeEvents'
+])
+
+function normalizeRuntimeSnapshot(snapshot, { forSession = false } = {}) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return {}
+  const result = {}
+  for (const key of RUNTIME_SNAPSHOT_KEYS) {
+    if (snapshot[key] !== undefined) result[key] = snapshot[key]
+  }
+  // session 需要 playerCharacter/aiCharacter（loadSession 读取）；turn 快照不需要。
+  if (forSession) {
+    if (snapshot.playerCharacter !== undefined) result.playerCharacter = snapshot.playerCharacter
+    if (snapshot.aiCharacter !== undefined) result.aiCharacter = snapshot.aiCharacter
+  }
+  return result
+}
+
 function debugLog(...args) {
   if (import.meta.env.DEV) {
     console.debug(...args)
@@ -2080,8 +2108,8 @@ export const useGameStore = defineStore('game', {
         .map(({ message }) => String(message.content || '').trim())
     },
 
-    getRuntimeSnapshot() {
-      return {
+    getRuntimeSnapshot({ forSession = true } = {}) {
+      const snapshot = {
         messages: cloneState(this.messages, []),
         chatHistory: cloneState(this.chatHistory, []),
         time: cloneState(this.time, { day: 1, period: '早晨' }),
@@ -2126,6 +2154,8 @@ export const useGameStore = defineStore('game', {
           RUNTIME_EVENT_LIMIT
         )
       }
+      // P1：只保留 applyRuntimeSnapshot / loadSession 实际读取的字段，剥离 messages/chatHistory/time 等。
+      return normalizeRuntimeSnapshot(snapshot, { forSession })
     },
 
     // R1a：从 preRuntimeSnapshot 恢复 runtime state（回合事务失败/regenerate 回滚用）。
@@ -2599,7 +2629,9 @@ export const useGameStore = defineStore('game', {
           payload: {
             preview: String(text || '').slice(0, 200),
             hidden: false
-          }
+          },
+          messageId: userMessageId || null,
+          turnId: null
         })
       }
       this.saveCurrentSession()
@@ -2662,13 +2694,66 @@ export const useGameStore = defineStore('game', {
       }
     },
 
-    // --- 修改：删除消息后同步记忆 ---
+    // P1：原子删除事务 —— 查 owning turn/segment → 统一处理 messages、chatHistory、
+    // inline events、runtime event provenance、pending 记忆候选、不可达 turn GC。
     deleteMessage(index) {
-      if (this.messages[index]) {
-        this.messages.splice(index, 1);
-        this.rebuildChatHistory(); // 同步 AI 记忆
-        this.saveCurrentSession()
+      const message = this.messages[index]
+      if (!message) return
+      const messageId = String(message.id || '')
+      // 1. 查 owning turn（按 messageId）
+      const turn = messageId ? this.findTurnByMessageId(messageId) : null
+      const turnId = turn?.id || null
+      // 2. 移除消息
+      this.messages.splice(index, 1)
+      // 3. 从 turn 移除 messageId（保留分支拓扑，仅标 detached）
+      if (turn) {
+        turn.assistantMessageIds = (turn.assistantMessageIds || []).filter((id) => id !== messageId)
+        turn.userMessageIds = (turn.userMessageIds || []).filter((id) => id !== messageId)
+        turn.detachedMessageIds = [...new Set([...(turn.detachedMessageIds || []), messageId])].filter(Boolean)
       }
+      // 4. 归档该 turn 的 pending/local-only 记忆候选（用户已确认/同步的不删，只标来源缺失）
+      if (turnId) {
+        for (const candidateId of turn.memoryCandidateIds || []) {
+          try { archiveMemoryCandidate(candidateId, { note: 'message-deleted' }) } catch { /* 尽力而为 */ }
+        }
+        turn.memoryCandidateIds = []
+      }
+      // 5. 移除引用该 messageId 的 inlineEvents 与带 provenance 的 runtime events
+      this.inlineEvents = (this.inlineEvents || []).filter((event) => event?.messageId !== messageId)
+      this.runtimeEvents = (this.runtimeEvents || []).filter((event) => (
+        event?.messageId !== messageId && event?.turnId !== turnId
+      ))
+      // 6. 引用感知 GC：无消息且无后代引用的 turn
+      this.gcUnreachableTurns()
+      this.rebuildChatHistory()
+      this.saveCurrentSession()
+    },
+
+    // P1：删除后清理完全不可达的 turn record（无 assistantMessageIds/userMessageIds、
+    // 无 baseMessageId 引用、无其他 turn 把它当 parent）。仍被分支链引用的拓扑保留。
+    gcUnreachableTurns() {
+      const records = this.turnRecords || {}
+      const ids = Object.keys(records)
+      const referencedAsParent = new Set()
+      const referencedAsBase = new Set()
+      for (const turn of Object.values(records)) {
+        if (turn.parentTurnId) referencedAsParent.add(turn.parentTurnId)
+        if (turn.baseMessageId) {
+          // baseMessageId 指向消息而非 turn，跳过
+        }
+      }
+      // 保留：有消息 / 被其他 turn 当 parent / 是 lastCommittedTurnId 或 pendingBranchParentTurnId
+      for (const id of ids) {
+        const turn = records[id]
+        if (!turn) continue
+        const hasMessages = (turn.assistantMessageIds?.length || 0) + (turn.userMessageIds?.length || 0) > 0
+        const isReferenced = referencedAsParent.has(id)
+          || this.lastCommittedTurnId === id
+          || this.pendingBranchParentTurnId === id
+        if (hasMessages || isReferenced) continue
+        delete records[id]
+      }
+      this.turnRecords = records
     },
 
     // --- 新增：核心”执行”功能 ---
@@ -3135,7 +3220,7 @@ export const useGameStore = defineStore('game', {
           // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
           branchId: this.activeBranchId || 'main',
           userMessageIds: userMessageId ? [userMessageId] : [],
-          preRuntimeSnapshot: this.getRuntimeSnapshot(),
+          preRuntimeSnapshot: this.getRuntimeSnapshot({ forSession: false }),
           kind: extensionTarget ? 'extension' : 'normal',
           baseMessageId: extensionTarget?.id || null,
         })
@@ -3389,13 +3474,16 @@ export const useGameStore = defineStore('game', {
         }
 
         // 追加运行时事件侧车 (v1: capped append-only envelope)
+        // P1：携带 messageId/turnId provenance，供删除事务精确清理。
         this.appendRuntimeEvent({
           type: 'turn',
           source: 'assistant',
           payload: {
             preview: String(cleanContent || '').slice(0, 200),
             messageIndex
-          }
+          },
+          messageId: getPlaceholder()?.id || null,
+          turnId: turnRecord?.id || null
         })
 
         // P0-3：回合事务提交**延迟**到所有 state 修改之后（见 productionOutcome 前）。
@@ -3463,7 +3551,7 @@ export const useGameStore = defineStore('game', {
 
         // R1b：state 提取完成后补抓 post snapshot（候选切换时恢复该分支的 state）
         if (turnRecord) {
-          turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot()
+          turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot({ forSession: false })
         }
 
         // 检测机制触发（战斗、交易、任务、对话）—— C4：只消费新 segment
@@ -3494,7 +3582,6 @@ export const useGameStore = defineStore('game', {
                   id: createMessageId('segment'),
                   turnId: baseTurnId || '',
                   intent: 'respond',
-                  rawContent: '',
                   cleanContent: extensionBase.content,
                   blocks: extensionBase.presentation?.blocks || [],
                   createdAt: targetMsg.timestamp || now,
@@ -3506,7 +3593,6 @@ export const useGameStore = defineStore('game', {
               id: segmentId,
               turnId: turnRecord.id,
               intent: 'extend',
-              rawContent: fullContent,
               cleanContent: finalParsed.content,
               blocks: finalParsed.blocks || [],
               createdAt: now,

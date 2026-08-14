@@ -1380,6 +1380,9 @@ describe('gameStore sessions', () => {
     expect(gameStore.sceneThread).not.toBeNull()
     expect(gameStore.sceneThread.id).toMatch(/^scene_/)
     expect(secondTurn.preRuntimeSnapshot.sceneThread).not.toBeNull()
+    // P1：快照瘦身 —— messages/chatHistory 不再随每个回合快照重复保存。
+    expect(secondTurn.preRuntimeSnapshot.messages).toBeUndefined()
+    expect(secondTurn.preRuntimeSnapshot.chatHistory).toBeUndefined()
   })
 
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {
