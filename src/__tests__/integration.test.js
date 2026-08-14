@@ -234,6 +234,20 @@ describe('Narrative presentation contract', () => {
     expect(multiParagraph.blocks.map((block) => block.text)).toEqual(['段一。继续一段。', '段二。', '段三。'])
     expect(multiParagraph.content).toBe('段一。继续一段。\n\n段二。\n\n段三。')
 
+    // P6：模型把 marker 写进行中（`。」 :::narration 柳洵`）时按行内 marker 切块，
+    // marker 不泄漏进正文，同一行可连续出现多个 marker。
+    const inlineMarkers = parseNarrativePresentation(
+      '猎户二人站起身。 :::narration 柳洵眉心微动。 :::dialogue|阿贵 「哎，柳公子——」 :::narration 阿贵没再开口。',
+      { messageId: 'inline-markers' }
+    )
+    expect(inlineMarkers.blocks.map((block) => `${block.kind}:${block.speaker || ''}`)).toEqual([
+      'narration:', 'narration:', 'dialogue:阿贵', 'narration:'
+    ])
+    expect(inlineMarkers.blocks.map((block) => block.text)).toEqual([
+      '猎户二人站起身。', '柳洵眉心微动。', '「哎，柳公子——」', '阿贵没再开口。'
+    ])
+    expect(inlineMarkers.content).not.toContain(':::')
+
     const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
       messageId: 'preamble'
     })

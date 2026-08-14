@@ -2,8 +2,6 @@
 import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
-// P3：接受 | 或全角冒号（：）作为 speaker 分隔符
-const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:[|：]([^\s|：]{1,80}))?\s*(.*)$/i
 const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
 // P3：所有围栏变体
 const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
@@ -30,12 +28,13 @@ export function createNarrativeMessageId(message = {}, index = 0) {
   return `msg_${hashText(seed)}`
 }
 
-// P3：旧 parser 可能把 marker 协议头残留进 block.text（老对话的 :::narration 泄漏）。
-// 检测到即触发一次重解析，不依赖版本号（避免把新消息的 verified speaker 打回名字 hash）。
+// P3/P6：旧 parser 可能把 marker 协议头残留进 block.text（老对话的 :::narration 泄漏，
+// 含行首与行内形式）。检测到即触发一次重解析，不依赖版本号（避免把新消息的
+// verified speaker 打回名字 hash）。
 function presentationHasLeakedMarkers(presentation) {
   if (!presentation || !Array.isArray(presentation.blocks)) return false
   return presentation.blocks.some((block) => (
-    /^\s*:::\s*[a-z]+\b/i.test(String(block?.text || ''))
+    /:::\s*[a-z]+\b/i.test(String(block?.text || ''))
   ))
 }
 
@@ -114,15 +113,24 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
 
   for (const line of lines) {
     if (FENCE_RE.test(line)) continue
-    const marker = line.match(MARKER_RE)
-    if (marker) {
+    // P6：模型常把 marker 写进行中（`。」 :::narration 柳洵`），
+    // 按行内任意位置的已知 marker 切块 —— marker 前文本归属当前块，marker 起新块。
+    const markerSegments = scanInlineMarkers(line)
+    if (markerSegments.length > 0) {
       sawMarker = true
-      flush()
-      current = { kind: marker[1].toLowerCase(), speaker: normalizeSpeaker(marker[2]), lines: [] }
-      // 修复：AI 常把 marker 与内容写在同一行（如 `:::narration 皮货商...`），
-      // 剩余内容（捕获组 3）作为该 block 的首行，避免 marker 原样显示在正文。
-      const inlineContent = String(marker[3] || '').trim()
-      if (inlineContent) current.lines.push(inlineContent)
+      let cursor = 0
+      for (const segment of markerSegments) {
+        const leading = line.slice(cursor, segment.index)
+        if (leading.trim()) {
+          if (current) current.lines.push(leading)
+          else current = { kind: 'narration', speaker: '', lines: [leading] }
+        }
+        flush()
+        current = { kind: segment.kind, speaker: segment.speaker, lines: [] }
+        cursor = segment.end
+      }
+      const trailing = line.slice(cursor)
+      if (trailing.trim()) current.lines.push(trailing)
       continue
     }
     const unknownMarker = line.match(UNKNOWN_MARKER_RE)
@@ -161,10 +169,25 @@ function splitParagraphs(value) {
   return source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
 }
 
-// P3：transport sanitizer —— 移除残留的协议头（行首 :::kind|speaker 或 :::kind），
-// 保留正文；中间的 `a ::: b` 不受影响（只在行首匹配）。
+// P6：扫描一行内任意位置出现的已知 marker（模型常把 `:::` 写进行中）。
+function scanInlineMarkers(line) {
+  const matches = []
+  const pattern = /:::\s*(narration|action|dialogue|thought|system)(?:[|：]([^\s|：]{1,80}))?\s*/gi
+  for (const match of String(line || '').matchAll(pattern)) {
+    matches.push({
+      index: match.index,
+      end: match.index + match[0].length,
+      kind: match[1].toLowerCase(),
+      speaker: normalizeSpeaker(match[2])
+    })
+  }
+  return matches
+}
+
+// P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内的 :::kind|speaker），
+// 保留正文；这是已知 marker 切块后的兜底，处理未知 marker 与边界情况。
 function sanitizeTransportMarkers(text) {
-  return String(text || '').replace(/^(\s*):::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gim, '$1')
+  return String(text || '').replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
 }
 
 function trimPendingMarkerLine(text) {
