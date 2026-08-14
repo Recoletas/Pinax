@@ -43,8 +43,8 @@
           role="tabpanel"
           aria-label="体验"
         >
-          <label class="settings-field-label" id="narrative-expansion-label">叙事展开度</label>
-          <p class="settings-field-hint">影响一次生成的目标长度与 token 预算；不改阅读排版。明确短答、纯确认或导演注要求简短时不受此限制。</p>
+          <label class="settings-field-label" id="narrative-expansion-label">单次续写篇幅</label>
+          <p class="settings-field-hint">仅影响之后的 AI 生成长度，不会改写已显示的正文。</p>
           <nav class="settings-tabs" role="group" aria-labelledby="narrative-expansion-label">
             <button
               v-for="level in expansion.levels"
@@ -55,6 +55,22 @@
               type="button"
               @click="expansion.setLevel(level.key)"
             >{{ level.label }}</button>
+          </nav>
+
+          <div class="settings-field-divider"></div>
+
+          <label class="settings-field-label" id="reading-density-label">阅读密度</label>
+          <p class="settings-field-hint">立即改变当前页面的字号、行高和段落间距。</p>
+          <nav class="settings-tabs" role="group" aria-labelledby="reading-density-label">
+            <button
+              v-for="profile in readingProfileOptions"
+              :key="profile.key"
+              class="settings-tab"
+              :class="{ active: readingProfile === profile.key }"
+              :aria-pressed="(readingProfile === profile.key).toString()"
+              type="button"
+              @click="setReadingProfile(profile.key)"
+            >{{ profile.label }}</button>
           </nav>
         </section>
 
@@ -128,9 +144,12 @@ import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
 import { useExperienceNarrativeExpansion } from '../../composables/useExperienceNarrativeExpansion'
+import { useExperienceReadingPreferences } from '../../composables/useExperienceReadingPreferences'
 
 const { close, activeSection, isOpen } = useSettingsPopup()
 const expansion = useExperienceNarrativeExpansion()
+const { profileName: readingProfile, setProfile: setReadingProfile, profiles: readingProfileObjects } = useExperienceReadingPreferences()
+const readingProfileOptions = Object.values(readingProfileObjects)
 
 const storageHealth = useStorageHealth()
 const storageTopKeys = computed(() => storageHealth.getTopKeys(10))
@@ -353,6 +372,12 @@ watch(isOpen, async (open) => {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.settings-field-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: color-mix(in srgb, var(--border) 50%, transparent);
 }
 
 .storage-summary {

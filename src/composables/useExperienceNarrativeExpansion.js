@@ -8,9 +8,9 @@ import { ref, computed, watch } from 'vue'
 import { getTextItem, setTextItem, STORAGE_KEYS } from './useStorage.js'
 
 export const NARRATIVE_EXPANSION_LEVELS = Object.freeze({
-  compact: Object.freeze({ key: 'compact', label: '紧凑', factor: 0.65 }),
+  compact: Object.freeze({ key: 'compact', label: '简短', factor: 0.65 }),
   standard: Object.freeze({ key: 'standard', label: '标准', factor: 1 }),
-  expanded: Object.freeze({ key: 'expanded', label: '展开', factor: 1.35 }),
+  expanded: Object.freeze({ key: 'expanded', label: '充分', factor: 1.35 }),
 })
 
 const STORAGE_KEY = STORAGE_KEYS.EXPERIENCE_NARRATIVE_EXPANSION
