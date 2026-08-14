@@ -3494,7 +3494,16 @@ export const useGameStore = defineStore('game', {
                 ? Math.round(blockChars.reduce((sum, value) => sum + value, 0) / blockChars.length)
                 : 0,
               maxBlockChars: blockChars.length ? Math.max(...blockChars) : 0
-            }
+            },
+            // P2：activatedLore —— 激活条目数与原因分布（constant/bound/history/keyword/starter）
+            loreStats: narrativeKernel?.activatedLore
+              ? {
+                  activeCount: narrativeKernel.activatedLore.entries.length,
+                  totalMatched: narrativeKernel.activatedLore.totalMatched,
+                  truncatedCount: narrativeKernel.activatedLore.truncatedCount,
+                  reasons: narrativeKernel.activatedLore.reasons
+                }
+              : null
           }
         }
         cleanContent = combineExtensionContent(extensionBase, finalParsed).content

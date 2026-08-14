@@ -5,6 +5,7 @@ import {
   resolveNarrativeActiveToolNames
 } from '../../../shared/narrativeAgentContract'
 import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
+import { matchWorldbookEntries } from '../worldbookContextBuilder'
 import { speakerIdOf } from '../narrativePresentation'
 
 const BLOCK_LIMITS = Object.freeze({
@@ -16,6 +17,7 @@ const BLOCK_LIMITS = Object.freeze({
   continuity: 1600,
   cast: 1200,   // R4：场景角色编排
   note: 400,   // R2：本轮导演注
+  lore: 1400,  // P2：activatedLore —— 当前场景命中的世界书普通条目预算
   style: 600
 })
 
@@ -277,6 +279,65 @@ export function buildNarrativeKernel({
   const causality = buildRuntimeCausalityContext({ runtimeState })
   // R4：场景角色编排 —— 主 speaker 完整卡 + 其他角色摘要
   const cast = buildSceneCast(worldbook, runtimeState, messages)
+  // P2：activatedLore —— 复用同一 matcher（确定性种子，同输入同命中集）。
+  // 常驻/禁写规则已进 rules 块，这里只装普通条目；新会话允许少量 starter。
+  const matchedLore = matchWorldbookEntries({
+    worldbook,
+    chatHistory: messages,
+    runtimeState,
+    scanDepth: 3,
+    includeStarterEntries: true,
+    // P2：新会话只放少量 starter —— 角色/地点/setting 各至多 1，其余类型零配额。
+    starterEntryLimits: {
+      character: 1,
+      location: 1,
+      setting: 1,
+      organization: 0,
+      event: 0,
+      quest: 0,
+      item: 0,
+      lore: 0
+    },
+    scanSeed: 7,
+    respectProbability: true
+  })
+    .filter((entry) => !['rule', 'forbidden'].includes(text(entry?.type).toLowerCase()))
+    .slice(0, 10)
+  const loreMeta = []
+  let loreChars = 0
+  let loreTruncatedCount = 0
+  for (const entry of matchedLore) {
+    const meta = {
+      entryId: text(entry?.id),
+      name: text(entry?.name),
+      type: text(entry?.type),
+      matchReason: text(entry?.matchReason),
+      matchedKeys: (Array.isArray(entry?.matchedKeys) ? entry.matchedKeys : [])
+        .map(text).filter(Boolean).slice(0, 4),
+      sourceRef: text(entry?.metadata?.sourceRef),
+      content: clip(entry?.content, 320)
+    }
+    if (!meta.entryId || !meta.content) continue
+    if (loreChars + meta.content.length > BLOCK_LIMITS.lore) {
+      loreTruncatedCount += 1
+      continue
+    }
+    loreChars += meta.content.length
+    loreMeta.push(meta)
+  }
+  // P2：无条目命中时（全新会话）退回世界概述，避免模型在空白中写作。
+  const worldOverview = text(worldbook?.worldDescription || worldbook?.description)
+  const loreBlockEntries = loreMeta.length > 0
+    ? loreMeta
+    : (worldOverview ? [{
+        entryId: null,
+        name: '世界概述',
+        type: 'world',
+        matchReason: 'overview',
+        matchedKeys: [],
+        sourceRef: '',
+        content: clip(worldOverview, 420)
+      }] : [])
 
   const blocks = [
     makeBlock('rules', {
@@ -324,6 +385,14 @@ export function buildNarrativeKernel({
     ]),
     // R4：场景角色编排 —— 主 speaker 完整角色卡 + 其他角色受限摘要
     ...(cast.length > 0 ? [makeBlock('cast', { members: cast }, cast.map((member) => `character:${member.name}`))] : []),
+    // P2：activatedLore —— 当前地点/角色/历史/关键词命中的世界书普通条目（请求模型前确定性装配）。
+    // 无条目命中时（如全新会话）退回世界概述，避免模型在空白中写作。
+    ...(loreBlockEntries.length > 0 ? [makeBlock('lore', {
+      entries: loreBlockEntries,
+      truncatedCount: loreTruncatedCount
+    }, loreBlockEntries
+      .map((entry) => entry.entryId ? `worldbook-entry:${entry.entryId}` : '')
+      .filter(Boolean))] : []),
     ...(text(sceneSummary?.summary)
       ? [makeBlock('summary', {
           revision: text(sceneSummary.revision),
@@ -399,6 +468,15 @@ export function buildNarrativeKernel({
     toolCatalog,
     activeToolNames,
     recentMessages: recent,  // C2.2：供 orchestrator 把真实 role messages 注入 transcript
+    activatedLore: {  // P2：供 ledger/trace 记录激活原因分布
+      entries: loreBlockEntries,
+      totalMatched: matchedLore.length,
+      truncatedCount: loreTruncatedCount,
+      reasons: loreBlockEntries.reduce((acc, entry) => {
+        acc[entry.matchReason] = (acc[entry.matchReason] || 0) + 1
+        return acc
+      }, {})
+    },
     budget: {
       maxChars: Object.values(BLOCK_LIMITS).reduce((total, value) => total + value, 0),
       usedChars: blocks.reduce((total, block) => total + block.chars, 0),

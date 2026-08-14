@@ -705,11 +705,22 @@ describe('agentContracts', function () {
       'turn',
       'scene',
       'cast',
+      'lore',
       'recent',
       'continuity',
       'style'
     ])
+    // P2：activatedLore —— 关键词命中的普通世界书条目进入 Kernel（rule/forbidden 不进 lore）。
+    var loreBlock = narrativeKernel.blocks.find(function (block) { return block.kind === 'lore' })
+    expect(loreBlock).toBeTruthy()
+    expect(loreBlock.content.entries.map(function (entry) { return entry.entryId })).toEqual(['entry-chu'])
+    expect(loreBlock.content.entries[0]).toMatchObject({
+      matchReason: 'keyword',
+      matchedKeys: expect.arrayContaining(['褚岩'])
+    })
+    expect(narrativeKernel.activatedLore.reasons).toMatchObject({ keyword: 1 })
     expect(JSON.stringify(narrativeKernel)).toContain('不得替玩家声明未输入的决定')
+    expect(JSON.stringify(narrativeKernel)).not.toContain('这一段很长的世界简介')
     expect(JSON.stringify(narrativeKernel.blocks.find(function (block) {
       return block.kind === 'continuity'
     }))).toContain('ship:blue-space')
@@ -795,6 +806,26 @@ describe('agentContracts', function () {
     expect(JSON.stringify(summarizedKernel.blocks.find(function (block) {
       return block.kind === 'summary'
     }))).toContain('生态区观测舱')
+
+    // P2：无条目命中时退回世界概述（全新会话不空白写作），且不虚构缺失角色。
+    var emptyLoreWorldbook = {
+      id: 'wb-empty',
+      worldDescription: '暮湾镇，一个被海雾笼罩的渔港。',
+      entries: [{ id: 'e-inner', name: '内务府', type: 'organization', keys: ['内务府'], content: '内务府在城北。' }]
+    }
+    var emptyLoreKernel = buildNarrativeKernel({
+      worldbook: emptyLoreWorldbook,
+      runtimeState: { worldMapState: { placeId: 'dock' }, writingTime: {} },
+      messages: [{ id: 'm-1', role: 'user', content: '我走进码头。' }],
+      projectId: 'wb-empty',
+      sessionId: 'session-1'
+    })
+    var emptyLoreBlock = emptyLoreKernel.blocks.find(function (block) { return block.kind === 'lore' })
+    expect(emptyLoreBlock.content.entries[0]).toMatchObject({
+      matchReason: 'overview',
+      name: '世界概述'
+    })
+    expect(emptyLoreKernel.activatedLore.reasons).toMatchObject({ overview: 1 })
 
     var narrativeSnapshot = {
       projectId: 'wb-narrative',
