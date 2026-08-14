@@ -123,6 +123,8 @@ import {
 } from '../services/narrativePresentation'
 // P4：可信说话者注册表
 import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
+// P6：SceneThread 滚动合并
+import { buildNarrativeSceneThread } from '../services/agents/narrativeSceneThread'
 import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
@@ -308,6 +310,47 @@ describe('Narrative presentation contract', () => {
     // 未提供注册表时保持旧行为（兼容 ensureNarrativeMessage 重解析路径）
     const noRegistry = parseNarrativePresentation(':::dialogue|路人甲\n“喂？”', { messageId: 'no-registry' })
     expect(noRegistry.blocks[0].speakerId).toMatch(/^spk_/)
+
+    // P6：场景未切换也刷新 thread（滚动合并）—— 保留地点/时间/目标，刷新滚动字段。
+    const firstThread = buildNarrativeSceneThread({
+      previous: null,
+      runtimeState: {
+        worldMapState: { placeId: 'dock' },
+        writingTime: { eraName: 'x' },
+        goals: [{ title: '找到铜扣', status: 'active' }]
+      },
+      messages: []
+    })
+    expect(firstThread.id).toMatch(/^scene_dock/)
+    expect(firstThread.currentObjective).toBe('找到铜扣')
+    const rollingMessages = [{
+      role: 'assistant',
+      presentation: { blocks: [{ kind: 'dialogue', text: '“铜扣在哪？”' }] }
+    }]
+    const mergedThread = buildNarrativeSceneThread({
+      previous: firstThread,
+      runtimeState: {
+        worldMapState: { placeId: 'dock' },
+        writingTime: { eraName: 'x' },
+        goals: [{ title: '找到铜扣', status: 'active' }]
+      },
+      messages: rollingMessages
+    })
+    expect(mergedThread.id).toBe(firstThread.id)
+    expect(mergedThread.currentObjective).toBe(firstThread.currentObjective)
+    expect(mergedThread.activeQuestion).toContain('铜扣在哪')
+    expect(mergedThread.updatedAt).toBeGreaterThanOrEqual(firstThread.updatedAt)
+    // 场景切换 → 新线程
+    const movedThread = buildNarrativeSceneThread({
+      previous: firstThread,
+      runtimeState: {
+        worldMapState: { placeId: 'tavern' },
+        writingTime: { eraName: 'x' }
+      },
+      messages: rollingMessages
+    })
+    expect(movedThread.id).not.toBe(firstThread.id)
+    expect(movedThread.id).toMatch(/^scene_tavern/)
   })
 
   it('keeps stable ids and one prompt format contract', () => {

@@ -1383,6 +1383,24 @@ describe('gameStore sessions', () => {
     // P1：快照瘦身 —— messages/chatHistory 不再随每个回合快照重复保存。
     expect(secondTurn.preRuntimeSnapshot.messages).toBeUndefined()
     expect(secondTurn.preRuntimeSnapshot.chatHistory).toBeUndefined()
+
+    // P6-2/P6-3：applyBeatPlan 不把 currentObjective 覆盖成 revealOrChange（只进 establishedProgress）；
+    // recentRepetitions 取 BeatPlan 的 avoidRepeats + 动作(action/result) + 功能细节滚动。
+    gameStore.sceneThread.currentObjective = '查明铜扣来历'
+    const mergedThread = gameStore.applyBeatPlanToSceneThread(gameStore.sceneThread, {
+      responseObligation: '回应玩家',
+      causalSteps: ['翻出日志', '核对编号'],
+      revealOrChange: '铜扣与半年前失物对上',
+      endCondition: '核对完成',
+      characterMoves: [{ character: '陆晨曦', action: '翻阅日志', result: '翻出铜扣' }],
+      functionalDetails: [{ detail: '铜扣内侧刻着编号' }],
+      avoidRepeats: ['反复描述雨水']
+    })
+    expect(mergedThread.currentObjective).toBe('查明铜扣来历')
+    expect(mergedThread.establishedProgress).toContain('铜扣与半年前失物对上')
+    expect(mergedThread.recentRepetitions).toEqual(expect.arrayContaining([
+      '反复描述雨水', '翻阅日志', '翻出铜扣', '铜扣内侧刻着编号'
+    ]))
   })
 
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {

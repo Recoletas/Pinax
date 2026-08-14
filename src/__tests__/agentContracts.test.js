@@ -1952,6 +1952,51 @@ describe('agentContracts', function () {
     expect(completedRun.trace.boundedCompletion).toBe(true)
     expect(completedRun.trace.incomplete).toBe(false)
 
+    // P6：补全保守 —— 自然落点且 ≥70% 目标下限（651/900 字）不再补全；
+    // targetChars 由应用写入（respond standard = 1500），模型自报值（50）无效。
+    var conservativeCalls = 0
+    var conservativeRun = await runNarrativeAgentLoop({
+      kernel: narrativeKernel,
+      registry: narrativeRegistry,
+      settings: { ...providerTurnRequest.provider, expansion: 'standard' },
+      requestId: 'narrative-conservative-completion',
+      intent: 'respond',
+      decisionRunner: async function () {
+        conservativeCalls += 1
+        if (conservativeCalls === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '回应玩家',
+                causalSteps: ['承接', '发展'],
+                revealOrChange: '发展完成',
+                endCondition: '动作链完成',
+                characterMoves: [{ character: '陆晨曦', action: '翻阅日志', result: '翻出铜扣' }],
+                targetChars: 50
+              }
+            }]
+          }
+        }
+        if (conservativeCalls === 2) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'conservative-call',
+              name: 'world_lookup',
+              arguments: { action: 'search', query: '褚岩', limit: 1 }
+            }]
+          }
+        }
+        return { kind: 'final_ready', text: `${'雨'.repeat(650)}。`, calls: [] }
+      }
+    })
+    expect(conservativeCalls).toBe(3)
+    expect(conservativeRun.trace.boundedCompletion).toBe(false)
+    expect(conservativeRun.trace.targetChars).toBe(1500)
+
     // Q1：叙事展开度映射 —— compact/standard/expanded 缩放 intent 字符区间与 token 预算。
     var standardRespond = intentCharRange('respond', {})
     var compactRespond = intentCharRange('respond', { expansion: 'compact' })
@@ -1981,6 +2026,23 @@ describe('agentContracts', function () {
       revealOrChange: 'c',
       endCondition: 'd'
     }).valid).toBe(false)
+    // P6：角色动作必须有 result —— 缺 result 的动作拒绝，带 result 的通过且保留。
+    expect(validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: ['a', 'b'],
+      revealOrChange: 'c',
+      endCondition: 'd',
+      characterMoves: [{ character: '陆晨曦', action: '翻阅日志' }]
+    }).valid).toBe(false)
+    var withResultPlan = validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: ['a', 'b'],
+      revealOrChange: 'c',
+      endCondition: 'd',
+      characterMoves: [{ character: '陆晨曦', action: '翻阅日志', result: '翻出铜扣' }]
+    })
+    expect(withResultPlan.valid).toBe(true)
+    expect(withResultPlan.plan.characterMoves[0].result).toBe('翻出铜扣')
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

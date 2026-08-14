@@ -40,7 +40,9 @@ function moveArray(value) {
   return value.slice(0, NARRATIVE_BEAT_PLAN_LIMITS.maxCharacterMoves).map((move) => ({
     character: text(move?.character || move?.name, 80),
     intent: text(move?.intent || move?.immediateIntent),
-    action: text(move?.action)
+    action: text(move?.action),
+    // P6：每个角色动作必须有结果（result）——动作落地的可观察后果
+    result: text(move?.result)
   })).filter((move) => move.character)
 }
 
@@ -93,6 +95,10 @@ export function validateNarrativeBeatPlanInput(rawInput) {
   }
   if (plan.characterMoves.length > NARRATIVE_BEAT_PLAN_LIMITS.maxCharacterMoves) {
     return error('NARRATIVE_BEAT_PLAN_MOVES_TOO_MANY', `characterMoves 至多 ${NARRATIVE_BEAT_PLAN_LIMITS.maxCharacterMoves} 个`)
+  }
+  // P6：角色动作必须有可观察结果 —— 没有 result 的动作只是意图，正文不允许"只做不落地"。
+  if (plan.characterMoves.some((move) => !move.result)) {
+    return error('NARRATIVE_BEAT_PLAN_MOVE_RESULT_REQUIRED', '每个 characterMove 的 action 必须有 result（动作落地的可观察后果）')
   }
   if (!plan.revealOrChange) {
     return error('NARRATIVE_BEAT_PLAN_REVEAL_REQUIRED', 'revealOrChange 不能为空：本轮最终新增的信息/关系/目标/局势变化')
@@ -151,10 +157,12 @@ export function narrativeBeatPlanToolSchema() {
         items: {
           type: 'object',
           additionalProperties: false,
+          required: ['action', 'result'],
           properties: {
             character: { type: 'string' },
             intent: { type: 'string' },
-            action: { type: 'string' }
+            action: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars },
+            result: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars }
           }
         }
       },

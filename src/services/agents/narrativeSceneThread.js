@@ -4,6 +4,7 @@
 import {
   normalizeNarrativeSceneThread,
   sceneThreadRevision,
+  SCENE_THREAD_LIMITS,
   shouldStartNewSceneThread
 } from '../../../shared/narrativeSceneThreadContract'
 
@@ -27,8 +28,10 @@ function inferMode(blocks = []) {
 
 function activeQuestionFrom(blocks = []) {
   const last = blocks[blocks.length - 1]
-  if (!last) return ''
-  if (last.kind === 'dialogue' && /[？?]$/.test(clean(last.text))) return clean(last.text).slice(0, 120)
+  if (!last || last.kind !== 'dialogue') return ''
+  const content = clean(last.text)
+  // 中英问号结尾，或问号后带收尾引号（“在哪？”）都算开放问题
+  if (/[？?]$/.test(content) || /[？?][”"』」’]$/.test(content)) return content.slice(0, 120)
   return ''
 }
 
@@ -60,9 +63,25 @@ function extractRecentRepetitions(messages = [], limit = 6) {
     .map(([token]) => token)
 }
 
+// P6：场景未切换也刷新 thread（滚动合并）—— 保持地点/时间/目标/已建立进度连续，
+// 但用最新正文刷新 mode / activeQuestion / recentRepetitions，并推进 updatedAt。
+function mergeRollingSceneThread(previous, messages) {
+  const normalized = normalizeNarrativeSceneThread(previous)
+  if (!normalized) return normalized
+  const blocks = lastAssistantBlocks(messages)
+  const next = {
+    ...normalized,
+    mode: inferMode(blocks),
+    activeQuestion: activeQuestionFrom(blocks),
+    recentRepetitions: extractRecentRepetitions(messages, SCENE_THREAD_LIMITS.maxRecentRepetitions),
+    updatedAt: Date.now()
+  }
+  return { ...next, revision: sceneThreadRevision(next) }
+}
+
 export function buildNarrativeSceneThread({ previous = null, runtimeState = {}, messages = [] } = {}) {
   if (previous && !shouldStartNewSceneThread(previous, runtimeState)) {
-    return normalizeNarrativeSceneThread(previous)
+    return mergeRollingSceneThread(previous, messages)
   }
   const place = runtimeState?.worldMapState || {}
   const time = runtimeState?.writingTime || {}

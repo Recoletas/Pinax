@@ -472,16 +472,31 @@ function cjkCount(value) {
   return matches ? matches.length : 0
 }
 
-// C5：有界补全 —— 判断一次 final_ready 是否需要补全。
-//   finishReason 为 length/max_tokens/max_output_tokens → 必然补全；
-//   否则仅当正文为中等长度（≥12 字、<180 字）且没有自然落点时补全一次；
-//   极短（<12 字）的常规 stop 视为刻意的简短回答，不扩写；输入明确要求简短也不补全。
+// C5/P6：有界补全 —— 保守触发，同一 turn 内最多补全一次（boundedCompletionUsed 门控）：
+//   截断（finishReason=length/max_tokens/max_output_tokens）→ 必然补全；
+//   未完（正文没有自然落点，半截句子）→ 补全；
+//   低于目标下限 70% 且未到 BeatPlan endCondition → 补全一次拉满；
+//   其余（达标 / ≥70% 自然落点 / 完整短片段 / 极短刻意 / 明确要求简短）→ 不补。
 const BOUNDED_LENGTH_FINISH_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens'])
 const BOUNDED_COMPLETION_MIN_CHARS = 180
 const BOUNDED_COMPLETION_ULTRA_SHORT = 12
+const BOUNDED_COMPLETION_FLOOR_RATIO = 0.7
 const BREVITY_REQUEST_RE = /(简短|一句话|只说|简单说|不要展开|一笔带过|短答|只用.{0,6}字)/
 
-function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = BOUNDED_COMPLETION_MIN_CHARS) {
+// P6：正文是否已到达 BeatPlan 的 endCondition（结束条件在文中出现，
+// 或长条件的 8 字片段出现）→ 视为刻意收束，不再补全。
+function reachedEndCondition(content, endCondition) {
+  const target = String(endCondition || '').trim()
+  if (target.length < 4) return false
+  if (content.includes(target)) return true
+  if (target.length <= 10) return false
+  for (let start = 0; start + 8 <= target.length; start += 1) {
+    if (content.includes(target.slice(start, start + 8))) return true
+  }
+  return false
+}
+
+function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = BOUNDED_COMPLETION_MIN_CHARS, endCondition = '') {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
   // 拒绝/内容过滤等结束原因不补全；正常 stop/end_turn 继续走"低于目标下限"判断。
@@ -489,13 +504,19 @@ function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = B
   if (BREVITY_REQUEST_RE.test(String(turnInput || ''))) return false
   const content = text(response.text)
   const chars = cjkCount(content)
-  // 达到 intent+展开度目标下限 → 视为足够，不补全。
-  if (chars >= minTargetChars) return false
   // 极短且非截断 → 刻意的简短回答（如"好""嗯""知道了"），不扩写。
   if (chars < BOUNDED_COMPLETION_ULTRA_SHORT) return false
-  // 短片段（<180 字）且带自然落点（句号/问号/收尾引号）→ 视为完整短对白或短答，不扩写。
+  // 已到 BeatPlan 结束条件 → 视为刻意收束，不再续写。
+  if (endCondition && reachedEndCondition(content, endCondition)) return false
+  // 达到 intent+展开度目标下限 → 视为足够，不补全。
+  if (chars >= minTargetChars) return false
+  // 未完（没有自然落点，半截句子）→ 补全一次，把句子收完整。
+  if (isIncompleteText(content)) return true
+  // ≥70% 目标下限且带自然落点 → 保守不补（不再为每个回合多跑一次）。
+  if (chars >= minTargetChars * BOUNDED_COMPLETION_FLOOR_RATIO) return false
+  // 完整短片段（<180 字且句末有标点/收尾引号）→ 视为完整短对白或短答，不扩写。
   if (chars < BOUNDED_COMPLETION_MIN_CHARS && /[。！？!?…”』」"']$/.test(content.slice(-1))) return false
-  // 中长但仍低于目标下限（如 700 字的 respond）→ 补全一次，把单次生成拉满。
+  // <70% 且未到 endCondition → 补全一次，把单次生成拉满。
   return true
 }
 
@@ -623,6 +644,9 @@ export async function runNarrativeAgentLoop({
   const expansion = ['compact', 'standard', 'expanded'].includes(text(settings?.expansion))
     ? text(settings.expansion)
     : 'standard'
+  // P6：目标字数由应用写入（intent × 展开度的区间上限），不采信模型自报 targetChars。
+  const effectiveIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
+  const appTargetChars = intentCharRange(effectiveIntent, { expansion }).max
   let transcript = createInitialNarrativeTranscript({
     kernel,
     mode,
@@ -839,14 +863,13 @@ export async function runNarrativeAgentLoop({
         })
         if (!terminalFinishReason) terminalFinishReason = text(response.finishReason)
         terminalText = terminalText ? `${terminalText}${response.text}` : response.text
-        // C5/Q1：有界补全 —— 低于"当前 intent+展开度目标下限"且不是完整短片段时，
-        // 同一 transcript 内最多补全一次，把单次生成拉满。
+        // C5/P6：有界补全 —— 保守触发：截断/未完/<70% 且未到 endCondition 才补一次。
         const currentTurnInput = (kernel?.blocks || []).find((block) => block.kind === 'turn')?.content?.input || ''
         const turnIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
         const minTargetChars = intentCharRange(turnIntent, { expansion }).min
         if (!boundedCompletionUsed
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
-          && shouldBoundedComplete(response, currentTurnInput, minTargetChars)) {
+          && shouldBoundedComplete(response, currentTurnInput, minTargetChars, beatPlan?.endCondition || '')) {
           boundedCompletionUsed = true
           // Q4：补全提示携带同一 BeatPlan 的 endCondition，不重新起势。
           const completionHint = beatPlan?.endCondition
@@ -976,7 +999,8 @@ export async function runNarrativeAgentLoop({
           entry.result?.tool === NARRATIVE_BEAT_PLAN_TOOL && entry.result?.ok !== false
         ))
         if (planEntry?.result?.plan) {
-          beatPlan = planEntry.result.plan
+          // P6：targetChars 以应用写入值为准（覆盖模型自报），control message 与 trace 同源。
+          beatPlan = { ...planEntry.result.plan, targetChars: appTargetChars }
           beatPlanRevision = planEntry.result.planRevision || narrativeBeatPlanRevision(beatPlan)
           transcript = appendTranscript(transcript, {
             id: `${turnRequestId}:user:beat-plan:${stepIndex}`,

@@ -70,7 +70,7 @@ import {
   normalizeNarrativeSceneSummary,
   resolveNarrativeSceneSummary
 } from '../services/agents/narrativeSceneSummary'
-import { normalizeNarrativeSceneThread, sceneThreadRevision } from '../../shared/narrativeSceneThreadContract'
+import { normalizeNarrativeSceneThread, sceneThreadRevision, SCENE_THREAD_LIMITS } from '../../shared/narrativeSceneThreadContract'
 import { buildNarrativeSceneThread } from '../services/agents/narrativeSceneThread'
 import {
   createNarrativeProductionObserver,
@@ -4379,7 +4379,9 @@ export const useGameStore = defineStore('game', {
       return level
     },
 
-    // Q4：把本轮 BeatPlan 写回 SceneThread 软状态（有效变化、人物 meaningful move）。
+    // Q4/P6：把本轮 BeatPlan 写回 SceneThread 软状态（有效变化、人物 meaningful move）。
+    // currentObjective 不被 revealOrChange 覆盖（revealOrChange 只进 establishedProgress）；
+    // recentRepetitions 取 BeatPlan 的 avoidRepeats + 角色动作（action/result）+ 功能细节滚动。
     applyBeatPlanToSceneThread(thread, beatPlan) {
       if (!thread || !beatPlan || typeof beatPlan !== 'object') return thread
       const progress = []
@@ -4397,11 +4399,24 @@ export const useGameStore = defineStore('game', {
           lastMeaningfulMove: move.action || member.lastMeaningfulMove
         }
       })
+      // P6：本轮实际发生的动作/细节 + 模型声明要避免的重复 → 滚动进 recentRepetitions
+      const occurred = [
+        ...(Array.isArray(beatPlan.avoidRepeats) ? beatPlan.avoidRepeats : []),
+        ...moves.flatMap((move) => [move.action, move.result]),
+        ...(Array.isArray(beatPlan.functionalDetails) ? beatPlan.functionalDetails.map((item) => item.detail) : [])
+      ].filter(Boolean)
+      const seen = new Set((thread.recentRepetitions || []).filter(Boolean))
+      for (const item of occurred) {
+        const cleaned = String(item).replace(/\s+/g, ' ').trim().slice(0, 200)
+        if (cleaned && !seen.has(cleaned)) seen.add(cleaned)
+      }
       const next = normalizeNarrativeSceneThread({
         ...thread,
         establishedProgress: progress.filter(Boolean).slice(-3),
         cast,
-        currentObjective: beatPlan.revealOrChange || thread.currentObjective,
+        // P6-2：场景目标不被单回合 revealOrChange 覆盖（目标完成/换线程时才变更）
+        currentObjective: thread.currentObjective,
+        recentRepetitions: [...seen].slice(-SCENE_THREAD_LIMITS.maxRecentRepetitions),
         updatedAt: Date.now()
       })
       return { ...next, revision: sceneThreadRevision(next) }
