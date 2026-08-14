@@ -14,10 +14,10 @@ export function buildNarrativeFormatInstructions() {
     '【叙事输出格式】',
     'marker 只是传输协议，不是正文。每个自然段或说话人切换时使用一次，不要把每句话拆成一块；不要输出 HTML、JSON、颜色说明或其他控制标签。',
     '允许的类型只有：:::narration、:::action|角色名、:::dialogue|角色名、:::thought|角色名、:::system。',
-    'marker 后换行写正文；同一块可以有多行；不同自然段之间留一个空行；speaker 只有明确知道说话者时才填写，不要猜测角色。',
-    '台词保留中文或英文引号；叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
-    '示例：\n:::narration\n雨水沿着舷窗滑落。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
-    '如果没有明显语义切换，可以只输出一个 narration 块。'
+    'marker 与正文之间换行；一个自然段 1-3 个句子，自然段之间必须用空行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
+    '台词使用中文引号「」或“”；叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
+    '示例：\n:::narration\n雨水沿着舷窗滑落。\n\n风声从甲板缝隙里灌进来。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
+    '如果没有明显语义切换，可以只输出一个 narration 块，但段与段之间仍要空行。'
   ].join('\n')
 }
 
@@ -103,9 +103,14 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
       const speakerSource = current.speaker ? 'marker' : (speaker ? 'message' : '')
       // P6：同一 marker 块内按空行拆分自然段 —— 每个段落一个 block，
       // CSS 的段首缩进 / 段落间距（.narrative-block--narration 等）才生效；
-      // 否则多段正文挤在一个 block 里会塌成一大段。
+      // 无空行的未署名 narration 再走句子级兜底（模型把整轮压成一行时）。
       for (const paragraph of splitParagraphs(value)) {
-        blocks.push(createBlock(current.kind, paragraph, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry))
+        const chunks = current.kind === 'narration' && !speaker
+          ? splitNarrationSentences(paragraph)
+          : [paragraph]
+        for (const chunk of chunks) {
+          blocks.push(createBlock(current.kind, chunk, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry))
+        }
       }
     }
     current = null
@@ -167,6 +172,19 @@ function splitParagraphs(value) {
   const source = String(value || '').trim()
   if (!source) return []
   return source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
+}
+
+// P6：句子级兜底分段 —— 模型把整轮正文压成一行、句子间用空格分隔时，
+// 按「句末标点 + 空格」边界拆成多个自然段（未署名 narration、无换行、≥2 个空格边界才拆）。
+function splitNarrationSentences(value) {
+  const source = String(value || '').trim()
+  if (!source || source.includes('\n')) return [source]
+  const boundaries = source.match(/[。！？…!?][”"』」’]?\s+/g)
+  if (!boundaries || boundaries.length < 2) return [source]
+  return source
+    .split(/(?<=[。！？…!?][”"』」’]?)\s+(?=[^\s，。！？…!?])/)
+    .map((part) => part.trim())
+    .filter(Boolean)
 }
 
 // P6：扫描一行内任意位置出现的已知 marker（模型常把 `:::` 写进行中）。

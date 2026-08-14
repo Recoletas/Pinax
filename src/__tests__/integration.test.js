@@ -248,6 +248,21 @@ describe('Narrative presentation contract', () => {
     ])
     expect(inlineMarkers.content).not.toContain(':::')
 
+    // P6：模型把整轮正文压成一行（句子间空格分隔、无 marker 无空行）时的句子级兜底分段。
+    const squeezed = parseNarrativePresentation(
+      ':::narration\n柳洵眉心微动。 他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。 三日，够拖成要命的痨病。',
+      { messageId: 'squeezed' }
+    )
+    expect(squeezed.blocks).toHaveLength(3)
+    expect(squeezed.blocks.map((block) => block.text)).toEqual([
+      '柳洵眉心微动。',
+      '他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。',
+      '三日，够拖成要命的痨病。'
+    ])
+    // 1-2 个句子的正常短块不拆
+    const shortBlock = parseNarrativePresentation(':::narration\n他握紧了刀。', { messageId: 'short-block' })
+    expect(shortBlock.blocks).toHaveLength(1)
+
     const preamble = parseNarrativePresentation('模型说明\n:::dialogue|陆晨曦\n“继续。”', {
       messageId: 'preamble'
     })
