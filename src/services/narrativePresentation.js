@@ -1,6 +1,9 @@
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
-const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:\|([^\s|]{1,80}))?\s*(.*)$/i
-const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|]+(?:\|[^\n]*)?\s*(.*)$/
+// P3：接受 | 或全角冒号（：）作为 speaker 分隔符
+const MARKER_RE = /^\s*:::\s*(narration|action|dialogue|thought|system)(?:[|：]([^\s|：]{1,80}))?\s*(.*)$/i
+const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
+// P3：所有围栏变体
+const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
 
 export const NARRATIVE_PRESENTATION_VERSION = 3
 export const NARRATIVE_BLOCK_KINDS = Object.freeze([...BLOCK_KINDS])
@@ -89,7 +92,7 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   }
 
   for (const line of lines) {
-    if (/^\s*```(?:text|markdown)?\s*$/i.test(line)) continue
+    if (FENCE_RE.test(line)) continue
     const marker = line.match(MARKER_RE)
     if (marker) {
       sawMarker = true
@@ -116,6 +119,10 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   flush()
 
   if (!sawMarker || (complete && blocks.length === 0)) return null
+  // P3：transport sanitizer —— 移除残留的协议头（行首 :::kind|speaker）
+  for (const block of blocks) {
+    block.text = sanitizeTransportMarkers(block.text)
+  }
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'model-structured',
@@ -126,11 +133,18 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   }
 }
 
+// P3：transport sanitizer —— 移除残留的协议头（行首 :::kind|speaker 或 :::kind），
+// 保留正文；中间的 `a ::: b` 不受影响（只在行首匹配）。
+function sanitizeTransportMarkers(text) {
+  return String(text || '').replace(/^(\s*):::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gim, '$1')
+}
+
 function trimPendingMarkerLine(text) {
   const source = String(text || '')
   const lines = source.split(/\r?\n/)
   const lastLine = lines[lines.length - 1]
-  if (/^:{1,3}[a-z]*(?:\|[^\n]*)?$/i.test(lastLine)) lines.pop()
+  // P3：任何 marker 前缀半成品（含 kind、speaker 分隔符和未完成的 speaker 名）都暂存
+  if (/^\s*:{1,3}\s*[a-z]*(?:[|：][^\n]*)?$/i.test(lastLine)) lines.pop()
   return lines.join('\n')
 }
 
