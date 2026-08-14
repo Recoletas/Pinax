@@ -3586,6 +3586,67 @@ function quickNoteWordCount(text) {
   }
 }
 
+/* M1：移动工作区骨架（≤760px）—— 单一主滚动区、窄边距、顶栏单行。
+   桌面 56px 左内边距为 activity-bar 预留，但移动端该栏已离屏（-322px），
+   属死重；顶栏只留 标题 + 移动会话名 + 索引 + 设定，阅读节奏/会话芯片折叠。 */
+@media (max-width: 760px) {
+  /* 装饰 contour 线（right 456px）与 off-canvas activity-bar 造成横向溢出 → 裁剪 */
+  .game-page.game-page {
+    overflow-x: clip;
+  }
+
+  .game-page.game-page .ws-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    padding: 8px 12px 10px;
+    gap: 8px;
+  }
+
+  :not(.theme-kao) .ws-topstrip {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    min-height: 44px;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+
+  /* ≤720px 块把 main/actions 强制为 100% 宽造成两行 —— 移动端收回单行 */
+  .game-page .ws-topstrip__main {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .game-page .ws-topstrip__actions {
+    display: flex;
+    width: auto;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  :not(.theme-kao) .ws-topstrip__reading-control,
+  :not(.theme-kao) .ws-topstrip__session-chip {
+    display: none;
+  }
+
+  :not(.theme-kao) .ws-center-stage {
+    grid-row: 2;
+    grid-column: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* 右栏（现场索引）在移动端为近全宽 sheet，不再排正文下方 */
+  .game-page.game-page .ws-right-rail {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    left: 8px;
+    width: auto;
+  }
+}
+
 /* UI-E4A: dedupe right-rail section labels.
    The dossier-stamp kicker above is the canonical first-read title
    ("卷宗一 · 在场人物" etc.). The internal sub-panel header text

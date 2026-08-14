@@ -48,6 +48,7 @@
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。
 6. 推进漫画 M7 连续性质检，并各完成一张 MiniMax 插画与一条 6 秒 768P 视频真实 smoke。
 7. 地图继续父子区域、相邻关系、remap、LOD 与标签碰撞；不再扩张未接入的实验模块。
+8. 按 `docs/plan/experience-mobile-adaptation-plan-20260814.md` 收口体验页与写作页移动端：先处理体验页唯一滚动容器/输入区键盘安全区，再处理写作页空格命令、选区批注和改写面板。
 
 ## Working rules
 
