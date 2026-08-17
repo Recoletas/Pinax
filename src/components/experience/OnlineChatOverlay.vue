@@ -72,7 +72,7 @@ useTransientLayer({
   <button
     v-if="!showPanel"
     type="button"
-    class="online-chat-launcher"
+    class="online-chat-launcher control-icon"
     title="打开房间聊天"
     aria-label="打开房间聊天"
     @click="openChat"
@@ -96,7 +96,7 @@ useTransientLayer({
       <button
         ref="toggleRef"
         type="button"
-        class="online-chat__toggle"
+        class="online-chat__toggle control-icon"
         :title="expanded ? '收起聊天记录' : '展开聊天记录'"
         :aria-label="expanded ? '收起聊天记录' : '展开聊天记录'"
         :aria-expanded="expanded"
@@ -134,7 +134,7 @@ useTransientLayer({
       />
       <button
         type="submit"
-        class="online-chat__send"
+        class="online-chat__send control-icon"
         :disabled="!isConnected || !draft.trim()"
         title="发送消息"
         aria-label="发送消息"
@@ -189,9 +189,9 @@ useTransientLayer({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-secondary) 48%, transparent);
   color: var(--text-secondary);
   box-shadow: 0 5px 14px color-mix(in srgb, var(--bg-primary) 18%, transparent);
   backdrop-filter: blur(7px);
@@ -200,7 +200,6 @@ useTransientLayer({
 
 .online-chat-launcher:hover {
   color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--archive-gold, var(--text-secondary)) 42%, transparent);
 }
 
 .online-chat-launcher:focus-visible {
@@ -210,7 +209,6 @@ useTransientLayer({
 
 .online-chat.is-expanded {
   grid-template-rows: 30px minmax(0, 220px) 38px;
-  border-color: color-mix(in srgb, var(--archive-gold, var(--text-secondary)) 32%, transparent);
   background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
 }
 
@@ -352,7 +350,7 @@ useTransientLayer({
   width: 36px;
   height: 100%;
   padding: 0;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 16%, transparent);
+  border-left: 0;
 }
 
 @media (max-width: 640px) {

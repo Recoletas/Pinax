@@ -3,7 +3,6 @@ import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
-import SidePanel from '../components/workbench/SidePanel.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
@@ -17,16 +16,17 @@ const router = useRouter()
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
 const drawerCloseRef = ref(null)
-const tabbarRef = ref(null)
 
 const currentActivityKey = computed(() => resolveActivityKey(route))
 const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
-const panelItems = computed(() => currentPanel.value.items || [])
 const hideActivityBar = computed(() => Boolean(route.meta?.hideActivityBar))
 const hideSidePanel = computed(() => Boolean(route.meta?.hideSidePanel))
 const isImmersiveShell = computed(() => Boolean(route.meta?.immersiveShell))
-const drawerHasPanel = computed(() => !hideSidePanel.value && panelItems.value.length > 1)
-const currentRouteCaption = computed(() => String(route.meta?.title || currentPanel.value.title || '工作区'))
+const activePanel = computed(() => hideSidePanel.value ? { title: '', items: [] } : currentPanel.value)
+const currentRouteCaption = computed(() => {
+  const activity = ACTIVITY_ITEMS.find((item) => item.key === currentActivityKey.value)
+  return String(route.meta?.title || activity?.label || '工作区')
+})
 
 /* V4 (2026-06-26): direction-aware page-route transition. We resolve
    the previous activity key before the route swap, then on the new
@@ -77,7 +77,6 @@ function onPageBeforeLeave(el) {
 }
 
 const storageHealth = useStorageHealth()
-const storageChipLabel = computed(() => `存储 ${storageHealth.percent.value}%`)
 const settingsPopup = useSettingsPopup()
 function openSettings(section) {
   settingsPopup.open(section)
@@ -158,39 +157,12 @@ function handleSelectActivity(activityKey) {
   closeDrawer()
 }
 
-function handleTabKeydown(event, activityKey) {
-  const currentIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === activityKey)
-  if (currentIndex < 0) return
-  let nextIndex = currentIndex
-  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % ACTIVITY_ITEMS.length
-  else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + ACTIVITY_ITEMS.length) % ACTIVITY_ITEMS.length
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = ACTIVITY_ITEMS.length - 1
-  else return
-  event.preventDefault()
-  handleSelectActivity(ACTIVITY_ITEMS[nextIndex].key)
-  nextTick(() => tabbarRef.value?.querySelectorAll('[role="tab"]')?.[nextIndex]?.focus())
-}
-
 function handleSelectPanel(routeName) {
   if (!routeName) return
   if (route.name !== routeName) {
     router.push({ name: routeName })
   }
   closeDrawer()
-}
-
-/* R2-A (2026-07-16): Experience 子模式入口。体验 activity 激活时，
-   在 mast 上持续显示一个“联机”子链接 chip，避免用户必须先开
-   drawer 才能进入 /experience/online。仍然不是顶层 activity，只
-   是当前 activity 内的子模式快捷入口；和 shell-tab 同语言（硬
-   边、墨点印章、archive token），不引入新视觉家族。 */
-const ONLINE_SUBROUTE_NAME = 'online-experience'
-const showOnlineEntry = computed(() => currentActivityKey.value === 'experience')
-const onlineEntryActive = computed(() => String(route.name || '') === ONLINE_SUBROUTE_NAME)
-function handleSelectOnline() {
-  if (onlineEntryActive.value) return
-  router.push({ name: ONLINE_SUBROUTE_NAME })
 }
 
 </script>
@@ -218,74 +190,24 @@ function handleSelectOnline() {
             <WorkbenchIcon name="menu" :size="19" />
           </button>
           <div class="shell-brand-route">
+            <span class="shell-brand-mark">Pinax</span>
             <Transition name="caption-fade" mode="out-in">
               <strong :key="currentRouteCaption">{{ currentRouteCaption }}</strong>
             </Transition>
           </div>
         </div>
 
-        <nav ref="tabbarRef" class="shell-tabbar" role="tablist" aria-label="顶部活动导航">
-          <button
-            v-for="item in ACTIVITY_ITEMS"
-            :key="item.key"
-            class="shell-tab"
-            :class="{ active: item.key === currentActivityKey }"
-            role="tab"
-            :aria-selected="(item.key === currentActivityKey).toString()"
-            :tabindex="item.key === currentActivityKey ? 0 : -1"
-            :aria-label="item.label"
-            type="button"
-            @click="handleSelectActivity(item.key)"
-            @keydown="handleTabKeydown($event, item.key)"
-          >
-            <WorkbenchIcon :name="item.icon" :size="15" />
-            <span class="shell-tab__label">{{ item.label }}</span>
-          </button>
-        </nav>
-
-        <!-- R2-A: 体验 activity 的子模式入口（联机）。不新增顶层 activity，
-             只在体验激活时把入口常驻 mast 上；语言沿用 shell-tab 的
-             硬边纸签 + archive token，不引入新视觉家族。 -->
-        <nav v-if="showOnlineEntry" class="shell-subnav" aria-label="体验子模式">
-          <button
-            class="shell-subnav-btn"
-            :class="{ active: onlineEntryActive }"
-            type="button"
-            :aria-current="onlineEntryActive ? 'page' : 'false'"
-            aria-label="进入联机房间"
-            @click="handleSelectOnline"
-          >
-            <WorkbenchIcon class="shell-subnav-icon" name="users" :size="14" />
-            <span class="shell-subnav-label">联机</span>
-          </button>
-        </nav>
-
         <div class="shell-mast__meta">
           <button
             v-if="storageHealth.showChip.value"
-            class="shell-storage-chip"
+            class="shell-storage-status control-icon"
             :class="storageHealth.level.value"
             type="button"
-            :aria-label="`存储已用 ${storageHealth.percent.value}%，点击查看存储详情`"
-            data-test="shell-storage-chip"
+            :aria-label="storageHealth.isCritical.value ? '存储超限，打开存储详情' : '存储偏高，打开存储详情'"
+            :title="storageHealth.isCritical.value ? '存储超限' : '存储偏高'"
+            data-test="shell-storage-status"
             @click="openSettings('storage')"
-          >{{ storageChipLabel }}</button>
-          <button
-            class="shell-meta-chip"
-            type="button"
-            aria-label="打开文档"
-            data-test="shell-docs-chip"
-            title="文档 (?)"
-            @click="openDocs"
-          ><WorkbenchIcon name="book" :size="16" /><span class="shell-meta-chip-label">文档</span></button>
-          <button
-            class="shell-meta-chip"
-            type="button"
-            aria-label="打开设置"
-            data-test="shell-settings-chip"
-            @click="openSettings('ai')"
-            title="设置"
-          ><WorkbenchIcon name="settings" :size="16" /><span class="shell-meta-chip-label">设置</span></button>
+          ><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
         </div>
       </header>
 
@@ -308,7 +230,7 @@ function handleSelectOnline() {
         class="shell-drawer"
         variant="chrome"
         :decorated="false"
-        :class="{ open: drawerOpen, 'has-panel': drawerHasPanel }"
+        :class="{ open: drawerOpen }"
         role="dialog"
         aria-modal="true"
         :aria-hidden="drawerOpen ? 'false' : 'true'"
@@ -324,25 +246,33 @@ function handleSelectOnline() {
         </div>
 
         <div class="shell-drawer__body">
-          <div class="shell-drawer__activity">
-            <ActivityBar
-              :items="ACTIVITY_ITEMS"
-              :active-key="currentActivityKey"
-              @select="handleSelectActivity"
-            />
+          <ActivityBar
+            :items="ACTIVITY_ITEMS"
+            :active-key="currentActivityKey"
+            :active-panel="activePanel"
+            :active-route-name="String(route.name || '')"
+            @select="handleSelectActivity"
+            @select-route="handleSelectPanel"
+          />
+          <div class="shell-drawer__utility" aria-label="工具">
+            <button class="shell-drawer__utility-btn" type="button" @click="openDocs">
+              <WorkbenchIcon name="book" :size="16" />
+              <span>文档</span>
+            </button>
+            <button class="shell-drawer__utility-btn" type="button" @click="openSettings('ai')">
+              <WorkbenchIcon name="settings" :size="16" />
+              <span>设置</span>
+            </button>
+            <button
+              v-if="storageHealth.showChip.value"
+              class="shell-drawer__utility-btn shell-drawer__utility-btn--warning"
+              type="button"
+              @click="openSettings('storage')"
+            >
+              <span class="shell-storage-status__dot" aria-hidden="true"></span>
+              <span>{{ storageHealth.isCritical.value ? '存储超限' : '存储偏高' }}</span>
+            </button>
           </div>
-
-          <div v-if="drawerHasPanel" class="shell-drawer__panel">
-            <SidePanel
-              :title="currentPanel.title"
-              :items="panelItems"
-              :active-route-name="String(route.name || '')"
-              @select="handleSelectPanel"
-            />
-          </div>
-
-          <!-- K5 (2026-06-27): theme switcher 移出侧边栏, 只在 SettingsPopup
-               "外观" tab 提供. 侧边栏是导航, 不再承担主题配置. -->
         </div>
       </FolioSurface>
     </template>
@@ -1328,6 +1258,189 @@ function handleSelectOnline() {
   .shell-tab::before {
     transition: opacity 0.01s ease, width 0.01s ease, margin-right 0.01s ease;
     transform: none;
+  }
+}
+
+/* U5-R C1-C2: the shell has one context bar and one navigation tree.
+   Older tab/chip rules remain below for compatibility with archived
+   routes, but the active shell no longer renders those surfaces. */
+.shell-mast {
+  min-height: 50px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 7px 16px;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+}
+
+.shell-mast__brand {
+  gap: 11px;
+}
+
+.shell-menu-btn {
+  width: 38px;
+  height: 36px;
+  border: 0;
+  clip-path: none;
+  background: transparent;
+  color: var(--archive-ink-soft);
+}
+
+.shell-menu-btn:hover {
+  transform: none;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  color: var(--archive-ink);
+}
+
+.shell-brand-route {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.shell-brand-mark {
+  display: inline-block;
+  color: color-mix(in srgb, var(--archive-rose) 76%, var(--archive-ink));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.shell-brand-route strong {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shell-mast__meta {
+  min-width: 38px;
+  align-items: center;
+}
+
+.shell-storage-status {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.shell-storage-status__dot {
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--archive-gold);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--archive-gold) 12%, transparent);
+}
+
+.shell-storage-status.critical .shell-storage-status__dot,
+.shell-drawer__utility-btn--warning .shell-storage-status__dot {
+  background: var(--danger, #a34b4b);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger, #a34b4b) 12%, transparent);
+}
+
+.shell-drawer {
+  width: min(304px, calc(100vw - 20px));
+  clip-path: none;
+  border-right-color: color-mix(in srgb, var(--archive-olive) 18%, transparent);
+  box-shadow: 12px 0 34px color-mix(in srgb, var(--archive-ink) 12%, transparent);
+}
+
+.shell-drawer__head {
+  align-items: center;
+  padding: 15px 18px 13px;
+  background: transparent;
+}
+
+.shell-drawer__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.shell-drawer__copy span {
+  color: color-mix(in srgb, var(--archive-rose) 76%, var(--archive-ink));
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: none;
+}
+
+.shell-drawer__copy strong {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shell-drawer__close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  clip-path: none;
+  background: transparent;
+  font-size: 22px;
+}
+
+.shell-drawer__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.shell-drawer__utility {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px max(14px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 16%, transparent);
+}
+
+.shell-drawer__utility-btn {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-drawer__utility-btn:hover {
+  background: color-mix(in srgb, var(--archive-olive) 7%, transparent);
+  color: var(--archive-ink);
+}
+
+.shell-drawer__utility-btn--warning {
+  color: var(--danger, #a34b4b);
+}
+
+.shell-drawer__utility-btn:focus-visible,
+.shell-menu-btn:focus-visible,
+.shell-drawer__close:focus-visible,
+.shell-storage-status:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .shell-mast {
+    min-height: 46px;
+    padding: 5px 10px;
+  }
+
+  .shell-brand-route {
+    gap: 7px;
+  }
+
+  .shell-brand-route strong {
+    max-width: min(52vw, 220px);
   }
 }
 </style>

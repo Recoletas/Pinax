@@ -1,141 +1,132 @@
 <template>
-  <section class="card structured-settings-panel" :class="{ 'is-continuous': !isKao }">
-    <div class="card-head structured-head">
-      <div>
-        <span class="panel-kicker">设定工作台</span>
-        <h2>结构化设定</h2>
-      </div>
-      <div class="panel-badges" aria-label="当前分区状态">
-        <span>{{ activeSection.label }} · {{ activeSection.fields.length }} 项</span>
-        <span v-if="readyDraftCount > 0" class="draft-badge">{{ readyDraftCount }} 草稿</span>
-      </div>
-    </div>
+  <section class="structured-settings-panel" :class="{ 'is-continuous': !isKao }">
+    <div class="section-workbench">
+      <aside class="section-rail">
+        <div class="panel-lead">
+          <div>
+            <span class="panel-kicker">CURRENT SECTION</span>
+            <h2>{{ activeSection.label }}</h2>
+            <p>{{ activeSection.description }}</p>
+          </div>
+          <div class="panel-summary" aria-label="当前分区状态">
+            <span>{{ activeSection.fields.length }} 项</span>
+            <span v-if="readyDraftCount > 0" class="draft-summary">{{ readyDraftCount }} 待审</span>
+          </div>
+        </div>
 
-    <nav class="section-tabs">
-      <button
-        v-for="section in sections"
-        :key="section.key"
-        :class="['section-tab', { active: activeSectionKey === section.key }]"
-        @click="activeSectionKey = section.key"
-      >
-        {{ section.label }}
-      </button>
-      <button
-        type="button"
-        class="section-ai-btn"
-        :class="`is-${sectionGenState}`"
-        :aria-label="`为「${activeSection.label}」批量生成 AI 草稿`"
-        @click="onSectionAiClick"
-      >
-        <span class="ai-btn-text">{{ sectionAiButtonText }}</span>
-      </button>
-      <button
-        type="button"
-        class="brief-toggle-btn"
-        :aria-pressed="showBriefBar"
-        :aria-label="showBriefBar ? '收起生成要求' : '补充生成要求'"
-        @click="showBriefBar = !showBriefBar"
-      >{{ showBriefBar ? '收起要求' : '补充要求' }}</button>
-    </nav>
-
-    <div v-if="showBriefBar" class="brief-bar-wrapper">
-      <GenerationBriefBar
-        :model-value="sectionBrief"
-        :section-key="activeSectionKey"
-        @update:model-value="onBriefChange"
-      />
-    </div>
-
-    <GenerationStatus
-      v-if="sectionGenState !== 'idle'"
-      :state="sectionGenState"
-      :progress="sectionGenProgress"
-      :phase="sectionGenPhase"
-      :error="sectionGenError"
-      :retry-label="sectionRetryLabel"
-      @retry="retrySectionGen"
-    />
-    <div
-      v-if="sectionGenState === 'error' && sectionGenFailedFields.length"
-      class="generation-failed-fields"
-      role="status"
-    >
-      未通过校验：{{ failedFieldLabels }}。已生成内容仍保留在草稿中。
-    </div>
-
-    <div v-if="feedback" class="feedback-line">{{ feedback }}</div>
-
-    <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
-      <div class="fields-grid">
-        <SettingFieldCard
-          v-for="field in activeSection.fields"
-          :ref="(el) => registerFieldRef(field, el)"
-          :key="field.key"
-          :worldbook-id="props.worldbook.id"
-          :section="activeSection"
-          :field="field"
-          v-model="form[activeSectionKey][field.key]"
-          :working="workingKey === `${activeSectionKey}.${field.key}`"
-          :has-draft="hasDraftForField(field.key)"
-          @generate="generateField"
-          @saved="onFieldSaved"
-        />
-      </div>
-
-      <PlaceCatalog
-        v-if="activeSectionKey === 'world'"
-        :worldbook="props.worldbook"
-        @saved="onFieldSaved"
-      />
-
-      <SettingDraftReview
-        v-if="focusedDraft"
-        :draft="focusedDraft"
-        :current-field-value="focusedDraftCurrentValue"
-        :status="focusedDraftStatus"
-        :revision-instruction="focusedDraft.revisionInstruction || ''"
-        :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
-        :revision-error="focusedRevisionError"
-        :revision-history="focusedDraft.revisionHistory || []"
-        :revision-index="focusedDraft.revisionIndex || 0"
-        :can-import-to-experience="canImportFocusedDraftToExperience"
-        @discard="discardFocusedDraft"
-        @update:content="updateFocusedDraftContent"
-        @update:revision-instruction="updateFocusedDraftInstruction"
-        @save-field="saveDraftToField"
-        @copy="copyDraft"
-        @retry="retryFocusedDraft"
-        @revise="reviseFocusedDraft"
-        @previous-revision="previousRevision"
-        @next-revision="nextRevision"
-        @import-to-experience="importFocusedDraftToExperience"
-      />
-    </div>
-
-    <details v-if="readyDraftCount > 0" class="draft-drawer" :open="false">
-      <summary>本节已生成草稿（{{ readyDraftCount }}）</summary>
-      <ul class="draft-drawer-list">
-        <li
-          v-for="entry in readyDraftEntries"
-          :key="entry.fieldKey"
-          :class="{ active: focusedDraftKey === entry.fieldKey }"
-        >
-          <button class="draft-drawer-item" @click="focusDraft(entry.fieldKey)">
-            <span class="draft-drawer-label">{{ entry.fieldLabel }}</span>
-            <span class="draft-drawer-snippet">{{ entry.snippet }}</span>
-            <span class="draft-drawer-actions">
-              <span
-                role="button"
-                tabindex="0"
-                class="drawer-act"
-                :aria-label="`丢弃「${entry.fieldLabel}」草稿`"
-                @click.stop="discardDraft(entry.fieldKey)"
-              >丢弃</span>
-            </span>
+        <nav class="section-tabs" aria-label="结构化设定分区">
+          <button
+            v-for="section in sections"
+            :key="section.key"
+            :class="['section-tab', { active: activeSectionKey === section.key }]"
+            @click="activeSectionKey = section.key"
+          >
+            <span>{{ section.label }}</span>
+            <i aria-hidden="true"></i>
           </button>
-        </li>
-      </ul>
-    </details>
+        </nav>
+
+        <div class="section-actions">
+          <button
+            type="button"
+            class="section-ai-btn"
+            :class="`is-${sectionGenState}`"
+            :aria-label="`为「${activeSection.label}」批量生成 AI 草稿`"
+            @click="onSectionAiClick"
+          >
+            <WorkbenchIcon name="sparkles" :size="15" />
+            <span class="ai-btn-text">{{ sectionAiButtonText }}</span>
+          </button>
+          <button
+            type="button"
+            class="brief-toggle-btn"
+            :aria-pressed="showBriefBar"
+            :aria-label="showBriefBar ? '收起生成要求' : '补充生成要求'"
+            @click="showBriefBar = !showBriefBar"
+          >
+            <WorkbenchIcon name="pencil" :size="14" />
+            <span>{{ showBriefBar ? '收起要求' : '补充要求' }}</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="section-canvas">
+        <div v-if="showBriefBar" class="brief-bar-wrapper">
+          <GenerationBriefBar
+            :model-value="sectionBrief"
+            :section-key="activeSectionKey"
+            @update:model-value="onBriefChange"
+          />
+        </div>
+
+        <GenerationStatus
+          v-if="sectionGenState !== 'idle'"
+          :state="sectionGenState"
+          :progress="sectionGenProgress"
+          :phase="sectionGenPhase"
+          :error="sectionGenError"
+          :retry-label="sectionRetryLabel"
+          @retry="retrySectionGen"
+        />
+        <div
+          v-if="['partial', 'error', 'stale'].includes(sectionGenState) && sectionGenFailedFields.length"
+          class="generation-failed-fields"
+          role="status"
+        >
+          未通过校验：{{ failedFieldLabels }}。已生成内容仍保留在草稿中。
+        </div>
+
+        <div v-if="feedback" class="feedback-line">{{ feedback }}</div>
+
+        <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
+          <div class="fields-grid">
+            <SettingFieldCard
+              v-for="field in activeSection.fields"
+              :ref="(el) => registerFieldRef(field, el)"
+              :key="field.key"
+              :worldbook-id="props.worldbook.id"
+              :section="activeSection"
+              :field="field"
+              v-model="form[activeSectionKey][field.key]"
+              :working="workingKey === `${activeSectionKey}.${field.key}`"
+              :has-draft="hasDraftForField(field.key)"
+              @generate="generateField"
+              @saved="onFieldSaved"
+            />
+          </div>
+
+          <PlaceCatalog
+            v-if="activeSectionKey === 'world'"
+            :worldbook="props.worldbook"
+            @saved="onFieldSaved"
+          />
+
+          <SettingDraftReview
+            v-if="focusedDraft"
+            :draft="focusedDraft"
+            :current-field-value="focusedDraftCurrentValue"
+            :status="focusedDraftStatus"
+            :revision-instruction="focusedDraft.revisionInstruction || ''"
+            :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
+            :revision-error="focusedRevisionError"
+            :revision-history="focusedDraft.revisionHistory || []"
+            :revision-index="focusedDraft.revisionIndex || 0"
+            :source-candidate-error="focusedDraft.sourceCandidateError || ''"
+            :can-import-to-experience="canImportFocusedDraftToExperience"
+            @discard="discardFocusedDraft"
+            @update:content="updateFocusedDraftContent"
+            @update:revision-instruction="updateFocusedDraftInstruction"
+            @save-field="saveDraftToField"
+            @copy="copyDraft"
+            @retry="retryFocusedDraft"
+            @revise="reviseFocusedDraft"
+            @previous-revision="previousRevision"
+            @next-revision="nextRevision"
+            @import-to-experience="importFocusedDraftToExperience"
+          />
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -163,6 +154,7 @@ import SettingDraftReview from './SettingDraftReview.vue'
 import GenerationBriefBar from './GenerationBriefBar.vue'
 import GenerationStatus from './GenerationStatus.vue'
 import PlaceCatalog from './PlaceCatalog.vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
 const props = defineProps({
   worldbook: { type: Object, required: true }
@@ -236,6 +228,11 @@ function onFieldSaved(savedAt) {
 
 async function generateField({ sectionKey, fieldKey }) {
   const field = getSettingField(sectionKey, fieldKey)
+  if (!field) return
+  abortFieldGeneration()
+  const runId = fieldRunSequence
+  const ac = new AbortController()
+  fieldAbortController = ac
   const generationRevision = getWorldbookRevision()
   workingKey.value = `${sectionKey}.${fieldKey}`
   feedback.value = ''
@@ -245,29 +242,41 @@ async function generateField({ sectionKey, fieldKey }) {
     fieldKey,
     userBrief: sectionBrief.value
   })
-  const result = await generateSettingFieldDraft({
-    worldbook: { ...props.worldbook, structuredSettings: form },
-    sectionKey,
-    fieldKey,
-    userBrief: sectionBrief.value
-  })
-  workingKey.value = ''
-  if (!result.ok) {
-    feedback.value = result.reason
-    return
+  try {
+    const result = await generateSettingFieldDraft({
+      worldbook: { ...props.worldbook, structuredSettings: form },
+      sectionKey,
+      fieldKey,
+      userBrief: sectionBrief.value,
+      signal: ac.signal
+    })
+    if (ac.signal.aborted || runId !== fieldRunSequence) return
+    if (!result.ok) {
+      feedback.value = result.reason
+      return
+    }
+    if (generationRevision && getWorldbookRevision() !== generationRevision) {
+      feedback.value = '世界书已在生成期间更新，本次草稿已过期，请重新生成。'
+      return
+    }
+    setDraft(sectionKey, fieldKey, {
+      fieldKey,
+      fieldLabel: field.label,
+      content: result.content,
+      promptPreview,
+      worldbookRevision: generationRevision
+    })
+    focusDraft(fieldKey)
+  } catch (error) {
+    if (!ac.signal.aborted && runId === fieldRunSequence) {
+      feedback.value = error?.message || '设定项生成失败，请稍后重试。'
+    }
+  } finally {
+    if (runId === fieldRunSequence) {
+      workingKey.value = ''
+      fieldAbortController = null
+    }
   }
-  if (generationRevision && getWorldbookRevision() !== generationRevision) {
-    feedback.value = '世界书已在生成期间更新，本次草稿已丢弃，请重新生成。'
-    return
-  }
-  setDraft(sectionKey, fieldKey, {
-    fieldKey,
-    fieldLabel: field.label,
-    content: result.content,
-    promptPreview,
-    worldbookRevision: generationRevision
-  })
-  focusDraft(fieldKey)
 }
 
 function updateDraftContent(content) {
@@ -302,7 +311,7 @@ function updateDraftContentInternal(fieldKey, content) {
 }
 
 // ---------- 整 section 批量：状态机 + abort ----------
-// 5 态：idle | pending | success | error | aborted
+// idle | pending | success | partial | error | aborted | stale
 const sectionGenState = ref('idle')
 const sectionGenProgress = ref('')
 const sectionGenPhase = ref('')
@@ -313,6 +322,8 @@ const showBriefBar = ref(false)
 let sectionAbortController = null
 let sectionGenStartedAt = 0
 let revisionAbortController = null
+let fieldAbortController = null
+let fieldRunSequence = 0
 const revisionState = ref('idle')
 const revisionError = ref('')
 const revisionDraftKey = ref('')
@@ -321,8 +332,10 @@ const sectionAiButtonText = computed(() => {
   switch (sectionGenState.value) {
     case 'pending': return `中止${sectionGenPhase.value ? ` · ${sectionGenPhase.value}` : ''}`
     case 'success': return '已生成'
+    case 'partial': return `重试失败项（${sectionGenFailedFields.value.length}）`
     case 'error': return sectionGenFailedFields.value.length ? `重试失败项（${sectionGenFailedFields.value.length}）` : '重试整节'
     case 'aborted': return '已中止'
+    case 'stale': return '重新生成（内容已过期）'
     default: return 'AI 补全本节'
   }
 })
@@ -355,6 +368,12 @@ function onBriefChange(value) {
 // 切走 section → abort + 读新 brief + 重置 brief bar 隐藏
 watch(activeSectionKey, () => {
   abortSectionGen()
+  abortFieldGeneration()
+  sectionGenState.value = 'idle'
+  sectionGenProgress.value = ''
+  sectionGenPhase.value = ''
+  sectionGenError.value = ''
+  sectionGenFailedFields.value = []
   abortRevision()
   revisionError.value = ''
   revisionDraftKey.value = ''
@@ -366,6 +385,7 @@ watch(activeSectionKey, () => {
 
 onBeforeUnmount(() => {
   abortSectionGen()
+  abortFieldGeneration()
   abortRevision()
   saveDraftState()
 })
@@ -378,6 +398,15 @@ function abortSectionGen() {
     sectionAbortController.abort()
     sectionAbortController = null
   }
+}
+
+function abortFieldGeneration() {
+  fieldRunSequence += 1
+  if (fieldAbortController) {
+    fieldAbortController.abort()
+    fieldAbortController = null
+  }
+  workingKey.value = ''
 }
 
 function abortRevision() {
@@ -400,8 +429,10 @@ async function onSectionAiClick() {
 }
 
 function retrySectionGen() {
-  if (sectionGenState.value === 'error') {
+  if (['partial', 'error'].includes(sectionGenState.value)) {
     runSectionGen({ fieldKeys: sectionGenFailedFields.value })
+  } else if (sectionGenState.value === 'stale') {
+    runSectionGen()
   }
 }
 
@@ -420,79 +451,108 @@ async function runSectionGen({ fieldKeys = null } = {}) {
     ? section.fields.filter((field) => fieldKeys.includes(field.key))
     : section.fields
   sectionGenProgress.value = `0/${requestedFields.length}`
-  const results = await generateSettingSectionDraft({
-    sectionKey: section.key,
-    worldbook: { ...props.worldbook, structuredSettings: form },
-    userBrief: sectionBrief.value,
-    signal: ac.signal,
-    fieldKeys: requestedFields.map((field) => field.key),
-    onProgress: ({ index, total, phase }) => {
-      sectionGenPhase.value = phase === 'repairing'
-        ? '修复失败项'
-        : phase === 'validated'
-          ? '校验草稿'
-          : '请求模型'
-      sectionGenProgress.value = phase === 'validated' ? '' : `${Math.min(index + 1, total)}/${total}`
-    }
-  })
-
-  // 应用成功结果到 multiDrafts；error 原因记录到 error（仅第一个失败的，避免一次性列多个）
-  if (ac.signal.aborted) {
-    sectionGenState.value = 'aborted'
-    sectionGenPhase.value = '已取消'
-    sectionGenProgress.value = ''
-    sectionAbortController = null
-    return
-  }
-  if (generationRevision && getWorldbookRevision() !== generationRevision) {
-    sectionGenState.value = 'error'
-    sectionGenPhase.value = '需要刷新'
-    sectionGenError.value = '世界书已在生成期间更新，未应用旧草稿。请确认最新内容后重试。'
-    sectionGenFailedFields.value = requestedFields.map((field) => field.key)
-    sectionAbortController = null
-    return
-  }
-  let firstError = ''
-  const failedFields = []
-  for (const [fieldKey, result] of results) {
-    if (result.ok) {
-      const promptPreview = buildSettingPromptPreview({
-        worldbook: { ...props.worldbook, structuredSettings: form },
-        sectionKey: section.key,
-        fieldKey,
-        userBrief: sectionBrief.value
-      })
-      setDraft(section.key, fieldKey, {
-        fieldKey,
-        fieldLabel: result.fieldLabel,
-        content: result.content,
-        promptPreview,
-        worldbookRevision: generationRevision
-      })
-    } else if (!firstError) {
-      firstError = `${result.fieldLabel || fieldKey}：${result.reason}`
-      failedFields.push(fieldKey)
-    } else {
-      failedFields.push(fieldKey)
-    }
-  }
-  sectionGenFailedFields.value = failedFields
-  if (firstError) {
-    sectionGenState.value = 'error'
-    sectionGenPhase.value = '需要重试'
-    sectionGenError.value = firstError
-  } else {
-    sectionGenState.value = 'success'
-    sectionGenPhase.value = '完成'
-    sectionGenProgress.value = ''
-    setTimeout(() => {
-      if (sectionGenState.value === 'success') {
-        sectionGenState.value = 'idle'
-        sectionGenPhase.value = ''
+  try {
+    const results = await generateSettingSectionDraft({
+      sectionKey: section.key,
+      worldbook: { ...props.worldbook, structuredSettings: form },
+      userBrief: sectionBrief.value,
+      signal: ac.signal,
+      fieldKeys: requestedFields.map((field) => field.key),
+      onProgress: ({ index, total, phase }) => {
+        if (sectionAbortController !== ac) return
+        sectionGenPhase.value = phase === 'repairing'
+          ? '修复失败项'
+          : phase === 'extracting'
+            ? '整理来源事实'
+          : phase === 'validated'
+            ? '校验草稿'
+            : '请求模型'
+        sectionGenProgress.value = phase === 'validated' ? '' : `${Math.min(index + 1, total)}/${total}`
       }
-    }, 2000)
+    })
+
+    if (sectionAbortController !== ac) return
+    if (ac.signal.aborted) {
+      sectionGenState.value = 'aborted'
+      sectionGenPhase.value = '已取消'
+      sectionGenProgress.value = ''
+      return
+    }
+    if (generationRevision && getWorldbookRevision() !== generationRevision) {
+      sectionGenState.value = 'stale'
+      sectionGenPhase.value = '内容已过期'
+      sectionGenError.value = '世界书已在生成期间更新，未应用旧草稿。请确认最新内容后重新生成。'
+      sectionGenFailedFields.value = requestedFields.map((field) => field.key)
+      return
+    }
+
+    let firstError = ''
+    const failedFields = []
+    const successfulFields = []
+    for (const field of requestedFields) {
+      const fieldKey = field.key
+      const result = results.get(fieldKey)
+      if (result?.ok) {
+        const promptPreview = buildSettingPromptPreview({
+          worldbook: { ...props.worldbook, structuredSettings: form },
+          sectionKey: section.key,
+          fieldKey,
+          userBrief: sectionBrief.value
+        })
+        setDraft(section.key, fieldKey, {
+          fieldKey,
+          fieldLabel: result.fieldLabel,
+          content: result.content,
+          promptPreview,
+          worldbookRevision: generationRevision,
+          sourceCandidates: result.sourceCandidates || [],
+          sourceCandidateError: result.sourceCandidateError || ''
+        })
+        successfulFields.push(fieldKey)
+      } else {
+        const reason = result?.reason || '该设定项没有返回可用草稿。'
+        if (!firstError) firstError = `${field.label}：${reason}`
+        failedFields.push(fieldKey)
+      }
+    }
+    sectionGenFailedFields.value = failedFields
+    sectionGenProgress.value = ''
+    if (!focusedDraft.value && successfulFields.length) focusDraft(successfulFields[0])
+    if (firstError && successfulFields.length) {
+      sectionGenState.value = 'partial'
+      sectionGenPhase.value = '部分完成'
+      sectionGenError.value = firstError
+    } else if (firstError) {
+      sectionGenState.value = 'error'
+      sectionGenPhase.value = '需要重试'
+      sectionGenError.value = firstError
+    } else {
+      sectionGenState.value = 'success'
+      sectionGenPhase.value = '完成'
+      sectionGenError.value = ''
+      setTimeout(() => {
+        if (sectionGenState.value === 'success') {
+          sectionGenState.value = 'idle'
+          sectionGenPhase.value = ''
+        }
+      }, 2000)
+    }
+  } catch (error) {
+    if (sectionAbortController !== ac) return
+    if (ac.signal.aborted || error?.name === 'AbortError') {
+      sectionGenState.value = 'aborted'
+      sectionGenPhase.value = '已取消'
+      sectionGenProgress.value = ''
+      return
+    }
+    sectionGenState.value = 'error'
+    sectionGenPhase.value = '请求失败'
+    sectionGenError.value = error?.message || '结构化分区生成失败，请稍后重试。'
+    sectionGenFailedFields.value = requestedFields.map((field) => field.key)
+    sectionGenProgress.value = ''
+  } finally {
+    if (sectionAbortController === ac) sectionAbortController = null
   }
-  sectionAbortController = null
 }
 
 // ---------- multiDrafts: Map<sectionKey, Map<fieldKey, draft>> ----------
@@ -599,13 +659,13 @@ const focusedDraftCurrentValue = computed(() => {
   return form[activeSectionKey.value]?.[focusedDraftKey.value] || ''
 })
 const focusedDraftStatus = computed(() => {
-  // 复用 sectionGenState，但仅在 focusedDraft 与最近一次生成的 success/error/aborted 相关时
+  // 审核区只显示当前分区最近一轮生成的可行动状态；成功不占用审核区的纵向空间。
   if (!focusedDraftKey.value) return null
   if (sectionGenState.value === 'pending') {
     return { state: 'pending', progress: sectionGenProgress.value, error: '' }
   }
-  if (sectionGenState.value === 'error') {
-    return { state: 'error', progress: '', error: sectionGenError.value }
+  if (['partial', 'error', 'stale'].includes(sectionGenState.value)) {
+    return { state: sectionGenState.value, progress: '', error: sectionGenError.value }
   }
   return null
 })
@@ -973,24 +1033,19 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   min-height: 0;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary)), var(--bg-secondary));
-  box-shadow: 0 14px 34px color-mix(in srgb, #000 7%, transparent);
+  padding: 20px 0 0;
+  background: transparent;
 }
 
-.structured-head {
+.panel-lead {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 0;
-  padding-bottom: 4px;
+  padding: 0 2px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
 }
 
 .panel-kicker {
@@ -1002,33 +1057,39 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   color: color-mix(in srgb, var(--text-muted) 82%, var(--accent));
 }
 
-.structured-head h2 {
+.panel-lead h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 22px;
   line-height: 1.15;
   color: var(--text-primary);
 }
 
-.panel-badges {
+.panel-lead p {
+  max-width: 620px;
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.panel-summary {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.panel-badges span {
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+.panel-summary > span {
+  padding: 3px 0 3px 8px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   white-space: nowrap;
 }
 
-.panel-badges .draft-badge {
-  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
-  background: color-mix(in srgb, var(--success) 9%, var(--bg-primary));
+.panel-summary .draft-summary {
+  border-left-color: color-mix(in srgb, var(--accent) 62%, var(--border));
   color: var(--success);
 }
 
@@ -1037,18 +1098,18 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   gap: 7px;
   flex-wrap: wrap;
   align-items: center;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+  padding: 0 2px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background: transparent;
 }
 
 .section-tab {
-  border: 1px solid transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 9px;
-  padding: 7px 10px;
+  border-radius: 0;
+  padding: 7px 10px 8px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -1056,25 +1117,24 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .section-tab:hover {
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
   color: var(--text-primary);
 }
 
 .section-tab.active {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-bottom-color: var(--accent);
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
-  box-shadow: 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent) inset;
+  background: transparent;
 }
 
 .section-ai-btn {
   margin-left: auto;
-  border: 1px solid color-mix(in srgb, var(--accent) 54%, var(--border));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)), color-mix(in srgb, var(--accent) 8%, var(--bg-secondary)));
+  border: 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 66%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
-  border-radius: 9px;
-  padding: 7px 11px;
+  border-radius: 2px;
+  padding: 7px 11px 8px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -1082,8 +1142,8 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .section-ai-btn:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
 .section-ai-btn.is-pending {
@@ -1094,6 +1154,18 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .section-ai-btn.is-error {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.section-ai-btn.is-partial {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.section-ai-btn.is-stale {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .section-ai-btn.is-aborted {
@@ -1107,11 +1179,12 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .brief-toggle-btn {
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
   color: var(--text-muted);
-  border-radius: 9px;
-  padding: 7px 10px;
+  border-radius: 0;
+  padding: 7px 8px 8px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1119,7 +1192,7 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .brief-toggle-btn:hover {
-  border-color: var(--accent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 52%, transparent);
   color: var(--accent);
 }
 
@@ -1129,9 +1202,9 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .brief-toggle-btn[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-bottom-color: var(--accent);
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg-secondary));
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .brief-bar-wrapper {
@@ -1189,12 +1262,9 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 
 /* Theme 2 is a continuous setting manuscript, not a dashboard of cards. */
 .structured-settings-panel.is-continuous {
-  gap: 12px;
-  padding: 14px 18px 0;
-  border: 0;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--bg-primary));
-  box-shadow: none;
+  gap: 16px;
+  padding: 20px 0 0;
+  background: transparent;
 }
 
 .structured-settings-panel.is-continuous .section-tabs {
@@ -1218,16 +1288,12 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   font-size: 14px;
 }
 
-.structured-settings-panel.is-continuous .structured-head h2 {
+.structured-settings-panel.is-continuous .panel-lead h2 {
   font-size: 24px;
 }
 
 .structured-settings-panel.is-continuous .panel-kicker {
   font-size: 12px;
-}
-
-.structured-settings-panel.is-continuous .panel-badges {
-  font-size: 13px;
 }
 
 .structured-settings-panel.is-continuous .settings-editor-layout {
@@ -1240,6 +1306,21 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 
 .structured-settings-panel.is-continuous .settings-editor-layout.has-review {
   grid-template-columns: minmax(0, 1.5fr) minmax(360px, 0.8fr);
+  grid-template-areas:
+    "fields review"
+    "places review";
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout.has-review > .fields-grid {
+  grid-area: fields;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout.has-review > :deep(.place-catalog) {
+  grid-area: places;
+}
+
+.structured-settings-panel.is-continuous .settings-editor-layout.has-review > :deep(.setting-draft-review) {
+  grid-area: review;
 }
 
 .structured-settings-panel.is-continuous .fields-grid {
@@ -1307,9 +1388,12 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   top: 12px;
   max-height: calc(var(--app-viewport-height, 100vh) - 230px);
   overflow: auto;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 97%, var(--accent));
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 8%, transparent);
+  border-radius: 0;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 48%, var(--border));
+  padding: 2px 0 12px 18px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .draft-head h3) {
@@ -1380,20 +1464,42 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .structured-settings-panel.is-continuous .settings-editor-layout.has-review {
+    grid-template-areas:
+      "review"
+      "fields"
+      "places";
+  }
+
   .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
     position: static;
     max-height: none;
+    padding: 0 0 16px;
+    border-left: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   }
 }
 
 @media (max-width: 720px) {
   .structured-settings-panel.is-continuous {
-    padding: 12px 12px 0;
-    border-radius: 0;
+    padding: 16px 0 0;
   }
 
-  .structured-settings-panel.is-continuous .structured-head h2 {
+  .structured-settings-panel.is-continuous .panel-lead h2 {
     font-size: 22px;
+  }
+
+  .panel-lead {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .panel-summary {
+    justify-content: flex-start;
+  }
+
+  .section-tabs {
+    gap: 3px;
   }
 
   .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
@@ -1401,96 +1507,10 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   }
 }
 
-.draft-drawer {
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 12px;
-  padding: 9px 10px;
-  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
-}
-
-.draft-drawer summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 650;
-  user-select: none;
-}
-
-.draft-drawer-list {
-  list-style: none;
-  padding: 0;
-  margin: 6px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.draft-drawer-item {
-  width: 100%;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
-  color: var(--text-primary);
-  border-radius: 9px;
-  padding: 8px 9px;
-  text-align: left;
-  cursor: pointer;
-  display: grid;
-  grid-template-columns: minmax(82px, 0.25fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.draft-drawer-item:hover,
-.draft-drawer-list li.active .draft-drawer-item {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
-}
-
-.draft-drawer-label {
-  font-weight: 500;
-}
-
-.draft-drawer-snippet {
-  color: var(--text-muted);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.draft-drawer-actions {
-  display: flex;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.drawer-act {
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 3px 6px;
-  border-radius: 6px;
-}
-
-.drawer-act:hover {
-  background: var(--surface-raised);
-  color: var(--danger);
-}
-
-.drawer-act:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 @media (max-width: 720px) {
   .structured-settings-panel {
     padding: 12px;
     border-radius: 12px;
-  }
-
-  .structured-head {
-    flex-direction: column;
   }
 
   .section-ai-btn {
@@ -1500,6 +1520,339 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   .section-ai-btn,
   .brief-toggle-btn {
     flex: 1 1 auto;
+  }
+}
+
+/* Theme 2 redesign: section index on the left, editable dossier on the right. */
+.structured-settings-panel.is-continuous {
+  padding-top: 22px;
+}
+
+.structured-settings-panel.is-continuous .section-workbench {
+  display: grid;
+  grid-template-columns: minmax(180px, 214px) minmax(0, 1fr);
+  gap: clamp(22px, 3vw, 38px);
+  align-items: start;
+}
+
+.structured-settings-panel.is-continuous .section-rail {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 4px 22px 18px 0;
+  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 15%, var(--border));
+}
+
+.structured-settings-panel.is-continuous .panel-lead {
+  display: grid;
+  gap: 13px;
+  padding: 0 0 16px;
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 15%, var(--border));
+}
+
+.structured-settings-panel.is-continuous .panel-kicker {
+  margin-bottom: 7px;
+  color: var(--archive-ink-soft);
+  font: 600 8px/1 var(--font-mono);
+  letter-spacing: .16em;
+}
+
+.structured-settings-panel.is-continuous .panel-lead h2 {
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.structured-settings-panel.is-continuous .panel-lead p {
+  margin-top: 8px;
+  color: var(--archive-ink-soft);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.structured-settings-panel.is-continuous .panel-summary {
+  justify-content: flex-start;
+}
+
+.structured-settings-panel.is-continuous .panel-summary > span {
+  padding: 0 8px 0 0;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
+}
+
+.structured-settings-panel.is-continuous .section-tabs {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+}
+
+.structured-settings-panel.is-continuous .section-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.structured-settings-panel.is-continuous .section-tab i {
+  justify-self: end;
+  width: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--archive-gold) 56%, transparent);
+  transition: width var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+
+.structured-settings-panel.is-continuous .section-tab:hover {
+  background: color-mix(in srgb, var(--archive-olive) 4%, transparent);
+  color: var(--archive-ink);
+}
+
+.structured-settings-panel.is-continuous .section-tab.active {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--archive-ink);
+}
+
+.structured-settings-panel.is-continuous .section-tab.active i {
+  width: 16px;
+  background: var(--archive-rose);
+}
+
+.section-actions {
+  display: grid;
+  gap: 5px;
+}
+
+.structured-settings-panel.is-continuous .section-ai-btn,
+.structured-settings-panel.is-continuous .brief-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 3px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.structured-settings-panel.is-continuous .section-ai-btn {
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.structured-settings-panel.is-continuous .section-ai-btn:hover {
+  background: var(--accent-hover);
+}
+
+.structured-settings-panel.is-continuous .brief-toggle-btn {
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+}
+
+.structured-settings-panel.is-continuous .brief-toggle-btn:hover,
+.structured-settings-panel.is-continuous .brief-toggle-btn[aria-pressed="true"] {
+  border-bottom-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--accent);
+}
+
+.structured-settings-panel.is-continuous .section-canvas {
+  position: relative;
+  min-width: 0;
+}
+
+.structured-settings-panel.is-continuous .section-canvas::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 0;
+  width: 160px;
+  height: 72px;
+  opacity: .24;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--archive-gold) 56%, transparent) 0 1px, transparent 1.2px);
+  background-size: 12px 12px;
+  mask-image: linear-gradient(90deg, transparent, #000 40%, transparent);
+  pointer-events: none;
+}
+
+.structured-settings-panel.is-continuous .brief-bar-wrapper,
+.structured-settings-panel.is-continuous .feedback-line,
+.structured-settings-panel.is-continuous .generation-failed-fields {
+  margin-bottom: 14px;
+}
+
+.structured-settings-panel.is-continuous .fields-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  border: 0;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
+  min-height: 204px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 13%, var(--border));
+  border-top: 2px solid color-mix(in srgb, var(--archive-gold) 58%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 66%, transparent) inset;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(3n + 2)) {
+  border-top-color: color-mix(in srgb, var(--archive-rose) 48%, var(--archive-gold));
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 6%, transparent);
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
+  min-height: 132px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 12%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: var(--archive-paper-soft);
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn),
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint),
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
+  font-size: 11px;
+}
+
+@media (max-width: 980px) {
+  .structured-settings-panel.is-continuous .section-workbench {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .structured-settings-panel.is-continuous .section-rail {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(170px, .8fr) minmax(320px, 1.4fr) auto;
+    align-items: end;
+    gap: 14px;
+    padding: 0 0 16px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 15%, var(--border));
+  }
+
+  .structured-settings-panel.is-continuous .panel-lead {
+    padding: 0;
+    border: 0;
+  }
+
+  .structured-settings-panel.is-continuous .panel-lead p {
+    display: none;
+  }
+
+  .structured-settings-panel.is-continuous .section-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .structured-settings-panel.is-continuous .section-tab {
+    display: flex;
+    justify-content: center;
+    padding-inline: 8px;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    text-align: center;
+  }
+
+  .structured-settings-panel.is-continuous .section-tab i {
+    display: none;
+  }
+
+  .structured-settings-panel.is-continuous .section-tab.active {
+    border-bottom-color: var(--accent);
+  }
+
+  .section-actions {
+    min-width: 150px;
+  }
+}
+
+@media (max-width: 720px) {
+  .structured-settings-panel.is-continuous {
+    padding: 14px 0 0;
+  }
+
+  .structured-settings-panel.is-continuous .section-rail {
+    display: flex;
+    gap: 12px;
+  }
+
+  .structured-settings-panel.is-continuous .panel-lead {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .structured-settings-panel.is-continuous .panel-lead h2 {
+    font-size: 25px;
+  }
+
+  .structured-settings-panel.is-continuous .section-tabs {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .structured-settings-panel.is-continuous .section-tab {
+    flex: 1 0 auto;
+    min-height: 36px;
+  }
+
+  .section-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .structured-settings-panel.is-continuous .fields-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
+    min-height: 116px;
   }
 }
 </style>

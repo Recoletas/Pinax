@@ -1,19 +1,26 @@
 <template>
   <div class="worldbook-page">
-    <header class="editor-header">
-      <div class="header-left">
-        <button class="ghost-btn" @click="openExperience">返回体验</button>
-        <h1>设定 · 高级设置</h1>
+    <header class="editor-context">
+      <div class="editor-context__identity">
+        <button class="editor-back" type="button" aria-label="返回体验" title="返回体验" @click="openExperience">
+          <WorkbenchIcon name="message-square" :size="17" />
+        </button>
+        <div>
+          <span class="editor-context__kicker">WORLD BOOK / ADVANCED</span>
+          <h1>设定</h1>
+        </div>
       </div>
-      <div class="header-right">
-        <button class="ghost-btn" @click="openQuickImport">返回快速导入</button>
+      <div class="editor-context__tools">
         <input
           v-model.trim="worldbookSearch"
           class="search-input"
-          placeholder="搜索世界书..."
+          placeholder="搜索世界书"
           type="text"
         />
-        <button class="primary-btn" @click="createWorldbook">新建世界书</button>
+        <button class="editor-create-action" type="button" @click="createWorldbook">
+          <WorkbenchIcon name="bookmark-plus" :size="15" />
+          <span>新建世界书</span>
+        </button>
       </div>
     </header>
 
@@ -44,6 +51,7 @@
             :class="['editor-tab', { active: editorTab === tab.key }]"
             @click="editorTab = tab.key"
           >
+            <WorkbenchIcon :name="tab.icon" :size="15" />
             {{ tab.label }}
           </button>
         </nav>
@@ -292,7 +300,7 @@
           </datalist>
         </section>
 
-        <section v-if="editorTab === 'entries'" class="card">
+        <section v-if="editorTab === 'entries'" class="card entry-workspace-card">
           <div class="card-head split">
             <h2>条目管理</h2>
             <div class="entry-tools">
@@ -601,125 +609,6 @@
           </div>
         </section>
 
-        <section v-if="editorTab === 'create'" class="card" data-section="create">
-          <div class="card-head">
-            <h2>新建 / 导入世界书</h2>
-            <span>文本提炼用于迁移；AI 只建立创作基调，完整设定在结构化工作台维护</span>
-          </div>
-
-          <div v-if="createError" class="import-error">{{ createError }}</div>
-          <div v-if="createInfo" class="import-success">{{ createInfo }}</div>
-
-          <div class="create-section" data-section="import">
-            <h3>从小说片段 / JSON 提炼</h3>
-            <label>
-              世界书名称
-              <input v-model.trim="createInput.name" class="text-input" type="text" placeholder="例如：风雪港调查案" />
-            </label>
-            <label>
-              粘贴小说片段
-              <textarea
-                v-model.trim="createInput.sourceText"
-                class="text-area"
-                rows="6"
-                placeholder="粘贴若干段正文、章节摘要或世界设定说明..."
-              ></textarea>
-            </label>
-            <div class="inline-controls">
-              <label class="compact-label">
-                目标条目数
-                <input v-model.number="createInput.targetCount" class="text-input compact" type="number" min="3" max="30" />
-              </label>
-              <label class="checkbox-line">
-                <input v-model="createInput.useAiFirst" type="checkbox" />
-                <span>优先尝试 AI 提炼</span>
-              </label>
-            </div>
-            <div class="card-actions">
-              <button class="primary-btn" :disabled="creatingWorldbook" @click="generateFromNovelText">生成导入预览</button>
-              <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearNovel">清空</button>
-            </div>
-            <div v-if="pendingImport && pendingImportKind !== 'foundation'" class="import-preview">
-              <div class="import-preview-head">
-                <strong>{{ pendingImport.name }}</strong>
-                <span>{{ pendingImport.sourceLabel }}</span>
-              </div>
-              <div class="import-meta-grid">
-                <div class="meta-item"><span>条目数</span><strong>{{ pendingImport.entries.length }}</strong></div>
-                <div class="meta-item"><span>分组数</span><strong>{{ pendingImport.groups.length }}</strong></div>
-              </div>
-              <div class="card-actions">
-                <button
-                  class="primary-btn"
-                  :disabled="creatingWorldbook"
-                  @click="confirmImport"
-                >
-                  导入为新世界书
-                </button>
-                <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearPending">清空预览</button>
-              </div>
-            </div>
-          </div>
-
-          <hr class="create-divider" />
-
-          <div class="create-section" data-section="ai">
-            <h3>AI 建立创作基调</h3>
-            <p class="create-section-description">
-              这里只建立世界概述、叙事基调和三条常驻基础约束。角色、地点、势力、历史与故事线在结构化设定中继续完成。
-            </p>
-            <label>
-              风格
-              <select v-model="aiInput.genre" class="select-input">
-                <option v-for="opt in genreOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </label>
-            <label>
-              世界书名称 (可选)
-              <input v-model.trim="aiInput.name" class="text-input" type="text" placeholder="例如：荒潮城守夜人" />
-            </label>
-            <label>
-              说明 / 核心梗概
-              <textarea
-                v-model.trim="aiInput.brief"
-                class="text-area"
-                rows="5"
-                placeholder="例如：蒸汽朋克港口城市，夜里会出现吞噬记忆的雾潮。"
-              ></textarea>
-            </label>
-            <div class="card-actions">
-              <button class="primary-btn" :disabled="generatingAi" @click="generateFromBrief">
-                {{ generationButtonLabel }}
-              </button>
-              <button class="ghost-btn" :disabled="generatingAi" @click="openStructuredSettings">
-                直接编辑结构化设定
-              </button>
-            </div>
-            <p v-if="generationPhase" class="generation-status">{{ generationStatusLabel }}</p>
-            <div v-if="pendingImport && pendingImportKind === 'foundation'" class="import-preview foundation-preview">
-              <div class="import-preview-head">
-                <strong>{{ pendingImport.name }}</strong>
-                <span>{{ pendingImport.sourceLabel }}</span>
-              </div>
-              <div class="import-meta-grid">
-                <div class="meta-item"><span>基础条目</span><strong>{{ pendingImport.entries.length }}</strong></div>
-                <div class="meta-item"><span>下一步</span><strong>结构化设定</strong></div>
-              </div>
-              <div class="preview-entry-list">
-                <div v-for="entry in pendingImport.entries" :key="entry.name" class="preview-entry-item">
-                  <span class="preview-entry-name">{{ entry.name }}</span>
-                  <span class="preview-entry-meta">常驻约束</span>
-                </div>
-              </div>
-              <div class="card-actions">
-                <button class="primary-btn" :disabled="creatingWorldbook" @click="confirmImport">
-                  创建并进入结构化设定
-                </button>
-                <button class="ghost-btn" :disabled="creatingWorldbook" @click="clearPending">清空预览</button>
-              </div>
-            </div>
-          </div>
-        </section>
       </section>
 
       <section class="editor-main empty" v-else>
@@ -733,15 +622,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
-import {
-  tryAiExtractEntries,
-  tryAiGenerateFromBrief,
-  buildPendingPayload,
-  createSourceDocument,
-  createWorldbookFromPayload
-} from '../services/worldbookQuickImportHelpers'
 import {
   findWorldbookAuditTargets,
   runWorldbookMaintenance,
@@ -749,6 +630,7 @@ import {
 } from '../services/worldbookMaintenance'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -813,12 +695,11 @@ const maintenanceModes = [
 
 const editorTab = ref('base')
 const editorTabs = [
-  { key: 'base', label: '基础设定' },
-  { key: 'structured', label: '结构化设定' },
-  { key: 'transfer', label: '导入导出' },
-  { key: 'groups', label: '分组管理' },
-  { key: 'entries', label: '条目管理' },
-  { key: 'create', label: '新建 / 导入' }
+  { key: 'base', label: '基础设定', icon: 'book' },
+  { key: 'structured', label: '结构化设定', icon: 'network' },
+  { key: 'transfer', label: '导入导出', icon: 'download' },
+  { key: 'groups', label: '分组管理', icon: 'archive' },
+  { key: 'entries', label: '条目管理', icon: 'bookmark-plus' }
 ]
 
 const maintenanceCandidateCount = computed(() => findWorldbookAuditTargets(entries.value, {
@@ -848,190 +729,6 @@ const maintenanceCanRun = computed(() => {
   if (maintenanceMode.value === WORLDBOOK_MAINTENANCE_MODES.AUDIT) return maintenanceCandidateCount.value > 0
   return Boolean(maintenanceBrief.value.trim())
 })
-
-// ----- 新建 / 导入 create tab 状态 -----
-const createInput = reactive({
-  name: '',
-  sourceText: '',
-  targetCount: 10,
-  useAiFirst: true
-})
-const aiInput = reactive({
-  genre: 'fantasy',
-  name: '',
-  brief: ''
-})
-const creatingWorldbook = ref(false)
-const generatingAi = ref(false)
-const pendingImport = ref(null)
-const pendingImportKind = ref('')
-const createError = ref('')
-const createInfo = ref('')
-const createDraftReady = ref(false)
-const generationPhase = ref('')
-const generationButtonLabel = computed(() => {
-  if (!generatingAi.value) return '生成基调预览'
-  if (generationPhase.value === 'generate') return '正在建立基调...'
-  return '正在准备...'
-})
-const generationStatusLabel = computed(() => {
-  if (generationPhase.value === 'generate') return '正在整理世界概述与创作边界...'
-  return '正在准备生成...'
-})
-
-function restoreCreateDraft() {
-  const draft = getItem(STORAGE_KEYS.WORLDBOOK_CREATE_DRAFT)
-  if (draft && typeof draft === 'object') {
-    createInput.name = String(draft.create?.name || '')
-    createInput.sourceText = String(draft.create?.sourceText || '')
-    createInput.targetCount = Math.max(3, Math.min(30, Number(draft.create?.targetCount) || 10))
-    createInput.useAiFirst = draft.create?.useAiFirst !== false
-    aiInput.genre = genreOptions.some((item) => item.value === draft.ai?.genre)
-      ? draft.ai.genre
-      : 'fantasy'
-    aiInput.name = String(draft.ai?.name || '')
-    aiInput.brief = String(draft.ai?.brief || '')
-  }
-  createDraftReady.value = true
-}
-
-watch(
-  () => ({
-    create: {
-      name: createInput.name,
-      sourceText: createInput.sourceText,
-      targetCount: createInput.targetCount,
-      useAiFirst: createInput.useAiFirst
-    },
-    ai: {
-      genre: aiInput.genre,
-      name: aiInput.name,
-      brief: aiInput.brief
-    }
-  }),
-  (draft) => {
-    if (createDraftReady.value) setItem(STORAGE_KEYS.WORLDBOOK_CREATE_DRAFT, draft)
-  },
-  { deep: true }
-)
-
-const genreOptions = [
-  { value: 'fantasy', label: '奇幻冒险' },
-  { value: 'urban', label: '都市现实' },
-  { value: 'scifi', label: '科幻星际' },
-  { value: 'wuxia', label: '武侠仙侠' },
-  { value: 'apocalypse', label: '末日生存' }
-]
-
-async function generateFromNovelText() {
-  if (creatingWorldbook.value) return
-  createError.value = ''
-  createInfo.value = ''
-  const sourceText = String(createInput.sourceText || '').trim()
-  if (sourceText.length < 20) {
-    createError.value = '请至少粘贴一段有效文本（不少于 20 字）。'
-    return
-  }
-  creatingWorldbook.value = true
-  try {
-    const targetCount = Math.max(3, Math.min(30, createInput.targetCount || 10))
-    if (createInput.useAiFirst) {
-      const aiResult = await tryAiExtractEntries(sourceText, targetCount, createInput.name)
-      if (aiResult.ok && aiResult.payload) {
-        pendingImport.value = buildPendingPayload(aiResult.payload)
-        pendingImportKind.value = 'novel'
-        createInfo.value = '已完成 AI 提炼，可直接导入。'
-        return
-      }
-      createError.value = aiResult.reason || ''
-    }
-    const paragraphs = sourceText.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean).slice(0, 5)
-    const fallbackEntries = paragraphs.map((p, i) => ({
-      type: 'general', name: `提炼条目 ${i + 1}`, content: p.slice(0, 180), keys: []
-    }))
-    pendingImport.value = buildPendingPayload({
-      name: createInput.name || `提炼世界书 ${Date.now()}`,
-      worldDescription: sourceText.slice(0, 500),
-      sourceLabel: '本地提炼（回退）',
-      sourceDocuments: [createSourceDocument(sourceText, {
-        title: createInput.name ? `${createInput.name} · 导入原文` : '小说片段导入原文',
-        sourceLabel: '本地提炼（回退）'
-      })].filter(Boolean),
-      entries: fallbackEntries
-    })
-    pendingImportKind.value = 'novel'
-    createInfo.value = '已使用本地提炼生成预览。'
-  } catch (err) {
-    createError.value = `生成预览失败：${err?.message || '未知错误'}`
-  } finally {
-    creatingWorldbook.value = false
-  }
-}
-
-async function generateFromBrief() {
-  if (generatingAi.value) return
-  createError.value = ''
-  createInfo.value = ''
-  const brief = String(aiInput.brief || '').trim()
-  if (brief.length < 8) {
-    createError.value = '请先输入至少 8 字说明。'
-    return
-  }
-  generatingAi.value = true
-  generationPhase.value = 'prepare'
-  try {
-    const genreLabel = genreOptions.find(o => o.value === aiInput.genre)?.label || '通用'
-    generationPhase.value = 'generate'
-    const aiResult = await tryAiGenerateFromBrief({
-      genre: aiInput.genre, brief, nameHint: aiInput.name, genreLabel
-    })
-    if (!aiResult.ok || !aiResult.payload) {
-      createError.value = aiResult.reason || 'AI 生成失败。'
-      return
-    }
-    pendingImport.value = buildPendingPayload(aiResult.payload)
-    pendingImportKind.value = 'foundation'
-    createInfo.value = '基调预览已完成。创建后将进入结构化设定继续完善。'
-  } catch (err) {
-    createError.value = `AI 生成失败：${err?.message || '未知错误'}`
-  } finally {
-    generatingAi.value = false
-    generationPhase.value = ''
-  }
-}
-
-async function confirmImport() {
-  if (!pendingImport.value || creatingWorldbook.value) return
-  creatingWorldbook.value = true
-  try {
-    const importKind = pendingImportKind.value
-    const pendingName = pendingImport.value.name
-    await createWorldbookFromPayload(worldStore, pendingImport.value)
-    createInfo.value = `已创建：${pendingName}`
-    pendingImport.value = null
-    pendingImportKind.value = ''
-    await router.push({ name: importKind === 'foundation' ? 'settings-structured' : 'settings-worldbook' })
-  } catch (err) {
-    createError.value = `导入失败：${err?.message || '未知错误'}`
-  } finally {
-    creatingWorldbook.value = false
-  }
-}
-
-function clearNovel() {
-  createInput.sourceText = ''
-  createInput.name = ''
-  createError.value = ''
-  createInfo.value = ''
-  pendingImport.value = null
-  pendingImportKind.value = ''
-}
-
-function clearPending() {
-  pendingImport.value = null
-  pendingImportKind.value = ''
-  createError.value = ''
-}
 
 const worldbookForm = reactive({
   name: '',
@@ -1206,25 +903,6 @@ watch(groupStats, (stats) => {
 
   if (!normalizeGroupName(groupMoveTarget.value)) {
     groupMoveTarget.value = names.find(name => name !== groupMoveSource.value) || ''
-  }
-}, { immediate: true })
-
-// ?section= query param 处理: 切到 create tab + scroll 到 section
-watch(() => route.query.section, async (section) => {
-  if (section === 'import' || section === 'ai' || section === 'new' || section === 'manage') {
-    editorTab.value = 'create'
-    await nextTick()
-    if (section === 'import' || section === 'ai') {
-      // W4b regression: W4b made .editor-layout the scroll container
-      // (`overflow: auto`), so document-level scrollIntoView now misses
-      // the target — scroll the layout container instead. Use the
-      // section's offsetTop within the layout for an anchored scroll.
-      const target = document.querySelector(`[data-section="${section}"]`)
-      const layout = target?.closest?.('.editor-layout')
-      if (layout && target) {
-        layout.scrollTo({ top: target.offsetTop - 12, behavior: 'smooth' })
-      }
-    }
   }
 }, { immediate: true })
 
@@ -1481,14 +1159,6 @@ function selectFirstEntry() {
 function openExperience() {
   const worldbookId = activeWorldbook.value?.id || ''
   router.push({ name: 'experience', query: worldbookId ? { worldbookId } : {} })
-}
-
-function openQuickImport() {
-  router.push({ name: 'settings-worldbook' })
-}
-
-function openStructuredSettings() {
-  router.push({ name: 'settings-structured' })
 }
 
 function toggleMaintenance() {
@@ -2241,7 +1911,6 @@ async function exportActiveWorldbook() {
 }
 
 onMounted(async () => {
-  restoreCreateDraft()
   try {
     await worldStore.loadWorldbooksIndex()
     if (typeof worldStore.ensureActiveWorldbook === 'function') {
@@ -2265,32 +1934,66 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
-.editor-header {
+.editor-context {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  min-height: 62px;
+  padding: 10px clamp(14px, 3vw, 42px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--accent));
 }
 
-.header-left {
+.editor-context__identity,
+.editor-context__tools {
   display: flex;
   align-items: center;
+  min-width: 0;
+}
+
+.editor-context__identity {
   gap: 10px;
 }
 
-.header-left h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+.editor-context__identity > div {
+  display: grid;
+  gap: 2px;
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.editor-context__kicker {
+  color: var(--text-muted);
+  font: 600 9px/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .1em;
+}
+
+.editor-context h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 680;
+}
+
+.editor-back {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.editor-back:hover {
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.editor-context__tools {
+  gap: 12px;
 }
 
 .editor-layout {
@@ -2676,36 +2379,6 @@ onMounted(async () => {
   gap: 8px;
 }
 
-/* ----- 新建 / 导入 create tab ----- */
-.create-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 0;
-}
-
-.create-section h3 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.create-section-description {
-  max-width: 720px;
-  margin: -2px 0 2px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.65;
-}
-
-.generation-status {
-  margin: -2px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
 .research-toggle {
   color: var(--text-primary);
   font-size: 12px;
@@ -3010,27 +2683,6 @@ onMounted(async () => {
   grid-column: 2;
   justify-self: start;
   margin-top: 2px;
-}
-
-.create-divider {
-  margin: 14px 0 4px;
-  border: none;
-  border-top: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
-}
-
-.inline-controls {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.compact-label {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 .meta-item {
@@ -3509,6 +3161,481 @@ label {
 
   .candidate-edit-form {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Settings 3rd pass: the advanced page is a work surface, not a stack of
+   dashboard cards. Keep the existing controls and data flow, but give the
+   page one quiet frame and let the active edge carry hierarchy. */
+.worldbook-page {
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--accent));
+}
+
+.editor-layout {
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 28px;
+  padding: 18px clamp(14px, 3vw, 42px) 34px;
+}
+
+.worldbook-pane {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  height: fit-content;
+  padding: 10px 0 0;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.pane-title {
+  margin: 0 14px 10px 0;
+  color: var(--text-muted);
+  font: 600 10px/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.worldbook-list {
+  gap: 0;
+  padding-right: 12px;
+}
+
+.worldbook-item {
+  position: relative;
+  gap: 3px;
+  padding: 10px 10px 10px 12px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.worldbook-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: transparent;
+}
+
+.worldbook-item:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.worldbook-item.active {
+  border-color: color-mix(in srgb, var(--border) 54%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.worldbook-item.active::before {
+  background: var(--accent);
+}
+
+.editor-main {
+  gap: 0;
+  min-width: 0;
+}
+
+.editor-tabs {
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin: 0 0 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  scrollbar-width: thin;
+}
+
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0 10px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.editor-tab svg {
+  color: var(--text-muted);
+}
+
+.editor-tab:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--text-primary);
+}
+
+.editor-tab.active {
+  border-bottom-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+.editor-tab.active svg {
+  color: var(--accent);
+}
+
+.editor-main > .card {
+  padding: 0 0 24px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.editor-main > .card > .card-head {
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+}
+
+.editor-main > .card > .card-head h2 {
+  font-size: 20px;
+  font-weight: 680;
+}
+
+.editor-main .card-actions {
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-main .primary-btn,
+.editor-main .ghost-btn,
+.editor-main .danger-btn {
+  min-height: 34px;
+  height: auto;
+  border-radius: 2px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.editor-main .primary-btn {
+  border: 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 72%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.editor-main .primary-btn:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.editor-main .ghost-btn {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.editor-main .ghost-btn:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.editor-main .danger-btn {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger, #b44) 55%, transparent);
+}
+
+.editor-context .search-input {
+  width: min(220px, 24vw);
+  height: 30px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.editor-create-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.editor-create-action:hover {
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+@media (max-width: 1080px) {
+  .worldbook-pane {
+    position: static;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+    padding-bottom: 10px;
+  }
+
+  .worldbook-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .editor-context {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-block: 12px 10px;
+  }
+
+  .editor-context__tools {
+    width: 100%;
+  }
+
+  .editor-context .search-input {
+    width: 100%;
+  }
+
+  .editor-layout {
+    gap: 16px;
+    padding-inline: 14px;
+  }
+
+  .worldbook-list {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .worldbook-item {
+    min-width: 160px;
+  }
+}
+
+/* Entry workspace: keep retrieval controls on one quiet rail and reserve
+   visual weight for the entry being edited. */
+.entry-workspace-card > .card-head {
+  align-items: flex-start;
+}
+
+.entry-workspace-card > .card-head h2 {
+  padding-top: 5px;
+}
+
+.entry-workspace-card .entry-tools {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(112px, .8fr)) auto auto;
+  gap: 6px;
+  width: min(100%, 820px);
+}
+
+.entry-workspace-card .entry-tools .search-input,
+.entry-workspace-card .entry-tools .select-input {
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.entry-workspace-card .entry-tools .ghost-btn,
+.entry-workspace-card .entry-tools .primary-btn {
+  min-height: 32px;
+  height: 32px;
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+
+.entry-workspace-card .entry-tools .ghost-btn.active {
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--accent);
+}
+
+.entry-workspace-card .bulk-tools {
+  margin: 0 0 14px;
+  padding: 9px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+}
+
+.entry-workspace-card .bulk-tools .ghost-btn,
+.entry-workspace-card .bulk-tools .danger-btn {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.entry-workspace-card .bulk-tools .danger-btn {
+  border-bottom-color: color-mix(in srgb, var(--danger, #b44) 50%, transparent);
+}
+
+.entry-workspace-card .entry-layout {
+  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  gap: 22px;
+  min-height: 500px;
+}
+
+.entry-workspace-card .entry-list {
+  max-height: calc(var(--app-viewport-height, 100vh) - 280px);
+  padding: 0 14px 0 0;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 0;
+  gap: 0;
+}
+
+.entry-workspace-card .entry-item {
+  position: relative;
+  gap: 8px;
+  padding: 10px 8px 10px 10px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.entry-workspace-card .entry-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: transparent;
+}
+
+.entry-workspace-card .entry-item:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.entry-workspace-card .entry-item.active {
+  border-color: color-mix(in srgb, var(--border) 54%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.entry-workspace-card .entry-item.active::before {
+  background: var(--accent);
+}
+
+.entry-workspace-card .entry-badges {
+  gap: 8px;
+}
+
+.entry-workspace-card .entry-type,
+.entry-workspace-card .entry-mode,
+.entry-workspace-card .entry-group {
+  padding: 0 0 0 5px;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 0;
+  font-size: 10px;
+}
+
+.entry-workspace-card .entry-editor {
+  min-width: 0;
+  padding: 0 0 20px 2px;
+  border: 0;
+  border-radius: 0;
+}
+
+.entry-workspace-card .entry-editor > label .text-input,
+.entry-workspace-card .entry-editor > label .select-input,
+.entry-workspace-card .entry-editor > label .text-area {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.entry-workspace-card .entry-editor > label .text-area {
+  min-height: 150px;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 29px,
+    color-mix(in srgb, var(--accent) 8%, transparent) 29px 30px
+  );
+}
+
+.entry-workspace-card .injection-panel {
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 0;
+}
+
+.entry-workspace-card .injection-panel h3 {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.entry-workspace-card .group-chip {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.entry-workspace-card .group-chip.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.entry-workspace-card .worldbook-maintenance {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 66%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+@media (max-width: 1180px) {
+  .entry-workspace-card .entry-tools {
+    grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(100px, 1fr));
+    width: 100%;
+  }
+
+  .entry-workspace-card .entry-tools .ghost-btn,
+  .entry-workspace-card .entry-tools .primary-btn {
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .entry-workspace-card .entry-tools {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .entry-workspace-card .entry-tools .search-input {
+    grid-column: 1 / -1;
+  }
+
+  .entry-workspace-card .entry-tools .ghost-btn,
+  .entry-workspace-card .entry-tools .primary-btn {
+    grid-row: auto;
+  }
+
+  .entry-workspace-card .entry-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .entry-workspace-card .entry-list {
+    max-height: 210px;
+    padding: 0;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  }
+
+  .entry-workspace-card .entry-editor {
+    padding-top: 4px;
   }
 }
 </style>

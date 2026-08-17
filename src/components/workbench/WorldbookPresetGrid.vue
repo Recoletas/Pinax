@@ -1,25 +1,33 @@
 <template>
   <section class="preset-grid" aria-label="更多世界">
-    <button
-      v-for="(preset, idx) in capped"
-      :key="preset.id"
-      type="button"
-      class="preset-card"
-      data-test="preset-card"
-      @click="$emit('select', preset)"
-    >
-      <span class="preset-card__roman" aria-hidden="true">{{ ROMAN[idx] || '·' }}</span>
-      <span class="preset-card__name">{{ preset.name }}</span>
-      <span class="preset-card__genre">{{ preset.genreLabel }}</span>
-      <span class="preset-card__entries">{{ entryCount(preset) }} 条目</span>
-    </button>
+    <header class="preset-grid__heading">
+      <div>
+        <small>WORLD PRESETS</small>
+        <strong>从预设开始</strong>
+      </div>
+      <span>{{ capped.length }} 个世界</span>
+    </header>
+    <div class="preset-grid__items">
+      <button
+        v-for="preset in capped"
+        :key="preset.id"
+        type="button"
+        class="preset-card"
+        data-test="preset-card"
+        @click="$emit('select', preset)"
+      >
+        <WorkbenchIcon name="book" :size="15" />
+        <span class="preset-card__name">{{ preset.name }}</span>
+        <span class="preset-card__genre">{{ preset.genreLabel }}</span>
+        <span class="preset-card__entries">{{ entryCount(preset) }} 条目</span>
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-
-const ROMAN = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ']
+import WorkbenchIcon from './WorkbenchIcon.vue'
 
 const props = defineProps({
   presets: { type: Array, required: true }
@@ -136,6 +144,111 @@ function entryCount(preset) {
    wrap awkwardly under a 2x2 cramped layout. */
 @media (max-width: 480px) {
   .preset-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.preset-grid__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  grid-column: 1 / -1;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 16%, var(--border));
+}
+
+.preset-grid__heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.preset-grid__heading small {
+  color: var(--archive-ink-soft);
+  font: 600 8px/1 var(--font-mono);
+  letter-spacing: .16em;
+}
+
+.preset-grid__heading strong {
+  color: var(--archive-ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.preset-grid__heading > span {
+  color: var(--archive-ink-soft);
+  font-size: 11px;
+}
+
+.preset-grid__items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.theme-legacy .preset-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.theme-legacy .preset-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 5px 9px;
+  min-height: 82px;
+  padding: 15px 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 13%, transparent);
+  border-top: 2px solid var(--preset-accent, var(--archive-gold));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
+}
+
+.theme-legacy .preset-card:nth-child(3n + 1) { --preset-accent: var(--archive-gold); }
+.theme-legacy .preset-card:nth-child(3n + 2) { --preset-accent: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-gold)); }
+.theme-legacy .preset-card:nth-child(3n) { --preset-accent: color-mix(in srgb, var(--accent-teal) 62%, var(--archive-gold)); }
+
+.theme-legacy .preset-card:hover {
+  border-color: color-mix(in srgb, var(--archive-olive) 28%, var(--border));
+  background: var(--archive-paper-soft);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  transform: translateY(-1px);
+}
+
+.theme-legacy .preset-card > svg {
+  grid-row: 1 / 3;
+  margin-top: 1px;
+  color: var(--preset-accent);
+}
+
+.theme-legacy .preset-card__name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.theme-legacy .preset-card__genre {
+  color: var(--archive-ink-soft);
+}
+
+.theme-legacy .preset-card__entries {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--archive-ink-soft);
+}
+
+@media (max-width: 900px) {
+  .preset-grid__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .preset-grid__items {
     grid-template-columns: 1fr;
   }
 }

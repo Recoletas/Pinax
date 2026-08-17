@@ -132,6 +132,7 @@ import {
 import {
   createWritingDocument,
   editorContentToWritingDocument,
+  getWritingMarkdownPosition,
   getWritingDocumentMarkdown,
   writingDocumentToEditorContent
 } from '../../services/writing/writingDocumentSchema.js'
@@ -140,6 +141,7 @@ import {
   getLiveMarkdownPrefix,
   getLiveMarkdownMarkSpec,
   resolveCurrentLineOverlayGeometry,
+  resolveWritingCommandMenuPosition,
   resolveWritingCommandMenuKey,
   resolveMarkdownHeadingShortcut
 } from '../../services/writing/liveMarkdownPreview.js'
@@ -444,34 +446,58 @@ function getWritingCommandContext(view) {
     }
     return true
   })
-  return { currentBlockId, previousBlock }
+  return {
+    currentBlockId,
+    previousBlock,
+    cursorMarkdownOffset: getWritingMarkdownPosition(
+      currentDocument.value,
+      currentBlockId,
+      $from.parentOffset
+    ),
+    markdown: getWritingDocumentMarkdown(currentDocument.value)
+  }
 }
 
-function positionCommandMenu(view) {
-  const root = notebookRoot.value
-  if (!root) return
+function getBodyUiScale() {
+  const body = document.body
+  const bodyZoom = Number.parseFloat(window.getComputedStyle(body).zoom) || 1
+  if (bodyZoom !== 1) return Math.max(0.1, bodyZoom)
+  const transformedScale = body?.offsetWidth > 0
+    ? body.getBoundingClientRect().width / body.offsetWidth
+    : 1
+  return Math.max(0.1, transformedScale || 1)
+}
+
+function positionCommandMenu(view, menuHeight = 216) {
+  if (!notebookRoot.value) return
   const coordinates = view.coordsAtPos(view.state.selection.from, 1)
-  const scale = Number.parseFloat(window.getComputedStyle(document.body).zoom) || 1
-  const menuWidth = 300
-  const visualWidth = Math.min(menuWidth * scale, window.innerWidth - 24)
-  const visualLeft = Math.max(12, Math.min(coordinates.left, window.innerWidth - visualWidth - 12))
-  // W2：菜单靠近底部或键盘时向上展开（估算高度 = 根菜单 + 子菜单 + 边距）
-  const estimatedHeight = Math.min(360 * scale, window.innerHeight * 0.65)
-  const below = coordinates.bottom + 8
-  const fitsBelow = below + estimatedHeight <= window.innerHeight - 12
-  const visualTop = fitsBelow
-    ? Math.max(12, below)
-    : Math.max(12, coordinates.top - estimatedHeight - 8)
-  commandMenu.value.top = Math.round(visualTop / scale)
-  commandMenu.value.left = Math.round(visualLeft / scale)
-  commandMenu.value.width = Math.round(visualWidth / scale)
-  commandMenu.value.maxHeight = Math.max(96, Math.round((window.innerHeight - visualTop - 12) / scale))
+  const scale = getBodyUiScale()
+  const position = resolveWritingCommandMenuPosition({
+    anchor: coordinates,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    menuWidth: 300,
+    menuHeight,
+    scale
+  })
+  if (!position) return
+  Object.assign(commandMenu.value, position)
+}
+
+function measureAndPositionCommandMenu(view) {
+  nextTick(() => {
+    if (!commandMenu.value.open || editor.value?.view !== view) return
+    const measuredHeight = commandMenuRef.value?.getBoundingClientRect?.().height
+    const scale = getBodyUiScale()
+    positionCommandMenu(view, measuredHeight > 0 ? measuredHeight / scale : 216)
+  })
 }
 
 function openCommandMenu(view) {
   const { from, to } = view.state.selection
   commandMenu.value = { ...commandMenu.value, open: true, activeIndex: 0, rootIndex: 0, sectionId: null, anchorFrom: from, anchorTo: to }
   positionCommandMenu(view)
+  measureAndPositionCommandMenu(view)
 }
 
 function revealActiveWritingCommand() {
@@ -518,6 +544,7 @@ function enterWritingCommandSection(sectionId, rootIndex = commandMenu.value.roo
   commandMenu.value.rootIndex = rootIndex
   commandMenu.value.activeIndex = 0
   revealActiveWritingCommand()
+  if (editor.value?.view) measureAndPositionCommandMenu(editor.value.view)
   return true
 }
 
@@ -526,6 +553,7 @@ function leaveWritingCommandSection() {
   commandMenu.value.sectionId = null
   commandMenu.value.activeIndex = Math.max(0, commandMenu.value.rootIndex)
   revealActiveWritingCommand()
+  if (editor.value?.view) measureAndPositionCommandMenu(editor.value.view)
   return true
 }
 
@@ -755,16 +783,35 @@ const editor = useEditor({
       commandMenu.value.open
       && (from !== commandMenu.value.anchorFrom || to !== commandMenu.value.anchorTo)
     ) closeCommandMenu()
-    const getBlockNode = (position) => {
-      const resolved = currentEditor.state.doc.resolve(Math.max(0, Math.min(currentEditor.state.doc.content.size, position)))
+    const getBlockSelection = (probePosition, cursorPosition = probePosition) => {
+      const resolved = currentEditor.state.doc.resolve(Math.max(0, Math.min(currentEditor.state.doc.content.size, probePosition)))
       for (let depth = resolved.depth; depth > 0; depth -= 1) {
         const node = resolved.node(depth)
-        if (node?.attrs?.blockId) return node
+        if (node?.attrs?.blockId) {
+          return {
+            node,
+            localOffset: Math.max(0, Math.min(node.content.size, cursorPosition - resolved.start(depth)))
+          }
+        }
       }
       return null
     }
-    const startBlock = getBlockNode(from)
-    const endBlock = getBlockNode(Math.max(from, to - 1)) || startBlock
+    const startBlockSelection = getBlockSelection(from)
+    const endBlockSelection = from === to
+      ? startBlockSelection
+      : getBlockSelection(Math.max(from, to - 1), to) || startBlockSelection
+    const startBlock = startBlockSelection?.node
+    const endBlock = endBlockSelection?.node
+    const markdownFrom = getWritingMarkdownPosition(
+      currentDocument.value,
+      startBlock?.attrs?.blockId,
+      startBlockSelection?.localOffset
+    )
+    const markdownTo = getWritingMarkdownPosition(
+      currentDocument.value,
+      endBlock?.attrs?.blockId,
+      endBlockSelection?.localOffset
+    )
     let cursorRect = null
     if (from !== to) {
       try {
@@ -799,6 +846,8 @@ const editor = useEditor({
       startBlockRevision: Number(startBlock?.attrs?.blockRevision || 0),
       endBlockId: endBlock?.attrs?.blockId || null,
       endBlockRevision: Number(endBlock?.attrs?.blockRevision || 0),
+      markdownFrom,
+      markdownTo,
       cursorRect
     })
     updateCurrentLineOverlay()

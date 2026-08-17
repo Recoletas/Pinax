@@ -1,36 +1,25 @@
 <template>
   <div class="settings-page" @click="onGlobalClick">
-    <header class="title-bar">
-      <div class="title-left">
-        <button class="icon-btn" @click="openExperience" title="返回体验">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M10 3L5 8l5 5V3z"/>
-          </svg>
-        </button>
-        <span class="title-text">结构化设定</span>
-        <select class="worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange" :title="worldbooksIndex.find(w => w.id === selectedWorldbookId)?.name || '选择世界书'">
-          <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id" :title="wb.name">
-            {{ wb.name }}
-          </option>
-        </select>
-      </div>
-      <div class="title-right">
-        <button class="toolbar-text-btn" @click="createWorldbook">新建世界书</button>
-        <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
-        <button v-if="false" class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换到亮色主题' : '切换到暗色主题'">
-          <span class="theme-icon">
-            <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 2a4 4 0 110 8 4 4 0 010-8z"/>
-            </svg>
-          </span>
-        </button>
-      </div>
-    </header>
+    <ContourField class="settings-page__contour" density="relation" entry="right" />
+    <div class="settings-topbar">
+      <header class="settings-context-bar">
+        <div class="context-main">
+          <span class="context-kicker">ACTIVE WORLD</span>
+          <select class="context-worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange" :title="worldbooksIndex.find(w => w.id === selectedWorldbookId)?.name || '选择世界书'">
+            <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id" :title="wb.name">
+              {{ wb.name }}
+            </option>
+          </select>
+        </div>
+        <div class="context-meta" aria-label="设定页信息">
+          <span class="context-meta-item"><i aria-hidden="true"></i>{{ worldbooksIndex.length }} 本世界书</span>
+          <span class="context-meta-divider" aria-hidden="true"></span>
+          <span class="context-meta-item">自动保存</span>
+        </div>
+      </header>
 
-    <SettingsSectionNav />
+      <SettingsSectionNav />
+    </div>
 
     <section
       v-if="focusedPlace"
@@ -44,7 +33,7 @@
         <span>历史 {{ focusedPlace.historyNodeIds?.length || 0 }} · 条目 {{ focusedPlace.entryIds?.length || 0 }}</span>
       </div>
       <div class="place-context-actions">
-        <button type="button" class="toolbar-text-btn" @click="openFocusedPlaceMap()">
+        <button type="button" class="place-context-map-btn" @click="openFocusedPlaceMap()">
           在地图查看
         </button>
         <div v-if="focusedPlace.historyNodes?.length" class="place-context-links">
@@ -94,27 +83,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { useTheme } from '../composables/useTheme'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import ContourField from '../components/workbench/ContourField.vue'
 
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
-const { isDark, toggleTheme } = useTheme()
-
 const selectedWorldbookId = ref('')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook)
 const placeEntityIndex = computed(() => buildPlaceEntityIndex(activeWorldbook.value || {}))
 const focusedPlace = computed(() => resolvePlaceEntity(placeEntityIndex.value, String(route.query.placeId || '')))
-
-function openExperience() {
-  const worldbookId = activeWorldbook.value?.id || ''
-  router.push({ name: 'experience', query: worldbookId ? { worldbookId } : {} })
-}
 
 function openFocusedPlaceMap(kind = '', itemId = '') {
   if (!focusedPlace.value?.placeId) return
@@ -131,16 +113,6 @@ function onGlobalClick() {
 async function onWorldbookChange() {
   if (selectedWorldbookId.value) {
     await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-  }
-}
-
-async function createWorldbook() {
-  const nextName = `世界书 ${worldbooksIndex.value.length + 1}`
-  const created = await worldStore.createWorldbook({ name: nextName })
-  await worldStore.loadWorldbooksIndex()
-  if (created?.id) {
-    await worldStore.setActiveWorldbook(created.id)
-    selectedWorldbookId.value = created.id
   }
 }
 
@@ -166,116 +138,155 @@ onMounted(async () => {
   flex-direction: column;
   background: var(--bg-primary);
   color: var(--text-primary);
+  position: relative;
+  overflow: hidden;
 }
 
-.title-bar {
-  height: 48px;
+.settings-page > :not(.settings-page__contour) {
+  position: relative;
+  z-index: 3;
+}
+
+.settings-page__contour {
+  inset: 0 0 auto auto;
+  width: min(720px, 58vw);
+  height: 290px;
+  opacity: .64;
+}
+
+.settings-topbar {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  min-height: 48px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 16%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-strong) 44%, var(--archive-paper-soft));
+}
+
+.settings-context-bar {
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  gap: 20px;
+  padding: 6px clamp(16px, 3vw, 42px);
+  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 15%, transparent);
+  background: transparent;
   flex-shrink: 0;
 }
 
-.title-left, .title-right {
+.settings-topbar :deep(.settings-section-nav) {
+  align-self: stretch;
+  min-width: 0;
+  padding-inline: 12px clamp(16px, 3vw, 42px);
+  border-bottom: 0;
+  background: transparent;
+}
+
+.context-main,
+.context-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  min-width: 0;
 }
 
-.title-text {
-  font-size: 17px;
+.context-main {
+  gap: 10px;
+}
+
+.context-meta {
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.context-meta-divider {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.context-meta-item i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.context-back {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.context-back:hover {
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.context-identity {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.context-kicker {
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+
+.context-identity strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-worldbook-select {
+  max-width: min(30vw, 260px);
+  min-width: 120px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 44%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 6px 22px 6px 2px;
+  font-family: var(--font-display);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
-}
-
-.worldbook-select {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 4px 8px;
-  font-size: 14px;
-  max-width: 160px;
+  cursor: pointer;
 }
 
 /* W5c UX sweep: warn users about pending unsaved edits in the
    StructuredSettingsWorkspace before they switch the active worldbook. */
-.worldbook-select.is-dirty {
+.context-worldbook-select.is-dirty {
   border-color: var(--warning, #b37213);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning, #b37213) 30%, transparent);
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.toolbar-text-btn {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.toolbar-text-btn:hover {
-  background: var(--surface-raised);
-  color: var(--text-primary);
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.theme-toggle:hover {
-  background: var(--surface-raised);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.theme-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .settings-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 0 clamp(14px, 3vw, 42px) 34px;
 }
 
 .place-context-strip {
@@ -283,11 +294,11 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin: 10px 12px 0;
-  padding: 9px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
+  width: min(1240px, calc(100% - clamp(28px, 6vw, 84px)));
+  margin: 14px auto 0;
+  padding: 10px 0 10px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 66%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .place-context-copy {
@@ -308,6 +319,20 @@ onMounted(async () => {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.place-context-map-btn {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.place-context-map-btn:hover {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
 }
 
 .place-context-copy > span:last-child {
@@ -367,21 +392,46 @@ onMounted(async () => {
 }
 
 @media (max-width: 760px) {
-  .title-text {
-    display: none;
+  .settings-topbar {
+    grid-template-columns: 1fr;
   }
 
-  .title-left,
-  .title-right {
+  .settings-context-bar {
+    min-height: 46px;
+    gap: 10px;
+    padding-block: 6px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 13%, transparent);
+  }
+
+  .settings-topbar :deep(.settings-section-nav) {
+    padding-inline: 6px;
+  }
+
+  .context-main {
+    width: 100%;
+  }
+
+  .context-main,
+  .context-meta {
     min-width: 0;
   }
 
-  .worldbook-select {
-    max-width: 140px;
+  .context-worldbook-select {
+    max-width: 48vw;
+    min-width: 104px;
+    font-size: 14px;
   }
 
-  .toolbar-text-btn {
-    padding-inline: 8px;
+  .context-meta-divider,
+  .context-meta-item:last-child {
+    display: none;
+  }
+
+  .settings-page__contour {
+    width: 100%;
+    height: 220px;
+    opacity: .44;
   }
 
   .place-context-strip {

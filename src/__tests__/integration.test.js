@@ -123,6 +123,18 @@ import {
   parseMarkedBlocks
 } from '../services/narrativePresentation'
 import { buildNarrativeVoiceContract } from '../services/agents/narrativeVoicePolicy'
+import {
+  resolveWritingCommandMenuPosition
+} from '../services/writing/liveMarkdownPreview.js'
+import {
+  editorContentToWritingDocument,
+  getWritingDocumentMarkdown,
+  getWritingMarkdownPosition
+} from '../services/writing/writingDocumentSchema.js'
+import {
+  createWritingCandidateRequest,
+  getWritingCandidateStaleReason
+} from '../services/writing/writingCandidates.js'
 // P4：可信说话者注册表
 import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 // P6：SceneThread 滚动合并
@@ -131,6 +143,66 @@ import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
   it('builds system prompt, preserves dialogue punctuation, and keeps pane keyboard navigation accessible', async () => {
+    const cursorDocument = editorContentToWritingDocument({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', attrs: { blockId: 'first' }, content: [{ type: 'text', text: '前文' }] },
+        { type: 'paragraph', attrs: { blockId: 'blank' }, content: [] }
+      ]
+    })
+    const cursorMarkdown = getWritingDocumentMarkdown(cursorDocument)
+    expect(getWritingMarkdownPosition(cursorDocument, 'blank', 0)).toBe(cursorMarkdown.lastIndexOf('\n'))
+    expect(getWritingMarkdownPosition(cursorDocument, 'missing', 0)).toBeNull()
+
+    expect(resolveWritingCommandMenuPosition({
+      anchor: { top: 700, right: 140, bottom: 724, left: 120 },
+      viewportWidth: 1440,
+      viewportHeight: 800,
+      menuWidth: 300,
+      menuHeight: 180
+    })).toMatchObject({ top: 512, left: 120, width: 300, maxHeight: 180, placement: 'above' })
+    expect(resolveWritingCommandMenuPosition({
+      anchor: { top: 700, right: 140, bottom: 724, left: 120 },
+      viewportWidth: 1440,
+      viewportHeight: 800,
+      menuWidth: 300,
+      menuHeight: 180,
+      scale: 0.85
+    })).toMatchObject({ top: 634, left: 141, width: 300, maxHeight: 180, placement: 'above' })
+
+    const unchangedRewriteTarget = {
+      chapterId: 'chapter-1',
+      documentRevision: 4,
+      blockId: 'block-1',
+      blockRevision: 2,
+      baseText: '仍是同一段正文'
+    }
+    expect(getWritingCandidateStaleReason(unchangedRewriteTarget, {
+      chapterId: 'chapter-1',
+      documentRevision: 5,
+      blockId: 'block-1',
+      blockRevision: 2,
+      text: '仍是同一段正文'
+    })).toBe('')
+    expect(getWritingCandidateStaleReason(unchangedRewriteTarget, {
+      chapterId: 'chapter-1',
+      documentRevision: 5,
+      blockId: 'block-1',
+      blockRevision: 3,
+      text: '正文已经变化'
+    })).toBe('block-changed')
+    expect(createWritingCandidateRequest({
+      target: { kind: 'block', blockId: 'block-1', text: '整段正文' },
+      documentRevision: 5,
+      chapterId: 'chapter-1',
+      question: '改写上一段'
+    }).target.kind).toBe('paragraph')
+    expect(createWritingCandidateRequest({
+      target: { kind: 'multi-selection', text: '跨段选区', blocks: [] },
+      documentRevision: 5,
+      chapterId: 'chapter-1',
+      question: '改写选区'
+    }).target.kind).toBe('selection')
     const prompt = buildSystemPrompt('narrator', { style: 'webnovel' })
     expect(prompt).toContain('网文风')
 

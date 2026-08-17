@@ -22,6 +22,7 @@
 - [experience-narrative-continuity-plan.md](./experience-narrative-continuity-plan.md)：体验页续写语义、叙事连续性、可读性与多轮质量 Gate。
 - [experience-story-generation-quality-plan.md](./experience-story-generation-quality-plan.md)：体验页第二阶段故事质量计划，以场景线程、局部叙事拍计划和更完整的单次生成解决正文散、重复动作与无功能描写。
 - [experience-content-integrity-and-dialogue-plan.md](./experience-content-integrity-and-dialogue-plan.md)：体验页第三阶段修正计划，统一正文删除与存储回收、marker/speaker 协议、对白阅读样式和 SceneThread 闭环。
+- [settings-import-and-review-ux-plan-20260817.md](./settings-import-and-review-ux-plan-20260817.md)：世界书首页、可恢复创建工作区、多文件来源暂存、基础基调、渐进式详细提炼和唯一 AI 审阅区重构计划。
 其余研究文档保留为资料，不自动生成任务，也不能覆盖主计划中的当前事实。已完成的专题计划和过时的并行执行文档不再在这里维护。
 
 ## 查找规则

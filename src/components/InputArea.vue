@@ -1,5 +1,5 @@
 <template>
-  <div class="input-area">
+  <div class="input-area" @keydown.escape="showDialoguePanel = false">
     <div
       v-if="!hasApiKey"
       class="api-key-hint"
@@ -126,33 +126,21 @@
         <span class="quick-btn__label">{{ action.label }}</span>
       </button>
       <button
+        ref="dialogueToggleRef"
         :class="['quick-btn', 'control-toggle', { active: gameStore.dialogueMode || gameStore.dialogueCharacter }]"
         :aria-pressed="Boolean(gameStore.dialogueMode || gameStore.dialogueCharacter).toString()"
         @click="handleDialogueToggle"
       >
         <span class="quick-btn__icon" aria-hidden="true">💬</span>
-        <span class="quick-btn__label">对话模式</span>
-      </button>
-      <button
-        v-if="autoAdvanceAvailable"
-        type="button"
-        :class="['quick-btn', 'control-toggle', { active: autoAdvance }]"
-        :aria-pressed="autoAdvance"
-        :title="autoAdvance ? '正在半自动推进；再次点击停止' : '立即开始半自动推进，可随时停止'"
-        @click="emit('toggle-auto-advance')"
-      >
-        <Pause v-if="autoAdvance" :size="13" stroke-width="1.8" aria-hidden="true" />
-        <Play v-else :size="13" stroke-width="1.8" aria-hidden="true" />
-        <span class="quick-btn__label">{{ autoAdvance ? '停止自动' : '半自动' }}</span>
-        <span v-if="autoAdvancePending" class="sr-only">将在本段完成后继续推进</span>
+        <span class="quick-btn__label">对话</span>
       </button>
     </div>
 
     <!-- 角色选择面板 -->
-    <div v-if="showDialoguePanel" class="dialogue-panel">
+    <div v-if="showDialoguePanel" class="dialogue-panel" role="dialog" aria-label="选择对话角色">
       <div class="dialogue-header">
         <span>选择对话角色</span>
-        <button class="close-btn" @click="showDialoguePanel = false">×</button>
+        <button class="close-btn" type="button" aria-label="关闭角色选择" @click="showDialoguePanel = false">×</button>
       </div>
 
       <!-- 当前选中 -->
@@ -164,7 +152,7 @@
           <div class="char-name">{{ gameStore.dialogueCharacter.name }}</div>
           <div class="char-desc">{{ gameStore.dialogueCharacter.description || '暂无描述' }}</div>
         </div>
-        <button class="clear-btn" @click="clearDialogueCharacter(); showDialoguePanel = false">清除</button>
+        <button class="clear-btn" type="button" @click="clearDialogueCharacter(); showDialoguePanel = false">清除</button>
       </div>
 
       <!-- 已保存角色列表 -->
@@ -180,7 +168,7 @@
             <div class="char-name">{{ char.name }}</div>
             <div class="char-desc">{{ char.description?.slice(0, 20) || '暂无描述' }}</div>
           </div>
-          <button class="delete-btn" @click.stop="deleteDialogueCharacter(char.id)">×</button>
+          <button class="delete-btn" type="button" :aria-label="`删除${char.name}`" @click.stop="deleteDialogueCharacter(char.id)">×</button>
         </div>
       </div>
       <div v-else class="empty-char">暂无已保存的角色</div>
@@ -223,12 +211,12 @@
     </div>
     <div v-if="commandError" class="command-error">{{ commandError }}</div>
     <div class="input-row">
-      <input
+      <textarea
+        ref="inputRef"
         v-model="inputText"
-        type="text"
         class="input"
-        placeholder="输入你的行动... (Cmd+Enter 发送 · Esc 清空)"
-        @keyup.enter="handleSend"
+        rows="1"
+        placeholder="写下行动或续写方向"
         @keydown.meta.enter.prevent="handleSend"
         @keydown.ctrl.enter.prevent="handleSend"
         @keydown.escape="inputText = ''"
@@ -241,37 +229,46 @@
         class="send-btn control-primary stop-btn"
         type="button"
         title="停止生成"
+        aria-label="停止生成"
         @click="gameStore.executeExperienceAction({ type: 'stop', source: 'stop-btn' })"
       >
-        <span>停止</span>
+        <Square :size="16" stroke-width="1.8" aria-hidden="true" />
       </button>
       <button
         v-else
         class="send-btn control-primary"
+        type="button"
+        aria-label="发送"
         @click="handleSend"
         :disabled="!inputText.trim()"
       >
-        <span>发送</span>
+        <Send :size="16" stroke-width="1.8" aria-hidden="true" />
       </button>
 
-      <button class="info-btn control-icon" :aria-pressed="showPromptInfo.toString()" @click="showPromptInfo = !showPromptInfo" title="提示词详情" aria-label="提示词详情">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <path d="M7 0h1v9h-1V0zm0 10h1v4h-1v-4zM4 4h1v6H4V4zm6 2h1v4h-1V6z"/>
-        </svg>
+      <button
+        class="info-btn control-icon"
+        type="button"
+        :aria-expanded="composerMenuOpen.toString()"
+        title="更多输入工具"
+        aria-label="更多输入工具"
+        @click="composerMenuOpen = !composerMenuOpen"
+      >
+        <MoreHorizontal :size="17" stroke-width="1.8" aria-hidden="true" />
       </button>
-      <button class="info-btn control-icon" :class="{ 'info-btn--active': showDirectorNote }" :aria-pressed="showDirectorNote.toString()" @click="showDirectorNote = !showDirectorNote" title="本轮导演注" aria-label="本轮导演注">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 3l9 5-9 5-9-5 9-5zm0 8.5L19 12v5l-7 4-7-4v-5l7 .5z"/>
-        </svg>
-      </button>
+    </div>
+    <div v-if="composerMenuOpen" class="composer-menu" role="menu" aria-label="更多输入工具">
+      <button type="button" role="menuitem" @click="showPromptInfo = !showPromptInfo; composerMenuOpen = false">提示词详情</button>
+      <button type="button" role="menuitem" :aria-pressed="showDirectorNote.toString()" @click="showDirectorNote = !showDirectorNote; composerMenuOpen = false">导演注</button>
+      <button type="button" role="menuitem" @click="handleQuickAction('inner'); composerMenuOpen = false">心理</button>
+      <button v-if="autoAdvanceAvailable" type="button" role="menuitem" @click="emit('toggle-auto-advance'); composerMenuOpen = false">{{ autoAdvance ? '停止半自动' : '半自动' }}</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Pause, Play } from 'lucide-vue-next'
+import { MoreHorizontal, Send, Square } from 'lucide-vue-next'
 import { useGameStore } from '../stores/gameStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
@@ -301,7 +298,9 @@ function handleStorageUpdated(event) {
   if (event.key === 'apiSettings') refreshApiSettings()
 }
 const inputText = ref('')
+const inputRef = ref(null)
 const showPromptInfo = ref(false)
+const composerMenuOpen = ref(false)
 // R2：本轮导演注（仅下一轮生效）
 const directorNote = ref('')
 const showDirectorNote = ref(false)
@@ -310,6 +309,7 @@ const commandError = ref('')
 const showDetail = ref(false)
 const detailTab = ref('context')
 const showDialoguePanel = ref(false)
+const dialogueToggleRef = ref(null)
 const newCharName = ref('')
 const newCharDesc = ref('')
 // P1-5：/ 命令建议菜单（映射到 executeExperienceAction）
@@ -345,9 +345,7 @@ ${buildNarrativeFormatInstructions()}`
 
 const quickActions = [
   { label: '继续', icon: '▶', command: 'continue', title: '继续上一段正文（延长上一条回复，不新增回合）' },
-  { label: '场景', icon: '🌿', command: 'scene' },
-  { label: '对话', icon: '💬', command: 'dialogue' },
-  { label: '心理', icon: '💭', command: 'inner' }
+  { label: '场景', icon: '🌿', command: 'scene' }
 ]
 
 const quickActionPrompts = {
@@ -366,6 +364,14 @@ onMounted(() => {
     directorNote.value = gameStore.pendingDirectorNote
     showDirectorNote.value = true
   }
+})
+
+watch(showDialoguePanel, async (open, previous) => {
+  if (open) {
+    await nextTick()
+    return
+  }
+  if (previous) await nextTick(() => dialogueToggleRef.value?.focus())
 })
 
 onUnmounted(() => {
@@ -425,7 +431,15 @@ function handleQuickAction(command) {
 
 function handleInput() {
   updatePromptInfo()
+  resizeInput()
   if (inputText.value.trim()) emit('manual-input')
+}
+
+function resizeInput() {
+  const element = inputRef.value
+  if (!element) return
+  element.style.height = 'auto'
+  element.style.height = `${Math.min(element.scrollHeight, 132)}px`
 }
 
 async function handleCompress() {
@@ -1403,6 +1417,247 @@ function updatePromptInfo() {
 
   .auto-advance-btn {
     margin-left: 6px;
+  }
+}
+
+/* U5-R C4-C5: one composer surface, one primary action slot, and a
+   transient character picker that never reflows the reading column. */
+.input-area {
+  position: relative;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 18%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-secondary)) 90%, transparent);
+}
+
+.quick-actions {
+  min-height: 30px;
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 13%, transparent);
+}
+
+.quick-btn {
+  min-height: 30px;
+  padding: 4px 11px;
+  border-bottom: 2px solid transparent;
+  color: color-mix(in srgb, var(--archive-ink-soft, var(--text-secondary)) 88%, transparent);
+}
+
+.quick-btn:hover,
+.quick-btn.active,
+.quick-btn[aria-pressed="true"] {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 72%, transparent);
+  background: transparent;
+  color: var(--archive-ink, var(--text-primary));
+}
+
+.quick-btn__icon {
+  display: none;
+}
+
+.input-row {
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.input-row .input {
+  min-height: 40px;
+  max-height: 132px;
+  resize: none;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 22%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.input-row .input:focus {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 68%, transparent);
+  outline: 0;
+}
+
+.send-btn {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-olive) 76%, var(--archive-ink));
+  color: var(--archive-paper-soft, #fff);
+}
+
+.send-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-ink));
+}
+
+.send-btn:disabled {
+  opacity: 0.38;
+}
+
+.info-btn {
+  width: 38px;
+  height: 42px;
+  margin: 0;
+  border-radius: 3px;
+}
+
+.composer-menu {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% - 2px);
+  z-index: 20;
+  width: 176px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 18%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-secondary)) 98%, white);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.composer-menu button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-menu button:hover,
+.composer-menu button:focus-visible {
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  outline: 0;
+}
+
+.dialogue-panel {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% - 2px);
+  z-index: 21;
+  width: min(360px, calc(100% - 24px));
+  max-height: min(420px, 60vh);
+  margin: 0;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 22%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-secondary)) 98%, white);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--archive-ink) 16%, transparent);
+}
+
+.dialogue-header {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 14%, transparent);
+}
+
+.selected-char {
+  margin-bottom: 8px;
+  padding: 7px 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 13%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.selected-char .char-avatar,
+.char-item .char-avatar.small {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-olive) 10%, var(--archive-paper-soft));
+  border: 0;
+  color: var(--archive-olive-strong, var(--archive-ink));
+}
+
+.char-list {
+  gap: 0;
+  max-height: 190px;
+  margin-bottom: 8px;
+}
+
+.char-item {
+  min-height: 40px;
+  padding: 5px 0;
+}
+
+.char-item.active {
+  padding-inline: 6px;
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+}
+
+.char-item .delete-btn {
+  width: 30px;
+  height: 30px;
+  opacity: 0.55;
+  transition: color 0.15s ease, opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.char-item:hover .delete-btn,
+.char-item .delete-btn:focus-visible {
+  opacity: 1;
+}
+
+.add-char-section {
+  padding-top: 9px;
+  border-top-color: color-mix(in srgb, var(--archive-ink-soft, var(--border)) 14%, transparent);
+}
+
+.char-input {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 20%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.char-input:focus {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 68%, transparent);
+}
+
+.add-char-btn {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-olive) 74%, var(--archive-ink));
+}
+
+@media (max-width: 760px) {
+  .input-area {
+    padding: 7px 9px calc(9px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-actions {
+    min-height: 34px;
+  }
+
+  .quick-btn {
+    min-height: 34px;
+    padding-inline: 9px;
+  }
+
+  .dialogue-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-height: min(420px, 62vh);
+  }
+
+  .composer-menu {
+    right: 9px;
+    bottom: calc(100% - 1px);
   }
 }
 </style>

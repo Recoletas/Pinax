@@ -1,21 +1,34 @@
 <template>
-  <nav class="activity-bar" aria-label="一级导航">
-    <button
-      v-for="item in items"
-      :key="item.key"
-      class="activity-btn"
-      :class="{ active: item.key === activeKey }"
-      type="button"
-      @click="$emit('select', item.key)"
-    >
-      <span class="activity-icon" aria-hidden="true">
-        <WorkbenchIcon :name="item.icon" :size="16" />
-      </span>
-      <span class="activity-copy">
+  <nav class="activity-bar" aria-label="工作区导航">
+    <div v-for="item in items" :key="item.key" class="activity-group">
+      <button
+        class="activity-btn"
+        :class="{ active: item.key === activeKey }"
+        type="button"
+        :aria-current="item.key === activeKey ? 'page' : undefined"
+        @click="$emit('select', item.key)"
+      >
+        <span class="activity-icon" aria-hidden="true">
+          <WorkbenchIcon :name="item.icon" :size="17" />
+        </span>
         <span class="activity-label">{{ item.label }}</span>
-        <span class="activity-desc">{{ item.description }}</span>
-      </span>
-    </button>
+      </button>
+
+      <div v-if="item.key === activeKey && activePanel.items?.length" class="activity-subnav" :aria-label="`${item.label}子导航`">
+        <button
+          v-for="child in activePanel.items"
+          :key="child.routeName"
+          class="activity-subnav__item"
+          :class="{ active: child.routeName === activeRouteName }"
+          type="button"
+          :aria-current="child.routeName === activeRouteName ? 'page' : undefined"
+          @click="$emit('select-route', child.routeName)"
+        >
+          <span class="activity-subnav__mark" aria-hidden="true"></span>
+          <span>{{ child.label }}</span>
+        </button>
+      </div>
+    </div>
   </nav>
 </template>
 
@@ -23,102 +36,119 @@
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
 defineProps({
-  items: {
-    type: Array,
-    default: () => []
-  },
-  activeKey: {
-    type: String,
-    default: ''
-  }
+  items: { type: Array, default: () => [] },
+  activeKey: { type: String, default: '' },
+  activeRouteName: { type: String, default: '' },
+  activePanel: { type: Object, default: () => ({ items: [] }) }
 })
 
-defineEmits(['select'])
+defineEmits(['select', 'select-route'])
 </script>
 
 <style scoped>
-/* UI-NAV16 (2026-06-27): left-drawer primary nav moves out of V1's
-   arrow-notch / skewX / padStart / SaaS-gradient card language and
-   into the archive-folio 目录纸签 family that already lives on the
-   top mast (AppShell.vue V3) and on the materials drawer. Each row is a flat 硬边纸签 stacked
-   like a binder row, no rounded chip, no clip-path notch. */
 .activity-bar {
+  min-height: 0;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 0;
-  padding: 6px 0 10px;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 10px 12px 18px;
+}
+
+.activity-group {
+  min-width: 0;
+}
+
+.activity-btn,
+.activity-subnav__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  cursor: pointer;
+  font: inherit;
 }
 
 .activity-btn {
-  position: relative;
-  min-height: 54px;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px 9px 14px;
-  border: none;
-  border-left: 3px solid transparent;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 16%, transparent);
-  background: transparent;
-  color: var(--archive-ink-soft);
-  text-align: left;
-  cursor: pointer;
-  transition: border-left-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  min-height: 44px;
+  gap: 11px;
+  padding: 0 12px;
+  border-left: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 650;
 }
 
-.activity-btn:first-child {
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 16%, transparent);
-}
-
-.activity-btn:hover {
-  background: color-mix(in srgb, var(--archive-paper) 60%, transparent);
+.activity-btn:hover,
+.activity-btn.active {
   color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-olive) 7%, transparent);
 }
 
 .activity-btn.active {
-  border-left-color: color-mix(in srgb, var(--archive-rose) 78%, transparent);
-  background: color-mix(in srgb, var(--archive-paper) 88%, transparent);
-  color: var(--archive-ink);
+  border-left-color: color-mix(in srgb, var(--archive-rose) 76%, var(--archive-ink));
 }
 
-/* Icon — directory mark, not a SaaS button. Transparent box, no
-   clip-path notch, hard edge. Active = ink-color flip to olive. */
 .activity-icon {
   width: 22px;
   height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
-  background: transparent;
-}
-
-.activity-btn.active .activity-icon {
-  color: color-mix(in srgb, var(--archive-olive) 82%, var(--archive-ink));
-}
-
-.activity-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 22px;
+  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
 }
 
 .activity-label {
-  display: block;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: 0;
-  color: var(--archive-ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.activity-desc {
-  display: block;
-  font-size: 11px;
-  line-height: 1.35;
-  letter-spacing: 0;
-  color: color-mix(in srgb, var(--archive-ink-soft) 80%, transparent);
+.activity-subnav {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 5px 33px;
+  padding: 2px 0 3px 12px;
+  border-left: 1px solid color-mix(in srgb, var(--archive-olive) 20%, transparent);
+}
+
+.activity-subnav__item {
+  min-height: 36px;
+  gap: 9px;
+  padding: 0 9px;
+  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
+  font-size: 12px;
+}
+
+.activity-subnav__item:hover,
+.activity-subnav__item.active {
+  color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-olive) 6%, transparent);
+}
+
+.activity-subnav__item.active {
+  font-weight: 650;
+}
+
+.activity-subnav__mark {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--archive-olive) 42%, transparent);
+}
+
+.activity-subnav__item.active .activity-subnav__mark {
+  background: color-mix(in srgb, var(--archive-rose) 80%, var(--archive-ink));
+}
+
+.activity-btn:focus-visible,
+.activity-subnav__item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  outline-offset: -2px;
 }
 </style>

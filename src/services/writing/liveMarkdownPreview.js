@@ -57,6 +57,43 @@ export function canOpenWritingCommandMenu({
     && Number(contentSize) === 0
 }
 
+export function resolveWritingCommandMenuPosition({
+  anchor,
+  viewportWidth = 0,
+  viewportHeight = 0,
+  menuWidth = 300,
+  menuHeight = 216,
+  margin = 12,
+  gap = 8,
+  scale = 1
+} = {}) {
+  if (!anchor) return null
+  const safeScale = Math.max(0.1, Number(scale) || 1)
+  const safeViewportWidth = Math.max(margin * 2, Number(viewportWidth) || 0)
+  const safeViewportHeight = Math.max(margin * 2, Number(viewportHeight) || 0)
+  const visualWidth = Math.max(0, Math.min((Number(menuWidth) || 300) * safeScale, safeViewportWidth - margin * 2))
+  const requestedHeight = Math.max(96 * safeScale, (Number(menuHeight) || 216) * safeScale)
+  const belowSpace = Math.max(0, safeViewportHeight - margin - Number(anchor.bottom || 0) - gap)
+  const aboveSpace = Math.max(0, Number(anchor.top || 0) - margin - gap)
+  const placement = requestedHeight <= belowSpace || belowSpace >= aboveSpace ? 'below' : 'above'
+  const availableHeight = placement === 'below' ? belowSpace : aboveSpace
+  const maxHeight = Math.max(96 * safeScale, Math.min(requestedHeight, availableHeight || requestedHeight))
+  const top = placement === 'below'
+    ? Math.max(margin, Number(anchor.bottom || 0) + gap)
+    : Math.max(margin, Number(anchor.top || 0) - gap - maxHeight)
+  const left = Math.max(
+    margin,
+    Math.min(Number(anchor.left || 0), safeViewportWidth - visualWidth - margin)
+  )
+  return {
+    top: Math.round(top / safeScale),
+    left: Math.round(left / safeScale),
+    width: Math.round(visualWidth / safeScale),
+    maxHeight: Math.round(maxHeight / safeScale),
+    placement
+  }
+}
+
 export function resolveCurrentLineOverlayGeometry({
   coordinates,
   rootBox,

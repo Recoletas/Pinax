@@ -28,6 +28,7 @@ import {
   refreshResearchReview
 } from './worldbookResearchClaims'
 import { createResearchRevision } from './worldbookResearchRevision'
+import { archiveSourceDocuments } from './worldbookSourceArchive'
 
 // ----- Entry-type constants (mirrors WorldBookQuickImport.vue) -----
 
@@ -281,16 +282,17 @@ export function normalizeGeneratedEntry(rawEntry, index = 0) {
 export function createSourceDocument(content, options = {}) {
   const text = normalizeText(content)
   if (!text) return null
-  const maxLength = 120000
   const createdAt = Number(options.createdAt) || Date.now()
   return {
     id: normalizeText(options.id) || `source_${createdAt.toString(36)}`,
     title: normalizeText(options.title) || '导入原文',
     kind: normalizeText(options.kind) || 'reference-text',
-    content: text.slice(0, maxLength),
+    // 完整正文只作为创建流程的临时输入；正式 worldbook 创建时会归档到
+    // source archive，并将这里的 content 收敛为可读预览。
+    content: text,
     sourceLabel: normalizeText(options.sourceLabel) || '小说片段导入',
     originalLength: text.length,
-    truncated: text.length > maxLength,
+    truncated: false,
     createdAt
   }
 }
@@ -302,7 +304,6 @@ function normalizeSourceDocuments(documents) {
       id: document?.id || `source_${index + 1}`
     }))
     .filter(Boolean)
-    .slice(0, 8)
 }
 
 // ----- Helpers used by buildPendingPayload -----
@@ -562,7 +563,16 @@ export async function createWorldbookFromPayload(worldStore, payload, options = 
     throw new Error('没有可导入的条目')
   }
 
-  const normalizedPayload = buildPendingPayload(payload)
+  const sourceDocumentsForPayload = Array.isArray(options.sourceDocuments)
+    ? options.sourceDocuments
+    : payload.sourceDocuments
+  const normalizedPayload = buildPendingPayload({
+    ...payload,
+    sourceDocuments: sourceDocumentsForPayload
+  })
+  const archivedSourceDocuments = Array.isArray(options.archivedSourceDocuments)
+    ? options.archivedSourceDocuments
+    : await archiveSourceDocuments(normalizedPayload.sourceDocuments)
 
   const created = await worldStore.createWorldbook({
     name: normalizedPayload.name,
@@ -573,7 +583,7 @@ export async function createWorldbookFromPayload(worldStore, payload, options = 
     description: normalizedPayload.description || normalizedPayload.worldDescription || '',
     research: normalizedPayload.research,
     structuredSettings: normalizedPayload.structuredSettings,
-    sourceDocuments: normalizedPayload.sourceDocuments,
+    sourceDocuments: archivedSourceDocuments,
     sourcePresetId: options.sourcePresetId || null,
     presetSignature: options.presetSignature || null
   })

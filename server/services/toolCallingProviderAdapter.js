@@ -33,7 +33,7 @@ export class NarrativeProviderError extends Error {
   }
 }
 
-function appendProviderPath(baseUrl, protocol) {
+export function resolveProviderEndpoint(baseUrl, protocol) {
   const normalized = text(baseUrl).replace(/\/+$/, '')
   if (protocol === 'openai-responses') {
     if (/\/responses$/i.test(normalized)) return normalized
@@ -68,7 +68,7 @@ export function resolveToolCallingProvider(provider = {}) {
   return {
     id: providerId,
     protocol,
-    url: appendProviderPath(provider?.baseUrl, protocol),
+    url: resolveProviderEndpoint(provider?.baseUrl, protocol),
     capabilities: {
       toolCalls: true,
       parallelToolCalls: true,

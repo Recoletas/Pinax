@@ -236,33 +236,20 @@
       </Transition>
     </Teleport>
 
-    <div class="game-image-gen-rail">
-      <MediaGenerationDrawer
-        storage-key="game_image_library_v1"
-        side="right"
-        :vertical-offset="62"
-        :horizontal-offset="12"
-        :mobile-bottom-offset="82"
-        drawer-title="体验生图"
-        selected-prompt-label="当前输入"
-        :selected-text="gameStore.inputText || ''"
-      />
-
-      <AdvisorPanel
-        :isOpen="advisorOpen"
-        :messages="advisorMessages"
-        :loading="advisorLoading"
-        :quickQuestions="[
-          { label: '分析当前节奏', question: '分析当前冒险的叙事节奏，指出快慢和转折点。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '人物塑造建议', question: '分析当前出场人物的行为逻辑和性格表现，给出深化建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
-          { label: '剧情发展方向', question: '基于当前剧情状态，给出1-2个合理的后续发展方向。', scope: 'thread', taskType: 'advisor.close.thread' },
-          { label: '续写灵感', question: '给出一句轻量续写建议，保持当前叙事语气。', scope: 'continue', taskType: 'advisor.continue.light' }
-        ]"
-        :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
-        @close="closeAdvisor"
-        @ask="handleAskAdvisor"
-      />
-    </div>
+    <AdvisorPanel
+      :isOpen="advisorOpen"
+      :messages="advisorMessages"
+      :loading="advisorLoading"
+      :quickQuestions="[
+        { label: '分析当前节奏', question: '分析当前冒险的叙事节奏，指出快慢和转折点。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+        { label: '人物塑造建议', question: '分析当前出场人物的行为逻辑和性格表现，给出深化建议。', scope: 'chapter', taskType: 'advisor.review.chapter' },
+        { label: '剧情发展方向', question: '基于当前剧情状态，给出1-2个合理的后续发展方向。', scope: 'thread', taskType: 'advisor.close.thread' },
+        { label: '续写灵感', question: '给出一句轻量续写建议，保持当前叙事语气。', scope: 'continue', taskType: 'advisor.continue.light' }
+      ]"
+      :emptyText="'创作顾问可帮你分析当前冒险状态，提供叙事建议和剧情方向指引。'"
+      @close="closeAdvisor"
+      @ask="handleAskAdvisor"
+    />
   </div>
 </template>
 
@@ -270,7 +257,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useGameStore } from '../../stores/gameStore'
 import { useWorldStore } from '../../stores/worldStore'
-import MediaGenerationDrawer from '../../components/media/MediaGenerationDrawer.vue'
 import { useTheme } from '../../composables/useTheme'
 import { useAdvisor } from '../../composables/useAdvisor'
 import AdvisorPanel from '../../components/AdvisorPanel.vue'
@@ -1006,8 +992,7 @@ function quickNoteWordCount(text) {
   gap: 10px;
 }
 
-.quick-notes-rail > *,
-.game-image-gen-rail > * {
+.quick-notes-rail > * {
   pointer-events: auto;
 }
 

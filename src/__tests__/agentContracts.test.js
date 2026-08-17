@@ -2745,6 +2745,28 @@ describe('agentContracts', function () {
       code: 'AGENT_PROVIDER_CONFIG_INVALID',
       retryable: false
     })
+    var capturedTextModelUrl = ''
+    var originalFetch = globalThis.fetch
+    globalThis.fetch = async function (url) {
+      capturedTextModelUrl = String(url)
+      return { ok: false, status: 404 }
+    }
+    try {
+      await expect(runTextModelAgent(requestPayload.envelope, '检查', {
+        taskType: 'writing.fix.paragraph',
+        options: {
+          providerConfig: {
+            baseUrl: 'https://api.minimaxi.com/anthropic',
+            apiKey: 'sk-test',
+            model: 'MiniMax-M3',
+            format: 'anthropic'
+          }
+        }
+      })).rejects.toMatchObject({ code: 'AGENT_PROVIDER_UPSTREAM_FAILED' })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    expect(capturedTextModelUrl).toBe('https://api.minimaxi.com/anthropic/v1/messages')
     expect(buildAdvisorProviderOptions({
       provider: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic',

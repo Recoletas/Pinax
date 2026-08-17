@@ -463,7 +463,6 @@
         <ImageGenerationWorkbench
           v-else
           class="notes-sidekick__illustration"
-          presentation="inline"
           :showHeader="false"
           :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
           :selectedText="selectedAsset?.content || currentChapterTitle"

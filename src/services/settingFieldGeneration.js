@@ -11,7 +11,12 @@ import {
   buildSettingRevisionContext,
   hashSettingDraftContent
 } from '../../shared/settingDraftRevisionContract'
-import { STRUCTURED_GENERATION_TIMEOUTS } from '../../shared/structuredSettingContract'
+import {
+  STRUCTURED_GENERATION_SCHEMA_IDS,
+  STRUCTURED_GENERATION_TIMEOUTS
+} from '../../shared/structuredSettingContract'
+import { normalizeSettingCandidates } from '../../shared/structuredSettingCandidateContract'
+import { selectSourceChunks } from './worldbookSourceSelection'
 
 const MAX_CONSTRAINT_ENTRIES = 12
 const MAX_CONSTRAINT_CHARS = 6000
@@ -48,7 +53,14 @@ function hashText(value) {
   return (hash >>> 0).toString(36)
 }
 
-function buildStructuredContextCacheKey({ worldbook, sectionKey, fieldKeys, userBrief }) {
+function formatSourceCandidates(candidates = []) {
+  return (Array.isArray(candidates) ? candidates : [])
+    .slice(0, 24)
+    .map((candidate) => `- [${candidate.type}] ${candidate.name}${candidate.aliases?.length ? `（别名：${candidate.aliases.join('、')}）` : ''}：${candidate.content}\n  证据：${candidate.evidence}\n  来源：${candidate.sourceIds.join(', ')}`)
+    .join('\n')
+}
+
+function buildStructuredContextCacheKey({ worldbook, sectionKey, fieldKeys, userBrief, sourceCandidates = [] }) {
   const settings = normalizeStructuredSettings(worldbook?.structuredSettings)
   const entryDigest = (Array.isArray(worldbook?.entries) ? worldbook.entries : [])
     .map((entry) => [entry?.id, entry?.type, entry?.name, entry?.content, entry?.updatedAt])
@@ -60,6 +72,7 @@ function buildStructuredContextCacheKey({ worldbook, sectionKey, fieldKeys, user
     sectionKey,
     fieldKeys,
     userBrief,
+    sourceCandidates,
     worldDescription: worldbook?.worldDescription || '',
     writingStyle: worldbook?.writingStyle || '',
     forbidden: worldbook?.forbidden || '',
@@ -102,61 +115,19 @@ function formatEntries(entries, maxChars = MAX_CONSTRAINT_CHARS) {
   return lines.join('\n')
 }
 
-function splitSourceChunks(content) {
-  const paragraphs = String(content || '').split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
-  const chunks = []
-  for (const paragraph of paragraphs) {
-    for (let offset = 0; offset < paragraph.length; offset += 900) {
-      chunks.push(paragraph.slice(offset, offset + 900))
-    }
-  }
-  return chunks
-}
-
-function collectSourceKeywords({ section, field, userBrief, currentFieldValue, matchedEntries }) {
-  const values = [section?.label, field?.label, userBrief, currentFieldValue]
-  for (const entry of matchedEntries) {
-    values.push(entry.name, ...(entry.keys || []), ...(entry.keysSecondary || []))
-  }
-  return [...new Set(values
-    .flatMap((value) => String(value || '').split(/[\s，。；、,;：:（）()【】]+/))
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length >= 2 && value.length <= 40))]
-    .slice(0, 40)
-}
-
 function buildSourceMaterialContext({ worldbook, section, field, userBrief, currentFieldValue, matchedEntries }) {
   const sourceDocuments = Array.isArray(worldbook?.sourceDocuments) ? worldbook.sourceDocuments : []
   if (!sourceDocuments.length) return ''
-
-  const linkedDocumentIds = new Set(matchedEntries.flatMap((entry) => entry.metadata?.sourceDocumentIds || []))
-  const keywords = collectSourceKeywords({ section, field, userBrief, currentFieldValue, matchedEntries })
-  const candidates = []
-  sourceDocuments.slice(0, 8).forEach((document, documentIndex) => {
-    splitSourceChunks(document?.content).forEach((content, chunkIndex) => {
-      const normalized = content.toLowerCase()
-      const keywordScore = keywords.reduce((score, keyword) => score + (normalized.includes(keyword) ? 2 : 0), 0)
-      const linkedScore = linkedDocumentIds.has(String(document?.id || '')) ? 5 : 0
-      candidates.push({
-        title: String(document?.title || `原始资料 ${documentIndex + 1}`),
-        content,
-        score: keywordScore + linkedScore,
-        order: documentIndex * 10000 + chunkIndex
-      })
-    })
-  })
-
-  candidates.sort((a, b) => b.score - a.score || a.order - b.order)
-  const selected = []
-  let usedChars = 0
-  for (const candidate of candidates) {
-    const block = `【${candidate.title}】\n${candidate.content}`
-    if (usedChars + block.length > MAX_SOURCE_CONTEXT_CHARS) continue
-    selected.push(block)
-    usedChars += block.length
-    if (selected.length >= 6) break
-  }
-  return selected.join('\n\n')
+  return selectSourceChunks({
+    sourceDocuments,
+    sectionLabel: section?.label,
+    fieldLabel: field?.label,
+    userBrief,
+    currentFieldValue,
+    matchedEntries,
+    maxChars: MAX_SOURCE_CONTEXT_CHARS,
+    maxChunks: 6
+  }).context
 }
 
 function buildOutputContract(fieldMeta, field = null) {
@@ -381,8 +352,8 @@ export function buildSettingPromptPreview(options) {
     .join('\n\n')
 }
 
-function buildStructuredContext({ worldbook, sectionKey, fieldKeys, userBrief = '' }) {
-  const cacheKey = buildStructuredContextCacheKey({ worldbook, sectionKey, fieldKeys, userBrief })
+function buildStructuredContext({ worldbook, sectionKey, fieldKeys, userBrief = '', sourceCandidates = [] }) {
+  const cacheKey = buildStructuredContextCacheKey({ worldbook, sectionKey, fieldKeys, userBrief, sourceCandidates })
   const cached = structuredContextCache.get(cacheKey)
   if (cached) return cached
   const firstFieldKey = fieldKeys[0]
@@ -413,7 +384,8 @@ function buildStructuredContext({ worldbook, sectionKey, fieldKeys, userBrief = 
     confirmedSettings: clipText(confirmedSettings, 3000),
     currentValues,
     relatedEntries: clipText(relatedEntries, 2800),
-    sourceExcerpts: clipText(sourceExcerpts, 2800),
+    sourceExcerpts: clipText(sourceExcerpts, 5000),
+    sourceCandidates: clipText(formatSourceCandidates(sourceCandidates), 4200),
     userBrief: clipText(userBrief, 1200)
   }
   const result = {
@@ -432,9 +404,9 @@ function buildStructuredContext({ worldbook, sectionKey, fieldKeys, userBrief = 
   return result
 }
 
-export function buildStructuredSettingRequest({ worldbook, sectionKey, fieldKeys, userBrief = '' } = {}) {
+export function buildStructuredSettingRequest({ worldbook, sectionKey, fieldKeys, userBrief = '', sourceCandidates = [] } = {}) {
   const normalizedFieldKeys = Array.isArray(fieldKeys) ? fieldKeys.filter(Boolean) : []
-  const built = buildStructuredContext({ worldbook, sectionKey, fieldKeys: normalizedFieldKeys, userBrief })
+  const built = buildStructuredContext({ worldbook, sectionKey, fieldKeys: normalizedFieldKeys, userBrief, sourceCandidates })
   return {
     schemaId: normalizedFieldKeys.length > 1 ? 'setting-section.v1' : 'setting-field.v1',
     ...built
@@ -475,6 +447,46 @@ export function getStructuredGenerationTimeout(fieldOrFields) {
   ))
     ? STRUCTURED_GENERATION_TIMEOUTS.longMs
     : STRUCTURED_GENERATION_TIMEOUTS.shortMs
+}
+
+export async function generateSettingCandidates({
+  sectionKey,
+  worldbook,
+  userBrief = '',
+  fieldKeys = null,
+  signal = null,
+  settings = null,
+  sendStructuredGenerationImpl = sendStructuredGeneration
+} = {}) {
+  const section = getSettingSection(sectionKey)
+  if (!section) return { ok: false, reason: '设定分区不存在。', candidates: [] }
+  const requested = Array.isArray(fieldKeys) && fieldKeys.length
+    ? section.fields.filter((field) => fieldKeys.includes(field.key))
+    : section.fields
+  const base = buildStructuredSettingRequest({
+    worldbook,
+    sectionKey,
+    fieldKeys: requested.map((field) => field.key),
+    userBrief
+  })
+  if (!base.context.sourceExcerpts) return { ok: true, candidates: [], meta: null }
+  try {
+    const resolvedSettings = settings || await getResolvedApiSettings()
+    const response = await sendStructuredGenerationImpl({
+      ...base,
+      schemaId: STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES,
+      settings: resolvedSettings,
+      options: { max_tokens: 2800, timeout_ms: getStructuredGenerationTimeout(requested) },
+      signal
+    })
+    const validSourceIds = new Set((Array.isArray(worldbook?.sourceDocuments) ? worldbook.sourceDocuments : [])
+      .map((document) => String(document?.id || '').trim())
+      .filter(Boolean))
+    const candidates = normalizeSettingCandidates(response?.drafts?.candidates, { validSourceIds })
+    return { ok: true, candidates, meta: response?.meta || null }
+  } catch (error) {
+    return { ok: false, candidates: [], reason: error?.message || '来源事实提取失败。', code: error?.code, meta: error?.requestId }
+  }
 }
 
 export async function generateSettingDraftRevision({
@@ -627,11 +639,28 @@ export async function generateSettingSectionDraftBatch({
   onProgress?.({ index: 0, total: fields.length, phase: 'requesting', fieldKeys: fields.map((field) => field.key) })
   try {
     const resolvedSettings = settings || await getResolvedApiSettings()
+    let sourceCandidates = []
+    let sourceCandidateError = ''
+    if (Array.isArray(worldbook?.sourceDocuments) && worldbook.sourceDocuments.some((document) => String(document?.content || '').trim())) {
+      onProgress?.({ index: 0, total: fields.length, phase: 'extracting', fieldKeys: fields.map((field) => field.key) })
+      const extracted = await generateSettingCandidates({
+        sectionKey,
+        worldbook,
+        userBrief,
+        fieldKeys: fields.map((field) => field.key),
+        signal,
+        settings: resolvedSettings,
+        sendStructuredGenerationImpl
+      })
+      if (extracted.ok) sourceCandidates = extracted.candidates
+      else sourceCandidateError = extracted.reason || '来源事实提取失败'
+    }
     const request = buildStructuredSettingRequest({
       worldbook,
       sectionKey,
       fieldKeys: fields.map((field) => field.key),
-      userBrief
+      userBrief,
+      sourceCandidates
     })
     const response = await sendStructuredGenerationImpl({
       ...request,
@@ -647,7 +676,15 @@ export async function generateSettingSectionDraftBatch({
       const content = normalizeDraft(response?.drafts?.[field.key])
       const fieldMeta = getFieldMeta(sectionKey, field.key)
       if (isSettingDraftValid(content, fieldMeta)) {
-        results.set(field.key, { ok: true, content, fieldLabel: field.label, index: 0, meta: response?.meta })
+        results.set(field.key, {
+          ok: true,
+          content,
+          fieldLabel: field.label,
+          index: 0,
+          meta: response?.meta,
+          sourceCandidates,
+          sourceCandidateError
+        })
       } else {
         failedFields.push(field)
         results.set(field.key, {
@@ -669,7 +706,8 @@ export async function generateSettingSectionDraftBatch({
         worldbook,
         sectionKey,
         fieldKeys: failedFields.map((field) => field.key),
-        userBrief: userBrief ? `${userBrief}\n只补全以下未通过校验的设定项，不要重写已通过的字段。` : '只补全以下未通过校验的设定项，不要重写其他字段。'
+        userBrief: userBrief ? `${userBrief}\n只补全以下未通过校验的设定项，不要重写已通过的字段。` : '只补全以下未通过校验的设定项，不要重写其他字段。',
+        sourceCandidates
       })
       try {
         const repaired = await sendStructuredGenerationImpl({
@@ -684,7 +722,15 @@ export async function generateSettingSectionDraftBatch({
         for (const field of failedFields) {
           const content = normalizeDraft(repaired?.drafts?.[field.key])
           if (isSettingDraftValid(content, getFieldMeta(sectionKey, field.key))) {
-            results.set(field.key, { ok: true, content, fieldLabel: field.label, index: 0, meta: repaired?.meta })
+            results.set(field.key, {
+              ok: true,
+              content,
+              fieldLabel: field.label,
+              index: 0,
+              meta: repaired?.meta,
+              sourceCandidates,
+              sourceCandidateError
+            })
           }
         }
       } catch {

@@ -55,6 +55,8 @@ function schemaName(schemaId) {
     ? 'setting_section_v1'
     : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.REVISION
       ? 'setting_revision_v1'
+      : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES
+        ? 'setting_candidates_v1'
       : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACES
         ? 'setting_places_v1'
         : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACE_FLESH_OUT
@@ -66,6 +68,17 @@ function textParts(context = {}, targets = {}, schemaId = '') {
   const section = text(targets.sectionKey)
   const fields = Array.isArray(targets.fieldKeys) ? targets.fieldKeys.join(', ') : ''
   const serialize = (value) => typeof value === 'string' ? value : JSON.stringify(value || '')
+  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES) {
+    return [
+      '目标协议：setting-candidates.v1。请从原始资料片段中提取后续设定生成需要的有限事实候选。',
+      '只返回 candidates 数组；每项必须有 type、name、content、evidence、sourceIds，可选 aliases（只有资料明确给出别称时填写）。type 只能是 lore、character、location、organization、event、item、rule、quest。',
+      'content 是可核验的短事实，不写空泛总结；evidence 必须是资料中的连续原文摘录；sourceIds 必须填写原文片段标出的来源 ID。资料没有依据的内容不要补写，不要把修辞或推测当作事实。最多返回 24 项。',
+      context.sourceExcerpts ? `【原始资料片段】\n${serialize(context.sourceExcerpts)}` : '',
+      context.confirmedSettings ? `【已确认设定】\n${serialize(context.confirmedSettings)}` : '',
+      context.userBrief ? `【本次分区要求】\n${serialize(context.userBrief)}` : '',
+      '不要输出解释、标题、Markdown 或思考过程。'
+    ].filter(Boolean).join('\n\n')
+  }
   if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACES) {
     return [
       '目标协议：setting-places.v1。请从地理环境原文中整理可被作者审阅的地点草稿。',
@@ -141,6 +154,7 @@ function textParts(context = {}, targets = {}, schemaId = '') {
     context.currentValues ? `【当前设定项基线】\n${serialize(context.currentValues)}` : '',
     context.relatedEntries ? `【相关既有条目】\n${serialize(context.relatedEntries)}` : '',
     context.sourceExcerpts ? `【原始资料摘录】\n${serialize(context.sourceExcerpts)}` : '',
+    context.sourceCandidates ? `【已提取事实候选，仅作本轮分区综合底稿】\n${serialize(context.sourceCandidates)}` : '',
     context.userBrief ? `【本次补充要求】\n${serialize(context.userBrief)}` : '',
     context.draftContent
       ? '请返回修订后的完整字段正文，不要返回 diff、patch、修改说明或只返回变更片段；明确保留内容不得被删除，明确反对内容不得继续出现。'

@@ -47,10 +47,10 @@ const currentRouteName = computed(() => String(route.name || ''))
 .settings-section-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 0;
-  padding: 0 8px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  gap: 2px;
+  padding: 0 clamp(12px, 3vw, 42px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+  background: transparent;
   flex-shrink: 0;
   /* W5b UX sweep: on <760px the nav becomes overflow-x: auto and
      the active tab can scroll out of view. Pure CSS scroll-snap +
@@ -69,13 +69,13 @@ const currentRouteName = computed(() => String(route.name || ''))
    册语言, 不走 Material 圆角 chip 高亮. */
 .settings-section-tab {
   position: relative;
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 11px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   border: none;
-  border-left: 1px dashed color-mix(in srgb, var(--border) 86%, transparent);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
@@ -88,11 +88,11 @@ const currentRouteName = computed(() => String(route.name || ''))
 }
 
 .settings-section-tab:first-child {
-  border-left: none;
+  border-left: 0;
 }
 
 .settings-section-tab:hover {
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
   color: var(--text-primary);
 }
 
@@ -104,6 +104,7 @@ const currentRouteName = computed(() => String(route.name || ''))
 .settings-section-tab.active {
   color: var(--text-primary);
   font-weight: 600;
+  border-bottom-color: var(--accent);
   /* W5b UX sweep (continued): scroll-snap-align + scroll-margin so the
      active tab stays in view when the nav scrolls horizontally. */
   scroll-snap-align: start;
@@ -114,30 +115,15 @@ const currentRouteName = computed(() => String(route.name || ''))
    "◆" + opacity 0→1 切换. aria-hidden on the index + the stamp
    means screen readers fall back to aria-selected on the tab. */
 .settings-section-tab::before {
-  content: "";
-  display: inline-block;
-  width: 0;
-  opacity: 0;
-  margin-right: 0;
-  transition: opacity 0.18s ease, width 0.18s ease, margin-right 0.18s ease;
-}
-
-.settings-section-tab.active::before {
-  content: "◆";
-  opacity: 1;
-  width: auto;
-  margin-right: 4px;
-  font-size: 9px;
-  line-height: 1;
-  color: color-mix(in srgb, var(--accent) 72%, transparent);
+  content: none;
 }
 
 /* UI-S16: 罗马数字 index 沿用 mast tab 字体栈
    var(--font-display) → Iowan Old Style / Songti SC / STSong. 12px
    跟 mast 一致, 不加 tabular-nums. */
 .settings-section-tab__index {
-  display: inline-block;
-  min-width: 14px;
+  display: none;
+  min-width: 0;
   text-align: center;
   font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
   font-size: 12px;
@@ -150,7 +136,7 @@ const currentRouteName = computed(() => String(route.name || ''))
 }
 
 .settings-section-tab__icon {
-  display: none;
+  display: inline-flex;
   color: var(--text-muted);
 }
 
@@ -177,16 +163,12 @@ const currentRouteName = computed(() => String(route.name || ''))
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 0 4px;
+    padding: 0 8px;
   }
 
   .settings-section-tab {
     min-width: max-content;
-    padding: 0 12px;
-    font-size: 11px;
-  }
-
-  .settings-section-tab__index {
+    padding: 0 10px;
     font-size: 11px;
   }
 }
@@ -201,7 +183,7 @@ const currentRouteName = computed(() => String(route.name || ''))
 
 .theme-kao .settings-section-tab {
   min-height: 34px;
-  border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
+  border-bottom-color: transparent;
   color: var(--archive-ink-soft);
 }
 
@@ -214,8 +196,8 @@ const currentRouteName = computed(() => String(route.name || ''))
   color: var(--archive-ink);
 }
 
-.theme-kao .settings-section-tab.active::before {
-  color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
+.theme-kao .settings-section-tab.active {
+  border-bottom-color: var(--archive-olive);
 }
 
 .theme-kao .settings-section-tab__index {
@@ -225,5 +207,57 @@ const currentRouteName = computed(() => String(route.name || ''))
 
 .theme-kao .settings-section-tab.active .settings-section-tab__index {
   color: var(--archive-ink);
+}
+
+/* Theme 2: one quiet workbench rail shared by every settings surface. */
+.theme-legacy .settings-section-nav {
+  min-height: 42px;
+  align-items: stretch;
+  gap: 0;
+  padding-inline: clamp(14px, 3vw, 42px);
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 16%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 74%, transparent);
+}
+
+.theme-legacy .settings-section-tab {
+  min-height: 42px;
+  padding-inline: 14px;
+  gap: 7px;
+  color: var(--archive-ink-soft);
+  font-size: 12px;
+}
+
+.theme-legacy .settings-section-tab:hover {
+  background: color-mix(in srgb, var(--archive-olive) 5%, transparent);
+  color: var(--archive-ink);
+}
+
+.theme-legacy .settings-section-tab.active {
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--archive-ink);
+}
+
+.theme-legacy .settings-section-tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 18px;
+  height: 2px;
+  background: var(--archive-rose);
+  transform: translateX(-50%);
+}
+
+@media (max-width: 760px) {
+  .theme-legacy .settings-section-nav {
+    min-height: 40px;
+    padding-inline: 6px;
+  }
+
+  .theme-legacy .settings-section-tab {
+    min-height: 40px;
+    padding-inline: 11px;
+  }
 }
 </style>

@@ -1,11 +1,9 @@
 <template>
   <section class="worldbook-hero" data-test="worldbook-hero">
-    <span class="worldbook-hero__roman" aria-hidden="true">I</span>
-    <span class="worldbook-hero__stamp" aria-hidden="true">C·01</span>
-
     <div class="worldbook-hero__body">
       <div class="worldbook-hero__kicker">
-        <span class="worldbook-hero__volume">WORLD BOOK · 卷·壹</span>
+        <span class="worldbook-hero__signal" aria-hidden="true"></span>
+        <span class="worldbook-hero__volume">ACTIVE WORLD / 当前世界</span>
       </div>
 
       <h2 class="worldbook-hero__name">{{ preset?.name }}</h2>
@@ -31,9 +29,8 @@
         data-test="hero-cta"
         @click="onEnter"
       >
-        <span class="worldbook-hero__cta-index" aria-hidden="true">01</span>
         <span class="worldbook-hero__cta-label">开始冒险</span>
-        <span class="worldbook-hero__cta-arrow" aria-hidden="true">▶</span>
+        <WorkbenchIcon name="arrow-right" :size="15" />
       </button>
     </div>
   </section>
@@ -42,6 +39,7 @@
 <script setup>
 import { computed } from 'vue'
 import { getFeaturedPressureRow, getHookExcerpt } from '../../services/worldbookQuickImportHelpers'
+import WorkbenchIcon from './WorkbenchIcon.vue'
 
 const props = defineProps({
   preset: { type: Object, required: true }
@@ -370,6 +368,144 @@ function onEnter() {
     width: 48px; height: 48px;
     font-size: 10px;
     top: 18px; right: 18px;
+  }
+}
+
+/* Theme 2: a calm active-world dossier, with one unmistakable action. */
+.theme-legacy .worldbook-hero {
+  min-height: 232px;
+  padding: clamp(24px, 3vw, 38px) clamp(22px, 3.2vw, 44px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 18%, transparent);
+  border-radius: 4px;
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--archive-paper-soft) 98%, transparent) 0 64%, color-mix(in srgb, var(--archive-paper-strong) 34%, transparent)),
+    var(--archive-paper-soft);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 72%, transparent) inset,
+    0 16px 42px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+}
+
+.theme-legacy .worldbook-hero::before {
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--accent) 0 72%, var(--archive-rose) 72% 88%, var(--archive-gold) 88%);
+  clip-path: none;
+}
+
+.theme-legacy .worldbook-hero::after {
+  content: '';
+  position: absolute;
+  right: -56px;
+  bottom: -110px;
+  width: 340px;
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 9%, transparent);
+  border-radius: 43% 57% 52% 48%;
+  box-shadow:
+    0 0 0 34px color-mix(in srgb, var(--archive-olive) 4%, transparent),
+    0 0 0 68px color-mix(in srgb, var(--archive-olive) 3%, transparent);
+  transform: rotate(-11deg);
+  pointer-events: none;
+}
+
+.theme-legacy .worldbook-hero__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px 32px;
+  max-width: none;
+}
+
+.worldbook-hero__signal {
+  width: 22px;
+  height: 2px;
+  background: var(--archive-rose);
+}
+
+.theme-legacy .worldbook-hero__volume {
+  color: var(--archive-ink-soft);
+  font-size: 9px;
+  letter-spacing: .16em;
+}
+
+.theme-legacy .worldbook-hero__name {
+  font-family: var(--font-display);
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 600;
+  line-height: 1.08;
+}
+
+.theme-legacy .worldbook-hero__meta {
+  color: var(--archive-ink-soft);
+}
+
+.theme-legacy .worldbook-hero__hook {
+  max-width: 58ch;
+  color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: normal;
+}
+
+.theme-legacy .worldbook-hero__briefing {
+  margin-top: 6px;
+  gap: 8px 18px;
+}
+
+.theme-legacy .worldbook-hero__briefing li {
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 52%, transparent);
+}
+
+.theme-legacy .worldbook-hero__cta {
+  min-width: 132px;
+  min-height: 40px;
+  justify-content: center;
+  gap: 10px;
+  grid-column: 2;
+  grid-row: 1 / 6;
+  align-self: center;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--accent-text);
+  clip-path: none;
+  transform: none;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.theme-legacy .worldbook-hero__cta:hover {
+  transform: translateY(-1px);
+  background: var(--accent-hover);
+  box-shadow: 0 11px 24px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+@media (max-width: 760px) {
+  .theme-legacy .worldbook-hero {
+    min-height: 280px;
+    padding: 24px 20px 20px;
+  }
+
+  .theme-legacy .worldbook-hero__body {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .theme-legacy .worldbook-hero__name {
+    font-size: 34px;
+  }
+
+  .theme-legacy .worldbook-hero__cta {
+    width: 100%;
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 10px;
   }
 }
 </style>

@@ -107,6 +107,79 @@ export function normalizeWorldbookAiResult(parsed) {
   return parsed
 }
 
+const IMPORT_ENTRY_TYPE_LABELS = Object.freeze({
+  rule: '规则',
+  style: '文风',
+  forbidden: '禁写',
+  character: '角色',
+  location: '地点',
+  organization: '势力',
+  event: '事件',
+  item: '物件',
+  lore: '设定',
+  quest: '任务',
+  general: '其他'
+})
+
+function previewText(value, maxLength = 120) {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
+}
+
+/**
+ * 为 SillyTavern / Pinax JSON 导入生成确定性预览。
+ * 这里只读取结构，不写入世界书，也不把结构化 JSON 降级成普通文本。
+ */
+export function buildWorldbookImportPreview(parsed, fallbackName = '') {
+  const normalized = normalizeWorldbookAiResult(parsed)
+  const entries = Array.isArray(normalized?.entries) ? normalized.entries : []
+  const typeCounts = new Map()
+  const groups = new Set((Array.isArray(normalized?.groups) ? normalized.groups : [])
+    .map((group) => String(group || '').trim())
+    .filter(Boolean))
+  let keyedEntryCount = 0
+  let configuredEntryCount = 0
+
+  for (const entry of entries) {
+    const type = String(entry?.type || 'general').trim().toLowerCase() || 'general'
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1)
+    const group = String(entry?.group || entry?.category || entry?.injection?.group || '').trim()
+    if (group) groups.add(group)
+    const keys = Array.isArray(entry?.keys)
+      ? entry.keys
+      : (Array.isArray(entry?.keywords) ? entry.keywords : [])
+    if (keys.some((key) => String(key || '').trim())) keyedEntryCount += 1
+    const injection = entry?.injection && typeof entry.injection === 'object' ? entry.injection : entry
+    if (['mode', 'constant', 'probability', 'cooldown', 'depth', 'excludeRecursion'].some((key) => key in injection)) {
+      configuredEntryCount += 1
+    }
+  }
+
+  return {
+    name: String(normalized?.name || normalized?.title || fallbackName || '未命名世界书').trim(),
+    entryCount: entries.length,
+    groupCount: groups.size,
+    groups: [...groups].slice(0, 24),
+    typeSummary: [...typeCounts.entries()]
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([type, count]) => ({ type, label: IMPORT_ENTRY_TYPE_LABELS[type] || type, count })),
+    keyedEntryCount,
+    configuredEntryCount,
+    previewEntries: entries.slice(0, 5).map((entry, index) => ({
+      id: String(entry?.id || `preview-${index + 1}`),
+      name: previewText(entry?.name || entry?.title || `未命名条目 ${index + 1}`, 80),
+      type: String(entry?.type || 'general').trim().toLowerCase() || 'general',
+      typeLabel: IMPORT_ENTRY_TYPE_LABELS[String(entry?.type || 'general').trim().toLowerCase()] || '其他',
+      group: String(entry?.group || entry?.category || entry?.injection?.group || '').trim(),
+      keys: (Array.isArray(entry?.keys) ? entry.keys : (Array.isArray(entry?.keywords) ? entry.keywords : []))
+        .map((key) => previewText(key, 36))
+        .filter(Boolean)
+        .slice(0, 4),
+      content: previewText(entry?.content || entry?.description, 160)
+    }))
+  }
+}
+
 function parseWorldbookJsonContent(content) {
   return normalizeWorldbookAiResult(parseJsonFromAiContent(content))
 }

@@ -7,10 +7,13 @@ import {
 export { buildWritingCandidateDiff, getWritingCandidateStaleReason, normalizeWritingCandidates }
 
 export function createWritingCandidateRequest({ target, documentRevision, chapterId, question }) {
+  const targetKind = target?.kind === 'block' || target?.kind === 'paragraph'
+    ? 'paragraph'
+    : 'selection'
   return {
     question: String(question || '').trim(),
     target: {
-      kind: target?.kind || 'selection',
+      kind: targetKind,
       range: target?.range || null,
       text: String(target?.text || ''),
       blockIds: Array.isArray(target?.blocks) ? target.blocks.map((block) => block.blockId).filter(Boolean) : [],

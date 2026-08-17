@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const AppShell = () => import('../layouts/AppShell.vue')
 const ThemeVariantView = () => import('../components/theme/ThemeVariantView.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
+const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorkspace.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
 const WorldMapPage = () => import('../pages/WorldMapPage.vue')
@@ -58,6 +59,16 @@ const workbenchChildren = [
       hideGlobalMemory: true,
       activityKey: 'worldbook',
       title: '设定 · 快速导入'
+    }
+  },
+  {
+    path: 'settings/worldbook/create',
+    name: 'settings-worldbook-create',
+    component: WorldbookCreationWorkspace,
+    meta: {
+      hideGlobalMemory: true,
+      activityKey: 'worldbook',
+      title: '设定 · 创建工作区'
     }
   },
   {

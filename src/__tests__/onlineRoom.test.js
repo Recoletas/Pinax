@@ -344,6 +344,8 @@ describe('useOnlineRoom', () => {
     })
     expect(chat.text()).toContain('alice')
     expect(chat.text()).toContain('去钟楼。')
+    expect(chat.get('.online-chat__toggle').classes()).toContain('control-icon')
+    expect(chat.get('.online-chat__send').classes()).toContain('control-icon')
     await chat.get('input').setValue('我来带路')
     await chat.get('form').trigger('submit')
     expect(chat.emitted('send')?.[0]).toEqual(['我来带路'])
@@ -361,11 +363,17 @@ describe('useOnlineRoom', () => {
         compact: true,
         roomSlug: '04bu8rsw',
         connectionState: 'connected',
-        members: [{ id: 'm_1', nickname: 'REco', role: 'host' }]
+        members: [{ id: 'm_1', nickname: 'REco', role: 'host' }],
+        proposals: [{ id: 'proposal-1', text: '进入钟楼', selected: false }],
+        isHost: true
       }
     })
     expect(roomPanel.classes()).toContain('online-room--compact')
     expect(roomPanel.text()).toContain('成员 · 1')
+    expect(roomPanel.get('.online-room__action-btn').classes()).toContain('control-quiet')
+    expect(roomPanel.get('.online-room__action-btn--leave').classes()).toContain('control-danger')
+    expect(roomPanel.get('.online-room__proposal-btn').classes()).toContain('control-quiet')
+    expect(roomPanel.get('.online-room__proposal-btn--host').classes()).toContain('control-secondary')
     roomPanel.unmount()
 
     const agentStatus = mount(NarrativeAgentStatus, {
@@ -388,6 +396,7 @@ describe('useOnlineRoom', () => {
     })
     expect(agentStatus.get('.narrative-agent-status').attributes('role')).toBe('alert')
     expect(agentStatus.text()).toContain('叙事资料查询超时')
+    expect(agentStatus.get('.narrative-agent-status__retry').classes()).toContain('control-danger')
     agentStatus.unmount()
 
     let acceptConnection

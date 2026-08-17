@@ -12,7 +12,7 @@ const requestedWidths = String(process.env.UI_AUDIT_WIDTHS || '1440,1280,980,760
 const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .split(',')
   .map((value) => value.trim())
-  .filter((value) => ['empty', 'regular', 'long', 'loading', 'error'].includes(value))
+  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error'].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .split(',')
   .map((value) => value.trim())
@@ -30,6 +30,12 @@ const routes = [
   { id: 'prose-essay', path: '/prose-essay', surfaces: ['.prose-essay-page', '.pe-main', '.card-wall', '.left-panel'] },
   { id: 'comics', path: '/comics', surfaces: ['.comic-studio__workspace', '.comic-studio__canvas', '.comic-studio__inspector'] },
   { id: 'settings-worldbook', path: '/settings/worldbook', surfaces: ['main', '.worldbook-page'] },
+  {
+    id: 'settings-worldbook-create',
+    path: '/settings/worldbook/create?mode=structured-import',
+    surfaces: ['.creation-page', '.creation-main'],
+    keyboardTargets: ['.creation-page input[type="text"]', '.creation-page textarea', '.creation-page button']
+  },
   { id: 'settings-structured', path: '/settings/structured', surfaces: ['main', '.structured-settings'] },
   { id: 'settings-world-map', path: '/settings/world-map', surfaces: ['main', '.world-map-page'] }
 ]
@@ -164,7 +170,48 @@ function makeFixture(state) {
       ]
     }]
   }
-  if (state === 'loading' || state === 'error') {
+  const structuredSettings = {
+    world: {
+      origin: '潮汐港建立在不断改道的海湾上，旧灯塔记录着三次迁港。',
+      powerSystem: '',
+      geography: '港城由外港、旧灯塔和北侧盐沼组成，潮汐会改变可通行航道。',
+      history: '十七年前的风暴使旧灯塔停摆，港城随后改用人工巡灯。',
+      factions: '',
+      rules: ''
+    },
+    story: { logline: '', concept: '', theme: '', coreConflict: '', mainline: '', sublines: '' },
+    characters: { protagonists: '', majorSupporting: '', npcs: '', relationshipSummary: '' },
+    creativeRules: { writingStyle: '', perspective: '', tone: '', taboos: '', consistency: '', references: '' }
+  }
+  const auditWorldbook = {
+    id: 'audit-worldbook',
+    name: '雾港设定审计本',
+    description: '用于结构化设定页 UI 审计',
+    worldDescription: '一座被潮汐改写航道的港城。',
+    writingStyle: '克制、清晰，保留悬念。',
+    examples: '',
+    forbidden: '',
+    version: '1.0',
+    createdAt: now,
+    updatedAt: now,
+    settings: { scanDepth: 2, tokenBudget: 4096, recursiveScanning: true },
+    entries: [],
+    entriesMap: {},
+    groups: [],
+    sourceDocuments: [],
+    structuredSettings
+  }
+  fixture.worldbooks_index = [{
+    id: auditWorldbook.id,
+    name: auditWorldbook.name,
+    description: auditWorldbook.description,
+    entryCount: 0,
+    createdAt: now,
+    updatedAt: now
+  }]
+  fixture[`worldbook_${auditWorldbook.id}`] = auditWorldbook
+  fixture.active_worldbook_id = auditWorldbook.id
+  if (state === 'loading' || state === 'error' || state === 'partial') {
     fixture.apiSettings = {
       provider: 'openai',
       baseUrl: 'https://audit.invalid/v1',
@@ -191,7 +238,12 @@ async function installThemeFixture(page, state) {
       'prose_timeline_v1',
       'writing_sessions',
       'writing_books',
-      'apiSettings'
+      'worldbooks_index',
+      'active_worldbook_id',
+      'worldbook_audit-worldbook',
+      'apiSettings',
+      'text_model_configs',
+      'text_model_selected'
     ]
     fixtureKeys.forEach((key) => localStorage.removeItem(key))
     localStorage.setItem('app_theme_variant', 'legacy')
@@ -202,11 +254,13 @@ async function installThemeFixture(page, state) {
 }
 
 function supportsActionState(route, state) {
-  return !['loading', 'error'].includes(state) || route.id === 'prose-essay'
+  if (state === 'partial') return ['settings-worldbook-create', 'settings-structured'].includes(route.id)
+  return !['loading', 'error'].includes(state)
+    || ['prose-essay', 'settings-worldbook-create', 'settings-structured'].includes(route.id)
 }
 
 async function installActionScenario(page, state) {
-  if (!['loading', 'error'].includes(state)) return
+  if (!['loading', 'error', 'partial'].includes(state)) return
   await page.route('**/api/generate', async (requestRoute) => {
     if (state === 'loading') {
       await new Promise(() => {})
@@ -218,10 +272,68 @@ async function installActionScenario(page, state) {
       body: JSON.stringify({ error: '审计模拟：生成服务暂时不可用' })
     })
   })
+  await page.route('**/api/generate/structured', async (requestRoute) => {
+    if (state === 'loading') {
+      await new Promise(() => {})
+      return
+    }
+    if (state === 'partial') {
+      await requestRoute.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          drafts: {
+            origin: '潮汐港建立在不断改道的海湾上，旧灯塔记录着三次迁港。',
+            geography: '港城由外港、旧灯塔和北侧盐沼组成，潮汐会改变可通行航道。'
+          },
+          fieldErrors: {
+            powerSystem: '审计模拟：该项没有可用草稿。',
+            history: '审计模拟：该项没有可用草稿。',
+            factions: '审计模拟：该项没有可用草稿。',
+            rules: '审计模拟：该项没有可用草稿。'
+          }
+        })
+      })
+      return
+    }
+    await requestRoute.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: '审计模拟：生成服务暂时不可用' })
+    })
+  })
 }
 
-async function triggerActionScenario(page, state) {
-  if (!['loading', 'error'].includes(state)) return null
+async function triggerActionScenario(page, route, state) {
+  if (!['loading', 'partial', 'error'].includes(state)) return null
+  if (route.id === 'settings-worldbook-create') {
+    await page.locator('.creation-foundation textarea').fill('一座被潮汐改写记忆的港城，创作者希望保持克制而有悬念的叙事。')
+    await page.locator('.creation-foundation .primary-action').click()
+    if (state === 'loading') {
+      await page.locator('.creation-state.is-generating').waitFor({ state: 'visible' })
+      return { assertion: 'creation workspace shows generating state while request is pending', passed: true }
+    }
+    await page.locator('.creation-state.is-error').waitFor({ state: 'visible', timeout: 10_000 })
+    return { assertion: 'creation workspace shows recoverable error after failed generation', passed: true }
+  }
+  if (route.id === 'settings-structured') {
+    await page.locator('.section-ai-btn').click()
+    if (state === 'loading') {
+      await page.locator('.generation-status.is-pending').waitFor({ state: 'visible' })
+      return { assertion: 'structured settings shows pending state while request is pending', passed: true }
+    }
+    if (state === 'partial') {
+      const partialStatus = page.locator('.generation-status.is-partial')
+      await partialStatus.first().waitFor({ state: 'visible', timeout: 10_000 })
+      return {
+        assertion: 'structured settings preserves valid drafts and exposes failed fields',
+        passed: await partialStatus.count() > 0
+          && await page.locator('.generation-failed-fields').count() > 0
+      }
+    }
+    await page.locator('.generation-status.is-error').first().waitFor({ state: 'visible', timeout: 10_000 })
+    return { assertion: 'structured settings shows recoverable error after failed generation', passed: true }
+  }
   await page.locator('.prose-top__input').fill('雾港信号沿废弃航道回荡')
   await page.locator('.prose-top__chip--generate').click()
   if (state === 'loading') {
@@ -230,6 +342,31 @@ async function triggerActionScenario(page, state) {
   }
   await page.locator('[role="alert"] .prose-generation-feedback__mark').waitFor({ state: 'visible' })
   return { assertion: 'visible alert after failed generation request', passed: true }
+}
+
+async function triggerRouteScenario(page, route, state, importFixturePath) {
+  if (route.id !== 'settings-worldbook-create' || !['regular', 'partial'].includes(state)) return null
+  if (state === 'partial') {
+    await page.locator('input[type="file"][multiple]').setInputFiles([
+      { name: 'audit-source.txt', mimeType: 'text/plain', buffer: Buffer.from('潮汐港的旧灯塔记录着一段可用资料。\n') },
+      { name: 'audit-unsupported.png', mimeType: 'image/png', buffer: Buffer.from('not-an-image') }
+    ])
+    await page.locator('.creation-state.is-partial').waitFor({ state: 'visible', timeout: 10_000 })
+    return {
+      assertion: 'mixed file selection preserves successful source and exposes partial state',
+      passed: await page.locator('.source-row .source-status.is-ready').count() > 0
+        && await page.locator('.source-row .source-status.is-error').count() > 0
+    }
+  }
+  const jsonInput = page.locator('input[type="file"][accept*="json"]')
+  await jsonInput.setInputFiles(importFixturePath)
+  await page.locator('.json-preview').waitFor({ state: 'visible', timeout: 10_000 })
+  const entryCount = await page.locator('.json-preview__entries li').count()
+  const confirmVisible = await page.locator('.summary-json .primary-action').isVisible()
+  return {
+    assertion: 'real JSON file selection opens structured preview and confirmation action',
+    passed: entryCount > 0 && confirmVisible
+  }
 }
 
 const PHYSICAL_FONT_SAMPLE_SELECTORS = [
@@ -530,7 +667,13 @@ async function inspectPage(page, surfaceSelectors) {
     const visible = (element) => {
       const style = getComputedStyle(element)
       const box = element.getBoundingClientRect()
-      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && box.width > 0 && box.height > 0
+      const hiddenByInteraction = element.closest('[aria-hidden="true"], [inert]')
+      return !hiddenByInteraction
+        && style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && Number(style.opacity) !== 0
+        && box.width > 0
+        && box.height > 0
     }
     const summarize = (element) => {
       const box = element.getBoundingClientRect()
@@ -563,7 +706,11 @@ async function inspectPage(page, surfaceSelectors) {
       .filter(visible)
       .filter((element) => {
         const box = element.getBoundingClientRect()
-        return box.right > viewport.width + 1 || box.left < -1 || box.bottom > viewport.height + 1 || box.top < -1
+        const style = getComputedStyle(element)
+        const horizontalOverflow = box.right > viewport.width + 1 || box.left < -1
+        const fixedVerticalOverflow = ['fixed', 'sticky'].includes(style.position)
+          && (box.bottom > viewport.height + 1 || box.top < -1)
+        return horizontalOverflow || fixedVerticalOverflow
       })
       .slice(0, 80)
       .map(summarize)
@@ -605,6 +752,15 @@ async function inspectPage(page, surfaceSelectors) {
 
 async function run() {
   await mkdir(outputDir, { recursive: true })
+  const importFixturePath = resolve(outputDir, 'worldbook-preview.json')
+  await writeFile(importFixturePath, `${JSON.stringify({
+    name: 'UI 审计世界书',
+    groups: ['历史', '地点'],
+    entries: [
+      { name: '旧灯塔', type: 'location', group: '地点', keys: ['灯塔', '北港'], content: '港口北侧的旧灯塔，停摆后改用人工巡灯。', injection: { mode: 'selective', depth: 4 } },
+      { name: '停摆记录', type: 'event', group: '历史', keys: ['十七年前'], content: '十七年前，旧灯塔在一次风暴后停止工作。' }
+    ]
+  }, null, 2)}\n`)
   const browser = await chromium.launch({ headless: true })
   const report = {
     generatedAt: new Date().toISOString(),
@@ -631,7 +787,8 @@ async function run() {
         const response = await page.goto(`${baseUrl}${route.path}`, { waitUntil: 'commit', timeout: 30_000 })
         await page.locator(route.surfaces[0]).waitFor({ state: 'attached', timeout: 30_000 })
         await page.waitForTimeout(700)
-        const actionScenario = await triggerActionScenario(page, state)
+        const routeScenario = await triggerRouteScenario(page, route, state, importFixturePath)
+        const actionScenario = await triggerActionScenario(page, route, state)
         const metrics = await inspectPage(page, route.surfaces)
         const typographyMetrics = route.id === 'experience'
           ? await inspectExperienceTypography(page)
@@ -672,6 +829,7 @@ async function run() {
           screenshot,
           consoleErrors,
           expectedConsoleErrors: state === 'error',
+          routeScenario,
           actionScenario,
           screenshotWarnings,
           accessibility,

@@ -14,7 +14,7 @@
       <button
         v-if="view.isError && !view.isOnline"
         type="button"
-        class="narrative-agent-status__retry"
+        class="narrative-agent-status__retry control-danger"
         @click="$emit('retry')"
       >重试</button>
     </div>
@@ -124,13 +124,7 @@ const view = computed(() => {
 .narrative-agent-status__retry {
   flex: 0 0 auto;
   margin-left: 4px;
-  padding: 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--accent-rose) 36%, transparent);
-  border-radius: 3px;
-  background: transparent;
   color: inherit;
-  font: inherit;
-  cursor: pointer;
 }
 
 .narrative-status-enter-active,

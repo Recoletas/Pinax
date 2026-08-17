@@ -15,6 +15,7 @@ import {
   normalizeGeneratedEntry
 } from '@/services/worldbookQuickImportHelpers'
 import {
+  buildWorldbookImportPreview,
   normalizeWorldbookAiResult,
   parseJsonFromAiContent
 } from '@/services/worldbookImportGeneration'
@@ -25,6 +26,7 @@ import {
   normalizeWorldbookResearchSettings,
   researchWorldbookGap
 } from '@/services/worldbookResearch'
+import { selectSourceChunks } from '@/services/worldbookSourceSelection'
 import {
   normalizeResearchFetchRequest,
   normalizeResearchRequest,
@@ -42,6 +44,7 @@ import {
   buildSettingGenerationMessages,
   extractSettingContent,
   generateSettingDraftRevision,
+  generateSettingCandidates,
   generateSettingSectionDraftBatch,
   generateSettingSectionDraft,
   getMeaningfulWorldDescription,
@@ -58,6 +61,26 @@ import {
   findWorldbookAuditTargets,
   normalizeWorldbookMaintenanceResult
 } from '@/services/worldbookMaintenance'
+import {
+  buildSourceArchiveBundle,
+  createCreationWorkspace,
+  dedupeSourceChunks,
+  loadSourceArtifacts,
+  loadSourceChunks,
+  saveSourceArchiveBundle
+} from '@/services/worldbookSourceArchive'
+import {
+  getCreationGenerationFailure,
+  getCreationGenerationLabel,
+  getCreationSourceResultState
+} from '@/services/worldbookCreationState'
+import { groupSettingCandidates } from '../../shared/structuredSettingCandidateContract.js'
+import {
+  detectSourceKind,
+  parseSourceFile,
+  parseSourceFiles
+} from '@/services/worldbookSourceAdapters'
+import { parseSourceFilesWithWorker } from '@/services/worldbookSourceParser'
 import {
   getPlacePayloadFromEntry,
   normalizePlacePayload,
@@ -128,16 +151,6 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     const hero = wrapper.find('.worldbook-hero')
     expect(hero.text()).toContain('边境王国')
     expect(hero.findAll('.worldbook-hero__briefing li')).toHaveLength(3)
-  })
-
-  it('S17-3: Hero CTA 点击 → 调 enterPresetWorld + push /opening', async () => {
-    mockWorldStoreLifecycle()
-    const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
-    await flushPromises()
-    const cta = wrapper.find('[data-test="hero-cta"]')
-    expect(cta.exists()).toBe(true)
-    await cta.trigger('click')
-    expect(cta.exists()).toBe(true)
   })
 
   it('S17-3b: hero 显示当前世界书时，「开始冒险」不再重复生成新世界书', async () => {
@@ -251,6 +264,193 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     const cards = wrapper.findAll('.preset-card')
     expect(cards.length).toBeLessThanOrEqual(5)
     expect(cards.length).toBeGreaterThan(0)
+  })
+})
+
+describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
+  it('规范化、去重、归档并隔离多文件解析结果', async () => {
+    const bundle = buildSourceArchiveBundle({
+      id: 'source-ledger',
+      title: '税册',
+      kind: 'text-file',
+      sourceLabel: '本地资料',
+      content: '第一段\r\n\r\n第二段',
+      chunkSize: 200
+    })
+
+    expect(bundle.artifact).toMatchObject({
+      id: 'source-ledger',
+      title: '税册',
+      kind: 'text-file',
+      originalLength: 10,
+      normalizedLength: 8
+    })
+    expect(bundle.artifact).not.toHaveProperty('content')
+    expect(bundle.artifact.chunkIds).toEqual(bundle.chunks.map((chunk) => chunk.id))
+    expect(bundle.chunks).toHaveLength(1)
+    expect(bundle.chunks[0]).toMatchObject({
+      sourceId: 'source-ledger',
+      text: '第一段\n\n第二段',
+      locator: { type: 'offset', start: 0, end: 8 }
+    })
+    const first = buildSourceArchiveBundle({ id: 's1', title: '甲', content: '同一段资料' })
+    const second = buildSourceArchiveBundle({ id: 's2', title: '乙', content: '同一段资料' })
+    const similar = buildSourceArchiveBundle({ id: 's3', title: '丙', content: '同一段资料。' })
+
+    const result = dedupeSourceChunks([
+      ...first.chunks,
+      ...second.chunks,
+      ...similar.chunks
+    ])
+
+    expect(result.chunks).toHaveLength(2)
+    expect(result.duplicateCount).toBe(1)
+    expect(result.chunks.find((chunk) => chunk.text === '同一段资料').sourceRefs)
+      .toEqual([{ sourceId: 's1', locator: { type: 'offset', start: 0, end: 5 } }, { sourceId: 's2', locator: { type: 'offset', start: 0, end: 5 } }])
+    const workspace = createCreationWorkspace({
+      id: 'creation-1',
+      mode: 'sources',
+      name: '潮汐港',
+      sourceIds: ['s1'],
+      selectedSourceIds: ['s1'],
+      brief: '潮汐会改写港城记忆。',
+      foundationDraft: { worldDescription: '一座受潮汐支配的港城。' }
+    })
+
+    expect(workspace).toMatchObject({
+      schemaVersion: 1,
+      id: 'creation-1',
+      mode: 'sources',
+      sourceIds: ['s1'],
+      selectedSourceIds: ['s1'],
+      brief: '潮汐会改写港城记忆。',
+      status: 'draft',
+      generationState: 'idle',
+      generationAction: '',
+      generationErrorCode: ''
+    })
+    expect(workspace.foundationDraft).toEqual({ worldDescription: '一座受潮汐支配的港城。' })
+    expect(getCreationGenerationLabel('partial')).toBe('部分完成')
+    expect(getCreationSourceResultState({ readyCount: 2, failedCount: 1 })).toBe('partial')
+    expect(getCreationGenerationFailure({ code: 'ECONNABORTED', message: '请求超时' })).toMatchObject({
+      code: 'timeout'
+    })
+    expect(createCreationWorkspace({
+      sourceFailures: [{ title: '扫描件.pdf', status: 'needs-ocr', error: { code: 'needs-ocr', message: '需要 OCR' } }]
+    }).sourceFailures).toEqual([{
+      id: 'failed-source-1',
+      title: '扫描件.pdf',
+      kind: 'text-file',
+      status: 'needs-ocr',
+      error: { code: 'needs-ocr', message: '需要 OCR' }
+    }])
+    const savedBundle = await saveSourceArchiveBundle(first)
+    expect(await loadSourceArtifacts([savedBundle.artifact.id])).toMatchObject([
+      { id: 's1', title: '甲', normalizedLength: 5 }
+    ])
+    expect(await loadSourceChunks(savedBundle.artifact.chunkIds)).toMatchObject([
+      { sourceId: 's1', text: '同一段资料' }
+    ])
+    setActivePinia(createPinia())
+    const store = useWorldStore()
+    const longText = `${'港口登记簿记录潮汐税制与船期变化。'.repeat(5000)}\n末页`
+    const created = await createWorldbookFromPayload(store, buildPendingPayload({
+      name: '来源归档测试',
+      sourceDocuments: [createSourceDocument(longText, {
+        id: 'legacy-source',
+        title: '旧来源'
+      })],
+      entries: [{ name: '港口税制', type: 'lore', content: '按登记簿整理。' }]
+    }))
+
+    const source = created.sourceDocuments[0]
+    expect(source).toMatchObject({
+      id: 'legacy-source',
+      archiveRef: 'legacy-source',
+      originalLength: longText.length
+    })
+    expect(source.content.length).toBeLessThan(longText.length)
+    expect(source.chunkIds.length).toBeGreaterThan(1)
+    const ownerCreateCalls = []
+    const ownerEntryCalls = []
+    const owner = {
+      createWorldbook: vi.fn().mockImplementation(async (input) => {
+        ownerCreateCalls.push(input)
+        return { id: 'wb-archived-source' }
+      }),
+      addEntry: vi.fn().mockImplementation(async (_id, input) => {
+        ownerEntryCalls.push(input)
+      }),
+      updateWorldbook: vi.fn().mockResolvedValue(undefined)
+    }
+    const formalSource = {
+      id: 's1',
+      title: '甲',
+      kind: 'text-file',
+      content: '预览内容',
+      sourceLabel: '本地资料',
+      archiveRef: 's1',
+      chunkIds: first.artifact.chunkIds,
+      contentHash: first.artifact.contentHash,
+      originalLength: first.artifact.originalLength,
+      normalizedLength: first.artifact.normalizedLength,
+      createdAt: first.artifact.createdAt,
+      warnings: []
+    }
+    await createWorldbookFromPayload(owner, {
+      name: '引用测试',
+      entries: [{ name: '港口', type: 'location', content: '港口位于潮汐河口。' }]
+    }, {
+      sourceDocuments: [formalSource],
+      archivedSourceDocuments: [formalSource]
+    })
+    expect(ownerCreateCalls[0].sourceDocuments).toEqual([formalSource])
+    expect(ownerEntryCalls[0].metadata.sourceDocumentIds).toContain('s1')
+    const selectedMaterial = selectSourceChunks({
+      sourceDocuments: [
+        { id: 'a', title: '港口账册', content: '普通税务记录。\n\n灯塔停摆当夜，港城失去航标。' },
+        { id: 'b', title: '人物手记', content: '陆沉在雨夜收起手记。' }
+      ],
+      sectionLabel: '世界观',
+      fieldLabel: '历史',
+      userBrief: '灯塔停摆',
+      maxChunks: 1
+    })
+    expect(selectedMaterial.context).toContain('灯塔停摆当夜')
+    expect(selectedMaterial.coverage).toMatchObject({ sources: 1, availableSources: 2 })
+    const file = {
+      name: '港口.md',
+      type: '',
+      size: 14,
+      lastModified: 1,
+      text: vi.fn().mockResolvedValue('# 港口\n\n潮汐税制')
+    }
+
+    expect(detectSourceKind(file)).toBe('markdown')
+    const parseResult = await parseSourceFile(file)
+    expect(parseResult).toMatchObject({ artifact: { kind: 'markdown', title: '港口.md' } })
+    expect(parseResult.chunks[0].locator.type).toBe('offset')
+    expect(parseResult.artifact.chunkIds).toEqual(parseResult.chunks.map((chunk) => chunk.id))
+    const results = await parseSourceFiles([
+      {
+        name: 'ok.txt', type: 'text/plain', size: 4, lastModified: 1,
+        text: vi.fn().mockResolvedValue('有效资料')
+      },
+      {
+        name: 'bad.exe', type: 'application/octet-stream', size: 4, lastModified: 1,
+        text: vi.fn()
+      }
+    ])
+
+    expect(results.map((item) => item.status)).toEqual(['ready', 'error'])
+    expect(results[0].artifact.title).toBe('ok.txt')
+    expect(results[1].error).toMatchObject({ code: 'unsupported-type' })
+
+    const workerResults = await parseSourceFilesWithWorker([{
+      name: 'worker.txt', type: 'text/plain', size: 4, lastModified: 1,
+      text: vi.fn().mockResolvedValue('Worker 资料')
+    }])
+    expect(workerResults).toMatchObject([{ status: 'ready', artifact: { title: 'worker.txt' } }])
   })
 })
 
@@ -446,6 +646,15 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     expect(normalizeWorldbookAiResult([{ name: '直接条目' }])).toMatchObject({
       entries: [{ name: '直接条目' }]
     })
+    expect(buildWorldbookImportPreview({
+      name: '雾港档案',
+      groups: ['历史'],
+      entries: [{ name: '旧灯塔', type: 'location', group: '地理', keys: ['灯塔'], content: '港口北侧的旧灯塔。', injection: { mode: 'selective' } }]
+    })).toMatchObject({
+      name: '雾港档案', entryCount: 1, groupCount: 2, keyedEntryCount: 1, configuredEntryCount: 1,
+      previewEntries: [{ name: '旧灯塔', typeLabel: '地点', keys: ['灯塔'] }]
+    })
+    expect(buildWorldbookImportPreview({}).entryCount).toBe(0)
     const foundation = buildFoundationPayloadFromAiResult({
       parsed: {
         name: '雾港',
@@ -588,6 +797,50 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     expect(sectionCalls[1].world.origin).toBe('本轮生成-origin')
     expect(sectionWorldbook.structuredSettings.world.origin).toBe('')
     const batchCalls = []
+    const candidateCalls = []
+    const candidateResult = await generateSettingCandidates({
+      sectionKey: 'world',
+      fieldKeys: ['history'],
+      worldbook: {
+        id: 'wb-candidates',
+        sourceDocuments: [{ id: 'source-history', title: '旧档案', content: '十七年前旧灯塔停摆，港城改用人工巡灯。' }]
+      },
+      settings: { baseUrl: 'https://example.test', apiKey: 'test', model: 'test' },
+      sendStructuredGenerationImpl: async (request) => {
+        candidateCalls.push(request)
+        return {
+          drafts: {
+            candidates: [{
+              type: 'event',
+              name: '旧灯塔停摆',
+              aliases: ['旧灯塔', '旧灯塔停摆'],
+              content: '旧灯塔停摆后，港城改用人工巡灯。',
+              evidence: '十七年前旧灯塔停摆，港城改用人工巡灯。',
+              sourceIds: ['source-history']
+            }, {
+              type: 'event',
+              name: '模型臆造事件',
+              content: '这条事实没有对应的本地来源。',
+              evidence: '不存在于当前资料的证据。',
+              sourceIds: ['source-not-found']
+            }]
+          }
+        }
+      }
+    })
+    expect(candidateResult).toMatchObject({ ok: true, candidates: [{ name: '旧灯塔停摆', sourceIds: ['source-history'] }] })
+    expect(candidateResult.candidates[0].aliases).toEqual(['旧灯塔'])
+    expect(groupSettingCandidates([
+      ...candidateResult.candidates,
+      {
+        type: 'event',
+        name: '旧灯塔',
+        content: '旧灯塔停摆后由人工巡灯。',
+        evidence: '旧灯塔停摆，改用人工巡灯。',
+        sourceIds: ['source-history']
+      }
+    ])).toMatchObject([{ possibleDuplicate: true, variants: [{ name: '旧灯塔停摆' }, { name: '旧灯塔' }] }])
+    expect(candidateCalls[0].schemaId).toBe('setting-candidates.v1')
     expect(isSettingDraftValid('陆沉与沈砚互为旧识。', { controlType: 'textarea', maxLength: 2000 })).toBe(true)
     expect(getStructuredGenerationTimeout([{ entryType: 'character' }])).toBe(90000)
     expect(isStructuredSettingRevisionCurrent('rev-1', 'rev-1')).toBe(true)

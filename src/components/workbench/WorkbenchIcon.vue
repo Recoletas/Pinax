@@ -1,6 +1,7 @@
 <script setup>
 import {
   Archive,
+  ArrowRight,
   BookmarkPlus,
   BookOpen,
   Clapperboard,
@@ -25,6 +26,7 @@ import {
 
 const icons = {
   archive: Archive,
+  'arrow-right': ArrowRight,
   'bookmark-plus': BookmarkPlus,
   book: BookOpen,
   compass: Compass,

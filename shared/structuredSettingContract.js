@@ -1,4 +1,5 @@
 import { getStructuredPlaceGenerationSchema, normalizeStructuredPlaceGenerationPayload, getStructuredPlaceFleshOutSchema, normalizeStructuredPlaceFleshOutPayload } from './structuredPlaceGenerationContract.js'
+import { normalizeSettingCandidates } from './structuredSettingCandidateContract.js'
 
 export const STRUCTURED_SETTING_SCHEMA_VERSION = 1
 
@@ -83,6 +84,7 @@ export const STRUCTURED_GENERATION_SCHEMA_IDS = Object.freeze({
   FIELD: 'setting-field.v1',
   SECTION: 'setting-section.v1',
   REVISION: 'setting-revision.v1',
+  CANDIDATES: 'setting-candidates.v1',
   PLACES: 'setting-places.v1',
   PLACE_FLESH_OUT: 'setting-place.v1'
 })
@@ -189,6 +191,35 @@ export function getStructuredSettingSchema(schemaId, targets = {}) {
   if (!Object.values(STRUCTURED_GENERATION_SCHEMA_IDS).includes(text(schemaId))) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.SCHEMA_UNSUPPORTED, `不支持的结构化生成 schema：${text(schemaId)}`)
   }
+  if (text(schemaId) === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES) {
+    return {
+      valid: true,
+      schema: {
+        type: 'object',
+        properties: {
+          candidates: {
+            type: 'array',
+            maxItems: 24,
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['lore', 'character', 'location', 'organization', 'event', 'item', 'rule', 'quest'] },
+                name: { type: 'string', minLength: 1, maxLength: 120 },
+                aliases: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 120 } },
+                content: { type: 'string', minLength: 1, maxLength: 900 },
+                evidence: { type: 'string', minLength: 1, maxLength: 600 },
+                sourceIds: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 120 } }
+              },
+              required: ['type', 'name', 'content', 'evidence', 'sourceIds'],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ['candidates'],
+        additionalProperties: false
+      }
+    }
+  }
   const properties = Object.fromEntries(fieldKeys.map((fieldKey) => [fieldKey, {
     type: 'string',
     description: `${getStructuredSettingFieldMeta(targets.sectionKey, fieldKey).label}的可直接审阅内容，不写标题、解释或思考过程。`
@@ -235,6 +266,7 @@ export function validateStructuredGenerationRequest(raw = {}) {
     context.currentValues,
     context.relatedEntries,
     context.sourceExcerpts,
+    context.sourceCandidates,
     context.userBrief,
     context.authoritativeContent,
     context.draftContent,
@@ -289,7 +321,7 @@ export function validateStructuredGenerationRequest(raw = {}) {
 export function validateStructuredDraftPayload(payload, targets, schemaId = '') {
   const result = normalizeStructuredDraftPayload(payload, targets, schemaId)
   if (!result.valid) return result
-  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACES || schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACE_FLESH_OUT) return result
+  if ([STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACE_FLESH_OUT].includes(schemaId)) return result
   if (Object.keys(result.fieldErrors).length) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '部分设定项内容无效', {
       drafts: result.drafts,
@@ -318,6 +350,16 @@ export function normalizeStructuredDraftPayload(payload, targets, schemaId = '')
       drafts: { places: places.places },
       fieldErrors: places.fieldErrors || {}
     }
+  }
+  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES) {
+    const rawCandidates = Array.isArray(payload.candidates)
+      ? payload.candidates
+      : (isPlainObject(payload.drafts) && Array.isArray(payload.drafts.candidates) ? payload.drafts.candidates : [])
+    const allowedTypes = new Set(['lore', 'character', 'location', 'organization', 'event', 'item', 'rule', 'quest'])
+    const candidates = normalizeSettingCandidates(rawCandidates)
+      .filter((candidate) => allowedTypes.has(candidate.type))
+    if (!candidates.length) return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '候选事实结果没有可用条目')
+    return { valid: true, drafts: { candidates }, fieldErrors: {} }
   }
   const normalized = normalizeStructuredSettingTargets(targets)
   if (!normalized.valid) return normalized

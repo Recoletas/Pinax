@@ -275,6 +275,55 @@ export function getWritingBlockAtPosition(document, position = 0) {
   return last
 }
 
+function inlineMarkdownCursorOffset(content = [], localOffset = 0) {
+  let remaining = Math.max(0, Number(localOffset) || 0)
+  let renderedOffset = 0
+  for (const node of content) {
+    const text = getNodeText(node)
+    const rendered = renderInline([node])
+    if (remaining >= text.length) {
+      renderedOffset += rendered.length
+      remaining -= text.length
+      continue
+    }
+    const openingLength = (node.marks || []).reduce((length, mark) => {
+      if (mark.type === 'bold' || mark.type === 'strike') return length + 2
+      if (mark.type === 'italic' || mark.type === 'code' || mark.type === 'link') return length + 1
+      return length
+    }, 0)
+    return renderedOffset + openingLength + remaining
+  }
+  return renderedOffset
+}
+
+function writingNodeMarkdownPrefix(node) {
+  if (node?.type === 'sceneHeading') return `${'#'.repeat(Math.max(1, node.attrs?.level || 1))} `
+  if (node?.type === 'quote') return '> '
+  if (node?.type === 'authorNote') return '> 作者注：'
+  if (node?.type === 'sourceReference') return '> 来源：'
+  return ''
+}
+
+export function getWritingMarkdownPosition(document, blockId, localOffset = 0) {
+  const nodes = Array.isArray(document?.content) ? document.content : []
+  let offset = 0
+  for (const node of nodes) {
+    const attrs = node?.attrs || {}
+    const leadingMarkdown = String(attrs.leadingMarkdown || '')
+    const bodyMarkdown = isUntouched(node) ? String(attrs.rawMarkdown || '') : renderNode(node)
+    const bodyStart = offset + leadingMarkdown.length
+    if (attrs.blockId === blockId) {
+      const textLength = getNodeText(node).length
+      const safeLocalOffset = Math.max(0, Math.min(textLength, Number(localOffset) || 0))
+      return bodyStart
+        + writingNodeMarkdownPrefix(node).length
+        + inlineMarkdownCursorOffset(node.content || [], safeLocalOffset)
+    }
+    offset = bodyStart + bodyMarkdown.length
+  }
+  return null
+}
+
 function editorNodeTypeForWritingNode(node) {
   if (node?.type === 'sceneHeading') return 'heading'
   if (node?.type === 'divider') return 'horizontalRule'

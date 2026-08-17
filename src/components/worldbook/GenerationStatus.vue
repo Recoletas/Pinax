@@ -21,7 +21,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  state: { type: String, default: 'idle' }, // idle | pending | success | error | aborted
+  state: { type: String, default: 'idle' }, // idle | pending | success | partial | error | aborted | stale
   progress: { type: String, default: '' },  // e.g. "3/6"
   error: { type: String, default: '' },
   phase: { type: String, default: '' },
@@ -30,14 +30,16 @@ const props = defineProps({
 
 defineEmits(['retry'])
 
-const canRetry = computed(() => props.state === 'error')
+const canRetry = computed(() => ['partial', 'error', 'stale'].includes(props.state))
 
 const message = computed(() => {
   switch (props.state) {
     case 'pending': return `${props.phase || '生成中'}…${props.progress ? ` ${props.progress}` : ''}`
     case 'success': return '已生成'
+    case 'partial': return `部分完成${props.error ? `：${props.error}` : '，失败项仍保留在草稿中'}`
     case 'error': return `生成失败${props.error ? `：${props.error}` : ''}`
     case 'aborted': return '已中止'
+    case 'stale': return `结果已过期${props.error ? `：${props.error}` : '，请重新生成'}`
     default: return ''
   }
 })
@@ -89,9 +91,29 @@ const message = computed(() => {
   background: var(--danger);
 }
 
+.generation-status.is-partial {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning);
+}
+
+.generation-status.is-partial .status-dot {
+  background: var(--warning);
+}
+
 .generation-status.is-aborted {
   background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
   color: var(--text-muted);
+}
+
+.generation-status.is-stale {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+}
+
+.generation-status.is-stale .status-dot {
+  background: var(--accent);
 }
 
 .status-retry {
@@ -119,5 +141,11 @@ const message = computed(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generation-status.is-pending .status-dot {
+    animation: none;
+  }
 }
 </style>

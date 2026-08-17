@@ -45,5 +45,10 @@ export default defineConfig({
     },
     // 提高 chunk 大小警告阈值
     chunkSizeWarningLimit: 600
+  },
+  worker: {
+    // 来源 adapter 含有 PDF/DOCX 的动态依赖，Worker 需要 ES module
+    // 输出才能保留拆分 chunk；IIFE 会在 Rollup 代码分割时直接失败。
+    format: 'es'
   }
 })

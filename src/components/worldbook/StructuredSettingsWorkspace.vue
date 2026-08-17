@@ -1,21 +1,37 @@
 <template>
   <div class="settings-workspace">
-    <details v-if="sourceDocuments.length && !isKao" class="source-archive">
-      <summary>
-        <span>原始资料</span>
-        <small>{{ sourceDocuments.length }} 份 · {{ sourceCharacterCount.toLocaleString('zh-CN') }} 字</small>
-      </summary>
-      <div class="source-archive__body">
-        <section v-for="document in sourceDocuments" :key="document.id" class="source-document">
-          <header>
-            <strong>{{ document.title }}</strong>
-            <span>{{ document.sourceLabel || '导入资料' }}</span>
-            <span v-if="document.truncated">已保留前 {{ document.content.length.toLocaleString('zh-CN') }} 字</span>
-          </header>
-          <pre>{{ document.content }}</pre>
-        </section>
+    <section v-if="sourceDocuments.length && !isKao" class="source-rail" aria-label="来源资料">
+      <div class="source-rail__lead">
+        <span class="source-rail__mark">来源</span>
+        <strong>{{ sourceDocuments.length }} 份资料</strong>
+        <small>{{ sourceCharacterCount.toLocaleString('zh-CN') }} 字 · 生成时按分区筛选</small>
       </div>
-    </details>
+      <div class="source-rail__items" role="list">
+        <button
+          v-for="document in sourceDocuments"
+          :key="document.id"
+          type="button"
+          class="source-chip"
+          :class="{ active: activeSourceId === document.id }"
+          :aria-pressed="activeSourceId === document.id"
+          @click="toggleSource(document.id)"
+        >
+          <span class="source-chip__kind">{{ sourceKindLabel(document.sourceLabel) }}</span>
+          <span class="source-chip__title">{{ document.title }}</span>
+          <span v-if="document.truncated" class="source-chip__mark">截取</span>
+        </button>
+      </div>
+      <div v-if="activeSource" class="source-preview">
+        <div class="source-preview__head">
+          <div>
+            <strong>{{ activeSource.title }}</strong>
+            <span>{{ activeSource.sourceLabel || '导入资料' }} · {{ activeSource.content.length.toLocaleString('zh-CN') }} 字</span>
+          </div>
+          <button type="button" class="source-preview__close" aria-label="关闭资料预览" title="关闭资料预览" @click="activeSourceId = ''">×</button>
+        </div>
+        <pre>{{ activeSource.content }}</pre>
+      </div>
+    </section>
     <StructuredSettingsPanel
       v-if="worldbook"
       ref="panelRef"
@@ -42,6 +58,7 @@ const props = defineProps({
 const { isKao } = useTheme()
 
 const panelRef = ref(null)
+const activeSourceId = ref('')
 
 const { hintsOpen } = useSettingKeyboardShortcuts({
   save: () => panelRef.value?.flushAll?.(),
@@ -56,6 +73,19 @@ const sourceCharacterCount = computed(() => sourceDocuments.value.reduce(
   (total, document) => total + String(document.content || '').length,
   0
 ))
+const activeSource = computed(() => sourceDocuments.value.find((document) => document.id === activeSourceId.value) || null)
+
+function toggleSource(sourceId) {
+  activeSourceId.value = activeSourceId.value === sourceId ? '' : sourceId
+}
+
+function sourceKindLabel(label) {
+  const value = String(label || '').toLowerCase()
+  if (value.includes('pdf')) return 'PDF'
+  if (value.includes('doc')) return 'DOC'
+  if (value.includes('粘贴')) return '文本'
+  return '资料'
+}
 </script>
 
 <style scoped>
@@ -78,81 +108,163 @@ const sourceCharacterCount = computed(() => sourceDocuments.value.reduce(
   background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
 }
 
-.source-archive {
+.source-rail {
   flex: 0 0 auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
 }
 
-.source-archive > summary {
-  min-height: 34px;
+.source-rail__lead {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 7px;
+  row-gap: 2px;
+  min-width: 190px;
+}
+
+.source-rail__lead strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.source-rail__lead small {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.source-rail__mark {
+  grid-row: span 2;
+  align-self: center;
+  padding: 4px 5px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 72%, var(--border));
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+}
+
+.source-rail__items {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: max-content;
+  max-width: 240px;
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.source-chip:hover,
+.source-chip.active {
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.source-chip__kind,
+.source-chip__mark {
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.source-chip__title {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-preview {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.source-preview__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  list-style: none;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.source-archive > summary::-webkit-details-marker {
-  display: none;
+.source-preview__head > div {
+  display: grid;
+  gap: 2px;
 }
 
-.source-archive > summary::before {
-  content: '›';
-  color: var(--accent);
-  font-size: 16px;
-  line-height: 1;
-  transform: rotate(0deg);
-  transition: transform 0.15s ease;
-}
-
-.source-archive[open] > summary::before {
-  transform: rotate(90deg);
-}
-
-.source-archive > summary small {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.source-archive__body {
-  max-height: 260px;
-  overflow: auto;
-  padding: 0 14px 10px 36px;
-}
-
-.source-document + .source-document {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-}
-
-.source-document header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--text-muted);
+.source-preview__head strong {
+  color: var(--text-primary);
   font-size: 13px;
 }
 
-.source-document header strong {
-  color: var(--text-primary);
-  font-size: 16px;
+.source-preview__head span {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
-.source-document pre {
+.source-preview__close {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.source-preview__close:hover {
+  color: var(--text-primary);
+}
+
+.source-preview pre {
   margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding-top: 10px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
   font: inherit;
-  font-size: 16px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
+@media (max-width: 720px) {
+  .source-rail {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .source-rail__lead {
+    min-width: 0;
+  }
+
+  .source-rail__items {
+    margin-inline: -2px;
+  }
+}
 </style>

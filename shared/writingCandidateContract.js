@@ -220,8 +220,6 @@ export function buildWritingCandidateDiff(before, after) {
 export function getWritingCandidateStaleReason(candidate, current = {}) {
   if (!candidate) return 'candidate-missing'
   if (candidate.chapterId && current.chapterId && candidate.chapterId !== current.chapterId) return 'chapter-changed'
-  if (candidate.documentRevision != null && current.documentRevision != null
-    && Number(candidate.documentRevision) !== Number(current.documentRevision)) return 'document-changed'
   if (Array.isArray(candidate.patches)) {
     const currentBlocks = Array.isArray(current.blocks)
       ? current.blocks
@@ -239,9 +237,15 @@ export function getWritingCandidateStaleReason(candidate, current = {}) {
     }
     return ''
   }
-  if (candidate.blockId && current.blockId && candidate.blockId !== current.blockId) return 'block-changed'
-  if (candidate.blockRevision != null && current.blockRevision != null
-    && Number(candidate.blockRevision) !== Number(current.blockRevision)) return 'block-changed'
-  if (candidate.baseText != null && current.text != null && String(candidate.baseText) !== String(current.text)) return 'target-changed'
+  if (candidate.blockId) {
+    if (!current.blockId) return 'block-missing'
+    if (candidate.blockId !== current.blockId) return 'block-changed'
+    if (candidate.blockRevision != null && current.blockRevision != null
+      && Number(candidate.blockRevision) !== Number(current.blockRevision)) return 'block-changed'
+    if (candidate.baseText != null && current.text != null && String(candidate.baseText) !== String(current.text)) return 'target-changed'
+    return ''
+  }
+  if (candidate.documentRevision != null && current.documentRevision != null
+    && Number(candidate.documentRevision) !== Number(current.documentRevision)) return 'document-changed'
   return ''
 }

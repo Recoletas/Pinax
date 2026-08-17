@@ -7,13 +7,15 @@
       :aria-label="generateAriaLabel"
       @click="$emit('generate')"
     >
-      {{ working ? '生成中…' : 'AI 生成' }}
+      <WorkbenchIcon name="sparkles" :size="13" />
+      <span>{{ working ? '生成中…' : '生成草稿' }}</span>
     </button>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
 const props = defineProps({
   fieldLabel: { type: String, required: true },
@@ -41,12 +43,16 @@ const generateAriaLabel = computed(() => `为设定项「${props.fieldLabel}」�
 }
 
 .action-btn {
-  height: 27px;
-  padding: 0 9px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-  color: var(--text-secondary);
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 3px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
   font-size: 11px;
   font-weight: 650;
   cursor: pointer;
@@ -55,8 +61,8 @@ const generateAriaLabel = computed(() => `为设定项「${props.fieldLabel}」�
 }
 
 .action-btn:hover {
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+  border-bottom-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: transparent;
   color: var(--accent);
 }
 

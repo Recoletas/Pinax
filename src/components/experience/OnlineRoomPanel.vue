@@ -9,7 +9,8 @@
       </div>
       <div class="online-room__actions">
         <button
-          class="online-room__action-btn"
+          type="button"
+          class="online-room__action-btn control-quiet"
           title="复制房间链接"
           aria-label="复制房间链接"
           @click="copyLink"
@@ -21,7 +22,8 @@
           <span class="online-room__action-label">复制链接</span>
         </button>
         <button
-          class="online-room__action-btn online-room__action-btn--leave"
+          type="button"
+          class="online-room__action-btn online-room__action-btn--leave control-danger"
           aria-label="离开房间"
           @click="leaveRoom"
         >
@@ -67,13 +69,15 @@
               <div class="online-room__proposal-actions">
                 <button
                   v-if="!p.selected"
-                  class="online-room__proposal-btn"
+                  type="button"
+                  class="online-room__proposal-btn control-quiet"
                   aria-label="投票支持此提议"
                   @click="castVote(p.id)"
                 >投票</button>
                 <button
                   v-if="isHost && !p.selected"
-                  class="online-room__proposal-btn online-room__proposal-btn--host"
+                  type="button"
+                  class="online-room__proposal-btn online-room__proposal-btn--host control-secondary"
                   aria-label="选择此动作为当前执行项"
                   @click="selectAction(p.id)"
                 >选定</button>
@@ -173,26 +177,35 @@ function leaveRoom() {
 
 .online-room__state {
   font-size: 11px;
-  padding: 2px 8px;
-  border: 1px solid var(--hairline-soft, currentColor);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
+.online-room__state::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.72;
+}
+
 .online-room__state[data-state="connected"] {
   color: var(--accent-emerald, #2d9978);
-  border-color: color-mix(in srgb, var(--accent-emerald, #2d9978) 40%, transparent);
 }
 
 .online-room__state[data-state="connecting"],
 .online-room__state[data-state="reconnecting"] {
   color: var(--accent-amber, #c7891f);
-  border-color: color-mix(in srgb, var(--accent-amber, #c7891f) 40%, transparent);
 }
 
 .online-room__state[data-state="disconnected"] {
   color: var(--accent, #b84b35);
-  border-color: color-mix(in srgb, var(--accent, #b84b35) 40%, transparent);
 }
 
 .online-room__actions {
@@ -204,27 +217,20 @@ function leaveRoom() {
 .online-room__action-btn {
   font-family: var(--font-sans);
   font-size: 12px;
-  padding: 6px 12px;
-  background: transparent;
   color: var(--text-secondary);
-  border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 22%, transparent));
-  cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  padding: 6px 10px;
 }
 
 .online-room__action-btn:hover {
   color: var(--text-primary);
-  border-color: var(--accent-gold, var(--text-secondary));
 }
 
 .online-room__action-btn--leave {
   color: var(--accent-rose, #b95567);
-  border-color: color-mix(in srgb, var(--accent-rose, #b95567) 36%, transparent);
 }
 
 .online-room__action-btn--leave:hover {
   color: var(--accent, #b84b35);
-  border-color: var(--accent, #b84b35);
 }
 
 .online-room__error {
@@ -295,10 +301,21 @@ function leaveRoom() {
 
 .online-room__member-badge {
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 1px 0 1px 7px;
   color: var(--archive-gold, #b78a34);
-  border: 1px solid color-mix(in srgb, var(--archive-gold, #b78a34) 22%, transparent);
+  position: relative;
   white-space: nowrap;
+}
+
+.online-room__member-badge::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 12px;
+  transform: translateY(-50%);
+  background: currentColor;
 }
 
 .online-room__proposal-list {
@@ -314,14 +331,15 @@ function leaveRoom() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 16%, transparent));
-  background: var(--bg-primary);
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 16%, transparent));
+  background: color-mix(in srgb, var(--bg-primary) 38%, transparent);
 }
 
 .online-room__proposal.is-selected {
-  border-color: var(--accent-gold, var(--archive-gold));
-  background: color-mix(in srgb, var(--archive-gold, var(--accent-amber)) 8%, var(--bg-primary));
+  box-shadow: inset 2px 0 0 var(--accent-gold, var(--archive-gold));
+  background: color-mix(in srgb, var(--archive-gold, var(--accent-amber)) 8%, transparent);
 }
 
 .online-room__proposal-text {
@@ -348,22 +366,16 @@ function leaveRoom() {
 .online-room__proposal-btn {
   font-family: var(--font-sans);
   font-size: 11px;
-  padding: 3px 10px;
-  background: transparent;
   color: var(--text-secondary);
-  border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 22%, transparent));
-  cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  padding: 4px 9px;
 }
 
 .online-room__proposal-btn:hover {
   color: var(--text-primary);
-  border-color: var(--accent, var(--text-secondary));
 }
 
 .online-room__proposal-btn--host {
   color: var(--archive-gold, #b78a34);
-  border-color: color-mix(in srgb, var(--archive-gold, #b78a34) 36%, transparent);
 }
 
 .online-room--compact {
@@ -482,7 +494,7 @@ function leaveRoom() {
 
 .online-room--compact .online-room__proposal {
   gap: 4px;
-  padding: 6px;
+  padding: 6px 0;
 }
 
 .online-room--compact .online-room__proposal-text {

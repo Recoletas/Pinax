@@ -648,17 +648,6 @@
       <button v-if="!isKao && !inspectorOpen" class="writing-inspector__reopen" type="button" title="打开检查器" @click="inspectorOpen = true">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
     </main>
 
-    <MediaGenerationDrawer
-      storage-key="writing_image_library_v1"
-      side="right"
-      :vertical-offset="62"
-      :horizontal-offset="12"
-      :mobile-bottom-offset="82"
-      drawer-title="小说生图"
-      selected-prompt-label="选中文本"
-      :selected-text="selectedText"
-    />
-
     <Transition name="modal-fade">
       <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
         <Transition name="modal-scale" appear>
@@ -830,7 +819,6 @@ import { useWritingAgent } from '../composables/useWritingAgent'
 import { useWorldStore } from '../stores/worldStore'
 import { useGameStore } from '../stores/gameStore'
 import { useEditorHistory } from '../composables/useEditorHistory'
-import MediaGenerationDrawer from '../components/media/MediaGenerationDrawer.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
@@ -892,8 +880,10 @@ import {
   reconcileWritingAnnotations,
   resolveAnnotationLaneLayout,
   resolveSelectionActionPosition,
+  resolveWritingAnnotation,
   updateWritingAnnotationBody
 } from '../services/writing/writingAnnotations.js'
+import { getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import {
   buildWritingCandidateDiff,
   createWritingCandidateRequest,
@@ -1458,6 +1448,24 @@ function readLiveWritingSelectionSnapshot() {
   if (notebookEditorActive.value && notebookSelection.value) {
     const selection = notebookSelection.value
     const selected = String(selection.text || '')
+    const hasDirectRange = selection.markdownFrom != null && selection.markdownTo != null
+    const directStart = Number(selection.markdownFrom)
+    const directEnd = Number(selection.markdownTo)
+    if (hasDirectRange && Number.isFinite(directStart) && Number.isFinite(directEnd)) {
+      const textLength = markdownContent.value.length
+      const start = Math.max(0, Math.min(textLength, Math.min(directStart, directEnd)))
+      const end = Math.max(start, Math.min(textLength, Math.max(directStart, directEnd)))
+      return {
+        start,
+        end,
+        text: selected || markdownContent.value.slice(start, end),
+        hasSelection: end > start,
+        blockId: selection.blockId || null,
+        blockRevision: Number(selection.blockRevision || 0),
+        editorFrom: Number(selection.from || 1),
+        editorTo: Number(selection.to || selection.from || 1)
+      }
+    }
     const beforeTail = String(selection.beforeText || '').slice(-160)
     const anchor = selected ? `${beforeTail}${selected}` : beforeTail
     const anchorIndex = anchor ? markdownContent.value.indexOf(anchor) : -1
@@ -3213,6 +3221,29 @@ function onContentChange() {
   }, 1000)
 }
 
+function captureWritingScrollState() {
+  const surface = notebookEditorRef.value?.getRootElement?.()?.closest('.writing-notebook-editor')
+    ?.querySelector('.writing-notebook-editor__surface')
+  return {
+    pageTop: writingMainRef.value?.scrollTop || 0,
+    surfaceTop: surface?.scrollTop || 0,
+    surfaceLeft: surface?.scrollLeft || 0
+  }
+}
+
+function restoreWritingScrollState(snapshot) {
+  if (!snapshot) return
+  nextTick(() => requestAnimationFrame(() => {
+    if (writingMainRef.value) writingMainRef.value.scrollTop = snapshot.pageTop
+    const surface = notebookEditorRef.value?.getRootElement?.()?.closest('.writing-notebook-editor')
+      ?.querySelector('.writing-notebook-editor__surface')
+    if (surface) {
+      surface.scrollTop = snapshot.surfaceTop
+      surface.scrollLeft = snapshot.surfaceLeft
+    }
+  }))
+}
+
 function onEditorInput() {
   onContentChange()
 }
@@ -3595,7 +3626,18 @@ async function handleNotebookWritingCommand(command = {}) {
       quickNoteStatus.value = '写作 AI 当前已关闭，请先启用写作补全。'
       return
     }
-    syncCopilotCursorFromEditor()
+    if (command.markdown != null) {
+      markdownContent.value = String(command.markdown || '')
+      editorContent.value = markdownToHtml(markdownContent.value)
+      writingDocument.value = syncFromMarkdown(markdownContent.value)
+    }
+    const commandCursor = Number(command.cursorMarkdownOffset)
+    if (command.cursorMarkdownOffset != null && Number.isFinite(commandCursor)) {
+      copilotCursorPos.value = Math.max(0, Math.min(markdownContent.value.length, commandCursor))
+      selectedText.value = ''
+    } else {
+      syncCopilotCursorFromEditor()
+    }
     await copilotManualTrigger()
     return
   }
@@ -3614,32 +3656,32 @@ async function handleNotebookWritingCommand(command = {}) {
     return
   }
 
-  const selected = notebookEditorRef.value?.selectBlockRange?.(
-    previousBlock.blockId,
-    0,
-    previousBlock.blockId,
-    String(previousBlock.text).length
-  )
-  if (!selected) {
+  const target = getBlockRewriteTarget(previousBlock.blockId)
+  if (!target?.text?.trim()) {
     quickNoteStatus.value = '无法定位上一段，请把光标放回正文后重试。'
     return
   }
 
-  await nextTick()
-  const context = getAnnotationSelectionContext()
-  const target = getCurrentRewriteTarget()
-  if (!context || !target?.text?.trim()) {
-    quickNoteStatus.value = '上一段定位已经变化，请重新打开命令。'
-    return
-  }
-
   resetRewriteState()
+  const selector = createWritingSelector({
+    text: target.text,
+    start: 0,
+    end: target.text.length,
+    fullText: target.text
+  })
   const annotation = createWritingAnnotation({
     chapterId: selectedChapterId.value,
-    blockId: context.block.blockId,
-    blockRevision: context.block.blockRevision,
-    selector: context.selector,
-    range: context.range,
+    blockId: target.blockId,
+    blockRevision: target.blockRevision,
+    selector,
+    range: {
+      start: { blockId: target.blockId, blockRevision: target.blockRevision, offset: 0 },
+      end: { blockId: target.blockId, blockRevision: target.blockRevision, offset: target.text.length },
+      blockIds: [target.blockId],
+      exact: target.text,
+      startSelector: selector,
+      endSelector: selector
+    },
     body: instruction,
     kind: 'comment'
   })
@@ -3657,6 +3699,7 @@ async function handleNotebookWritingCommand(command = {}) {
 
 function openAnnotationInspector() {
   const context = getAnnotationSelectionContext()
+  const scrollState = captureWritingScrollState()
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
   if (!selectedText.value.trim() || !context) {
@@ -3666,10 +3709,12 @@ function openAnnotationInspector() {
   annotationComposerContext.value = context
   annotationComposerOpen.value = true
   activeAnnotationId.value = null
-  nextTick(() => {
+  nextTick(() => requestAnimationFrame(() => {
+    refreshAnnotationLayout()
     scheduleAnnotationLayout()
-    document.querySelector('.writing-annotation-composer textarea')?.focus()
-  })
+    document.querySelector('.writing-annotation-composer textarea')?.focus({ preventScroll: true })
+    restoreWritingScrollState(scrollState)
+  }))
 }
 
 function handleInlineAnnotationClick(annotationId) {
@@ -3787,16 +3832,27 @@ function getCurrentRewriteTarget() {
         }
       }
     }
+    const editorBlock = startBlockId === endBlockId
+      ? notebookEditorRef.value?.findBlockRange?.(startBlockId)
+      : null
+    const startOffset = editorBlock && Number.isFinite(Number(selection.editorFrom))
+      ? Math.max(0, Number(selection.editorFrom) - Number(editorBlock.from || 0))
+      : null
+    const endOffset = editorBlock && Number.isFinite(Number(selection.editorTo))
+      ? Math.max(startOffset || 0, Number(selection.editorTo) - Number(editorBlock.from || 0))
+      : null
     return {
       kind: 'selection',
       chapterId: selectedChapterId.value,
-      blockId: selection.blockId || block.blockId,
+      blockId: startBlockId,
       blockRevision: Number(selection.blockRevision ?? block.blockRevision ?? 0),
       text: selection.text,
       range: { start: selection.start, end: selection.end },
       editorRange: Number.isFinite(Number(selection.editorFrom)) && Number.isFinite(Number(selection.editorTo))
         ? { from: Number(selection.editorFrom), to: Number(selection.editorTo) }
         : null,
+      startOffset,
+      endOffset,
       documentRevision: Number(writingDocument.value?.revision || 0)
     }
   }
@@ -3809,6 +3865,64 @@ function getCurrentRewriteTarget() {
     text: block.text,
     range: { start: block.start, end: block.end },
     editorRange: null,
+    documentRevision: Number(writingDocument.value?.revision || 0)
+  }
+}
+
+function getBlockRewriteTarget(blockId) {
+  if (!selectedChapterId.value || !blockId) return null
+  const block = getCurrentWritingBlockDescriptors().find((item) => item.blockId === blockId)
+  if (!block) return null
+  return {
+    kind: 'block',
+    chapterId: selectedChapterId.value,
+    blockId: block.blockId,
+    blockRevision: Number(block.blockRevision || 0),
+    text: block.text,
+    range: { start: block.start, end: block.end },
+    editorRange: null,
+    documentRevision: Number(writingDocument.value?.revision || 0)
+  }
+}
+
+function getRewriteTargetFromAnnotation(annotation) {
+  if (!annotation || !selectedChapterId.value) return null
+  const resolved = resolveWritingAnnotation(annotation, writingDocument.value)
+  if (!resolved || resolved.status === 'orphaned') return null
+
+  const startBlockId = resolved.range?.start?.blockId || resolved.blockId
+  const endBlockId = resolved.range?.end?.blockId || startBlockId
+  if (!startBlockId || startBlockId !== endBlockId) return null
+
+  const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === startBlockId)
+  const blockText = getWritingNodeText(node)
+  const rawStart = resolved.range?.start?.offset ?? resolved.selector?.start
+  const rawEnd = resolved.range?.end?.offset ?? resolved.selector?.end
+  if (!Number.isFinite(Number(rawStart)) || !Number.isFinite(Number(rawEnd))) return null
+
+  const startOffset = Math.max(0, Math.min(blockText.length, Number(rawStart)))
+  const endOffset = Math.max(startOffset, Math.min(blockText.length, Number(rawEnd)))
+  if (startOffset === 0 && endOffset === blockText.length) {
+    return getBlockRewriteTarget(startBlockId)
+  }
+
+  const start = getWritingMarkdownPosition(writingDocument.value, startBlockId, startOffset)
+  const end = getWritingMarkdownPosition(writingDocument.value, startBlockId, endOffset)
+  const editorBlock = notebookEditorRef.value?.findBlockRange?.(startBlockId)
+  return {
+    kind: 'selection',
+    chapterId: selectedChapterId.value,
+    blockId: startBlockId,
+    blockRevision: Number(node?.attrs?.revision || 0),
+    text: blockText.slice(startOffset, endOffset),
+    range: Number.isFinite(start) && Number.isFinite(end)
+      ? { start, end }
+      : null,
+    editorRange: editorBlock
+      ? { from: editorBlock.from + startOffset, to: editorBlock.from + endOffset }
+      : null,
+    startOffset,
+    endOffset,
     documentRevision: Number(writingDocument.value?.revision || 0)
   }
 }
@@ -3838,9 +3952,20 @@ function getCurrentRewriteComparison(targetOverride = null) {
   }
   const block = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === target.blockId)
   const blockText = getWritingNodeText(block)
-  const text = target.kind === 'selection'
-    ? markdownContent.value.slice(target.range.start, target.range.end)
-    : blockText
+  const hasLocalOffsets = target.startOffset != null
+    && target.endOffset != null
+    && Number.isFinite(Number(target.startOffset))
+    && Number.isFinite(Number(target.endOffset))
+  const text = target.kind !== 'selection'
+    ? blockText
+    : hasLocalOffsets
+      ? blockText.slice(
+          Math.max(0, Number(target.startOffset)),
+          Math.max(Number(target.startOffset), Number(target.endOffset))
+        )
+      : target.range
+        ? markdownContent.value.slice(target.range.start, target.range.end)
+        : ''
   return {
     chapterId: selectedChapterId.value,
     documentRevision: Number(writingDocument.value?.revision || 0),
@@ -3894,23 +4019,27 @@ function lockCurrentRewriteSelection() {
 }
 
 function isRewriteTargetStillCurrent(target) {
-  if (!target || target.chapterId !== selectedChapterId.value) return false
-  if (Number(target.documentRevision) !== Number(writingDocument.value?.revision || 0)) return false
-  if (target.kind === 'multi-selection') {
-    const current = getCurrentRewriteComparison(target)
-    return Boolean(current?.blocks?.length === target.blocks?.length
-      && current.blocks.every((block, index) => (
-        block.blockId === target.blocks[index]?.blockId
-        && block.text === target.blocks[index]?.text
-      )))
-  }
-  const block = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === target.blockId)
-  if (!block) return false
-  const blockText = (block.content || []).map((item) => item?.text || '').join('')
-  const currentText = target.kind === 'selection'
-    ? markdownContent.value.slice(target.range.start, target.range.end)
-    : blockText
-  return currentText === target.text
+  if (!target) return false
+  const current = getCurrentRewriteComparison(target)
+  if (!current) return false
+  const candidate = target.kind === 'multi-selection'
+    ? {
+        chapterId: target.chapterId,
+        documentRevision: target.documentRevision,
+        patches: (target.blocks || []).map((block) => ({
+          blockId: block.blockId,
+          blockRevision: block.blockRevision,
+          baseText: block.text
+        }))
+      }
+    : {
+        chapterId: target.chapterId,
+        documentRevision: target.documentRevision,
+        blockId: target.blockId,
+        blockRevision: target.blockRevision,
+        baseText: target.text
+      }
+  return !getWritingCandidateStaleReason(candidate, current)
 }
 
 async function generateRewriteCandidates(targetOverride = null) {
@@ -4259,6 +4388,7 @@ function createAnnotationFromSelection() {
     return
   }
   if (!body) return
+  const scrollState = captureWritingScrollState()
 
   const annotation = createWritingAnnotation({
     chapterId: selectedChapterId.value,
@@ -4275,7 +4405,10 @@ function createAnnotationFromSelection() {
   inspectorTab.value = 'comments'
   quickNoteStatus.value = '批注已添加'
   onContentChange()
-  nextTick(() => closeAnnotationComposer({ restoreFocus: false }))
+  nextTick(() => {
+    closeAnnotationComposer({ restoreFocus: false })
+    restoreWritingScrollState(scrollState)
+  })
 }
 
 function closeAnnotationComposer({ restoreFocus = true } = {}) {
@@ -4484,10 +4617,11 @@ function cancelChapterReview() {
 
 function startRewriteFromAnnotation(annotation) {
   if (!annotation || annotation.status === 'orphaned') return
+  const anchoredTarget = getRewriteTargetFromAnnotation(annotation)
   resetRewriteState()
   locateAnnotation(annotation)
   nextTick(() => nextTick(() => {
-    const target = getCurrentRewriteTarget()
+    const target = anchoredTarget || getCurrentRewriteTarget()
     if (!target?.text?.trim()) {
       rewriteError.value = '这条批注已无法定位到可改写正文。'
       rewriteTarget.value = { annotationId: annotation.id, text: '' }

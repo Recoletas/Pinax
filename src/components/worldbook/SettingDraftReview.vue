@@ -28,6 +28,32 @@
       @input="$emit('update:content', $event.target.value)"
     ></textarea>
 
+    <details v-if="sourceCandidateGroups.length || sourceCandidateError" class="source-candidate-review">
+      <summary>
+        <span>来源候选<span v-if="draft.sourceCandidates?.length"> · {{ draft.sourceCandidates.length }} 条</span></span>
+        <span v-if="sourceCandidateError" class="candidate-summary-mark is-error">提取未完成</span>
+        <span v-else-if="sourceCandidateGroups.some((group) => group.possibleDuplicate)" class="candidate-summary-mark">
+          有同名提示
+        </span>
+      </summary>
+      <p v-if="sourceCandidateError" class="source-candidate-error">{{ sourceCandidateError }}</p>
+      <p class="source-candidate-note">仅按名称与别名提示可能重复，未自动合并；每条事实仍保留自己的证据和来源。</p>
+      <div class="source-candidate-list">
+        <div v-for="group in sourceCandidateGroups" :key="group.id" class="source-candidate-group">
+          <div class="source-candidate-group__head">
+            <span class="candidate-type">{{ entryTypeLabel(group.type) }}</span>
+            <strong>{{ group.displayName }}</strong>
+            <span v-if="group.possibleDuplicate" class="candidate-duplicate">{{ group.variants.length }} 条待核对</span>
+          </div>
+          <div v-for="(variant, index) in group.variants" :key="`${group.id}-${index}`" class="source-candidate-variant">
+            <p>{{ variant.content }}</p>
+            <small>证据：{{ variant.evidence }}</small>
+            <small>来源：{{ variant.sourceIds.join('、') }}</small>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <div class="revision-editor">
       <div class="revision-editor__head">
         <div>
@@ -104,6 +130,7 @@
 <script setup>
 import { computed } from 'vue'
 import GenerationStatus from './GenerationStatus.vue'
+import { groupSettingCandidates } from '../../../shared/structuredSettingCandidateContract'
 
 const props = defineProps({
   draft: { type: Object, default: null },
@@ -114,8 +141,26 @@ const props = defineProps({
   revisionError: { type: String, default: '' },
   revisionHistory: { type: Array, default: () => [] },
   revisionIndex: { type: Number, default: 0 },
+  sourceCandidateError: { type: String, default: '' },
   canImportToExperience: { type: Boolean, default: false }
 })
+
+const sourceCandidateGroups = computed(() => groupSettingCandidates(props.draft?.sourceCandidates || []))
+
+const entryTypeLabels = Object.freeze({
+  lore: '设定',
+  character: '角色',
+  location: '地点',
+  organization: '势力',
+  event: '事件',
+  item: '物件',
+  rule: '规则',
+  quest: '任务'
+})
+
+function entryTypeLabel(type) {
+  return entryTypeLabels[type] || type || '候选'
+}
 
 const emit = defineEmits([
   'discard',
@@ -245,6 +290,97 @@ function onAdopt() {
   border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
   background: var(--bg-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.source-candidate-review {
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.source-candidate-review summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.candidate-summary-mark,
+.candidate-duplicate {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.candidate-summary-mark.is-error,
+.source-candidate-error {
+  color: var(--danger);
+}
+
+.source-candidate-note {
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.source-candidate-error {
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.source-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: 250px;
+  overflow: auto;
+}
+
+.source-candidate-group {
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+
+.source-candidate-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.source-candidate-group__head strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.candidate-type {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+
+.source-candidate-variant {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+}
+
+.source-candidate-variant p {
+  margin: 0 0 3px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.source-candidate-variant small {
+  display: block;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .revision-editor {

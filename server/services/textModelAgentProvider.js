@@ -1,5 +1,6 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { resolveProviderEndpoint } from './toolCallingProviderAdapter.js'
 
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
@@ -161,7 +162,7 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
   const config = resolveConfig(taskMeta)
   const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
   const anthropic = config.format === 'anthropic'
-  const url = `${config.baseUrl}${anthropic ? '/messages' : '/chat/completions'}`
+  const url = resolveProviderEndpoint(config.baseUrl, anthropic ? 'anthropic' : 'openai')
   const headers = {
     'Content-Type': 'application/json',
     ...(anthropic

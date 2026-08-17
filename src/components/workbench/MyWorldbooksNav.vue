@@ -1,6 +1,10 @@
 <template>
   <nav class="my-worldbooks" aria-label="我的世界书">
-    <span class="my-worldbooks__label">我的世界书</span>
+    <div class="my-worldbooks__heading">
+      <WorkbenchIcon name="book" :size="16" />
+      <span class="my-worldbooks__label">我的世界书</span>
+      <span class="my-worldbooks__count">{{ worldbooksIndex.length }}</span>
+    </div>
     <select
       class="my-worldbooks__select"
       :value="selectedId"
@@ -12,14 +16,22 @@
         {{ wb.name }} ({{ wb.entryCount || 0 }} 条目)
       </option>
     </select>
-    <button type="button" class="my-worldbooks__btn" data-test="btn-focus" @click="focusSelect">切换</button>
-    <button type="button" class="my-worldbooks__btn" data-test="btn-new" @click="$emit('advanced', 'new')">新建 +</button>
-    <button type="button" class="my-worldbooks__btn" data-test="btn-manage" @click="$emit('advanced', 'manage')">管理 →</button>
+    <div class="my-worldbooks__actions">
+      <button type="button" class="my-worldbooks__btn" data-test="btn-new" @click="$emit('advanced', 'new')">
+        <WorkbenchIcon name="bookmark-plus" :size="14" />
+        <span>新建</span>
+      </button>
+      <button type="button" class="my-worldbooks__btn" data-test="btn-manage" @click="$emit('advanced', 'manage')">
+        <WorkbenchIcon name="settings" :size="14" />
+        <span>管理</span>
+      </button>
+    </div>
   </nav>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
+import WorkbenchIcon from './WorkbenchIcon.vue'
 
 const props = defineProps({
   worldbooksIndex: { type: Array, required: true },
@@ -40,10 +52,6 @@ function onSelect(event) {
   emit('change', next)
 }
 
-function focusSelect() {
-  const root = document.querySelector('.my-worldbooks__select')
-  if (root) root.focus()
-}
 </script>
 
 <style scoped>
@@ -165,5 +173,89 @@ function focusSelect() {
     flex: 1 1 100%;
     max-width: none;
   }
+}
+
+/* Theme 2 sidebar selector: one picker, two quiet commands. */
+.theme-legacy .my-worldbooks {
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--archive-olive) 14%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-strong) 28%, var(--archive-paper-soft));
+  box-shadow: none;
+}
+
+.my-worldbooks__heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--archive-ink);
+}
+
+.theme-legacy .my-worldbooks__label {
+  color: var(--archive-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-worldbooks__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--archive-gold) 16%, transparent);
+  color: var(--archive-ink-soft);
+  font: 600 10px/1 var(--font-mono);
+}
+
+.theme-legacy .my-worldbooks__select {
+  min-width: 0;
+  max-width: none;
+  height: 36px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 30%, var(--border));
+  background-color: transparent;
+  font-size: 13px;
+}
+
+.my-worldbooks__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.theme-legacy .my-worldbooks__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 7px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--archive-ink-soft);
+}
+
+.theme-legacy .my-worldbooks__btn:hover {
+  border-bottom-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+@media (max-width: 480px) {
+  .theme-legacy .my-worldbooks {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .my-worldbooks__heading,
+  .my-worldbooks__actions { grid-column: 1; }
 }
 </style>

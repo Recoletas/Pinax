@@ -26,33 +26,13 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  drawerTitle: {
+  workbenchTitle: {
     type: String,
     default: '生图'
-  },
-  presentation: {
-    type: String,
-    default: 'rail'
   },
   showHeader: {
     type: Boolean,
     default: true
-  },
-  side: {
-    type: String,
-    default: 'right'
-  },
-  verticalOffset: {
-    type: Number,
-    default: 0
-  },
-  horizontalOffset: {
-    type: Number,
-    default: 0
-  },
-  mobileBottomOffset: {
-    type: Number,
-    default: 20
   },
   allowInsertImageToEditor: {
     type: Boolean,
@@ -86,7 +66,6 @@ const props = defineProps({
 
 const emit = defineEmits(['insert-image', 'save-to-material', 'configs-updated', 'image-preview'])
 
-const imageDrawerOpen = ref(false)
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
 const imageSelectedModel = ref('')
@@ -102,6 +81,7 @@ const selectedReferenceIds = ref([])
 const storedReferenceImages = ref([])
 const referenceInput = ref(null)
 const referenceStrength = ref(0.65)
+const referenceUploadMessage = ref('')
 
 const sizePresets = [
   { label: '1:1 方图', width: 1024, height: 1024 },
@@ -154,18 +134,6 @@ const libraryScopeKey = computed(() => JSON.stringify({
   purpose: activeMediaPurpose.value,
   sourceRefs: props.sourceRefs.map((ref) => [ref.refType, ref.refId, ref.projectId || ''])
 }))
-const railStyle = computed(() => {
-  const side = props.side === 'left' ? 'left' : 'right'
-  const offset = props.horizontalOffset > 0 ? `${props.horizontalOffset}px` : '0px'
-  return {
-    [side]: offset,
-    '--rail-shift-y': `${props.verticalOffset}px`,
-    '--rail-mobile-bottom-offset': `${Math.max(0, props.mobileBottomOffset)}px`,
-    '--rail-right-offset': props.side === 'right' ? offset : undefined,
-    '--rail-left-offset': props.side === 'left' ? offset : undefined
-  }
-})
-
 onMounted(async () => {
   loadModelConfigs()
   await Promise.all([loadImageLibrary(), loadReferenceLibrary()])
@@ -320,41 +288,56 @@ function referenceLabel(candidate) {
 
 async function handleReferenceUpload(event) {
   const files = [...(event.target?.files || [])]
-    .filter((file) => file.type.startsWith('image/'))
+    .filter(isSupportedLocalImage)
     .slice(0, 3)
   const uploaded = []
+  referenceUploadMessage.value = ''
   for (const file of files) {
-    if (file.size > 12 * 1024 * 1024) continue
-    const data = await fileToDataUrl(file)
-    const entry = await addGeneratedImageToLibrary(props.storageKey, {
-      id: `reference_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      prompt: file.name,
-      modelName: '本地上传',
-      modelType: 'upload',
-      width: null,
-      height: null,
-      status: 'accepted',
-      data,
-      createdAt: new Date().toISOString()
-    }, {
-      projectId: props.projectId,
-      purpose: 'storyboard-reference',
-      sourceRefs: props.sourceRefs
-    })
-    uploaded.push({ ...entry, title: file.name, uploaded: true })
+    if (file.size > 12 * 1024 * 1024) {
+      referenceUploadMessage.value = `${file.name} 超过 12 MB，未导入`
+      continue
+    }
+    try {
+      const data = await fileToDataUrl(file)
+      const entry = await addGeneratedImageToLibrary(props.storageKey, {
+        id: `reference_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        prompt: file.name,
+        modelName: '本地上传',
+        modelType: 'upload',
+        width: null,
+        height: null,
+        status: 'accepted',
+        data,
+        createdAt: new Date().toISOString()
+      }, {
+        projectId: props.projectId,
+        purpose: 'storyboard-reference',
+        sourceRefs: props.sourceRefs
+      })
+      uploaded.push({ ...entry, title: file.name, uploaded: true })
+    } catch (error) {
+      referenceUploadMessage.value = error?.message || `${file.name} 导入失败`
+    }
   }
   storedReferenceImages.value = [...uploaded, ...storedReferenceImages.value]
     .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
     .slice(0, 20)
   selectedReferenceIds.value = [...selectedReferenceIds.value, ...uploaded.map((item) => item.id)].slice(-3)
   if (uploaded[0]) {
+    referenceUploadMessage.value = `已导入 ${uploaded.length} 张本地参考图`
     emit('image-preview', {
       ...uploaded[0],
       prompt: uploaded[0].title,
       mediaPurpose: 'storyboard-reference'
     })
   }
+  if (!files.length) referenceUploadMessage.value = '未识别到支持的图片文件'
   if (event.target) event.target.value = ''
+}
+
+function isSupportedLocalImage(file) {
+  if (String(file?.type || '').startsWith('image/')) return true
+  return /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|webp)$/i.test(String(file?.name || ''))
 }
 
 function fileToDataUrl(file) {
@@ -392,26 +375,15 @@ function saveToMaterialLib() {
 function emitInsertImage(imgEntry) {
   if (!imgEntry) return
   emit('insert-image', imgEntry)
-  if (props.presentation !== 'inline') imagePreviewIndex.value = -1
 }
 
 </script>
 
 <template>
-  <component
-    :is="presentation === 'inline' ? 'section' : 'aside'"
-    :class="presentation === 'inline' ? 'media-generation-inline' : ['image-gen-rail', `image-gen-rail--${side}`]"
-    :style="presentation === 'inline' ? undefined : railStyle"
-    aria-label="生图功能"
-  >
-    <div
-      v-if="presentation === 'inline' || imageDrawerOpen"
-      class="image-gen-drawer"
-      :class="{ 'image-gen-drawer--inline': presentation === 'inline' }"
-      @click.stop
-    >
+  <section class="media-generation-inline" aria-label="插画生成">
+    <div class="image-generation-workbench">
       <div v-if="showHeader" class="image-gen-header">
-        <span class="image-gen-title">{{ drawerTitle }}</span>
+        <span class="image-gen-title">{{ workbenchTitle }}</span>
       </div>
 
       <div v-if="availableModes.length > 1" class="image-gen-modes" role="tablist" aria-label="图片用途">
@@ -455,6 +427,7 @@ function emitInsertImage(imgEntry) {
           </button>
         </div>
         <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/*" multiple @change="handleReferenceUpload" />
+        <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
         <label v-if="selectedReferenceImages.length" class="image-gen-reference-strength">
           <span>参考强度</span>
           <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" />
@@ -551,7 +524,7 @@ function emitInsertImage(imgEntry) {
               <img :src="img.data" alt="generated" />
             </div>
           </div>
-          <div v-if="presentation === 'inline' && selectedPreviewImage" class="image-gen-inline-actions">
+          <div v-if="selectedPreviewImage" class="image-gen-inline-actions">
             <button v-if="allowInsertImageToEditor" class="image-preview-action-btn" type="button" @click="emitInsertImage(selectedPreviewImage)">插入正文</button>
             <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
             <button class="image-preview-action-btn" type="button" @click="saveToMaterialLib">保存为素材</button>
@@ -560,107 +533,10 @@ function emitInsertImage(imgEntry) {
       </template>
     </div>
 
-    <button v-if="presentation !== 'inline'" class="image-gen-btn" type="button" @click.stop="imageDrawerOpen = !imageDrawerOpen" title="生图">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2"/>
-        <circle cx="8.5" cy="8.5" r="1.5"/>
-        <path d="M21 15l-5-5L5 21"/>
-      </svg>
-    </button>
-
-    <div v-if="presentation !== 'inline' && imagePreviewIndex >= 0" class="image-preview-overlay" @click="imagePreviewIndex = -1">
-      <div class="image-preview-modal" @click.stop>
-        <div class="image-preview-header">
-          <span>图片预览</span>
-          <button class="image-preview-close" @click="imagePreviewIndex = -1">×</button>
-        </div>
-        <div class="image-preview-body">
-          <img :src="imageLibrary[imagePreviewIndex]?.data" alt="preview" />
-        </div>
-        <div class="image-preview-actions">
-          <button v-if="allowInsertImageToEditor" class="image-preview-action-btn" @click="emitInsertImage(imageLibrary[imagePreviewIndex])">插入正文</button>
-          <button class="image-preview-action-btn" @click="copyImagePrompt(imageLibrary[imagePreviewIndex])">复制提示词</button>
-          <button class="image-preview-action-btn" @click="saveToMaterialLib(imageLibrary[imagePreviewIndex])">保存</button>
-        </div>
-      </div>
-    </div>
-
-  </component>
+  </section>
 </template>
 
 <style scoped>
-.image-gen-rail {
-  position: fixed;
-  top: var(--app-viewport-half-height, 50vh);
-  transform: translateY(calc(-50% + var(--rail-shift-y, 0px)));
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  z-index: var(--z-floating-rail, 220);
-  transition: transform 0.2s ease;
-}
-
-.image-gen-rail--right {
-  flex-direction: row-reverse;
-}
-
-.image-gen-rail--left {
-  flex-direction: row;
-}
-
-.image-gen-rail--right {
-  right: var(--rail-right-offset, 0px);
-  transform: translateX(48px) translateY(calc(-50% + var(--rail-shift-y, 0px)));
-}
-
-.image-gen-rail--left {
-  left: var(--rail-left-offset, 0px);
-  transform: translateX(-48px) translateY(calc(-50% + var(--rail-shift-y, 0px)));
-}
-
-.image-gen-rail:hover,
-.image-gen-rail:focus-within {
-  transform: translateX(0) translateY(calc(-50% + var(--rail-shift-y, 0px)));
-}
-
-.image-gen-rail:has(.image-gen-drawer) {
-  transform: translateX(0) translateY(calc(-50% + var(--rail-shift-y, 0px)));
-}
-
-.image-gen-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
-  color: var(--text-primary);
-  cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease;
-}
-
-.image-gen-rail--left .image-gen-btn {
-  border-radius: 0 12px 12px 0;
-}
-
-.image-gen-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.image-gen-drawer {
-  width: 320px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, #ffffff 8%);
-  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
 .media-generation-inline {
   position: relative;
   display: block;
@@ -668,13 +544,8 @@ function emitInsertImage(imgEntry) {
   z-index: 2;
 }
 
-.image-gen-drawer--inline {
+.image-generation-workbench {
   width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
 }
 
 .image-gen-header {
@@ -821,6 +692,13 @@ function emitInsertImage(imgEntry) {
   gap: 4px;
   border-style: dashed;
   font-size: 10px;
+}
+
+.image-gen-reference-message {
+  margin: 7px 0 0;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .image-gen-reference-upload:hover { border-color: var(--archive-olive, var(--accent)); color: var(--archive-olive-strong, var(--accent)); }
@@ -974,80 +852,6 @@ function emitInsertImage(imgEntry) {
   flex-wrap: wrap;
 }
 
-.image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 300;
-}
-
-.image-preview-modal {
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  width: 600px;
-  max-width: 90vw;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.image-preview-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.image-preview-close {
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  font-size: 20px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.image-preview-close:hover {
-  background: var(--bg-hover);
-}
-
-.image-preview-body {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.image-preview-body img {
-  max-width: 100%;
-  max-height: 60vh;
-  border-radius: 8px;
-}
-
-.image-preview-actions {
-  display: flex;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
 .image-preview-action-btn {
   padding: 6px 12px;
   border: 1px dashed color-mix(in srgb, var(--archive-gold) 58%, var(--border));
@@ -1064,22 +868,4 @@ function emitInsertImage(imgEntry) {
   color: var(--archive-olive-strong, var(--accent));
 }
 
-@media (max-width: 900px) {
-  .image-gen-rail,
-  .image-gen-rail:hover,
-  .image-gen-rail:focus-within,
-  .image-gen-rail:has(.image-gen-drawer) {
-    top: auto;
-    bottom: calc(var(--rail-mobile-bottom-offset, 20px) + env(safe-area-inset-bottom, 0px));
-    transform: none;
-  }
-
-  .image-gen-drawer {
-    width: min(320px, calc(100vw - 72px));
-  }
-
-  .media-generation-inline .image-gen-drawer {
-    width: 100%;
-  }
-}
 </style>

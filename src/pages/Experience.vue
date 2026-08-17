@@ -8,26 +8,49 @@
          narrator hero portrait moves into the dossier header so the
          left rail is gone entirely; the working column breathes. -->
     <div class="ws-layout">
-      <section v-if="!showSessionPicker" class="ws-topstrip" aria-label="案卷进度条">
-<!-- E16: 2-segment topstrip. Left = page title only (no chip
-                with 卷 / 任务 / 第 N 共 M — was redundant decoration
-                pulling eye from the dialogue). Right = session chip
-                + settings link. The session chip carries the
-                identifying info, the title is the page landmark. -->
-          <div class="ws-topstrip__main">
-            <span class="ws-topstrip__title">体验</span>
-            <!-- M4：移动端会话切换入口 —— 点会话名打开会话选择（桌面隐藏，靠会话芯片） -->
-            <button
-              class="ws-topstrip__mobile-session"
-              type="button"
-              :title="currentSessionLabel"
-              aria-label="切换会话"
-              @click="showSessionPicker = true"
-            >{{ currentSessionLabel }}</button>
-          </div>
-          <div class="ws-topstrip__actions">
-            <label class="ws-topstrip__reading-control" title="调整正文阅读节奏">
-              <span class="sr-only">阅读节奏</span>
+      <section
+        v-if="!showSessionPicker"
+        class="ws-topstrip"
+        aria-label="当前体验会话"
+        @keydown.escape="experienceMoreOpen = false"
+      >
+        <div class="ws-topstrip__main">
+          <button
+            class="ws-session-trigger control-quiet"
+            type="button"
+            :title="sessionTitleTooltip"
+            aria-label="切换会话"
+            @click="showSessionPicker = true"
+          >
+            <span class="ws-session-trigger__eyebrow">体验</span>
+            <span class="ws-session-trigger__label">{{ currentSessionLabel }}</span>
+          </button>
+        </div>
+        <div class="ws-topstrip__actions">
+          <button
+            ref="codexTriggerRef"
+            class="ws-topstrip__codex-toggle control-quiet"
+            type="button"
+            aria-controls="experience-codex"
+            :aria-expanded="codexSheetOpen.toString()"
+            @click="openCodexSheet"
+          >索引</button>
+          <button
+            class="ws-more-trigger control-icon"
+            type="button"
+            aria-label="更多体验设置"
+            :aria-expanded="experienceMoreOpen.toString()"
+            @click="experienceMoreOpen = !experienceMoreOpen"
+          >
+            <WorkbenchIcon name="more" :size="18" />
+          </button>
+          <div v-if="experienceMoreOpen" class="ws-more-menu" role="menu" aria-label="体验设置">
+            <button class="ws-more-menu__session" type="button" role="menuitem" @click="showSessionPicker = true">
+              <span>当前会话</span>
+              <strong>{{ currentSessionLabel }}</strong>
+            </button>
+            <label class="ws-more-menu__select" role="menuitem">
+              <span>阅读节奏</span>
               <select v-model="readingProfile" aria-label="阅读节奏">
                 <option value="compact">紧凑</option>
                 <option value="standard">标准</option>
@@ -35,33 +58,21 @@
               </select>
             </label>
             <button
-              ref="codexTriggerRef"
-              class="ws-topstrip__codex-toggle control-quiet"
+              class="ws-more-menu__item"
               type="button"
-              aria-controls="experience-codex"
-              :aria-expanded="codexSheetOpen.toString()"
-              @click="openCodexSheet"
-            >索引</button>
-            <button
-              class="ws-topstrip__settings-link control-quiet"
-              type="button"
+              role="menuitem"
               :disabled="!hasSelectedWorldbook"
-              :title="hasSelectedWorldbook ? '修改当前世界设定' : '先选择世界'"
-              :aria-disabled="(!hasSelectedWorldbook).toString()"
-              aria-label="打开结构化设定"
-              @click="router.push({ name: 'settings-structured' })"
+              @click="router.push({ name: 'settings-structured' }); experienceMoreOpen = false"
             >设定</button>
-            <div class="ws-topstrip__session-chip" :title="sessionTitleTooltip">
-              <span class="ws-topstrip__session-chip-label">{{ currentSessionLabel }}</span>
-              <button
-                class="ws-topstrip__session-chip-btn control-quiet"
-                type="button"
-                aria-label="切换会话"
-                @click="showSessionPicker = true"
-              >切换</button>
-            </div>
+            <button
+              class="ws-more-menu__item"
+              type="button"
+              role="menuitem"
+              @click="router.push({ name: 'online-experience' }); experienceMoreOpen = false"
+            >联机</button>
           </div>
-        </section>
+        </div>
+      </section>
       <main
         v-if="!showSessionPicker"
         class="ws-center-stage"
@@ -89,8 +100,8 @@
           </div>
           <p class="ws-demo-banner__hint">{{ demoBannerHint }}</p>
           <div class="ws-demo-banner__actions">
-            <button class="action-btn primary" type="button" @click="handleLocalDemoEvent('continue')">继续</button>
-            <button class="action-btn" type="button" @click="handleLocalDemoEvent('scene')">切场景</button>
+            <button class="action-btn control-primary" type="button" @click="handleLocalDemoEvent('continue')">继续</button>
+            <button class="action-btn control-quiet" type="button" @click="handleLocalDemoEvent('scene')">切场景</button>
           </div>
         </section>
         <!-- UI-E10-CLEAN: .scene-stage__indicator sticky indicator deleted
@@ -135,7 +146,7 @@
              compact details only after a deliberate click. -->
         <header class="ws-dossier-bar">
           <span class="ws-dossier-bar__label">现场索引</span>
-          <button class="ws-dossier-bar__close" type="button" aria-label="关闭现场索引" @click="closeCodexSheet">×</button>
+          <button class="ws-dossier-bar__close control-icon" type="button" aria-label="关闭现场索引" @click="closeCodexSheet">×</button>
           <button
             class="ws-dossier-bar__quick-cta"
             type="button"
@@ -239,7 +250,7 @@
                   <div class="quick-note-workspace-kicker">体验素材</div>
                   <h3 class="quick-note-workspace-title">速记与对话导入</h3>
                 </div>
-                <button class="quick-note-close" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
+                <button class="quick-note-close control-icon" type="button" @click="quickNoteOpen = false" aria-label="关闭速记面板">×</button>
               </header>
             </FolioSurface>
 
@@ -260,15 +271,15 @@
                   @input="handleQuickNoteInput"
                 ></textarea>
                 <div class="quick-note-workspace-actions">
-                  <button class="action-btn primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
-                  <button class="action-btn" type="button" @click="clearQuickNoteDraft">清空</button>
+                  <button class="action-btn control-primary" type="button" @click="saveQuickNoteAsAsset">保存素材</button>
+                  <button class="action-btn control-quiet" type="button" @click="clearQuickNoteDraft">清空</button>
                 </div>
               </section>
 
               <aside class="quick-note-dialogue-panel">
                 <div class="quick-note-panel-head">
                   <span>对话段</span>
-                  <button class="action-btn" type="button" @click="toggleQuickNoteImport">
+                  <button class="action-btn control-quiet" type="button" @click="toggleQuickNoteImport">
                     {{ quickNoteImportOpen ? '关闭选择' : '选择模式' }}
                   </button>
                 </div>
@@ -299,19 +310,19 @@
                 </div>
                 <div class="quick-note-workspace-actions">
                   <button
-                    class="action-btn primary"
+                    class="action-btn control-primary"
                     type="button"
                     :disabled="dialogueImportStats.selectedCount === 0"
                     @click="importSelectedDialogueSegments"
                   >导入速记</button>
                   <button
-                    class="action-btn"
+                    class="action-btn control-secondary"
                     type="button"
                     :disabled="dialogueImportStats.selectedCount === 0"
                     @click="saveSelectedDialogueSegmentsAsAsset"
                   >存为素材</button>
                   <button
-                    class="action-btn"
+                    class="action-btn control-quiet"
                     type="button"
                     :disabled="dialogueImportStats.selectedCount === 0"
                     @click="gameStore.clearQuickNoteMessageSelection"
@@ -351,7 +362,7 @@
                 <h2 class="ws-codex-detail-title">{{ codexDetailLabel }}</h2>
                 <button
                   type="button"
-                  class="ws-codex-detail-close"
+                  class="ws-codex-detail-close control-icon"
                   aria-label="关闭详情"
                   @click="closeCodexDetail"
                 >×</button>
@@ -444,7 +455,7 @@
                   />
                   <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
                   <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
-                  <button class="inline-detail-close" @click="closeInlineDetail">×</button>
+                  <button class="inline-detail-close control-icon" type="button" @click="closeInlineDetail">×</button>
                 </header>
                 <div class="inline-detail-body">
                   <template v-if="inlineDetail.type === 'dialogue'">
@@ -454,7 +465,7 @@
                   <template v-else-if="inlineDetail.type === 'item'">
                     <p class="inline-detail-content">{{ inlineDetail.content }}</p>
                     <div class="inline-detail-actions">
-                      <button class="action-btn" @click="collectItem(inlineDetail.content)">收入背包</button>
+                      <button class="action-btn control-primary" type="button" @click="collectItem(inlineDetail.content)">收入背包</button>
                     </div>
                   </template>
                 </div>
@@ -501,6 +512,7 @@ import TimeSettings from '../components/TimeSettings.vue'
 import TimeQuickRail from '../components/TimeQuickRail.vue'
 import FolioSurface from '@/components/folio/FolioSurface.vue'
 import ContourField from '@/components/workbench/ContourField.vue'
+import WorkbenchIcon from '@/components/workbench/WorkbenchIcon.vue'
 import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
@@ -675,6 +687,7 @@ function installFirstMessageWatch() {
 // UI-E11 (workstation) replaces with an always-on topstrip section anchor.
 const sidebarCollapsed = ref(false)
 const showSessionPicker = ref(false)
+const experienceMoreOpen = ref(false)
 const isStarting = ref(false)
 const autoAdvanceEnabled = ref(false)
 const autoAdvancePending = ref(false)
@@ -812,6 +825,7 @@ function handleManualInput() {
 }
 
 watch(showSessionPicker, (open) => {
+  if (open) experienceMoreOpen.value = false
   if (open && codexSheetOpen.value) closeCodexSheet({ restoreFocus: false })
   if (open) stopAutoAdvance()
   if (open) {
@@ -845,7 +859,20 @@ function closeCodexSheet({ restoreFocus = true } = {}) {
 }
 
 function handleCodexKeydown(event) {
-  if (event.key === 'Escape' && codexSheetOpen.value) closeCodexSheet()
+  if (event.key !== 'Escape') return
+  if (inlineDetail.value) {
+    closeInlineDetail()
+    return
+  }
+  if (codexDetailSection.value) {
+    closeCodexDetail()
+    return
+  }
+  if (quickNoteOpen.value) {
+    quickNoteOpen.value = false
+    return
+  }
+  if (codexSheetOpen.value) closeCodexSheet()
 }
 
 function openCodexDetail(sectionKey) {
@@ -1983,13 +2010,8 @@ function quickNoteWordCount(text) {
 }
 
 .quick-note-close {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
   color: var(--text-secondary);
-  cursor: pointer;
+  font-size: 18px;
 }
 
 .quick-note-workspace-body {
@@ -2006,10 +2028,13 @@ function quickNoteWordCount(text) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
+  padding: 14px 0;
+  background: transparent;
+}
+
+.quick-note-dialogue-panel {
+  padding-left: 14px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 
 .quick-note-panel-head {
@@ -2318,17 +2343,8 @@ function quickNoteWordCount(text) {
 }
 
 .inline-detail-close {
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
   color: var(--text-muted);
   font-size: 20px;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .inline-detail-close:hover {
@@ -2359,18 +2375,7 @@ function quickNoteWordCount(text) {
 }
 
 .inline-detail-actions .action-btn {
-  padding: 8px 16px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.inline-detail-actions .action-btn:hover {
-  background: var(--accent);
-  color: var(--accent-text);
+  min-width: 96px;
 }
 
 /* Transition */
@@ -2394,43 +2399,12 @@ function quickNoteWordCount(text) {
 }
 
 .action-btn {
-  height: 34px;
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
   font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, var(--border));
-  border-radius: 0;
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 48%, calc(100% - 10px) 100%, 0 100%, 8px 48%);
-  background: color-mix(in srgb, var(--archive-paper-soft) 90%, var(--surface-raised));
-  color: var(--archive-ink-soft);
-  box-shadow: 0 10px 18px color-mix(in srgb, #000 8%, transparent);
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-
-.action-btn:hover {
-  border-color: color-mix(in srgb, var(--archive-olive) 36%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--surface-raised));
-  color: var(--archive-ink);
-}
-
-.action-btn:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--border));
-}
-
-.action-btn.primary {
-  border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-paper)) 0 68%, color-mix(in srgb, var(--archive-gold) 92%, var(--archive-olive)) 68% 100%);
-  color: var(--archive-ink);
-}
-
-.action-btn.primary:hover {
-  border-color: color-mix(in srgb, var(--archive-gold) 68%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 84%, var(--archive-paper)) 0 66%, color-mix(in srgb, var(--archive-gold-soft) 96%, var(--archive-olive)) 66% 100%);
-  color: var(--archive-ink);
+  line-height: 1.2;
 }
 
 .action-btn:disabled {
@@ -2459,8 +2433,6 @@ function quickNoteWordCount(text) {
 
 @media (max-width: 760px) {
   .action-btn {
-    height: 28px;
-    padding: 0 10px;
     font-size: 11px;
   }
 }
@@ -2896,7 +2868,7 @@ function quickNoteWordCount(text) {
 
 @media (max-width: 720px) {
   .game-page.game-page .ws-layout {
-    padding: 8px 8px 10px 52px;
+    padding: 8px 8px 10px;
     gap: 8px;
   }
 
@@ -4029,23 +4001,17 @@ function quickNoteWordCount(text) {
 }
 
 .ws-codex-detail-close {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
-  border-radius: 4px;
-  background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 70%, transparent);
   font-family: var(--font-sans, sans-serif);
   font-size: 18px;
-  cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease;
 }
 
 .ws-codex-detail-close:hover {
-  border-color: var(--archive-olive);
   color: var(--archive-olive-strong);
 }
 
@@ -4145,6 +4111,202 @@ function quickNoteWordCount(text) {
   .game-page.game-page .ws-codex-section::after,
   .game-page.game-page .ws-codex-section__trigger::before {
     transition: none;
+  }
+}
+
+/* U5-R C3: the page strip owns session context only. Reading rhythm,
+   world settings and online mode live in one transient menu. */
+.game-page.game-page .ws-topstrip {
+  position: relative;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 10px 4px 14px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
+}
+
+.game-page .ws-topstrip__main,
+.game-page .ws-topstrip__actions {
+  width: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.game-page .ws-topstrip__actions {
+  position: relative;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ws-session-trigger {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 5px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  text-align: left;
+}
+
+.ws-session-trigger__eyebrow {
+  color: color-mix(in srgb, var(--archive-rose) 78%, var(--archive-ink));
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.ws-session-trigger__label {
+  max-width: min(40vw, 360px);
+  overflow: hidden;
+  color: var(--archive-ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-session-trigger:hover .ws-session-trigger__label {
+  color: var(--archive-ink);
+}
+
+.game-page .ws-topstrip__codex-toggle {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--archive-ink-soft);
+}
+
+.game-page .ws-topstrip__codex-toggle:hover,
+.game-page .ws-topstrip__codex-toggle[aria-expanded="true"] {
+  border-bottom-color: color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  background: transparent;
+  color: var(--archive-ink);
+}
+
+.ws-more-trigger {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.ws-more-trigger:hover {
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+}
+
+.ws-more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(244px, calc(100vw - 28px));
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, white);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--archive-ink) 14%, transparent);
+}
+
+.ws-more-menu__session,
+.ws-more-menu__select,
+.ws-more-menu__item {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.ws-more-menu__session,
+.ws-more-menu__item {
+  cursor: pointer;
+}
+
+.ws-more-menu__session:hover,
+.ws-more-menu__item:hover:not(:disabled),
+.ws-more-menu__select:hover {
+  background: color-mix(in srgb, var(--archive-olive) 7%, transparent);
+  color: var(--archive-ink);
+}
+
+.ws-more-menu__session strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--archive-ink);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-more-menu__select select {
+  max-width: 92px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink);
+  font: inherit;
+  text-align: right;
+}
+
+.ws-more-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ws-more-menu__session:focus-visible,
+.ws-more-menu__select:focus-within,
+.ws-more-menu__item:focus-visible,
+.ws-more-menu__select select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 720px) {
+  .game-page.game-page .ws-topstrip {
+    min-height: 44px;
+    flex-wrap: nowrap;
+    padding-inline: 8px;
+  }
+
+  .game-page .ws-session-trigger__label {
+    max-width: min(48vw, 220px);
+  }
+}
+
+@media (max-width: 260px) {
+  /* The audit's 200% emulation halves a 390px phone to roughly 195px.
+     Let the session label yield before the index and More controls. */
+  .game-page .ws-topstrip__main {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .game-page .ws-session-trigger {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .game-page .ws-session-trigger__label {
+    max-width: max(24px, calc(100vw - 150px));
   }
 }
 </style>
