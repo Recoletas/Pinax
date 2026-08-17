@@ -50,6 +50,7 @@
 6. 推进漫画 M7 连续性质检，并各完成一张 MiniMax 插画与一条 6 秒 768P 视频真实 smoke。
 7. 地图继续父子区域、相邻关系、remap、LOD 与标签碰撞；不再扩张未接入的实验模块。
 8. 按 `docs/plan/experience-mobile-adaptation-plan-20260814.md` 收口体验页与写作页移动端：先处理体验页唯一滚动容器/输入区键盘安全区，再处理写作页空格命令、选区批注和改写面板。
+9. 执行 `docs/plan/ui-controls-dialogue-polish-plan-20260817.md`：先建立主题2按钮语义与减框规则，再打磨体验页顶部工具、输入区、角色对白和弹层，最后迁移其他核心工作区的高频控件。
 
 ## Working rules
 

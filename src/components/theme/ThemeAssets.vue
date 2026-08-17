@@ -17,6 +17,8 @@ const VARIANT_CSS = {
   legacy: () => Promise.all([
     import('../../styles/themes/legacy.css'),
     import('../../styles/experience-reading.css'),
+    // U1：主题2工作区控件层级（按钮/命令组语义），独立于 legacy.css 避免继续膨胀
+    import('../../styles/workbench-controls.css'),
   ]),
 }
 

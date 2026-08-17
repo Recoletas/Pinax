@@ -1,0 +1,167 @@
+/* ============================================================================
+ * U1：主题2工作区控件层级（workbench-controls.css）
+ *
+ * 单一 owner：按钮/命令组语义（primary / secondary / quiet / icon / toggle / danger）。
+ * 不定义页面布局，不覆盖正文排版（正文归 experience-reading.css）。
+ *
+ * 边框预算（计划 §3.1）：
+ *   - 工具栏可以有底部 hairline，内部按钮默认无闭合边框；
+ *   - 输入区一层外边界，内部控件不各套一圈；
+ *   - 一个区域最多一个实色主按钮；
+ *   - 图标按钮无常驻外框，但焦点与 32-44px 命中区完整。
+ * ============================================================================ */
+
+.theme-legacy {
+  --control-fg: var(--archive-ink-soft);
+  --control-fg-strong: var(--archive-ink);
+  --control-accent: var(--archive-olive-strong);
+  --control-accent-bg: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-ink));
+  --control-hover: color-mix(in srgb, var(--archive-olive) 8%, transparent);
+  --control-active: color-mix(in srgb, var(--archive-olive) 12%, var(--archive-paper-soft));
+  --control-danger: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-ink));
+  --control-focus: color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  --control-hit-min: 32px;
+}
+
+/* —— 基座：所有 control 共享的 reset / disabled / focus / 命中区 —— */
+.theme-legacy [class*='control-'] {
+  font-family: var(--font-sans, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  border: 0;
+  background: transparent;
+  color: var(--control-fg);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-legacy [class*='control-']:disabled,
+.theme-legacy [class*='control-'][aria-disabled='true'] {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.theme-legacy [class*='control-']:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .theme-legacy [class*='control-'] {
+    min-height: var(--control-hit-min);
+  }
+  .theme-legacy .control-icon,
+  .theme-legacy .control-toggle {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* —— primary：区域唯一主动作（小面积实色） —— */
+.theme-legacy .control-primary {
+  min-height: 34px;
+  padding: 7px 18px;
+  border-radius: 3px;
+  background: var(--control-accent-bg);
+  color: var(--archive-paper-soft, #f5f7f4);
+  font-weight: 650;
+}
+.theme-legacy .control-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--control-accent-bg) 88%, var(--archive-ink));
+}
+.theme-legacy .control-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--control-accent-bg) 82%, var(--archive-ink));
+}
+
+/* —— secondary：次级确认（淡背景，无闭合框） —— */
+.theme-legacy .control-secondary {
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-olive) 9%, transparent);
+  color: var(--control-fg-strong);
+}
+.theme-legacy .control-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
+}
+
+/* —— quiet：普通命令（透明，文字/淡底变化） —— */
+.theme-legacy .control-quiet {
+  min-height: var(--control-hit-min);
+  padding: 6px 10px;
+  border-radius: 3px;
+}
+.theme-legacy .control-quiet:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--control-fg-strong);
+}
+
+/* —— icon：工具命令（只有图标；命中区 32-44px） —— */
+.theme-legacy .control-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-hit-min);
+  height: var(--control-hit-min);
+  border-radius: 3px;
+  color: var(--control-fg);
+}
+.theme-legacy .control-icon:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--control-fg-strong);
+}
+
+/* —— toggle：模式开关（aria-pressed；激活 = 2px 色标 + 淡背景） —— */
+.theme-legacy .control-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-hit-min);
+  padding: 6px 10px;
+  border-radius: 3px;
+  box-shadow: inset 2px 0 0 0 transparent;
+}
+.theme-legacy .control-toggle:hover:not(:disabled) {
+  background: var(--control-hover);
+}
+.theme-legacy .control-toggle[aria-pressed='true'] {
+  background: var(--control-active);
+  color: var(--control-fg-strong);
+  box-shadow: inset 2px 0 0 0 var(--control-accent);
+}
+
+/* —— danger：破坏性动作（收进菜单；聚焦后低饱和危险色） —— */
+.theme-legacy .control-danger {
+  min-height: var(--control-hit-min);
+  padding: 6px 10px;
+  border-radius: 3px;
+}
+.theme-legacy .control-danger:hover:not(:disabled),
+.theme-legacy .control-danger:focus-visible {
+  background: color-mix(in srgb, var(--archive-rose) 10%, transparent);
+  color: var(--control-danger);
+}
+
+/* —— control-group：组保留一条 hairline 或底边，子按钮不逐个带框 —— */
+.theme-legacy .control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  border-radius: 0;
+}
+.theme-legacy .control-group > [class*='control-'] {
+  border: 0;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy [class*='control-'] {
+    transition: none;
+  }
+}
