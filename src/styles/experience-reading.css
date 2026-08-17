@@ -273,7 +273,7 @@
 }
 
 /* Action / thought use rhythm and restrained ink rather than another boxed
-   voice. Action returns to upright; thought retains a single light italic cue. */
+   voice. U4：动作恢复正体、弱化墨色，以段距区分；thought 保留温和异色 + 轻斜体。 */
 .theme-legacy .game-page .prose-reading-plane .narrative-block--action,
 .theme-legacy .game-page .prose-reading-plane .narrative-block--thought {
   margin-left: 0;
@@ -330,6 +330,47 @@
   margin-right: 0.45em;
   vertical-align: -0.08em;
   background: color-mix(in srgb, var(--experience-signal-cool, #719da8) 74%, var(--archive-olive-strong, #1e3a8a));
+}
+
+/* ============================================================================
+ * U4：speaker tone —— 角色色只用于姓名与短色标（低饱和 token，≤4 个 + 玩家 teal），
+ * 不染整段正文；未知发言者 neutral（无色标）。
+ * ============================================================================ */
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--olive .narrative-block__speaker,
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--olive .narrative-block__speaker::before {
+  color: var(--archive-olive-strong, #1e3a8a);
+  background-color: color-mix(in srgb, var(--archive-olive-strong, #1e3a8a) 62%, transparent);
+}
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--rose .narrative-block__speaker,
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--rose .narrative-block__speaker::before {
+  color: var(--archive-rose, #476f9f);
+  background-color: color-mix(in srgb, var(--archive-rose, #476f9f) 62%, transparent);
+}
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--gold .narrative-block__speaker,
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--gold .narrative-block__speaker::before {
+  color: var(--archive-gold-soft, #8a7a3a);
+  background-color: color-mix(in srgb, var(--archive-gold-soft, #8a7a3a) 58%, transparent);
+}
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--teal .narrative-block__speaker,
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--teal .narrative-block__speaker::before {
+  color: var(--experience-signal-cool, #719da8);
+  background-color: color-mix(in srgb, var(--experience-signal-cool, #719da8) 66%, transparent);
+}
+/* 姓名文字不吃 ::before 的背景 */
+.theme-legacy .game-page .prose-reading-plane .narrative-block__speaker {
+  background-color: transparent;
+}
+/* neutral（未署名/叙述）：无色标 */
+.theme-legacy .game-page .prose-reading-plane .narrative-tone--neutral .narrative-block__speaker::before {
+  background: color-mix(in srgb, var(--archive-ink-soft, #475569) 30%, transparent);
+}
+
+/* U4：说话人切换 = 0.9em 组首节奏；组尾之后回到基线段距（无气泡框） */
+.theme-legacy .game-page .prose-reading-plane .narrative-block--group-start:not(:first-child) {
+  margin-top: 0.9em;
+}
+.theme-legacy .game-page .prose-reading-plane .narrative-block--group-end {
+  margin-bottom: 0.72em;
 }
 
 /* Speaker-group separator — when a new .narrative-block--speaker-start

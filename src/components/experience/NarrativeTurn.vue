@@ -1,7 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import NarrativeBlock from './NarrativeBlock.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { speakerToneOf, speakerGroupMarkers } from '../../services/experienceSpeakerTone'
 
 const props = defineProps({
   message: { type: Object, required: true },
@@ -20,7 +21,14 @@ const props = defineProps({
   canUndoExtension: { type: Boolean, default: false }
 })
 
-defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension'])
+const emit = defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension'])
+
+// U4：按 block 顺序预计算 tone 与连续 speaker 组（组首显示姓名/组尾节奏）
+const blockMeta = computed(() => {
+  const tones = props.blocks.map((block) => speakerToneOf({ ...block, role: props.message?.role }))
+  const markers = speakerGroupMarkers(props.blocks)
+  return props.blocks.map((_, index) => ({ tone: tones[index], ...markers[index] }))
+})
 
 // M3：触屏不常驻显示消息操作 —— 点消息主体显示一次性操作入口
 const actionsOpen = ref(false)
@@ -37,10 +45,7 @@ function handleBodyClick(event) {
 
 function shouldShowBlockSpeaker(block, index) {
   if (!block?.speaker) return false
-  if (index === 0) return true
-  const previous = props.blocks[index - 1]
-  if (!previous?.speaker) return true
-  return previous.speaker !== block.speaker
+  return blockMeta.value[index]?.speakerGroupStart ?? index === 0
 }
 </script>
 
@@ -49,7 +54,16 @@ function shouldShowBlockSpeaker(block, index) {
     <span v-if="showTurnSpeaker" class="prose__speaker" :class="`prose__speaker--${message.role || 'assistant'}`">{{ turnSpeaker }}</span><span v-if="showTurnSpeaker" class="prose__sep" aria-hidden="true">&emsp;</span>
     <span v-if="editing" class="prose__editor" contenteditable="true" spellcheck="false" :data-editing-index="index" @keydown="$emit('editor-keydown', $event)" @click.stop></span>
     <div v-else class="prose__body" @click="handleBodyClick($event)">
-      <NarrativeBlock v-for="(block, blockIndex) in blocks" :key="block.id || `${index}-${blockIndex}`" :block="block" :show-speaker="shouldShowBlockSpeaker(block, blockIndex)" :render-content="renderContent" />
+      <NarrativeBlock
+        v-for="(block, blockIndex) in blocks"
+        :key="block.id || `${index}-${blockIndex}`"
+        :block="block"
+        :show-speaker="shouldShowBlockSpeaker(block, blockIndex)"
+        :speaker-tone="blockMeta[blockIndex]?.tone || 'neutral'"
+        :speaker-group-start="blockMeta[blockIndex]?.speakerGroupStart || false"
+        :speaker-group-end="blockMeta[blockIndex]?.speakerGroupEnd || false"
+        :render-content="renderContent"
+      />
     </div>
     <span v-if="editing" class="prose__edit-actions">
       <button type="button" class="tavern-btn primary" @click="$emit('save-edit')">保存修改</button>
@@ -207,7 +221,8 @@ function shouldShowBlockSpeaker(block, index) {
   display: inline-flex;
   gap: 3px;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
+  /* U4：borderless more menu —— 菜单表面只留轻投影，动作项无逐项描边 */
+  border: 0;
   background: var(--surface-workbench-raised, var(--archive-paper-soft));
   box-shadow: var(--shadow-workbench, 0 8px 20px var(--shadow));
 }
@@ -216,15 +231,15 @@ function shouldShowBlockSpeaker(block, index) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .prose__action:hover,
