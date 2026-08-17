@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import JSZip from 'jszip'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -6,6 +7,7 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import WorldBookQuickImport from '@/pages/WorldBookQuickImport.vue'
+import StructuredSettingsPanel from '@/components/worldbook/StructuredSettingsPanel.vue'
 import { useWorldStore } from '@/stores/worldStore'
 import {
   buildFoundationPayloadFromAiResult,
@@ -62,12 +64,17 @@ import {
   normalizeWorldbookMaintenanceResult
 } from '@/services/worldbookMaintenance'
 import {
+  archiveSourceDocuments,
   buildSourceArchiveBundle,
   createCreationWorkspace,
   dedupeSourceChunks,
+  deleteSourceArchiveArtifacts,
+  estimateSourceArchiveUsage,
   loadSourceArtifacts,
   loadSourceChunks,
-  saveSourceArchiveBundle
+  saveCreationWorkspace,
+  saveSourceArchiveBundle,
+  SOURCE_ARCHIVE_CAPACITY_BYTES
 } from '@/services/worldbookSourceArchive'
 import {
   getCreationGenerationFailure,
@@ -81,6 +88,30 @@ import {
   parseSourceFiles
 } from '@/services/worldbookSourceAdapters'
 import { parseSourceFilesWithWorker } from '@/services/worldbookSourceParser'
+
+function createFixturePdf(text) {
+  const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET\n`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ]
+  let output = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object, index) => {
+    offsets[index + 1] = output.length
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+  const xref = output.length
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (let index = 1; index <= objects.length; index += 1) {
+    output += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
+  }
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return new TextEncoder().encode(output).buffer
+}
 import {
   getPlacePayloadFromEntry,
   normalizePlacePayload,
@@ -142,6 +173,66 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     expect(wrapper.find('.my-worldbooks').exists()).toBe(true)
     expect(wrapper.find('.preset-grid').exists()).toBe(true)
     expect(wrapper.find('.quick-extra').exists()).toBe(true)
+    expect(wrapper.findAll('.settings-section-tab')).toHaveLength(3)
+    expect(wrapper.find('[data-test="settings-section-tab-worldbook"]').exists()).toBe(false)
+    wrapper.unmount()
+
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    localStorage.setItem('worldbook:setting-drafts:wb-review-queue', JSON.stringify({
+      version: 1,
+      activeSectionKey: 'world',
+      focused: { sectionKey: 'world', fieldKey: 'origin' },
+      drafts: {
+        world: {
+          origin: { fieldKey: 'origin', fieldLabel: '世界起源', content: '潮汐从无光之地升起。' },
+          geography: { fieldKey: 'geography', fieldLabel: '地理', content: '旧港沿着退潮后的盐脊展开。' }
+        }
+      }
+    }))
+
+    const panelWrapper = mount(StructuredSettingsPanel, {
+      props: {
+        worldbook: {
+          id: 'wb-review-queue',
+          name: '审阅队列测试',
+          updatedAt: 1,
+          structuredSettings: { world: { origin: '', geography: '' } },
+          entries: []
+        }
+      },
+      global: {
+        plugins: [pinia],
+        stubs: {
+          SettingFieldCard: { template: '<div />' },
+          SettingDraftReview: {
+            props: ['draft'],
+            template: '<button data-test="active-draft" type="button" @click="$emit(\'close\')">{{ draft.fieldKey }}</button>'
+          },
+          GenerationBriefBar: { template: '<div />' },
+          GenerationStatus: { template: '<div />' },
+          PlaceCatalog: { template: '<div />' },
+          WorkbenchIcon: { template: '<span />' }
+        }
+      }
+    })
+    await nextTick()
+
+    const queue = panelWrapper.find('[aria-label="待审 AI 草稿"]')
+    expect(queue.exists()).toBe(true)
+    expect(queue.findAll('button')).toHaveLength(2)
+    expect(panelWrapper.find('[data-test="active-draft"]').text()).toBe('origin')
+
+    await queue.findAll('button')[1].trigger('click')
+    await nextTick()
+    expect(panelWrapper.find('[data-test="active-draft"]').text()).toBe('geography')
+    await panelWrapper.find('[data-test="active-draft"]').trigger('click')
+    await nextTick()
+    expect(panelWrapper.find('[data-test="active-draft"]').exists()).toBe(false)
+    const persistedReview = JSON.parse(localStorage.getItem('worldbook:setting-drafts:wb-review-queue'))
+    expect(persistedReview.focused).toBeNull()
+    expect(persistedReview.drafts.world.geography.content).toContain('旧港')
+    panelWrapper.unmount()
   })
 
   it('S17-2: Hero card 显示默认 preset 的 name + hook + briefing 3 chip', async () => {
@@ -330,6 +421,10 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       generationErrorCode: ''
     })
     expect(workspace.foundationDraft).toEqual({ worldDescription: '一座受潮汐支配的港城。' })
+    await expect(saveCreationWorkspace(createCreationWorkspace({
+      id: 'creation-over-capacity',
+      brief: 'x'.repeat(SOURCE_ARCHIVE_CAPACITY_BYTES + 1)
+    }))).rejects.toMatchObject({ code: 'quota-exceeded' })
     expect(getCreationGenerationLabel('partial')).toBe('部分完成')
     expect(getCreationSourceResultState({ readyCount: 2, failedCount: 1 })).toBe('partial')
     expect(getCreationGenerationFailure({ code: 'ECONNABORTED', message: '请求超时' })).toMatchObject({
@@ -351,6 +446,19 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     expect(await loadSourceChunks(savedBundle.artifact.chunkIds)).toMatchObject([
       { sourceId: 's1', text: '同一段资料' }
     ])
+    const reusedBundle = await saveSourceArchiveBundle(second)
+    expect(reusedBundle.reused).toBe(true)
+    expect(reusedBundle.artifact.id).toBe('s1')
+    expect((await estimateSourceArchiveUsage()).artifactCount).toBeGreaterThanOrEqual(1)
+    const batchArchived = await archiveSourceDocuments([
+      { id: 'batch-a', title: '批次甲', content: '跨工作区批量复用的同一份资料。' },
+      { id: 'batch-b', title: '批次乙', content: '跨工作区批量复用的同一份资料。' }
+    ])
+    expect(batchArchived.map((source) => source.id)).toEqual(['batch-a', 'batch-b'])
+    expect(batchArchived[0].archiveRef).toBe(batchArchived[1].archiveRef)
+    expect((await loadSourceChunks(batchArchived[0].chunkIds))[0].sourceRefs.map((ref) => ref.sourceId))
+      .toEqual(expect.arrayContaining(['batch-a', 'batch-b']))
+    expect((await estimateSourceArchiveUsage()).artifactCount).toBeGreaterThanOrEqual(2)
     setActivePinia(createPinia())
     const store = useWorldStore()
     const longText = `${'港口登记簿记录潮汐税制与船期变化。'.repeat(5000)}\n末页`
@@ -367,10 +475,68 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     expect(source).toMatchObject({
       id: 'legacy-source',
       archiveRef: 'legacy-source',
+      contentPreview: expect.any(String),
       originalLength: longText.length
     })
     expect(source.content.length).toBeLessThan(longText.length)
     expect(source.chunkIds.length).toBeGreaterThan(1)
+    store.activeWorldbook = null
+    const rehydrated = await store.loadWorldbook(created.id)
+    expect(rehydrated.sourceDocuments[0]).toMatchObject({
+      archiveRef: 'legacy-source',
+      contentHash: source.contentHash,
+      chunkIds: source.chunkIds
+    })
+    const hydratedSourceRequests = []
+    await generateSettingCandidates({
+      sectionKey: 'world',
+      fieldKeys: ['history'],
+      userBrief: '请查找末页记录',
+      worldbook: rehydrated,
+      settings: { baseUrl: 'https://example.test', apiKey: 'test', model: 'test' },
+      sendStructuredGenerationImpl: async (request) => {
+        hydratedSourceRequests.push(request)
+        return { drafts: { candidates: [] } }
+      }
+    })
+    expect(hydratedSourceRequests[0].context.sourceExcerpts).toContain('末页')
+
+    const legacyWorldbookId = 'wb-legacy-source-migration'
+    localStorage.setItem(`worldbook_${legacyWorldbookId}`, JSON.stringify({
+      id: legacyWorldbookId,
+      name: '旧资料迁移',
+      entries: [],
+      sourceDocuments: [{
+        id: 'old-only-source',
+        title: '旧版长资料',
+        kind: 'text-file',
+        content: '旧版本资料应自动注册到 source archive。'
+      }]
+    }))
+    const migrated = await store.loadWorldbook(legacyWorldbookId)
+    expect(migrated.sourceDocuments[0]).toMatchObject({
+      archiveRef: 'old-only-source',
+      chunkIds: expect.any(Array)
+    })
+    expect(JSON.parse(localStorage.getItem(`worldbook_${legacyWorldbookId}`)).sourceDocuments[0].archiveRef)
+      .toBe('old-only-source')
+    const importedFromPinax = await store.importFromSillyTavern({
+      name: 'Pinax JSON 归档',
+      entries: {},
+      extensions: {
+        pinax_source_documents: [{
+          id: 'pinax-json-source',
+          title: 'JSON 来源',
+          kind: 'text-file',
+          content: '从 Pinax JSON 导入的资料也必须进入 source archive。'
+        }]
+      }
+    })
+    expect(importedFromPinax.sourceDocuments[0]).toMatchObject({
+      archiveRef: 'pinax-json-source',
+      chunkIds: expect.any(Array)
+    })
+
     const ownerCreateCalls = []
     const ownerEntryCalls = []
     const owner = {
@@ -406,6 +572,39 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     })
     expect(ownerCreateCalls[0].sourceDocuments).toEqual([formalSource])
     expect(ownerEntryCalls[0].metadata.sourceDocumentIds).toContain('s1')
+    const rollbackOwner = {
+      createWorldbook: vi.fn().mockResolvedValue({ id: 'wb-partial-import' }),
+      addEntry: vi.fn().mockRejectedValue(Object.assign(new Error('storage quota'), {
+        name: 'QuotaExceededError',
+        code: 'quota-exceeded'
+      })),
+      deleteWorldbook: vi.fn().mockResolvedValue(undefined)
+    }
+    await expect(createWorldbookFromPayload(rollbackOwner, {
+      name: '应回滚的导入',
+      entries: [{ name: '条目', type: 'lore', content: '正文' }]
+    }, {
+      sourceDocuments: [],
+      archivedSourceDocuments: []
+    })).rejects.toMatchObject({ code: 'quota-exceeded' })
+    expect(rollbackOwner.deleteWorldbook).toHaveBeenCalledWith('wb-partial-import')
+    const quotaPinia = createPinia()
+    setActivePinia(quotaPinia)
+    const quotaStore = useWorldStore()
+    await quotaStore.loadWorldbooksIndex()
+    const nativeSetItem = Storage.prototype.setItem
+    const quotaStorage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (String(key).startsWith('worldbook_')) {
+        throw Object.assign(new Error('storage quota'), { name: 'QuotaExceededError' })
+      }
+      return nativeSetItem.call(this, key, value)
+    })
+    await expect(quotaStore.createWorldbook({ name: '不应写入的世界书' })).rejects.toMatchObject({
+      name: 'QuotaExceededError',
+      code: 'quota-exceeded'
+    })
+    expect(quotaStore.worldbooksIndex.some((item) => item.name === '不应写入的世界书')).toBe(false)
+    quotaStorage.mockRestore()
     const selectedMaterial = selectSourceChunks({
       sourceDocuments: [
         { id: 'a', title: '港口账册', content: '普通税务记录。\n\n灯塔停摆当夜，港城失去航标。' },
@@ -418,6 +617,20 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     })
     expect(selectedMaterial.context).toContain('灯塔停摆当夜')
     expect(selectedMaterial.coverage).toMatchObject({ sources: 1, availableSources: 2 })
+    const repeatedMaterial = selectSourceChunks({
+      sourceDocuments: [
+        { id: 'same-a', title: '甲册', content: '同一条可验证的港口记录。' },
+        { id: 'same-b', title: '乙册', content: '同一条可验证的港口记录。' }
+      ],
+      sectionLabel: '历史',
+      fieldLabel: '港口记录',
+      maxChunks: 4
+    })
+    expect(repeatedMaterial.chunks).toHaveLength(1)
+    expect(repeatedMaterial.chunks[0].sourceRefs).toHaveLength(2)
+    expect(repeatedMaterial.coverage.sources).toBe(2)
+    expect(repeatedMaterial.context).toContain('same-a')
+    expect(repeatedMaterial.context).toContain('same-b')
     const file = {
       name: '港口.md',
       type: '',
@@ -431,6 +644,45 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     expect(parseResult).toMatchObject({ artifact: { kind: 'markdown', title: '港口.md' } })
     expect(parseResult.chunks[0].locator.type).toBe('offset')
     expect(parseResult.artifact.chunkIds).toEqual(parseResult.chunks.map((chunk) => chunk.id))
+    const pdfBuffer = createFixturePdf('Pinax PDF fixture')
+    const pdfResult = await parseSourceFile({
+      name: 'fixture.pdf',
+      type: 'application/pdf',
+      size: pdfBuffer.byteLength,
+      lastModified: 1,
+      arrayBuffer: vi.fn().mockResolvedValue(pdfBuffer)
+    })
+    expect(pdfResult).toMatchObject({ artifact: { kind: 'pdf', title: 'fixture.pdf' } })
+    expect(pdfResult.chunks.map((chunk) => chunk.text).join('\n')).toContain('Pinax PDF fixture')
+    await expect(parseSourceFile({
+      name: 'broken.pdf',
+      type: 'application/pdf',
+      size: 4,
+      lastModified: 1,
+      arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer)
+    })).rejects.toMatchObject({ code: 'pdf-parse-failed' })
+    const docx = new JSZip()
+    docx.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+    docx.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+    docx.file('word/document.xml', '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Pinax DOCX fixture</w:t></w:r></w:p></w:body></w:document>')
+    const docxBuffer = await docx.generateAsync({ type: 'arraybuffer', compression: 'STORE' })
+    const docxResult = await parseSourceFile({
+      name: 'fixture.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: docxBuffer.byteLength,
+      lastModified: 1,
+      arrayBuffer: vi.fn().mockResolvedValue(docxBuffer)
+    })
+    expect(docxResult).toMatchObject({ artifact: { kind: 'docx', title: 'fixture.docx' } })
+    expect(docxResult.chunks.map((chunk) => chunk.text).join('\n')).toContain('Pinax DOCX fixture')
+    await expect(parseSourceFile({
+      name: 'broken.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 2,
+      lastModified: 1,
+      arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2]).buffer)
+    })).rejects.toMatchObject({ code: 'docx-parse-failed' })
+    const progress = []
     const results = await parseSourceFiles([
       {
         name: 'ok.txt', type: 'text/plain', size: 4, lastModified: 1,
@@ -440,9 +692,11 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
         name: 'bad.exe', type: 'application/octet-stream', size: 4, lastModified: 1,
         text: vi.fn()
       }
-    ])
+    ], { onProgress: (entry) => progress.push(entry) })
 
     expect(results.map((item) => item.status)).toEqual(['ready', 'error'])
+    expect(progress.map((item) => item.index).sort((a, b) => a - b)).toEqual([0, 1])
+    expect(progress.map((item) => item.status).sort()).toEqual(['error', 'ready'])
     expect(results[0].artifact.title).toBe('ok.txt')
     expect(results[1].error).toMatchObject({ code: 'unsupported-type' })
 
@@ -451,6 +705,32 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       text: vi.fn().mockResolvedValue('Worker 资料')
     }])
     expect(workerResults).toMatchObject([{ status: 'ready', artifact: { title: 'worker.txt' } }])
+    const cancelled = new AbortController()
+    cancelled.abort()
+    await expect(parseSourceFilesWithWorker([], { signal: cancelled.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+      code: 'cancelled'
+    })
+    const slowCancel = new AbortController()
+    const slowParsing = parseSourceFiles([{
+      name: 'slow.txt', type: 'text/plain', size: 4, lastModified: 1,
+      text: () => new Promise((resolve) => setTimeout(() => resolve('慢速资料'), 20))
+    }], { signal: slowCancel.signal })
+    setTimeout(() => slowCancel.abort(), 1)
+    await expect(slowParsing).rejects.toMatchObject({ name: 'AbortError', code: 'cancelled' })
+    let timeoutSignal
+    const timedOut = await parseSourceFiles([{
+      name: 'timeout.txt', type: 'text/plain', size: 4, lastModified: 1,
+      text: (signal) => {
+        timeoutSignal = signal
+        return new Promise((resolve) => setTimeout(() => resolve('超时资料'), 20))
+      }
+    }], { parseTimeoutMs: 1 })
+    expect(timedOut[0].error).toMatchObject({ code: 'parse-timeout' })
+    expect(timeoutSignal?.aborted).toBe(true)
+    const removed = await deleteSourceArchiveArtifacts(['s1'])
+    expect(removed.deletedArtifactIds).toEqual(['s1'])
+    expect(await loadSourceArtifacts(['s1'])).toEqual([])
   })
 })
 
@@ -780,6 +1060,11 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     const editorSource = readFileSync(resolve(process.cwd(), 'src/pages/WorldBookEditor.vue'), 'utf8')
     expect(editorSource).toContain('maintenanceTouchedEntryIds')
     expect(editorSource).toContain('maintenanceRevision.value = String(activeWorldbook.value?.updatedAt || maintenanceRevision.value)')
+    expect(editorSource).toContain('SettingsContextBar')
+    expect(editorSource).not.toContain('worldbook-pane')
+    expect(editorSource).not.toContain('editor-context')
+    expect(editorSource).not.toContain('StructuredSettingsWorkspace')
+    expect(editorSource).not.toContain("key: 'structured'")
     const sectionCalls = []
     const sectionWorldbook = {
       name: '雾港',

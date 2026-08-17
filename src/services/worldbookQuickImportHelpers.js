@@ -299,7 +299,7 @@ export function createSourceDocument(content, options = {}) {
 
 function normalizeSourceDocuments(documents) {
   return (Array.isArray(documents) ? documents : [])
-    .map((document, index) => createSourceDocument(document?.content, {
+    .map((document, index) => createSourceDocument(document?.content || document?.contentPreview || document?.preview, {
       ...document,
       id: document?.id || `source_${index + 1}`
     }))
@@ -574,55 +574,63 @@ export async function createWorldbookFromPayload(worldStore, payload, options = 
     ? options.archivedSourceDocuments
     : await archiveSourceDocuments(normalizedPayload.sourceDocuments)
 
-  const created = await worldStore.createWorldbook({
-    name: normalizedPayload.name,
-    worldDescription: normalizedPayload.worldDescription || normalizedPayload.description || '',
-    writingStyle: normalizedPayload.writingStyle || '',
-    examples: normalizedPayload.examples || '',
-    forbidden: normalizedPayload.forbidden || '',
-    description: normalizedPayload.description || normalizedPayload.worldDescription || '',
-    research: normalizedPayload.research,
-    structuredSettings: normalizedPayload.structuredSettings,
-    sourceDocuments: archivedSourceDocuments,
-    sourcePresetId: options.sourcePresetId || null,
-    presetSignature: options.presetSignature || null
-  })
-
-  for (const entry of normalizedPayload.entries) {
-    await worldStore.addEntry(created.id, {
-      name: entry.name,
-      type: entry.type,
-      keys: entry.keys,
-      keysSecondary: entry.keysSecondary,
-      content: entry.content,
-      injection: entry.injection,
-      metadata: {
-        importSource: normalizedPayload.sourceLabel,
-        basis: entry.metadata?.basis || 'creative',
-        sourceRefs: entry.metadata?.sourceRefs || [],
-        claimIds: entry.metadata?.claimIds || [],
-        sourceDocumentIds: entry.metadata?.sourceDocumentIds || [],
-        reviewState: entry.metadata?.reviewState || 'ready'
-      }
+  let created = null
+  try {
+    created = await worldStore.createWorldbook({
+      name: normalizedPayload.name,
+      worldDescription: normalizedPayload.worldDescription || normalizedPayload.description || '',
+      writingStyle: normalizedPayload.writingStyle || '',
+      examples: normalizedPayload.examples || '',
+      forbidden: normalizedPayload.forbidden || '',
+      description: normalizedPayload.description || normalizedPayload.worldDescription || '',
+      research: normalizedPayload.research,
+      structuredSettings: normalizedPayload.structuredSettings,
+      sourceDocuments: archivedSourceDocuments,
+      sourcePresetId: options.sourcePresetId || null,
+      presetSignature: options.presetSignature || null
     })
-  }
 
-  const groups = uniqueGroups([
-    ...(normalizedPayload.groups || []),
-    ...collectGroupsFromEntries(normalizedPayload.entries)
-  ])
-  if (groups.length) {
-    await worldStore.updateWorldbook(created.id, { groups })
-  }
+    for (const entry of normalizedPayload.entries) {
+      await worldStore.addEntry(created.id, {
+        name: entry.name,
+        type: entry.type,
+        keys: entry.keys,
+        keysSecondary: entry.keysSecondary,
+        content: entry.content,
+        injection: entry.injection,
+        metadata: {
+          importSource: normalizedPayload.sourceLabel,
+          basis: entry.metadata?.basis || 'creative',
+          sourceRefs: entry.metadata?.sourceRefs || [],
+          claimIds: entry.metadata?.claimIds || [],
+          sourceDocumentIds: entry.metadata?.sourceDocumentIds || [],
+          reviewState: entry.metadata?.reviewState || 'ready'
+        }
+      })
+    }
 
-  if (typeof worldStore.loadWorldbooksIndex === 'function') {
-    await worldStore.loadWorldbooksIndex()
-  }
-  if (typeof worldStore.setActiveWorldbook === 'function') {
-    await worldStore.setActiveWorldbook(created.id)
-  }
+    const groups = uniqueGroups([
+      ...(normalizedPayload.groups || []),
+      ...collectGroupsFromEntries(normalizedPayload.entries)
+    ])
+    if (groups.length) {
+      await worldStore.updateWorldbook(created.id, { groups })
+    }
 
-  return created
+    if (typeof worldStore.loadWorldbooksIndex === 'function') {
+      await worldStore.loadWorldbooksIndex()
+    }
+    if (typeof worldStore.setActiveWorldbook === 'function') {
+      await worldStore.setActiveWorldbook(created.id)
+    }
+
+    return created
+  } catch (error) {
+    if (created?.id && typeof worldStore.deleteWorldbook === 'function') {
+      await worldStore.deleteWorldbook(created.id).catch(() => {})
+    }
+    throw error
+  }
 }
 
 // ----- AI-driven extract / generate (advanced 入口) -----
@@ -730,12 +738,12 @@ export function buildFoundationPayloadFromAiResult({ parsed, brief, genreLabel, 
   }
 }
 
-export async function tryAiGenerateFromBrief({ genre, genreLabel: explicitGenreLabel, brief, nameHint }) {
+export async function tryAiGenerateFromBrief({ genre, genreLabel: explicitGenreLabel, brief, nameHint, signal = null }) {
   const genreLabel = normalizeText(explicitGenreLabel)
     || entryTypeOptions.find((item) => item.value === genre)?.label
     || '通用风格'
 
-  const aiResult = await tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, nameHint })
+  const aiResult = await tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, nameHint, signal })
 
   if (!aiResult.ok || !aiResult.parsed) return aiResult
 

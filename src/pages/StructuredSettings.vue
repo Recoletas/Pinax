@@ -2,21 +2,12 @@
   <div class="settings-page" @click="onGlobalClick">
     <ContourField class="settings-page__contour" density="relation" entry="right" />
     <div class="settings-topbar">
-      <header class="settings-context-bar">
-        <div class="context-main">
-          <span class="context-kicker">ACTIVE WORLD</span>
-          <select class="context-worldbook-select" v-model="selectedWorldbookId" @change="onWorldbookChange" :title="worldbooksIndex.find(w => w.id === selectedWorldbookId)?.name || '选择世界书'">
-            <option v-for="wb in worldbooksIndex" :key="wb.id" :value="wb.id" :title="wb.name">
-              {{ wb.name }}
-            </option>
-          </select>
-        </div>
-        <div class="context-meta" aria-label="设定页信息">
-          <span class="context-meta-item"><i aria-hidden="true"></i>{{ worldbooksIndex.length }} 本世界书</span>
-          <span class="context-meta-divider" aria-hidden="true"></span>
-          <span class="context-meta-item">自动保存</span>
-        </div>
-      </header>
+      <SettingsContextBar
+        v-model="selectedWorldbookId"
+        :worldbooks-index="worldbooksIndex"
+        :active-worldbook="activeWorldbook"
+        @change="onWorldbookChange"
+      />
 
       <SettingsSectionNav />
     </div>
@@ -86,6 +77,7 @@ import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 
 const router = useRouter()
@@ -110,9 +102,9 @@ function onGlobalClick() {
   // placeholder for global click handler if needed
 }
 
-async function onWorldbookChange() {
-  if (selectedWorldbookId.value) {
-    await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
+  if (worldbookId) {
+    await worldStore.setActiveWorldbook(worldbookId)
   }
 }
 
@@ -162,122 +154,12 @@ onMounted(async () => {
   background: color-mix(in srgb, var(--archive-paper-strong) 44%, var(--archive-paper-soft));
 }
 
-.settings-context-bar {
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 6px clamp(16px, 3vw, 42px);
-  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 15%, transparent);
-  background: transparent;
-  flex-shrink: 0;
-}
-
 .settings-topbar :deep(.settings-section-nav) {
   align-self: stretch;
   min-width: 0;
   padding-inline: 12px clamp(16px, 3vw, 42px);
   border-bottom: 0;
   background: transparent;
-}
-
-.context-main,
-.context-meta {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.context-main {
-  gap: 10px;
-}
-
-.context-meta {
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.context-meta-divider {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 60%, var(--border));
-}
-
-.context-meta-item i {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 10%, transparent);
-}
-
-.context-back {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  border: 0;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.context-back:hover {
-  border-left-color: var(--accent);
-  color: var(--text-primary);
-}
-
-.context-identity {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.context-kicker {
-  color: var(--text-muted);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  line-height: 1;
-}
-
-.context-identity strong {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 680;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.context-worldbook-select {
-  max-width: min(30vw, 260px);
-  min-width: 120px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 44%, var(--border));
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 6px 22px 6px 2px;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-/* W5c UX sweep: warn users about pending unsaved edits in the
-   StructuredSettingsWorkspace before they switch the active worldbook. */
-.context-worldbook-select.is-dirty {
-  border-color: var(--warning, #b37213);
 }
 
 .settings-body {
@@ -396,36 +278,8 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .settings-context-bar {
-    min-height: 46px;
-    gap: 10px;
-    padding-block: 6px;
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 13%, transparent);
-  }
-
   .settings-topbar :deep(.settings-section-nav) {
     padding-inline: 6px;
-  }
-
-  .context-main {
-    width: 100%;
-  }
-
-  .context-main,
-  .context-meta {
-    min-width: 0;
-  }
-
-  .context-worldbook-select {
-    max-width: 48vw;
-    min-width: 104px;
-    font-size: 14px;
-  }
-
-  .context-meta-divider,
-  .context-meta-item:last-child {
-    display: none;
   }
 
   .settings-page__contour {

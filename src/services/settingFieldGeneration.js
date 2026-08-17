@@ -17,6 +17,7 @@ import {
 } from '../../shared/structuredSettingContract'
 import { normalizeSettingCandidates } from '../../shared/structuredSettingCandidateContract'
 import { selectSourceChunks } from './worldbookSourceSelection'
+import { loadSourceArtifacts, loadSourceChunks } from './worldbookSourceArchive'
 
 const MAX_CONSTRAINT_ENTRIES = 12
 const MAX_CONSTRAINT_CHARS = 6000
@@ -90,7 +91,7 @@ export function clearStructuredSettingContextCache() {
 export function isStructuredSettingRevisionCurrent(draftRevision, currentRevision) {
   const draft = String(draftRevision || '').trim()
   const current = String(currentRevision || '').trim()
-  return !draft || !current || draft === current
+  return !draft || !current || draft === current || current.startsWith(`${draft}:`)
 }
 
 function getStarterLimits(sectionKey, targetType) {
@@ -128,6 +129,52 @@ function buildSourceMaterialContext({ worldbook, section, field, userBrief, curr
     maxChars: MAX_SOURCE_CONTEXT_CHARS,
     maxChunks: 6
   }).context
+}
+
+async function hydrateArchivedSourceDocuments(worldbook, signal = null) {
+  const sourceDocuments = Array.isArray(worldbook?.sourceDocuments) ? worldbook.sourceDocuments : []
+  const archiveIds = sourceDocuments
+    .map((document) => String(document?.archiveRef || '').trim())
+    .filter(Boolean)
+  if (!archiveIds.length) return worldbook
+
+  if (signal?.aborted) return worldbook
+  try {
+    const artifacts = await loadSourceArtifacts(archiveIds)
+    if (signal?.aborted) return worldbook
+    const artifactsById = new Map(artifacts.map((artifact) => [String(artifact.id), artifact]))
+    const chunkIds = [...new Set(sourceDocuments.flatMap((document) => {
+      const artifact = artifactsById.get(String(document.archiveRef))
+      return Array.isArray(document.chunkIds) && document.chunkIds.length
+        ? document.chunkIds
+        : (artifact?.chunkIds || [])
+    }).map(String).filter(Boolean))]
+    if (!chunkIds.length) return worldbook
+
+    const chunks = await loadSourceChunks(chunkIds)
+    if (signal?.aborted) return worldbook
+    const chunksById = new Map(chunks.map((chunk) => [String(chunk.id), chunk]))
+    const hydrated = sourceDocuments.map((document) => {
+      const artifact = artifactsById.get(String(document.archiveRef))
+      const ids = Array.isArray(document.chunkIds) && document.chunkIds.length
+        ? document.chunkIds
+        : (artifact?.chunkIds || [])
+      const content = ids
+        .map((id) => chunksById.get(String(id))?.text || '')
+        .filter(Boolean)
+        .join('\n\n')
+      if (!content) return document
+      return {
+        ...document,
+        content,
+        normalizedLength: Number(artifact?.normalizedLength || document.normalizedLength || content.length)
+      }
+    })
+    return { ...worldbook, sourceDocuments: hydrated }
+  } catch {
+    // 归档读取失败时保留可用预览，不能让设定页因为本地资料损坏而完全不可用。
+    return worldbook
+  }
 }
 
 function buildOutputContract(fieldMeta, field = null) {
@@ -463,8 +510,9 @@ export async function generateSettingCandidates({
   const requested = Array.isArray(fieldKeys) && fieldKeys.length
     ? section.fields.filter((field) => fieldKeys.includes(field.key))
     : section.fields
+  const hydratedWorldbook = await hydrateArchivedSourceDocuments(worldbook, signal)
   const base = buildStructuredSettingRequest({
-    worldbook,
+    worldbook: hydratedWorldbook,
     sectionKey,
     fieldKeys: requested.map((field) => field.key),
     userBrief
@@ -479,7 +527,7 @@ export async function generateSettingCandidates({
       options: { max_tokens: 2800, timeout_ms: getStructuredGenerationTimeout(requested) },
       signal
     })
-    const validSourceIds = new Set((Array.isArray(worldbook?.sourceDocuments) ? worldbook.sourceDocuments : [])
+    const validSourceIds = new Set((Array.isArray(hydratedWorldbook?.sourceDocuments) ? hydratedWorldbook.sourceDocuments : [])
       .map((document) => String(document?.id || '').trim())
       .filter(Boolean))
     const candidates = normalizeSettingCandidates(response?.drafts?.candidates, { validSourceIds })
@@ -517,8 +565,9 @@ export async function generateSettingDraftRevision({
   })
   if (!revision.valid) return { ok: false, reason: revision.error.message, code: revision.error.code }
 
+  const hydratedWorldbook = await hydrateArchivedSourceDocuments(worldbook, signal)
   const request = buildStructuredSettingRequest({
-    worldbook,
+    worldbook: hydratedWorldbook,
     sectionKey,
     fieldKeys: [fieldKey],
     userBrief: ''
@@ -591,8 +640,9 @@ export async function generateSettingFieldDraft(options) {
 
   const fieldMeta = getFieldMeta(options.sectionKey, options.fieldKey)
   try {
+    const hydratedWorldbook = await hydrateArchivedSourceDocuments(options.worldbook, options.signal)
     const request = buildStructuredSettingRequest({
-      worldbook: options.worldbook,
+      worldbook: hydratedWorldbook,
       sectionKey: options.sectionKey,
       fieldKeys: [options.fieldKey],
       userBrief: options.userBrief
@@ -639,13 +689,14 @@ export async function generateSettingSectionDraftBatch({
   onProgress?.({ index: 0, total: fields.length, phase: 'requesting', fieldKeys: fields.map((field) => field.key) })
   try {
     const resolvedSettings = settings || await getResolvedApiSettings()
+    const hydratedWorldbook = await hydrateArchivedSourceDocuments(worldbook, signal)
     let sourceCandidates = []
     let sourceCandidateError = ''
-    if (Array.isArray(worldbook?.sourceDocuments) && worldbook.sourceDocuments.some((document) => String(document?.content || '').trim())) {
+    if (Array.isArray(hydratedWorldbook?.sourceDocuments) && hydratedWorldbook.sourceDocuments.some((document) => String(document?.content || '').trim())) {
       onProgress?.({ index: 0, total: fields.length, phase: 'extracting', fieldKeys: fields.map((field) => field.key) })
       const extracted = await generateSettingCandidates({
         sectionKey,
-        worldbook,
+        worldbook: hydratedWorldbook,
         userBrief,
         fieldKeys: fields.map((field) => field.key),
         signal,
@@ -656,7 +707,7 @@ export async function generateSettingSectionDraftBatch({
       else sourceCandidateError = extracted.reason || '来源事实提取失败'
     }
     const request = buildStructuredSettingRequest({
-      worldbook,
+      worldbook: hydratedWorldbook,
       sectionKey,
       fieldKeys: fields.map((field) => field.key),
       userBrief,
@@ -703,7 +754,7 @@ export async function generateSettingSectionDraftBatch({
         fieldKeys: failedFields.map((field) => field.key)
       })
       const repairRequest = buildStructuredSettingRequest({
-        worldbook,
+        worldbook: hydratedWorldbook,
         sectionKey,
         fieldKeys: failedFields.map((field) => field.key),
         userBrief: userBrief ? `${userBrief}\n只补全以下未通过校验的设定项，不要重写已通过的字段。` : '只补全以下未通过校验的设定项，不要重写其他字段。',

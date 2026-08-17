@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
@@ -12,13 +12,18 @@ import {
 import { buildWorldbookImportPreview } from '../services/worldbookImportGeneration'
 import {
   buildSourceArchiveBundle,
+  cleanupUnreferencedSourceArtifacts,
   createCreationWorkspace,
+  deleteCreationWorkspace,
+  estimateSourceArchiveUsage,
+  findSourceArtifactByContentHash,
   loadCreationWorkspace,
   loadSourceArtifacts,
   loadSourceChunks,
   saveCreationWorkspace,
   saveSourceArchiveBundle
 } from '../services/worldbookSourceArchive'
+import { detectSourceKind } from '../services/worldbookSourceAdapters'
 import { parseSourceFilesWithWorker } from '../services/worldbookSourceParser'
 import { selectSourceChunks } from '../services/worldbookSourceSelection'
 import {
@@ -43,19 +48,28 @@ const previewSourceId = ref('')
 const errorMessage = ref('')
 const infoMessage = ref('')
 const restoring = ref(true)
+const archiveUsage = ref(null)
+const archiveCleaning = ref(false)
+const removedSourceIds = ref([])
+const cancelAvailable = ref(false)
+let activeAbortController = null
 
 const workspace = reactive(createCreationWorkspace({
   id: String(route.query.workspaceId || 'creation-active'),
   mode: ['structured-import', 'brief'].includes(String(route.query.mode)) ? String(route.query.mode) : 'sources'
 }))
 
-const readySourceCount = computed(() => sourceQueue.value.filter((item) => item.status === 'ready').length)
-const selectedSourceCount = computed(() => sourceQueue.value.filter((item) => item.status === 'ready' && item.selected).length)
+function isSourceUsable(item) {
+  return item?.status === 'ready' || item?.status === 'memory-only'
+}
+
+const readySourceCount = computed(() => sourceQueue.value.filter(isSourceUsable).length)
+const selectedSourceCount = computed(() => sourceQueue.value.filter((item) => isSourceUsable(item) && item.selected).length)
 const sourceCharacterCount = computed(() => sourceQueue.value
-  .filter((item) => item.status === 'ready')
+  .filter(isSourceUsable)
   .reduce((sum, item) => sum + item.charCount, 0))
 const selectedCharacterCount = computed(() => sourceQueue.value
-  .filter((item) => item.status === 'ready' && item.selected)
+  .filter((item) => isSourceUsable(item) && item.selected)
   .reduce((sum, item) => sum + item.charCount, 0))
 const previewSource = computed(() => sourceQueue.value.find((item) => item.id === previewSourceId.value) || null)
 const canGenerate = computed(() => Boolean(brief.value.trim()) || selectedSourceCount.value > 0)
@@ -71,6 +85,13 @@ const statusLabel = computed(() => {
   if (generationState.value === 'ready') return generationLabel.value
   return '空工作区'
 })
+const archiveUsageLabel = computed(() => {
+  const bytes = Number(archiveUsage.value?.usedBytes || 0)
+  const limit = Number(archiveUsage.value?.limitBytes || 0)
+  if (!limit) return '归档空间读取中'
+  return `${(bytes / 1024 / 1024).toFixed(1)} / ${(limit / 1024 / 1024).toFixed(0)} MB`
+})
+const archiveUsageWarning = computed(() => Number(archiveUsage.value?.usedBytes || 0) >= Number(archiveUsage.value?.warningBytes || Infinity))
 
 function setGenerationState(state, options = {}) {
   const nextState = state || 'idle'
@@ -138,12 +159,61 @@ function openJsonPicker() {
   jsonInput.value?.click()
 }
 
+function refreshArchiveUsage() {
+  estimateSourceArchiveUsage().then((usage) => {
+    archiveUsage.value = usage
+  }).catch(() => {})
+}
+
+function collectReferencedSourceIds() {
+  const ids = new Set(sourceQueue.value.filter((item) => item.status === 'ready').map((item) => item.id))
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index) || ''
+      if (!key.startsWith('worldbook_')) continue
+      const parsed = JSON.parse(localStorage.getItem(key) || '{}')
+      for (const source of parsed?.sourceDocuments || []) {
+        for (const reference of [source?.id, source?.archiveRef]) {
+          if (reference) ids.add(String(reference))
+        }
+      }
+    }
+  } catch { /* 其他存储项不影响当前清理 */ }
+  return [...ids]
+}
+
+async function cleanupArchive() {
+  if (archiveCleaning.value) return
+  archiveCleaning.value = true
+  try {
+    const result = await cleanupUnreferencedSourceArtifacts({
+      preserveSourceIds: collectReferencedSourceIds()
+    })
+    removedSourceIds.value = []
+    infoMessage.value = result.deletedArtifactIds.length
+      ? `已清理 ${result.deletedArtifactIds.length} 份未引用资料归档，释放 ${(result.removedBytes / 1024 / 1024).toFixed(1)} MB。`
+      : '没有发现可以安全清理的未引用资料。'
+    refreshArchiveUsage()
+  } catch (error) {
+    errorMessage.value = error?.message || '本地归档清理失败。'
+  } finally {
+    archiveCleaning.value = false
+  }
+}
+
+function cancelActiveTask() {
+  if (!activeAbortController) return
+  activeAbortController.abort()
+  activeAbortController = null
+  cancelAvailable.value = false
+}
+
 function sourceKindMark(kind) {
   return { pdf: 'PDF', docx: 'DOC', markdown: 'MD', 'text-file': 'TXT', 'pasted-text': 'TXT' }[kind] || 'TXT'
 }
 
 function sourceStatusLabel(status) {
-  return { ready: '已暂存', processing: '读取中', error: '失败', 'needs-ocr': '需 OCR' }[status] || status
+  return { ready: '已暂存', 'memory-only': '仅本页', processing: '读取中', error: '失败', 'needs-ocr': '需 OCR' }[status] || status
 }
 
 function normalizeQueueItem(result) {
@@ -156,10 +226,34 @@ function normalizeQueueItem(result) {
     error: result.error || null,
     artifact,
     chunks: result.chunks || [],
+    parseProgress: 100,
+    parseStatus: result.status || 'ready',
     selected: result.selected !== false,
     charCount: artifact.normalizedLength || 0,
     chunkCount: result.chunks?.length || 0
   }
+}
+
+function createProcessingQueueItems(files) {
+  const prefix = `processing-${Date.now().toString(36)}`
+  return Array.from(files || []).map((file, index) => ({
+    id: `${prefix}-${index}`,
+    title: String(file?.name || `文件 ${index + 1}`),
+    kind: detectSourceKind(file) || 'text-file',
+    status: 'processing',
+    parseProgress: 0,
+    parseStatus: 'queued',
+    error: null,
+    selected: false,
+    charCount: 0,
+    chunkCount: 0,
+    chunks: []
+  }))
+}
+
+function removeProcessingQueueItems(ids) {
+  const idSet = new Set(ids)
+  sourceQueue.value = sourceQueue.value.filter((item) => !idSet.has(item.id))
 }
 
 async function addParsedResult(result) {
@@ -167,21 +261,63 @@ async function addParsedResult(result) {
     addFailedQueueItem(result)
     return false
   }
+  const existing = await findSourceArtifactByContentHash(result.artifact.contentHash)
   if (sourceQueue.value.some((item) => item.status === 'ready' && item.artifact?.contentHash === result.artifact.contentHash)) {
     infoMessage.value = `${result.artifact.title} 与已有资料正文相同，已跳过重复保存。`
+    return true
+  }
+  if (existing) {
+    const chunks = await loadSourceChunks(existing.chunkIds)
+    sourceQueue.value.push(normalizeQueueItem({ artifact: existing, chunks, status: 'ready' }))
+    workspace.selectedSourceIds = [...new Set([...workspace.selectedSourceIds, existing.id])]
+    infoMessage.value = `${result.artifact.title} 已复用已有本地归档。`
+    refreshArchiveUsage()
     return true
   }
   const saved = await saveSourceArchiveBundle(result)
   sourceQueue.value.push(normalizeQueueItem({ ...result, artifact: saved.artifact, status: 'ready' }))
   workspace.selectedSourceIds = [...new Set([...workspace.selectedSourceIds, saved.artifact.id])]
+  if (saved.reused) infoMessage.value = `${result.artifact.title} 已复用已有本地归档。`
+  refreshArchiveUsage()
   return true
+}
+
+function isQuotaError(error) {
+  return error?.code === 'quota-exceeded' || error?.name === 'QuotaExceededError'
+}
+
+function addMemoryOnlyQueueItem(result, error) {
+  const artifact = result?.artifact
+  if (!artifact) return
+  const item = normalizeQueueItem({
+    artifact,
+    chunks: result.chunks || [],
+    status: 'memory-only',
+    selected: true,
+    error: {
+      code: 'quota-exceeded',
+      message: error?.message || '本地归档空间不足，资料暂存在当前页面。'
+    }
+  })
+  item.id = `memory-${artifact.id}`
+  item.error = {
+    code: 'quota-exceeded',
+    message: '归档空间不足，当前仅保留在本页；可先导出文字，清理归档后再确认。'
+  }
+  sourceQueue.value.push(item)
 }
 
 async function parseFiles(files) {
   const list = Array.from(files || [])
-  if (!list.length) return
+  if (!list.length || busy.value) return
   clearMessages()
   busy.value = true
+  const processingItems = createProcessingQueueItems(list)
+  const processingIds = processingItems.map((item) => item.id)
+  sourceQueue.value.push(...processingItems)
+  const abortController = new AbortController()
+  activeAbortController = abortController
+  cancelAvailable.value = true
   setGenerationState('preparing', {
     action: 'sources',
     startedAt: Date.now(),
@@ -192,17 +328,42 @@ async function parseFiles(files) {
       action: 'sources',
       message: '正在本地提取文字，不会上传原始文件。'
     })
-    const results = await parseSourceFilesWithWorker(list)
+    const results = await parseSourceFilesWithWorker(list, {
+      signal: abortController.signal,
+      onProgress: ({ index, status, error }) => {
+        const item = sourceQueue.value.find((entry) => entry.id === processingIds[index])
+        if (!item) return
+        item.parseProgress = Math.min(100, Math.max(0, Math.round(((index + 1) / list.length) * 100)))
+        item.parseStatus = status || 'ready'
+        item.error = error || null
+        const completed = processingItems.filter((entry) => {
+          const current = sourceQueue.value.find((queueItem) => queueItem.id === entry.id)
+          return current?.parseStatus === 'ready' || current?.parseStatus === 'error'
+        }).length
+        setGenerationState('generating', {
+          action: 'sources',
+          message: `正在读取资料（${completed}/${list.length}）`
+        })
+      }
+    })
     let readyCount = 0
     let failedCount = 0
-    for (const result of results) {
+    let memoryOnlyCount = 0
+    for (const [index, result] of results.entries()) {
+      removeProcessingQueueItems([processingIds[index]])
       try {
         const added = await addParsedResult(result)
         if (added) readyCount += 1
         else failedCount += 1
       } catch (error) {
-        failedCount += 1
-        addFailedQueueItem(result, error)
+        if (isQuotaError(error) && result.status === 'ready') {
+          readyCount += 1
+          memoryOnlyCount += 1
+          addMemoryOnlyQueueItem(result, error)
+        } else {
+          failedCount += 1
+          addFailedQueueItem(result, error)
+        }
       }
     }
     const state = getCreationSourceResultState({ readyCount, failedCount })
@@ -212,11 +373,12 @@ async function parseFiles(files) {
         ? `${readyCount} 份资料已暂存，${failedCount} 份失败；可移除失败项后继续。`
         : state === 'error'
           ? '资料没有成功暂存，请检查失败项后重试。'
-          : `${readyCount} 份资料已完成本地提取。`
+        : `${readyCount} 份资料已完成本地提取${memoryOnlyCount ? `，其中 ${memoryOnlyCount} 份暂存于本页` : ''}。`
     })
     if (state === 'error') errorMessage.value = workspace.generationMessage
     else infoMessage.value = workspace.generationMessage
   } catch (error) {
+    removeProcessingQueueItems(processingIds)
     const state = getCreationSourceResultState({ readyCount: readySourceCount.value, failedCount: 1 })
     setGenerationFailure(error, 'sources')
     if (state === 'partial') {
@@ -229,8 +391,12 @@ async function parseFiles(files) {
       errorMessage.value = ''
     }
   } finally {
+    removeProcessingQueueItems(processingIds)
+    if (activeAbortController === abortController) activeAbortController = null
+    cancelAvailable.value = false
     busy.value = false
     dragging.value = false
+    refreshArchiveUsage()
   }
 }
 
@@ -254,27 +420,49 @@ async function addPastedSource() {
     sourceLabel: '粘贴文字',
     content
   })
-  const saved = await saveSourceArchiveBundle(bundle)
-  sourceQueue.value.push(normalizeQueueItem({ ...bundle, artifact: saved.artifact, status: 'ready' }))
-  workspace.selectedSourceIds = [...new Set([...workspace.selectedSourceIds, saved.artifact.id])]
-  pastedText.value = ''
-  setGenerationState('ready', {
-    action: 'sources',
-    message: '粘贴片段已暂存，可选择它参与基础基调。'
-  })
-  infoMessage.value = '粘贴片段已暂存。'
+  let consumed = false
+  try {
+    const saved = await saveSourceArchiveBundle(bundle)
+    sourceQueue.value.push(normalizeQueueItem({ ...bundle, artifact: saved.artifact, status: 'ready' }))
+    workspace.selectedSourceIds = [...new Set([...workspace.selectedSourceIds, saved.artifact.id])]
+    setGenerationState('ready', {
+      action: 'sources',
+      message: '粘贴片段已暂存，可选择它参与基础基调。'
+    })
+    infoMessage.value = '粘贴片段已暂存。'
+    consumed = true
+  } catch (error) {
+    if (!isQuotaError(error)) {
+      setGenerationFailure(error, 'sources')
+      errorMessage.value = `暂存片段失败：${errorMessage.value}`
+      return
+    }
+    addMemoryOnlyQueueItem({ artifact: bundle.artifact, chunks: bundle.chunks }, error)
+    setGenerationState('partial', {
+      action: 'sources',
+      errorCode: 'quota-exceeded',
+      message: '归档空间不足，粘贴片段暂存于本页；清理归档后可重新确认。'
+    })
+    infoMessage.value = workspace.generationMessage
+    consumed = true
+  } finally {
+    if (consumed) pastedText.value = ''
+    refreshArchiveUsage()
+  }
 }
 
 function removeSource(id) {
   sourceQueue.value = sourceQueue.value.filter((item) => item.id !== id)
   workspace.selectedSourceIds = workspace.selectedSourceIds.filter((sourceId) => sourceId !== id)
   workspace.sourceFailures = (workspace.sourceFailures || []).filter((failure) => failure.id !== id)
+  if (!removedSourceIds.value.includes(id)) removedSourceIds.value.push(id)
   if (previewSourceId.value === id) previewSourceId.value = ''
+  infoMessage.value = '资料已从当前工作区移除；可在右侧清理未引用归档。'
 }
 
 function toggleSource(id) {
   const item = sourceQueue.value.find((entry) => entry.id === id)
-  if (!item || item.status !== 'ready') return
+  if (!item || !isSourceUsable(item)) return
   item.selected = !item.selected
   workspace.selectedSourceIds = sourceQueue.value
     .filter((entry) => entry.status === 'ready' && entry.selected)
@@ -284,7 +472,7 @@ function toggleSource(id) {
 function toggleAllSources() {
   const shouldSelect = selectedSourceCount.value !== readySourceCount.value
   sourceQueue.value.forEach((item) => {
-    if (item.status === 'ready') item.selected = shouldSelect
+    if (isSourceUsable(item)) item.selected = shouldSelect
   })
   workspace.selectedSourceIds = shouldSelect
     ? sourceQueue.value.filter((item) => item.status === 'ready').map((item) => item.id)
@@ -298,7 +486,7 @@ function toggleSourcePreview(id) {
 function sourceExcerpt() {
   return selectSourceChunks({
     sourceDocuments: sourceQueue.value
-      .filter((item) => item.status === 'ready' && item.selected)
+      .filter((item) => isSourceUsable(item) && item.selected)
       .map((item) => ({
         id: item.id,
         title: item.title,
@@ -315,7 +503,7 @@ function sourceExcerpt() {
 
 function selectedSourceDocuments() {
   return sourceQueue.value
-    .filter((item) => item.status === 'ready' && item.selected)
+    .filter((item) => isSourceUsable(item) && item.selected)
     .map((item) => {
       const preview = item.chunks.map((chunk) => chunk.text).join('\n\n').slice(0, 2400)
       return {
@@ -336,10 +524,37 @@ function selectedSourceDocuments() {
     .filter((source) => source.content)
 }
 
+async function persistMemoryOnlySources() {
+  const memorySources = sourceQueue.value.filter((item) => item.status === 'memory-only' && item.selected)
+  for (const item of memorySources) {
+    const saved = await saveSourceArchiveBundle({ artifact: item.artifact, chunks: item.chunks })
+    const restored = normalizeQueueItem({ artifact: saved.artifact, chunks: saved.chunks, status: 'ready', selected: true })
+    sourceQueue.value = sourceQueue.value.map((entry) => entry.id === item.id ? restored : entry)
+    workspace.selectedSourceIds = [...new Set([...workspace.selectedSourceIds, restored.id])]
+  }
+  if (memorySources.length) refreshArchiveUsage()
+}
+
+function exportSourceText(item) {
+  const content = item?.chunks?.map((chunk) => chunk.text).join('\n\n').trim()
+  if (!content || typeof document === 'undefined') return
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${String(item.title || '资料').replace(/[\\/:*?"<>|]+/g, '_')}.txt`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+  infoMessage.value = `已导出 ${item.title} 的文字内容。`
+}
+
 async function generateFoundation() {
   if (!canGenerate.value || busy.value) return
   clearMessages()
   busy.value = true
+  const abortController = new AbortController()
+  activeAbortController = abortController
+  cancelAvailable.value = true
   setGenerationState('preparing', {
     action: 'foundation',
     startedAt: Date.now(),
@@ -355,7 +570,8 @@ async function generateFoundation() {
       brief: basis,
       nameHint: workspace.name,
       genre: 'general',
-      genreLabel: '自定义创作'
+      genreLabel: '自定义创作',
+      signal: abortController.signal
     })
     if (!result.ok || !result.payload) {
       const failure = new Error(result.reason || 'AI 未返回可用的基础基调。')
@@ -376,6 +592,8 @@ async function generateFoundation() {
   } catch (error) {
     setGenerationFailure(error, 'foundation')
   } finally {
+    if (activeAbortController === abortController) activeAbortController = null
+    cancelAvailable.value = false
     busy.value = false
   }
 }
@@ -433,6 +651,7 @@ async function confirmJsonImport() {
     const created = await worldStore.importFromSillyTavern(jsonPreview.value.rawData)
     await worldStore.loadWorldbooksIndex()
     if (created?.id) await worldStore.setActiveWorldbook(created.id)
+    await deleteCreationWorkspace(workspace.id)
     jsonPreview.value = null
     await router.push({ name: 'settings-structured' })
   } catch (error) {
@@ -453,12 +672,14 @@ async function confirmFoundation() {
     message: '正在创建正式世界书骨架。'
   })
   try {
+    await persistMemoryOnlySources()
     const sources = selectedSourceDocuments()
     const created = await createWorldbookFromPayload(worldStore, pendingPayload.value, {
       sourceDocuments: sources,
       archivedSourceDocuments: sources
     })
     if (created?.id) await worldStore.setActiveWorldbook(created.id)
+    await deleteCreationWorkspace(workspace.id)
     await router.push({ name: 'settings-structured' })
   } catch (error) {
     setGenerationFailure(error, 'foundation-confirm')
@@ -499,10 +720,18 @@ watch(
 )
 
 onMounted(async () => {
+  refreshArchiveUsage()
   try {
     const restored = await loadCreationWorkspace(workspace.id)
     if (!restored) return
     Object.assign(workspace, restored)
+    if (['preparing', 'generating', 'validating'].includes(workspace.generationState)) {
+      setGenerationState('cancelled', {
+        action: workspace.generationAction || 'sources',
+        errorCode: 'cancelled',
+        message: '上次任务在页面离开时已停止，可重新开始。'
+      })
+    }
     const selectedSourceIds = new Set(Array.isArray(restored.selectedSourceIds) ? restored.selectedSourceIds : restored.sourceIds)
     workspace.selectedSourceIds = [...selectedSourceIds]
     brief.value = restored.brief || ''
@@ -530,8 +759,10 @@ onMounted(async () => {
       id: failure.id,
       title: failure.title,
       kind: failure.kind,
-      status: failure.status,
-      error: failure.error,
+      status: failure.status === 'processing' ? 'error' : failure.status,
+      error: failure.status === 'processing'
+        ? { code: 'cancelled', message: '页面离开时已停止读取，可重新选择该文件。' }
+        : failure.error,
       charCount: 0,
       chunkCount: 0,
       chunks: []
@@ -542,6 +773,12 @@ onMounted(async () => {
   } finally {
     restoring.value = false
   }
+})
+
+onBeforeUnmount(() => {
+  activeAbortController?.abort()
+  activeAbortController = null
+  cancelAvailable.value = false
 })
 </script>
 
@@ -595,6 +832,7 @@ onMounted(async () => {
           <strong>拖入资料，或选择多个文件</strong>
           <small>文件在本地提取文字；扫描 PDF 会标记为需要 OCR。</small>
           <button type="button" class="text-action" @click="openFilePicker">选择文件</button>
+          <button v-if="busy && workspace.generationAction === 'sources'" type="button" class="quiet-action" @click="cancelActiveTask">停止读取</button>
         </div>
 
         <div class="paste-row">
@@ -617,7 +855,7 @@ onMounted(async () => {
           </div>
           <div v-for="item in sourceQueue" :key="item.id" class="source-row">
             <input
-              v-if="item.status === 'ready'"
+              v-if="isSourceUsable(item)"
               class="source-select"
               type="checkbox"
               :checked="item.selected"
@@ -627,11 +865,18 @@ onMounted(async () => {
             <span v-else class="source-select-placeholder" aria-hidden="true"></span>
             <span class="source-kind" aria-hidden="true">{{ sourceKindMark(item.kind) }}</span>
             <div class="source-row__body">
-              <button type="button" class="source-title" @click="toggleSourcePreview(item.id)">
+              <button type="button" class="source-title" :disabled="!isSourceUsable(item)" @click="toggleSourcePreview(item.id)">
                 {{ item.title }}
+              </button>
+              <button v-if="item.status === 'memory-only'" type="button" class="source-export" @click.stop="exportSourceText(item)">
+                导出文字
               </button>
               <small v-if="item.status === 'error'" class="is-error">{{ item.error?.message }}</small>
               <small v-else-if="item.status === 'needs-ocr'" class="is-warning">可能是扫描件，需要 OCR</small>
+              <small v-else-if="item.status === 'memory-only'" class="is-warning">{{ item.error?.message }}</small>
+              <small v-else-if="item.status === 'processing'" class="is-processing">
+                {{ item.parseStatus === 'error' ? (item.error?.message || '读取失败，正在整理结果……') : `${item.parseProgress}% · 正在读取` }}
+              </small>
               <small v-else>{{ item.charCount.toLocaleString('zh-CN') }} 字 · {{ item.chunkCount }} 个片段</small>
             </div>
             <span class="source-status" :class="`is-${item.status}`">{{ sourceStatusLabel(item.status) }}</span>
@@ -681,6 +926,12 @@ onMounted(async () => {
             </li>
           </ol>
           <p v-else class="json-preview__empty">没有识别到可导入条目，无法确认导入。</p>
+          <div v-if="jsonPreview.entryCount" class="json-preview__actions">
+            <button type="button" class="primary-action" :disabled="busy" @click="confirmJsonImport">
+              确认导入世界书
+            </button>
+            <span>确认后会写入当前世界书，并进入详细设定。</span>
+          </div>
         </section>
       </section>
 
@@ -703,8 +954,8 @@ onMounted(async () => {
         </label>
 
         <div class="foundation-actions">
-          <button type="button" class="primary-action" :disabled="busy || !canGenerate" @click="generateFoundation">
-            {{ busy ? '正在整理……' : '生成基础基调' }}
+          <button type="button" class="primary-action" :disabled="!canGenerate || (busy && !cancelAvailable)" @click="cancelAvailable ? cancelActiveTask() : generateFoundation()">
+            {{ cancelAvailable ? '停止生成' : (busy ? '正在整理……' : '生成基础基调') }}
           </button>
           <span>仅发送选中的资料；长文会取开头、中段和结尾代表片段。</span>
         </div>
@@ -737,10 +988,15 @@ onMounted(async () => {
           <div><dt>文字</dt><dd>{{ selectedCharacterCount.toLocaleString('zh-CN') }} / {{ sourceCharacterCount.toLocaleString('zh-CN') }} 字</dd></div>
           <div><dt>状态</dt><dd>{{ statusLabel }}</dd></div>
         </dl>
-        <div v-if="jsonPreview" class="summary-json">
-          <strong>{{ jsonPreview.name }}</strong>
-          <span>{{ jsonPreview.entryCount }} 条目 · {{ jsonPreview.groupCount }} 个分组 · {{ jsonPreview.keyedEntryCount }} 条有触发词</span>
-          <button type="button" class="primary-action" :disabled="busy || !jsonPreview.entryCount" @click="confirmJsonImport">确认导入世界书</button>
+        <div class="summary-storage" :class="{ 'is-warning': archiveUsageWarning }">
+          <div class="summary-storage__line">
+            <span>本地归档</span>
+            <strong>{{ archiveUsageLabel }}</strong>
+          </div>
+          <small>只保存抽取文字与定位信息，原始文件不会上传。</small>
+          <button type="button" class="text-action" :disabled="archiveCleaning" @click="cleanupArchive">
+            {{ archiveCleaning ? '清理中……' : '清理未引用资料' }}
+          </button>
         </div>
         <p class="summary-note">刷新或离开页面后，已暂存的创建工作区仍可恢复。</p>
       </aside>
@@ -1013,11 +1269,27 @@ input[type='text']:focus {
   text-align: left;
   cursor: pointer;
 }
+.source-title:disabled { color: var(--text-secondary); cursor: wait; }
 .source-title:hover { color: var(--accent); }
+.source-export {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
 .source-status { font-size: 12px; color: var(--text-muted); }
 .source-status.is-ready { color: var(--accent); }
+.source-status.is-processing { color: var(--accent); }
 .source-status.is-error,
 .is-error { color: var(--danger, #b44); }
+.is-processing { color: var(--accent); }
+.source-status.is-memory-only,
+.is-memory-only,
 .is-warning { color: var(--warning, #936d18); }
 .icon-action { font-size: 18px; padding: 0; }
 .source-empty { color: var(--text-muted); font-size: 13px; }
@@ -1122,6 +1394,22 @@ input[type='text']:focus {
   font-size: 12px;
 }
 
+.json-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+
+.json-preview__actions span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .field-label {
   display: grid;
   gap: 8px;
@@ -1183,9 +1471,23 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
 }
 
 .creation-summary h2 { margin: 10px 0 22px; font: 650 22px/1.3 var(--font-display, Georgia, serif); }
-.summary-json { display: grid; gap: 7px; padding-top: 18px; border-top: 1px solid var(--border); }
-.summary-json span { color: var(--text-muted); font-size: 12px; }
-.summary-json .primary-action { margin-top: 8px; }
+.summary-storage {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.summary-storage__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.summary-storage__line strong { color: var(--text-secondary); font-weight: 650; }
+.summary-storage small { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.summary-storage.is-warning .summary-storage__line strong { color: var(--warning, #936d18); }
 .creation-message { width: min(1180px, 100%); margin: 18px auto 0; color: var(--accent); font-size: 13px; }
 .creation-message.is-error { color: var(--danger, #b44); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -1214,5 +1516,73 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
     text-overflow: clip;
   }
   .source-preview { margin-left: 48px; }
+
+  .creation-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px 16px;
+    padding: 12px 0 14px;
+  }
+
+  .creation-summary .summary-kicker,
+  .creation-summary .summary-storage,
+  .creation-summary .summary-note {
+    grid-column: 1 / -1;
+  }
+
+  .creation-summary h2 {
+    align-self: center;
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .creation-summary dl {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin: 0;
+  }
+
+  .creation-summary dl > div {
+    display: grid;
+    grid-template-columns: none;
+    gap: 2px;
+    min-width: 0;
+    padding: 0;
+    border-top: 0;
+  }
+
+  .creation-summary dt,
+  .creation-summary dd {
+    white-space: nowrap;
+  }
+
+  .creation-summary dd {
+    font-size: 12px;
+  }
+
+  .summary-storage {
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    margin-top: 2px;
+    padding-top: 10px;
+  }
+
+  .summary-storage__line {
+    grid-column: 1 / -1;
+  }
+
+  .summary-storage small {
+    grid-column: 1 / -1;
+  }
+
+  .summary-storage .text-action {
+    justify-self: start;
+  }
+
+  .summary-note {
+    margin: 0;
+  }
 }
 </style>

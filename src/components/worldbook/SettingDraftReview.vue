@@ -4,13 +4,26 @@
     class="setting-draft-review"
     role="region"
     :aria-label="`AI 草稿：${draft.fieldLabel}`"
+    tabindex="-1"
+    @keydown.esc.stop="$emit('close')"
   >
     <div class="draft-head">
       <div>
         <p class="draft-kicker">AI 草稿</p>
         <h3>{{ draft.fieldLabel }}</h3>
       </div>
-      <button class="ghost-btn small" @click="$emit('discard')">丢弃</button>
+      <div class="draft-head-actions">
+        <button
+          type="button"
+          class="review-close-btn"
+          aria-label="关闭草稿审阅"
+          title="关闭草稿审阅"
+          @click="$emit('close')"
+        >
+          <WorkbenchIcon name="close" :size="15" />
+        </button>
+        <button type="button" class="ghost-btn small" @click="$emit('discard')">丢弃</button>
+      </div>
     </div>
 
     <GenerationStatus
@@ -130,6 +143,7 @@
 <script setup>
 import { computed } from 'vue'
 import GenerationStatus from './GenerationStatus.vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { groupSettingCandidates } from '../../../shared/structuredSettingCandidateContract'
 
 const props = defineProps({
@@ -163,6 +177,7 @@ function entryTypeLabel(type) {
 }
 
 const emit = defineEmits([
+  'close',
   'discard',
   'update:content',
   'save-field',
@@ -251,6 +266,37 @@ function onAdopt() {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+}
+
+.draft-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+.review-close-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.review-close-btn:hover,
+.review-close-btn:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.review-close-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .draft-kicker {

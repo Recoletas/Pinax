@@ -1,7 +1,7 @@
 # 世界书与设定工作区：创建、资料提炼与 AI 审阅重构计划
 
 > 日期：2026-08-17
-> 状态：执行中（U1 已完成，U2/U3 首轮已接通，U4 分区来源检索与候选批次首轮完成，U5 UI 多轮收口完成）
+> 状态：代码侧 U1-U7 已完成；待真实环境门禁（真实 provider 3×3、真实 revision stale/cancel、真实 quota 与 20MB PDF 设备性能）
 > 归属：`docs/PLAN.md` 的 G1.2 / G1.2.2；正式世界书仍由现有 worldStore 持有，不建立第二套 AI 生成链或视觉主题
 > 范围：世界书首页、可恢复创建工作区、多文件资料暂存、基础基调、渐进式详细提炼、统一草稿审阅、桌面与移动端布局
 
@@ -61,15 +61,11 @@
 
 ### 2.2 真实页面检查
 
-使用现有服务对 `/settings/worldbook`、`/settings/structured` 的 1440px 与 390px、regular 与 long 状态执行了 8 次 UI audit：0 console error、0 axe failure、无横向溢出。这个结果只能说明页面没有基础技术错误，不能说明交互合理。
+初始审计曾在 `/settings/worldbook`、`/settings/structured` 的 1440px 与 390px、regular 与 long 状态发现入口拥挤、重复导航和生成后控件远离正文的问题；这些记录保留作为本轮重构的动机，不作为当前完成证据。
 
-截图仍显示以下体验问题：
+当前复验使用现有服务覆盖 `/settings/worldbook/create`、`/settings/structured` 与 `/settings/worldbook/advanced` 的 1440/1024/390px，以及 regular/loading/partial/error/stale/cancelled 状态，共 33 captures：0 console error、0 a11y failure、无横向溢出和不可达主动作。审计实际触发了 JSON 文件预览、混合文件部分成功、结构化生成失败、生成中、编辑导致 stale 和点击停止导致 cancelled；不是只注入空态截图。
 
-- 桌面快速导入页首屏信息密度极低，预设英雄区占据主要位置，三个真正操作入口被压到页面底部。
-- 结构化页顶部连续出现页面标题、世界书选择、四项全局设定导航、四项字段分区导航和两个 AI 操作。
-- 移动端结构化页在进入第一个字段前已经占用约三分之一屏幕；AI 本节、补充要求与字段级 AI 生成同时出现。
-- 字段级操作使用大量相似描边按钮，主次只靠蓝色，文本长度变化时容易拥挤。
-- 当前 audit 没有生成后草稿 fixture，因此没有覆盖用户报告的“新按钮被挡住或出现在奇怪位置”；新计划必须补这个状态，而不是用 empty/regular 截图冒充验收。
+当前仍不由本地 UI audit 代替的门禁：真实 provider 3×3、真实模型响应下的 revision stale/cancel、真实 IndexedDB quota，以及 20MB 文本型 PDF 在实体移动设备上的滚动/取消耗时。没有凭据或设备时，loopback fixture 只能验证请求协议、鉴权头和状态渲染，不能标记 release ready。
 
 ## 3. 外部产品与技术依据
 
@@ -290,16 +286,14 @@ File
  -> create worldbook with source refs
 ```
 
-建议文件边界：
+当前代码边界已收敛为：
 
-- `shared/sourceDocumentContract.js`：类型、大小、字符限制、typed error。
-- `src/services/sourceDocuments/sourceArchive.js`：IndexedDB creation workspace、chunks 与 archiveRef；不保存世界书正式字段。
-- `src/services/sourceDocuments/documentImportRegistry.js`：adapter 注册、校验和归一。
-- `src/services/sourceDocuments/textAdapter.js`、`pdfAdapter.js`、`docxAdapter.js`。
-- `src/workers/sourceDocument.worker.js`：解析、取消、超时和进度。
-- `src/services/sourceDocuments/sourceRepository.js`：按 source IDs、locator 和预算给现有生成链返回 chunks。
-- `src/components/worldbook/SourceImportPanel.vue`：拖放、文件选择和粘贴入口。
-- `src/components/worldbook/SourceImportQueue.vue`：每份文件的等待/解析/可用/warning/error 状态。
+- `src/services/worldbookSourceArchive.js`：IndexedDB creation workspace、artifacts、chunks 与 archiveRef；不保存世界书正式字段。
+- `src/services/worldbookSourceAdapters.js`：TXT/MD、PDF、DOCX adapter、校验、归一和 typed error。
+- `src/services/worldbookSourceParser.js`、`src/services/worldbookSourceParser.worker.js`：解析、取消、超时和逐文件进度。
+- `src/services/worldbookSourceSelection.js`：按 source IDs、locator 和预算给现有生成链返回 chunks，并在上下文层做精确去重。
+- `src/pages/WorldbookCreationWorkspace.vue`：拖放、文件选择、粘贴、来源队列、基础基调和 JSON 确认流程；没有再拆出一套平行 SourceImportPanel/Queue。
+- `src/services/settingFieldGeneration.js`：结构化字段/分区请求前按 archive refs 恢复完整 chunks。
 
 ### 6.3 去重、检索与压缩的边界
 
@@ -516,6 +510,10 @@ idle -> preparing -> generating -> validating
 
 ### U2：多文件解析与最低限度去重（1.5-2 天）
 
+当前进度：TXT/MD、PDF、DOCX 的统一解析与 Worker 边界已接通；本轮补齐来源归档的 64MB 总容量估算、quota 错误归一、跨工作区正文 hash 复用、chunk 引用安全回收和“清理未引用资料”入口。创建页现在可以中止本地解析，Worker 与无 Worker 降级路径都把 AbortSignal 传到逐页/逐文件 adapter，文件队列按文件显示读取进度并在完成后替换为正式归档或错误项，成功来源与失败项彼此隔离。PDF 密码保护、PDF 损坏和 DOCX 损坏已归一为可操作错误码；parse-timeout 现在会同时 abort 底层解析信号，PDF loading task 也做 best-effort destroy；合同测试已走通实际 PDF.js 与 Mammoth raw-text 路径。quota 失败时解析结果保留为“仅本页”资料，支持展开预览与导出文字；确认正式世界书前会再次尝试归档，归档仍失败则阻止提交，不写入失效的 `archiveRef`；worldStore 的正式世界书/条目写入也会检查 localStorage 失败并回滚新建或导入的半成品。扫描件 OCR、加密/损坏文件的真实浏览器样本和 20MB 级 PDF 设备性能仍需真实文件验收。
+
+补充实现证据：正式世界书加载时保留 `archiveRef/chunkIds/contentHash`，旧版未归档 `sourceDocuments` 会惰性注册到 source archive；批量归档与单文件入口共用正文 hash 复用和容量预检，复用时为每个逻辑来源补充 chunk `sourceRefs`。创建工作区的粘贴入口也会在 quota 失败时降级为“仅本页”。
+
 - 接入 TXT/MD、`pdfjs-dist` 与 Mammoth raw text adapters，放入 Worker，支持多文件、取消和独立进度。
 - 建立抽取预览、扫描/加密/损坏识别、重复文件复用和 quota 失败恢复。
 - 实现文件 hash、规范化 chunk hash 和候选同名提示；不做语义自动合并。
@@ -525,7 +523,7 @@ idle -> preparing -> generating -> validating
 
 ### U3：世界书首页与创建工作区（1-1.5 天）
 
-当前进度：世界书首页已完成首轮视觉重排，保留现有预设幂等进入、世界书切换、结构化设定和创建工作区路由；当前世界书作为主区展示，切换/创建作为侧栏动作，预设改为无卡片阴影的索引网格。创建工作区已将步骤编号替换为图标并收紧顶部间距，资料队列、JSON 确定性预览和基础基调逻辑已接通；JSON 待确认状态现在展示条目、分组、类型、触发词、注入参数和前五条内容，并保留单一确认导入动作。创建工作区新增统一生成状态机，资料解析可落到 ready/partial/error，基础基调与 JSON 解析显示准备/生成/校验/待确认/失败状态；刷新时会把中断中的任务恢复为已停止，并保留失败来源摘要。1440/390 的 JSON、混合文件部分成功、生成中和生成失败真实审计均通过。高级页旧“新建 / 导入”分区与重复 AI 链已删除，创建职责统一归属此工作区。
+当前进度：世界书首页已完成首轮视觉重排，保留现有预设幂等进入、世界书切换、结构化设定和创建工作区路由；当前世界书作为主区展示，切换/创建作为侧栏动作，预设改为无卡片阴影的索引网格。创建工作区已将步骤编号替换为图标并收紧顶部间距，资料队列、JSON 确定性预览和基础基调逻辑已接通；JSON 待确认状态现在展示条目、分组、类型、触发词、注入参数和前五条内容，确认动作归在预览末尾，不再重复出现在移动端进度摘要。移动端摘要收敛为名称、三项进度与本地归档上下文，资料投放区提前可见。创建工作区新增统一生成状态机，资料解析可落到 ready/partial/error，基础基调与 JSON 解析显示准备/生成/校验/待确认/失败状态；刷新时会把中断中的任务恢复为已停止，并保留失败来源摘要。1440/1024/390 的 JSON、混合文件部分成功、生成中和生成失败真实审计均通过。高级页旧“新建 / 导入”分区与重复 AI 链已删除，创建职责统一归属此工作区。
 
 - 世界书首页只保留已有世界书、预设、新建和结构导入入口。
 - 预设幂等创建/复用并直接进入绑定体验会话。
@@ -536,7 +534,9 @@ idle -> preparing -> generating -> validating
 
 ### U4：基础基调与渐进式详细提炼（1.5-2 天）
 
-当前进度：来源选择、分区检索、`setting-candidates.v1` 受限事实候选和候选审核首轮已接通。候选现在会校验来源 ID，只保留当前资料集中的引用；审核区按 `entryType + name + aliases` 做同名提示，但保留每条候选的正文、证据和来源，不自动合并。候选提取失败会在同一审核区显示原因，分区正文仍可继续审阅；详细设定页已补齐分区生成的 pending/partial/error/aborted/stale 状态、失败项重试、请求取消和旧响应隔离。真实模型渠道与真实 revision 变化下的 stale smoke 仍待专门验收。
+当前进度：来源选择、分区检索、`setting-candidates.v1` 受限事实候选和候选审核首轮已接通。候选现在会校验来源 ID，只保留当前资料集中的引用；审核区按 `entryType + name + aliases` 做同名提示，但保留每条候选的正文、证据和来源，不自动合并。候选提取失败会在同一审核区显示原因，分区正文仍可继续审阅；详细设定页已补齐分区生成的 pending/partial/error/aborted/stale 状态、失败项重试、请求取消、AbortSignal 透传和旧响应隔离。浏览器审计已实际覆盖 stale（生成期间编辑表单）与 cancelled（点击同一动作停止）两种 UI 状态；真实模型渠道下的 stale/cancel 与 provider 3×3 仍待有凭据环境专门验收。
+
+补充实现证据：来源选择会把跨资料的相同片段合并为一个上下文块，同时保留所有来源定位；结构化字段、候选和分区生成请求会在发送前按 archive refs 恢复完整 chunks，再按分区预算筛选，不再只依赖世界书中保存的短预览。长来源尾部内容已有合同测试覆盖。
 
 - 基础任务只生成世界书骨架和实体名称索引，确认后才创建正式 worldbook。
 - source repository 按输入规模选择代表 chunks；详细分区按需检索，不全量发送来源。
@@ -547,7 +547,7 @@ idle -> preparing -> generating -> validating
 
 ### U5：统一 ContextBar 与唯一 ReviewDock（1.5-2 天）
 
-当前进度：世界书首页、结构化设定、创建工作区和高级世界书页已完成多轮视觉统一。世界书首页使用当前世界主卡、独立世界书选择器、创建工具和预设索引组织入口；结构化设定将当前世界与设定导航合并为桌面单行工具栏，`StructuredSettingsPanel` 改为左侧分区索引 + 右侧编辑稿面，字段 AI 操作退为轻量图标文字，来源资料保持横向来源带与单份预览。高级页的基础设定、导入导出、分组和条目面为连续编辑区，旧“新建 / 导入”编辑分区已删除，创建职责统一由 `WorldbookCreationWorkspace` 承接；条目面使用检索/过滤、批量操作、条目列表和编辑面四层工作区。现有 `SettingDraftReview` 作为唯一审核入口；草稿存在时桌面位于右侧，中窄屏与移动端前置。详细设定页现在将分区生成状态同步到唯一审核区，部分成功保留可用草稿并只重试失败项，revision 变化显示 stale 并禁止旧草稿覆盖；字段请求也具备取消与旧响应隔离。真实 UI audit 已覆盖 regular/loading/partial/error 四种状态，1440px 与 390px 共 8 captures，0 console error、0 a11y failure、无裁切/横向溢出；剩余是真实渠道与真实 revision 变化下的 stale/取消 smoke。
+当前进度：世界书首页、结构化设定、创建工作区和高级世界书页已完成多轮视觉统一。世界书首页使用当前世界主卡、独立世界书选择器、创建工具和预设索引组织入口；结构化设定使用共享 `SettingsContextBar`，一级导航收为“设定 / 地图 / 条目”，首页路由复用“设定”入口而不再重复占用 tab；`StructuredSettingsPanel` 改为左侧分区索引 + 右侧编辑稿面，字段 AI 操作退为轻量图标文字，来源资料保持横向来源带与单份预览。高级页的基础设定、导入导出、分组和条目面为连续编辑区，旧“新建 / 导入”编辑分区已删除，创建职责统一由 `WorldbookCreationWorkspace` 承接；条目面使用检索/过滤、批量操作、条目列表和编辑面四层工作区。现有 `SettingDraftReview` 作为唯一审核入口；一次分区生成产生多份草稿时，结构化面板在该入口上方提供轻量待审队列，用户可切换全部草稿而不再只看到第一份。草稿存在时桌面位于右侧，760-1100px 使用不改变主区宽度的右侧覆盖层，759px 以下使用避开应用顶栏的全屏审阅页；关闭只收起审阅、不丢弃草稿，并恢复触发控件焦点与页面滚动。创建工作区 JSON 确认动作已从重复摘要移回结构化预览，移动端进度摘要改为紧凑上下文带。详细设定页现在将分区生成状态同步到唯一审核区，部分成功保留可用草稿并只重试失败项，revision 变化显示 stale 并禁止旧草稿覆盖；字段请求也具备取消与旧响应隔离。正式来源预览兼容 `contentPreview / preview / content`，字数仍读取归档完整长度。真实 UI audit 已覆盖 regular/loading/partial/error/stale/cancelled 六种状态，首页、创建、结构化和高级四条设定路由在 1440/1024/390px 共 36 captures，0 console error、0 a11y failure、无裁切/横向溢出；剩余是真实渠道与真实 revision 变化下的 stale/取消 smoke。
 
 - 提取 `SettingsContextBar`，替换重复标题、世界书选择、新建动作和左侧世界书列表。
 - 将一级导航收为设定/地图/条目；旧 route 暂时兼容。
@@ -559,6 +559,8 @@ idle -> preparing -> generating -> validating
 
 ### U6：字段与按钮视觉收口（1 天）
 
+当前补充：结构化设定的字段已从完整描边卡片收为连续稿面，输入采用底线层级，保存/错误状态采用边线文字，分区 AI 动作不再使用大面积实色底；保留主题 2 的少量异色信号线，不新增按钮体系。1440/1024/390px 的 regular/partial/loading/error/stale/cancelled 共 18 captures 均无 console error、a11y failure 或横向溢出。
+
 - 按第 9 节规则清理字段头、分区栏、状态和按钮层级。
 - 复用现有 `control-*` 语义与 `WorkbenchIcon`，不建第三套按钮 CSS。
 - 背景只调整页面底层等高线/点阵与纸面层级，不重写主题 token。
@@ -568,9 +570,14 @@ idle -> preparing -> generating -> validating
 
 ### U7：验证、删旧链与文档（0.5-1 天）
 
-- 删除无调用的 quick import hero/extra action、旧 create section、重复 CSS 和旧草稿 drawer。
+- 保留首页仍承担分流职责的 hero/extra actions；删除无调用的旧 create section、重复 CSS 和旧草稿 drawer。
 - 更新设定工作流、支持格式、来源存储、精确去重、扫描 PDF 限制和隐私说明。
-- 完成预设直达体验、creation workspace 恢复、多文件导入、重复文件、真实渠道生成、部分失败、关闭重开、采纳和刷新恢复 smoke；当前创建工作区的状态展示与失败来源恢复已完成，仍需补完整详细设定 ReviewDock 的同类状态。
+- 当前已完成：预设直达体验、creation workspace 恢复、多文件导入、逐文件读取进度、跨归档正文重复复用、部分失败、解析取消/超时、关闭重开状态恢复、quota 失败后的本页预览/文字导出与确认时归档重试、正式 worldStore quota 失败回滚、结构化生成 partial/error/aborted/stale UI 审计，以及来源归档容量/清理边界。合同测试已覆盖 TXT/MD、实际 PDF.js、实际 Mammoth raw-text、慢速降级解析取消、parse-timeout、损坏 PDF/DOCX、正式创建 quota 拒绝与失败导入回滚；真实渠道生成、真实 provider 3×3、真实 IndexedDB quota 和 20MB PDF 设备性能仍属于需要用户配置/设备的外部验收，不把 dry-run 当成真实渠道通过。
+- 本轮继续补齐：旧来源 refs 保留与惰性迁移、Pinax JSON 来源归档、批量 archive hash 复用、跨来源 chunk refs、详细生成前 archive chunk 恢复、相同上下文片段去重、工作区记录容量预检、粘贴片段 quota 降级和结构化设定来源带的完整字数显示。
+- 本轮再补齐：删除高级世界书页重复的结构化设定标签与挂载；高级页在 1080px 以下切单列、640px 以下改为可换行编辑导航，200% 有效视口不再压缩正文输入；补跑世界书首页 1440/1024/390 三个宽度。`ui-audit` 现在覆盖首页、创建、结构化和高级四条设定路由，共 36 captures。
+- 本轮再补齐：分区批量生成的多份草稿不再只有第一份可见；结构化设定面板新增轻量待审队列，在同一个 `SettingDraftReview` 中切换字段草稿。新增 UI 合同测试，结构化页 1440/1024/390px 的六状态审计保持 18 captures、0 console error、0 a11y failure。
+- 本轮再补齐：抽出共享 `SettingsContextBar`，将设定一级导航收为“设定 / 地图 / 条目”，世界书首页通过路由归入“设定”；正式世界书来源归一同时接受 `contentPreview`，结构化来源带和归档长度展示不再依赖旧 `content` 字段。
+- 本轮再补齐：高级条目页复用共享 `SettingsContextBar` 与三项一级导航，删除旧顶部标题/搜索和左侧世界书选择器；390px 下新建世界书收为图标动作。1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
 
 退出条件见下一节。
 
@@ -598,6 +605,8 @@ idle -> preparing -> generating -> validating
 - 20MB 以内文本型 PDF 解析期间页面仍可滚动和操作，取消在 1 秒内结束等待；记录总耗时和异常长任务用于后续优化，不把不同设备上的固定毫秒值设为发布硬门槛。
 - 文件解析阶段网络请求为 0；日志不含文件正文、API Key 或完整 prompt。
 - creation/source archive 有明确总容量与清理入口；长资料不再按前 120000 字静默截断，单次模型输入仍受现有上下文预算约束。
+
+本轮实现证据：归档容量按 64MB 总预算估算，写入前返回 `quota-exceeded`；正文 hash 命中时复用已有 artifact/chunks；清理只删除当前工作区、正式世界书均未引用的来源，并重建共享 chunk 的 sourceRefs；主线程降级与 Worker 路径均逐文件回传解析状态，页面通过单一 `aria-live` 状态播报批次进度。首页、创建、结构化和高级设定页在 1440/1024/390px 覆盖对应 regular/loading/partial/error/stale/cancelled 可用状态，共 36 captures，0 console error、0 a11y failure。
 
 ### 测试控制
 

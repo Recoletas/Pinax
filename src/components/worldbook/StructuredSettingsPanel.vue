@@ -78,6 +78,27 @@
 
         <div v-if="feedback" class="feedback-line">{{ feedback }}</div>
 
+        <nav v-if="readyDraftEntries.length" class="draft-queue" aria-label="待审 AI 草稿">
+          <div class="draft-queue__lead">
+            <span>待审草稿</span>
+            <strong>{{ readyDraftCount }}</strong>
+          </div>
+          <div class="draft-queue__items" role="list">
+            <button
+              v-for="draft in readyDraftEntries"
+              :key="draft.fieldKey"
+              type="button"
+              class="draft-queue__item"
+              :class="{ active: focusedDraftKey === draft.fieldKey }"
+              :aria-current="focusedDraftKey === draft.fieldKey ? 'true' : undefined"
+              @click="focusDraft(draft.fieldKey)"
+            >
+              <span>{{ draft.fieldLabel }}</span>
+              <small>{{ draft.snippet }}</small>
+            </button>
+          </div>
+        </nav>
+
         <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
           <div class="fields-grid">
             <SettingFieldCard
@@ -113,6 +134,7 @@
             :revision-index="focusedDraft.revisionIndex || 0"
             :source-candidate-error="focusedDraft.sourceCandidateError || ''"
             :can-import-to-experience="canImportFocusedDraftToExperience"
+            @close="closeFocusedDraft"
             @discard="discardFocusedDraft"
             @update:content="updateFocusedDraftContent"
             @update:revision-instruction="updateFocusedDraftInstruction"
@@ -177,8 +199,19 @@ provide('dirtyRegistry', dirtyRegistry)
 const activeSection = computed(() => getSettingSection(activeSectionKey.value) || sections[0])
 
 const fieldRefs = new Map()
+function hashStructuredRevision(value) {
+  let hash = 2166136261
+  for (const character of JSON.stringify(value || {})) {
+    hash ^= character.codePointAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16)
+}
+
 function getWorldbookRevision(worldbook = props.worldbook) {
-  return String(worldbook?.updatedAt || worldbook?.revision || '').trim()
+  const base = String(worldbook?.updatedAt || worldbook?.revision || '').trim()
+  const settings = worldbook === props.worldbook ? form : worldbook?.structuredSettings
+  return `${base}:${hashStructuredRevision(settings)}`
 }
 
 function registerFieldRef(field, el) {
@@ -384,6 +417,11 @@ watch(activeSectionKey, () => {
 })
 
 onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('resize', onReviewViewportResize)
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.remove('settings-review-sheet-open')
+    document.body.classList.remove('settings-review-sheet-open')
+  }
   abortSectionGen()
   abortFieldGeneration()
   abortRevision()
@@ -686,22 +724,70 @@ const readyDraftEntries = computed(() => {
   }))
 })
 const readyDraftCount = computed(() => readyDraftEntries.value.length)
+const reviewFocusReturn = {
+  element: null,
+  scrollX: 0,
+  scrollY: 0
+}
+
+function syncReviewSheetLock() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  const shouldLock = Boolean(focusedDraft.value && window.innerWidth <= 1100)
+  document.documentElement.classList.toggle('settings-review-sheet-open', shouldLock)
+  document.body.classList.toggle('settings-review-sheet-open', shouldLock)
+}
+
+function onReviewViewportResize() {
+  syncReviewSheetLock()
+}
 
 function hasDraftForField(fieldKey) {
   return getSectionDrafts(activeSectionKey.value).has(fieldKey)
 }
 
 function focusDraft(fieldKey) {
+  if (!focusedDraftKey.value && typeof window !== 'undefined') {
+    reviewFocusReturn.element = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    reviewFocusReturn.scrollX = window.scrollX
+    reviewFocusReturn.scrollY = window.scrollY
+  }
   focusedDraftKey.value = fieldKey
   saveDraftState()
   nextTick(() => {
     const el = document.querySelector('.setting-draft-review')
     if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    el?.querySelector('.review-close-btn')?.focus({ preventScroll: true })
   })
+}
+
+watch(focusedDraft, syncReviewSheetLock)
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', onReviewViewportResize)
 }
 
 function discardFocusedDraft() {
   if (focusedDraftKey.value) discardDraft(focusedDraftKey.value)
+}
+
+function closeFocusedDraft() {
+  abortRevision()
+  revisionError.value = ''
+  revisionDraftKey.value = ''
+  focusedDraftKey.value = null
+  saveDraftState()
+  const focusTarget = reviewFocusReturn.element
+  const { scrollX, scrollY } = reviewFocusReturn
+  reviewFocusReturn.element = null
+  nextTick(() => {
+    if (typeof window !== 'undefined'
+      && (window.scrollX !== scrollX || window.scrollY !== scrollY)) {
+      window.scrollTo(scrollX, scrollY)
+    }
+    if (focusTarget?.isConnected) focusTarget.focus({ preventScroll: true })
+  })
 }
 
 function updateFocusedDraftContent(content) {
@@ -1037,6 +1123,93 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   min-height: 0;
   padding: 20px 0 0;
   background: transparent;
+}
+
+.draft-queue {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.draft-queue__lead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 5px 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.draft-queue__lead strong {
+  color: var(--accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-queue__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  min-width: 0;
+}
+
+.draft-queue__item {
+  min-width: 0;
+  max-width: 240px;
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.draft-queue__item span,
+.draft-queue__item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-queue__item span {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.draft-queue__item small {
+  max-width: 100%;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.draft-queue__item:hover,
+.draft-queue__item.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .draft-queue {
+    display: block;
+  }
+
+  .draft-queue__lead {
+    width: fit-content;
+    padding: 0 0 5px;
+    border-right: 0;
+  }
+
+  .draft-queue__item {
+    max-width: min(240px, 72vw);
+  }
 }
 
 .panel-lead {
@@ -1472,12 +1645,42 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   }
 
   .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
-    position: static;
+    position: fixed;
+    z-index: 30;
+    top: calc(54px + env(safe-area-inset-top, 0px));
+    right: 14px;
+    bottom: 14px;
+    width: min(430px, calc(100vw - 28px));
+    box-sizing: border-box;
     max-height: none;
-    padding: 0 0 16px;
-    border-left: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+    overflow-y: auto;
+    padding: 16px;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+    border-left: 2px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+    border-radius: 12px;
+    background: var(--bg-primary);
+    box-shadow: 0 18px 46px color-mix(in srgb, #000 18%, transparent);
   }
+}
+
+@media (max-width: 759px) {
+  .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
+    top: calc(48px + env(safe-area-inset-top, 0px));
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+:global(html.settings-review-sheet-open),
+:global(body.settings-review-sheet-open) {
+  overflow: hidden;
 }
 
 @media (max-width: 720px) {
@@ -1653,13 +1856,14 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .structured-settings-panel.is-continuous .section-ai-btn {
-  background: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 7px 18px color-mix(in srgb, var(--accent) 15%, transparent);
+  border-left: 2px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
 }
 
 .structured-settings-panel.is-continuous .section-ai-btn:hover {
-  background: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .structured-settings-panel.is-continuous .brief-toggle-btn {
@@ -1707,40 +1911,46 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
-  min-height: 204px;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 13%, var(--border));
-  border-top: 2px solid color-mix(in srgb, var(--archive-gold) 58%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
-  box-shadow: 0 1px 0 color-mix(in srgb, #fff 66%, transparent) inset;
+  min-height: 0;
+  padding: 15px 0 18px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 16%, var(--border));
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(3n + 2)) {
-  border-top-color: color-mix(in srgb, var(--archive-rose) 48%, var(--archive-gold));
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(4n + 2)) {
+  border-left-color: color-mix(in srgb, var(--archive-gold) 78%, transparent);
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(4n + 3)) {
+  border-left-color: color-mix(in srgb, var(--archive-rose) 54%, transparent);
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-top-color: var(--accent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 6%, transparent);
+  border-top-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 2.5%, transparent);
+  box-shadow: none;
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-  min-height: 132px;
-  padding: 10px 11px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 12%, var(--border));
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  min-height: 128px;
+  padding: 9px 0 8px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
+  border-radius: 0;
+  background: transparent;
   font-size: 14px;
   line-height: 1.72;
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
-  background: var(--archive-paper-soft);
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 2%, transparent);
 }
 
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-label) {
@@ -1753,6 +1963,24 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-hint),
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
   font-size: 11px;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
+  align-self: flex-start;
+  padding: 3px 0 0 8px;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--success) 58%, var(--border));
+  border-radius: 0;
+  background: transparent;
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status.is-dirty) {
+  border-left-color: color-mix(in srgb, var(--accent-amber, var(--accent)) 72%, var(--border));
+}
+
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status.is-error) {
+  border-left-color: var(--danger);
+  background: transparent;
 }
 
 @media (max-width: 980px) {

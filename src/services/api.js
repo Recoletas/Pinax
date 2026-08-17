@@ -350,7 +350,7 @@ function notifyGenerationMeta(meta) {
  * 发送聊天请求
  * settings 参数优先传入，否则自动 resolve
  */
-export async function sendChat(messages, character = null, worldId = null, settings = null, generationOptions = null) {
+export async function sendChat(messages, character = null, worldId = null, settings = null, generationOptions = null, requestOptions = {}) {
   const apiSettings = settings || await getResolvedApiSettings()
   const userId = getOrCreatePreferenceUserId()
   const generation = normalizeGenerationOptions({
@@ -377,7 +377,10 @@ export async function sendChat(messages, character = null, worldId = null, setti
         model: apiSettings.model,
         ...generation
       },
-      { timeout: generation.timeout_ms || 30000 }
+      {
+        timeout: generation.timeout_ms || 30000,
+        signal: requestOptions.signal || undefined
+      }
     )
 
     const meta = response?.data?.meta

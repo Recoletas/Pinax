@@ -25,11 +25,11 @@
         <div class="source-preview__head">
           <div>
             <strong>{{ activeSource.title }}</strong>
-            <span>{{ activeSource.sourceLabel || '导入资料' }} · {{ activeSource.content.length.toLocaleString('zh-CN') }} 字</span>
+            <span>{{ activeSource.sourceLabel || '导入资料' }} · {{ sourceLength(activeSource).toLocaleString('zh-CN') }} 字{{ activeSource.truncated ? ' · 当前为预览' : '' }}</span>
           </div>
           <button type="button" class="source-preview__close" aria-label="关闭资料预览" title="关闭资料预览" @click="activeSourceId = ''">×</button>
         </div>
-        <pre>{{ activeSource.content }}</pre>
+        <pre>{{ sourcePreview(activeSource) }}</pre>
       </div>
     </section>
     <StructuredSettingsPanel
@@ -67,13 +67,25 @@ const { hintsOpen } = useSettingKeyboardShortcuts({
 })
 
 const sourceDocuments = computed(() => Array.isArray(props.worldbook?.sourceDocuments)
-  ? props.worldbook.sourceDocuments.filter((document) => String(document?.content || '').trim())
+  ? props.worldbook.sourceDocuments.filter((document) => sourcePreview(document).trim())
   : [])
 const sourceCharacterCount = computed(() => sourceDocuments.value.reduce(
-  (total, document) => total + String(document.content || '').length,
+  (total, document) => total + sourceLength(document),
   0
 ))
 const activeSource = computed(() => sourceDocuments.value.find((document) => document.id === activeSourceId.value) || null)
+
+function sourceLength(document) {
+  return Math.max(
+    sourcePreview(document).length,
+    Number(document?.normalizedLength) || 0,
+    Number(document?.originalLength) || 0
+  )
+}
+
+function sourcePreview(document) {
+  return String(document?.content || document?.contentPreview || document?.preview || '').trim()
+}
 
 function toggleSource(sourceId) {
   activeSourceId.value = activeSourceId.value === sourceId ? '' : sourceId

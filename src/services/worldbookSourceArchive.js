@@ -15,6 +15,8 @@ import {
 export const SOURCE_ARCHIVE_SCHEMA_VERSION = 1
 export const SOURCE_ARCHIVE_DB_NAME = 'pinax-source-archive'
 export const SOURCE_ARCHIVE_DB_VERSION = 1
+export const SOURCE_ARCHIVE_CAPACITY_BYTES = 64 * 1024 * 1024
+export const SOURCE_ARCHIVE_WARNING_BYTES = 48 * 1024 * 1024
 export const SOURCE_ARCHIVE_STORES = Object.freeze({
   artifacts: 'artifacts',
   chunks: 'chunks',
@@ -30,6 +32,31 @@ const memoryArchive = {
 
 function asText(value) {
   return String(value ?? '')
+}
+
+function serializedByteLength(value) {
+  const serialized = JSON.stringify(value ?? null)
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(serialized).length
+  return serialized.length * 2
+}
+
+function createArchiveQuotaError(projectedBytes, currentBytes = 0) {
+  const error = new Error(`本地资料归档将超过 ${Math.floor(SOURCE_ARCHIVE_CAPACITY_BYTES / 1024 / 1024)}MB 限制，请清理未引用资料后重试。`)
+  error.name = 'QuotaExceededError'
+  error.code = 'quota-exceeded'
+  error.details = {
+    currentBytes,
+    projectedBytes,
+    limitBytes: SOURCE_ARCHIVE_CAPACITY_BYTES
+  }
+  return error
+}
+
+function normalizeArchiveWriteError(error, fallbackMessage) {
+  if (error?.name === 'QuotaExceededError' || error?.code === 'quota-exceeded') {
+    return createArchiveQuotaError(SOURCE_ARCHIVE_CAPACITY_BYTES + 1)
+  }
+  return error || new Error(fallbackMessage)
 }
 
 export function normalizeSourceText(value) {
@@ -290,14 +317,120 @@ async function openSourceArchiveDb() {
   return requestToPromise(request)
 }
 
+async function loadAllStoreRecords(storeName) {
+  const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
+  if (!archive) return [...memoryArchive[storeName].values()]
+  const tx = archive.transaction(storeName, 'readonly')
+  return requestToPromise(tx.objectStore(storeName).getAll())
+}
+
+function calculateArchiveUsage(records) {
+  const artifacts = Array.isArray(records?.artifacts) ? records.artifacts : []
+  const chunks = Array.isArray(records?.chunks) ? records.chunks : []
+  const workspaces = Array.isArray(records?.workspaces) ? records.workspaces : []
+  const usedBytes = [...artifacts, ...chunks, ...workspaces]
+    .reduce((sum, record) => sum + serializedByteLength(record), 0)
+  const usedChars = [...artifacts, ...chunks, ...workspaces]
+    .reduce((sum, record) => sum + Number(record?.normalizedLength || record?.charCount || record?.text?.length || 0), 0)
+  return {
+    usedBytes,
+    usedChars,
+    artifactCount: artifacts.length,
+    chunkCount: chunks.length,
+    workspaceCount: workspaces.length,
+    limitBytes: SOURCE_ARCHIVE_CAPACITY_BYTES,
+    warningBytes: SOURCE_ARCHIVE_WARNING_BYTES,
+    availableBytes: Math.max(0, SOURCE_ARCHIVE_CAPACITY_BYTES - usedBytes),
+    percentage: Number(((usedBytes / SOURCE_ARCHIVE_CAPACITY_BYTES) * 100).toFixed(1))
+  }
+}
+
+function replaceRecords(records, updates, removals) {
+  const next = new Map(records.map((record) => [String(record.id), record]))
+  for (const record of updates) next.set(String(record.id), record)
+  for (const id of removals) next.delete(String(id))
+  return [...next.values()]
+}
+
+async function assertArchiveCapacity({ artifacts = [], chunks = [], workspaces = [] } = {}) {
+  const current = {
+    artifacts: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts),
+    chunks: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks),
+    workspaces: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.workspaces)
+  }
+  const projected = calculateArchiveUsage({
+    artifacts: replaceRecords(current.artifacts, artifacts, []),
+    chunks: replaceRecords(current.chunks, chunks, []),
+    workspaces: replaceRecords(current.workspaces, workspaces, [])
+  })
+  if (projected.usedBytes > SOURCE_ARCHIVE_CAPACITY_BYTES) {
+    throw createArchiveQuotaError(projected.usedBytes, calculateArchiveUsage(current).usedBytes)
+  }
+  return projected
+}
+
 export async function saveSourceArchiveBundle(bundle) {
-  const artifact = normalizeSourceArtifact(bundle?.artifact)
-  const chunks = Array.isArray(bundle?.chunks) ? bundle.chunks : []
-  const saved = await saveSourceArchiveRecords([artifact], chunks)
-  return { artifact: saved.artifacts[0], chunks: saved.chunks }
+  let artifact = normalizeSourceArtifact(bundle?.artifact)
+  const allArtifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  const existing = allArtifacts.find((candidate) => candidate.contentHash === artifact.contentHash)
+  if (existing) {
+    return {
+      artifact: existing,
+      chunks: await loadSourceChunks(existing.chunkIds),
+      reused: true
+    }
+  }
+  const sameId = allArtifacts.find((candidate) => candidate.id === artifact.id)
+  if (sameId && sameId.contentHash !== artifact.contentHash) {
+    artifact = {
+      ...artifact,
+      id: `${artifact.id}-${artifact.contentHash.slice(-8)}`
+    }
+  }
+
+  const incomingChunks = Array.isArray(bundle?.chunks) ? bundle.chunks : []
+  const existingChunks = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks)
+  const chunksByHash = new Map(existingChunks.map((chunk) => [chunk.hash || hashSourceText(chunk.text), chunk]))
+  const chunksToSave = []
+  const chunkIds = []
+  for (const [incomingIndex, incoming] of incomingChunks.entries()) {
+    const normalized = normalizeSourceText(incoming?.text)
+    if (!normalized) continue
+    const hash = normalizeId(incoming?.hash, hashSourceText(normalized))
+    const current = chunksByHash.get(hash)
+    if (current) {
+      const ref = sourceRefForChunk({ ...incoming, text: normalized, sourceId: artifact.id })
+      const sourceRefs = [...(Array.isArray(current.sourceRefs) ? current.sourceRefs : []), ref]
+        .filter((item, index, refs) => refs.findIndex((candidate) => (
+          candidate.sourceId === item.sourceId
+          && JSON.stringify(candidate.locator) === JSON.stringify(item.locator)
+        )) === index)
+      const updated = { ...current, sourceRefs }
+      chunksByHash.set(hash, updated)
+      chunksToSave.push(updated)
+      chunkIds.push(current.id)
+      continue
+    }
+    const created = {
+      ...incoming,
+      id: `${artifact.id}:chunk:${incomingIndex + 1}:${hash}`,
+      sourceId: artifact.id,
+      text: normalized,
+      hash,
+      charCount: normalized.length,
+      sourceRefs: [sourceRefForChunk({ ...incoming, text: normalized, sourceId: artifact.id })]
+    }
+    chunksByHash.set(hash, created)
+    chunksToSave.push(created)
+    chunkIds.push(created.id)
+  }
+  const savedArtifact = { ...artifact, chunkIds }
+  const saved = await saveSourceArchiveRecords([savedArtifact], chunksToSave)
+  return { artifact: saved.artifacts[0], chunks: chunksToSave, reused: false }
 }
 
 async function saveSourceArchiveRecords(artifacts, chunks) {
+  await assertArchiveCapacity({ artifacts, chunks })
   const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
   if (!archive) {
     for (const artifact of artifacts) {
@@ -311,69 +444,132 @@ async function saveSourceArchiveRecords(artifacts, chunks) {
   for (const chunk of chunks) tx.objectStore(SOURCE_ARCHIVE_STORES.chunks).put(chunk)
   await new Promise((resolve, reject) => {
     tx.oncomplete = resolve
-    tx.onerror = () => reject(tx.error || new Error('来源归档写入失败'))
-    tx.onabort = () => reject(tx.error || new Error('来源归档写入已取消'))
+    tx.onerror = () => reject(normalizeArchiveWriteError(tx.error, '来源归档写入失败'))
+    tx.onabort = () => reject(normalizeArchiveWriteError(tx.error, '来源归档写入已取消'))
   })
   return { artifacts, chunks }
 }
 
 export async function archiveSourceDocuments(documents = [], options = {}) {
   const previewLength = Math.max(200, Number(options.previewLength) || 2400)
-  const bundles = (Array.isArray(documents) ? documents : [])
-    .map((document, index) => ({
-      sourceText: normalizeSourceText(document?.content),
-      ...buildSourceArchiveBundle({
-        ...document,
-        id: document?.id || `source_${index + 1}`,
-        content: document?.content
-      })
-    }))
-    .filter((bundle) => bundle.artifact.normalizedLength > 0)
-  if (!bundles.length) return []
-
-  const deduped = dedupeSourceChunks(bundles.flatMap((bundle) => bundle.chunks))
-  const canonicalByHash = new Map(deduped.chunks.map((chunk) => [chunk.hash, chunk]))
-  const artifacts = bundles.map((bundle) => {
-    const chunkIds = bundle.chunks
-      .map((chunk) => canonicalByHash.get(chunk.hash)?.id)
-      .filter(Boolean)
-    const artifact = { ...bundle.artifact, chunkIds }
-    const rawText = normalizeSourceText(bundle.sourceText || '')
-    const preview = rawText.slice(0, previewLength)
-    return {
-      ...artifact,
-      preview,
-      archiveRef: artifact.id,
-      sourceDocument: {
-        id: artifact.id,
-        title: artifact.title,
-        kind: artifact.kind,
-        content: preview,
-        preview,
-        sourceLabel: artifact.sourceLabel,
-        originalLength: artifact.originalLength,
-        normalizedLength: artifact.normalizedLength,
-        truncated: rawText.length > preview.length,
-        archiveRef: artifact.id,
-        chunkIds,
-        contentHash: artifact.contentHash,
-        createdAt: artifact.createdAt,
-        warnings: artifact.warnings
+  const inputs = (Array.isArray(documents) ? documents : [])
+    .map((document, index) => {
+      const sourceText = normalizeSourceText(document?.content || document?.contentPreview || document?.preview)
+      if (!sourceText) return null
+      return {
+        document,
+        sourceText,
+        bundle: buildSourceArchiveBundle({
+          ...document,
+          id: document?.id || `source_${index + 1}`,
+          content: document?.content
+        })
       }
-    }
-  })
+    })
+    .filter(Boolean)
+  if (!inputs.length) return []
 
-  const artifactRecords = artifacts.map((item) => {
-    const artifact = { ...item }
-    delete artifact.sourceDocument
-    return artifact
-  })
-  await saveSourceArchiveRecords(artifactRecords, deduped.chunks)
-  return artifacts.map(({ sourceDocument }) => sourceDocument)
+  const existingArtifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  const existingChunks = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks)
+  const artifactsById = new Map(existingArtifacts.map((artifact) => [String(artifact.id), artifact]))
+  const artifactsByHash = new Map(existingArtifacts.map((artifact) => [String(artifact.contentHash), artifact]))
+  const chunksByHash = new Map(existingChunks.map((chunk) => [chunk.hash || hashSourceText(chunk.text), chunk]))
+  const existingChunksById = new Map(existingChunks.map((chunk) => [String(chunk.id), chunk]))
+  const chunksById = new Map()
+  const artifactsToSave = []
+  const sourceDocuments = []
+
+  const addSourceRef = (chunk, sourceId, locator) => {
+    const sourceRefs = [
+      ...(Array.isArray(chunk.sourceRefs) ? chunk.sourceRefs : []),
+      sourceRefForChunk({ ...chunk, sourceId, locator })
+    ].filter((item, index, refs) => refs.findIndex((candidate) => (
+      candidate.sourceId === item.sourceId
+      && JSON.stringify(candidate.locator) === JSON.stringify(item.locator)
+    )) === index)
+    return { ...chunk, sourceRefs }
+  }
+
+  for (const { document, sourceText, bundle } of inputs) {
+    const referencedArtifact = document?.archiveRef
+      ? artifactsById.get(String(document.archiveRef))
+      : null
+    const existingArtifact = referencedArtifact || artifactsByHash.get(bundle.artifact.contentHash)
+    let artifact = existingArtifact
+
+    if (!artifact) {
+      const sameId = artifactsById.get(String(bundle.artifact.id))
+      const physicalId = sameId && sameId.contentHash !== bundle.artifact.contentHash
+        ? `${bundle.artifact.id}-${bundle.artifact.contentHash.slice(-8)}`
+        : bundle.artifact.id
+      const chunkIds = []
+      for (const [incomingIndex, incoming] of bundle.chunks.entries()) {
+        const normalized = normalizeSourceText(incoming?.text)
+        if (!normalized) continue
+        const hash = normalizeId(incoming?.hash, hashSourceText(normalized))
+        const current = chunksByHash.get(hash)
+        if (current) {
+          const updated = addSourceRef(current, physicalId, incoming.locator)
+          chunksByHash.set(hash, updated)
+          chunksById.set(updated.id, updated)
+          chunkIds.push(updated.id)
+          continue
+        }
+        const created = {
+          ...incoming,
+          id: `${physicalId}:chunk:${incomingIndex + 1}:${hash}`,
+          sourceId: physicalId,
+          text: normalized,
+          hash,
+          charCount: normalized.length,
+          sourceRefs: [sourceRefForChunk({ ...incoming, text: normalized, sourceId: physicalId })]
+        }
+        chunksByHash.set(hash, created)
+        chunksById.set(created.id, created)
+        chunkIds.push(created.id)
+      }
+      artifact = { ...bundle.artifact, id: physicalId, chunkIds }
+      artifactsById.set(String(artifact.id), artifact)
+      artifactsByHash.set(String(artifact.contentHash), artifact)
+      artifactsToSave.push(artifact)
+    }
+
+    const logicalId = String(document?.id || artifact.id)
+    for (const chunkId of artifact.chunkIds || []) {
+      const current = chunksById.get(String(chunkId)) || existingChunksById.get(String(chunkId))
+      if (!current) continue
+      const physicalRef = (Array.isArray(current.sourceRefs) ? current.sourceRefs : [])
+        .find((ref) => String(ref.sourceId) === String(artifact.id))
+      const updated = addSourceRef(current, logicalId, physicalRef?.locator || current.locator)
+      chunksById.set(String(chunkId), updated)
+    }
+    const rawPreview = sourceText.slice(0, previewLength)
+    sourceDocuments.push({
+      id: logicalId,
+      title: String(document?.title || artifact.title),
+      kind: String(document?.kind || artifact.kind),
+      content: rawPreview,
+      contentPreview: rawPreview,
+      preview: rawPreview,
+      sourceLabel: String(document?.sourceLabel || artifact.sourceLabel),
+      originalLength: Math.max(sourceText.length, Number(document?.originalLength) || 0, Number(artifact.originalLength) || 0),
+      normalizedLength: Number(artifact.normalizedLength || sourceText.length),
+      truncated: sourceText.length > rawPreview.length || Number(artifact.normalizedLength) > rawPreview.length,
+      archiveRef: artifact.id,
+      chunkIds: artifact.chunkIds || [],
+      contentHash: artifact.contentHash,
+      createdAt: artifact.createdAt,
+      warnings: artifact.warnings || []
+    })
+  }
+
+  await saveSourceArchiveRecords(artifactsToSave, [...chunksById.values()])
+  return sourceDocuments
 }
 
 export async function saveCreationWorkspace(workspace) {
   const normalized = createCreationWorkspace(workspace)
+  await assertArchiveCapacity({ workspaces: [normalized] })
   const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
   if (!archive) {
     memoryArchive.workspaces.set(normalized.id, normalized)
@@ -383,8 +579,8 @@ export async function saveCreationWorkspace(workspace) {
   tx.objectStore(SOURCE_ARCHIVE_STORES.workspaces).put(normalized)
   await new Promise((resolve, reject) => {
     tx.oncomplete = resolve
-    tx.onerror = () => reject(tx.error || new Error('创建工作区写入失败'))
-    tx.onabort = () => reject(tx.error || new Error('创建工作区写入已取消'))
+    tx.onerror = () => reject(normalizeArchiveWriteError(tx.error, '创建工作区写入失败'))
+    tx.onabort = () => reject(normalizeArchiveWriteError(tx.error, '创建工作区写入已取消'))
   })
   return normalized
 }
@@ -420,6 +616,88 @@ export function loadSourceArtifacts(ids = []) {
 
 export function loadSourceChunks(ids = []) {
   return loadSourceRecords(SOURCE_ARCHIVE_STORES.chunks, ids)
+}
+
+export async function findSourceArtifactByContentHash(contentHash) {
+  const hash = asText(contentHash).trim()
+  if (!hash) return null
+  const artifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  return artifacts.find((artifact) => artifact.contentHash === hash) || null
+}
+
+export async function estimateSourceArchiveUsage() {
+  return calculateArchiveUsage({
+    artifacts: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts),
+    chunks: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks),
+    workspaces: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.workspaces)
+  })
+}
+
+export async function deleteSourceArchiveArtifacts(sourceIds = []) {
+  const targetIds = new Set((Array.isArray(sourceIds) ? sourceIds : [sourceIds]).map(String).filter(Boolean))
+  if (!targetIds.size) return { deletedArtifactIds: [], deletedChunkIds: [], removedBytes: 0 }
+  const artifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  const chunks = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks)
+  const removedArtifacts = artifacts.filter((artifact) => targetIds.has(String(artifact.id)))
+  if (!removedArtifacts.length) return { deletedArtifactIds: [], deletedChunkIds: [], removedBytes: 0 }
+  const remainingArtifacts = artifacts.filter((artifact) => !targetIds.has(String(artifact.id)))
+  const referencedChunkIds = new Set(remainingArtifacts.flatMap((artifact) => artifact.chunkIds || []))
+  const deletedChunkIds = []
+  const updatedChunks = []
+  for (const chunk of chunks) {
+    if (!referencedChunkIds.has(chunk.id)) {
+      if (removedArtifacts.some((artifact) => (artifact.chunkIds || []).includes(chunk.id))) deletedChunkIds.push(chunk.id)
+      continue
+    }
+    const sourceRefs = (Array.isArray(chunk.sourceRefs) ? chunk.sourceRefs : [])
+      .filter((ref) => !targetIds.has(String(ref.sourceId)))
+    const remainingRefs = remainingArtifacts
+      .filter((artifact) => (artifact.chunkIds || []).includes(chunk.id))
+      .map((artifact) => ({ sourceId: artifact.id, locator: refLocatorForArtifactChunk(chunk, artifact.id) }))
+    updatedChunks.push({ ...chunk, sourceRefs: remainingRefs.length ? remainingRefs : sourceRefs })
+  }
+  const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
+  const deletedArtifactIds = removedArtifacts.map((artifact) => artifact.id)
+  if (!archive) {
+    for (const id of deletedArtifactIds) memoryArchive.artifacts.delete(id)
+    for (const chunk of updatedChunks) memoryArchive.chunks.set(chunk.id, chunk)
+    for (const id of deletedChunkIds) memoryArchive.chunks.delete(id)
+  } else {
+    const tx = archive.transaction([SOURCE_ARCHIVE_STORES.artifacts, SOURCE_ARCHIVE_STORES.chunks], 'readwrite')
+    const artifactStore = tx.objectStore(SOURCE_ARCHIVE_STORES.artifacts)
+    const chunkStore = tx.objectStore(SOURCE_ARCHIVE_STORES.chunks)
+    for (const id of deletedArtifactIds) artifactStore.delete(id)
+    for (const id of deletedChunkIds) chunkStore.delete(id)
+    for (const chunk of updatedChunks) chunkStore.put(chunk)
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve
+      tx.onerror = () => reject(tx.error || new Error('来源归档清理失败'))
+      tx.onabort = () => reject(tx.error || new Error('来源归档清理已取消'))
+    })
+  }
+  return {
+    deletedArtifactIds,
+    deletedChunkIds,
+    removedBytes: removedArtifacts.reduce((sum, artifact) => sum + serializedByteLength(artifact), 0)
+      + chunks.filter((chunk) => deletedChunkIds.includes(chunk.id)).reduce((sum, chunk) => sum + serializedByteLength(chunk), 0)
+  }
+}
+
+function refLocatorForArtifactChunk(chunk, sourceId) {
+  return (Array.isArray(chunk.sourceRefs) ? chunk.sourceRefs : [])
+    .find((ref) => String(ref.sourceId) === String(sourceId))?.locator
+    || normalizeLocator(chunk.locator, 0, chunk.text?.length || 0)
+}
+
+export async function cleanupUnreferencedSourceArtifacts({ preserveSourceIds = [] } = {}) {
+  const preserved = new Set((Array.isArray(preserveSourceIds) ? preserveSourceIds : []).map(String).filter(Boolean))
+  const workspaces = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.workspaces)
+  for (const workspace of workspaces) {
+    for (const sourceId of workspace.sourceIds || []) preserved.add(String(sourceId))
+  }
+  const artifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  const orphanIds = artifacts.filter((artifact) => !preserved.has(String(artifact.id))).map((artifact) => artifact.id)
+  return deleteSourceArchiveArtifacts(orphanIds)
 }
 
 export async function deleteCreationWorkspace(id) {

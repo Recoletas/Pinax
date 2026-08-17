@@ -321,7 +321,7 @@ export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameH
   }
 }
 
-export async function tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, nameHint }) {
+export async function tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, nameHint, signal = null }) {
   const apiSettings = await getResolvedApiSettings()
   if (!apiSettings?.baseUrl || !apiSettings?.apiKey || !apiSettings?.model) {
     return {
@@ -389,7 +389,8 @@ export async function tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, n
       }
     ],
     parseContent: parseFoundationJsonContent,
-    isValidParsed: hasUsableFoundation
+    isValidParsed: hasUsableFoundation,
+    signal
   })
 
   if (!generationResult?.success) {

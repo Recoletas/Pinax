@@ -81,7 +81,7 @@ export function selectSourceChunks({
     ...matchedEntries.flatMap((entry) => [entry?.name, ...(entry?.keys || []), ...(entry?.keysSecondary || [])])
   ])
   const linkedSourceIds = new Set(matchedEntries.flatMap((entry) => entry?.metadata?.sourceDocumentIds || []).map(String))
-  const candidates = []
+  const candidatesByText = new Map()
   documents.forEach((document, documentIndex) => {
     const sourceId = text(document?.id) || `source-${documentIndex + 1}`
     const title = text(document?.title) || `原始资料 ${documentIndex + 1}`
@@ -91,38 +91,66 @@ export function selectSourceChunks({
         title,
         text: chunk.text,
         locator: chunk.locator,
-        order: documentIndex * 10000 + chunkIndex
+        order: documentIndex * 10000 + chunkIndex,
+        sourceRefs: [{ sourceId, locator: chunk.locator }],
+        sourceTitles: { [sourceId]: title }
       }
-      candidates.push({ ...candidate, score: scoreCandidate(candidate, terms, linkedSourceIds) })
+      const score = scoreCandidate(candidate, terms, linkedSourceIds)
+      const existing = candidatesByText.get(candidate.text)
+      if (!existing) {
+        candidatesByText.set(candidate.text, { ...candidate, score })
+        return
+      }
+      existing.score = Math.max(existing.score, score)
+      existing.sourceRefs.push(...candidate.sourceRefs)
+      existing.sourceTitles[sourceId] = title
     })
   })
 
+  const candidates = [...candidatesByText.values()].map((candidate) => ({
+    ...candidate,
+    sourceRefs: candidate.sourceRefs.filter((ref, index, refs) => refs.findIndex((item) => (
+      item.sourceId === ref.sourceId
+      && JSON.stringify(item.locator) === JSON.stringify(ref.locator)
+    )) === index)
+  }))
   const ranked = [...candidates].sort((left, right) => right.score - left.score || left.order - right.order)
   const selected = []
   const selectedPerSource = new Map()
   let usedChars = 0
   for (const candidate of ranked) {
     if (selected.length >= maxChunks) break
-    const count = selectedPerSource.get(candidate.sourceId) || 0
-    if (count >= maxChunksPerSource) continue
+    const eligibleRefs = candidate.sourceRefs.filter((ref) => (
+      (selectedPerSource.get(ref.sourceId) || 0) < maxChunksPerSource
+    ))
+    if (!eligibleRefs.length) continue
     const blockLength = candidate.text.length + candidate.title.length + 8
     if (usedChars + blockLength > maxChars) continue
     selected.push({
       ...candidate,
-      sourceRefs: [{ sourceId: candidate.sourceId, locator: candidate.locator }]
+      sourceId: eligibleRefs[0].sourceId,
+      locator: eligibleRefs[0].locator
     })
-    selectedPerSource.set(candidate.sourceId, count + 1)
+    for (const ref of eligibleRefs) {
+      selectedPerSource.set(ref.sourceId, (selectedPerSource.get(ref.sourceId) || 0) + 1)
+    }
     usedChars += blockLength
   }
 
   const context = selected
-    .map((candidate) => `【来源 ${candidate.sourceId} · ${candidate.title} · ${candidate.locator.type === 'preview-offset' ? `片段 ${candidate.locator.start + 1}` : '资料'}】\n${candidate.text}`)
+    .map((candidate) => {
+      const sources = candidate.sourceRefs
+        .map((ref) => `${ref.sourceId} · ${candidate.sourceTitles[ref.sourceId] || candidate.title}`)
+        .join(' / ')
+      const locator = candidate.locator.type === 'preview-offset' ? `片段 ${candidate.locator.start + 1}` : '资料'
+      return `【来源 ${sources} · ${locator}】\n${candidate.text}`
+    })
     .join('\n\n')
   return {
     chunks: selected,
     context,
     coverage: {
-      sources: new Set(selected.map((candidate) => candidate.sourceId)).size,
+      sources: new Set(selected.flatMap((candidate) => candidate.sourceRefs.map((ref) => ref.sourceId))).size,
       chars: selected.reduce((sum, candidate) => sum + candidate.text.length, 0),
       availableSources: documents.length,
       availableChunks: candidates.length

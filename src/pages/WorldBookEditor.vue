@@ -1,48 +1,30 @@
 <template>
   <div class="worldbook-page">
-    <header class="editor-context">
-      <div class="editor-context__identity">
-        <button class="editor-back" type="button" aria-label="返回体验" title="返回体验" @click="openExperience">
-          <WorkbenchIcon name="message-square" :size="17" />
-        </button>
-        <div>
-          <span class="editor-context__kicker">WORLD BOOK / ADVANCED</span>
-          <h1>设定</h1>
-        </div>
-      </div>
-      <div class="editor-context__tools">
-        <input
-          v-model.trim="worldbookSearch"
-          class="search-input"
-          placeholder="搜索世界书"
-          type="text"
-        />
-        <button class="editor-create-action" type="button" @click="createWorldbook">
-          <WorkbenchIcon name="bookmark-plus" :size="15" />
-          <span>新建世界书</span>
-        </button>
-      </div>
-    </header>
-
-    <SettingsSectionNav />
+    <div class="editor-topbar">
+      <SettingsContextBar
+        v-model="selectedWorldbookId"
+        :worldbooks-index="worldbooksIndex"
+        :active-worldbook="activeWorldbook"
+        :meta-label="`${worldbooksIndex.length} 本世界书 · ${entries.length} 条目`"
+        @change="onWorldbookChange"
+      >
+        <template #actions>
+          <button
+            class="editor-create-action"
+            type="button"
+            aria-label="新建世界书"
+            title="新建世界书"
+            @click="createWorldbook"
+          >
+            <WorkbenchIcon name="bookmark-plus" :size="15" />
+            <span>新建世界书</span>
+          </button>
+        </template>
+      </SettingsContextBar>
+      <SettingsSectionNav />
+    </div>
 
     <div class="editor-layout">
-      <aside class="worldbook-pane">
-        <div class="pane-title">设定</div>
-        <div class="worldbook-list" v-if="filteredWorldbooks.length">
-          <button
-            v-for="wb in filteredWorldbooks"
-            :key="wb.id"
-            :class="['worldbook-item', { active: wb.id === activeWorldbook?.id }]"
-            @click="selectWorldbook(wb.id)"
-          >
-            <span class="worldbook-name">{{ wb.name }}</span>
-            <span class="worldbook-meta">{{ wb.entryCount || 0 }} 条目</span>
-          </button>
-        </div>
-        <div v-else class="empty-hint">暂无匹配世界书</div>
-      </aside>
-
       <section class="editor-main" v-if="activeWorldbook">
         <nav class="editor-tabs" aria-label="世界书编辑分区">
           <button
@@ -113,11 +95,6 @@
             <button class="danger-btn" @click="deleteWorldbook">删除世界书</button>
           </div>
         </section>
-
-        <StructuredSettingsWorkspace
-          v-if="editorTab === 'structured'"
-          :worldbook="activeWorldbook"
-        />
 
         <section v-if="editorTab === 'transfer'" class="card">
           <div class="card-head split">
@@ -612,7 +589,7 @@
       </section>
 
       <section class="editor-main empty" v-else>
-        尚无可编辑世界书，点击左上角“新建世界书”开始。
+        尚无可编辑世界书，点击上方“新建世界书”开始。
       </section>
     </div>
   </div>
@@ -628,15 +605,14 @@ import {
   runWorldbookMaintenance,
   WORLDBOOK_MAINTENANCE_MODES
 } from '../services/worldbookMaintenance'
-import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
 
-const worldbookSearch = ref('')
 const entrySearch = ref('')
 const entryTypeFilter = ref('all')
 const injectionModeFilter = ref('all')
@@ -696,11 +672,12 @@ const maintenanceModes = [
 const editorTab = ref('base')
 const editorTabs = [
   { key: 'base', label: '基础设定', icon: 'book' },
-  { key: 'structured', label: '结构化设定', icon: 'network' },
   { key: 'transfer', label: '导入导出', icon: 'download' },
   { key: 'groups', label: '分组管理', icon: 'archive' },
   { key: 'entries', label: '条目管理', icon: 'bookmark-plus' }
 ]
+
+const selectedWorldbookId = ref('')
 
 const maintenanceCandidateCount = computed(() => findWorldbookAuditTargets(entries.value, {
   brief: maintenanceBrief.value
@@ -813,16 +790,6 @@ const groupStats = computed(() => {
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
-const filteredWorldbooks = computed(() => {
-  const keyword = worldbookSearch.value.toLowerCase()
-  if (!keyword) return worldbooksIndex.value
-  return worldbooksIndex.value.filter((wb) => {
-    return [wb.name, wb.description, wb.author]
-      .map(v => String(v || '').toLowerCase())
-      .some(v => v.includes(keyword))
-  })
-})
-
 const filteredEntries = computed(() => {
   const keyword = entrySearch.value.toLowerCase()
   return entries.value.filter((entry) => {
@@ -850,6 +817,7 @@ const selectedEntry = computed(() => {
 })
 
 watch(activeWorldbook, (next) => {
+  selectedWorldbookId.value = next?.id || ''
   syncWorldbookForm(next)
   selectFirstEntry()
   selectedEntryIds.value = []
@@ -1156,11 +1124,6 @@ function selectFirstEntry() {
   selectedEntryId.value = first?.id || ''
 }
 
-function openExperience() {
-  const worldbookId = activeWorldbook.value?.id || ''
-  router.push({ name: 'experience', query: worldbookId ? { worldbookId } : {} })
-}
-
 function toggleMaintenance() {
   maintenanceOpen.value = !maintenanceOpen.value
   if (!maintenanceOpen.value) return
@@ -1344,7 +1307,7 @@ function ignoreMaintenanceCandidate(candidate) {
   candidate.status = 'ignored'
 }
 
-async function selectWorldbook(worldbookId) {
+async function onWorldbookChange(worldbookId) {
   await worldStore.setActiveWorldbook(worldbookId)
 }
 
@@ -1934,73 +1897,21 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
-.editor-context {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 62px;
-  padding: 10px clamp(14px, 3vw, 42px);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  background: color-mix(in srgb, var(--bg-primary) 92%, var(--accent));
-}
-
-.editor-context__identity,
-.editor-context__tools {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.editor-context__identity {
-  gap: 10px;
-}
-
-.editor-context__identity > div {
-  display: grid;
-  gap: 2px;
-}
-
-.editor-context__kicker {
-  color: var(--text-muted);
-  font: 600 9px/1 var(--font-mono, ui-monospace, monospace);
-  letter-spacing: .1em;
-}
-
-.editor-context h1 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 17px;
-  font-weight: 680;
-}
-
-.editor-back {
-  width: 30px;
-  height: 30px;
-  display: inline-grid;
-  place-items: center;
+.editor-topbar {
   flex: 0 0 auto;
-  border: 0;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--accent));
 }
 
-.editor-back:hover {
-  border-left-color: var(--accent);
-  color: var(--text-primary);
-}
-
-.editor-context__tools {
-  gap: 12px;
+.editor-topbar :deep(.settings-section-nav) {
+  border-bottom: 0;
 }
 
 .editor-layout {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 12px;
   /* AppShell is height: 100vh + overflow: hidden; without an internal
@@ -2009,64 +1920,6 @@ onMounted(async () => {
      Mirror StructuredSettings.vue .settings-body so the editor scrolls
      inside the bounded shell. */
   overflow: auto;
-}
-
-.worldbook-pane {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.pane-title {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.worldbook-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: auto;
-}
-
-.worldbook-item {
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  border-radius: 8px;
-  color: var(--text-primary);
-  text-align: left;
-  padding: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.worldbook-item.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
-}
-
-/* W5 UX sweep: keyboard tabbing through the 240px worldbook pane
-   needs a visible focus ring; only :hover existed before. */
-.worldbook-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.worldbook-name {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.worldbook-meta {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .editor-main {
@@ -3172,65 +3025,9 @@ label {
 }
 
 .editor-layout {
-  grid-template-columns: 224px minmax(0, 1fr);
-  gap: 28px;
-  padding: 18px clamp(14px, 3vw, 42px) 34px;
-}
-
-.worldbook-pane {
-  position: sticky;
-  top: 12px;
-  align-self: start;
-  height: fit-content;
-  padding: 10px 0 0;
-  border: 0;
-  border-right: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
-.pane-title {
-  margin: 0 14px 10px 0;
-  color: var(--text-muted);
-  font: 600 10px/1 var(--font-mono, ui-monospace, monospace);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.worldbook-list {
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  padding-right: 12px;
-}
-
-.worldbook-item {
-  position: relative;
-  gap: 3px;
-  padding: 10px 10px 10px 12px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
-.worldbook-item::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: transparent;
-}
-
-.worldbook-item:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.worldbook-item.active {
-  border-color: color-mix(in srgb, var(--border) 54%, transparent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-
-.worldbook-item.active::before {
-  background: var(--accent);
+  padding: 18px clamp(14px, 3vw, 42px) 34px;
 }
 
 .editor-main {
@@ -3343,20 +3140,12 @@ label {
   border-bottom: 1px solid color-mix(in srgb, var(--danger, #b44) 55%, transparent);
 }
 
-.editor-context .search-input {
-  width: min(220px, 24vw);
-  height: 30px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
 .editor-create-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-height: 30px;
+  padding: 0 4px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
   background: transparent;
@@ -3371,49 +3160,45 @@ label {
   background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
-@media (max-width: 1080px) {
-  .worldbook-pane {
-    position: static;
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
-    padding-bottom: 10px;
+@media (max-width: 760px) {
+  .editor-topbar :deep(.context-meta) {
+    display: none;
   }
 
-  .worldbook-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    padding-right: 0;
+  .editor-create-action {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .editor-create-action span {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 640px) {
-  .editor-context {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-block: 12px 10px;
-  }
-
-  .editor-context__tools {
-    width: 100%;
-  }
-
-  .editor-context .search-input {
-    width: 100%;
-  }
-
   .editor-layout {
+    grid-template-columns: 1fr;
     gap: 16px;
     padding-inline: 14px;
   }
 
-  .worldbook-list {
-    display: flex;
-    flex-direction: row;
-    overflow-x: auto;
+  .editor-tabs {
+    flex-wrap: wrap;
+    overflow: visible;
   }
 
-  .worldbook-item {
-    min-width: 160px;
+  .editor-tab {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 }
 

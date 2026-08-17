@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
+import { Buffer } from 'node:buffer'
+import { createServer } from 'node:http'
 import { runStructuredGeneration } from '../server/services/structuredGenerationRunner.js'
 import { resolveStructuredProtocol } from '../server/services/providers/structuredOutputAdapter.js'
 
@@ -20,6 +22,7 @@ function usage() {
     '  --output <file>       Redacted JSON report (default /tmp/pinax-structured-settings-gate/report.json)',
     '  --allow-incomplete    Exit 0 when a real gate is incomplete',
     '  --dry-run             Run deterministic fixtures for three protocols without network access',
+    '  --http-fixture        Run the matrix through a real loopback HTTP server (not a release gate)',
     '  --help                Show this message',
     '',
     'Provider JSON accepts {"provider": "...", "baseUrl": "...", "apiKey": "...", "model": "...", "format": "..."}',
@@ -36,12 +39,14 @@ function parseArgs(argv) {
     output: '/tmp/pinax-structured-settings-gate/report.json',
     allowIncomplete: false,
     dryRun: false,
+    httpFixture: false,
     help: false
   }
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index]
     if (token === '--help' || token === '-h') options.help = true
     else if (token === '--dry-run') options.dryRun = true
+    else if (token === '--http-fixture') options.httpFixture = true
     else if (token === '--allow-incomplete') options.allowIncomplete = true
     else if (['--config', '--field-runs', '--section-runs', '--timeout', '--output'].includes(token)) {
       const value = argv[index + 1]
@@ -104,6 +109,14 @@ function dryRunProviders() {
   ]
 }
 
+function httpFixtureProviders(port) {
+  return [
+    { id: 'minimax', baseUrl: `http://127.0.0.1:${port}/anthropic`, apiKey: 'fixture-minimax-key', model: 'MiniMax-M3', format: 'anthropic' },
+    { id: 'openai-compatible', baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'fixture-openai-key', model: 'structured-test', format: 'openai' },
+    { id: 'anthropic-compatible', baseUrl: `http://127.0.0.1:${port}/anthropic-compatible`, apiKey: 'fixture-anthropic-key', model: 'structured-test', format: 'anthropic' }
+  ]
+}
+
 function fieldKeysFromBody(body) {
   const schema = body?.response_format?.json_schema?.schema
     || body?.text?.format?.schema
@@ -119,6 +132,60 @@ function payloadFor(body) {
   const safeKeys = keys.length ? keys : ['origin']
   return {
     drafts: Object.fromEntries(safeKeys.map((key) => [key, `Gate fixture: ${key} 已返回可审阅设定。`]))
+  }
+}
+
+function httpFixturePayload(body) {
+  const keys = fieldKeysFromBody(body)
+  const safeKeys = keys.length ? keys : ['origin']
+  return {
+    drafts: Object.fromEntries(safeKeys.map((key) => [key, `HTTP fixture: ${key} 已返回可审阅设定。`]))
+  }
+}
+
+async function startHttpFixtureServer() {
+  const requests = []
+  const server = createServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    const rawBody = Buffer.concat(chunks).toString('utf8')
+    let body = {}
+    try { body = JSON.parse(rawBody || '{}') } catch { /* 让协议层记录无效响应 */ }
+    const path = String(request.url || '')
+    const isAnthropic = /messages$/i.test(path)
+    const isResponses = /responses$/i.test(path)
+    const authorization = String(request.headers.authorization || '')
+    const apiKey = String(request.headers['x-api-key'] || '')
+    const hasExpectedAuth = isAnthropic
+      ? (path.includes('/anthropic/')
+          ? authorization === 'Bearer fixture-minimax-key'
+          : apiKey === 'fixture-anthropic-key')
+      : authorization === 'Bearer fixture-openai-key'
+    requests.push({
+      method: request.method,
+      path,
+      isAnthropic,
+      isResponses,
+      hasExpectedAuth,
+      bodyKeys: Object.keys(body)
+    })
+    const payload = httpFixturePayload(body)
+    const result = isAnthropic
+      ? { content: [{ type: 'text', text: JSON.stringify(payload) }], stop_reason: 'end_turn', usage: { input_tokens: 30, output_tokens: 20 } }
+      : isResponses
+        ? { output_text: JSON.stringify(payload), status: 'completed', usage: { input_tokens: 30, output_tokens: 20 } }
+        : { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(payload) } }], usage: { prompt_tokens: 30, completion_tokens: 20 } }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify(result))
+  })
+  await new Promise((resolveServer, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolveServer)
+  })
+  return {
+    port: server.address().port,
+    requests,
+    close: () => new Promise((resolveServer) => server.close(() => resolveServer()))
   }
 }
 
@@ -299,27 +366,43 @@ async function main() {
     process.stdout.write(`${usage()}\n`)
     return
   }
-  const providers = options.dryRun
-    ? dryRunProviders()
-    : await readConfigs(options.configs)
-  if (!providers.length) throw new Error('--config is required unless --dry-run is used')
+  const httpFixture = options.httpFixture ? await startHttpFixtureServer() : null
+  try {
+    const providers = options.dryRun
+      ? dryRunProviders()
+      : httpFixture
+        ? httpFixtureProviders(httpFixture.port)
+        : await readConfigs(options.configs)
+    if (!providers.length) throw new Error('--config is required unless --dry-run or --http-fixture is used')
 
-  const reports = []
-  for (const provider of providers) reports.push(await runProvider(provider, options))
-  const fixtureReady = reports.every((report) => report.releaseReady)
-  const output = {
-    reportVersion: 1,
-    generatedAt: new Date().toISOString(),
-    dryRun: options.dryRun,
-    sample: { fieldRuns: options.fieldRuns, sectionRuns: options.sectionRuns },
-    providers: reports,
-    fixtureReady: options.dryRun ? fixtureReady : undefined,
-    releaseReady: !options.dryRun && reports.length >= 3 && fixtureReady
+    const reports = []
+    for (const provider of providers) reports.push(await runProvider(provider, options))
+    const fixtureReady = reports.every((report) => report.releaseReady)
+    const output = {
+      reportVersion: 1,
+      generatedAt: new Date().toISOString(),
+      dryRun: options.dryRun,
+      httpFixture: options.httpFixture,
+      sample: { fieldRuns: options.fieldRuns, sectionRuns: options.sectionRuns },
+      providers: reports,
+      fixtureReady: options.dryRun || options.httpFixture ? fixtureReady : undefined,
+      releaseReady: !options.dryRun && !options.httpFixture && reports.length >= 3 && fixtureReady,
+      transport: httpFixture
+        ? {
+            requestCount: httpFixture.requests.length,
+            allPost: httpFixture.requests.every((request) => request.method === 'POST'),
+            allAuthenticated: httpFixture.requests.every((request) => request.hasExpectedAuth),
+            paths: [...new Set(httpFixture.requests.map((request) => request.path))]
+          }
+        : undefined
+    }
+    await mkdir(resolve(options.output, '..'), { recursive: true })
+    await writeFile(options.output, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+    process.stdout.write(`${JSON.stringify({ ...output, output: options.output }, null, 2)}\n`)
+    if (!output.releaseReady && !options.allowIncomplete && !options.dryRun && !options.httpFixture) process.exitCode = 2
+  } finally {
+    await httpFixture?.close()
   }
-  await mkdir(resolve(options.output, '..'), { recursive: true })
-  await writeFile(options.output, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
-  process.stdout.write(`${JSON.stringify({ ...output, output: options.output }, null, 2)}\n`)
-  if (!output.releaseReady && !options.allowIncomplete && !options.dryRun) process.exitCode = 2
 }
 
 main().catch((error) => {

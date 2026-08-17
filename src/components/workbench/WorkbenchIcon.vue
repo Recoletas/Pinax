@@ -20,6 +20,7 @@ import {
   Sparkles,
   Trash2,
   Users,
+  X,
   ZoomIn,
   ZoomOut
 } from 'lucide-vue-next'
@@ -45,6 +46,7 @@ const icons = {
   storyboard: Clapperboard,
   trash: Trash2,
   users: Users,
+  close: X,
   'zoom-in': ZoomIn,
   'zoom-out': ZoomOut
 }

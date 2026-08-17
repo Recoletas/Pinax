@@ -19,6 +19,7 @@ import {
   listPlaceEntries,
   preparePlaceForWrite
 } from '../services/worldbookPlaceCatalog'
+import { archiveSourceDocuments } from '../services/worldbookSourceArchive'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -261,17 +262,28 @@ function normalizeWorldbook(raw = {}) {
     entriesMap,
     groups: ensureArray(decodeStored(source.groups, [])),
     sourceDocuments: ensureArray(decodeStored(source.sourceDocuments, []))
-      .filter((document) => document && typeof document === 'object' && String(document.content || '').trim())
-      .map((document, index) => ({
-        id: String(document.id || `source_${index + 1}`),
-        title: String(document.title || `原始资料 ${index + 1}`),
-        kind: String(document.kind || 'reference-text'),
-        content: String(document.content || ''),
-        sourceLabel: String(document.sourceLabel || ''),
-        originalLength: Math.max(String(document.content || '').length, Number(document.originalLength) || 0),
-        truncated: Boolean(document.truncated),
-        createdAt: Number(document.createdAt) || Date.now()
-      })),
+      .filter((document) => document && typeof document === 'object' && String(document.content || document.contentPreview || document.preview || '').trim())
+      .map((document, index) => {
+        const content = String(document.content || document.contentPreview || document.preview || '')
+        const contentPreview = String(document.contentPreview || document.preview || content)
+        return {
+          id: String(document.id || `source_${index + 1}`),
+          title: String(document.title || `原始资料 ${index + 1}`),
+          kind: String(document.kind || 'reference-text'),
+          content,
+          contentPreview,
+          preview: contentPreview,
+          sourceLabel: String(document.sourceLabel || ''),
+          originalLength: Math.max(content.length, Number(document.originalLength) || 0),
+          normalizedLength: Math.max(content.length, Number(document.normalizedLength) || 0),
+          truncated: Boolean(document.truncated),
+          archiveRef: document.archiveRef ? String(document.archiveRef) : null,
+          chunkIds: [...new Set((Array.isArray(document.chunkIds) ? document.chunkIds : []).map(String).filter(Boolean))],
+          contentHash: document.contentHash ? String(document.contentHash) : null,
+          warnings: ensureArray(document.warnings).map(String),
+          createdAt: Number(document.createdAt) || Date.now()
+        }
+      }),
     // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
     geoHistory: normalizeGeoHistory(source.geoHistory),
     structuredSettings
@@ -284,6 +296,40 @@ function createWorldBookId() {
 
 function createEntryId() {
   return `entry_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function storageWriteError(label = '本地数据') {
+  const error = new Error(`${label}写入失败，可能是本地存储空间不足，请清理后重试。`)
+  error.name = 'QuotaExceededError'
+  error.code = 'quota-exceeded'
+  return error
+}
+
+function persistOrThrow(key, value, label) {
+  if (!setItem(key, value)) throw storageWriteError(label)
+}
+
+async function migrateLegacyWorldbookSources(worldbookId, worldbook) {
+  const legacySources = worldbook?.sourceDocuments?.filter((source) => (
+    source?.content && !source.archiveRef
+  )) || []
+  if (!legacySources.length) return worldbook
+
+  try {
+    const archived = await archiveSourceDocuments(legacySources)
+    const archivedByLegacyId = new Map(legacySources.map((source, index) => [source.id, archived[index]]))
+    const sourceDocuments = worldbook.sourceDocuments.map((source) => archivedByLegacyId.get(source.id) || source)
+    const migrated = normalizeWorldbook({
+      ...worldbook,
+      sourceDocuments,
+      updatedAt: Date.now()
+    })
+    if (!setItem(WORLDBOOK_KEY_PREFIX + worldbookId, migrated)) return worldbook
+    return migrated
+  } catch {
+    // 旧资料迁移不能阻塞打开世界书；下次加载仍会重试，原始记录保持不变。
+    return worldbook
+  }
 }
 
 const CONSTRAINT_IMPORT_TYPES = new Set(['rule', 'style', 'forbidden'])
@@ -380,7 +426,7 @@ export const useWorldStore = defineStore('world', {
     },
 
     async saveWorldbooksIndex() {
-      setItem(WORLDBOOKS_INDEX_KEY, this.worldbooksIndex)
+      return setItem(WORLDBOOKS_INDEX_KEY, this.worldbooksIndex)
     },
 
     async loadWorldbook(worldbookId) {
@@ -388,7 +434,8 @@ export const useWorldStore = defineStore('world', {
       try {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
-        this.activeWorldbook = normalizeWorldbook(raw)
+        const normalized = normalizeWorldbook(raw)
+        this.activeWorldbook = await migrateLegacyWorldbookSources(worldbookId, normalized)
         return this.activeWorldbook
       } catch (e) {
         this.lastError = e.message
@@ -434,24 +481,35 @@ export const useWorldStore = defineStore('world', {
         research: data.research && typeof data.research === 'object' ? data.research : null
       }
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
-
-      this.worldbooksIndex.push({
-        id: worldbook.id,
-        name: worldbook.name,
-        description: worldbook.description,
-        author: worldbook.author,
-        entryCount: 0,
-        createdAt: worldbook.createdAt,
-        updatedAt: worldbook.updatedAt,
-        sourcePresetId: worldbook.sourcePresetId,
-        presetSignature: worldbook.presetSignature
-      })
-      await this.saveWorldbooksIndex()
-      this.activeWorldbook = worldbook
-      setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id)
-
-      return worldbook
+      const previousIndex = this.worldbooksIndex.slice()
+      const previousActive = this.activeWorldbook
+      const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
+      try {
+        persistOrThrow(worldbookKey, worldbook, '世界书')
+        this.worldbooksIndex.push({
+          id: worldbook.id,
+          name: worldbook.name,
+          description: worldbook.description,
+          author: worldbook.author,
+          entryCount: 0,
+          createdAt: worldbook.createdAt,
+          updatedAt: worldbook.updatedAt,
+          sourcePresetId: worldbook.sourcePresetId,
+          presetSignature: worldbook.presetSignature
+        })
+        if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
+        persistOrThrow(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id, '当前世界书')
+        this.activeWorldbook = worldbook
+        return worldbook
+      } catch (error) {
+        removeItem(worldbookKey)
+        this.worldbooksIndex = previousIndex
+        this.activeWorldbook = previousActive
+        // Rollback only touches the newly appended index entry. The prior active
+        // worldbook pointer is left intact if writing the new pointer failed.
+        setItem(WORLDBOOKS_INDEX_KEY, previousIndex)
+        throw error
+      }
     },
 
     async updateWorldbook(worldbookId, updates) {
@@ -468,7 +526,7 @@ export const useWorldStore = defineStore('world', {
         updatedAt: Date.now()
       })
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, updated)
+      persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, updated, '世界书')
 
       // 更新索引
       const indexEntry = this.worldbooksIndex[idx]
@@ -479,7 +537,7 @@ export const useWorldStore = defineStore('world', {
       indexEntry.updatedAt = updated.updatedAt
       if (updated.sourcePresetId) indexEntry.sourcePresetId = updated.sourcePresetId
       if (updated.presetSignature) indexEntry.presetSignature = updated.presetSignature
-      await this.saveWorldbooksIndex()
+      if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
 
       if (this.activeWorldbook?.id === worldbookId) {
         this.activeWorldbook = updated
@@ -603,7 +661,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.entriesMap[persistedEntry.id] = persistedEntry
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
+      persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -611,7 +669,7 @@ export const useWorldStore = defineStore('world', {
       if (idx >= 0) {
         this.worldbooksIndex[idx].entryCount = worldbook.entries.length
         this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
-        await this.saveWorldbooksIndex()
+        if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
       }
 
       return persistedEntry
@@ -657,14 +715,14 @@ export const useWorldStore = defineStore('world', {
       worldbook.entriesMap[entryId] = updated
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
+      persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
       this.activeWorldbook = worldbook
 
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
       if (idx >= 0) {
         this.worldbooksIndex[idx].entryCount = worldbook.entries.length
         this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
-        await this.saveWorldbooksIndex()
+        if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
       }
 
       return updated
@@ -685,7 +743,7 @@ export const useWorldStore = defineStore('world', {
       delete worldbook.entriesMap[entryId]
       worldbook.updatedAt = Date.now()
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook)
+      persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -693,7 +751,7 @@ export const useWorldStore = defineStore('world', {
       if (idx >= 0) {
         this.worldbooksIndex[idx].entryCount = worldbook.entries.length
         this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
-        await this.saveWorldbooksIndex()
+        if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
       }
     },
 
@@ -865,6 +923,9 @@ export const useWorldStore = defineStore('world', {
     async importFromSillyTavern(worldbookData) {
       const now = Date.now()
       const pinaxSourceDocuments = worldbookData?.extensions?.pinax_source_documents
+      const archivedSourceDocuments = await archiveSourceDocuments(
+        Array.isArray(pinaxSourceDocuments) ? pinaxSourceDocuments : []
+      )
       const pinaxGeoHistory = worldbookData?.extensions?.pinax_geo_history
       const worldbook = {
         id: createWorldBookId(),
@@ -882,7 +943,7 @@ export const useWorldStore = defineStore('world', {
         entries: [],
         entriesMap: {},
         groups: [],
-        sourceDocuments: Array.isArray(pinaxSourceDocuments) ? pinaxSourceDocuments : [],
+        sourceDocuments: archivedSourceDocuments,
         geoHistory: normalizeGeoHistory(pinaxGeoHistory)
       }
 
@@ -954,22 +1015,31 @@ export const useWorldStore = defineStore('world', {
         worldbook.groups = worldbookData.groups
       }
 
-      setItem(WORLDBOOK_KEY_PREFIX + worldbook.id, worldbook)
-
-      this.worldbooksIndex.push({
-        id: worldbook.id,
-        name: worldbook.name,
-        description: worldbook.description,
-        author: worldbook.author,
-        entryCount: worldbook.entries.length,
-        createdAt: worldbook.createdAt,
-        updatedAt: worldbook.updatedAt
-      })
-      await this.saveWorldbooksIndex()
-      this.activeWorldbook = worldbook
-      setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id)
-
-      return worldbook
+      const previousIndex = this.worldbooksIndex.slice()
+      const previousActive = this.activeWorldbook
+      const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
+      try {
+        persistOrThrow(worldbookKey, worldbook, '导入世界书')
+        this.worldbooksIndex.push({
+          id: worldbook.id,
+          name: worldbook.name,
+          description: worldbook.description,
+          author: worldbook.author,
+          entryCount: worldbook.entries.length,
+          createdAt: worldbook.createdAt,
+          updatedAt: worldbook.updatedAt
+        })
+        if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
+        persistOrThrow(ACTIVE_WORLDBOOK_ID_KEY, worldbook.id, '当前世界书')
+        this.activeWorldbook = worldbook
+        return worldbook
+      } catch (error) {
+        removeItem(worldbookKey)
+        this.worldbooksIndex = previousIndex
+        this.activeWorldbook = previousActive
+        setItem(WORLDBOOKS_INDEX_KEY, previousIndex)
+        throw error
+      }
     },
 
     // ---------- SillyTavern 导出 ----------

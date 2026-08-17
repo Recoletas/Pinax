@@ -3,7 +3,23 @@ import { parseSourceFiles } from './worldbookSourceAdapters'
 self.addEventListener('message', async (event) => {
   const requestId = event.data?.requestId
   try {
-    const results = await parseSourceFiles(event.data?.files || [], event.data?.options || {})
+    const files = Array.from(event.data?.files || [])
+    const options = event.data?.options || {}
+    const results = []
+    for (let index = 0; index < files.length; index += 1) {
+      const [result] = await parseSourceFiles([files[index]], options)
+      results.push(result)
+      self.postMessage({
+        requestId,
+        progress: {
+          index,
+          total: files.length,
+          fileName: result.fileName,
+          status: result.status,
+          error: result.error || null
+        }
+      })
+    }
     self.postMessage({ requestId, results })
   } catch (error) {
     self.postMessage({

@@ -6,14 +6,17 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 叙事运行时收口计划 P0-P5 代码已完成（分阶段 trace、BeatPlan 独立预算、世界书 activatedLore、软区间无硬补、语义分段）；设定工作区 U1 已完成、U2/U3 首轮与 U4 来源检索/候选批次已接通，结构化设定生成状态与唯一审核区已收口；剩真实渠道 3×3、真实 revision stale/取消 smoke 与清理收尾 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 叙事运行时收口计划 P0-P5 代码已完成（分阶段 trace、BeatPlan 独立预算、世界书 activatedLore、软区间无硬补、语义分段）；设定工作区 U1-U7 代码侧已完成：来源检索/候选批次、结构化生成状态、source archive 容量/全局复用/安全清理、解析与基础生成取消、真实 UI stale/cancel 审计；剩真实渠道 3×3、真实 API 下 revision stale/取消、20MB PDF 设备性能与 quota 真实设备验收 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
-- **设定工作区体验**：已完成现状代码与 1440/390 浏览器审计，并重构 `settings-import-and-review-ux-plan-20260817.md`。当前按 U0-U7 建立“世界书首页 -> 可恢复创建工作区 -> 详细设定”三层流程：预设幂等直达体验，JSON 确定性导入，多文件文字抽取进入 IndexedDB source archive，先生成基础基调，再按分区渐进提炼；创建工作区已有统一生成状态机和部分失败恢复，首轮只做文件/chunk 精确去重与同名提示，不做语义自动合并、OCR 或向量库。世界书首页已重构为“当前世界主卡 + 世界书选择 + 创建工具 + 预设索引”，结构化设定已改为分区索引栏与内容编辑稿面，并在桌面合并本地上下文/设定导航；高级世界书页旧“新建 / 导入”分区、持久化草稿状态、重复 AI 入口和死 CSS 已删除，创建职责统一归属独立工作区；条目管理收敛为检索栏、批量操作、条目列表与编辑面四层工作区；有审核草稿时桌面右侧固定、移动端前置。
-- **设定工作区执行中**：U1 已建立 `CreationWorkspace / SourceArtifact / SourceChunk` 合同；创建世界书时旧 `sourceDocuments` 会先进入 source archive，正式世界书只保留预览、`archiveRef` 与 chunk 引用。U2 已接入多文件 TXT/MD/PDF/DOCX adapter、Worker 边界与独立解析结果；U3 已有可恢复创建工作台、JSON 确定性预览、基础基调确认入口，刷新后会从 source archive 恢复来源队列。JSON 待确认状态会显示条目、分组、类型、触发词、注入参数与内容样例，并已通过真实文件选择审计。U4 已完成来源选择、正文预览、长资料分区检索、`setting-candidates.v1` 批次事实候选和同名/别名审核提示；候选会校验 source IDs，审核区保留每条候选的正文、证据与来源且不自动合并，提取失败也会显示在同一审核区。详细设定分区生成已具备 pending/partial/error/aborted/stale 状态、失败项重试、取消与旧响应隔离；1440/390 的 regular/loading/partial/error UI audit 已通过。剩余是真实渠道与真实 revision 变化下的 stale/取消 smoke。
+- **设定工作区体验**：已完成现状代码与 1440/390 浏览器审计，并重构 `settings-import-and-review-ux-plan-20260817.md`。当前按 U0-U7 建立“世界书首页 -> 可恢复创建工作区 -> 详细设定”三层流程：预设幂等直达体验，JSON 确定性导入，多文件文字抽取进入 IndexedDB source archive，先生成基础基调，再按分区渐进提炼；创建工作区已有统一生成状态机和部分失败恢复，首轮只做文件/chunk 精确去重与同名提示，不做语义自动合并、OCR 或向量库。世界书首页已重构为“当前世界主卡 + 世界书选择 + 创建工具 + 预设索引”，结构化设定已改为分区索引栏与内容编辑稿面，并在桌面合并共享 `SettingsContextBar` 与设定导航；一级导航收为“设定 / 地图 / 条目”，首页路由复用“设定”入口，不再重复占用一个 tab。高级世界书页旧“新建 / 导入”分区、持久化草稿状态、重复 AI 入口和死 CSS 已删除，创建职责统一归属独立工作区；条目管理收敛为检索栏、批量操作、条目列表与编辑面四层工作区；有审核草稿时桌面右侧固定，760-1100px 使用右侧覆盖层，759px 以下使用避开应用顶栏的全屏审阅页，关闭只收起并恢复触发控件焦点/滚动，不丢弃草稿。
+- **设定工作区**：U1-U7 代码侧已完成。创建工作区支持可恢复的 TXT/MD/PDF/DOCX 多文件来源、JSON 结构化预览、基础基调与分区渐进提炼；source archive 具备 64MB 容量预检、正文/chunk hash 复用、来源定位与安全清理；解析和生成支持取消、部分失败、quota 降级、stale/aborted 状态，候选审阅保留证据且不自动合并。高级页重复结构化标签已删除，窄屏/200% 布局已修正；首页、创建、结构化和高级四条路由在 1440/1024/390px 共 36 captures，0 console error、0 a11y failure。剩余仅是真实 provider 3×3、真实 API 下 revision stale/取消、真实 quota 以及 20MB PDF 设备性能验收。
+- **设定审阅队列**：结构化分区一次生成多字段时，所有成功草稿现在会在同一审阅区上方列出可切换的轻量待审队列；不再只展示第一份草稿而让其余草稿停留在不可操作状态。保留单一 `SettingDraftReview` 审阅面，不新增抽屉或第二套采纳链。
+- **来源链路补充**：正式世界书加载会保留归档 refs 并惰性迁移旧资料；批量归档与单文件入口共用 hash 复用、容量预检和逻辑来源 refs；结构化生成前恢复完整 archive chunks，跨来源重复片段只进入上下文一次；粘贴片段 quota 失败降级为本页暂存。
+- **来源解析取消补充**：parse-timeout 会 abort 底层 TXT/PDF/DOCX 解析信号，PDF loading task 进行 best-effort destroy；现有来源合同测试已覆盖超时后信号确实进入 aborted。
 - **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。正文：长度改软区间（open 750-1200 / respond 600-950 / advance 600-950 / extend 350-650），删除按字符下限补全，BeatPlan 需最小因果内容，行文契约收敛五条 + 四种场景模式。剩真实渠道 3×3 验收。
 - **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成。parser 恢复语义自然段：短块（≤260 字且 ≤4 句）不拆、异常长块按 2-3 句/90-180 字分组、相邻短未署名 narration 合并、引号内不拆；桌面（≥1101px）narration 段距 0.58em→0.42em。旧消息检测到 leaked marker 时重解析，正常旧消息不批量迁移。
 - **写作 Notebook**：当前最高优先级为 WNB-6A。现有 schema v2 将每个顶层段落当作业务 block，Enter 因而直接创建新块；目标改为 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落，单元通过场景/分隔线、体验回合导入或显式 split 创建。一次成功的体验 assistant 回合默认导入为一个带完整来源的单元，但可拆分/合并且来源不丢。实施顺序是 schema v3、一次转换、批注/候选/版本改用 `unitId + nodeId`、体验导入事务和 UI/Gate；之后再继续常用 Markdown、`targets[]` 和查找同类。
@@ -21,10 +24,21 @@
 - **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布已接视频生成。剩余漫画 M7 连续性质检、真实图像/视频 smoke 和跨资产 revision/tag 收口。
 - **联机**：URL 房间、房主唯一生成、有序事件和受限运行时广播已接入。仍需双浏览器覆盖掉线、host loss、分支切换和房主 AI 配置共享边界。
 - **UI**：当前版本全局锁定主题2亮色，外观、明暗和缩放切换入口已移除；主题1代码只保留兼容。U5-R C0-C5 已完成代码切片：顶部、drawer、体验上下文、composer 和角色选择器已收敛。C6 核心契约与体验页桌面/移动端 audit 已通过；角色选择器仍需真实设备人工复验。
+- **设定页 U6 补充**：结构化设定字段已进一步收为连续稿面，去掉字段完整外框和输入框底色，改用稿面分隔线、少量信号色条和下划线输入；分区 AI 主动作降为轻量信号线按钮，字段保存/错误状态不再使用胶囊容器。桌面、平板和 390px 审计保持 0 console error、0 a11y failure。
+- **设定页旧链清理补充**：高级世界书页不再挂载重复的结构化设定工作台，只保留基础设定、导入导出、分组和条目管理；200% 有效视口下高级页改为单列，条目导航与按钮允许换行，避免正文输入区被压缩或裁切。高级页已纳入 UI audit。
+- **设定页上下文补充**：结构化设定使用共享 `SettingsContextBar`，一级导航只保留“设定 / 地图 / 条目”；来源展示兼容 `contentPreview / preview / content` 三种正式资料预览字段，字数仍优先使用归档完整长度。
 - **验证基线**：20 个测试文件 / 200 个用例；Vite/VitePress build 与 diff check 通过。历史 188/200 是旧基线，不再作为当前上限。
 
 ## Recently done
 
+- 2026-08-18：补齐结构化设定多字段审阅链：分区生成留下多份草稿时，`StructuredSettingsPanel` 在唯一 `SettingDraftReview` 上方提供轻量待审队列，可切换每个字段草稿，不再只显示第一份。增加合并后的 UI 合同覆盖；结构化页 18 captures、0 console error、0 a11y failure；完整验证为 20 个测试文件 / 200 个用例、Vite/VitePress build、VitePress build 与 diff check 通过。
+- 2026-08-18：补齐设定审阅区的平板/移动交互：新增保留草稿关闭、Esc、背景滚动锁定和焦点/滚动恢复；1024/390px partial 审计 2 captures、0 console error、0 a11y failure，测试上限仍为 200。
+- 2026-08-18：完成高级世界书页上下文收口：改用共享 `SettingsContextBar` 与三项一级导航，移除旧顶部标题/搜索/左侧世界书列表；移动端将新建世界书收为带标签的图标动作。高级页 1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
+- 2026-08-17：补齐设定页 U6 视觉收口：结构化设定字段从蓝框卡片改为连续稿面，输入区改为底线层级，状态改为边线文字，分区 AI 动作移除大面积实色底；保留草稿审阅、失败重试和移动端布局。结构化页 1440/1024/390px 的 regular/partial/loading/error/stale/cancelled 共 18 captures，0 console error、0 a11y failure；完整 200 tests、Vite/VitePress build、diff check 通过。
+- 2026-08-17：完成设定页旧链与窄屏补漏：删除高级世界书页重复的 `StructuredSettingsWorkspace` 挂载和标签，避免与独立结构化路由并存；高级页在 1080px 以下单列、640px 以下世界书列表和编辑标签换行。新增高级页 UI audit，设定创建/结构化/高级三路由在 1440/1024/390px 的状态矩阵共 33 captures，0 console error、0 a11y failure。
+- 2026-08-17：继续补齐设定来源链路：加载旧世界书时保留 `archiveRef/chunkIds/contentHash` 并惰性迁移未归档资料；批量归档与单文件入口统一 hash 复用和容量预检，复用来源补齐逻辑 `sourceRefs`；结构化字段生成会按 archive refs 恢复完整 chunks，跨资料相同片段只进入模型上下文一次；粘贴片段 quota 失败降级为本页暂存。合同测试覆盖长来源尾部恢复、批量复用、来源 refs 与 Pinax JSON 归档。
+- 2026-08-17：继续收敛设定创建工作区的 UI 信息层级：JSON 导入确认动作移回结构化预览末尾，移除进度摘要中的重复动作；移动端将世界书名称、资料/文字/状态和本地归档压缩为上下文带，资料投放区提前可见。设定创建页移动端 390px 的 regular/partial/loading/error 审计通过，4 captures、0 console errors、0 a11y failures。
+- 2026-08-17：完成设定工作区 U2/U4/U7 代码侧收口。来源 adapter 统一传递 AbortSignal，无 Worker 降级解析也能在读取中止后立即丢弃结果；PDF 密码保护/损坏、DOCX 损坏和 parse-timeout 归一为可操作错误码；quota 失败会把已解析资料保留为本页预览，支持导出文字，并在正式确认时重试归档，正式 worldStore quota 失败会终止并回滚新建/导入半成品，避免写入失效 `archiveRef`；归档清理同时保护 `sourceDocuments[].id` 与 `archiveRef`。完整验证保持 20 个测试文件 / 200 个测试、Vite/VitePress build、diff check；设定页 UI audit 在 1440/1024/390px 覆盖创建页 12 captures + 结构化页 18 captures，共 30 captures，0 console error、0 a11y failure；provider loopback 3 类渠道各完成字段/分区 3×3，真实凭据与设备门禁仍待外部验收。
 - 2026-08-17：按设定工作区计划完成 U1，并推进 U2/U3 首轮。新增 `CreationWorkspace / SourceArtifact / SourceChunk` 合同与 IndexedDB source archive 适配器；正式创建世界书前会归档旧 `sourceDocuments` 的完整正文，只保存预览、`archiveRef` 和 chunk 引用，首轮精确 hash 去重保留多来源定位。新增 TXT/MD/PDF/DOCX adapter 合同、多文件独立 `ready/error` 结果、扫描 PDF `needs-ocr` 错误与 Worker 解析边界；新增可恢复的 `WorldbookCreationWorkspace`，支持多文件/拖放/粘贴、JSON 确定性预览、基础基调草稿确认，刷新后恢复来源队列。安装 `pdfjs-dist` 与 `mammoth`。完整验证通过：20 个测试文件 / 200 个测试、Vite/VitePress build、diff check；全量 lint 仍受仓库既有错误阻断，新增来源与工作台文件定向 lint 通过。
 - 2026-08-17：推进设定工作区 U4 首切片。创建草稿新增参与基调的来源集合与一句构思持久化；资料队列可单独勾选、全选、展开本地抽取预览，基础基调只使用选中来源，并对长来源取首/中/尾代表片段，避免把完整资料直接塞入一次请求；刷新后恢复选中状态、构思和待确认基础草稿。完整验证通过：20 个测试文件 / 200 个测试、Vite/VitePress build、diff check。
 - 2026-08-17：推进设定工作区 U4 分区检索首切片。新增 `worldbookSourceSelection`，按分区、字段、用户要求和既有条目为来源 chunk 打分，限制单来源占用并返回来源标题、preview locator 和覆盖统计；创建页基础提炼与结构化字段生成共用该选择逻辑。正式创建继续只保存预览与 archive refs。完整验证通过：20 个测试文件 / 200 个测试、Vite/VitePress build、diff check。
@@ -72,7 +86,7 @@
 7. 地图继续父子区域、相邻关系、remap、LOD 与标签碰撞；不再扩张未接入的实验模块。
 8. 按 `docs/plan/experience-mobile-adaptation-plan-20260814.md` 收口体验页与写作页移动端：先处理体验页唯一滚动容器/输入区键盘安全区，再处理写作页空格命令、选区批注和改写面板。
 9. 完成 U5-R C6 核心门禁；设定工作区下一步只做真实渠道与真实 revision 变化下的 stale/取消 smoke，并清理验收记录；不为缺少真实 fixture 的状态继续扩张 smoke。角色选择器仍需真实设备复验，之后再进入 `docs/plan/ui-controls-dialogue-polish-plan-20260817.md` 的 U6-U7。
-10. 继续执行 `docs/plan/settings-import-and-review-ux-plan-20260817.md`：候选同名/别名提示、来源证据保留、创建工作区 JSON 预览与详细设定生成状态审计已完成；后续只处理真实 PDF/DOCX 渠道、真实 revision 下的取消/stale、配额与隐私/性能门禁，不在旧高级页继续叠上传按钮。
+10. `docs/plan/settings-import-and-review-ux-plan-20260817.md` 的 U1-U7 代码侧已完成：候选同名/别名提示、来源证据保留、创建工作区 JSON 预览、source archive 容量/复用/清理、解析与生成取消、详细设定 stale/cancel UI 审计均已落地；后续只处理真实 PDF/DOCX 文件、真实 provider 渠道与真实 revision 下的取消/stale、配额与隐私/性能门禁，不在旧高级页继续叠上传按钮。
 
 ## Working rules
 

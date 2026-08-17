@@ -6,15 +6,14 @@
   >
     <router-link
       v-for="tab in tabs"
-      :key="tab.routeName"
+      :key="tab.key"
       class="settings-section-tab"
-      :class="{ active: tab.routeName === currentRouteName }"
+      :class="{ active: tab.key === currentTabKey }"
       role="tab"
-      :aria-selected="(tab.routeName === currentRouteName).toString()"
+      :aria-selected="(tab.key === currentTabKey).toString()"
       :data-test="`settings-section-tab-${tab.key}`"
       :to="{ name: tab.routeName }"
     >
-      <span class="settings-section-tab__index" aria-hidden="true">{{ tab.index }}</span>
       <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="14" />
       <span class="settings-section-tab__label">{{ tab.label }}</span>
     </router-link>
@@ -26,21 +25,17 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
-/* UI-S16 (2026-06-27): settings activity 内部切换条. 4 个设定子页
-   共享同一段 router-link 标签条, 顺序 = activity 入口默认序:
-   结构化 → 世界书 → 地图 → 高级. 跟 AppShell mast 顶 tab
-   同款 archive-folio 语言: 撕边 dashed 分隔 + 罗马数字 index
-   + active 的 ◆ 印章. 用户进 设定 activity 后, 4 个 sub-page
-   内部就能互跳, 不必再回左侧抽屉 / mast activity tab. */
+/* 设定工作区只保留三个一级职责：设定、地图、条目。
+   世界书首页作为设定入口保留路由，但不再占用一个重复 tab。 */
 const tabs = [
-  { key: 'structured', index: 'Ⅰ', icon: 'network', label: '结构化设定', routeName: 'settings-structured' },
-  { key: 'worldbook', index: 'Ⅱ', icon: 'book', label: '世界书', routeName: 'settings-worldbook' },
-  { key: 'map', index: 'Ⅲ', icon: 'compass', label: '地图', routeName: 'settings-world-map' },
-  { key: 'advanced', index: 'Ⅳ', icon: 'settings', label: '高级', routeName: 'settings-worldbook-advanced' }
+  { key: 'structured', icon: 'network', label: '设定', routeNames: ['settings-structured', 'settings-worldbook'], routeName: 'settings-structured' },
+  { key: 'map', icon: 'compass', label: '地图', routeNames: ['settings-world-map'], routeName: 'settings-world-map' },
+  { key: 'advanced', icon: 'settings', label: '条目', routeNames: ['settings-worldbook-advanced'], routeName: 'settings-worldbook-advanced' }
 ]
 
 const route = useRoute()
 const currentRouteName = computed(() => String(route.name || ''))
+const currentTabKey = computed(() => tabs.find((tab) => tab.routeNames.includes(currentRouteName.value))?.key || '')
 </script>
 
 <style scoped>
@@ -64,9 +59,7 @@ const currentRouteName = computed(() => String(route.name || ''))
    left edge of the scroller (or right, in RTL) after route change. */
 
 
-/* UI-S16: 撕边 dashed 分隔 (跟 mast tab 同款 1px dashed border,
-   第一项无 leading stub). 圆角 0 / 透明底 / ◆ 印章 active = 档案
-   册语言, 不走 Material 圆角 chip 高亮. */
+/* 透明底、底部活动线和小间距保持设定工作区的连续稿面语言。 */
 .settings-section-tab {
   position: relative;
   min-height: 34px;
@@ -111,37 +104,14 @@ const currentRouteName = computed(() => String(route.name || ''))
   scroll-margin-inline-start: 8px;
 }
 
-/* UI-S16: active 印章 ◆ 跟 mast tab 同款做法, ::before 内容
-   "◆" + opacity 0→1 切换. aria-hidden on the index + the stamp
-   means screen readers fall back to aria-selected on the tab. */
+/* 一级导航只用图标、文字和活动线，不再添加编号或印章。 */
 .settings-section-tab::before {
   content: none;
-}
-
-/* UI-S16: 罗马数字 index 沿用 mast tab 字体栈
-   var(--font-display) → Iowan Old Style / Songti SC / STSong. 12px
-   跟 mast 一致, 不加 tabular-nums. */
-.settings-section-tab__index {
-  display: none;
-  min-width: 0;
-  text-align: center;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.settings-section-tab.active .settings-section-tab__index {
-  color: var(--text-primary);
 }
 
 .settings-section-tab__icon {
   display: inline-flex;
   color: var(--text-muted);
-}
-
-:global(html.theme-legacy .settings-section-tab__index) {
-  display: none;
 }
 
 :global(html.theme-legacy .settings-section-tab__icon) {
@@ -157,7 +127,7 @@ const currentRouteName = computed(() => String(route.name || ''))
   align-items: center;
 }
 
-/* UI-S16: 760px 横向滚, 保留 4 个 tab 都能看到. */
+/* 760px 以下允许横向滚动，保证三个一级入口仍可触达。 */
 @media (max-width: 760px) {
   .settings-section-nav {
     flex-wrap: nowrap;
@@ -173,9 +143,7 @@ const currentRouteName = computed(() => String(route.name || ''))
   }
 }
 
-/* UI-S16: kao 主题覆写 — 撕边 / 印章 / ink 颜色都换 archive-folio
-   语汇. 默认走冷色 archive-paper, kao 走暖 archive-gold + rose
-   stamp, 跟 mast tab 完全一致. */
+/* 兼容旧主题的色彩覆盖；主题 2 仍保持冷白稿面。 */
 .theme-kao .settings-section-nav {
   border-bottom-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
   background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft));
@@ -198,15 +166,6 @@ const currentRouteName = computed(() => String(route.name || ''))
 
 .theme-kao .settings-section-tab.active {
   border-bottom-color: var(--archive-olive);
-}
-
-.theme-kao .settings-section-tab__index {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .settings-section-tab.active .settings-section-tab__index {
-  color: var(--archive-ink);
 }
 
 /* Theme 2: one quiet workbench rail shared by every settings surface. */

@@ -12,7 +12,8 @@ export async function runGenerationTask({
   parseContent,
   isValidParsed,
   character = null,
-  worldId = null
+  worldId = null,
+  signal = null
 }) {
   if (!Array.isArray(baseMessages) || baseMessages.length === 0) {
     throw new Error('runGenerationTask requires non-empty baseMessages')
@@ -29,7 +30,8 @@ export async function runGenerationTask({
     isValidParsed,
     character,
     worldId,
-    taskType
+    taskType,
+    signal
   })
 }
 

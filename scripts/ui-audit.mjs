@@ -12,7 +12,7 @@ const requestedWidths = String(process.env.UI_AUDIT_WIDTHS || '1440,1280,980,760
 const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .split(',')
   .map((value) => value.trim())
-  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error'].includes(value))
+  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled'].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .split(',')
   .map((value) => value.trim())
@@ -37,6 +37,12 @@ const routes = [
     keyboardTargets: ['.creation-page input[type="text"]', '.creation-page textarea', '.creation-page button']
   },
   { id: 'settings-structured', path: '/settings/structured', surfaces: ['main', '.structured-settings'] },
+  {
+    id: 'settings-worldbook-advanced',
+    path: '/settings/worldbook/advanced',
+    surfaces: ['main', '.worldbook-page'],
+    keyboardTargets: ['.worldbook-page input', '.worldbook-page textarea', '.worldbook-page button']
+  },
   { id: 'settings-world-map', path: '/settings/world-map', surfaces: ['main', '.world-map-page'] }
 ]
 
@@ -211,7 +217,7 @@ function makeFixture(state) {
   }]
   fixture[`worldbook_${auditWorldbook.id}`] = auditWorldbook
   fixture.active_worldbook_id = auditWorldbook.id
-  if (state === 'loading' || state === 'error' || state === 'partial') {
+  if (['loading', 'error', 'partial', 'stale', 'cancelled'].includes(state)) {
     fixture.apiSettings = {
       provider: 'openai',
       baseUrl: 'https://audit.invalid/v1',
@@ -254,13 +260,17 @@ async function installThemeFixture(page, state) {
 }
 
 function supportsActionState(route, state) {
-  if (state === 'partial') return ['settings-worldbook-create', 'settings-structured'].includes(route.id)
+  if (['partial', 'stale', 'cancelled'].includes(state)) {
+    return state === 'partial'
+      ? ['settings-worldbook-create', 'settings-structured'].includes(route.id)
+      : route.id === 'settings-structured'
+  }
   return !['loading', 'error'].includes(state)
     || ['prose-essay', 'settings-worldbook-create', 'settings-structured'].includes(route.id)
 }
 
 async function installActionScenario(page, state) {
-  if (!['loading', 'error', 'partial'].includes(state)) return
+  if (!['loading', 'error', 'partial', 'stale', 'cancelled'].includes(state)) return
   await page.route('**/api/generate', async (requestRoute) => {
     if (state === 'loading') {
       await new Promise(() => {})
@@ -273,8 +283,23 @@ async function installActionScenario(page, state) {
     })
   })
   await page.route('**/api/generate/structured', async (requestRoute) => {
-    if (state === 'loading') {
+    if (state === 'loading' || state === 'cancelled') {
       await new Promise(() => {})
+      return
+    }
+    if (state === 'stale') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await requestRoute.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          drafts: {
+            origin: '潮汐港建立在不断改道的海湾上，旧灯塔记录着三次迁港。',
+            geography: '港城由外港、旧灯塔和北侧盐沼组成，潮汐会改变可通行航道。'
+          },
+          fieldErrors: {}
+        })
+      })
       return
     }
     if (state === 'partial') {
@@ -305,7 +330,7 @@ async function installActionScenario(page, state) {
 }
 
 async function triggerActionScenario(page, route, state) {
-  if (!['loading', 'partial', 'error'].includes(state)) return null
+  if (!['loading', 'partial', 'error', 'stale', 'cancelled'].includes(state)) return null
   if (route.id === 'settings-worldbook-create') {
     await page.locator('.creation-foundation textarea').fill('一座被潮汐改写记忆的港城，创作者希望保持克制而有悬念的叙事。')
     await page.locator('.creation-foundation .primary-action').click()
@@ -330,6 +355,19 @@ async function triggerActionScenario(page, route, state) {
         passed: await partialStatus.count() > 0
           && await page.locator('.generation-failed-fields').count() > 0
       }
+    }
+    if (state === 'cancelled') {
+      await page.locator('.generation-status.is-pending').first().waitFor({ state: 'visible', timeout: 10_000 })
+      await page.locator('.section-ai-btn').click()
+      await page.locator('.generation-status.is-aborted').first().waitFor({ state: 'visible', timeout: 10_000 })
+      return { assertion: 'structured settings shows an explicit cancelled state', passed: true }
+    }
+    if (state === 'stale') {
+      await page.locator('.generation-status.is-pending').first().waitFor({ state: 'visible', timeout: 10_000 })
+      const field = page.locator('.setting-field-card textarea').first()
+      await field.fill(`${await field.inputValue()}\n审计期间修改，旧草稿不得覆盖。`)
+      await page.locator('.generation-status.is-stale').first().waitFor({ state: 'visible', timeout: 10_000 })
+      return { assertion: 'structured settings refuses a response made stale by an in-flight edit', passed: true }
     }
     await page.locator('.generation-status.is-error').first().waitFor({ state: 'visible', timeout: 10_000 })
     return { assertion: 'structured settings shows recoverable error after failed generation', passed: true }
@@ -362,7 +400,7 @@ async function triggerRouteScenario(page, route, state, importFixturePath) {
   await jsonInput.setInputFiles(importFixturePath)
   await page.locator('.json-preview').waitFor({ state: 'visible', timeout: 10_000 })
   const entryCount = await page.locator('.json-preview__entries li').count()
-  const confirmVisible = await page.locator('.summary-json .primary-action').isVisible()
+  const confirmVisible = await page.locator('.json-preview__actions .primary-action').isVisible()
   return {
     assertion: 'real JSON file selection opens structured preview and confirmation action',
     passed: entryCount > 0 && confirmVisible
@@ -828,7 +866,7 @@ async function run() {
           status: response?.status() ?? null,
           screenshot,
           consoleErrors,
-          expectedConsoleErrors: state === 'error',
+          expectedConsoleErrors: ['error', 'partial'].includes(state),
           routeScenario,
           actionScenario,
           screenshotWarnings,

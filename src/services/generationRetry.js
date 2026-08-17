@@ -4,6 +4,13 @@ function createPlanRequestId() {
   return `plan_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function createAbortError() {
+  const error = new Error('生成已停止。')
+  error.name = 'AbortError'
+  error.code = 'cancelled'
+  return error
+}
+
 function resolveAttemptMessages(attempt, baseMessages, history) {
   if (Array.isArray(attempt?.messages) && attempt.messages.length > 0) {
     return attempt.messages
@@ -62,7 +69,8 @@ export async function runGenerationRetryPlan({
   character = null,
   worldId = null,
   taskType = 'retry-plan',
-  sendChatImpl = sendChat
+  sendChatImpl = sendChat,
+  signal = null
 }) {
   if (!Array.isArray(baseMessages) || baseMessages.length === 0) {
     throw new Error('runGenerationRetryPlan requires non-empty baseMessages')
@@ -76,6 +84,7 @@ export async function runGenerationRetryPlan({
   const history = []
 
   for (let index = 0; index < normalizedAttempts.length; index += 1) {
+    if (signal?.aborted) throw createAbortError()
     const attempt = normalizedAttempts[index] || {}
     const messages = resolveAttemptMessages(attempt, baseMessages, history)
     const attemptGenerationOptions = {
@@ -104,12 +113,15 @@ export async function runGenerationRetryPlan({
           request_id: `${requestIdBase}_a${index}`,
           attemptName: attempt?.name || `attempt-${index + 1}`,
           taskType
-        }
+        },
+        { signal }
       )
       content = String(response?.content || '')
     } catch (error) {
       requestError = error
     }
+
+    if (signal?.aborted) throw createAbortError()
 
     if (!requestError && typeof parseContent === 'function') {
       try {
