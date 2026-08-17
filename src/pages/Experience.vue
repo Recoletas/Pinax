@@ -36,14 +36,14 @@
             </label>
             <button
               ref="codexTriggerRef"
-              class="ws-topstrip__codex-toggle"
+              class="ws-topstrip__codex-toggle control-quiet"
               type="button"
               aria-controls="experience-codex"
               :aria-expanded="codexSheetOpen.toString()"
               @click="openCodexSheet"
             >索引</button>
             <button
-              class="ws-topstrip__settings-link"
+              class="ws-topstrip__settings-link control-quiet"
               type="button"
               :disabled="!hasSelectedWorldbook"
               :title="hasSelectedWorldbook ? '修改当前世界设定' : '先选择世界'"
@@ -54,7 +54,7 @@
             <div class="ws-topstrip__session-chip" :title="sessionTitleTooltip">
               <span class="ws-topstrip__session-chip-label">{{ currentSessionLabel }}</span>
               <button
-                class="ws-topstrip__session-chip-btn"
+                class="ws-topstrip__session-chip-btn control-quiet"
                 type="button"
                 aria-label="切换会话"
                 @click="showSessionPicker = true"
@@ -2702,9 +2702,16 @@ function quickNoteWordCount(text) {
 .game-page.game-page .ws-dossier-bar__quick-cta {
   min-height: 26px;
   padding: 2px 10px;
-  border-color: color-mix(in srgb, var(--archive-olive) 20%, transparent);
-  background: color-mix(in srgb, var(--archive-olive) 6%, transparent);
+  /* U2：quiet 控件（速记），无闭合框 */
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: color-mix(in srgb, var(--archive-ink) 80%, transparent);
   font-weight: 600;
+}
+
+.game-page.game-page .ws-dossier-bar__quick-cta:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
 }
 
 .game-page.game-page .ws-live-codex {
@@ -2823,7 +2830,8 @@ function quickNoteWordCount(text) {
     align-items: center;
     min-height: 28px;
     padding: 3px 10px;
-    border: 1px solid color-mix(in srgb, var(--archive-olive) 24%, transparent);
+    /* U2：quiet 控件，无闭合框（control-quiet 提供悬停淡底） */
+    border: 0;
     background: transparent;
     color: var(--archive-ink);
     cursor: pointer;
@@ -3131,12 +3139,13 @@ function quickNoteWordCount(text) {
   gap: 16px;
   min-height: 44px;
   padding: 8px 16px;
-  background: var(--archive-paper-soft);
-  border: 1px solid var(--hairline-soft);
+  background: transparent;
+  /* U2：工具栏预算 = 一条底部 hairline，无闭合框 */
+  border: 0;
   border-bottom: 1px solid var(--hairline-soft);
   color: var(--archive-ink);
   font-family: var(--font-sans, "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif);
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 :not(.theme-kao) .ws-topstrip__main {
@@ -3200,7 +3209,8 @@ function quickNoteWordCount(text) {
   align-items: center;
   min-height: 26px;
   padding: 2px 12px 2px 18px;
-  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  /* U2：quiet 控件语义（control-quiet 提供悬停/命中），无闭合框 */
+  border: 0;
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
@@ -3242,7 +3252,8 @@ function quickNoteWordCount(text) {
   gap: 6px;
   min-height: 26px;
   padding: 2px 4px 2px 12px;
-  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
+  /* U2：会话信息为状态文字 + quiet 切换命令，不再做 chip 边框 */
+  border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--archive-ink);
@@ -3263,15 +3274,16 @@ function quickNoteWordCount(text) {
   align-items: center;
   min-height: 22px;
   padding: 1px 10px;
-  border: 1px solid color-mix(in srgb, var(--archive-rose) 22%, var(--border));
-  border-radius: 0;
+  /* U2：quiet 控件（切换会话），无闭合框 */
+  border: 0;
+  border-radius: 3px;
   background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
   font-family: var(--font-sans, sans-serif);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
 }
 
 :not(.theme-kao) .ws-topstrip__session-chip-btn:hover {
@@ -3369,8 +3381,9 @@ function quickNoteWordCount(text) {
 :not(.theme-kao) .ws-dossier-bar__quick-cta {
   min-height: 22px;
   padding: 1px 9px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
-  border-radius: 0;
+  /* U2：quiet 控件，无闭合框 */
+  border: 0;
+  border-radius: 3px;
   background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
   font-family: var(--font-sans, sans-serif);
@@ -3889,9 +3902,10 @@ function quickNoteWordCount(text) {
   .status-rail-detail-btn
 ) {
   min-height: 29px;
-  border: 1px solid color-mix(in srgb, var(--archive-ink-soft) 22%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 82%, transparent);
+  /* U2：索引内查看类动作 = quiet，无闭合框；primary 才保留实色 */
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-ink-soft));
   font-family: var(--font-sans, sans-serif);
   font-weight: 650;
@@ -3913,8 +3927,7 @@ function quickNoteWordCount(text) {
   .toolbar-text-btn,
   .status-rail-detail-btn
 ):hover:not(:disabled) {
-  border-color: var(--archive-olive);
-  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
+  background: color-mix(in srgb, var(--archive-olive) 8%, transparent);
   color: var(--archive-ink);
 }
 
