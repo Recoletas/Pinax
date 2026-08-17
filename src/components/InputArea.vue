@@ -110,28 +110,24 @@
       </div>
     </div>
 
-    <div class="quick-actions">
+    <div class="quick-actions control-group">
       <button
         v-for="action in quickActions"
         :key="action.command"
-        class="quick-btn"
+        class="quick-btn control-quiet"
         @click="handleQuickAction(action.command)"
         :disabled="gameStore.isLoading"
         :title="action.title || ''"
       >
         <!-- UI-E18-FIX3: emoji icon was rendered inline next to the
-             label. In theme-legacy (steel-blue dossier, COMPETITION
-             DEFAULT), the colorful emoji (▶ 🌿 💬 💭) clashed with the
-             archive-folio aesthetic. Kao theme keeps the emoji but
-             mutes them via .theme-kao .quick-btn rules. Default mode
-             hides the icon span entirely and renders the bare label —
-             the action still reads, the row reads as a tight tool
-             strip instead of a chat sticker bar. -->
+             label. Kao theme keeps the emoji (muted via .theme-kao
+             .quick-btn rules); default mode hides the icon span. -->
         <span class="quick-btn__icon" aria-hidden="true">{{ action.icon }}</span>
         <span class="quick-btn__label">{{ action.label }}</span>
       </button>
       <button
-        :class="['quick-btn', 'dialogue-btn', { active: gameStore.dialogueMode || gameStore.dialogueCharacter }]"
+        :class="['quick-btn', 'control-toggle', { active: gameStore.dialogueMode || gameStore.dialogueCharacter }]"
+        :aria-pressed="Boolean(gameStore.dialogueMode || gameStore.dialogueCharacter).toString()"
         @click="handleDialogueToggle"
       >
         <span class="quick-btn__icon" aria-hidden="true">💬</span>
@@ -140,7 +136,7 @@
       <button
         v-if="autoAdvanceAvailable"
         type="button"
-        :class="['quick-btn', 'auto-advance-btn', { active: autoAdvance }]"
+        :class="['quick-btn', 'control-toggle', { active: autoAdvance }]"
         :aria-pressed="autoAdvance"
         :title="autoAdvance ? '正在半自动推进；再次点击停止' : '立即开始半自动推进，可随时停止'"
         @click="emit('toggle-auto-advance')"
@@ -239,9 +235,10 @@
         @input="handleInput"
         :disabled="gameStore.isLoading"
       />
+      <!-- U3：发送是输入区唯一实色主动作；停止在同一位置替换（无布局跳动） -->
       <button
         v-if="gameStore.isLoading"
-        class="send-btn stop-btn"
+        class="send-btn control-primary stop-btn"
         type="button"
         title="停止生成"
         @click="gameStore.executeExperienceAction({ type: 'stop', source: 'stop-btn' })"
@@ -250,19 +247,19 @@
       </button>
       <button
         v-else
-        class="send-btn"
+        class="send-btn control-primary"
         @click="handleSend"
         :disabled="!inputText.trim()"
       >
         <span>发送</span>
       </button>
 
-      <button class="info-btn" @click="showPromptInfo = !showPromptInfo" title="提示词详情">
+      <button class="info-btn control-icon" :aria-pressed="showPromptInfo.toString()" @click="showPromptInfo = !showPromptInfo" title="提示词详情" aria-label="提示词详情">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
           <path d="M7 0h1v9h-1V0zm0 10h1v4h-1v-4zM4 4h1v6H4V4zm6 2h1v4h-1V6z"/>
         </svg>
       </button>
-      <button class="info-btn" :class="{ 'info-btn--active': showDirectorNote }" @click="showDirectorNote = !showDirectorNote" title="本轮导演注">
+      <button class="info-btn control-icon" :class="{ 'info-btn--active': showDirectorNote }" :aria-pressed="showDirectorNote.toString()" @click="showDirectorNote = !showDirectorNote" title="本轮导演注" aria-label="本轮导演注">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 3l9 5-9 5-9-5 9-5zm0 8.5L19 12v5l-7 4-7-4v-5l7 .5z"/>
         </svg>
@@ -568,29 +565,36 @@ function updatePromptInfo() {
 
 <style scoped>
 .api-key-hint {
+  /* U3：单行状态 + quiet link，不再使用虚线警告框 */
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
-  border: 1px dashed var(--border);
+  gap: 8px;
+  padding: 2px 2px 6px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 18%, transparent);
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
-  font-style: italic;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 .api-key-hint__link {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   color: var(--accent);
   text-decoration: none;
-  font-style: normal;
   font-weight: 600;
   font-size: 12px;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .api-key-hint__link:hover {
-  text-decoration: underline;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  text-decoration: none;
 }
 
 .input-area {
@@ -604,30 +608,26 @@ function updatePromptInfo() {
 }
 
 .quick-actions {
+  /* U3：command rail —— control-group 提供一条底 hairline，子按钮不逐个带框 */
   display: flex;
   flex-wrap: wrap;
   gap: 0;
 }
 
 .quick-btn {
+  /* 旧 border-right 分隔已删；control-quiet/control-toggle 提供语义 */
   padding: 6px 14px;
-  background: var(--bg-tertiary);
-  border: none;
-  border-right: 1px solid var(--border);
+  background: transparent;
+  border: 0;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
-  transition: all 0.15s;
   white-space: nowrap;
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
 }
-.quick-btn:first-child { border-radius: 6px 0 0 6px; }
-.quick-btn:last-child { border-right: none; border-radius: 0 6px 6px 0; }
-.quick-btn:only-child { border-radius: 6px; border-right: none; }
-.quick-btn:hover { background: var(--bg-hover); }
-.quick-btn:active { background: var(--accent-light); }
+.quick-btn:hover { color: var(--text-primary); }
 
 .auto-advance-btn {
   margin-left: 8px;
@@ -850,7 +850,8 @@ function updatePromptInfo() {
   font-size: 13px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.15s;
+  /* U3：tabs 用底线/色标；禁止 transition: all */
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 .modal-tabs .tab:hover { color: var(--text-secondary); }
 .modal-tabs .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -1002,19 +1003,20 @@ function updatePromptInfo() {
 }
 
 .info-btn {
+  /* U3：icon 控件 —— 无常驻边框（control-icon 提供命中区与悬停淡底） */
   width: 34px;
   height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
-.info-btn:hover { border-color: var(--accent); color: var(--accent); }
+.info-btn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); }
 
 /* 对话模式按钮 */
 .quick-btn.dialogue-btn {
@@ -1098,16 +1100,17 @@ function updatePromptInfo() {
 }
 
 .clear-btn {
+  /* U3：quiet */
   padding: 4px 10px;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 0;
+  border-radius: 3px;
   color: var(--text-muted);
   font-size: 11px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
-.clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+.clear-btn:hover { color: var(--danger); background: color-mix(in srgb, var(--danger, #b23) 8%, transparent); }
 
 .char-list {
   display: flex;
@@ -1119,17 +1122,20 @@ function updatePromptInfo() {
 }
 
 .char-item {
+  /* U3：角色选择器 = 分隔列表；选中用轻背景，不逐项描边 */
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft, var(--border)) 12%, transparent);
+  border-radius: 0;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.15s ease;
 }
-.char-item:hover { background: var(--bg-hover); }
-.char-item.active { background: var(--accent-light); border: 1px solid var(--accent); }
+.char-item:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.char-item.active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 .char-item .char-avatar.small {
   width: 28px;
