@@ -2,11 +2,11 @@
 
 ## Baseline gate
 
-- Status: `blocked-on-baseline`
-- Observed shared-worktree HEAD: `00dd965`
-- Required baseline: not created yet
-- Reason: the shared worktree contains uncommitted prerequisite work across Writing, Experience, Worldbook, contracts, tests, and UI audit files. Commit `00dd965` does not contain those prerequisites, so neither feature worker may branch from it.
-- Unblock action: the integration owner must review and preserve the current WIP, create or identify one clean prerequisite commit, then replace `blocked-on-baseline` and `not created yet` above with `ready` and the full 40-character commit SHA. Both workers must confirm that exact SHA before editing source.
+- Status: `ready`
+- Observed shared-worktree HEAD: `1839d42b44a7a724eb8fe137998561f74fa78b48`
+- Required baseline: `1839d42b44a7a724eb8fe137998561f74fa78b48`
+- Reason: the current handoff commit contains the reviewed Writing, Experience, Worldbook, contract, test, provider, and UI-audit prerequisites; the shared worktree is clean.
+- Unblock action: both feature workers must branch from this exact SHA and keep their exclusive file scopes isolated.
 
 Do not stash, reset, commit, or copy the shared dirty worktree merely to unblock this board. The owner of the existing WIP decides how it becomes a reproducible baseline.
 
@@ -14,8 +14,8 @@ Do not stash, reset, commit, or copy the shared dirty worktree merely to unblock
 
 | ID | Plan | Branch / worktree | Exclusive scope | Status | Output |
 |---|---|---|---|---|---|
-| WNB-6A | [Writing Unit V3 plan](../../superpowers/plans/2026-08-17-wnb-6a-writing-unit-v3.md) | `feature/wnb-6a-writing-unit-v3` / `/home/recoletas/jiuguan/worktrees/pinax-wnb-6a` | Writing schema/editor/sidecars/import; Experience collection UI; Writing-owned tests and audit fixture | Waiting for baseline | `wnb-6a-summary.md` |
-| EXP-AUTH | [Experience Authenticity MVP plan](../../superpowers/plans/2026-08-17-experience-authenticity-mvp.md) | `feature/experience-authenticity-mvp` / `/home/recoletas/jiuguan/worktrees/pinax-experience-authenticity` | Character voice authoring; narrative Kernel/resources/tools/orchestrator/critic; Experience-owned tests | Waiting for baseline | `experience-authenticity-summary.md` |
+| WNB-6A | [Writing Unit V3 plan](../../superpowers/plans/2026-08-17-wnb-6a-writing-unit-v3.md) | `feature/wnb-6a-writing-unit-v3` / `/home/recoletas/jiuguan/worktrees/pinax-wnb-6a` | Writing schema/editor/sidecars/import; Experience collection UI; Writing-owned tests and audit fixture | Ready; worker-owned | `wnb-6a-summary.md` |
+| EXP-AUTH | [Experience Authenticity MVP plan](../../superpowers/plans/2026-08-17-experience-authenticity-mvp.md) | `feature/experience-authenticity-mvp` / `/home/recoletas/jiuguan/worktrees/pinax-experience-authenticity` | Character voice authoring; narrative Kernel/resources/tools/orchestrator/critic; Experience-owned tests | In progress; Codex | `experience-authenticity-summary.md` |
 
 ## Frozen integration boundary
 
