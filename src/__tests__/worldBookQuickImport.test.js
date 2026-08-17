@@ -1172,11 +1172,24 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
       ['npcs', 'relationshipSummary']
     ])
     expect([...batchedResults.values()].every((result) => result.ok), JSON.stringify([...batchedResults.entries()])).toBe(true)
-    expect(parseCharacterCards('姓名：陆沉\n身份：巡夜人\n性格：克制、敏锐\n目标：查明旧案')).toMatchObject([{
+    expect(parseCharacterCards(JSON.stringify({
+      name: '陆沉',
+      identity: '巡夜人',
+      personality: '克制、敏锐',
+      goal: '查明旧案',
+      speechStyle: '短句，先复述事实再下判断',
+      mes_example: '<START>\nUser: 你相信谁？\n陆沉: 我只相信能复核的记录。\n<START>\nUser: 现在怎么办？\n陆沉: 先关门，再谈下一步。'
+    }))).toMatchObject([{
       name: '陆沉',
       traits: ['克制', '敏锐'],
-      goal: '查明旧案'
+      goal: '查明旧案',
+      speechStyle: '短句，先复述事实再下判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
     }])
+    expect(editorSource).toContain('entryForm.speechStyle')
+    expect(editorSource).toContain('entryForm.samples')
+    expect(editorSource).toContain('addVoiceSample')
+    expect(editorSource).toContain('removeVoiceSample')
     const retryCalls = []
     const retryResults = await generateSettingSectionDraftBatch({
       worldbook: sectionWorldbook,

@@ -1,3 +1,5 @@
+import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
+
 const FIELD_ALIASES = {
   name: ['姓名', '名字', '角色名', 'name'],
   gender: ['性别', 'gender'],
@@ -9,6 +11,7 @@ const FIELD_ALIASES = {
   goal: ['目标', '当前目标', '动机', 'goal', 'motivation'],
   relation: ['关系', '关系网', 'relation', 'relations'],
   speechStyle: ['说话方式', '口吻', '语言风格', 'speechstyle', 'speakingstyle'],
+  samples: ['示例台词', '台词样例', 'samples', 'mesexample'],
   openingState: ['开场状态', '当前状态', '状态', 'openingstate', 'state']
 }
 
@@ -37,6 +40,7 @@ function fromObject(raw = {}) {
   const name = text(source.name || source.displayName)
   if (!name) return null
   const traits = splitTraits(source.traits || source.personality)
+  const voice = normalizeNarrativeVoiceProfile(source, name)
   const description = [
     source.identity || source.role || source.title ? `身份：${text(source.identity || source.role || source.title)}` : '',
     source.appearance ? `外貌：${text(source.appearance)}` : '',
@@ -53,7 +57,9 @@ function fromObject(raw = {}) {
     description: text(source.description || source.persona) || description,
     goal: text(source.goal || source.motivation),
     greeting: text(source.greeting),
-    mood: Number.isFinite(Number(source.mood)) ? Math.max(0, Math.min(100, Number(source.mood))) : 50
+    mood: Number.isFinite(Number(source.mood)) ? Math.max(0, Math.min(100, Number(source.mood))) : 50,
+    speechStyle: voice.speechStyle,
+    samples: voice.samples
   }
 }
 
@@ -69,7 +75,9 @@ function parseLabeledCard(chunk) {
       body.push(line)
       continue
     }
-    fields[key] = fields[key] ? `${fields[key]}；${match[2]}` : match[2]
+    fields[key] = fields[key]
+      ? `${fields[key]}${key === 'samples' ? '\n' : '；'}${match[2]}`
+      : match[2]
   }
   if (!fields.name && body.length) fields.name = body[0]
   const parsed = fromObject(fields)

@@ -7,6 +7,7 @@ import {
 import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
 import { matchWorldbookEntries } from '../worldbookContextBuilder'
 import { speakerIdOf } from '../narrativePresentation'
+import { toKernelVoiceProfile } from '../narrativeVoiceProfile'
 
 const BLOCK_LIMITS = Object.freeze({
   rules: 900,
@@ -100,6 +101,8 @@ function buildSceneCast(worldbook, runtimeState, messages = []) {
       id: text(entry.id),
       name: text(entry.name),
       content: clip(entry.content, 300),
+      speechStyle: entry.speechStyle,
+      samples: entry.samples,
     }))
     .filter((entry) => entry.name)
 
@@ -213,11 +216,16 @@ function buildSceneCast(worldbook, runtimeState, messages = []) {
   return members.map((member) => {
     const isSpeaker = member === selected
     const { entry, userMentioned, goalRelated, ...publicMember } = member
+    const voice = isSpeaker ? toKernelVoiceProfile(entry, publicMember.name) : null
     return {
       ...publicMember,
       role: isSpeaker ? 'speaker' : 'scene',
       ...(isSpeaker
-        ? { characterCard: entry.content, selectionReason }
+        ? {
+            characterCard: entry.content,
+            selectionReason,
+            ...(voice.speechStyle || voice.samples.length ? { voice } : {})
+          }
         : { selectionReason: 'present-in-scene' }),
     }
   })
@@ -279,6 +287,7 @@ export function buildNarrativeKernel({
   const causality = buildRuntimeCausalityContext({ runtimeState })
   // R4：场景角色编排 —— 主 speaker 完整卡 + 其他角色摘要
   const cast = buildSceneCast(worldbook, runtimeState, messages)
+  const speaker = cast.find((member) => member.role === 'speaker')
   // P2：activatedLore —— 复用同一 matcher（确定性种子，同输入同命中集）。
   // 常驻/禁写规则已进 rules 块，这里只装普通条目；新会话允许少量 starter。
   const matchedLore = matchWorldbookEntries({
@@ -450,7 +459,11 @@ export function buildNarrativeKernel({
 
   // P1：geo 仅在当前有地点或用户问路线时暴露（options.hasPlace）
   const activeToolNames = resolveNarrativeActiveToolNames(latestUser?.content, {
-    hasPlace: Boolean(text(place.placeId))
+    hasPlace: Boolean(text(place.placeId)),
+    hasPolitics: Object.keys(runtimeState?.factionRelations || {}).length > 0
+      || Object.keys(runtimeState?.characterRelations || {}).length > 0
+      || Object.keys(runtimeState?.canonicalFacts || {}).length > 0
+      || Object.keys(runtimeState?.placeStates || {}).length > 0
   })
   const toolCatalog = getNarrativeToolCatalog({ activeTools: activeToolNames })
   const revision = createNarrativeRevision('nar', {
@@ -467,6 +480,11 @@ export function buildNarrativeKernel({
     blocks,
     toolCatalog,
     activeToolNames,
+    voice: {
+      anchored: Boolean(speaker?.voice),
+      speakerId: speaker?.speakerId || null,
+      sampleCount: speaker?.voice?.samples?.length || 0
+    },
     recentMessages: recent,  // C2.2：供 orchestrator 把真实 role messages 注入 transcript
     activatedLore: {  // P2：供 ledger/trace 记录激活原因分布
       entries: loreBlockEntries,

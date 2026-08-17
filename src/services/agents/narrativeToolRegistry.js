@@ -10,6 +10,7 @@ import { executeWorldLookup } from './tools/worldLookup'
 import { executeGeoLookup } from './tools/geoLookup'
 import { executeHistoryLookup } from './tools/historyLookup'
 import { executeMemoryLookup } from './tools/memoryLookup'
+import { executePoliticsLookup } from './tools/politicsLookup'
 import {
   NARRATIVE_BEAT_PLAN_TOOL,
   narrativeBeatPlanRevision
@@ -19,14 +20,16 @@ const EXECUTORS = Object.freeze({
   world_lookup: executeWorldLookup,
   geo_lookup: executeGeoLookup,
   history_lookup: executeHistoryLookup,
-  memory_lookup: executeMemoryLookup
+  memory_lookup: executeMemoryLookup,
+  politics_lookup: executePoliticsLookup
 })
 
 const TOOL_DOMAINS = Object.freeze({
   world_lookup: 'world',
   geo_lookup: 'geo',
   history_lookup: 'history',
-  memory_lookup: 'memory'
+  memory_lookup: 'memory',
+  politics_lookup: 'politics'
 })
 
 function text(value) {

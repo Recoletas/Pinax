@@ -83,6 +83,7 @@ import {
   getNarrativeToolCatalog,
   parseNarrativeCursor,
   resolveNarrativeActiveToolNames,
+  validateNarrativeToolInput,
   validateNarrativeToolCall
 } from '../../shared/narrativeAgentContract'
 import {
@@ -93,10 +94,24 @@ import {
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
 import {
   createNarrativeResourceIndex,
+  createNarrativeResourceSnapshotRevision,
   getNarrativeResourceIndex,
   searchNarrativeResources
 } from '../services/agents/narrativeResourceIndex'
 import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
+import {
+  pruneNarrativeToolResults,
+  runNarrativeAgentGeneration,
+  runNarrativeAgentLoop
+} from '../services/agents/narrativeAgentOrchestrator'
+import {
+  flushNarrativeCriticQueue,
+  parseNarrativeCriticVerdict
+} from '../services/agents/narrativeCritic'
+import {
+  clearNarrativeCriticMetrics,
+  listNarrativeCriticMetrics
+} from '../services/agents/narrativeCriticMetrics'
 import { validateNarrativeEvidence } from '../services/agents/narrativeEvidenceValidator'
 import {
   buildOpenAIToolRequest,
@@ -127,11 +142,6 @@ import {
   resolveNarrativeProviderCapabilities
 } from '../../server/services/providers/providerCapabilityResolver'
 import { probeNarrativeProviderCapabilities } from '../../server/services/providers/narrativeCapabilityProbe'
-import {
-  pruneNarrativeToolResults,
-  runNarrativeAgentLoop,
-  runNarrativeAgentGeneration
-} from '../services/agents/narrativeAgentOrchestrator'
 import {
   deriveNarrativeGroundingPolicy,
   hasNarrativeGroundingEvidence
@@ -587,7 +597,18 @@ describe('agentContracts', function () {
           type: 'character',
           keys: ['舰长', '褚岩'],
           content: '蓝色空间号舰长，沉着且重视证据。',
+          speechStyle: '短句，先确认事实，不使用感叹句',
+          samples: ['先报坐标。', '结论之后再谈责任。', '我需要能复核的记录。'],
           relations: { locations: ['place-belt'], events: ['history-signal'] }
+        },
+        {
+          id: 'entry-lu',
+          name: '陆晨曦',
+          type: 'character',
+          content: '工程师，负责校验异常信号。',
+          speechStyle: '语速快，常用反问',
+          samples: ['你真觉得这是巧合？'],
+          injection: { probability: 0 }
         },
         {
           id: 'entry-rule',
@@ -670,10 +691,14 @@ describe('agentContracts', function () {
           status: 'confirmed'
         }
       },
-      encounteredCharacters: [{ id: 'character-chu', name: '褚岩' }],
+      encounteredCharacters: [
+        { id: 'character-chu', name: '褚岩' },
+        { id: 'character-lu', name: '陆晨曦' }
+      ],
       goals: [{ id: 'goal-signal', title: '确认信号来源', status: 'active' }],
       keyChoices: [{ id: 'choice-report', label: '向舰长报告异常' }],
       playerCharacter: { id: 'character-player', name: '陆晨曦' },
+      dialogueCharacter: { id: 'entry-chu', name: '褚岩' },
       runtimeEvents: [{
         id: 'evt-signal-state',
         type: 'state_delta',
@@ -713,7 +738,8 @@ describe('agentContracts', function () {
     // P2：activatedLore —— 关键词命中的普通世界书条目进入 Kernel（rule/forbidden 不进 lore）。
     var loreBlock = narrativeKernel.blocks.find(function (block) { return block.kind === 'lore' })
     expect(loreBlock).toBeTruthy()
-    expect(loreBlock.content.entries.map(function (entry) { return entry.entryId })).toEqual(['entry-chu'])
+    expect(loreBlock.content.entries.map(function (entry) { return entry.entryId }))
+      .toEqual(expect.arrayContaining(['entry-chu']))
     expect(loreBlock.content.entries[0]).toMatchObject({
       matchReason: 'keyword',
       matchedKeys: expect.arrayContaining(['褚岩'])
@@ -739,6 +765,15 @@ describe('agentContracts', function () {
       'geo_lookup',
       'submit_narrative_beat_plan'
     ])
+    var cast = narrativeKernel.blocks.find(function (block) { return block.kind === 'cast' }).content.members
+    var speaker = cast.find(function (member) { return member.role === 'speaker' })
+    var nonSpeaker = cast.find(function (member) { return member.name === '陆晨曦' })
+    expect(speaker.voice).toEqual({
+      speechStyle: '短句，先确认事实，不使用感叹句',
+      samples: ['先报坐标。', '结论之后再谈责任。', '我需要能复核的记录。']
+    })
+    expect(nonSpeaker.voice).toBeUndefined()
+    expect(narrativeKernel.voice).toMatchObject({ anchored: true, speakerId: speaker.speakerId, sampleCount: 3 })
     expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual([
       ...NARRATIVE_READ_TOOL_NAMES,
       'submit_narrative_beat_plan'
@@ -834,12 +869,61 @@ describe('agentContracts', function () {
       runtimeState: narrativeRuntime,
       memories: narrativeMemories
     }
+    var politicalWorldbook = {
+      ...narrativeWorldbook,
+      entries: narrativeWorldbook.entries.concat({
+        id: 'entry-council',
+        name: '港务议会',
+        type: 'organization',
+        keys: ['议会', '港务议会'],
+        content: '港务议会控制港口，并与巡灯人同盟公开敌对。'
+      })
+    }
+    var politicalRuntime = {
+      factionRelations: { '港务议会': -35, '巡灯人同盟': 60 },
+      characterRelations: {
+        'relation:lu-chu': {
+          subjectId: 'entry-lu', objectId: 'entry-chu', kind: 'guardian', status: 'confirmed',
+          sourceRefs: ['runtime-event:relation-confirmed']
+        }
+      },
+      canonicalFacts: {
+        'fact:harbor-control': {
+          subjectId: 'place-harbor', predicate: 'controller', value: '港务议会', status: 'confirmed',
+          confidence: 0.9, sourceRefs: ['runtime-event:harbor-control']
+        }
+      },
+      placeStates: {
+        'place-harbor': { status: '戒严', controllerId: '港务议会', danger: 72 }
+      },
+      worldMapState: { placeId: 'place-harbor' },
+      dialogueCharacter: { id: 'entry-chu', name: '褚岩' },
+      encounteredCharacters: [{ id: 'entry-chu', name: '褚岩' }]
+    }
+    var politicalSnapshot = {
+      projectId: 'wb-politics',
+      sessionId: 'session-politics',
+      worldbook: politicalWorldbook,
+      runtimeState: politicalRuntime,
+      memories: []
+    }
+    var politicalIndex = createNarrativeResourceIndex(politicalSnapshot)
+    expect(politicalIndex.counts.politics).toBe(5)
+    expect(politicalIndex.resources.filter(function (item) { return item.domain === 'politics' })).toHaveLength(5)
+    expect(politicalIndex.resources
+      .filter(function (item) { return item.domain === 'politics' && item.sourceRefs.some(function (ref) { return ref.startsWith('runtime-event:') }) })
+      .every(function (item) { return item.trust === 'runtime-confirmed' && item.conflictState === 'clean' }))
+      .toBe(true)
+    expect(createNarrativeResourceSnapshotRevision({
+      ...politicalSnapshot,
+      runtimeState: { ...politicalRuntime, factionRelations: { ...politicalRuntime.factionRelations, '港务议会': -34 } }
+    })).not.toBe(politicalIndex.revision)
     var narrativeIndex = createNarrativeResourceIndex(narrativeSnapshot)
     var cachedNarrativeIndex = getNarrativeResourceIndex(narrativeSnapshot)
     expect(cachedNarrativeIndex.revision).toBe(narrativeIndex.revision)
     expect(getNarrativeResourceIndex(narrativeSnapshot)).toBe(cachedNarrativeIndex)
     expect(narrativeIndex.counts).toMatchObject({
-      world: 3,
+      world: 4,
       geo: 1,
       history: 2,
       memory: 1
@@ -961,6 +1045,138 @@ describe('agentContracts', function () {
       ok: true,
       items: []
     })
+
+    expect(resolveNarrativeActiveToolNames('港务议会与巡灯人同盟现在是敌对阵营吗？', {
+      hasPolitics: true
+    })).toContain('politics_lookup')
+    expect(validateNarrativeToolInput('politics_lookup', {
+      action: 'trace', ids: ['faction:港务议会'], limit: 4
+    }).valid).toBe(true)
+
+    var politicalKernel = buildNarrativeKernel({
+      worldbook: politicalWorldbook,
+      runtimeState: politicalRuntime,
+      messages: [{
+        id: 'politics-question',
+        role: 'user',
+        content: '港务议会与巡灯人同盟现在是敌对阵营吗？'
+      }],
+      projectId: 'wb-politics',
+      sessionId: 'session-politics'
+    })
+    var politicalRegistry = createNarrativeToolRegistry({
+      index: politicalIndex,
+      projectId: 'wb-politics',
+      sessionId: 'session-politics',
+      currentPlaceId: 'place-harbor'
+    })
+    var validBeatPlan = {
+      responseObligation: '回答两个组织当前是否敌对',
+      causalSteps: ['核对世界书组织条目', '核对当前政治关系'],
+      revealOrChange: '明确当前控制权与敌对关系',
+      endCondition: '给出有依据的当前判断'
+    }
+    var catalogs = []
+    var step = 0
+    var politicsRun = await runNarrativeAgentLoop({
+      kernel: politicalKernel,
+      registry: politicalRegistry,
+      requestId: 'politics-chain',
+      decisionRunner: async function (request) {
+        catalogs.push(request.tools.map(function (tool) { return tool.name }))
+        step += 1
+        if (step === 1) return { kind: 'tool_calls', calls: [{ id: 'plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }] }
+        if (step === 2) return { kind: 'tool_calls', calls: [{ id: 'world', name: 'world_lookup', arguments: { action: 'search', query: '港务议会', limit: 2 } }] }
+        if (step === 3) return { kind: 'tool_calls', calls: [{ id: 'politics', name: 'politics_lookup', arguments: { action: 'trace', ids: ['faction:港务议会'], limit: 4 } }] }
+        return { kind: 'final_ready', text: '议会仍控制港口，但巡灯人同盟已经公开拒绝协助。', calls: [] }
+      }
+    })
+    expect(catalogs[0]).not.toContain('politics_lookup')
+    expect(catalogs[1]).not.toContain('politics_lookup')
+    expect(catalogs[2]).toContain('politics_lookup')
+    expect(politicsRun.trace.calls.map(function (call) { return call.name })).toContain('politics_lookup')
+
+    const validVerdict = parseNarrativeCriticVerdict(JSON.stringify({
+      schemaVersion: 1,
+      pass: true,
+      scores: { voiceConsistency: 4, grounding: 4, continuity: 3, readability: 4 },
+      flags: ['minor-register-drift'],
+      reason: '声口基本稳定。'
+    }))
+    expect(validVerdict).toMatchObject({ pass: true, scores: { voiceConsistency: 4 } })
+    expect(parseNarrativeCriticVerdict('{"pass":true,"rewrittenText":"禁止持久化"}')).toBeNull()
+
+    clearNarrativeCriticMetrics()
+    var voiceKernel = {
+      ...politicalKernel,
+      voice: { anchored: true, speakerId: 'char:entry-chu', sampleCount: 3 }
+    }
+    var productionCalls = 0
+    var productionDecisionRunner = async function () {
+      productionCalls += 1
+      if (productionCalls === 1) {
+        return {
+          kind: 'tool_calls',
+          calls: [{ id: 'critic-plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }]
+        }
+      }
+      return { kind: 'final_ready', text: '原始可见正文。', calls: [] }
+    }
+    var releaseCritic
+    var criticGate = new Promise(function (resolve) { releaseCritic = resolve })
+    var visible = []
+    var criticResolved = false
+    var run = await runNarrativeAgentGeneration({
+      kernel: voiceKernel,
+      registry: politicalRegistry,
+      requestId: 'critic-shadow-run',
+      decisionRunner: productionDecisionRunner,
+      criticRunner: async function () {
+        await criticGate
+        criticResolved = true
+        return validVerdict
+      },
+      criticSampleRate: 1,
+      callbacks: { onChunk: function ({ content }) { visible.push(content) } }
+    })
+    expect(run.finalText).toBe('原始可见正文。')
+    expect(visible.join('')).toBe('原始可见正文。')
+    expect(criticResolved).toBe(false)
+    releaseCritic()
+    await flushNarrativeCriticQueue()
+    expect(criticResolved).toBe(true)
+    const metric = listNarrativeCriticMetrics().find(function (item) { return item.runId === 'critic-shadow-run' })
+    expect(metric).toMatchObject({ outcome: 'success', voiceVariant: 'anchored' })
+    expect(JSON.stringify(metric)).not.toContain('原始可见正文。')
+
+    var timeoutRun = await runNarrativeAgentGeneration({
+      kernel: voiceKernel,
+      registry: politicalRegistry,
+      requestId: 'critic-timeout-run',
+      decisionRunner: async function () { return { kind: 'final_ready', text: '超时仍不影响正文。', calls: [] } },
+      criticRunner: async function () {
+        var error = new Error('critic timeout')
+        error.code = 'NARRATIVE_CRITIC_TIMEOUT'
+        throw error
+      },
+      criticSampleRate: 1,
+      callbacks: { onChunk: function () {} }
+    })
+    var invalidRun = await runNarrativeAgentGeneration({
+      kernel: voiceKernel,
+      registry: politicalRegistry,
+      requestId: 'critic-invalid-run',
+      decisionRunner: async function () { return { kind: 'final_ready', text: '无效评语仍不影响正文。', calls: [] } },
+      criticRunner: async function () { return '{"schemaVersion":1,"pass":true,"rewrittenText":"禁止"}' },
+      criticSampleRate: 1,
+      callbacks: { onChunk: function () {} }
+    })
+    await flushNarrativeCriticQueue()
+    expect(timeoutRun.finalText).toBe('超时仍不影响正文。')
+    expect(invalidRun.finalText).toBe('无效评语仍不影响正文。')
+    expect(listNarrativeCriticMetrics().filter(function (item) {
+      return ['critic-timeout-run', 'critic-invalid-run'].includes(item.runId)
+    }).map(function (item) { return item.outcome })).toEqual(expect.arrayContaining(['timeout', 'invalid']))
 
     var narrativeToolCatalog = getNarrativeToolCatalog()
     var providerTurnRequest = {

@@ -271,8 +271,112 @@ function memoryResources(memories = []) {
     .filter((item) => item.id && item.summary)
 }
 
+function politicsResources(runtimeState = {}) {
+  const resources = []
+  const factionRelations = runtimeState?.factionRelations
+  if (factionRelations && typeof factionRelations === 'object' && !Array.isArray(factionRelations)) {
+    for (const [name, rawScore] of Object.entries(factionRelations).slice(0, 32)) {
+      const faction = text(name)
+      const score = Number(rawScore)
+      if (!faction || !Number.isFinite(score)) continue
+      resources.push(resource({
+        id: `faction:${faction}`,
+        domain: 'politics',
+        type: 'faction-relation',
+        title: faction,
+        summary: `当前关系值：${Math.max(-100, Math.min(100, Math.round(score)))}`,
+        aliases: [faction],
+        sourceRefs: [`runtime-state:factionRelations:${faction}`],
+        trust: 'runtime-confirmed'
+      }))
+    }
+  }
+
+  const characterRelations = runtimeState?.characterRelations
+  if (characterRelations && typeof characterRelations === 'object' && !Array.isArray(characterRelations)) {
+    for (const [relationId, relationState] of Object.entries(characterRelations).slice(0, 32)) {
+      const id = text(relationId)
+      const subjectId = text(relationState?.subjectId)
+      const objectId = text(relationState?.objectId)
+      const kind = text(relationState?.kind)
+      if (!id || !subjectId || !objectId || !kind) continue
+      const status = text(relationState?.status || 'confirmed')
+      const sourceRefs = unique(relationState?.sourceRefs || [])
+      resources.push(resource({
+        id: `character-relation:${id}`,
+        domain: 'politics',
+        type: 'character-relation',
+        title: `${subjectId} / ${objectId}`,
+        summary: `${subjectId} 与 ${objectId} 的关系：${kind}（${status}）`,
+        aliases: [subjectId, objectId, kind],
+        characterIds: [subjectId, objectId],
+        relations: [relation('character', subjectId), relation('character', objectId)],
+        sourceRefs,
+        trust: 'runtime-confirmed',
+        conflictState: status === 'disputed' ? 'active-conflict' : 'clean'
+      }))
+    }
+  }
+
+  const canonicalFacts = runtimeState?.canonicalFacts
+  if (canonicalFacts && typeof canonicalFacts === 'object' && !Array.isArray(canonicalFacts)) {
+    for (const [factId, fact] of Object.entries(canonicalFacts).slice(0, 32)) {
+      const id = text(factId)
+      const subjectId = text(fact?.subjectId)
+      const predicate = text(fact?.predicate)
+      const status = text(fact?.status || 'confirmed')
+      if (!id || !subjectId || !predicate || !['confirmed', 'disputed'].includes(status)) continue
+      const value = fact?.value == null ? '' : text(fact.value)
+      const sourceRefs = unique(fact?.sourceRefs || [])
+      resources.push(resource({
+        id: `fact:${id}`,
+        domain: 'politics',
+        type: 'canonical-fact',
+        title: `${subjectId}：${predicate}`,
+        summary: `${subjectId} ${predicate}${value ? `：${value}` : ''}（${status}）`,
+        aliases: [subjectId, predicate, value],
+        relations: [relation('subject', subjectId), relation('object', value)],
+        sourceRefs,
+        trust: 'runtime-confirmed',
+        conflictState: status === 'disputed' ? 'active-conflict' : 'clean',
+        conflictRefs: fact?.conflictRefs || []
+      }))
+    }
+  }
+
+  const placeStates = runtimeState?.placeStates
+  if (placeStates && typeof placeStates === 'object' && !Array.isArray(placeStates)) {
+    for (const [placeId, placeState] of Object.entries(placeStates).slice(0, 32)) {
+      const place = text(placeId)
+      const status = text(placeState?.status)
+      const controllerId = text(placeState?.controllerId)
+      const danger = Number(placeState?.danger)
+      if (!place || (!status && !controllerId && !Number.isFinite(danger))) continue
+      resources.push(resource({
+        id: `place-control:${place}`,
+        domain: 'politics',
+        type: 'place-control',
+        title: place,
+        summary: [
+          controllerId ? `当前控制：${controllerId}` : '',
+          status ? `状态：${status}` : '',
+          Number.isFinite(danger) ? `危险度：${Math.max(0, Math.min(100, danger))}` : ''
+        ].filter(Boolean).join('；'),
+        aliases: [place, controllerId, status],
+        placeIds: [place],
+        relations: [relation('controller', controllerId)],
+        sourceRefs: [`runtime-state:placeStates:${place}`],
+        trust: 'runtime-confirmed'
+      }))
+    }
+  }
+
+  return resources.filter((item) => item.id && item.summary)
+}
+
 export function createNarrativeResourceSnapshotRevision(snapshot = {}) {
   const worldbook = snapshot?.worldbook || {}
+  const runtimeState = snapshot?.runtimeState || {}
   return createNarrativeRevision('res', {
     projectId: text(snapshot?.projectId || worldbook?.id),
     sessionId: text(snapshot?.sessionId),
@@ -308,7 +412,14 @@ export function createNarrativeResourceSnapshotRevision(snapshot = {}) {
       text(memory?.status),
       Number(memory?.updatedAt || memory?.createdAt || 0),
       text(memory?.content)
-    ])
+    ]),
+    politics: {
+      factionRelations: runtimeState?.factionRelations || {},
+      characterRelations: runtimeState?.characterRelations || {},
+      canonicalFacts: runtimeState?.canonicalFacts || {},
+      placeStates: runtimeState?.placeStates || {},
+      worldMapState: runtimeState?.worldMapState || {}
+    }
   })
 }
 
@@ -317,7 +428,8 @@ export function createNarrativeResourceIndex(snapshot = {}) {
     ...worldResources(snapshot?.worldbook),
     ...geoResources(snapshot?.worldbook),
     ...historyResources(snapshot?.worldbook),
-    ...memoryResources(snapshot?.memories)
+    ...memoryResources(snapshot?.memories),
+    ...politicsResources(snapshot?.runtimeState)
   ]
   const byId = new Map()
   const byDomain = new Map()
@@ -334,7 +446,7 @@ export function createNarrativeResourceIndex(snapshot = {}) {
     resources,
     byId,
     byDomain,
-    counts: Object.fromEntries(['world', 'geo', 'history', 'memory'].map((domain) => [
+    counts: Object.fromEntries(['world', 'geo', 'history', 'memory', 'politics'].map((domain) => [
       domain,
       byDomain.get(domain)?.length || 0
     ]))
@@ -535,6 +647,68 @@ export function getRelatedNarrativeResources(index, domain, ids = [], filters = 
     domain,
     input: { ...filters, limit, cursor: options.cursor }
   })
+}
+
+function politicsScore(item) {
+  const match = text(item?.summary).match(/-?\d+/)
+  return match ? Math.abs(Number(match[0])) : 0
+}
+
+export function getCurrentNarrativePolitics(index, filters = {}, options = {}, context = {}) {
+  const resources = index?.byDomain?.get('politics') || []
+  const currentPlaceId = text(context?.currentPlaceId || options?.currentPlaceId)
+  const place = resources
+    .filter((item) => item.type === 'place-control')
+    .filter((item) => !currentPlaceId || item.placeIds.includes(currentPlaceId))
+  const factions = resources
+    .filter((item) => item.type === 'faction-relation')
+    .sort((left, right) => politicsScore(right) - politicsScore(left) || left.id.localeCompare(right.id))
+  const conflicts = resources.filter((item) => item.conflictState === 'active-conflict')
+  const selected = [...place, ...factions, ...conflicts]
+    .filter((item, position, values) => values.findIndex((candidate) => candidate.id === item.id) === position)
+    .filter((item) => matchesFilters(item, filters))
+    .slice(0, NARRATIVE_TOOL_LIMITS.maxItems)
+  Object.defineProperty(selected, 'nextCursor', { value: '', enumerable: false })
+  return selected
+}
+
+export function traceNarrativePolitics(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems, options = {}) {
+  const queue = ids.map((id) => ({ id, depth: 0 }))
+  const seen = new Set()
+  const result = []
+  const resources = index?.byDomain?.get('politics') || []
+  while (queue.length > 0 && result.length < limit) {
+    const current = queue.shift()
+    if (!current || seen.has(current.id)) continue
+    seen.add(current.id)
+    const item = index?.byId?.get(current.id)
+    if (item?.domain !== 'politics') continue
+    if (matchesFilters(item, filters)) {
+      result.push({
+        ...item,
+        matchReasons: current.depth === 0 ? ['trace-root'] : ['politics-link'],
+        depth: current.depth,
+        relationPath: item.relations.slice(0, 4).map((relationItem) => ({
+          from: item.id,
+          to: relationItem.targetId,
+          edgeType: relationItem.type,
+          depth: current.depth
+        }))
+      })
+    }
+    for (const relationItem of item.relations) {
+      if (index?.byId?.get(relationItem.targetId)?.domain === 'politics') {
+        queue.push({ id: relationItem.targetId, depth: current.depth + 1 })
+      }
+    }
+    for (const candidate of resources) {
+      if (candidate.relations.some((relationItem) => relationItem.targetId === current.id)) {
+        queue.push({ id: candidate.id, depth: current.depth + 1 })
+      }
+    }
+  }
+  Object.defineProperty(result, 'nextCursor', { value: '', enumerable: false })
+  return result
 }
 
 export function traceNarrativeHistory(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems, options = {}) {

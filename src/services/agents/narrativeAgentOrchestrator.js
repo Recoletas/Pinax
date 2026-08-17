@@ -29,6 +29,12 @@ import {
   hasNarrativeGroundingEvidence
 } from './narrativeAgentPolicy'
 import { validateNarrativeEvidence } from './narrativeEvidenceValidator'
+import {
+  NARRATIVE_CRITIC_LIMITS,
+  runNarrativeCriticShadow,
+  scheduleNarrativeCriticShadow,
+  shouldSampleNarrativeCritic
+} from './narrativeCritic'
 
 export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
   // P1：资料查询轮独立计数（1 正常 + 1 条件恢复）；BeatPlan 控制步骤不占此预算。
@@ -449,7 +455,7 @@ function resultSourceRefs(result) {
     .slice(0, 32)
 }
 
-function validateNarrativeStepResponse(response) {
+function validateNarrativeStepResponse(response, allowedToolNames = null) {
   if (!response || typeof response !== 'object') {
     throw runtimeError('NARRATIVE_AGENT_STEP_INVALID', '模型没有返回有效的工具调用或最终正文', true)
   }
@@ -466,6 +472,18 @@ function validateNarrativeStepResponse(response) {
     throw runtimeError('NARRATIVE_AGENT_STEP_INVALID', '模型没有返回有效的工具调用或最终正文', true)
   }
   for (const rawCall of response.calls) {
+    const callName = text(rawCall?.name || rawCall?.function?.name)
+    if (Array.isArray(allowedToolNames)
+      && callName === 'politics_lookup'
+      && !allowedToolNames.includes(callName)) {
+      const error = runtimeError(
+        'NARRATIVE_TOOL_NOT_DECLARED',
+        `本步骤未声明叙事工具：${callName || 'empty'}`,
+        true
+      )
+      error.call = rawCall
+      throw error
+    }
     const validation = validateNarrativeToolCall(rawCall)
     if (!validation.valid) {
       const error = runtimeError(
@@ -693,7 +711,11 @@ export async function runNarrativeAgentLoop({
   // request may still carry an earlier BeatPlan tool-call in its history;
   // removing the tool for extend/follow-up makes the provider contract reject
   // an otherwise valid transcript as GENERATION_TOOL_NOT_DECLARED.
-  const requestTools = kernel.toolCatalog || []
+  const completeToolCatalog = kernel.toolCatalog || []
+  let worldLookupSucceeded = false
+  const requestTools = () => completeToolCatalog.filter((tool) => (
+    tool.name !== 'politics_lookup' || worldLookupSucceeded
+  ))
   let beatPlan = null
   let beatPlanRevision = ''
   let beatPlanRepairs = 0
@@ -730,7 +752,7 @@ export async function runNarrativeAgentLoop({
     })
     const request = () => decisionRunner({
       messages: transcriptToGenerationMessages(transcript),
-      tools: requestTools,
+      tools: requestTools(),
       settings,
       requestId: turnRequestId,
       options: {
@@ -756,7 +778,10 @@ export async function runNarrativeAgentLoop({
     })
     while (true) {
       try {
-        const response = validateNarrativeStepResponse(await request())
+        const response = validateNarrativeStepResponse(
+          await request(),
+          requestTools().map((tool) => tool.name)
+        )
         providerRetryCount = 0
         return response
       } catch (error) {
@@ -1029,6 +1054,15 @@ export async function runNarrativeAgentLoop({
         throw linkedAbort.signal.reason || runtimeError('NARRATIVE_AGENT_ABORTED', '叙事生成已取消')
       }
 
+      if (executed.some((entry) => (
+        entry.call.name === 'world_lookup'
+        && entry.result?.ok === true
+        && Array.isArray(entry.result?.items)
+        && entry.result.items.some((item) => item?.eligibleEvidence === true)
+      ))) {
+        worldLookupSucceeded = true
+      }
+
       for (let index = 0; index < executed.length; index += 1) {
         const entry = executed[index]
         const remainingEntries = executed.length - index - 1
@@ -1047,6 +1081,7 @@ export async function runNarrativeAgentLoop({
         toolResults.push(bounded.result)
         traceCalls.push({
           callId: text(entry.call.id),
+          name: text(entry.call.name),
           tool: text(entry.call.name),
           action: text(entry.call.arguments?.action),
           itemIds: (bounded.result?.items || []).map((item) => text(item?.id)).filter(Boolean),
@@ -1251,7 +1286,9 @@ export async function runNarrativeAgentGeneration({
   maxTokens = 1600,
   callbacks = {},
   onStatus = null,
-  decisionRunner = runNarrativeAgentTurn
+  decisionRunner = runNarrativeAgentTurn,
+  criticRunner = runNarrativeCriticShadow,
+  criticSampleRate = NARRATIVE_CRITIC_LIMITS.sampleRate
 } = {}) {
   const loop = await runNarrativeAgentLoop({
     kernel,
@@ -1276,6 +1313,41 @@ export async function runNarrativeAgentGeneration({
     terminalMode: loop.trace?.terminalMode || 'direct-text'
   })
   emitNarrativeFinalText(callbacks, loop.finalText)
+  const voiceVariant = kernel?.voice?.anchored ? 'anchored' : 'unanchored'
+  const politicsUsed = (loop.trace?.calls || []).some((call) => (
+    text(call?.name || call?.tool) === 'politics_lookup'
+  ))
+  const politicsAvailable = (kernel?.toolCatalog || []).some((tool) => tool.name === 'politics_lookup')
+  const politicsVariant = politicsUsed
+    ? 'used'
+    : politicsAvailable ? 'available-not-used' : 'unavailable'
+  const shouldSample = shouldSampleNarrativeCritic(requestId, criticSampleRate)
+  const speaker = (kernel?.blocks || [])
+    .find((block) => block.kind === 'cast')?.content?.members
+    ?.find((member) => member.role === 'speaker')
+  const criticShadow = {
+    scheduled: shouldSample,
+    sampleRate: criticSampleRate,
+    voiceVariant,
+    politicsVariant
+  }
+  if (shouldSample) {
+    scheduleNarrativeCriticShadow({
+      runId: requestId,
+      finalText: loop.finalText,
+      speakerVoice: speaker?.voice,
+      evidenceSummaries: (loop.toolResults || []).flatMap((result) => (
+        (result?.items || []).map((item) => `${item.title || item.id}：${item.summary || ''}`)
+      )),
+      beatPlan: loop.beatPlan,
+      settings,
+      provider: settings?.provider,
+      model: settings?.model,
+      voiceVariant,
+      politicsVariant,
+      runner: criticRunner
+    })
+  }
   status(onStatus, 'complete', {
     toolRounds: loop.toolRounds,
     totalCalls: loop.totalCalls,
@@ -1284,6 +1356,7 @@ export async function runNarrativeAgentGeneration({
   })
   return {
     ...loop,
+    trace: { ...loop.trace, criticShadow },
     finalToolResults: loop.toolResults,
     finalContent: loop.finalText,
     maxTokens,

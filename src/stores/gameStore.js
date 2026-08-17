@@ -3305,6 +3305,7 @@ export const useGameStore = defineStore('game', {
             canonicalFacts: this.canonicalFacts,
             runtimeEvents: this.runtimeEvents,
             encounteredCharacters: this.encounteredCharacters,
+            factionRelations: this.factionRelations,
             goals: this.goals,
             keyChoices: this.keyChoices,
             playerCharacter: this.playerCharacter,
@@ -3335,6 +3336,13 @@ export const useGameStore = defineStore('game', {
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
           worldbook,
+          runtimeState: {
+            factionRelations: this.factionRelations,
+            characterRelations: this.characterRelations,
+            canonicalFacts: this.canonicalFacts,
+            placeStates: this.placeStates,
+            worldMapState: this.worldMapState
+          },
           memories: narrativeMemoriesFiltered
         })
         const narrativeRegistry = createNarrativeToolRegistry({

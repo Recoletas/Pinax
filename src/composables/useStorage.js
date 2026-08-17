@@ -71,6 +71,7 @@ export const STORAGE_KEYS = {
   AGENT_RUNTIME_POLICY: 'pinax_agent_runtime_policy_v1',
   AGENT_RUNTIME_METRICS: 'pinax_agent_runtime_metrics_v1',
   NARRATIVE_PRODUCTION_METRICS: 'pinax_narrative_production_metrics_v1',
+  NARRATIVE_CRITIC_METRICS: 'pinax_narrative_critic_metrics_v1',
 
   // 角色卡
   CHARACTERS: 'characters',

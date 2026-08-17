@@ -36,6 +36,10 @@ export const NARRATIVE_READ_TOOLS = Object.freeze({
   memory_lookup: Object.freeze({
     actions: Object.freeze(['search', 'get']),
     description: '查询当前项目或会话中已经确认的记忆事实。'
+  }),
+  politics_lookup: Object.freeze({
+    actions: Object.freeze(['current', 'get', 'trace']),
+    description: '查询当前势力关系、人物关系、地点控制和已确认政治事实。必须先核对相关世界书条目。'
   })
 })
 
@@ -104,6 +108,9 @@ function validateActionInput(name, input) {
   if (name === 'memory_lookup') {
     if (input.action === 'search' && !hasQuery) return 'search-requires-query'
     if (input.action === 'get' && !hasIds) return 'get-requires-ids'
+  }
+  if (name === 'politics_lookup' && ['get', 'trace'].includes(input.action) && !hasIds) {
+    return `${input.action}-requires-ids`
   }
   return ''
 }
@@ -242,6 +249,8 @@ export function resolveNarrativeActiveToolNames(input = '', options = {}) {
   const explicitMemory = /记忆|记得|回想|曾经|之前确认|已知/.test(normalized)
   if (explicitHistory || options.hasHistory === true) names.add('history_lookup')
   if (explicitMemory || options.hasMemory === true) names.add('memory_lookup')
+  const explicitPolitics = /势力|派系|同盟|敌对|外交|联盟|阵营|控制权|领主|议会/.test(normalized)
+  if (explicitPolitics && options.hasPolitics === true) names.add('politics_lookup')
   // BeatPlan 内部工具单独追加（不在 read tools 枚举里；extend 时由 orchestrator 从目录剔除）
   return [...NARRATIVE_READ_TOOL_NAMES.filter((name) => names.has(name)), NARRATIVE_BEAT_PLAN_TOOL]
 }

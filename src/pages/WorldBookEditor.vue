@@ -509,6 +509,40 @@
                 ></textarea>
               </label>
 
+              <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
+                <header class="entry-voice-editor__head">
+                  <div>
+                    <span class="panel-kicker">角色声口</span>
+                    <h3 id="entry-voice-title">说话方式与示例</h3>
+                  </div>
+                  <span class="entry-voice-editor__count">{{ entryForm.samples.length }}/6</span>
+                </header>
+                <label>
+                  说话方式
+                  <textarea
+                    v-model="entryForm.speechStyle"
+                    rows="3"
+                    maxlength="240"
+                    placeholder="句长、措辞、回避或强调习惯"
+                  ></textarea>
+                </label>
+                <label v-for="(_sample, index) in entryForm.samples" :key="index">
+                  示例台词 {{ index + 1 }}
+                  <span class="entry-voice-editor__sample">
+                    <textarea v-model="entryForm.samples[index]" rows="2" maxlength="240"></textarea>
+                    <button type="button" class="ghost-btn small" @click="removeVoiceSample(index)">移除</button>
+                  </span>
+                </label>
+                <button
+                  v-if="entryForm.samples.length < 6"
+                  type="button"
+                  class="ghost-btn small entry-voice-editor__add"
+                  @click="addVoiceSample"
+                >
+                  添加示例台词
+                </button>
+              </section>
+
               <section class="injection-panel">
                 <h3>注入参数</h3>
                 <div class="injection-grid">
@@ -600,6 +634,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
   findWorldbookAuditTargets,
   runWorldbookMaintenance,
@@ -723,6 +758,8 @@ const entryForm = reactive({
   keys: '',
   keysSecondary: '',
   content: '',
+  speechStyle: '',
+  samples: [],
   injectionMode: 'selective',
   injectionProbability: 100,
   injectionCooldown: 0,
@@ -1093,6 +1130,9 @@ function syncEntryForm(entry) {
   entryForm.keys = (entry?.keys || []).join(', ')
   entryForm.keysSecondary = (entry?.keysSecondary || []).join(', ')
   entryForm.content = entry?.content || ''
+  const voice = normalizeNarrativeVoiceProfile(entry || {}, entryForm.name)
+  entryForm.speechStyle = voice.speechStyle
+  entryForm.samples = [...voice.samples]
   entryForm.injectionMode = injection.mode
   entryForm.injectionProbability = injection.probability
   entryForm.injectionCooldown = injection.cooldown
@@ -1111,6 +1151,8 @@ function resetEntryForm() {
   entryForm.keys = ''
   entryForm.keysSecondary = ''
   entryForm.content = ''
+  entryForm.speechStyle = ''
+  entryForm.samples = []
   entryForm.injectionMode = 'selective'
   entryForm.injectionProbability = 100
   entryForm.injectionCooldown = 0
@@ -1400,6 +1442,10 @@ async function saveEntry() {
       keys: splitKeywords(entryForm.keys),
       keysSecondary: splitKeywords(entryForm.keysSecondary),
       content: entryForm.content.trim(),
+      ...normalizeNarrativeVoiceProfile({
+        speechStyle: entryForm.speechStyle,
+        samples: entryForm.samples
+      }, entryForm.name),
       injection: normalizedInjection
     })
     await worldStore.loadWorldbooksIndex()
@@ -1781,6 +1827,15 @@ async function pruneEmptyGroups() {
 
 function setEntryGroup(group) {
   entryForm.injectionGroup = group
+}
+
+function addVoiceSample() {
+  if (entryForm.samples.length >= 6) return
+  entryForm.samples.push('')
+}
+
+function removeVoiceSample(index) {
+  entryForm.samples.splice(index, 1)
 }
 
 function openImportFilePicker() {
@@ -3346,6 +3401,49 @@ label {
     transparent 0 29px,
     color-mix(in srgb, var(--accent) 8%, transparent) 29px 30px
   );
+}
+
+.entry-workspace-card .entry-voice-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 0 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.entry-voice-editor__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entry-voice-editor__head h3 {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.entry-voice-editor__count {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-voice-editor__sample {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.entry-voice-editor__sample textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-voice-editor__sample .ghost-btn,
+.entry-voice-editor__add {
+  flex: 0 0 auto;
 }
 
 .entry-workspace-card .injection-panel {

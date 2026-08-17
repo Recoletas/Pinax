@@ -23,7 +23,7 @@ export const GENERATION_AGENT_LIMITS = Object.freeze({
   maxMessageChars: 8000,
   maxToolResultChars: 7200,
   maxInputChars: 24000,
-  maxTools: 5,
+  maxTools: 6,
   maxTokens: 8192,
   maxTimeoutMs: 100000
 })
