@@ -344,6 +344,9 @@ async function parseFiles(files) {
           action: 'sources',
           message: `正在读取资料（${completed}/${list.length}）`
         })
+      },
+      onMetrics: (metrics) => {
+        if (metrics && typeof metrics === 'object') workspace.sourceParseMetrics = metrics
       }
     })
     let readyCount = 0

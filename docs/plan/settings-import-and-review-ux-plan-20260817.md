@@ -207,6 +207,7 @@ CreationWorkspace {
   generationAction,
   generationErrorCode,
   generationMessage,
+  sourceParseMetrics,
   createdAt,
   updatedAt
 }
@@ -510,7 +511,7 @@ idle -> preparing -> generating -> validating
 
 ### U2：多文件解析与最低限度去重（1.5-2 天）
 
-当前进度：TXT/MD、PDF、DOCX 的统一解析与 Worker 边界已接通；本轮补齐来源归档的 64MB 总容量估算、quota 错误归一、跨工作区正文 hash 复用、chunk 引用安全回收和“清理未引用资料”入口。创建页现在可以中止本地解析，Worker 与无 Worker 降级路径都把 AbortSignal 传到逐页/逐文件 adapter，文件队列按文件显示读取进度并在完成后替换为正式归档或错误项，成功来源与失败项彼此隔离。PDF 密码保护、PDF 损坏和 DOCX 损坏已归一为可操作错误码；parse-timeout 现在会同时 abort 底层解析信号，PDF loading task 也做 best-effort destroy；合同测试已走通实际 PDF.js 与 Mammoth raw-text 路径。quota 失败时解析结果保留为“仅本页”资料，支持展开预览与导出文字；确认正式世界书前会再次尝试归档，归档仍失败则阻止提交，不写入失效的 `archiveRef`；worldStore 的正式世界书/条目写入也会检查 localStorage 失败并回滚新建或导入的半成品。扫描件 OCR、加密/损坏文件的真实浏览器样本和 20MB 级 PDF 设备性能仍需真实文件验收。
+当前进度：TXT/MD、PDF、DOCX 的统一解析与 Worker 边界已接通；本轮补齐来源归档的 64MB 总容量估算、quota 错误归一、跨工作区正文 hash 复用、chunk 引用安全回收和“清理未引用资料”入口。创建页现在可以中止本地解析，Worker 与无 Worker 降级路径都把 AbortSignal 传到逐页/逐文件 adapter，文件队列按文件显示读取进度并在完成后替换为正式归档或错误项，成功来源与失败项彼此隔离。PDF 密码保护、PDF 损坏和 DOCX 损坏已归一为可操作错误码；parse-timeout 现在会同时 abort 底层解析信号，PDF loading task 也做 best-effort destroy；合同测试已走通实际 PDF.js 与 Mammoth raw-text 路径。解析结果现在额外记录每文件耗时/慢任务标记，Worker 与主线程降级路径统一回传批次总耗时、最大单文件耗时和慢文件索引，并保存到 creation workspace；阈值只用于诊断，不作为不同设备的发布门槛。quota 失败时解析结果保留为“仅本页”资料，支持展开预览与导出文字；确认正式世界书前会再次尝试归档，归档仍失败则阻止提交，不写入失效的 `archiveRef`；worldStore 的正式世界书/条目写入也会检查 localStorage 失败并回滚新建或导入的半成品。扫描件 OCR、加密/损坏文件的真实浏览器样本和 20MB 级 PDF 设备性能仍需真实文件验收。
 
 补充实现证据：正式世界书加载时保留 `archiveRef/chunkIds/contentHash`，旧版未归档 `sourceDocuments` 会惰性注册到 source archive；批量归档与单文件入口共用正文 hash 复用和容量预检，复用时为每个逻辑来源补充 chunk `sourceRefs`。创建工作区的粘贴入口也会在 quota 失败时降级为“仅本页”。
 
@@ -578,6 +579,7 @@ idle -> preparing -> generating -> validating
 - 本轮再补齐：分区批量生成的多份草稿不再只有第一份可见；结构化设定面板新增轻量待审队列，在同一个 `SettingDraftReview` 中切换字段草稿。新增 UI 合同测试，结构化页 1440/1024/390px 的六状态审计保持 18 captures、0 console error、0 a11y failure。
 - 本轮再补齐：抽出共享 `SettingsContextBar`，将设定一级导航收为“设定 / 地图 / 条目”，世界书首页通过路由归入“设定”；正式世界书来源归一同时接受 `contentPreview`，结构化来源带和归档长度展示不再依赖旧 `content` 字段。
 - 本轮再补齐：高级条目页复用共享 `SettingsContextBar` 与三项一级导航，删除旧顶部标题/搜索和左侧世界书选择器；390px 下新建世界书收为图标动作。1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
+- 本轮再补齐：来源解析为每文件和每批次保留诊断耗时，主线程与 Worker 合同一致，creation workspace 可恢复最近一次批次指标；慢任务阈值只用于后续性能观察，不替代实体设备验收。
 
 退出条件见下一节。
 

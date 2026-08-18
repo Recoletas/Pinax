@@ -17,6 +17,7 @@ export const SOURCE_ARCHIVE_DB_NAME = 'pinax-source-archive'
 export const SOURCE_ARCHIVE_DB_VERSION = 1
 export const SOURCE_ARCHIVE_CAPACITY_BYTES = 64 * 1024 * 1024
 export const SOURCE_ARCHIVE_WARNING_BYTES = 48 * 1024 * 1024
+export const SOURCE_PARSE_SLOW_THRESHOLD_MS = 3000
 export const SOURCE_ARCHIVE_STORES = Object.freeze({
   artifacts: 'artifacts',
   chunks: 'chunks',
@@ -105,6 +106,20 @@ function normalizeSourceFailures(failures) {
       }
     }))
     .slice(0, 64)
+}
+
+function normalizeSourceParseMetrics(metrics) {
+  const durationMs = Math.max(0, Number(metrics?.durationMs) || 0)
+  const maxFileDurationMs = Math.max(0, Number(metrics?.maxFileDurationMs) || 0)
+  return {
+    durationMs,
+    fileCount: Math.max(0, Number(metrics?.fileCount) || 0),
+    maxFileDurationMs,
+    slowFileCount: Math.max(0, Number(metrics?.slowFileCount) || 0),
+    slowFileIndexes: [...new Set((Array.isArray(metrics?.slowFileIndexes) ? metrics.slowFileIndexes : [])
+      .map((index) => Number(index))
+      .filter((index) => Number.isInteger(index) && index >= 0))].slice(0, 64)
+  }
 }
 
 function chooseChunkEnd(text, start, limit) {
@@ -274,6 +289,7 @@ export function createCreationWorkspace(input = {}) {
     generationMessage: asText(input.generationMessage).trim().slice(0, 500),
     generationStartedAt: Number(input.generationStartedAt) || 0,
     generationCompletedAt: Number(input.generationCompletedAt) || 0,
+    sourceParseMetrics: normalizeSourceParseMetrics(input.sourceParseMetrics),
     createdAt: Number(input.createdAt) || now,
     updatedAt: now,
     error: asText(input.error).trim()

@@ -683,6 +683,7 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2]).buffer)
     })).rejects.toMatchObject({ code: 'docx-parse-failed' })
     const progress = []
+    let parseMetrics = null
     const results = await parseSourceFiles([
       {
         name: 'ok.txt', type: 'text/plain', size: 4, lastModified: 1,
@@ -692,19 +693,32 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
         name: 'bad.exe', type: 'application/octet-stream', size: 4, lastModified: 1,
         text: vi.fn()
       }
-    ], { onProgress: (entry) => progress.push(entry) })
+    ], {
+      onProgress: (entry) => progress.push(entry),
+      onMetrics: (metrics) => { parseMetrics = metrics }
+    })
 
     expect(results.map((item) => item.status)).toEqual(['ready', 'error'])
     expect(progress.map((item) => item.index).sort((a, b) => a - b)).toEqual([0, 1])
     expect(progress.map((item) => item.status).sort()).toEqual(['error', 'ready'])
     expect(results[0].artifact.title).toBe('ok.txt')
     expect(results[1].error).toMatchObject({ code: 'unsupported-type' })
+    expect(results[0].parseMetrics).toEqual(expect.objectContaining({
+      durationMs: expect.any(Number),
+      slow: expect.any(Boolean)
+    }))
+    expect(parseMetrics).toEqual(expect.objectContaining({
+      fileCount: 2,
+      slowFileCount: 0,
+      durationMs: expect.any(Number)
+    }))
 
     const workerResults = await parseSourceFilesWithWorker([{
       name: 'worker.txt', type: 'text/plain', size: 4, lastModified: 1,
       text: vi.fn().mockResolvedValue('Worker 资料')
     }])
     expect(workerResults).toMatchObject([{ status: 'ready', artifact: { title: 'worker.txt' } }])
+    expect(workerResults[0].parseMetrics.durationMs).toEqual(expect.any(Number))
     const cancelled = new AbortController()
     cancelled.abort()
     await expect(parseSourceFilesWithWorker([], { signal: cancelled.signal })).rejects.toMatchObject({

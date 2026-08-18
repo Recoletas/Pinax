@@ -2,7 +2,8 @@ import {
   buildSourceChunks,
   hashSourceText,
   normalizeSourceArtifact,
-  normalizeSourceText
+  normalizeSourceText,
+  SOURCE_PARSE_SLOW_THRESHOLD_MS
 } from './worldbookSourceArchive'
 
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024
@@ -72,6 +73,15 @@ function createParseTimeoutError(file, timeoutMs) {
     `${text(file?.name) || '文件'}读取超过 ${Math.round(timeoutMs / 1000)} 秒，已停止本次解析。`,
     { timeoutMs }
   )
+}
+
+function buildParseMetrics(durationMs, thresholdMs = SOURCE_PARSE_SLOW_THRESHOLD_MS) {
+  const normalizedDuration = Math.max(0, Math.round(Number(durationMs) || 0))
+  const normalizedThreshold = Math.max(1, Number(thresholdMs) || SOURCE_PARSE_SLOW_THRESHOLD_MS)
+  return {
+    durationMs: normalizedDuration,
+    slow: normalizedDuration >= normalizedThreshold
+  }
 }
 
 function withParseTimeout(task, file, timeoutMs, signal, abortTask) {
@@ -284,7 +294,9 @@ function serializeError(error) {
 
 export async function parseSourceFiles(files = [], options = {}) {
   const list = Array.from(files || [])
-  return Promise.all(list.map(async (file, index) => {
+  const batchStartedAt = Date.now()
+  const results = await Promise.all(list.map(async (file, index) => {
+    const fileStartedAt = Date.now()
     let result
     try {
       throwIfAborted(options.signal)
@@ -299,14 +311,28 @@ export async function parseSourceFiles(files = [], options = {}) {
         error: serializeError(error)
       }
     }
+    result.parseMetrics = buildParseMetrics(Date.now() - fileStartedAt, options.slowParseThresholdMs)
     throwIfAborted(options.signal)
     options.onProgress?.({
       index,
       total: list.length,
       fileName: result.fileName,
       status: result.status,
-      error: result.error || null
+      error: result.error || null,
+      durationMs: result.parseMetrics.durationMs,
+      slow: result.parseMetrics.slow
     })
     return result
   }))
+  const slowFileIndexes = results
+    .map((result, index) => result.parseMetrics?.slow ? index : -1)
+    .filter((index) => index >= 0)
+  options.onMetrics?.({
+    durationMs: Math.max(0, Date.now() - batchStartedAt),
+    fileCount: results.length,
+    maxFileDurationMs: Math.max(0, ...results.map((result) => Number(result.parseMetrics?.durationMs) || 0)),
+    slowFileCount: slowFileIndexes.length,
+    slowFileIndexes
+  })
+  return results
 }

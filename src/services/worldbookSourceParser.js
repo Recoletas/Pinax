@@ -55,7 +55,10 @@ export async function parseSourceFilesWithWorker(files = [], options = {}) {
       }
       finish()
       if (event.data.error) reject(parseWorkerError(event.data.error))
-      else resolve(Array.isArray(event.data.results) ? event.data.results : [])
+      else {
+        options.onMetrics?.(event.data.metrics || null)
+        resolve(Array.isArray(event.data.results) ? event.data.results : [])
+      }
     }
     worker.onerror = (event) => {
       finish()
@@ -64,6 +67,7 @@ export async function parseSourceFilesWithWorker(files = [], options = {}) {
     const workerOptions = { ...options }
     delete workerOptions.signal
     delete workerOptions.onProgress
+    delete workerOptions.onMetrics
     worker.postMessage({ requestId, files: Array.from(files || []), options: workerOptions })
   })
 }
