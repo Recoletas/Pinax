@@ -16,6 +16,7 @@ import {
   tryAiGenerateWorldbookJsonFromBrief
 } from './worldbookImportGeneration'
 import { formatWorldbookStatus } from './worldbookFeedback'
+import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
 import { seedWorldbookPresets as presets } from './seedWorldbookPresets'
 import { createEmptyStructuredSettings, normalizeStructuredSettings } from './settingPanelSchema'
 import {
@@ -265,6 +266,7 @@ export function normalizeGeneratedEntry(rawEntry, index = 0) {
     keys,
     keysSecondary,
     content,
+    ...(type === 'character' ? normalizeNarrativeVoiceProfile(rawEntry, name) : {}),
     injection: {
       ...injection,
       group
@@ -597,6 +599,9 @@ export async function createWorldbookFromPayload(worldStore, payload, options = 
         keys: entry.keys,
         keysSecondary: entry.keysSecondary,
         content: entry.content,
+        ...(entry.type === 'character'
+          ? normalizeNarrativeVoiceProfile(entry, entry.name)
+          : {}),
         injection: entry.injection,
         metadata: {
           importSource: normalizedPayload.sourceLabel,

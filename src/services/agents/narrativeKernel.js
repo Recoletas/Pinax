@@ -246,6 +246,118 @@ function makeBlock(kind, content, sourceRefs = []) {
   }
 }
 
+function compactCastMember(member, level = 1) {
+  const speaker = member.role === 'speaker'
+  if (level >= 4) {
+    return {
+      speakerId: clip(member.speakerId, 40),
+      name: clip(member.name, 20),
+      role: member.role,
+      ...(speaker
+        ? {
+            characterCard: clip(member.characterCard, 48),
+            ...(member.voice
+              ? {
+                  voice: {
+                    speechStyle: clip(member.voice.speechStyle, 32),
+                    samples: member.voice.samples?.length ? [clip(member.voice.samples[0], 40)] : []
+                  }
+                }
+              : {})
+          }
+        : {})
+    }
+  }
+  if (level >= 3) {
+    return {
+      speakerId: clip(member.speakerId, 48),
+      name: clip(member.name, 24),
+      role: member.role,
+      present: member.present,
+      muted: member.muted,
+      ...(speaker
+        ? {
+            characterCard: clip(member.characterCard, 80),
+            ...(member.voice
+              ? {
+                  voice: {
+                    speechStyle: clip(member.voice.speechStyle, 48),
+                    samples: member.voice.samples?.length ? [clip(member.voice.samples[0], 64)] : []
+                  }
+                }
+              : {})
+          }
+        : {})
+    }
+  }
+
+  return {
+    speakerId: member.speakerId,
+    name: member.name,
+    role: member.role,
+    present: member.present,
+    muted: member.muted,
+    ...(level === 1
+      ? {
+          talkativeness: Math.round(Number(member.talkativeness || 0) * 100) / 100,
+          ...(member.status ? { status: member.status } : {}),
+          ...(member.summary ? { summary: clip(member.summary, 36) } : {}),
+          ...(member.sourceRef ? { sourceRef: member.sourceRef } : {}),
+          ...(member.lastSpokeTurnId ? { lastSpokeTurnId: member.lastSpokeTurnId } : {}),
+          knowledgeRefs: (member.knowledgeRefs || []).slice(0, 2)
+        }
+      : {}),
+    selectionReason: member.selectionReason,
+    ...(speaker
+      ? {
+          characterCard: clip(member.characterCard, level === 1 ? 180 : 120),
+          ...(member.voice
+            ? {
+                voice: {
+                  speechStyle: clip(member.voice.speechStyle, level === 1 ? 100 : 72),
+                  samples: member.voice.samples?.length
+                    ? [clip(member.voice.samples[0], level === 1 ? 120 : 80)]
+                    : []
+                }
+              }
+            : {})
+        }
+      : {})
+  }
+}
+
+// Cast cannot use makeBlock's generic summary fallback: presentation depends on
+// every name → speakerId mapping remaining structured. Compact optional detail
+// in deterministic tiers while preserving all members and one speaker sample.
+function makeCastBlock(cast) {
+  const maxChars = BLOCK_LIMITS.cast
+  for (const level of [0, 1, 2, 3, 4]) {
+    const members = level === 0 ? cast : cast.map((member) => compactCastMember(member, level))
+    const content = { members }
+    const chars = JSON.stringify(content).length
+    if (chars <= maxChars) {
+      return {
+        kind: 'cast',
+        content,
+        sourceRefs: cast.map((member) => `character:${member.name}`),
+        chars,
+        truncated: false
+      }
+    }
+  }
+
+  // Encountered cast is capped at eight members, so tier 4 is expected to fit.
+  // Retain a structured result even if hostile oversized identifiers exceed it.
+  const content = { members: cast.map((member) => compactCastMember(member, 4)) }
+  return {
+    kind: 'cast',
+    content,
+    sourceRefs: cast.map((member) => `character:${member.name}`),
+    chars: JSON.stringify(content).length,
+    truncated: false
+  }
+}
+
 function activeGoals(runtimeState) {
   return (Array.isArray(runtimeState?.goals) ? runtimeState.goals : [])
     .filter((goal) => text(goal?.status).toLowerCase() !== 'completed')
@@ -393,7 +505,7 @@ export function buildNarrativeKernel({
       ...characters.map((character) => `character:${character.id || character.name}`)
     ]),
     // R4：场景角色编排 —— 主 speaker 完整角色卡 + 其他角色受限摘要
-    ...(cast.length > 0 ? [makeBlock('cast', { members: cast }, cast.map((member) => `character:${member.name}`))] : []),
+    ...(cast.length > 0 ? [makeCastBlock(cast)] : []),
     // P2：activatedLore —— 当前地点/角色/历史/关键词命中的世界书普通条目（请求模型前确定性装配）。
     // 无条目命中时（如全新会话）退回世界概述，避免模型在空白中写作。
     ...(loreBlockEntries.length > 0 ? [makeBlock('lore', {

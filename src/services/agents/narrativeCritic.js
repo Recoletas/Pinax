@@ -2,6 +2,7 @@ import { getNarrativeToolCatalog } from '../../../shared/narrativeAgentContract'
 import { runNarrativeAgentTurn } from '../generationService'
 import {
   listNarrativeCriticMetrics,
+  normalizeNarrativeCriticFlags,
   recordNarrativeCriticMetric
 } from './narrativeCriticMetrics'
 
@@ -43,7 +44,17 @@ export function parseNarrativeCriticVerdict(value) {
     return null
   }
   if (!parsed || parsed.schemaVersion !== NARRATIVE_CRITIC_SCHEMA_VERSION || typeof parsed.pass !== 'boolean') return null
-  if ('rewrittenText' in parsed || 'replacement' in parsed) return null
+  const visited = new WeakSet()
+  const hasRewriteShapedKey = (candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false
+    if (visited.has(candidate)) return false
+    visited.add(candidate)
+    return Object.entries(candidate).some(([key, nested]) => (
+      /rewrit|replac|revis(?:e|ed|ion)|draft|suggestedtext|editedtext/i.test(key)
+      || (nested && typeof nested === 'object' && hasRewriteShapedKey(nested))
+    ))
+  }
+  if (hasRewriteShapedKey(parsed)) return null
   const score = (name, nullable = false) => {
     if (parsed.scores?.[name] == null && nullable) return null
     const number = Number(parsed.scores?.[name])
@@ -60,9 +71,7 @@ export function parseNarrativeCriticVerdict(value) {
     schemaVersion: NARRATIVE_CRITIC_SCHEMA_VERSION,
     pass: parsed.pass,
     scores,
-    flags: [...new Set((Array.isArray(parsed.flags) ? parsed.flags : [])
-      .map((flag) => text(flag, 80))
-      .filter(Boolean))].slice(0, 8),
+    flags: normalizeNarrativeCriticFlags(parsed.flags),
     reason: text(parsed.reason, 240)
   }
 }
@@ -176,7 +185,34 @@ export function scheduleNarrativeCriticShadow(input = {}) {
       text: text(input.finalText || input.text, NARRATIVE_CRITIC_LIMITS.maxTextChars)
     }
     try {
-      const result = await runner(input)
+      const controller = new AbortController()
+      const timeoutMs = Number.isFinite(Number(input.timeoutMs)) && Number(input.timeoutMs) > 0
+        ? Number(input.timeoutMs)
+        : NARRATIVE_CRITIC_LIMITS.timeoutMs
+      const onAbort = () => controller.abort(input.signal?.reason)
+      if (input.signal) {
+        if (input.signal.aborted) onAbort()
+        else input.signal.addEventListener('abort', onAbort, { once: true })
+      }
+      let timer
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('叙事 shadow critic 超时')
+          error.code = 'NARRATIVE_CRITIC_TIMEOUT'
+          controller.abort(error)
+          reject(error)
+        }, timeoutMs)
+      })
+      let result
+      try {
+        result = await Promise.race([
+          Promise.resolve().then(() => runner({ ...input, signal: controller.signal })),
+          timeout
+        ])
+      } finally {
+        clearTimeout(timer)
+        input.signal?.removeEventListener?.('abort', onAbort)
+      }
       const verdict = parseNarrativeCriticVerdict(result?.verdict ?? result)
       const durationMs = Date.now() - startedAt
       if (!verdict) {

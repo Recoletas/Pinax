@@ -96,7 +96,8 @@ import {
   createNarrativeResourceIndex,
   createNarrativeResourceSnapshotRevision,
   getNarrativeResourceIndex,
-  searchNarrativeResources
+  searchNarrativeResources,
+  traceNarrativePolitics
 } from '../services/agents/narrativeResourceIndex'
 import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
 import {
@@ -106,7 +107,8 @@ import {
 } from '../services/agents/narrativeAgentOrchestrator'
 import {
   flushNarrativeCriticQueue,
-  parseNarrativeCriticVerdict
+  parseNarrativeCriticVerdict,
+  scheduleNarrativeCriticShadow
 } from '../services/agents/narrativeCritic'
 import {
   clearNarrativeCriticMetrics,
@@ -774,6 +776,37 @@ describe('agentContracts', function () {
     })
     expect(nonSpeaker.voice).toBeUndefined()
     expect(narrativeKernel.voice).toMatchObject({ anchored: true, speakerId: speaker.speakerId, sampleCount: 3 })
+    var crowdedCharacters = Array.from({ length: 8 }, function (_, index) {
+      return {
+        id: `crowded-${index + 1}`,
+        name: `在场角色${index + 1}`,
+        type: 'character',
+        content: `角色${index + 1}的完整设定：${'负责记录现场事实、辨认风险并坚持自己的行动边界。'.repeat(12)}`,
+        speechStyle: `角色${index + 1}只说短句，并优先复述可核验事实。`,
+        samples: Array.from({ length: 5 }, function (__, sampleIndex) {
+          return `角色${index + 1}的示例台词${sampleIndex + 1}：${'先确认记录，再作判断。'.repeat(8)}`
+        })
+      }
+    })
+    var crowdedKernel = buildNarrativeKernel({
+      worldbook: { id: 'wb-crowded', entries: crowdedCharacters },
+      runtimeState: {
+        encounteredCharacters: crowdedCharacters.map(function (entry) { return { id: entry.id, name: entry.name } }),
+        dialogueCharacter: { id: crowdedCharacters[0].id, name: crowdedCharacters[0].name }
+      },
+      messages: [{ id: 'crowded-turn', role: 'user', content: '请大家依次说明情况。' }],
+      projectId: 'wb-crowded',
+      sessionId: 'session-crowded'
+    })
+    var crowdedCastBlock = crowdedKernel.blocks.find(function (block) { return block.kind === 'cast' })
+    expect(crowdedCastBlock.truncated).toBe(false)
+    expect(crowdedCastBlock.chars).toBeLessThanOrEqual(1200)
+    expect(crowdedCastBlock.content.members).toHaveLength(8)
+    expect(crowdedCastBlock.content.members.map(function (member) { return [member.name, member.speakerId] }))
+      .toEqual(expect.arrayContaining(crowdedCharacters.map(function (entry) { return [entry.name, `char:${entry.id}`] })))
+    expect(crowdedCastBlock.content.members.filter(function (member) { return member.voice })).toHaveLength(1)
+    expect(crowdedCastBlock.content.members.find(function (member) { return member.role === 'speaker' }).voice.samples.length)
+      .toBeGreaterThanOrEqual(1)
     expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual([
       ...NARRATIVE_READ_TOOL_NAMES,
       'submit_narrative_beat_plan'
@@ -907,13 +940,38 @@ describe('agentContracts', function () {
       runtimeState: politicalRuntime,
       memories: []
     }
+    var politicalRuntimeBeforeIndex = JSON.stringify(politicalRuntime)
     var politicalIndex = createNarrativeResourceIndex(politicalSnapshot)
+    expect(JSON.stringify(politicalRuntime)).toBe(politicalRuntimeBeforeIndex)
     expect(politicalIndex.counts.politics).toBe(5)
     expect(politicalIndex.resources.filter(function (item) { return item.domain === 'politics' })).toHaveLength(5)
     expect(politicalIndex.resources
       .filter(function (item) { return item.domain === 'politics' && item.sourceRefs.some(function (ref) { return ref.startsWith('runtime-event:') }) })
       .every(function (item) { return item.trust === 'runtime-confirmed' && item.conflictState === 'clean' }))
       .toBe(true)
+    expect(politicalIndex.byId.has('fact:harbor-control')).toBe(true)
+    expect(politicalIndex.byId.has('fact:fact:harbor-control')).toBe(false)
+    expect(politicalIndex.byId.has('character-relation:lu-chu')).toBe(true)
+    expect(politicalIndex.byId.has('character-relation:relation:lu-chu')).toBe(false)
+    var politicalTrace = traceNarrativePolitics(politicalIndex, ['faction:港务议会'], {}, 4)
+    expect(politicalTrace.map(function (item) { return item.id })).toEqual(expect.arrayContaining([
+      'faction:港务议会',
+      'place-control:place-harbor',
+      'fact:harbor-control'
+    ]))
+    expect(politicalTrace).toHaveLength(3)
+    expect(traceNarrativePolitics(politicalIndex, ['faction:港务议会'], {}, 2)).toHaveLength(2)
+    var endedPoliticalIndex = createNarrativeResourceIndex({
+      ...politicalSnapshot,
+      runtimeState: {
+        ...politicalRuntime,
+        characterRelations: {
+          ...politicalRuntime.characterRelations,
+          'relation:lu-chu': { ...politicalRuntime.characterRelations['relation:lu-chu'], status: 'ended' }
+        }
+      }
+    })
+    expect(endedPoliticalIndex.byId.get('character-relation:lu-chu').conflictState).toBe('stale')
     expect(createNarrativeResourceSnapshotRevision({
       ...politicalSnapshot,
       runtimeState: { ...politicalRuntime, factionRelations: { ...politicalRuntime.factionRelations, '港务议会': -34 } }
@@ -1100,11 +1158,23 @@ describe('agentContracts', function () {
       schemaVersion: 1,
       pass: true,
       scores: { voiceConsistency: 4, grounding: 4, continuity: 3, readability: 4 },
-      flags: ['minor-register-drift'],
+      flags: ['minor-register-drift', '原始正文：这是不应持久化的任意模型输出'],
       reason: '声口基本稳定。'
     }))
-    expect(validVerdict).toMatchObject({ pass: true, scores: { voiceConsistency: 4 } })
+    expect(validVerdict).toMatchObject({
+      pass: true,
+      scores: { voiceConsistency: 4 },
+      flags: ['minor-register-drift']
+    })
     expect(parseNarrativeCriticVerdict('{"pass":true,"rewrittenText":"禁止持久化"}')).toBeNull()
+    expect(parseNarrativeCriticVerdict(JSON.stringify({
+      schemaVersion: 1,
+      pass: true,
+      scores: { voiceConsistency: 4, grounding: 4, continuity: 3, readability: 4 },
+      flags: [],
+      reason: '短诊断',
+      rewriteHint: '换成这一整段文字'
+    }))).toBeNull()
 
     clearNarrativeCriticMetrics()
     var voiceKernel = {
@@ -1177,6 +1247,21 @@ describe('agentContracts', function () {
     expect(listNarrativeCriticMetrics().filter(function (item) {
       return ['critic-timeout-run', 'critic-invalid-run'].includes(item.runId)
     }).map(function (item) { return item.outcome })).toEqual(expect.arrayContaining(['timeout', 'invalid']))
+    var ignoredAbortSignal = false
+    scheduleNarrativeCriticShadow({
+      runId: 'critic-never-resolves',
+      finalText: '调度器必须在 runner 无响应时自行结束。',
+      timeoutMs: 10,
+      runner: async function ({ signal }) {
+        signal.addEventListener('abort', function () { ignoredAbortSignal = true }, { once: true })
+        return new Promise(function () {})
+      }
+    })
+    await flushNarrativeCriticQueue()
+    expect(ignoredAbortSignal).toBe(true)
+    expect(listNarrativeCriticMetrics().find(function (item) {
+      return item.runId === 'critic-never-resolves'
+    })).toMatchObject({ outcome: 'timeout' })
 
     var narrativeToolCatalog = getNarrativeToolCatalog()
     var providerTurnRequest = {

@@ -271,28 +271,57 @@ function memoryResources(memories = []) {
     .filter((item) => item.id && item.summary)
 }
 
+function politicsId(prefix, value, legacyPrefixes = []) {
+  const normalized = text(value)
+  if (!normalized) return ''
+  const matchedPrefix = [prefix, ...legacyPrefixes]
+    .map((item) => `${item}:`)
+    .find((item) => normalized.startsWith(item))
+  const suffix = matchedPrefix ? normalized.slice(matchedPrefix.length) : normalized
+  return suffix ? `${prefix}:${suffix}` : ''
+}
+
 function politicsResources(runtimeState = {}) {
   const resources = []
   const factionRelations = runtimeState?.factionRelations
+  const characterRelations = runtimeState?.characterRelations
+  const canonicalFacts = runtimeState?.canonicalFacts
+  const placeStates = runtimeState?.placeStates
+  const factionEntries = factionRelations && typeof factionRelations === 'object' && !Array.isArray(factionRelations)
+    ? Object.entries(factionRelations).slice(0, 32)
+    : []
+  const factEntries = canonicalFacts && typeof canonicalFacts === 'object' && !Array.isArray(canonicalFacts)
+    ? Object.entries(canonicalFacts).slice(0, 32)
+    : []
+  const placeEntries = placeStates && typeof placeStates === 'object' && !Array.isArray(placeStates)
+    ? Object.entries(placeStates).slice(0, 32)
+    : []
   if (factionRelations && typeof factionRelations === 'object' && !Array.isArray(factionRelations)) {
-    for (const [name, rawScore] of Object.entries(factionRelations).slice(0, 32)) {
+    for (const [name, rawScore] of factionEntries) {
       const faction = text(name)
       const score = Number(rawScore)
       if (!faction || !Number.isFinite(score)) continue
       resources.push(resource({
-        id: `faction:${faction}`,
+        id: politicsId('faction', faction),
         domain: 'politics',
         type: 'faction-relation',
         title: faction,
         summary: `当前关系值：${Math.max(-100, Math.min(100, Math.round(score)))}`,
         aliases: [faction],
+        relations: [
+          ...placeEntries
+            .filter(([, state]) => text(state?.controllerId) === faction)
+            .map(([placeId]) => relation('controls', politicsId('place-control', placeId))),
+          ...factEntries
+            .filter(([, fact]) => text(fact?.subjectId) === faction || text(fact?.value) === faction)
+            .map(([factId]) => relation('canonical-fact', politicsId('fact', factId)))
+        ],
         sourceRefs: [`runtime-state:factionRelations:${faction}`],
         trust: 'runtime-confirmed'
       }))
     }
   }
 
-  const characterRelations = runtimeState?.characterRelations
   if (characterRelations && typeof characterRelations === 'object' && !Array.isArray(characterRelations)) {
     for (const [relationId, relationState] of Object.entries(characterRelations).slice(0, 32)) {
       const id = text(relationId)
@@ -303,7 +332,7 @@ function politicsResources(runtimeState = {}) {
       const status = text(relationState?.status || 'confirmed')
       const sourceRefs = unique(relationState?.sourceRefs || [])
       resources.push(resource({
-        id: `character-relation:${id}`,
+        id: politicsId('character-relation', id, ['relation']),
         domain: 'politics',
         type: 'character-relation',
         title: `${subjectId} / ${objectId}`,
@@ -313,14 +342,15 @@ function politicsResources(runtimeState = {}) {
         relations: [relation('character', subjectId), relation('character', objectId)],
         sourceRefs,
         trust: 'runtime-confirmed',
-        conflictState: status === 'disputed' ? 'active-conflict' : 'clean'
+        conflictState: ['ended', 'terminated', 'stale'].includes(status)
+          ? 'stale'
+          : status === 'disputed' ? 'active-conflict' : 'clean'
       }))
     }
   }
 
-  const canonicalFacts = runtimeState?.canonicalFacts
   if (canonicalFacts && typeof canonicalFacts === 'object' && !Array.isArray(canonicalFacts)) {
-    for (const [factId, fact] of Object.entries(canonicalFacts).slice(0, 32)) {
+    for (const [factId, fact] of factEntries) {
       const id = text(factId)
       const subjectId = text(fact?.subjectId)
       const predicate = text(fact?.predicate)
@@ -328,14 +358,20 @@ function politicsResources(runtimeState = {}) {
       if (!id || !subjectId || !predicate || !['confirmed', 'disputed'].includes(status)) continue
       const value = fact?.value == null ? '' : text(fact.value)
       const sourceRefs = unique(fact?.sourceRefs || [])
+      const politicalTarget = (value) => {
+        const normalized = text(value)
+        if (factionEntries.some(([name]) => text(name) === normalized)) return politicsId('faction', normalized)
+        if (placeEntries.some(([placeId]) => text(placeId) === normalized)) return politicsId('place-control', normalized)
+        return normalized
+      }
       resources.push(resource({
-        id: `fact:${id}`,
+        id: politicsId('fact', id),
         domain: 'politics',
         type: 'canonical-fact',
         title: `${subjectId}：${predicate}`,
         summary: `${subjectId} ${predicate}${value ? `：${value}` : ''}（${status}）`,
         aliases: [subjectId, predicate, value],
-        relations: [relation('subject', subjectId), relation('object', value)],
+        relations: [relation('subject', politicalTarget(subjectId)), relation('object', politicalTarget(value))],
         sourceRefs,
         trust: 'runtime-confirmed',
         conflictState: status === 'disputed' ? 'active-conflict' : 'clean',
@@ -344,16 +380,15 @@ function politicsResources(runtimeState = {}) {
     }
   }
 
-  const placeStates = runtimeState?.placeStates
   if (placeStates && typeof placeStates === 'object' && !Array.isArray(placeStates)) {
-    for (const [placeId, placeState] of Object.entries(placeStates).slice(0, 32)) {
+    for (const [placeId, placeState] of placeEntries) {
       const place = text(placeId)
       const status = text(placeState?.status)
       const controllerId = text(placeState?.controllerId)
       const danger = Number(placeState?.danger)
       if (!place || (!status && !controllerId && !Number.isFinite(danger))) continue
       resources.push(resource({
-        id: `place-control:${place}`,
+        id: politicsId('place-control', place),
         domain: 'politics',
         type: 'place-control',
         title: place,
@@ -364,7 +399,12 @@ function politicsResources(runtimeState = {}) {
         ].filter(Boolean).join('；'),
         aliases: [place, controllerId, status],
         placeIds: [place],
-        relations: [relation('controller', controllerId)],
+        relations: [
+          relation('controller', politicsId('faction', controllerId)),
+          ...factEntries
+            .filter(([, fact]) => text(fact?.subjectId) === place || text(fact?.value) === place)
+            .map(([factId]) => relation('canonical-fact', politicsId('fact', factId)))
+        ],
         sourceRefs: [`runtime-state:placeStates:${place}`],
         trust: 'runtime-confirmed'
       }))

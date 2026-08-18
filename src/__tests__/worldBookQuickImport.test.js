@@ -522,7 +522,19 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       .toBe('old-only-source')
     const importedFromPinax = await store.importFromSillyTavern({
       name: 'Pinax JSON 归档',
-      entries: {},
+      entries: {
+        voice_character: {
+          key: ['陆沉'],
+          comment: '陆沉',
+          content: '巡夜人，习惯先核对事实。',
+          extensions: {
+            pinax_voice: {
+              speechStyle: '短句，先复述事实再判断',
+              samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+            }
+          }
+        }
+      },
       extensions: {
         pinax_source_documents: [{
           id: 'pinax-json-source',
@@ -535,6 +547,16 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     expect(importedFromPinax.sourceDocuments[0]).toMatchObject({
       archiveRef: 'pinax-json-source',
       chunkIds: expect.any(Array)
+    })
+    expect(importedFromPinax.entries[0]).toMatchObject({
+      type: 'character',
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
+    const exportedWithVoice = await store.exportToSillyTavern(importedFromPinax.id)
+    expect(exportedWithVoice.entries.voice_character.extensions.pinax_voice).toEqual({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
     })
 
     const ownerCreateCalls = []
@@ -1190,6 +1212,7 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     expect(editorSource).toContain('entryForm.samples')
     expect(editorSource).toContain('addVoiceSample')
     expect(editorSource).toContain('removeVoiceSample')
+    expect(editorSource).toContain('生成时最多使用前 3 条')
     const retryCalls = []
     const retryResults = await generateSettingSectionDraftBatch({
       worldbook: sectionWorldbook,
@@ -1364,6 +1387,24 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
       sourceRefs: ['s1', 'S999'],
       basis: 'research'
     })
+    const normalizedVoiceEntry = normalizeGeneratedEntry({
+      name: '陆沉',
+      type: 'character',
+      content: '巡夜人，习惯先核对事实。',
+      speechStyle: '  短句，先复述事实再判断  ',
+      samples: ['我只相信能复核的记录。', '我只相信能复核的记录。', '', '先关门，再谈下一步。']
+    })
+    expect(normalizedVoiceEntry).toMatchObject({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
+    expect(normalizeGeneratedEntry({
+      name: '港口制度',
+      type: 'lore',
+      content: '港口制度。',
+      speechStyle: '不应保留',
+      samples: ['不应保留']
+    })).not.toHaveProperty('speechStyle')
     const pending = buildPendingPayload({
       name: '港城',
       entries: [normalizedEntry],
@@ -1410,13 +1451,17 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
         content: '港口制度与权属关系需要根据来源进行核对，不能直接合并矛盾事实。',
         claimIds: ['C1'],
         sourceRefs: ['S1']
-      }],
+      }, normalizedVoiceEntry],
       research: { ...research, claims, conflicts }
     })
     expect(pendingWithReview.research.review.needsReview).toBe(true)
     expect(pendingWithReview.entries[0].metadata.claimIds).toEqual(['C1'])
+    expect(pendingWithReview.entries.find((entry) => entry.name === '陆沉')).toMatchObject({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
 
-    const stored = await createWorldbookFromPayload(store, buildPendingPayload({
+    const payloadWithVoice = buildPendingPayload({
       name: '可追溯港城',
       entries: [{
         name: '港口制度',
@@ -1424,17 +1469,30 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
         content: '港口制度与权属关系需要根据来源进行核对，不能直接合并矛盾事实。',
         claimIds: ['C1'],
         sourceRefs: ['S1']
-      }],
+      }, normalizedVoiceEntry],
       sourceDocuments: [createSourceDocument('港口原始登记簿保留了税制与权属变更的逐年记录。', {
         id: 'source-ledger',
         title: '港口登记簿',
         createdAt: 2
       })],
       research: { ...research, claims, conflicts: [] }
-    }))
+    })
+    expect(payloadWithVoice.entries.find((entry) => entry.name === '陆沉')).toMatchObject({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
+    const stored = await createWorldbookFromPayload(store, payloadWithVoice)
     expect(stored.entries[0].metadata).toMatchObject({ claimIds: ['C1'], reviewState: 'ready' })
     expect(stored.sourceDocuments[0]).toMatchObject({ id: 'source-ledger', title: '港口登记簿' })
     expect(stored.entries[0].metadata.sourceDocumentIds).toEqual(['source-ledger'])
+    expect(stored.entries.find((entry) => entry.name === '陆沉')).toMatchObject({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
+    expect(store.activeWorldbook.entries.find((entry) => entry.name === '陆沉')).toMatchObject({
+      speechStyle: '短句，先复述事实再判断',
+      samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
+    })
 
     const revision = createResearchRevision({ sources: research.sources })
     const stalePreview = buildPendingPayload({

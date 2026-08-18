@@ -4,6 +4,13 @@ const MAX_METRIC_RECORDS = 120
 const OUTCOMES = new Set(['success', 'timeout', 'invalid', 'error', 'skipped'])
 const VOICE_VARIANTS = new Set(['anchored', 'unanchored'])
 const POLITICS_VARIANTS = new Set(['used', 'available-not-used', 'unavailable'])
+const SAFE_FLAGS = new Set([
+  'minor-register-drift',
+  'major-register-drift',
+  'grounding-gap',
+  'continuity-gap',
+  'readability-issue'
+])
 
 function text(value, limit = 160) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit)
@@ -37,6 +44,12 @@ function normalizeScores(scores = {}) {
   }
 }
 
+export function normalizeNarrativeCriticFlags(flags = []) {
+  return [...new Set((Array.isArray(flags) ? flags : [])
+    .map((flag) => text(flag, 80))
+    .filter((flag) => SAFE_FLAGS.has(flag)))].slice(0, 8)
+}
+
 function normalizeMetric(input = {}) {
   const outcome = OUTCOMES.has(input.outcome) ? input.outcome : 'error'
   const voiceVariant = VOICE_VARIANTS.has(input.voiceVariant) ? input.voiceVariant : 'unanchored'
@@ -57,9 +70,7 @@ function normalizeMetric(input = {}) {
     outcome,
     pass: typeof input.pass === 'boolean' ? input.pass : null,
     scores: normalizeScores(input.scores),
-    flags: [...new Set((Array.isArray(input.flags) ? input.flags : [])
-      .map((flag) => text(flag, 80))
-      .filter(Boolean))].slice(0, 8),
+    flags: normalizeNarrativeCriticFlags(input.flags),
     durationMs: number(input.durationMs),
     usage: {
       inputTokens: number(input.usage?.inputTokens),

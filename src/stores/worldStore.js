@@ -6,6 +6,7 @@ import {
   normalizeStructuredSettings
 } from '../services/settingPanelSchema'
 import { parseCharacterCards } from '../services/characterCard'
+import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import {
   createPlaceEntryPatch,
@@ -207,6 +208,19 @@ function normalizeGeoHistory(raw) {
   return { ...source, nodes }
 }
 
+function normalizeEntryVoice(entry = {}) {
+  const normalized = { ...entry }
+  if (String(normalized.type || '').trim().toLowerCase() !== 'character') {
+    delete normalized.speechStyle
+    delete normalized.samples
+    return normalized
+  }
+  return {
+    ...normalized,
+    ...normalizeNarrativeVoiceProfile(normalized, normalized.name)
+  }
+}
+
 function normalizeWorldbook(raw = {}) {
   const source = decodeStored(raw, {})
   const structuredSettings = normalizeStructuredSettings(source.structuredSettings)
@@ -232,11 +246,12 @@ function normalizeWorldbook(raw = {}) {
     }
   })
   const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings)
-  const entries = syncedEntries.map((entry) => (
-    entry?.type === 'location' && !isPlaceOverviewEntry(entry)
-      ? createPlaceEntryPatch(entry, entry)
-      : entry
-  ))
+  const entries = syncedEntries.map((entry) => {
+    const normalizedEntry = normalizeEntryVoice(entry)
+    return normalizedEntry?.type === 'location' && !isPlaceOverviewEntry(normalizedEntry)
+      ? createPlaceEntryPatch(normalizedEntry, normalizedEntry)
+      : normalizedEntry
+  })
   const entriesMap = {}
 
   for (const entry of entries) {
@@ -654,9 +669,10 @@ export const useWorldStore = defineStore('world', {
         }
       }
 
-      const persistedEntry = entry.type === 'location'
-        ? createPlaceEntryPatch(entry, entry)
-        : entry
+      const normalizedEntry = normalizeEntryVoice(entry)
+      const persistedEntry = normalizedEntry.type === 'location'
+        ? createPlaceEntryPatch(normalizedEntry, normalizedEntry)
+        : normalizedEntry
       worldbook.entries.push(persistedEntry)
       worldbook.entriesMap[persistedEntry.id] = persistedEntry
       worldbook.updatedAt = Date.now()
@@ -708,9 +724,10 @@ export const useWorldStore = defineStore('world', {
         }
       }
 
-      const updated = (updates.type || entry.type) === 'location'
-        ? createPlaceEntryPatch(updatedBase, entry)
-        : updatedBase
+      const normalizedEntry = normalizeEntryVoice(updatedBase)
+      const updated = normalizedEntry.type === 'location'
+        ? createPlaceEntryPatch(normalizedEntry, entry)
+        : normalizedEntry
       worldbook.entries[entryIdx] = updated
       worldbook.entriesMap[entryId] = updated
       worldbook.updatedAt = Date.now()
@@ -954,9 +971,12 @@ export const useWorldStore = defineStore('world', {
         const keysSecondary = normalizeKeywordList(entry.keysecondary)
         const name = String(entry.comment || keys[0] || uid || '未命名条目').trim() || '未命名条目'
         const pinaxPlace = entry?.extensions?.pinax_place
+        const pinaxVoice = entry?.extensions?.pinax_voice
         const type = pinaxPlace && typeof pinaxPlace === 'object'
           ? 'location'
-          : this.guessEntryType(keys, entry.content, name)
+          : (pinaxVoice && typeof pinaxVoice === 'object'
+              ? 'character'
+              : this.guessEntryType(keys, entry.content, name))
         const mode = resolveImportedEntryMode(entry, type)
         const depthFallback = mode === 'constant' ? 2 : 1
         const depthValue = clampImportNumber(entry.depth, depthFallback, 1, 99)
@@ -997,6 +1017,11 @@ export const useWorldStore = defineStore('world', {
               : []
           }
         }
+
+        mapped = normalizeEntryVoice({
+          ...mapped,
+          ...(pinaxVoice && typeof pinaxVoice === 'object' ? { voice: pinaxVoice } : {})
+        })
 
         if (pinaxPlace && typeof pinaxPlace === 'object') {
           mapped = createPlaceEntryPatch({
@@ -1074,7 +1099,12 @@ export const useWorldStore = defineStore('world', {
             ...(entry.metadata?.sourceDocumentIds?.length
               ? { pinax_source_document_ids: entry.metadata.sourceDocumentIds }
               : {}),
-            ...(place ? { pinax_place: place } : {})
+            ...(place ? { pinax_place: place } : {}),
+            ...(entry.type === 'character' && (entry.speechStyle || entry.samples?.length)
+              ? {
+                  pinax_voice: normalizeNarrativeVoiceProfile(entry, entry.name)
+                }
+              : {})
           }
         }
       }

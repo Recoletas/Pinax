@@ -517,6 +517,9 @@
                   </div>
                   <span class="entry-voice-editor__count">{{ entryForm.samples.length }}/6</span>
                 </header>
+                <p class="entry-voice-editor__hint">
+                  只锚定当前说话角色；生成时最多使用前 3 条，空白与重复样例会在保存时清理。
+                </p>
                 <label>
                   说话方式
                   <textarea
@@ -3430,6 +3433,13 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
+.entry-voice-editor__hint {
+  margin: -4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .entry-voice-editor__sample {
   display: flex;
   align-items: flex-start;
@@ -3519,6 +3529,15 @@ label {
 
   .entry-workspace-card .entry-editor {
     padding-top: 4px;
+  }
+
+  .entry-voice-editor__sample {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .entry-voice-editor__sample .ghost-btn {
+    align-self: flex-start;
   }
 }
 </style>
