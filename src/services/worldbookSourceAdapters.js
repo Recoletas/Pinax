@@ -5,6 +5,7 @@ import {
   normalizeSourceText,
   SOURCE_PARSE_SLOW_THRESHOLD_MS
 } from './worldbookSourceArchive'
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
 
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024
 const DEFAULT_SOURCE_PARSE_TIMEOUT_MS = 60 * 1000
@@ -191,6 +192,12 @@ async function parsePdfFile(file, sourceId, signal) {
   const binaryData = ArrayBuffer.isView(data) ? data : new Uint8Array(data)
   let document
   try {
+    // pdfjs-dist 6 no longer treats disableWorker as a browser fake-worker
+    // switch. Give it the Vite-emitted worker explicitly so PDF extraction
+    // works inside the source parser worker and in the main-thread fallback.
+    if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+    }
     const loadingTask = pdfjs.getDocument({
       data: binaryData,
       disableWorker: true,

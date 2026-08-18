@@ -580,6 +580,7 @@ idle -> preparing -> generating -> validating
 - 本轮再补齐：抽出共享 `SettingsContextBar`，将设定一级导航收为“设定 / 地图 / 条目”，世界书首页通过路由归入“设定”；正式世界书来源归一同时接受 `contentPreview`，结构化来源带和归档长度展示不再依赖旧 `content` 字段。
 - 本轮再补齐：高级条目页复用共享 `SettingsContextBar` 与三项一级导航，删除旧顶部标题/搜索和左侧世界书选择器；390px 下新建世界书收为图标动作。1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
 - 本轮再补齐：来源解析为每文件和每批次保留诊断耗时，主线程与 Worker 合同一致，creation workspace 可恢复最近一次批次指标；慢任务阈值只用于后续性能观察，不替代实体设备验收。
+- 本轮再补齐：修正 `pdfjs-dist` 6.x 浏览器侧必须显式提供 `GlobalWorkerOptions.workerSrc` 的兼容点；设定 UI audit 的混合文件场景现在同时选择 TXT、有效 PDF 和不支持格式，实际浏览器 1440/390px 两个 captures 均能保留两份成功来源并显示一份失败来源。
 
 退出条件见下一节。
 

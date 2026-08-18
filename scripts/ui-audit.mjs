@@ -50,6 +50,30 @@ const activeRoutes = requestedRoutes.size
   ? routes.filter((route) => requestedRoutes.has(route.id))
   : routes
 
+function createPdfFixtureBuffer(text = 'Pinax PDF fixture') {
+  const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET\n`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ]
+  let output = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object, index) => {
+    offsets[index + 1] = Buffer.byteLength(output)
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(output)
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (let index = 1; index <= objects.length; index += 1) {
+    output += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
+  }
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(output)
+}
+
 function makeFixture(state) {
   if (state === 'empty') return {}
   const long = state === 'long'
@@ -387,13 +411,14 @@ async function triggerRouteScenario(page, route, state, importFixturePath) {
   if (state === 'partial') {
     await page.locator('input[type="file"][multiple]').setInputFiles([
       { name: 'audit-source.txt', mimeType: 'text/plain', buffer: Buffer.from('潮汐港的旧灯塔记录着一段可用资料。\n') },
+      { name: 'audit-source.pdf', mimeType: 'application/pdf', buffer: createPdfFixtureBuffer() },
       { name: 'audit-unsupported.png', mimeType: 'image/png', buffer: Buffer.from('not-an-image') }
     ])
     await page.locator('.creation-state.is-partial').waitFor({ state: 'visible', timeout: 10_000 })
     return {
       assertion: 'mixed file selection preserves successful source and exposes partial state',
-      passed: await page.locator('.source-row .source-status.is-ready').count() > 0
-        && await page.locator('.source-row .source-status.is-error').count() > 0
+      passed: await page.locator('.source-row .source-status.is-ready').count() >= 2
+        && await page.locator('.source-row .source-status.is-error').count() === 1
     }
   }
   const jsonInput = page.locator('input[type="file"][accept*="json"]')
