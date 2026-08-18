@@ -4,6 +4,9 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { Editor } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import { UniqueID } from '@tiptap/extension-unique-id'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -128,13 +131,23 @@ import {
 } from '../services/writing/liveMarkdownPreview.js'
 import {
   editorContentToWritingDocument,
+  createWritingDocument,
+  getWritingNodeLocation,
   getWritingDocumentMarkdown,
-  getWritingMarkdownPosition
+  getWritingMarkdownPosition,
+  migrateWritingDocumentToV3,
+  validateWritingDocument,
+  writingDocumentToEditorContent
 } from '../services/writing/writingDocumentSchema.js'
 import {
   createWritingCandidateRequest,
   getWritingCandidateStaleReason
 } from '../services/writing/writingCandidates.js'
+import {
+  WritingDocumentNode,
+  WritingNodeAttributes,
+  WritingUnitNode
+} from '../services/writing/writingUnitExtension.js'
 // P4：可信说话者注册表
 import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 // P6：SceneThread 滚动合并
@@ -143,6 +156,69 @@ import { STORAGE_KEYS } from '../composables/useStorage'
 
 describe('PromptBuilder', () => {
   it('builds system prompt, preserves dialogue punctuation, and keeps pane keyboard navigation accessible', async () => {
+    const writingFixtures = [
+      ['empty chapter', '', 1, ['passage']],
+      ['plain prose', '甲。\n\n乙。', 1, ['passage']],
+      ['scene boundary', '# 第一幕\n\n甲。\n\n---\n\n乙。', 3, ['scene', 'passage', 'passage']],
+      ['note and source', '> 作者注：核对时间\n\n> 来源：访谈 A', 2, ['note', 'source']]
+    ]
+    writingFixtures.forEach(([_name, markdown, unitCount, kinds]) => {
+      const document = createWritingDocument(markdown)
+      expect(validateWritingDocument(document)).toEqual({ valid: true, errors: [] })
+      expect(document.schemaVersion).toBe(3)
+      expect(document.content).toHaveLength(unitCount)
+      expect(document.content.map((unit) => unit.attrs.kind)).toEqual(kinds)
+      expect(new Set(document.content.map((unit) => unit.attrs.unitId)).size).toBe(unitCount)
+      const nodes = document.content.flatMap((unit) => unit.content)
+      expect(new Set(nodes.map((node) => node.attrs.nodeId)).size).toBe(nodes.length)
+    })
+
+    const v2 = {
+      schemaVersion: 2,
+      revision: 4,
+      content: [
+        { type: 'sceneHeading', attrs: { blockId: 'h1', revision: 1, kind: 'scene-heading', level: 1 }, content: [{ type: 'text', text: '第一幕' }] },
+        { type: 'paragraph', attrs: { blockId: 'p1', revision: 2, kind: 'prose' }, content: [{ type: 'text', text: '甲。' }] },
+        { type: 'paragraph', attrs: { blockId: 'p2', revision: 0, kind: 'prose' }, content: [{ type: 'text', text: '乙。' }] }
+      ],
+      meta: { trailingMarkdown: '' }
+    }
+    const migrated = migrateWritingDocumentToV3(v2)
+    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.revision).toBe(4)
+    expect(migrated.content).toHaveLength(1)
+    expect(migrated.content[0].attrs).toMatchObject({
+      unitId: 'unit-v2-h1', unitRevision: 2, kind: 'scene', originRefs: []
+    })
+    expect(migrated.content[0].content.map((node) => node.attrs.nodeId)).toEqual(['h1', 'p1', 'p2'])
+    expect(getWritingNodeLocation(migrated, 'p2')).toMatchObject({ unitId: 'unit-v2-h1', nodeId: 'p2' })
+
+    const makeUnitEditor = (document) => new Editor({
+      extensions: [
+        StarterKit.configure({ document: false }),
+        WritingDocumentNode,
+        WritingUnitNode,
+        WritingNodeAttributes,
+        UniqueID.configure({
+          types: ['paragraph', 'heading', 'horizontalRule', 'blockquote'],
+          attributeName: 'nodeId'
+        })
+      ],
+      content: { type: 'doc', content: writingDocumentToEditorContent(document) }
+    })
+    const unitEditor = makeUnitEditor(createWritingDocument('甲。'))
+    unitEditor.commands.setTextSelection(3)
+    expect(unitEditor.commands.splitBlock()).toBe(true)
+    expect(unitEditor.getJSON().content).toHaveLength(1)
+    expect(unitEditor.getJSON().content[0].content).toHaveLength(2)
+    expect(unitEditor.commands.splitWritingUnit()).toBe(true)
+    expect(unitEditor.getJSON().content).toHaveLength(2)
+    expect(unitEditor.getJSON().content[0].attrs.unitId).not.toBe(unitEditor.getJSON().content[1].attrs.unitId)
+    expect(unitEditor.commands.undo()).toBe(true)
+    expect(unitEditor.getJSON().content).toHaveLength(1)
+    expect(unitEditor.commands.mergeWritingUnit('next')).toBe(false)
+    unitEditor.destroy()
+
     const cursorDocument = editorContentToWritingDocument({
       type: 'doc',
       content: [

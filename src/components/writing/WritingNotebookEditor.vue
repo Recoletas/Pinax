@@ -137,6 +137,11 @@ import {
   writingDocumentToEditorContent
 } from '../../services/writing/writingDocumentSchema.js'
 import {
+  WritingDocumentNode,
+  WritingNodeAttributes,
+  WritingUnitNode
+} from '../../services/writing/writingUnitExtension.js'
+import {
   canOpenWritingCommandMenu,
   getLiveMarkdownPrefix,
   getLiveMarkdownMarkSpec,
@@ -158,7 +163,7 @@ const props = defineProps({
   inlineSuggestionError: { type: String, default: '' }
 })
 
-const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'input', 'context-menu', 'annotation-click', 'writing-command', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'retry-inline-suggestion', 'ready'])
+const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'writing-command', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'retry-inline-suggestion', 'ready'])
 
 const initialDocument = props.document || createWritingDocument(props.modelValue)
 const notebookRoot = ref(null)
@@ -198,19 +203,6 @@ const activeWritingSection = computed(() => (
   writingMenuItems.find((item) => item.id === commandMenu.value.sectionId && item.children?.length) || null
 ))
 const activeWritingCommands = computed(() => activeWritingSection.value?.children || writingMenuItems)
-
-const BlockAttributes = Extension.create({
-  name: 'writingBlockAttributes',
-  addGlobalAttributes() {
-    return [{
-      types: ['paragraph', 'heading', 'horizontalRule', 'blockquote'],
-      attributes: {
-        blockRevision: { default: 0 },
-        blockKind: { default: 'prose' }
-      }
-    }]
-  }
-})
 
 const annotationPluginKey = new PluginKey('writingAnnotationDecorations')
 const liveMarkdownPluginKey = new PluginKey('writingLiveMarkdownDecorations')
@@ -744,10 +736,13 @@ const currentDocument = ref(initialDocument)
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
+      document: false,
       heading: { levels: [1, 2, 3] },
       history: true
     }),
-    BlockAttributes,
+    WritingDocumentNode,
+    WritingUnitNode,
+    WritingNodeAttributes,
     AnnotationDecorations,
     LiveMarkdownInput,
     LiveMarkdownDecorations,
@@ -755,8 +750,8 @@ const editor = useEditor({
     InlineSuggestionDecorations,
     UniqueID.configure({
       types: ['paragraph', 'heading', 'horizontalRule', 'blockquote'],
-      attributeName: 'blockId',
-      generateID: ({ node, pos }) => `block-editor-${node.type.name}-${pos}-${Date.now().toString(36)}`
+      attributeName: 'nodeId',
+      generateID: ({ node, pos }) => `node-editor-${node.type.name}-${pos}-${Date.now().toString(36)}`
     })
   ],
   content: {
@@ -772,6 +767,8 @@ const editor = useEditor({
   onUpdate({ editor: currentEditor, transaction }) {
     if (!transaction.docChanged) return
     emitDocument(currentEditor)
+    const transition = transaction.getMeta('writingUnitTransition')
+    if (transition) emit('unit-transition', transition)
     emit('input', {
       inputType: transaction.getMeta('writingAgentInsert') ? 'writing-agent' : (transaction.getMeta('uiEvent') || 'input'),
       composing: Boolean(transaction.getMeta('composition'))

@@ -6,6 +6,7 @@ import {
   getChapterMarkdown,
   getWritingBlockAtPosition,
   getWritingDocumentMarkdown,
+  migrateWritingDocumentToV3,
   mergeWritingDocumentFromMarkdown,
   validateWritingDocument
 } from '../services/writing/writingDocumentSchema.js'
@@ -14,8 +15,8 @@ function cloneDocument(document) {
   return document ? JSON.parse(JSON.stringify(document)) : null
 }
 
-function normalizeDocument(document) {
-  const candidate = cloneDocument(document)
+function normalizeDocument(document, fallbackMarkdown = '') {
+  const candidate = migrateWritingDocumentToV3(cloneDocument(document), fallbackMarkdown)
   const validation = validateWritingDocument(candidate)
   return validation.valid ? candidate : null
 }
@@ -32,7 +33,7 @@ export function useWritingDocument() {
   }
 
   function loadChapterDocument(chapter, fallbackMarkdown = '') {
-    const stored = normalizeDocument(getChapterDocument(chapter))
+    const stored = normalizeDocument(chapter?.editorDocument, chapter?.content || fallbackMarkdown)
     if (stored) {
       document.value = stored
       return getWritingDocumentMarkdown(stored)
