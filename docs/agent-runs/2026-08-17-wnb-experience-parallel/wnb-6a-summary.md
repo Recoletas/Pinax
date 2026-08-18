@@ -4,8 +4,9 @@
 - Worktree: `/home/recoletas/jiuguan/worktrees/pinax-wnb-6a`
 - Baseline: `1839d42b44a7a724eb8fe137998561f74fa78b48`
 - Foundation commit: `95c4593 feat(writing): add writing unit v3 editor foundation`
-- Final commit: this handoff commit (`HEAD` after commit)
-- Commit range: `1839d42..HEAD`
+- Final feature commit: `c715221 fix(writing): address unit v3 review findings`
+- Integration merge: `55c4aac feat(writing): merge writing unit v3 workflow`
+- Commit range: `95c4593..c715221`
 
 ## Shipped scope
 
@@ -19,6 +20,10 @@
 - Exact source fingerprints dedupe imports; regenerated branch/message sources append new units.
 - Writing shows a subtle active-unit edge, context-menu unit operations, and `来自体验` backlink.
 - Experience provides an accessible destination dialog and unavailable-source status.
+- Mid-node split dispatches exactly once and remains one undo unit; annotation relocation uses the actual split offset and explicitly orphans ranges that cross it.
+- Formatting-only edits advance unit revision and refresh Markdown; invalid schema v3 is rejected instead of being silently reconstructed from Markdown.
+- Explicit Experience imports enforce a single unique assistant message ID just like inferred imports.
+- The destination dialog uses the shared transient-layer lifecycle with initial focus, Tab/Shift+Tab trapping, trigger-focus restoration, and body-scroll locking.
 
 ## Changed files
 
@@ -32,7 +37,6 @@
 - `shared/writingReviewContract.js`, `shared/writingQualityContract.js`
 - `src/services/writing/writingCandidates.js`
 - `shared/writingBlockHistoryContract.js`
-- `src/services/writing/writingBlockHistory.js`
 - `shared/writingSnapshotContract.js`
 - `src/services/writing/writingSnapshots.js`
 - `src/services/writing/writingRecovery.js`
@@ -40,7 +44,8 @@
 - `src/pages/Writing.vue`, `src/pages/Writing.scoped.css`
 - `server/services/advisorTaskService.js`, `server/services/openclawService.js`
 - `src/components/experience/NarrativeTurn.vue`, `src/components/GamePanel.vue`, `src/pages/Experience.vue`
-- `src/__tests__/integration.test.js`, `src/__tests__/uiControlContract.test.js`
+- `src/__tests__/integration.test.js`, `src/__tests__/gameStoreSession.test.js`, `src/__tests__/uiControlContract.test.js`
+- `src/composables/useTransientLayer.js`
 - `scripts/ui-audit.mjs`
 
 ## Migration rule
@@ -53,7 +58,7 @@
 ## Verification
 
 - `npm run verify:full`: PASS — 20 test files / 200 tests, Vite build, diff check, and VitePress build.
-- Focused WNB contracts: PASS — integration, gameStoreSession, uiControlContract, backupExport.
+- Focused cross-feature contracts: PASS — integration, gameStoreSession, uiControlContract, agentContracts, and worldBookQuickImport (5 files / 57 tests).
 - UI audit: PASS — 3 captures, 0 console errors, 0 a11y failures, 0 scenario failures.
 - Captures: `/tmp/pinax-wnb-6a-deep-audit-final` at 1440/980/390; each width directly exercised Enter/Shift+Enter/Undo, IME, split/move/merge with Undo, both recovery layers, and the source backlink.
 - Visual inspection: PASS — continuous prose, subtle active edge, source action in bounds; desktop side inspector, 980px lower inspector, and 390px single-column editor remain unclipped.
@@ -79,7 +84,7 @@
 
 ## Integration notes
 
-- WNB ownership locks were respected; no edits to `gameStore.js`, `useStorage.js`, WorldBookEditor, narrative-agent contracts/services, or canonical status/plan/log/roadmap files.
+- WNB ownership locks were respected apart from integration-owner-approved `server/services/advisorTaskService.js` and `server/services/openclawService.js` changes required to carry node IDs through the prompt/result boundary. No Experience narrative-agent owner files were changed.
 - Completion audit removed active editor/rewrite/review/quality `blockId` aliases and retained legacy reads only in migration or compatibility normalizers.
 - The integration owner should reconcile the run board's stale `blocked-on-baseline` text and review the shared server prompt/result updates when combining the parallel branches; this worker did not edit the locked board or canonical status docs.
 - Common Markdown lists/tasks/fenced code, annotation `targets[]`, and multi-target rewrite are not part of this slice.

@@ -8,7 +8,14 @@
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
-- 当前验证基线：核心 40 个文件 / 322 个用例，视觉 12 个用例。
+- 当前验证基线：20 个测试文件 / 200 个用例；Vite/VitePress build 与 diff check 通过。历史 40/322 与视觉 12 项属于旧测试结构，不再作为当前上限。
+
+## 2026-08-18 - WNB-6A 与体验真实性 MVP 集成
+
+- 写作 Notebook 升级到 schema v3：连续段落归属稳定 writingUnit，Enter 不再制造业务块；显式 split/merge/move、批注/候选/版本/恢复、v2 迁移和体验 assistant 回合带来源导入已经贯通。
+- 体验运行时加入当前 speaker 的有界 voice anchor、world→politics 只读查询链和 detached shadow critic；critic 不参与可见正文生成，只保存 allowlist 低敏指标，不保存原文或内容指纹。
+- 集成审查修复段中 split 双事务、split offset 批注迁移、格式-only revision、invalid-v3 静默回退、显式 message 唯一性、角色集合预截断、politics limit 与 critic 指纹隐私，并补齐“收进稿件”弹窗初始焦点、focus trap、焦点恢复和页面滚动锁。
+- 组合定向测试 5 个文件 / 57 个用例通过；`npm run smoke:narrative-recovery`、60 项 production dry-run 与 `npm run verify:full` 通过，完整基线为 20 个文件 / 200 个用例以及 Vite、diff check、VitePress build。没有现成服务可用，因此未启动服务，也未执行真实 provider 矩阵和 1440/390 live browser audit。
 
 ## 2026-08-11 - WNB-6A 写作单元重构调研
 

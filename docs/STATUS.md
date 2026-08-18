@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 叙事运行时收口计划 P0-P5 代码已完成（分阶段 trace、BeatPlan 独立预算、世界书 activatedLore、软区间无硬补、语义分段）；设定工作区 U1-U7 代码侧已完成：来源检索/候选批次、结构化生成状态、source archive 容量/全局复用/安全清理、解析与基础生成取消、真实 UI stale/cancel 审计；剩真实渠道 3×3、真实 API 下 revision stale/取消、20MB PDF 设备性能与 quota 真实设备验收 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | WNB-6A 写作单元 v3 与体验真实性 MVP 已完成集成；剩真实 provider 真实性矩阵、Experience 1440/390 浏览器复验，以及设定链真实渠道/设备门禁 |
 
 ## 当前事实
 
@@ -17,9 +17,9 @@
 - **设定审阅队列**：结构化分区一次生成多字段时，所有成功草稿现在会在同一审阅区上方列出可切换的轻量待审队列；不再只展示第一份草稿而让其余草稿停留在不可操作状态。保留单一 `SettingDraftReview` 审阅面，不新增抽屉或第二套采纳链。
 - **来源链路补充**：正式世界书加载会保留归档 refs 并惰性迁移旧资料；批量归档与单文件入口共用 hash 复用、容量预检和逻辑来源 refs；结构化生成前恢复完整 archive chunks，跨来源重复片段只进入上下文一次；粘贴片段 quota 失败降级为本页暂存。
 - **来源解析取消补充**：parse-timeout 会 abort 底层 TXT/PDF/DOCX 解析信号，PDF loading task 进行 best-effort destroy；现有来源合同测试已覆盖超时后信号确实进入 aborted。解析链同时记录每文件耗时/慢任务和批次总耗时，Worker 与主线程降级路径合同一致，指标保存于创建工作区供后续实体设备性能验收使用。
-- **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。正文：长度改软区间（open 750-1200 / respond 600-950 / advance 600-950 / extend 350-650），删除按字符下限补全，BeatPlan 需最小因果内容，行文契约收敛五条 + 四种场景模式。剩真实渠道 3×3 验收。
+- **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。真实性 MVP 已增加有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见正文完全分离、仅落低敏指标的 shadow critic；critic 不是第二条生产生成链。正文：长度改软区间并删除按字符下限补全。剩真实渠道 3×3 真实性矩阵验收。
 - **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成。parser 恢复语义自然段：短块（≤260 字且 ≤4 句）不拆、异常长块按 2-3 句/90-180 字分组、相邻短未署名 narration 合并、引号内不拆；桌面（≥1101px）narration 段距 0.58em→0.42em。旧消息检测到 leaked marker 时重解析，正常旧消息不批量迁移。
-- **写作 Notebook**：当前最高优先级为 WNB-6A。现有 schema v2 将每个顶层段落当作业务 block，Enter 因而直接创建新块；目标改为 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落，单元通过场景/分隔线、体验回合导入或显式 split 创建。一次成功的体验 assistant 回合默认导入为一个带完整来源的单元，但可拆分/合并且来源不丢。实施顺序是 schema v3、一次转换、批注/候选/版本改用 `unitId + nodeId`、体验导入事务和 UI/Gate；之后再继续常用 Markdown、`targets[]` 和查找同类。
+- **写作 Notebook**：WNB-6A 已完成。schema v3 采用 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落；显式 split/merge/move、批注迁移、候选/版本/恢复和 v2 一次转换均以 `unitId + nodeId` 工作。一次成功的体验 assistant 回合可原子导入为一个带完整来源的单元，拆分/合并仍保留来源，并可回跳原消息。下一步是常用 Markdown、批注 `targets[]` 与查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
 - **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布已接视频生成。剩余漫画 M7 连续性质检、真实图像/视频 smoke 和跨资产 revision/tag 收口。
 - **联机**：URL 房间、房主唯一生成、有序事件和受限运行时广播已接入。仍需双浏览器覆盖掉线、host loss、分支切换和房主 AI 配置共享边界。
@@ -31,6 +31,7 @@
 
 ## Recently done
 
+- 2026-08-18：集成 WNB-6A 与体验真实性 MVP。写作页完成 schema v3、单元内多段编辑、显式 split/merge/move、批注/候选/恢复迁移和体验回合带来源导入；体验运行时增加当前 speaker voice、world→politics 只读链与不改可见正文的低敏 shadow critic。集成审查修复段中 split 双事务、split offset 批注迁移、格式 revision、invalid-v3 回退、message ID 唯一性、角色集合截断、critic 指纹隐私和 politics limit，并补齐“收进稿件”弹窗焦点陷阱/恢复与滚动锁。完整验证保持 20 个测试文件 / 200 个用例，deterministic recovery 与 60 项 production dry-run 通过；真实 provider 与 live browser 门禁仍待执行。
 - 2026-08-18：补齐结构化设定多字段审阅链：分区生成留下多份草稿时，`StructuredSettingsPanel` 在唯一 `SettingDraftReview` 上方提供轻量待审队列，可切换每个字段草稿，不再只显示第一份。增加合并后的 UI 合同覆盖；结构化页 18 captures、0 console error、0 a11y failure；完整验证为 20 个测试文件 / 200 个用例、Vite/VitePress build、VitePress build 与 diff check 通过。
 - 2026-08-18：补齐设定审阅区的平板/移动交互：新增保留草稿关闭、Esc、背景滚动锁定和焦点/滚动恢复；1024/390px partial 审计 2 captures、0 console error、0 a11y failure，测试上限仍为 200。
 - 2026-08-18：完成高级世界书页上下文收口：改用共享 `SettingsContextBar` 与三项一级导航，移除旧顶部标题/搜索/左侧世界书列表；移动端将新建世界书收为带标签的图标动作。高级页 1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
@@ -80,8 +81,8 @@
 
 ## Next up
 
-1. 执行体验叙事运行时收口 P0-P1：补 plan/evidence/write 可观察性，拆分控制与资料预算，资料耗尽时有界完成，并按模型步骤纠正超时与错误文案。
-2. 执行 P2-P4：把现有世界书 matcher 接入 NarrativeKernel，取消硬字符下限补全，恢复最小因果拍与 SceneThread 正确写回，再把逐句 narration 拆分改为异常长段兜底并微调桌面密度。
+1. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
+2. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
 3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。

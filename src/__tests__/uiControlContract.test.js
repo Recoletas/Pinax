@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { trapFocusWithin } from '../composables/useTransientLayer'
 
 // U1：控件契约 —— workbench-controls.css 静态检查。
 // 断言核心 class、:focus-visible、coarse pointer 命中区，并防止 transition: all 回潮。
@@ -45,10 +46,24 @@ describe('workbench control contract (U1)', () => {
 
   it('closes the topmost experience overlay with Escape before the rail', () => {
     expect(experience).toContain('if (writingCollectOpen.value) {')
+    expect(experience).toContain("id: 'experience-writing-collect'")
+    expect(experience).toContain('initialFocus: () => writingCollectCloseRef.value')
+    expect(experience).toContain('@keydown="trapWritingCollectFocus"')
+    expect(experience).toContain('writingCollectOpen.value || quickNoteOpen.value')
     expect(experience).toContain("if (inlineDetail.value) {")
     expect(experience).toContain("if (codexDetailSection.value) {")
     expect(experience).toContain("if (quickNoteOpen.value) {")
     expect(experience).toContain('closeCodexSheet()')
+
+    const dialog = document.createElement('div')
+    dialog.innerHTML = '<button type="button">first</button><button type="button">last</button>'
+    document.body.appendChild(dialog)
+    const [first, last] = dialog.querySelectorAll('button')
+    first.focus()
+    const backwards = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true })
+    expect(trapFocusWithin(backwards, dialog)).toBe(true)
+    expect(document.activeElement).toBe(last)
+    dialog.remove()
   })
 
   it('keeps shell navigation and experience context single-owned', () => {

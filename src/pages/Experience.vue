@@ -348,13 +348,13 @@
           aria-labelledby="writing-collect-title"
           @click.self="closeWritingCollectDialog"
         >
-          <section class="writing-collect-dialog">
+          <section ref="writingCollectDialogRef" class="writing-collect-dialog" @keydown="trapWritingCollectFocus">
             <header>
               <div>
                 <small>体验正文</small>
                 <h2 id="writing-collect-title">收进稿件</h2>
               </div>
-              <button type="button" class="control-icon" aria-label="关闭收进稿件" @click="closeWritingCollectDialog">×</button>
+              <button ref="writingCollectCloseRef" type="button" class="control-icon" aria-label="关闭收进稿件" @click="closeWritingCollectDialog">×</button>
             </header>
             <p class="writing-collect-preview">{{ writingCollectMessage?.content }}</p>
             <template v-if="writingCollectBooks.length">
@@ -578,6 +578,7 @@ import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
+import { trapFocusWithin, useTransientLayer } from '../composables/useTransientLayer'
 import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
 import {
@@ -597,6 +598,8 @@ const geographyStore = useGeographyStore()
 const router = useRouter()
 const route = useRoute()
 const writingCollectOpen = ref(false)
+const writingCollectDialogRef = ref(null)
+const writingCollectCloseRef = ref(null)
 const writingCollectMessage = ref(null)
 const writingCollectTurn = ref(null)
 const writingCollectBooks = ref([])
@@ -634,6 +637,17 @@ function closeWritingCollectDialog() {
   writingCollectStatus.value = ''
   writingCollectSucceeded.value = false
 }
+
+function trapWritingCollectFocus(event) {
+  trapFocusWithin(event, writingCollectDialogRef.value)
+}
+
+useTransientLayer({
+  id: 'experience-writing-collect',
+  isOpen: writingCollectOpen,
+  onClose: closeWritingCollectDialog,
+  initialFocus: () => writingCollectCloseRef.value
+})
 
 function confirmWritingCollect() {
   const books = getItem(STORAGE_KEYS.WRITING_BOOKS) || []
@@ -1659,7 +1673,7 @@ const narrativeAssetKind = ref('draft-prose')
 const narrativeAssetKinds = ASSET_KINDS
 
 const shouldLockPageScroll = computed(() => {
-  return quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value) || Boolean(codexDetailSection.value)
+  return writingCollectOpen.value || quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value) || Boolean(codexDetailSection.value)
 })
 
 useBodyScrollLock(shouldLockPageScroll)

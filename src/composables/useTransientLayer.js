@@ -1,6 +1,32 @@
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 const OPEN_EVENT = 'pinax:transient-layer-open'
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',')
+
+export function trapFocusWithin(event, container) {
+  if (event?.key !== 'Tab' || !(container instanceof HTMLElement)) return false
+  const focusable = [...container.querySelectorAll(FOCUSABLE_SELECTOR)]
+    .filter((element) => element instanceof HTMLElement && !element.hidden && element.getAttribute('aria-hidden') !== 'true')
+  if (!focusable.length) return false
+
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  const active = document.activeElement
+  const target = event.shiftKey
+    ? (active === first || !container.contains(active) ? last : null)
+    : (active === last || !container.contains(active) ? first : null)
+  if (!target) return false
+  event.preventDefault()
+  target.focus()
+  return true
+}
 
 export function useTransientLayer({
   id,

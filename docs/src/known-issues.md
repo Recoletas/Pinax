@@ -12,8 +12,10 @@
 
 ### 体验叙事工具协议兼容
 
-- 🔴 当前体验链仍把工具调度与最终正文分成两个逻辑会话；最终请求会丢失 assistant tool call、tool result、调用 ID、provider content block 和必要的 thinking 回传元数据，因此“调用过工具”不等于最终正文真正沿用了同一工具 transcript。
-- 🟡 2026-08-01 的普通叙事回退已解决部分兼容模型无正文的问题，但空响应、非法调用和缺失调用仍可能被降级掩盖；在 G4.6.13 R5 完成前，它只能视为可用性止血，不能视为 grounding 正确性保证。
+- ✅ 单 transcript 工具运行时已完成：assistant tool call、tool result、调用 ID、provider content block、必要的 reasoning metadata 与最终正文保持在同一会话内；typed repair、超时、空/stale 结果与有界恢复已有确定性覆盖。
+- ✅ 真实性 MVP 的 selected-speaker voice、world→politics 链和 detached shadow critic 已通过确定性合同与 smoke；critic 不改可见正文，也不落原文或内容指纹。
+- 🟡 尚未运行真实 MiniMax、OpenAI-compatible、Anthropic-compatible 渠道上的 world→politics 与 critic timeout/invalid matrix。这是外部 provider 门禁，不是当前已确认的代码回归。
+- 🟡 Experience voice editor 与“收进稿件”目的地弹窗尚未执行 1440/390 live browser audit；静态响应式合同、构建和键盘焦点合同已通过。
 - 处理入口：[G4.6.13 单 transcript 工具运行时纠偏计划](../plan/pinax-integrated-product-roadmap.md#g4613-单-transcript-工具运行时纠偏计划r0-r8)。
 
 ### 地理-历史生产闭环

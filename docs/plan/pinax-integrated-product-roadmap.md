@@ -1827,7 +1827,9 @@ Gate：见下一节完成定义。
 5. **查找同类**：先按稳定单元/段落/句切分当前章或当前书，使用字符 n-gram、词项重合、结构模式和距离/多样性做本地召回；仅把 8-12 条短片段交给模型复核。用户勾选后才加入该批注的 `targets[]`，模型失败时保留本地结果，不伪造自动结论。
 6. **多目标改写**：每个 target 生成独立 patch，并沿用单 transaction 原子提交。任一 target 缺失、重叠、unit/node revision stale 或候选与原文相同，整批拒绝，不允许部分写回。
 
-**WNB-6A 写作单元详细设计（当前最高优先）**
+**WNB-6A 写作单元详细设计（已完成，2026-08-18）**
+
+完成摘要：schema v3、v2 一次转换、单元内多段编辑、显式 split/merge/move、批注/候选/版本/恢复的 `unitId + nodeId` 迁移，以及体验回合带来源原子导入均已落地。集成审查同时补齐段中 split 的单事务语义、split offset 批注迁移、格式 revision、invalid-v3 guard、导入消息唯一性和目的地弹窗的键盘/滚动生命周期。下一阶段回到常用 Markdown、`targets[]` 与查找同类。
 
 数据层分为三层，不再用“块”同时指代三种对象：
 
@@ -3690,7 +3692,7 @@ UI：
 
 #### G4.6.13 单 transcript 工具运行时纠偏计划（R0-R8）
 
-状态：计划完成，等待执行。以下 R 系列优先于 G4.6.2、G4.6.6、G4.6.7 和 M2/M4 中“先做独立资料调度、再建立全新正文请求”的旧目标；M0-M6 已完成的 Kernel、资源索引、四个只读工具、ContextLedger、联机房主权威、生产指标与 smoke runner 继续复用。
+状态：R0-R8 与 2026-08-14 P0-P5 运行时收口已完成。2026-08-18 真实性 MVP 又加入 selected-speaker 有界 voice profile、world→politics 只读链和 detached shadow critic；critic 不构成第二条生产生成链，不能改可见正文，只保存 allowlist 低敏指标且不保存原文/内容指纹。剩余工作是真实 provider 矩阵、取消/重连 smoke 与发布收口。以下设计记录继续作为协议真源。
 
 ##### 纠偏结论
 
