@@ -96,7 +96,6 @@ function speakerIdFor(name, entry) {
 function buildSceneCast(worldbook, runtimeState, messages = []) {
   const characterEntries = (Array.isArray(worldbook?.entries) ? worldbook.entries : [])
     .filter((entry) => text(entry?.type).toLowerCase() === 'character')
-    .slice(0, 12)
     .map((entry) => ({
       id: text(entry.id),
       name: text(entry.name),

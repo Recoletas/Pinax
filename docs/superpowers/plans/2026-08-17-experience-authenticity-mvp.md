@@ -4,7 +4,7 @@
 
 **Goal:** Improve Experience narration authenticity with bounded character voice anchors, on-demand political grounding, and a non-blocking shadow critic that measures quality without rewriting visible prose.
 
-**Architecture:** Character entries retain a small structured voice profile, but only the selected speaker’s profile enters the Narrative Kernel. Existing runtime relations/facts are projected into the read-only narrative resource index and exposed through `politics_lookup` only after a successful `world_lookup` in the same turn. The critic runs after visible text is emitted on an independent bounded queue, stores only scores/flags/hashes, and can never change or fail the committed narrative path.
+**Architecture:** Character entries retain a small structured voice profile, but only the selected speaker’s profile enters the Narrative Kernel. Existing runtime relations/facts are projected into the read-only narrative resource index and exposed through `politics_lookup` only after a successful `world_lookup` in the same turn. The critic runs after visible text is emitted on an independent bounded queue, stores only allowlisted identifiers/counts/scores/flags, and can never change or fail the committed narrative path.
 
 **Tech Stack:** Vue 3, Pinia, existing Narrative Kernel/transcript/tool runtime, streaming provider adapters, localStorage metrics, Vitest, Vite, VitePress.
 
@@ -106,7 +106,7 @@ Only user-authored/imported entry fields are voice anchors. Generated assistant 
 }
 ```
 
-The verdict `reason` is transient diagnostic output and is not persisted because a model could echo source prose into it. The stored metric contains only `runId`, timestamp, provider/model identifiers, `textHash`, text length, `voiceVariant`, `politicsVariant`, scores, flags, critic duration/outcome, and token usage. It never stores raw narrative text, sample text, prompts, verdict reasons, credentials, or a rewritten draft.
+The verdict `reason` is transient diagnostic output and is not persisted because a model could echo source prose into it. The stored metric contains only `runId`, timestamp, provider/model identifiers, text length, `voiceVariant`, `politicsVariant`, scores, flags, critic duration/outcome, and token usage. It never stores raw narrative text, content-derived fingerprints, sample text, prompts, verdict reasons, credentials, or a rewritten draft.
 
 ## File map
 
@@ -853,7 +853,7 @@ export function parseNarrativeCriticVerdict(value) {
 }
 ```
 
-Implement `shouldSampleNarrativeCritic(runId, rate)` with the same stable FNV-style hash used elsewhere. `rate=0` always skips; `rate=1` always runs; production defaults to 0.25.
+Implement `shouldSampleNarrativeCritic(runId, rate)` with the same stable deterministic run-ID bucketing used elsewhere. `rate=0` always skips; `rate=1` always runs; production defaults to 0.25.
 
 - [ ] **Step 4: Implement the bounded critic call and detached queue**
 
@@ -888,7 +888,6 @@ Normalize to this allowlist only:
   at,
   provider,
   model,
-  textHash,
   textChars,
   voiceVariant: 'anchored' | 'unanchored',
   politicsVariant: 'used' | 'available-not-used' | 'unavailable',
@@ -901,7 +900,7 @@ Normalize to this allowlist only:
 }
 ```
 
-Reject/strip `text`, `finalText`, `samples`, `prompt`, `messages`, `settings`, `apiKey`, `baseUrl`, `rewrittenText`, `reason`, and unknown nested fields. A verdict reason may be returned to the in-memory scheduler for debugging, but it never crosses the persistence boundary.
+Reject/strip `text`, `finalText`, `samples`, `prompt`, `messages`, `settings`, `apiKey`, `baseUrl`, `rewrittenText`, `reason`, and all unknown fields. A verdict reason may be returned to the in-memory scheduler for debugging, but it never crosses the persistence boundary.
 
 - [ ] **Step 6: Schedule critic only after visible text emits**
 

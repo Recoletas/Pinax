@@ -697,6 +697,10 @@ function politicsScore(item) {
 export function getCurrentNarrativePolitics(index, filters = {}, options = {}, context = {}) {
   const resources = index?.byDomain?.get('politics') || []
   const currentPlaceId = text(context?.currentPlaceId || options?.currentPlaceId)
+  const limit = Math.min(
+    NARRATIVE_TOOL_LIMITS.maxItems,
+    Math.max(1, Number(options?.limit) || NARRATIVE_TOOL_LIMITS.maxItems)
+  )
   const place = resources
     .filter((item) => item.type === 'place-control')
     .filter((item) => !currentPlaceId || item.placeIds.includes(currentPlaceId))
@@ -707,7 +711,7 @@ export function getCurrentNarrativePolitics(index, filters = {}, options = {}, c
   const selected = [...place, ...factions, ...conflicts]
     .filter((item, position, values) => values.findIndex((candidate) => candidate.id === item.id) === position)
     .filter((item) => matchesFilters(item, filters))
-    .slice(0, NARRATIVE_TOOL_LIMITS.maxItems)
+    .slice(0, limit)
   Object.defineProperty(selected, 'nextCursor', { value: '', enumerable: false })
   return selected
 }

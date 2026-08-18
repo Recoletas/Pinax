@@ -807,6 +807,49 @@ describe('agentContracts', function () {
     expect(crowdedCastBlock.content.members.filter(function (member) { return member.voice })).toHaveLength(1)
     expect(crowdedCastBlock.content.members.find(function (member) { return member.role === 'speaker' }).voice.samples.length)
       .toBeGreaterThanOrEqual(1)
+    var deepRosterCharacters = Array.from({ length: 14 }, function (_, index) {
+      return {
+        id: `deep-roster-${index + 1}`,
+        name: `名册角色${index + 1}`,
+        type: 'character',
+        content: `名册角色${index + 1}的角色卡。`,
+        speechStyle: `名册角色${index + 1}的专属声口。`,
+        samples: [`名册角色${index + 1}的专属台词。`]
+      }
+    })
+    var selectedDeepRosterCharacter = deepRosterCharacters[13]
+    var deepRosterKernel = buildNarrativeKernel({
+      worldbook: { id: 'wb-deep-roster', entries: deepRosterCharacters },
+      runtimeState: {
+        encounteredCharacters: [
+          { id: deepRosterCharacters[0].id, name: deepRosterCharacters[0].name },
+          { id: selectedDeepRosterCharacter.id, name: selectedDeepRosterCharacter.name }
+        ],
+        dialogueCharacter: {
+          id: selectedDeepRosterCharacter.id,
+          name: selectedDeepRosterCharacter.name
+        }
+      },
+      messages: [{ id: 'deep-roster-turn', role: 'user', content: '请名册角色14回答。' }],
+      projectId: 'wb-deep-roster',
+      sessionId: 'session-deep-roster'
+    })
+    var deepRosterCast = deepRosterKernel.blocks.find(function (block) { return block.kind === 'cast' }).content.members
+    var deepRosterSpeaker = deepRosterCast.find(function (member) { return member.role === 'speaker' })
+    expect(deepRosterSpeaker).toMatchObject({
+      speakerId: `char:${selectedDeepRosterCharacter.id}`,
+      name: selectedDeepRosterCharacter.name,
+      voice: {
+        speechStyle: selectedDeepRosterCharacter.speechStyle,
+        samples: selectedDeepRosterCharacter.samples
+      }
+    })
+    expect(deepRosterCast.filter(function (member) { return member.role !== 'speaker' && member.voice })).toHaveLength(0)
+    expect(deepRosterKernel.voice).toMatchObject({
+      anchored: true,
+      speakerId: `char:${selectedDeepRosterCharacter.id}`,
+      sampleCount: 1
+    })
     expect(getNarrativeToolCatalog().map(function (tool) { return tool.name })).toEqual([
       ...NARRATIVE_READ_TOOL_NAMES,
       'submit_narrative_beat_plan'
@@ -1128,6 +1171,12 @@ describe('agentContracts', function () {
       sessionId: 'session-politics',
       currentPlaceId: 'place-harbor'
     })
+    var currentPolitics = await politicalRegistry.execute({
+      id: 'call-current-politics',
+      name: 'politics_lookup',
+      arguments: { action: 'current', limit: 1 }
+    })
+    expect(currentPolitics.items).toHaveLength(1)
     var validBeatPlan = {
       responseObligation: '回答两个组织当前是否敌对',
       causalSteps: ['核对世界书组织条目', '核对当前政治关系'],
@@ -1251,6 +1300,7 @@ describe('agentContracts', function () {
     scheduleNarrativeCriticShadow({
       runId: 'critic-never-resolves',
       finalText: '调度器必须在 runner 无响应时自行结束。',
+      textHash: 'caller-controlled-hash-must-not-persist',
       timeoutMs: 10,
       runner: async function ({ signal }) {
         signal.addEventListener('abort', function () { ignoredAbortSignal = true }, { once: true })
@@ -1259,9 +1309,11 @@ describe('agentContracts', function () {
     })
     await flushNarrativeCriticQueue()
     expect(ignoredAbortSignal).toBe(true)
-    expect(listNarrativeCriticMetrics().find(function (item) {
+    var timedOutMetric = listNarrativeCriticMetrics().find(function (item) {
       return item.runId === 'critic-never-resolves'
-    })).toMatchObject({ outcome: 'timeout' })
+    })
+    expect(timedOutMetric).toMatchObject({ outcome: 'timeout' })
+    expect(Object.prototype.hasOwnProperty.call(timedOutMetric, 'textHash')).toBe(false)
 
     var narrativeToolCatalog = getNarrativeToolCatalog()
     var providerTurnRequest = {

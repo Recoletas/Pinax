@@ -16,15 +16,6 @@ function text(value, limit = 160) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit)
 }
 
-function hashText(value) {
-  let hash = 2166136261
-  for (const character of String(value ?? '')) {
-    hash ^= character.charCodeAt(0)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `fnv1a-${(hash >>> 0).toString(16)}`
-}
-
 function number(value, fallback = 0) {
   const normalized = Number(value)
   return Number.isFinite(normalized) ? Math.max(0, Math.floor(normalized)) : fallback
@@ -63,7 +54,6 @@ function normalizeMetric(input = {}) {
     at: number(input.at, Date.now()),
     provider: text(input.provider, 80),
     model: text(input.model, 120),
-    textHash: text(input.textHash, 80) || hashText(rawText),
     textChars: number(input.textChars, rawText.length),
     voiceVariant,
     politicsVariant,
