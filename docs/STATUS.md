@@ -36,6 +36,7 @@
 - 2026-08-18：完成高级世界书页上下文收口：改用共享 `SettingsContextBar` 与三项一级导航，移除旧顶部标题/搜索/左侧世界书列表；移动端将新建世界书收为带标签的图标动作。高级页 1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
 - 2026-08-18：补齐来源解析性能诊断指标：TXT/MD、PDF、DOCX 的主线程降级与 Worker 路径均返回每文件耗时和慢任务标记，批次总耗时、最大耗时与慢文件索引持久化到创建工作区；不把诊断阈值当作实体设备发布门槛。
 - 2026-08-18：修复 `pdfjs-dist` 6.x 浏览器解析缺少 `GlobalWorkerOptions.workerSrc` 导致所有 PDF 失败的问题，并将有效 PDF 加入设定页混合文件 UI audit；1440/390px 两个 captures 均通过，成功/失败来源状态保持可见。
+- 2026-08-18：记录文本型 PDF 桌面基线：当前 WSL2 headless Chromium 解析 19,923,568-byte 文件耗时 7,213ms，外层 Worker 取消耗时 142ms；仅作诊断，不替代实体移动设备门禁。
 - 2026-08-17：补齐设定页 U6 视觉收口：结构化设定字段从蓝框卡片改为连续稿面，输入区改为底线层级，状态改为边线文字，分区 AI 动作移除大面积实色底；保留草稿审阅、失败重试和移动端布局。结构化页 1440/1024/390px 的 regular/partial/loading/error/stale/cancelled 共 18 captures，0 console error、0 a11y failure；完整 200 tests、Vite/VitePress build、diff check 通过。
 - 2026-08-17：完成设定页旧链与窄屏补漏：删除高级世界书页重复的 `StructuredSettingsWorkspace` 挂载和标签，避免与独立结构化路由并存；高级页在 1080px 以下单列、640px 以下世界书列表和编辑标签换行。新增高级页 UI audit，设定创建/结构化/高级三路由在 1440/1024/390px 的状态矩阵共 33 captures，0 console error、0 a11y failure。
 - 2026-08-17：继续补齐设定来源链路：加载旧世界书时保留 `archiveRef/chunkIds/contentHash` 并惰性迁移未归档资料；批量归档与单文件入口统一 hash 复用和容量预检，复用来源补齐逻辑 `sourceRefs`；结构化字段生成会按 archive refs 恢复完整 chunks，跨资料相同片段只进入模型上下文一次；粘贴片段 quota 失败降级为本页暂存。合同测试覆盖长来源尾部恢复、批量复用、来源 refs 与 Pinax JSON 归档。

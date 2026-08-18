@@ -581,6 +581,7 @@ idle -> preparing -> generating -> validating
 - 本轮再补齐：高级条目页复用共享 `SettingsContextBar` 与三项一级导航，删除旧顶部标题/搜索和左侧世界书选择器；390px 下新建世界书收为图标动作。1440/390px regular 审计 2 captures、0 console error、0 a11y failure。
 - 本轮再补齐：来源解析为每文件和每批次保留诊断耗时，主线程与 Worker 合同一致，creation workspace 可恢复最近一次批次指标；慢任务阈值只用于后续性能观察，不替代实体设备验收。
 - 本轮再补齐：修正 `pdfjs-dist` 6.x 浏览器侧必须显式提供 `GlobalWorkerOptions.workerSrc` 的兼容点；设定 UI audit 的混合文件场景现在同时选择 TXT、有效 PDF 和不支持格式，实际浏览器 1440/390px 两个 captures 均能保留两份成功来源并显示一份失败来源。
+- 本轮性能基线：在当前 WSL2 headless Chromium 中用 19,923,568-byte 文本型 PDF 实测直接解析 7,213ms；通过外层 Worker 取消耗时 142ms。该结果仅作为桌面诊断记录，不能替代实体移动设备的滚动、内存和取消验收。
 
 退出条件见下一节。
 
