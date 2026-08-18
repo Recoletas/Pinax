@@ -133,13 +133,13 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
       "label": "克制",
       "rationale": "一句话说明取舍",
       "patches": [
-        { "blockId": "必须与目标块完全一致", "replacement": "完整替换该块选中片段" }
+        { "nodeId": "必须与目标片段完全一致", "replacement": "完整替换该节点选中片段" }
       ]
     }
   ],
   "issues": []
 }
-最多返回 ${candidateCount} 个候选。每个候选必须对上下文列出的每个目标块各返回一条 patch，blockId 必须逐字一致且顺序一致；不得遗漏、合并、拆分或新增目标块。replacement 只能是对应块选中片段的完整替换文本，不得包含标题、序号、Markdown、解释或思考过程。每个候选必须对至少一个目标片段产生实际文字变化，不得原样复制；候选之间也不得重复。不得改写未列出的文字，不得编造上下文没有的事实。任一目标块无法处理时，不要返回半套 patches。`
+最多返回 ${candidateCount} 个候选。每个候选必须对上下文列出的每个目标片段各返回一条 patch，nodeId 必须逐字一致且顺序一致；不得遗漏、合并、拆分或新增目标片段。replacement 只能是对应节点选中片段的完整替换文本，不得包含标题、序号、Markdown、解释或思考过程。每个候选必须对至少一个目标片段产生实际文字变化，不得原样复制；候选之间也不得重复。不得改写未列出的文字，不得编造上下文没有的事实。任一目标片段无法处理时，不要返回半套 patches。`
       }
       return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
@@ -176,14 +176,14 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
       "kind": "重复|衔接|POV|角色连续性|时间|设定冲突|节奏|语言",
       "severity": "low|medium|high",
       "body": "指出具体问题以及为什么影响当前文本",
-      "start": { "blockId": "目标块 ID", "offset": 0 },
-      "end": { "blockId": "目标块 ID", "offset": 8 },
+      "start": { "nodeId": "目标节点 ID", "offset": 0 },
+      "end": { "nodeId": "目标节点 ID", "offset": 8 },
       "exact": "必须与 start/end 范围逐字一致的原文"
     }
   ],
   "issues": []
 }
-只审查任务选项中列出的目标块。每条 finding 必须有真实 blockId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。只返回重复、衔接、视角、角色连续性、时间、设定冲突、节奏或语言问题，不要泛泛评价“更生动”“加强描写”。不得返回 replacement、action，不得修改正文，不得引用目标块之外的内容。最多返回 8 条，并按实际严重度排序。`
+只审查任务选项中列出的目标节点。每条 finding 必须有真实 nodeId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。只返回重复、衔接、视角、角色连续性、时间、设定冲突、节奏或语言问题，不要泛泛评价“更生动”“加强描写”。不得返回 replacement、action，不得修改正文，不得引用目标节点之外的内容。最多返回 8 条，并按实际严重度排序。`
   }
 
   if (taskType === 'materials.classify') {

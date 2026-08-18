@@ -112,7 +112,9 @@
         <GamePanel
           @show-inline-detail="handleInlineDetail"
           @quick-action="handleQuickAction"
+          @collect-writing="openWritingCollectDialog"
         />
+        <p v-if="experienceSourceStatus" class="experience-source-status" role="status">{{ experienceSourceStatus }}</p>
         <NarrativeAgentStatus :status="visibleNarrativeAgentStatus" @retry="retryNarrativeGeneration" />
         <InputArea
           :auto-advance="autoAdvanceEnabled"
@@ -336,6 +338,57 @@
       </div>
     </Transition>
 
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div
+          v-if="writingCollectOpen"
+          class="writing-collect-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="writing-collect-title"
+          @click.self="closeWritingCollectDialog"
+        >
+          <section class="writing-collect-dialog">
+            <header>
+              <div>
+                <small>体验正文</small>
+                <h2 id="writing-collect-title">收进稿件</h2>
+              </div>
+              <button type="button" class="control-icon" aria-label="关闭收进稿件" @click="closeWritingCollectDialog">×</button>
+            </header>
+            <p class="writing-collect-preview">{{ writingCollectMessage?.content }}</p>
+            <template v-if="writingCollectBooks.length">
+              <label>
+                <span>作品</span>
+                <select v-model="writingCollectBookId" aria-label="目标作品" @change="selectFirstWritingChapter">
+                  <option v-for="book in writingCollectBooks" :key="book.id" :value="book.id">{{ book.title || book.name || '未命名作品' }}</option>
+                </select>
+              </label>
+              <label>
+                <span>章节</span>
+                <select v-model="writingCollectChapterId" aria-label="目标章节">
+                  <option v-for="chapter in writingCollectChapters" :key="chapter.id" :value="chapter.id">{{ chapter.title || chapter.name || '未命名章节' }}</option>
+                </select>
+              </label>
+            </template>
+            <p v-else class="writing-collect-empty">还没有可接收正文的章节。<RouterLink :to="{ name: 'writing' }">去写作页创建</RouterLink></p>
+            <p v-if="writingCollectStatus" class="writing-collect-status" role="status">{{ writingCollectStatus }}</p>
+            <footer>
+              <button type="button" class="control-quiet" @click="closeWritingCollectDialog">取消</button>
+              <button
+                v-if="!writingCollectSucceeded"
+                type="button"
+                class="control-primary"
+                :disabled="!writingCollectChapterId"
+                @click="confirmWritingCollect"
+              >收进稿件</button>
+              <RouterLink v-else :to="{ name: 'writing' }">去写作页查看</RouterLink>
+            </footer>
+          </section>
+        </div>
+      </Transition>
+    </Teleport>
+
     <Character v-if="showCharacter" @close="showCharacter = false" />
 
     <!-- UI-E18: codex detail drawer — central detail surface for the
@@ -532,6 +585,7 @@ import {
   applyOnlineRuntimePatch,
   buildOnlineRuntimePatch
 } from '../services/onlineExperienceBridge'
+import { appendExperienceTurnToChapter } from '../services/writing/writingExperienceImport.js'
 
 const props = defineProps({
   onlineSession: { type: Object, default: null }
@@ -542,6 +596,72 @@ const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
 const router = useRouter()
 const route = useRoute()
+const writingCollectOpen = ref(false)
+const writingCollectMessage = ref(null)
+const writingCollectTurn = ref(null)
+const writingCollectBooks = ref([])
+const writingCollectBookId = ref('')
+const writingCollectChapterId = ref('')
+const writingCollectStatus = ref('')
+const writingCollectSucceeded = ref(false)
+const experienceSourceStatus = ref('')
+const writingCollectChapters = computed(() => (
+  writingCollectBooks.value.find((book) => String(book.id) === String(writingCollectBookId.value))?.chapters || []
+))
+
+function selectFirstWritingChapter() {
+  writingCollectChapterId.value = writingCollectChapters.value[0]?.id || ''
+}
+
+function openWritingCollectDialog({ message, turn }) {
+  writingCollectMessage.value = message
+  writingCollectTurn.value = turn
+  writingCollectBooks.value = getItem(STORAGE_KEYS.WRITING_BOOKS) || []
+  writingCollectBookId.value = writingCollectBooks.value[0]?.id || ''
+  selectFirstWritingChapter()
+  writingCollectStatus.value = ''
+  writingCollectSucceeded.value = false
+  writingCollectOpen.value = true
+}
+
+function closeWritingCollectDialog() {
+  writingCollectOpen.value = false
+  writingCollectMessage.value = null
+  writingCollectTurn.value = null
+  writingCollectBooks.value = []
+  writingCollectBookId.value = ''
+  writingCollectChapterId.value = ''
+  writingCollectStatus.value = ''
+  writingCollectSucceeded.value = false
+}
+
+function confirmWritingCollect() {
+  const books = getItem(STORAGE_KEYS.WRITING_BOOKS) || []
+  const result = appendExperienceTurnToChapter({
+    books,
+    bookId: writingCollectBookId.value,
+    chapterId: writingCollectChapterId.value,
+    sessionId: gameStore.currentSessionId,
+    branchId: writingCollectMessage.value?.branchId || writingCollectTurn.value?.branchId || gameStore.activeBranchId || 'main',
+    worldbookId: selectedWorldbookId.value || gameStore.worldId || '',
+    activeTurnIds: gameStore.currentBranchTurnIds(),
+    turn: writingCollectTurn.value,
+    message: writingCollectMessage.value
+  })
+  if (!result.ok) {
+    writingCollectStatus.value = result.reason === 'already-imported' ? '这段体验已经收进稿件。' : '写入失败，原稿件未改变'
+    return
+  }
+  if (!setItem(STORAGE_KEYS.WRITING_BOOKS, result.books)) {
+    writingCollectStatus.value = '写入失败，原稿件未改变'
+    return
+  }
+  writingCollectBooks.value = result.books
+  const book = result.books.find((item) => String(item.id) === String(writingCollectBookId.value))
+  const chapter = book?.chapters?.find((item) => String(item.id) === String(writingCollectChapterId.value))
+  writingCollectStatus.value = `已收进「${book?.title || book?.name || '未命名作品'} / ${chapter?.title || chapter?.name || '未命名章节'}」`
+  writingCollectSucceeded.value = true
+}
 const tip = useTipState()
 // G1.4.10 R1: reading profile / measure / zoom reverse-compensation moved to
 // a single composable. The composable reads uiZoom from themeStore so the
@@ -860,6 +980,10 @@ function closeCodexSheet({ restoreFocus = true } = {}) {
 
 function handleCodexKeydown(event) {
   if (event.key !== 'Escape') return
+  if (writingCollectOpen.value) {
+    closeWritingCollectDialog()
+    return
+  }
   if (inlineDetail.value) {
     closeInlineDetail()
     return
@@ -1116,9 +1240,16 @@ onMounted(async () => {
   const requestedWorldbookId = typeof route.query.worldbookId === 'string'
     ? route.query.worldbookId.trim()
     : ''
+  const requestedSessionId = typeof route.query.sessionId === 'string'
+    ? route.query.sessionId.trim()
+    : ''
+  const requestedSession = requestedSessionId
+    ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId) || null
+    : null
+  if (requestedSessionId && !requestedSession) experienceSourceStatus.value = '来源会话已不可用'
   const hasRequestedWorldbook = Boolean(requestedWorldbookId
     && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
-  const activeSession = !hasRequestedWorldbook
+  const activeSession = !requestedSession && !hasRequestedWorldbook
     ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
     : null
   const targetWorldbookId = hasRequestedWorldbook ? requestedWorldbookId : (worldStore.activeWorldbookId || '')
@@ -1131,10 +1262,17 @@ onMounted(async () => {
   const latestStoredSession = worldbookLatestSession || allLatestSession
   let loadedExistingSession = false
 
-  if (hasRequestedWorldbook) {
-    const requestedSession = gameStore.getLatestSessionForWorldbook(targetWorldbookId)
-    if (requestedSession) {
-      gameStore.loadSession(requestedSession.id)
+  if (requestedSession) {
+    gameStore.loadSession(requestedSession.id)
+    selectedWorldbookId.value = requestedSession.worldbookId || requestedSession.worldId || ''
+    sessionPickerWorldbookId.value = selectedWorldbookId.value
+    if (selectedWorldbookId.value) await worldStore.setActiveWorldbook(selectedWorldbookId.value)
+    showSessionPicker.value = false
+    loadedExistingSession = true
+  } else if (hasRequestedWorldbook) {
+    const requestedWorldbookSession = gameStore.getLatestSessionForWorldbook(targetWorldbookId)
+    if (requestedWorldbookSession) {
+      gameStore.loadSession(requestedWorldbookSession.id)
       loadedExistingSession = true
     } else {
       await worldStore.setActiveWorldbook(targetWorldbookId)
@@ -1189,6 +1327,15 @@ onMounted(async () => {
   // Phase C3 + C4: Experience 首次访问 / 首次发消息 → 弹引导 tip
   markFirstVisitIfNeeded()
   installFirstMessageWatch()
+
+  const requestedMessageId = typeof route.query.messageId === 'string' ? route.query.messageId.trim() : ''
+  if (requestedSession && requestedMessageId) {
+    await nextTick()
+    const target = [...document.querySelectorAll('[data-message-id]')]
+      .find((element) => element.dataset.messageId === requestedMessageId)
+    if (target) target.scrollIntoView({ block: 'center' })
+    else experienceSourceStatus.value = '来源消息已不可用'
+  }
 })
 
 onUnmounted(() => {
@@ -3044,6 +3191,88 @@ function quickNoteWordCount(text) {
   .game-page .chat-container__hero-slip {
     min-height: 66px;
   }
+}
+
+.experience-source-status {
+  margin: 0 22px;
+  color: var(--archive-ink-soft);
+  font-size: 13px;
+}
+
+.writing-collect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 1000);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--archive-ink) 34%, transparent);
+}
+
+.writing-collect-dialog {
+  width: min(520px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  padding: 22px;
+  background: var(--surface-workbench-raised, var(--archive-paper-soft));
+  box-shadow: var(--shadow-workbench, 0 18px 50px rgba(0, 0, 0, 0.2));
+  color: var(--archive-ink);
+}
+
+.writing-collect-dialog header,
+.writing-collect-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.writing-collect-dialog h2,
+.writing-collect-dialog p {
+  margin: 0;
+}
+
+.writing-collect-dialog header small {
+  color: var(--archive-olive);
+}
+
+.writing-collect-preview {
+  max-height: 180px;
+  margin-block: 18px !important;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--archive-ink-soft);
+  line-height: 1.7;
+}
+
+.writing-collect-dialog label {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-block: 10px;
+}
+
+.writing-collect-dialog select {
+  min-height: 40px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: transparent;
+  color: inherit;
+}
+
+.writing-collect-status,
+.writing-collect-empty {
+  margin-block: 16px !important;
+  color: var(--archive-ink-soft);
+}
+
+@media (max-width: 520px) {
+  .writing-collect-overlay { align-items: end; padding: 0; }
+  .writing-collect-dialog { max-height: 86vh; padding: 18px; }
+  .writing-collect-dialog button,
+  .writing-collect-dialog a,
+  .writing-collect-dialog select { min-height: 44px; }
 }
 </style>
 

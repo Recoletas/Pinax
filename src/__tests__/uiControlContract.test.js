@@ -15,6 +15,8 @@ const notes = readFileSync(resolve(__dirname, '../pages/Notes.vue'), 'utf8')
 const writing = readFileSync(resolve(__dirname, '../pages/Writing.vue'), 'utf8')
 const legacyExperience = readFileSync(resolve(__dirname, '../pages/legacy/Experience.vue'), 'utf8')
 const notebookEditor = readFileSync(resolve(__dirname, '../components/writing/WritingNotebookEditor.vue'), 'utf8')
+const gamePanel = readFileSync(resolve(__dirname, '../components/GamePanel.vue'), 'utf8')
+const narrativeTurn = readFileSync(resolve(__dirname, '../components/experience/NarrativeTurn.vue'), 'utf8')
 const imageWorkbench = readFileSync(resolve(__dirname, '../components/media/ImageGenerationWorkbench.vue'), 'utf8')
 
 describe('workbench control contract (U1)', () => {
@@ -42,6 +44,7 @@ describe('workbench control contract (U1)', () => {
   })
 
   it('closes the topmost experience overlay with Escape before the rail', () => {
+    expect(experience).toContain('if (writingCollectOpen.value) {')
     expect(experience).toContain("if (inlineDetail.value) {")
     expect(experience).toContain("if (codexDetailSection.value) {")
     expect(experience).toContain("if (quickNoteOpen.value) {")
@@ -109,11 +112,38 @@ describe('workbench control contract (U1)', () => {
     expect(writing).toContain('command.cursorMarkdownOffset != null')
     expect(writing).toContain('command.cursorMarkdownOffset')
     expect(writing).toContain('if (command.markdown != null)')
-    expect(writing).toContain('const target = getBlockRewriteTarget(previousBlock.blockId)')
+    expect(writing).toContain('const target = getNodeRewriteTarget(previousNodeId)')
     expect(writing).toContain('getRewriteTargetFromAnnotation(annotation)')
     expect(writing).toContain('target.startOffset')
     expect(writing).toContain('return !getWritingCandidateStaleReason(candidate, current)')
     expect(writing).not.toContain("quickNoteStatus.value = '上一段定位已经变化，请重新打开命令。'")
+    expect(narrativeTurn).toContain('canCollectWriting')
+    expect(narrativeTurn).toContain('收进稿件')
+    expect(gamePanel).toContain("emit('collect-writing', { message, turn })")
+    expect(experience).toContain('aria-labelledby="writing-collect-title"')
+    expect(experience).toContain('aria-label="目标作品"')
+    expect(experience).toContain('aria-label="目标章节"')
+    expect(notebookEditor).toContain('data-writing-unit')
+    expect(notebookEditor).toContain('splitWritingUnit')
+    expect(notebookEditor).toContain('mergeWritingUnit')
+    expect(notebookEditor).not.toMatch(/运行单元|执行序号|输出区|command mode/i)
+    expect(writing).toMatch(/从此处分开|与上一单元合并|来自体验/)
+    expect(writing).toContain('class="writing-block-history"')
+    expect(writing).toContain('v-for="entry in recentWritingBlockHistory"')
+    expect(writing).toContain('@click="restoreWritingBlockHistory(entry)"')
+    const writingAgentContext = writing.slice(
+      writing.indexOf('function getWritingAgentPageContext()'),
+      writing.indexOf('function clearCopilotReference', writing.indexOf('function getWritingAgentPageContext()'))
+    )
+    expect(writingAgentContext).toContain('nodeTarget')
+    expect(writingAgentContext).not.toContain('blockTarget')
+    const selectionPayload = notebookEditor.slice(
+      notebookEditor.indexOf("emit('selection-change'"),
+      notebookEditor.indexOf('updateCurrentLineOverlay()', notebookEditor.indexOf("emit('selection-change'"))
+    )
+    expect(selectionPayload).not.toMatch(/blockId:|blockRevision:|startBlockId:|endBlockId:/)
+    const exposedEditorApi = notebookEditor.slice(notebookEditor.indexOf('defineExpose({'), notebookEditor.indexOf('</script>'))
+    expect(exposedEditorApi).not.toMatch(/findBlockRange|focusBlock|replaceBlockText|replaceBlockRanges/)
   })
 
   it('restores the writing viewport after creating an annotation', () => {

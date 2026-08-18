@@ -2,6 +2,8 @@ import { chromium } from 'playwright'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import * as r0Samples from './fixtures/experience-r0-samples.js'
+import { createWritingSnapshot } from '../shared/writingSnapshotContract.js'
+import { createWritingBlockHistoryEntry } from '../shared/writingBlockHistoryContract.js'
 
 const baseUrl = process.env.UI_AUDIT_BASE_URL || `http://127.0.0.1:${process.env.PORT || '5173'}`
 const outputDir = resolve(process.env.UI_AUDIT_OUTPUT || '/tmp/pinax-ui-audit')
@@ -12,7 +14,7 @@ const requestedWidths = String(process.env.UI_AUDIT_WIDTHS || '1440,1280,980,760
 const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .split(',')
   .map((value) => value.trim())
-  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled'].includes(value))
+  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit'].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .split(',')
   .map((value) => value.trim())
@@ -25,7 +27,12 @@ const routes = [
     surfaces: ['.ws-layout', '.ws-center-stage', '.ws-right-rail'],
     keyboardTargets: ['.input-area .input', '.input-area .send-btn', '.prose__actions-trigger']
   },
-  { id: 'writing', path: '/writing', surfaces: ['.writing-page', '.manuscript-body'] },
+  {
+    id: 'writing',
+    path: '/writing',
+    surfaces: ['.writing-page', '.manuscript-body'],
+    keyboardTargets: ['.wall__cork button', '.wall__dossier-body button', '.writing-notebook-editor__surface .ProseMirror']
+  },
   { id: 'materials', path: '/materials', surfaces: ['.notes-content-area', '.material-drawer', '.reading-deck', '.notes-sidekick'] },
   { id: 'prose-essay', path: '/prose-essay', surfaces: ['.prose-essay-page', '.pe-main', '.card-wall', '.left-panel'] },
   { id: 'comics', path: '/comics', surfaces: ['.comic-studio__workspace', '.comic-studio__canvas', '.comic-studio__inspector'] },
@@ -200,6 +207,117 @@ function makeFixture(state) {
       ]
     }]
   }
+  if (state === 'writing-unit') {
+    const originRefA = {
+      type: 'experience-turn', sessionId: 'audit-session', branchId: 'main', turnId: 'audit-turn-1',
+      messageId: 'audit-a1', worldbookId: 'audit-worldbook', sourceRevision: 1
+    }
+    const originRefB = {
+      type: 'experience-turn', sessionId: 'audit-session', branchId: 'main', turnId: 'audit-turn-2',
+      messageId: 'audit-a2', worldbookId: 'audit-worldbook', sourceRevision: 1
+    }
+    const passageNodes = Array.from({ length: 12 }, (_, index) => ({
+      type: 'paragraph',
+      attrs: {
+        nodeId: `audit-node-${index + 1}`,
+        nodeRevision: 0,
+        kind: 'prose',
+        rawMarkdown: null,
+        leadingMarkdown: index ? '\n' : '',
+        originalText: null
+      },
+      content: [{ type: 'text', text: `第 ${index + 1} 段沿着雾港旧航道推进，潮声把远处的信号送回仓库。` }]
+    }))
+    const sourceNode = {
+      type: 'paragraph',
+      attrs: { nodeId: 'audit-source-node', nodeRevision: 0, kind: 'prose', rawMarkdown: null, leadingMarkdown: '\n', originalText: null },
+      content: [{ type: 'text', text: '她抬起头，确认灯塔的回波来自另一条已经封闭的航道。' }]
+    }
+    const editorDocument = {
+      schemaVersion: 3,
+      revision: 4,
+      content: [
+        {
+          type: 'writingUnit',
+          attrs: { unitId: 'audit-unit-passage', unitRevision: 2, kind: 'passage', sceneId: null, originRefs: [originRefA] },
+          content: passageNodes
+        },
+        {
+          type: 'writingUnit',
+          attrs: {
+            unitId: 'audit-unit-source',
+            unitRevision: 0,
+            kind: 'passage',
+            sceneId: null,
+            originRefs: [originRefA, originRefB]
+          },
+          content: [sourceNode]
+        }
+      ],
+      meta: { sourceHash: 'audit-writing-unit', trailingMarkdown: '', importedAt: new Date(now).toISOString() },
+      updatedAt: new Date(now).toISOString()
+    }
+    const chapter = fixture.writing_books[0].chapters[0]
+    chapter.editorDocument = editorDocument
+    chapter.editorDocumentSchemaVersion = 3
+    chapter.content = [...passageNodes, sourceNode].map((node) => node.content[0].text).join('\n\n')
+    chapter.wordCount = chapter.content.replace(/\s/g, '').length
+    chapter.annotations = [{
+      schemaVersion: 3,
+      id: 'audit-annotation',
+      chapterId: chapter.id,
+      target: { unitId: 'audit-unit-passage', unitRevision: 2, nodeId: 'audit-node-7', nodeRevision: 0, start: 0, end: 3 },
+      selector: { start: 0, end: 3, exact: '第 7', prefix: '', suffix: ' 段沿着' },
+      body: '确认这里与体验来源的衔接。',
+      kind: 'comment',
+      status: 'open',
+      createdBy: 'user',
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString()
+    }]
+    chapter.auditCandidate = {
+      schemaVersion: 3,
+      patches: [{ unitId: 'audit-unit-passage', unitRevision: 2, nodeId: 'audit-node-7', nodeRevision: 0, baseText: passageNodes[6].content[0].text, replacement: '候选改写。' }]
+    }
+    const snapshotDocument = structuredClone(editorDocument)
+    snapshotDocument.revision = 3
+    snapshotDocument.content[0].attrs.unitRevision = 1
+    snapshotDocument.content[0].content[0].content = [{ type: 'text', text: '命名快照中的旧正文。' }]
+    const snapshotMarkdown = snapshotDocument.content
+      .flatMap((unit) => unit.content || [])
+      .map((node) => node.content?.map((item) => item.text || '').join('') || '')
+      .join('\n\n')
+    fixture.writing_snapshots_v1 = [createWritingSnapshot({
+      id: 'audit-named-snapshot',
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      label: '审计命名快照',
+      reason: 'manual',
+      document: snapshotDocument,
+      markdown: snapshotMarkdown,
+      annotations: chapter.annotations,
+      createdAt: new Date(now - 2000).toISOString()
+    })]
+    fixture.writing_block_history_v1 = [createWritingBlockHistoryEntry({
+      id: 'audit-fragment-history',
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      unitId: 'audit-unit-passage',
+      unitKind: 'passage',
+      nodeId: 'audit-node-1',
+      nodeKind: 'prose',
+      previousText: '片段历史中的旧正文。',
+      currentText: passageNodes[0].content[0].text,
+      fromDocumentRevision: 2,
+      toDocumentRevision: 4,
+      fromUnitRevision: 1,
+      toUnitRevision: 2,
+      fromNodeRevision: 0,
+      toNodeRevision: 0,
+      source: 'manual-save',
+      createdAt: new Date(now - 1000).toISOString()
+    })]
+  }
   const structuredSettings = {
     world: {
       origin: '潮汐港建立在不断改道的海湾上，旧灯塔记录着三次迁港。',
@@ -268,6 +386,9 @@ async function installThemeFixture(page, state) {
       'prose_timeline_v1',
       'writing_sessions',
       'writing_books',
+      'writing_snapshots_v1',
+      'writing_block_history_v1',
+      'writing_recovery_drafts_v1',
       'worldbooks_index',
       'active_worldbook_id',
       'worldbook_audit-worldbook',
@@ -294,6 +415,20 @@ function supportsActionState(route, state) {
 }
 
 async function installActionScenario(page, state) {
+  if (state === 'writing-unit') {
+    await page.route('**/api/advisor/task', async (requestRoute) => {
+      const taskType = requestRoute.request().postDataJSON()?.taskType || 'writing.chapter.health'
+      await requestRoute.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          taskType,
+          advice: '审计固定回复',
+          result: { task: taskType, mode: 'review', summary: '审计固定回复' }
+        })
+      })
+    })
+  }
   if (!['loading', 'error', 'partial', 'stale', 'cancelled'].includes(state)) return
   await page.route('**/api/generate', async (requestRoute) => {
     if (state === 'loading') {
@@ -407,6 +542,221 @@ async function triggerActionScenario(page, route, state) {
 }
 
 async function triggerRouteScenario(page, route, state, importFixturePath) {
+  if (route.id === 'writing' && state === 'writing-unit') {
+    const waitForWritingEditor = async () => {
+      await page.locator('.writing-notebook-editor__surface .ProseMirror').waitFor({ state: 'visible', timeout: 10_000 })
+    }
+    const reloadWritingFixture = async () => {
+      await page.reload({ waitUntil: 'commit', timeout: 30_000 })
+      await waitForWritingEditor()
+    }
+    const readUnitState = () => page.locator('.writing-notebook-editor__surface .ProseMirror').evaluate((root) => (
+      Array.from(root.querySelectorAll(':scope > section[data-writing-unit]')).map((unit) => ({
+        unitId: unit.getAttribute('data-unit-id'),
+        unitRevision: Number(unit.getAttribute('data-unit-revision') || 0),
+        nodes: Array.from(unit.children).map((node) => ({
+          nodeId: node.getAttribute('nodeid') || node.getAttribute('node-id') || node.getAttribute('data-node-id'),
+          text: node.textContent || ''
+        }))
+      }))
+    ))
+    const runUnitContextAction = async (target, label) => {
+      await target.dispatchEvent('contextmenu', { clientX: 160, clientY: 180, bubbles: true })
+      const action = page.getByRole('button', { name: label, exact: true })
+      await action.waitFor({ state: 'visible', timeout: 2_000 })
+      await action.click()
+    }
+
+    await waitForWritingEditor()
+    const firstUnit = page.locator('[data-writing-unit]').first()
+    const initialNodeCount = await firstUnit.locator('p').count()
+    const initialUnitCount = await page.locator('[data-writing-unit]').count()
+    const lastInitialNode = firstUnit.locator('p').last()
+    await lastInitialNode.click()
+    await page.keyboard.press('End')
+    for (let index = initialNodeCount; index < 20; index += 1) {
+      await page.keyboard.press('Enter')
+    }
+    const enterNodeCount = await firstUnit.locator('p').count()
+    const enterUnitCount = await page.locator('[data-writing-unit]').count()
+    await page.keyboard.press('Shift+Enter')
+    const softBreakNodeCount = await firstUnit.locator('p').count()
+    await page.keyboard.press('Control+z')
+    for (let index = initialNodeCount; index < 20; index += 1) {
+      await page.keyboard.press('Control+z')
+    }
+    const restoredNodeCount = await firstUnit.locator('p').count()
+
+    await reloadWritingFixture()
+    const compositionUnit = page.locator('[data-writing-unit]').first()
+    const compositionInitialNodeCount = await compositionUnit.locator('p').count()
+    const compositionStartNode = compositionUnit.locator('p').last()
+    await compositionStartNode.evaluate((node) => {
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      range.collapse(false)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      node.closest('.ProseMirror')?.focus()
+    })
+    await page.keyboard.press('Enter')
+    await page.waitForFunction((expectedCount) => (
+      document.querySelectorAll('[data-writing-unit]:first-of-type p').length === expectedCount
+    ), compositionInitialNodeCount + 1)
+    const compositionNodeCount = await compositionUnit.locator('p').count()
+    const compositionTarget = compositionUnit.locator('p').last()
+    await compositionTarget.dispatchEvent('compositionstart', { data: '' })
+    await page.keyboard.press('Space')
+    const commandMenuDuringComposition = await page.locator('.writing-command-menu-shell').count()
+    await page.keyboard.insertText('中文输入')
+    await compositionTarget.dispatchEvent('compositionend', { data: '中文输入' })
+    const compositionText = await compositionTarget.textContent()
+    const compositionPassed = compositionNodeCount === compositionInitialNodeCount + 1
+      && commandMenuDuringComposition === 0
+      && String(compositionText || '').includes('中文输入')
+
+    await reloadWritingFixture()
+    const splitInitial = await readUnitState()
+    const splitTarget = page.locator('[data-writing-unit]').first().locator('p').first()
+    await splitTarget.evaluate((node) => {
+      const textNode = node.firstChild
+      const range = document.createRange()
+      range.setStart(textNode, Math.min(10, textNode?.textContent?.length || 0))
+      range.collapse(true)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      node.closest('.ProseMirror')?.focus()
+    })
+    await runUnitContextAction(splitTarget, '从此处分开')
+    const splitState = await readUnitState()
+    await page.keyboard.press('Control+z')
+    const splitUndoState = await readUnitState()
+    const splitPassed = splitState.length === splitInitial.length + 1
+      && splitState[0]?.unitId === splitInitial[0]?.unitId
+      && splitState[0]?.nodes[0]?.nodeId === splitInitial[0]?.nodes[0]?.nodeId
+      && splitState[1]?.unitId !== splitInitial[0]?.unitId
+      && splitState[1]?.nodes[0]?.nodeId !== splitInitial[0]?.nodes[0]?.nodeId
+      && JSON.stringify(splitUndoState) === JSON.stringify(splitInitial)
+
+    await reloadWritingFixture()
+    const moveInitial = await readUnitState()
+    const moveTarget = page.locator('[data-writing-unit]').nth(1).locator('p').first()
+    await moveTarget.click()
+    await runUnitContextAction(moveTarget, '上移当前单元')
+    const moveState = await readUnitState()
+    await page.keyboard.press('Control+z')
+    const moveUndoState = await readUnitState()
+    const movePassed = moveState.map((unit) => unit.unitId).join('|') === [...moveInitial].reverse().map((unit) => unit.unitId).join('|')
+      && moveState.every((unit) => unit.unitRevision === moveInitial.find((initial) => initial.unitId === unit.unitId)?.unitRevision)
+      && JSON.stringify(moveUndoState) === JSON.stringify(moveInitial)
+
+    await reloadWritingFixture()
+    const mergeInitial = await readUnitState()
+    const mergeTarget = page.locator('[data-writing-unit]').nth(1).locator('p').first()
+    await mergeTarget.click()
+    await runUnitContextAction(mergeTarget, '与上一单元合并')
+    const mergeState = await readUnitState()
+    await page.waitForTimeout(1_500)
+    const mergedStoredState = await page.evaluate(() => {
+      const books = JSON.parse(localStorage.getItem('writing_books') || '[]')
+      const editorDocument = books[0]?.chapters?.[0]?.editorDocument
+      return {
+        unitCount: editorDocument?.content?.length ?? null,
+        originRefs: editorDocument?.content?.[0]?.attrs?.originRefs || [],
+        saveChip: document.querySelector('.wall__save-chip-state')?.textContent || null
+      }
+    })
+    const mergedOriginRefs = mergedStoredState.originRefs
+    await page.keyboard.press('Control+z')
+    const mergeUndoState = await readUnitState()
+    const mergePassed = mergeState.length === 1
+      && mergeState[0]?.unitId === mergeInitial[0]?.unitId
+      && mergeState[0]?.nodes.length === mergeInitial.flatMap((unit) => unit.nodes).length
+      && mergedOriginRefs.length === 2
+      && mergedStoredState.unitCount === 1
+      && new Set(mergedOriginRefs.map((ref) => `${ref.turnId}:${ref.messageId}`)).size === 2
+      && JSON.stringify(mergeUndoState) === JSON.stringify(mergeInitial)
+
+    await reloadWritingFixture()
+    const versionTab = page.getByRole('button', { name: '版本', exact: true })
+    if (!await versionTab.isVisible()) {
+      await page.locator('.writing-inspector__reopen[title="打开检查器"]').click()
+    }
+    await versionTab.click()
+    const snapshotEntry = page.locator('.writing-version-entry').filter({ hasText: '审计命名快照' })
+    await snapshotEntry.waitFor({ state: 'visible', timeout: 2_000 })
+    page.once('dialog', (dialog) => dialog.accept())
+    await snapshotEntry.getByRole('button', { name: '恢复到这里' }).click()
+    await page.getByText(/已恢复「审计命名快照」/).waitFor({ state: 'visible', timeout: 3_000 })
+    const snapshotRestoredText = await page.locator('[data-writing-unit]').first().locator('p').first().textContent()
+    const historyEntry = page.locator('.writing-block-history__entry').filter({ hasText: '片段历史中的旧正文' })
+    await historyEntry.waitFor({ state: 'visible', timeout: 2_000 })
+    await historyEntry.getByRole('button', { name: '恢复此片段' }).click()
+    await page.getByText(/已恢复片段历史/).waitFor({ state: 'visible', timeout: 3_000 })
+    const historyRestoredText = await page.locator('[data-writing-unit]').first().locator('p').first().textContent()
+    const recoveryLayersPassed = snapshotRestoredText === '命名快照中的旧正文。'
+      && historyRestoredText === '片段历史中的旧正文。'
+
+    await reloadWritingFixture()
+    const middleTarget = page.locator('[data-writing-unit] p').nth(6)
+    await middleTarget.scrollIntoViewIfNeeded()
+    await middleTarget.click()
+    const sourceTarget = page.locator('[data-writing-unit]').nth(1).locator('p')
+    await sourceTarget.scrollIntoViewIfNeeded()
+    await sourceTarget.click()
+    const sourceAction = page.getByRole('button', { name: '来自体验' })
+    await sourceAction.waitFor({ state: 'visible', timeout: 2_000 })
+    const currentUnitCount = await page.locator('[data-writing-unit].is-current-writing-unit').count()
+    const sourceActionVisible = await sourceAction.isVisible()
+    await sourceAction.click()
+    await page.waitForURL((url) => (
+      url.pathname === '/experience'
+      && url.searchParams.get('sessionId') === 'audit-session'
+      && url.searchParams.get('messageId') === 'audit-a1'
+    ), { timeout: 3_000 })
+    const sourceRoutePassed = page.url().includes('sessionId=audit-session') && page.url().includes('messageId=audit-a1')
+    await page.goto(`${baseUrl}/writing`, { waitUntil: 'commit', timeout: 30_000 })
+    await waitForWritingEditor()
+    return {
+      assertion: 'writing unit fixture focuses source provenance without cell chrome',
+      passed: initialNodeCount === 12
+        && enterNodeCount === 20
+        && softBreakNodeCount === 20
+        && initialUnitCount === enterUnitCount
+        && restoredNodeCount === initialNodeCount
+        && compositionPassed
+        && splitPassed
+        && movePassed
+        && mergePassed
+        && recoveryLayersPassed
+        && currentUnitCount === 1
+        && sourceActionVisible
+        && sourceRoutePassed,
+      details: {
+        initialNodeCount,
+        enterNodeCount,
+        softBreakNodeCount,
+        initialUnitCount,
+        enterUnitCount,
+        restoredNodeCount,
+        compositionPassed,
+        compositionInitialNodeCount,
+        compositionNodeCount,
+        commandMenuDuringComposition,
+        compositionText,
+        splitPassed,
+        movePassed,
+        mergePassed,
+        mergedStoredUnitCount: mergedStoredState.unitCount,
+        recoveryLayersPassed,
+        currentUnitCount,
+        sourceActionVisible,
+        sourceRoutePassed
+      }
+    }
+  }
   if (route.id !== 'settings-worldbook-create' || !['regular', 'partial'].includes(state)) return null
   if (state === 'partial') {
     await page.locator('input[type="file"][multiple]').setInputFiles([
@@ -842,7 +1192,10 @@ async function run() {
         const page = await context.newPage()
         const consoleErrors = []
         page.on('console', (message) => {
-          if (message.type() === 'error') consoleErrors.push(message.text())
+          if (message.type() === 'error') {
+            const location = message.location()?.url
+            consoleErrors.push(location ? `${message.text()} @ ${location}` : message.text())
+          }
         })
         page.on('pageerror', (error) => consoleErrors.push(error.message))
         await installThemeFixture(page, state)
@@ -923,8 +1276,9 @@ async function run() {
   const a11yFailureCount = report.entries.reduce((sum, entry) => (
     sum + (entry.accessibility?.a11yFailures?.length || 0)
   ), 0)
-  const gateFailed = errorCount > 0 || a11yFailureCount > 0
-  process.stdout.write(`UI audit: ${report.entries.length} captures, ${errorCount} console errors, ${a11yFailureCount} a11y failures -> ${outputDir}\n`)
+  const scenarioFailureCount = report.entries.filter((entry) => entry.routeScenario?.passed === false).length
+  const gateFailed = errorCount > 0 || a11yFailureCount > 0 || scenarioFailureCount > 0
+  process.stdout.write(`UI audit: ${report.entries.length} captures, ${errorCount} console errors, ${a11yFailureCount} a11y failures, ${scenarioFailureCount} scenario failures -> ${outputDir}\n`)
   if (gateFailed) process.exitCode = 1
 }
 
@@ -973,7 +1327,8 @@ async function inspectAccessibility(page, route) {
       const box = element.getBoundingClientRect()
       if (box.width <= 0 || box.height <= 0) return false
       const style = getComputedStyle(element)
-      if (style.display === 'none' || style.visibility === 'hidden') return false
+      const hiddenByInteraction = element.closest('[aria-hidden="true"], [inert], details:not([open])')
+      if (hiddenByInteraction || style.display === 'none' || style.visibility === 'hidden') return false
       return box.right > normal.clientWidth + 1 || box.left < -1 || element.scrollWidth > element.clientWidth + 1
     }).map((element) => ({
       tag: element.tagName,

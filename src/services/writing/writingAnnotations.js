@@ -1,4 +1,6 @@
-const ANNOTATION_SCHEMA_VERSION = 2
+import { getWritingNodeLocation, normalizeWritingOriginRefs } from './writingDocumentSchema.js'
+
+export const ANNOTATION_SCHEMA_VERSION = 3
 const MAX_CONTEXT_CHARS = 48
 const SEVERITIES = new Set(['low', 'medium', 'high'])
 
@@ -15,11 +17,28 @@ function asText(value) {
 }
 
 function getNodeText(node) {
-  return (node?.content || []).map((item) => item?.text || '').join('')
+  if (typeof node?.text === 'string') return node.text
+  return (node?.content || []).map(getNodeText).join('')
 }
 
-function getBlock(document, blockId) {
-  return (document?.content || []).find((node) => node?.attrs?.blockId === blockId) || null
+function documentNodes(document) {
+  return (document?.content || []).flatMap((unit, unitIndex) => (
+    (unit?.content || []).map((node, nodeIndex) => ({
+      unit,
+      node,
+      unitIndex,
+      nodeIndex,
+      unitId: unit?.attrs?.unitId || null,
+      unitRevision: Number(unit?.attrs?.unitRevision || 0),
+      nodeId: node?.attrs?.nodeId || node?.attrs?.blockId || null,
+      nodeRevision: Number(node?.attrs?.nodeRevision ?? node?.attrs?.revision ?? 0),
+      text: getNodeText(node)
+    }))
+  ))
+}
+
+function findNode(document, nodeId) {
+  return documentNodes(document).find((item) => item.nodeId === nodeId) || null
 }
 
 function findAll(text, needle) {
@@ -122,9 +141,56 @@ export function resolveSelectionActionPosition(anchor, {
   }
 }
 
+function normalizeTarget(target, document = null) {
+  if (!target || typeof target !== 'object') return null
+  const nodeId = asText(target.nodeId || target.blockId).trim()
+  if (!nodeId) return null
+  const location = document ? findNode(document, nodeId) : null
+  return {
+    unitId: asText(target.unitId || location?.unitId).trim() || null,
+    unitRevision: Number.isFinite(Number(target.unitRevision))
+      ? Number(target.unitRevision)
+      : Number(location?.unitRevision || 0),
+    nodeId,
+    nodeRevision: Number.isFinite(Number(target.nodeRevision ?? target.blockRevision))
+      ? Number(target.nodeRevision ?? target.blockRevision)
+      : Number(location?.nodeRevision || 0),
+    start: Math.max(0, Number(target.start ?? target.offset ?? 0) || 0),
+    end: Math.max(
+      Math.max(0, Number(target.start ?? target.offset ?? 0) || 0),
+      Number(target.end ?? target.offset ?? 0) || 0
+    )
+  }
+}
+
+function normalizeWritingRange(range, document = null) {
+  if (!range || typeof range !== 'object') return null
+  const start = normalizeTarget(range.start, document)
+  const end = normalizeTarget(range.end || range.start, document)
+  if (!start || !end) return null
+  return {
+    start: { ...start, offset: Math.max(0, Number(range.start?.offset ?? start.start) || 0) },
+    end: { ...end, offset: Math.max(0, Number(range.end?.offset ?? end.end) || 0) },
+    nodeIds: Array.from(new Set((Array.isArray(range.nodeIds) ? range.nodeIds : [start.nodeId, end.nodeId])
+      .map((id) => asText(id).trim())
+      .filter(Boolean))),
+    unitIds: Array.from(new Set((Array.isArray(range.unitIds) ? range.unitIds : [start.unitId, end.unitId])
+      .map((id) => asText(id).trim())
+      .filter(Boolean))),
+    exact: asText(range.exact),
+    startSelector: range.startSelector?.exact && typeof range.startSelector === 'object' ? { ...range.startSelector } : undefined,
+    endSelector: range.endSelector?.exact && typeof range.endSelector === 'object' ? { ...range.endSelector } : undefined
+  }
+}
+
 export function createWritingAnnotation({
   chapterId,
-  blockId,
+  target = null,
+  unitId = null,
+  unitRevision = 0,
+  nodeId = null,
+  nodeRevision = 0,
+  blockId = null,
   blockRevision = 0,
   selector,
   range = null,
@@ -137,12 +203,20 @@ export function createWritingAnnotation({
   reviewBatchId = null
 } = {}) {
   const timestamp = now()
+  const normalizedTarget = normalizeTarget(target || {
+    unitId,
+    unitRevision,
+    nodeId: nodeId || blockId,
+    nodeRevision: nodeRevision || blockRevision,
+    start: selector?.start || range?.start?.offset || 0,
+    end: selector?.end || range?.end?.offset || 0
+  })
+  if (!normalizedTarget) return null
   return {
     schemaVersion: ANNOTATION_SCHEMA_VERSION,
     id: makeId(),
     chapterId: chapterId || null,
-    blockId: blockId || range?.start?.blockId || null,
-    blockRevision: Number(blockRevision || range?.start?.blockRevision) || 0,
+    target: normalizedTarget,
     selector: selector ? { ...selector } : undefined,
     ...(range ? { range: normalizeWritingRange(range) } : {}),
     kind,
@@ -160,12 +234,10 @@ export function createWritingAnnotation({
 
 export function updateWritingAnnotationBody(annotations, annotationId, body) {
   const nextBody = asText(body).trim()
-  if (!nextBody || !annotationId) return Array.isArray(annotations) ? annotations : []
+  if (!nextBody || !annotationId) return normalizeWritingAnnotations(annotations)
   const timestamp = now()
-  return (Array.isArray(annotations) ? annotations : []).map((annotation) => (
-    annotation?.id === annotationId
-      ? { ...annotation, body: nextBody, updatedAt: timestamp }
-      : annotation
+  return normalizeWritingAnnotations(annotations).map((annotation) => (
+    annotation?.id === annotationId ? { ...annotation, body: nextBody, updatedAt: timestamp } : annotation
   ))
 }
 
@@ -174,7 +246,6 @@ export function deleteWritingAnnotation(annotations, annotationId) {
   const list = normalizeWritingAnnotations(annotations)
   const removedIds = new Set([annotationId])
   let changed = true
-
   while (changed) {
     changed = false
     list.forEach((annotation) => {
@@ -184,47 +255,22 @@ export function deleteWritingAnnotation(annotations, annotationId) {
       }
     })
   }
-
   return list.filter((annotation) => !removedIds.has(annotation.id))
 }
 
-function normalizeWritingRange(range) {
-  if (!range || typeof range !== 'object') return null
-  const start = range.start && typeof range.start === 'object' ? range.start : null
-  const end = range.end && typeof range.end === 'object' ? range.end : null
-  if (!start?.blockId || !end?.blockId) return null
-  return {
-    start: {
-      blockId: asText(start.blockId),
-      blockRevision: Number(start.blockRevision) || 0,
-      offset: Math.max(0, Number(start.offset) || 0)
-    },
-    end: {
-      blockId: asText(end.blockId),
-      blockRevision: Number(end.blockRevision) || 0,
-      offset: Math.max(0, Number(end.offset) || 0)
-    },
-    blockIds: Array.from(new Set((Array.isArray(range.blockIds) ? range.blockIds : [start.blockId, end.blockId])
-      .map((id) => asText(id).trim())
-      .filter(Boolean))),
-    exact: asText(range.exact),
-    startSelector: range.startSelector?.exact && typeof range.startSelector === 'object'
-      ? { ...range.startSelector }
-      : undefined,
-    endSelector: range.endSelector?.exact && typeof range.endSelector === 'object'
-      ? { ...range.endSelector }
-      : undefined
-  }
-}
-
-export function normalizeWritingAnnotation(annotation, chapterId = null) {
+export function normalizeWritingAnnotation(annotation, chapterId = null, document = null) {
   if (!annotation || typeof annotation !== 'object') return null
   const body = asText(annotation.body).trim()
-  const blockId = asText(annotation.blockId).trim()
-  if (!body || !blockId) return null
-  const status = ['open', 'resolved', 'orphaned'].includes(annotation.status)
-    ? annotation.status
-    : 'open'
+  if (!body) return null
+  const target = normalizeTarget(annotation.target || {
+    unitId: annotation.unitId,
+    unitRevision: annotation.unitRevision,
+    nodeId: annotation.nodeId || annotation.blockId,
+    nodeRevision: annotation.nodeRevision ?? annotation.blockRevision,
+    start: annotation.selector?.start || annotation.range?.start?.offset || 0,
+    end: annotation.selector?.end || annotation.range?.end?.offset || 0
+  }, document)
+  if (!target) return null
   const selector = annotation.selector && typeof annotation.selector === 'object'
     ? {
         start: Math.max(0, Number(annotation.selector.start) || 0),
@@ -238,18 +284,15 @@ export function normalizeWritingAnnotation(annotation, chapterId = null) {
     schemaVersion: ANNOTATION_SCHEMA_VERSION,
     id: asText(annotation.id).trim() || makeId(),
     chapterId: annotation.chapterId || chapterId || null,
-    blockId,
-    blockRevision: Number(annotation.blockRevision) || 0,
+    target,
     ...(selector ? { selector } : {}),
-    ...(annotation.range ? { range: normalizeWritingRange(annotation.range) } : {}),
-    kind: ['comment', 'rewrite-request', 'review-finding', 'locked-span'].includes(annotation.kind)
-      ? annotation.kind
-      : 'comment',
+    ...(annotation.range ? { range: normalizeWritingRange(annotation.range, document) } : {}),
+    kind: ['comment', 'rewrite-request', 'review-finding', 'locked-span'].includes(annotation.kind) ? annotation.kind : 'comment',
     ...(annotation.reviewType ? { reviewType: asText(annotation.reviewType) } : {}),
     ...(SEVERITIES.has(annotation.severity) ? { severity: annotation.severity } : {}),
     ...(annotation.reviewBatchId ? { reviewBatchId: asText(annotation.reviewBatchId) } : {}),
     body,
-    status,
+    status: ['open', 'resolved', 'orphaned'].includes(annotation.status) ? annotation.status : 'open',
     ...(annotation.parentId ? { parentId: annotation.parentId } : {}),
     createdBy: annotation.createdBy === 'agent' ? 'agent' : 'user',
     createdAt: annotation.createdAt || now(),
@@ -257,98 +300,10 @@ export function normalizeWritingAnnotation(annotation, chapterId = null) {
   }
 }
 
-function resolveSelectorInBlock(block, selector) {
-  if (!block || !selector?.exact) return -1
-  const blockText = getNodeText(block.node || block)
-  const exact = selector.exact
-  const exactPositions = findAll(blockText, exact)
-  const contextual = exactPositions.filter((index) => matchesContext(blockText, index, selector))
-  const candidates = contextual.length ? contextual : exactPositions
-  return candidates.length === 1
-    ? candidates[0]
-    : exactPositions.includes(Number(selector.start)) && matchesContext(blockText, Number(selector.start), selector)
-      ? Number(selector.start)
-      : -1
-}
-
-function buildRangeExact(blocks, startIndex, endIndex, startOffset, endOffset) {
-  if (startIndex === endIndex) {
-    return blocks[startIndex].text.slice(startOffset, endOffset)
-  }
-  return [
-    blocks[startIndex].text.slice(startOffset),
-    ...blocks.slice(startIndex + 1, endIndex).map((block) => block.text),
-    blocks[endIndex].text.slice(0, endOffset)
-  ].join('\n')
-}
-
-function resolveRangeAnnotation(annotation, document) {
-  const range = annotation.range
-  const blocks = getDocumentBlocks(document)
-  const startIndex = blocks.findIndex((block) => block.blockId === range.start.blockId)
-  const endIndex = blocks.findIndex((block) => block.blockId === range.end.blockId)
-  if (startIndex < 0 || endIndex < 0 || startIndex > endIndex) {
-    return { ...annotation, status: 'orphaned', resolution: 'missing-range-block' }
-  }
-
-  const startBlock = blocks[startIndex]
-  const endBlock = blocks[endIndex]
-  const startOffset = range.startSelector?.exact
-    ? resolveSelectorInBlock(startBlock, range.startSelector)
-    : Number(range.start.offset)
-  const endSelectorStart = range.endSelector?.exact
-    ? resolveSelectorInBlock(endBlock, range.endSelector)
-    : Math.max(0, Number(range.end.offset) - String(range.exact || '').length)
-  const endOffset = range.endSelector?.exact
-    ? endSelectorStart + range.endSelector.exact.length
-    : Number(range.end.offset)
-
-  if (startOffset < 0 || endOffset < 0 || startOffset > startBlock.text.length || endOffset > endBlock.text.length) {
-    return { ...annotation, status: 'orphaned', resolution: 'range-quote-not-found' }
-  }
-  if (startIndex === endIndex && endOffset < startOffset) {
-    return { ...annotation, status: 'orphaned', resolution: 'range-order-invalid' }
-  }
-
-  const currentBlockIds = blocks.slice(startIndex, endIndex + 1).map((block) => block.blockId)
-  const exact = buildRangeExact(blocks, startIndex, endIndex, startOffset, endOffset)
-  const startSelector = createWritingSelector({
-    text: range.startSelector?.exact || startBlock.text.slice(startOffset, Math.min(startOffset + 48, startBlock.text.length)),
-    start: startOffset,
-    end: startOffset + (range.startSelector?.exact?.length || Math.min(48, startBlock.text.length - startOffset)),
-    fullText: startBlock.text
-  })
-  const endSelector = createWritingSelector({
-    text: range.endSelector?.exact || endBlock.text.slice(Math.max(0, endOffset - 48), endOffset),
-    start: Math.max(0, endOffset - (range.endSelector?.exact?.length || Math.min(48, endOffset))),
-    end: endOffset,
-    fullText: endBlock.text
-  })
-
-  return {
-    ...annotation,
-    schemaVersion: ANNOTATION_SCHEMA_VERSION,
-    blockId: startBlock.blockId,
-    blockRevision: Number(startBlock.node?.attrs?.revision) || 0,
-    selector: startSelector,
-    range: {
-      ...range,
-      start: { ...range.start, offset: startOffset, blockRevision: Number(startBlock.node?.attrs?.revision) || 0 },
-      end: { ...range.end, offset: endOffset, blockRevision: Number(endBlock.node?.attrs?.revision) || 0 },
-      blockIds: currentBlockIds,
-      exact,
-      startSelector,
-      endSelector
-    },
-    status: annotation.status === 'resolved' ? 'resolved' : 'open',
-    resolution: startIndex === endIndex ? 'block-quote' : 'cross-block-range'
-  }
-}
-
-export function normalizeWritingAnnotations(annotations, chapterId = null) {
+export function normalizeWritingAnnotations(annotations, chapterId = null, document = null) {
   const seen = new Set()
   return (Array.isArray(annotations) ? annotations : [])
-    .map((annotation) => normalizeWritingAnnotation(annotation, chapterId))
+    .map((annotation) => normalizeWritingAnnotation(annotation, chapterId, document))
     .filter((annotation) => {
       if (!annotation || seen.has(annotation.id)) return false
       seen.add(annotation.id)
@@ -356,154 +311,138 @@ export function normalizeWritingAnnotations(annotations, chapterId = null) {
     })
 }
 
-export function resolveWritingAnnotation(annotation, document) {
-  const normalized = normalizeWritingAnnotation(annotation, annotation?.chapterId)
-  if (!normalized) return null
-  if (normalized.range) return resolveRangeAnnotation(normalized, document)
-  const block = getBlock(document, normalized.blockId)
-  const blockText = getNodeText(block)
-  const selector = normalized.selector
-  if (!block || !selector?.exact) {
-    return { ...normalized, status: 'orphaned', resolution: 'missing-block-or-selector' }
-  }
-
-  const exact = selector.exact
-  const exactPositions = findAll(blockText, exact)
-  const contextual = exactPositions.filter((index) => matchesContext(blockText, index, selector))
-  const candidates = contextual.length ? contextual : exactPositions
-  const start = candidates.length === 1
+function resolveSelector(location, selector) {
+  if (!location || !selector?.exact) return -1
+  const positions = findAll(location.text, selector.exact)
+  const contextual = positions.filter((index) => matchesContext(location.text, index, selector))
+  const candidates = contextual.length ? contextual : positions
+  return candidates.length === 1
     ? candidates[0]
-    : exactPositions.includes(selector.start) && matchesContext(blockText, selector.start, selector)
-      ? selector.start
+    : positions.includes(Number(selector.start)) && matchesContext(location.text, Number(selector.start), selector)
+      ? Number(selector.start)
       : -1
-
-  if (start < 0) {
-    return { ...normalized, status: 'orphaned', resolution: candidates.length ? 'ambiguous-quote' : 'quote-not-found' }
-  }
-
-  return {
-    ...normalized,
-    status: normalized.status === 'resolved' ? 'resolved' : 'open',
-    blockRevision: Number(block.attrs?.revision) || 0,
-    selector: createWritingSelector({ text: exact, start, end: start + exact.length, fullText: blockText }),
-    resolution: 'block-quote'
-  }
 }
 
-function getDocumentBlocks(document) {
-  return (document?.content || [])
-    .map((node, index) => ({
-      node,
-      index,
-      blockId: node?.attrs?.blockId || null,
-      text: getNodeText(node)
-    }))
-    .filter((block) => block.blockId)
-}
-
-function buildResolvedAnnotation(annotation, block, exact, start, resolution = 'migrated-quote') {
-  const status = annotation.status === 'resolved' ? 'resolved' : 'open'
+function resolveAnnotationOnDocument(annotation, document) {
+  const location = findNode(document, annotation.target.nodeId)
+  if (!location) return { ...annotation, status: 'orphaned', resolution: 'missing-node' }
+  if (annotation.target.unitId && annotation.target.unitId !== location.unitId) {
+    return { ...annotation, status: 'orphaned', resolution: 'unit-mismatch' }
+  }
+  if (!annotation.selector?.exact) {
+    return {
+      ...annotation,
+      target: { ...annotation.target, unitId: location.unitId, unitRevision: location.unitRevision, nodeRevision: location.nodeRevision },
+      status: annotation.status === 'resolved' ? 'resolved' : 'open'
+    }
+  }
+  const start = resolveSelector(location, annotation.selector)
+  if (start < 0) return { ...annotation, status: 'orphaned', resolution: 'quote-not-found' }
+  const selector = createWritingSelector({ text: annotation.selector.exact, start, end: start + annotation.selector.exact.length, fullText: location.text })
   return {
     ...annotation,
-    blockId: block.blockId,
-    blockRevision: Number(block.node?.attrs?.revision) || 0,
-    selector: createWritingSelector({
-      text: exact,
+    target: {
+      ...annotation.target,
+      unitId: location.unitId,
+      unitRevision: location.unitRevision,
+      nodeRevision: location.nodeRevision,
       start,
-      end: start + exact.length,
-      fullText: block.text
-    }),
-    status,
-    resolution,
-    updatedAt: now()
+      end: start + annotation.selector.exact.length
+    },
+    selector,
+    status: annotation.status === 'resolved' ? 'resolved' : 'open',
+    resolution: 'node-quote'
   }
 }
 
-function findUniqueQuoteMatches(exact, document) {
-  const matches = []
-  for (const block of getDocumentBlocks(document)) {
-    for (const start of findAll(block.text, exact)) {
-      matches.push({ block, start })
+export function resolveWritingAnnotation(annotation, document) {
+  const normalized = normalizeWritingAnnotation(annotation, annotation?.chapterId, document)
+  return normalized ? resolveAnnotationOnDocument(normalized, document) : null
+}
+
+function getUniqueQuoteMatches(exact, document, unitId = null) {
+  return documentNodes(document)
+    .filter((item) => !unitId || item.unitId === unitId)
+    .flatMap((location) => findAll(location.text, exact).map((start) => ({ location, start })))
+}
+
+function applyTransition(annotation, document, transition) {
+  const nodeId = annotation.target.nodeId
+  if (transition?.type === 'split' && transition.splitNode?.oldNodeId === nodeId) {
+    const splitOffset = Math.max(0, Number(transition.splitNode.offset) || 0)
+    const start = Math.max(0, Number(annotation.target.start) || 0)
+    const end = Math.max(start, Number(annotation.target.end) || 0)
+    const fullyLeft = end <= splitOffset
+    const fullyRight = start >= splitOffset
+    if (!fullyLeft && !fullyRight) {
+      return { ...annotation, status: 'orphaned', resolution: 'split-boundary', updatedAt: now() }
+    }
+
+    const targetNodeId = fullyRight ? transition.splitNode.newNodeId : nodeId
+    const location = findNode(document, targetNodeId)
+    if (!location) return { ...annotation, status: 'orphaned', resolution: 'missing-node', updatedAt: now() }
+    const nextStart = fullyRight ? start - splitOffset : start
+    const nextEnd = fullyRight ? end - splitOffset : end
+    return {
+      ...annotation,
+      target: {
+        ...annotation.target,
+        unitId: location.unitId,
+        unitRevision: location.unitRevision,
+        nodeId: targetNodeId,
+        nodeRevision: location.nodeRevision,
+        start: nextStart,
+        end: nextEnd
+      },
+      ...(annotation.selector?.exact
+        ? { selector: createWritingSelector({ text: annotation.selector.exact, start: nextStart, end: nextEnd, fullText: location.text }) }
+        : {}),
+      status: annotation.status === 'resolved' ? 'resolved' : 'open',
+      resolution: 'split-offset',
+      updatedAt: now()
     }
   }
-  return matches
+  const mapped = transition?.nodeUnitMap?.[nodeId]
+  if (mapped && annotation.target.unitId !== mapped) {
+    return { ...annotation, target: { ...annotation.target, unitId: mapped } }
+  }
+  return annotation
 }
 
-function findSplitQuoteMatches(exact, document) {
-  if (!exact) return []
-  const blocks = getDocumentBlocks(document)
-  const matches = []
-
-  for (let index = 0; index < blocks.length - 1; index += 1) {
-    const first = blocks[index]
-    const second = blocks[index + 1]
-    for (const start of findAll(first.text, exact.slice(0, 1))) {
-      const firstPart = first.text.slice(start)
-      if (!firstPart || !exact.startsWith(firstPart)) continue
-      const secondPart = exact.slice(firstPart.length)
-      if (!secondPart || !second.text.startsWith(secondPart)) continue
-      matches.push({
-        first,
-        second,
-        firstStart: start,
-        firstExact: firstPart,
-        secondExact: secondPart
-      })
+export function reconcileWritingAnnotations(annotations, document, chapterId = null, previousDocument = null, transition = null) {
+  return normalizeWritingAnnotations(annotations, chapterId, previousDocument).map((annotation) => {
+    const transitioned = applyTransition(annotation, document, transition)
+    if (['split-offset', 'split-boundary'].includes(transitioned.resolution)) return transitioned
+    const resolved = resolveAnnotationOnDocument(transitioned, document)
+    if (resolved.status !== 'orphaned') return resolved
+    const exact = annotation.selector?.exact
+    if (!exact) return resolved
+    const matches = getUniqueQuoteMatches(exact, document, transitioned.target.unitId)
+    if (matches.length !== 1) return { ...resolved, status: 'orphaned', resolution: matches.length ? 'ambiguous-quote' : 'quote-not-found' }
+    const { location, start } = matches[0]
+    return {
+      ...transitioned,
+      target: {
+        ...transitioned.target,
+        unitId: location.unitId,
+        unitRevision: location.unitRevision,
+        nodeId: location.nodeId,
+        nodeRevision: location.nodeRevision,
+        start,
+        end: start + exact.length
+      },
+      selector: createWritingSelector({ text: exact, start, end: start + exact.length, fullText: location.text }),
+      status: transitioned.status === 'resolved' ? 'resolved' : 'open',
+      resolution: previousDocument ? 'migrated-quote' : 'relocated-quote',
+      updatedAt: now()
     }
-  }
-  return matches
-}
-
-function migrateAnnotation(annotation, document, previousDocument) {
-  const current = resolveWritingAnnotation(annotation, document)
-  if (current?.status !== 'orphaned' || !previousDocument) return [current || annotation]
-
-  const exact = annotation.selector?.exact || ''
-  if (!exact) return [current]
-
-  const previousBlock = getBlock(previousDocument, annotation.blockId)
-  if (!previousBlock) return [current]
-
-  const uniqueMatches = findUniqueQuoteMatches(exact, document)
-  if (uniqueMatches.length === 1) {
-    const match = uniqueMatches[0]
-    return [buildResolvedAnnotation(annotation, match.block, exact, match.start)]
-  }
-
-  const splitMatches = findSplitQuoteMatches(exact, document)
-  if (splitMatches.length !== 1) return [current]
-
-  const match = splitMatches[0]
-  const parentId = annotation.parentId || annotation.id
-  return [
-    buildResolvedAnnotation(
-      { ...annotation, id: `${annotation.id}-split-1`, parentId },
-      match.first,
-      match.firstExact,
-      match.firstStart,
-      'split-migrated-quote'
-    ),
-    buildResolvedAnnotation(
-      { ...annotation, id: `${annotation.id}-split-2`, parentId },
-      match.second,
-      match.secondExact,
-      0,
-      'split-migrated-quote'
-    )
-  ]
-}
-
-export function reconcileWritingAnnotations(annotations, document, chapterId = null, previousDocument = null) {
-  return normalizeWritingAnnotations(annotations, chapterId)
-    .flatMap((annotation) => migrateAnnotation(annotation, document, previousDocument))
+  })
 }
 
 export function updateWritingAnnotationStatus(annotations, annotationId, status) {
   if (!['open', 'resolved', 'orphaned'].includes(status)) return normalizeWritingAnnotations(annotations)
   return normalizeWritingAnnotations(annotations).map((annotation) => (
-    annotation.id === annotationId
-      ? { ...annotation, status, updatedAt: now() }
-      : annotation
+    annotation.id === annotationId ? { ...annotation, status, updatedAt: now() } : annotation
   ))
 }
 
@@ -517,5 +456,5 @@ export function getWritingAnnotationLabel(annotation) {
 }
 
 export function getWritingAnnotationBlock(document, annotation) {
-  return getBlock(document, annotation?.blockId)
+  return findNode(document, annotation?.target?.nodeId || annotation?.nodeId || annotation?.blockId)?.node || null
 }

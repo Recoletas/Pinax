@@ -98,6 +98,7 @@
         :turn-speaker="displayName(msg)"
         :compression-complete="isCompressionCompleteMessage(msg)"
         :can-edit="(msg.role || msg.type) !== 'system'"
+        :can-collect-writing="canCollectWriting(msg)"
         :has-candidates="msg.role === 'user' && gameStore.hasCandidateAfter(index)"
         :can-undo-extension="(msg.role || msg.type) === 'assistant' && Array.isArray(msg.segments) && msg.segments.length > 1"
         :render-content="(block) => renderBlockContent(msg, block, index)"
@@ -110,6 +111,7 @@
         @regenerate="gameStore.executeExperienceAction({ type: 'retry', payload: { index }, source: 'regenerate-btn' })"
         @switch-candidate="onSwitchCandidate(index, msg)"
         @undo-extension="gameStore.executeExperienceAction({ type: 'undo-extension', payload: { messageId: msg.id }, source: 'undo-btn' })"
+        @collect-writing="collectWriting(msg)"
       />
     </template>
     <div ref="bottomAnchor" style="height: 1px; width: 100%"></div>
@@ -121,6 +123,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
 import NarrativeTurn from './experience/NarrativeTurn.vue'
+import { getExperienceTurnImportEligibility } from '../services/writing/writingExperienceImport.js'
 
 const gameStore = useGameStore()
 const scrollContainer = ref(null)
@@ -138,7 +141,22 @@ const editingIndex = ref(-1)
 // 'continue' / 'scene' are v0 stubs (no-op) that the parent can later
 // wire to gameStore action in a follow-up slice without re-editing
 // GamePanel.vue. UI-E12-W1 wires continue + scene in Experience.vue.
-const emit = defineEmits(['show-inline-detail', 'quick-action'])
+const emit = defineEmits(['show-inline-detail', 'quick-action', 'collect-writing'])
+
+function getCollectWritingTurn(message) {
+  const turn = gameStore.findTurnByMessageId(message?.id)
+  const activeTurnIds = gameStore.currentBranchTurnIds()
+  return getExperienceTurnImportEligibility({ turn, message, activeTurnIds }) ? null : turn
+}
+
+function canCollectWriting(message) {
+  return Boolean(getCollectWritingTurn(message))
+}
+
+function collectWriting(message) {
+  const turn = getCollectWritingTurn(message)
+  if (turn) emit('collect-writing', { message, turn })
+}
 
 // UI-E12-W1: hero folio corner — short case ID (first 6 chars of
 // gameStore.worldId / currentSessionId, fallback to "pending-record")

@@ -50,6 +50,7 @@ function normalizeLabel(value, fallback = '未命名快照') {
 function isStructuredDocument(value) {
   return Boolean(
     value &&
+    [2, 3].includes(Number(value.schemaVersion)) &&
     Array.isArray(value.content) &&
     Number.isFinite(Number(value.revision)) &&
     value.content.every((node) => node && typeof node === 'object')

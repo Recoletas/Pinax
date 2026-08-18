@@ -164,7 +164,7 @@ function buildAdvisorResult(taskType, advice, options = {}) {
       severity: finding.severity,
       message: finding.body,
       kind: finding.kind,
-      blockIds: finding.blockIds
+      nodeIds: finding.nodeIds
     }))
   }
 
