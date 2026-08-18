@@ -3,16 +3,51 @@ import {
   MAX_WRITING_SNAPSHOT_STORAGE_CHARS,
   MAX_WRITING_SNAPSHOTS_PER_CHAPTER,
   getWritingSnapshotStorageSize,
-  normalizeWritingSnapshot,
-  normalizeWritingSnapshots
+  normalizeWritingSnapshot
 } from '../../../shared/writingSnapshotContract.js'
+import {
+  migrateWritingDocumentToV3,
+  validateWritingDocument
+} from './writingDocumentSchema.js'
+
+function clone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value))
+}
+
+export function normalizeStoredWritingSnapshot(value, chapterId = null) {
+  const snapshot = normalizeWritingSnapshot(value, chapterId)
+  if (!snapshot) return null
+  const editorDocument = migrateWritingDocumentToV3(snapshot.editorDocument, snapshot.markdown)
+  if (!validateWritingDocument(editorDocument).valid) return null
+  return { ...snapshot, editorDocument, documentRevision: Number(editorDocument.revision || 0) }
+}
+
+export function normalizeStoredWritingSnapshots(values, chapterId = null) {
+  const normalized = (Array.isArray(values) ? values : [])
+    .map((value) => normalizeStoredWritingSnapshot(value, chapterId))
+    .filter(Boolean)
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+  if (chapterId != null) return normalized.slice(0, MAX_WRITING_SNAPSHOTS_PER_CHAPTER)
+  const counts = new Map()
+  return normalized.filter((snapshot) => {
+    const count = counts.get(snapshot.chapterId) || 0
+    if (count >= MAX_WRITING_SNAPSHOTS_PER_CHAPTER) return false
+    counts.set(snapshot.chapterId, count + 1)
+    return true
+  })
+}
+
+export function cloneWritingSnapshotDocument(snapshot) {
+  const normalized = normalizeStoredWritingSnapshot(snapshot)
+  return normalized ? clone(normalized.editorDocument) : null
+}
 
 function readSnapshots() {
-  return normalizeWritingSnapshots(getItem(STORAGE_KEYS.WRITING_SNAPSHOTS))
+  return normalizeStoredWritingSnapshots(getItem(STORAGE_KEYS.WRITING_SNAPSHOTS))
 }
 
 function writeSnapshots(values) {
-  const normalized = normalizeWritingSnapshots(values)
+  const normalized = normalizeStoredWritingSnapshots(values)
   let candidate = [...normalized]
   while (candidate.length > 1 && getWritingSnapshotStorageSize(candidate) > MAX_WRITING_SNAPSHOT_STORAGE_CHARS) {
     candidate.pop()
@@ -31,7 +66,7 @@ export function listWritingSnapshots(chapterId) {
 }
 
 export function saveWritingSnapshot(snapshot) {
-  const normalized = normalizeWritingSnapshot(snapshot)
+  const normalized = normalizeStoredWritingSnapshot(snapshot)
   if (!normalized) return { ok: false, reason: 'invalid-snapshot' }
   const existing = readSnapshots().filter((item) => item.id !== normalized.id)
   const sameChapter = existing.filter((item) => item.chapterId === normalized.chapterId)

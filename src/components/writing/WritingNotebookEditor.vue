@@ -295,6 +295,15 @@ function createLiveMarkdownDecorations(state) {
   const decorations = []
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth)
+    if (node.type.name !== 'writingUnit') continue
+    const from = $from.before(depth)
+    decorations.push(Decoration.node(from, from + node.nodeSize, {
+      class: 'is-current-writing-unit'
+    }))
+    break
+  }
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth)
     if (!node.isTextblock) continue
     const from = $from.before(depth)
     const classes = ['is-current-writing-line']
@@ -416,34 +425,34 @@ function closeCommandMenu() {
 
 function getWritingCommandContext(view) {
   const { $from } = view.state.selection
-  let currentBlockId = null
+  let currentNodeId = null
   let currentBlockPos = $from.pos
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth)
     if (!node.isTextblock) continue
-    currentBlockId = node.attrs?.blockId || null
+    currentNodeId = node.attrs?.nodeId || null
     currentBlockPos = $from.before(depth)
     break
   }
 
-  let previousBlock = null
+  let previousNode = null
   view.state.doc.descendants((node, pos) => {
     if (pos >= currentBlockPos) return false
-    if (node.isTextblock && node.attrs?.blockId) {
-      previousBlock = {
-        blockId: node.attrs.blockId,
+    if (node.isTextblock && node.attrs?.nodeId) {
+      previousNode = {
+        nodeId: node.attrs.nodeId,
         text: node.textContent,
-        blockRevision: Number(node.attrs?.blockRevision || 0)
+        nodeRevision: Number(node.attrs?.nodeRevision || 0)
       }
     }
     return true
   })
   return {
-    currentBlockId,
-    previousBlock,
+    currentNodeId,
+    previousNode,
     cursorMarkdownOffset: getWritingMarkdownPosition(
       currentDocument.value,
-      currentBlockId,
+      currentNodeId,
       $from.parentOffset
     ),
     markdown: getWritingDocumentMarkdown(currentDocument.value)
@@ -645,7 +654,7 @@ function annotationText(annotation) {
   return String(
     annotation?.range?.startSelector?.exact
       || annotation?.selector?.exact
-      || (annotation?.range?.start?.blockId === annotation?.range?.end?.blockId ? annotation?.range?.exact : '')
+      || (annotation?.range?.start?.nodeId === annotation?.range?.end?.nodeId ? annotation?.range?.exact : '')
       || ''
   )
 }
@@ -670,7 +679,7 @@ function createAnnotationDecorations(doc) {
   ))
   const blockPositions = new Map()
   doc.descendants((node, pos) => {
-    if (node.attrs?.blockId) blockPositions.set(node.attrs.blockId, { node, pos })
+    if (node.attrs?.nodeId) blockPositions.set(node.attrs.nodeId, { node, pos })
   })
 
   visible.forEach((annotation) => {
@@ -689,19 +698,19 @@ function createAnnotationDecorations(doc) {
   return DecorationSet.create(doc, decorations)
 }
 
-function resolveAnnotationDocumentRange(annotation, blockPositions) {
-  const startBlockId = annotation?.range?.start?.blockId || annotation?.blockId
-  const endBlockId = annotation?.range?.end?.blockId || startBlockId
-  const startBlock = blockPositions.get(startBlockId)
-  const endBlock = blockPositions.get(endBlockId)
-  if (!startBlock || !endBlock) return null
+function resolveAnnotationDocumentRange(annotation, nodePositions) {
+  const startNodeId = annotation?.range?.start?.nodeId || annotation?.target?.nodeId
+  const endNodeId = annotation?.range?.end?.nodeId || startNodeId
+  const startNode = nodePositions.get(startNodeId)
+  const endNode = nodePositions.get(endNodeId)
+  if (!startNode || !endNode) return null
 
-  const startOffset = Math.max(0, Math.min(startBlock.node.content.size, annotationStart(annotation)))
+  const startOffset = Math.max(0, Math.min(startNode.node.content.size, annotationStart(annotation)))
   const fallbackLength = annotationText(annotation).length
   const endOffset = annotation?.range?.end?.offset ?? (startOffset + fallbackLength)
-  const safeEndOffset = Math.max(0, Math.min(endBlock.node.content.size, Number(endOffset) || 0))
-  const from = startBlock.pos + 1 + startOffset
-  const to = endBlock.pos + 1 + safeEndOffset
+  const safeEndOffset = Math.max(0, Math.min(endNode.node.content.size, Number(endOffset) || 0))
+  const from = startNode.pos + 1 + startOffset
+  const to = endNode.pos + 1 + safeEndOffset
   return to >= from ? { from, to } : null
 }
 
@@ -784,9 +793,18 @@ const editor = useEditor({
       const resolved = currentEditor.state.doc.resolve(Math.max(0, Math.min(currentEditor.state.doc.content.size, probePosition)))
       for (let depth = resolved.depth; depth > 0; depth -= 1) {
         const node = resolved.node(depth)
-        if (node?.attrs?.blockId) {
+        if (node?.attrs?.nodeId) {
+          let unit = null
+          for (let parentDepth = depth - 1; parentDepth > 0; parentDepth -= 1) {
+            const parent = resolved.node(parentDepth)
+            if (parent.type.name === 'writingUnit') {
+              unit = parent
+              break
+            }
+          }
           return {
             node,
+            unit,
             localOffset: Math.max(0, Math.min(node.content.size, cursorPosition - resolved.start(depth)))
           }
         }
@@ -801,12 +819,12 @@ const editor = useEditor({
     const endBlock = endBlockSelection?.node
     const markdownFrom = getWritingMarkdownPosition(
       currentDocument.value,
-      startBlock?.attrs?.blockId,
+      startBlock?.attrs?.nodeId,
       startBlockSelection?.localOffset
     )
     const markdownTo = getWritingMarkdownPosition(
       currentDocument.value,
-      endBlock?.attrs?.blockId,
+      endBlock?.attrs?.nodeId,
       endBlockSelection?.localOffset
     )
     let cursorRect = null
@@ -837,12 +855,14 @@ const editor = useEditor({
       empty: from === to,
       text: currentEditor.state.doc.textBetween(from, to, '\n'),
       beforeText: currentEditor.state.doc.textBetween(0, from, '\n'),
-      blockId: startBlock?.attrs?.blockId || null,
-      blockRevision: Number(startBlock?.attrs?.blockRevision || 0),
-      startBlockId: startBlock?.attrs?.blockId || null,
-      startBlockRevision: Number(startBlock?.attrs?.blockRevision || 0),
-      endBlockId: endBlock?.attrs?.blockId || null,
-      endBlockRevision: Number(endBlock?.attrs?.blockRevision || 0),
+      nodeId: startBlock?.attrs?.nodeId || null,
+      unitId: startBlockSelection?.unit?.attrs?.unitId || null,
+      unitRevision: Number(startBlockSelection?.unit?.attrs?.unitRevision || 0),
+      nodeRevision: Number(startBlock?.attrs?.nodeRevision || 0),
+      startNodeId: startBlock?.attrs?.nodeId || null,
+      startNodeRevision: Number(startBlock?.attrs?.nodeRevision || 0),
+      endNodeId: endBlock?.attrs?.nodeId || null,
+      endNodeRevision: Number(endBlock?.attrs?.nodeRevision || 0),
       markdownFrom,
       markdownTo,
       cursorRect
@@ -1006,7 +1026,7 @@ function getAnnotationAnchorMetrics(annotation) {
   if (!editor.value || !annotation) return null
   const blockPositions = new Map()
   editor.value.state.doc.descendants((node, pos) => {
-    if (node.attrs?.blockId) blockPositions.set(node.attrs.blockId, { node, pos })
+    if (node.attrs?.nodeId) blockPositions.set(node.attrs.nodeId, { node, pos })
   })
   const range = resolveAnnotationDocumentRange(annotation, blockPositions)
   if (!range) return null
@@ -1044,7 +1064,7 @@ function setSelection(from, to = from) {
   return editor.value.chain().focus().setTextSelection({ from: safeFrom, to: safeTo }).run()
 }
 
-function findTextRange(query, occurrence = 0, blockId = null) {
+function findTextRange(query, occurrence = 0, nodeId = null) {
   if (!editor.value || !String(query || '')) return null
   const needle = String(query).toLocaleLowerCase()
   let seen = 0
@@ -1052,7 +1072,7 @@ function findTextRange(query, occurrence = 0, blockId = null) {
 
   editor.value.state.doc.nodesBetween(0, editor.value.state.doc.content.size, (node, pos, parent) => {
     if (result || !node.isText) return
-    if (blockId && parent?.attrs?.blockId !== blockId) return
+    if (nodeId && parent?.attrs?.nodeId !== nodeId) return
     const text = String(node.text || '')
     const index = text.toLocaleLowerCase().indexOf(needle)
     if (index < 0) return
@@ -1065,27 +1085,27 @@ function findTextRange(query, occurrence = 0, blockId = null) {
   return result
 }
 
-function selectText(query, occurrence = 0, blockId = null) {
-  const range = findTextRange(query, occurrence, blockId)
+function selectText(query, occurrence = 0, nodeId = null) {
+  const range = findTextRange(query, occurrence, nodeId)
   return range ? setSelection(range.from, range.to) : false
 }
 
-function selectBlockRange(startBlockId, startOffset, endBlockId, endOffset) {
-  const startBlock = findBlockRange(startBlockId)
-  const endBlock = findBlockRange(endBlockId || startBlockId)
-  if (!editor.value || !startBlock || !endBlock) return false
-  const from = Math.max(startBlock.from, startBlock.from + Math.max(0, Number(startOffset) || 0))
-  const to = Math.max(from, endBlock.from + Math.max(0, Number(endOffset) || 0))
+function selectNodeRange(startNodeId, startOffset, endNodeId, endOffset) {
+  const startNode = findNodeRange(startNodeId)
+  const endNode = findNodeRange(endNodeId || startNodeId)
+  if (!editor.value || !startNode || !endNode) return false
+  const from = Math.max(startNode.from, startNode.from + Math.max(0, Number(startOffset) || 0))
+  const to = Math.max(from, endNode.from + Math.max(0, Number(endOffset) || 0))
   return setSelection(from, to)
 }
 
-function findBlockRange(blockId) {
-  if (!editor.value || !blockId) return null
+function findNodeRange(nodeId) {
+  if (!editor.value || !nodeId) return null
   let result = null
   editor.value.state.doc.descendants((node, pos) => {
-    if (result || node.attrs?.blockId !== blockId) return !result
+    if (result || node.attrs?.nodeId !== nodeId) return !result
     result = {
-      blockId,
+      nodeId,
       from: pos + 1,
       to: pos + node.nodeSize - 1,
       node
@@ -1106,24 +1126,24 @@ function replaceTextRange(from, to, text) {
   return true
 }
 
-function replaceBlockText(blockId, text) {
-  const range = findBlockRange(blockId)
+function replaceNodeText(nodeId, text) {
+  const range = findNodeRange(nodeId)
   return range ? replaceTextRange(range.from, range.to, text) : false
 }
 
-function replaceBlockRanges(patches) {
+function replaceNodeRanges(patches) {
   if (!editor.value || !Array.isArray(patches) || !patches.length) return false
   const ranges = patches.map((patch) => {
-    const block = findBlockRange(patch?.blockId)
-    if (!block) return null
+    const node = findNodeRange(patch?.nodeId)
+    if (!node) return null
     const editorRange = patch?.editorRange
     const from = Number.isFinite(Number(editorRange?.from))
       ? Number(editorRange.from)
-      : block.from + Math.max(0, Number(patch?.range?.startOffset || 0))
+      : node.from + Math.max(0, Number(patch?.range?.startOffset || 0))
     const to = Number.isFinite(Number(editorRange?.to))
       ? Number(editorRange.to)
-      : block.from + Math.max(0, Number(patch?.range?.endOffset ?? (block.to - block.from)))
-    if (!Number.isFinite(from) || !Number.isFinite(to) || from < block.from || to < from || to > block.to) return null
+      : node.from + Math.max(0, Number(patch?.range?.endOffset ?? (node.to - node.from)))
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < node.from || to < from || to > node.to) return null
     return { from, to, text: String(patch?.replacement ?? patch?.text ?? '') }
   })
   if (ranges.some((range) => !range)) return false
@@ -1138,13 +1158,25 @@ function replaceBlockRanges(patches) {
   return true
 }
 
-function focusBlock(blockId) {
-  const range = findBlockRange(blockId)
+function focusNode(nodeId) {
+  const range = findNodeRange(nodeId)
   if (!editor.value || !range) return false
   const position = Math.max(1, Number(range.from) || 1)
   const focused = editor.value.chain().focus().setTextSelection({ from: position, to: position }).run()
   editor.value.commands.scrollIntoView?.()
   return Boolean(focused)
+}
+
+function splitWritingUnit() {
+  return Boolean(editor.value?.chain().focus().splitWritingUnit().run())
+}
+
+function mergeWritingUnit(direction = 'previous') {
+  return Boolean(editor.value?.chain().focus().mergeWritingUnit(direction).run())
+}
+
+function moveWritingUnit(direction) {
+  return Boolean(editor.value?.chain().focus().moveWritingUnit(direction).run())
 }
 
 function replaceText(query, replacement, occurrence = 0) {
@@ -1205,12 +1237,15 @@ defineExpose({
   getAnnotationAnchorMetrics,
   setSelection,
   selectText,
-  selectBlockRange,
-  findBlockRange,
-  focusBlock,
+  selectNodeRange,
+  findNodeRange,
+  focusNode,
+  replaceNodeText,
+  replaceNodeRanges,
+  splitWritingUnit,
+  mergeWritingUnit,
+  moveWritingUnit,
   replaceTextRange,
-  replaceBlockText,
-  replaceBlockRanges,
   replaceText,
   replaceAll,
   clearMarks,
@@ -1263,7 +1298,13 @@ defineExpose({
   color: var(--archive-ink, #17283a);
 }
 
-.writing-notebook-editor__surface .ProseMirror > * {
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit] {
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+.writing-notebook-editor__surface section[data-writing-unit] > * {
   position: relative;
   margin: 0 0 1.05em;
   padding-inline-start: 12px;
@@ -1295,26 +1336,17 @@ defineExpose({
   pointer-events: none;
 }
 
-.writing-notebook-editor__surface .ProseMirror > *::before {
+.writing-notebook-editor__surface .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
   position: absolute;
-  left: 0;
-  top: 0.18em;
+  inset-inline-start: -14px;
+  top: 0.45em;
   width: 2px;
-  height: calc(100% - 0.36em);
+  height: 24px;
   content: '';
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 18%, transparent);
-  opacity: 0.7;
-  transition: background-color 140ms ease, opacity 140ms ease, width 140ms ease;
+  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 68%, transparent);
 }
 
-.writing-notebook-editor__surface .ProseMirror > *:hover::before,
-.writing-notebook-editor__surface .ProseMirror > *:focus-within::before {
-  width: 3px;
-  background: var(--archive-olive, #1f4d7a);
-  opacity: 0.9;
-}
-
-.writing-notebook-editor__surface .ProseMirror-focused > .is-live-markdown-active::before {
+.writing-notebook-editor__surface .ProseMirror-focused .is-live-markdown-active::before {
   left: -2.35em;
   top: 0;
   width: 2em;
@@ -1329,6 +1361,12 @@ defineExpose({
   text-align: right;
   white-space: nowrap;
   opacity: 0.82;
+}
+
+@media (max-width: 520px) {
+  .writing-notebook-editor__surface .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
+    inset-inline-start: 2px;
+  }
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-live-markdown-mark::before,

@@ -401,10 +401,10 @@ export function getWritingDocumentMarkdown(document) {
 }
 
 /**
- * Resolve a Markdown cursor offset to the stable block that owns it.
+ * Resolve a Markdown cursor offset to the stable editor node that owns it.
  *
  * The textarea and legacy advisor still speak in absolute Markdown offsets;
- * this adapter lets them carry the structured block identity alongside that
+ * this adapter lets them carry the structured node identity alongside that
  * legacy range until the Notebook editor becomes the default surface.
  */
 export function getWritingBlockAtPosition(document, position = 0) {
@@ -426,9 +426,6 @@ export function getWritingBlockAtPosition(document, position = 0) {
       unitRevision: Number(unit?.attrs?.unitRevision || 0),
       nodeId: attrs.nodeId || attrs.blockId || null,
       nodeRevision: Number(attrs.nodeRevision ?? attrs.revision ?? 0),
-      // Legacy aliases are returned only at this compatibility boundary.
-      blockId: attrs.nodeId || attrs.blockId || null,
-      blockRevision: Number(attrs.nodeRevision ?? attrs.revision ?? 0),
       kind: attrs.kind || 'prose',
       start,
       end,
@@ -502,8 +499,9 @@ function writingKindForEditorNode(node) {
   if (node?.type === 'heading') return 'scene-heading'
   if (node?.type === 'horizontalRule') return 'divider'
   if (node?.type === 'blockquote') {
-    if (node?.attrs?.blockKind === 'source-reference') return 'source-reference'
-    if (node?.attrs?.blockKind === 'author-note') return 'author-note'
+    const blockKind = node?.attrs?.blockKind || node?.attrs?.nodeKind
+    if (blockKind === 'source-reference') return 'source-reference'
+    if (blockKind === 'author-note') return 'author-note'
     return 'quote'
   }
   return 'prose'

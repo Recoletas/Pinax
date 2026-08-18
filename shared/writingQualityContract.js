@@ -26,14 +26,29 @@ function normalizeForComparison(value) {
     .toLowerCase()
 }
 
-function issue({ id, kind, severity, title, detail, blockId = '', annotationId = '', blocking = false }) {
+function issue({
+  id,
+  kind,
+  severity,
+  title,
+  detail,
+  unitId = '',
+  unitRevision = 0,
+  nodeId = '',
+  nodeRevision = 0,
+  annotationId = '',
+  blocking = false
+}) {
   return {
-    id: text(id).trim() || `${kind}-${blockId || annotationId || 'chapter'}`,
+    id: text(id).trim() || `${kind}-${nodeId || annotationId || 'chapter'}`,
     kind,
     severity,
     title,
     detail,
-    blockId: text(blockId).trim() || null,
+    unitId: text(unitId).trim() || null,
+    unitRevision: Number(unitRevision) || 0,
+    nodeId: text(nodeId).trim() || null,
+    nodeRevision: Number(nodeRevision) || 0,
     annotationId: text(annotationId).trim() || null,
     blocking: Boolean(blocking)
   }
@@ -48,13 +63,20 @@ export function buildWritingQualityReport({
   blockHistory = [],
   maxIssues = 24
 } = {}) {
-  const nodes = Array.isArray(document?.content) ? document.content : []
-  const blocks = nodes.map((node, index) => ({
-    index,
-    blockId: text(node?.attrs?.blockId || `block-${index + 1}`),
-    kind: text(node?.attrs?.kind || 'prose'),
-    text: blockText(node)
-  }))
+  const topLevelNodes = Array.isArray(document?.content) ? document.content : []
+  const blocks = topLevelNodes.flatMap((topLevelNode, unitIndex) => {
+    const unit = topLevelNode?.type === 'writingUnit' ? topLevelNode : null
+    const nodes = unit ? unit.content || [] : [topLevelNode]
+    return nodes.map((node, nodeIndex) => ({
+      index: `${unitIndex}:${nodeIndex}`,
+      unitId: text(unit?.attrs?.unitId),
+      unitRevision: Number(unit?.attrs?.unitRevision || 0),
+      nodeId: text(node?.attrs?.nodeId || node?.attrs?.blockId || `node-${unitIndex + 1}-${nodeIndex + 1}`),
+      nodeRevision: Number(node?.attrs?.nodeRevision ?? node?.attrs?.revision ?? 0),
+      kind: text(node?.attrs?.kind || 'prose'),
+      text: blockText(node)
+    }))
+  })
   const proseBlocks = blocks.filter((block) => block.kind !== 'divider' && block.text)
   const issues = []
 
@@ -78,7 +100,10 @@ export function buildWritingQualityReport({
       title: '批注失去定位',
       detail: text(annotation.body).slice(0, 180) || '这条批注无法回到正文位置。',
       annotationId: annotation.id,
-      blockId: annotation.blockId,
+      unitId: annotation.target?.unitId || annotation.range?.start?.unitId,
+      unitRevision: annotation.target?.unitRevision ?? annotation.range?.start?.unitRevision,
+      nodeId: annotation.target?.nodeId || annotation.range?.start?.nodeId || annotation.nodeId || annotation.blockId,
+      nodeRevision: annotation.target?.nodeRevision ?? annotation.range?.start?.nodeRevision ?? annotation.nodeRevision ?? annotation.blockRevision,
       blocking: true
     }))
   })
@@ -96,7 +121,10 @@ export function buildWritingQualityReport({
         title: high ? '高优先级审查问题未处理' : '审查问题未处理',
         detail: text(annotation.body).slice(0, 180) || '这条审查发现仍处于待处理状态。',
         annotationId: annotation.id,
-        blockId: annotation.blockId,
+        unitId: annotation.target?.unitId || annotation.range?.start?.unitId,
+        unitRevision: annotation.target?.unitRevision ?? annotation.range?.start?.unitRevision,
+        nodeId: annotation.target?.nodeId || annotation.range?.start?.nodeId || annotation.nodeId || annotation.blockId,
+        nodeRevision: annotation.target?.nodeRevision ?? annotation.range?.start?.nodeRevision ?? annotation.nodeRevision ?? annotation.blockRevision,
         blocking: high
       }))
     })
@@ -126,12 +154,15 @@ export function buildWritingQualityReport({
   proseBlocks.forEach((block) => {
     if (block.text.length <= 1600) return
     issues.push(issue({
-      id: `${ISSUE_KINDS.longBlock}:${block.blockId}`,
+      id: `${ISSUE_KINDS.longBlock}:${block.nodeId}`,
       kind: ISSUE_KINDS.longBlock,
       severity: 'medium',
-      title: '单块正文过长',
-      detail: `当前块约 ${block.text.length.toLocaleString()} 字，建议拆成更易审阅的段落。`,
-      blockId: block.blockId
+      title: '单个正文片段过长',
+      detail: `当前片段约 ${block.text.length.toLocaleString()} 字，建议拆成更易审阅的段落。`,
+      unitId: block.unitId,
+      unitRevision: block.unitRevision,
+      nodeId: block.nodeId,
+      nodeRevision: block.nodeRevision
     }))
   })
 
@@ -142,12 +173,15 @@ export function buildWritingQualityReport({
     const currentKey = normalizeForComparison(current.text)
     if (previousKey.length < 24 || previousKey !== currentKey) continue
     issues.push(issue({
-      id: `${ISSUE_KINDS.duplicate}:${current.blockId}`,
+      id: `${ISSUE_KINDS.duplicate}:${current.nodeId}`,
       kind: ISSUE_KINDS.duplicate,
       severity: 'medium',
-      title: '相邻正文块高度重复',
-      detail: '相邻块清洗后的正文相同，建议确认是否为重复粘贴或有意复述。',
-      blockId: current.blockId
+      title: '相邻正文片段高度重复',
+      detail: '相邻片段清洗后的正文相同，建议确认是否为重复粘贴或有意复述。',
+      unitId: current.unitId,
+      unitRevision: current.unitRevision,
+      nodeId: current.nodeId,
+      nodeRevision: current.nodeRevision
     }))
   }
 

@@ -1,4 +1,4 @@
-export const WRITING_BLOCK_HISTORY_SCHEMA_VERSION = 1
+export const WRITING_BLOCK_HISTORY_SCHEMA_VERSION = 2
 export const MAX_WRITING_BLOCK_HISTORY_PER_CHAPTER = 120
 export const MAX_WRITING_BLOCK_HISTORY_STORAGE_CHARS = 2000000
 
@@ -23,7 +23,8 @@ function normalizeText(value, maxLength = 50000) {
 }
 
 function getNodeText(node) {
-  return (node?.content || []).map((item) => item?.text || '').join('')
+  if (typeof node?.text === 'string') return node.text
+  return (node?.content || []).map(getNodeText).join('')
 }
 
 function normalizeSource(value) {
@@ -46,18 +47,27 @@ export function createWritingBlockHistoryEntry({
   id = null,
   chapterId,
   chapterTitle = '',
-  blockId,
-  blockKind = 'prose',
+  unitId = null,
+  unitKind = 'passage',
+  nodeId = null,
+  nodeKind = 'prose',
+  blockId = null,
+  blockKind = null,
   previousText = '',
   currentText = '',
   fromDocumentRevision = 0,
   toDocumentRevision = 0,
-  fromBlockRevision = 0,
-  toBlockRevision = 0,
+  fromUnitRevision = 0,
+  toUnitRevision = 0,
+  fromNodeRevision = null,
+  toNodeRevision = null,
+  fromBlockRevision = null,
+  toBlockRevision = null,
   source = 'unknown',
   createdAt = null
 } = {}) {
-  if (!String(chapterId || '').trim() || !String(blockId || '').trim()) return null
+  const stableNodeId = String(nodeId || blockId || '').trim()
+  if (!String(chapterId || '').trim() || !stableNodeId) return null
   const previous = normalizeText(previousText)
   const current = normalizeText(currentText)
   if (previous === current) return null
@@ -67,19 +77,33 @@ export function createWritingBlockHistoryEntry({
     id: String(id || `writing-block-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     chapterId: String(chapterId),
     chapterTitle: String(chapterTitle || '').trim().slice(0, 160),
-    blockId: String(blockId),
-    blockKind: String(blockKind || 'prose'),
+    unitId: unitId ? String(unitId) : null,
+    unitKind: String(unitKind || (unitId ? 'passage' : 'legacy-fragment')),
+    nodeId: stableNodeId,
+    nodeKind: String(nodeKind || blockKind || 'prose'),
     previousText: previous,
     currentText: current,
     fromDocumentRevision: Number(fromDocumentRevision || 0),
     toDocumentRevision: Number(toDocumentRevision || 0),
-    fromBlockRevision: Number(fromBlockRevision || 0),
-    toBlockRevision: Number(toBlockRevision || 0),
+    fromUnitRevision: Number(fromUnitRevision || 0),
+    toUnitRevision: Number(toUnitRevision || 0),
+    fromNodeRevision: Number(fromNodeRevision ?? fromBlockRevision ?? 0),
+    toNodeRevision: Number(toNodeRevision ?? toBlockRevision ?? 0),
     source: normalizeSource(source),
     createdAt: normalizeDate(createdAt)
   }
-
   return entrySize(entry) <= 60000 ? entry : null
+}
+
+function flattenDocument(document) {
+  return (document?.content || []).flatMap((unit) => (
+    (unit?.content || []).map((node) => ({
+      unit,
+      node,
+      unitId: unit?.attrs?.unitId || null,
+      nodeId: node?.attrs?.nodeId || node?.attrs?.blockId || null
+    }))
+  ))
 }
 
 export function buildWritingBlockHistoryEntries({
@@ -90,29 +114,28 @@ export function buildWritingBlockHistoryEntries({
   source = 'manual-save',
   createdAt = null
 } = {}) {
-  const previousNodes = Array.isArray(previousDocument?.content) ? previousDocument.content : []
-  const nextNodes = Array.isArray(nextDocument?.content) ? nextDocument.content : []
-  const previousById = new Map(
-    previousNodes
-      .map((node) => [String(node?.attrs?.blockId || ''), node])
-      .filter(([blockId]) => blockId)
-  )
+  const previousNodes = flattenDocument(previousDocument)
+  const nextNodes = flattenDocument(nextDocument)
+  const previousById = new Map(previousNodes.filter((item) => item.nodeId).map((item) => [item.nodeId, item]))
 
-  return nextNodes.map((node) => {
-    const blockId = String(node?.attrs?.blockId || '')
-    const previous = previousById.get(blockId)
+  return nextNodes.map((item) => {
+    const previous = previousById.get(item.nodeId)
     if (!previous) return null
     return createWritingBlockHistoryEntry({
       chapterId,
       chapterTitle,
-      blockId,
-      blockKind: node?.attrs?.kind || previous?.attrs?.kind || 'prose',
-      previousText: getNodeText(previous),
-      currentText: getNodeText(node),
+      unitId: item.unitId,
+      unitKind: item.unit?.attrs?.kind || previous.unit?.attrs?.kind || 'passage',
+      nodeId: item.nodeId,
+      nodeKind: item.node?.attrs?.kind || previous.node?.attrs?.kind || 'prose',
+      previousText: getNodeText(previous.node),
+      currentText: getNodeText(item.node),
       fromDocumentRevision: previousDocument?.revision,
       toDocumentRevision: nextDocument?.revision,
-      fromBlockRevision: previous?.attrs?.revision,
-      toBlockRevision: node?.attrs?.revision,
+      fromUnitRevision: previous.unit?.attrs?.unitRevision,
+      toUnitRevision: item.unit?.attrs?.unitRevision,
+      fromNodeRevision: previous.node?.attrs?.nodeRevision ?? previous.node?.attrs?.revision,
+      toNodeRevision: item.node?.attrs?.nodeRevision ?? item.node?.attrs?.revision,
       source,
       createdAt
     })
@@ -120,28 +143,32 @@ export function buildWritingBlockHistoryEntries({
 }
 
 export function normalizeWritingBlockHistoryEntry(value, chapterId = null) {
-  if (!value || value.schemaVersion !== WRITING_BLOCK_HISTORY_SCHEMA_VERSION) return null
+  if (!value || ![1, WRITING_BLOCK_HISTORY_SCHEMA_VERSION].includes(Number(value.schemaVersion))) return null
   if (chapterId != null && String(value.chapterId) !== String(chapterId)) return null
+  const legacy = Number(value.schemaVersion) === 1
   return createWritingBlockHistoryEntry({
     id: value.id,
     chapterId: value.chapterId,
     chapterTitle: value.chapterTitle,
-    blockId: value.blockId,
-    blockKind: value.blockKind,
+    unitId: legacy ? null : value.unitId,
+    unitKind: legacy ? 'legacy-fragment' : value.unitKind,
+    nodeId: value.nodeId || value.blockId,
+    nodeKind: value.nodeKind || value.blockKind,
     previousText: value.previousText,
     currentText: value.currentText,
     fromDocumentRevision: value.fromDocumentRevision,
     toDocumentRevision: value.toDocumentRevision,
-    fromBlockRevision: value.fromBlockRevision,
-    toBlockRevision: value.toBlockRevision,
+    fromUnitRevision: value.fromUnitRevision,
+    toUnitRevision: value.toUnitRevision,
+    fromNodeRevision: value.fromNodeRevision ?? value.fromBlockRevision,
+    toNodeRevision: value.toNodeRevision ?? value.toBlockRevision,
     source: value.source,
     createdAt: value.createdAt
   })
 }
 
 export function normalizeWritingBlockHistory(values, chapterId = null) {
-  const list = Array.isArray(values) ? values : []
-  const normalized = list
+  const normalized = (Array.isArray(values) ? values : [])
     .map((item) => normalizeWritingBlockHistoryEntry(item, chapterId))
     .filter(Boolean)
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())

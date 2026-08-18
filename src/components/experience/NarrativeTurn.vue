@@ -14,6 +14,7 @@ const props = defineProps({
   turnSpeaker: { type: String, default: '' },
   compressionComplete: { type: Boolean, default: false },
   canEdit: { type: Boolean, default: true },
+  canCollectWriting: { type: Boolean, default: false },
   renderContent: { type: Function, required: true },
   // R1b：该 user 消息之后是否有其它分支的 assistant 回复（显示"切换回复版本"按钮）
   hasCandidates: { type: Boolean, default: false },
@@ -21,7 +22,7 @@ const props = defineProps({
   canUndoExtension: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension'])
+const emit = defineEmits(['body-click', 'editor-keydown', 'save-edit', 'cancel-edit', 'edit', 'delete', 'regenerate', 'switch-candidate', 'undo-extension', 'collect-writing'])
 
 // U4：按 block 顺序预计算 tone 与连续 speaker 组（组首显示姓名/组尾节奏）
 const blockMeta = computed(() => {
@@ -50,7 +51,7 @@ function shouldShowBlockSpeaker(block, index) {
 </script>
 
 <template>
-  <div class="prose" :class="[`prose--${message.role || 'assistant'}`, `prose--${message.role || 'assistant'}-role`, { 'compression-complete': compressionComplete, 'prose--opening': opening, 'prose--editing': editing }]" :data-global-index="index" :data-role="message.role">
+  <div class="prose" :class="[`prose--${message.role || 'assistant'}`, `prose--${message.role || 'assistant'}-role`, { 'compression-complete': compressionComplete, 'prose--opening': opening, 'prose--editing': editing }]" :data-global-index="index" :data-message-id="message.id" :data-role="message.role">
     <span v-if="showTurnSpeaker" class="prose__speaker" :class="`prose__speaker--${message.role || 'assistant'}`">{{ turnSpeaker }}</span><span v-if="showTurnSpeaker" class="prose__sep" aria-hidden="true">&emsp;</span>
     <span v-if="editing" class="prose__editor" contenteditable="true" spellcheck="false" :data-editing-index="index" @keydown="$emit('editor-keydown', $event)" @click.stop></span>
     <div v-else class="prose__body" @click="handleBodyClick($event)">
@@ -74,6 +75,7 @@ function shouldShowBlockSpeaker(block, index) {
         <WorkbenchIcon name="more" :size="15" />
       </summary>
       <span class="prose__actions-menu">
+        <button v-if="canCollectWriting" type="button" class="prose__action prose__action--collect" @click="$emit('collect-writing')">收进稿件</button>
         <button type="button" class="prose__action" title="编辑内容" aria-label="编辑内容" @click="$emit('edit')"><WorkbenchIcon name="pencil" :size="13" /></button>
         <button v-if="canUndoExtension" type="button" class="prose__action prose__action--undo" title="撤销本次续接" aria-label="撤销本次续接" @click="$emit('undo-extension')"><WorkbenchIcon name="undo-extension" :size="13" /></button>
         <button type="button" class="prose__action prose__action--delete" title="删除" aria-label="删除消息" @click="$emit('delete')"><WorkbenchIcon name="trash" :size="13" /></button>
@@ -240,6 +242,13 @@ function shouldShowBlockSpeaker(block, index) {
   color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
   cursor: pointer;
   transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.prose__action--collect {
+  width: auto;
+  padding-inline: 9px;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 .prose__action:hover,

@@ -1,8 +1,8 @@
 import { STORAGE_KEYS, getItem, setItem } from '../../composables/useStorage.js'
-import { normalizeWritingSnapshots } from '../../../shared/writingSnapshotContract.js'
+import { normalizeStoredWritingSnapshot, normalizeStoredWritingSnapshots } from './writingSnapshots.js'
 
 function readDrafts() {
-  return normalizeWritingSnapshots(getItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS))
+  return normalizeStoredWritingSnapshots(getItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS))
     .filter((snapshot) => snapshot.reason === 'crash-recovery')
 }
 
@@ -14,12 +14,13 @@ export function listWritingRecoveryDrafts(chapterId = null) {
 }
 
 export function saveWritingRecoveryDraft(snapshot) {
-  if (!snapshot || snapshot.reason !== 'crash-recovery') return { ok: false, reason: 'invalid-recovery-draft' }
+  const normalized = normalizeStoredWritingSnapshot(snapshot)
+  if (!normalized || normalized.reason !== 'crash-recovery') return { ok: false, reason: 'invalid-recovery-draft' }
   const drafts = readDrafts().filter((draft) => draft.chapterId !== snapshot.chapterId)
-  if (!setItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS, [snapshot, ...drafts])) {
+  if (!setItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS, [normalized, ...drafts])) {
     return { ok: false, reason: 'storage-write-failed' }
   }
-  return { ok: true, snapshot }
+  return { ok: true, snapshot: normalized }
 }
 
 export function clearWritingRecoveryDraft(chapterId) {

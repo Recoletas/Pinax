@@ -7,6 +7,18 @@ import {
 export { buildWritingCandidateDiff, getWritingCandidateStaleReason, normalizeWritingCandidates }
 
 export function createWritingCandidateRequest({ target, documentRevision, chapterId, question }) {
+  const nodes = (Array.isArray(target?.nodes) ? target.nodes : (Array.isArray(target?.blocks) ? target.blocks : []))
+    .map((node) => ({
+      unitId: node?.unitId || null,
+      unitRevision: node?.unitRevision ?? null,
+      nodeId: node?.nodeId || node?.blockId || null,
+      nodeRevision: node?.nodeRevision ?? node?.blockRevision ?? null,
+      kind: node?.kind || 'prose',
+      text: String(node?.text || ''),
+      ...(node?.range ? { range: node.range } : {}),
+      ...(node?.editorRange ? { editorRange: node.editorRange } : {})
+    }))
+    .filter((node) => node.nodeId)
   const targetKind = target?.kind === 'block' || target?.kind === 'paragraph'
     ? 'paragraph'
     : 'selection'
@@ -16,21 +28,25 @@ export function createWritingCandidateRequest({ target, documentRevision, chapte
       kind: targetKind,
       range: target?.range || null,
       text: String(target?.text || ''),
-      blockIds: Array.isArray(target?.blocks) ? target.blocks.map((block) => block.blockId).filter(Boolean) : [],
-      blocks: Array.isArray(target?.blocks) ? target.blocks : [],
-      blockId: target?.blockId || null,
-      blockRevision: target?.blockRevision ?? null,
+      nodeIds: nodes.map((node) => node.nodeId),
+      nodes,
+      nodeId: target?.nodeId || target?.blockId || null,
+      unitId: target?.unitId || null,
+      unitRevision: target?.unitRevision ?? null,
+      nodeRevision: target?.nodeRevision ?? target?.blockRevision ?? null,
       revision: String(documentRevision ?? ''),
       chapterId: chapterId || null
     },
     fallback: {
       chapterId: chapterId || null,
       documentRevision: Number.isFinite(Number(documentRevision)) ? Number(documentRevision) : null,
-      blockId: target?.blockId || null,
-      blockRevision: target?.blockRevision ?? null,
+      nodeId: target?.nodeId || target?.blockId || null,
+      unitId: target?.unitId || null,
+      unitRevision: target?.unitRevision ?? null,
+      nodeRevision: target?.nodeRevision ?? target?.blockRevision ?? null,
       baseText: String(target?.text || ''),
       targetRange: target?.range || null,
-      blocks: Array.isArray(target?.blocks) ? target.blocks : [],
+      nodes,
       multiBlock: target?.kind === 'multi-selection'
     }
   }

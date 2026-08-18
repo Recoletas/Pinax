@@ -90,7 +90,7 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
         if (dispatch) {
           const transaction = state.tr.replaceWith(unitPos, unitPos + unit.nodeSize, [leftUnit, rightUnit])
           transaction.setMeta('writingUnitTransition', {
-            ...createTransition('split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftChildren, rightChildren]),
+            ...createTransition('split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]),
             splitNode
           })
           dispatch(transaction.scrollIntoView())
@@ -118,7 +118,7 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
   if (dispatch) {
     const transaction = state.tr.replaceWith(unitPos, unitPos + unit.nodeSize, [leftUnit, rightUnit])
     transaction.setMeta('writingUnitTransition', createTransition(
-      'split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftChildren, rightChildren]
+      'split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]
     ))
     dispatch(transaction.scrollIntoView())
   }
@@ -138,15 +138,15 @@ function mergeUnitTransaction(state, dispatch, direction = 'previous') {
     unitRevision: Math.max(Number(left.attrs?.unitRevision || 0), Number(right.attrs?.unitRevision || 0)) + 1,
     originRefs: [...(left.attrs?.originRefs || []), ...(right.attrs?.originRefs || [])]
       .filter((ref, index, refs) => refs.findIndex((item) => JSON.stringify(item) === JSON.stringify(ref)) === index)
-  }, left.content.toArray().concat(right.content.toArray()))
+  }, left.content.content.concat(right.content.content))
   const from = Math.min(current.unitPos, neighbor.pos)
   const to = Math.max(current.unitPos + current.node.nodeSize, neighbor.pos + neighbor.node.nodeSize)
   if (dispatch) {
     const transaction = state.tr.replaceWith(from, to, merged)
     transaction.setMeta('writingUnitTransition', createTransition(
       'merge', merged.attrs.unitId, null,
-      direction === 'next' ? right.attrs.unitId : left.attrs.unitId,
-      [merged.content.content]
+      right.attrs.unitId,
+      [merged]
     ))
     dispatch(transaction.scrollIntoView())
   }
@@ -164,7 +164,7 @@ function moveUnitTransaction(state, dispatch, direction) {
   if (dispatch) {
     const transaction = state.tr.replaceWith(0, state.doc.content.size, units)
     transaction.setMeta('writingUnitTransition', createTransition(
-      'move', moving.attrs.unitId, null, null, units.map((unit) => unit.content.content)
+      'move', moving.attrs.unitId, null, null, units
     ))
     dispatch(transaction.scrollIntoView())
   }

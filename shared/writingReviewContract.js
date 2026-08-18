@@ -27,8 +27,8 @@ function integer(value, fallback = 0) {
   return Number.isFinite(number) ? Math.floor(number) : fallback
 }
 
-function blockIdOf(value) {
-  return text(value?.blockId || value?.id).trim()
+function nodeIdOf(value) {
+  return text(value?.nodeId || value?.blockId || value?.id).trim()
 }
 
 function normalizeKind(value) {
@@ -56,20 +56,22 @@ export function normalizeWritingReviewFindings(rawFindings, { blocks = [], maxFi
   const source = Array.isArray(rawFindings) ? rawFindings : []
   const normalizedBlocks = blocks
     .map((block) => ({
-      blockId: blockIdOf(block),
-      blockRevision: integer(block?.blockRevision ?? block?.revision),
+      unitId: text(block?.unitId).trim() || null,
+      unitRevision: integer(block?.unitRevision),
+      nodeId: nodeIdOf(block),
+      nodeRevision: integer(block?.nodeRevision ?? block?.blockRevision ?? block?.revision),
       text: text(block?.text)
     }))
-    .filter((block) => block.blockId)
-  const blockIndex = new Map(normalizedBlocks.map((block, index) => [block.blockId, { ...block, index }]))
+    .filter((block) => block.nodeId)
+  const nodeIndex = new Map(normalizedBlocks.map((block, index) => [block.nodeId, { ...block, index }]))
   const findings = []
   const seen = new Set()
 
   for (const raw of source) {
-    const startBlockId = blockIdOf(raw?.start || raw?.startBlock || { blockId: raw?.startBlockId })
-    const endBlockId = blockIdOf(raw?.end || raw?.endBlock || { blockId: raw?.endBlockId || startBlockId })
-    const start = blockIndex.get(startBlockId)
-    const end = blockIndex.get(endBlockId)
+    const startNodeId = nodeIdOf(raw?.start || raw?.startBlock || { nodeId: raw?.startNodeId || raw?.startBlockId })
+    const endNodeId = nodeIdOf(raw?.end || raw?.endBlock || { nodeId: raw?.endNodeId || raw?.endBlockId || startNodeId })
+    const start = nodeIndex.get(startNodeId)
+    const end = nodeIndex.get(endNodeId)
     if (!start || !end || start.index > end.index) continue
 
     const startOffset = Math.max(0, Math.min(start.text.length, integer(raw?.start?.offset ?? raw?.startOffset)))
@@ -85,8 +87,8 @@ export function normalizeWritingReviewFindings(rawFindings, { blocks = [], maxFi
     if (!exact || exact.length > 1200) continue
     if (raw?.exact != null && text(raw.exact).trim() !== exact) continue
 
-    const blockIds = normalizedBlocks.slice(start.index, end.index + 1).map((block) => block.blockId)
-    const fingerprint = `${kind}|${startBlockId}|${startOffset}|${endBlockId}|${endOffset}|${body}`
+    const nodeIds = normalizedBlocks.slice(start.index, end.index + 1).map((block) => block.nodeId)
+    const fingerprint = `${kind}|${startNodeId}|${startOffset}|${endNodeId}|${endOffset}|${body}`
     if (seen.has(fingerprint)) continue
     seen.add(fingerprint)
     findings.push({
@@ -96,16 +98,20 @@ export function normalizeWritingReviewFindings(rawFindings, { blocks = [], maxFi
       body,
       exact,
       start: {
-        blockId: startBlockId,
-        blockRevision: start.blockRevision,
+        unitId: start.unitId,
+        unitRevision: start.unitRevision,
+        nodeId: startNodeId,
+        nodeRevision: start.nodeRevision,
         offset: startOffset
       },
       end: {
-        blockId: endBlockId,
-        blockRevision: end.blockRevision,
+        unitId: end.unitId,
+        unitRevision: end.unitRevision,
+        nodeId: endNodeId,
+        nodeRevision: end.nodeRevision,
         offset: endOffset
       },
-      blockIds
+      nodeIds
     })
     if (findings.length >= Math.max(1, integer(maxFindings, 8))) break
   }

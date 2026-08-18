@@ -141,13 +141,41 @@ import {
 } from '../services/writing/writingDocumentSchema.js'
 import {
   createWritingCandidateRequest,
-  getWritingCandidateStaleReason
+  getWritingCandidateStaleReason,
+  normalizeWritingCandidateResponse
 } from '../services/writing/writingCandidates.js'
+import {
+  createWritingAnnotation,
+  createWritingSelector,
+  reconcileWritingAnnotations,
+  resolveWritingAnnotation
+} from '../services/writing/writingAnnotations.js'
 import {
   WritingDocumentNode,
   WritingNodeAttributes,
   WritingUnitNode
 } from '../services/writing/writingUnitExtension.js'
+import { buildWritingAgentInput } from '../composables/useWritingAgent.js'
+import {
+  buildWritingBlockHistoryEntries,
+  normalizeWritingBlockHistoryEntry
+} from '../../shared/writingBlockHistoryContract.js'
+import { createWritingSnapshot } from '../../shared/writingSnapshotContract.js'
+import {
+  listWritingSnapshots,
+  normalizeStoredWritingSnapshot,
+  saveWritingSnapshot
+} from '../services/writing/writingSnapshots.js'
+import {
+  listWritingRecoveryDrafts,
+  saveWritingRecoveryDraft
+} from '../services/writing/writingRecovery.js'
+import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
+import { buildWritingQualityReport } from '../../shared/writingQualityContract.js'
+import {
+  appendExperienceTurnToChapter,
+  getExperienceTurnImportEligibility
+} from '../services/writing/writingExperienceImport.js'
 // P4：可信说话者注册表
 import { buildSpeakerRegistry, resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 // P6：SceneThread 滚动合并
@@ -206,18 +234,53 @@ describe('PromptBuilder', () => {
       ],
       content: { type: 'doc', content: writingDocumentToEditorContent(document) }
     })
+    let splitTransition = null
     const unitEditor = makeUnitEditor(createWritingDocument('甲。'))
+    unitEditor.on('transaction', ({ transaction }) => {
+      splitTransition = transaction.getMeta('writingUnitTransition') || splitTransition
+    })
     unitEditor.commands.setTextSelection(3)
     expect(unitEditor.commands.splitBlock()).toBe(true)
     expect(unitEditor.getJSON().content).toHaveLength(1)
     expect(unitEditor.getJSON().content[0].content).toHaveLength(2)
     expect(unitEditor.commands.splitWritingUnit()).toBe(true)
-    expect(unitEditor.getJSON().content).toHaveLength(2)
-    expect(unitEditor.getJSON().content[0].attrs.unitId).not.toBe(unitEditor.getJSON().content[1].attrs.unitId)
+    const splitEditorJson = unitEditor.getJSON()
+    expect(splitEditorJson.content).toHaveLength(2)
+    expect(splitEditorJson.content[0].attrs.unitId).not.toBe(splitEditorJson.content[1].attrs.unitId)
+    splitEditorJson.content.forEach((unit) => {
+      unit.content.forEach((node) => {
+        expect(splitTransition.nodeUnitMap[node.attrs.nodeId]).toBe(unit.attrs.unitId)
+      })
+    })
+    const mergeDocument = editorContentToWritingDocument(splitEditorJson)
     expect(unitEditor.commands.undo()).toBe(true)
     expect(unitEditor.getJSON().content).toHaveLength(1)
     expect(unitEditor.commands.mergeWritingUnit('next')).toBe(false)
     unitEditor.destroy()
+
+    let unitTransition = null
+    const mergeEditor = makeUnitEditor(mergeDocument)
+    mergeEditor.on('transaction', ({ transaction }) => {
+      unitTransition = transaction.getMeta('writingUnitTransition') || unitTransition
+    })
+    const leftUnitId = mergeEditor.getJSON().content[0].attrs.unitId
+    const rightUnitId = mergeEditor.getJSON().content[1].attrs.unitId
+    mergeEditor.commands.setTextSelection(mergeEditor.state.doc.child(0).nodeSize + 2)
+    expect(mergeEditor.commands.mergeWritingUnit('previous')).toBe(true)
+    expect(mergeEditor.getJSON().content).toHaveLength(1)
+    expect(mergeEditor.getJSON().content[0].attrs.unitId).toBe(leftUnitId)
+    expect(unitTransition).toMatchObject({ type: 'merge', keptUnitId: leftUnitId, removedUnitId: rightUnitId })
+    expect(mergeEditor.commands.undo()).toBe(true)
+    expect(mergeEditor.getJSON().content).toHaveLength(2)
+    mergeEditor.commands.setTextSelection(mergeEditor.state.doc.child(0).nodeSize + 2)
+    expect(mergeEditor.commands.moveWritingUnit('up')).toBe(true)
+    mergeEditor.getJSON().content.forEach((unit) => {
+      unit.content.forEach((node) => {
+        expect(unitTransition.nodeUnitMap[node.attrs.nodeId]).toBe(unit.attrs.unitId)
+      })
+    })
+    expect(mergeEditor.commands.undo()).toBe(true)
+    mergeEditor.destroy()
 
     const cursorDocument = editorContentToWritingDocument({
       type: 'doc',
@@ -249,36 +312,227 @@ describe('PromptBuilder', () => {
     const unchangedRewriteTarget = {
       chapterId: 'chapter-1',
       documentRevision: 4,
-      blockId: 'block-1',
-      blockRevision: 2,
+      unitId: 'unit-1',
+      unitRevision: 2,
+      nodeId: 'node-1',
+      nodeRevision: 2,
       baseText: '仍是同一段正文'
     }
     expect(getWritingCandidateStaleReason(unchangedRewriteTarget, {
       chapterId: 'chapter-1',
       documentRevision: 5,
-      blockId: 'block-1',
-      blockRevision: 2,
-      text: '仍是同一段正文'
+      nodes: [{ unitId: 'unit-1', unitRevision: 2, nodeId: 'node-1', nodeRevision: 2, text: '仍是同一段正文' }]
     })).toBe('')
     expect(getWritingCandidateStaleReason(unchangedRewriteTarget, {
       chapterId: 'chapter-1',
       documentRevision: 5,
-      blockId: 'block-1',
-      blockRevision: 3,
-      text: '正文已经变化'
-    })).toBe('block-changed')
-    expect(createWritingCandidateRequest({
-      target: { kind: 'block', blockId: 'block-1', text: '整段正文' },
+      nodes: [{ unitId: 'unit-1', unitRevision: 3, nodeId: 'node-1', nodeRevision: 2, text: '仍是同一段正文' }]
+    })).toBe('unit-revision-changed')
+    const candidateRequest = createWritingCandidateRequest({
+      target: { kind: 'block', unitId: 'unit-1', unitRevision: 2, nodeId: 'node-1', nodeRevision: 2, text: '整段正文' },
       documentRevision: 5,
       chapterId: 'chapter-1',
       question: '改写上一段'
-    }).target.kind).toBe('paragraph')
+    })
+    expect(candidateRequest.target.kind).toBe('paragraph')
+    expect(JSON.stringify(candidateRequest)).not.toMatch(/blockId|blockRevision/)
+    const inlineAgentInput = buildWritingAgentInput({
+      bookId: 'book-1',
+      chapterId: 'chapter-1',
+      chapterTitle: '第一章',
+      content: '整段正文',
+      documentRevision: 5,
+      nodeTarget: { unitId: 'unit-1', unitRevision: 2, nodeId: 'node-1', nodeRevision: 3, start: 0, end: 4 }
+    }, 4)
+    expect(JSON.stringify(inlineAgentInput.envelope)).toContain('当前单元：unit-1（revision 2）')
+    expect(JSON.stringify(inlineAgentInput.envelope)).toContain('当前节点：node-1（revision 3）')
+    expect(JSON.stringify(inlineAgentInput)).not.toMatch(/blockId|blockRevision/)
+    const normalizedCandidate = normalizeWritingCandidateResponse({
+      candidates: [{ nodeId: 'node-1', replacement: '改写正文' }]
+    }, candidateRequest)[0]
+    expect(normalizedCandidate).toMatchObject({ nodeId: 'node-1', nodeRevision: 2 })
+    expect(normalizedCandidate).not.toHaveProperty('blockId')
+    expect(normalizedCandidate).not.toHaveProperty('blockRevision')
+    const reviewFinding = normalizeWritingReviewFindings([{
+      kind: '衔接',
+      body: '前后动作缺少因果连接。',
+      start: { nodeId: 'node-1', offset: 0 },
+      end: { nodeId: 'node-1', offset: 2 },
+      exact: '整段'
+    }], {
+      blocks: [{ unitId: 'unit-1', unitRevision: 2, nodeId: 'node-1', nodeRevision: 2, text: '整段正文' }]
+    })[0]
+    expect(reviewFinding).toMatchObject({
+      start: { unitId: 'unit-1', nodeId: 'node-1', nodeRevision: 2 },
+      end: { unitId: 'unit-1', nodeId: 'node-1', nodeRevision: 2 },
+      nodeIds: ['node-1']
+    })
+    expect(JSON.stringify(reviewFinding)).not.toMatch(/blockId|blockRevision/)
     expect(createWritingCandidateRequest({
       target: { kind: 'multi-selection', text: '跨段选区', blocks: [] },
       documentRevision: 5,
       chapterId: 'chapter-1',
       question: '改写选区'
     }).target.kind).toBe('selection')
+
+    const annotationDocument = createWritingDocument('甲。\n\n唯一锚点。')
+    const annotationNode = annotationDocument.content[0].content[1]
+    const annotation = createWritingAnnotation({
+      chapterId: 'chapter-1',
+      target: {
+        unitId: annotationDocument.content[0].attrs.unitId,
+        unitRevision: annotationDocument.content[0].attrs.unitRevision,
+        nodeId: annotationNode.attrs.nodeId,
+        nodeRevision: annotationNode.attrs.nodeRevision,
+        start: 0,
+        end: 5
+      },
+      selector: createWritingSelector({ text: '唯一锚点', start: 0, end: 4, fullText: '唯一锚点。' }),
+      body: '检查这里'
+    })
+    expect(annotation).not.toHaveProperty('blockId')
+    expect(annotation).not.toHaveProperty('blockRevision')
+    const qualityReport = buildWritingQualityReport({
+      document: annotationDocument,
+      annotations: [{ ...annotation, kind: 'review-finding', severity: 'high', status: 'open' }]
+    })
+    expect(qualityReport.issues.some((issue) => issue.kind === 'empty-chapter')).toBe(false)
+    const qualityFinding = qualityReport.issues.find((issue) => issue.kind === 'open-review-finding')
+    expect(qualityFinding).toMatchObject({ nodeId: annotationNode.attrs.nodeId })
+    expect(qualityFinding).not.toHaveProperty('blockId')
+    const splitDocument = {
+      ...annotationDocument,
+      content: [
+        { ...annotationDocument.content[0], content: [annotationDocument.content[0].content[0]] },
+        { ...annotationDocument.content[0], attrs: { ...annotationDocument.content[0].attrs, unitId: 'unit-right' }, content: [annotationNode] }
+      ]
+    }
+    const afterSplit = reconcileWritingAnnotations([{
+      ...annotation,
+      schemaVersion: 2,
+      blockId: annotationNode.attrs.nodeId,
+      blockRevision: annotationNode.attrs.nodeRevision,
+      target: undefined
+    }], splitDocument, 'chapter-1', annotationDocument, {
+      type: 'split',
+      keptUnitId: annotationDocument.content[0].attrs.unitId,
+      createdUnitId: 'unit-right',
+      nodeUnitMap: { [annotationNode.attrs.nodeId]: 'unit-right' }
+    })[0]
+    expect(afterSplit).toMatchObject({ status: 'open', target: { unitId: 'unit-right', nodeId: annotationNode.attrs.nodeId } })
+    expect(afterSplit).not.toHaveProperty('blockId')
+    expect(afterSplit).not.toHaveProperty('blockRevision')
+    expect(resolveWritingAnnotation(afterSplit, splitDocument)).toMatchObject({ target: { nodeId: annotationNode.attrs.nodeId } })
+
+    const historyBefore = createWritingDocument('甲。\n\n乙。')
+    const historyAfter = structuredClone(historyBefore)
+    historyAfter.revision += 1
+    historyAfter.content[0].attrs.unitRevision += 1
+    historyAfter.content[0].content[1].attrs.nodeRevision += 1
+    historyAfter.content[0].content[1].content = [{ type: 'text', text: '乙，改。' }]
+    const historyEntries = buildWritingBlockHistoryEntries({
+      chapterId: 'chapter-1',
+      previousDocument: historyBefore,
+      nextDocument: historyAfter
+    })
+    expect(historyEntries).toHaveLength(1)
+    expect(historyEntries[0]).toMatchObject({
+      schemaVersion: 2,
+      unitId: historyBefore.content[0].attrs.unitId,
+      nodeId: historyBefore.content[0].content[1].attrs.nodeId
+    })
+    expect(normalizeWritingBlockHistoryEntry({
+      schemaVersion: 1,
+      id: 'legacy-history',
+      chapterId: 'chapter-1',
+      blockId: 'legacy-node',
+      blockKind: 'prose',
+      fromBlockRevision: 3,
+      toBlockRevision: 4,
+      previousText: '旧文',
+      currentText: '新文',
+      createdAt: '2026-08-17T00:00:00.000Z'
+    })).toMatchObject({
+      schemaVersion: 2,
+      unitId: null,
+      nodeId: 'legacy-node',
+      fromNodeRevision: 3,
+      toNodeRevision: 4
+    })
+    const snapshot = createWritingSnapshot({
+      chapterId: 'chapter-1',
+      document: historyAfter,
+      markdown: getWritingDocumentMarkdown(historyAfter)
+    })
+    expect(normalizeStoredWritingSnapshot(snapshot)?.editorDocument).toEqual(historyAfter)
+    expect(normalizeStoredWritingSnapshot({
+      ...snapshot,
+      editorDocument: v2,
+      documentRevision: v2.revision
+    })?.editorDocument).toMatchObject({ schemaVersion: 3, revision: v2.revision })
+    localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+    localStorage.removeItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS)
+    expect(saveWritingSnapshot(snapshot).ok).toBe(true)
+    const recoveryDraft = createWritingSnapshot({
+      id: 'recovery-chapter-1',
+      chapterId: 'chapter-1',
+      label: '未保存草稿',
+      reason: 'crash-recovery',
+      document: historyAfter,
+      markdown: getWritingDocumentMarkdown(historyAfter)
+    })
+    expect(saveWritingRecoveryDraft(recoveryDraft).ok).toBe(true)
+    expect(listWritingSnapshots('chapter-1').map((item) => item.id)).toEqual([snapshot.id])
+    expect(listWritingRecoveryDrafts('chapter-1').map((item) => item.id)).toEqual(['recovery-chapter-1'])
+    expect(historyEntries).toHaveLength(1)
+    localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+    localStorage.removeItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS)
+
+    const importInput = {
+      books: [{ id: 'book-1', name: '长篇', chapters: [{ id: 'chapter-1', title: '第一章', content: '旧文。', contentFormat: 'md' }] }],
+      bookId: 'book-1',
+      chapterId: 'chapter-1',
+      sessionId: 'session-1',
+      branchId: 'main',
+      worldbookId: 'world-1',
+      activeTurnIds: new Set(['turn-1']),
+      turn: { id: 'turn-1', status: 'committed', branchId: 'main', assistantMessageIds: ['m1'] },
+      messages: [{ id: 'm1', role: 'assistant', branchId: 'main', content: ':::narration\n风穿过门缝。\n\n她抬起头。' }]
+    }
+    expect(getExperienceTurnImportEligibility(importInput)).toBeNull()
+    expect(getExperienceTurnImportEligibility({
+      ...importInput,
+      turn: { ...importInput.turn, assistantMessageIds: ['m1', 'm2'] },
+      messages: [...importInput.messages, { id: 'm2', role: 'assistant', content: '另一条回复。' }]
+    })).toBe('ineligible-turn')
+    const importedTurn = appendExperienceTurnToChapter(importInput)
+    expect(importedTurn.ok).toBe(true)
+    const importedUnit = importedTurn.books[0].chapters[0].editorDocument.content.at(-1)
+    expect(importedUnit).toMatchObject({ type: 'writingUnit', attrs: { kind: 'passage' } })
+    expect(importedUnit.content).toHaveLength(2)
+    expect(importedUnit.attrs.originRefs[0]).toEqual({
+      type: 'experience-turn',
+      sessionId: 'session-1',
+      branchId: 'main',
+      turnId: 'turn-1',
+      messageId: 'm1',
+      worldbookId: 'world-1',
+      sourceRevision: 1
+    })
+    expect(appendExperienceTurnToChapter({ ...importInput, books: importedTurn.books }).reason).toBe('already-imported')
+    expect(appendExperienceTurnToChapter({
+      ...importInput,
+      books: importedTurn.books,
+      branchId: 'branch-2',
+      activeTurnIds: new Set(['turn-2']),
+      turn: { id: 'turn-2', status: 'committed', branchId: 'branch-2', assistantMessageIds: ['m2'] },
+      messages: [{ id: 'm2', role: 'assistant', branchId: 'branch-2', content: '她转身离开。' }]
+    }).books[0].chapters[0].editorDocument.content).toHaveLength(importedTurn.books[0].chapters[0].editorDocument.content.length + 1)
+    ;['user', 'pending', 'failed', 'superseded'].forEach((state) => {
+      const message = { ...importInput.messages[0], ...(state === 'user' ? { role: 'user' } : {}), ...(state === 'superseded' ? { superseded: true } : {}) }
+      const turn = { ...importInput.turn, ...(['pending', 'failed'].includes(state) ? { status: state } : {}) }
+      expect(getExperienceTurnImportEligibility({ turn, message, activeTurnIds: importInput.activeTurnIds })).toBe('ineligible-turn')
+    })
     const prompt = buildSystemPrompt('narrator', { style: 'webnovel' })
     expect(prompt).toContain('网文风')
 

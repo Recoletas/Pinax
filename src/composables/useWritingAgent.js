@@ -95,8 +95,8 @@ export function undoWritingSuggestion(content, receipt) {
 
 export function buildWritingAgentInput(snapshot, cursorPos) {
   const content = String(snapshot.content || '')
-  const blockTarget = snapshot.blockTarget && typeof snapshot.blockTarget === 'object'
-    ? snapshot.blockTarget
+  const nodeTarget = snapshot.nodeTarget && typeof snapshot.nodeTarget === 'object'
+    ? snapshot.nodeTarget
     : null
   const writingContext = buildWritingAgentContext({
     book: { id: snapshot.bookId, title: snapshot.bookTitle },
@@ -168,8 +168,9 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
   envelope = addBlock(envelope, BLOCK_KINDS.SCENE, {
     text: [
       snapshot.chapterTitle ? `章节：${snapshot.chapterTitle}` : '',
-      blockTarget?.blockId ? `当前块：${blockTarget.blockId}（revision ${blockTarget.blockRevision}）` : '',
-      blockTarget ? `当前块范围：${blockTarget.start}-${blockTarget.end}` : '',
+      nodeTarget?.unitId ? `当前单元：${nodeTarget.unitId}（revision ${nodeTarget.unitRevision}）` : '',
+      nodeTarget?.nodeId ? `当前节点：${nodeTarget.nodeId}（revision ${nodeTarget.nodeRevision}）` : '',
+      nodeTarget ? `当前节点范围：${nodeTarget.start}-${nodeTarget.end}` : '',
       '【光标前】',
       writingContext.cursor.before || '（空）',
       '【光标后】',
@@ -224,7 +225,7 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
     envelope,
     ledger: mergeContextLedgers(worldbook.contextLedger, writingLedger),
     revision,
-    blockTarget,
+    nodeTarget,
     documentRevision: Number(snapshot.documentRevision || 0),
     matchedEntries: worldbook.matchedEntries,
     warnings: worldbook.warnings

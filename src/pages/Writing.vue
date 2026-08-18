@@ -363,6 +363,7 @@
               @update:modelValue="onNotebookMarkdown"
               @update:document="onNotebookDocumentUpdate"
               @selection-change="onNotebookSelectionChange"
+              @unit-transition="onNotebookUnitTransition"
               @annotation-click="handleInlineAnnotationClick"
               @writing-command="handleNotebookWritingCommand"
               @accept-inline-suggestion="acceptWritingSuggestion"
@@ -372,6 +373,12 @@
               @input="onNotebookInput"
               @context-menu="showContextMenu"
             />
+            <button
+              v-if="currentWritingOrigin"
+              type="button"
+              class="writing-origin-action"
+              @click="openCurrentWritingOrigin"
+            >来自体验</button>
             <Teleport to="body">
               <div
                 v-if="selectionActionsVisible"
@@ -414,6 +421,11 @@
             <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
             <div class="ctx-divider"></div>
             <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
+            <div class="ctx-divider"></div>
+            <button class="ctx-item" @click="ctxAction('splitUnit')">从此处分开</button>
+            <button class="ctx-item" @click="ctxAction('mergePreviousUnit')">与上一单元合并</button>
+            <button class="ctx-item" @click="ctxAction('moveUnitUp')">上移当前单元</button>
+            <button class="ctx-item" @click="ctxAction('moveUnitDown')">下移当前单元</button>
           </div>
         </template>
       </section>
@@ -540,8 +552,8 @@
                 </div>
                 <article v-if="selectedRewriteCandidate" class="writing-rewrite-candidate is-selected">
                   <p v-if="selectedRewriteCandidate.rationale">{{ selectedRewriteCandidate.rationale }}</p>
-                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" aria-label="跨块改写差异">
-                    <section v-for="(patch, patchIndex) in selectedRewriteCandidate.patches" :key="patch.blockId" class="writing-rewrite-patch">
+                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" aria-label="跨片段改写差异">
+                    <section v-for="(patch, patchIndex) in selectedRewriteCandidate.patches" :key="patch.nodeId" class="writing-rewrite-patch">
                       <small>片段 {{ patchIndex + 1 }}</small>
                       <div class="writing-rewrite-diff">
                         <div><small>原文</small><span v-for="(part, index) in patch.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
@@ -619,6 +631,27 @@
               <button type="button" @click="restoreWritingRecoveryDraft">恢复草稿</button>
               <button type="button" class="is-quiet" @click="discardWritingRecoveryDraft">丢弃</button>
             </footer>
+          </section>
+          <section v-if="recentWritingBlockHistory.length" class="writing-block-history" aria-label="最近片段历史">
+            <header class="writing-block-history__head">
+              <strong>片段历史</strong>
+              <small>独立于章节快照</small>
+            </header>
+            <article v-for="entry in recentWritingBlockHistory" :key="entry.id" class="writing-block-history__entry">
+              <header>
+                <div>
+                  <strong>正文片段</strong>
+                  <small>修订 {{ entry.fromDocumentRevision }} → {{ entry.toDocumentRevision }}</small>
+                </div>
+                <span>{{ formatWritingSnapshotTime(entry.createdAt) }}</span>
+              </header>
+              <p>{{ formatWritingHistoryPreview(entry.previousText) }}</p>
+              <button
+                type="button"
+                :disabled="!canRestoreWritingBlockHistory(entry)"
+                @click="restoreWritingBlockHistory(entry)"
+              >恢复此片段</button>
+            </article>
           </section>
           <div v-if="recentWritingSnapshots.length" class="writing-version-panel__list" aria-label="最近章节快照">
             <article v-for="snapshot in recentWritingSnapshots" :key="snapshot.id" class="writing-version-entry">
@@ -892,12 +925,12 @@ import {
 } from '../services/writing/writingCandidates.js'
 import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
 import {
-  cloneWritingSnapshotDocument,
   createWritingSnapshot,
   getWritingSnapshotReasonLabel,
   getWritingSnapshotRestoreGuard
 } from '../../shared/writingSnapshotContract.js'
 import {
+  cloneWritingSnapshotDocument,
   deleteWritingSnapshot,
   deleteWritingSnapshotsForChapter,
   listWritingSnapshots,
@@ -914,6 +947,7 @@ import {
   saveWritingRecoveryDraft
 } from '../services/writing/writingRecovery.js'
 import { buildWritingBlockHistoryEntries } from '../../shared/writingBlockHistoryContract.js'
+import { getExperienceOriginRoute } from '../services/writing/writingExperienceImport.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -1001,6 +1035,7 @@ let rewriteRequestVersion = 0
 let rewriteAbortController = null
 let reviewAbortController = null
 let recoveryTimeout = null
+let previousNotebookDocument = null
 const inspectorTab = ref('comments')
 const inspectorOpen = ref(true)
 const inspectorPinned = ref(false)
@@ -1114,7 +1149,7 @@ const {
     content: markdownContent.value,
     cursorPos: copilotCursorPos.value,
     documentRevision: Number(writingDocument.value?.revision || 0),
-    blockTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
+    nodeTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   })
 })
 const copilotCanUndo = computed(() => writingAgentCanUndo.value || notebookCopilotCanUndo.value)
@@ -1206,11 +1241,23 @@ const collapsedSidebarWidth = 44
 const rightSidebarWidth = computed(() => (isRightCollapsed.value ? collapsedSidebarWidth : rightWidth.value))
 const activeWritingBlock = computed(() => {
   const selection = notebookSelection.value
-  if (notebookEditorActive.value && selection?.blockId) {
+  if (notebookEditorActive.value && selection?.nodeId) {
     return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   }
   return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
 })
+const activeWritingUnit = computed(() => {
+  const unitId = notebookSelection.value?.unitId
+  if (unitId) return (writingDocument.value?.content || []).find((unit) => unit?.attrs?.unitId === unitId) || null
+  const nodeId = notebookSelection.value?.nodeId
+  return nodeId ? getWritingUnitByNodeId(nodeId) : null
+})
+const currentWritingOrigin = computed(() => activeWritingUnit.value?.attrs?.originRefs?.[0] || null)
+
+function openCurrentWritingOrigin() {
+  const routeTarget = getExperienceOriginRoute(currentWritingOrigin.value)
+  if (routeTarget) router.push(routeTarget)
+}
 const rootAnnotations = computed(() => {
   const ids = new Set(chapterAnnotations.value.map((annotation) => annotation.id))
   return chapterAnnotations.value.filter((annotation) => (
@@ -1221,10 +1268,17 @@ const rootAnnotations = computed(() => {
 const marginAnnotations = computed(() => rootAnnotations.value)
 const annotationDraftAnchor = computed(() => {
   const context = annotationComposerContext.value
-  if (!annotationComposerOpen.value || !context?.block?.blockId || !context?.range) return null
+  if (!annotationComposerOpen.value || !context?.block?.nodeId || !context?.range) return null
   return {
     id: 'annotation-draft',
-    blockId: context.block.blockId,
+    target: {
+      unitId: context.block.unitId,
+      unitRevision: context.block.unitRevision,
+      nodeId: context.block.nodeId,
+      nodeRevision: context.block.nodeRevision,
+      start: context.selector?.start || 0,
+      end: context.selector?.end || 0
+    },
     selector: context.selector,
     range: context.range,
     status: 'open'
@@ -1328,11 +1382,12 @@ const selectedRewriteCandidate = computed(() => rewriteCandidates.value.find(
   (candidate) => candidate.id === selectedRewriteCandidateId.value
 ) || rewriteCandidates.value[0] || null)
 const recentWritingSnapshots = computed(() => writingSnapshots.value.slice(0, 3))
+const recentWritingBlockHistory = computed(() => writingBlockHistory.value.slice(0, 4))
 const canCreateAnnotation = computed(() => Boolean(
   selectedChapterId.value
   && annotationDraft.value.trim()
   && selectedText.value.trim()
-  && activeWritingBlock.value?.blockId
+  && activeWritingBlock.value?.nodeId
 ))
 
 const turndownService = new TurndownService({
@@ -1460,8 +1515,10 @@ function readLiveWritingSelectionSnapshot() {
         end,
         text: selected || markdownContent.value.slice(start, end),
         hasSelection: end > start,
-        blockId: selection.blockId || null,
-        blockRevision: Number(selection.blockRevision || 0),
+        unitId: selection.unitId || null,
+        unitRevision: Number(selection.unitRevision || 0),
+        nodeId: selection.nodeId || null,
+        nodeRevision: Number(selection.nodeRevision || 0),
         editorFrom: Number(selection.from || 1),
         editorTo: Number(selection.to || selection.from || 1)
       }
@@ -1682,7 +1739,7 @@ function buildCopilotAssetContext(asset) {
 function getWritingAgentPageContext() {
   const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
   const currentChapter = selectedBook?.chapters?.find((chapter) => chapter.id === selectedChapterId.value)
-  const blockTarget = getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
+  const nodeTarget = getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
   return {
     content: markdownContent.value,
     cursorPos: copilotCursorPos.value,
@@ -1691,7 +1748,7 @@ function getWritingAgentPageContext() {
     chapterId: selectedChapterId.value || null,
     chapterTitle: currentChapterTitle.value,
     documentRevision: Number(writingDocument.value?.revision || 0),
-    blockTarget,
+    nodeTarget,
     sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     outlineItems: chapterOutlineItems.value,
     referenceAsset: copilotReferenceAsset.value,
@@ -2125,6 +2182,12 @@ function formatWritingSnapshotTime(value) {
   })
 }
 
+function formatWritingHistoryPreview(value) {
+  const preview = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!preview) return '空片段'
+  return preview.length > 96 ? `${preview.slice(0, 96)}…` : preview
+}
+
 function createCurrentWritingSnapshot({ label = snapshotLabel.value, reason = 'manual', quiet = false } = {}) {
   if (!selectedChapterId.value) return null
   if (!saveCurrentChapter()) {
@@ -2222,35 +2285,34 @@ function discardWritingRecoveryDraft() {
 }
 
 function canRestoreWritingBlockHistory(entry) {
-  return Boolean(
-    entry?.blockId &&
-    writingDocument.value?.content?.some((node) => node?.attrs?.blockId === entry.blockId)
-  )
+  if (!entry?.nodeId) return false
+  const unit = getWritingUnitByNodeId(entry.nodeId)
+  return Boolean(unit && (!entry.unitId || unit.attrs?.unitId === entry.unitId))
 }
 
 function restoreWritingBlockHistory(entry) {
   if (!canRestoreWritingBlockHistory(entry)) {
-    snapshotStatus.value = '这个块已经不存在，无法单独恢复。'
+    snapshotStatus.value = '这个片段已经不存在或已移到其他写作单元，无法单独恢复。'
     return
   }
   if (!notebookEditorActive.value || !notebookEditorRef.value) {
-    snapshotStatus.value = '块级恢复请先切回所见即所得编辑面。'
+    snapshotStatus.value = '片段恢复请先切回所见即所得编辑面。'
     return
   }
   const checkpoint = createCurrentWritingSnapshot({
-    label: `块恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
+    label: `片段恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
     reason: 'before-restore',
     quiet: true
   })
   if (!checkpoint) {
-    snapshotStatus.value = '恢复已停止：无法保存块恢复前检查点。'
+    snapshotStatus.value = '恢复已停止：无法保存片段恢复前检查点。'
     return
   }
-  if (!notebookEditorRef.value.replaceBlockText(entry.blockId, entry.previousText)) {
-    snapshotStatus.value = '编辑器未接受这次块恢复。'
+  if (!notebookEditorRef.value.replaceNodeText(entry.nodeId, entry.previousText)) {
+    snapshotStatus.value = '编辑器未接受这次片段恢复。'
     return
   }
-  snapshotStatus.value = `已恢复块历史 · 修订 ${entry.fromDocumentRevision}`
+  snapshotStatus.value = `已恢复片段历史 · 修订 ${entry.fromDocumentRevision}`
 }
 
 function writeCurrentWritingRecoveryDraft() {
@@ -2421,16 +2483,17 @@ function locateQualityIssue(issue) {
       return
     }
   }
-  if (!issue.blockId) return
+  const nodeId = issue.nodeId
+  if (!nodeId) return
 
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
   const focused = notebookEditorActive.value
-    ? Boolean(notebookEditorRef.value?.focusBlock?.(issue.blockId))
+    ? Boolean(notebookEditorRef.value?.focusNode?.(nodeId))
     : false
   if (focused) return
 
-  const block = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === issue.blockId)
+  const block = getWritingNodeById(nodeId)
   const blockText = (block?.content || []).map((item) => item?.text || '').join('')
   const offset = blockText ? markdownContent.value.indexOf(blockText) : -1
   if (editorRef.value) {
@@ -3468,6 +3531,10 @@ function ctxAction(action) {
       case 'copy': document.execCommand('copy'); break
       case 'cut': document.execCommand('cut'); onContentChange(); break
       case 'paste': document.execCommand('paste'); break
+      case 'splitUnit': notebookEditorRef.value.splitWritingUnit(); break
+      case 'mergePreviousUnit': notebookEditorRef.value.mergeWritingUnit('previous'); break
+      case 'moveUnitUp': notebookEditorRef.value.moveWritingUnit('up'); break
+      case 'moveUnitDown': notebookEditorRef.value.moveWritingUnit('down'); break
     }
     contextMenu.value.show = false
     return
@@ -3548,6 +3615,7 @@ function onNotebookMarkdown(markdown) {
 
 function onNotebookDocumentUpdate(document) {
   const previousDocument = writingDocument.value
+  previousNotebookDocument = previousDocument
   writingDocument.value = document
   chapterAnnotations.value = reconcileWritingAnnotations(
     chapterAnnotations.value,
@@ -3555,6 +3623,19 @@ function onNotebookDocumentUpdate(document) {
     selectedChapterId.value,
     previousDocument
   )
+  markRewriteCandidatesStale()
+  scheduleAnnotationLayout()
+}
+
+function onNotebookUnitTransition(transition) {
+  chapterAnnotations.value = reconcileWritingAnnotations(
+    chapterAnnotations.value,
+    writingDocument.value,
+    selectedChapterId.value,
+    previousNotebookDocument,
+    transition
+  )
+  previousNotebookDocument = null
   markRewriteCandidatesStale()
   scheduleAnnotationLayout()
 }
@@ -3587,9 +3668,10 @@ function onNotebookSelectionChange(selection) {
     annotationComposerContext.value = getAnnotationSelectionContext()
     scheduleAnnotationLayout()
   }
-  if (!inspectorPinned.value && selection?.blockId) {
+  const selectedNodeId = selection?.nodeId
+  if (!inspectorPinned.value && selectedNodeId) {
     activeAnnotationId.value = chapterAnnotations.value.find((annotation) => (
-      annotation.blockId === selection.blockId && annotation.status === 'open'
+      annotation.target?.nodeId === selectedNodeId && annotation.status === 'open'
     ))?.id || null
   }
 }
@@ -3650,13 +3732,14 @@ async function handleNotebookWritingCommand(command = {}) {
   }
 
   const instruction = quickAiRewriteInstructions[command.id]
-  const previousBlock = command.previousBlock
-  if (!instruction || !previousBlock?.blockId || !String(previousBlock.text || '').trim()) {
+  const previousNode = command.previousNode
+  const previousNodeId = previousNode?.nodeId
+  if (!instruction || !previousNodeId || !String(previousNode.text || '').trim()) {
     quickNoteStatus.value = '上一段没有可交给 AI 修改的正文。'
     return
   }
 
-  const target = getBlockRewriteTarget(previousBlock.blockId)
+  const target = getNodeRewriteTarget(previousNodeId)
   if (!target?.text?.trim()) {
     quickNoteStatus.value = '无法定位上一段，请把光标放回正文后重试。'
     return
@@ -3671,13 +3754,20 @@ async function handleNotebookWritingCommand(command = {}) {
   })
   const annotation = createWritingAnnotation({
     chapterId: selectedChapterId.value,
-    blockId: target.blockId,
-    blockRevision: target.blockRevision,
+    target: {
+      unitId: target.unitId,
+      unitRevision: target.unitRevision,
+      nodeId: target.nodeId,
+      nodeRevision: target.nodeRevision,
+      start: 0,
+      end: target.text.length
+    },
     selector,
     range: {
-      start: { blockId: target.blockId, blockRevision: target.blockRevision, offset: 0 },
-      end: { blockId: target.blockId, blockRevision: target.blockRevision, offset: target.text.length },
-      blockIds: [target.blockId],
+      start: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: 0 },
+      end: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: target.text.length },
+      unitIds: [target.unitId],
+      nodeIds: [target.nodeId],
       exact: target.text,
       startSelector: selector,
       endSelector: selector
@@ -3726,26 +3816,42 @@ function getWritingNodeText(node) {
   return (node?.content || []).map((item) => item?.text || '').join('')
 }
 
-function getCurrentWritingBlockDescriptors() {
-  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
+function getWritingNodeById(nodeId) {
+  if (!nodeId) return null
+  return (writingDocument.value?.content || [])
+    .flatMap((unit) => unit?.content || [])
+    .find((node) => node?.attrs?.nodeId === nodeId) || null
+}
+
+function getWritingUnitByNodeId(nodeId) {
+  return (writingDocument.value?.content || [])
+    .find((unit) => (unit.content || []).some((node) => node?.attrs?.nodeId === nodeId)) || null
+}
+
+function getCurrentWritingNodeDescriptors() {
+  const nodes = (writingDocument.value?.content || []).flatMap((unit) => (
+    (unit?.content || []).map((node) => ({ node, unit }))
+  ))
   const descriptors = []
   let probe = 0
-  for (const node of nodes) {
-    const blockId = node?.attrs?.blockId
+  for (const { node, unit } of nodes) {
+    const nodeId = node?.attrs?.nodeId
     const text = getWritingNodeText(node)
     let descriptor = null
-    if (blockId) {
+    if (nodeId) {
       for (let position = probe; position <= markdownContent.value.length; position += 1) {
         const candidate = getWritingBlockAtPosition(position, markdownContent.value)
-        if (candidate?.blockId === blockId) {
+        if (candidate?.nodeId === nodeId) {
           descriptor = { ...candidate, text }
           break
         }
       }
     }
     descriptor ||= {
-      blockId: blockId || null,
-      blockRevision: Number(node?.attrs?.revision || 0),
+      nodeId: nodeId || null,
+      unitId: unit?.attrs?.unitId || null,
+      unitRevision: Number(unit?.attrs?.unitRevision || 0),
+      nodeRevision: Number(node?.attrs?.nodeRevision ?? node?.attrs?.revision ?? 0),
       start: probe,
       end: probe + text.length,
       text
@@ -3756,48 +3862,50 @@ function getCurrentWritingBlockDescriptors() {
   return descriptors
 }
 
-function buildRewriteSelectionBlocks(startBlockId, endBlockId, selection) {
-  const descriptors = getCurrentWritingBlockDescriptors()
-  const startIndex = descriptors.findIndex((block) => block.blockId === startBlockId)
-  const endIndex = descriptors.findIndex((block) => block.blockId === endBlockId)
+function buildRewriteSelectionNodes(startNodeId, endNodeId, selection) {
+  const descriptors = getCurrentWritingNodeDescriptors()
+  const startIndex = descriptors.findIndex((node) => node.nodeId === startNodeId)
+  const endIndex = descriptors.findIndex((node) => node.nodeId === endNodeId)
   if (startIndex < 0 || endIndex < startIndex) return []
 
   const notebook = notebookEditorActive.value && notebookSelection.value === selection
-  const startEditorBlock = notebookEditorRef.value?.findBlockRange?.(startBlockId)
-  const endEditorBlock = notebookEditorRef.value?.findBlockRange?.(endBlockId)
+  const startEditorNode = notebookEditorRef.value?.findNodeRange?.(startNodeId)
+  const endEditorNode = notebookEditorRef.value?.findNodeRange?.(endNodeId)
   const first = descriptors[startIndex]
   const last = descriptors[endIndex]
   const startOffset = notebook
-    ? Math.max(0, Number(selection.from || startEditorBlock?.from || 0) - Number(startEditorBlock?.from || 0))
+    ? Math.max(0, Number(selection.from || startEditorNode?.from || 0) - Number(startEditorNode?.from || 0))
     : Math.max(0, Number(selection.start || 0) - first.start)
   const endOffset = notebook
-    ? Math.max(0, Number(selection.to || endEditorBlock?.from || 0) - Number(endEditorBlock?.from || 0))
+    ? Math.max(0, Number(selection.to || endEditorNode?.from || 0) - Number(endEditorNode?.from || 0))
     : Math.max(0, Number(selection.end || 0) - last.start)
 
-  return descriptors.slice(startIndex, endIndex + 1).map((block, index, selectedBlocks) => {
+  return descriptors.slice(startIndex, endIndex + 1).map((node, index, selectedNodes) => {
     const isFirst = index === 0
-    const isLast = index === selectedBlocks.length - 1
-    const localStart = isFirst ? Math.min(startOffset, block.text.length) : 0
-    const localEnd = isLast ? Math.min(endOffset, block.text.length) : block.text.length
+    const isLast = index === selectedNodes.length - 1
+    const localStart = isFirst ? Math.min(startOffset, node.text.length) : 0
+    const localEnd = isLast ? Math.min(endOffset, node.text.length) : node.text.length
     const targetRange = {
-      start: block.start + localStart,
-      end: block.start + Math.max(localStart, localEnd)
+      start: node.start + localStart,
+      end: node.start + Math.max(localStart, localEnd)
     }
     let editorRange = null
     if (notebook) {
-      const editorBlock = notebookEditorRef.value?.findBlockRange?.(block.blockId)
-      if (editorBlock) {
+      const editorNode = notebookEditorRef.value?.findNodeRange?.(node.nodeId)
+      if (editorNode) {
         editorRange = {
-          from: isFirst ? editorBlock.from + localStart : editorBlock.from,
-          to: isLast ? editorBlock.from + Math.max(localStart, localEnd) : editorBlock.to
+          from: isFirst ? editorNode.from + localStart : editorNode.from,
+          to: isLast ? editorNode.from + Math.max(localStart, localEnd) : editorNode.to
         }
       }
     }
     return {
-      blockId: block.blockId,
-      blockRevision: Number(block.blockRevision || 0),
-      text: block.text.slice(localStart, localEnd),
-      baseText: block.text.slice(localStart, localEnd),
+      unitId: node.unitId,
+      unitRevision: Number(node.unitRevision || 0),
+      nodeId: node.nodeId,
+      nodeRevision: Number(node.nodeRevision || 0),
+      text: node.text.slice(localStart, localEnd),
+      baseText: node.text.slice(localStart, localEnd),
       range: targetRange,
       editorRange,
       startOffset: localStart,
@@ -3810,42 +3918,46 @@ function getCurrentRewriteTarget() {
   if (!selectedChapterId.value) return null
   const selection = readLiveWritingSelectionSnapshot()
   const block = getWritingBlockAtPosition(selection.start, markdownContent.value)
-  if (!block?.blockId) return null
+  if (!block?.nodeId) return null
 
   if (selection.hasSelection && selection.text.trim()) {
     const notebookRange = notebookEditorActive.value ? notebookSelection.value : null
-    const startBlockId = notebookRange?.startBlockId || selection.blockId || block.blockId
-    const endBlockId = notebookRange?.endBlockId || getWritingBlockAtPosition(Math.max(selection.start, selection.end - 1), markdownContent.value)?.blockId || startBlockId
-    if (startBlockId && endBlockId && startBlockId !== endBlockId) {
-      const blocks = buildRewriteSelectionBlocks(startBlockId, endBlockId, notebookRange || selection)
-      if (blocks.length > 1) {
+    const startNodeId = notebookRange?.startNodeId || selection.nodeId || block.nodeId
+    const endNodeId = notebookRange?.endNodeId || getWritingBlockAtPosition(Math.max(selection.start, selection.end - 1), markdownContent.value)?.nodeId || startNodeId
+    if (startNodeId && endNodeId && startNodeId !== endNodeId) {
+      const nodes = buildRewriteSelectionNodes(startNodeId, endNodeId, notebookRange || selection)
+      if (nodes.length > 1) {
         return {
           kind: 'multi-selection',
           chapterId: selectedChapterId.value,
-          blockId: startBlockId,
-          blockIds: blocks.map((item) => item.blockId),
+          unitId: nodes[0].unitId,
+          unitRevision: nodes[0].unitRevision,
+          nodeId: startNodeId,
+          nodeIds: nodes.map((item) => item.nodeId),
           text: selection.text,
-          blocks,
-          range: { start: blocks[0].range.start, end: blocks[blocks.length - 1].range.end },
+          nodes,
+          range: { start: nodes[0].range.start, end: nodes[nodes.length - 1].range.end },
           editorRange: null,
           documentRevision: Number(writingDocument.value?.revision || 0)
         }
       }
     }
-    const editorBlock = startBlockId === endBlockId
-      ? notebookEditorRef.value?.findBlockRange?.(startBlockId)
+    const editorNode = startNodeId === endNodeId
+      ? notebookEditorRef.value?.findNodeRange?.(startNodeId)
       : null
-    const startOffset = editorBlock && Number.isFinite(Number(selection.editorFrom))
-      ? Math.max(0, Number(selection.editorFrom) - Number(editorBlock.from || 0))
+    const startOffset = editorNode && Number.isFinite(Number(selection.editorFrom))
+      ? Math.max(0, Number(selection.editorFrom) - Number(editorNode.from || 0))
       : null
-    const endOffset = editorBlock && Number.isFinite(Number(selection.editorTo))
-      ? Math.max(startOffset || 0, Number(selection.editorTo) - Number(editorBlock.from || 0))
+    const endOffset = editorNode && Number.isFinite(Number(selection.editorTo))
+      ? Math.max(startOffset || 0, Number(selection.editorTo) - Number(editorNode.from || 0))
       : null
     return {
       kind: 'selection',
       chapterId: selectedChapterId.value,
-      blockId: startBlockId,
-      blockRevision: Number(selection.blockRevision ?? block.blockRevision ?? 0),
+      unitId: selection.unitId || block.unitId,
+      unitRevision: Number(selection.unitRevision ?? block.unitRevision ?? 0),
+      nodeId: startNodeId,
+      nodeRevision: Number(selection.nodeRevision ?? block.nodeRevision ?? 0),
       text: selection.text,
       range: { start: selection.start, end: selection.end },
       editorRange: Number.isFinite(Number(selection.editorFrom)) && Number.isFinite(Number(selection.editorTo))
@@ -3860,8 +3972,10 @@ function getCurrentRewriteTarget() {
   return {
     kind: 'block',
     chapterId: selectedChapterId.value,
-    blockId: block.blockId,
-    blockRevision: Number(block.blockRevision || 0),
+    unitId: block.unitId,
+    unitRevision: Number(block.unitRevision || 0),
+    nodeId: block.nodeId,
+    nodeRevision: Number(block.nodeRevision || 0),
     text: block.text,
     range: { start: block.start, end: block.end },
     editorRange: null,
@@ -3869,17 +3983,19 @@ function getCurrentRewriteTarget() {
   }
 }
 
-function getBlockRewriteTarget(blockId) {
-  if (!selectedChapterId.value || !blockId) return null
-  const block = getCurrentWritingBlockDescriptors().find((item) => item.blockId === blockId)
-  if (!block) return null
+function getNodeRewriteTarget(nodeId) {
+  if (!selectedChapterId.value || !nodeId) return null
+  const node = getCurrentWritingNodeDescriptors().find((item) => item.nodeId === nodeId)
+  if (!node) return null
   return {
     kind: 'block',
     chapterId: selectedChapterId.value,
-    blockId: block.blockId,
-    blockRevision: Number(block.blockRevision || 0),
-    text: block.text,
-    range: { start: block.start, end: block.end },
+    unitId: node.unitId,
+    unitRevision: Number(node.unitRevision || 0),
+    nodeId: node.nodeId,
+    nodeRevision: Number(node.nodeRevision || 0),
+    text: node.text,
+    range: { start: node.start, end: node.end },
     editorRange: null,
     documentRevision: Number(writingDocument.value?.revision || 0)
   }
@@ -3890,36 +4006,39 @@ function getRewriteTargetFromAnnotation(annotation) {
   const resolved = resolveWritingAnnotation(annotation, writingDocument.value)
   if (!resolved || resolved.status === 'orphaned') return null
 
-  const startBlockId = resolved.range?.start?.blockId || resolved.blockId
-  const endBlockId = resolved.range?.end?.blockId || startBlockId
-  if (!startBlockId || startBlockId !== endBlockId) return null
+  const startNodeId = resolved.range?.start?.nodeId || resolved.target?.nodeId
+  const endNodeId = resolved.range?.end?.nodeId || startNodeId
+  if (!startNodeId || startNodeId !== endNodeId) return null
 
-  const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === startBlockId)
-  const blockText = getWritingNodeText(node)
+  const node = getWritingNodeById(startNodeId)
+  const unit = getWritingUnitByNodeId(startNodeId)
+  const nodeText = getWritingNodeText(node)
   const rawStart = resolved.range?.start?.offset ?? resolved.selector?.start
   const rawEnd = resolved.range?.end?.offset ?? resolved.selector?.end
   if (!Number.isFinite(Number(rawStart)) || !Number.isFinite(Number(rawEnd))) return null
 
-  const startOffset = Math.max(0, Math.min(blockText.length, Number(rawStart)))
-  const endOffset = Math.max(startOffset, Math.min(blockText.length, Number(rawEnd)))
-  if (startOffset === 0 && endOffset === blockText.length) {
-    return getBlockRewriteTarget(startBlockId)
+  const startOffset = Math.max(0, Math.min(nodeText.length, Number(rawStart)))
+  const endOffset = Math.max(startOffset, Math.min(nodeText.length, Number(rawEnd)))
+  if (startOffset === 0 && endOffset === nodeText.length) {
+    return getNodeRewriteTarget(startNodeId)
   }
 
-  const start = getWritingMarkdownPosition(writingDocument.value, startBlockId, startOffset)
-  const end = getWritingMarkdownPosition(writingDocument.value, startBlockId, endOffset)
-  const editorBlock = notebookEditorRef.value?.findBlockRange?.(startBlockId)
+  const start = getWritingMarkdownPosition(writingDocument.value, startNodeId, startOffset)
+  const end = getWritingMarkdownPosition(writingDocument.value, startNodeId, endOffset)
+  const editorNode = notebookEditorRef.value?.findNodeRange?.(startNodeId)
   return {
     kind: 'selection',
     chapterId: selectedChapterId.value,
-    blockId: startBlockId,
-    blockRevision: Number(node?.attrs?.revision || 0),
-    text: blockText.slice(startOffset, endOffset),
+    unitId: unit?.attrs?.unitId || resolved.target?.unitId || null,
+    unitRevision: Number(unit?.attrs?.unitRevision ?? resolved.target?.unitRevision ?? 0),
+    nodeId: startNodeId,
+    nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
+    text: nodeText.slice(startOffset, endOffset),
     range: Number.isFinite(start) && Number.isFinite(end)
       ? { start, end }
       : null,
-    editorRange: editorBlock
-      ? { from: editorBlock.from + startOffset, to: editorBlock.from + endOffset }
+    editorRange: editorNode
+      ? { from: editorNode.from + startOffset, to: editorNode.from + endOffset }
       : null,
     startOffset,
     endOffset,
@@ -3931,35 +4050,41 @@ function getCurrentRewriteComparison(targetOverride = null) {
   const target = targetOverride || rewriteTarget.value
   if (!target) return null
   if (target.kind === 'multi-selection') {
-    const blocks = (target.blocks || []).map((targetBlock) => {
-      const node = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === targetBlock.blockId)
+    const nodes = (target.nodes || []).map((targetNode) => {
+      const nodeId = targetNode.nodeId
+      const node = getWritingNodeById(nodeId)
+      const unit = getWritingUnitByNodeId(nodeId)
       const fullText = getWritingNodeText(node)
       const text = fullText.slice(
-        Math.max(0, Number(targetBlock.startOffset || 0)),
-        Math.max(Number(targetBlock.startOffset || 0), Number(targetBlock.endOffset ?? fullText.length))
+        Math.max(0, Number(targetNode.startOffset || 0)),
+        Math.max(Number(targetNode.startOffset || 0), Number(targetNode.endOffset ?? fullText.length))
       )
       return {
-        blockId: targetBlock.blockId,
-        blockRevision: Number(node?.attrs?.revision || 0),
+        unitId: unit?.attrs?.unitId || targetNode.unitId || null,
+        unitRevision: Number(unit?.attrs?.unitRevision ?? targetNode.unitRevision ?? 0),
+        nodeId,
+        nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
         text
       }
     })
     return {
       chapterId: selectedChapterId.value,
       documentRevision: Number(writingDocument.value?.revision || 0),
-      blocks
+      nodes
     }
   }
-  const block = writingDocument.value?.content?.find((item) => item?.attrs?.blockId === target.blockId)
-  const blockText = getWritingNodeText(block)
+  const nodeId = target.nodeId
+  const node = getWritingNodeById(nodeId)
+  const unit = getWritingUnitByNodeId(nodeId)
+  const nodeText = getWritingNodeText(node)
   const hasLocalOffsets = target.startOffset != null
     && target.endOffset != null
     && Number.isFinite(Number(target.startOffset))
     && Number.isFinite(Number(target.endOffset))
   const text = target.kind !== 'selection'
-    ? blockText
+    ? nodeText
     : hasLocalOffsets
-      ? blockText.slice(
+      ? nodeText.slice(
           Math.max(0, Number(target.startOffset)),
           Math.max(Number(target.startOffset), Number(target.endOffset))
         )
@@ -3969,8 +4094,17 @@ function getCurrentRewriteComparison(targetOverride = null) {
   return {
     chapterId: selectedChapterId.value,
     documentRevision: Number(writingDocument.value?.revision || 0),
-    blockId: target.blockId,
-    blockRevision: Number(block?.attrs?.revision || 0),
+    nodes: [{
+      unitId: unit?.attrs?.unitId || target.unitId || null,
+      unitRevision: Number(unit?.attrs?.unitRevision ?? target.unitRevision ?? 0),
+      nodeId,
+      nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
+      text
+    }],
+    unitId: unit?.attrs?.unitId || target.unitId || null,
+    unitRevision: Number(unit?.attrs?.unitRevision ?? target.unitRevision ?? 0),
+    nodeId,
+    nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
     text
   }
 }
@@ -4026,17 +4160,21 @@ function isRewriteTargetStillCurrent(target) {
     ? {
         chapterId: target.chapterId,
         documentRevision: target.documentRevision,
-        patches: (target.blocks || []).map((block) => ({
-          blockId: block.blockId,
-          blockRevision: block.blockRevision,
-          baseText: block.text
+        patches: (target.nodes || []).map((node) => ({
+          unitId: node.unitId,
+          unitRevision: node.unitRevision,
+          nodeId: node.nodeId,
+          nodeRevision: node.nodeRevision,
+          baseText: node.text
         }))
       }
     : {
         chapterId: target.chapterId,
         documentRevision: target.documentRevision,
-        blockId: target.blockId,
-        blockRevision: target.blockRevision,
+        unitId: target.unitId,
+        unitRevision: target.unitRevision,
+        nodeId: target.nodeId,
+        nodeRevision: target.nodeRevision,
         baseText: target.text
       }
   return !getWritingCandidateStaleReason(candidate, current)
@@ -4090,24 +4228,24 @@ async function generateRewriteCandidates(targetOverride = null) {
         candidateCount: 3,
         lockedSegments: rewriteLockedSegments.value,
         multiBlock: target.kind === 'multi-selection',
-        targetBlocks: target.blocks || []
+        targetBlocks: target.nodes || []
       },
       signal: abortController.signal
     })
     if (requestVersion !== rewriteRequestVersion) return
 
-    const targetBlocksById = new Map((target.blocks || []).map((block) => [block.blockId, block]))
+    const targetNodesById = new Map((target.nodes || []).map((node) => [node.nodeId, node]))
     const candidates = normalizeWritingCandidateResponse(taskResult.result, request).map((candidate) => {
       const patches = candidate.patches?.map((patch) => {
-        const targetBlock = targetBlocksById.get(patch.blockId)
+        const targetNode = targetNodesById.get(patch.nodeId)
         return {
           ...patch,
-          baseText: targetBlock?.baseText || patch.baseText,
-          targetRange: targetBlock?.range || patch.targetRange,
-          editorRange: targetBlock?.editorRange || patch.editorRange,
-          startOffset: targetBlock?.startOffset,
-          endOffset: targetBlock?.endOffset,
-          diff: buildWritingCandidateDiff(targetBlock?.baseText || patch.baseText, patch.replacement)
+          baseText: targetNode?.baseText || patch.baseText,
+          targetRange: targetNode?.range || patch.targetRange,
+          editorRange: targetNode?.editorRange || patch.editorRange,
+          startOffset: targetNode?.startOffset,
+          endOffset: targetNode?.endOffset,
+          diff: buildWritingCandidateDiff(targetNode?.baseText || patch.baseText, patch.replacement)
         }
       })
       return {
@@ -4115,8 +4253,10 @@ async function generateRewriteCandidates(targetOverride = null) {
         kind: target.kind,
         chapterId: selectedChapterId.value,
         documentRevision: target.documentRevision,
-        blockId: target.blockId,
-        blockRevision: target.blockRevision,
+        unitId: target.unitId,
+        unitRevision: target.unitRevision,
+        nodeId: target.nodeId,
+        nodeRevision: target.nodeRevision,
         targetRange: target.range,
         lockedSegments: rewriteLockedSegments.value,
         patches,
@@ -4183,7 +4323,7 @@ function applyRewriteCandidate(candidate) {
   let applied = false
   let fallbackAfter = ''
   if (notebookEditorActive.value && candidate.kind === 'multi-selection') {
-    applied = Boolean(notebookEditorRef.value?.replaceBlockRanges?.(candidate.patches))
+    applied = Boolean(notebookEditorRef.value?.replaceNodeRanges?.(candidate.patches))
   } else if (notebookEditorActive.value && candidate.kind === 'selection' && rewriteTarget.value?.editorRange) {
     applied = Boolean(notebookEditorRef.value?.replaceTextRange?.(
       rewriteTarget.value.editorRange.from,
@@ -4191,7 +4331,7 @@ function applyRewriteCandidate(candidate) {
       candidate.text
     ))
   } else if (notebookEditorActive.value && candidate.kind === 'block') {
-    applied = Boolean(notebookEditorRef.value?.replaceBlockText?.(candidate.blockId, candidate.text))
+    applied = Boolean(notebookEditorRef.value?.replaceNodeText?.(candidate.nodeId, candidate.text))
   } else {
     const actions = candidate.patches
       ? candidate.patches.map((patch) => ({
@@ -4292,7 +4432,9 @@ function undoRewriteCandidate() {
 }
 
 function buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact }) {
-  if (!startBlock?.blockId || !endBlock?.blockId || !exact) return null
+  const startNodeId = startBlock?.nodeId
+  const endNodeId = endBlock?.nodeId
+  if (!startNodeId || !endNodeId || !exact) return null
   const startExact = startBlock.text.slice(localStart, Math.min(startBlock.text.length, localStart + 48)) || (startBlock.text ? exact.slice(0, 48) : '')
   const endExact = endBlock.text.slice(Math.max(0, localEnd - 48), localEnd) || (endBlock.text ? exact.slice(-48) : '')
   const startSelector = createWritingSelector({
@@ -4307,28 +4449,33 @@ function buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEn
     end: localEnd,
     fullText: endBlock.text
   })
-  const nodes = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
-  const startIndex = nodes.findIndex((node) => node?.attrs?.blockId === startBlock.blockId)
-  const endIndex = nodes.findIndex((node) => node?.attrs?.blockId === endBlock.blockId)
-  const blockIds = startIndex >= 0 && endIndex >= startIndex
-    ? nodes.slice(startIndex, endIndex + 1).map((node) => node?.attrs?.blockId).filter(Boolean)
-    : [startBlock.blockId, endBlock.blockId]
+  const nodes = getCurrentWritingNodeDescriptors()
+  const startIndex = nodes.findIndex((node) => node.nodeId === startNodeId)
+  const endIndex = nodes.findIndex((node) => node.nodeId === endNodeId)
+  const selectedNodes = startIndex >= 0 && endIndex >= startIndex ? nodes.slice(startIndex, endIndex + 1) : [startBlock, endBlock]
+  const nodeIds = selectedNodes.map((node) => node.nodeId).filter(Boolean)
+  const unitIds = Array.from(new Set(selectedNodes.map((node) => node.unitId).filter(Boolean)))
 
   return {
     block: startBlock,
     selector: startSelector,
     range: {
       start: {
-        blockId: startBlock.blockId,
-        blockRevision: startBlock.blockRevision,
+        unitId: startBlock.unitId,
+        unitRevision: startBlock.unitRevision,
+        nodeId: startNodeId,
+        nodeRevision: startBlock.nodeRevision,
         offset: localStart
       },
       end: {
-        blockId: endBlock.blockId,
-        blockRevision: endBlock.blockRevision,
+        unitId: endBlock.unitId,
+        unitRevision: endBlock.unitRevision,
+        nodeId: endNodeId,
+        nodeRevision: endBlock.nodeRevision,
         offset: localEnd
       },
-      blockIds,
+      unitIds,
+      nodeIds,
       exact,
       ...(startExact ? { startSelector } : {}),
       ...(endExact ? { endSelector } : {})
@@ -4341,21 +4488,27 @@ function getAnnotationSelectionContext() {
 
   if (notebookEditorActive.value && notebookSelection.value?.text) {
     const selection = notebookSelection.value
-    const startBlockId = selection.startBlockId || selection.blockId
-    const endBlockId = selection.endBlockId || startBlockId
-    const startNode = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === startBlockId)
-    const endNode = writingDocument.value?.content?.find((node) => node?.attrs?.blockId === endBlockId)
-    const startRange = notebookEditorRef.value?.findBlockRange?.(startBlockId)
-    const endRange = notebookEditorRef.value?.findBlockRange?.(endBlockId)
+    const startNodeId = selection.startNodeId || selection.nodeId
+    const endNodeId = selection.endNodeId || startNodeId
+    const startNode = getWritingNodeById(startNodeId)
+    const endNode = getWritingNodeById(endNodeId)
+    const startUnit = getWritingUnitByNodeId(startNodeId)
+    const endUnit = getWritingUnitByNodeId(endNodeId)
+    const startRange = notebookEditorRef.value?.findNodeRange?.(startNodeId)
+    const endRange = notebookEditorRef.value?.findNodeRange?.(endNodeId)
     if (!startNode || !endNode || !startRange || !endRange) return null
     const startBlock = {
-      blockId: startBlockId,
-      blockRevision: Number(startNode.attrs?.revision || 0),
+      unitId: startUnit?.attrs?.unitId || null,
+      unitRevision: Number(startUnit?.attrs?.unitRevision || 0),
+      nodeId: startNodeId,
+      nodeRevision: Number(startNode.attrs?.nodeRevision || 0),
       text: (startNode.content || []).map((item) => item?.text || '').join('')
     }
     const endBlock = {
-      blockId: endBlockId,
-      blockRevision: Number(endNode.attrs?.revision || 0),
+      unitId: endUnit?.attrs?.unitId || null,
+      unitRevision: Number(endUnit?.attrs?.unitRevision || 0),
+      nodeId: endNodeId,
+      nodeRevision: Number(endNode.attrs?.nodeRevision || 0),
       text: (endNode.content || []).map((item) => item?.text || '').join('')
     }
     return buildAnnotationRangeContext({
@@ -4371,10 +4524,10 @@ function getAnnotationSelectionContext() {
   if (!snapshot?.hasSelection) return null
   const startBlock = getWritingBlockAtPosition(snapshot.start, markdownContent.value)
   const endBlock = getWritingBlockAtPosition(Math.max(snapshot.start, snapshot.end - 1), markdownContent.value)
-  if (!startBlock?.blockId || !endBlock?.blockId) return null
+  if (!startBlock?.nodeId || !endBlock?.nodeId) return null
   const localStart = Math.max(0, snapshot.start - startBlock.start)
   const localEnd = Math.max(0, snapshot.end - endBlock.start)
-  const exact = snapshot.text || (startBlock.blockId === endBlock.blockId
+  const exact = snapshot.text || (startBlock.nodeId === endBlock.nodeId
     ? startBlock.text.slice(localStart, localEnd)
     : [startBlock.text.slice(localStart), endBlock.text.slice(0, localEnd)].join('\n'))
   return buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact })
@@ -4392,8 +4545,14 @@ function createAnnotationFromSelection() {
 
   const annotation = createWritingAnnotation({
     chapterId: selectedChapterId.value,
-    blockId: context.block.blockId,
-    blockRevision: context.block.blockRevision,
+    target: {
+      unitId: context.block.unitId,
+      unitRevision: context.block.unitRevision,
+      nodeId: context.block.nodeId,
+      nodeRevision: context.block.nodeRevision,
+      start: context.selector.start,
+      end: context.selector.end
+    },
     selector: context.selector,
     range: context.range,
     body,
@@ -4454,11 +4613,13 @@ function deleteAnnotation(annotation) {
 }
 
 function buildChapterReviewBatches() {
-  const blocks = getCurrentWritingBlockDescriptors()
-    .filter((block) => block?.blockId && String(block.text || '').trim())
+  const blocks = getCurrentWritingNodeDescriptors()
+    .filter((block) => block?.nodeId && String(block.text || '').trim())
     .map((block) => ({
-      blockId: block.blockId,
-      blockRevision: Number(block.blockRevision || 0),
+      unitId: block.unitId,
+      unitRevision: Number(block.unitRevision || 0),
+      nodeId: block.nodeId,
+      nodeRevision: Number(block.nodeRevision || 0),
       kind: block.kind || 'prose',
       text: String(block.text || '')
     }))
@@ -4470,8 +4631,8 @@ function buildChapterReviewBatches() {
 }
 
 function createReviewAnnotation(finding, reviewBlocks, reviewBatchId) {
-  const startBlock = reviewBlocks.find((block) => block.blockId === finding.start.blockId)
-  const endBlock = reviewBlocks.find((block) => block.blockId === finding.end.blockId)
+  const startBlock = reviewBlocks.find((block) => block.nodeId === finding.start.nodeId)
+  const endBlock = reviewBlocks.find((block) => block.nodeId === finding.end.nodeId)
   if (!startBlock || !endBlock) return null
   const context = buildAnnotationRangeContext({
     startBlock,
@@ -4483,8 +4644,14 @@ function createReviewAnnotation(finding, reviewBlocks, reviewBatchId) {
   if (!context) return null
   return createWritingAnnotation({
     chapterId: selectedChapterId.value,
-    blockId: context.block.blockId,
-    blockRevision: context.block.blockRevision,
+    target: {
+      unitId: context.block.unitId,
+      unitRevision: context.block.unitRevision,
+      nodeId: context.block.nodeId,
+      nodeRevision: context.block.nodeRevision,
+      start: context.selector.start,
+      end: context.selector.end
+    },
     selector: context.selector,
     range: context.range,
     body: finding.body,
@@ -4500,9 +4667,9 @@ function reviewAnnotationFingerprint(annotation) {
   return [
     annotation?.kind,
     annotation?.reviewType,
-    annotation?.range?.start?.blockId || annotation?.blockId,
+    annotation?.range?.start?.nodeId || annotation?.target?.nodeId,
     annotation?.range?.start?.offset ?? annotation?.selector?.start,
-    annotation?.range?.end?.blockId || annotation?.blockId,
+    annotation?.range?.end?.nodeId || annotation?.target?.nodeId,
     annotation?.range?.end?.offset ?? annotation?.selector?.end,
     annotation?.body
   ].join('|')
@@ -4514,7 +4681,7 @@ async function runChapterReview() {
   const reviewDocumentRevision = Number(writingDocument.value?.revision || 0)
   const batches = buildChapterReviewBatches()
   if (!batches.length) {
-    reviewError.value = '当前章节没有可审查的正文块。'
+    reviewError.value = '当前章节没有可审查的正文片段。'
     reviewStatus.value = ''
     return
   }
@@ -4550,7 +4717,7 @@ async function runChapterReview() {
             kind: 'chapter-review',
             id: reviewChapterId,
             revision: String(reviewDocumentRevision),
-            blockIds: reviewBlocks.map((block) => block.blockId)
+            nodeIds: reviewBlocks.map((block) => block.nodeId)
           },
           options: {
             chapterId: reviewChapterId,
@@ -4651,13 +4818,13 @@ function locateAnnotation(annotation, { tab = 'comments' } = {}) {
   if (!exact && !range?.exact) return
   nextTick(() => {
     let selected = range
-      ? notebookEditorRef.value?.selectBlockRange?.(
-          range.start.blockId,
+      ? notebookEditorRef.value?.selectNodeRange?.(
+          range.start.nodeId,
           range.start.offset,
-          range.end.blockId,
+          range.end.nodeId,
           range.end.offset
         )
-      : notebookEditorRef.value?.selectText?.(exact, 0, annotation.blockId)
+      : notebookEditorRef.value?.selectText?.(exact, 0, annotation.target?.nodeId)
     if (!selected && range && editorRef.value) {
       const startExact = range.startSelector?.exact || exact
       const endExact = range.endSelector?.exact || startExact
