@@ -369,8 +369,38 @@ function getUniqueQuoteMatches(exact, document, unitId = null) {
 function applyTransition(annotation, document, transition) {
   const nodeId = annotation.target.nodeId
   if (transition?.type === 'split' && transition.splitNode?.oldNodeId === nodeId) {
-    const rightNodeId = transition.splitNode.newNodeId
-    if (findNode(document, rightNodeId)) return { ...annotation, target: { ...annotation.target, nodeId: rightNodeId, start: 0, end: 0 } }
+    const splitOffset = Math.max(0, Number(transition.splitNode.offset) || 0)
+    const start = Math.max(0, Number(annotation.target.start) || 0)
+    const end = Math.max(start, Number(annotation.target.end) || 0)
+    const fullyLeft = end <= splitOffset
+    const fullyRight = start >= splitOffset
+    if (!fullyLeft && !fullyRight) {
+      return { ...annotation, status: 'orphaned', resolution: 'split-boundary', updatedAt: now() }
+    }
+
+    const targetNodeId = fullyRight ? transition.splitNode.newNodeId : nodeId
+    const location = findNode(document, targetNodeId)
+    if (!location) return { ...annotation, status: 'orphaned', resolution: 'missing-node', updatedAt: now() }
+    const nextStart = fullyRight ? start - splitOffset : start
+    const nextEnd = fullyRight ? end - splitOffset : end
+    return {
+      ...annotation,
+      target: {
+        ...annotation.target,
+        unitId: location.unitId,
+        unitRevision: location.unitRevision,
+        nodeId: targetNodeId,
+        nodeRevision: location.nodeRevision,
+        start: nextStart,
+        end: nextEnd
+      },
+      ...(annotation.selector?.exact
+        ? { selector: createWritingSelector({ text: annotation.selector.exact, start: nextStart, end: nextEnd, fullText: location.text }) }
+        : {}),
+      status: annotation.status === 'resolved' ? 'resolved' : 'open',
+      resolution: 'split-offset',
+      updatedAt: now()
+    }
   }
   const mapped = transition?.nodeUnitMap?.[nodeId]
   if (mapped && annotation.target.unitId !== mapped) {
@@ -382,6 +412,7 @@ function applyTransition(annotation, document, transition) {
 export function reconcileWritingAnnotations(annotations, document, chapterId = null, previousDocument = null, transition = null) {
   return normalizeWritingAnnotations(annotations, chapterId, previousDocument).map((annotation) => {
     const transitioned = applyTransition(annotation, document, transition)
+    if (['split-offset', 'split-boundary'].includes(transitioned.resolution)) return transitioned
     const resolved = resolveAnnotationOnDocument(transitioned, document)
     if (resolved.status !== 'orphaned') return resolved
     const exact = annotation.selector?.exact

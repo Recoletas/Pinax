@@ -587,7 +587,23 @@ export function editorContentToWritingDocument(content, previousDocument = null)
       const text = inline.map(getNodeText).join('')
       const previous = previousById.get(nodeId)
       const previousRevision = Number(previous?.attrs?.nodeRevision ?? previous?.attrs?.revision ?? 0)
-      const unchanged = previous ? getNodeText(previous) === text && previous.attrs?.kind === kind : false
+      const writingType = node.type === 'heading'
+        ? 'sceneHeading'
+        : node.type === 'horizontalRule'
+          ? 'divider'
+          : node.type === 'blockquote'
+            ? kind === 'source-reference'
+              ? 'sourceReference'
+              : kind === 'author-note'
+                ? 'authorNote'
+                : 'quote'
+            : 'paragraph'
+      const unchanged = previous
+        ? previous.type === writingType
+          && previous.attrs?.kind === kind
+          && JSON.stringify(previous.content || []) === JSON.stringify(inline)
+          && (writingType !== 'sceneHeading' || Number(previous.attrs?.level || 1) === Number(node.attrs?.level || 1))
+        : false
       const nodeRevision = unchanged
         ? previousRevision
         : Math.max(Number(node.attrs?.nodeRevision || 0), previous ? previousRevision + 1 : 0)
@@ -601,17 +617,7 @@ export function editorContentToWritingDocument(content, previousDocument = null)
       }
       if (node.type === 'heading') attrs.level = Number(node.attrs?.level || 1)
       return {
-        type: node.type === 'heading'
-          ? 'sceneHeading'
-          : node.type === 'horizontalRule'
-            ? 'divider'
-            : node.type === 'blockquote'
-              ? kind === 'source-reference'
-                ? 'sourceReference'
-                : kind === 'author-note'
-                  ? 'authorNote'
-                  : 'quote'
-              : 'paragraph',
+        type: writingType,
         attrs,
         ...(node.type === 'horizontalRule' ? {} : { content: inline })
       }
@@ -761,6 +767,7 @@ export function validateWritingDocument(document) {
   const errors = []
   if (!document || document.schemaVersion !== WRITING_DOCUMENT_SCHEMA_VERSION) errors.push('schemaVersion')
   if (!Array.isArray(document?.content)) errors.push('content')
+  if (Array.isArray(document?.content) && document.content.length === 0) errors.push('documentContent')
   const unitIds = new Set()
   const nodeIds = new Set()
   for (const unit of document?.content || []) {

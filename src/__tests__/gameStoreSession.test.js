@@ -13,6 +13,7 @@ import {
 } from '../services/generationService'
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 import { listStoryboardDocuments } from '../services/storyboardStore'
+import { getExperienceTurnImportEligibility } from '../services/writing/writingExperienceImport'
 
 vi.mock('../services/api', () => ({
   default: {
@@ -1375,6 +1376,17 @@ describe('gameStore sessions', () => {
     expect(gameStore.messages[0].segments).toHaveLength(3)
     const secondTurn = gameStore.turnRecords[gameStore.lastCommittedTurnId]
     expect(secondTurn.parentTurnId).toBe(firstExtensionTurnId)
+
+    // GamePanel passes this exact shape. An extension turn points back to the
+    // visible message through baseMessageId, but it must not bypass the
+    // one-assistant-message import freeze.
+    const collectMessage = gameStore.messages[0]
+    const collectTurn = gameStore.findTurnByMessageId(collectMessage.id)
+    expect(getExperienceTurnImportEligibility({
+      turn: collectTurn,
+      message: collectMessage,
+      activeTurnIds: gameStore.currentBranchTurnIds()
+    })).toBe('ineligible-turn')
 
     // Q2：SceneThread 软状态随生成构建，且随 pre/post 快照保存（第二次续写的 pre 快照应含首轮线程）。
     expect(gameStore.sceneThread).not.toBeNull()

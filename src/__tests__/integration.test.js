@@ -258,6 +258,34 @@ describe('PromptBuilder', () => {
     expect(unitEditor.commands.mergeWritingUnit('next')).toBe(false)
     unitEditor.destroy()
 
+    const splitMidNode = (markdown, nodeIndex, localOffset) => {
+      const editor = makeUnitEditor(createWritingDocument(markdown))
+      const before = editor.getJSON()
+      const unit = editor.state.doc.child(0)
+      let nodeStart = 1
+      for (let index = 0; index < nodeIndex; index += 1) nodeStart += unit.child(index).nodeSize
+      let dispatchCount = 0
+      editor.on('transaction', ({ transaction }) => {
+        if (transaction.getMeta('writingUnitTransition')?.type === 'split') dispatchCount += 1
+      })
+      editor.commands.setTextSelection(nodeStart + 1 + localOffset)
+      const commandResult = editor.commands.splitWritingUnit()
+      const after = editor.getJSON()
+      const undoResult = editor.commands.undo()
+      const restored = editor.getJSON()
+      editor.destroy()
+      return { before, after, restored, commandResult, dispatchCount, undoResult }
+    }
+    const firstNodeSplit = splitMidNode('甲乙。\n\n丙丁。', 0, 1)
+    const laterNodeSplit = splitMidNode('甲乙。\n\n丙丁。', 1, 1)
+    ;[firstNodeSplit, laterNodeSplit].forEach((result) => {
+      expect(result.commandResult).toBe(true)
+      expect(result.dispatchCount).toBe(1)
+      expect(result.after.content).toHaveLength(2)
+      expect(result.undoResult).toBe(true)
+      expect(result.restored).toEqual(result.before)
+    })
+
     let unitTransition = null
     const mergeEditor = makeUnitEditor(mergeDocument)
     mergeEditor.on('transaction', ({ transaction }) => {
@@ -424,6 +452,77 @@ describe('PromptBuilder', () => {
     expect(afterSplit).not.toHaveProperty('blockRevision')
     expect(resolveWritingAnnotation(afterSplit, splitDocument)).toMatchObject({ target: { nodeId: annotationNode.attrs.nodeId } })
 
+    const splitSource = createWritingDocument('左左右右')
+    const splitSourceUnit = splitSource.content[0]
+    const splitSourceNode = splitSourceUnit.content[0]
+    const splitRightNode = {
+      ...structuredClone(splitSourceNode),
+      attrs: { ...splitSourceNode.attrs, nodeId: 'node-split-right' },
+      content: [{ type: 'text', text: '右右' }]
+    }
+    const splitByOffsetDocument = {
+      ...splitSource,
+      content: [
+        {
+          ...splitSourceUnit,
+          content: [{ ...structuredClone(splitSourceNode), content: [{ type: 'text', text: '左左' }] }]
+        },
+        {
+          ...splitSourceUnit,
+          attrs: { ...splitSourceUnit.attrs, unitId: 'unit-split-right' },
+          content: [splitRightNode]
+        }
+      ]
+    }
+    const makeSplitAnnotation = (id, start, end) => ({
+      ...createWritingAnnotation({
+        chapterId: 'chapter-1',
+        target: {
+          unitId: splitSourceUnit.attrs.unitId,
+          nodeId: splitSourceNode.attrs.nodeId,
+          start,
+          end
+        },
+        selector: createWritingSelector({
+          text: '左左右右'.slice(start, end),
+          start,
+          end,
+          fullText: '左左右右'
+        }),
+        body: id
+      }),
+      id
+    })
+    const splitAnnotations = reconcileWritingAnnotations([
+      makeSplitAnnotation('split-left', 0, 2),
+      makeSplitAnnotation('split-right', 2, 4),
+      makeSplitAnnotation('split-crossing', 1, 3)
+    ], splitByOffsetDocument, 'chapter-1', splitSource, {
+      type: 'split',
+      keptUnitId: splitSourceUnit.attrs.unitId,
+      createdUnitId: 'unit-split-right',
+      nodeUnitMap: {
+        [splitSourceNode.attrs.nodeId]: splitSourceUnit.attrs.unitId,
+        'node-split-right': 'unit-split-right'
+      },
+      splitNode: {
+        oldNodeId: splitSourceNode.attrs.nodeId,
+        newNodeId: 'node-split-right',
+        offset: 2
+      }
+    })
+    expect(splitAnnotations.find((item) => item.id === 'split-left')).toMatchObject({
+      status: 'open',
+      target: { unitId: splitSourceUnit.attrs.unitId, nodeId: splitSourceNode.attrs.nodeId, start: 0, end: 2 }
+    })
+    expect(splitAnnotations.find((item) => item.id === 'split-right')).toMatchObject({
+      status: 'open',
+      target: { unitId: 'unit-split-right', nodeId: 'node-split-right', start: 0, end: 2 }
+    })
+    expect(splitAnnotations.find((item) => item.id === 'split-crossing')).toMatchObject({
+      status: 'orphaned', resolution: 'split-boundary'
+    })
+
     const historyBefore = createWritingDocument('甲。\n\n乙。')
     const historyAfter = structuredClone(historyBefore)
     historyAfter.revision += 1
@@ -470,6 +569,29 @@ describe('PromptBuilder', () => {
       editorDocument: v2,
       documentRevision: v2.revision
     })?.editorDocument).toMatchObject({ schemaVersion: 3, revision: v2.revision })
+
+    const formattingSource = createWritingDocument('甲。')
+    const formattingEditor = writingDocumentToEditorContent(formattingSource)
+    const markedEditor = structuredClone(formattingEditor)
+    markedEditor[0].content[0].content[0].marks = [{ type: 'bold' }]
+    const markedDocument = editorContentToWritingDocument(markedEditor, formattingSource)
+    expect(markedDocument.content[0].content[0].attrs).toMatchObject({ nodeRevision: 1, rawMarkdown: null })
+    expect(getWritingDocumentMarkdown(markedDocument)).toContain('**甲。**')
+
+    const quotedEditor = structuredClone(formattingEditor)
+    quotedEditor[0].content[0].type = 'blockquote'
+    quotedEditor[0].content[0].attrs.nodeKind = 'quote'
+    quotedEditor[0].content[0].content = [{ type: 'paragraph', content: [{ type: 'text', text: '甲。' }] }]
+    const quotedDocument = editorContentToWritingDocument(quotedEditor, formattingSource)
+    expect(quotedDocument.content[0].content[0].attrs).toMatchObject({ nodeRevision: 1, rawMarkdown: null })
+    expect(getWritingDocumentMarkdown(quotedDocument)).toContain('> 甲。')
+
+    const headingSource = createWritingDocument('# 第一幕')
+    const headingEditor = writingDocumentToEditorContent(headingSource)
+    headingEditor[0].content[0].attrs.level = 2
+    const relevelledDocument = editorContentToWritingDocument(headingEditor, headingSource)
+    expect(relevelledDocument.content[0].content[0].attrs).toMatchObject({ nodeRevision: 1, rawMarkdown: null, level: 2 })
+    expect(getWritingDocumentMarkdown(relevelledDocument)).toContain('## 第一幕')
     localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
     localStorage.removeItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS)
     expect(saveWritingSnapshot(snapshot).ok).toBe(true)
@@ -505,6 +627,11 @@ describe('PromptBuilder', () => {
       turn: { ...importInput.turn, assistantMessageIds: ['m1', 'm2'] },
       messages: [...importInput.messages, { id: 'm2', role: 'assistant', content: '另一条回复。' }]
     })).toBe('ineligible-turn')
+    expect(getExperienceTurnImportEligibility({
+      ...importInput,
+      message: importInput.messages[0],
+      turn: { ...importInput.turn, assistantMessageIds: ['m1', 'm2'] }
+    })).toBe('ineligible-turn')
     const importedTurn = appendExperienceTurnToChapter(importInput)
     expect(importedTurn.ok).toBe(true)
     const importedUnit = importedTurn.books[0].chapters[0].editorDocument.content.at(-1)
@@ -520,6 +647,25 @@ describe('PromptBuilder', () => {
       sourceRevision: 1
     })
     expect(appendExperienceTurnToChapter({ ...importInput, books: importedTurn.books }).reason).toBe('already-imported')
+    const invalidV3Books = [{
+      id: 'book-1',
+      name: '长篇',
+      chapters: [{
+        id: 'chapter-1',
+        content: '不得覆盖的旧文。',
+        contentFormat: 'md',
+        editorDocument: { schemaVersion: 3, revision: 9, content: [] }
+      }]
+    }]
+    const invalidV3Import = appendExperienceTurnToChapter({ ...importInput, books: invalidV3Books })
+    expect(invalidV3Import).toMatchObject({ ok: false, reason: 'invalid-document', books: invalidV3Books })
+    expect(invalidV3Import.books[0].chapters[0].content).toBe('不得覆盖的旧文。')
+    const v2Import = appendExperienceTurnToChapter({
+      ...importInput,
+      books: [{ id: 'book-1', chapters: [{ id: 'chapter-1', content: '旧文。', editorDocument: v2 }] }]
+    })
+    expect(v2Import.ok).toBe(true)
+    expect(v2Import.books[0].chapters[0].editorDocument.schemaVersion).toBe(3)
     expect(appendExperienceTurnToChapter({
       ...importInput,
       books: importedTurn.books,

@@ -21,10 +21,13 @@ function asIdSet(values) {
 }
 
 function resolveExperienceAssistantMessage({ turn, message, messages } = {}) {
-  if (message) return message
-  const assistantMessageIds = asIdSet(turn?.assistantMessageIds)
+  const assistantMessageIds = Array.isArray(turn?.assistantMessageIds)
+    ? turn.assistantMessageIds.map(String)
+    : []
+  if (assistantMessageIds.length !== 1) return null
+  if (message) return String(message?.id || '') === assistantMessageIds[0] ? message : null
   const eligible = (Array.isArray(messages) ? messages : []).filter((candidate) => (
-    assistantMessageIds.has(String(candidate?.id || ''))
+    assistantMessageIds[0] === String(candidate?.id || '')
     && candidate?.role === 'assistant'
     && !candidate?.superseded
     && String(candidate?.content || '').trim()
@@ -51,8 +54,8 @@ export function getExperienceTurnImportEligibility(input = {}) {
   const messageId = String(message?.id || '')
   if (!turn?.id || turn.status !== 'committed' || !messageId) return 'ineligible-turn'
   if (message?.role !== 'assistant' || message.superseded || !String(message.content || '').trim()) return 'ineligible-turn'
-  if (!Array.isArray(turn.assistantMessageIds) || !turn.assistantMessageIds.map(String).includes(messageId)) return 'ineligible-turn'
-  if (activeIds.size && !activeIds.has(String(turn.id))) return 'ineligible-turn'
+  if (!Array.isArray(turn.assistantMessageIds) || turn.assistantMessageIds.length !== 1 || String(turn.assistantMessageIds[0]) !== messageId) return 'ineligible-turn'
+  if (!activeIds.has(String(turn.id))) return 'ineligible-turn'
   return null
 }
 
@@ -123,7 +126,16 @@ export function appendExperienceTurnToChapter(input = {}) {
   const chapter = book?.chapters?.find((item) => String(item?.id) === String(input.chapterId || ''))
   if (!book || !chapter) return { ok: false, reason: 'destination-missing', books: input.books }
 
-  const document = migrateWritingDocumentToV3(chapter.editorDocument, chapter.content || '')
+  let document
+  if (chapter.editorDocument == null) {
+    document = migrateWritingDocumentToV3(null, chapter.content || '')
+  } else if (chapter.editorDocument?.schemaVersion === 2) {
+    document = migrateWritingDocumentToV3(chapter.editorDocument, chapter.content || '')
+  } else if (chapter.editorDocument?.schemaVersion === 3 && validateWritingDocument(chapter.editorDocument).valid) {
+    document = chapter.editorDocument
+  } else {
+    return { ok: false, reason: 'invalid-document', books: input.books }
+  }
   if (!validateWritingDocument(document).valid) return { ok: false, reason: 'invalid-document', books: input.books }
   const fingerprints = new Set((document.content || []).flatMap((unit) => (
     (unit.attrs?.originRefs || []).map(getWritingOriginFingerprint).filter(Boolean)

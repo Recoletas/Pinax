@@ -51,8 +51,8 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
   const cursor = state.selection.from
   let splitIndex = -1
   let splitNode = null
-  let splitOffset = null
   let childOffset = 0
+  let splitChildren = null
   unit.content.forEach((child, _offset, index) => {
     const childStart = contentStart + childOffset
     const childEnd = childStart + child.nodeSize
@@ -75,37 +75,21 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
         )
         splitIndex = index
         splitNode = { oldNodeId: child.attrs?.nodeId || null, newNodeId: right.attrs?.nodeId || null, offset: innerOffset }
-        const leftChildren = unit.content.content.slice(0, index).concat(left)
-        const rightChildren = [right].concat(unit.content.content.slice(index + 1))
-        const rightUnit = unitFrom(unit, {
-          ...unit.attrs,
-          unitId: idFactory('unit'),
-          unitRevision: Number(unit.attrs?.unitRevision || 0) + 1
-        }, rightChildren)
-        const leftUnit = unitFrom(unit, {
-          ...unit.attrs,
-          unitRevision: Number(unit.attrs?.unitRevision || 0) + 1
-        }, leftChildren)
-        if (!leftChildren.length || !rightChildren.length) return false
-        if (dispatch) {
-          const transaction = state.tr.replaceWith(unitPos, unitPos + unit.nodeSize, [leftUnit, rightUnit])
-          transaction.setMeta('writingUnitTransition', {
-            ...createTransition('split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]),
-            splitNode
-          })
-          dispatch(transaction.scrollIntoView())
+        splitChildren = {
+          left: unit.content.content.slice(0, index).concat(left),
+          right: [right].concat(unit.content.content.slice(index + 1))
         }
-        return true
+        return
       }
       splitIndex = innerOffset === 0 ? index : index + 1
     }
     childOffset += child.nodeSize
   })
 
-  if (splitIndex <= 0 || splitIndex >= unit.childCount) return false
+  if (!splitChildren && (splitIndex <= 0 || splitIndex >= unit.childCount)) return false
   const children = unit.content.content
-  const leftChildren = children.slice(0, splitIndex)
-  const rightChildren = children.slice(splitIndex)
+  const leftChildren = splitChildren?.left || children.slice(0, splitIndex)
+  const rightChildren = splitChildren?.right || children.slice(splitIndex)
   const leftUnit = unitFrom(unit, {
     ...unit.attrs,
     unitRevision: Number(unit.attrs?.unitRevision || 0) + 1
@@ -117,9 +101,10 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
   }, rightChildren)
   if (dispatch) {
     const transaction = state.tr.replaceWith(unitPos, unitPos + unit.nodeSize, [leftUnit, rightUnit])
-    transaction.setMeta('writingUnitTransition', createTransition(
-      'split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]
-    ))
+    transaction.setMeta('writingUnitTransition', {
+      ...createTransition('split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]),
+      ...(splitNode ? { splitNode } : {})
+    })
     dispatch(transaction.scrollIntoView())
   }
   return true
