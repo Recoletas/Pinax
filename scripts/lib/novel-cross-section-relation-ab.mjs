@@ -561,6 +561,208 @@ export function validateRelationReviews(reviews, { blindPairIds = [] } = {}) {
   return { valid: true, reviewerCount: (reviews || []).length }
 }
 
+/* ============================================================================
+ * Task 5：配对聚合与决策门（探索性结果，不做显著性声明）
+ * ========================================================================== */
+
+const median = values => {
+  const sorted = [...values].sort((a, b) => a - b)
+  if (sorted.length === 0) return 0
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+const round1 = value => Math.round(value * 10) / 10
+
+/**
+ * Task 5：聚合盲评与运行指标，输出探索性决策。
+ * 只在聚合期间解盲；不产生 p 值、显著性或"获胜架构"表述。
+ */
+export function aggregateRelationAbReport({ runs, reviews, manifest, blindPairs, privateBlindMap } = {}) {
+  if (!Array.isArray(runs) || runs.length === 0 || !manifest || !blindPairs || !privateBlindMap) {
+    return { decision: 'invalid-experiment', reason: 'CROSS_SECTION_RELATION_INPUT_INVALID', metrics: null }
+  }
+  if (manifest.fingerprint?.promptContractVersion !== RELATION_AB_PROMPT_CONTRACT_VERSION) {
+    return { decision: 'invalid-experiment', reason: 'CROSS_SECTION_RELATION_CONTRACT_MISMATCH', metrics: null }
+  }
+  const repetitions = Number(manifest.repetitions || manifest.options?.repetitions || 2)
+  if (![2, 3].includes(repetitions)) {
+    return { decision: 'invalid-experiment', reason: 'CROSS_SECTION_RELATION_REPETITIONS_INVALID', metrics: null }
+  }
+  const expectedPairs = CROSS_SECTION_RELATION_FIXTURES.length * repetitions
+  const successfulRuns = runs.filter(run => run.status === 'success')
+  if (successfulRuns.length !== expectedPairs * 2 || blindPairs.pairs.length !== expectedPairs) {
+    return { decision: 'invalid-experiment', reason: 'CROSS_SECTION_RELATION_PAIRS_INCOMPLETE', metrics: null }
+  }
+  const reviewValidation = validateRelationReviews(reviews, {
+    blindPairIds: blindPairs.pairs.map(pair => pair.blindPairId)
+  })
+  if (!reviewValidation.valid) {
+    return { decision: 'invalid-experiment', reason: reviewValidation.error.code, metrics: null }
+  }
+
+  const conditionOf = blindOutputId => privateBlindMap[blindOutputId]?.condition || null
+  const runByRunId = new Map(successfulRuns.map(run => [run.runId, run]))
+  const dimensions = ['relationshipAuthenticity', 'causalMotivation', 'literaryUsability']
+  const fixtureDeltas = new Map(CROSS_SECTION_RELATION_FIXTURES.map(({ id }) => [id, {
+    relationshipAuthenticity: [],
+    causalMotivation: [],
+    literaryUsability: [],
+    fakeSuspenseSeverity: []
+  }]))
+  const preferenceCounts = { baseline: 0, 'minimal-relation': 0, tie: 0 }
+
+  for (const reviewer of reviews) {
+    for (const score of reviewer.scores) {
+      const pair = blindPairs.pairs.find(candidate => candidate.blindPairId === score.blindPairId)
+      const fixture = fixtureDeltas.get(pair.fixtureId)
+      const leftCondition = conditionOf(pair.left.blindOutputId)
+      const rightCondition = conditionOf(pair.right.blindOutputId)
+      if (!leftCondition || !rightCondition || leftCondition === rightCondition) {
+        return { decision: 'invalid-experiment', reason: 'CROSS_SECTION_RELATION_BLIND_MAP_INVALID', metrics: null }
+      }
+      const sideByCondition = { [leftCondition]: 'left', [rightCondition]: 'right' }
+      for (const dimension of dimensions) {
+        const minimalValue = score[sideByCondition['minimal-relation']][dimension]
+        const baselineValue = score[sideByCondition.baseline][dimension]
+        fixture[dimension].push(minimalValue - baselineValue)
+      }
+      // fakeSuspense 为严重度：改善 = baseline - minimal
+      const suspenseMinimal = score[sideByCondition['minimal-relation']].fakeSuspense
+      const suspenseBaseline = score[sideByCondition.baseline].fakeSuspense
+      fixture.fakeSuspenseSeverity.push(suspenseBaseline - suspenseMinimal)
+      if (score.preference === 'tie') preferenceCounts.tie += 1
+      else preferenceCounts[conditionOf(pair[score.preference].blindOutputId)] += 1
+    }
+  }
+
+  const perFixture = {}
+  const overallPools = { relationshipAuthenticity: [], causalMotivation: [], literaryUsability: [], fakeSuspenseSeverity: [] }
+  for (const [fixtureId, pools] of fixtureDeltas.entries()) {
+    perFixture[fixtureId] = {}
+    for (const key of [...dimensions, 'fakeSuspenseSeverity']) {
+      const value = round1(median(pools[key]))
+      perFixture[fixtureId][key] = value
+      overallPools[key].push(...pools[key])
+    }
+  }
+  const overallMedianDeltas = {}
+  for (const key of Object.keys(overallPools)) {
+    overallMedianDeltas[key] = round1(median(overallPools[key]))
+  }
+
+  const sum = values => values.reduce((total, value) => total + value, 0)
+  const baselineRuns = successfulRuns.filter(run => run.condition === 'baseline')
+  const minimalRuns = successfulRuns.filter(run => run.condition === 'minimal-relation')
+  const leakage = {
+    baseline: sum(baselineRuns.map(run => (run.unauthorizedFactEvents || []).length)),
+    minimalRelation: sum(minimalRuns.map(run => (run.unauthorizedFactEvents || []).length))
+  }
+  const metrics = {
+    exploratory: true,
+    overallMedianDeltas,
+    perFixture,
+    preferenceCounts,
+    completion: { baseline: baselineRuns.length, minimalRelation: minimalRuns.length, expected: expectedPairs },
+    leakage,
+    operations: {
+      inputTokens: { baseline: sum(baselineRuns.map(r => r.usage?.inputTokens || 0)), minimalRelation: sum(minimalRuns.map(r => r.usage?.inputTokens || 0)) },
+      outputTokens: { baseline: sum(baselineRuns.map(r => r.usage?.outputTokens || 0)), minimalRelation: sum(minimalRuns.map(r => r.usage?.outputTokens || 0)) },
+      latencyMsMedian: { baseline: round1(median(baselineRuns.map(r => r.latencyMs || 0))), minimalRelation: round1(median(minimalRuns.map(r => r.latencyMs || 0))) },
+      promptCharsMedian: { baseline: round1(median(baselineRuns.map(r => r.promptMetrics?.promptChars || 0))), minimalRelation: round1(median(minimalRuns.map(r => r.promptMetrics?.promptChars || 0))) },
+      relationCharsMax: Math.max(0, ...minimalRuns.map(r => r.promptMetrics?.relationChars || 0))
+    },
+    reviewerCount: reviews.length,
+    repetitions
+  }
+
+  // —— 决策门（顺序：安全/文学 → 支持 → 加重复 → 保留） ——
+  const gateResults = {
+    attemptsComplete: metrics.completion.baseline === expectedPairs && metrics.completion.minimalRelation === expectedPairs,
+    relationshipAuthenticityGate: overallMedianDeltas.relationshipAuthenticity >= 1.0
+      && Object.values(perFixture).filter(f => f.relationshipAuthenticity > 0).length >= 3,
+    causalMotivationGate: overallMedianDeltas.causalMotivation >= 1.0
+      && Object.values(perFixture).filter(f => f.causalMotivation > 0).length >= 3,
+    literaryUsabilityGate: overallMedianDeltas.literaryUsability >= -0.5
+      && !Object.values(perFixture).some(f => f.literaryUsability < -1.0),
+    leakageGate: leakage.minimalRelation <= leakage.baseline,
+    promptEconomyGate: metrics.operations.relationCharsMax <= 400,
+    fakeSuspenseDiagnostic: { improvedByAtLeast1: overallMedianDeltas.fakeSuspenseSeverity >= 1.0, gating: false }
+  }
+
+  let decision
+  if (!gateResults.literaryUsabilityGate || !gateResults.leakageGate || !gateResults.promptEconomyGate) {
+    decision = 'minimal-relation-rejected'
+  } else if (gateResults.relationshipAuthenticityGate && gateResults.causalMotivationGate) {
+    decision = reviews.length >= 2 ? 'minimal-relation-supported' : 'reviewer-confirmation-required'
+  } else if (
+    overallMedianDeltas.relationshipAuthenticity > 0
+    && overallMedianDeltas.causalMotivation > 0
+    && Object.values(perFixture).filter(f => f.relationshipAuthenticity > 0).length >= 2
+    && Object.values(perFixture).filter(f => f.causalMotivation > 0).length >= 2
+    && repetitions === 2
+  ) {
+    decision = 'inconclusive-add-repetition'
+  } else {
+    decision = 'baseline-retained'
+  }
+
+  return {
+    decision,
+    exploratory: true,
+    gateResults,
+    metrics,
+    limitations: [
+      '单一 provider/模型、四个预填 fixture 的小样本探索性结果',
+      '预填关系不测量真实用户的录入耗时',
+      '未实现任何产品能力或 UI'
+    ]
+  }
+}
+
+/** Task 5：人类可读决策记录（不输出显著性表述）。 */
+export function renderRelationDecisionMarkdown(report, meta = {}) {
+  if (!report || !report.metrics) {
+    return `# 最小关系包 A/B 决策\n\n决策：${report?.decision || 'invalid-experiment'}\n`
+  }
+  const m = report.metrics
+  const lines = [
+    '# 最小关系包 A/B 决策（探索性）',
+    '',
+    `- 决策：**${report.decision}**`,
+    `- 提交：${meta.commit || '未记录'}`,
+    `- Provider/模型：${meta.provider || ''}${meta.model || ''}`,
+    `- 完成尝试：baseline ${m.completion.baseline}/${m.completion.expected} · minimal-relation ${m.completion.minimalRelation}/${m.completion.expected}（${m.repetitions} 次重复）`,
+    `- 评审者：${m.reviewerCount}（盲评；聚合期才解盲）`,
+    '',
+    '## 按 fixture 的配对中位差（minimal − baseline）',
+    '',
+    '| fixture | 关系真实感 | 因果动机 | 可用性 | 悬念严重度改善 |',
+    '|---|---:|---:|---:|---:|'
+  ]
+  for (const [fixtureId, fixture] of Object.entries(m.perFixture)) {
+    lines.push(`| ${fixtureId} | ${fixture.relationshipAuthenticity} | ${fixture.causalMotivation} | ${fixture.literaryUsability} | ${fixture.fakeSuspenseSeverity} |`)
+  }
+  lines.push(
+    '',
+    `总体中位差：真实感 ${m.overallMedianDeltas.relationshipAuthenticity} · 动机 ${m.overallMedianDeltas.causalMotivation} · 可用性 ${m.overallMedianDeltas.literaryUsability} · 悬念改善 ${m.overallMedianDeltas.fakeSuspenseSeverity}`,
+    `偏好计数：baseline ${m.preferenceCounts.baseline} · minimal-relation ${m.preferenceCounts['minimal-relation']} · tie ${m.preferenceCounts.tie}`,
+    `确定性泄漏事件：baseline ${m.leakage.baseline} · minimal-relation ${m.leakage.minimalRelation}`,
+    `运营：输入 token ${m.operations.inputTokens.baseline}/${m.operations.inputTokens.minimalRelation} · 输出 token ${m.operations.outputTokens.baseline}/${m.operations.outputTokens.minimalRelation} · 中位延迟 ${m.operations.latencyMsMedian.baseline}/${m.operations.latencyMsMedian.minimalRelation}ms · 关系块最大 ${m.operations.relationCharsMax} 字`,
+    '',
+    '## 决策门',
+    ...Object.entries(report.gateResults).map(([gate, value]) => (
+      `- ${gate}: ${typeof value === 'object' ? JSON.stringify(value) : value}`
+    )),
+    '',
+    '## 局限',
+    ...report.limitations.map(item => `- ${item}`),
+    '- 本记录只呈现探索性配对证据，不做统计显著性声明',
+    '- 未实现产品能力；后续需要单独的产品设计/spec'
+  )
+  return lines.join('\n')
+}
+
 export default {
   RELATION_AB_CONDITIONS,
   RELATION_AB_PROMPT_CONTRACT_VERSION,
@@ -573,5 +775,7 @@ export default {
   generateRelationAbArtifacts,
   createRelationBlindPairs,
   buildRelationReviewTemplate,
-  validateRelationReviews
+  validateRelationReviews,
+  aggregateRelationAbReport,
+  renderRelationDecisionMarkdown
 }

@@ -14,7 +14,9 @@ import {
   generateRelationAbArtifacts,
   createRelationBlindPairs,
   buildRelationReviewTemplate,
-  validateRelationReviews
+  validateRelationReviews,
+  aggregateRelationAbReport,
+  renderRelationDecisionMarkdown
 } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
@@ -47,6 +49,127 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(frames).toContain('职务')
     expect(frames).toContain('债')
     expect(frames).toContain('同舱')
+  })
+
+  it('aggregates paired evidence through decision gates without false significance (Task 5)', () => {
+    const makeRuns = () => CROSS_SECTION_RELATION_FIXTURES.flatMap((fixture, index) => ([1, 2]).flatMap(repetition => (
+      ['baseline', 'minimal-relation'].map(condition => ({
+        runId: `${fixture.id}-${condition}-r${repetition}`,
+        fixtureId: fixture.id,
+        repetition,
+        condition,
+        status: 'success',
+        readableText: `${condition === 'baseline' ? '甲' : '乙'} 文本 ${index}-${repetition}`,
+        usage: { inputTokens: 100, outputTokens: 200, totalTokens: 300 },
+        latencyMs: 1200,
+        promptMetrics: { promptChars: 900, promptBytes: 2400, relationChars: condition === 'minimal-relation' ? 180 : 0 },
+        unauthorizedFactEvents: []
+      }))
+    )))
+
+    // 支持：关系真实感与因果动机 +1.5、可用性不回退、无泄漏恶化
+    const supportedBundle = createRelationBlindPairs(makeRuns(), { seed: 'gate' })
+    const privateMap = createRelationBlindPairs(makeRuns(), { seed: 'gate', includePrivate: true }).privateBlindMap
+    const conditionOf = blindOutputId => privateMap[blindOutputId].condition
+    // 按每个评审者的整数 delta 生成（评分必须 0-10 整数）
+    const reviewsFor = (authDeltas, motDeltas, useDeltas) => (['r1', 'r2'].map((reviewerId, reviewerIndex) => ({
+      reviewerId,
+      scores: supportedBundle.pairs.map(pair => {
+        const score = (side) => {
+          const isMinimal = conditionOf(side.blindOutputId) === 'minimal-relation'
+          return {
+            relationshipAuthenticity: Math.max(0, Math.min(10, (isMinimal ? 6 : 6) + (isMinimal ? authDeltas[reviewerIndex] : 0))),
+            causalMotivation: Math.max(0, Math.min(10, (isMinimal ? 6 : 6) + (isMinimal ? motDeltas[reviewerIndex] : 0))),
+            fakeSuspense: 3,
+            literaryUsability: Math.max(0, Math.min(10, (isMinimal ? 8 : 8) + (isMinimal ? useDeltas[reviewerIndex] : 0)))
+          }
+        }
+        return {
+          blindPairId: pair.blindPairId,
+          left: score(pair.left),
+          right: score(pair.right),
+          preference: 'tie',
+          confidence: 'medium',
+          note: ''
+        }
+      })
+    })))
+
+    const runs = makeRuns()
+    const manifest = {
+      status: 'complete',
+      repetitions: 2,
+      provider: { provider: 'MiniMax', model: 'MiniMax-Text-01' },
+      fingerprint: { promptContractVersion: RELATION_AB_PROMPT_CONTRACT_VERSION }
+    }
+    const supported = aggregateRelationAbReport({
+      runs,
+      reviews: reviewsFor([2, 2], [2, 2], [0, 0]),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(supported.decision).toBe('minimal-relation-supported')
+    expect(supported.exploratory).toBe(true)
+    expect(JSON.stringify(supported)).not.toMatch(/p-value|statistically|significan|p95/i)
+    expect(supported.metrics.overallMedianDeltas.relationshipAuthenticity).toBeGreaterThanOrEqual(1.0)
+    expect(supported.metrics.preferenceCounts).toBeTruthy()
+
+    // 缺第二个评审者 → reviewer-confirmation-required
+    const oneReviewer = aggregateRelationAbReport({
+      runs,
+      reviews: reviewsFor([2, 2], [2, 2], [0, 0]).slice(0, 1),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(oneReviewer.decision).toBe('reviewer-confirmation-required')
+
+    // 文学可用性回退 >0.5 → rejected
+    const rejected = aggregateRelationAbReport({
+      runs,
+      reviews: reviewsFor([2, 2], [2, 2], [-1, -1]),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(rejected.decision).toBe('minimal-relation-rejected')
+
+    // 必需维度未提升 → baseline-retained
+    const retained = aggregateRelationAbReport({
+      runs,
+      reviews: reviewsFor([0, 0], [2, 2], [0, 0]),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(retained.decision).toBe('baseline-retained')
+
+    // 方向为正但差一点（+0.8）→ inconclusive-add-repetition（2 次重复）
+    const inconclusive = aggregateRelationAbReport({
+      runs,
+      reviews: reviewsFor([1, 0], [2, 1], [0, 0]),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(inconclusive.decision).toBe('inconclusive-add-repetition')
+
+    // 缺 pair → invalid-experiment
+    const invalid = aggregateRelationAbReport({
+      runs: runs.slice(0, 14),
+      reviews: reviewsFor([2, 2], [2, 2], [0, 0]),
+      manifest,
+      blindPairs: supportedBundle,
+      privateBlindMap: privateMap
+    })
+    expect(invalid.decision).toBe('invalid-experiment')
+
+    // 决策 markdown
+    const markdown = renderRelationDecisionMarkdown(supported, { commit: 'abc1234' })
+    expect(markdown).toContain('minimal-relation-supported')
+    expect(markdown).toContain('局限')
+    expect(markdown).toContain('未实现产品能力')
   })
 
   it('creates deterministic blinded same-fixture pairs and validates reviews (Task 4)', () => {
