@@ -776,6 +776,19 @@ describe('Narrative presentation contract', () => {
     ])
     expect(structured.content).not.toContain(':::')
 
+    const pairedFences = parseNarrativePresentation([
+      ':::narration',
+      '雨水沿着舷窗滑落。',
+      ':::',
+      ':::dialogue|陆晨曦',
+      '“信号还在吗？”',
+      ':::'
+    ].join('\n'), { messageId: 'paired-fences' })
+    expect(pairedFences.blocks.map((block) => block.text)).toEqual([
+      '雨水沿着舷窗滑落。', '“信号还在吗？”'
+    ])
+    expect(pairedFences.content).not.toContain(':::')
+
     // P4：同一 marker 块按空行拆分自然段；明确段落边界不被短块合并。
     const multiParagraph = parseNarrativePresentation(':::narration\n段一。继续一段。\n\n段二。\n\n段三。', {
       messageId: 'multi-para'

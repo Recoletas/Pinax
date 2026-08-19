@@ -432,6 +432,12 @@ const RELATION_SCORE_FIELDS = Object.freeze([
   'literaryUsability'
 ])
 
+const sanitizeRelationReviewText = value => String(value || '')
+  .replace(/^\s*:::\s*$/gm, '')
+  .replace(/:::/g, '')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+
 /**
  * Task 4：把成功运行组成同 fixture 盲评对。
  * 公共 bundle 不含 condition、提示词、sourceRef 或任何实验元数据；
@@ -494,8 +500,8 @@ export function createRelationBlindPairs(runs, { seed = 'relation-ab', includePr
       publicFacts: fixture.facts.filter(({ visibility }) => visibility === 'public').map(({ text }) => text),
       focusProp: fixture.focusProp,
       relationshipGroundTruth: fixture.relationshipGroundTruth,
-      left: { blindOutputId: leftId, text: String(first.readableText || '') },
-      right: { blindOutputId: rightId, text: String(second.readableText || '') }
+      left: { blindOutputId: leftId, text: sanitizeRelationReviewText(first.readableText) },
+      right: { blindOutputId: rightId, text: sanitizeRelationReviewText(second.readableText) }
     })
   }
 

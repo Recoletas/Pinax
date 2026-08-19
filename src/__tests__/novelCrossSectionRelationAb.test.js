@@ -268,7 +268,7 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
         repetition,
         condition,
         status: 'success',
-        readableText: `${condition === 'baseline' ? '甲' : '乙'} 文本 ${index}-${repetition}`
+        readableText: `${condition === 'baseline' ? '甲' : '乙'} 文本 ${index}-${repetition}${index === 0 && repetition === 1 ? '\n\n:::' : ''}`
       }))
     )))
     const runs = makeRuns()
@@ -284,6 +284,7 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
         right: { blindOutputId: expect.any(String), text: expect.any(String) }
       }))
       expect(pair.left.text).not.toBe(pair.right.text)
+      expect(pair.left.text + pair.right.text).not.toContain(':::')
     }
     const forbidden = /baseline|minimal-relation|condition|sourceRef|sourceRefId|rawPrompt|architecture|apiKey|baseUrl/i
     expect(JSON.stringify(bundle)).not.toMatch(forbidden)
