@@ -8,7 +8,10 @@ import {
   RELATION_AB_CONDITIONS,
   RELATION_AB_PROMPT_CONTRACT_VERSION,
   serializeMinimalRelationPack,
-  buildRelationConditionPrompt
+  buildRelationConditionPrompt,
+  expandRelationAbMatrix,
+  runRelationCondition,
+  generateRelationAbArtifacts
 } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
@@ -41,6 +44,117 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(frames).toContain('职务')
     expect(frames).toContain('债')
     expect(frames).toContain('同舱')
+  })
+
+  it('expands the staged matrix and rejects invalid repetitions or conditions (Task 3)', () => {
+    const stage1 = expandRelationAbMatrix({ repetitions: 2 })
+    expect(stage1.attemptCount).toBe(16)
+    expect(stage1.pairCount).toBe(8)
+    expect(new Set(stage1.attempts.map(item => item.condition)))
+      .toEqual(new Set(['baseline', 'minimal-relation']))
+    const stage2 = expandRelationAbMatrix({ repetitions: 3 })
+    expect(stage2.attemptCount).toBe(24)
+    expect(stage2.pairCount).toBe(12)
+
+    // 每 fixture × repetition × condition 恰好一次
+    const keys = new Set(stage1.attempts.map(a => `${a.fixtureId}|${a.repetition}|${a.condition}`))
+    expect(keys.size).toBe(16)
+
+    expect(() => expandRelationAbMatrix({ repetitions: 1 })).toThrow()
+    expect(() => expandRelationAbMatrix({ repetitions: 4 })).toThrow()
+    expect(() => expandRelationAbMatrix({ repetitions: 2, conditions: ['baseline', 'ghost'] })).toThrow()
+    // 匹配对相邻（fixture 主序、repetition 次序、condition 末序）
+    expect(stage1.attempts[0].runId).toMatch(/-baseline-r1$/)
+    expect(stage1.attempts[1].runId).toMatch(/-minimal-relation-r1$/)
+  })
+
+  it('runs conditions through the provider boundary once per attempt with resume and typed failures (Task 3)', async () => {
+    const fixture = CROSS_SECTION_RELATION_FIXTURES[1]
+    const calls = []
+    const provider = {
+      invoke: async request => {
+        calls.push(request)
+        if (calls.length === 2) throw Object.assign(new Error('上游超时'), { code: 'UPSTREAM_TIMEOUT' })
+        return { text: ':::narration\n母亲把录音机往女儿那边推了推，没有解释那一分钟。\n:::dialogue|女儿\n「妈，你剪掉了什么？」', usage: { inputTokens: 10, outputTokens: 20 } }
+      }
+    }
+    const baseline = await runRelationCondition({ fixture, condition: 'baseline', repetition: 1, provider, now: () => 1000 })
+    expect(baseline.status).toBe('success')
+    expect(baseline.readableText).toContain('录音机')
+    expect(baseline.condition).toBe('baseline')
+    expect(baseline.usage.totalTokens).toBe(30)
+    expect(baseline.promptMetrics.relationChars).toBe(0)
+    expect(Array.isArray(baseline.unauthorizedFactEvents)).toBe(true)
+
+    const failed = await runRelationCondition({ fixture, condition: 'minimal-relation', repetition: 1, provider, now: () => 1000 })
+    expect(failed.status).toBe('failed')
+    expect(failed.error.code).toBe('UPSTREAM_TIMEOUT')
+    // 失败记录只在私有侧保留 condition
+    expect(calls).toHaveLength(2)
+    expect(calls[1].user).toContain('【活跃关系】')
+
+    // 可恢复生成：fake fs + fake provider；重跑只补缺失 attempt
+    const files = new Map()
+    const fs = {
+      mkdir: async () => {},
+      readFile: async path => { if (!files.has(path)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return files.get(path) },
+      writeFile: async (path, data) => { files.set(path, data) },
+      appendFile: async (path, data) => { files.set(path, (files.get(path) || '') + data) },
+      rename: async (from, to) => { files.set(to, files.get(from) || ''); files.delete(from) },
+      stat: async path => { if (!files.has(path)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return { isFile: () => true } }
+    }
+    const providerConfig = { provider: 'MiniMax', model: 'MiniMax-Text-01', apiKey: 'secret-key', baseUrl: 'https://api.example.internal/v1' }
+    let invokeCount = 0
+    const okProvider = {
+      invoke: async () => {
+        invokeCount += 1
+        return { text: ':::narration\n女儿按下了播放键，录音机转了半圈便停住。', usage: { inputTokens: 5, outputTokens: 7 } }
+      }
+    }
+    const runDir = await generateRelationAbArtifacts({
+      fs,
+      outputRoot: '/tmp/relation-ab-test/run-1',
+      fixtures: CROSS_SECTION_RELATION_FIXTURES,
+      providerConfig,
+      provider: okProvider,
+      repetitions: 2,
+      now: () => new Date('2026-08-19T00:00:00Z')
+    })
+    expect(invokeCount).toBe(16)
+    const manifest = JSON.parse(files.get(`${runDir}/manifest.json`))
+    expect(manifest.status).toBe('complete')
+    expect(manifest.repetitions).toBe(2)
+    expect(JSON.stringify(manifest)).not.toContain('secret-key')
+    expect(files.get(`${runDir}/manifest.json`)).not.toContain('api.example.internal')
+    const privateLines = files.get(`${runDir}/private-runs.jsonl`).trim().split('\n')
+    expect(privateLines).toHaveLength(16)
+    const privateRecord = JSON.parse(privateLines[0])
+    expect(privateRecord.promptMetrics.promptBytes).toBeGreaterThan(0)
+    expect(privateRecord.relationProvenance).toBeTruthy()
+
+    // resume：已完成的 16 次不再调用
+    invokeCount = 0
+    await generateRelationAbArtifacts({
+      fs,
+      outputRoot: '/tmp/relation-ab-test/run-1',
+      fixtures: CROSS_SECTION_RELATION_FIXTURES,
+      providerConfig,
+      provider: okProvider,
+      repetitions: 2,
+      now: () => new Date('2026-08-19T00:00:00Z')
+    })
+    expect(invokeCount).toBe(0)
+
+    // 指纹变化（repetitions 不同）拒绝复用
+    await expect(generateRelationAbArtifacts({
+      fs,
+      outputRoot: '/tmp/relation-ab-test/run-1',
+      fixtures: CROSS_SECTION_RELATION_FIXTURES,
+      providerConfig,
+      provider: okProvider,
+      repetitions: 3,
+      now: () => new Date('2026-08-19T00:00:00Z')
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_RELATION_RESUME_MISMATCH' })
   })
 
   it('serializes the minimal pack and isolates prompts by condition (Task 2)', () => {
