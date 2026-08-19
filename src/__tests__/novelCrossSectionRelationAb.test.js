@@ -4,6 +4,12 @@ import {
   RELATION_PACK_LIMITS,
   validateCrossSectionRelationFixtures
 } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
+import {
+  RELATION_AB_CONDITIONS,
+  RELATION_AB_PROMPT_CONTRACT_VERSION,
+  serializeMinimalRelationPack,
+  buildRelationConditionPrompt
+} from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 
@@ -35,6 +41,37 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(frames).toContain('职务')
     expect(frames).toContain('债')
     expect(frames).toContain('同舱')
+  })
+
+  it('serializes the minimal pack and isolates prompts by condition (Task 2)', () => {
+    const fixture = CROSS_SECTION_RELATION_FIXTURES[1]
+    const serialized = serializeMinimalRelationPack(fixture)
+    expect([...serialized].length).toBeLessThanOrEqual(RELATION_PACK_LIMITS.activeRelationsTotal)
+    expect(serialized).toContain('【活跃关系】')
+
+    const baselinePrompt = buildRelationConditionPrompt({ fixture, condition: 'baseline' })
+    const minimalPrompt = buildRelationConditionPrompt({ fixture, condition: 'minimal-relation' })
+    expect(baselinePrompt.user).not.toContain('【活跃关系】')
+    expect(baselinePrompt.user).not.toContain(fixture.activeRelations[0].relationFrame)
+    expect(minimalPrompt.user).toContain('【活跃关系】')
+    expect(minimalPrompt.user).toContain(fixture.activeRelations[0].relationFrame)
+    // 实验元数据与 opaque 引用绝不进入提示词
+    expect(minimalPrompt.user).not.toContain(fixture.activeRelations[0].openTension.sourceRef.refId)
+    expect(minimalPrompt.system + minimalPrompt.user).not.toMatch(/condition|baseline|minimal-relation|sourceRef/i)
+    // 双条件共享字节一致的终稿规则、角色字段、事实、预算与配置
+    expect(minimalPrompt.system).toBe(baselinePrompt.system)
+    expect(minimalPrompt.maxTokens).toBe(baselinePrompt.maxTokens)
+    expect(minimalPrompt.temperature).toBe(baselinePrompt.temperature)
+    expect(baselinePrompt.user).toBe(minimalPrompt.user.replace(/\n\n【活跃关系】[\s\S]*$/, ''))
+    // 序列化不含 sourceRef / 评审指令
+    expect(serialized).not.toMatch(/sourceRef|评分|评审/i)
+
+    const metrics = minimalPrompt.promptMetrics
+    expect(metrics.promptChars).toBe([...minimalPrompt.system + minimalPrompt.user].length)
+    expect(metrics.promptBytes).toBe(Buffer.byteLength(minimalPrompt.system + minimalPrompt.user, 'utf8'))
+    expect(metrics.relationChars).toBeGreaterThan(0)
+    expect(RELATION_AB_CONDITIONS).toEqual(['baseline', 'minimal-relation'])
+    expect(RELATION_AB_PROMPT_CONTRACT_VERSION).toBe('cross-section-relation-prompt.v1')
   })
 
   it('rejects typed contract violations for every documented negative case', () => {

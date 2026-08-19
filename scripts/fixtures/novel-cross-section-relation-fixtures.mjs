@@ -224,12 +224,12 @@ const invalid = (code, context = {}) => ({
  * 严格校验关系 fixture；返回 typed result，不抛异常。
  */
 export function validateCrossSectionRelationFixtures(fixtures) {
-  if (!Array.isArray(fixtures)) return invalid('CROSS_SECTION_RELATION_INVALID_INPUT')
-  if (fixtures.length !== CROSS_SECTION_FIXTURES.length) {
+  if (!Array.isArray(fixtures) || fixtures.length < 1) return invalid('CROSS_SECTION_RELATION_INVALID_INPUT')
+  if (fixtures.length > CROSS_SECTION_FIXTURES.length) {
     return invalid('CROSS_SECTION_RELATION_INVALID_INPUT')
   }
   const baseById = new Map(CROSS_SECTION_FIXTURES.map(fixture => [fixture.id, fixture]))
-  const seenPairsByFixture = new Map()
+  const seenFixtureIds = new Set()
 
   for (const fixture of fixtures) {
     if (!isRecord(fixture)) return invalid('CROSS_SECTION_RELATION_INVALID_INPUT')
@@ -237,6 +237,8 @@ export function validateCrossSectionRelationFixtures(fixtures) {
     const context = { fixtureId }
     const base = baseById.get(fixtureId)
     if (!base) return invalid('CROSS_SECTION_RELATION_FIXTURE_UNKNOWN', context)
+    if (seenFixtureIds.has(fixtureId)) return invalid('CROSS_SECTION_RELATION_INVALID_INPUT', context)
+    seenFixtureIds.add(fixtureId)
 
     if (!Array.isArray(fixture.relationSources) || fixture.relationSources.length === 0) {
       return invalid('CROSS_SECTION_RELATION_SOURCE_MISSING', context)
