@@ -406,6 +406,161 @@ export async function generateRelationAbArtifacts(options = {}) {
   return runDir
 }
 
+/* ============================================================================
+ * Task 4：同 fixture 盲评对与审校校验
+ * ========================================================================== */
+
+const seededRandom = seedText => {
+  let state = Number.parseInt(sha256Hex(seedText).slice(0, 8), 16) || 0x9e3779b9
+  return () => {
+    state ^= state << 13
+    state ^= state >>> 17
+    state ^= state << 5
+    return (state >>> 0) / 0x100000000
+  }
+}
+
+const RELATION_SCORE_FIELDS = Object.freeze([
+  'relationshipAuthenticity',
+  'causalMotivation',
+  'fakeSuspense',
+  'literaryUsability'
+])
+
+/**
+ * Task 4：把成功运行组成同 fixture 盲评对。
+ * 公共 bundle 不含 condition、提示词、sourceRef 或任何实验元数据；
+ * { includePrivate: true } 时额外返回 privateBlindMap（只允许写入私有工件）。
+ */
+export function createRelationBlindPairs(runs, { seed = 'relation-ab', includePrivate = false } = {}) {
+  const fixtureById = new Map(CROSS_SECTION_RELATION_FIXTURES.map(fixture => [fixture.id, fixture]))
+  const groups = new Map()
+  for (const run of runs) {
+    if (run?.status !== 'success') continue
+    const key = `${run.fixtureId}|${run.repetition}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(run)
+  }
+
+  const pairs = []
+  const incompletePairs = []
+  const privateBlindMap = {}
+  const expectedGroups = new Set()
+  for (const fixture of CROSS_SECTION_RELATION_FIXTURES) {
+    for (const repetition of [1, 2, 3]) expectedGroups.add(`${fixture.id}|${repetition}`)
+  }
+
+  const sortedKeys = [...groups.keys()].sort((a, b) => {
+    const [fa, ra] = a.split('|')
+    const [fb, rb] = b.split('|')
+    return fa.localeCompare(fb) || Number(ra) - Number(rb)
+  })
+  for (const key of sortedKeys) {
+    const group = groups.get(key)
+    const [fixtureId, repetitionText] = key.split('|')
+    const repetition = Number(repetitionText)
+    const byCondition = {}
+    for (const run of group) byCondition[run.condition] = run
+    const baseline = byCondition.baseline
+    const minimal = byCondition['minimal-relation']
+    if (!baseline || !minimal) {
+      incompletePairs.push({
+        fixtureId,
+        repetition,
+        code: 'CROSS_SECTION_RELATION_PAIR_INCOMPLETE',
+        missingConditions: [!baseline && 'baseline', !minimal && 'minimal-relation'].filter(Boolean)
+      })
+      continue
+    }
+    const fixture = fixtureById.get(fixtureId)
+    const random = seededRandom(`${seed}|${key}`)
+    const minimalFirst = random() < 0.5
+    const first = minimalFirst ? minimal : baseline
+    const second = minimalFirst ? baseline : minimal
+    const blindPairId = `bp_${sha256Hex(`${seed}|${key}|pair`).slice(0, 10)}`
+    const leftId = `bo_${sha256Hex(`${seed}|${first.runId}`).slice(0, 10)}`
+    const rightId = `bo_${sha256Hex(`${seed}|${second.runId}`).slice(0, 10)}`
+    privateBlindMap[leftId] = { runId: first.runId, condition: first.condition }
+    privateBlindMap[rightId] = { runId: second.runId, condition: second.condition }
+    pairs.push({
+      blindPairId,
+      fixtureId,
+      fixtureTitle: fixture.title,
+      publicFacts: fixture.facts.filter(({ visibility }) => visibility === 'public').map(({ text }) => text),
+      focusProp: fixture.focusProp,
+      relationshipGroundTruth: fixture.relationshipGroundTruth,
+      left: { blindOutputId: leftId, text: String(first.readableText || '') },
+      right: { blindOutputId: rightId, text: String(second.readableText || '') }
+    })
+  }
+
+  const bundle = { pairs, incompletePairs }
+  if (includePrivate) bundle.privateBlindMap = privateBlindMap
+  return bundle
+}
+
+/** Task 4：审校模板（空分数 + 成对偏好）。 */
+export function buildRelationReviewTemplate(bundle) {
+  return {
+    schemaVersion: 1,
+    instructions: '对每对文本分别打 0-10 分（fakeSuspense 为严重度，越低越好），再给出 left/right/tie 偏好与置信度。',
+    reviewPairs: bundle.pairs.map(pair => ({
+      blindPairId: pair.blindPairId,
+      left: { ...Object.fromEntries(RELATION_SCORE_FIELDS.map(field => [field, null])) },
+      right: { ...Object.fromEntries(RELATION_SCORE_FIELDS.map(field => [field, null])) },
+      preference: null,
+      confidence: null,
+      note: ''
+    }))
+  }
+}
+
+const reviewError = code => ({ valid: false, error: { code } })
+
+/** Task 4：严格审校校验（不含任何评审者身份元数据）。 */
+export function validateRelationReviews(reviews, { blindPairIds = [] } = {}) {
+  const knownIds = new Set(blindPairIds)
+  const CONDITION_LABEL_RE = /baseline|minimal-relation|condition/i
+  for (const reviewer of Array.isArray(reviews) ? reviews : []) {
+    const reviewerId = reviewer?.reviewerId
+    if (typeof reviewerId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/i.test(reviewerId)) {
+      return reviewError('CROSS_SECTION_RELATION_REVIEWER_INVALID')
+    }
+    const extraKeys = Object.keys(reviewer).filter(key => !['reviewerId', 'scores'].includes(key))
+    if (extraKeys.length > 0) return reviewError('CROSS_SECTION_RELATION_REVIEWER_METADATA_REJECTED')
+    if (!Array.isArray(reviewer.scores)) {
+      return reviewError('CROSS_SECTION_RELATION_REVIEW_PAIRS_INCOMPLETE')
+    }
+    const seen = new Set()
+    for (const score of reviewer.scores) {
+      if (!knownIds.has(score?.blindPairId)) return reviewError('CROSS_SECTION_RELATION_REVIEW_PAIR_UNKNOWN')
+      if (seen.has(score.blindPairId)) return reviewError('CROSS_SECTION_RELATION_REVIEW_DUPLICATE_PAIR')
+      seen.add(score.blindPairId)
+      for (const side of ['left', 'right']) {
+        const sideScores = score?.[side]
+        for (const field of RELATION_SCORE_FIELDS) {
+          const value = sideScores?.[field]
+          if (!Number.isInteger(value)) return reviewError('CROSS_SECTION_RELATION_REVIEW_SCORES_INCOMPLETE')
+          if (value < 0 || value > 10) return reviewError('CROSS_SECTION_RELATION_REVIEW_SCORE_INVALID')
+        }
+      }
+      if (!['left', 'right', 'tie'].includes(score?.preference)) {
+        return reviewError('CROSS_SECTION_RELATION_REVIEW_PREFERENCE_INVALID')
+      }
+      if (!['low', 'medium', 'high'].includes(score?.confidence)) {
+        return reviewError('CROSS_SECTION_RELATION_REVIEW_CONFIDENCE_INVALID')
+      }
+      if (typeof score?.note !== 'string' || CONDITION_LABEL_RE.test(score.note || '')) {
+        return reviewError('CROSS_SECTION_RELATION_REVIEW_NOTE_REJECTED')
+      }
+    }
+    if (seen.size !== knownIds.size) {
+      return reviewError('CROSS_SECTION_RELATION_REVIEW_PAIRS_INCOMPLETE')
+    }
+  }
+  return { valid: true, reviewerCount: (reviews || []).length }
+}
+
 export default {
   RELATION_AB_CONDITIONS,
   RELATION_AB_PROMPT_CONTRACT_VERSION,
@@ -415,5 +570,8 @@ export default {
   buildRelationConditionPrompt,
   expandRelationAbMatrix,
   runRelationCondition,
-  generateRelationAbArtifacts
+  generateRelationAbArtifacts,
+  createRelationBlindPairs,
+  buildRelationReviewTemplate,
+  validateRelationReviews
 }

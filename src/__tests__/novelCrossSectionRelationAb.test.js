@@ -11,7 +11,10 @@ import {
   buildRelationConditionPrompt,
   expandRelationAbMatrix,
   runRelationCondition,
-  generateRelationAbArtifacts
+  generateRelationAbArtifacts,
+  createRelationBlindPairs,
+  buildRelationReviewTemplate,
+  validateRelationReviews
 } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
@@ -44,6 +47,112 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(frames).toContain('职务')
     expect(frames).toContain('债')
     expect(frames).toContain('同舱')
+  })
+
+  it('creates deterministic blinded same-fixture pairs and validates reviews (Task 4)', () => {
+    const makeRuns = () => CROSS_SECTION_RELATION_FIXTURES.flatMap((fixture, index) => ([1, 2]).flatMap(repetition => (
+      ['baseline', 'minimal-relation'].map(condition => ({
+        runId: `${fixture.id}-${condition}-r${repetition}`,
+        fixtureId: fixture.id,
+        repetition,
+        condition,
+        status: 'success',
+        readableText: `${condition === 'baseline' ? '甲' : '乙'} 文本 ${index}-${repetition}`
+      }))
+    )))
+    const runs = makeRuns()
+    const bundle = createRelationBlindPairs(runs, { seed: 'seed-a' })
+    expect(bundle.pairs).toHaveLength(8)
+    expect(bundle.incompletePairs).toHaveLength(0)
+    for (const pair of bundle.pairs) {
+      expect(pair).toEqual(expect.objectContaining({
+        blindPairId: expect.any(String),
+        fixtureTitle: expect.any(String),
+        relationshipGroundTruth: expect.any(Object),
+        left: { blindOutputId: expect.any(String), text: expect.any(String) },
+        right: { blindOutputId: expect.any(String), text: expect.any(String) }
+      }))
+      expect(pair.left.text).not.toBe(pair.right.text)
+    }
+    const forbidden = /baseline|minimal-relation|condition|sourceRef|sourceRefId|rawPrompt|architecture|apiKey|baseUrl/i
+    expect(JSON.stringify(bundle)).not.toMatch(forbidden)
+
+    // 同 seed 确定、异 seed 变化、且不是恒 baseline-left
+    const rerun = createRelationBlindPairs(makeRuns(), { seed: 'seed-a' })
+    expect(JSON.stringify(rerun.pairs.map(p => [p.left.blindOutputId, p.right.blindOutputId])))
+      .toBe(JSON.stringify(bundle.pairs.map(p => [p.left.blindOutputId, p.right.blindOutputId])))
+    const other = createRelationBlindPairs(makeRuns(), { seed: 'seed-b' })
+    const flipped = other.pairs.filter((pair, index) => (
+      pair.left.blindOutputId !== bundle.pairs[index].left.blindOutputId
+    ))
+    expect(flipped.length).toBeGreaterThan(0)
+
+    // 未配对失败 → typed incompletePairs
+    const withFailure = makeRuns().filter(run => run.runId !== 'canal-ledger-baseline-r2')
+    const partial = createRelationBlindPairs(withFailure, { seed: 'seed-a' })
+    expect(partial.pairs).toHaveLength(7)
+    expect(partial.incompletePairs).toEqual([
+      expect.objectContaining({ fixtureId: 'canal-ledger', repetition: 2, code: 'CROSS_SECTION_RELATION_PAIR_INCOMPLETE' })
+    ])
+
+    // review template
+    const template = buildRelationReviewTemplate(bundle)
+    expect(template.reviewPairs).toHaveLength(8)
+    const record = template.reviewPairs[0]
+    expect(record).toEqual(expect.objectContaining({
+      blindPairId: record.blindPairId,
+      left: {
+        relationshipAuthenticity: null,
+        causalMotivation: null,
+        fakeSuspense: null,
+        literaryUsability: null
+      },
+      right: {
+        relationshipAuthenticity: null,
+        causalMotivation: null,
+        fakeSuspense: null,
+        literaryUsability: null
+      },
+      preference: null,
+      confidence: null,
+      note: ''
+    }))
+
+    // review 校验：完整通过 / 各类拒绝
+    const fill = side => ({
+      relationshipAuthenticity: 7,
+      causalMotivation: 6,
+      fakeSuspense: 3,
+      literaryUsability: 8
+    })
+    const validReviews = [{
+      reviewerId: 'reviewer-1',
+      scores: bundle.pairs.map(pair => ({
+        blindPairId: pair.blindPairId,
+        left: fill(),
+        right: fill(),
+        preference: 'left',
+        confidence: 'medium',
+        note: ''
+      }))
+    }]
+    expect(validateRelationReviews(validReviews, { blindPairIds: bundle.pairs.map(p => p.blindPairId) }).valid).toBe(true)
+    const dup = structuredClone(validReviews)
+    dup[0].scores.push({ ...dup[0].scores[0] })
+    expect(validateRelationReviews(dup, { blindPairIds: bundle.pairs.map(p => p.blindPairId) }).error.code)
+      .toBe('CROSS_SECTION_RELATION_REVIEW_DUPLICATE_PAIR')
+    const partialScores = structuredClone(validReviews)
+    delete partialScores[0].scores[0].left.literaryUsability
+    expect(validateRelationReviews(partialScores, { blindPairIds: bundle.pairs.map(p => p.blindPairId) }).error.code)
+      .toBe('CROSS_SECTION_RELATION_REVIEW_SCORES_INCOMPLETE')
+    const outOfRange = structuredClone(validReviews)
+    outOfRange[0].scores[0].left.relationshipAuthenticity = 11
+    expect(validateRelationReviews(outOfRange, { blindPairIds: bundle.pairs.map(p => p.blindPairId) }).error.code)
+      .toBe('CROSS_SECTION_RELATION_REVIEW_SCORE_INVALID')
+    const unknownId = structuredClone(validReviews)
+    unknownId[0].scores[0].blindPairId = 'ghost-pair'
+    expect(validateRelationReviews(unknownId, { blindPairIds: bundle.pairs.map(p => p.blindPairId) }).error.code)
+      .toBe('CROSS_SECTION_RELATION_REVIEW_PAIR_UNKNOWN')
   })
 
   it('expands the staged matrix and rejects invalid repetitions or conditions (Task 3)', () => {

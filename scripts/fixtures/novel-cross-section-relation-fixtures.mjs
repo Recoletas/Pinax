@@ -71,7 +71,7 @@ export const CROSS_SECTION_RELATION_FIXTURES = deepFreeze([
         '两人是亲属或恋人',
         '旧日共事之外新增未提供的共同经历'
       ],
-      evaluatorNote: '不透露 condition，只说明两人是旧日同僚、如今隔着一道关卡命令。'
+      evaluatorNote: '不透露实验分组，只说明两人是旧日同僚、如今隔着一道关卡命令。'
     }
   }),
   relationFixture('birthday-recorder', {
@@ -125,7 +125,7 @@ export const CROSS_SECTION_RELATION_FIXTURES = deepFreeze([
         '缺失的一分钟内容被任何角色直接讲出',
         '新增父亲生前的具体事件或遗嘱'
       ],
-      evaluatorNote: '不透露 condition，只说明母女长期同住、舅舅是家中调停人。'
+      evaluatorNote: '不透露实验分组，只说明母女长期同住、舅舅是家中调停人。'
     }
   }),
   relationFixture('orbital-airlock-key', {
@@ -164,7 +164,7 @@ export const CROSS_SECTION_RELATION_FIXTURES = deepFreeze([
         '两人是亲属',
         '新增未提供的共事事故细节'
       ],
-      evaluatorNote: '不透露 condition，只说明二人是多次危机里搭出来的老搭档。'
+      evaluatorNote: '不透露实验分组，只说明二人是多次危机里搭出来的老搭档。'
     }
   }),
   relationFixture('temple-debt-token', {
@@ -203,7 +203,7 @@ export const CROSS_SECTION_RELATION_FIXTURES = deepFreeze([
         '收债人与老师有血缘',
         '新增未提供的旧债细节'
       ],
-      evaluatorNote: '不透露 condition，只说明收债人是旧识、见习者守着师门规矩。'
+      evaluatorNote: '不透露实验分组，只说明收债人是旧识、见习者守着师门规矩。'
     }
   })
 ])
