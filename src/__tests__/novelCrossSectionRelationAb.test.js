@@ -18,6 +18,7 @@ import {
   aggregateRelationAbReport,
   renderRelationDecisionMarkdown
 } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
+import { parseRelationAbArgs, runRelationAbCli } from '../../scripts/novel-cross-section-relation-ab.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 
@@ -49,6 +50,93 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(frames).toContain('职务')
     expect(frames).toContain('债')
     expect(frames).toContain('同舱')
+  })
+
+  it('parses a strict CLI surface and dry-runs without touching the filesystem (Task 6)', async () => {
+    expect(parseRelationAbArgs(['dry-run'])).toMatchObject({ command: 'dry-run' })
+    expect(parseRelationAbArgs(['generate', '--config', '/p.json', '--output', '/tmp/out'])).toMatchObject({
+      command: 'generate', configPath: '/p.json', outputRoot: '/tmp/out', stage: 1
+    })
+    expect(parseRelationAbArgs(['generate', '--stage-2', '--run', '/tmp/out/r1', '--config', '/p.json'])).toMatchObject({
+      command: 'generate', stage: 2, runDir: '/tmp/out/r1', configPath: '/p.json'
+    })
+    expect(parseRelationAbArgs(['report', '--run', '/tmp/out/r1', '--reviews', '/rev.json'])).toMatchObject({
+      command: 'report', runDir: '/tmp/out/r1', reviewsPath: '/rev.json'
+    })
+    // dry-run 默认 2 次重复、16 尝试、8 对，且不创建文件
+    const files = []
+    const fs = {
+      mkdir: async dir => { files.push(dir); throw new Error('dry-run must not write') },
+      readFile: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) },
+      writeFile: async () => { files.push('write') },
+      appendFile: async () => { files.push('append') },
+      rename: async () => { files.push('rename') }
+    }
+    const dry = await runRelationAbCli(['dry-run'], { fs, stdout: () => {} })
+    expect(dry.attemptCount).toBe(16)
+    expect(dry.pairCount).toBe(8)
+    expect(dry.repetitions).toBe(2)
+    expect(files).toHaveLength(0)
+    // 拒绝：重复次数 flag、未知条件、无评审 report、未知 flag、Stage 2 无 run
+    expect(() => parseRelationAbArgs(['generate', '--repetitions', '3', '--config', '/p.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['generate', '--conditions', 'baseline', '--config', '/p.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['report', '--run', '/r'])).toThrow()
+    expect(() => parseRelationAbArgs(['frobnicate'])).toThrow()
+    expect(() => parseRelationAbArgs(['generate', '--stage-2', '--config', '/p.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['generate', '--run', '/r', '--config', '/p.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['generate', '--stage-2', '--run', '/r', '--config', '/p.json', '--output', '/o'])).toThrow()
+    expect(() => parseRelationAbArgs(['generate', '--config', '   '])).toThrow()
+    expect(() => parseRelationAbArgs(['report', '--run', '   ', '--reviews', '/rev.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['report', '--run', '/r', '--reviews', '/r/report.json'])).toThrow()
+    expect(() => parseRelationAbArgs(['report', '--run', '/r', '--reviews', '/r/decision.md'])).toThrow()
+
+    const dispatches = []
+    const dispatchFs = {
+      readFile: async path => {
+        if (path === '/provider.json') return JSON.stringify({
+          id: 'minimax',
+          model: 'MiniMax-Text-01',
+          baseUrl: 'https://api.example.test/v1',
+          format: 'anthropic'
+        })
+        if (path === '/run/manifest.json') return JSON.stringify({ status: 'complete', repetitions: 2, options: { repetitions: 2 } })
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+      }
+    }
+    const generate = async options => {
+      dispatches.push(options)
+      return options.runDir || '/generated/run'
+    }
+    const finalize = async ({ runDir }) => ({ runDir, pairCount: 8 })
+    const createProvider = config => ({ invoke: async () => {}, config })
+    await runRelationAbCli(
+      ['generate', '--config', '/provider.json', '--output', '/output'],
+      { fs: dispatchFs, stdout: () => {}, generate, finalize, createProvider }
+    )
+    await runRelationAbCli(
+      ['generate', '--stage-2', '--run', '/run', '--config', '/provider.json'],
+      { fs: dispatchFs, stdout: () => {}, generate, finalize, createProvider }
+    )
+    expect(dispatches[0]).toMatchObject({ stage: 1, repetitions: 2, outputRoot: '/output' })
+    expect(dispatches[1]).toMatchObject({ stage: 2, repetitions: 3, runDir: '/run' })
+    expect(dispatches[0].providerConfig).toMatchObject({
+      provider: 'minimax',
+      model: 'MiniMax-Text-01',
+      baseUrl: 'https://api.example.test/v1',
+      format: 'anthropic'
+    })
+
+    const missingStage1Fs = {
+      readFile: async path => {
+        if (path === '/provider.json') return JSON.stringify({ id: 'minimax', model: 'MiniMax-Text-01' })
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+      },
+      mkdir: async () => { throw new Error('Stage 2 preflight must not create a directory') }
+    }
+    await expect(runRelationAbCli(
+      ['generate', '--stage-2', '--run', '/missing', '--config', '/provider.json'],
+      { fs: missingStage1Fs, stdout: () => {}, generate, finalize, createProvider }
+    )).rejects.toMatchObject({ code: 'CROSS_SECTION_RELATION_STAGE2_REQUIRES_STAGE1' })
   })
 
   it('aggregates paired evidence through decision gates without false significance (Task 5)', () => {
@@ -387,6 +475,17 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
       repetitions: 3,
       now: () => new Date('2026-08-19T00:00:00Z')
     })).rejects.toMatchObject({ code: 'CROSS_SECTION_RELATION_RESUME_MISMATCH' })
+
+    // 非敏感 provider 合同变化也不能混入同一 run
+    await expect(generateRelationAbArtifacts({
+      fs,
+      outputRoot: '/tmp/relation-ab-test/run-1',
+      fixtures: CROSS_SECTION_RELATION_FIXTURES,
+      providerConfig: { ...providerConfig, baseUrl: 'https://other.example/v1' },
+      provider: okProvider,
+      repetitions: 2,
+      now: () => new Date('2026-08-19T00:00:00Z')
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_RELATION_RESUME_MISMATCH' })
   })
 
   it('serializes the minimal pack and isolates prompts by condition (Task 2)', () => {
@@ -408,6 +507,7 @@ describe('novel cross-section relation ab (tasks 1-6)', () => {
     expect(minimalPrompt.system).toBe(baselinePrompt.system)
     expect(minimalPrompt.maxTokens).toBe(baselinePrompt.maxTokens)
     expect(minimalPrompt.temperature).toBe(baselinePrompt.temperature)
+    expect(minimalPrompt.temperature).toBe(0.4)
     expect(baselinePrompt.user).toBe(minimalPrompt.user.replace(/\n\n【活跃关系】[\s\S]*$/, ''))
     // 序列化不含 sourceRef / 评审指令
     expect(serialized).not.toMatch(/sourceRef|评分|评审/i)

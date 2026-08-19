@@ -22,7 +22,7 @@ export const RELATION_AB_PROMPT_CONTRACT_VERSION = 'cross-section-relation-promp
 export const RELATION_AB_RUNNER_CONTRACT_VERSION = 'cross-section-relation-runner.v1'
 export const RELATION_AB_EVALUATOR_CONTRACT_VERSION = 'cross-section-relation-evaluator.v1'
 export const RELATION_AB_MAX_TOKENS = 1800
-export const RELATION_AB_TEMPERATURE = 0.7
+export const RELATION_AB_TEMPERATURE = 0.4
 
 const codePoints = value => [...String(value || '')].length
 const isText = value => typeof value === 'string' && value.trim().length > 0
@@ -249,7 +249,12 @@ const fingerprintOf = ({ fixtures, providerConfig }) => ({
   fixtureFingerprint: sha256Hex(JSON.stringify(
     fixtures.map(({ id, activeRelations, relationSources }) => ({ id, activeRelations, relationSources }))
   )).slice(0, 16),
-  providerFingerprint: sha256Hex(`${providerConfig.provider}|${providerConfig.model}`).slice(0, 16)
+  providerFingerprint: sha256Hex(JSON.stringify({
+    provider: providerConfig.provider,
+    model: providerConfig.model,
+    baseUrl: providerConfig.baseUrl || '',
+    format: providerConfig.format || ''
+  })).slice(0, 16)
 })
 
 const manifestComparable = manifest => JSON.stringify({
