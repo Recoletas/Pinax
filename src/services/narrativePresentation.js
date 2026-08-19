@@ -1,5 +1,5 @@
 // P4：可信说话者注册表（verified/unresolved/message-fallback 三种 trust 状态）
-import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
+import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract.js'
 
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
 const READABLE_PROSE_KINDS = new Set(['narration', 'action', 'thought'])

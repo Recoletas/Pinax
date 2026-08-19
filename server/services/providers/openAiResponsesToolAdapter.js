@@ -83,7 +83,7 @@ export function buildOpenAIResponsesRequest({ provider, transcript, tools = [], 
       parameters: tool.inputSchema,
       ...(capabilities.strictSchema ? { strict: true } : {})
     })),
-    tool_choice: 'auto',
+    tool_choice: options.toolChoice || 'auto',
     ...(capabilities.parallelToolCalls ? { parallel_tool_calls: true } : {}),
     max_output_tokens: options.maxTokens || 1200,
     temperature: options.temperature ?? 0.2,

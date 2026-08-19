@@ -26,6 +26,7 @@
     "spike:writing-notebook": "node scripts/writing-notebook-r0-spike.mjs",
     "smoke:structured-settings": "node scripts/structured-settings-gate.mjs",
     "eval:narrative-context": "vite-node scripts/narrative-context-eval.mjs",
+    "eval:cross-section": "node scripts/novel-cross-section-bakeoff.mjs",
     "report:narrative-production": "vite-node scripts/narrative-production-report.mjs",
     "smoke:narrative-production": "node scripts/narrative-production-smoke.mjs",
     "smoke:narrative-matrix": "node scripts/narrative-provider-matrix.mjs",

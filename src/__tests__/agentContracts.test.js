@@ -1940,6 +1940,20 @@ describe('agentContracts', function () {
         call_id: 'transcript-call-1'
       })
     ]))
+    var responsesNoneRequest = buildOpenAIResponsesRequest({
+      provider: { model: 'responses-model' },
+      transcript: transcript.transcript,
+      tools: narrativeToolCatalog,
+      options: { toolChoice: 'none' }
+    })
+    expect(responsesNoneRequest.tool_choice).toBe('none')
+    var responsesRequiredRequest = buildOpenAIResponsesRequest({
+      provider: { model: 'responses-model' },
+      transcript: transcript.transcript,
+      tools: narrativeToolCatalog,
+      options: { toolChoice: 'required' }
+    })
+    expect(responsesRequiredRequest.tool_choice).toBe('required')
     expect(parseOpenAIResponsesToolResponse({
       id: 'resp-final',
       status: 'completed',
