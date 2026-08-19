@@ -7,6 +7,7 @@
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
 | Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验页自然段与对白引号规范化已完成；剩无现有服务时未执行的 live browser 复验，以及真实性 MVP 的真实 provider 矩阵 |
+| Codex | `/tmp/pinax-novel-cross-section-bakeoff` | `feature/novel-cross-section-bakeoff` | 小说截面三架构真实 bake-off 已运行；探索性盲评提前停止，未选择 winner，下一步先补关系真实性与无效悬念合同 |
 
 ## 当前事实
 
@@ -18,6 +19,7 @@
 - **来源链路补充**：正式世界书加载会保留归档 refs 并惰性迁移旧资料；批量归档与单文件入口共用 hash 复用、容量预检和逻辑来源 refs；结构化生成前恢复完整 archive chunks，跨来源重复片段只进入上下文一次；粘贴片段 quota 失败降级为本页暂存。
 - **来源解析取消补充**：parse-timeout 会 abort 底层 TXT/PDF/DOCX 解析信号，PDF loading task 进行 best-effort destroy；现有来源合同测试已覆盖超时后信号确实进入 aborted。解析链同时记录每文件耗时/慢任务和批次总耗时，Worker 与主线程降级路径合同一致，指标保存于创建工作区供后续实体设备性能验收使用。
 - **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。真实性 MVP 已增加有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见正文完全分离、仅落低敏指标的 shadow critic；critic 不是第二条生产生成链。正文：长度改软区间并删除按字符下限补全。剩真实渠道 3×3 真实性矩阵验收。
+- **小说截面架构实验**：2026-08-19 使用 MiniMax-Text-01 完成 3 架构 × 4 fixtures × 3 repetitions 的 runner v2 真实矩阵。36 次尝试中 26 次成功；single-writer 12/12、role-agents-narrator 8/12、intent-planners-writer 6/12。人工盲评在 6/26 后因重复度与时间限制提前停止，三架构四场景均有覆盖但样本不均，不足以排名。共同问题是关系真实性缺失、无因果兑现的“谜语感”、行为动机桥梁不足与机器腔；状态为 `no-decision`，未选择 winner，未执行 portability，也未进入产品 MVP。
 - **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成。2026-08-19 真实验收纠正旧 P4 的宽松阈值：显式换行优先；无换行的三句及以上或超过约 120 个中文字符的 narration/action/thought 按 1-2 句、约 60-120 字分组，异常长单句再从引号外的分号/逗号保守分块。独立 dialogue 统一外层 `“……”`、嵌套 `‘……’`，长独白按 1-2 句拆块并保留 speaker；叙述中夹带的引语不做全局替换。已有 v5 消息只在检测到稠密 prose 或待规范 dialogue 时选择性重解析，不批量扰动正常历史消息。
 - **写作 Notebook**：WNB-6A 已完成。schema v3 采用 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落；显式 split/merge/move、批注迁移、候选/版本/恢复和 v2 一次转换均以 `unitId + nodeId` 工作。一次成功的体验 assistant 回合可原子导入为一个带完整来源的单元，拆分/合并仍保留来源，并可回跳原消息。下一步是常用 Markdown、批注 `targets[]` 与查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
@@ -27,10 +29,11 @@
 - **设定页 U6 补充**：结构化设定字段已进一步收为连续稿面，去掉字段完整外框和输入框底色，改用稿面分隔线、少量信号色条和下划线输入；分区 AI 主动作降为轻量信号线按钮，字段保存/错误状态不再使用胶囊容器。桌面、平板和 390px 审计保持 0 console error、0 a11y failure。
 - **设定页旧链清理补充**：高级世界书页不再挂载重复的结构化设定工作台，只保留基础设定、导入导出、分组和条目管理；200% 有效视口下高级页改为单列，条目导航与按钮允许换行，避免正文输入区被压缩或裁切。高级页已纳入 UI audit。
 - **设定页上下文补充**：结构化设定使用共享 `SettingsContextBar`，一级导航只保留“设定 / 地图 / 条目”；来源展示兼容 `contentPreview / preview / content` 三种正式资料预览字段，字数仍优先使用归档完整长度。
-- **验证基线**：20 个测试文件 / 200 个用例；Vite/VitePress build 与 diff check 通过。历史 188/200 是旧基线，不再作为当前上限。
+- **验证基线**：21 个测试文件 / 398 个用例；Vite/VitePress build 与 diff check 通过。历史 20 文件 / 200 用例是旧基线，不再作为当前上限。
 
 ## Recently done
 
+- 2026-08-19：完成小说截面架构 bake-off 工具链与 runner v2 真实矩阵。工具链具备四类 immutable fixtures、单一 provider 边界、single-writer / role-agents-narrator / intent-planners-writer 三策略、确定性泄漏扫描、盲化评审、增量恢复、并发锁、实验指纹、固定 gates、报告和 winner-only portability 参数；MiniMax server key 只在内存解析。真实 36 次运行得到 26 成功 / 10 typed intermediate-contract failures；6 条探索性盲评覆盖三架构四场景后提前停止，未选择 winner。完整结论见 `docs/superpowers/research/novel-cross-section-architecture-result-20260819.md`。全量验证 21 文件 / 398 tests、Vite、diff check、VitePress 通过。
 - 2026-08-19：修复体验页新生成正文再次形成文字墙及对白引号混用。根因是旧 parser 将 ≤260 字且 ≤4 句视为单段、只兜底未署名 narration，同时生成提示明确允许 `「」` 与 `“”` 两套格式。现在正文按 1-2 句分组，三句短段、长 action/thought、长独白和超长逗号句均有确定性兜底；独立 dialogue 统一为外层 `“……”` / 嵌套 `‘……’`，并选择性刷新已有稠密或混合引号的 v5 presentation。定向验证 5 文件 / 60 tests，recovery smoke 与 60 项 production dry-run 通过；全量验证 20 文件 / 203 tests、Vite、diff check、VitePress 全通过。无现有服务，未运行 live browser 复验。
 - 2026-08-18：集成 WNB-6A 与体验真实性 MVP。写作页完成 schema v3、单元内多段编辑、显式 split/merge/move、批注/候选/恢复迁移和体验回合带来源导入；体验运行时增加当前 speaker voice、world→politics 只读链与不改可见正文的低敏 shadow critic。集成审查修复段中 split 双事务、split offset 批注迁移、格式 revision、invalid-v3 回退、message ID 唯一性、角色集合截断、critic 指纹隐私和 politics limit，并补齐“收进稿件”弹窗焦点陷阱/恢复与滚动锁。完整验证保持 20 个测试文件 / 200 个用例，deterministic recovery 与 60 项 production dry-run 通过；真实 provider 与 live browser 门禁仍待执行。
 - 2026-08-18：补齐结构化设定多字段审阅链：分区生成留下多份草稿时，`StructuredSettingsPanel` 在唯一 `SettingDraftReview` 上方提供轻量待审队列，可切换每个字段草稿，不再只显示第一份。增加合并后的 UI 合同覆盖；结构化页 18 captures、0 console error、0 a11y failure；完整验证为 20 个测试文件 / 200 个用例、Vite/VitePress build、VitePress build 与 diff check 通过。
@@ -83,7 +86,7 @@
 ## Next up
 
 1. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
-2. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
+2. 先为小说截面补充关系真实性、互动惯性、场景前状态与“悬念必须有来源或兑现”的合同，写独立修订计划；本轮无 winner，不执行 portability，也不直接进入 Experience MVP。真实性 MVP 的 voice editor / 收进稿件 1440/390 浏览器检查仍单独保留。
 3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。
