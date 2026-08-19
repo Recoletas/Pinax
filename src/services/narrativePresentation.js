@@ -2,6 +2,7 @@
 import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
 
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
+const READABLE_PROSE_KINDS = new Set(['narration', 'action', 'thought'])
 const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
 // P3：所有围栏变体
 const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
@@ -14,9 +15,9 @@ export function buildNarrativeFormatInstructions() {
     '【叙事输出格式】',
     'marker 只是传输协议，不是正文。每个自然段或说话人切换时使用一次，不要把每句话拆成一块；不要输出 HTML、JSON、颜色说明或其他控制标签。',
     '允许的类型只有：:::narration、:::action|角色名、:::dialogue|角色名、:::thought|角色名、:::system。',
-    'marker 与正文之间换行；一个自然段 1-3 个句子，自然段之间用换行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
+    'marker 与正文之间换行；一个自然段 1-2 个句子，自然段之间用换行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
     '正文直接以叙述或对白开始；不要输出"【正文】""【旁白】"之类的小节标题、序号或任何框架说明。',
-    '台词使用中文引号「」或“”；叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
+    '台词统一使用中文双引号“”，嵌套引用使用中文单引号‘’；最终可见正文不要混用「」或『』。叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
     '示例：\n:::narration\n雨水沿着舷窗滑落。\n\n风声从甲板缝隙里灌进来。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
     '如果没有明显语义切换，可以只输出一个 narration 块，但段与段之间仍要空行。'
   ].join('\n')
@@ -39,12 +40,28 @@ function presentationHasLeakedMarkers(presentation) {
   ))
 }
 
+function presentationNeedsFormattingRefresh(presentation) {
+  if (!presentation || !Array.isArray(presentation.blocks)) return false
+  return presentation.blocks.some((block) => {
+    if (READABLE_PROSE_KINDS.has(block?.kind)) {
+      return splitReadableProse(block?.text).length > 1
+    }
+    if (block?.kind === 'dialogue') {
+      const source = String(block?.text || '').trim()
+      const chunks = splitDialogueProse(source)
+      return chunks.length > 1 || chunks[0] !== source
+    }
+    return false
+  })
+}
+
 export function ensureNarrativeMessage(message = {}, index = 0) {
   const normalized = { ...message }
   if (!normalized.id) normalized.id = createNarrativeMessageId(normalized, index)
   const presentationNeedsRefresh = !normalized.presentation
     || Number(normalized.presentation.version || 0) < NARRATIVE_PRESENTATION_VERSION
     || presentationHasLeakedMarkers(normalized.presentation)
+    || presentationNeedsFormattingRefresh(normalized.presentation)
   if (presentationNeedsRefresh && normalized.content && normalized.type !== 'scene') {
     normalized.presentation = parseNarrativePresentation(normalized.content, {
       messageId: normalized.id,
@@ -104,18 +121,16 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
       const speakerSource = current.speaker ? 'marker' : (speaker ? 'message' : '')
       // P6：同一 marker 块内按空行拆分自然段 —— 每个段落一个 block，
       // CSS 的段首缩进 / 段落间距（.narrative-block--narration 等）才生效；
-      // 无空行的未署名 narration 再走句子级兜底（模型把整轮压成一行时）。
+      // 无空行的 narration/action/thought 再走阅读密度兜底（模型把整轮压成一行时）。
       const paragraphs = splitParagraphs(value)
       for (const paragraph of paragraphs) {
-        const chunks = current.kind === 'narration' && !speaker
-          ? splitNarrationSentences(paragraph)
-          : [paragraph]
+        const chunks = splitPresentationBlock(current.kind, paragraph)
         for (const chunk of chunks) {
           const block = createBlock(current.kind, chunk, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry)
           // Preserve explicit model line breaks. The short-block compactor is
           // only allowed to merge parser-created fragments, not author/model
           // paragraph boundaries.
-          if (paragraphs.length > 1) block.paragraphBoundary = true
+          if (paragraphs.length > 1 || chunks.length > 1) block.paragraphBoundary = true
           blocks.push(block)
         }
       }
@@ -186,15 +201,89 @@ function splitParagraphs(value) {
   return source.split(/\n+/).map((part) => part.trim()).filter(Boolean)
 }
 
-// P4：语义段落优先 —— 只有异常长且无空行的未署名 narration 才兜底拆分。
-// 触发条件：>260 中文字符 或 >4 个完整句子；目标 2-3 句、约 90-180 字一组。
-function splitNarrationSentences(value) {
+// 阅读密度兜底：显式换行仍是第一优先；模型没有换行时，三句及以上或
+// 超过约 120 个中文字符的 narration/action/thought 按 1-2 句分组。
+function splitReadableProse(value) {
   const source = String(value || '').trim()
   if (!source) return []
   const sentences = splitIntoSentences(source)
   const cjkCount = (source.match(/[\u4e00-\u9fff]/g) || []).length
-  if (cjkCount <= 260 && sentences.length <= 4) return [source]
+  if (cjkCount <= 120 && sentences.length <= 2) return [source]
+  return groupSentences(sentences).flatMap((group) => splitLongSingleSentence(group))
+}
+
+function splitPresentationBlock(kind, value) {
+  if (READABLE_PROSE_KINDS.has(kind)) return splitReadableProse(value)
+  if (kind === 'dialogue') return splitDialogueProse(value)
+  return [String(value || '').trim()].filter(Boolean)
+}
+
+function normalizeCompleteDialogueWrapper(value) {
+  const source = String(value || '').trim()
+  if (source.length < 2) return source
+  const opening = source[0]
+  const closing = source[source.length - 1]
+  const isCompleteWrapper = (opening === '“' && closing === '”')
+    || (opening === '「' && closing === '」')
+    || (opening === '『' && closing === '』')
+    || (opening === '"' && closing === '"')
+  if (!isCompleteWrapper) return source
+  const inner = source.slice(1, -1)
+    .replace(/「([^「」]*)」/g, '‘$1’')
+    .replace(/『([^『』]*)』/g, '‘$1’')
+  return `“${inner}”`
+}
+
+function splitDialogueProse(value) {
+  const normalized = normalizeCompleteDialogueWrapper(value)
+  if (!(normalized.startsWith('“') && normalized.endsWith('”'))) return [normalized]
+  const inner = normalized.slice(1, -1).trim()
+  if (!inner) return [normalized]
+  const sentences = splitIntoSentences(inner)
+  const cjkCount = (inner.match(/[\u4e00-\u9fff]/g) || []).length
+  if (cjkCount <= 120 && sentences.length <= 2) return [normalized]
   return groupSentences(sentences)
+    .flatMap((group) => splitLongSingleSentence(group))
+    .map((group) => `“${group}”`)
+}
+
+function splitLongSingleSentence(value) {
+  const source = String(value || '').trim()
+  const cjkCount = (source.match(/[\u4e00-\u9fff]/g) || []).length
+  if (cjkCount <= 120 || splitIntoSentences(source).length > 1) return [source]
+
+  const chunks = []
+  let remaining = source
+  while ((remaining.match(/[\u4e00-\u9fff]/g) || []).length > 120) {
+    const boundary = findClauseBoundary(remaining)
+    if (boundary <= 0) break
+    chunks.push(remaining.slice(0, boundary).trim())
+    remaining = remaining.slice(boundary).trimStart()
+  }
+  if (remaining) chunks.push(remaining)
+  return chunks.filter(Boolean)
+}
+
+function findClauseBoundary(source) {
+  const semicolons = []
+  const commas = []
+  let depth = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (/[「『“‘]/.test(char)) depth += 1
+    else if (/[」』”’]/.test(char)) depth = Math.max(0, depth - 1)
+    else if (depth === 0 && /[；;]/.test(char)) semicolons.push(index + 1)
+    else if (depth === 0 && /[，,]/.test(char)) commas.push(index + 1)
+  }
+  return selectClauseBoundary(semicolons) || selectClauseBoundary(commas)
+}
+
+function selectClauseBoundary(boundaries) {
+  const candidates = boundaries.filter((index) => index >= 60 && index <= 120)
+  if (!candidates.length) return 0
+  return candidates.reduce((best, index) => (
+    Math.abs(index - 100) < Math.abs(best - 100) ? index : best
+  ), candidates[0])
 }
 
 // P4：句子级切分 —— 成对引号（「『“‘”」』’）内不拆，短台词与归属动作保留在同一段。
@@ -218,7 +307,7 @@ function splitIntoSentences(source) {
 const DIALOGUE_START_RE = /^[“「『‘]/
 const TRANSITION_MARKER_RE = /(?:次日|翌日|隔天|清晨|傍晚|黄昏|深夜|黎明|夜里|上午|中午|下午|晚上|来到|走到|回到|穿过|进入|抵达|离开)/
 
-// P4：以 2-3 句、约 90-180 字为目标的段落分组；角色切换、时间/地点转换处优先断开。
+// 以 1-2 句、约 60-120 字为目标的段落分组；角色切换、时间/地点转换处优先断开。
 function groupSentences(sentences) {
   const groups = []
   let current = []
@@ -228,8 +317,8 @@ function groupSentences(sentences) {
     const startsDialogue = DIALOGUE_START_RE.test(sentence)
     const isTransition = TRANSITION_MARKER_RE.test(sentence)
     if (current.length > 0 && (
-      current.length >= 3
-      || currentChars + length > 180
+      current.length >= 2
+      || currentChars + length > 120
       || startsDialogue
       || isTransition
     )) {
@@ -317,19 +406,21 @@ function parseLegacyBlocks(text, messageId, options = {}) {
       else if (isDialogueDominant(cleanLine)) {
         const explicitSpeaker = extractExplicitDialogueSpeaker(cleanLine)
         const speaker = explicitSpeaker || fallbackSpeaker
-        blocks.push(createBlock(
-          'dialogue',
-          cleanLine,
-          speaker,
-          messageId,
-          blocks.length,
-          explicitSpeaker ? 'text' : (speaker ? 'message' : ''),
-          null,
-          speakerRegistry
-        ))
+        for (const chunk of splitDialogueProse(cleanLine)) {
+          blocks.push(createBlock(
+            'dialogue',
+            chunk,
+            speaker,
+            messageId,
+            blocks.length,
+            explicitSpeaker ? 'text' : (speaker ? 'message' : ''),
+            null,
+            speakerRegistry
+          ))
+        }
       }
       else {
-        for (const chunk of splitNarrationSentences(cleanLine)) {
+        for (const chunk of splitReadableProse(cleanLine)) {
           blocks.push(createBlock('narration', chunk, '', messageId, blocks.length))
         }
       }

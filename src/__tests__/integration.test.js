@@ -122,6 +122,7 @@ import {
   buildNarrativeFormatInstructions,
   createNarrativeMessageId,
   ensureNarrativeMessage,
+  NARRATIVE_PRESENTATION_VERSION,
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
@@ -793,24 +794,53 @@ describe('Narrative presentation contract', () => {
       'narration:', 'dialogue:阿贵', 'narration:'
     ])
     expect(inlineMarkers.blocks.map((block) => block.text)).toEqual([
-      '猎户二人站起身。柳洵眉心微动。', '「哎，柳公子——」', '阿贵没再开口。'
+      '猎户二人站起身。柳洵眉心微动。', '“哎，柳公子——”', '阿贵没再开口。'
     ])
     expect(inlineMarkers.content).not.toContain(':::')
 
-    // P4：短块（≤260 字且 ≤4 句）不拆；异常长块（>4 句）按 2-3 句/90-180 字分组，
+    // 阅读密度：无换行的三句及以上叙述按 1-2 句、约 60-120 字分组，
     // 时间/地点转换处优先断开；引号内叹号问号不拆。
     const squeezed = parseNarrativePresentation(
       ':::narration\n柳洵眉心微动。 他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。 三日，够拖成要命的痨病。',
       { messageId: 'squeezed' }
     )
-    expect(squeezed.blocks).toHaveLength(1)
+    expect(squeezed.blocks.map((block) => block.text)).toEqual([
+      '柳洵眉心微动。他扫了一眼西面的山口，暮色里只看得见一条灰白的山脊线。',
+      '三日，够拖成要命的痨病。'
+    ])
+    const paragraphWall = parseNarrativePresentation(
+      ':::narration\n风把窗纸吹得一鼓一瘪，桌上的灯焰跟着摇晃，墙上两个人的影子被拉得很长。沈砚没有立刻回答，只把那封沾了雨水的信推到桌子中央，指尖仍压在落款上。门外传来急促的脚步声，又在台阶前突然停住，仿佛来人正在犹豫是否应该敲门。林岫抬眼看向他，直到此刻才意识到，信上的名字正是三年前已经死去的那个人。',
+      { messageId: 'paragraph-wall' }
+    )
+    expect(paragraphWall.blocks.map((block) => block.text)).toEqual([
+      '风把窗纸吹得一鼓一瘪，桌上的灯焰跟着摇晃，墙上两个人的影子被拉得很长。沈砚没有立刻回答，只把那封沾了雨水的信推到桌子中央，指尖仍压在落款上。',
+      '门外传来急促的脚步声，又在台阶前突然停住，仿佛来人正在犹豫是否应该敲门。林岫抬眼看向他，直到此刻才意识到，信上的名字正是三年前已经死去的那个人。'
+    ])
+    const longAction = parseNarrativePresentation(
+      ':::action|沈砚\n他把信纸折回原样。指腹在封蜡上停了一瞬。门外的人终于敲响第一下。沈砚抬眼示意林岫不要出声。',
+      { messageId: 'long-action' }
+    )
+    expect(longAction.blocks.map((block) => `${block.kind}:${block.speaker}:${block.text}`)).toEqual([
+      'action:沈砚:他把信纸折回原样。指腹在封蜡上停了一瞬。',
+      'action:沈砚:门外的人终于敲响第一下。沈砚抬眼示意林岫不要出声。'
+    ])
+    const longThought = parseNarrativePresentation(
+      ':::thought|林岫\n他不该知道这个名字。可落款上的笔迹不会骗人。三年前的葬礼是她亲眼看着办完的。除非当时棺材里根本没有人。',
+      { messageId: 'long-thought' }
+    )
+    expect(longThought.blocks.map((block) => `${block.kind}:${block.speaker}:${block.text}`)).toEqual([
+      'thought:林岫:他不该知道这个名字。可落款上的笔迹不会骗人。',
+      'thought:林岫:三年前的葬礼是她亲眼看着办完的。除非当时棺材里根本没有人。'
+    ])
     const longBlock = parseNarrativePresentation(
       ':::narration\n他沿着堤岸走了半里，风把斗笠吹得歪向一边。 河水在暮色里泛着碎光。 他停下来，把灯笼往水里照了照。 次日清晨，他在渡口等到了那条船。 船夫递过一张纸条。 纸上只有两个字：西边。',
       { messageId: 'long-block' }
     )
     expect(longBlock.blocks.map((block) => block.text)).toEqual([
-      '他沿着堤岸走了半里，风把斗笠吹得歪向一边。河水在暮色里泛着碎光。他停下来，把灯笼往水里照了照。',
-      '次日清晨，他在渡口等到了那条船。船夫递过一张纸条。纸上只有两个字：西边。'
+      '他沿着堤岸走了半里，风把斗笠吹得歪向一边。河水在暮色里泛着碎光。',
+      '他停下来，把灯笼往水里照了照。',
+      '次日清晨，他在渡口等到了那条船。船夫递过一张纸条。',
+      '纸上只有两个字：西边。'
     ])
     // 引号内的叹号/问号不拆 —— 对白完整性受保护
     const dialogueProtected = parseNarrativePresentation(':::narration\n他厉声喝道：「站住！别动！」', {
@@ -877,7 +907,11 @@ describe('Narrative presentation contract', () => {
       '第一句先落在门口。第二句说明他看见了什么。第三句让他做出动作。第四句带来一个后果。第五句留下新的问题。',
       { messageId: 'legacy-long' }
     )
-    expect(legacyLong.blocks.length).toBe(2)
+    expect(legacyLong.blocks.map((block) => block.text)).toEqual([
+      '第一句先落在门口。第二句说明他看见了什么。',
+      '第三句让他做出动作。第四句带来一个后果。',
+      '第五句留下新的问题。'
+    ])
 
     const messageFallback = parseNarrativePresentation('“继续。”', {
       messageId: 'fallback-speaker',
@@ -961,6 +995,21 @@ describe('Narrative presentation contract', () => {
     })
     expect(clean.presentation.blocks[0].text).toBe('雨水沿着舷窗滑落。')
 
+    const denseExistingText = '风把窗纸吹得一鼓一瘪，墙上的影子被拉得很长。沈砚把沾雨的信推到桌子中央。门外的脚步声在台阶前突然停住。林岫这才认出那个三年前已经死去的名字。'
+    const denseExisting = ensureNarrativeMessage({
+      id: 'dense-existing',
+      role: 'assistant',
+      content: `:::narration\n${denseExistingText}`,
+      presentation: {
+        version: NARRATIVE_PRESENTATION_VERSION,
+        blocks: [{ id: 'dense-1', kind: 'narration', text: denseExistingText }]
+      }
+    })
+    expect(denseExisting.presentation.blocks.map((block) => block.text)).toEqual([
+      '风把窗纸吹得一鼓一瘪，墙上的影子被拉得很长。沈砚把沾雨的信推到桌子中央。',
+      '门外的脚步声在台阶前突然停住。林岫这才认出那个三年前已经死去的名字。'
+    ])
+
     const oldPresentation = ensureNarrativeMessage({
       id: 'old-presentation',
       role: 'assistant',
@@ -1040,6 +1089,48 @@ describe('Narrative presentation contract', () => {
     expect(switchedCastThread.revision).not.toBe(castThread.revision)
   })
 
+  it('normalizes complete dialogue wrappers and splits a long monologue without losing its speaker', () => {
+    const normalized = parseNarrativePresentation(':::dialogue|林岫\n「都有。」', {
+      messageId: 'dialogue-normalization-contract'
+    })
+    expect(normalized.blocks.map((block) => block.text)).toEqual(['“都有。”'])
+    const nested = parseNarrativePresentation(':::dialogue|林岫\n「他说：『都有。』」', {
+      messageId: 'nested-dialogue-normalization-contract'
+    })
+    expect(nested.blocks.map((block) => block.text)).toEqual(['“他说：‘都有。’”'])
+
+    const longDialogue = parseNarrativePresentation(
+      ':::dialogue|林岫\n「都有。第一封是三年前寄出的。第二封没有落款。第三封上的墨迹还没有干。」',
+      { messageId: 'dialogue-density-contract' }
+    )
+    expect(longDialogue.blocks.map((block) => `${block.speaker}:${block.text}`)).toEqual([
+      '林岫:“都有。第一封是三年前寄出的。”',
+      '林岫:“第二封没有落款。第三封上的墨迹还没有干。”'
+    ])
+  })
+
+  it('splits an overlong comma-only narration without changing its text', () => {
+    const text = '风从门缝里钻进来，吹得灯焰不断偏向墙角，沈砚按住桌上的信纸，没有回答林岫的问题，只抬眼听着台阶外越来越近的脚步，门环轻轻撞上木板，屋里所有人的呼吸都停了一瞬，窗外的雨点越来越密，檐下积水一线线落下来，守在后门的人悄悄换了位置，长廊尽头又亮起一盏灯，映出墙边一道陌生的影子，谁也没有先开口，仿佛只要继续沉默，那封信就不会变成已经发生的事实'
+    const parsed = parseNarrativePresentation(`:::narration\n${text}`, {
+      messageId: 'comma-density-contract'
+    })
+    expect(parsed.blocks.length).toBeGreaterThan(1)
+    expect(parsed.blocks.map((block) => block.text).join('')).toBe(text)
+  })
+
+  it('selectively refreshes a current presentation that still uses corner dialogue quotes', () => {
+    const refreshed = ensureNarrativeMessage({
+      id: 'quote-refresh-contract',
+      role: 'assistant',
+      content: ':::dialogue|林岫\n「都有。」',
+      presentation: {
+        version: NARRATIVE_PRESENTATION_VERSION,
+        blocks: [{ id: 'quote-refresh-1', kind: 'dialogue', speaker: '林岫', text: '「都有。」' }]
+      }
+    })
+    expect(refreshed.presentation.blocks.map((block) => block.text)).toEqual(['“都有。”'])
+  })
+
   it('keeps stable ids and one prompt format contract', () => {
     expect(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
       .toBe(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
@@ -1047,6 +1138,9 @@ describe('Narrative presentation contract', () => {
     // P3：五条行文契约收敛 + 自然段空行要求
     expect(buildNarrativeVoiceContract()).toContain('先回应玩家输入，再推进一个已有因果')
     expect(buildNarrativeFormatInstructions()).toContain('自然段之间用换行分隔')
+    expect(buildNarrativeFormatInstructions()).toContain('一个自然段 1-2 个句子')
+    expect(buildNarrativeFormatInstructions()).toContain('台词统一使用中文双引号“”')
+    expect(buildNarrativeFormatInstructions()).not.toContain('「」或“”')
     expect(buildNarrativeFormatInstructions()).toContain('不要输出"【正文】"')
   })
 })
