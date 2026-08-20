@@ -56,6 +56,9 @@
 
 ## 已知缺口
 
+- 🟡 C3 场景素材板已有静态合同、单元测试和审计 fixture，但当前无开发服务，尚未执行 1440/390 live browser audit。此项是视觉/真实交互验收门禁，不是已确认的代码回归。
+- 🟡 场景板可确定识别 linked/archived/detached/untracked；通用 stale 状态需要可比较的源 revision 或 content hash 基线，现有旧数据不具备该证据，因此本轮不根据时间或缺失字段猜测 stale。
+- 🟡 `ProseEssay.vue` 仍直接持有画布编排状态；是否抽取 `useCanvasBoard` 留到场景板用户验收后决定，避免在交互边界未稳定时先制造新 owner。
 - 🟡 MiniMax Image 的人物参考接口当前只接受公网图片 URL；Pinax 参考图库以本地/IndexedDB 图片为主，因此 MiniMax 配置当前先支持文生图，选择本地参考图时会明确阻止提交而不是静默忽略。后续需要对象存储或受控图片上传桥接。
 - 🟡 MiniMax `files/retrieve` 返回的下载地址约一小时有效；当前 MediaAsset 会记录 `file_id`、到期时间和临时外链，但尚未把视频二进制自动转存到持久对象存储。真实 provider smoke 时需及时保存结果，后续持久化渠道接入不能把该外链当永久资产。
 - 🟡 `moveCostForEdge` 已有 biome 缺省值兜底，但 caller 仍应避免传未声明 biome。

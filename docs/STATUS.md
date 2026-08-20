@@ -6,6 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
+| Codex | `/tmp/pinax-scene-material-loop` | `feature/scene-material-loop` | G4.1 素材送入画布与 C3 场景素材板已实现；待用户验收后决定集成 |
 | Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验页自然段与对白引号规范化已完成；剩无现有服务时未执行的 live browser 复验，以及真实性 MVP 的真实 provider 矩阵 |
 
 ## 当前事实
@@ -21,16 +22,17 @@
 - **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成。2026-08-19 真实验收纠正旧 P4 的宽松阈值：显式换行优先；无换行的三句及以上或超过约 120 个中文字符的 narration/action/thought 按 1-2 句、约 60-120 字分组，异常长单句再从引号外的分号/逗号保守分块。独立 dialogue 统一外层 `“……”`、嵌套 `‘……’`，长独白按 1-2 句拆块并保留 speaker；叙述中夹带的引语不做全局替换。已有 v5 消息只在检测到稠密 prose 或待规范 dialogue 时选择性重解析，不批量扰动正常历史消息。
 - **写作 Notebook**：WNB-6A 已完成。schema v3 采用 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落；显式 split/merge/move、批注迁移、候选/版本/恢复和 v2 一次转换均以 `unitId + nodeId` 工作。一次成功的体验 assistant 回合可原子导入为一个带完整来源的单元，拆分/合并仍保留来源，并可回跳原消息。下一步是常用 Markdown、批注 `targets[]` 与查找同类。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；G2.4 M0-M5 与 M7 首切片完成。下一步是父子区域/相邻关系求解、remap 评分、LOD/标签碰撞，以及真实世界书刷新回滚 smoke。
-- **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布已接视频生成。剩余漫画 M7 连续性质检、真实图像/视频 smoke 和跨资产 revision/tag 收口。
+- **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；素材页现按当前项目的精确 `sourceRefs` 反查同源素材，可将勾选素材幂等送入现有关系画布。画布默认为有界 C3 场景素材板，支持关系、节拍顺序和未放置素材；桌面保留自由画布，移动端只提供查看、选择、关联和线性排序。插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布保留导演导出与视频生成。剩余漫画 M7、真实图像/视频 smoke、跨资产 revision/tag 收口，以及场景板 live browser 验收。
 - **联机**：URL 房间、房主唯一生成、有序事件和受限运行时广播已接入。仍需双浏览器覆盖掉线、host loss、分支切换和房主 AI 配置共享边界。
 - **UI**：当前版本全局锁定主题2亮色，外观、明暗和缩放切换入口已移除；主题1代码只保留兼容。U5-R C0-C5 已完成代码切片：顶部、drawer、体验上下文、composer 和角色选择器已收敛。C6 核心契约与体验页桌面/移动端 audit 已通过；角色选择器仍需真实设备人工复验。
 - **设定页 U6 补充**：结构化设定字段已进一步收为连续稿面，去掉字段完整外框和输入框底色，改用稿面分隔线、少量信号色条和下划线输入；分区 AI 主动作降为轻量信号线按钮，字段保存/错误状态不再使用胶囊容器。桌面、平板和 390px 审计保持 0 console error、0 a11y failure。
 - **设定页旧链清理补充**：高级世界书页不再挂载重复的结构化设定工作台，只保留基础设定、导入导出、分组和条目管理；200% 有效视口下高级页改为单列，条目导航与按钮允许换行，避免正文输入区被压缩或裁切。高级页已纳入 UI audit。
 - **设定页上下文补充**：结构化设定使用共享 `SettingsContextBar`，一级导航只保留“设定 / 地图 / 条目”；来源展示兼容 `contentPreview / preview / content` 三种正式资料预览字段，字数仍优先使用归档完整长度。
-- **验证基线**：20 个测试文件 / 200 个用例；Vite/VitePress build 与 diff check 通过。历史 188/200 是旧基线，不再作为当前上限。
+- **验证基线**：22 个测试文件 / 224 个用例；Vite/VitePress build 与 diff check 通过。历史 188/200/203 是旧基线，不再作为当前上限。
 
 ## Recently done
 
+- 2026-08-20：完成 G4.1 素材→画布闭环和 C3 场景素材板。反查严格隔离项目、分离 archived 并忽略 rejected；批量建卡一次写入且可重入。场景板复用现有 card/outline/edge 存储，显示 linked/archived/detached/untracked 来源状态，不伪造无基线的 stale 判定。20/100/500 素材基准中位数约 0.025/0.044/0.220ms，p95 约 0.073/0.085/0.390ms，无需新增缓存或索引。全量验证 22 文件 / 224 tests、Vite、diff check、VitePress 全通过。由于当前无开发服务，未启动服务或执行 1440/390 live browser audit。
 - 2026-08-19：修复体验页新生成正文再次形成文字墙及对白引号混用。根因是旧 parser 将 ≤260 字且 ≤4 句视为单段、只兜底未署名 narration，同时生成提示明确允许 `「」` 与 `“”` 两套格式。现在正文按 1-2 句分组，三句短段、长 action/thought、长独白和超长逗号句均有确定性兜底；独立 dialogue 统一为外层 `“……”` / 嵌套 `‘……’`，并选择性刷新已有稠密或混合引号的 v5 presentation。定向验证 5 文件 / 60 tests，recovery smoke 与 60 项 production dry-run 通过；全量验证 20 文件 / 203 tests、Vite、diff check、VitePress 全通过。无现有服务，未运行 live browser 复验。
 - 2026-08-18：集成 WNB-6A 与体验真实性 MVP。写作页完成 schema v3、单元内多段编辑、显式 split/merge/move、批注/候选/恢复迁移和体验回合带来源导入；体验运行时增加当前 speaker voice、world→politics 只读链与不改可见正文的低敏 shadow critic。集成审查修复段中 split 双事务、split offset 批注迁移、格式 revision、invalid-v3 回退、message ID 唯一性、角色集合截断、critic 指纹隐私和 politics limit，并补齐“收进稿件”弹窗焦点陷阱/恢复与滚动锁。完整验证保持 20 个测试文件 / 200 个用例，deterministic recovery 与 60 项 production dry-run 通过；真实 provider 与 live browser 门禁仍待执行。
 - 2026-08-18：补齐结构化设定多字段审阅链：分区生成留下多份草稿时，`StructuredSettingsPanel` 在唯一 `SettingDraftReview` 上方提供轻量待审队列，可切换每个字段草稿，不再只显示第一份。增加合并后的 UI 合同覆盖；结构化页 18 captures、0 console error、0 a11y failure；完整验证为 20 个测试文件 / 200 个用例、Vite/VitePress build、VitePress build 与 diff check 通过。
@@ -82,10 +84,11 @@
 
 ## Next up
 
-1. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
-2. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
-3. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
-4. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
+1. 在已有开发服务上执行 C3 场景素材板 1440/390 live browser audit 和用户验收；验收后再决定是否抽取 `useCanvasBoard`。
+2. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
+3. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
+4. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
+5. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 5. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。
 6. 推进漫画 M7 连续性质检，并各完成一张 MiniMax 插画与一条 6 秒 768P 视频真实 smoke。
 7. 地图继续父子区域、相邻关系、remap、LOD 与标签碰撞；不再扩张未接入的实验模块。

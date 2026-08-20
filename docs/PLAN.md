@@ -19,6 +19,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 - [体验页内容完整性与角色对白第三阶段计划](./plan/experience-content-integrity-and-dialogue-plan.md)：承接第二阶段真实验收未通过项，修复删除后存储不回收、生成篇幅与阅读密度混淆、marker 泄漏、说话者误识别、对白样式多 owner 和 SceneThread 错误写回。
 - [体验页叙事运行时与阅读体验收口计划](./plan/agent-runtime-architecture-research-20260814.md)：复核前三轮体验计划后的当前执行真源；先修工具轮次与 provider 超时，再把现有世界书 matcher 接入 NarrativeKernel，以因果拍替代硬字符下限，并收口语义分段与桌面阅读密度。
 - [世界书与设定工作区重构计划](./plan/settings-import-and-review-ux-plan-20260817.md)：从属于 G1.2/G1.2.2；重构世界书首页、可恢复创建工作区和详细设定，支持多文件本地文字抽取、精确去重、基础基调与按分区渐进提炼，并统一进入唯一草稿审阅区。
+- [素材→画布与 C3 场景素材板计划](./superpowers/plans/2026-08-20-scene-material-loop.md)：从属于 G4.1/G1.5；精确反查同源素材，幂等送入现有画布，并以有界场景板作为默认组织面。
 
 ## 当前优先级
 
@@ -32,7 +33,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 8. Writing Notebook：WNB-6A 写作单元重构已完成。schema v3 使用“段落节点 -> 多段 writingUnit -> 场景”，Enter 保持在当前单元，显式 split/merge/move 可单事务撤销；批注、候选、版本、恢复和体验回合导入均使用稳定 `unitId + nodeId` 与来源引用。下一步继续常用 Markdown、`targets[]` 与查找同类。
 9. Agent Runtime：G4.2 M0-M6 实现 Gate 已全部关闭。统一总开关会同时停止手动顾问与后台补全；写作补全、明显冲突和待审结果提醒均有频率上限及无正文本地指标。旧直连 `useCopilot` 已删除，现代路径使用 canonical task，legacy 兼容只保留真实调用边界。可用后端上仍需补 M2 的 30 次真实 provider smoke，完成后才最终结项 G4.2。
 10. Gate 0 可靠性与存储安全网：作为上述主线的支撑项继续补齐，不再单独占据产品主线。
-11. Creative Graph：地理、历史、会话和剧情日志来源已沿素材、章节/纲要、分镜、写作 ContextLedger、分镜 Agent 与视频任务贯通；漫画 M2-M6 已支持多页改编、语义视觉圣经、自由构图，彩色 `rough -> line -> flats -> render -> effects` / 黑白 `rough -> line -> tones -> effects` 的能力门禁、候选审阅、人工替换、遮罩修订和 artifact lineage，以及文字层出版质检、PNG/WebP/PDF、条漫切片和 v2 manifest，并继续沿用 `comic_pages_v1`。下一步进入 G4.4 M7 连续性质检与分镜转换，不增加迁移层。
+11. Creative Graph：地理、历史、会话和剧情日志来源已沿素材、章节/纲要、分镜、写作 ContextLedger、分镜 Agent 与视频任务贯通；素材页已能按项目和精确 `sourceRefs` 反查同源素材，并将勾选项幂等送入关系画布。画布默认显示 C3 场景素材板，复用现有 card/outline/edge 数据组织关系、节拍与未放置素材；桌面保留自由画布和导演/视频出口，移动端不提供自由定位。漫画 M2-M6 已支持多页改编、语义视觉圣经、自由构图与出版链。下一步进入 G4.4 M7 连续性质检与分镜转换；跨资产 revision/tag、通用 stale 识别和画布 composable 清理保留后续处理。
 12. Video MVP：分镜以已确认镜头版本按单镜头提交服务端异步任务，提交前可审阅/编辑含景别、运镜和衔接关系的最终提示词；MiniMax 与自定义异步 HTTP 使用可测试、持久化的浏览器模型配置，后续补第二 direct provider。
 13. Online Experience：通过 `/experience/online/:roomSlug` 提供 URL 加入的多人冒险，采用服务端权威有序事件，不同步整个前端 store。
 

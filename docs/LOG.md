@@ -8,7 +8,13 @@
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
-- 当前验证基线：20 个测试文件 / 200 个用例；Vite/VitePress build 与 diff check 通过。历史 40/322 与视觉 12 项属于旧测试结构，不再作为当前上限。
+- 当前验证基线：22 个测试文件 / 224 个用例；Vite/VitePress build 与 diff check 通过。历史 40/322、200 与 203 属于旧测试结构，不再作为当前上限。
+
+## 2026-08-20 - G4.1 素材送入画布与 C3 场景素材板
+
+- 素材页改为使用精确 `sourceRefs` 反查：严格隔离项目，accepted/inbox 与 archived 分开，rejected 不进入结果；旧素材的 `source` 形状仍可兼容。勾选素材可批量送入关系画布，批量建卡只写一次 localStorage，重复执行不会生成重复卡片。
+- `ProseEssay` 桌面默认为 C3 场景素材板，以现有 cards/outline/edges 投影关系、节拍顺序和未放置素材，并显示 linked/archived/detached/untracked 来源状态。桌面自由画布、导演导出和视频任务保留；移动端收为关系/节拍/未放置三个线性面板，不开放自由定位。
+- 20/100/500 条素材的确定性基准中位数约为 0.025/0.044/0.220ms，p95 约为 0.073/0.085/0.390ms，未引入索引或缓存。通用 stale 需稳定 revision/hash 基线，本轮不猜测；`useCanvasBoard` 抽取等用户验收后再决定。全量验证为 22 文件 / 224 tests，Vite/VitePress build 与 diff check 通过。无现有开发服务，未执行 1440/390 live browser audit。
 
 ## 2026-08-19 - 体验页自然段密度回归修复
 
