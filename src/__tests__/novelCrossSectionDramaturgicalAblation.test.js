@@ -13,7 +13,10 @@ import {
   buildDramaturgicalConditionPrompt,
   expandDramaturgicalMatrix,
   runDramaturgicalCondition,
-  generateDramaturgicalArtifacts
+  generateDramaturgicalArtifacts,
+  createDramaturgicalBlindPairs,
+  buildDramaturgicalReviewTemplate,
+  validateDramaturgicalReviews
 } from '../../scripts/lib/novel-cross-section-dramaturgical-ablation.mjs'
 import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
@@ -381,6 +384,119 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       provider: makeProvider({ count: 0 }), relationMode: 'minimal-relation',
       relationDecisionRef: { ...relationRef, reportSha256: 'c'.repeat(64) }
     })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
+  })
+
+  it('creates two opaque pair families and requires two complete blind reviewers (Task 5)', () => {
+    const conditionText = { baseline: '甲', 'minimal-engine': '乙', 'full-vocabulary': '丙' }
+    const runs = expandDramaturgicalMatrix().attempts.map(attempt => ({
+      ...attempt,
+      status: 'success',
+      readableText: `${conditionText[attempt.condition]}篇 ${attempt.fixtureId} ${attempt.repetition}\n\n:::`
+    }))
+    const bundle = createDramaturgicalBlindPairs(runs, { seed: 'drama-a', includePrivate: true })
+    expect(bundle.pairs).toHaveLength(16)
+    expect(bundle.incompletePairs).toEqual([])
+    const mappings = Object.values(bundle.privateBlindMap)
+    expect(mappings.filter(({ comparisonFamily }) => comparisonFamily === 'minimal-engine-vs-baseline')).toHaveLength(16)
+    expect(mappings.filter(({ comparisonFamily }) => comparisonFamily === 'full-vocabulary-vs-minimal-engine')).toHaveLength(16)
+    for (const pair of bundle.pairs) {
+      expect(Object.keys(pair).sort()).toEqual(['comparisonId', 'groundTruth', 'left', 'pairId', 'right'])
+      expect(pair.pairId).toMatch(/^dp_[a-f0-9]+$/)
+      expect(pair.comparisonId).toMatch(/^dc_[a-f0-9]+$/)
+      expect(pair.groundTruth).toEqual(expect.objectContaining({
+        fixtureTitle: expect.any(String),
+        publicFacts: expect.any(Array),
+        expectedOutcome: expect.any(String),
+        antiOutcome: expect.any(String),
+        dramaturgical: expect.any(Object)
+      }))
+      expect(pair.left).toEqual({ outputId: expect.any(String), text: expect.any(String) })
+      expect(pair.right).toEqual({ outputId: expect.any(String), text: expect.any(String) })
+      expect(pair.left.text + pair.right.text).not.toContain(':::')
+      const left = bundle.privateBlindMap[pair.left.outputId]
+      const right = bundle.privateBlindMap[pair.right.outputId]
+      expect(left.fixtureId).toBe(right.fixtureId)
+      expect(left.repetition).toBe(right.repetition)
+      expect(left.comparisonFamily).toBe(right.comparisonFamily)
+      expect(left.condition).not.toBe(right.condition)
+    }
+    const { privateBlindMap: _private, privateIncompleteMap: _incomplete, ...publicBundle } = bundle
+    expect(JSON.stringify(publicBundle)).not.toMatch(
+      /baseline|minimal-engine|full-vocabulary|pressure|sceneObjective|withheldTruth|stateChange|relationMode|sourceRef|prompt|apiKey|baseUrl/i
+    )
+
+    const rerun = createDramaturgicalBlindPairs(runs, { seed: 'drama-a' })
+    expect(rerun.pairs).toEqual(publicBundle.pairs)
+    const changedSeed = createDramaturgicalBlindPairs(runs, { seed: 'drama-b' })
+    expect(changedSeed.pairs.some((pair, index) => pair.left.outputId !== rerun.pairs[index].left.outputId)).toBe(true)
+
+    const failed = runs.map(run => run.runId === 'birthday-recorder-minimal-engine-r1'
+      ? { ...run, status: 'failed' }
+      : run)
+    const partial = createDramaturgicalBlindPairs(failed, { seed: 'drama-a', includePrivate: true })
+    expect(partial.pairs).toHaveLength(14)
+    expect(partial.incompletePairs).toHaveLength(2)
+    expect(Object.values(partial.privateIncompleteMap).every(item => (
+      item.fixtureId === 'birthday-recorder' && item.repetition === 1
+    ))).toBe(true)
+
+    const template = buildDramaturgicalReviewTemplate(publicBundle)
+    expect(template.reviewerSlots).toHaveLength(2)
+    expect(template.reviewerSlots.every(slot => slot.reviewPairs.length === 16)).toBe(true)
+    expect(template.reviewerSlots[0].reviewPairs[0]).toEqual({
+      pairId: expect.any(String),
+      left: {
+        motivatedAction: null, stateChange: null, naturalSubtext: null,
+        structuralNaturalness: null, literaryUsability: null, informationDiscipline: null
+      },
+      right: {
+        motivatedAction: null, stateChange: null, naturalSubtext: null,
+        structuralNaturalness: null, literaryUsability: null, informationDiscipline: null
+      },
+      preference: null,
+      confidence: null,
+      note: ''
+    })
+
+    const fillScores = () => ({
+      motivatedAction: 7, stateChange: 7, naturalSubtext: 7,
+      structuralNaturalness: 7, literaryUsability: 7, informationDiscipline: 7
+    })
+    const validReviews = ['reviewer-1', 'reviewer-2'].map(reviewerId => ({
+      reviewerId,
+      scores: publicBundle.pairs.map(pair => ({
+        pairId: pair.pairId,
+        left: fillScores(),
+        right: fillScores(),
+        preference: 'tie',
+        confidence: 'medium',
+        note: ''
+      }))
+    }))
+    const pairIds = publicBundle.pairs.map(({ pairId }) => pairId)
+    expect(validateDramaturgicalReviews(validReviews, { pairIds })).toEqual({ valid: true, reviewerCount: 2 })
+    expect(validateDramaturgicalReviews(validReviews.slice(0, 1), { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_COVERAGE_INCOMPLETE')
+    const duplicate = clone(validReviews)
+    duplicate[0].scores.push(clone(duplicate[0].scores[0]))
+    expect(validateDramaturgicalReviews(duplicate, { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_DUPLICATE_PAIR')
+    const missing = clone(validReviews)
+    delete missing[0].scores[0].left.naturalSubtext
+    expect(validateDramaturgicalReviews(missing, { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_SCORES_INCOMPLETE')
+    const decimal = clone(validReviews)
+    decimal[0].scores[0].left.motivatedAction = 7.5
+    expect(validateDramaturgicalReviews(decimal, { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_SCORE_INVALID')
+    const unknown = clone(validReviews)
+    unknown[0].scores[0].pairId = 'ghost'
+    expect(validateDramaturgicalReviews(unknown, { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_PAIR_UNKNOWN')
+    const unblinded = clone(validReviews)
+    unblinded[0].scores[0].condition = 'baseline'
+    expect(validateDramaturgicalReviews(unblinded, { pairIds }).error.code)
+      .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_METADATA_REJECTED')
   })
 
   it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {

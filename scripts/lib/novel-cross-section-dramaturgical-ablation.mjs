@@ -579,6 +579,213 @@ export async function generateDramaturgicalArtifacts(options = {}) {
   }
 }
 
+/* ============================================================================
+ * Task 5：双族盲评对与严格 review 契约
+ * ========================================================================== */
+
+export const DRAMATURGICAL_SCORE_FIELDS = Object.freeze([
+  'motivatedAction',
+  'stateChange',
+  'naturalSubtext',
+  'structuralNaturalness',
+  'literaryUsability',
+  'informationDiscipline'
+])
+
+const DRAMATURGICAL_COMPARISONS = Object.freeze([
+  Object.freeze({ family: 'minimal-engine-vs-baseline', conditions: Object.freeze(['minimal-engine', 'baseline']) }),
+  Object.freeze({ family: 'full-vocabulary-vs-minimal-engine', conditions: Object.freeze(['full-vocabulary', 'minimal-engine']) })
+])
+
+const sanitizeDramaturgicalReviewText = value => String(value || '')
+  .replace(/^\s*:::\s*$/gm, '')
+  .replace(/:::/g, '')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+
+const publicDramaturgicalGroundTruth = fixture => ({
+  fixtureTitle: fixture.title,
+  publicFacts: fixture.facts.filter(({ visibility }) => visibility === 'public').map(({ text }) => text),
+  focusProp: fixture.focusProp,
+  expectedOutcome: fixture.expectedOutcome,
+  antiOutcome: fixture.antiOutcome,
+  dramaturgical: {
+    motivations: [...fixture.dramaturgicalGroundTruth.observableMotivations],
+    acceptableChanges: [...fixture.dramaturgicalGroundTruth.acceptableStateChanges],
+    prohibitedShortcuts: [...fixture.dramaturgicalGroundTruth.prohibitedShortcuts],
+    evaluatorNote: fixture.dramaturgicalGroundTruth.evaluatorNote
+  }
+})
+
+/**
+ * 将 24 个终态运行拆成两个互不混合的对照族。公共工件只含不透明 id、
+ * 共同评审事实和文本；条件、fixture/repetition 与 run 映射只进入私有 map。
+ */
+export function createDramaturgicalBlindPairs(runs, { seed = 'dramaturgy-ablation', includePrivate = false } = {}) {
+  const fixtureById = new Map(CROSS_SECTION_DRAMATURGICAL_FIXTURES.map(fixture => [fixture.id, fixture]))
+  const successfulByRunId = new Map((Array.isArray(runs) ? runs : [])
+    .filter(run => run?.status === 'success')
+    .map(run => [run.runId, run]))
+  const pairs = []
+  const incompletePairs = []
+  const privateBlindMap = {}
+  const privateIncompleteMap = {}
+
+  for (const fixture of CROSS_SECTION_DRAMATURGICAL_FIXTURES) {
+    for (const repetition of [1, 2]) {
+      for (const comparison of DRAMATURGICAL_COMPARISONS) {
+        const key = `${fixture.id}|${repetition}|${comparison.family}`
+        const pairId = `dp_${sha256Hex(`${seed}|${key}|pair`).slice(0, 12)}`
+        const comparisonId = `dc_${sha256Hex(`${seed}|${comparison.family}|comparison`).slice(0, 10)}`
+        const selectedRuns = comparison.conditions.map(condition => successfulByRunId.get(
+          `${fixture.id}-${condition}-r${repetition}`
+        ))
+        if (selectedRuns.some(run => !run)) {
+          incompletePairs.push({
+            pairId,
+            comparisonId,
+            code: 'CROSS_SECTION_DRAMATURGY_PAIR_INCOMPLETE'
+          })
+          privateIncompleteMap[pairId] = {
+            fixtureId: fixture.id,
+            repetition,
+            comparisonFamily: comparison.family,
+            missingConditions: comparison.conditions.filter((condition, index) => !selectedRuns[index])
+          }
+          continue
+        }
+
+        const firstOnLeft = Number.parseInt(sha256Hex(`${seed}|${key}|side`).slice(0, 8), 16) % 2 === 0
+        const orderedRuns = firstOnLeft ? selectedRuns : [...selectedRuns].reverse()
+        const sides = orderedRuns.map((run, index) => {
+          const outputId = `do_${sha256Hex(`${seed}|${pairId}|${index}|${run.runId}`).slice(0, 12)}`
+          privateBlindMap[outputId] = {
+            runId: run.runId,
+            fixtureId: fixture.id,
+            repetition,
+            condition: run.condition,
+            comparisonFamily: comparison.family,
+            pairId
+          }
+          return { outputId, text: sanitizeDramaturgicalReviewText(run.readableText) }
+        })
+        pairs.push({
+          pairId,
+          comparisonId,
+          groundTruth: publicDramaturgicalGroundTruth(fixture),
+          left: sides[0],
+          right: sides[1]
+        })
+      }
+    }
+  }
+
+  const bundle = { pairs, incompletePairs }
+  if (includePrivate) {
+    bundle.privateBlindMap = privateBlindMap
+    bundle.privateIncompleteMap = privateIncompleteMap
+  }
+  return bundle
+}
+
+const blankDramaturgicalScores = () => Object.fromEntries(
+  DRAMATURGICAL_SCORE_FIELDS.map(field => [field, null])
+)
+
+export function buildDramaturgicalReviewTemplate(bundle) {
+  const pairs = Array.isArray(bundle?.pairs) ? bundle.pairs : []
+  const reviewerSlots = [1, 2].map(slot => ({
+    slot,
+    reviewerId: null,
+    reviewPairs: pairs.map(({ pairId }) => ({
+      pairId,
+      left: blankDramaturgicalScores(),
+      right: blankDramaturgicalScores(),
+      preference: null,
+      confidence: null,
+      note: ''
+    }))
+  }))
+  return {
+    schemaVersion: 1,
+    instructions: '两位独立评审者分别为左右文本的六项正向指标打 0–10 整数分，再记录偏好、置信度与简短诊断。',
+    reviewerSlots
+  }
+}
+
+const dramaturgicalReviewError = code => ({ valid: false, error: { code } })
+const REVIEW_UNBLINDING_RE = /baseline|minimal-engine|full-vocabulary|condition|prompt|sourceRef|relationMode|provider|model|token|latency/i
+
+export function validateDramaturgicalReviews(reviews, { pairIds = [] } = {}) {
+  const knownPairIds = new Set(pairIds)
+  const coverage = new Map(pairIds.map(pairId => [pairId, new Set()]))
+  const reviewerPairKeys = new Set()
+  const reviewerIds = new Set()
+
+  for (const reviewer of Array.isArray(reviews) ? reviews : []) {
+    if (!reviewer || typeof reviewer !== 'object' || Array.isArray(reviewer)
+      || Object.keys(reviewer).some(key => !['reviewerId', 'scores'].includes(key))) {
+      return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_METADATA_REJECTED')
+    }
+    const reviewerId = reviewer.reviewerId
+    if (typeof reviewerId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/i.test(reviewerId)) {
+      return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEWER_INVALID')
+    }
+    reviewerIds.add(reviewerId)
+    if (!Array.isArray(reviewer.scores)) {
+      return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_COVERAGE_INCOMPLETE')
+    }
+    for (const score of reviewer.scores) {
+      if (!score || typeof score !== 'object' || Array.isArray(score)
+        || Object.keys(score).some(key => !['pairId', 'left', 'right', 'preference', 'confidence', 'note'].includes(key))) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_METADATA_REJECTED')
+      }
+      if (!knownPairIds.has(score.pairId)) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_PAIR_UNKNOWN')
+      }
+      const reviewerPairKey = `${reviewerId}\u0000${score.pairId}`
+      if (reviewerPairKeys.has(reviewerPairKey)) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_DUPLICATE_PAIR')
+      }
+      reviewerPairKeys.add(reviewerPairKey)
+      for (const side of ['left', 'right']) {
+        const sideScores = score[side]
+        if (!sideScores || typeof sideScores !== 'object' || Array.isArray(sideScores)) {
+          return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_SCORES_INCOMPLETE')
+        }
+        const scoreKeys = Object.keys(sideScores)
+        if (scoreKeys.some(key => !DRAMATURGICAL_SCORE_FIELDS.includes(key))) {
+          return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_METADATA_REJECTED')
+        }
+        for (const field of DRAMATURGICAL_SCORE_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(sideScores, field)) {
+            return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_SCORES_INCOMPLETE')
+          }
+          const value = sideScores[field]
+          if (!Number.isInteger(value) || value < 0 || value > 10) {
+            return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_SCORE_INVALID')
+          }
+        }
+      }
+      if (!['left', 'right', 'tie'].includes(score.preference)) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_PREFERENCE_INVALID')
+      }
+      if (!['low', 'medium', 'high'].includes(score.confidence)) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_CONFIDENCE_INVALID')
+      }
+      if (typeof score.note !== 'string' || codePoints(score.note) > 500 || REVIEW_UNBLINDING_RE.test(score.note)) {
+        return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_NOTE_REJECTED')
+      }
+      coverage.get(score.pairId).add(reviewerId)
+    }
+  }
+
+  if (reviewerIds.size < 2 || [...coverage.values()].some(reviewers => reviewers.size < 2)) {
+    return dramaturgicalReviewError('CROSS_SECTION_DRAMATURGY_REVIEW_COVERAGE_INCOMPLETE')
+  }
+  return { valid: true, reviewerCount: reviewerIds.size }
+}
+
 export const fixtureDigestValue = fixtures => JSON.stringify(
   fixtures.map(({ id, minimalEngine, fullVocabulary, dramaturgicalGroundTruth }) => ({
     id,
@@ -599,5 +806,8 @@ export default {
   buildDramaturgicalConditionPrompt,
   expandDramaturgicalMatrix,
   runDramaturgicalCondition,
-  generateDramaturgicalArtifacts
+  generateDramaturgicalArtifacts,
+  createDramaturgicalBlindPairs,
+  buildDramaturgicalReviewTemplate,
+  validateDramaturgicalReviews
 }
