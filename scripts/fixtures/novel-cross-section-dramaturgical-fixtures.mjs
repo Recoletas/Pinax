@@ -213,16 +213,20 @@ const BEAT_OVERRIDE_RE = /固定四拍|四拍|第[一二三四]拍|必须反转|
  * Task 1：严格 typed 校验。返回首个错误，不抛异常。
  */
 export function validateDramaturgicalFixtures(fixtures) {
-  if (!Array.isArray(fixtures) || fixtures.length !== CROSS_SECTION_FIXTURES.length) {
+  if (!Array.isArray(fixtures) || fixtures.length < 1
+    || fixtures.length > CROSS_SECTION_FIXTURES.length) {
     return invalid('CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH')
   }
   const baseById = new Map(CROSS_SECTION_FIXTURES.map(fixture => [fixture.id, fixture]))
+  const seenIds = new Set()
 
   for (const fixture of fixtures) {
     if (!isRecord(fixture)) return invalid('CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH')
     const base = baseById.get(fixture.id)
     const fixtureId = fixture.id
     if (!base) return invalid('CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH', { fixtureId })
+    if (seenIds.has(fixtureId)) return invalid('CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH', { fixtureId })
+    seenIds.add(fixtureId)
     const ctx = fixtureId ? { fixtureId } : {}
 
     // 基础契约必须与 canonical 一致（防漂移抄写）

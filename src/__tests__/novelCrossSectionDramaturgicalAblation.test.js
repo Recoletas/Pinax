@@ -5,6 +5,15 @@ import {
   DRAMATURGICAL_FIELD_LIMITS,
   validateDramaturgicalFixtures
 } from '../../scripts/fixtures/novel-cross-section-dramaturgical-fixtures.mjs'
+import {
+  DRAMATURGICAL_CONDITIONS,
+  DRAMATURGICAL_PROMPT_CONTRACT_VERSION,
+  serializeMinimalEngine,
+  serializeFullVocabulary,
+  buildDramaturgicalConditionPrompt
+} from '../../scripts/lib/novel-cross-section-dramaturgical-ablation.mjs'
+import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
+import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 
@@ -72,6 +81,70 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       expect(fixture.dramaturgicalGroundTruth.acceptableStateChanges.length).toBeGreaterThan(0)
       expect(fixture.dramaturgicalGroundTruth.prohibitedShortcuts.length).toBeGreaterThan(0)
     }
+  })
+
+  it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {
+    const fixture = CROSS_SECTION_DRAMATURGICAL_FIXTURES[1]
+    const s1 = serializeMinimalEngine(fixture)
+    const s2 = serializeFullVocabulary(fixture)
+    expect(s1).toContain('【场景压力】')
+    expect(s1).toContain(fixture.minimalEngine.pressure)
+    expect(s1).not.toContain(fixture.fullVocabulary.premise)
+    // 序列化器只负责各自块；S1+S2 的组合发生在 prompt 层
+    expect(s2).not.toContain(fixture.minimalEngine.pressure)
+    expect(s2).toContain(fixture.fullVocabulary.conflictType)
+
+    const prompts = {
+      baseline: buildDramaturgicalConditionPrompt({ fixture, condition: 'baseline', relationMode: 'none' }),
+      minimalEngine: buildDramaturgicalConditionPrompt({ fixture, condition: 'minimal-engine', relationMode: 'none' }),
+      fullVocabulary: buildDramaturgicalConditionPrompt({ fixture, condition: 'full-vocabulary', relationMode: 'none' })
+    }
+    const base = prompts.baseline
+    const s1Prompt = prompts.minimalEngine
+    const s2Prompt = prompts.fullVocabulary
+
+    // baseline 不含任何 S1/S2 值
+    expect(base.user).not.toContain(fixture.minimalEngine.pressure)
+    expect(base.user).not.toContain(fixture.minimalEngine.stateChange)
+    expect(base.user).not.toContain(fixture.fullVocabulary.spine)
+    // minimal-engine 含且仅含 S1
+    expect(s1Prompt.user).toContain(fixture.minimalEngine.pressure)
+    expect(s1Prompt.user).not.toContain(fixture.fullVocabulary.premise)
+    // full = S1 + S2
+    expect(s2Prompt.user).toContain(fixture.minimalEngine.stateChange)
+    expect(s2Prompt.user).toContain(fixture.fullVocabulary.dramaticQuestion)
+
+    // 三条件共享字节一致的基底；唯一差异是戏剧块
+    expect(s1Prompt.system).toBe(base.system)
+    expect(s2Prompt.system).toBe(base.system)
+    expect(s1Prompt.maxTokens).toBe(base.maxTokens)
+    expect(s2Prompt.temperature).toBe(base.temperature)
+    expect(s1Prompt.user).toBe(base.user + '\n\n' + serializeMinimalEngine(fixture))
+    expect(s2Prompt.user).toBe(base.user + '\n\n' + serializeMinimalEngine(fixture) + '\n\n' + serializeFullVocabulary(fixture))
+
+    // 提示词不含实验元数据 / 评分 / ground truth / 字段内部名
+    const allPrompts = base.system + base.user + s1Prompt.user + s2Prompt.user
+    expect(allPrompts).not.toMatch(/minimal-engine|full-vocabulary|baseline|condition|评分|评审|dramaturgical/i)
+    expect(allPrompts).not.toContain(JSON.stringify(fixture.dramaturgicalGroundTruth).slice(0, 20))
+
+    // relation mode：none 不序列化关系；minimal-relation 三条件同字节
+    expect(base.user).not.toContain('【活跃关系】')
+    const relBase = buildDramaturgicalConditionPrompt({ fixture, condition: 'baseline', relationMode: 'minimal-relation' })
+    const relS1 = buildDramaturgicalConditionPrompt({ fixture, condition: 'minimal-engine', relationMode: 'minimal-relation' })
+    const relationFixture = CROSS_SECTION_RELATION_FIXTURES.find(({ id }) => id === fixture.id)
+    const relationBytes = serializeMinimalRelationPack(relationFixture)
+    expect(relBase.user.endsWith(relationBytes)).toBe(true)
+    expect(relS1.user.includes(relationBytes)).toBe(true)
+
+    // prompt economy
+    const metrics = s1Prompt.promptMetrics
+    expect(metrics.promptChars).toBe([...s1Prompt.system + s1Prompt.user].length)
+    expect(metrics.promptBytes).toBe(Buffer.byteLength(s1Prompt.system + s1Prompt.user, 'utf8'))
+    expect(metrics.conditionChars).toBeGreaterThan(0)
+    expect(metrics.relationChars).toBe(0)
+    expect(relBase.promptMetrics.relationChars).toBeGreaterThan(0)
+    expect(DRAMATURGICAL_CONDITIONS).toEqual(['baseline', 'minimal-engine', 'full-vocabulary'])
+    expect(DRAMATURGICAL_PROMPT_CONTRACT_VERSION).toBe('cross-section-dramaturgy-prompt.v1')
   })
 
   it('rejects typed dramaturgical fixture violations (Task 1)', () => {
