@@ -6,6 +6,9 @@
  * 唯一差异是追加的戏剧块：S1 四问 / S1+S2 冗余词表。
  * 与 relation-ab 一致地复制 bake-off 私有 formatter（保持字节一致，不做提取）。
  */
+import { createHash } from 'node:crypto'
+import * as nodeFs from 'node:fs/promises'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { normalizeGenerationUsage } from '../../shared/generationToolContract.js'
 import {
   buildFinalProseContract,
@@ -276,6 +279,306 @@ export async function runDramaturgicalCondition({
   }
 }
 
+/* ============================================================================
+ * Task 4：不可变 manifest、追加式 JSONL 与可恢复生成
+ * ========================================================================== */
+
+const sha256Hex = value => createHash('sha256').update(String(value)).digest('hex')
+const safeRunId = value => /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(String(value || ''))
+
+const dateFromNow = now => {
+  const value = typeof now === 'function' ? now() : Date.now()
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? new Date() : date
+}
+
+const timestampSlug = date => date.toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')
+
+const assertContainedPath = (outputRoot, runDir) => {
+  if (!isAbsolute(outputRoot) || !isAbsolute(runDir)) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PATH_INVALID', '工件路径必须是绝对路径')
+  }
+  const root = resolve(outputRoot)
+  const target = resolve(runDir)
+  const offset = relative(root, target)
+  if (!offset) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PATH_INVALID', 'run 目录不能等于 output root')
+  }
+  if (offset === '..' || offset.startsWith(`..${sep}`) || isAbsolute(offset)) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PATH_INVALID', 'run 目录必须位于 output root 内')
+  }
+  return { root, target }
+}
+
+const readOptional = async (fs, path) => {
+  try {
+    return await fs.readFile(path, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+const atomicWriteJson = async (fs, path, value) => {
+  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  try {
+    await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' })
+    await fs.rename(temporaryPath, path)
+  } catch (error) {
+    try { await fs.rm(temporaryPath, { force: true }) } catch { /* preserve primary error */ }
+    throw error
+  }
+}
+
+const acquireRunLock = async (fs, runDir) => {
+  const lockPath = join(runDir, '.generate.lock')
+  const token = sha256Hex(`${process.pid}|${Date.now()}|${Math.random()}`).slice(0, 24)
+  try {
+    await fs.writeFile(lockPath, `${JSON.stringify({ token })}\n`, { flag: 'wx' })
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_LOCKED', '该实验 run 正在被另一个生成进程使用')
+    }
+    throw error
+  }
+  return { lockPath, token }
+}
+
+const releaseRunLock = async (fs, ownership) => {
+  try {
+    const current = JSON.parse(await fs.readFile(ownership.lockPath, 'utf8'))
+    if (current?.token === ownership.token) await fs.rm(ownership.lockPath, { force: true })
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+}
+
+const normalizeProviderIdentity = providerConfig => {
+  const provider = String(providerConfig?.id || providerConfig?.provider || '').trim()
+  const model = String(providerConfig?.model || '').trim()
+  const format = String(providerConfig?.format || '').trim()
+  if (!provider || !model) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PROVIDER_INVALID', 'provider/model 配置不完整')
+  }
+  return {
+    public: { provider, model, format },
+    digest: sha256Hex(JSON.stringify({
+      provider,
+      model,
+      format,
+      baseUrl: String(providerConfig?.baseUrl || '')
+    }))
+  }
+}
+
+const normalizeRelationDecisionRef = (relationMode, value) => {
+  if (relationMode === 'none') {
+    if (value != null) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RELATION_DECISION_INVALID', 'none 模式不能携带关系决策')
+    }
+    return null
+  }
+  if (relationMode !== 'minimal-relation') {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RELATION_MODE_INVALID', '未知关系模式', { relationMode })
+  }
+  const reportPath = String(value?.reportPath || '')
+  const reportSha256 = String(value?.reportSha256 || '')
+  if (!isAbsolute(reportPath) || !/^[a-f0-9]{64}$/i.test(reportSha256)
+    || value?.decision !== 'minimal-relation-supported') {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RELATION_DECISION_INVALID', 'minimal-relation 需要已支持的关系报告引用')
+  }
+  return { reportPath, reportSha256: reportSha256.toLowerCase(), decision: value.decision }
+}
+
+const manifestIdentity = manifest => JSON.stringify({
+  schemaVersion: manifest.schemaVersion,
+  experiment: manifest.experiment,
+  experimentRunId: manifest.experimentRunId,
+  fixtureSchemaVersion: manifest.fixtureSchemaVersion,
+  fixtureDigest: manifest.fixtureDigest,
+  promptContractVersion: manifest.promptContractVersion,
+  runnerContractVersion: manifest.runnerContractVersion,
+  evaluatorContractVersion: manifest.evaluatorContractVersion,
+  authoringContractVersion: manifest.authoringContractVersion,
+  provider: manifest.provider,
+  providerContractDigest: manifest.providerContractDigest,
+  relationMode: manifest.relationMode,
+  relationDecisionRef: manifest.relationDecisionRef,
+  conditions: manifest.conditions,
+  repetitions: manifest.repetitions,
+  attemptCount: manifest.attemptCount,
+  parameters: manifest.parameters,
+  matrixRunIds: manifest.matrixRunIds
+})
+
+const parsePrivateRuns = (raw, allowedRunIds) => {
+  if (!raw) return []
+  if (!String(raw).endsWith('\n')) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PRIVATE_RUNS_INVALID', 'private-runs.jsonl 存在截断尾行')
+  }
+  const records = []
+  const seen = new Set()
+  for (const line of String(raw).split('\n').filter(Boolean)) {
+    let record
+    try {
+      record = JSON.parse(line)
+    } catch (cause) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PRIVATE_RUNS_INVALID', 'private-runs.jsonl 不是有效 JSONL', { cause })
+    }
+    if (!allowedRunIds.has(record?.runId) || !['success', 'failed'].includes(record?.status)) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PRIVATE_RUNS_INVALID', 'private run 不属于冻结矩阵')
+    }
+    if (seen.has(record.runId)) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PRIVATE_RUN_DUPLICATE', 'private run id 重复', { runId: record.runId })
+    }
+    seen.add(record.runId)
+    records.push(record)
+  }
+  return records
+}
+
+export async function generateDramaturgicalArtifacts(options = {}) {
+  const fs = options.fs || nodeFs
+  const fixtures = options.fixtures || CROSS_SECTION_DRAMATURGICAL_FIXTURES
+  const fixtureValidation = validateDramaturgicalFixtures(fixtures)
+  if (!fixtureValidation.valid) {
+    throw dramaturgicalError(fixtureValidation.error.code, '戏剧 fixture 未通过验证', fixtureValidation.error)
+  }
+  if (!options.provider?.invoke) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PROVIDER_INVALID', '缺少 provider 执行边界')
+  }
+  const relationMode = String(options.relationMode || 'none')
+  const relationDecisionRef = normalizeRelationDecisionRef(relationMode, options.relationDecisionRef)
+  const providerIdentity = normalizeProviderIdentity(options.providerConfig)
+  const conditions = options.conditions || DRAMATURGICAL_CONDITIONS
+  const repetitions = options.repetitions ?? 2
+  const matrix = expandDramaturgicalMatrix({ fixtures, conditions, repetitions })
+  const outputRoot = String(options.outputRoot || DEFAULT_DRAMATURGICAL_OUTPUT_ROOT)
+  const createdDate = dateFromNow(options.now)
+  const requestedExperimentRunId = String(options.experimentRunId || timestampSlug(createdDate))
+  const requestedRunDir = String(options.runDir || join(outputRoot, requestedExperimentRunId))
+  const { target: runDir } = assertContainedPath(outputRoot, requestedRunDir)
+  const experimentRunId = String(options.experimentRunId || (options.runDir ? basename(runDir) : requestedExperimentRunId))
+  if (!safeRunId(experimentRunId)) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RUN_ID_INVALID', 'experimentRunId 必须是安全 slug')
+  }
+  const manifestPath = join(runDir, 'manifest.json')
+  const privateRunsPath = join(runDir, 'private-runs.jsonl')
+  await fs.mkdir(runDir, { recursive: true })
+  const ownership = await acquireRunLock(fs, runDir)
+
+  try {
+    const desiredManifest = {
+      schemaVersion: 1,
+      experiment: 'dramaturgical-minimal-engine-ablation',
+      experimentRunId,
+      status: 'running',
+      createdAt: createdDate.toISOString(),
+      completedAt: null,
+      fixtureSchemaVersion: DRAMATURGICAL_FIXTURE_SCHEMA_VERSION,
+      fixtureDigest: sha256Hex(fixtureDigestValue(fixtures)),
+      promptContractVersion: DRAMATURGICAL_PROMPT_CONTRACT_VERSION,
+      runnerContractVersion: DRAMATURGICAL_RUNNER_CONTRACT_VERSION,
+      evaluatorContractVersion: DRAMATURGICAL_EVALUATOR_CONTRACT_VERSION,
+      authoringContractVersion: DRAMATURGICAL_AUTHORING_CONTRACT_VERSION,
+      provider: providerIdentity.public,
+      providerContractDigest: providerIdentity.digest,
+      relationMode,
+      relationDecisionRef,
+      conditions: [...DRAMATURGICAL_CONDITIONS],
+      repetitions: 2,
+      attemptCount: matrix.attemptCount,
+      parameters: { temperature: DRAMATURGICAL_TEMPERATURE, maxTokens: DRAMATURGICAL_MAX_TOKENS },
+      matrixRunIds: matrix.attempts.map(({ runId }) => runId)
+    }
+    const existingManifestRaw = await readOptional(fs, manifestPath)
+    let manifest
+    if (existingManifestRaw == null) {
+      const orphanedPrivate = await readOptional(fs, privateRunsPath)
+      if (orphanedPrivate != null) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH', '缺少 manifest，不能复用 private runs')
+      }
+      manifest = desiredManifest
+      await atomicWriteJson(fs, manifestPath, manifest)
+    } else {
+      try {
+        manifest = JSON.parse(existingManifestRaw)
+      } catch (cause) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_MANIFEST_INVALID', 'manifest.json 不是有效 JSON', { cause })
+      }
+      if (!['running', 'complete'].includes(manifest?.status)) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_MANIFEST_INVALID', 'manifest status 不是已知状态')
+      }
+      desiredManifest.createdAt = manifest.createdAt
+      if (manifestIdentity(manifest) !== manifestIdentity(desiredManifest)) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH', '恢复参数与冻结 manifest 不一致')
+      }
+      manifest = { ...manifest, status: manifest.status === 'complete' ? 'complete' : 'running' }
+    }
+
+    const privateRaw = await readOptional(fs, privateRunsPath)
+    const allowedRunIds = new Set(matrix.attempts.map(({ runId }) => runId))
+    const existingRecords = parsePrivateRuns(privateRaw, allowedRunIds)
+    if (manifest.status === 'complete') {
+      if (existingRecords.length !== matrix.attemptCount) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PRIVATE_RUNS_INVALID', 'complete manifest 缺少终态 attempts')
+      }
+      return runDir
+    }
+
+    await atomicWriteJson(fs, manifestPath, { ...manifest, status: 'running', completedAt: null })
+    const completedIds = new Set(existingRecords.map(({ runId }) => runId))
+    for (const attempt of matrix.attempts) {
+      if (completedIds.has(attempt.runId)) continue
+      const fixture = fixtures.find(({ id }) => id === attempt.fixtureId)
+      const result = await runDramaturgicalCondition({
+        fixture,
+        condition: attempt.condition,
+        repetition: attempt.repetition,
+        runId: attempt.runId,
+        relationMode,
+        provider: options.provider,
+        now: options.now || (() => Date.now())
+      })
+      const privateRecord = {
+        runId: result.runId,
+        fixtureId: result.fixtureId,
+        repetition: result.repetition,
+        condition: result.condition,
+        relationMode: result.relationMode,
+        status: result.status,
+        readableText: result.readableText || '',
+        rawText: result.rawText || '',
+        presentation: result.presentation || null,
+        disclosures: result.disclosures || [],
+        unauthorizedFactEvents: result.unauthorizedFactEvents || [],
+        needsHumanInformationReview: result.needsHumanInformationReview || [],
+        usage: result.usage || null,
+        latencyMs: result.latencyMs ?? 0,
+        promptMetrics: result.promptMetrics || null,
+        conditionProvenance: result.conditionProvenance || null,
+        relationProvenance: result.relationProvenance || null,
+        error: result.error || null
+      }
+      await fs.appendFile(privateRunsPath, `${JSON.stringify(privateRecord)}\n`, 'utf8')
+      completedIds.add(attempt.runId)
+    }
+
+    if (completedIds.size !== matrix.attemptCount) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_GENERATION_INCOMPLETE', '生成未形成 24 个终态 attempts')
+    }
+    manifest = {
+      ...manifest,
+      status: 'complete',
+      completedAt: dateFromNow(options.now).toISOString()
+    }
+    await atomicWriteJson(fs, manifestPath, manifest)
+    return runDir
+  } finally {
+    await releaseRunLock(fs, ownership)
+  }
+}
+
 export const fixtureDigestValue = fixtures => JSON.stringify(
   fixtures.map(({ id, minimalEngine, fullVocabulary, dramaturgicalGroundTruth }) => ({
     id,
@@ -295,5 +598,6 @@ export default {
   serializeFullVocabulary,
   buildDramaturgicalConditionPrompt,
   expandDramaturgicalMatrix,
-  runDramaturgicalCondition
+  runDramaturgicalCondition,
+  generateDramaturgicalArtifacts
 }

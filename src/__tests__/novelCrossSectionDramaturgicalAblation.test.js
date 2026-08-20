@@ -12,12 +12,49 @@ import {
   serializeFullVocabulary,
   buildDramaturgicalConditionPrompt,
   expandDramaturgicalMatrix,
-  runDramaturgicalCondition
+  runDramaturgicalCondition,
+  generateDramaturgicalArtifacts
 } from '../../scripts/lib/novel-cross-section-dramaturgical-ablation.mjs'
 import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
+
+const createMemoryFs = () => {
+  const files = new Map()
+  const writes = []
+  let appendLimit = Infinity
+  let appendCount = 0
+  const missing = path => Object.assign(new Error(`missing: ${path}`), { code: 'ENOENT' })
+  return {
+    files,
+    writes,
+    setAppendLimit(value) { appendLimit = value },
+    mkdir: async () => {},
+    readFile: async path => {
+      if (!files.has(path)) throw missing(path)
+      return files.get(path)
+    },
+    writeFile: async (path, data, options = {}) => {
+      if (options?.flag === 'wx' && files.has(path)) {
+        throw Object.assign(new Error(`exists: ${path}`), { code: 'EEXIST' })
+      }
+      files.set(path, String(data))
+      writes.push({ path, data: String(data) })
+    },
+    appendFile: async (path, data) => {
+      appendCount += 1
+      if (appendCount > appendLimit) throw Object.assign(new Error('simulated interruption'), { code: 'EIO' })
+      files.set(path, (files.get(path) || '') + String(data))
+    },
+    rename: async (from, to) => {
+      if (!files.has(from)) throw missing(from)
+      files.set(to, files.get(from))
+      files.delete(from)
+    },
+    rm: async path => { files.delete(path) }
+  }
+}
 
 describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
   it('locks four enriched fixtures whose base contract is reused, not copied (Task 1)', () => {
@@ -168,6 +205,182 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       fixture: null, condition: 'baseline', repetition: 1, provider, relationMode: 'none'
     })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH' })
     expect(requests).toHaveLength(3)
+  })
+
+  it('persists immutable resumable runs and fails closed on corrupted identity (Task 4)', async () => {
+    const providerConfig = {
+      id: 'minimax',
+      model: 'MiniMax-Text-01',
+      format: 'anthropic',
+      baseUrl: 'https://api.example.test/v1',
+      apiKey: 'never-persist-this'
+    }
+    const makeProvider = counter => ({
+      invoke: async () => {
+        counter.count += 1
+        return {
+          text: ':::narration\n母亲把录音机放在桌上。',
+          usage: { inputTokens: 4, outputTokens: 6 }
+        }
+      }
+    })
+    const fs = createMemoryFs()
+    const calls = { count: 0 }
+    const runDir = await generateDramaturgicalArtifacts({
+      fs,
+      outputRoot: '/tmp/drama-test',
+      experimentRunId: 'run-1',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig,
+      provider: makeProvider(calls),
+      relationMode: 'none',
+      now: () => 1_776_000_000_000
+    })
+    expect(runDir).toBe('/tmp/drama-test/run-1')
+    expect(calls.count).toBe(24)
+    const manifestPath = `${runDir}/manifest.json`
+    const privatePath = `${runDir}/private-runs.jsonl`
+    const manifest = JSON.parse(fs.files.get(manifestPath))
+    expect(manifest).toMatchObject({
+      status: 'complete',
+      fixtureSchemaVersion: 1,
+      relationMode: 'none',
+      relationDecisionRef: null,
+      repetitions: 2,
+      attemptCount: 24,
+      parameters: { temperature: 0.4, maxTokens: 1800 },
+      provider: { provider: 'minimax', model: 'MiniMax-Text-01', format: 'anthropic' }
+    })
+    expect(manifest.completedAt).toBeTruthy()
+    expect(JSON.stringify(manifest)).not.toMatch(/never-persist-this|api\.example\.test|apiKey|baseUrl/i)
+    expect(fs.writes.some(({ path, data }) => path.includes('manifest.json.tmp-') && JSON.parse(data).status === 'running')).toBe(true)
+    const records = fs.files.get(privatePath).trim().split('\n').map(JSON.parse)
+    expect(records).toHaveLength(24)
+    expect(new Set(records.map(({ runId }) => runId)).size).toBe(24)
+
+    // completed resume is a no-op
+    calls.count = 0
+    await generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider(calls), relationMode: 'none', now: () => 1_776_000_000_001
+    })
+    expect(calls.count).toBe(0)
+
+    // append interruption leaves a running manifest; resume invokes only unrecorded ids
+    const interruptedFs = createMemoryFs()
+    interruptedFs.setAppendLimit(5)
+    const interruptedCalls = { count: 0 }
+    await expect(generateDramaturgicalArtifacts({
+      fs: interruptedFs,
+      outputRoot: '/tmp/drama-test', experimentRunId: 'run-interrupted',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider(interruptedCalls), relationMode: 'none', now: () => 1_776_000_000_002
+    })).rejects.toMatchObject({ code: 'EIO' })
+    const interruptedDir = '/tmp/drama-test/run-interrupted'
+    expect(JSON.parse(interruptedFs.files.get(`${interruptedDir}/manifest.json`)).status).toBe('running')
+    expect(interruptedFs.files.get(`${interruptedDir}/private-runs.jsonl`).trim().split('\n')).toHaveLength(5)
+    interruptedFs.setAppendLimit(Infinity)
+    const callsBeforeResume = interruptedCalls.count
+    await generateDramaturgicalArtifacts({
+      fs: interruptedFs, runDir: interruptedDir, outputRoot: '/tmp/drama-test',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider(interruptedCalls), relationMode: 'none', now: () => 1_776_000_000_003
+    })
+    expect(interruptedCalls.count - callsBeforeResume).toBe(19)
+
+    // lock, corrupt JSONL, duplicate ids, changed provider/relation identity, and path escape fail closed
+    const lockedFs = createMemoryFs()
+    lockedFs.files.set('/tmp/drama-test/locked/.generate.lock', '{}')
+    await expect(generateDramaturgicalArtifacts({
+      fs: lockedFs, runDir: '/tmp/drama-test/locked', outputRoot: '/tmp/drama-test',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_LOCKED' })
+
+    fs.files.set(privatePath, `${fs.files.get(privatePath)}{"runId":`)
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_PRIVATE_RUNS_INVALID' })
+    fs.files.set(privatePath, records.map(record => JSON.stringify(record)).join('\n') + '\n' + JSON.stringify(records[0]) + '\n')
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_PRIVATE_RUN_DUPLICATE' })
+    fs.files.set(privatePath, records.map(record => JSON.stringify(record)).join('\n') + '\n')
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig: { ...providerConfig, model: 'changed-model' },
+      provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
+
+    const changedFixtures = clone(CROSS_SECTION_DRAMATURGICAL_FIXTURES)
+    changedFixtures[0].minimalEngine.pressure += '。'
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: changedFixtures,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
+
+    const originalManifestRaw = fs.files.get(manifestPath)
+    for (const mutate of [
+      value => { value.schemaVersion = 2 },
+      value => { value.promptContractVersion = 'changed-contract' },
+      value => { value.conditions = ['baseline'] },
+      value => { value.repetitions = 3 }
+    ]) {
+      const changed = JSON.parse(originalManifestRaw)
+      mutate(changed)
+      fs.files.set(manifestPath, JSON.stringify(changed))
+      await expect(generateDramaturgicalArtifacts({
+        fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+        providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+      })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
+    }
+    const unknownStatus = JSON.parse(originalManifestRaw)
+    unknownStatus.status = 'mystery'
+    fs.files.set(manifestPath, JSON.stringify(unknownStatus))
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_MANIFEST_INVALID' })
+    fs.files.set(manifestPath, originalManifestRaw)
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      conditions: ['baseline'], providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_CONDITION_UNKNOWN' })
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      repetitions: 3, providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_REPETITIONS_FIXED' })
+
+    await expect(generateDramaturgicalArtifacts({
+      fs, runDir, outputRoot: '/tmp/drama-test', fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'minimal-relation',
+      relationDecisionRef: { reportPath: '/tmp/report.json', reportSha256: 'a'.repeat(64), decision: 'minimal-relation-supported' }
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
+    await expect(generateDramaturgicalArtifacts({
+      fs: createMemoryFs(), runDir: '/tmp/outside/run', outputRoot: '/tmp/drama-test',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      providerConfig, provider: makeProvider({ count: 0 }), relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_PATH_INVALID' })
+
+    const relationFs = createMemoryFs()
+    const relationRef = {
+      reportPath: '/tmp/relation-report.json',
+      reportSha256: 'b'.repeat(64),
+      decision: 'minimal-relation-supported'
+    }
+    const relationDir = await generateDramaturgicalArtifacts({
+      fs: relationFs, outputRoot: '/tmp/drama-test', experimentRunId: 'relation-run',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES, providerConfig,
+      provider: makeProvider({ count: 0 }), relationMode: 'minimal-relation', relationDecisionRef: relationRef
+    })
+    await expect(generateDramaturgicalArtifacts({
+      fs: relationFs, runDir: relationDir, outputRoot: '/tmp/drama-test',
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES, providerConfig,
+      provider: makeProvider({ count: 0 }), relationMode: 'minimal-relation',
+      relationDecisionRef: { ...relationRef, reportSha256: 'c'.repeat(64) }
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RESUME_MISMATCH' })
   })
 
   it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {
