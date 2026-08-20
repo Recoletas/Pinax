@@ -118,6 +118,11 @@
       :breakpoint="760"
     />
 
+    <nav v-if="cards.length" class="canvas-surface-switch control-group" aria-label="画布组织方式">
+      <button type="button" class="control-toggle" :aria-pressed="canvasSurface === 'scene'" @click="canvasSurface = 'scene'">场景板</button>
+      <button type="button" class="control-toggle" :aria-pressed="canvasSurface === 'free'" @click="canvasSurface = 'free'">自由画布</button>
+    </nav>
+
     <section v-if="cards.length === 0 && isKao" class="prose-hero is-archive-paper" aria-label="画布零态引导">
       <div class="prose-hero__inner">
         <h1 class="prose-hero__title">画布空白</h1>
@@ -133,7 +138,7 @@
       </div>
     </section>
 
-    <div class="pe-main" :data-mobile-pane="mobilePane">
+    <div class="pe-main" :data-mobile-pane="mobilePane" :data-canvas-surface="canvasSurface">
       <!-- 左侧面板 -->
       <aside class="left-panel">
         <!-- 选中卡片详情面板 -->
@@ -191,6 +196,21 @@
           @open-video="openStoryboardVideoPanel"
         />
       </aside>
+
+      <div class="scene-board-host">
+        <SceneMaterialBoard
+          :model="sceneBoardModel"
+          :selected-card-id="selectedCard?.id || ''"
+          :relation-types="edgeTypes"
+          :director-export-status="directorExportStatus"
+          @select-card="selectSceneCard"
+          @open-source="openCardMaterial"
+          @add-to-beats="addSceneCardToBeats"
+          @remove-from-beats="removeSceneCardFromBeats"
+          @move-beat="moveSceneBeat"
+          @set-relation="setSceneRelation"
+        />
+      </div>
 
       <!-- Canvas area with absolute positioned cards -->
       <div class="card-wall" ref="cardWallRef" :class="{ 'has-cards': flatCards.length, 'storyboard-mode': currentMode === 'directing' }" @dragover.prevent="onCardWallDragOver" @drop="onCardWallDrop">
@@ -464,6 +484,7 @@ import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import CanvasEdgeLegend from '../components/canvas/CanvasEdgeLegend.vue'
 import CanvasTimeline from '../components/canvas/CanvasTimeline.vue'
+import SceneMaterialBoard from '../components/canvas/SceneMaterialBoard.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import StoryboardVideoPanel from '../components/media/StoryboardVideoPanel.vue'
@@ -511,6 +532,13 @@ import {
   prepareCanvasAgentTransaction,
   restoreCanvasAgentTransaction
 } from '../services/agents/canvasAgentTransaction'
+import {
+  addCardToOutline,
+  buildSceneMaterialBoard,
+  moveOutlineItem,
+  removeCardFromOutline as removeCardFromSceneOutline,
+  upsertSceneRelationship
+} from '../services/sceneMaterialBoard'
 
 const router = useRouter()
 const route = useRoute()
@@ -532,9 +560,10 @@ const {
 
 // Mode switching
 const currentMode = ref('directing')
-const mobilePane = ref('canvas')
+const canvasSurface = ref('scene')
+const mobilePane = ref('scene')
 const canvasMobilePanes = [
-  { value: 'canvas', label: '画布' },
+  { value: 'scene', label: '场景板' },
   { value: 'timeline', label: '时间轴与节点' }
 ]
 
@@ -741,6 +770,12 @@ const proseBranches = ref({ current: 'main', list: [{ name: 'main', headCommitId
 
 // Flat positioned nodes for rendering
 const flatCards = ref([])
+const sceneBoardModel = computed(() => buildSceneMaterialBoard({
+  cards: flatCards.value,
+  outline: outline.value,
+  edges: edges.value,
+  assets: canvasAssets.value
+}))
 const timelineItems = computed(() => outline.value
   .map((item, index) => makeTimelineItem(item, index))
   .filter(Boolean))
@@ -892,6 +927,10 @@ watch(cards, () => {
   if (_suppressLayoutWatch) return
   updateLayout()
 }, { deep: true })
+
+watch(canvasSurface, (surface) => {
+  if (surface === 'free') nextTick(() => updateLayout())
+})
 
 watch(hoveredPileId, () => updateLayout())
 watch(expandedPileId, () => updateLayout())
@@ -1499,7 +1538,7 @@ function getTimelineRelationText(index, card) {
 function jumpToTimelineItem(item) {
   if (!item?.focusCardId) return
   jumpToCard(item.focusCardId)
-  mobilePane.value = 'canvas'
+  mobilePane.value = 'scene'
 }
 
 function getCardTimelineSequence(cardId) {
@@ -1791,6 +1830,41 @@ function addToOutline() {
   createSnapshot('加入大纲')
   saveData()
   trackPreference('adopt_card', selectedCard.value)
+}
+
+function selectSceneCard(cardId) {
+  const card = cards.value.find((item) => item.id === cardId)
+  if (card) selectCard(card)
+}
+
+function addSceneCardToBeats(cardId) {
+  const card = flatCards.value.find((item) => item.id === cardId)
+  if (!card) return
+  const previous = outline.value
+  outline.value = addCardToOutline(outline.value, card)
+  if (outline.value === previous) return
+  addTimeline('场景板加入节拍')
+}
+
+function removeSceneCardFromBeats(cardId) {
+  const next = removeCardFromSceneOutline(outline.value, cardId)
+  if (next === outline.value) return
+  outline.value = next
+  addTimeline('场景板移出节拍')
+}
+
+function moveSceneBeat({ fromIndex, toIndex }) {
+  const next = moveOutlineItem(outline.value, fromIndex, toIndex)
+  if (next === outline.value) return
+  outline.value = next
+  addTimeline('场景板调整节拍顺序')
+}
+
+function setSceneRelation(relationship) {
+  const next = upsertSceneRelationship(edges.value, relationship)
+  if (next === edges.value) return
+  edges.value = next
+  addTimeline('场景板更新关系')
 }
 
 function getSelectedCardTimelineIndex() {
@@ -3229,11 +3303,35 @@ function exportEditingPackage() {
 }
 
 /* Main */
+.canvas-surface-switch {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
+  background: color-mix(in srgb, var(--archive-paper) 58%, var(--surface-panel));
+}
+
 .pe-main {
   flex: 1;
   display: flex;
   overflow: hidden;
   background: transparent;
+}
+
+.scene-board-host {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pe-main[data-canvas-surface='scene'] .scene-board-host {
+  display: flex;
+}
+
+.pe-main[data-canvas-surface='scene'] .card-wall {
+  display: none;
 }
 
 /* Card Wall - PoetryLab-style canvas */
@@ -4447,16 +4545,17 @@ function exportEditingPackage() {
   .prose-top__mid { padding-top: 8px; }
   .prose-top__input { min-width: 0; }
   .prose-hero { display: none; }
+  .canvas-surface-switch { display: none; }
   .pe-main { display: block; min-height: 0; }
   .pe-main .left-panel,
+  .pe-main .scene-board-host,
   .pe-main .card-wall { display: none; }
-  .pe-main[data-mobile-pane="canvas"] .card-wall,
+  .pe-main[data-mobile-pane="scene"] .scene-board-host,
   .pe-main[data-mobile-pane="timeline"] .left-panel {
     display: flex;
     width: 100%;
     height: 100%;
   }
-  .pe-main[data-mobile-pane="canvas"] .card-wall { display: block; }
   .left-panel { border-right: 0; }
   .empty-cards {
     width: min(100%, 320px);

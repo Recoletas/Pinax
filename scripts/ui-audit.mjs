@@ -14,7 +14,7 @@ const requestedWidths = String(process.env.UI_AUDIT_WIDTHS || '1440,1280,980,760
 const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .split(',')
   .map((value) => value.trim())
-  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit'].includes(value))
+  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit', 'scene-board'].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .split(',')
   .map((value) => value.trim())
@@ -81,8 +81,70 @@ function createPdfFixtureBuffer(text = 'Pinax PDF fixture') {
   return Buffer.from(output)
 }
 
+function makeSceneBoardFixture() {
+  const now = 1_788_883_200_000
+  const kinds = ['event', 'character-fact', 'draft-prose', 'worldbook-draft', 'storyboard-seed', 'inspiration', 'reference-image', 'event']
+  const titles = ['潮门开启', '守灯人的判断', '仓库回声', '旧港航道', '逆光镜头', '潮汐刻度', '灯塔构图', '归航信号']
+  const assets = titles.map((title, index) => ({
+    id: `scene-asset-${index + 1}`,
+    schemaVersion: 1,
+    projectId: 'scene-project',
+    source: { type: 'chapter', id: 'scene-chapter-1', chapterId: 'scene-chapter-1' },
+    sourceRefs: [{
+      refType: 'chapter',
+      refId: 'scene-chapter-1',
+      projectId: 'scene-project',
+      version: 'scene-v1',
+      excerpt: `第 ${index + 1} 条来源片段`
+    }],
+    contentHash: `scene-hash-${index + 1}`,
+    kind: kinds[index],
+    title,
+    content: `${title}。雾港的潮声把线索推向下一个场景节拍。`,
+    status: index === 4 ? 'archived' : 'accepted',
+    image: null,
+    embeddedImagePresentations: {},
+    createdAt: now + index,
+    updatedAt: now + index
+  }))
+  const cards = Array.from({ length: 6 }, (_, index) => ({
+    id: `scene-card-${index + 1}`,
+    assetId: index === 5 ? 'scene-asset-missing' : assets[index].id,
+    content: index === 5 ? '未找到来源的旧航道便签' : assets[index].content,
+    emotion: 'calm',
+    wordCount: 20 + index,
+    createdAt: new Date(now + index * 1000).toISOString(),
+    updatedAt: new Date(now + index * 1000).toISOString(),
+    pileId: null,
+    zone: index < 5 ? 'editing' : 'material',
+    x: 72 + (index % 3) * 280,
+    y: 72 + Math.floor(index / 3) * 210,
+    extraFields: {
+      shotType: index % 2 ? 'close_up' : 'wide',
+      cameraMovement: index % 2 ? 'dolly' : 'static',
+      duration: 3 + index
+    }
+  }))
+
+  return {
+    narrative_assets_v1: assets,
+    prose_cards_v1: cards,
+    prose_edges_v1: [
+      { id: 'scene-edge-1', sourceId: 'scene-card-1', targetId: 'scene-card-2', type: 'continuation' },
+      { id: 'scene-edge-2', sourceId: 'scene-card-3', targetId: 'scene-card-5', type: 'contrast' }
+    ],
+    prose_outline_v1: cards.slice(0, 5).map((card, index) => ({
+      cardId: card.id,
+      preview: card.content,
+      order: index
+    })),
+    prose_timeline_v1: []
+  }
+}
+
 function makeFixture(state) {
   if (state === 'empty') return {}
+  if (state === 'scene-board') return makeSceneBoardFixture()
   const long = state === 'long'
   // R0 (G1.4.10): replace numbered repeated passage with 6 realistic narrative
   // samples covering the 6 scenarios the plan calls out (长叙述 / 双人对白 /
@@ -405,6 +467,7 @@ async function installThemeFixture(page, state) {
 }
 
 function supportsActionState(route, state) {
+  if (state === 'scene-board') return route.id === 'prose-essay'
   if (['partial', 'stale', 'cancelled'].includes(state)) {
     return state === 'partial'
       ? ['settings-worldbook-create', 'settings-structured'].includes(route.id)
@@ -1200,8 +1263,14 @@ async function run() {
         page.on('pageerror', (error) => consoleErrors.push(error.message))
         await installThemeFixture(page, state)
         await installActionScenario(page, state)
-        const response = await page.goto(`${baseUrl}${route.path}`, { waitUntil: 'commit', timeout: 30_000 })
+        const routePath = route.id === 'prose-essay' && state === 'scene-board'
+          ? '/prose-essay?assetId=scene-asset-1'
+          : route.path
+        const response = await page.goto(`${baseUrl}${routePath}`, { waitUntil: 'commit', timeout: 30_000 })
         await page.locator(route.surfaces[0]).waitFor({ state: 'attached', timeout: 30_000 })
+        if (route.id === 'prose-essay' && state === 'scene-board') {
+          await page.locator('[data-scene-material-board]').waitFor({ state: 'visible', timeout: 30_000 })
+        }
         await page.waitForTimeout(700)
         const routeScenario = await triggerRouteScenario(page, route, state, importFixturePath)
         const actionScenario = await triggerActionScenario(page, route, state)
@@ -1238,7 +1307,7 @@ async function run() {
         }
         const entry = {
           route: route.id,
-          path: route.path,
+          path: routePath,
           state,
           width,
           status: response?.status() ?? null,

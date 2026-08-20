@@ -32,7 +32,8 @@
     "gate:narrative-release": "node scripts/narrative-release-gate.mjs",
     "smoke:narrative-stream": "node scripts/narrative-agent-stream-smoke.mjs",
     "smoke:narrative-recovery": "node scripts/narrative-recovery-smoke.mjs",
-    "smoke:online-narrative": "node scripts/online-narrative-smoke.mjs"
+    "smoke:online-narrative": "node scripts/online-narrative-smoke.mjs",
+    "benchmark:materials-retrieval": "vite-node scripts/benchmark-material-retrieval.mjs"
   },
   "dependencies": {
     "@tiptap/extension-unique-id": "^3.29.2",

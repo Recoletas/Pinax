@@ -133,7 +133,7 @@
               <span class="material-selection-stamp-tick" aria-hidden="true"></span>
             </div>
             <div class="selection-actions" role="group" aria-label="批量处理勾选素材">
-              <button class="selection-action-btn material-action-btn primary" type="button" @click="importCheckedToCanvas">导入</button>
+              <button class="selection-action-btn material-action-btn primary" type="button" :disabled="checkedAssetIds.length === 0" @click="sendCheckedAssetsToCanvas">送入画布</button>
               <button v-if="checkedAssetIds.length > 1" class="selection-action-btn material-action-btn" type="button" @click="mergeCheckedAssets">合并</button>
               <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('accepted')">采纳</button>
               <button class="selection-action-btn material-action-btn" type="button" @click="setCheckedAssetsState('archived')">归档</button>
@@ -141,6 +141,9 @@
             </div>
           </div>
         </Transition>
+        <p v-if="canvasTransferFeedback" class="canvas-transfer-feedback" role="status" aria-live="polite">
+          {{ canvasTransferFeedback }}
+        </p>
       </aside>
 
       <!-- 中：阅读台 (Reading Deck) -->
@@ -445,7 +448,10 @@
           >
             <span class="sidekick-slip__tab" :style="{ background: getAssetKindColor(asset.kind) }" aria-hidden="true"></span>
             <div class="sidekick-slip__line-1">
-              <span class="sidekick-slip__kind">{{ getAssetKindLabel(asset.kind) }}</span>
+              <span class="sidekick-slip__kind">
+                {{ getAssetKindLabel(asset.kind) }}
+                <span v-if="asset.sidekickReason === 'same-source'" class="sidekick-slip__reason">同来源</span>
+              </span>
               <span class="sidekick-slip__status-dot" :style="{ background: getStatusColor(asset.status) }" aria-hidden="true"></span>
             </div>
             <span class="sidekick-slip__title">{{ asset.title || '无标题素材' }}</span>
@@ -456,7 +462,7 @@
             </div>
           </button>
           <div v-if="sidekickItems.length === 0" class="notes-sidekick__empty" role="status">
-            暂无相关素材
+            暂无同来源素材
           </div>
         </div>
         </template>
@@ -577,6 +583,7 @@ import {
   setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
+import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'
 import {
   addNarrativeImageAsset,
   getMediaImagePresentation,
@@ -594,6 +601,7 @@ import { listImageProviderConfigs } from '../services/media/imageProviderConfigS
 import {
   deleteAssetCanvasReferences,
   ensureAssetCanvasCard,
+  ensureAssetCanvasCards,
   ensureAssetCanvasCardWithExtra,
   findAssetCanvasCard
 } from '../services/relationCanvas'
@@ -649,6 +657,7 @@ const sidekickImageModelConfigs = ref([])
 const sidekickImageModelId = ref('')
 const checkedAssetIds = ref([])
 const canvasImportRevision = ref(0)
+const canvasTransferFeedback = ref('')
 const collapsedAssetKinds = ref({})
 
 // UI-N10: Multi-card canvas — 取消 N6 的 MAX_PINNED_SLIPS=3 硬限,
@@ -663,6 +672,7 @@ const collapsedAssetKinds = ref({})
 const MAX_PINNED_SLIPS = 9999 // was 3; N10 removes hard cap
 const MAX_HINTED_SLIPS = 6 // 多于此数才显示底部 cross 翻页提示
 const pinnedSlipIds = ref([])
+const explicitPinnedSlipIds = ref([])
 const pinnedSlipPositions = reactive({})
 const boardRef = ref(null)
 const NOTES_PINNED_SLIPS_KEY = 'pinax_notes_pinned_slips_v1'
@@ -686,28 +696,35 @@ const slipItemsOnCanvas = computed(() => {
   return pinnedSlipAssets.value.filter((a) => a.id !== selectedChapterId.value)
 })
 
-// K3 (2026-06-27): 副阅读台 (notes-sidekick) 显示列表.
-// 选中态 → 同类 (排除 active) 优先, 不足再补近期; 上限 4 张.
-// 非选中态 → 按 chapters 已有的 status-priority + recency 排序 (loadNotes
-// 已排序), 取前 4. 不实现真实拖拽, 只做点击切换 (selectChapter).
-// 跟 N10 multi-canvas__slips 的拖拽并行: 多卡画布保留 useCanvasBoard
-// 的 1.55fr 主卡 + 1fr slip 拖拽舞台; 副阅读台是右列静态列表, 提供
-// "一次能看到 2-4 张" 的快读, 跟"一次只能看一个"的中央主卡互补.
 const SIDEKICK_MAX_ITEMS = 4
+const exactRelatedAssets = computed(() => {
+  const selected = chapters.value.find((asset) => asset.id === selectedChapterId.value)
+  if (!selected) return []
+  const result = findAssetsByContentRefs(selected.sourceRefs, {
+    projectId: selected.projectId,
+    assets: chapters.value
+  })
+  return result.exactMatches
+    .map((item) => item.asset)
+    .filter((asset) => asset.id !== selected.id)
+})
+const explicitPinnedSlipAssets = computed(() => explicitPinnedSlipIds.value
+  .map((id) => chapters.value.find((asset) => asset.id === id))
+  .filter((asset) => asset && asset.id !== selectedChapterId.value))
 const sidekickItems = computed(() => {
-  if (chapters.value.length === 0) return []
-  const selectedId = selectedChapterId.value
-  const selected = selectedId
-    ? chapters.value.find((a) => a.id === selectedId)
-    : null
-  if (selected) {
-    const sameKind = chapters.value.filter((a) =>
-      a.id !== selectedId && a.kind === selected.kind)
-    const otherKind = chapters.value.filter((a) =>
-      a.id !== selectedId && a.kind !== selected.kind)
-    return [...sameKind, ...otherKind].slice(0, SIDEKICK_MAX_ITEMS)
+  const items = []
+  const seen = new Set()
+  for (const asset of explicitPinnedSlipAssets.value) {
+    if (seen.has(asset.id)) continue
+    seen.add(asset.id)
+    items.push({ ...asset, sidekickReason: 'pinned' })
   }
-  return chapters.value.slice(0, SIDEKICK_MAX_ITEMS)
+  for (const asset of exactRelatedAssets.value) {
+    if (seen.has(asset.id)) continue
+    seen.add(asset.id)
+    items.push({ ...asset, sidekickReason: 'same-source' })
+  }
+  return items.slice(0, SIDEKICK_MAX_ITEMS)
 })
 
 // useCanvasBoard 提供 6 个 drag/drop handler + layoutItems + styleFor
@@ -1879,6 +1896,7 @@ function loadNotesPinnedSlipsPref() {
       pinnedSlipIds.value = data.ids
         .filter((id) => typeof id === 'string')
         .slice(0, MAX_PINNED_SLIPS)
+      explicitPinnedSlipIds.value = [...pinnedSlipIds.value]
     }
     if (data?.positions && typeof data.positions === 'object') {
       for (const [id, pos] of Object.entries(data.positions)) {
@@ -1894,6 +1912,7 @@ function loadNotesPinnedSlipsPref() {
 
 function saveNotesPinnedSlipsPref() {
   try {
+    explicitPinnedSlipIds.value = [...pinnedSlipIds.value]
     localStorage.setItem(
       NOTES_PINNED_SLIPS_KEY,
       JSON.stringify({
@@ -1921,11 +1940,16 @@ function importCurrentToCanvas() {
   openSelectedAssetInCanvas()
 }
 
-function importCheckedToCanvas() {
-  getCheckedAssets()
-    .forEach((asset) => ensureAssetCanvasCard(asset))
+function sendCheckedAssetsToCanvas() {
+  const selected = getCheckedAssets()
+  if (!selected.length) return
+  saveCurrentChapter()
+  const result = ensureAssetCanvasCards(selected)
   canvasImportRevision.value += 1
+  canvasTransferFeedback.value = `已送入画布 ${result.cards.length} 项，其中 ${result.existingAssetIds.length} 项已存在`
+  const primary = selected.find((asset) => asset.id === selectedAsset.value?.id) || selected[0]
   checkedAssetIds.value = []
+  router.push({ name: 'prose-essay', query: { assetId: primary.id } })
 }
 
 function importAllToCanvas() {
@@ -3175,6 +3199,15 @@ function syncSelectionCommandState() {
 .selection-action-btn:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+.canvas-transfer-feedback {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 35%, transparent);
+  color: var(--archive-ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .material-group {
@@ -5313,6 +5346,12 @@ function syncSelectionCommandState() {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--archive-ink-soft);
+}
+
+.sidekick-slip__reason {
+  margin-left: 5px;
+  color: var(--accent);
+  letter-spacing: 0.08em;
 }
 
 .sidekick-slip__status-dot {

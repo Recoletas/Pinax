@@ -19,6 +19,10 @@ const notebookEditor = readFileSync(resolve(__dirname, '../components/writing/Wr
 const gamePanel = readFileSync(resolve(__dirname, '../components/GamePanel.vue'), 'utf8')
 const narrativeTurn = readFileSync(resolve(__dirname, '../components/experience/NarrativeTurn.vue'), 'utf8')
 const imageWorkbench = readFileSync(resolve(__dirname, '../components/media/ImageGenerationWorkbench.vue'), 'utf8')
+const sceneMaterialBoardPath = resolve(__dirname, '../components/canvas/SceneMaterialBoard.vue')
+const sceneMaterialBoard = existsSync(sceneMaterialBoardPath)
+  ? readFileSync(sceneMaterialBoardPath, 'utf8')
+  : ''
 
 describe('workbench control contract (U1)', () => {
   it('defines the six control semantics with shared focus, hit areas, and no transition:all', () => {
@@ -165,5 +169,113 @@ describe('workbench control contract (U1)', () => {
     expect(writing).toContain('const scrollState = captureWritingScrollState()')
     expect(writing).toContain('restoreWritingScrollState(scrollState)')
     expect(writing).toContain("focus({ preventScroll: true })")
+  })
+
+  it('uses exact source-linked materials and transfers the checked selection to canvas', () => {
+    const notesTemplate = notes.split('<script setup>')[0]
+
+    expect(notes).toContain("import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'")
+    expect(notes).toContain('const exactRelatedAssets = computed')
+    expect(notes).toContain('result.exactMatches')
+    expect(notes).toContain('explicitPinnedSlipAssets')
+    expect(notes).toContain("sidekickReason: 'same-source'")
+    expect(notes).not.toContain('const sameKind = chapters.value.filter')
+    expect(notesTemplate).toContain('同来源')
+    expect(notesTemplate).toContain('暂无同来源素材')
+
+    expect(notes).toContain('ensureAssetCanvasCards')
+    expect(notes).toContain('function sendCheckedAssetsToCanvas()')
+    expect(notesTemplate).toContain('送入画布')
+    expect(notesTemplate).toContain(':disabled="checkedAssetIds.length === 0"')
+    expect(notes).toContain("router.push({ name: 'prose-essay', query: { assetId: primary.id } })")
+    expect(notes).toContain('已送入画布 ${result.cards.length} 项，其中 ${result.existingAssetIds.length} 项已存在')
+    expect(notesTemplate).toContain('role="status"')
+    expect(notesTemplate).toContain('aria-live="polite"')
+
+    for (const unchangedAction of ['mergeCheckedAssets', "setCheckedAssetsState('archived')", 'deleteCheckedAssets']) {
+      expect(notesTemplate).toContain(unchangedAction)
+    }
+  })
+
+  it('defines a controlled, keyboard-operable scene material board', () => {
+    expect(existsSync(sceneMaterialBoardPath)).toBe(true)
+    for (const prop of ['model', 'selectedCardId', 'relationTypes', 'directorExportStatus']) {
+      expect(sceneMaterialBoard).toContain(`${prop}:`)
+    }
+    for (const event of [
+      'select-card',
+      'open-source',
+      'add-to-beats',
+      'remove-from-beats',
+      'move-beat',
+      'set-relation'
+    ]) {
+      expect(sceneMaterialBoard).toContain(`'${event}'`)
+    }
+
+    for (const region of ['关系编组', '节拍', '待选素材']) {
+      expect(sceneMaterialBoard).toContain(region)
+    }
+    expect(sceneMaterialBoard).toContain("const mobileTab = ref('beats')")
+    expect(sceneMaterialBoard).toContain('把第 ${item.sequence} 个节拍上移')
+    expect(sceneMaterialBoard).toContain('把第 ${item.sequence} 个节拍下移')
+    expect(sceneMaterialBoard).toContain(':aria-pressed="selectedRelationType === relationType.value"')
+    expect(sceneMaterialBoard).toContain('来源已归档')
+    expect(sceneMaterialBoard).toContain('来源已断开')
+    expect(sceneMaterialBoard).toContain('从待选素材加入第一个节拍')
+    expect(sceneMaterialBoard).toContain('请选择两张卡片建立关系')
+    expect(sceneMaterialBoard).not.toMatch(/pointerdown|pointermove|pointerup|touchstart|touchmove|draggable=/)
+    expect(sceneMaterialBoard).toContain('@media (max-width: 760px)')
+  })
+
+  it('makes the scene board the default organizer while retaining desktop free canvas workflows', () => {
+    const proseTemplate = proseEssay.split('<script setup>')[0]
+    const mobilePanes = proseEssay.slice(
+      proseEssay.indexOf('const canvasMobilePanes'),
+      proseEssay.indexOf('// Director mode edge types')
+    )
+
+    expect(proseEssay).toContain("import SceneMaterialBoard from '../components/canvas/SceneMaterialBoard.vue'")
+    for (const helper of [
+      'buildSceneMaterialBoard',
+      'addCardToOutline',
+      'removeCardFromOutline',
+      'moveOutlineItem',
+      'upsertSceneRelationship'
+    ]) {
+      expect(proseEssay).toContain(helper)
+    }
+    expect(proseEssay).toContain("const canvasSurface = ref('scene')")
+    expect(proseTemplate).toContain('场景板')
+    expect(proseTemplate).toContain('自由画布')
+    expect(proseTemplate).toContain('<SceneMaterialBoard')
+    expect(proseEssay).toContain('const sceneBoardModel = computed(() => buildSceneMaterialBoard({')
+    expect(proseEssay).toContain('cards: flatCards.value')
+    expect(proseEssay).toContain('outline: outline.value')
+    expect(proseEssay).toContain('edges: edges.value')
+    expect(proseEssay).toContain('assets: canvasAssets.value')
+    expect(proseEssay).toContain('outline.value = addCardToOutline(outline.value, card)')
+    expect(proseEssay).toContain('const next = moveOutlineItem(outline.value, fromIndex, toIndex)')
+    expect(proseEssay).toContain('const next = upsertSceneRelationship(edges.value, relationship)')
+    expect(proseEssay).toContain('if (next === outline.value) return')
+    expect(proseEssay).toContain('if (next === edges.value) return')
+
+    expect(mobilePanes).toContain("{ value: 'scene', label: '场景板' }")
+    expect(mobilePanes).not.toContain("value: 'free'")
+    expect(proseTemplate).toContain('<CanvasTimeline')
+    expect(proseTemplate).toContain('directorExportStatus')
+    expect(proseTemplate).toContain('openStoryboardVideoPanel')
+    expect(proseTemplate).toContain('openCardMaterial')
+    expect(proseEssay).not.toContain('MATERIAL_BEATS_V1')
+  })
+
+  it('seeds and waits for a deterministic scene-board browser audit state', () => {
+    expect(uiAudit).toContain("'scene-board'")
+    expect(uiAudit).toContain('function makeSceneBoardFixture')
+    expect(uiAudit).toContain("state === 'scene-board'")
+    expect(uiAudit).toContain("'/prose-essay?assetId=scene-asset-1'")
+    expect(uiAudit).toContain("page.locator('[data-scene-material-board]')")
+    expect(uiAudit).toContain("status: index === 4 ? 'archived' : 'accepted'")
+    expect(uiAudit).toContain("assetId: index === 5 ? 'scene-asset-missing' : assets[index].id")
   })
 })

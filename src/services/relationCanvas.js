@@ -16,14 +16,55 @@ export function findAssetCanvasCard(assetId) {
 }
 
 export function ensureAssetCanvasCard(asset) {
-  if (!asset?.id) return null
+  return ensureAssetCanvasCards([asset]).cards[0] || null
+}
 
-  const cards = listRelationCanvasCards()
-  const existing = cards.find((card) => card.assetId === asset.id)
-  if (existing) return existing
+export function ensureAssetCanvasCards(assets = []) {
+  const uniqueAssets = []
+  const seenAssetIds = new Set()
+  for (const asset of Array.isArray(assets) ? assets : []) {
+    const assetId = String(asset?.id || '').trim()
+    if (!assetId || seenAssetIds.has(assetId)) continue
+    seenAssetIds.add(assetId)
+    uniqueAssets.push(assetId === asset.id ? asset : { ...asset, id: assetId })
+  }
 
+  const storedCards = listRelationCanvasCards()
+  const cardsByAssetId = new Map(storedCards.map((card) => [card.assetId, card]))
+  const cards = []
+  const createdAssetIds = []
+  const existingAssetIds = []
+  const createdCards = []
+
+  for (const asset of uniqueAssets) {
+    const existing = cardsByAssetId.get(asset.id)
+    if (existing) {
+      cards.push(existing)
+      existingAssetIds.push(asset.id)
+      continue
+    }
+
+    const card = createAssetCanvasCard(asset)
+    cards.push(card)
+    createdCards.push(card)
+    createdAssetIds.push(asset.id)
+    cardsByAssetId.set(asset.id, card)
+  }
+
+  if (createdCards.length) {
+    setItem(STORAGE_KEYS.PROSE_CARDS_V1, [...storedCards, ...createdCards])
+  }
+
+  return { cards, createdAssetIds, existingAssetIds }
+}
+
+function countWords(text) {
+  return String(text || '').replace(/\s/g, '').length
+}
+
+function createAssetCanvasCard(asset) {
   const now = new Date().toISOString()
-  const card = {
+  return {
     id: `card_asset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     assetId: asset.id,
     content: String(asset.content || asset.title || '').trim(),
@@ -37,13 +78,6 @@ export function ensureAssetCanvasCard(asset) {
     y: null,
     extraFields: null
   }
-
-  setItem(STORAGE_KEYS.PROSE_CARDS_V1, [...cards, card])
-  return card
-}
-
-function countWords(text) {
-  return String(text || '').replace(/\s/g, '').length
 }
 
 export function ensureAssetCanvasCardWithExtra(asset, extraFields) {

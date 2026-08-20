@@ -33,11 +33,16 @@ import {
   hydrateMarkdownMediaContent,
   migrateMarkdownMediaContent
 } from '@/services/media/markdownMediaBridge'
+import {
+  ensureAssetCanvasCards,
+  listRelationCanvasCards
+} from '@/services/relationCanvas'
 
 describe('narrativeAssets', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
     localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
   })
 
   it('creates normalized inbox assets', () => {
@@ -236,6 +241,45 @@ describe('narrativeAssets', () => {
     addNarrativeAsset({ content: '拒绝素材', kind: 'worldbook-draft', status: 'rejected' })
 
     expect(listActiveNarrativeAssets().map((asset) => asset.id)).toEqual([accepted.id, inbox.id])
+  })
+
+  it('imports an ordered asset selection into canvas cards idempotently', () => {
+    const assetA = createNarrativeAsset({ id: 'asset-a', content: '素材 A' })
+    const assetB = createNarrativeAsset({ id: 'asset-b', content: '素材 B' })
+
+    const result = ensureAssetCanvasCards([assetB, assetA, assetB, null, {}])
+
+    expect(result.cards.map((card) => card.assetId)).toEqual([assetB.id, assetA.id])
+    expect(result.createdAssetIds).toEqual([assetB.id, assetA.id])
+    expect(result.existingAssetIds).toEqual([])
+
+    const storedBeforeRepeat = listRelationCanvasCards()
+    storedBeforeRepeat[0].content = '画布中已经修改的内容'
+    storedBeforeRepeat[0].x = 120
+    localStorage.setItem(STORAGE_KEYS.PROSE_CARDS_V1, JSON.stringify(storedBeforeRepeat))
+
+    const repeated = ensureAssetCanvasCards([assetA, assetB])
+
+    expect(repeated.createdAssetIds).toEqual([])
+    expect(repeated.existingAssetIds).toEqual([assetA.id, assetB.id])
+    expect(repeated.cards.map((card) => card.assetId)).toEqual([assetA.id, assetB.id])
+    expect(listRelationCanvasCards()).toHaveLength(2)
+    expect(listRelationCanvasCards().find((card) => card.assetId === assetB.id))
+      .toMatchObject({ content: '画布中已经修改的内容', x: 120 })
+  })
+
+  it('returns an empty canvas import result for invalid selections', () => {
+    expect(ensureAssetCanvasCards([])).toEqual({
+      cards: [],
+      createdAssetIds: [],
+      existingAssetIds: []
+    })
+    expect(ensureAssetCanvasCards([null, {}, { id: '' }])).toEqual({
+      cards: [],
+      createdAssetIds: [],
+      existingAssetIds: []
+    })
+    expect(listRelationCanvasCards()).toEqual([])
   })
 
   it('permanently deletes an asset instead of archiving it', () => {
