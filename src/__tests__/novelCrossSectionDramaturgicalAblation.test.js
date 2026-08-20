@@ -10,7 +10,9 @@ import {
   DRAMATURGICAL_PROMPT_CONTRACT_VERSION,
   serializeMinimalEngine,
   serializeFullVocabulary,
-  buildDramaturgicalConditionPrompt
+  buildDramaturgicalConditionPrompt,
+  expandDramaturgicalMatrix,
+  runDramaturgicalCondition
 } from '../../scripts/lib/novel-cross-section-dramaturgical-ablation.mjs'
 import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
@@ -81,6 +83,91 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       expect(fixture.dramaturgicalGroundTruth.acceptableStateChanges.length).toBeGreaterThan(0)
       expect(fixture.dramaturgicalGroundTruth.prohibitedShortcuts.length).toBeGreaterThan(0)
     }
+  })
+
+  it('expands the 24-attempt matrix with stable ordering and pair families (Task 3)', () => {
+    const matrix = expandDramaturgicalMatrix()
+    expect(matrix.attemptCount).toBe(24)
+    expect(matrix.pairCounts).toEqual({
+      'minimal-engine-vs-baseline': 8,
+      'full-vocabulary-vs-minimal-engine': 8
+    })
+    expect(new Set(matrix.attempts.map(({ runId }) => runId)).size).toBe(24)
+    expect(new Set(matrix.attempts.map(({ condition }) => condition))).toEqual(new Set(DRAMATURGICAL_CONDITIONS))
+    // fixture 主序、repetition 次序、condition 末序
+    expect(matrix.attempts[0].runId).toBe('canal-ledger-baseline-r1')
+    expect(matrix.attempts[1].runId).toBe('canal-ledger-minimal-engine-r1')
+    expect(matrix.attempts[2].runId).toBe('canal-ledger-full-vocabulary-r1')
+    expect(matrix.attempts[3].runId).toBe('canal-ledger-baseline-r2')
+    expect(matrix.attempts[23].runId).toBe('temple-debt-token-full-vocabulary-r2')
+    expect(matrix.repetitions).toBe(2)
+    expect(matrix.worstCaseProviderCalls).toBe(24)
+  })
+
+  it('runs each condition once through the provider boundary with typed failures (Task 3)', async () => {
+    const fixture = CROSS_SECTION_DRAMATURGICAL_FIXTURES[1]
+    const requests = []
+    let clock = 1000
+    const provider = {
+      invoke: async request => {
+        requests.push(request)
+        clock += 150
+        if (requests.length === 2) {
+          throw Object.assign(new Error('上游超时'), { code: 'UPSTREAM_TIMEOUT' })
+        }
+        if (requests.length === 3) return { text: '' }
+        return {
+          text: ':::narration\n母亲把录音机往女儿那边推了推。\n:::dialogue|女儿\n「妈，那一分钟呢？」',
+          usage: { inputTokens: 10, outputTokens: 20 }
+        }
+      }
+    }
+
+    const baseline = await runDramaturgicalCondition({
+      fixture, condition: 'baseline', repetition: 1, provider,
+      relationMode: 'none', now: () => clock
+    })
+    expect(baseline.status).toBe('success')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].maxTokens).toBe(1800)
+    expect(requests[0].temperature).toBe(0.4)
+    expect(baseline.readableText).toContain('录音机')
+    expect(baseline.usage.totalTokens).toBe(30)
+    expect(baseline.latencyMs).toBe(150)
+    expect(baseline.promptMetrics.conditionChars).toBe(0)
+    expect(baseline.unauthorizedFactEvents).toEqual([])
+    expect(baseline.condition).toBe('baseline')
+    expect(baseline.relationMode).toBe('none')
+    expect(JSON.stringify(baseline)).not.toMatch(/apiKey|baseUrl/i)
+
+    const failed = await runDramaturgicalCondition({
+      fixture, condition: 'minimal-engine', repetition: 1, provider,
+      relationMode: 'none', now: () => clock
+    })
+    expect(failed.status).toBe('failed')
+    expect(failed.error.code).toBe('UPSTREAM_TIMEOUT')
+    expect(requests).toHaveLength(2)
+    // 失败不重试到其它条件：同一 runId 保持
+    expect(failed.runId).toBe('birthday-recorder-minimal-engine-r1')
+
+    const parseFailed = await runDramaturgicalCondition({
+      fixture, condition: 'full-vocabulary', repetition: 1, provider,
+      relationMode: 'none', now: () => clock
+    })
+    expect(parseFailed.status).toBe('failed')
+    expect(parseFailed.error.code).toBeTruthy()
+
+    // 未知条件 / 关系模式 typed 拒绝
+    await expect(runDramaturgicalCondition({
+      fixture, condition: 'ghost', repetition: 1, provider, relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_CONDITION_UNKNOWN' })
+    await expect(runDramaturgicalCondition({
+      fixture, condition: 'baseline', repetition: 1, provider, relationMode: 'ghost'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_RELATION_MODE_INVALID' })
+    await expect(runDramaturgicalCondition({
+      fixture: null, condition: 'baseline', repetition: 1, provider, relationMode: 'none'
+    })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH' })
+    expect(requests).toHaveLength(3)
   })
 
   it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {

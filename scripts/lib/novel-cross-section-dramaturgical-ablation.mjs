@@ -6,7 +6,12 @@
  * 唯一差异是追加的戏剧块：S1 四问 / S1+S2 冗余词表。
  * 与 relation-ab 一致地复制 bake-off 私有 formatter（保持字节一致，不做提取）。
  */
-import { buildFinalProseContract } from './novel-cross-section-bakeoff.mjs'
+import { normalizeGenerationUsage } from '../../shared/generationToolContract.js'
+import {
+  buildFinalProseContract,
+  normalizeCrossSectionFinalProse,
+  scanUnauthorizedFacts
+} from './novel-cross-section-bakeoff.mjs'
 import {
   CROSS_SECTION_RELATION_FIXTURES,
   validateCrossSectionRelationFixtures
@@ -168,6 +173,109 @@ export function buildDramaturgicalConditionPrompt({ fixture, condition, relation
   }
 }
 
+/* ============================================================================
+ * Task 3：24 尝试矩阵与受控 runner
+ * ========================================================================== */
+
+export function expandDramaturgicalMatrix({
+  fixtures = CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+  conditions = DRAMATURGICAL_CONDITIONS,
+  repetitions = 2
+} = {}) {
+  if (repetitions !== 2) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_REPETITIONS_FIXED', 'v1 固定 repetitions=2')
+  }
+  if ([...conditions].sort().join('|') !== [...DRAMATURGICAL_CONDITIONS].sort().join('|')) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_CONDITION_UNKNOWN', '条件集只能是三条件消融')
+  }
+  const attempts = []
+  for (const fixture of fixtures) {
+    for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+      for (const condition of DRAMATURGICAL_CONDITIONS) {
+        attempts.push({
+          runId: `${fixture.id}-${condition}-r${repetition}`,
+          fixtureId: fixture.id,
+          repetition,
+          condition
+        })
+      }
+    }
+  }
+  return {
+    attempts,
+    attemptCount: attempts.length,
+    pairCounts: {
+      'minimal-engine-vs-baseline': fixtures.length * repetitions,
+      'full-vocabulary-vs-minimal-engine': fixtures.length * repetitions
+    },
+    fixtureIds: fixtures.map(({ id }) => id),
+    conditions: [...DRAMATURGICAL_CONDITIONS],
+    repetitions,
+    worstCaseProviderCalls: attempts.length
+  }
+}
+
+/**
+ * Task 3：执行单条件。provider.invoke 恰好一次；失败保留在私有记录，
+ * 不换条件重试。成功记录含规范化正文、泄漏扫描、用量、延迟与双 provenance。
+ */
+export async function runDramaturgicalCondition({
+  fixture,
+  condition,
+  repetition,
+  provider,
+  relationMode = 'none',
+  runId,
+  now = () => Date.now()
+} = {}) {
+  const fixtureId = fixture && typeof fixture === 'object' ? String(fixture.id || '') : ''
+  const attemptRunId = String(runId || `${fixtureId}-${condition}-r${repetition}`)
+  const startedAt = now()
+  const base = { runId: attemptRunId, fixtureId, repetition, condition, relationMode, latencyMs: 0 }
+  // 契约错误（未知条件/模式/fixture 校验）直接抛出；只有运行期失败转为 failed 记录
+  const prompt = buildDramaturgicalConditionPrompt({ fixture, condition, relationMode })
+  try {
+    const result = await provider.invoke({
+      callId: `${attemptRunId}:final`,
+      system: prompt.system,
+      user: prompt.user,
+      maxTokens: prompt.maxTokens,
+      temperature: prompt.temperature
+    })
+    const normalized = normalizeCrossSectionFinalProse(result?.text, fixture, attemptRunId)
+    const scan = scanUnauthorizedFacts({ fixture, runId: attemptRunId, presentation: normalized.presentation })
+    return {
+      ...base,
+      status: 'success',
+      readableText: normalized.readableText,
+      rawText: normalized.rawText,
+      presentation: normalized.presentation,
+      disclosures: scan.disclosures,
+      unauthorizedFactEvents: scan.leaks,
+      needsHumanInformationReview: scan.needsHumanReview,
+      usage: normalizeGenerationUsage(result?.usage || {}),
+      latencyMs: Math.max(0, now() - startedAt),
+      promptMetrics: prompt.promptMetrics,
+      conditionProvenance: {
+        condition,
+        conditionChars: prompt.promptMetrics.conditionChars,
+        promptContractVersion: DRAMATURGICAL_PROMPT_CONTRACT_VERSION
+      },
+      relationProvenance: { relationMode }
+    }
+  } catch (error) {
+    return {
+      ...base,
+      status: 'failed',
+      error: { code: String(error?.code || 'CROSS_SECTION_DRAMATURGY_RUN_FAILED'), message: String(error?.message || '戏剧消融运行失败') },
+      latencyMs: Math.max(0, now() - startedAt),
+      promptMetrics: prompt.promptMetrics,
+      conditionProvenance: { condition },
+      relationProvenance: { relationMode }
+    }
+  }
+}
+
 export const fixtureDigestValue = fixtures => JSON.stringify(
   fixtures.map(({ id, minimalEngine, fullVocabulary, dramaturgicalGroundTruth }) => ({
     id,
@@ -185,5 +293,7 @@ export default {
   DRAMATURGICAL_AUTHORING_CONTRACT_VERSION,
   serializeMinimalEngine,
   serializeFullVocabulary,
-  buildDramaturgicalConditionPrompt
+  buildDramaturgicalConditionPrompt,
+  expandDramaturgicalMatrix,
+  runDramaturgicalCondition
 }
