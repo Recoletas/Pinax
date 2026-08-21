@@ -102,8 +102,9 @@ export function buildAnthropicToolRequest(request) {
         ? { type: 'any' }
         : (toolChoice && typeof toolChoice === 'object' ? toolChoice : { type: 'auto' })
   }
-  if (capabilities && capabilities.parallelToolCalls === false) {
-    body.tool_choice = { type: 'auto', disable_parallel_tool_use: true }
+  if ((capabilities && capabilities.parallelToolCalls === false)
+    || request.options?.parallelToolCalls === false) {
+    body.tool_choice = { ...body.tool_choice, disable_parallel_tool_use: true }
   }
   if (toolChoice === 'none') {
     delete body.tools

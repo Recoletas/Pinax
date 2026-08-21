@@ -38,11 +38,29 @@ describe('gameStore sessions', () => {
     vi.mocked(runGenerationTask).mockReset()
     vi.mocked(runGenerationStreamTask).mockReset()
     vi.mocked(runNarrativeAgentTurn).mockReset()
-    vi.mocked(runNarrativeAgentTurn).mockResolvedValue({
-      kind: 'final_ready',
-      text: '暮湾钟楼仍然沉默。',
-      calls: [],
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
     })
     vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
       callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
@@ -970,7 +988,7 @@ describe('gameStore sessions', () => {
     gameStore.chatHistory = [
       { role: 'system', content: '你是叙述者。' },
       { role: 'assistant', content: '你站在旧书店门外。' },
-      { role: 'user', content: '继续。' }
+      { role: 'user', content: '我回想旧书店和铜钥匙。' }
     ]
 
     const records = [
@@ -1034,7 +1052,7 @@ describe('gameStore sessions', () => {
 
     const finalAgentRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
     expect(finalAgentRequest.messages.map((message) => message.role)).toEqual([
-      'system', 'system', 'assistant', 'user', 'assistant', 'tool', 'user', 'assistant', 'tool'
+      'system', 'system', 'system', 'assistant', 'user', 'assistant', 'tool'
     ])
     const memoryToolResult = finalAgentRequest.messages.find((message) => (
       message.role === 'tool' && message.content.includes('旧书店在西街。')
@@ -1125,8 +1143,10 @@ describe('gameStore sessions', () => {
     expect(sentMessages[0].role).toBe('system')
     expect(sentMessages[1].role).toBe('system')
     expect(sentMessages[1].content).toContain('本轮作者注释')
-    // C2.2：transcript 注入真实历史后，前两条 system 之后是历史 assistant/user。
-    expect(sentMessages[2].role).toBe('assistant')
+    // 规划与正文隔离后，第三条 system 是场景约束，之后才是真实历史。
+    expect(sentMessages[2].role).toBe('system')
+    expect(sentMessages[2].content).toContain('本轮场景约束')
+    expect(sentMessages[3].role).toBe('assistant')
     expect(sentMessages.at(-1).role).toBe('tool')
     expect(sentMessages[0].content).toContain('所有线索必须有代价')
     expect(sentMessages[0].content).toContain(':::narration')
@@ -1213,7 +1233,7 @@ describe('gameStore sessions', () => {
     gameStore.chatHistory = [
       { role: 'system', content: '你是叙述者。' },
       { role: 'assistant', content: '你来到旧书店门口，钟楼就在街角。' },
-      { role: 'user', content: '我进入旧书店寻找铜钥匙。' }
+      { role: 'user', content: '我回想旧书店与铜钥匙的线索。' }
     ]
 
     const records = [
@@ -1270,6 +1290,19 @@ describe('gameStore sessions', () => {
       .mockResolvedValueOnce({
         kind: 'tool_calls',
         calls: [{
+          id: 'memory-ranked-plan',
+          name: 'submit_narrative_beat_plan',
+          arguments: {
+            responseObligation: '回应玩家',
+            causalSteps: ['核对旧书店与铜钥匙'],
+            revealOrChange: '记忆线索得到确认',
+            endCondition: '人物把铜钥匙握在掌心'
+          }
+        }]
+      })
+      .mockResolvedValueOnce({
+        kind: 'tool_calls',
+        calls: [{
           id: 'memory-ranked-call',
           name: 'memory_lookup',
           arguments: {
@@ -1292,7 +1325,7 @@ describe('gameStore sessions', () => {
     expect(finalEvidence).toContain('钟楼顶层拿到了铜钥匙')
     expect(finalEvidence).not.toContain('另一部作品')
     expect(finalEvidence).not.toContain('未确认')
-    expect(gameStore.lastNarrativeAgentTrace.calls[0].itemIds).toEqual(expect.arrayContaining([
+    expect(gameStore.lastNarrativeAgentTrace.calls.find((call) => call.tool === 'memory_lookup').itemIds).toEqual(expect.arrayContaining([
       'mem-project-bookstore',
       'mem-session-key'
     ]))
@@ -1325,9 +1358,9 @@ describe('gameStore sessions', () => {
     await gameStore.generateAIResponse()
 
     const directRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
-    expect(directRequest.messages).toHaveLength(7)
+    expect(directRequest.messages).toHaveLength(5)
     expect(directRequest.messages.map((message) => message.role)).toEqual([
-      'system', 'system', 'assistant', 'user', 'assistant', 'tool', 'user'
+      'system', 'system', 'system', 'assistant', 'user'
     ])
     expect(directRequest.messages.every((message) => !message.content.includes('【已确认记忆】'))).toBe(true)
     const recall = gameStore.lastMemoryRecall
@@ -1435,8 +1468,25 @@ describe('gameStore sessions', () => {
       { role: 'user', content: '开始故事' }
     ]
 
-    vi.mocked(runNarrativeAgentTurn).mockImplementation(async (_, context) => {
-      if (context.decisionIndex === 0) {
+    var seedEvidenceStep = 0
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async (request) => {
+      if (request.tools?.length === 1 && request.tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'seed-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '打开暮湾故事',
+              causalSteps: ['确认开场困境', '让第一项变化落地'],
+              revealOrChange: '主角获得当前处境的第一个行动依据',
+              endCondition: '主角看见进站的蒸汽车'
+            }
+          }]
+        }
+      }
+      seedEvidenceStep += 1
+      if (seedEvidenceStep === 1) {
         return {
           kind: 'tool_calls',
           calls: [{
@@ -1450,7 +1500,7 @@ describe('gameStore sessions', () => {
           }]
         }
       }
-      if (context.decisionIndex === 1) {
+      if (seedEvidenceStep === 2) {
         return {
           kind: 'tool_calls',
           calls: [{
@@ -1471,7 +1521,7 @@ describe('gameStore sessions', () => {
 
     const initRequest = vi.mocked(runNarrativeAgentTurn).mock.calls.at(-1)[0]
     expect(initRequest.messages.length).toBeGreaterThan(3)
-    expect(initRequest.messages.slice(0, 3).map((message) => message.role)).toEqual(['system', 'system', 'user'])
+    expect(initRequest.messages.slice(0, 4).map((message) => message.role)).toEqual(['system', 'system', 'system', 'user'])
     const initToolEvidence = initRequest.messages.filter((message) => message.role === 'tool').map((message) => message.content).join('\n')
     expect(initToolEvidence).toContain('开场困境')
     expect(initToolEvidence).toContain('暮湾主城')
@@ -1480,8 +1530,8 @@ describe('gameStore sessions', () => {
     expect(initRequest.messages[0].content).not.toContain('【世界书：边境王国 · 雾潮暮湾】')
     expect(gameStore.lastWorldbookContext).toBeNull()
     expect(gameStore.lastNarrativeAgentTrace).toMatchObject({
-      toolRounds: 2,
-      totalCalls: 2
+      toolRounds: 3,
+      totalCalls: 3
     })
   })
 

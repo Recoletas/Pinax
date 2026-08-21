@@ -10,6 +10,14 @@
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
 - 当前验证基线：25 个测试文件 / 436 个用例；Vite/VitePress build 与 diff check 通过。历史 22/224、21/398、200 与 203 属于旧测试结构，不再作为当前上限。
 
+## 2026-08-21 - 体验叙事规划与正文阶段隔离
+
+- 根因确认：BeatPlan 规划、工具调用历史、资料查询与正文写作共用 transcript，导致 `submit_narrative_beat_plan`、计划修复话语和“自然停下”等控制语言进入正文模型上下文；这类污染不能靠最终文本正则可靠清理。
+- open/respond/advance 改为两阶段：独立 planner transcript 只声明并强制调用唯一 BeatPlan 工具；计划通过后创建全新 prose transcript，只注入压缩场景约束和只读资料工具。正常路径 provider 调用数不变。
+- 三类协议分别使用 OpenAI Chat、OpenAI Responses、Anthropic/MiniMax specific tool choice；Anthropic 禁并行能力分支保留 forced tool 名并附加 `disable_parallel_tool_use`，OpenAI 两类请求显式发送 `parallel_tool_calls: false`。规划与正文各保留独立一次修复预算，正文越权 BeatPlan 在执行前拒绝。
+- `endCondition` 必须是动作、台词或事实构成的可观察场景状态；明确元叙事结束/等待下一步返回 typed error。正文最后一句契约与补全提示同步去除“叙事拍计划/自然停下”措辞。
+- `npm run verify:full` 通过：25 个测试文件 / 436 个用例，Vite、`git diff --check`、VitePress 全通过；recovery smoke 和 60 项 production dry-run 通过。未启动服务，真实 provider 浏览器矩阵仍待已有服务与配置可用时执行。
+
 ## 2026-08-21 - Experience 正式接入关系真实性与自然表达约束
 
 - 正式行文 system contract 接入四类已验证约束：不用列举数项后以破折号短句揭晓；一个结论不再由同义短句、解释性比喻或格言重复说明；神秘信息必须来自已有事实、人物隐瞒或当前因果并在本拍产生可观察影响；关系不写成标签或心理说明。

@@ -84,6 +84,10 @@ function error(code, message) {
   return { valid: false, error: { code, message } }
 }
 
+function hasMetaNarrativeEndCondition(value) {
+  return /(故事|叙事|剧情).*(结束|停下|告一段落)|等待.*(玩家|读者|下一步|选择|行动)|留待.*(下一轮|下一步|后续)/.test(value)
+}
+
 export function validateNarrativeBeatPlanInput(rawInput) {
   if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) {
     return error('NARRATIVE_BEAT_PLAN_INVALID', 'BeatPlan 必须是 JSON 对象')
@@ -105,7 +109,10 @@ export function validateNarrativeBeatPlanInput(rawInput) {
     return error('NARRATIVE_BEAT_PLAN_REVEAL_REQUIRED', 'revealOrChange 不能为空：本轮最终新增的信息/关系/目标/局势变化')
   }
   if (!plan.endCondition) {
-    return error('NARRATIVE_BEAT_PLAN_END_REQUIRED', 'endCondition 不能为空：正文写到什么状态可以自然停下')
+    return error('NARRATIVE_BEAT_PLAN_END_REQUIRED', 'endCondition 不能为空：必须给出最后一个可观察场景状态')
+  }
+  if (hasMetaNarrativeEndCondition(plan.endCondition)) {
+    return error('NARRATIVE_BEAT_PLAN_END_META', 'endCondition 必须是场景内可观察的动作、台词或事实，不能描述故事结束或等待下一步')
   }
   // P3：最小因果语义 —— 至少一个非空因果步骤，或一个带 action+result 的角色动作；
   // 保证计划有可执行的变化链，不再允许"零变化只堆描写"的计划。
@@ -186,7 +193,11 @@ export function narrativeBeatPlanToolSchema() {
         }
       },
       revealOrChange: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars },
-      endCondition: { type: 'string', maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars },
+      endCondition: {
+        type: 'string',
+        maxLength: NARRATIVE_BEAT_PLAN_LIMITS.maxFieldChars,
+        description: '最后一个可观察场景状态（动作完成、台词落地或事实确认）；不得描述故事结束或等待玩家行动。'
+      },
       avoidRepeats: {
         type: 'array',
         maxItems: NARRATIVE_BEAT_PLAN_LIMITS.maxAvoidRepeats,

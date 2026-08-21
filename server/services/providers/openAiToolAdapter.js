@@ -64,9 +64,8 @@ function openAiMessage(message) {
 
 export function buildOpenAIToolRequest(request) {
   const capabilities = request.options?.capabilities
-  const parallelToolCalls = capabilities
-    ? capabilities.parallelToolCalls === true
-    : request.options?.parallelToolCalls !== false
+  const parallelToolCalls = request.options?.parallelToolCalls !== false
+    && (!capabilities || capabilities.parallelToolCalls === true)
   return {
     model: request.provider.model,
     messages: request.messages.map(openAiMessage),
@@ -80,7 +79,7 @@ export function buildOpenAIToolRequest(request) {
       }
     })),
     tool_choice: request.options?.toolChoice || 'auto',
-    ...(parallelToolCalls ? { parallel_tool_calls: true } : {}),
+    parallel_tool_calls: parallelToolCalls,
     max_tokens: request.options?.maxTokens || 1200,
     temperature: request.options?.temperature ?? 0.2
   }

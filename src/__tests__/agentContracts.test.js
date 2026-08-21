@@ -1268,11 +1268,17 @@ describe('agentContracts', function () {
     expect(metric).toMatchObject({ outcome: 'success', voiceVariant: 'anchored' })
     expect(JSON.stringify(metric)).not.toContain('原始可见正文。')
 
+    var timeoutNarrativeCalls = 0
     var timeoutRun = await runNarrativeAgentGeneration({
       kernel: voiceKernel,
       registry: politicalRegistry,
       requestId: 'critic-timeout-run',
-      decisionRunner: async function () { return { kind: 'final_ready', text: '超时仍不影响正文。', calls: [] } },
+      decisionRunner: async function () {
+        timeoutNarrativeCalls += 1
+        return timeoutNarrativeCalls === 1
+          ? { kind: 'tool_calls', calls: [{ id: 'timeout-plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }] }
+          : { kind: 'final_ready', text: '超时仍不影响正文。', calls: [] }
+      },
       criticRunner: async function () {
         var error = new Error('critic timeout')
         error.code = 'NARRATIVE_CRITIC_TIMEOUT'
@@ -1281,11 +1287,17 @@ describe('agentContracts', function () {
       criticSampleRate: 1,
       callbacks: { onChunk: function () {} }
     })
+    var invalidNarrativeCalls = 0
     var invalidRun = await runNarrativeAgentGeneration({
       kernel: voiceKernel,
       registry: politicalRegistry,
       requestId: 'critic-invalid-run',
-      decisionRunner: async function () { return { kind: 'final_ready', text: '无效评语仍不影响正文。', calls: [] } },
+      decisionRunner: async function () {
+        invalidNarrativeCalls += 1
+        return invalidNarrativeCalls === 1
+          ? { kind: 'tool_calls', calls: [{ id: 'invalid-plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }] }
+          : { kind: 'final_ready', text: '无效评语仍不影响正文。', calls: [] }
+      },
       criticRunner: async function () { return '{"schemaVersion":1,"pass":true,"rewrittenText":"禁止"}' },
       criticSampleRate: 1,
       callbacks: { onChunk: function () {} }
@@ -1452,10 +1464,11 @@ describe('agentContracts', function () {
       ...providerTurnRequest,
       options: {
         ...providerTurnRequest.options,
-        capabilities: { parallelToolCalls: false, strictSchema: true }
+        parallelToolCalls: false,
+        capabilities: { parallelToolCalls: true, strictSchema: true }
       }
     })
-    expect(conservativeOpenAiRequest).not.toHaveProperty('parallel_tool_calls')
+    expect(conservativeOpenAiRequest.parallel_tool_calls).toBe(false)
     expect(conservativeOpenAiRequest.tools[0].function.strict).toBe(true)
     var openAiToolTurn = parseOpenAIToolResponse({
       id: 'chatcmpl-tool',
@@ -1556,6 +1569,20 @@ describe('agentContracts', function () {
     }
     var anthropicRequest = buildAnthropicToolRequest(anthropicTurnRequest)
     expect(anthropicRequest.system).toBe('只根据工具证据回答。')
+    var forcedAnthropicRequest = buildAnthropicToolRequest({
+      ...anthropicTurnRequest,
+      options: {
+        ...anthropicTurnRequest.options,
+        toolChoice: { type: 'tool', name: 'submit_narrative_beat_plan' },
+        parallelToolCalls: false,
+        capabilities: { parallelToolCalls: false }
+      }
+    })
+    expect(forcedAnthropicRequest.tool_choice).toEqual({
+      type: 'tool',
+      name: 'submit_narrative_beat_plan',
+      disable_parallel_tool_use: true
+    })
     expect(anthropicRequest.messages[1]).toMatchObject({
       role: 'assistant',
       content: [expect.objectContaining({
@@ -1924,6 +1951,21 @@ describe('agentContracts', function () {
       parallel_tool_calls: true,
       max_output_tokens: 700
     })
+    var serialResponsesRequest = buildOpenAIResponsesRequest({
+      provider: { model: 'responses-model' },
+      transcript: transcript.transcript,
+      tools: narrativeToolCatalog,
+      capabilities: { strictSchema: true, parallelToolCalls: false },
+      options: {
+        parallelToolCalls: false,
+        toolChoice: { type: 'function', name: 'submit_narrative_beat_plan' }
+      }
+    })
+    expect(serialResponsesRequest.parallel_tool_calls).toBe(false)
+    expect(serialResponsesRequest.tool_choice).toEqual({
+      type: 'function',
+      name: 'submit_narrative_beat_plan'
+    })
     expect(responsesRequest.instructions).toContain('只依据已确认资料写作')
     expect(responsesRequest.tools[0]).toMatchObject({
       type: 'function',
@@ -2122,16 +2164,27 @@ describe('agentContracts', function () {
       }
     })
     expect(transcriptRequests).toHaveLength(3)
-    expect(transcriptRequests[0].messages[0].content)
+    expect(transcriptRequests[1].messages[0].content)
       .toContain('不用列举数项后再用破折号短句揭晓')
-    expect(transcriptRequests[0].messages.some(function (message) {
+    expect(transcriptRequests[1].messages.some(function (message) {
       return message.role === 'system'
         && message.content.includes('本场有效关系（只作行为依据，不照抄标签）')
     })).toBe(true)
     expect(transcriptRequests[0].requestId).toBe('single-transcript-loop')
     expect(transcriptRequests[1].requestId).toBe('single-transcript-loop')
+    expect(transcriptRequests[0].tools.map(function (tool) { return tool.name })).toEqual([
+      'submit_narrative_beat_plan'
+    ])
+    expect(transcriptRequests[0].options).toMatchObject({
+      parallelToolCalls: false,
+      toolChoice: { type: 'function', function: { name: 'submit_narrative_beat_plan' } }
+    })
     expect(transcriptRequests[1].messages.some(function (message) {
-      return message.role === 'user' && message.content.includes('本轮叙事拍计划')
+      return message.role === 'system' && message.content.includes('本轮场景约束')
+    })).toBe(true)
+    expect(JSON.stringify(transcriptRequests[1])).not.toContain('submit_narrative_beat_plan')
+    expect(transcriptRequests[1].tools.every(function (tool) {
+      return tool.name !== 'submit_narrative_beat_plan'
     })).toBe(true)
     expect(transcriptRequests[2].messages.some(function (message) {
       return message.role === 'assistant' && message.toolCalls?.[0]?.id === 'single-transcript-call'
@@ -2144,13 +2197,12 @@ describe('agentContracts', function () {
     }).parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'reasoning', text: '', opaque: { signature: 'opaque-r4' } })
     ]))
-    // Fix：transcript 历史含 BeatPlan tool-call 时，后续请求必须继续声明该工具，
-    // 否则请求校验报 GENERATION_TOOL_NOT_DECLARED（messages[N] 调用了未声明工具）。
-    expect(transcriptRequests[2].tools.map(function (tool) { return tool.name })).toContain('submit_narrative_beat_plan')
-    expect(transcriptRequests.every(function (request) {
-      return request.tools.some(function (tool) { return tool.name === 'submit_narrative_beat_plan' })
+    // 规划与正文使用独立 transcript；正文历史只保留只读资料工具调用。
+    expect(JSON.stringify(transcriptRequests[2])).not.toContain('submit_narrative_beat_plan')
+    expect(transcriptRequests[2].tools.every(function (tool) {
+      return tool.name !== 'submit_narrative_beat_plan'
     })).toBe(true)
-    // 且真实客户端契约校验（历史 tool-call 只能调已声明工具）在该请求上通过。
+    // 真实客户端契约校验（历史 tool-call 只能调已声明工具）仍通过。
     var turnRequestShape = validateGenerationAgentTurnRequest({
       requestId: 'undeclared-tool-check',
       provider: providerTurnRequest.provider,
@@ -2168,6 +2220,14 @@ describe('agentContracts', function () {
       }
     })
     expect(transcriptLoop.trace.planRevision).toMatch(/^bp_/)
+    expect(transcriptLoop.totalCalls).toBe(2)
+    expect(transcriptLoop.toolRounds).toBe(2)
+    expect(transcriptLoop.usage).toMatchObject({
+      inputTokens: 30,
+      outputTokens: 18,
+      totalTokens: 48
+    })
+    expect(JSON.stringify(transcriptLoop.baseMessages)).not.toContain('submit_narrative_beat_plan')
     expect(transcriptLoop.transcript.messages.some(function (message) {
       return message.parts.some((part) => part.type === 'tool-result' && part.toolCallId === 'single-transcript-call')
     })).toBe(true)
@@ -2194,6 +2254,52 @@ describe('agentContracts', function () {
     expect(deriveNarrativeGroundingPolicy({ kernel: optionalGroundingKernel }).level).toBe('optional')
     expect(hasNarrativeGroundingEvidence([worldLookup])).toBe(true)
     expect(hasNarrativeGroundingEvidence([{ ok: false, items: [] }])).toBe(false)
+
+    async function capturePlanningOptions(provider, requestId) {
+      var requests = []
+      await runNarrativeAgentLoop({
+        kernel: optionalGroundingKernel,
+        registry: narrativeRegistry,
+        settings: provider,
+        requestId,
+        decisionRunner: async function (request) {
+          requests.push(request)
+          return requests.length === 1
+            ? {
+                kind: 'tool_calls',
+                calls: [{
+                  id: `${requestId}-plan`,
+                  name: 'submit_narrative_beat_plan',
+                  arguments: {
+                    responseObligation: '承接当前场景',
+                    causalSteps: ['人物确认现状'],
+                    revealOrChange: '确认产生新行动依据',
+                    endCondition: '人物把记录放到桌上'
+                  }
+                }]
+              }
+            : { kind: 'final_ready', text: '记录落在桌面。', calls: [] }
+        }
+      })
+      return requests[0].options
+    }
+    var responsesPlanningOptions = await capturePlanningOptions({
+      ...providerTurnRequest.provider,
+      format: 'responses'
+    }, 'responses-planning-choice')
+    expect(responsesPlanningOptions.toolChoice).toEqual({
+      type: 'function',
+      name: 'submit_narrative_beat_plan'
+    })
+    var anthropicPlanningOptions = await capturePlanningOptions({
+      ...providerTurnRequest.provider,
+      id: 'MiniMax',
+      format: 'anthropic'
+    }, 'anthropic-planning-choice')
+    expect(anthropicPlanningOptions.toolChoice).toEqual({
+      type: 'tool',
+      name: 'submit_narrative_beat_plan'
+    })
 
     var repairRequests = []
     var repairedNarrativeRun = await runNarrativeAgentLoop({
@@ -2241,8 +2347,7 @@ describe('agentContracts', function () {
       trace: { repairCount: 1 }
     })
 
-    // P6：BeatPlan 校验失败走修复循环而非硬错误 —— 模型先交缺 endCondition 的非法计划，
-    // 收到定向修复消息后重新提交合法计划，再写正文。
+    // 规划修复与正文工具修复各有独立一次预算；正文越权调用规划工具在执行前拒绝。
     var beatPlanRepairRequests = []
     var beatPlanRepairedRun = await runNarrativeAgentLoop({
       kernel: optionalGroundingKernel,
@@ -2280,34 +2385,79 @@ describe('agentContracts', function () {
             }]
           }
         }
+        if (beatPlanRepairRequests.length === 3) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              id: 'prose-beat-plan-call',
+              name: 'submit_narrative_beat_plan',
+              arguments: {
+                responseObligation: '不应执行',
+                causalSteps: ['不应进入正文 transcript'],
+                revealOrChange: '不应写入',
+                endCondition: '人物把记录放下'
+              }
+            }]
+          }
+        }
         return { kind: 'final_ready', text: '修复计划后的正文。', calls: [] }
       }
     })
-    expect(beatPlanRepairRequests).toHaveLength(3)
+    expect(beatPlanRepairRequests).toHaveLength(4)
     expect(beatPlanRepairRequests[1].messages.some(function (message) {
-      return message.role === 'user' && message.content.includes('上一轮叙事拍计划未通过校验（NARRATIVE_BEAT_PLAN_END_REQUIRED）')
+      return message.role === 'user' && message.content.includes('上一轮场景方案未通过校验（NARRATIVE_BEAT_PLAN_END_REQUIRED）')
     })).toBe(true)
+    expect(JSON.stringify(beatPlanRepairRequests[2])).not.toContain('submit_narrative_beat_plan')
+    expect(beatPlanRepairRequests[3].messages.some(function (message) {
+      return message.role === 'user' && message.content.includes('NARRATIVE_TOOL_NOT_DECLARED')
+    })).toBe(true)
+    expect(JSON.stringify(beatPlanRepairRequests[3])).not.toContain('prose-beat-plan-call')
     expect(beatPlanRepairedRun).toMatchObject({
       finalText: '修复计划后的正文。',
-      trace: { repairCount: 1 }
+      totalCalls: 1,
+      trace: { repairCount: 2 }
     })
 
+    var groundingGateCalls = 0
     await expect(runNarrativeAgentLoop({
       kernel: narrativeKernel,
       registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
       requestId: 'narrative-r5-grounding-gate',
       decisionRunner: async function () {
-        return { kind: 'final_ready', text: '没有核对资料的正文', calls: [] }
+        groundingGateCalls += 1
+        return groundingGateCalls === 1
+          ? {
+              kind: 'tool_calls',
+              calls: [{
+                id: 'grounding-gate-plan',
+                name: 'submit_narrative_beat_plan',
+                arguments: {
+                  responseObligation: '回应玩家',
+                  causalSteps: ['核对资料'],
+                  revealOrChange: '给出判断',
+                  endCondition: '判断被说出口'
+                }
+              }]
+            }
+          : { kind: 'final_ready', text: '没有核对资料的正文', calls: [] }
       }
     })).rejects.toMatchObject({ code: 'NARRATIVE_GROUNDING_REQUIRED' })
 
+    var doomLoopCalls = 0
     await expect(runNarrativeAgentLoop({
       kernel: optionalGroundingKernel,
       registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
       requestId: 'narrative-r5-doom-loop',
       decisionRunner: async function () {
+        doomLoopCalls += 1
+        if (doomLoopCalls === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{ id: 'doom-plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }]
+          }
+        }
         return {
           kind: 'tool_calls',
           calls: ['a', 'b', 'c'].map(function (suffix) {
@@ -2607,6 +2757,21 @@ describe('agentContracts', function () {
     })
     expect(withResultPlan.valid).toBe(true)
     expect(withResultPlan.plan.characterMoves[0].result).toBe('翻出铜扣')
+    expect(validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: ['确认印泥来源'],
+      revealOrChange: '伪造来源被确认',
+      endCondition: '故事在这里自然停下，等待玩家下一步行动'
+    })).toMatchObject({
+      valid: false,
+      error: { code: 'NARRATIVE_BEAT_PLAN_END_META' }
+    })
+    expect(validateNarrativeBeatPlanInput({
+      responseObligation: '回应玩家',
+      causalSteps: ['确认印泥来源'],
+      revealOrChange: '伪造来源被确认',
+      endCondition: '莉娜把伪造印章放到艾德加面前'
+    }).valid).toBe(true)
 
     var canvasContext = buildCanvasAgentContext({
       selectedCard: { id: 'selected', content: 'SELECTED NODE' },

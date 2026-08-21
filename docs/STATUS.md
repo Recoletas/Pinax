@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/tmp/pinax-experience-authenticity-production` | `feature/experience-authenticity-production` | 已将自然表达与关系真实性约束接入 Experience 正式生成链并通过全量验证；待快进最新集成分支 |
+| Codex | `/tmp/pinax-narrative-phase-isolation` | `feature/narrative-phase-isolation` | 已将 BeatPlan 规划与正文 transcript 结构隔离并通过全量验证；待合并最新集成分支 |
 
 ## 当前事实
 
@@ -33,6 +33,7 @@
 
 ## Recently done
 
+- 2026-08-21：修复体验页内部规划协议与元叙事收尾泄漏。open/respond/advance 先在独立 planner transcript 中用 provider-specific tool choice 强制提交唯一 BeatPlan；校验/修复完成后丢弃规划历史，正文使用全新 transcript，只保留压缩场景约束和只读资料工具。三类协议均真正关闭并行工具调用；规划/正文各有独立一次修复预算，正文越权 BeatPlan 在执行前拒绝。`endCondition` 现在必须是场景内可观察状态，明确拒绝“故事结束/等待玩家下一步”；最后一句契约改为落在动作、台词或事实。正常路径不增加 provider 调用，不做最终文本正则清洗。全量验证 25 文件 / 436 tests、Vite、diff check、VitePress 通过；recovery smoke 与 60 项 production dry-run 通过，未启动服务或执行真实 provider 浏览器矩阵。
 - 2026-08-21：将小说截面实验中已验证的自然表达规则接入 Experience 正式叙事：禁止列举后破折号揭晓、同义/比喻重复解释和无来源无影响的神秘化；关系只通过惯常选择、成本、回避、纠正、默契或遗漏显现。下一轮 system turn note 最多携带三条现有因果关系，空关系不注入；不新增 provider 调用，真实性局部编辑器仍为显式 CLI。全量验证 25 文件 / 436 tests、Vite、diff check、VitePress 全通过。
 - 2026-08-21：将场景素材板最新集成线与小说截面 bake-off、关系包 A/B、戏剧极小引擎消融及真实性局部编辑器合并到 `integration/latest-dramaturgy`。仅共享状态文档发生冲突，合并时保留双方完成事实与后续门禁；全量验证 25 文件 / 436 tests、Vite、diff check、VitePress 全通过。
 - 2026-08-21：增加实验性真实性局部编辑器：读取角色、事实与极小关系包，模型最多提交三项精确替换，程序验证补丁/全文一致、新事实泄漏、已确认 AI 信号确实减少及关系 cue 有正文落点；失败始终保留原稿。MiniMax-M3 回放既有第 1、5 组时，生日场景成功移除三处解释性比喻且事件/结尾不变；运河场景因 `editedText` 与补丁不一致被安全拒绝。结果为 1/2，不进入生产链，也不要求新增人工评分。
@@ -94,7 +95,7 @@
 1. 在已有开发服务上执行 C3 场景素材板 1440/390 live browser audit 和用户验收；验收后再决定是否抽取 `useCanvasBoard`。
 2. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
 3. 保持戏剧消融与真实性局部编辑器为显式实验工具；若继续抽样，优先检查关系惯性、场景前状态和无效神秘化，不追加大规模人工评分，也不直接接入 Experience 生产链。
-4. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
+4. 在已有服务与凭据可用时执行体验真实性真实 provider 矩阵，复验新会话正文不含规划工具名/元叙事收尾，并完成 voice editor / 收进稿件流程的 1440/390 浏览器检查。
 5. 执行 G2.4-A 真实地点整理与浏览器 smoke，覆盖导入、定位、绑定、刷新、切换世界书和回滚。
 6. 完成 G1.4 M5 与联机双浏览器 smoke，观察 speaker、marker、模板句、手动编辑、掉线和 host loss。
 7. 完成写作 Notebook 的真实候选/章节审查 smoke，检查桌面、390px、取消、恢复和多候选质量。

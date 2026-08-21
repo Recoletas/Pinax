@@ -269,7 +269,7 @@ export function getNarrativeToolCatalog(options = {}) {
   if (!activeTools || activeTools.has(NARRATIVE_BEAT_PLAN_TOOL)) {
     catalog.push({
       name: NARRATIVE_BEAT_PLAN_TOOL,
-      description: '内部控制调用：提交本轮叙事拍计划（schema 约束）。causalSteps 每一步必须是信息/关系/目标/局势的变化，不是环境描写；mode 从 dialogue/action/investigation/transition 中选本轮主模式；revealOrChange 是正文最终必须落地的变化；endCondition 是正文可自然停下的状态。校验通过后据此写正文。不是世界资料查询，不计入证据。',
+      description: '内部控制调用：提交本轮结构化场景方案。causalSteps 每一步必须是信息/关系/目标/局势的变化，不是环境描写；mode 从 dialogue/action/investigation/transition 中选本轮主模式；revealOrChange 是正文最终必须落地的变化；endCondition 是最后一个可观察场景状态，不得描述故事结束或等待玩家行动。不是世界资料查询，不计入证据。',
       inputSchema: narrativeBeatPlanToolSchema()
     })
   }
