@@ -292,7 +292,7 @@ const speakerRegistryFor = fixture => fixture.characters.map(({ id, name }) => (
 
 const readableBlockText = block => {
   const text = String(block.text || '').trim()
-  if (!block.speaker) return text
+  if (block.kind !== 'dialogue' || !block.speaker || !/^[“「『\"']/.test(text)) return text
   return `${block.speaker}：${text}`
 }
 

@@ -592,6 +592,101 @@ export const DRAMATURGICAL_SCORE_FIELDS = Object.freeze([
   'informationDiscipline'
 ])
 
+const DRAMATURGICAL_AUTHORING_STAGES = Object.freeze([
+  'minimal-engine',
+  'full-vocabulary-additional'
+])
+
+const buildMinimalEngineQuestions = fixture => [
+  {
+    id: 'pressure',
+    prompt: '当前场景的主要压力是什么？'
+  },
+  ...fixture.characters.map(character => ({
+    id: `sceneObjective:${character.id}`,
+    prompt: `${character.name}的当前目标是什么？`
+  })),
+  ...fixture.characters.map(character => ({
+    id: `withheldTruth:${character.id}`,
+    prompt: `${character.name}必须隐瞒什么？`
+  })),
+  {
+    id: 'stateChange',
+    prompt: '这轮必须发生的关键变化是什么？'
+  }
+]
+
+const buildFullVocabularyQuestions = () => [
+  { id: 'premise', prompt: '补充前提。' },
+  { id: 'dramaticQuestion', prompt: '补充戏剧性问题。' },
+  { id: 'dramaticGuts', prompt: '补充戏剧内核。' },
+  { id: 'mainConsciousness', prompt: '补充主要意识。' },
+  { id: 'spine', prompt: '补充贯穿线。' },
+  { id: 'conflictType', prompt: '补充冲突类型。' }
+]
+
+const buildDramaturgicalAuthoringTask = (fixture, stage) => {
+  return {
+    taskId: `authoring-${fixture.id}-${stage}`,
+    fixtureId: fixture.id,
+    stage,
+    context: {
+      fixtureTitle: fixture.title,
+      characters: fixture.characters,
+      facts: fixture.facts,
+      focusProp: fixture.focusProp,
+      exitCue: fixture.exitCue
+    },
+    instructions: stage === 'full-vocabulary-additional'
+      ? '只填写新增的六项'
+      : '请按场景压力、角色目标和隐瞒事实补齐信息，不要复述原文段落。',
+    questions: stage === 'full-vocabulary-additional' ? buildFullVocabularyQuestions() : buildMinimalEngineQuestions(fixture)
+  }
+}
+
+/**
+ * Task 6：构建轻量作者记录模板。默认一人，可选增加参与者。
+ */
+export function buildDramaturgicalAuthoringTemplate({
+  fixtures = CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+  seed = 'authoring-ablation',
+  participantCount = 1
+} = {}) {
+  const validation = validateDramaturgicalFixtures(fixtures)
+  if (!validation.valid) {
+    throw dramaturgicalError(validation.error.code, '戏剧 fixture 未通过验证', validation.error)
+  }
+  if (!Number.isInteger(participantCount) || participantCount <= 0 || participantCount > 20) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_AUTHORING_PARTICIPANT_COUNT_INVALID', 'participantCount 不合法')
+  }
+
+  const baseTasks = fixtures.flatMap(fixture => DRAMATURGICAL_AUTHORING_STAGES.map(stage => buildDramaturgicalAuthoringTask(fixture, stage)))
+  const baseSignature = String(seed)
+
+  const sortBySeed = items => items
+    .map(item => ({ item, token: sha256Hex(`${baseSignature}|${item.taskId}`) }))
+    .sort((a, b) => a.token.localeCompare(b.token))
+    .map(({ item }) => item)
+
+  const orderedTasks = sortBySeed(baseTasks)
+  const participants = []
+  for (let i = 0; i < participantCount; i += 1) {
+    const tasks = (i % 2 === 0 ? orderedTasks : [...orderedTasks].reverse())
+      .map(task => ({ ...task }))
+    participants.push({
+      participantId: `author-${String(i + 1).padStart(2, '0')}`,
+      tasks
+    })
+  }
+
+  return {
+    schemaVersion: 1,
+    seed,
+    participantCount: participants.length,
+    participants
+  }
+}
+
 const DRAMATURGICAL_COMPARISONS = Object.freeze([
   Object.freeze({ family: 'minimal-engine-vs-baseline', conditions: Object.freeze(['minimal-engine', 'baseline']) }),
   Object.freeze({ family: 'full-vocabulary-vs-minimal-engine', conditions: Object.freeze(['full-vocabulary', 'minimal-engine']) })
@@ -809,5 +904,6 @@ export default {
   generateDramaturgicalArtifacts,
   createDramaturgicalBlindPairs,
   buildDramaturgicalReviewTemplate,
-  validateDramaturgicalReviews
+  validateDramaturgicalReviews,
+  buildDramaturgicalAuthoringTemplate
 }

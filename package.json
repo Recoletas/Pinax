@@ -28,6 +28,7 @@
     "eval:narrative-context": "vite-node scripts/narrative-context-eval.mjs",
     "eval:cross-section": "node scripts/novel-cross-section-bakeoff.mjs",
     "eval:cross-section-relation": "node scripts/novel-cross-section-relation-ab.mjs",
+    "eval:cross-section-dramaturgy": "node scripts/novel-cross-section-dramaturgical-ablation.mjs",
     "report:narrative-production": "vite-node scripts/narrative-production-report.mjs",
     "smoke:narrative-production": "node scripts/narrative-production-smoke.mjs",
     "smoke:narrative-matrix": "node scripts/narrative-provider-matrix.mjs",

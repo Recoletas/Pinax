@@ -16,10 +16,15 @@ import {
   generateDramaturgicalArtifacts,
   createDramaturgicalBlindPairs,
   buildDramaturgicalReviewTemplate,
-  validateDramaturgicalReviews
+  validateDramaturgicalReviews,
+  buildDramaturgicalAuthoringTemplate
 } from '../../scripts/lib/novel-cross-section-dramaturgical-ablation.mjs'
 import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
+import {
+  parseDramaturgicalArgs,
+  runDramaturgicalCli
+} from '../../scripts/novel-cross-section-dramaturgical-ablation.mjs'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 
@@ -497,6 +502,61 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
     unblinded[0].scores[0].condition = 'baseline'
     expect(validateDramaturgicalReviews(unblinded, { pairIds }).error.code)
       .toBe('CROSS_SECTION_DRAMATURGY_REVIEW_METADATA_REJECTED')
+  })
+
+  it('supports a lightweight single-author burden note without requiring full coverage (Task 6)', () => {
+    const template = buildDramaturgicalAuthoringTemplate({
+      fixtures: CROSS_SECTION_DRAMATURGICAL_FIXTURES,
+      seed: 'authoring-a',
+      participantCount: 1
+    })
+    expect(template.participants.map(({ participantId }) => participantId)).toEqual(['author-01'])
+    expect(template.participants.every(({ tasks }) => tasks.length === 8)).toBe(true)
+    for (const participant of template.participants) {
+      expect(participant.tasks.filter(({ stage }) => stage === 'minimal-engine')).toHaveLength(4)
+      expect(participant.tasks.filter(({ stage }) => stage === 'full-vocabulary-additional')).toHaveLength(4)
+      for (const task of participant.tasks) {
+        expect(task.context).toEqual(expect.objectContaining({
+          fixtureTitle: expect.any(String),
+          characters: expect.any(Array),
+          facts: expect.any(Array)
+        }))
+        expect(task.questions.length).toBe(task.stage === 'full-vocabulary-additional' ? 6 : task.questions.length)
+        expect(task.questions.every(question => !Object.hasOwn(question, 'answer'))).toBe(true)
+        if (task.stage === 'full-vocabulary-additional') {
+          expect(task.instructions).toMatch(/只填写新增的六项/)
+        }
+      }
+    }
+    const serializedTemplate = JSON.stringify(template)
+    for (const fixture of CROSS_SECTION_DRAMATURGICAL_FIXTURES) {
+      for (const answer of [
+        fixture.minimalEngine.pressure,
+        fixture.minimalEngine.stateChange,
+        ...Object.values(fixture.minimalEngine.sceneObjectives),
+        ...Object.values(fixture.minimalEngine.withheldTruths),
+        ...Object.values(fixture.fullVocabulary)
+      ]) expect(serializedTemplate).not.toContain(answer)
+    }
+    expect(serializedTemplate).not.toMatch(/readableText|generatedProse|reviewerScore|preference/i)
+  })
+
+  it('offers a small CLI with built-in server-env generation and a no-write dry run (Task 8)', async () => {
+    expect(parseDramaturgicalArgs(['generate', '--relation-mode', 'none'])).toEqual({
+      command: 'generate',
+      relationMode: 'none'
+    })
+    expect(parseDramaturgicalArgs(['generate', '--config', '/tmp/provider.json', '--relation-mode', 'none']))
+      .toMatchObject({ command: 'generate', configPath: '/tmp/provider.json' })
+    expect(() => parseDramaturgicalArgs(['generate', '--relation-mode', 'unknown']))
+      .toThrow(expect.objectContaining({ code: 'CROSS_SECTION_DRAMATURGY_RELATION_MODE_INVALID' }))
+
+    let printed = ''
+    const result = await runDramaturgicalCli(['dry-run'], {
+      output: value => { printed += value }
+    })
+    expect(result).toMatchObject({ attemptCount: 24, authoringParticipantCount: 1 })
+    expect(JSON.parse(printed)).toMatchObject({ attemptCount: 24, persistentWrites: 0 })
   })
 
   it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {

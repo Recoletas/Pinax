@@ -1528,6 +1528,8 @@ describe('novel cross-section architecture runners', () => {
     '雨水顺着密封粮册的蜡封滴落。',
     ':::dialogue|检查官',
     '“把手从账册上移开。”',
+    '',
+    '他用指节敲了敲桌面。',
     ':::action|信使',
     '信使松开账册，退到关卡雨幕里。'
   ].join('\n')
@@ -2016,7 +2018,11 @@ describe('novel cross-section architecture runners', () => {
 
     expect(normalized.rawText).toBe(finalRawText)
     expect(normalized.presentation.blocks.some(block => block.kind === 'dialogue' && block.speakerId === 'inspector')).toBe(true)
-    expect(normalized.readableText).toContain('检查官')
+    expect(normalized.readableText).toContain('检查官：“把手从账册上移开。”')
+    expect(normalized.readableText).toContain('他用指节敲了敲桌面。')
+    expect(normalized.readableText).not.toContain('检查官：他用指节敲了敲桌面')
+    expect(normalized.readableText).toContain('信使松开账册，退到关卡雨幕里。')
+    expect(normalized.readableText).not.toContain('信使：信使松开账册')
     expect(normalized.readableText).not.toContain(':::')
     expect(normalized.text).toBe(normalized.readableText)
     expect(normalized.renderedText).toBe(normalized.readableText)
