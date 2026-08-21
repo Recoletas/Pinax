@@ -2122,6 +2122,12 @@ describe('agentContracts', function () {
       }
     })
     expect(transcriptRequests).toHaveLength(3)
+    expect(transcriptRequests[0].messages[0].content)
+      .toContain('不用列举数项后再用破折号短句揭晓')
+    expect(transcriptRequests[0].messages.some(function (message) {
+      return message.role === 'system'
+        && message.content.includes('本场有效关系（只作行为依据，不照抄标签）')
+    })).toBe(true)
     expect(transcriptRequests[0].requestId).toBe('single-transcript-loop')
     expect(transcriptRequests[1].requestId).toBe('single-transcript-loop')
     expect(transcriptRequests[1].messages.some(function (message) {

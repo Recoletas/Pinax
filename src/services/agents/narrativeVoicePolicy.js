@@ -54,8 +54,31 @@ export function buildNarrativeVoiceContract() {
     '4. 不重复最近两轮已出现且没有新后果的动作、物件和情绪表达。',
     '5. 变化落地后自然停下，不强加悬念、总结情绪或玩家选项。',
     '情绪落在停顿、措辞和动作上，不替读者概括"紧张、复杂、震惊"等结论；角色台词回应眼前的人和事，用神态描写回避回答不合格。',
+    '不用列举数项后再用破折号短句揭晓结论；让人物通过观察、判断或动作直接指出差异。',
+    '一个结论只表达一次；不要再用同义短句、解释性比喻或格言重复说明它意味着什么。',
+    '神秘信息必须来自已有事实、人物隐瞒或当前因果，并在本拍产生可观察影响；否则直接写清楚。',
+    '关系不要写成标签或心理说明；只在与当前互动有关时，通过惯常选择、照顾的成本、回避、纠正、默契或遗漏显现。',
     `不使用模板句：${GENERIC_PROSE_PATTERNS.join('、')}。`
   ].join('\n')
+}
+
+export function buildNarrativeRelationshipNote(kernel) {
+  const relationships = findBlock(kernel, 'continuity')?.causality?.relationships
+  if (!Array.isArray(relationships)) return ''
+  const cues = relationships
+    .filter((relation) => (
+      clean(relation?.subjectId)
+      && clean(relation?.objectId)
+      && clean(relation?.kind)
+      && clean(relation?.status).toLowerCase() !== 'ended'
+    ))
+    .slice(0, 3)
+    .map((relation) => (
+      `${clip(relation.subjectId, 48)} → ${clip(relation.objectId, 48)}（${clip(relation.kind, 32)}）`
+    ))
+  return cues.length
+    ? `本场有效关系（只作行为依据，不照抄标签）：${cues.join('；')}`
+    : ''
 }
 
 export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = null, expansion = 'standard' } = {}) {
@@ -71,6 +94,7 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
   const anchor = lastBlock
     ? `最后一块｜${lastBlock.kind}${lastBlock.speaker ? `｜${lastBlock.speaker}` : ''}｜${lastBlock.textTail}`
     : latestAssistantAnchor(kernel)
+  const relationshipNote = buildNarrativeRelationshipNote(kernel)
   const instructions = [
     '【本轮作者注释｜只约束下一次正文】',
     effectiveIntent === 'open'
@@ -84,6 +108,10 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
     thread?.currentObjective ? `当前场景目标：${clip(thread.currentObjective, 160)}` : '',
     thread?.immediateObstacle ? `眼前阻力：${clip(thread.immediateObstacle, 120)}` : '',
     thread?.activeQuestion ? `待回应：${clip(thread.activeQuestion, 120)}` : '',
+    relationshipNote,
+    relationshipNote
+      ? '若上述关系与眼前互动有关，让它通过已经形成的习惯、成本、回避、纠正、默契或遗漏自然显现；不要解释关系名称。'
+      : '',
     `这段正文应写到约 ${range.min}-${range.max} 个中文字符；写足一个完整的场景拍，不要在刚过一半就收束。`,
     style ? `既定文风：${style}` : '',
     anchor ? `连续锚点（从最后一段承接）：${anchor}` : '',
@@ -95,6 +123,7 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
 }
 
 export default {
+  buildNarrativeRelationshipNote,
   buildNarrativeTurnNote,
   buildNarrativeVoiceContract
 }

@@ -126,7 +126,10 @@ import {
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
-import { buildNarrativeVoiceContract } from '../services/agents/narrativeVoicePolicy'
+import {
+  buildNarrativeTurnNote,
+  buildNarrativeVoiceContract
+} from '../services/agents/narrativeVoicePolicy'
 import {
   resolveWritingCommandMenuPosition
 } from '../services/writing/liveMarkdownPreview.js'
@@ -1149,7 +1152,33 @@ describe('Narrative presentation contract', () => {
       .toBe(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
     expect(buildNarrativeFormatInstructions()).toContain(':::dialogue|角色名')
     // P3：五条行文契约收敛 + 自然段空行要求
-    expect(buildNarrativeVoiceContract()).toContain('先回应玩家输入，再推进一个已有因果')
+    const voiceContract = buildNarrativeVoiceContract()
+    expect(voiceContract).toContain('先回应玩家输入，再推进一个已有因果')
+    expect(voiceContract).toContain('不用列举数项后再用破折号短句揭晓')
+    expect(voiceContract).toContain('一个结论只表达一次')
+    expect(voiceContract).toContain('神秘信息必须来自')
+    expect(voiceContract).toContain('关系不要写成标签或心理说明')
+    const relationshipNote = buildNarrativeTurnNote({
+      blocks: [{
+        kind: 'continuity',
+        content: {
+          causality: {
+            relationships: [
+              { subjectId: 'character-daughter', objectId: 'character-mother', kind: 'guardian', status: 'confirmed' },
+              { subjectId: 'character-a', objectId: 'character-b', kind: 'rival', status: 'confirmed' },
+              { subjectId: 'character-c', objectId: 'character-d', kind: 'debtor', status: 'confirmed' },
+              { subjectId: 'character-e', objectId: 'character-f', kind: 'ally', status: 'confirmed' }
+            ]
+          }
+        }
+      }]
+    }, { intent: 'respond' })
+    expect(relationshipNote).toContain('本场有效关系（只作行为依据，不照抄标签）')
+    expect(relationshipNote).toContain('character-daughter → character-mother（guardian）')
+    expect(relationshipNote).not.toContain('character-e → character-f')
+    expect(buildNarrativeTurnNote({
+      blocks: [{ kind: 'continuity', content: { causality: { relationships: [] } } }]
+    }, { intent: 'respond' })).not.toContain('本场有效关系')
     expect(buildNarrativeFormatInstructions()).toContain('自然段之间用换行分隔')
     expect(buildNarrativeFormatInstructions()).toContain('一个自然段 1-2 个句子')
     expect(buildNarrativeFormatInstructions()).toContain('台词统一使用中文双引号“”')

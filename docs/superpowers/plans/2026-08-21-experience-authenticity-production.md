@@ -4,7 +4,7 @@
 
 **Goal:** 将已验证的降 AI 腔与关系真实性规则接入 Experience 正式叙事 prompt，同时保持单次主生成链和现有运行时数据模型。
 
-**Architecture:** 扩展现有 `narrativeVoicePolicy`，让静态真实性规则继续由 system contract 承载，并让下一轮作者注释从 NarrativeKernel 的 continuity block 提取最多三条已确认关系。Orchestrator 继续调用同一 `buildNarrativeVoiceContract()` / `buildNarrativeTurnNote()`，不新增 provider 调用或持久化状态。
+**Architecture:** 扩展现有 `narrativeVoicePolicy`，让静态真实性规则继续由首条 system contract 承载，并让第二条 system turn note 从 NarrativeKernel 的 continuity block 提取最多三条已确认关系。Orchestrator 继续调用同一 `buildNarrativeVoiceContract()` / `buildNarrativeTurnNote()`，不新增 provider 调用或持久化状态。
 
 **Tech Stack:** Vue 3 application services, JavaScript ES modules, Vitest, existing NarrativeKernel and narrative agent transcript contracts.
 
@@ -128,7 +128,7 @@ relationshipNote
 ```js
 expect(firstRequest.messages[0].content).toContain('不用列举数项后再用破折号短句揭晓')
 expect(firstRequest.messages.some((message) => (
-  message.role === 'user' && message.content.includes('本场有效关系（只作行为依据，不照抄标签）')
+  message.role === 'system' && message.content.includes('本场有效关系（只作行为依据，不照抄标签）')
 ))).toBe(true)
 ```
 
@@ -185,4 +185,3 @@ git merge --ff-only feature/experience-authenticity-production
 ```
 
 Expected: `integration/online-agents-canvas-video-f` 快进到完成提交；主工作区原有未提交研究与计划文件保持不变。
-

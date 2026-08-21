@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/tmp/pinax-latest-integration-dramaturgy` | `integration/latest-dramaturgy` | 已合并最新场景素材板集成线与小说截面/戏剧消融/真实性局部编辑器；实验功能尚不进入 Experience 生产链 |
+| Codex | `/tmp/pinax-experience-authenticity-production` | `feature/experience-authenticity-production` | 已将自然表达与关系真实性约束接入 Experience 正式生成链并通过全量验证；待快进最新集成分支 |
 
 ## 当前事实
 
@@ -17,7 +17,7 @@
 - **设定审阅队列**：结构化分区一次生成多字段时，所有成功草稿现在会在同一审阅区上方列出可切换的轻量待审队列；不再只展示第一份草稿而让其余草稿停留在不可操作状态。保留单一 `SettingDraftReview` 审阅面，不新增抽屉或第二套采纳链。
 - **来源链路补充**：正式世界书加载会保留归档 refs 并惰性迁移旧资料；批量归档与单文件入口共用 hash 复用、容量预检和逻辑来源 refs；结构化生成前恢复完整 archive chunks，跨来源重复片段只进入上下文一次；粘贴片段 quota 失败降级为本页暂存。
 - **来源解析取消补充**：parse-timeout 会 abort 底层 TXT/PDF/DOCX 解析信号，PDF loading task 进行 best-effort destroy；现有来源合同测试已覆盖超时后信号确实进入 aborted。解析链同时记录每文件耗时/慢任务和批次总耗时，Worker 与主线程降级路径合同一致，指标保存于创建工作区供后续实体设备性能验收使用。
-- **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。真实性 MVP 已增加有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见正文完全分离、仅落低敏指标的 shadow critic；critic 不是第二条生产生成链。正文：长度改软区间并删除按字符下限补全。剩真实渠道 3×3 真实性矩阵验收。
+- **体验叙事 Agent**：G4.6.13、酒馆能力对齐、连续性 C0-C7、故事质量 Q1-Q4、内容完整性 P0-P6 与 2026-08-14 运行时收口 P0-P5 已接入。运行时：trace 分 plan/evidence/write/completion 四阶段记录；BeatPlan 控制步骤不再占资料轮次，资料预算（1 正常+1 恢复）耗尽后 typed 消息 + toolChoice none 强制完成；超时按阶段分配（计划 35s / 正文 60s / 补全 45s / 整轮 100s）；geo 按地点条件暴露。世界书：生产 NarrativeKernel 通过 `activatedLore` 确定性接入现有 matcher（常驻/绑定/关键词/starter/预算），新会话少量 starter 或世界概述回退。真实性 MVP 已增加有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见正文完全分离、仅落低敏指标的 shadow critic；critic 不是第二条生产生成链。正式行文契约现限制列举后破折号揭晓、重复解释和无因果神秘化；每轮 system turn note 从既有 causality 中最多提取三条有效角色关系，只作行为依据且不写回状态。正文长度使用软区间并删除按字符下限补全。剩真实渠道 3×3 真实性矩阵验收。
 - **小说截面架构实验**：2026-08-19 使用 MiniMax-Text-01 完成 3 架构 × 4 fixtures × 3 repetitions 的 runner v2 真实矩阵。36 次尝试中 26 次成功；single-writer 12/12、role-agents-narrator 8/12、intent-planners-writer 6/12。人工盲评在 6/26 后因重复度与时间限制提前停止，三架构四场景均有覆盖但样本不均，不足以排名。共同问题是关系真实性缺失、无因果兑现的“谜语感”、行为动机桥梁不足与机器腔；状态为 `no-decision`，未选择 winner，未执行 portability，也未进入产品 MVP。
 - **戏剧极小引擎消融**：三条件隔离、可恢复生成、盲化对照和轻量单人记录 CLI 已完成。MiniMax-M3 真实矩阵得到 24/24 成功与 16 组可读 TXT 对照；这只是待抽样判断的实验材料，不代表极小引擎已获产品支持。人工评测不再要求两人或完整 16 组覆盖。
 - **体验阅读**：G1.4 M1-M4、排版 R0-R2 与第三阶段 marker/speaker/对白样式切片已完成。2026-08-19 真实验收纠正旧 P4 的宽松阈值：显式换行优先；无换行的三句及以上或超过约 120 个中文字符的 narration/action/thought 按 1-2 句、约 60-120 字分组，异常长单句再从引号外的分号/逗号保守分块。独立 dialogue 统一外层 `“……”`、嵌套 `‘……’`，长独白按 1-2 句拆块并保留 speaker；叙述中夹带的引语不做全局替换。已有 v5 消息只在检测到稠密 prose 或待规范 dialogue 时选择性重解析，不批量扰动正常历史消息。
@@ -33,6 +33,7 @@
 
 ## Recently done
 
+- 2026-08-21：将小说截面实验中已验证的自然表达规则接入 Experience 正式叙事：禁止列举后破折号揭晓、同义/比喻重复解释和无来源无影响的神秘化；关系只通过惯常选择、成本、回避、纠正、默契或遗漏显现。下一轮 system turn note 最多携带三条现有因果关系，空关系不注入；不新增 provider 调用，真实性局部编辑器仍为显式 CLI。全量验证 25 文件 / 436 tests、Vite、diff check、VitePress 全通过。
 - 2026-08-21：将场景素材板最新集成线与小说截面 bake-off、关系包 A/B、戏剧极小引擎消融及真实性局部编辑器合并到 `integration/latest-dramaturgy`。仅共享状态文档发生冲突，合并时保留双方完成事实与后续门禁；全量验证 25 文件 / 436 tests、Vite、diff check、VitePress 全通过。
 - 2026-08-21：增加实验性真实性局部编辑器：读取角色、事实与极小关系包，模型最多提交三项精确替换，程序验证补丁/全文一致、新事实泄漏、已确认 AI 信号确实减少及关系 cue 有正文落点；失败始终保留原稿。MiniMax-M3 回放既有第 1、5 组时，生日场景成功移除三处解释性比喻且事件/结尾不变；运河场景因 `editedText` 与补丁不一致被安全拒绝。结果为 1/2，不进入生产链，也不要求新增人工评分。
 - 2026-08-21：根据人工反馈将“列举后破折号揭示、重复解释、无效神秘化、替人物解释心理的比喻”转成共享提示词约束与正反偏好示例。两段 MiniMax-M3 探针中，运河场景不再复现“唯独……——假的”，但生日场景仍有比喻腔和代词衔接错误，因此只记录为定向改善，不把提示词微调视为真实感问题的完整解法。
