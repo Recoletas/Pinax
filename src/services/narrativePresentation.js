@@ -1,9 +1,10 @@
 // P4：可信说话者注册表（verified/unresolved/message-fallback 三种 trust 状态）
-import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract'
+import { resolveSpeakerName } from '../../shared/narrativeSpeakerContract.js'
 
 const BLOCK_KINDS = new Set(['narration', 'action', 'dialogue', 'thought', 'system'])
 const READABLE_PROSE_KINDS = new Set(['narration', 'action', 'thought'])
 const UNKNOWN_MARKER_RE = /^\s*:::\s*[^\s|：]+(?:[|：][^\n]*)?\s*(.*)$/
+const BARE_MARKER_RE = /^\s*:::\s*$/
 // P3：所有围栏变体
 const FENCE_RE = /^\s*```(?:text|markdown|md|diff|json|html|js|python|plaintext)?\s*$/i
 
@@ -140,6 +141,11 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
 
   for (const line of lines) {
     if (FENCE_RE.test(line)) continue
+    if (BARE_MARKER_RE.test(line)) {
+      sawMarker = true
+      flush()
+      continue
+    }
     // P6：模型常把 marker 写进行中（`。」 :::narration 柳洵`），
     // 按行内任意位置的已知 marker 切块 —— marker 前文本归属当前块，marker 起新块。
     const markerSegments = scanInlineMarkers(line)
@@ -370,6 +376,7 @@ function scanInlineMarkers(line) {
 function sanitizeTransportMarkers(text) {
   const withoutMarkers = String(text || '')
     .replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
+    .replace(/:::/g, '')
   return sanitizeNarrativeSectionTitles(withoutMarkers)
 }
 
