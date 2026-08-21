@@ -597,6 +597,13 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
     expect(s2Prompt.temperature).toBe(base.temperature)
     expect(s1Prompt.user).toBe(base.user + '\n\n' + serializeMinimalEngine(fixture))
     expect(s2Prompt.user).toBe(base.user + '\n\n' + serializeMinimalEngine(fixture) + '\n\n' + serializeFullVocabulary(fixture))
+    expect(base.user).toContain('推断只写一遍')
+    expect(base.user).toContain('不用列举数项后再用破折号短句揭晓')
+    expect(base.user).toContain('对白必须改变压力、关系或下一步行动')
+    expect(base.user).toContain('不把普通信息写成故作神秘的总结句')
+    expect(base.user).toContain('“票据、签名都对，唯独日期——错了。”')
+    expect(base.user).toContain('“他看了眼日期，把票据退了回去。”')
+    expect(base.user).toContain('“她把杯子挪远，没有接话。”')
 
     // 提示词不含实验元数据 / 评分 / ground truth / 字段内部名
     const allPrompts = base.system + base.user + s1Prompt.user + s2Prompt.user
@@ -620,7 +627,7 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
     expect(metrics.relationChars).toBe(0)
     expect(relBase.promptMetrics.relationChars).toBeGreaterThan(0)
     expect(DRAMATURGICAL_CONDITIONS).toEqual(['baseline', 'minimal-engine', 'full-vocabulary'])
-    expect(DRAMATURGICAL_PROMPT_CONTRACT_VERSION).toBe('cross-section-dramaturgy-prompt.v1')
+    expect(DRAMATURGICAL_PROMPT_CONTRACT_VERSION).toBe('cross-section-dramaturgy-prompt.v3')
   })
 
   it('rejects typed dramaturgical fixture violations (Task 1)', () => {

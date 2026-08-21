@@ -31,7 +31,7 @@ export const DRAMATURGICAL_CONDITIONS = Object.freeze([
   'minimal-engine',
   'full-vocabulary'
 ])
-export const DRAMATURGICAL_PROMPT_CONTRACT_VERSION = 'cross-section-dramaturgy-prompt.v1'
+export const DRAMATURGICAL_PROMPT_CONTRACT_VERSION = 'cross-section-dramaturgy-prompt.v3'
 export const DRAMATURGICAL_RUNNER_CONTRACT_VERSION = 'cross-section-dramaturgy-runner.v1'
 export const DRAMATURGICAL_EVALUATOR_CONTRACT_VERSION = 'cross-section-dramaturgy-evaluator.v1'
 export const DRAMATURGICAL_AUTHORING_CONTRACT_VERSION = 'cross-section-dramaturgy-authoring.v1'
@@ -74,6 +74,12 @@ const commonFinalUserPrompt = fixture => [
   `【exit】只在 exitCue=${fixture.exitCue.join(' / ')} 停下`,
   `【beat】内部组织 3–5 个因果 beats，不打印标签`,
   '【length/format】终稿 500–900 中文字符，使用 Pinax markers 与规范中文引号',
+  '【natural prose】推断只写一遍：给出人物能观察到的线索，再让判断自然落下，不重复解释。',
+  '不用列举数项后再用破折号短句揭晓，也不用同义短句重复强调同一个结论。',
+  '对白必须改变压力、关系或下一步行动；不能推动场景的说明改用动作、观察或沉默。',
+  '不把普通信息写成故作神秘的总结句；本场景不会兑现的信息应直写或省略。',
+  '【语气偏好】避免“票据、签名都对，唯独日期——错了。”；改成“他看了眼日期，把票据退了回去。”',
+  '避免“她的沉默像一扇关上的门。”这类替人物解释心理的比喻；改成“她把杯子挪远，没有接话。”',
   '【final boundary】这次调用只产出终稿，maxTokens=1800；不提供选项，不自动继续。'
 ].join('\n')
 
