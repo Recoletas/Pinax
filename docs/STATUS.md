@@ -7,10 +7,12 @@
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
 | Codex | `/tmp/pinax-narrative-phase-isolation` | `feature/narrative-phase-isolation` | 已将 BeatPlan 规划与正文 transcript 结构隔离并通过全量验证；待合并最新集成分支 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 正在固化桌面优先、本地项目目录、TXT 单一草稿、统一写作/推演工作台与低占用 AI 数据策略；当前仅设计与计划，不改运行时代码 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
+- **桌面创作方向（设计中）**：完整产品重心转向 Electron 桌面端，作者选择本地项目目录；章节正文以 UTF-8 TXT 为唯一文字真源，必要结构、批注、关系、来源与紧凑历史进入侧车 SQLite。体验与写作将共用同一持续编辑的正文草稿，推演生成内容立即可编辑，仅显示瞬时来源提示与请求级撤销；常规人物/关系/事件变化从正文自动派生，只有锁定事实冲突等例外需要处理。完整 Prompt、展开上下文、推理、流式片段和未采用候选不永久保存。书面规格待用户审阅后再拆实施计划，尚未替代当前产品主线。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
 - **设定工作区体验**：已完成现状代码与 1440/390 浏览器审计，并重构 `settings-import-and-review-ux-plan-20260817.md`。当前按 U0-U7 建立“世界书首页 -> 可恢复创建工作区 -> 详细设定”三层流程：预设幂等直达体验，JSON 确定性导入，多文件文字抽取进入 IndexedDB source archive，先生成基础基调，再按分区渐进提炼；创建工作区已有统一生成状态机和部分失败恢复，首轮只做文件/chunk 精确去重与同名提示，不做语义自动合并、OCR 或向量库。世界书首页已重构为“当前世界主卡 + 世界书选择 + 创建工具 + 预设索引”，结构化设定已改为分区索引栏与内容编辑稿面，并在桌面合并共享 `SettingsContextBar` 与设定导航；一级导航收为“设定 / 地图 / 条目”，首页路由复用“设定”入口，不再重复占用一个 tab。高级世界书页旧“新建 / 导入”分区、持久化草稿状态、重复 AI 入口和死 CSS 已删除，创建职责统一归属独立工作区；条目管理收敛为检索栏、批量操作、条目列表与编辑面四层工作区；有审核草稿时桌面右侧固定，760-1100px 使用右侧覆盖层，759px 以下使用避开应用顶栏的全屏审阅页，关闭只收起并恢复触发控件焦点/滚动，不丢弃草稿。
 - **设定工作区**：U1-U7 代码侧已完成。创建工作区支持可恢复的 TXT/MD/PDF/DOCX 多文件来源、JSON 结构化预览、基础基调与分区渐进提炼；source archive 具备 64MB 容量预检、正文/chunk hash 复用、来源定位与安全清理；解析和生成支持取消、部分失败、quota 降级、stale/aborted 状态，候选审阅保留证据且不自动合并。高级页重复结构化标签已删除，窄屏/200% 布局已修正；首页、创建、结构化和高级四条路由在 1440/1024/390px 共 36 captures，0 console error、0 a11y failure。剩余仅是真实 provider 3×3、真实 API 下 revision stale/取消、真实 quota 以及 20MB PDF 设备性能验收。
