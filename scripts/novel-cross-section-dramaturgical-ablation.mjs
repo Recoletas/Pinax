@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from 'node:url'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import * as nodeFs from 'node:fs/promises'
 import process from 'node:process'
 
 import '../server/loadEnv.js'
 import { createBakeoffProvider } from './lib/novel-cross-section-bakeoff.mjs'
+import {
+  AUTHENTICITY_EDITOR_CONTRACT_VERSION,
+  runAuthenticityEditor
+} from './lib/novel-cross-section-authenticity-editor.mjs'
+import { CROSS_SECTION_DRAMATURGICAL_FIXTURES } from './fixtures/novel-cross-section-dramaturgical-fixtures.mjs'
 import {
   DEFAULT_DRAMATURGICAL_OUTPUT_ROOT,
   DRAMATURGICAL_AUTHORING_CONTRACT_VERSION,
@@ -25,7 +30,8 @@ import {
 
 const FLAGS = Object.freeze({
   'dry-run': new Set(),
-  generate: new Set(['config', 'output', 'run', 'relation-mode'])
+  generate: new Set(['config', 'output', 'run', 'relation-mode']),
+  edit: new Set(['config', 'output', 'run', 'run-ids'])
 })
 
 const text = value => typeof value === 'string' ? value.trim() : ''
@@ -35,7 +41,7 @@ export function parseDramaturgicalArgs(argv) {
   const command = tokens[0]
   const allowed = FLAGS[command]
   if (!allowed) {
-    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_CLI_COMMAND_INVALID', '需要 dry-run 或 generate 命令')
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_CLI_COMMAND_INVALID', '需要 dry-run、generate 或 edit 命令')
   }
   const flags = {}
   for (let index = 1; index < tokens.length; index += 2) {
@@ -54,6 +60,42 @@ export function parseDramaturgicalArgs(argv) {
     flags[name] = text(value)
   }
   if (command === 'dry-run') return { command }
+
+  if (command === 'edit') {
+    for (const name of ['run', 'output']) {
+      if (!flags[name]) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_CLI_FLAG_VALUE_REQUIRED', `edit 缺少 --${name}`)
+      }
+      if (!isAbsolute(flags[name])) {
+        throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PATH_INVALID', `--${name} 必须是绝对路径`)
+      }
+    }
+    const sourceRun = resolve(flags.run)
+    const outputDir = resolve(flags.output)
+    const outputOffset = relative(sourceRun, outputDir)
+    const outputInsideSource = !outputOffset
+      || (outputOffset !== '..' && !outputOffset.startsWith(`..${sep}`) && !isAbsolute(outputOffset))
+    if (outputInsideSource) {
+      throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_OUTPUT_CONFLICT', '编辑输出不能覆盖冻结 run')
+    }
+    if (flags.config && !isAbsolute(flags.config)) {
+      throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_PATH_INVALID', '--config 必须是绝对路径')
+    }
+    const runIds = String(flags['run-ids'] || '').split(',').map(text).filter(Boolean)
+    if (runIds.length === 0) {
+      throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_RUN_IDS_REQUIRED', 'edit 缺少 --run-ids')
+    }
+    if (new Set(runIds).size !== runIds.length) {
+      throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_RUN_IDS_DUPLICATE', 'edit run id 重复')
+    }
+    return {
+      command,
+      runDir: flags.run,
+      outputDir: flags.output,
+      runIds,
+      ...(flags.config ? { configPath: flags.config } : {})
+    }
+  }
 
   const relationMode = flags['relation-mode'] || 'none'
   if (!DRAMATURGICAL_RELATION_MODES.includes(relationMode)) {
@@ -134,6 +176,64 @@ const renderAuthoringText = template => template.participants[0].tasks.map((task
   ...task.questions.flatMap(question => [question.prompt, ''])
 ].join('\n')).join('\n------------------------------\n\n') + '\n'
 
+const renderAuthenticityEditsText = edits => edits.map((edit, index) => [
+  `样本 ${index + 1}：${edit.runId}`,
+  `状态：${edit.status}`,
+  '',
+  '原稿',
+  edit.originalReadableText || edit.originalText,
+  '',
+  '局部编辑稿',
+  edit.readableText || edit.originalReadableText || edit.originalText,
+  '',
+  '修改记录',
+  ...(edit.findings?.length
+    ? edit.findings.map((finding, findingIndex) => `${findingIndex + 1}. ${finding.type}：${finding.reason}`)
+    : ['无'])
+].join('\n')).join('\n\n==============================\n\n') + '\n'
+
+const runAuthenticityEditCommand = async ({ fs, args, provider }) => {
+  const [manifestRaw, privateRaw] = await Promise.all([
+    fs.readFile(join(args.runDir, 'manifest.json'), 'utf8'),
+    fs.readFile(join(args.runDir, 'private-runs.jsonl'), 'utf8')
+  ])
+  let manifest
+  try { manifest = JSON.parse(manifestRaw) } catch (cause) {
+    throw dramaturgicalError('CROSS_SECTION_DRAMATURGY_MANIFEST_INVALID', '源 run manifest 无效', { cause })
+  }
+  if (manifest?.status !== 'complete') {
+    throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_SOURCE_INCOMPLETE', '只能编辑已完成的冻结 run')
+  }
+  const runs = parsePrivateRuns(privateRaw)
+  const byId = new Map(runs.map(run => [run.runId, run]))
+  const edits = []
+  for (const runId of args.runIds) {
+    const source = byId.get(runId)
+    if (!source || source.status !== 'success' || !text(source.rawText)) {
+      throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_SOURCE_RUN_INVALID', `源 run 不可编辑：${runId}`)
+    }
+    const fixture = CROSS_SECTION_DRAMATURGICAL_FIXTURES.find(({ id }) => id === source.fixtureId)
+    if (!fixture) {
+      throw dramaturgicalError('CROSS_SECTION_AUTHENTICITY_SOURCE_FIXTURE_UNKNOWN', `源 fixture 不存在：${source.fixtureId}`)
+    }
+    edits.push(await runAuthenticityEditor({ fixture, draft: source, provider, runId }))
+  }
+  const bundle = {
+    contractVersion: AUTHENTICITY_EDITOR_CONTRACT_VERSION,
+    sourceRunDir: args.runDir,
+    edits
+  }
+  await fs.mkdir(args.outputDir, { recursive: true })
+  await fs.writeFile(join(args.outputDir, 'authenticity-edits.json'), `${JSON.stringify(bundle, null, 2)}\n`)
+  await fs.writeFile(join(args.outputDir, 'authenticity-edits.txt'), renderAuthenticityEditsText(edits))
+  return {
+    outputDir: args.outputDir,
+    editCount: edits.length,
+    failedCount: edits.filter(({ status }) => status === 'failed').length,
+    readableEdits: join(args.outputDir, 'authenticity-edits.txt')
+  }
+}
+
 const finalizeArtifacts = async (fs, runDir) => {
   const [manifestRaw, privateRaw] = await Promise.all([
     fs.readFile(join(runDir, 'manifest.json'), 'utf8'),
@@ -190,7 +290,7 @@ export async function runDramaturgicalCli(argv, {
       authoringParticipantCount: 1,
       persistentWrites: 0
     }
-  } else {
+  } else if (args.command === 'generate') {
     const config = args.configPath
       ? parseConfig(await fs.readFile(args.configPath, 'utf8'))
       : builtinMiniMaxConfig()
@@ -203,6 +303,15 @@ export async function runDramaturgicalCli(argv, {
       ...(args.runDir ? { runDir: args.runDir } : {})
     })
     result = await finalizeArtifacts(fs, runDir)
+  } else {
+    const config = args.configPath
+      ? parseConfig(await fs.readFile(args.configPath, 'utf8'))
+      : builtinMiniMaxConfig()
+    result = await runAuthenticityEditCommand({
+      fs,
+      args,
+      provider: createProvider(config)
+    })
   }
   output(`${JSON.stringify(result, null, 2)}\n`)
   return result

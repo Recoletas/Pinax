@@ -22,6 +22,11 @@ import {
 import { serializeMinimalRelationPack } from '../../scripts/lib/novel-cross-section-relation-ab.mjs'
 import { CROSS_SECTION_RELATION_FIXTURES } from '../../scripts/fixtures/novel-cross-section-relation-fixtures.mjs'
 import {
+  AUTHENTICITY_EDITOR_MAX_FINDINGS,
+  buildAuthenticityEditorPrompt,
+  runAuthenticityEditor
+} from '../../scripts/lib/novel-cross-section-authenticity-editor.mjs'
+import {
   parseDramaturgicalArgs,
   runDramaturgicalCli
 } from '../../scripts/novel-cross-section-dramaturgical-ablation.mjs'
@@ -213,6 +218,93 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       fixture: null, condition: 'baseline', repetition: 1, provider, relationMode: 'none'
     })).rejects.toMatchObject({ code: 'CROSS_SECTION_DRAMATURGY_FIXTURE_MISMATCH' })
     expect(requests).toHaveLength(3)
+
+    const editorFixture = CROSS_SECTION_DRAMATURGICAL_FIXTURES[0]
+    const sourceText = '这印是伪造的。封印不对，纸也对，墨色也对，唯独印泥——假的。'
+    const replacementText = '检查官看了眼泛青的印泥，把册子按在石栏上。'
+    const draftText = `:::narration\n雨打在关卡上。\n:::thought|检查官\n${sourceText}`
+    const editedText = draftText.replace(sourceText, replacementText)
+    const editorRequests = []
+    const editorProvider = {
+      invoke: async request => {
+        editorRequests.push(request)
+        return {
+          text: JSON.stringify({
+            status: 'edited',
+            findings: [{
+              type: 'repeated-inference',
+              sourceText,
+              replacementText,
+              reason: '线索已经足够，不再重复揭晓'
+            }],
+            editedText
+          }),
+          usage: { inputTokens: 20, outputTokens: 10 }
+        }
+      }
+    }
+    const editorPrompt = buildAuthenticityEditorPrompt({ fixture: editorFixture, draftText })
+    expect(editorPrompt.user).toContain('两人都记得那年夜航走的是北汊水道')
+    expect(editorPrompt.user).toContain('最多 3 处')
+    expect(editorPrompt.user).toContain('关系提示不是逐项写入任务')
+    const edited = await runAuthenticityEditor({
+      fixture: editorFixture,
+      draft: { rawText: draftText },
+      provider: editorProvider,
+      runId: 'canal-ledger-minimal-engine-r1'
+    })
+    expect(edited.status).toBe('edited')
+    expect(edited.findings).toHaveLength(1)
+    expect(edited.rawText).toBe(editedText)
+    expect(edited.readableText).toContain(replacementText)
+    expect(editorRequests).toHaveLength(1)
+    expect(edited.usage.totalTokens).toBe(30)
+    expect(AUTHENTICITY_EDITOR_MAX_FINDINGS).toBe(3)
+
+    const invalid = await runAuthenticityEditor({
+      fixture: editorFixture,
+      draft: { rawText: draftText },
+      provider: {
+        invoke: async () => ({
+          text: JSON.stringify({
+            status: 'edited',
+            findings: Array.from({ length: 4 }, () => ({
+              type: 'empty-mystery', sourceText, replacementText, reason: '超限'
+            })),
+            editedText
+          })
+        })
+      },
+      runId: 'canal-ledger-invalid-editor'
+    })
+    expect(invalid).toMatchObject({ status: 'failed', originalText: draftText })
+    expect(invalid.error.code).toBe('CROSS_SECTION_AUTHENTICITY_FINDINGS_LIMIT')
+    expect(invalid.originalReadableText).toContain(sourceText)
+    expect(invalid.originalReadableText).not.toContain(':::')
+
+    const ineffectiveSource = '雨打在关卡上。'
+    const ineffectiveReplacement = '雨还在打，检查官凭手感判断关防有假。'
+    const ineffective = await runAuthenticityEditor({
+      fixture: editorFixture,
+      draft: { rawText: draftText },
+      provider: {
+        invoke: async () => ({
+          text: JSON.stringify({
+            status: 'edited',
+            findings: [{
+              type: 'empty-mystery',
+              sourceText: ineffectiveSource,
+              replacementText: ineffectiveReplacement,
+              reason: '声称处理了顿悟句，但没有触及原句'
+            }],
+            editedText: draftText.replace(ineffectiveSource, ineffectiveReplacement)
+          })
+        })
+      },
+      runId: 'canal-ledger-ineffective-editor'
+    })
+    expect(ineffective).toMatchObject({ status: 'failed', originalText: draftText })
+    expect(ineffective.error.code).toBe('CROSS_SECTION_AUTHENTICITY_REQUIRED_SIGNAL_REMAINS')
   })
 
   it('persists immutable resumable runs and fails closed on corrupted identity (Task 4)', async () => {
@@ -550,6 +642,21 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
       .toMatchObject({ command: 'generate', configPath: '/tmp/provider.json' })
     expect(() => parseDramaturgicalArgs(['generate', '--relation-mode', 'unknown']))
       .toThrow(expect.objectContaining({ code: 'CROSS_SECTION_DRAMATURGY_RELATION_MODE_INVALID' }))
+    expect(parseDramaturgicalArgs([
+      'edit', '--run', '/tmp/source-run', '--output', '/tmp/editor-output',
+      '--run-ids', 'canal-ledger-minimal-engine-r1,birthday-recorder-minimal-engine-r1',
+      '--config', '/tmp/editor-provider.json'
+    ])).toEqual({
+      command: 'edit',
+      runDir: '/tmp/source-run',
+      outputDir: '/tmp/editor-output',
+      runIds: ['canal-ledger-minimal-engine-r1', 'birthday-recorder-minimal-engine-r1'],
+      configPath: '/tmp/editor-provider.json'
+    })
+    expect(() => parseDramaturgicalArgs([
+      'edit', '--run', '/tmp/source-run', '--output', '/tmp/source-run/editor-output',
+      '--run-ids', 'canal-ledger-minimal-engine-r1'
+    ])).toThrow(expect.objectContaining({ code: 'CROSS_SECTION_AUTHENTICITY_OUTPUT_CONFLICT' }))
 
     let printed = ''
     const result = await runDramaturgicalCli(['dry-run'], {
@@ -557,6 +664,50 @@ describe('novel cross-section dramaturgical ablation (tasks 1-8)', () => {
     })
     expect(result).toMatchObject({ attemptCount: 24, authoringParticipantCount: 1 })
     expect(JSON.parse(printed)).toMatchObject({ attemptCount: 24, persistentWrites: 0 })
+
+    const editorFs = createMemoryFs()
+    const sourceRunDir = '/tmp/source-run'
+    const outputDir = '/tmp/editor-output'
+    const sourceRuns = [
+      {
+        runId: 'canal-ledger-minimal-engine-r1', fixtureId: 'canal-ledger', status: 'success',
+        rawText: ':::narration\n检查官把粮册放在石栏上。'
+      },
+      {
+        runId: 'birthday-recorder-minimal-engine-r1', fixtureId: 'birthday-recorder', status: 'success',
+        rawText: ':::narration\n母亲把录音机往女儿那边推了推。'
+      }
+    ]
+    editorFs.files.set(`${sourceRunDir}/manifest.json`, JSON.stringify({ status: 'complete' }))
+    editorFs.files.set(`${sourceRunDir}/private-runs.jsonl`, `${sourceRuns.map(JSON.stringify).join('\n')}\n`)
+    editorFs.files.set('/tmp/editor-provider.json', JSON.stringify({
+      id: 'minimax', model: 'MiniMax-M3', format: 'anthropic', baseUrl: 'https://example.test'
+    }))
+    const editorCalls = []
+    const editResult = await runDramaturgicalCli([
+      'edit', '--run', sourceRunDir, '--output', outputDir,
+      '--run-ids', sourceRuns.map(({ runId }) => runId).join(','),
+      '--config', '/tmp/editor-provider.json'
+    ], {
+      fs: editorFs,
+      output: () => {},
+      createProvider: () => ({
+        invoke: async request => {
+          editorCalls.push(request)
+          const originalText = request.user.split('【原稿】\n').at(-1)
+          return { text: JSON.stringify({ status: 'unchanged', findings: [], editedText: originalText }) }
+        }
+      })
+    })
+    expect(editResult).toMatchObject({ editCount: 2, failedCount: 0 })
+    expect(editorCalls).toHaveLength(2)
+    expect(editorFs.files.get(`${outputDir}/authenticity-edits.txt`))
+      .toContain('原稿\n检查官把粮册放在石栏上。\n\n局部编辑稿')
+    expect(JSON.parse(editorFs.files.get(`${outputDir}/authenticity-edits.json`)).edits).toHaveLength(2)
+    expect(editorFs.writes.map(({ path }) => path)).toEqual([
+      `${outputDir}/authenticity-edits.json`,
+      `${outputDir}/authenticity-edits.txt`
+    ])
   })
 
   it('serializes three isolated conditions sharing a byte-identical base (Task 2)', () => {

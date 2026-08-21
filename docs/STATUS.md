@@ -8,7 +8,7 @@
 |---|---|---|---|
 | Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/online-agents-canvas-video-f` | 体验页自然段与对白引号规范化已完成；剩无现有服务时未执行的 live browser 复验，以及真实性 MVP 的真实 provider 矩阵 |
 | Codex | `/tmp/pinax-novel-cross-section-bakeoff` | `feature/novel-cross-section-bakeoff` | 小说截面三架构真实 bake-off 已运行；探索性盲评提前停止，未选择 winner，下一步先补关系真实性与无效悬念合同 |
-| Codex | `/tmp/pinax-dramaturgy-ablation` | `feature/novel-cross-section-dramaturgy-ablation` | 戏剧极小引擎消融工具与真实 24-attempt 输出已就绪；按用户反馈补入两组自然表达偏好示例，能压制“唯独……——错了”式揭示，但未宣称解决广义 AI 腔；人工查看不设完整覆盖门槛 |
+| Codex | `/tmp/pinax-dramaturgy-ablation` | `feature/novel-cross-section-dramaturgy-ablation` | 戏剧消融新增显式、有界的真实性局部编辑实验；两段回放一段改善、一段因补丁/全文不一致被拒绝，尚不进入 Experience 生产链 |
 
 ## 当前事实
 
@@ -35,6 +35,7 @@
 
 ## Recently done
 
+- 2026-08-21：增加实验性真实性局部编辑器：读取角色、事实与极小关系包，模型最多提交三项精确替换，程序验证补丁/全文一致、新事实泄漏、已确认 AI 信号确实减少及关系 cue 有正文落点；失败始终保留原稿。MiniMax-M3 回放既有第 1、5 组时，生日场景成功移除三处解释性比喻且事件/结尾不变；运河场景因 `editedText` 与补丁不一致被安全拒绝。结果为 1/2，不进入生产链，也不要求新增人工评分。
 - 2026-08-21：根据人工反馈将“列举后破折号揭示、重复解释、无效神秘化、替人物解释心理的比喻”转成共享提示词约束与正反偏好示例。两段 MiniMax-M3 探针中，运河场景不再复现“唯独……——假的”，但生日场景仍有比喻腔和代词衔接错误，因此只记录为定向改善，不把提示词微调视为真实感问题的完整解法。
 - 2026-08-20：完成戏剧极小引擎消融 CLI 与真实材料生成。`eval:cross-section-dramaturgy` 可直接使用 `server/.env`，输出 JSON 工件及正常换行的 `blind-pairs.txt` / `authoring-template.txt`；作者负担记录降为可选单人模板。修复纯文本规范化把 action/thought 或 dialogue marker 下的无引号叙述错误显示为“角色：正文”的问题。真实 MiniMax-M3 运行 24/24 成功、16 对完整、0 个 `:::` 传输标记；不要求继续完整人工评分。
 - 2026-08-19：完成小说截面架构 bake-off 工具链与 runner v2 真实矩阵。工具链具备四类 immutable fixtures、单一 provider 边界、single-writer / role-agents-narrator / intent-planners-writer 三策略、确定性泄漏扫描、盲化评审、增量恢复、并发锁、实验指纹、固定 gates、报告和 winner-only portability 参数；MiniMax server key 只在内存解析。真实 36 次运行得到 26 成功 / 10 typed intermediate-contract failures；6 条探索性盲评覆盖三架构四场景后提前停止，未选择 winner。完整结论见 `docs/superpowers/research/novel-cross-section-architecture-result-20260819.md`。全量验证 21 文件 / 398 tests、Vite、diff check、VitePress 通过。
