@@ -138,8 +138,12 @@ try {
   check('1440 打开当前场保留落笔 selection', sameSelection(stateBeforeInspector, stateAfterInspector), JSON.stringify({ stateBeforeInspector, stateAfterInspector }))
 
   const curationText = await curation.innerText()
-  check('当前场同时呈现纠正/安排/本次参考语义',
-    ['保存当前场＝纠正当前', '下一段入场', '带入本次推演'].every((text) => curationText.includes(text)), curationText)
+  const edgarRow = curation.locator('.scene-curation__people li').filter({ hasText: '艾德加' }).first()
+  await edgarRow.locator('.scene-curation__person-toggle').click()
+  const edgarActions = await edgarRow.innerText()
+  check('当前场先选择对象再呈现三种明确动作',
+    ['加入当前场', '让他下一段入场', '仅带入本次推演'].every((text) => edgarActions.includes(text)), edgarActions)
+  check('中央目标块同步显示当前场草稿', await page.locator('[data-test="scene-curation-preview"]').count() === 1)
   check('世界书人物和地点在同一现场详情中可见',
     curationText.includes('旧港税务所') && curationText.includes('莉娜') && curationText.includes('艾德加'), curationText)
   const addButtons = picker.locator('[data-test="context-reference-add"]')

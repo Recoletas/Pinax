@@ -3,7 +3,7 @@
     <header class="authoring-block-composer__head">
       <div>
         <strong>{{ heading }}</strong>
-        <span v-if="operation === 'rewrite-unit'">生成后可直接修改，确认才替换当前文本块</span>
+        <span>{{ operation === 'rewrite-unit' ? '保留原文直到你采用修改稿' : '先确定下一步，再生成可编辑正文' }}</span>
       </div>
       <button type="button" class="authoring-block-composer__close" aria-label="收起推演" @click="cancel">收起</button>
     </header>
@@ -18,6 +18,10 @@
     <div v-if="operation === 'next-passage'" class="authoring-block-composer__kinds" role="radiogroup" aria-label="推进类型">
       <button v-for="option in kindOptions" :key="option.id" type="button" role="radio"
         :aria-checked="kind === option.id" @click="kind = option.id">{{ option.label }}</button>
+    </div>
+    <div class="authoring-block-composer__starters" aria-label="写作起点">
+      <span>可以从这里开始</span>
+      <button v-for="starter in promptStarters" :key="starter" type="button" @click="useStarter(starter)">{{ starter }}</button>
     </div>
     <div v-if="operation === 'next-passage' && (kind === 'dialogue' || kind === 'thought')" class="authoring-block-composer__people">
       <label>{{ kind === 'thought' ? '视角人物' : '说话人' }}<select v-model="actorId"><option value="">请选择</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
@@ -50,7 +54,7 @@
       </details>
       <div class="authoring-block-composer__actions">
         <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">再次保存</button>
-        <button type="button" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ primaryLabel }}</button>
+        <button type="button" class="control-primary" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ primaryLabel }}</button>
       </div>
     </div>
   </section>
@@ -76,8 +80,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['submit', 'cancel', 'stop', 'retry-persist', 'draft-change'])
 const kindOptions = Object.freeze([
-  { id: 'action', label: '行动' }, { id: 'dialogue', label: '对话' },
-  { id: 'thought', label: '心理' }, { id: 'scene', label: '场景' }
+  { id: 'action', label: '推动行动' }, { id: 'dialogue', label: '人物对话' },
+  { id: 'thought', label: '人物内心' }, { id: 'scene', label: '转场铺陈' }
 ])
 const kind = ref('action')
 const operation = ref('next-passage')
@@ -106,13 +110,32 @@ const sceneContextSummary = computed(() => {
   ].filter(Boolean).join(' · ')
 })
 const heading = computed(() => props.emptyChapter
-  ? '推演本章开场'
-  : operation.value === 'rewrite-unit' ? '重写当前文本块' : '推演下一段')
+  ? '这一章从哪里开始？'
+  : operation.value === 'rewrite-unit' ? '这段文字想改成什么？' : '接下来会发生什么？')
 const instructionPlaceholder = computed(() => {
   if (props.emptyChapter) return '例如：从雨夜的码头开场（可留空）'
   if (operation.value === 'rewrite-unit') return '例如：收紧节奏，保留人物的迟疑（可留空）'
   return '例如：她推开门，却先听见屋内的对话（可留空）'
 })
+const promptStarters = computed(() => {
+  if (operation.value === 'rewrite-unit') return ['收紧节奏，保留关键信息', '减少解释，强化人物反应', '换一个更自然的表达']
+  const projection = props.projection || {}
+  const lead = projection.viewpointCharacter?.name || props.people[0]?.name || '人物'
+  const other = props.people.find((person) => person?.name && person.name !== lead)?.name || '另一人'
+  const location = projection.location?.name || '当前地点'
+  if (kind.value === 'dialogue') return [`让${lead}主动开口`, `让${other}提出质疑`, '用一句话打破沉默']
+  if (kind.value === 'thought') return [`写出${lead}真正担心的事`, `让${lead}想起一个关键细节`, '让判断和情绪发生冲突']
+  if (kind.value === 'scene') return [`让${location}出现新的变化`, '把镜头移到更有压力的位置', '用环境变化推动下一步']
+  return [`让${lead}立刻采取行动`, '让当前阻力产生后果', '让一个未决问题浮到眼前']
+})
+
+function useStarter(starter) {
+  instruction.value = starter
+  nextTick(() => {
+    instructionInput.value?.focus?.({ preventScroll: true })
+    instructionInput.value?.setSelectionRange?.(starter.length, starter.length)
+  })
+}
 watch(() => props.initialInstruction, (value) => {
   // 只在 composer 可见时预填；每次新指令覆盖旧输入（来源是显式的“以此推进”动作）。
   if (!props.generating && value) instruction.value = String(value)
@@ -206,19 +229,27 @@ defineExpose({ focusInstruction })
 
 <style scoped>
 .authoring-block-composer {
+  position: relative;
   width: 100%;
   max-width: 100%;
-  padding: 13px 12px 10px 36px;
-  border-block: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-  background: transparent;
+  padding: 16px 16px 14px 38px;
+  border-block: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 2.5%, transparent);
+}
+.authoring-block-composer::before {
+  position: absolute;
+  inset: 16px auto 14px 22px;
+  width: 2px;
+  content: '';
+  background: color-mix(in srgb, var(--accent-primary) 48%, transparent);
 }
 .authoring-block-composer__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 9px; }
 .authoring-block-composer__head > div { display: grid; gap: 2px; }
-.authoring-block-composer__head strong { color: var(--text-primary); font-size: 12px; font-weight: 650; letter-spacing: 0.03em; }
+.authoring-block-composer__head strong { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 650; letter-spacing: 0.01em; }
 .authoring-block-composer__head span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__scene-context { margin: -1px 0 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__scene-context span { margin-right: 7px; color: var(--text-primary); font-weight: 600; }
-.authoring-block-composer textarea { width: 100%; min-height: 48px; padding: 7px 0 5px; resize: vertical; background: transparent; color: var(--text-primary); border: 0; border-bottom: 1px solid var(--border-default); font: inherit; line-height: 1.65; outline: none; }
+.authoring-block-composer textarea { width: 100%; min-height: 72px; padding: 9px 0 7px; resize: vertical; background: transparent; color: var(--text-primary); border: 0; border-bottom: 1px solid var(--border-default); font: 14px/1.72 var(--notebook-font-family, var(--font-serif, serif)); outline: none; }
 .authoring-block-composer textarea:focus { border-bottom-color: var(--accent-primary); }
 .authoring-block-composer__instruction { display: grid; gap: 0; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 .authoring-block-composer__stale-preview { display: grid; min-width: 0; max-width: 100%; gap: 3px; margin-top: 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
@@ -230,6 +261,24 @@ defineExpose({ focusInstruction })
 .authoring-block-composer button { min-height: 32px; padding: 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .authoring-block-composer__operations button, .authoring-block-composer__kinds button { margin-bottom: -1px; }
 .authoring-block-composer [aria-checked="true"] { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.authoring-block-composer__starters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 9px 0 3px;
+}
+.authoring-block-composer__starters > span {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.authoring-block-composer__starters button {
+  min-height: 28px;
+  border-bottom-color: color-mix(in srgb, var(--text-secondary) 24%, transparent);
+  font-size: 11px;
+}
+.authoring-block-composer__starters button:hover { color: var(--accent-primary); border-bottom-color: currentColor; }
 .authoring-block-composer__close { min-height: 28px; font-size: 11px; }
 .authoring-block-composer__people { padding-top: 10px; }
 .authoring-block-composer__people label { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
@@ -242,12 +291,23 @@ defineExpose({ focusInstruction })
 .authoring-block-composer__more-body label:last-child { display: flex; align-items: center; }
 .authoring-block-composer__more-body textarea { min-height: 48px; }
 .authoring-block-composer__actions { flex-shrink: 0; justify-content: flex-end; }
-.authoring-block-composer [data-test="block-primary"] { min-width: 72px; color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.authoring-block-composer [data-test="block-primary"] {
+  min-width: 112px;
+  padding: 7px 18px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--control-accent-bg, var(--accent-primary));
+  color: var(--archive-paper-soft, #f5f7f4);
+  font-weight: 650;
+}
 .authoring-block-composer [role="alert"] { margin: 8px 0 0; color: var(--text-danger, var(--text-primary)); font-size: 12px; }
 @media (max-width: 640px) {
-  .authoring-block-composer { padding: 12px 8px 10px 32px; }
+  .authoring-block-composer { padding: 14px 8px 12px 30px; }
+  .authoring-block-composer::before { left: 16px; }
   .authoring-block-composer__head { gap: 10px; }
   .authoring-block-composer__head span { max-width: 26ch; }
   .authoring-block-composer__more-body { width: min(260px, 72vw); }
+  .authoring-block-composer__starters { gap: 2px 10px; }
+  .authoring-block-composer__starters button { min-height: 40px; }
 }
 </style>

@@ -15,6 +15,7 @@ const rows = [
   ['settings.foundation.generate', 'settings', 'structured-one-shot', 'setting-foundation', 'setting-brief.v1', 'setting-draft.v1', 'review-draft'],
   ['settings.candidates.extract', 'settings', 'validated-chain', 'setting-section', 'setting-sources.v1', 'setting-candidates.v1', 'review-draft'],
   ['settings.field.complete', 'settings', 'structured-one-shot', 'setting-field', 'setting-field.v1', 'setting-draft.v1', 'review-draft'],
+  ['settings.character.complete', 'settings', 'structured-one-shot', 'setting-field', 'character-card.v1', 'character-card.v1', 'review-draft'],
   ['settings.section.complete', 'settings', 'validated-chain', 'setting-section', 'setting-section.v1', 'setting-draft-batch.v1', 'review-draft'],
   ['settings.draft.revise', 'settings', 'structured-one-shot', 'setting-field', 'setting-revision.v1', 'setting-draft.v1', 'review-draft'],
   ['settings.places.extract', 'settings', 'validated-chain', 'setting-places', 'setting-sources.v1', 'place-candidates.v1', 'review-draft'],

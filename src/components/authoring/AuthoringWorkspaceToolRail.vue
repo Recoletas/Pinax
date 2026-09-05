@@ -52,5 +52,6 @@ const tools = computed(() => props.collaborationVisible
 .writing-tool-rail button[aria-pressed="true"] { color: var(--text-primary); background: color-mix(in srgb, var(--accent-primary) 7%, transparent); }
 .writing-tool-rail button[aria-pressed="true"]::before { background: var(--accent-primary); }
 .writing-tool-rail button:hover, .writing-tool-rail button:focus-visible { background: color-mix(in srgb, var(--accent-primary) 6%, transparent); color: var(--text-primary); outline: none; }
-@media (max-width: 640px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; flex-direction: row; overflow-x: auto; border-top: 1px solid var(--border-subtle); } .writing-tool-rail button { flex: 1 0 48px; min-height: 44px; } }
+/* 与 Authoring 的全宽 sheet 同时切为底部工具带，避免 641–720px 留下被稿面遮住的竖栏。 */
+@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; flex-direction: row; overflow-x: auto; border-top: 1px solid var(--border-subtle); } .writing-tool-rail button { flex: 1 0 48px; min-height: 44px; } }
 </style>

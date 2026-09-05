@@ -49,6 +49,7 @@ const settingsIds = [
       'settings.foundation.generate',
       'settings.candidates.extract',
       'settings.field.complete',
+      'settings.character.complete',
       'settings.section.complete',
       'settings.draft.revise',
       'settings.places.extract',
@@ -148,13 +149,14 @@ const workflow = createSettingsImportWorkflow({ parseLocal: vi.fn(), extract: vi
 })
 
 describe('settings generation workflow', () => {
-  const SERVICE_NAMES = ['generateFoundation', 'generateCandidates', 'generateField', 'generateSection', 'reviseDraft']
+  const SERVICE_NAMES = ['generateFoundation', 'generateCandidates', 'generateField', 'generateCharacter', 'generateSection', 'reviseDraft']
 
   {
 const casesK7 = [
     ['settings.foundation.generate', 'generateFoundation'],
     ['settings.candidates.extract', 'generateCandidates'],
     ['settings.field.complete', 'generateField'],
+    ['settings.character.complete', 'generateCharacter'],
     ['settings.section.complete', 'generateSection'],
     ['settings.draft.revise', 'reviseDraft']
   ]

@@ -6,13 +6,13 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/consolidation-20260823` | C2-3 共同排演代码纵切已接入：Authoring 房主入口、受邀只读页、加密 artifact/proposal/branch、host-only generation、promotion→既有分组 Ghost 与 adopted receipt 均已完成；独立流程/UI 审查 blocker/high 清零，最终 `verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿。下一阶段不是直接做 C2-4，而是至少 5 次真实双人 pilot。不得另建协作改稿、第二套因果或 adoption owner。 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/consolidation-20260823` | UI/UX与趣味性二轮调研、18个任务包与六波交付计划已完成，verify:full exit 0（20文件/200用例、双build/diff）；本轮不实施产品改动。下一包先小高度助手输入遮挡、标题与返回收口，再资料层级/手机任务流及试演样板；保留其他WIP，C2-3继续冻结。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
-- **统一 Agent 能力架构（Foundation 已落地）**：`2026-08-22-unified-agent-capability-rollout.md` 总执行图与四份详细计划执行中。`feature/unified-agent-foundation` 已完成 Task 1-9；F1-2 与 F2-4 经集成主线计划授权，按只追加原则新增 `authoring.scene.directions`、`authoring.knowledge.query` 及对应 profile，当前目录为 46 项 canonical 任务（6 类 workflow、25 个上下文 profile、7 类 effect policy、18 条 legacy alias）。`agentTaskRequestContract`、Project Knowledge Facade、稀疏上下文解析器、确定性路由、结果事务层与隐私安全指标保持不变；客户端 `agentTaskRegistry` 与服务端 `agentTaskAllowlist` 继续由共享目录派生、集合完全一致。后续 track 仍只能向集成 owner 申请目录修订。
+- **统一 Agent 能力架构（Foundation 已落地）**：`2026-08-22-unified-agent-capability-rollout.md` 总执行图与四份详细计划执行中。`feature/unified-agent-foundation` 已完成 Task 1-9；F1-2、F2-4 与角色卡补全按只追加原则新增对应任务，当前目录为 47 项 canonical 任务（6 类 workflow、25 个上下文 profile、7 类 effect policy、18 条 legacy alias）。`agentTaskRequestContract`、Project Knowledge Facade、稀疏上下文解析器、确定性路由、结果事务层与隐私安全指标保持不变；客户端 `agentTaskRegistry` 与服务端 `agentTaskAllowlist` 继续由共享目录派生、集合完全一致。后续 track 仍只能向集成 owner 申请目录修订。
 - **桌面创作方向（P2 已落地）**：Electron 本地项目底座、UTF-8 TXT + SQLite、备份/缓存、安全 IPC、浏览器旧项目迁移与 Windows 打包修复均已实现；桌面使用 Hash History，浏览器继续 Web History。Windows portable ZIP 已完成宿主侧静态检查，Windows clean-machine 仍是外部门禁。后续按 P3 起把统一 Authoring 数据所有权适配到桌面项目真源。
 - **结构化设定**：G1.2.2 S0-S8 代码链已完成，具备结构化协议探测、分区生成、失败字段修复、revision 防旧写、局部意见修订和世界书维护工作台。剩余门禁是 MiniMax、OpenAI-compatible、Anthropic-compatible 三类真实渠道及隐私/性能审计。
 - **设定工作区体验**：已完成现状代码与 1440/390 浏览器审计，并重构 `settings-import-and-review-ux-plan-20260817.md`。当前按 U0-U7 建立“世界书首页 -> 可恢复创建工作区 -> 详细设定”三层流程：预设幂等直达体验，JSON 确定性导入，多文件文字抽取进入 IndexedDB source archive，先生成基础基调，再按分区渐进提炼；创建工作区已有统一生成状态机和部分失败恢复，首轮只做文件/chunk 精确去重与同名提示，不做语义自动合并、OCR 或向量库。世界书首页已重构为“当前世界主卡 + 世界书选择 + 创建工具 + 预设索引”，结构化设定已改为分区索引栏与内容编辑稿面，并在桌面合并共享 `SettingsContextBar` 与设定导航；一级导航收为“设定 / 地图 / 条目”，首页路由复用“设定”入口，不再重复占用一个 tab。高级世界书页旧“新建 / 导入”分区、持久化草稿状态、重复 AI 入口和死 CSS 已删除，创建职责统一归属独立工作区；条目管理收敛为检索栏、批量操作、条目列表与编辑面四层工作区；有审核草稿时桌面右侧固定，760-1100px 使用右侧覆盖层，759px 以下使用避开应用顶栏的全屏审阅页，关闭只收起并恢复触发控件焦点/滚动，不丢弃草稿。
@@ -38,6 +38,29 @@
 - **验证基线**：整合树继续执行 20 个测试文件 / 200 个用例硬预算，提交门禁为测试、Vite build、diff check 与 VitePress build 全绿。C1 最终页面 Gate 24/24：1440 当前场+世界书人物/地点+本次参考、1440 可编辑 Ghost+实际参考、390 sheet 三张证据已保留；1024 覆盖层、固定侧栏、selection/scrollTop、Ghost 内容轴、44px 逻辑触控与三视口零横向溢出均通过。C1 参考/重写旅程 23/23、故障矩阵 31/31。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 和 `git diff --check` 全绿。没有启动、停止或重启 5173。真实 provider 长推演、Windows 原生中文输入法耐久和用户视觉确认仍是外部门禁。
 
 ## Recently done
+
+- 2026-09-05：仓库保守清理（`integration/consolidation-20260823`）：删除11个零消费者旧模块/临时脚本/孤立快照及无人使用的CI依赖上传job；更新README、文档导航、代码地图与测试命令。保留正在执行的UI计划及实现WIP、迁移/兼容/地图原型/fixture/数据。`verify:full` exit 0：20/20文件、200/200用例、双build与diff通过；73个本地链接有效，CI YAML解析通过，未运行远端Actions。删除可从Git历史恢复，未提交。详见[清理日志](./LOG.md)。
+
+- 2026-09-05：二轮只读调研扩充[体验计划第9–12节](./plan/authoring-ux-and-story-play-plan-20260905.md)，新增[证据清单](./plan/authoring-ux-story-play-research-20260905.md)。18个有效状态截图、F1 65/65、校对/查找/历史33/33；发现720×450有效视口助手输入遮挡及无确定影响时F3无局部试写出口。方案明确资料层级、手机顺序流、统一试演、可改方向、保留试稿与候选影响授权边界。未改产品代码、调用真实provider或确认用户视觉。
+
+- 2026-09-05：根据用户反馈，双栏章名改为独占行并允许换行；隐藏常驻已保存及同章不可用交换，操作降到次级行，移动目录不遮挡动态标题。截图补充在 `/tmp/pinax-ux-a1/header/`，用户视觉确认仍待完成。
+
+- 2026-09-05：A0 首轮旅程与 A1 稿面首片已实现：移动覆盖面保持底稿全宽，641–720px 工具栏恢复底部可操作布局；双栏收起目录释放空列，并在临时工具返回时恢复目录/选区/滚动，另补大纲目录 13px 标尺与正文副稿混入设定空提示的条件链。最终 A1 浏览器 289/289、校对查找历史 33/33、双栏旅程 63/63、目录 71/71；`verify:full` exit 0：20/20 文件、200/200 用例、双 build 与 diff 通过，用户视觉确认待完成。A0 批注改写/历史恢复取消及原生键盘/200% 仍待后续补测，A2–A5 未展开；详见 [体验收口计划第 8 节](./plan/authoring-ux-and-story-play-plan-20260905.md)。
+
+- 2026-09-05：只读调研 Authoring UI/UX 与推演吸引力，新增 [体验收口计划](./plan/authoring-ux-and-story-play-plan-20260905.md)，从属于 G1.3/G1.5/G4.6 与 F1/F2/F3。既有 5173 + 隔离 fixture 完成 15 张 1440/1024/390、亮色与暗色代表图并逐张查看；发现移动覆盖面仍挤压底稿、当前场重复、双栏阅读空间与推演任务层级等问题。下一轮先 A0 旅程基线/A1 稿面与覆盖层，再目录资料、统一推演和人物试演样板；本轮没有产品代码或 provider 调用，`verify:full` exit 0：20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 通过。证据仅在 `/tmp/pinax-ux-research-20260905/`。
+
+- 2026-09-04：重做正文块下“推演下一段 / 改变条件”的入口与展开态。入口仍只跟随当前落笔单元，但从无说明小字改为带直接收益说明的创作接续带；推演展开后先显示当前场，以“接下来会发生什么”组织任务，并按人物、地点和推进类型提供可直接写入再修改的起点。改变条件改用“如果这里不是这样”的作者语言，先呈现当前文本与期望变化，解释四类改变的实际含义，修改目的降为可选，主动作明确为先看影响且不改正文。正式 session、证据冻结、Ghost、采纳与撤销边界均未改变；`verify:full` 通过 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check，实页视觉仍需在既有服务可用后复验。
+- 2026-09-04：按用户纠正重做 F1“现场调整”的任务表达，而非继续微调目录。右侧人物/地点列表先选择对象，再只为该对象展开“加入当前场 / 安排下一段 / 仅本次推演”；打开调整时中央目标 writingUnit 下方同步显示人物、地点、时间的现场草稿前后对照，取消零写入、保存后才成为当前场。临时人物/地点意图进入场景实验室后，中央标题会明确复述“让某人下一段入场 / 带某人参与本次推演”等动作，并标明采纳后生效或不改变当前场。冻结 session、Ghost 与原子采纳合同未改；`verify:full` 通过 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check。未启动或重启 5173/5174，实页视觉仍待现有服务可用后复验。
+- 2026-09-04：按用户补充的作家助手目录截图继续收紧 Authoring 角色 / 设定 / 大纲与双栏。三类目录统一为 34px 文件夹行、40px 单行文件项和 36px 子级缩进；设定不再在文件名后重复显示“规则 / 文风”等类型，大纲不再显示内容摘要。双栏的章节、便签、大纲、角色和设定目录全部删除字数、主窗/章节、类型与摘要标签；副窗正文移除编辑器默认大页边距与额外页边距的叠加，改为适合 440px 工作面的连续窄稿面。`verify:full` 通过 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check；本轮没有可用的 5173/5174 服务，新增视觉门禁待现有服务可用后跑实页截图。
+- 2026-09-03：完成 Authoring 角色 / 设定首轮迁移并按用户截图纠正面板比例、排版与设定目录入口。所有右侧工具统一为 420～440px 外宽；1440 实测角色、设定、大纲和双栏均为 440px，内容/目录约 271.4/167.6（61.8/38.2）。角色、设定、大纲和双栏共用排版标尺；目录文件夹可展开/收起。设定新建改为搜索框同行的独立加号，删除重复“新建 / 角色”动作行；当前落笔处、完整目录和世界书直写仍保留。作家助手的大纲/角色/设定新窗口能力已记录，但 Pinax 当前 Electron 拒绝新窗口且缺少跨窗编辑同步，未伪造入口；需先补同源白名单、详情路由和 revision 冲突处理。亮色 1440/390 浏览器门禁 67/67，暗色与最终全量验证见本轮回执。
+- 2026-09-03：纠正 Authoring 角色卡的数据所有权和编辑稳定性。背景/性格/外貌/其他聚焦及自动保存不再改变资料滚动位置；目录以世界书真实 group 为文件夹、以人物姓名为条目名。结构化“主角/重要配角/NPC”只保留来源标签，按姓名逐人 materialize，删除使用来源级 tombstone 防止载入复活。Authoring 与高级世界书读写同一 entry，并可从角色工作台直达当前人物条目。亮/暗 1440/390 实页门禁各 37/37，滚动实测 478→478；`verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 全绿。等待用户视觉复验。
+- 2026-09-03：修复结构化角色单行输出把全部文本吞进姓名的问题。角色卡解析现在扫描整段内每个已知标签，兼容 `姓名：… 身份：… 性格：…` 单行格式；没有明确姓名标签的普通正文不再以首行猜测姓名，也不会生成超长伪角色名。
+
+- 2026-09-03：先前把角色/大纲/双栏设成约 620px 的结论已被用户视觉复验否决并撤销；根因是把参考截图显示像素直接当作 CSS px。当前所有 rail 工具统一为 420～440px，双栏和资料工作台内部统一约 62/38；角色、设定、大纲目录文件夹支持收起/展开。不可用的副窗撤销/重做仍默认隐藏，实际可用时保留完整历史功能。截图在 `/tmp/pinax-f2-catalog-workbench/` 与 `/tmp/pinax-f2-dual/`，等待用户最终视觉确认。
+
+- 2026-09-03：按用户 10:06 的作家助手角色 hover 截图补齐详情流。背景/性格/外貌/其他改为内容自增高 textarea，实页长背景从 54px 增至 227px并把下一字段下推 173px；禁用浏览器 resize 把手与字段内部滚动。“生图/上传”默认是一块居中合并入口，hover/focus 后原位展开蓝色“生成角色图”和次级“上传角色图”，格式/5MB 提示浮在图片区上方；实际文件入口同步只接受 JPG/JPEG/PNG 且最大 5MB。亮/暗 1440/390 页面 Gate 各 32/32，零横向溢出和控制台错误；等待用户视觉确认。
+
+- 2026-09-02：按本机作家助手 5.15.0 实机、画师 H5 与用户截图纠正 F2 助手/画师外壳。助手改为 320px 级资料侧栏；画师改为 1408px 近全宽工作台、400px 参数列与 1008px 画布，并补齐直接展开的质量词、独立模型/风格、参考底图、参考提示/强度、漫画纯画面约束和事务性候选删除。风格与参考提示随媒体归档；不支持本地底图的模型明确降级为文字约束；草稿候选可删除，已保存或插入的资产受保护。原 evidence/stale、VisualBrief、provider、媒体存储和受控插入合同保持不变。助手 Gate 27/27、画师 Gate 40/40，最终 `verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿；截图在 `/tmp/pinax-f2-final/`。
 
 - 2026-09-02：完成 F3-5 活故事最小投影。新增冻结、带指纹的只读 `AuthoringLivingStoryProjection`，以当前项目/章节的 canonical document 与 position index 为定位真源，合并 scene anchor、精确无歧义世界书提及和项目大纲显式关系；只把 `causes` 显示为因果、`foreshadows` 显示为兑现，不从相邻文本或相似措辞猜关系。入口归入右侧“现场 / 场景与因果”，人物/地点打开既有世界书详情，节拍回到正文，“改变这里”复用 F3 intervention；390 使用工具栏上方线性 sheet。focused UI 12/12、F3 Gate 5/5（37 checks）、1440/390 真实页面 24/24 及最终 `verify:full`（20/20 文件、200/200 用例、Vite/VitePress build、diff check）通过，打开、筛选、定位和发起干预均零正式写入；下一窗口为 C2-3 共同排演整合。
 
@@ -153,6 +176,8 @@
 - 2026-08-11：写作页移除独立顾问入口，Notebook 成为默认实时 Markdown 编辑面；正文拖选后在光标收束端显示“批注 / 素材”浮条并使用主题蓝色选区。批注草稿改为选区旁就地输入，范围筛选与解决/恢复入口删除；批注可原位编辑、按批注改写或直接删除，版本页收敛为最近检查点。
 
 ## Next up
+
+Authoring 后续按[二轮详细计划第9–12节](./plan/authoring-ux-and-story-play-plan-20260905.md)：批准实施后先补A0缺口、处理小高度助手输入遮挡并确认双栏标题，再做设定内容优先/手机目录详情代表片，随后统一试演与人物选择样板。本轮停在调研与计划，不自动续做代码；以下联机、桌面与各领域外部门禁继续保留，不作为此次体验打磨前置。
 
 1. 执行 C2-3 pilot Gate：在开启 `VITE_COLLABORATION_V2_ENABLED` 的 TLS/WSS 环境完成至少 5 次真实双人共同排演，记录低敏 join/reconnect、proposal→selected→promoted→adopted 漏斗和失败原因；同时验证 1440/1024/390、深浅主题与 packaged Electron。Gate 通过前不进入 C2-4。
 2. 桌面方向进入 P3：把 Authoring 正文与桌面项目真源适配到 plain-text manuscript editor；并在 Windows clean-machine 验证 portable 包、v2/v3 迁移、原生 SQLite、锁与原子 rename。

@@ -163,6 +163,7 @@ const desktopGeometry = await desktop.page.evaluate(() => {
     pane: rect('[data-test="authoring-dual-pane"]'),
     rail: rect('.writing-tool-rail'),
     main: rect('.wall__dossier'),
+    editor: rect('.authoring-dual-pane__editor'),
     directory: rect('[data-test="authoring-dual-directory"]'),
     editorCount: document.querySelectorAll('.ProseMirror').length,
     duplicateGapIds: ids.filter((id, index) => id.includes('authoring-') && ids.indexOf(id) !== index),
@@ -172,11 +173,13 @@ const desktopGeometry = await desktop.page.evaluate(() => {
 })
 check(results, '桌面双栏由右 rail 打开', await desktop.page.locator('[data-authoring-tool="dual"][aria-pressed="true"]').count() === 1)
 check(results, '第二编辑面与独立目录同时存在', desktopGeometry.editorCount === 2 && Boolean(desktopGeometry.directory), JSON.stringify(desktopGeometry))
+check(results, '双栏按参考图宽度与正文目录比例展开', desktopGeometry.pane?.width >= 420 && desktopGeometry.pane?.width <= 440 && desktopGeometry.directory?.width / desktopGeometry.pane?.width >= 0.36 && desktopGeometry.directory?.width / desktopGeometry.pane?.width <= 0.40 && desktopGeometry.editor?.width > desktopGeometry.directory?.width, JSON.stringify(desktopGeometry))
 check(results, 'rail 位于双栏最右侧', desktopGeometry.rail?.x >= desktopGeometry.pane?.right - 1, JSON.stringify(desktopGeometry))
 check(results, '顶栏没有伪造多窗入口', !desktopGeometry.topbarHasMultiWindow)
 check(results, '两个编辑器没有固定 gap id 冲突', desktopGeometry.duplicateGapIds.length === 0, desktopGeometry.duplicateGapIds.join(','))
 check(results, '1440 无页面级横向溢出', desktopGeometry.horizontalOverflow === 0, desktopGeometry.horizontalOverflow)
 check(results, '副栏未接 owner 前不展示失效 Ghost 入口', await pane.getByText(/推演下一段/).count() === 0)
+await desktop.page.screenshot({ path: path.join(OUT_DIR, 'dual-pane-chapter-1440.png') })
 
 const sameChapterDualEditor = pane.locator('.ProseMirror')
 await sameChapterDualEditor.locator('p').last().click()
@@ -226,6 +229,7 @@ check(results, '取名跟随最后聚焦的副栏插入', nameOwnerCount >= 2, `
 
 const chapterButtons = pane.locator('.authoring-dual-pane__chapter')
 check(results, '副章目录可独立切换多章', await chapterButtons.count() >= 2, await pane.innerText())
+check(results, '副章目录不重复显示字数和主窗章节标签', await pane.locator('.authoring-dual-pane__chapter em, .authoring-dual-pane__chapter > small').count() === 0 && !/\d+\s*字|主窗/.test(await pane.locator('[data-test="authoring-dual-directory"]').innerText()))
 if (await chapterButtons.count() >= 2) {
   const mainTitle = await desktop.page.locator('.wall__dossier-title').inputValue()
   await chapterButtons.nth(1).click()
@@ -297,7 +301,7 @@ await firstIdea.getByRole('button', { name: '在双栏打开' }).click()
 await pane.waitFor({ state: 'visible' })
 await desktop.page.waitForTimeout(300)
 check(results, '速记菜单可直接在双栏打开', await pane.locator('.authoring-dual-pane__title strong').innerText() === ideaTitle && await pane.locator('[data-document-role="dual-exploration"]').count() === 1)
-check(results, '副栏提供章节、大纲、角色、设定、便签五类快捷切换', await pane.locator('.authoring-dual-pane__switch button').count() === 5)
+check(results, '副栏五类来源收进单一紧凑选择器', await pane.getByRole('combobox', { name: '副窗内容类型' }).locator('option').count() === 5)
 const mainTitleBeforeIdea = await desktop.page.locator('.wall__dossier-title').inputValue()
 await pane.locator('.ProseMirror p').first().click()
 await desktop.page.keyboard.press('End')
@@ -310,7 +314,7 @@ const persistedIdea = await desktop.page.evaluate(({ bookId, documentId }) => {
 }, { bookId: state.bookId, documentId: ideaId })
 check(results, '副栏速记可编辑并独立保存', persistedIdea.includes('速记双栏验收') && await desktop.page.locator('.wall__dossier-title').inputValue() === mainTitleBeforeIdea)
 
-await pane.getByRole('button', { name: '大纲', exact: true }).click()
+await pane.getByRole('combobox', { name: '副窗内容类型' }).selectOption('outline')
 const outlineButton = pane.locator('[data-outline-node-id]').first()
 check(results, '副栏目录提供项目大纲来源', await outlineButton.count() === 1)
 if (await outlineButton.count()) {
@@ -322,7 +326,7 @@ if (await outlineButton.count()) {
   await desktop.page.screenshot({ path: path.join(FINAL_DIR, '02-main-outline-1440.png'), fullPage: false })
 }
 
-await pane.getByRole('button', { name: '设定', exact: true }).click()
+await pane.getByRole('combobox', { name: '副窗内容类型' }).selectOption('setting')
 const worldbookButton = pane.locator('[data-worldbook-entry-id]').first()
 check(results, '副栏目录提供绑定世界书条目', await worldbookButton.count() === 1)
 if (await worldbookButton.count()) {
@@ -372,7 +376,7 @@ const tabletGeometry = await tablet.page.evaluate(() => {
     horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
   }
 })
-check(results, '1024 双栏覆盖在 rail 左侧且不压出页面', tabletGeometry.pane?.width >= 500 && tabletGeometry.pane?.right <= tabletGeometry.rail?.x + 1 && tabletGeometry.horizontalOverflow === 0, JSON.stringify(tabletGeometry))
+check(results, '1024 双栏保持统一窄面覆盖在 rail 左侧', tabletGeometry.pane?.width >= 420 && tabletGeometry.pane?.width <= 440 && tabletGeometry.pane?.right <= tabletGeometry.rail?.x + 1 && tabletGeometry.horizontalOverflow === 0, JSON.stringify(tabletGeometry))
 check(results, '1024 无 page/console error', tablet.errors.length === 0, tablet.errors.join(' | '))
 await tablet.page.screenshot({ path: path.join(OUT_DIR, 'dual-pane-1024.png') })
 await tablet.context.close()
@@ -445,7 +449,7 @@ await mobile.page.keyboard.press('Escape')
 await mobile.page.screenshot({ path: path.join(OUT_DIR, 'dual-pane-editor-390.png') })
 await mobilePane.getByRole('button', { name: '切换副窗内容' }).click()
 check(results, '390 可从标题栏调出快捷切换', await mobilePane.locator('[data-test="authoring-dual-directory"]').isVisible())
-check(results, '390 快捷切换完整呈现五类来源', await mobilePane.locator('.authoring-dual-pane__switch button').count() === 5)
+check(results, '390 快捷切换以单一选择器呈现五类来源', await mobilePane.getByRole('combobox', { name: '副窗内容类型' }).locator('option').count() === 5)
 check(results, '390 无页面级横向溢出', mobileGeometry.horizontalOverflow === 0, mobileGeometry.horizontalOverflow)
 check(results, '390 无 page/console error', mobile.errors.length === 0, mobile.errors.join(' | '))
 await mobile.page.screenshot({ path: path.join(OUT_DIR, 'dual-pane-directory-390.png') })

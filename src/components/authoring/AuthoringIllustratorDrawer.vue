@@ -3,10 +3,17 @@
     <div
       v-show="open"
       class="authoring-illustrator-layer"
+      :class="{ 'is-minimized': minimized }"
       data-test="authoring-illustrator-layer"
-      @pointerdown.self="requestClose"
+      @pointerdown.self="!minimized && requestClose()"
     >
+      <button v-if="minimized" type="button" class="authoring-illustrator__minibar" aria-label="恢复妙笔画师" @click="restore">
+        <WorkbenchIcon name="palette" :size="17" />
+        <span>妙笔画师</span>
+        <small>恢复</small>
+      </button>
       <section
+        v-else
         ref="dialogRef"
         class="authoring-illustrator"
         role="dialog"
@@ -18,12 +25,15 @@
         <div class="authoring-illustrator__identity">
           <WorkbenchIcon name="palette" :size="18" />
           <div>
-            <h2 id="authoring-illustrator-title">画师</h2>
+            <h2 id="authoring-illustrator-title">妙笔画师</h2>
             <p>{{ sourceLabel }}</p>
           </div>
         </div>
         <div class="authoring-illustrator__head-actions">
           <span v-if="freshness?.stale" class="authoring-illustrator__stale" role="status">来源已更新</span>
+          <button v-if="!compact" type="button" aria-label="最小化妙笔画师" title="最小化" @click="requestMinimize">
+            <span aria-hidden="true">−</span>
+          </button>
           <button ref="closeButtonRef" type="button" aria-label="关闭画师" title="关闭画师" @click="requestClose">
             <WorkbenchIcon name="close" :size="18" />
           </button>
@@ -43,6 +53,7 @@
         <ImageGenerationWorkbench
           :storage-key="storageKey"
           layout="split"
+          presentation="authoring"
           :mobile-pane="compact ? mobilePane : 'both'"
           :initial-prompt="initialPrompt"
           :prompt-supplement="generationPromptSupplement"
@@ -70,19 +81,16 @@
           @generation-cancel="emit('generation-cancel', $event)"
         >
           <template #brief>
-            <section class="authoring-illustrator__brief" aria-label="画面来源">
-              <div class="authoring-illustrator__brief-title">
-                <span>{{ promptSourceLabel }}</span>
-                <small>已冻结</small>
-              </div>
+            <details class="authoring-illustrator__brief" aria-label="画面来源">
+              <summary><span>画面来源 · {{ promptSourceLabel }}</span><small>已冻结</small></summary>
               <p class="authoring-illustrator__excerpt">{{ sourceExcerpt }}</p>
-            </section>
+            </details>
 
-            <section v-if="sceneSources.length" class="authoring-illustrator__scene" aria-label="当前场参考">
-              <div class="authoring-illustrator__section-title">
+            <details v-if="sceneSources.length" class="authoring-illustrator__scene" aria-label="当前场参考">
+              <summary class="authoring-illustrator__section-title">
                 <span>当前场</span>
-                <small>按需加入画面</small>
-              </div>
+                <small>已选 {{ selectedSceneSourceIds.length }} 项</small>
+              </summary>
               <label v-for="source in sceneSources" :key="source.id" class="authoring-illustrator__scene-row">
                 <input
                   type="checkbox"
@@ -92,7 +100,7 @@
                 />
                 <span><strong>{{ source.label }}</strong><small>{{ source.available === false ? '设定来源未绑定' : (source.summary || source.kindLabel) }}</small></span>
               </label>
-            </section>
+            </details>
 
             <p v-if="notice" class="authoring-illustrator__notice" role="status">{{ notice }}</p>
             <p v-if="freshness?.stale" class="authoring-illustrator__notice is-warning" role="alert">
@@ -120,7 +128,8 @@ const props = defineProps({
   freshness: { type: Object, default: () => ({ fresh: false, stale: true, reasons: ['source-missing'] }) },
   selectedSceneSourceIds: { type: Array, default: () => [] },
   referenceCandidates: { type: Array, default: () => [] },
-  notice: { type: String, default: '' }
+  notice: { type: String, default: '' },
+  minimized: Boolean
 })
 
 const emit = defineEmits([
@@ -132,7 +141,8 @@ const emit = defineEmits([
   'generation-start',
   'generation-complete',
   'generation-error',
-  'generation-cancel'
+  'generation-cancel',
+  'update:minimized'
 ])
 
 const dialogRef = ref(null)
@@ -224,7 +234,17 @@ function guardResultAction(entry = {}) {
 }
 
 function requestClose() {
+  emit('update:minimized', false)
   emit('close')
+}
+
+function requestMinimize() {
+  emit('update:minimized', true)
+}
+
+function restore() {
+  emit('update:minimized', false)
+  nextTick(() => closeButtonRef.value?.focus())
 }
 
 function setApplicationInert(active) {
@@ -266,12 +286,13 @@ function handleDialogKeydown(event) {
   }
 }
 
-watch(() => props.open, (open) => {
-  setApplicationInert(open)
+watch(() => [props.open, props.minimized], ([open, minimized]) => {
+  setApplicationInert(open && !minimized)
   if (!open) return
+  if (minimized) return
   mobilePane.value = 'parameters'
   nextTick(() => closeButtonRef.value?.focus())
-})
+}, { immediate: true })
 
 onMounted(() => {
   const query = window.matchMedia?.('(max-width: 720px), (max-height: 560px)')
@@ -293,27 +314,35 @@ onBeforeUnmount(() => {
   z-index: var(--z-modal, 300);
   inset: 0;
   display: flex;
-  justify-content: flex-end;
-  background: color-mix(in srgb, #122033 22%, transparent);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
   backdrop-filter: blur(1.5px);
 }
 
+.authoring-illustrator-layer.is-minimized { align-items: flex-end; justify-content: flex-end; background: transparent; backdrop-filter: none; pointer-events: none; }
+.authoring-illustrator__minibar { display: flex; width: 270px; min-height: 44px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--authoring-hairline, var(--border-subtle)); border-radius: 5px; background: var(--surface-workbench-raised, var(--bg-primary)); box-shadow: var(--shadow-workbench); color: var(--text-primary); pointer-events: auto; cursor: pointer; }
+.authoring-illustrator__minibar span { font-size: 14px; font-weight: 560; }
+.authoring-illustrator__minibar small { margin-inline-start: auto; color: var(--accent-primary, var(--accent)); font-size: 12px; }
+
 .authoring-illustrator {
   display: flex;
-  width: min(920px, 72vw);
+  width: min(1440px, calc(100vw - 32px));
   min-width: 0;
-  height: 100%;
+  height: min(900px, calc(100vh - 32px));
   flex-direction: column;
   overflow: hidden;
-  border-inline-start: 1px solid var(--authoring-hairline, var(--border-subtle));
+  border: 1px solid var(--authoring-hairline, var(--border-subtle));
+  border-radius: 6px;
   background: var(--surface-workbench-raised, var(--bg-primary));
-  box-shadow: -22px 0 54px color-mix(in srgb, #0c1724 20%, transparent);
+  box-shadow: var(--shadow-workbench);
   color: var(--text-primary);
 }
 
 .authoring-illustrator__head {
   display: flex;
-  min-height: 58px;
+  min-height: 50px;
   flex: none;
   align-items: center;
   justify-content: space-between;
@@ -325,9 +354,9 @@ onBeforeUnmount(() => {
 
 .authoring-illustrator__identity,
 .authoring-illustrator__head-actions { display: flex; min-width: 0; align-items: center; gap: 10px; }
-.authoring-illustrator__identity > svg { flex: none; color: var(--accent-primary); }
-.authoring-illustrator__identity h2 { margin: 0; font-size: 16px; font-weight: 650; }
-.authoring-illustrator__identity p { max-width: 36vw; margin: 2px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-illustrator__identity > svg { flex: none; color: var(--accent-primary, var(--accent)); }
+.authoring-illustrator__identity h2 { margin: 0; font-size: 15px; font-weight: 580; }
+.authoring-illustrator__identity p { max-width: 48vw; margin: 1px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-illustrator__head-actions > button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .authoring-illustrator__head-actions > button:hover { background: var(--surface-hover); color: var(--text-primary); }
 .authoring-illustrator__stale { color: var(--signal-warning, #9a641b); font-size: 11px; }
@@ -335,33 +364,42 @@ onBeforeUnmount(() => {
 .authoring-illustrator__body { min-width: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 .authoring-illustrator__body :deep(.media-generation-inline) { height: 100%; }
 .authoring-illustrator__body :deep(.image-generation-workbench) { height: 100%; }
+.authoring-illustrator__body :deep(.image-model-picker__trigger) { min-height: 44px; border-style: solid; border-color: var(--authoring-hairline, var(--border-subtle)); background: var(--surface-primary); }
 
 .authoring-illustrator__brief,
-.authoring-illustrator__scene { padding-bottom: 14px; border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle)); }
-.authoring-illustrator__scene { padding-top: 14px; }
-.authoring-illustrator__brief-title,
+.authoring-illustrator__scene { padding-bottom: 12px; border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle)); }
+.authoring-illustrator__scene { padding-top: 12px; }
+.authoring-illustrator__brief summary,
 .authoring-illustrator__section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.authoring-illustrator__brief-title span,
-.authoring-illustrator__section-title span { font-size: 12px; font-weight: 650; }
-.authoring-illustrator__brief-title small,
-.authoring-illustrator__section-title small { color: var(--text-secondary); font-size: 10px; }
-.authoring-illustrator__excerpt { margin: 8px 0 0; color: var(--text-secondary); font-family: var(--font-writing); font-size: 13px; line-height: 1.75; }
+.authoring-illustrator__brief summary { cursor: pointer; list-style: none; }
+.authoring-illustrator__brief summary::-webkit-details-marker,
+.authoring-illustrator__scene summary::-webkit-details-marker { display: none; }
+.authoring-illustrator__brief summary::before,
+.authoring-illustrator__scene summary::before { margin-inline-end: 6px; content: '›'; color: var(--text-secondary); }
+.authoring-illustrator__brief[open] summary::before,
+.authoring-illustrator__scene[open] summary::before { transform: rotate(90deg); }
+.authoring-illustrator__brief summary span,
+.authoring-illustrator__section-title span { font-size: 14px; font-weight: 560; }
+.authoring-illustrator__brief summary small,
+.authoring-illustrator__section-title small { color: var(--text-secondary); font-size: 12px; }
+.authoring-illustrator__excerpt { margin: 7px 0 0; color: var(--text-secondary); font-family: var(--font-writing); font-size: 13px; line-height: 1.7; }
 .authoring-illustrator__scene-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 8px; padding: 8px 0; cursor: pointer; }
 .authoring-illustrator__scene-row + .authoring-illustrator__scene-row { border-top: 1px solid color-mix(in srgb, var(--authoring-hairline, var(--border-subtle)) 62%, transparent); }
-.authoring-illustrator__scene-row input { margin: 3px 0 0; accent-color: var(--accent-primary); }
+.authoring-illustrator__scene-row input { margin: 3px 0 0; accent-color: var(--accent-primary, var(--accent)); }
 .authoring-illustrator__scene-row span { display: grid; min-width: 0; gap: 2px; }
-.authoring-illustrator__scene-row strong { font-size: 12px; font-weight: 580; }
-.authoring-illustrator__scene-row small { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.authoring-illustrator__notice { margin: 10px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
+.authoring-illustrator__scene-row strong { font-size: 13px; font-weight: 560; }
+.authoring-illustrator__scene-row small { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-illustrator__notice { margin: 10px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .authoring-illustrator__notice.is-warning { color: var(--signal-warning, #9a641b); }
 
 @media (max-width: 1024px) and (min-width: 721px) {
-  .authoring-illustrator { width: 72vw; }
+  .authoring-illustrator { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+  .authoring-illustrator-layer { padding: 12px; }
 }
 
 @media (max-width: 720px), (max-height: 560px) {
-  .authoring-illustrator-layer { position: fixed; inset: 0; background: var(--surface-workbench-raised, var(--bg-primary)); backdrop-filter: none; }
-  .authoring-illustrator { width: 100%; height: 100%; border: 0; box-shadow: none; }
+  .authoring-illustrator-layer { position: fixed; inset: 0; padding: 0; background: var(--surface-workbench-raised, var(--bg-primary)); backdrop-filter: none; }
+  .authoring-illustrator { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
   .authoring-illustrator__head { min-height: 54px; padding-top: env(safe-area-inset-top); }
   .authoring-illustrator__identity p { max-width: 230px; }
   .authoring-illustrator__head-actions > button { width: 44px; height: 44px; }

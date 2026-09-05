@@ -61,9 +61,9 @@ export function useAuthoringIllustrator() {
     })
   })
 
-  async function loadReferenceCandidatesForBrief(nextBrief) {
+  async function loadReferenceCandidatesForBrief(nextBrief, inlineCandidates = []) {
     const revision = ++referenceLoadRevision
-    referenceCandidates.value = []
+    referenceCandidates.value = clone(inlineCandidates)
     const entryIds = new Set((nextBrief?.scene?.sources || []).map(worldbookEntryId).filter(Boolean))
     if (!nextBrief?.projectId && !nextBrief?.source?.projectId) return
     if (!entryIds.size) return
@@ -72,7 +72,7 @@ export function useAuthoringIllustrator() {
       .filter((asset) => assetReferencesEntry(asset, entryIds))
     const hydrated = await hydrateNarrativeImageAssets(assets)
     if (revision !== referenceLoadRevision || brief.value?.sessionId !== nextBrief.sessionId) return
-    referenceCandidates.value = hydrated
+    referenceCandidates.value = [...clone(inlineCandidates), ...hydrated
       .filter((asset) => asset?.image?.mediaAssetId && asset?.image?.data)
       .map((asset) => ({
         id: String(asset.id),
@@ -82,19 +82,23 @@ export function useAuthoringIllustrator() {
         prompt: String(asset.content || asset.title || ''),
         sourceRefs: clone(asset.sourceRefs || []),
         mediaPurpose: 'storyboard-reference'
-      }))
+      }))]
   }
 
   function start(invocation, surface = null) {
     const nextBrief = createAuthoringVisualBrief(invocation || {})
     if (!nextBrief) return { ok: false, reason: 'visual-source-unavailable' }
+    const inlineCandidates = Array.isArray(invocation?.visualReferenceCandidates)
+      ? invocation.visualReferenceCandidates.filter((candidate) => candidate?.id && candidate?.data)
+      : []
     brief.value = nextBrief
     liveSource.value = clone(invocation)
     returnSurface.value = surface || null
     selectedSceneSourceIds.value = []
+    referenceCandidates.value = clone(inlineCandidates)
     notice.value = ''
     open.value = true
-    void loadReferenceCandidatesForBrief(nextBrief).catch(() => {
+    void loadReferenceCandidatesForBrief(nextBrief, inlineCandidates).catch(() => {
       if (brief.value?.sessionId === nextBrief.sessionId) {
         notice.value = '设定参考图暂时无法读取，仍可直接生成。'
       }

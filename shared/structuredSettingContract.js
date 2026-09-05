@@ -84,6 +84,7 @@ export const STRUCTURED_GENERATION_SCHEMA_IDS = Object.freeze({
   FIELD: 'setting-field.v1',
   SECTION: 'setting-section.v1',
   REVISION: 'setting-revision.v1',
+  CHARACTER_CARD: 'character-card.v1',
   CANDIDATES: 'setting-candidates.v1',
   PLACES: 'setting-places.v1',
   PLACE_FLESH_OUT: 'setting-place.v1'
@@ -220,6 +221,32 @@ export function getStructuredSettingSchema(schemaId, targets = {}) {
       }
     }
   }
+  if (text(schemaId) === STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD) {
+    if (normalized.section.key !== 'characters' || normalized.fieldKeys.length !== 1) {
+      return invalid(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, '角色卡 schema 只能作用于单个角色目标')
+    }
+    return {
+      valid: true,
+      schema: {
+        type: 'object',
+        properties: {
+          characterProfile: {
+            type: 'object',
+            properties: {
+              background: { type: 'string', maxLength: 2000 },
+              personality: { type: 'string', maxLength: 1200 },
+              appearance: { type: 'string', maxLength: 1200 },
+              other: { type: 'string', maxLength: 2000 }
+            },
+            required: ['background', 'personality', 'appearance', 'other'],
+            additionalProperties: false
+          }
+        },
+        required: ['characterProfile'],
+        additionalProperties: false
+      }
+    }
+  }
   const properties = Object.fromEntries(fieldKeys.map((fieldKey) => [fieldKey, {
     type: 'string',
     description: `${getStructuredSettingFieldMeta(targets.sectionKey, fieldKey).label}的可直接审阅内容，不写标题、解释或思考过程。`
@@ -248,7 +275,7 @@ export function validateStructuredGenerationRequest(raw = {}) {
   if (!Object.values(STRUCTURED_GENERATION_SCHEMA_IDS).includes(schemaId)) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.SCHEMA_UNSUPPORTED, '结构化生成 schema 不受支持')
   }
-  if ([STRUCTURED_GENERATION_SCHEMA_IDS.FIELD, STRUCTURED_GENERATION_SCHEMA_IDS.REVISION].includes(schemaId) && targets.fieldKeys.length !== 1) {
+  if ([STRUCTURED_GENERATION_SCHEMA_IDS.FIELD, STRUCTURED_GENERATION_SCHEMA_IDS.REVISION, STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD].includes(schemaId) && targets.fieldKeys.length !== 1) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, '单字段 schema 只能包含一个设定项')
   }
   if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.SECTION && targets.fieldKeys.length < 2) {
@@ -258,6 +285,9 @@ export function validateStructuredGenerationRequest(raw = {}) {
     targets.section.key !== 'world' || targets.fieldKeys.length !== 1 || targets.fieldKeys[0] !== 'geography'
   )) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, '地点请求必须指向 world.geography')
+  }
+  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD && targets.section.key !== 'characters') {
+    return invalid(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, '角色卡请求必须指向 characters 分区')
   }
   const context = isPlainObject(raw.context) ? raw.context : {}
   const contextText = [
@@ -273,7 +303,8 @@ export function validateStructuredGenerationRequest(raw = {}) {
     context.revisionInstruction,
     context.keepFacts,
     context.rejectFacts,
-    context.previousVersions
+    context.previousVersions,
+    context.currentCharacter
   ].map((value) => typeof value === 'string' ? value : JSON.stringify(value || '')).join('\n')
   if (contextText.length > STRUCTURED_SETTING_LIMITS.maxContextChars) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, `结构化生成上下文超过 ${STRUCTURED_SETTING_LIMITS.maxContextChars} 字符`)
@@ -321,7 +352,7 @@ export function validateStructuredGenerationRequest(raw = {}) {
 export function validateStructuredDraftPayload(payload, targets, schemaId = '') {
   const result = normalizeStructuredDraftPayload(payload, targets, schemaId)
   if (!result.valid) return result
-  if ([STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACE_FLESH_OUT].includes(schemaId)) return result
+  if ([STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD, STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACES, STRUCTURED_GENERATION_SCHEMA_IDS.PLACE_FLESH_OUT].includes(schemaId)) return result
   if (Object.keys(result.fieldErrors).length) {
     return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '部分设定项内容无效', {
       drafts: result.drafts,
@@ -360,6 +391,15 @@ export function normalizeStructuredDraftPayload(payload, targets, schemaId = '')
       .filter((candidate) => allowedTypes.has(candidate.type))
     if (!candidates.length) return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '候选事实结果没有可用条目')
     return { valid: true, drafts: { candidates }, fieldErrors: {} }
+  }
+  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD) {
+    const source = isPlainObject(payload.characterProfile)
+      ? payload.characterProfile
+      : (isPlainObject(payload.drafts?.characterProfile) ? payload.drafts.characterProfile : null)
+    if (!source) return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '角色卡结果缺少 characterProfile')
+    const profile = Object.fromEntries(['background', 'personality', 'appearance', 'other'].map((key) => [key, text(source[key])]))
+    if (!Object.values(profile).some(Boolean)) return invalid(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '角色卡结果没有可用内容')
+    return { valid: true, drafts: { characterProfile: profile }, fieldErrors: {} }
   }
   const normalized = normalizeStructuredSettingTargets(targets)
   if (!normalized.valid) return normalized

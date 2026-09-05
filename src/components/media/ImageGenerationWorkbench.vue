@@ -1,13 +1,15 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ImageModelPicker from './ImageModelPicker.vue'
-import { generateImage } from '../../services/media/imageProviderService'
+import { generateImage, getImageProviderCapabilities } from '../../services/media/imageProviderService'
 import { listImageProviderConfigs } from '../../services/media/imageProviderConfigStore'
 import {
   addGeneratedImageToLibrary,
+  listMediaAssets,
   loadGeneratedImageLibrary,
   removeGeneratedImageFromLibrary
 } from '../../services/media/mediaAssetStore'
+import { COMIC_IMAGE_NEGATIVE_PROMPT } from '../../services/media/comicImagePrompt'
 
 const props = defineProps({
   storageKey: {
@@ -95,6 +97,11 @@ const props = defineProps({
   actionGuard: {
     type: Function,
     default: null
+  },
+  presentation: {
+    type: String,
+    default: 'default',
+    validator: (value) => ['default', 'authoring'].includes(value)
   }
 })
 
@@ -111,6 +118,8 @@ const emit = defineEmits([
 
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
+const imageReferencePrompt = ref('')
+const imageStylePreset = ref('cinematic-anime')
 const imageSelectedModel = ref('')
 const imageWidth = ref(1024)
 const imageHeight = ref(1024)
@@ -139,6 +148,17 @@ const sizePresets = [
   { label: '4:3 横图', width: 1024, height: 768 },
   { label: '3:4 竖图', width: 768, height: 1024 }
 ]
+const authoringQualityTerms = Object.freeze([
+  '超详细的', '高分辨率的', '最高质量的', '杰作', '8K 壁纸',
+  '完美的', '详细的背景', '多彩的', '极度详细的', '美丽详细的脸'
+])
+const authoringStylePresets = Object.freeze([
+  { id: 'cinematic-anime', label: '华彩二次元', prompt: '华彩二次元插画，电影级光影，精致角色设计，丰富色彩层次', position: '0% 50%' },
+  { id: 'cute-anime', label: '可爱动漫', prompt: '可爱动漫风格，柔和线条，明亮配色，亲和的角色表情', position: '25% 50%' },
+  { id: 'dramatic-anime', label: '光影动漫', prompt: '戏剧化动漫风格，强烈明暗关系，轮廓光，电影构图', position: '50% 50%' },
+  { id: 'stylized-3d', label: '3D 写实', prompt: '风格化 3D 写实渲染，真实材质，体积光，电影镜头质感', position: '75% 50%' },
+  { id: 'portrait-photo', label: '人物写真', prompt: '人物写真摄影，真实肤质，自然景深，细腻布光，高级镜头质感', position: '100% 50%' }
+])
 
 const modeLabels = {
   reference: '参考图',
@@ -165,6 +185,14 @@ const activeMediaPurpose = computed(() => (
 ))
 const selectedSizeKey = computed(() => `${imageWidth.value}x${imageHeight.value}`)
 const selectedPreviewImage = computed(() => imageLibrary.value[imagePreviewIndex.value] || null)
+const selectedModelConfig = computed(() => modelConfigs.value.find((item) => item.id === imageSelectedModel.value) || null)
+const selectedModelSupportsReference = computed(() => (
+  getImageProviderCapabilities(selectedModelConfig.value || {}).identityReference === true
+))
+const selectedStylePreset = computed(() => (
+  authoringStylePresets.find((preset) => preset.id === imageStylePreset.value)
+    || authoringStylePresets[0]
+))
 const allReferenceCandidates = computed(() => {
   const known = new Set()
   return [...storedReferenceImages.value, ...props.referenceCandidates]
@@ -239,7 +267,9 @@ watch(libraryScopeKey, () => {
 })
 watch(allReferenceCandidates, (candidates) => {
   const availableIds = new Set(candidates.map((candidate) => candidate.id))
-  selectedReferenceIds.value = selectedReferenceIds.value.filter((id) => availableIds.has(id)).slice(0, 3)
+  const retained = selectedReferenceIds.value.filter((id) => availableIds.has(id))
+  const automatic = candidates.filter((candidate) => candidate.autoSelected === true).map((candidate) => candidate.id)
+  selectedReferenceIds.value = [...new Set([...retained, ...automatic])].slice(-3)
 })
 watch(
   () => [props.contextKey, props.initialPrompt],
@@ -363,7 +393,7 @@ async function generateImages() {
   const controller = new AbortController()
   const frozen = createFrozenGenerationJob(cfg)
   const providerConfig = deepFreeze(cloneSerializable(cfg, {}))
-  const referenceImages = deepFreeze(selectedReferenceImages.value.map((reference) => ({
+  const referenceImages = deepFreeze((frozen.referenceSubmissionSupported ? selectedReferenceImages.value : []).map((reference) => ({
     id: String(reference.mediaAssetId || reference.id || ''),
     title: referenceLabel(reference),
     data: String(reference.data || '')
@@ -421,6 +451,12 @@ async function generateImages() {
         referenceImageIds: frozen.referenceImageIds,
         referenceCount: frozen.referenceImageIds.length,
         referenceStrength: frozen.referenceStrength,
+        generationParams: {
+          stylePreset: frozen.stylePreset,
+          stylePrompt: frozen.stylePrompt,
+          referencePrompt: frozen.referencePrompt,
+          referenceSubmissionSupported: frozen.referenceSubmissionSupported
+        },
         generationJobId: frozen.jobId,
         providerPrompt: frozen.providerPrompt,
         promptSupplement: frozen.promptSupplement,
@@ -560,7 +596,16 @@ function createFrozenGenerationJob(config) {
   const mediaPurpose = activeMediaPurpose.value
   const prompt = String(imagePrompt.value || '').trim()
   const promptSupplement = resolvePromptSupplement(generationContext, authoringVisualBrief, prompt)
-  const providerPrompt = mergePromptParts(prompt, promptSupplement)
+  const stylePrompt = props.presentation === 'authoring'
+    ? String(selectedStylePreset.value?.prompt || '').trim()
+    : ''
+  const referencePrompt = selectedReferenceImages.value.length
+    ? String(imageReferencePrompt.value || '').trim()
+    : ''
+  const providerPrompt = mergePromptParts(
+    mergePromptParts(prompt, promptSupplement),
+    [stylePrompt, referencePrompt ? `参考图使用说明：${referencePrompt}` : ''].filter(Boolean).join('\n')
+  )
   return deepFreeze({
     jobId,
     sessionId,
@@ -585,6 +630,10 @@ function createFrozenGenerationJob(config) {
     promptSupplement,
     providerPrompt,
     negativePrompt: String(imageNegativePrompt.value || ''),
+    stylePreset: String(selectedStylePreset.value?.id || ''),
+    stylePrompt,
+    referencePrompt,
+    referenceSubmissionSupported: getImageProviderCapabilities(config).identityReference === true,
     mode: String(activeMode.value),
     mediaPurpose,
     width: Number(imageWidth.value),
@@ -775,12 +824,50 @@ function emitInsertImage(imgEntry) {
   emit('insert-image', imgEntry)
 }
 
+function appendQualityTerm(term) {
+  const value = String(term || '').trim()
+  if (!value || imagePrompt.value.includes(value)) return
+  imagePrompt.value = [imagePrompt.value.trim(), value].filter(Boolean).join('，')
+}
+
+function useComicSafetyPrompt() {
+  if (imageGenerating.value) return
+  imageNegativePrompt.value = COMIC_IMAGE_NEGATIVE_PROMPT
+}
+
+async function deleteSelectedImage() {
+  if (imageGenerating.value) return
+  const entry = selectedPreviewImage.value
+  if (!entry) return
+  const asset = listMediaAssets({ kind: 'image' }).find((item) => item.id === entry.mediaAssetId)
+  if (asset?.status === 'accepted') {
+    generationStatus.value = { kind: 'error', message: '这张图片已保存为素材或插入正文，不能从画师删除。' }
+    return
+  }
+  const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
+    ? true
+    : window.confirm('删除这张候选？此操作会同时移除画师历史和对应媒体文件。')
+  if (!confirmed) return
+  const currentIndex = imagePreviewIndex.value
+  try {
+    await removeGeneratedImageFromLibrary(props.storageKey, entry, { projectId: props.projectId })
+    imageLibrary.value = imageLibrary.value.filter((item) => item.id !== entry.id)
+    imagePreviewIndex.value = imageLibrary.value.length
+      ? Math.min(currentIndex, imageLibrary.value.length - 1)
+      : -1
+    if (selectedPreviewImage.value) emit('image-preview', selectedPreviewImage.value)
+    generationStatus.value = { kind: 'success', message: '已删除这张候选。' }
+  } catch (error) {
+    generationStatus.value = { kind: 'error', message: error?.message || '候选删除失败，请重试。' }
+  }
+}
+
 </script>
 
 <template>
   <section
     class="media-generation-inline"
-    :class="`media-generation-inline--${layout}`"
+    :class="[`media-generation-inline--${layout}`, `media-generation-inline--${presentation}`]"
     :data-mobile-pane="mobilePane"
     aria-label="插画生成"
   >
@@ -792,7 +879,7 @@ function emitInsertImage(imgEntry) {
       <div class="image-gen-workspace">
         <section class="image-gen-controls" aria-label="插画参数">
           <fieldset class="image-gen-control-fields" :disabled="imageGenerating">
-            <div v-if="$slots.brief" class="image-gen-brief">
+            <div v-if="$slots.brief && presentation !== 'authoring'" class="image-gen-brief">
               <slot name="brief"></slot>
             </div>
 
@@ -810,9 +897,39 @@ function emitInsertImage(imgEntry) {
               </button>
             </div>
 
+            <template v-if="!referenceWorkspaceActive">
+              <div class="image-gen-section">
+                <div class="image-gen-label-row">
+                  <label class="image-gen-label">画面描述</label>
+                  <button v-if="selectedTextText" class="image-gen-inline-link" type="button" @click="useSelectedTextAsPrompt">
+                    {{ importButtonLabel }}
+                  </button>
+                </div>
+                <textarea
+                  v-model="imagePrompt"
+                  class="image-gen-prompt-input"
+                  placeholder="描述你想生成的插画..."
+                  rows="4"
+                  maxlength="600"
+                ></textarea>
+                <small v-if="presentation === 'authoring'" class="image-gen-prompt-count">{{ imagePrompt.length }} / 600</small>
+              </div>
+
+              <div v-if="presentation === 'authoring'" class="image-gen-quality-terms">
+                <span>常用质量词</span>
+                <div aria-label="常用质量词">
+                  <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(term)">{{ term }}</button>
+                </div>
+              </div>
+
+              <div v-if="$slots.brief && presentation === 'authoring'" class="image-gen-brief image-gen-brief--authoring">
+                <slot name="brief"></slot>
+              </div>
+            </template>
+
             <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
               <div class="image-gen-label-row">
-                <label class="image-gen-label">参考图库</label>
+                <label class="image-gen-label">{{ presentation === 'authoring' ? '导入底图' : '参考图库' }}</label>
                 <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
               </div>
               <div class="image-gen-reference-strip">
@@ -833,34 +950,32 @@ function emitInsertImage(imgEntry) {
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                     <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5h14v-5"/>
                   </svg>
-                  <span>上传</span>
+                  <span>{{ presentation === 'authoring' ? '添加图片' : '上传' }}</span>
                 </button>
               </div>
               <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/*" multiple @change="handleReferenceUpload" />
               <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
               <label v-if="selectedReferenceImages.length" class="image-gen-reference-strength">
                 <span>参考强度</span>
-                <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" />
+                <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" :disabled="!selectedModelSupportsReference" />
                 <strong>{{ Math.round(referenceStrength * 100) }}%</strong>
               </label>
-              <p v-else class="image-gen-reference-hint">可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。</p>
+              <p v-if="selectedReferenceImages.length && !selectedModelSupportsReference" class="image-gen-reference-message" role="status">
+                当前模型不提交本地底图；参考提示仍会作为文字约束加入生成。
+              </p>
+              <label v-if="selectedReferenceImages.length && presentation === 'authoring'" class="image-gen-reference-prompt">
+                <span>参考提示词</span>
+                <textarea
+                  v-model="imageReferencePrompt"
+                  rows="2"
+                  maxlength="240"
+                  placeholder="例如：保持人物脸型和发色，只参考服装，不照搬构图"
+                ></textarea>
+              </label>
+              <p v-if="!selectedReferenceImages.length" class="image-gen-reference-hint">可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。</p>
             </div>
 
             <template v-if="!referenceWorkspaceActive">
-              <div class="image-gen-section">
-                <div class="image-gen-label-row">
-                  <label class="image-gen-label">画面描述</label>
-                  <button v-if="selectedTextText" class="image-gen-inline-link" type="button" @click="useSelectedTextAsPrompt">
-                    {{ importButtonLabel }}
-                  </button>
-                </div>
-                <textarea
-                  v-model="imagePrompt"
-                  class="image-gen-prompt-input"
-                  placeholder="描述你想生成的插画..."
-                  rows="4"
-                ></textarea>
-              </div>
 
               <div class="image-gen-section">
                 <ImageModelPicker
@@ -868,6 +983,29 @@ function emitInsertImage(imgEntry) {
                   :configs="modelConfigs"
                   @configs-updated="handleConfigsUpdated"
                 />
+              </div>
+
+              <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
+                <div class="image-gen-label-row">
+                  <span class="image-gen-label">画面风格</span>
+                  <small>{{ selectedStylePreset.label }}</small>
+                </div>
+                <div class="image-gen-style-grid" role="radiogroup" aria-label="画面风格">
+                  <button
+                    v-for="preset in authoringStylePresets"
+                    :key="preset.id"
+                    type="button"
+                    class="image-gen-style-option"
+                    :class="{ active: imageStylePreset === preset.id }"
+                    role="radio"
+                    :aria-checked="imageStylePreset === preset.id"
+                    :title="preset.prompt"
+                    @click="imageStylePreset = preset.id"
+                  >
+                    <span aria-hidden="true" :style="{ backgroundPosition: preset.position }"></span>
+                    <strong>{{ preset.label }}</strong>
+                  </button>
+                </div>
               </div>
 
               <button
@@ -886,7 +1024,7 @@ function emitInsertImage(imgEntry) {
 
               <div class="image-gen-parameter-grid">
                 <label class="image-gen-compact-field">
-                  <span>画幅</span>
+                  <span>{{ presentation === 'authoring' ? '比例尺寸' : '画幅' }}</span>
                   <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
                     <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ preset.label }}</option>
                   </select>
@@ -900,7 +1038,10 @@ function emitInsertImage(imgEntry) {
               </div>
 
               <div class="image-gen-section">
-                <label class="image-gen-label">负面提示词（可选）</label>
+                <div class="image-gen-label-row">
+                  <label class="image-gen-label">负面提示词（可选）</label>
+                  <button v-if="presentation === 'authoring'" class="image-gen-inline-link" type="button" @click="useComicSafetyPrompt">使用漫画纯画面约束</button>
+                </div>
                 <textarea
                   v-model="imageNegativePrompt"
                   class="image-gen-prompt-input small"
@@ -949,7 +1090,7 @@ function emitInsertImage(imgEntry) {
           </div>
 
           <div v-else class="image-gen-empty" role="status">
-            <strong>还没有候选</strong>
+            <strong>{{ presentation === 'authoring' ? '快去左侧输入画面描述开始创作吧～' : '还没有候选' }}</strong>
             <span>{{ emptyResultHint }}</span>
           </div>
 
@@ -977,6 +1118,7 @@ function emitInsertImage(imgEntry) {
               @click="emitInsertImage(selectedPreviewImage)"
             >插入正文</button>
             <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
+            <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" @click="deleteSelectedImage">删除候选</button>
             <button
               class="image-preview-action-btn"
               type="button"
@@ -1520,6 +1662,108 @@ function emitInsertImage(imgEntry) {
   border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
   color: var(--archive-ink, var(--text-primary));
 }
+
+/* Authoring 画师只复用生成与媒体合同，可见编排对齐作家助手的左参数 / 右画布工作台。 */
+.media-generation-inline--authoring .image-gen-workspace {
+  grid-template-columns: minmax(360px, 400px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+}
+
+.media-generation-inline--split.media-generation-inline--authoring .image-gen-controls {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 16px;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-secondary);
+  overflow: hidden;
+}
+
+.media-generation-inline--authoring .image-gen-control-fields {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.media-generation-inline--split.media-generation-inline--authoring .image-gen-results {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--surface-primary);
+}
+
+.media-generation-inline--authoring .image-gen-results-title { display: none; }
+.media-generation-inline--authoring .image-gen-section { margin-bottom: 16px; }
+.media-generation-inline--authoring .image-gen-label { margin-bottom: 7px; color: var(--text-primary); font-size: 14px; font-weight: 520; }
+.media-generation-inline--authoring .image-gen-label-row { min-height: 28px; }
+.media-generation-inline--authoring .image-gen-prompt-input {
+  min-height: 116px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.media-generation-inline--authoring .image-gen-prompt-input.small { min-height: 72px; }
+.media-generation-inline--authoring .image-gen-prompt-input:focus { border-color: var(--accent-primary, var(--accent)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary, var(--accent)) 8%, transparent); }
+.media-generation-inline--authoring .image-gen-inline-link { border-style: solid; border-color: var(--border-subtle); color: var(--accent-primary, var(--accent)); font-size: 12px; }
+
+.image-gen-prompt-count { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; text-align: right; }
+.image-gen-quality-terms { display: grid; gap: 7px; margin: -5px 0 18px; }
+.image-gen-quality-terms > span { color: var(--text-primary); font-size: 14px; }
+.image-gen-quality-terms > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.image-gen-quality-terms button { min-height: 30px; padding: 4px 9px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.image-gen-quality-terms button:hover { border-color: var(--accent-primary, var(--accent)); color: var(--text-primary); }
+
+.image-gen-reference-prompt { display: grid; gap: 6px; margin-top: 10px; }
+.image-gen-reference-prompt > span { color: var(--text-primary); font-size: 13px; }
+.image-gen-reference-prompt textarea { min-height: 58px; resize: vertical; padding: 7px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); font: inherit; font-size: 13px; line-height: 1.5; }
+
+.image-gen-style-section small { color: var(--text-secondary); font-size: 12px; }
+.image-gen-style-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.image-gen-style-option { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; }
+.image-gen-style-option > span { display: block; height: 58px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; }
+.image-gen-style-option strong { display: block; overflow: hidden; padding: 6px 7px; font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
+.image-gen-style-option.active { border-color: var(--accent-primary, var(--accent)); box-shadow: 0 0 0 1px var(--accent-primary, var(--accent)); }
+
+.media-generation-inline--authoring .image-gen-brief--authoring { margin: 0 0 16px; }
+.media-generation-inline--authoring .image-gen-reference-strip { display: flex; flex-wrap: wrap; grid-template-columns: none; }
+.media-generation-inline--authoring .image-gen-reference-thumb { width: 52px; height: 52px; aspect-ratio: 1; border-color: var(--border-subtle); }
+.media-generation-inline--authoring .image-gen-reference-upload { width: auto; min-width: 80px; height: 32px; min-height: 32px; align-self: center; aspect-ratio: auto; grid-auto-flow: column; padding: 0 10px; border-style: solid; border-color: var(--border-subtle); font-size: 13px; }
+.media-generation-inline--authoring .image-gen-reference-hint,
+.media-generation-inline--authoring .image-gen-reference-message,
+.media-generation-inline--authoring .image-gen-reference-count,
+.media-generation-inline--authoring .image-gen-reference-strength { color: var(--text-secondary); font-size: 12px; }
+.media-generation-inline--authoring .image-gen-reference-summary { border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 13px; }
+.media-generation-inline--authoring .image-gen-parameter-grid { grid-template-columns: minmax(0, 1fr) 96px; gap: 10px; margin-bottom: 16px; }
+.media-generation-inline--authoring .image-gen-compact-field > span { color: var(--text-primary); font-size: 14px; }
+.media-generation-inline--authoring .image-gen-compact-field select { min-height: 38px; border-color: var(--border-subtle); background: var(--surface-primary); color: var(--text-primary); font-size: 14px; }
+.media-generation-inline--authoring .image-gen-actions { position: sticky; bottom: 0; margin-top: auto; padding-top: 14px; background: var(--surface-secondary); }
+.media-generation-inline--authoring .image-gen-generate-btn,
+.media-generation-inline--authoring .image-gen-cancel-btn { min-height: 40px; border: 0; border-radius: 4px; background: var(--accent-primary, var(--accent)); color: var(--accent-text, #fff); font-size: 14px; }
+.media-generation-inline--authoring .image-gen-cancel-btn { background: var(--text-secondary); }
+.media-generation-inline--authoring .image-gen-status,
+.media-generation-inline--authoring .image-gen-action-reason { font-size: 12px; }
+.media-generation-inline--authoring .image-gen-empty { min-height: 100%; flex: 1 1 auto; border: 0; border-radius: 0; background: transparent; }
+.media-generation-inline--authoring .image-gen-empty strong { max-width: 28em; color: var(--text-primary); font-size: 15px; font-weight: 450; }
+.media-generation-inline--authoring .image-gen-empty span { color: var(--text-secondary); font-size: 13px; }
+.media-generation-inline--authoring .image-gen-current-preview { flex: 1 1 auto; place-content: center; border: 0; border-radius: 0; background: var(--surface-primary); }
+.media-generation-inline--authoring .image-gen-current-preview > img { height: min(68vh, 680px); min-height: 360px; }
+.media-generation-inline--authoring .image-gen-current-caption { border-color: var(--border-subtle); font-size: 12px; }
+.media-generation-inline--authoring .image-gen-current-caption strong { font-size: 13px; }
+.media-generation-inline--authoring .image-gen-grid { padding: 10px 14px 0; }
+.media-generation-inline--authoring .image-gen-thumb { border-color: var(--border-subtle); }
+.media-generation-inline--authoring .image-gen-inline-actions { padding: 10px 14px 14px; }
+.media-generation-inline--authoring .image-preview-action-btn { border-style: solid; border-color: var(--border-subtle); background: var(--surface-primary); color: var(--text-primary); font-size: 13px; }
+.media-generation-inline--authoring .image-preview-action-btn--danger { margin-right: auto; color: var(--danger); }
 
 @media (max-width: 720px), (max-height: 560px) {
   .media-generation-inline--split .image-gen-workspace {

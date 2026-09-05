@@ -4,7 +4,8 @@ import { MAX_AUTHORING_PRESENT_CHARACTERS } from '../../services/agents/authorin
 
 // worldbook scene closure Task 10：右侧检查器的现场调整（受控组件）。
 // 不访问 store/localStorage/provider；所有状态经 props 进入、事件上抛。
-// 布局固定为 时间 → 地点 → 人物，无三 tab 切换。
+// 布局固定为 时间 → 地点 → 人物。列表只负责选择对象；一个就地动作区
+// 再说明这个对象是加入当前场、安排下一段，还是仅供本次推演。
 
 const props = defineProps({
   draft: { type: Object, required: true },
@@ -24,11 +25,13 @@ const emit = defineEmits(['update-draft', 'save', 'cancel', 'undo', 'restore-inh
 const locationQuery = ref('')
 const peopleQuery = ref('')
 const selectionNotice = ref('')
+const activeSelection = ref(null)
 
 watch(() => props.draft?.unitId, () => {
   locationQuery.value = ''
   peopleQuery.value = ''
   selectionNotice.value = ''
+  activeSelection.value = null
 })
 
 function patchDraft(patch) {
@@ -43,6 +46,18 @@ const worldbookReady = computed(() => props.worldbookStatus === 'bound')
 // 二次过滤，否则用世界书别名命中的实体会在 UI 层被错误丢掉。
 const filteredLocations = computed(() => props.locationCandidates)
 const filteredPeople = computed(() => props.characterCandidates)
+
+function selectCandidate(kind, candidate) {
+  selectionNotice.value = ''
+  const next = { kind, id: String(candidate.id) }
+  activeSelection.value = activeSelection.value?.kind === next.kind && activeSelection.value?.id === next.id
+    ? null
+    : next
+}
+
+function isActive(kind, candidate) {
+  return activeSelection.value?.kind === kind && activeSelection.value?.id === String(candidate.id)
+}
 
 function togglePerson(candidate) {
   const current = new Set(props.draft.presentCharacterIds || [])
@@ -92,6 +107,10 @@ function setViewpoint(candidate) {
 function isViewpoint(candidate) {
   return props.draft.viewpointCharacterId === candidate.id
 }
+
+function chooseCurrentLocation(candidate) {
+  patchDraft({ locationId: props.draft.locationId === candidate.id ? '' : candidate.id })
+}
 </script>
 
 <template>
@@ -110,15 +129,10 @@ function isViewpoint(candidate) {
       <button type="button" @click="emit('bind-worldbook')">关联世界书</button>
     </div>
 
-    <p class="scene-curation__scope-note">
-      保存当前场＝纠正当前；下一段安排在采纳后生效；带入本次推演不会改动现场。
-    </p>
-
     <div class="writing-inspector__list scene-curation__body">
       <section class="scene-curation__group">
         <header class="scene-curation__group-head">
           <strong>时间</strong>
-          <small>可不依赖世界书</small>
         </header>
         <div class="scene-curation__time-grid">
           <label class="scene-curation__field">
@@ -147,8 +161,7 @@ function isViewpoint(candidate) {
       <section class="scene-curation__group">
         <header class="scene-curation__group-head">
           <strong>地点</strong>
-          <small v-if="!draft.locationId">选择圆点并保存＝纠正当前</small>
-          <button v-else type="button" @click="patchDraft({ locationId: '' })">清除</button>
+          <button v-if="draft.locationId" type="button" @click="patchDraft({ locationId: '' })">清除</button>
         </header>
         <input
           v-if="worldbookReady"
@@ -164,13 +177,16 @@ function isViewpoint(candidate) {
             <button
               type="button"
               class="scene-curation__option"
-              :aria-pressed="(draft.locationId === candidate.id).toString()"
-              @click="patchDraft({ locationId: candidate.id })"
-            ><span aria-hidden="true">{{ draft.locationId === candidate.id ? '●' : '○' }}</span><span>{{ candidate.name }}</span></button>
-            <span v-if="draft.locationId !== candidate.id" class="scene-curation__scope">
-              <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'next-passage')">下一段转场</button>
-              <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'run-only')">带入本次推演</button>
-            </span>
+              :class="{ 'is-active': isActive('location', candidate) }"
+              :aria-expanded="isActive('location', candidate).toString()"
+              @click="selectCandidate('location', candidate)"
+            ><span aria-hidden="true">{{ draft.locationId === candidate.id ? '●' : '○' }}</span><span>{{ candidate.name }}</span><small>{{ draft.locationId === candidate.id ? '当前地点' : '选择' }}</small></button>
+            <div v-if="isActive('location', candidate)" class="scene-curation__candidate-actions">
+              <strong>{{ candidate.name }}</strong>
+              <button type="button" class="is-current" @click="chooseCurrentLocation(candidate)">{{ draft.locationId === candidate.id ? '移出当前场' : '设为当前地点' }}</button>
+              <button v-if="draft.locationId !== candidate.id" type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'next-passage')">下一段转到这里</button>
+              <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'run-only')">仅带入本次推演</button>
+            </div>
           </li>
         </ul>
         <p v-if="worldbookReady && missingLocationId" class="scene-curation__invalid-ref">
@@ -187,7 +203,7 @@ function isViewpoint(candidate) {
       <section class="scene-curation__group">
         <header class="scene-curation__group-head">
           <strong>在场人物</strong>
-          <small>{{ draft.viewpointCharacterId ? '已指定视角' : '点＋并保存＝纠正当前' }}</small>
+          <small v-if="draft.viewpointCharacterId">已指定视角</small>
         </header>
         <input
           v-if="worldbookReady"
@@ -203,30 +219,27 @@ function isViewpoint(candidate) {
             <button
               type="button"
               class="scene-curation__person-toggle"
-              :aria-pressed="isSelected(candidate).toString()"
-              @click="togglePerson(candidate)"
-            ><span aria-hidden="true">{{ isSelected(candidate) ? '✓' : '＋' }}</span><span>{{ candidate.name }}</span></button>
-            <button
-              v-if="isSelected(candidate)"
-              type="button"
-              class="scene-curation__viewpoint"
-              :aria-pressed="isViewpoint(candidate).toString()"
-              @click="setViewpoint(candidate)"
-            >{{ isViewpoint(candidate) ? '当前视角' : '设为视角' }}</button>
-            <span v-if="!isSelected(candidate)" class="scene-curation__scope">
+              :class="{ 'is-active': isActive('character', candidate) }"
+              :aria-expanded="isActive('character', candidate).toString()"
+              @click="selectCandidate('character', candidate)"
+            ><span aria-hidden="true">{{ isSelected(candidate) ? '✓' : '＋' }}</span><span>{{ candidate.name }}</span><small>{{ isSelected(candidate) ? (isViewpoint(candidate) ? '当前视角' : '在场') : '选择' }}</small></button>
+            <div v-if="isActive('character', candidate)" class="scene-curation__candidate-actions">
+              <strong>{{ candidate.name }}</strong>
               <button
                 type="button"
-                class="scene-curation__scope-btn"
-                title="约束下一段推演；采纳草稿后才进入当前场"
-                @click="requestRunIntent(candidate, 'character', 'next-passage')"
-              >下一段入场</button>
+                class="is-current"
+                @click="togglePerson(candidate)"
+              >{{ isSelected(candidate) ? '移出当前场' : '加入当前场' }}</button>
               <button
+                v-if="isSelected(candidate)"
                 type="button"
-                class="scene-curation__scope-btn"
-                title="只带入本次推演，不改动现场"
-                @click="requestRunIntent(candidate, 'character', 'run-only')"
-              >带入本次推演</button>
-            </span>
+                class="scene-curation__viewpoint"
+                :aria-pressed="isViewpoint(candidate).toString()"
+                @click="setViewpoint(candidate)"
+              >{{ isViewpoint(candidate) ? '取消视角' : '设为视角' }}</button>
+              <button v-if="!isSelected(candidate)" type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'character', 'next-passage')">让他下一段入场</button>
+              <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'character', 'run-only')">仅带入本次推演</button>
+            </div>
           </li>
           <li v-for="id in missingCharacterIds" :key="`missing:${id}`" class="scene-curation__invalid-ref">
             <span>人物引用已失效 · {{ id }}</span>
@@ -295,14 +308,6 @@ function isViewpoint(candidate) {
   flex-direction: column;
   gap: 0;
   padding: 0;
-}
-.scene-curation__scope-note {
-  margin: 0;
-  padding: 8px 0 10px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.55;
 }
 .scene-curation__group {
   display: grid;
@@ -389,12 +394,6 @@ function isViewpoint(candidate) {
   font-size: 12px;
   cursor: pointer;
 }
-.scene-curation__scope {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
 .scene-curation__scope-btn {
   appearance: none;
   min-height: 26px;
@@ -413,11 +412,21 @@ function isViewpoint(candidate) {
 }
 .scene-curation__option {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 7px;
   width: 100%;
   padding: 5px 0;
   text-align: left;
+}
+.scene-curation__option small,
+.scene-curation__person-toggle small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 400;
+}
+.scene-curation__option.is-active,
+.scene-curation__person-toggle.is-active {
+  color: var(--text-primary);
 }
 .scene-curation__option[aria-pressed='true'],
 .scene-curation__person-toggle[aria-pressed='true'],
@@ -439,10 +448,36 @@ function isViewpoint(candidate) {
 }
 .scene-curation__person-toggle {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 7px;
   padding: 5px 0;
   text-align: left;
+  cursor: pointer;
+}
+.scene-curation__candidate-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 5px 0 9px 21px;
+}
+.scene-curation__candidate-actions strong {
+  flex-basis: 100%;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.scene-curation__candidate-actions .is-current {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--accent-primary);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
   cursor: pointer;
 }
 .scene-curation__viewpoint {
@@ -458,6 +493,7 @@ function isViewpoint(candidate) {
 .scene-curation__person-toggle:focus-visible,
 .scene-curation__viewpoint:focus-visible,
 .scene-curation__scope-btn:focus-visible,
+.scene-curation__candidate-actions .is-current:focus-visible,
 .scene-curation__warning button:focus-visible,
 .scene-curation__empty button:focus-visible,
 .scene-curation__group-head button:focus-visible {
@@ -509,12 +545,6 @@ function isViewpoint(candidate) {
     padding: 1px 0;
   }
 
-  .scene-curation__scope {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    gap: 12px;
-  }
-
   .scene-curation__scope-btn {
     min-height: 44px;
     padding: 0 4px;
@@ -529,6 +559,23 @@ function isViewpoint(candidate) {
 
   .scene-curation__viewpoint {
     justify-self: end;
+    font-size: 12px;
+  }
+
+  .scene-curation__candidate-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-left: 21px;
+  }
+
+  .scene-curation__candidate-actions strong {
+    min-height: 28px;
+  }
+
+  .scene-curation__candidate-actions button {
+    justify-self: start;
+    min-height: 44px;
     font-size: 12px;
   }
 }

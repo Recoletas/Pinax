@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 const props = defineProps({
+  entryIntent: { type: Object, default: null },
   pressure: { type: Object, default: null },
   directions: { type: Array, default: () => [] },
   selectedDirectionId: { type: String, default: '' },
@@ -15,6 +16,29 @@ const selectedDirection = computed(() => (
   props.directions.find((direction) => direction.id === props.selectedDirectionId) || null
 ))
 const ready = computed(() => props.phase === 'ready' || props.phase === 'direction-selected')
+const intentName = computed(() => String(
+  props.entryIntent?.entityName
+  || props.entryIntent?.label?.split(' · ').slice(1).join(' · ')
+  || ''
+).trim())
+const heading = computed(() => {
+  if (!props.entryIntent || !intentName.value) return '推演本场'
+  if (props.entryIntent.mode === 'next-passage') {
+    return props.entryIntent.entityKind === 'location'
+      ? `下一段转到${intentName.value}`
+      : `让${intentName.value}下一段入场`
+  }
+  return props.entryIntent.entityKind === 'location'
+    ? `以${intentName.value}作为本次推演参考`
+    : `带${intentName.value}参与这次推演`
+})
+const headingDetail = computed(() => {
+  if (!props.entryIntent) return '先选清楚因果方向，再决定是否写成正文'
+  return props.entryIntent.mode === 'next-passage'
+    ? '采纳推演稿后才更新当前场'
+    : '只影响这次推演，不改变当前场'
+})
+const intentKindLabel = computed(() => props.entryIntent?.entityKind === 'location' ? '地点' : '人物')
 const workingCopy = computed(() => ({
   'preparing-context': {
     title: '正在核对本场依据',
@@ -49,16 +73,20 @@ function handleLaboratoryKeydown(event) {
     class="authoring-scene-lab"
     data-test="scene-laboratory"
     :data-scene-lab-phase="phase"
-    aria-label="推演本场"
+    :aria-label="heading"
     @keydown="handleLaboratoryKeydown"
   >
     <header class="authoring-scene-lab__head">
       <div>
-        <strong ref="titleRef" tabindex="-1">推演本场</strong>
-        <span>先选清楚因果方向，再决定是否写成正文</span>
+        <strong ref="titleRef" tabindex="-1">{{ heading }}</strong>
+        <span>{{ headingDetail }}</span>
       </div>
       <button type="button" aria-label="关闭场景实验室" @click="emit('close')">收起</button>
     </header>
+
+    <p v-if="entryIntent" class="authoring-scene-lab__intent">
+      <span>{{ intentKindLabel }}</span><strong>{{ intentName }}</strong><small>{{ entryIntent.mode === 'next-passage' ? '下一段生效' : '仅本次' }}</small>
+    </p>
 
     <div v-if="['preparing-context', 'planning-directions', 'validating-dependencies', 'generating-prose'].includes(phase)" class="authoring-scene-lab__working" role="status" aria-live="polite">
       <span class="authoring-scene-lab__working-mark" aria-hidden="true"></span>
@@ -176,6 +204,19 @@ function handleLaboratoryKeydown(event) {
   color: var(--text-secondary);
   font-size: 11px;
 }
+.authoring-scene-lab__intent {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: -4px 0 10px;
+  padding: 7px 0;
+  border-block: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+.authoring-scene-lab__intent span,
+.authoring-scene-lab__intent small { color: var(--text-secondary); font-size: 10px; }
+.authoring-scene-lab__intent strong { font-weight: 600; }
+.authoring-scene-lab__intent small { margin-left: auto; }
 .authoring-scene-lab button {
   border: 0;
   background: transparent;

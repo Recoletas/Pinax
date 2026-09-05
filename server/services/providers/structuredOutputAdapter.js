@@ -55,6 +55,8 @@ function schemaName(schemaId) {
     ? 'setting_section_v1'
     : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.REVISION
       ? 'setting_revision_v1'
+      : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD
+        ? 'character_card_v1'
       : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES
         ? 'setting_candidates_v1'
       : schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.PLACES
@@ -68,6 +70,19 @@ function textParts(context = {}, targets = {}, schemaId = '') {
   const section = text(targets.sectionKey)
   const fields = Array.isArray(targets.fieldKeys) ? targets.fieldKeys.join(', ') : ''
   const serialize = (value) => typeof value === 'string' ? value : JSON.stringify(value || '')
+  if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD) {
+    return [
+      '目标协议：character-card.v1。你正在补全一张已经存在的人物卡。',
+      '只返回 characterProfile 对象，且只包含 background、personality、appearance、other 四个字符串字段。不要返回姓名、标题、解释、Markdown 或思考过程。',
+      '保留当前人物卡中所有未被用户明确要求修改的事实；优先补齐空白和薄弱字段，不得把其他人物的资料混入当前人物。',
+      context.globalConstraints ? `【全局硬约束】\n${serialize(context.globalConstraints)}` : '',
+      context.confirmedSettings ? `【已确认设定】\n${serialize(context.confirmedSettings)}` : '',
+      context.relatedEntries ? `【相关世界书条目】\n${serialize(context.relatedEntries)}` : '',
+      context.currentCharacter ? `【当前人物卡，必须保持人物身份】\n${serialize(context.currentCharacter)}` : '',
+      context.userBrief ? `【本次补全要求】\n${serialize(context.userBrief)}` : '【本次补全要求】补齐缺失资料并整理表达，不改变已有事实。',
+      '四个字段都必须返回完整结果；没有需要补充的字段原样返回。'
+    ].filter(Boolean).join('\n\n')
+  }
   if (schemaId === STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES) {
     return [
       '目标协议：setting-candidates.v1。请从原始资料片段中提取后续设定生成需要的有限事实候选。',

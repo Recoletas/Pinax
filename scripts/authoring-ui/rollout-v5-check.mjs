@@ -72,10 +72,11 @@ const anchorsBeforeIntent = await page.evaluate((id) => {
 await page.evaluate(() => {
   const row = [...document.querySelectorAll('.scene-curation__people li')]
     .find((el) => (el.textContent || '').includes('艾德加'))
+  row?.querySelector('.scene-curation__person-toggle')?.click()
   ;[...row.querySelectorAll('.scene-curation__scope-btn')]
-    .find((el) => el.textContent.includes('安排下一段'))?.click()
+    .find((el) => el.textContent.includes('下一段入场'))?.click()
 })
-await page.locator('[data-test="block-composer"]').waitFor({ state: 'visible', timeout: 5000 })
+await page.locator('[data-test="scene-laboratory"]').waitFor({ state: 'visible', timeout: 5000 })
 const anchorsAfterIntent = await page.evaluate((id) => {
   const book = JSON.parse(localStorage.getItem('writing_books')).find((b) => String(b.id) === String(id))
   const chapter = book?.chapters?.find((c) => c.id === 'fogch-5')

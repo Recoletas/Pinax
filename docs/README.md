@@ -10,8 +10,10 @@
 | [plan/pinax-integrated-product-roadmap.md](./plan/pinax-integrated-product-roadmap.md) | 当前唯一产品级路线图：设定、地理、历史、冒险、写作与视听输出 |
 | [STATUS.md](./STATUS.md) | 当前 session 状态、下一步和最近验证 |
 | [LOG.md](./LOG.md) | 近期用户可感知变化和文档定位调整 |
+| [UI/UX 与故事试演计划](./plan/authoring-ux-and-story-play-plan-20260905.md) | 当前Authoring体验优化任务、依赖、验收；进行中的计划不作为清理对象 |
 | [src/code-map.md](./src/code-map.md) | 代码 owning surface，找行为负责人 |
 | [src/known-issues.md](./src/known-issues.md) | 当前风险、已知缺口和稳定限制 |
+| [src/test-status.md](./src/test-status.md) | 完整验证命令、测试预算与浏览器/真实渠道边界 |
 
 ## 其他入口
 
@@ -43,3 +45,5 @@ VitePress 源码位于 [src/](./src/)，入口页是 [src/index.md](./src/index.
 - 产品优先级只在 `plan/pinax-integrated-product-roadmap.md` 里定。
 - 当前代码事实和风险分别回填 `src/` 文档与 `src/known-issues.md`。
 - 用户手册只描述当前可用事实，不把未实现能力写成既成事实。
+- `/authoring` 是当前创作入口；旧研究中的 `Writing.vue` 或旧工具名称只代表当时的实现，不用于推定当前owner。
+- 历史规格与研究保留原始语境；失效的当前入口应修正，不为了清理而改写历史验收事实。一次性调试脚本写入被忽略的 `tmp/`，不要与正式Gate脚本混放。

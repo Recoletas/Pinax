@@ -45,6 +45,7 @@ import { createResearchRevision } from '@/services/worldbookResearchRevision'
 import {
   buildSettingGenerationMessages,
   extractSettingContent,
+  generateCharacterProfileDraft,
   generateSettingDraftRevision,
   generateSettingCandidates,
   generateSettingSectionDraftBatch,
@@ -82,6 +83,11 @@ import {
   getCreationSourceResultState
 } from '@/services/worldbookCreationState'
 import { groupSettingCandidates } from '../../shared/structuredSettingCandidateContract.js'
+import {
+  STRUCTURED_GENERATION_SCHEMA_IDS,
+  validateStructuredDraftPayload,
+  validateStructuredGenerationRequest
+} from '../../shared/structuredSettingContract.js'
 import {
   detectSourceKind,
   parseSourceFile,
@@ -1246,6 +1252,46 @@ const store = useWorldStore()
       speechStyle: '短句，先复述事实再下判断',
       samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
     }])
+    expect(parseCharacterCards('姓名：沈砚 身份：档案员 性格：寡言、谨慎 外貌：黑发灰眼 背景：负责保管旧案')).toMatchObject([{
+      name: '沈砚',
+      identity: '档案员',
+      personality: '寡言、谨慎',
+      appearance: '黑发灰眼',
+      background: '负责保管旧案'
+    }])
+    expect(parseCharacterCards('沈砚负责保管旧港档案，他寡言而谨慎，习惯在结论旁标注证据来源。')).toEqual([])
+    const characterRequest = validateStructuredGenerationRequest({
+      schemaId: STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD,
+      target: { worldbookId: 'wb-1', worldbookRevision: 'r1', sectionKey: 'characters', fieldKeys: ['protagonists'] },
+      context: { currentCharacter: { id: 'char-1', name: '沈砚', profile: { background: '档案员' } } }
+    })
+    expect(characterRequest.valid).toBe(true)
+    expect(validateStructuredDraftPayload({ characterProfile: {
+      background: '负责保管旧案', personality: '寡言、谨慎', appearance: '黑发灰眼', other: ''
+    } }, characterRequest.request.target, STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD)).toMatchObject({
+      valid: true,
+      drafts: { characterProfile: { background: '负责保管旧案', personality: '寡言、谨慎' } }
+    })
+    expect(validateStructuredDraftPayload('沈砚：档案员', characterRequest.request.target, STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD).valid).toBe(false)
+    let characterGenerationRequest = null
+    const characterDraft = await generateCharacterProfileDraft({
+      worldbook: {
+        ...sectionWorldbook,
+        id: 'wb-character',
+        updatedAt: 'wb-r3',
+        entries: [{ id: 'char-1', name: '沈砚', type: 'character', content: '背景：负责保管旧案', metadata: { updatedAt: 'entry-r2' } }]
+      },
+      entry: { id: 'char-1', name: '沈砚', type: 'character', metadata: { updatedAt: 'entry-r2' } },
+      profile: { background: '负责保管旧案', personality: '', appearance: '', other: '' },
+      settings: { baseUrl: 'https://example.test', apiKey: 'test', model: 'test' },
+      sendStructuredGenerationImpl: async (request) => {
+        characterGenerationRequest = request
+        return { drafts: { characterProfile: { background: '负责保管旧案', personality: '寡言', appearance: '黑发灰眼', other: '' } } }
+      }
+    })
+    expect(characterGenerationRequest.schemaId).toBe(STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD)
+    expect(characterGenerationRequest.context.currentCharacter).toMatchObject({ id: 'char-1', name: '沈砚' })
+    expect(characterDraft).toMatchObject({ ok: true, sourceRevision: 'wb-r3', sourceEntryRevision: 'entry-r2', profile: { personality: '寡言' } })
     expect(editorSource).toContain('entryForm.speechStyle')
     expect(editorSource).toContain('entryForm.samples')
     expect(editorSource).toContain('addVoiceSample')
@@ -1582,6 +1628,60 @@ const store = useWorldStore()
 
     await store.updateStructuredSetting(wb.id, 'world', 'history', '')
     expect(store.activeWorldbook.entries.some((entry) => entry.metadata?.structuredSettingRef === 'world.history')).toBe(false)
+
+    await store.updateStructuredSetting(wb.id, 'characters', 'protagonists', [
+      '姓名：陆沉',
+      '身份：巡夜人',
+      '性格：克制、敏锐',
+      '外貌：黑发，佩旧铜哨',
+      '背景：负责雾港夜间巡查',
+      '目标：查明旧案'
+    ].join('\n'))
+    let characterEntries = store.activeWorldbook.entries.filter((entry) => entry.metadata?.structuredSettingRef === 'characters.protagonists')
+    expect(characterEntries).toHaveLength(1)
+    expect(characterEntries[0]).toMatchObject({
+      name: '陆沉',
+      type: 'character',
+      injection: { group: '角色' },
+      metadata: {
+        structuredCharacterKey: expect.any(String),
+        characterProfile: {
+          background: '负责雾港夜间巡查',
+          personality: '克制、敏锐',
+          appearance: '黑发，佩旧铜哨'
+        }
+      }
+    })
+    expect(store.activeWorldbook.entries.some((entry) => ['主角', '重要配角', 'NPC'].includes(entry.name))).toBe(false)
+
+    const characterId = characterEntries[0].id
+    await store.updateEntry(wb.id, characterId, {
+      content: '背景：改为管理旧档案\n性格：沉着\n外貌：黑发\n其他：随身携带铜哨'
+    })
+    store.activeWorldbook = null
+    await store.loadWorldbook(wb.id)
+    expect(store.activeWorldbook.entries.find((entry) => entry.id === characterId)).toMatchObject({
+      name: '陆沉',
+      metadata: { characterProfile: { background: '改为管理旧档案', personality: '沉着', appearance: '黑发', other: '随身携带铜哨' } }
+    })
+
+    await store.deleteEntry(wb.id, characterId)
+    store.activeWorldbook = null
+    await store.loadWorldbook(wb.id)
+    expect(store.activeWorldbook.entries.some((entry) => entry.id === characterId)).toBe(false)
+
+    await store.updateStructuredSetting(wb.id, 'characters', 'protagonists', '姓名：陆沉\n背景：重新建立的人物卡')
+    characterEntries = store.activeWorldbook.entries.filter((entry) => entry.metadata?.structuredSettingRef === 'characters.protagonists')
+    expect(characterEntries).toHaveLength(1)
+    expect(characterEntries[0]).toMatchObject({ name: '陆沉', metadata: { characterProfile: { background: '重新建立的人物卡' } } })
+
+    await store.updateStructuredSetting(wb.id, 'characters', 'protagonists', '姓名：沈砚 身份：档案员 性格：寡言、谨慎 外貌：黑发灰眼 背景：负责保管旧案')
+    characterEntries = store.activeWorldbook.entries.filter((entry) => entry.metadata?.structuredSettingRef === 'characters.protagonists')
+    expect(characterEntries).toHaveLength(1)
+    expect(characterEntries[0]).toMatchObject({
+      name: '沈砚',
+      metadata: { characterProfile: { background: '负责保管旧案', personality: '寡言、谨慎', appearance: '黑发灰眼' } }
+    })
 }
 {
 

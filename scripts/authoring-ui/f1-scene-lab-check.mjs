@@ -173,7 +173,8 @@ async function openSceneLaboratory(page, { mobile = false, intent = 'run-only' }
   await inspector.locator('.scene-curation').waitFor({ state: 'visible' })
   const edgar = inspector.locator('.scene-curation__people li').filter({ hasText: '艾德加' }).first()
   await edgar.waitFor({ state: 'visible' })
-  await edgar.getByRole('button', { name: intent === 'next-passage' ? '下一段入场' : '带入本次推演' }).click()
+  await edgar.locator('.scene-curation__person-toggle').click()
+  await edgar.getByRole('button', { name: intent === 'next-passage' ? '让他下一段入场' : '仅带入本次推演' }).click()
   const laboratory = page.locator('[data-test="scene-laboratory"]')
   await laboratory.waitFor({ state: 'visible' })
   return laboratory
@@ -599,9 +600,10 @@ try {
         && !sheetState.pageOverflow,
       JSON.stringify({ sheetState, touchHeights }))
     await edgar.scrollIntoViewIfNeeded()
+    await edgar.locator('.scene-curation__person-toggle').click()
     await mobile.waitForTimeout(100)
     await mobile.screenshot({ path: screenshots.finalMobile, fullPage: false })
-    await edgar.getByRole('button', { name: '下一段入场' }).click()
+    await edgar.getByRole('button', { name: '让他下一段入场' }).click()
     const laboratory = mobile.locator('[data-test="scene-laboratory"]')
     await laboratory.locator('.authoring-scene-lab__direction').first().waitFor({ state: 'visible' })
     await laboratory.locator('.authoring-scene-lab__direction').nth(1).press('Space')

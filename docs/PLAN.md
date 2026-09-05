@@ -38,6 +38,8 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 
 ## 当前优先级
 
+Authoring 当前体验收口按 [UI/UX 打磨与故事试演计划（二轮详细版）](./plan/authoring-ux-and-story-play-plan-20260905.md) 推进（G1.3/G1.5/G4.6，承接 F1/F2/F3），[调研证据](./plan/authoring-ux-story-play-research-20260905.md) 区分实页、代码、历史与假设。A0/A1已有局部实现，后续依次为小高度输入遮挡与标题/返回收口、资料与手机任务流、当前场信息归属、统一试演及可读草稿、人物选择/作者改方向/普通稿局部试写；助手历史和跨页回程分包完善，保留试稿/线索玩法/推测影响由真实样板决定是否扩展。详细任务、owner、权限、验收与六波交付见第9–12节。本轮只调研和计划，未实施A2–A5；用户视觉、真实provider和原生设备仍独立验收，以下领域计划不作为此次体验优化前置。
+
 桌面迁移按 P1-P8 顺序推进。P1/P2 已合并本地 `main`；桌面打包运行时修复已产出 Windows x64 portable ZIP，完成 host 侧 ZIP/ASAR/PE 静态检查，随后进入 P3 plain-text editor。迁移保持 copy-first，不删除浏览器 localStorage；Windows clean-machine 门禁前不得宣称桌面发行就绪。
 
 1. Living Atlas：当前优先执行 [G2.4-A 结构化地点目录](./plan/pinax-integrated-product-roadmap.md#g24-a-结构化地点目录当前优先执行)，不再继续扩张地图侧正文地名正则。地理概述只保留叙事和整理依据；城市、城镇、区域、河流与路线以独立世界书地点条目作为作者事实真源，经设定页编辑或 AI 整理草稿逐项确认后再进入地图。地点目录打通后继续 G2.4 的父子区域、相邻求解、remap 评分、LOD 与压力门禁。

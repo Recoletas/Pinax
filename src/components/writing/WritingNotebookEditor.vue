@@ -434,8 +434,12 @@ function createBlockGapDecorations(state) {
       actions.className = 'writing-unit-gap__actions'
       const button = document.createElement('button')
       button.type = 'button'
-      button.className = 'writing-unit-gap__action'
-      button.textContent = unit?.textContent.trim() ? '＋ 推演下一段' : '＋ 推演本章开场'
+      button.className = 'writing-unit-gap__action is-primary'
+      const buttonLabel = document.createElement('span')
+      buttonLabel.textContent = unit?.textContent.trim() ? '推演下一段' : '推演本章开场'
+      const buttonHint = document.createElement('small')
+      buttonHint.textContent = unit?.textContent.trim() ? '看看接下来可能发生什么' : '从当前设定找到开场方向'
+      button.append(buttonLabel, buttonHint)
       button.addEventListener('mousedown', (event) => event.preventDefault())
       button.addEventListener('click', () => emit('open-block-composer', {
           unitId: unit?.attrs.unitId || null,
@@ -447,7 +451,11 @@ function createBlockGapDecorations(state) {
         const intervention = document.createElement('button')
         intervention.type = 'button'
         intervention.className = 'writing-unit-gap__action is-secondary'
-        intervention.textContent = '改变条件'
+        const interventionLabel = document.createElement('span')
+        interventionLabel.textContent = '改变条件'
+        const interventionHint = document.createElement('small')
+        interventionHint.textContent = '先看这项变化会影响哪里'
+        intervention.append(interventionLabel, interventionHint)
         intervention.addEventListener('mousedown', (event) => event.preventDefault())
         intervention.addEventListener('click', () => emit('open-intervention', {
           unitId: unit?.attrs.unitId || null,
@@ -3266,8 +3274,9 @@ defineExpose({
   position: relative;
   display: flex;
   align-items: center;
-  height: 0;
-  margin: 0;
+  justify-content: flex-end;
+  height: 54px;
+  margin: 2px 0 6px;
   z-index: 4;
 }
 
@@ -3277,46 +3286,48 @@ defineExpose({
 }
 
 .writing-unit-gap__actions {
-  position: absolute;
-  top: 1px;
-  right: 0;
-  transform: translateY(-50%);
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-end;
+  gap: 4px;
+  width: min(100%, 500px);
+}
+
+.writing-unit-gap__actions::before {
+  height: 1px;
+  flex: 1 1 48px;
+  min-width: 28px;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--notebook-muted) 20%, transparent));
 }
 
 .writing-unit-gap__action {
-  position: relative;
-  min-height: 28px;
-  padding: 4px 2px;
+  display: grid;
+  gap: 1px;
+  min-height: 42px;
+  padding: 5px 10px;
   border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: color-mix(in srgb, var(--notebook-muted) 76%, transparent);
   font: 500 12px/1.2 var(--font-sans, sans-serif);
   letter-spacing: 0.02em;
-  opacity: 0.72;
+  text-align: left;
+  opacity: 0.82;
   cursor: pointer;
   transition: color 120ms ease, opacity 120ms ease;
-}
-
-.writing-unit-gap__action::before {
-  position: absolute;
-  top: 50%;
-  right: 100%;
-  width: 26px;
-  margin-right: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--notebook-muted) 22%, transparent);
-  content: '';
-}
-
-.writing-unit-gap__action.is-secondary::before {
-  display: none;
 }
 
 .writing-unit-gap__action.is-secondary {
   color: color-mix(in srgb, var(--notebook-muted) 62%, transparent);
 }
+.writing-unit-gap__action.is-primary {
+  color: color-mix(in srgb, var(--accent-primary) 86%, var(--text-primary));
+  border-bottom-color: color-mix(in srgb, var(--accent-primary) 54%, transparent);
+}
+.writing-unit-gap__action span { font-size: 12px; font-weight: 650; }
+.writing-unit-gap__action small { color: var(--notebook-muted); font-size: 10px; font-weight: 400; }
 
 .writing-unit-gap.has-preview {
   height: auto;
@@ -3325,12 +3336,14 @@ defineExpose({
 
 .writing-unit-gap.has-composer,
 .writing-unit-gap:has(.authoring-block-composer) {
+  justify-content: stretch;
   height: auto;
   margin: 10px 0 18px;
 }
 
 .writing-unit-gap__action:hover,
 .writing-unit-gap__action:focus-visible {
+  background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
   color: var(--accent-primary);
   opacity: 1;
   outline: none;
@@ -3342,15 +3355,15 @@ defineExpose({
 }
 
 @media (max-width: 640px) {
+  .writing-unit-gap { height: 62px; }
   .writing-unit-gap__action {
-    min-height: 36px;
+    min-height: 48px;
+    padding-inline: 8px;
   }
 
-  .writing-unit-gap__actions { right: 2px; gap: 10px; }
-
-  .writing-unit-gap__action::before {
-    width: 16px;
-  }
+  .writing-unit-gap__actions { gap: 0; }
+  .writing-unit-gap__actions::before { min-width: 12px; }
+  .writing-unit-gap__action small { display: none; }
 }
 
 .writing-notebook-editor__surface section[data-writing-unit] > * {

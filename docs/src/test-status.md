@@ -4,16 +4,19 @@
 
 ## 最近验证
 
-最后更新：2026-08-07 10:52 CST
+最后更新：2026-09-05。下表为本日已确认的整合树基线，当前执行中的改动以 `docs/STATUS.md` 与最新命令输出为准。
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| `npm run test:run` | 通过：31 files / 254 tests | 核心数据流、地图视觉、地理历史、运行时、世界书、记忆、素材与恢复回归 |
-| `npm run verify:full` | 通过：31 files / 254 tests + 1 file / 12 visual tests | Vite build、VitePress docs build、`git diff --check` 通过；视觉仅执行一次 |
+| `npm run verify:full` | 已确认基线：20 files / 200 tests，exit 0 | 核心预算、Vite build、diff检查与VitePress build；仓库清理后的结果见近期日志 |
+| F1场景实验室浏览器旅程 | 65/65，exit 0 | 本日调研轮，隔离fixture与mock；不代表真实模型质量 |
+| F2校对/搜索/历史浏览器旅程 | 33/33，exit 0 | 本日调研轮；不替代原生设备和用户视觉验收 |
 
-## Gate 0.1 主流程 Smoke 基线
+已删除测试文件对应的旧 `visual-verification.test.js.snap` 不再参与当前测试；不要执行不存在的 `visual-verification.test.js`。不能通过删除仍使用的测试或快照降低预算。
 
-这张表是后续自动测试、浏览器手测和 API 手测共用的验收口径。`基线` 只代表已经定义输入和恢复动作，不代表当前链路已经通过；真实 API、浏览器交互和清空后恢复仍需逐条执行。
+## Gate 0.1 历史主流程 Smoke 清单
+
+以下保留早期跨领域任务和恢复口径，不是Authoring本轮进度表。`基线`只代表定义过输入与恢复动作；当前自动化、真实API、浏览器与原生设备的结论须分别查看专项回执，不能沿用旧状态推断当前已通过或未实现。
 
 | # | 主流程 | 固定输入 | 成功判据 | 预期数据副作用 | 失败恢复 | 当前状态 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -32,9 +35,11 @@
 
 | 场景 | 命令 |
 | --- | --- |
-| 提交前通用验证 | `npm run test:run` + `npm run build` |
-| UI / 渲染相关改动 | 追加 `npm run test:run -- src/__tests__/visual-verification.test.js` |
-| 文档站改动 | 追加 `npm run docs:build` |
+| 完整交付验证 | `npm run verify:full`；最多20个核心测试文件/200个用例 |
+| UI / 渲染相关改动 | 在完整验证之外，选择现有 `scripts/authoring-ui/` 旅程或 `npm run audit:ui`，保留代表截图 |
+| 文档站定向反馈 | `npm run docs:build`；交付仍执行完整验证 |
+
+浏览器检查须复用已有服务与隔离fixture，不操作用户浏览器存储、不启停用户服务。真实provider脚本可能产生费用和外部数据传输，先确认配置、范围和预算；mock通过不等于真实渠道通过。有效视口模拟也不等于原生手机键盘或浏览器缩放验收。
 
 `npm run verify` 当前走 `verify:full`；dirty worktree 下若 Vitest 先失败，需单独运行 `npm run verify:post` 和 `npm run docs:build` 获取构建与文档结果。
 

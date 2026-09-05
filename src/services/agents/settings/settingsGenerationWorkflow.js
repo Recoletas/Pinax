@@ -2,6 +2,7 @@ const METHOD_BY_TASK = Object.freeze({
   'settings.foundation.generate': 'generateFoundation',
   'settings.candidates.extract': 'generateCandidates',
   'settings.field.complete': 'generateField',
+  'settings.character.complete': 'generateCharacter',
   'settings.section.complete': 'generateSection',
   'settings.draft.revise': 'reviseDraft'
 })

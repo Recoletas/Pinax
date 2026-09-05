@@ -19,10 +19,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['submit', 'cancel', 'draft-change', 'review-candidate', 'select-rehearsal', 'rehearse', 'collaborate', 'open-collaboration'])
 const operationOptions = Object.freeze([
-  { id: 'change-event', label: '事件' },
-  { id: 'replace-fact', label: '事实' },
-  { id: 'change-time', label: '时间' },
-  { id: 'reframe-function', label: '作用' }
+  { id: 'change-event', label: '事情换一种发生方式' },
+  { id: 'replace-fact', label: '事实其实不同' },
+  { id: 'change-time', label: '时间提前或推后' },
+  { id: 'reframe-function', label: '这段承担别的作用' }
 ])
 const operation = ref('change-event')
 const after = ref('')
@@ -31,6 +31,12 @@ const afterInput = ref(null)
 const busy = computed(() => props.phase === 'preparing' || props.phase === 'generating')
 const readyLike = computed(() => props.phase === 'ready' || props.phase === 'generating')
 const canSubmit = computed(() => Boolean(after.value.trim()) && !busy.value)
+const operationPrompt = computed(() => ({
+  'change-event': '改变谁做了什么、事情是否发生，或它产生的直接结果。',
+  'replace-fact': '把这里成立的事实换成另一项明确事实。',
+  'change-time': '写清新的时间、先后顺序或持续时长。',
+  'reframe-function': '保留这段内容，但改变它在故事中承担的意义。'
+}[operation.value]))
 const primaryLabel = computed(() => {
   if (props.phase === 'preparing') return '正在核对'
   if (props.phase === 'generating') return '范围已冻结'
@@ -77,8 +83,8 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
   <section class="authoring-intervention" data-test="intervention-composer" aria-label="改变故事条件">
     <header class="authoring-intervention__head">
       <div>
-        <strong>改变条件</strong>
-        <span>先核对这项变化会牵动哪些后文，不会修改正文。</span>
+        <strong>如果这里不是这样？</strong>
+        <span>写下变化，先看后文哪些地方会被牵动</span>
       </div>
       <button type="button" aria-label="收起改变条件" @click="emit('cancel')">收起</button>
     </header>
@@ -94,14 +100,15 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
         @click="operation = option.id"
       >{{ option.label }}</button>
     </div>
+    <p class="authoring-intervention__operation-prompt">{{ operationPrompt }}</p>
 
     <dl class="authoring-intervention__change">
       <div>
-        <dt>原先</dt>
+        <dt>现在</dt>
         <dd>{{ originalText }}</dd>
       </div>
       <div>
-        <dt><label for="authoring-intervention-after">改为</label></dt>
+        <dt><label for="authoring-intervention-after">希望</label></dt>
         <dd>
           <textarea
             id="authoring-intervention-after"
@@ -109,25 +116,25 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
             v-model="after"
             maxlength="1200"
             :disabled="busy"
-            placeholder="写下改变后的事实、事件或时间"
+            placeholder="直接写下你希望这里变成什么"
             @keydown="handleKeydown"
           ></textarea>
         </dd>
       </div>
-      <div>
-        <dt><label for="authoring-intervention-rationale">目的</label></dt>
-        <dd>
-          <input
-            id="authoring-intervention-rationale"
-            v-model="rationale"
-            maxlength="600"
-            :disabled="busy"
-            placeholder="可选，例如：让后面的背叛更合理"
-            @keydown="handleKeydown"
-          >
-        </dd>
-      </div>
     </dl>
+
+    <details class="authoring-intervention__intent-note">
+      <summary>补充为什么这样改（可选）</summary>
+      <input
+        id="authoring-intervention-rationale"
+        v-model="rationale"
+        maxlength="600"
+        :disabled="busy"
+        aria-label="修改目的"
+        placeholder="例如：让后面的背叛更合理"
+        @keydown="handleKeydown"
+      >
+    </details>
 
     <p v-if="statusCopy" class="authoring-intervention__status" :class="{ 'is-error': phase === 'failed' || phase === 'stale' }" role="status">
       {{ statusCopy }}
@@ -234,9 +241,10 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
     </section>
 
     <footer>
-      <span>只读取当前作品中可追溯的依据</span>
+      <span>先看影响，不会修改正文</span>
       <button
         type="button"
+        class="control-primary"
         data-test="intervention-primary"
         :disabled="!canSubmit"
         @click="submit"
@@ -247,13 +255,21 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
 
 <style scoped>
 .authoring-intervention {
+  position: relative;
   width: 100%;
   max-width: 100%;
-  padding: 13px 12px 10px 36px;
-  border-block: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-  background: transparent;
+  padding: 16px 16px 14px 38px;
+  border-block: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--archive-olive) 2.5%, transparent);
   color: var(--text-primary);
   font-family: var(--font-sans, sans-serif);
+}
+.authoring-intervention::before {
+  position: absolute;
+  inset: 16px auto 14px 22px;
+  width: 2px;
+  content: '';
+  background: color-mix(in srgb, var(--archive-olive) 50%, transparent);
 }
 .authoring-intervention__head,
 .authoring-intervention footer {
@@ -264,7 +280,7 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
 }
 .authoring-intervention__head { margin-bottom: 9px; }
 .authoring-intervention__head > div { display: grid; gap: 2px; }
-.authoring-intervention__head strong { font-size: 12px; font-weight: 650; letter-spacing: 0.03em; }
+.authoring-intervention__head strong { font-family: var(--font-display); font-size: 16px; font-weight: 650; letter-spacing: 0.01em; }
 .authoring-intervention__head span,
 .authoring-intervention footer > span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-intervention button {
@@ -280,12 +296,14 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
 .authoring-intervention__head button { min-height: 28px; font-size: 11px; }
 .authoring-intervention__operations {
   display: flex;
-  gap: 14px;
+  gap: 5px 16px;
   align-items: center;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border-subtle);
 }
 .authoring-intervention__operations button { margin-bottom: -1px; }
 .authoring-intervention__operations [aria-checked="true"] { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.authoring-intervention__operation-prompt { margin: 7px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
 .authoring-intervention__change { margin: 7px 0 0; }
 .authoring-intervention__change > div {
   display: grid;
@@ -320,14 +338,17 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
   outline: none;
 }
 .authoring-intervention textarea {
-  min-height: 58px;
-  padding: 7px 0 5px;
-  resize: vertical;
+  min-height: 84px;
+  padding: 9px 0 7px;
+  resize: none;
   font-family: var(--notebook-font-family, var(--font-serif, serif));
   font-size: 14px;
   font-weight: 400;
 }
 .authoring-intervention input { min-height: 36px; padding: 4px 0; font-size: 13px; }
+.authoring-intervention__intent-note { margin-top: 4px; color: var(--text-secondary); font-size: 11px; }
+.authoring-intervention__intent-note summary { width: max-content; min-height: 30px; line-height: 30px; cursor: pointer; }
+.authoring-intervention__intent-note input { border-bottom: 1px solid var(--border-default); }
 .authoring-intervention textarea::placeholder,
 .authoring-intervention input::placeholder { color: var(--text-tertiary, var(--text-secondary)); }
 .authoring-intervention__status { margin: 8px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
@@ -416,7 +437,16 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
 .authoring-intervention__rehearsal > [data-test="intervention-rehearse"] { min-height: 34px; margin-top: 4px; color: var(--text-primary); border-bottom-color: var(--accent-primary); font-size: 11px; }
 .authoring-intervention__rehearsal > [data-test="intervention-collaborate"] { min-height: 34px; margin: 4px 0 0 12px; padding-inline: 4px; color: var(--text-primary); border-bottom-color: var(--border-strong, var(--border-subtle)); font-size: 11px; }
 .authoring-intervention footer { align-items: center; margin-top: 9px; }
-.authoring-intervention [data-test="intervention-primary"] { flex-shrink: 0; min-width: 72px; color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.authoring-intervention [data-test="intervention-primary"] {
+  flex-shrink: 0;
+  min-width: 112px;
+  padding: 7px 18px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--control-accent-bg, var(--accent-primary));
+  color: var(--archive-paper-soft, #f5f7f4);
+  font-weight: 650;
+}
 @media (max-width: 720px) {
   .authoring-intervention {
     position: fixed;
@@ -424,7 +454,7 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
     inset-inline: 0;
     inset-block-end: 44px;
     max-height: min(62vh, 480px);
-    padding: 14px 16px 12px;
+    padding: 14px 16px 12px 30px;
     overflow-y: auto;
     overscroll-behavior: contain;
     border-block-start: 1px solid var(--authoring-hairline, var(--border-subtle));
@@ -432,6 +462,7 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
     background: var(--surface-workbench-raised);
     box-shadow: 0 -12px 32px color-mix(in srgb, #000 16%, transparent);
   }
+  .authoring-intervention::before { left: 16px; }
   .authoring-intervention__head { gap: 10px; }
   .authoring-intervention__head span { max-width: 25ch; }
   .authoring-intervention button,

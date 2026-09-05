@@ -666,6 +666,80 @@ export async function generateSettingFieldDraft(options) {
   }
 }
 
+export async function generateCharacterProfileDraft({
+  worldbook,
+  entry,
+  profile,
+  userBrief = '',
+  signal = null,
+  settings = null,
+  sendStructuredGenerationImpl = sendStructuredGeneration
+} = {}) {
+  const worldbookId = String(worldbook?.id || '')
+  const entryId = String(entry?.id || '')
+  const name = String(entry?.name || '').trim()
+  if (!worldbookId || !entryId || !name || String(entry?.type || '') !== 'character') {
+    return { ok: false, reason: '当前人物卡不可用。' }
+  }
+  const currentProfile = Object.fromEntries(['background', 'personality', 'appearance', 'other']
+    .map((key) => [key, String(profile?.[key] || '')]))
+  const scanText = [name, ...Object.values(currentProfile), userBrief].filter(Boolean).join('\n')
+  const matchedEntries = matchWorldbookEntries({
+    worldbook,
+    chatHistory: [{ role: 'user', content: scanText }],
+    includeStarterEntries: true,
+    starterEntryLimits: getStarterLimits('characters', 'character'),
+    respectProbability: false
+  }).filter((candidate) => String(candidate.id || '') !== entryId).slice(0, MAX_CONSTRAINT_ENTRIES)
+  const hardEntries = matchedEntries.filter((candidate) => candidate.matchReason === 'constant')
+  const relatedEntries = matchedEntries.filter((candidate) => candidate.matchReason !== 'constant')
+  const request = {
+    schemaId: STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD,
+    target: {
+      worldbookId,
+      worldbookRevision: String(worldbook.updatedAt || worldbook.revision || ''),
+      sectionKey: 'characters',
+      fieldKeys: ['protagonists']
+    },
+    context: {
+      globalConstraints: [
+        getMeaningfulWorldDescription(worldbook) ? `核心前提：${clipText(getMeaningfulWorldDescription(worldbook), 2600)}` : '',
+        worldbook?.writingStyle ? `既定文风：${clipText(worldbook.writingStyle, 1000)}` : '',
+        worldbook?.forbidden ? `禁止内容：${clipText(worldbook.forbidden, 1000)}` : '',
+        hardEntries.length ? `常驻条目：\n${formatEntries(hardEntries, 2200)}` : ''
+      ].filter(Boolean).join('\n'),
+      confirmedSettings: clipText(summarizeStructuredSettings(worldbook?.structuredSettings, {
+        exclude: { sectionKey: 'characters', fieldKey: 'protagonists' }
+      }), 2800),
+      relatedEntries: formatEntries(relatedEntries, 2600),
+      currentCharacter: { id: entryId, name, profile: currentProfile },
+      userBrief: clipText(userBrief, 1200)
+    }
+  }
+  try {
+    const response = await sendStructuredGenerationImpl({
+      ...request,
+      settings: settings || await getResolvedApiSettings(),
+      options: { max_tokens: 2200, timeout_ms: STRUCTURED_GENERATION_TIMEOUTS.longMs },
+      signal
+    })
+    const candidate = response?.drafts?.characterProfile
+    if (!candidate || !Object.values(candidate).some((value) => String(value || '').trim())) {
+      return { ok: false, reason: 'AI 没有返回可用的人物卡候选。', meta: response?.meta }
+    }
+    return {
+      ok: true,
+      profile: Object.fromEntries(['background', 'personality', 'appearance', 'other']
+        .map((key) => [key, String(candidate[key] || '')])),
+      sourceRevision: String(worldbook.updatedAt || worldbook.revision || ''),
+      sourceEntryRevision: String(entry?.metadata?.updatedAt || entry?.updatedAt || ''),
+      meta: response?.meta
+    }
+  } catch (error) {
+    return { ok: false, reason: error?.message || '角色资料补全失败。', code: error?.code }
+  }
+}
+
 export async function generateSettingSectionDraftBatch({
   sectionKey,
   worldbook,
@@ -891,6 +965,13 @@ export function createSettingGenerationServices() {
       worldbook: request.intent?.worldbook,
       sectionKey: request.intent?.sectionKey,
       fieldKey: request.intent?.fieldKey,
+      userBrief: request.intent?.userBrief || '',
+      signal: request.options?.signal || null
+    }),
+    generateCharacter: ({ request }) => generateCharacterProfileDraft({
+      worldbook: request.intent?.worldbook,
+      entry: request.intent?.entry,
+      profile: request.intent?.profile,
       userBrief: request.intent?.userBrief || '',
       signal: request.options?.signal || null
     }),

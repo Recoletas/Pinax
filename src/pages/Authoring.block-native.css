@@ -14,6 +14,13 @@
   overflow: hidden;
 }
 
+.theme-legacy.theme-dark .writing-page {
+  --surface-workbench-muted: #0f1720;
+  --surface-workbench-raised: #182430;
+  --authoring-chrome-surface: #121b25;
+  --authoring-hairline: #2a3948;
+}
+
 .theme-legacy .writing-page .wall__cork {
   display: flex;
   flex: 0 0 42px;
@@ -494,11 +501,11 @@
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector {
-  grid-template-columns: clamp(220px, 18vw, 276px) minmax(0, 1fr) minmax(280px, 320px) 52px;
+  grid-template-columns: clamp(210px, 16vw, 250px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-  grid-template-columns: clamp(220px, 18vw, 276px) minmax(520px, 1fr) minmax(540px, 620px) 52px;
+  grid-template-columns: clamp(210px, 16vw, 250px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
 }
 
 .theme-legacy .writing-page .writing-tool-rail {
@@ -518,10 +525,26 @@
   grid-row: 1;
   border-inline-start-color: var(--authoring-hairline);
   background: var(--authoring-chrome-surface);
+  --authoring-catalog-title-size: 17px;
+  --authoring-catalog-control-size: 14px;
+  --authoring-catalog-directory-title-size: 14px;
+  --authoring-catalog-folder-size: 13px;
+  --authoring-catalog-entry-size: 13px;
+  --authoring-catalog-meta-size: 10px;
+  --authoring-catalog-label-size: 12px;
+  --authoring-catalog-body-size: 14px;
 }
 
 .theme-legacy .writing-page .writing-inspector__body--assistant {
   min-height: 0;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .writing-inspector.is-catalog-workbench > .writing-inspector__head {
+  display: none;
+}
+
+.theme-legacy .writing-page .writing-inspector__body--catalog {
   overflow: hidden;
 }
 
@@ -1052,16 +1075,18 @@
     grid-row: auto;
     inset-block: 0;
     inset-inline-end: 52px;
-    width: min(340px, calc(100% - 264px));
+    width: min(440px, calc(100% - 264px));
     height: auto;
     max-height: none;
     overflow: hidden;
     box-shadow: -12px 0 32px color-mix(in srgb, #000 14%, transparent);
   }
+
 }
 
 @media (max-width: 980px) {
-  .theme-legacy .writing-page .wall__main {
+  .theme-legacy .writing-page .wall__main,
+  .theme-legacy .writing-page .wall__main.has-inspector {
     grid-template-columns: 190px minmax(0, 1fr) 52px;
     padding: 0;
   }
@@ -1082,7 +1107,7 @@
     grid-row: auto;
     inset-block: 0;
     inset-inline-end: 52px;
-    width: min(340px, calc(100% - 242px));
+    width: min(440px, calc(100% - 52px));
     height: auto;
     max-height: none;
     overflow: hidden;
@@ -1101,7 +1126,10 @@
 }
 
 @media (max-width: 720px) {
-  .theme-legacy .writing-page .wall__main {
+  /* 覆盖面离开网格后，打开态也必须保持单列，不能继承桌面侧栏轨道。 */
+  .theme-legacy .writing-page .wall__main,
+  .theme-legacy .writing-page .wall__main.has-inspector,
+  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     padding: 0;
@@ -1124,7 +1152,8 @@
     transform: translateX(0);
   }
 
-  .theme-legacy .writing-page .writing-tool-rail {
+  .theme-legacy .writing-page .writing-tool-rail,
+  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
     grid-column: 1;
     position: fixed;
     inset-inline: 0;
@@ -1646,4 +1675,30 @@ body.is-writing-zen .ws-tabs {
     bottom: 50px;
     max-width: calc(100% - 16px);
   }
+}
+
+/* 现场概览（UX-03）：只读事实表 + 主动作，不复制左栏交互索引。 */
+.writing-scene-overview__summary {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.writing-scene-overview__summary > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.writing-scene-overview__summary dt {
+  color: var(--text-secondary);
+  font: 500 12px/1.4 var(--font-sans, sans-serif);
+}
+
+.writing-scene-overview__summary dd {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 14px/1.6 var(--font-body, var(--font-sans, sans-serif));
+  overflow-wrap: anywhere;
 }

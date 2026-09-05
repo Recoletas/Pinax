@@ -107,6 +107,7 @@ export function createAuthoringSceneRunIntent({
     mode: normalizedMode,
     entityKind: normalizedKind,
     entityId,
+    entityName: name,
     worldbookId: boundWorldbookId,
     entryRevision,
     payload,

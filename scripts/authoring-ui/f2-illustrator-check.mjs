@@ -251,6 +251,8 @@ async function closeIllustrator(page) {
 }
 
 async function selectAllSceneSources(page) {
+  const scene = drawer(page).locator('.authoring-illustrator__scene')
+  await scene.evaluate((element) => { element.open = true })
   const rows = drawer(page).locator('.authoring-illustrator__scene-row')
   const expected = ['莉娜', '旧港税务所', '嘉禾十七年黄昏']
   for (const label of expected) {
@@ -261,7 +263,9 @@ async function selectAllSceneSources(page) {
     if (!await checkbox.isChecked()) await row.click()
   }
   await page.waitForTimeout(80)
-  return rows.locator('input[type="checkbox"]:checked').count()
+  const count = await rows.locator('input[type="checkbox"]:checked').count()
+  await scene.evaluate((element) => { element.open = false })
+  return count
 }
 
 async function storageState(page) {
@@ -356,7 +360,15 @@ try {
       const beforeOpen = await surfaceState(page)
       await openDesktopIllustrator(page)
       check(results, '选区优先成为冻结画面描述', await promptInput(page).inputValue() === phrase, await promptInput(page).inputValue())
-      check(results, '选区来源对作者标为选中文字', await drawer(page).getByText('选中文字', { exact: true }).count() >= 1)
+      check(results, '选区来源对作者标为选中文字', await drawer(page).getByText('选中文字', { exact: false }).count() >= 1)
+      await drawer(page).getByRole('button', { name: '最小化妙笔画师' }).click()
+      const minimized = await page.evaluate(() => ({
+        minibar: Boolean(document.querySelector('.authoring-illustrator__minibar')?.offsetParent),
+        mainInert: document.querySelector('.wall__main')?.inert === true,
+        appInert: document.getElementById('app')?.inert === true
+      }))
+      check(results, '画师可最小化且编辑区恢复交互', minimized.minibar && !minimized.mainInert && !minimized.appInert, JSON.stringify(minimized))
+      await page.getByRole('button', { name: '恢复妙笔画师' }).click()
       await closeIllustrator(page)
       const afterClose = await surfaceState(page)
       check(results, '关闭画师恢复 selection、scroll 与正文 focus', beforeOpen.scrollTop > 0 && afterClose.selection === beforeOpen.selection && afterClose.scrollTop === beforeOpen.scrollTop && afterClose.editorFocused, JSON.stringify({ beforeOpen, afterClose }))
@@ -365,7 +377,7 @@ try {
       await openDesktopIllustrator(page)
       const fallbackPrompt = await promptInput(page).inputValue()
       check(results, '空选区回退当前 writingUnit', fallbackPrompt === run.fixture.firstUnitText, JSON.stringify({ expected: run.fixture.firstUnitText.slice(0, 160), actual: fallbackPrompt.slice(0, 160) }))
-      check(results, 'unit fallback 对作者标为当前文本块', await drawer(page).getByText('当前文本块', { exact: true }).count() >= 1)
+      check(results, 'unit fallback 对作者标为当前文本块', await drawer(page).getByText('当前文本块', { exact: false }).count() >= 1)
       await closeIllustrator(page)
 
       await selectPhrase(page, phrase)
@@ -373,22 +385,70 @@ try {
       const selectedSceneCount = await selectAllSceneSources(page)
       check(results, '人物、地点、时间均需作者显式勾选', selectedSceneCount === 3, selectedSceneCount)
       const desktopGeometry = await geometry(page)
-      check(results, '1440 抽屉遵循 min(920px, 72vw)', Math.abs((desktopGeometry.dialog?.width || 0) - 920) <= 2, JSON.stringify(desktopGeometry))
+      check(results, '1440 画师为接近全宽的独立工作台', (desktopGeometry.dialog?.width || 0) >= 1360 && (desktopGeometry.controls?.width || 0) >= 360 && (desktopGeometry.controls?.width || 0) <= 400, JSON.stringify(desktopGeometry))
       check(results, '桌面参数与结果为同层 split 且没有空白占栏', desktopGeometry.split && (desktopGeometry.controls?.width || 0) >= 280 && (desktopGeometry.results?.width || 0) >= 300, JSON.stringify(desktopGeometry))
+      const authoringLayout = await page.evaluate(() => {
+        const root = document.querySelector('.authoring-illustrator')
+        const prompt = root?.querySelector('.image-gen-prompt-input')?.getBoundingClientRect()
+        const scene = root?.querySelector('.authoring-illustrator__scene')?.getBoundingClientRect()
+        const empty = root?.querySelector('.image-gen-empty')?.getBoundingClientRect()
+        const results = root?.querySelector('.image-gen-results')?.getBoundingClientRect()
+        const generate = root?.querySelector('.image-gen-generate-btn')?.getBoundingClientRect()
+        const controls = root?.querySelector('.image-gen-controls')?.getBoundingClientRect()
+        return {
+          promptBeforeScene: Boolean(prompt && scene && prompt.top < scene.top),
+          emptyCentered: Boolean(empty && results && Math.abs((empty.top + empty.height / 2) - (results.top + results.height / 2)) < 3),
+          generateAtBottom: Boolean(generate && controls && controls.bottom - generate.bottom <= 18)
+        }
+      })
+      check(results, '画面描述优先于当前场参考', authoringLayout.promptBeforeScene, JSON.stringify(authoringLayout))
+      check(results, '空结果在右画布居中且生成动作贴左栏底部', authoringLayout.emptyCentered && authoringLayout.generateAtBottom, JSON.stringify(authoringLayout))
+      check(results, '质量词与画面风格直接可选', await drawer(page).getByRole('button', { name: '最高质量的' }).isVisible() && await drawer(page).getByRole('radio', { name: '人物写真' }).isVisible())
+
+      await drawer(page).locator('.image-gen-reference-input').setInputFiles({
+        name: '人物参考.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+      })
+      await drawer(page).getByText('已导入 1 张本地参考图', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+      await drawer(page).getByLabel('参考提示词').fill('保持人物脸型与发色，只参考服装，不照搬构图')
+      check(results, '导入底图后显示参考提示词与参考强度', await drawer(page).getByLabel('参考提示词').isVisible() && await drawer(page).getByText('65%', { exact: true }).isVisible())
 
       const beforeGenerate = await storageState(page)
-      await drawer(page).locator('.image-gen-compact-field').filter({ hasText: '数量' }).locator('select').selectOption('2')
+      await drawer(page).getByRole('button', { name: '最高质量的' }).click()
+      await drawer(page).getByRole('radio', { name: '人物写真' }).click()
+      await drawer(page).locator('.image-gen-compact-field').filter({ hasText: '数量' }).locator('select').selectOption('3')
       await drawer(page).getByRole('button', { name: '生成插画' }).click()
-      await run.provider.waitForCount(2)
+      await run.provider.waitForCount(3)
       await drawer(page).locator('.image-gen-status.is-success').waitFor({ state: 'visible', timeout: 30000 })
+      const regeneratedAction = drawer(page).getByRole('button', { name: '生成插画' })
+      const regeneratedBox = await regeneratedAction.boundingBox()
+      const regeneratedStyle = await regeneratedAction.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { backgroundColor: style.backgroundColor, color: style.color, opacity: style.opacity }
+      })
+      const actionHasContrast = regeneratedStyle.backgroundColor !== regeneratedStyle.color
+        && regeneratedStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+      check(
+        results,
+        '生成完成后主动作仍固定在左栏底部且具有可见对比',
+        await regeneratedAction.isVisible() && Boolean(regeneratedBox) && actionHasContrast,
+        JSON.stringify({ box: regeneratedBox, style: regeneratedStyle }),
+      )
       const providerPrompt = String(run.provider.requests[0]?.payload?.prompt || '')
       check(results, 'provider prompt 使用冻结选区', providerPrompt.includes(phrase), providerPrompt)
       check(results, '显式人物、地点、时间进入 provider prompt', ['人物：莉娜', '地点：旧港税务所', '时间：嘉禾十七年黄昏'].every((part) => providerPrompt.includes(part)), providerPrompt)
+      check(results, '质量词、所选风格与参考提示进入 provider prompt', providerPrompt.includes('最高质量的') && providerPrompt.includes('人物写真摄影') && providerPrompt.includes('保持人物脸型与发色，只参考服装，不照搬构图'), providerPrompt)
       const afterGenerate = await storageState(page)
-      check(results, '生成成功只归档两张媒体候选且零正文/素材写入', afterGenerate.mediaCount === beforeGenerate.mediaCount + 2 && afterGenerate.libraryCount === beforeGenerate.libraryCount + 2 && formalFingerprint(afterGenerate) === formalFingerprint(beforeGenerate), JSON.stringify({ before: { media: beforeGenerate.mediaCount, library: beforeGenerate.libraryCount, narrative: beforeGenerate.narrativeCount }, after: { media: afterGenerate.mediaCount, library: afterGenerate.libraryCount, narrative: afterGenerate.narrativeCount } }))
+      check(results, '生成成功只归档三张媒体候选且零正文/素材写入', afterGenerate.mediaCount === beforeGenerate.mediaCount + 3 && afterGenerate.libraryCount === beforeGenerate.libraryCount + 3 && formalFingerprint(afterGenerate) === formalFingerprint(beforeGenerate), JSON.stringify({ before: { media: beforeGenerate.mediaCount, library: beforeGenerate.libraryCount, narrative: beforeGenerate.narrativeCount }, after: { media: afterGenerate.mediaCount, library: afterGenerate.libraryCount, narrative: afterGenerate.narrativeCount } }))
       const generatedMedia = afterGenerate.media[0]
       const generatedRefs = generatedMedia?.sourceRefs || []
-      check(results, '媒体候选保留 VisualBrief、revision 与稳定世界书 refs', Boolean(generatedMedia?.generationParams?.authoringVisualBrief?.fingerprint) && Boolean(generatedMedia?.generationParams?.sourceRevisions) && generatedRefs.some((ref) => ref.refType === 'worldbook-entry' && ref.refId === run.fixture.linaId) && generatedRefs.some((ref) => ref.refType === 'worldbook-entry' && ref.refId === run.fixture.locationId), JSON.stringify({ generationParams: generatedMedia?.generationParams, sourceRefs: generatedRefs }))
+      check(results, '媒体候选保留风格、参考提示、VisualBrief、revision 与稳定世界书 refs', generatedMedia?.generationParams?.stylePreset === 'portrait-photo' && generatedMedia?.generationParams?.referencePrompt === '保持人物脸型与发色，只参考服装，不照搬构图' && generatedMedia?.generationParams?.referenceImageIds?.length === 1 && Boolean(generatedMedia?.generationParams?.authoringVisualBrief?.fingerprint) && Boolean(generatedMedia?.generationParams?.sourceRevisions) && generatedRefs.some((ref) => ref.refType === 'worldbook-entry' && ref.refId === run.fixture.linaId) && generatedRefs.some((ref) => ref.refType === 'worldbook-entry' && ref.refId === run.fixture.locationId), JSON.stringify({ generationParams: generatedMedia?.generationParams, sourceRefs: generatedRefs }))
+      page.once('dialog', (dialog) => dialog.accept())
+      await drawer(page).getByRole('button', { name: '删除候选' }).click()
+      await drawer(page).getByText('已删除这张候选。', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+      const afterDelete = await storageState(page)
+      check(results, '删除候选同步移除历史与媒体资产并保留下一张预览', afterDelete.mediaCount === beforeGenerate.mediaCount + 2 && afterDelete.libraryCount === beforeGenerate.libraryCount + 2 && await drawer(page).locator('.image-gen-current-preview').isVisible(), JSON.stringify({ media: afterDelete.mediaCount, library: afterDelete.libraryCount }))
       await page.screenshot({ path: screenshotPaths.desktop, fullPage: false })
       await page.screenshot({ path: path.join(FINAL_DIR, '04-illustrator-two-candidates-1440.png'), fullPage: false })
 
@@ -416,6 +476,10 @@ try {
       await page.waitForTimeout(300)
       const afterSecondInsertAttempt = await storageState(page)
       check(results, '二次插入尝试不重复写正文', afterSecondInsertAttempt.chapters.find((chapter) => chapter.id === run.fixture.chapterId)?.mediaNodeCount === insertedChapter?.mediaNodeCount)
+      await drawer(page).getByRole('button', { name: '删除候选' }).click()
+      await drawer(page).getByText('这张图片已保存为素材或插入正文，不能从画师删除。', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+      const afterProtectedDelete = await storageState(page)
+      check(results, '已保存或插入的媒体资产拒绝破坏性删除', afterProtectedDelete.mediaCount === afterSecondInsertAttempt.mediaCount && afterProtectedDelete.libraryCount === afterSecondInsertAttempt.libraryCount)
       check(results, '1440 无横向滚动和控制台错误', desktopGeometry.overflow === 0 && run.errors.length === 0, run.errors.join(' | '))
       evidence.desktopProviderPrompt = providerPrompt
       evidence.desktopMediaAssetId = generatedMedia?.id || ''
@@ -430,7 +494,7 @@ try {
       await collapseInFirstParagraph(run.page)
       await openDesktopIllustrator(run.page)
       const tabletGeometry = await geometry(run.page)
-      check(results, '1024 抽屉保持 72vw', Math.abs((tabletGeometry.dialog?.width || 0) - 1024 * 0.72) <= 2, JSON.stringify(tabletGeometry))
+      check(results, '1024 画师保持宽工作台与 400px 左参数列', (tabletGeometry.dialog?.width || 0) >= 990 && Math.abs((tabletGeometry.controls?.width || 0) - 400) <= 2, JSON.stringify(tabletGeometry))
       check(results, '1024 参数/结果仍并列且无水平滚动', tabletGeometry.split && tabletGeometry.overflow === 0 && tabletGeometry.drawerOverflow === 0, JSON.stringify(tabletGeometry))
       await run.page.screenshot({ path: screenshotPaths.tablet, fullPage: false })
       check(results, '1024 旅程无控制台错误', run.errors.length === 0, run.errors.join(' | '))

@@ -13,17 +13,22 @@
 | `src/composables/` | 组合式状态和 UI 行为 |
 | `src/__tests__/` | Vitest 测试 |
 | `server/` | Express、WebSocket、服务端代理 |
+| `shared/` | 前后端共享的任务、文档、候选和协作合同 |
+| `electron/` | 桌面进程、项目存储、IPC和旧数据迁移 |
+| `scripts/` | 浏览器旅程、离线评测、故障矩阵和发布检查 |
 | `docs/` | 项目文档 |
 
 ## 当前主线路径
 
 | 用户链路 | 主要入口 | 关键支撑 |
 | --- | --- | --- |
+| 统一创作 | `src/pages/Authoring.vue`, `src/components/writing/WritingNotebookEditor.vue` | `src/components/authoring/`, `src/services/agents/authoring/`, `src/services/writing/` |
 | 进入世界 / 开始冒险 | `src/pages/Experience.vue`, `src/components/GamePanel.vue` | `src/composables/useAdvisor.js`, `src/services/generationService.js`, `src/services/memorySync.js` |
 | 世界书 / 设定 | `src/pages/WorldBookQuickImport.vue`, `src/pages/WorldBookEditor.vue`, `src/pages/StructuredSettings.vue` | `src/stores/worldStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/settingFieldGeneration.js`, `src/services/settingPanelSchema.js` |
 | 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js`, `src/services/media/imageProviderService.js` |
 | 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/relationCanvas.js`, `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
-| 写作消费 | `src/pages/Writing.vue` | `src/services/proseGeneration.js`, `src/services/writingNotes.js` |
+
+`/writing` 已由router重定向到 `/authoring`；`/experience` 保留兼容，不能因入口收敛直接删除其会话和运行时。实际注册入口以 `src/router/index.js` 为准。
 
 ## 重点子系统
 
@@ -54,9 +59,11 @@
 
 | 职责 | 关键文件 |
 | --- | --- |
-| 记忆 | `src/services/memorySync.js`, `src/services/memoryCandidates.js`, `src/composables/useMem0Scope.js` |
+| 记忆 | `src/services/memorySync.js`, `src/services/memoryCandidates.js`, `src/composables/useMem0.js` |
 | 顾问 | `src/services/advisorTaskService.js`, `src/composables/useAdvisor.js` |
-| 通用生成 | `src/services/generationService.js`, `src/services/generationFeatureServices.js`, `src/services/generationRetry.js` |
+| 通用生成 | `src/services/generationService.js`, `src/services/generationRetry.js` |
+
+Authoring的方向规划、上下文冻结、Ghost采用与因果排演归 `src/services/agents/authoring/`；行内补全由Notebook的ProseMirror实现承担，不再使用已退役的悬浮补全组件。
 
 ### 素材 / 画布 / 导出
 
@@ -82,8 +89,9 @@
 
 | 路径 / 命令 | 用途 |
 | --- | --- |
-| `src/__tests__/` | 全部测试 |
-| `npm run test:run` | 18 files / 200 tests 核心回归 |
+| `src/__tests__/` | 默认Vitest核心套件；其他平台脚本见package.json |
+| `npm run test:run` | 核心回归；单独执行不包含构建和测试预算reporter |
+| `npm run verify:full` | 核心测试预算（≤20文件/≤200用例）、双构建及diff检查 |
 | `npm run build` | 生产构建 |
 | `npm run docs:build` | 文档站构建 |
 

@@ -12,7 +12,8 @@ const FIELD_ALIASES = {
   relation: ['关系', '关系网', 'relation', 'relations'],
   speechStyle: ['说话方式', '口吻', '语言风格', 'speechstyle', 'speakingstyle'],
   samples: ['示例台词', '台词样例', 'samples', 'mesexample'],
-  openingState: ['开场状态', '当前状态', '状态', 'openingstate', 'state']
+  openingState: ['开场状态', '当前状态', '状态', 'openingstate', 'state'],
+  other: ['其他', '备注', '补充', 'other', 'notes']
 }
 
 function text(value) {
@@ -34,6 +35,12 @@ function resolveLabel(rawLabel) {
     .find(([, aliases]) => aliases.some((alias) => text(alias).toLowerCase().replace(/[\s_-]+/g, '') === label))?.[0] || ''
 }
 
+const LABELED_CARD_FIELD_PATTERN = Object.values(FIELD_ALIASES)
+  .flat()
+  .sort((left, right) => right.length - left.length)
+  .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|')
+
 function fromObject(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const source = raw.character && typeof raw.character === 'object' ? raw.character : raw
@@ -51,9 +58,16 @@ function fromObject(raw = {}) {
   ].filter(Boolean).join('；')
   return {
     name,
+    identity: text(source.identity || source.role || source.title),
     gender: text(source.gender),
     age: text(source.age),
     traits,
+    personality: text(source.personality) || traits.join('、'),
+    appearance: text(source.appearance),
+    background: text(source.background || source.backstory),
+    relation: text(source.relation || source.relations),
+    openingState: text(source.openingState || source.state),
+    other: text(source.other || source.notes),
     description: text(source.description || source.persona) || description,
     goal: text(source.goal || source.motivation),
     greeting: text(source.greeting),
@@ -64,22 +78,23 @@ function fromObject(raw = {}) {
 }
 
 function parseLabeledCard(chunk) {
+  const source = String(chunk || '')
+    .replace(/\*\*([^*\r\n]{1,24})\*\*\s*[:：]/g, '$1：')
+    .trim()
   const fields = {}
-  const body = []
-  for (const rawLine of String(chunk || '').split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line) continue
-    const match = line.match(/^([^:：]{1,16})\s*[:：]\s*(.*)$/)
-    const key = match ? resolveLabel(match[1]) : ''
-    if (!key) {
-      body.push(line)
-      continue
-    }
+  const matcher = new RegExp(`(^|[\\s，,；;])(${LABELED_CARD_FIELD_PATTERN})\\s*[:：]`, 'giu')
+  const matches = [...source.matchAll(matcher)]
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index]
+    const key = resolveLabel(match[2])
+    if (!key) continue
+    const valueStart = Number(match.index) + match[0].length
+    const valueEnd = index + 1 < matches.length ? Number(matches[index + 1].index) : source.length
+    const value = source.slice(valueStart, valueEnd).trim().replace(/^[，,；;]+|[，,；;]+$/g, '').trim()
     fields[key] = fields[key]
-      ? `${fields[key]}${key === 'samples' ? '\n' : '；'}${match[2]}`
-      : match[2]
+      ? `${fields[key]}${key === 'samples' ? '\n' : '；'}${value}`
+      : value
   }
-  if (!fields.name && body.length) fields.name = body[0]
   const parsed = fromObject(fields)
   if (!parsed) return null
   const details = [
@@ -119,4 +134,53 @@ export function parseCharacterCards(content) {
 
 export function parseCharacterCard(content) {
   return parseCharacterCards(content)[0] || null
+}
+
+export function characterProfileFromCard(card = {}) {
+  const other = [
+    card.identity ? `身份：${text(card.identity)}` : '',
+    card.gender ? `性别：${text(card.gender)}` : '',
+    card.age ? `年龄：${text(card.age)}` : '',
+    card.goal ? `目标：${text(card.goal)}` : '',
+    card.relation ? `关系：${text(card.relation)}` : '',
+    card.openingState ? `开场状态：${text(card.openingState)}` : '',
+    card.other ? text(card.other) : ''
+  ].filter(Boolean).join('\n')
+  return {
+    background: text(card.background) || text(card.description),
+    personality: text(card.personality) || splitTraits(card.traits).join('、'),
+    appearance: text(card.appearance),
+    other,
+    avatar: text(card.avatar)
+  }
+}
+
+export function parseCharacterEntryProfile(entry = {}) {
+  const stored = entry?.metadata?.characterProfile
+  if (stored && typeof stored === 'object') {
+    return {
+      background: String(stored.background || ''),
+      personality: String(stored.personality || ''),
+      appearance: String(stored.appearance || ''),
+      other: String(stored.other || ''),
+      avatar: String(stored.avatar || entry?.avatar || '')
+    }
+  }
+  const card = parseCharacterCard(`姓名：${text(entry?.name) || '未命名角色'}\n${String(entry?.content || '')}`)
+  const profile = characterProfileFromCard(card || { description: entry?.content, avatar: entry?.avatar })
+  if (![profile.background, profile.personality, profile.appearance, profile.other].some((value) => String(value || '').trim())) {
+    profile.background = String(entry?.content || '')
+  }
+  return profile
+}
+
+export function serializeCharacterEntryProfile(profile = {}) {
+  return [
+    ['背景', profile.background],
+    ['性格', profile.personality],
+    ['外貌', profile.appearance],
+    ['其他', profile.other]
+  ].filter(([, value]) => String(value || '').trim())
+    .map(([label, value]) => `${label}：${String(value).trim()}`)
+    .join('\n')
 }

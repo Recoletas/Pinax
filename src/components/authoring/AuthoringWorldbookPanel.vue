@@ -1,167 +1,200 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import AuthoringSettingContext from './AuthoringSettingContext.vue'
-import AuthoringSettingDetail from './AuthoringSettingDetail.vue'
-import { buildAuthoringSettingContext, buildAuthoringSettingDetail } from '../../services/authoring/authoringSettingContext.js'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
+import { buildAuthoringSettingContext } from '../../services/authoring/authoringSettingContext.js'
+
 const props = defineProps({
-  worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' }, dual: Boolean,
-  writingUnit: { type: Object, default: null }, sceneProjection: { type: Object, default: null },
-  contextLedger: { type: [Array, Object], default: null }, annotations: { type: Array, default: () => [] },
-  document: { type: Object, default: null }, caretContext: { type: Object, default: null },
-  focusEntryId: { type: String, default: '' },
+  worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' },
+  sceneProjection: { type: Object, default: null }, contextLedger: { type: [Array, Object], default: null },
+  annotations: { type: Array, default: () => [] }, document: { type: Object, default: null },
+  caretContext: { type: Object, default: null }, focusEntryId: { type: String, default: '' },
   candidateEntryIds: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['bind', 'open-full', 'open-dual', 'annotate', 'toggle-dual', 'locate-mention'])
+const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'toggle-pin', 'close'])
+const ENTRY_TYPES = [
+  ['general', '通用'], ['lore', '背景'], ['location', '地点'], ['organization', '组织'],
+  ['event', '事件'], ['item', '物品'], ['quest', '任务'], ['rule', '规则'], ['style', '文风'], ['forbidden', '禁则']
+]
 const query = ref('')
-const type = ref('all')
-const mode = ref('contextual')
-const returnMode = ref('contextual')
+const directoryMode = ref('contextual')
+const typeFilter = ref('all')
 const selectedId = ref('')
+const aiReviewOpen = ref(false)
+const collapsedFolders = ref(new Set())
+const contentInput = ref(null)
+const draft = reactive({ name: '', type: 'general', content: '', keysText: '', group: '', mode: 'selective' })
+let hydrating = false
+let saveTimer = null
+
+const nonCharacterEntries = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type !== 'character'))
+const selectedEntry = computed(() => nonCharacterEntries.value.find((entry) => String(entry.id) === selectedId.value) || null)
 const settingContext = computed(() => buildAuthoringSettingContext({
   worldbook: props.worldbook, document: props.document, caretContext: props.caretContext,
   sceneProjection: props.sceneProjection, contextLedger: props.contextLedger, annotations: props.annotations
 }))
-const entries = computed(() => {
-  const q = query.value.trim().toLocaleLowerCase()
-  return (props.worldbook?.entries || []).filter((entry) => {
-    if (type.value !== 'all' && entry.type !== type.value) return false
-    return !q || `${entry.name || ''} ${entry.content || ''} ${(entry.keys || []).join(' ')}`.toLocaleLowerCase().includes(q)
-  })
+const contextualEntries = computed(() => {
+  const ids = new Set(settingContext.value.groups.flatMap((group) => group.items)
+    .filter((item) => item.type !== 'character').map((item) => String(item.id)))
+  return nonCharacterEntries.value.filter((entry) => ids.has(String(entry.id)))
 })
-const types = computed(() => [...new Set((props.worldbook?.entries || []).map((entry) => entry.type || 'general'))])
-const contextItems = computed(() => settingContext.value.groups.flatMap((group) => group.items))
-const candidateEntries = computed(() => props.candidateEntryIds
-  .map((id) => (props.worldbook?.entries || []).find((entry) => String(entry?.id) === String(id)))
-  .filter(Boolean))
-const selectedItem = computed(() => {
-  const contextual = contextItems.value.find((item) => item.id === selectedId.value)
-  if (contextual) return contextual
-  const entry = (props.worldbook?.entries || []).find((item) => String(item.id) === selectedId.value)
-  return buildAuthoringSettingDetail(entry, props.document, props.caretContext)
+const visibleEntries = computed(() => {
+  const source = directoryMode.value === 'contextual' ? contextualEntries.value : nonCharacterEntries.value
+  const needle = query.value.trim().toLocaleLowerCase()
+  return source.filter((entry) => (typeFilter.value === 'all' || entry.type === typeFilter.value)
+    && (!needle || `${entry.name || ''} ${entry.content || ''} ${(entry.keys || []).join(' ')}`.toLocaleLowerCase().includes(needle)))
 })
-function selectItem(id) { returnMode.value = mode.value === 'detail' ? returnMode.value : mode.value; selectedId.value = id; mode.value = 'detail' }
-function browse() { mode.value = 'browse' }
-function back() { mode.value = returnMode.value || 'contextual'; if (!props.dual) selectedId.value = '' }
-watch(() => props.worldbook?.id, () => { mode.value = 'contextual'; returnMode.value = 'contextual'; selectedId.value = ''; query.value = ''; type.value = 'all' })
-watch(() => props.focusEntryId, (id) => { if (id) selectItem(String(id)) })
-watch(() => props.candidateEntryIds.join('|'), () => {
-  if (candidateEntries.value.length > 1) {
-    mode.value = 'ambiguity'
-    selectedId.value = ''
+const groupedEntries = computed(() => {
+  const groups = new Map()
+  for (const entry of visibleEntries.value) {
+    const group = String(entry.injection?.group || '').trim() || '设定'
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group).push(entry)
   }
+  return [...groups.entries()].map(([name, entries]) => ({ name, entries }))
 })
+function loadDraft(entry) {
+  hydrating = true
+  Object.assign(draft, {
+    name: entry?.name || '', type: entry?.type || 'general', content: entry?.content || '',
+    keysText: (entry?.keys || []).join('、'), group: entry?.injection?.group || '', mode: entry?.injection?.mode || 'selective'
+  })
+  hydrating = false
+  nextTick(resizeContent)
+}
+function resizeContent() {
+  const element = contentInput.value
+  if (!element) return
+  element.style.height = 'auto'
+  element.style.height = `${Math.max(180, Math.ceil(element.scrollHeight))}px`
+}
+function directoryExcerpt(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim() || '暂无内容'
+}
+function selectEntry(entry) {
+  if (!entry?.id) return
+  flushSave()
+  selectedId.value = String(entry.id)
+  aiReviewOpen.value = false
+  loadDraft(entry)
+}
+function entryPayload() {
+  const entry = selectedEntry.value
+  if (!entry || !draft.name.trim()) return null
+  return {
+    name: draft.name.trim(), type: draft.type,
+    keys: [...new Set([draft.name.trim(), ...draft.keysText.split(/[，,、\n]/).map((item) => item.trim()).filter(Boolean)])],
+    content: draft.content,
+    injection: { ...(entry.injection || {}), mode: draft.mode, group: draft.group.trim() || null }
+  }
+}
+function flushSave() {
+  clearTimeout(saveTimer)
+  saveTimer = null
+  const payload = entryPayload()
+  if (payload) emit('update', selectedEntry.value.id, payload, { silent: true })
+}
+function scheduleSave() {
+  if (hydrating || !selectedEntry.value) return
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(flushSave, 500)
+}
+function startCreate() {
+  flushSave()
+  const seed = props.selectedText.trim().slice(0, 28)
+  emit('create', {
+    name: seed || '新设定', type: 'general', keys: seed ? [seed] : [], content: '',
+    injection: { mode: 'selective', probability: 100, cooldown: 0, depth: 1, excludeRecursion: false, group: '设定' }
+  })
+}
+function toggleFolder(name) {
+  const next = new Set(collapsedFolders.value)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  collapsedFolders.value = next
+}
+function requestRemove() {
+  if (!selectedEntry.value || !window.confirm(`确定删除设定「${selectedEntry.value.name || '未命名设定'}」？`)) return
+  clearTimeout(saveTimer)
+  saveTimer = null
+  emit('remove', selectedEntry.value.id)
+}
+function applyAiCandidate(candidate) {
+  Object.assign(draft, {
+    name: candidate.name || draft.name, type: candidate.type || draft.type,
+    content: candidate.content || draft.content, keysText: (candidate.keys || []).join('、'),
+    group: candidate.injection?.group || draft.group, mode: candidate.injection?.mode || draft.mode
+  })
+  nextTick(() => { resizeContent(); flushSave() })
+}
+
+watch(draft, scheduleSave, { deep: true, flush: 'sync' })
+watch(nonCharacterEntries, (entries) => {
+  if (selectedEntry.value) return
+  const preferred = entries.find((entry) => String(entry.id) === String(props.focusEntryId || '')) || entries[0]
+  if (preferred) selectEntry(preferred)
+}, { immediate: true })
+watch(() => props.focusEntryId, (id) => {
+  const target = nonCharacterEntries.value.find((entry) => String(entry.id) === String(id || ''))
+  if (target) selectEntry(target)
+})
+watch(() => props.worldbook?.id, () => {
+  selectedId.value = ''
+  query.value = ''
+  directoryMode.value = 'contextual'
+  typeFilter.value = 'all'
+})
+onBeforeUnmount(flushSave)
 </script>
 
 <template>
-  <section class="authoring-worldbook-panel" :class="{ 'is-dual': dual }">
-    <template v-if="worldbook">
-      <div class="authoring-worldbook-index" :class="{ 'is-detail': mode === 'detail' }">
-        <section v-if="mode === 'ambiguity' && candidateEntries.length > 1" class="authoring-setting-ambiguity" aria-label="选择同名设定来源">
-          <header><strong>选择对应的资料</strong><span>正文中的名称匹配到 {{ candidateEntries.length }} 条设定</span></header>
-          <button v-for="entry in candidateEntries" :key="entry.id" type="button" @click="selectItem(String(entry.id))">
-            <span><strong>{{ entry.name || '未命名设定' }}</strong><small>{{ entry.type || 'general' }}</small></span>
-            <em>{{ String(entry.content || entry.text || '暂无说明').replace(/\s+/g, ' ').slice(0, 56) }}</em>
-          </button>
-        </section>
-        <AuthoringSettingContext v-else-if="mode === 'contextual' || (dual && mode === 'detail' && returnMode === 'contextual')" :context="settingContext" :selected-id="selectedId" @select="selectItem" @browse="browse" />
-        <section v-else-if="mode === 'browse' || (dual && mode === 'detail' && returnMode === 'browse')" class="authoring-setting-browser">
-          <header><button type="button" @click="mode = 'contextual'">← 当前落笔处</button><strong>设定目录</strong></header>
-          <div class="authoring-worldbook-tools"><input v-model="query" type="search" placeholder="搜索当前世界书" aria-label="搜索设定" /></div>
-          <div class="authoring-worldbook-filter"><button type="button" :class="{ active: type === 'all' }" @click="type = 'all'">全部</button><button v-for="item in types" :key="item" type="button" :class="{ active: type === item }" @click="type = item">{{ item }}</button></div>
-          <button v-for="entry in entries" :key="entry.id" type="button" class="authoring-setting-directory-row" :class="{ active: selectedId === String(entry.id) }" @click="selectItem(String(entry.id))"><span><strong>{{ entry.name || '未命名设定' }}</strong><small>{{ entry.type || 'general' }}</small></span><span>›</span></button>
-          <div v-if="!entries.length" class="writing-inspector__empty">没有匹配的设定。</div>
-        </section>
-        <AuthoringSettingDetail v-if="mode === 'detail'" class="authoring-setting-detail-inline" :item="selectedItem" show-back show-dual :selected-text="selectedText" @back="back" @locate="emit('locate-mention', $event)" @annotate="emit('annotate', $event)" @open-full="emit('open-full', $event)" @open-dual="emit('open-dual', $event?.id)" />
-      </div>
-      <AuthoringSettingDetail v-if="dual" class="authoring-worldbook-detail" :item="selectedItem" show-dual :selected-text="selectedText" @locate="emit('locate-mention', $event)" @annotate="emit('annotate', $event)" @open-full="emit('open-full', $event)" @open-dual="emit('open-dual', $event?.id)" />
-    </template>
-    <div v-else class="writing-inspector__empty"><p>当前书稿尚未关联世界书。</p><button type="button" @click="emit('bind')">关联世界书</button></div>
+  <section class="authoring-setting-workbench">
+    <main class="setting-sheet">
+      <template v-if="worldbook && selectedEntry">
+        <header class="setting-sheet__head">
+          <input v-model="draft.name" aria-label="设定名称" @blur="flushSave" />
+          <button type="button" class="setting-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">AI 补全</button>
+          <button type="button" class="setting-delete" aria-label="删除设定" title="删除设定" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
+        </header>
+        <AuthoringSettingAiReview v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
+        <div class="setting-sheet__scroll">
+          <label class="setting-content"><span>内容</span><textarea ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
+          <label><span>触发词</span><input v-model="draft.keysText" placeholder="用顿号分隔" @blur="flushSave" /></label>
+          <div class="setting-row">
+            <label><span>类型</span><select v-model="draft.type" @change="flushSave"><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ item[1] }}</option></select></label>
+            <label><span>分组</span><input v-model="draft.group" @blur="flushSave" /></label>
+          </div>
+          <label><span>进入上下文</span><select v-model="draft.mode" @change="flushSave"><option value="selective">命中触发词时</option><option value="constant">始终</option></select></label>
+        </div>
+      </template>
+      <div v-else-if="worldbook" class="setting-empty"><strong>还没有设定</strong><button type="button" @click="startCreate">新建设定</button></div>
+      <div v-else class="setting-empty"><button type="button" @click="emit('bind')">关联世界书</button></div>
+    </main>
+    <aside class="setting-directory">
+      <div class="catalog-window-controls"><button type="button" title="固定设定工作台" @click="emit('toggle-pin')">⌖</button><button type="button" title="关闭设定工作台" @click="emit('close')">×</button></div>
+      <div class="setting-directory__search-row"><div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" placeholder="设定" aria-label="搜索设定" /></div><button type="button" class="setting-create" aria-label="新建设定" title="新建设定" @click="startCreate">＋</button></div>
+      <nav class="setting-directory__modes" aria-label="设定目录范围"><button type="button" :class="{ active: directoryMode === 'contextual' }" @click="directoryMode = 'contextual'">当前落笔处</button><button type="button" :class="{ active: directoryMode === 'all' }" @click="directoryMode = 'all'">全部</button></nav>
+      <select v-model="typeFilter" class="setting-type-filter" aria-label="筛选设定类型"><option value="all">全部类型</option><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ item[1] }}</option></select>
+      <section v-for="group in groupedEntries" :key="group.name" class="setting-directory__group">
+        <h3><button type="button" :aria-expanded="(!collapsedFolders.has(group.name)).toString()" @click="toggleFolder(group.name)"><span class="catalog-folder-caret" :class="{ open: !collapsedFolders.has(group.name) }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ group.name }}</span></button></h3>
+        <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.entries" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" @click="selectEntry(entry)"><span>{{ entry.name || '未命名设定' }}</span><small>{{ directoryExcerpt(entry.content) }}</small></button></template>
+      </section>
+      <div v-if="!groupedEntries.length" class="setting-directory__empty">{{ directoryMode === 'contextual' ? '当前落笔处没有命中的设定' : '没有匹配的设定' }}</div>
+      <button class="setting-open-full" type="button" @click="emit('open-full', selectedEntry?.id)">高级管理</button>
+    </aside>
   </section>
 </template>
 
-<style>
-.authoring-worldbook-panel { display:grid; grid-template-columns:minmax(0,1fr); min-height:100%; }
-.authoring-worldbook-panel.is-dual { grid-template-columns:minmax(236px, 43%) minmax(280px,1fr); }
-.authoring-worldbook-index { min-width:0; }
-.authoring-worldbook-detail { min-width:0; border-left:1px solid var(--border-subtle); }
-.authoring-worldbook-panel.is-dual .authoring-setting-detail-inline { display:none; }
-.authoring-setting-ambiguity { padding:4px 8px 20px; }
-.authoring-setting-ambiguity>header { display:grid; gap:3px; padding:0 0 13px; border-bottom:1px solid var(--border-subtle); }
-.authoring-setting-ambiguity>header strong { color:var(--text-primary); font-size:14px; }
-.authoring-setting-ambiguity>header span { color:var(--text-secondary); font-size:11px; line-height:1.5; }
-.authoring-setting-ambiguity>button { display:grid; width:100%; gap:4px; padding:12px 2px; border-bottom:1px solid color-mix(in srgb,var(--border-subtle) 70%,transparent); text-align:left; }
-.authoring-setting-ambiguity>button>span { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
-.authoring-setting-ambiguity>button strong { color:var(--text-primary); font-size:13px; }
-.authoring-setting-ambiguity>button small { color:var(--text-secondary); font-size:10px; }
-.authoring-setting-ambiguity>button em { overflow:hidden; color:var(--text-secondary); font-size:11px; font-style:normal; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
-.authoring-worldbook-tools { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding-bottom:8px; }
-.authoring-worldbook-tools input { min-width:0; height:30px; padding:0 9px; border:1px solid var(--border-subtle); border-radius:3px; outline:0; background:var(--surface-workbench-muted); color:var(--text-primary); }
-button { border:0; background:transparent; color:var(--text-secondary); cursor:pointer; }
-button:hover:not(:disabled),button.active { color:var(--text-primary); }
-.authoring-worldbook-tools button { padding:0 8px; border-left:1px solid var(--border-subtle); }
-.authoring-worldbook-filter { display:flex; gap:10px; min-height:32px; overflow-x:auto; border-bottom:1px solid var(--border-subtle); }
-.authoring-worldbook-filter button { flex:0 0 auto; padding:0; font-size:11px; }
-.authoring-worldbook-filter button.active { border-bottom:2px solid var(--accent-primary); }
-.authoring-worldbook-filter .open-full { margin-left:auto; }
-.authoring-worldbook-entry { padding:12px 4px; border-bottom:1px solid var(--border-subtle); }
-.authoring-worldbook-entry header { display:flex; align-items:baseline; gap:7px; }
-.authoring-worldbook-entry strong { color:var(--text-primary); font-size:13px; }
-.authoring-worldbook-entry small { color:var(--text-secondary); font-size:10px; }
-.authoring-worldbook-entry p { display:-webkit-box; margin:5px 0 0; overflow:hidden; color:var(--text-secondary); font-size:12px; line-height:1.55; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
-.authoring-worldbook-entry footer { display:flex; margin-top:7px; }
-.authoring-worldbook-entry footer button { padding:0; font-size:11px; color:var(--accent-primary); }
-.authoring-worldbook-entry footer button:disabled { color:var(--text-secondary); opacity:.45; cursor:not-allowed; }
-.authoring-setting-context__lead,.authoring-setting-browser>header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:4px 8px 16px; border-bottom:1px solid var(--border-subtle); }
-.authoring-setting-context__lead div { display:grid; gap:3px; }
-.authoring-setting-context__lead strong,.authoring-setting-browser>header strong { font-size:14px; color:var(--text-primary); }
-.authoring-setting-context__lead span { font-size:12px; line-height:1.5; color:var(--text-secondary); }
-.authoring-setting-context__lead button,.authoring-setting-browser>header button { padding:2px 0; font-size:12px; color:var(--accent-primary); }
-.authoring-setting-group { padding-top:16px; }
-.authoring-setting-group>header { display:flex; justify-content:space-between; padding:0 9px 8px; color:var(--text-secondary); font-size:12px; font-weight:600; }
-.authoring-setting-row,.authoring-setting-directory-row { display:grid; width:100%; grid-template-columns:2px minmax(0,1fr) auto; gap:11px; align-items:center; min-height:66px; padding:11px 9px; border-bottom:1px solid color-mix(in srgb,var(--border-subtle) 72%,transparent); text-align:left; }
-.authoring-setting-row:hover,.authoring-setting-row.active,.authoring-setting-directory-row:hover,.authoring-setting-directory-row.active { background:color-mix(in srgb,var(--accent-primary) 6%,transparent); }
-.authoring-setting-row__signal { align-self:stretch; background:color-mix(in srgb,var(--accent-primary) 70%,transparent); }
-.authoring-setting-row__body { display:grid; min-width:0; gap:2px; }
-.authoring-setting-row strong,.authoring-setting-directory-row strong { font-size:13px; color:var(--text-primary); }
-.authoring-setting-row small,.authoring-setting-directory-row small { margin-left:6px; font-size:11px; color:var(--text-secondary); }
-.authoring-setting-row__body>span { overflow:hidden; color:var(--text-secondary); font-size:12px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
-.authoring-setting-row__arrow { color:var(--text-secondary); }
-.authoring-setting-empty,.authoring-setting-detail--empty { padding:28px 8px; color:var(--text-secondary); }
-.authoring-setting-empty strong,.authoring-setting-detail--empty strong { color:var(--text-primary); font-size:13px; }
-.authoring-setting-empty p,.authoring-setting-detail--empty p { font-size:11px; line-height:1.6; }
-.authoring-setting-empty button { padding:0; color:var(--accent-primary); }
-.authoring-setting-browser .authoring-worldbook-tools { padding:10px 0 6px; }
-.authoring-setting-directory-row { grid-template-columns:minmax(0,1fr) auto; }
-.authoring-setting-directory-row>span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.authoring-setting-detail { padding:4px 20px 24px; }
-.authoring-setting-detail__head { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:flex-start; padding:2px 0 16px; border-bottom:1px solid var(--border-subtle); }
-.authoring-setting-detail__back { padding:5px 5px 0 0; }
-.authoring-setting-detail__identity { min-width:0; }
-.authoring-setting-detail__identity>span { font-size:11px; color:var(--accent-primary); }
-.authoring-setting-detail__head h3 { margin:3px 0 0; overflow:hidden; color:var(--text-primary); font-size:18px; text-overflow:ellipsis; white-space:nowrap; }
-.authoring-setting-detail__open { padding:5px 0; font-size:12px; color:var(--accent-primary); }
-.authoring-setting-detail__head-actions { display:flex; align-items:center; gap:12px; }
-.authoring-setting-detail__content { padding:18px 0 20px; color:var(--text-primary); font-size:14px; line-height:1.8; white-space:pre-wrap; }
-.authoring-setting-detail__content p { margin:0; }
-.authoring-setting-detail__section { padding:15px 0; border-top:1px solid color-mix(in srgb,var(--border-subtle) 72%,transparent); }
-.authoring-setting-detail__section>header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:9px; }
-.authoring-setting-detail__section h4 { margin:0; color:var(--text-primary); font-size:12px; font-weight:650; }
-.authoring-setting-detail__section header>span { color:var(--text-secondary); font-size:11px; }
-.authoring-setting-detail__section p { margin:0; color:var(--text-secondary); font-size:12px; line-height:1.6; }
-.authoring-setting-detail__current>button { display:grid; width:100%; gap:7px; padding:10px 0 2px 12px; border-left:2px solid color-mix(in srgb,var(--accent-primary) 58%,transparent); text-align:left; }
-.authoring-setting-detail__current>button span { color:var(--text-primary); font-size:13px; line-height:1.65; }
-.authoring-setting-detail__current>button small { color:var(--accent-primary); font-size:11px; }
-.authoring-setting-detail__trail>button { display:grid; width:100%; grid-template-columns:64px minmax(0,1fr) auto; gap:8px; padding:9px 2px; border-top:1px solid color-mix(in srgb,var(--border-subtle) 55%,transparent); text-align:left; }
-.authoring-setting-detail__trail>button small { color:var(--text-secondary); font-size:10px; }
-.authoring-setting-detail__trail>button span { overflow:hidden; color:var(--text-primary); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.authoring-setting-detail__trail>button b { color:var(--accent-primary); font-weight:400; }
-.authoring-setting-detail__trail>p { padding-top:7px; }
-.authoring-setting-detail__meta { padding:13px 0; border-top:1px solid var(--border-subtle); color:var(--text-secondary); font-size:12px; }
-.authoring-setting-detail__meta summary { cursor:pointer; }
-.authoring-setting-detail__meta div { display:grid; grid-template-columns:54px minmax(0,1fr); gap:10px; padding-top:10px; }
-.authoring-setting-detail__meta p { margin:0; color:var(--text-primary); line-height:1.55; }
-.authoring-setting-detail__actions { display:grid; padding-top:16px; }
-.authoring-setting-detail__actions button { min-height:36px; border-top:1px solid var(--border-subtle); color:var(--accent-primary); font-size:12px; text-align:left; }
-.authoring-setting-detail__actions button:disabled { color:var(--text-secondary); opacity:.5; }
-@media (max-width:1100px) { .authoring-worldbook-panel.is-dual { grid-template-columns:minmax(0,1fr); } .authoring-worldbook-panel.is-dual .authoring-worldbook-detail { display:none; } .authoring-worldbook-panel.is-dual .authoring-setting-detail-inline { display:block; } .authoring-worldbook-panel.is-dual .authoring-worldbook-index.is-detail>.authoring-setting-context,.authoring-worldbook-panel.is-dual .authoring-worldbook-index.is-detail>.authoring-setting-browser { display:none; } }
+<style scoped>
+.authoring-setting-workbench{display:grid;grid-template-columns:minmax(0,1.62fr) minmax(160px,1fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}
+button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:#fff!important}
+.setting-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.setting-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.setting-sheet__head input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 17px/1.5 var(--font-body);outline:0}.setting-sheet__head input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-ai{color:var(--accent-primary);font-size:11px}.setting-delete{width:28px;height:28px}.setting-sheet__scroll{flex:1;min-height:0;overflow:auto;padding:7px 16px 32px}.setting-sheet__scroll label{display:grid;gap:7px;padding:14px 0;border-bottom:1px dashed var(--border-subtle)}.setting-sheet__scroll label>span{color:var(--text-secondary);font-size:12px}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{box-sizing:border-box;width:100%;border:0;outline:0;background:transparent;color:var(--text-primary);font:14px/1.8 var(--font-body)}.setting-sheet__scroll textarea{min-height:180px;overflow:hidden;resize:none}.setting-sheet__scroll input:focus,.setting-sheet__scroll textarea:focus,.setting-sheet__scroll select:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.setting-empty{display:grid;place-content:center;gap:10px;height:100%;color:var(--text-secondary);text-align:center}.setting-empty button{color:var(--accent-primary)}
+.setting-directory{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:auto;padding:6px 10px 12px}.catalog-window-controls{display:flex;height:28px;align-items:center;justify-content:flex-end;gap:3px}.catalog-window-controls button{width:26px;height:26px;font-size:18px}.setting-directory__search-row{display:grid;grid-template-columns:minmax(0,1fr) 38px;gap:8px;margin-bottom:9px}.catalog-search{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;height:38px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-secondary)}.catalog-search input{min-width:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit}.setting-create{width:38px;height:38px;border-radius:4px!important;background:var(--accent-primary,var(--accent,#1677ff))!important;color:#fff!important;font-size:24px!important;font-weight:300;line-height:1}.setting-directory__modes{display:flex;border-bottom:1px solid var(--border-subtle)}.setting-directory__modes button{min-height:34px;flex:1;border-bottom:2px solid transparent}.setting-directory__modes button.active{border-bottom-color:var(--accent-primary);color:var(--text-primary)}.setting-type-filter{height:32px;margin-top:7px;border:0;border-bottom:1px solid var(--border-subtle);outline:0;background:transparent;color:var(--text-secondary)}.setting-directory__group h3{margin:10px 0 5px;font-size:13px;font-weight:500}.setting-directory__group h3 button{display:flex;width:100%;min-height:30px;align-items:center;gap:6px;padding:0 6px;color:var(--text-primary);text-align:left}.catalog-folder-caret{display:inline-block;width:10px;color:var(--text-secondary);font-size:15px;transform-origin:center;transition:transform var(--motion-fast,120ms)}.catalog-folder-caret.open{transform:rotate(90deg)}.setting-directory__group>button{display:grid;width:100%;min-height:38px;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px;padding:0 12px 0 27px;border-radius:4px;text-align:left;color:var(--text-primary)}.setting-directory__group>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-directory__group>button small{color:var(--text-secondary);font-size:10px}.setting-directory__group>button.active{background:color-mix(in srgb,var(--accent-primary,var(--accent,#1677ff)) 19%,var(--surface-workbench-raised));font-weight:600}.setting-directory__empty{padding:24px 5px;color:var(--text-secondary);font-size:11px;line-height:1.6}.setting-open-full{margin-top:auto;padding:12px 4px 2px;text-align:left;color:var(--accent-primary);font-size:11px}
+.setting-sheet__head input{font-size:var(--authoring-catalog-title-size,17px)}.setting-ai{font-size:var(--authoring-catalog-meta-size,10px)}.setting-sheet__scroll label>span{font-size:var(--authoring-catalog-label-size,12px)}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{font-size:var(--authoring-catalog-body-size,14px)}.catalog-search input,.setting-directory__modes button,.setting-type-filter{font-size:var(--authoring-catalog-control-size,14px)}.setting-directory__group h3{font-size:var(--authoring-catalog-folder-size,13px)}.setting-directory__group h3 button{font-size:inherit}.setting-directory__group>button{font-size:var(--authoring-catalog-entry-size,13px)}.setting-directory__group>button small,.setting-open-full{font-size:var(--authoring-catalog-meta-size,10px)}
+.setting-directory__group h3{margin:6px 0 0}
+.setting-directory__group h3 button{min-height:34px;padding-inline:4px}
+.setting-directory__group>button{display:grid;min-height:40px;grid-template-columns:minmax(0,1fr) minmax(0,44%);align-items:center;gap:7px;padding-inline:36px 10px;overflow:hidden;white-space:nowrap}
+.setting-directory__group>button small{overflow:hidden;color:var(--text-secondary);font-size:var(--authoring-catalog-meta-size,10px);font-weight:400;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:720px){.authoring-setting-workbench{grid-template-columns:1fr;grid-template-rows:minmax(0,42%) minmax(0,58%)}.setting-directory{order:-1;border-bottom:1px solid var(--border-subtle)}.setting-sheet{border-right:0}}
+@media(pointer:coarse){.catalog-window-controls button,.setting-delete,.setting-create{min-width:44px;min-height:44px}.setting-directory__group>button{min-height:44px}.setting-directory__search-row{grid-template-columns:minmax(0,1fr) 44px}}
 </style>

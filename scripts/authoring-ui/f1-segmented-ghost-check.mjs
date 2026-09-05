@@ -103,7 +103,8 @@ async function openLaboratory(page, mobile, intent = 'run-only') {
   }
   const inspector = page.locator('.writing-inspector.is-open')
   const edgar = inspector.locator('.scene-curation__people li').filter({ hasText: '艾德加' }).first()
-  await edgar.getByRole('button', { name: intent === 'next-passage' ? '下一段入场' : '带入本次推演' }).click()
+  await edgar.locator('.scene-curation__person-toggle').click()
+  await edgar.getByRole('button', { name: intent === 'next-passage' ? '让他下一段入场' : '仅带入本次推演' }).click()
   const laboratory = page.locator('[data-test="scene-laboratory"]')
   await laboratory.waitFor({ state: 'visible' })
   await laboratory.locator('.authoring-scene-lab__direction').filter({ hasText: selectedTitle }).click()

@@ -362,6 +362,7 @@ RehearsalBranch
 - 同一来源变化后调用 session reconcile；位置或证据失效时保留作者输入并标 stale，重新核对创建新 session；关闭和迟到任务均由 AbortSignal/version guard 收口；
 - 桌面在正文内容轴原位展开；720px 以下 Teleport 到 body 的全宽 bottom sheet，避免 ProseMirror stacking context 穿透，同时保持正文 scrollTop；
 - focused UI 12/12、F3 离线 fixture 4/4、Vite build 与 1440/390 实页门禁通过。影响理由和可点击证据由 F3-2A 接入，不在本切片伪造空卡片。
+- 2026-09-04 视觉纠偏：入口继续与正文融合，但必须直接说明“先看这项变化会影响哪里”；展开态从内部分类表单改为作者问题“如果这里不是这样”，四类 operation 使用完整动作语言并各自解释应填写什么，“修改目的”降到可选展开项，主动作保持“先看影响”。
 
 ### 入口
 

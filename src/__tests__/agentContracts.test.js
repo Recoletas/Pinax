@@ -516,7 +516,7 @@ describe('agentContracts', function () {
       resultSchema: 'text-patch.v1'
     })
 
-    expect(getTasksBySurface('settings').length).toBe(12)
+    expect(getTasksBySurface('settings').length).toBe(13)
     expect(getTasksBySurface('authoring').length).toBe(19)
     expect(getTasksBySurface('observer').length).toBe(6)
     expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(

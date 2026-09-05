@@ -1,17 +1,17 @@
 <template>
-  <section class="authoring-dual-pane" :class="{ 'has-intervention-ghost': interventionGhostOpen }" :data-active-pane="active.toString()" :data-intervention-ghost-open="interventionGhostOpen.toString()" :data-intervention-ghost-unit="interventionGhostTarget?.unitId || ''" data-test="authoring-dual-pane" aria-label="双栏编辑" @focusin="emit('activate', { kind: selectedKind, id: selectedSourceId })">
+  <section class="authoring-dual-pane" :class="{ 'has-intervention-ghost': interventionGhostOpen, 'is-directory-closed': !directoryOpen }" :data-active-pane="active.toString()" :data-intervention-ghost-open="interventionGhostOpen.toString()" :data-intervention-ghost-unit="interventionGhostTarget?.unitId || ''" data-test="authoring-dual-pane" aria-label="双栏编辑" @focusin="emit('activate', { kind: selectedKind, id: selectedSourceId })">
     <div class="authoring-dual-pane__editor">
-      <header class="authoring-dual-pane__head">
+      <header ref="headerRef" class="authoring-dual-pane__head">
         <div class="authoring-dual-pane__title">
           <small>{{ selectedOrdinal }}</small>
           <strong>{{ selectedTitle }}</strong>
-          <span v-if="isDocumentSource && selectedSource" :class="`is-${saveState}`">{{ saveLabel }}</span>
         </div>
         <div class="authoring-dual-pane__actions">
-          <button v-if="isDocumentSource" type="button" title="撤销副窗修改" aria-label="撤销副窗修改" :disabled="!commandAvailability.undo" @click="runHistory('undo')">↶</button>
-          <button v-if="isDocumentSource" type="button" title="重做副窗修改" aria-label="重做副窗修改" :disabled="!commandAvailability.redo" @click="runHistory('redo')">↷</button>
-          <button type="button" title="交换主副章" aria-label="交换主副章" :disabled="selectedKind !== 'chapter' || selectedChapterId === String(mainChapterId)" @click="swapPane">⇄</button>
-          <button type="button" title="切换副窗内容" aria-label="切换副窗内容" :disabled="interventionGhostOpen" :aria-pressed="directoryOpen.toString()" @click="toggleDirectory">切换</button>
+          <span v-if="isDocumentSource && selectedSource && saveState !== 'saved'" class="authoring-dual-pane__save" :class="`is-${saveState}`" role="status">{{ saveLabel }}</span>
+          <button v-if="isDocumentSource && commandAvailability.undo" type="button" title="撤销副窗修改" aria-label="撤销副窗修改" @click="runHistory('undo')">↶</button>
+          <button v-if="isDocumentSource && commandAvailability.redo" type="button" title="重做副窗修改" aria-label="重做副窗修改" @click="runHistory('redo')">↷</button>
+          <button v-if="selectedKind === 'chapter' && selectedChapterId !== String(mainChapterId)" type="button" title="交换主副章" aria-label="交换主副章" @click="swapPane">⇄</button>
+          <button type="button" :title="directoryOpen ? '收起副窗目录' : '展开副窗目录'" aria-label="切换副窗内容" :disabled="interventionGhostOpen" :aria-pressed="directoryOpen.toString()" :aria-expanded="directoryOpen && !interventionGhostOpen" @click="toggleDirectory"><WorkbenchIcon name="panel-left" :size="16" /></button>
           <button type="button" title="关闭双栏" aria-label="关闭双栏" @click="closePane">×</button>
         </div>
       </header>
@@ -54,6 +54,23 @@
           @composition-change="onCompositionChange"
         />
       </div>
+      <div v-else-if="selectedKind === 'outline'" class="authoring-dual-pane__reference-scroll" data-document-role="dual-outline">
+        <article class="authoring-dual-pane__reference">
+          <header><span>{{ outlineStatusLabel }}</span><h3>{{ selectedOutlineNode.title }}</h3></header>
+          <p class="authoring-dual-pane__reference-copy">{{ selectedOutlineNode.intent || '这个大纲节点还没有补充意图。' }}</p>
+          <section v-if="outlineChapterLabels.length"><strong>关联章节</strong><p>{{ outlineChapterLabels.join(' · ') }}</p></section>
+          <section v-if="selectedOutlineRelations.length"><strong>叙事关系</strong><ul><li v-for="relation in selectedOutlineRelations" :key="relation.id">{{ relation.label }}</li></ul></section>
+          <section v-if="selectedOutlineNode.sourceRefs?.length"><strong>来源</strong><p>{{ selectedOutlineNode.sourceRefs.join(' · ') }}</p></section>
+          <footer><button type="button" @click="emit('open-outline', selectedOutlineNode.id)">在大纲中打开</button></footer>
+        </article>
+      </div>
+      <div v-else class="authoring-dual-pane__reference-scroll" data-document-role="dual-worldbook-entry">
+        <AuthoringSettingDetail
+          :item="selectedWorldbookDetail"
+          :selected-text="''"
+          @open-full="emit('open-worldbook', selectedWorldbookEntry.id)"
+        />
+      </div>
       <div
         v-if="active && isDocumentSource && quickWordSuggestions.length"
         class="authoring-quick-word-strip is-dual"
@@ -72,44 +89,19 @@
           @click="emit('quick-word-complete', item)"
         ><kbd>{{ index + 1 }}</kbd>{{ item.text }}</button>
       </div>
-      <div v-else-if="selectedKind === 'outline'" class="authoring-dual-pane__reference-scroll" data-document-role="dual-outline">
-        <article class="authoring-dual-pane__reference">
-          <header><span>{{ outlineStatusLabel }}</span><h3>{{ selectedOutlineNode.title }}</h3></header>
-          <p class="authoring-dual-pane__reference-copy">{{ selectedOutlineNode.intent || '这个大纲节点还没有补充意图。' }}</p>
-          <section v-if="outlineChapterLabels.length"><strong>关联章节</strong><p>{{ outlineChapterLabels.join(' · ') }}</p></section>
-          <section v-if="selectedOutlineRelations.length"><strong>叙事关系</strong><ul><li v-for="relation in selectedOutlineRelations" :key="relation.id">{{ relation.label }}</li></ul></section>
-          <section v-if="selectedOutlineNode.sourceRefs?.length"><strong>来源</strong><p>{{ selectedOutlineNode.sourceRefs.join(' · ') }}</p></section>
-          <footer><button type="button" @click="emit('open-outline', selectedOutlineNode.id)">在大纲中打开</button></footer>
-        </article>
-      </div>
-      <div v-else class="authoring-dual-pane__reference-scroll" data-document-role="dual-worldbook-entry">
-        <AuthoringSettingDetail
-          :item="selectedWorldbookDetail"
-          :selected-text="''"
-          @open-full="emit('open-worldbook', selectedWorldbookEntry.id)"
-        />
-      </div>
     </div>
 
     <aside v-if="directoryOpen && !interventionGhostOpen" class="authoring-dual-pane__directory" data-test="authoring-dual-directory" aria-label="切换副窗内容">
-      <nav class="authoring-dual-pane__switch" aria-label="副窗内容类型">
-        <button
-          v-for="option in switchOptions"
-          :key="option.id"
-          type="button"
-          :class="{ 'is-active': activeSwitch === option.id }"
-          :aria-pressed="(activeSwitch === option.id).toString()"
-          @click="selectSwitch(option.id)"
-        >{{ option.label }}</button>
-      </nav>
       <label class="authoring-dual-pane__search">
         <WorkbenchIcon name="search" :size="14" />
         <input v-model="query" type="search" :placeholder="switchSearchPlaceholder" aria-label="搜索当前项目" />
+        <select :value="activeSwitch" aria-label="副窗内容类型" @change="selectSwitch($event.target.value)">
+          <option v-for="option in switchOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+        </select>
       </label>
       <div v-if="activeSwitch === 'chapter'" class="authoring-dual-pane__group">
         <WorkbenchIcon name="folder" :size="14" />
         <span>第一卷</span>
-        <small>{{ chapters.length }} 章</small>
       </div>
       <button
         v-if="activeSwitch === 'chapter'"
@@ -122,14 +114,12 @@
         :title="mainChapterId === entry.chapter.id ? '在双栏查看当前主章的另一处' : `在双栏打开${entry.chapter.title || `第${entry.index + 1}章`}`"
         @click="selectChapter(entry.chapter.id)"
       >
-        <span><strong>{{ chapterLabel(entry.index, entry.chapter.title) }}</strong><em>{{ Number(entry.chapter.wordCount || 0).toLocaleString() }} 字</em></span>
-        <small>{{ mainChapterId === entry.chapter.id ? '主窗' : '章节' }}</small>
+        <span><strong>{{ chapterLabel(entry.index, entry.chapter.title) }}</strong></span>
       </button>
       <template v-if="activeSwitch === 'exploration'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="pencil" :size="14" />
           <span>便签</span>
-          <small>{{ explorations.length }}</small>
         </div>
         <button
           v-for="doc in filteredExplorations"
@@ -140,15 +130,13 @@
           :data-exploration-id="doc.id"
           @click="selectExploration(doc.id)"
         >
-          <span><strong>{{ doc.title || '未命名便签' }}</strong><em>{{ sourceExcerpt(doc.content, '随手记录') }}</em></span>
-          <small>便签</small>
+          <span><strong>{{ doc.title || '未命名便签' }}</strong></span>
         </button>
       </template>
       <template v-if="activeSwitch === 'outline'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="book" :size="14" />
           <span>大纲</span>
-          <small>{{ outlineNodes.length }}</small>
         </div>
         <button
           v-for="node in filteredOutlineNodes"
@@ -159,15 +147,13 @@
           :data-outline-node-id="node.id"
           @click="selectOutline(node.id)"
         >
-          <span><strong>{{ node.title || '未命名节点' }}</strong><em>{{ sourceExcerpt(node.intent, '暂无内容') }}</em></span>
-          <small>大纲</small>
+          <span><strong>{{ node.title || '未命名节点' }}</strong></span>
         </button>
       </template>
       <template v-if="activeSwitch === 'character' || activeSwitch === 'setting'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="archive" :size="14" />
           <span>{{ activeSwitch === 'character' ? '角色' : '设定' }}</span>
-          <small>{{ activeSwitch === 'character' ? characterEntries.length : settingEntries.length }}</small>
         </div>
         <button
           v-for="entry in filteredSwitchWorldbookEntries"
@@ -178,8 +164,7 @@
           :data-worldbook-entry-id="entry.id"
           @click="selectWorldbookEntry(entry.id)"
         >
-          <span><strong>{{ entry.name || '未命名设定' }}</strong><em>{{ sourceExcerpt(entry.content || entry.text, '暂无说明') }}</em></span>
-          <small>{{ worldbookTypeLabel(entry.type) }}</small>
+          <span><strong>{{ entry.name || '未命名设定' }}</strong></span>
         </button>
       </template>
       <p v-if="!hasFilteredSources" class="authoring-dual-pane__no-result">没有匹配内容</p>
@@ -188,7 +173,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../writing/WritingNotebookEditor.vue'
 import AuthoringSettingDetail from './AuthoringSettingDetail.vue'
@@ -226,6 +211,17 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'activate', 'source-change', 'document-change', 'selection-change', 'composition-change', 'command-availability', 'quick-word-complete', 'swap', 'open-outline', 'open-worldbook'])
 const editorRef = ref(null)
+const headerRef = ref(null)
+let headerObserver
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined') return
+  headerObserver = new ResizeObserver(() => {
+    const header = headerRef.value
+    header?.closest('.authoring-dual-pane')?.style.setProperty('--dual-header-height', `${header.offsetHeight}px`)
+  })
+  if (headerRef.value) headerObserver.observe(headerRef.value)
+})
+onBeforeUnmount(() => headerObserver?.disconnect())
 const scrollRef = ref(null)
 const selectedChapterId = ref('')
 const selectedExplorationId = ref('')
@@ -358,11 +354,6 @@ function chapterLabel(index, value) {
   const ordinal = `第${chineseNumber(index + 1)}章`
   const name = String(value || '').trim().replace(/^第\s*(?:[零〇一二三四五六七八九十百千万两]+|\d+)\s*章(?:\s*[-—:：·、.]?\s*)?/u, '').trim()
   return name ? `${ordinal} ${name}` : ordinal
-}
-
-function sourceExcerpt(value, fallback = '') {
-  const normalized = String(value || '').replace(/\s+/g, ' ').trim()
-  return normalized ? (normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized) : fallback
 }
 
 function selectSwitch(kind) {
@@ -555,10 +546,6 @@ function closeSwitchOnNarrow() {
   if (typeof window !== 'undefined' && window.innerWidth <= 720) directoryOpen.value = false
 }
 
-function worldbookTypeLabel(type) {
-  return ({ character: '人物', location: '地点', organization: '组织', rule: '规则', style: '文风', forbidden: '禁则', lore: '背景' })[type] || '设定'
-}
-
 function onMarkdownUpdate(value) {
   markdown.value = String(value || '')
   scheduleSave()
@@ -678,6 +665,7 @@ function captureSurfaceState() {
     scopeKey: `${props.bookId || ''}|dual|${selectedKind.value || ''}|${selectedSourceId.value || ''}`,
     documentRevision: runDocumentRevision(),
     documentSchemaRevision: String(documentState.value?.revision ?? ''),
+    directoryOpen: directoryOpen.value,
     selectionBookmark: editorRef.value.captureSelectionBookmark?.() || null,
     scroll: {
       top: Number(scrollElement?.scrollTop || 0),
@@ -704,6 +692,12 @@ function surfaceStateMatches(snapshot = {}) {
 async function restoreSurfaceState(snapshot = {}) {
   await nextTick()
   if (!editorRef.value || !surfaceStateMatches(snapshot)) return false
+  // 先恢复阅读宽度，再恢复选区与滚动，避免临时工具返回时重新挤窄副稿。
+  if (typeof snapshot.directoryOpen === 'boolean') {
+    directoryOpen.value = snapshot.directoryOpen
+    await nextTick()
+    if (!editorRef.value || !surfaceStateMatches(snapshot)) return false
+  }
   const restored = snapshot.selectionBookmark
     ? editorRef.value.restoreSelectionBookmark?.(snapshot.selectionBookmark, { scrollIntoView: false }) === true
     : true
@@ -1082,26 +1076,28 @@ defineExpose({
 </script>
 
 <style scoped>
-.authoring-dual-pane { display: grid; min-width: 0; min-height: 0; grid-column: 3; grid-row: 1; grid-template-columns: minmax(280px, 1fr) 218px; border-inline-start: 1px solid var(--authoring-hairline, var(--border-subtle)); background: var(--surface-workbench-raised); }
-.authoring-dual-pane.has-intervention-ghost { grid-template-columns: minmax(0, 1fr); }
+.authoring-dual-pane { display: grid; min-width: 0; min-height: 0; grid-column: 3; grid-row: 1; grid-template-columns: minmax(0, 1.62fr) minmax(160px, 1fr); border-inline-start: 1px solid var(--authoring-hairline, var(--border-subtle)); background: var(--surface-workbench-raised); }
+.authoring-dual-pane.has-intervention-ghost,
+.authoring-dual-pane.is-directory-closed { grid-template-columns: minmax(0, 1fr); }
 .authoring-dual-pane__editor { position:relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; }
-.authoring-dual-pane__head { display: flex; min-height: 54px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-workbench-raised); }
+.authoring-dual-pane__head { display: flex; min-height: 54px; flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 2px; padding: 10px 16px 4px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-workbench-raised); }
 .authoring-dual-pane__notice { position: relative; z-index: 2; flex: 0 0 auto; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-workbench-raised); }
 .authoring-dual-pane__notice :deep(.authoring-transient-notice) { margin: 0; }
-.authoring-dual-pane__title { display: flex; min-width: 0; align-items: baseline; gap: 7px; }
-.authoring-dual-pane__title small { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; }
-.authoring-dual-pane__title strong { overflow: hidden; color: var(--text-primary); font-size: 17px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.authoring-dual-pane__title span { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; }
-.authoring-dual-pane__title span.is-error { color: var(--signal-danger, #a04b3c); }
-.authoring-dual-pane__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.authoring-dual-pane__title { display: block; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.authoring-dual-pane__title small { margin-inline-end: 7px; color: var(--text-secondary); font-size: var(--authoring-catalog-label-size, 12px); }
+.authoring-dual-pane__title strong { color: var(--text-primary); font-size: var(--authoring-catalog-title-size, 17px); font-weight: 550; }
+.authoring-dual-pane__save { margin-inline-end: auto; color: var(--text-secondary); font-size: var(--authoring-catalog-meta-size, 10px); }
+.authoring-dual-pane__save.is-error { color: var(--signal-danger, #a04b3c); }
+.authoring-dual-pane__actions { display: flex; flex: 0 0 auto; justify-content: flex-end; align-items: center; gap: 2px; }
 .authoring-dual-pane__actions button { min-width: 30px; height: 32px; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .authoring-dual-pane__actions button:hover:not(:disabled), .authoring-dual-pane__actions button[aria-pressed="true"] { background: var(--surface-hover); color: var(--text-primary); }
 .authoring-dual-pane__actions button:disabled { opacity: .35; cursor: default; }
 .authoring-dual-pane__scroll { min-width: 0; min-height: 0; flex: 1 1 auto; overflow: auto; }
 .authoring-dual-pane__scroll :deep(.writing-notebook-editor) { min-height: 100%; }
-.authoring-dual-pane__scroll :deep(.writing-notebook-editor__surface .ProseMirror) { width: auto; max-width: none; padding-inline: clamp(28px, 5vw, 74px); }
+.authoring-dual-pane__scroll :deep(.writing-notebook-editor__surface) { padding: 12px 0 80px; }
+.authoring-dual-pane__scroll :deep(.writing-notebook-editor__surface .ProseMirror) { width: auto; max-width: none; padding-inline: 16px; font-size: var(--authoring-catalog-body-size, 14px); line-height: 2; }
 .authoring-dual-pane__reference-scroll { min-width:0; min-height:0; flex:1 1 auto; overflow:auto; }
-.authoring-dual-pane__reference { max-width:680px; margin:0 auto; padding:36px clamp(28px,5vw,64px) 64px; }
+.authoring-dual-pane__reference { max-width:680px; margin:0 auto; padding:20px 16px 48px; }
 .authoring-dual-pane__reference>header { padding-bottom:18px; border-bottom:1px solid var(--border-subtle); }
 .authoring-dual-pane__reference>header span { color:var(--accent-primary); font-size:11px; }
 .authoring-dual-pane__reference h3 { margin:5px 0 0; color:var(--text-primary); font-size:21px; font-weight:560; }
@@ -1111,23 +1107,20 @@ defineExpose({
 .authoring-dual-pane__reference section p,.authoring-dual-pane__reference section ul { margin:0; padding:0; color:var(--text-primary); font-size:12px; line-height:1.65; list-style:none; }
 .authoring-dual-pane__reference footer { padding-top:20px; border-top:1px solid var(--border-subtle); }
 .authoring-dual-pane__reference footer button { padding:0; border:0; background:transparent; color:var(--accent-primary); font-size:12px; cursor:pointer; }
-.authoring-dual-pane__reference-scroll :deep(.authoring-setting-detail) { max-width:680px; margin:0 auto; padding:36px clamp(28px,5vw,64px) 64px; }
+.authoring-dual-pane__reference-scroll :deep(.authoring-setting-detail) { max-width:680px; margin:0 auto; padding:20px 16px 48px; }
 .authoring-dual-pane__reference-scroll :deep(.authoring-setting-detail__actions) { display:none; }
 .authoring-dual-pane__empty { display: grid; flex: 1; place-content: center; padding: 24px; color: var(--text-secondary); text-align: center; }
 .authoring-dual-pane__empty strong { color: var(--text-primary); font-size: 15px; }
 .authoring-dual-pane__empty p { margin: 7px 0 0; font-size: 12px; }
-.authoring-dual-pane__directory { min-width: 0; min-height: 0; overflow-y: auto; padding: 12px 8px; border-inline-start: 1px solid var(--border-subtle); background: var(--authoring-chrome-surface, var(--surface-primary)); }
-.authoring-dual-pane__switch { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: -2px 0 11px; border-bottom: 1px solid var(--border-subtle); }
-.authoring-dual-pane__switch button { min-width: 0; height: 31px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: 500 11px/1 var(--font-sans, sans-serif); cursor: pointer; }
-.authoring-dual-pane__switch button:hover { color: var(--text-primary); }
-.authoring-dual-pane__switch button.is-active { border-bottom-color: var(--accent-primary); color: var(--text-primary); font-weight: 650; }
-.authoring-dual-pane__search { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; height: 36px; margin-bottom: 12px; padding: 0 9px; border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--text-secondary); }
-.authoring-dual-pane__search input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 13px/1.4 var(--font-sans, sans-serif); }
-.authoring-dual-pane__group { display: grid; height: 30px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; padding: 0 7px; color: var(--text-primary); font-size: 13px; font-weight: 600; }
+.authoring-dual-pane__directory { min-width: 0; min-height: 0; overflow-y: auto; padding: 12px 10px; border-inline-start: 1px solid var(--border-subtle); background: var(--authoring-chrome-surface, var(--surface-primary)); }
+.authoring-dual-pane__search { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; height: 36px; margin-bottom: 12px; padding: 0 5px 0 9px; border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--text-secondary); }
+.authoring-dual-pane__search input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: var(--authoring-catalog-control-size, 14px)/1.4 var(--font-sans, sans-serif); }
+.authoring-dual-pane__search select { width: 62px; height: 28px; border: 0; outline: 0; background: transparent; color: var(--text-secondary); font: 11px/1 var(--font-sans, sans-serif); }
+.authoring-dual-pane__group { display: grid; min-height: 34px; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 6px; padding: 0 4px; color: var(--text-primary); font-size: var(--authoring-catalog-folder-size, 13px); font-weight: 500; }
 .authoring-dual-pane__group--ideas { height: 37px; margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border-subtle); }
 .authoring-dual-pane__group small { color: var(--text-secondary); font-size: 11px; font-weight: 400; }
-.authoring-dual-pane__chapter { display: grid; width: 100%; min-height: 44px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 8px 5px 27px; border: 0; border-radius: 3px; background: transparent; color: var(--text-secondary); font: 400 13px/1.4 var(--font-sans, sans-serif); text-align: left; cursor: pointer; }
-.authoring-dual-pane__chapter span { display: grid; min-width: 0; gap: 1px; }
+.authoring-dual-pane__chapter { display: block; width: 100%; min-height: 40px; padding: 0 10px 0 36px; border: 0; border-radius: 4px; background: transparent; color: var(--text-primary); font: 400 var(--authoring-catalog-entry-size, 13px)/1.4 var(--font-sans, sans-serif); text-align: left; cursor: pointer; }
+.authoring-dual-pane__chapter span { display: block; min-width: 0; }
 .authoring-dual-pane__chapter strong, .authoring-dual-pane__chapter em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-dual-pane__chapter strong { color: inherit; font: inherit; }
 .authoring-dual-pane__chapter em { color: var(--text-secondary); font-size: 10px; font-style: normal; font-weight: 400; }
@@ -1137,11 +1130,11 @@ defineExpose({
 .authoring-dual-pane__chapter.is-main:not(.is-active) { box-shadow: inset 2px 0 color-mix(in srgb, var(--text-secondary) 35%, transparent); }
 .authoring-dual-pane__no-result { padding: 16px 8px; color: var(--text-secondary); font-size: 12px; }
 @media (max-width: 1180px) {
-  .authoring-dual-pane { position: absolute; z-index: var(--z-workbench-sheet); grid-column: 1 / -1; grid-row: 1; inset-block: 0; inset-inline-end: 52px; width: min(720px, calc(100% - 220px)); margin-inline-start: auto; box-shadow: -12px 0 32px color-mix(in srgb, #000 14%, transparent); }
+  .authoring-dual-pane { position: absolute; z-index: var(--z-workbench-sheet); grid-column: 1 / -1; grid-row: 1; inset-block: 0; inset-inline-end: 52px; width: min(440px, calc(100% - 264px)); margin-inline-start: auto; box-shadow: -12px 0 32px color-mix(in srgb, #000 14%, transparent); }
 }
 @media (max-width: 720px) {
   .authoring-dual-pane { position: absolute; grid-column: 1 / -1; grid-row: 1; inset-block-start: auto; inset-inline: 0; inset-block-end: 44px; width: auto; height: min(78vh, 680px); grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--border-subtle); box-shadow: 0 -12px 32px color-mix(in srgb, #000 16%, transparent); }
-  .authoring-dual-pane__directory { position: absolute; z-index: 2; inset: 54px 0 0; border-inline-start: 0; background: var(--authoring-chrome-surface, var(--surface-primary)); }
+  .authoring-dual-pane__directory { position: absolute; z-index: 2; inset: var(--dual-header-height, 88px) 0 0; border-inline-start: 0; background: var(--authoring-chrome-surface, var(--surface-primary)); }
   .authoring-dual-pane__head { min-height: 54px; padding-inline: 12px 8px; }
   .authoring-dual-pane__actions button { min-width: 44px; min-height: 44px; }
 }

@@ -22,6 +22,9 @@ describe('authoring block composer', () => {
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(6)
     expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成推演稿')
     expect(wrapper.text()).not.toContain('生成后先预览，确认才写入正文')
+    expect(wrapper.text()).toContain('可以从这里开始')
+    await wrapper.find('.authoring-block-composer__starters button').trigger('click')
+    expect(wrapper.find('textarea').element.value).toContain('立刻采取行动')
     await wrapper.find('textarea').setValue('推开门')
     await wrapper.find('[data-test="block-primary"]').trigger('click')
     const submission = wrapper.emitted('submit')?.[0]?.[0]
@@ -84,7 +87,7 @@ describe('authoring block composer', () => {
 
   it('requires dialogue participants and exposes persist-only retry', async () => {
     const wrapper = mountComposer({ failure: { phase: 'persist', message: '保存失败' } })
-    await radio(wrapper, '对话').trigger('click')
+    await radio(wrapper, '人物对话').trigger('click')
     await wrapper.find('textarea').setValue('问他真相')
     await wrapper.find('[data-test="block-primary"]').trigger('click')
     expect(wrapper.emitted('submit')).toBeUndefined()
@@ -98,7 +101,7 @@ describe('authoring block composer', () => {
 
   it('uses one viewpoint selector for thought turns and ignores IME Escape', async () => {
     const wrapper = mountComposer()
-    await radio(wrapper, '心理').trigger('click')
+    await radio(wrapper, '人物内心').trigger('click')
     expect(wrapper.text()).toContain('视角人物')
     expect(wrapper.findAll('select')).toHaveLength(1)
 
@@ -160,6 +163,16 @@ describe('block composer initial instruction', () => {
     expect(laboratory.findAll('.authoring-scene-lab__direction')).toHaveLength(3)
     expect(laboratory.text()).toContain('眼前所得')
     expect(laboratory.text()).toContain('代价')
+    await laboratory.setProps({
+      entryIntent: { mode: 'next-passage', entityKind: 'character', entityName: '艾德加' }
+    })
+    expect(laboratory.text()).toContain('让艾德加下一段入场')
+    expect(laboratory.text()).toContain('采纳推演稿后才更新当前场')
+    await laboratory.setProps({
+      entryIntent: { mode: 'run-only', entityKind: 'location', entityName: '旧港税务所' }
+    })
+    expect(laboratory.text()).toContain('以旧港税务所作为本次推演参考')
+    expect(laboratory.text()).toContain('只影响这次推演，不改变当前场')
     await laboratory.findAll('.authoring-scene-lab__direction')[1].trigger('click')
     expect(laboratory.emitted('select')?.[0]).toEqual(['verify'])
     await laboratory.findAll('.authoring-scene-lab__direction')[1].trigger('keydown', { key: 'Escape', isComposing: true })
@@ -183,7 +196,9 @@ describe('block composer initial instruction', () => {
     const intervention = mount(AuthoringInterventionComposer, {
       props: { target: interventionTarget, originalText: '钟楼在午夜敲响。' }
     })
-    expect(intervention.text()).toContain('先核对这项变化会牵动哪些后文，不会修改正文。')
+    expect(intervention.text()).toContain('写下变化，先看后文哪些地方会被牵动')
+    expect(intervention.text()).toContain('改变谁做了什么、事情是否发生')
+    expect(intervention.text()).toContain('补充为什么这样改（可选）')
     expect(intervention.findAll('[role="radio"]')).toHaveLength(4)
     expect(intervention.find('[data-test="intervention-primary"]').attributes('disabled')).toBeDefined()
     await intervention.find('textarea').setValue('钟楼在清晨敲响。')

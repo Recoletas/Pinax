@@ -9,6 +9,7 @@ import AuthoringExceptionReview from '../components/authoring/AuthoringException
 import AuthoringMemoryReview from '../components/authoring/AuthoringMemoryReview.vue'
 import AuthoringMemoryNotice from '../components/authoring/AuthoringMemoryNotice.vue'
 import AuthoringSceneCuration from '../components/authoring/AuthoringSceneCuration.vue'
+import AuthoringSceneCurationPreview from '../components/authoring/AuthoringSceneCurationPreview.vue'
 import {
   createAuthoringInspectorState,
   openAuthoringInspectorDetail,
@@ -101,8 +102,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     await projectLinks[1].trigger('click')
     expect(outline.emitted('open-project-chapter')?.at(-1)).toEqual(['chapter-9'])
     expect(outline.emitted('open-project-exploration')?.[0]).toEqual(['exp-1'])
-    await outline.find('.authoring-outline-back').trigger('click')
-    expect(outline.find('.is-project-detail').exists()).toBe(false)
+    expect(outline.find('.is-project-detail').exists()).toBe(true)
 
     const dangling = mount(AuthoringOutlinePanel, {
       props: {
@@ -239,6 +239,8 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
       }
     })
     await curation.find('.scene-curation__person-toggle').trigger('click')
+    expect(curation.text()).toContain('加入当前场')
+    await curation.find('.scene-curation__candidate-actions .is-current').trigger('click')
     const selectedDraft = curation.emitted('update-draft')?.at(-1)?.[0]
     expect(selectedDraft.presentCharacterIds).toEqual(['char-lina'])
     await curation.setProps({ draft: selectedDraft })
@@ -248,11 +250,13 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
       viewpointCharacterId: 'char-lina'
     })
     const updateCountBeforeRunIntent = curation.emitted('update-draft')?.length
-    const characterScopeButtons = curation.findAll('.scene-curation__people .scene-curation__scope-btn')
-    await characterScopeButtons.find((button) => button.text() === '下一段入场').trigger('click')
-    await characterScopeButtons.find((button) => button.text() === '带入本次推演').trigger('click')
+    await curation.findAll('.scene-curation__person-toggle')[1].trigger('click')
+    let characterScopeButtons = curation.findAll('.scene-curation__people .scene-curation__scope-btn')
+    await characterScopeButtons.find((button) => button.text() === '让他下一段入场').trigger('click')
+    await characterScopeButtons.find((button) => button.text() === '仅带入本次推演').trigger('click')
+    await curation.find('.scene-curation__option').trigger('click')
     const locationScopeButtons = curation.findAll('.scene-curation__options .scene-curation__scope-btn')
-    await locationScopeButtons.find((button) => button.text() === '下一段转场').trigger('click')
+    await locationScopeButtons.find((button) => button.text() === '下一段转到这里').trigger('click')
     expect(curation.emitted('run-intent')).toEqual([
       [{ mode: 'next-passage', entityKind: 'character', entityId: 'char-edgar' }],
       [{ mode: 'run-only', entityKind: 'character', entityId: 'char-edgar' }],
@@ -262,7 +266,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     expect(curation.text()).toContain('保存当前场')
     expect(curation.text()).not.toContain('保存并推演')
     expect(curation.find('[role="listbox"]').exists()).toBe(false)
-    expect(curation.find('.scene-curation__person-toggle').attributes('aria-pressed')).toBe('true')
+    expect(curation.find('.scene-curation__person-toggle').text()).toContain('在场')
     expect(curation.vm.$options.emits).not.toContain('save-and-simulate')
     const runIntentCountAtCapacity = curation.emitted('run-intent')?.length
     await curation.setProps({
@@ -273,7 +277,9 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
       },
       characterCandidates: [{ id: 'character-ninth', name: '第九人' }]
     })
-    await curation.find('.scene-curation__people .scene-curation__scope-btn').trigger('click')
+    await curation.find('.scene-curation__person-toggle').trigger('click')
+    await curation.findAll('.scene-curation__people .scene-curation__scope-btn')
+      .find((button) => button.text() === '让他下一段入场').trigger('click')
     expect(curation.emitted('run-intent')).toHaveLength(runIntentCountAtCapacity)
     expect(curation.text()).toContain('当前场最多保留 8 位在场人物')
     await curation.setProps({ draft: { ...selectedDraft, originAxis: 'worldbook-mismatch' } })
@@ -288,10 +294,25 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
         locationCandidates: []
       }
     })
-    await curationDetail.find('.scene-curation__scope-btn').trigger('click')
+    await curationDetail.find('.scene-curation__person-toggle').trigger('click')
+    await curationDetail.findAll('.scene-curation__scope-btn')
+      .find((button) => button.text() === '让他下一段入场').trigger('click')
     expect(curationDetail.emitted('run-intent')?.[0]).toEqual([{
       mode: 'next-passage', entityKind: 'character', entityId: 'char-edgar'
     }])
+
+    const preview = mount(AuthoringSceneCurationPreview, {
+      props: {
+        draft: { ...selectedDraft, presentCharacterIds: ['char-lina', 'char-edgar'], locationId: 'place-tower' },
+        baseline: { ...selectedDraft, locationId: 'place-port' },
+        characterCandidates: [{ id: 'char-lina', name: '莉娜' }, { id: 'char-edgar', name: '艾德加' }],
+        locationCandidates: [{ id: 'place-port', name: '旧港' }, { id: 'place-tower', name: '孤塔' }]
+      }
+    })
+    expect(preview.text()).toContain('调整这一处的现场')
+    expect(preview.text()).toContain('莉娜→莉娜、艾德加')
+    expect(preview.text()).toContain('旧港→孤塔')
+    expect(preview.text()).toContain('在右侧保存后成为当前场')
   })
 
   it('keeps contextual setting selection bounded and preserves inspector return state（合并3例）', async () => {

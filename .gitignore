@@ -49,6 +49,8 @@ temp/
 *.tsbuildinfo
 *.tmp
 *.temp
+# One-off browser investigation scripts belong in tmp/, not tracked source.
+/scripts/__*.tmp.mjs
 
 # OS
 .DS_Store

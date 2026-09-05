@@ -6,6 +6,7 @@ export const SETTINGS_TASK_ADAPTERS = Object.freeze({
   'settings.foundation.generate': 'settingsGeneration',
   'settings.candidates.extract': 'settingsGeneration',
   'settings.field.complete': 'settingsGeneration',
+  'settings.character.complete': 'settingsGeneration',
   'settings.section.complete': 'settingsGeneration',
   'settings.draft.revise': 'settingsGeneration',
   'settings.places.extract': 'settingsPlace',

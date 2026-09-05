@@ -5,7 +5,12 @@ import {
   getSettingField,
   normalizeStructuredSettings
 } from '../services/settingPanelSchema'
-import { parseCharacterCards } from '../services/characterCard'
+import {
+  characterProfileFromCard,
+  parseCharacterCards,
+  parseCharacterEntryProfile,
+  serializeCharacterEntryProfile
+} from '../services/characterCard'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import {
@@ -95,17 +100,139 @@ function findStructuredFieldByRef(ref, entry) {
   return null
 }
 
-function syncStructuredEntries(entries, structuredSettings, normalizationNow = Date.now()) {
+function stableStructuredCharacterKey(name, occurrence = 0) {
+  const input = `${String(name || '').trim().toLocaleLowerCase()}#${occurrence}`
+  let hash = 2166136261
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function syncStructuredCharacterEntries(nextEntries, { section, field, content, ref, stableNow, tombstones }) {
+  const sourceEntries = nextEntries.filter((entry) => entry?.metadata?.structuredSettingRef === ref)
+  const sourceIds = new Set(sourceEntries.map((entry) => entry.id))
+  const detachedLegacyEntries = sourceEntries
+    .filter((entry) => !entry?.metadata?.structuredCharacterKey && entry?.metadata?.[STRUCTURED_USER_TOUCHED_KEY])
+    .flatMap((entry) => {
+      const legacyCards = parseCharacterCards(entry.content)
+      if (!legacyCards.length) {
+        return [{
+          ...entry,
+          metadata: {
+            ...entry.metadata,
+            importSource: 'manual',
+            structuredSettingRef: '',
+            sourceSection: '',
+            sourceField: ''
+          }
+        }]
+      }
+      return legacyCards.map((card, index) => {
+        const profile = characterProfileFromCard(card)
+        return {
+          ...entry,
+          id: index === 0 ? entry.id : `${entry.id}_${stableStructuredCharacterKey(card.name, index)}`,
+          name: card.name,
+          keys: [...new Set([card.name, ...(entry.keys || [])])],
+          content: serializeCharacterEntryProfile(profile),
+          metadata: {
+            ...entry.metadata,
+            importSource: 'manual',
+            structuredSettingRef: '',
+            structuredCharacterKey: '',
+            sourceSection: '',
+            sourceField: '',
+            characterProfile: profile
+          }
+        }
+      })
+    })
+  const detachedNames = new Set(detachedLegacyEntries.map((entry) => String(entry.name || '').trim().toLocaleLowerCase()).filter(Boolean))
+  const cards = parseCharacterCards(content)
+  const occurrences = new Map()
+  const materialized = []
+
+  for (const card of cards) {
+    const name = String(card?.name || '').trim()
+    if (!name) continue
+    const occurrenceName = name.toLocaleLowerCase()
+    if (detachedNames.has(occurrenceName)) continue
+    const occurrence = occurrences.get(occurrenceName) || 0
+    occurrences.set(occurrenceName, occurrence + 1)
+    const cardKey = stableStructuredCharacterKey(name, occurrence)
+    if (tombstones.has(`${ref}:${cardKey}`)) continue
+    const existing = sourceEntries.find((entry) => entry?.metadata?.structuredCharacterKey === cardKey)
+    if (existing?.metadata?.[STRUCTURED_USER_TOUCHED_KEY]) {
+      materialized.push(existing)
+      continue
+    }
+    const profile = characterProfileFromCard(card)
+    const serialized = serializeCharacterEntryProfile(profile)
+    materialized.push({
+      ...(existing || {}),
+      id: existing?.id || `entry_structured_${section.key}_${field.key}_${cardKey}`,
+      name,
+      type: 'character',
+      keys: [...new Set([name, field.label, ...(existing?.keys || [])])],
+      keysSecondary: existing?.keysSecondary || [],
+      content: serialized || String(card.description || '').trim(),
+      speechStyle: card.speechStyle || existing?.speechStyle || '',
+      samples: card.samples?.length ? card.samples : (existing?.samples || []),
+      injection: {
+        ...(existing?.injection || {}),
+        mode: 'selective',
+        probability: 100,
+        cooldown: 0,
+        depth: 1,
+        excludeRecursion: false,
+        group: field.defaultGroup || '角色'
+      },
+      relations: {
+        tags: [...new Set(['结构化设定', field.label, ...(existing?.relations?.tags || [])])],
+        locations: existing?.relations?.locations || [],
+        characters: existing?.relations?.characters || [],
+        events: existing?.relations?.events || []
+      },
+      metadata: {
+        ...(existing?.metadata || {}),
+        createdAt: existing?.metadata?.createdAt || stableNow,
+        updatedAt: existing?.content === serialized ? (existing?.metadata?.updatedAt || stableNow) : stableNow,
+        importSource: 'structured-setting',
+        structuredSettingRef: ref,
+        structuredCharacterKey: cardKey,
+        sourceSection: section.key,
+        sourceField: field.key,
+        basis: existing?.metadata?.basis || 'creative',
+        reviewState: existing?.metadata?.reviewState || 'ready',
+        [STRUCTURED_USER_TOUCHED_KEY]: false,
+        characterProfile: profile
+      }
+    })
+  }
+
+  return [...nextEntries.filter((entry) => !sourceIds.has(entry.id)), ...detachedLegacyEntries, ...materialized]
+}
+
+function syncStructuredEntries(entries, structuredSettings, normalizationNow = Date.now(), structuredCharacterTombstones = [], options = {}) {
   const stableNow = Number.isFinite(Number(normalizationNow)) ? Number(normalizationNow) : Date.now()
-  const nextEntries = entries.map((entry) => ({
+  let nextEntries = entries.map((entry) => ({
     ...entry,
     metadata: { ...(entry.metadata || {}) }
   }))
+  const tombstones = new Set(ensureArray(structuredCharacterTombstones).map(String))
 
   for (const section of SETTING_SECTIONS) {
     for (const field of section.fields) {
       const content = String(structuredSettings?.[section.key]?.[field.key] || '').trim()
       const ref = structuredSettingRef(section.key, field.key)
+      if (field.entryType === 'character') {
+        if (options.syncLegacyCharacters) {
+          nextEntries = syncStructuredCharacterEntries(nextEntries, { section, field, content, ref, stableNow, tombstones })
+        }
+        continue
+      }
       const existingIndex = nextEntries.findIndex((entry) => (
         entry.metadata?.structuredSettingRef === ref ||
         (
@@ -123,21 +250,13 @@ function syncStructuredEntries(entries, structuredSettings, normalizationNow = D
       const baseEntry = existingIndex >= 0 ? nextEntries[existingIndex] : null
       // A1 守卫：用户编辑过的 entry 只同步 keys（保持索引新鲜），不动 name/type/injection。
       const userTouched = Boolean(baseEntry?.metadata?.[STRUCTURED_USER_TOUCHED_KEY])
-      const characterKeys = field.entryType === 'character'
-        ? parseCharacterCards(content).map((card) => card.name)
-        : []
-
       if (userTouched && baseEntry) {
-        // 仅刷新 keys 与 content（内容源仍在 structuredSettings），其余字段保留用户编辑。
-        const keysChanged = content !== baseEntry.content
+        // 右侧设定工作台接管日常真源后，旧 structuredSettings 只作兼容投影，
+        // 不得在 reload 时把用户刚保存的 entry.content 反向覆盖。
         nextEntries[existingIndex] = {
           ...baseEntry,
-          keys: [...new Set([field.label, ...characterKeys, ...(baseEntry.keys || [])])],
-          content,
-          metadata: {
-            ...baseEntry.metadata,
-            updatedAt: keysChanged ? stableNow : (baseEntry.metadata?.updatedAt ?? stableNow)
-          }
+          keys: [...new Set([field.label, ...(baseEntry.keys || [])])],
+          metadata: { ...baseEntry.metadata }
         }
         continue
       }
@@ -150,7 +269,7 @@ function syncStructuredEntries(entries, structuredSettings, normalizationNow = D
         id: baseEntry?.id || `entry_structured_${section.key}_${field.key}`,
         name: field.label,
         type: field.entryType,
-        keys: [...new Set([field.label, ...characterKeys, ...(baseEntry?.keys || [])])],
+        keys: [...new Set([field.label, ...(baseEntry?.keys || [])])],
         keysSecondary: baseEntry?.keysSecondary || [],
         content,
         injection: {
@@ -246,7 +365,11 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
       metadata: { ...entry.metadata, [STRUCTURED_USER_TOUCHED_KEY]: touched }
     }
   })
-  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings, normalizationNow)
+  const structuredCharacterTombstones = [...new Set(ensureArray(source.structuredCharacterTombstones).map(String).filter(Boolean))]
+  const structuredCharacterMigrationVersion = Number(source.structuredCharacterMigrationVersion) || 0
+  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings, normalizationNow, structuredCharacterTombstones, {
+    syncLegacyCharacters: structuredCharacterMigrationVersion < 1
+  })
   const entries = syncedEntries.map((entry) => {
     const normalizedEntry = normalizeEntryVoice(entry)
     return normalizedEntry?.type === 'location' && !isPlaceOverviewEntry(normalizedEntry)
@@ -304,6 +427,8 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
       }),
     // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
     geoHistory: normalizeGeoHistory(source.geoHistory),
+    structuredCharacterTombstones,
+    structuredCharacterMigrationVersion: 1,
     structuredSettings
   }
 }
@@ -736,12 +861,17 @@ export const useWorldStore = defineStore('world', {
       // (name/type/injection) 时，标记 userTouched，避免后续 reload 被静默还原。
       const isStructuredEntry = entry.metadata?.importSource === 'structured-setting' ||
         Boolean(entry.metadata?.structuredSettingRef)
+      const isStructuredCharacterCard = Boolean(entry.metadata?.structuredCharacterKey)
       const touchedByUser = isStructuredEntry && (
         Object.prototype.hasOwnProperty.call(updates, 'name') ||
         Object.prototype.hasOwnProperty.call(updates, 'type') ||
-        Object.prototype.hasOwnProperty.call(updates, 'injection')
+        Object.prototype.hasOwnProperty.call(updates, 'injection') ||
+        (isStructuredCharacterCard && (
+          Object.prototype.hasOwnProperty.call(updates, 'content') ||
+          Object.prototype.hasOwnProperty.call(updates?.metadata || {}, 'characterProfile')
+        ))
       )
-      const updatedBase = {
+      let updatedBase = {
         ...entry,
         ...updates,
         id: entryId, // 不可更改
@@ -752,10 +882,31 @@ export const useWorldStore = defineStore('world', {
           ...(touchedByUser ? { [STRUCTURED_USER_TOUCHED_KEY]: true } : {})
         }
       }
+      if (
+        String(updatedBase.type || '').trim().toLowerCase() === 'character' &&
+        Object.prototype.hasOwnProperty.call(updates, 'content') &&
+        !Object.prototype.hasOwnProperty.call(updates?.metadata || {}, 'characterProfile')
+      ) {
+        updatedBase = {
+          ...updatedBase,
+          metadata: {
+            ...updatedBase.metadata,
+            characterProfile: parseCharacterEntryProfile({
+              ...updatedBase,
+              metadata: { ...updatedBase.metadata, characterProfile: null }
+            })
+          }
+        }
+      }
 
       const normalizedEntry = normalizeEntryVoice(updatedBase)
       const updated = normalizedEntry.type === 'location'
-        ? createPlaceEntryPatch(normalizedEntry, entry)
+        ? createPlaceEntryPatch({
+            ...getPlacePayloadFromEntry(entry),
+            name: normalizedEntry.name,
+            aliases: (normalizedEntry.keys || []).filter((key) => String(key || '').trim() !== String(normalizedEntry.name || '').trim()),
+            description: normalizedEntry.content
+          }, normalizedEntry)
         : normalizedEntry
       worldbook.entries[entryIdx] = updated
       worldbook.entriesMap[entryId] = updated
@@ -784,6 +935,16 @@ export const useWorldStore = defineStore('world', {
 
       const entryIdx = worldbook.entries.findIndex(e => e.id === entryId)
       if (entryIdx < 0) return
+
+      const deleting = worldbook.entries[entryIdx]
+      const structuredRef = String(deleting?.metadata?.structuredSettingRef || '')
+      const structuredCharacterKey = String(deleting?.metadata?.structuredCharacterKey || '')
+      if (structuredRef && structuredCharacterKey) {
+        worldbook.structuredCharacterTombstones = [...new Set([
+          ...(worldbook.structuredCharacterTombstones || []),
+          `${structuredRef}:${structuredCharacterKey}`
+        ])]
+      }
 
       worldbook.entries.splice(entryIdx, 1)
       delete worldbook.entriesMap[entryId]
@@ -1174,8 +1335,20 @@ export const useWorldStore = defineStore('world', {
 
       const structuredSettings = normalizeStructuredSettings(worldbook.structuredSettings)
       structuredSettings[sectionKey][fieldKey] = String(value || '')
+      const ref = structuredSettingRef(sectionKey, fieldKey)
+      const structuredCharacterTombstones = field.entryType === 'character'
+        ? (worldbook.structuredCharacterTombstones || []).filter((item) => !String(item).startsWith(`${ref}:`))
+        : (worldbook.structuredCharacterTombstones || [])
+      const entries = field.entryType === 'character'
+        ? worldbook.entries.filter((entry) => entry?.metadata?.structuredSettingRef !== ref)
+        : worldbook.entries
 
-      return this.updateWorldbook(worldbookId, { structuredSettings })
+      return this.updateWorldbook(worldbookId, {
+        structuredSettings,
+        structuredCharacterTombstones,
+        entries,
+        ...(field.entryType === 'character' ? { structuredCharacterMigrationVersion: 0 } : {})
+      })
     },
 
     async convertStructuredSettingToEntry(worldbookId, sectionKey, fieldKey) {
