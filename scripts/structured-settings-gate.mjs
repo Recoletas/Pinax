@@ -101,6 +101,113 @@ async function readConfigs(paths) {
   return providers
 }
 
+// ---- Deterministic settings workflow shapes (dispatcher dry run, no network) ----
+
+async function loadSettingsWorkflowModules() {
+  const [dispatcher, generation, place, research, maintenance] = await Promise.all([
+    import('../src/services/agents/settings/settingsTaskDispatcher.js'),
+    import('../src/services/agents/settings/settingsGenerationWorkflow.js'),
+    import('../src/services/agents/settings/settingsPlaceWorkflow.js'),
+    import('../src/services/agents/settings/settingsResearchWorkflow.js'),
+    import('../src/services/agents/settings/settingsMaintenanceWorkflow.js')
+  ])
+  return { ...dispatcher, ...generation, ...place, ...research, ...maintenance }
+}
+
+async function workflowShapeChecks() {
+  const {
+    createSettingsPageDispatcher,
+    createSettingsGenerationWorkflow,
+    createSettingsPlaceWorkflow,
+    createSettingsResearchWorkflow,
+    createSettingsMaintenanceWorkflow
+  } = await loadSettingsWorkflowModules()
+  const dispatchInput = (type, intent) => ({
+    project: { id: 'gate-fixture-worldbook', revision: 'gate-fixture-revision' },
+    target: { type, revision: 'gate-fixture-revision' },
+    intent
+  })
+  const abortError = () => {
+    const error = new Error('aborted')
+    error.name = 'AbortError'
+    return error
+  }
+  const dispatcher = createSettingsPageDispatcher({
+    adapters: {
+      settingsGeneration: createSettingsGenerationWorkflow({
+        generateFoundation: async () => ({ ok: true, content: 'Gate fixture 基础基调。' }),
+        generateField: async ({ request }) => {
+          if (request.options?.signal?.aborted) throw abortError()
+          return { ok: true, content: 'Gate fixture 字段草稿。' }
+        },
+        generateSection: async () => new Map([
+          ['origin', { ok: true, content: 'Gate fixture：潮汐塑造世界。' }],
+          ['powerSystem', { ok: false, reason: '该设定项未通过本地校验。' }]
+        ]),
+        reviseDraft: async () => ({ ok: true, content: 'Gate fixture 修订草稿。' })
+      }),
+      settingsPlace: createSettingsPlaceWorkflow({
+        extractPlaces: async () => [{ name: '旧码头', sourceRefs: ['source:c1'] }],
+        fleshOutPlace: async () => ({ name: '旧码头', description: 'Gate fixture 地点补全。' })
+      }),
+      settingsResearch: createSettingsResearchWorkflow({
+        planQueries: async () => ['潮汐港 城市史'],
+        collectClaims: async () => [{ text: '港口建于旧历三年', sourceRefs: ['url:1'] }]
+      }),
+      settingsMaintenance: createSettingsMaintenanceWorkflow({
+        audit: async () => [{ issue: '年代冲突' }]
+      })
+    }
+  })
+  const cases = []
+  const record = (name, pass, detail = '') => cases.push({ name, pass, detail })
+
+  const foundation = await dispatcher.dispatch('settings.foundation.generate', dispatchInput('setting-foundation', {}), {})
+  record('foundation-draft', foundation.status === 'completed' && foundation.actions[0]?.type === 'setting-draft'
+    && foundation.actions[0]?.baseRevision === 'gate-fixture-revision')
+
+  const field = await dispatcher.dispatch('settings.field.complete', dispatchInput('setting-field', {}), {})
+  record('field-draft', field.status === 'completed' && field.actions[0]?.payload?.ok === true)
+
+  const section = await dispatcher.dispatch('settings.section.complete', dispatchInput('setting-section', {}), {})
+  const sectionPayload = section.actions?.[0]?.payload
+  record('section-partial', section.status === 'completed'
+    && sectionPayload?.get?.('origin')?.ok === true
+    && sectionPayload?.get?.('powerSystem')?.ok === false)
+
+  const staleController = new AbortController()
+  staleController.abort()
+  const cancelled = await dispatcher.dispatch('settings.field.complete', dispatchInput('setting-field', {}), { signal: staleController.signal })
+  record('cancel-aborted', cancelled.status === 'failed' && cancelled.error?.code === 'AGENT_ABORTED')
+
+  const places = await dispatcher.dispatch('settings.places.extract', dispatchInput('setting-places', {}), {})
+  record('place-review-drafts', places.status === 'completed' && places.actions[0]?.type === 'setting-draft')
+
+  const claims = await dispatcher.dispatch('settings.research.claims', dispatchInput('setting-research', {}), {})
+  record('research-sourced-claims', claims.status === 'completed'
+    && claims.actions[0]?.sourceRefs?.[0] === 'url:1')
+
+  const audit = await dispatcher.dispatch('settings.maintenance.audit', dispatchInput('setting-maintenance', {}), {})
+  record('maintenance-read-only', audit.status === 'completed'
+    && Array.isArray(audit.actions) && audit.actions.length === 0
+    && audit.suggestions?.length === 1)
+
+  let unknownProbeInvoked = false
+  const unknownDispatcher = createSettingsPageDispatcher({
+    adapters: {
+      settingsGeneration: createSettingsGenerationWorkflow({
+        generateField: async () => { unknownProbeInvoked = true }
+      })
+    }
+  })
+  const unknown = await unknownDispatcher.dispatch('settings.not.in.catalog', dispatchInput('setting-field', {}), {})
+  record('unknown-task-fails-closed', unknown.status === 'failed'
+    && unknown.error?.code === 'AGENT_TASK_UNKNOWN'
+    && unknownProbeInvoked === false)
+
+  return { requested: cases.length, passed: cases.filter((item) => item.pass).length, cases, pass: cases.every((item) => item.pass) }
+}
+
 function dryRunProviders() {
   return [
     { id: 'minimax', baseUrl: 'https://dry-run.example/anthropic', apiKey: 'dry-run-key', model: 'MiniMax-M3', format: 'anthropic' },
@@ -378,6 +485,10 @@ async function main() {
     const reports = []
     for (const provider of providers) reports.push(await runProvider(provider, options))
     const fixtureReady = reports.every((report) => report.releaseReady)
+    const workflowShapes = options.dryRun ? await workflowShapeChecks() : undefined
+    if (workflowShapes) {
+      process.stdout.write(`settings workflow shapes: ${workflowShapes.passed}/${workflowShapes.requested} passed\n`)
+    }
     const output = {
       reportVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -385,7 +496,12 @@ async function main() {
       httpFixture: options.httpFixture,
       sample: { fieldRuns: options.fieldRuns, sectionRuns: options.sectionRuns },
       providers: reports,
-      fixtureReady: options.dryRun || options.httpFixture ? fixtureReady : undefined,
+      workflowShapes,
+      fixtureReady: options.dryRun
+        ? Boolean(fixtureReady && workflowShapes?.pass)
+        : options.httpFixture
+          ? fixtureReady
+          : undefined,
       releaseReady: !options.dryRun && !options.httpFixture && reports.length >= 3 && fixtureReady,
       transport: httpFixture
         ? {

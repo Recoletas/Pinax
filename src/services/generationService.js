@@ -71,6 +71,7 @@ export async function runNarrativeAgentTurn({
   tools,
   settings,
   options = {},
+  intentMode = '',
   requestId = '',
   signal = null
 } = {}) {
@@ -84,7 +85,7 @@ export async function runNarrativeAgentTurn({
     messages,
     tools,
     settings,
-    options,
+    options: { ...(options || {}), ...(intentMode ? { intentMode } : {}) },
     requestId,
     signal
   })

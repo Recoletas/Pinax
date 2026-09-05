@@ -1,12 +1,12 @@
-export const DEFAULT_ACTIVITY_KEY = 'experience'
+export const DEFAULT_ACTIVITY_KEY = 'authoring'
 
 export const ACTIVITY_ITEMS = [
   {
-    key: 'experience',
-    label: '体验',
-    description: '沉浸式文字冒险',
-    icon: 'compass',
-    defaultRouteName: 'experience'
+    key: 'authoring',
+    label: '创作',
+    description: '正文创作与叙事推演',
+    icon: 'book',
+    defaultRouteName: 'authoring'
   },
   {
     key: 'worldbook',
@@ -14,13 +14,6 @@ export const ACTIVITY_ITEMS = [
     description: '结构化设定与世界书管理',
     icon: 'settings',
     defaultRouteName: 'settings-structured'
-  },
-  {
-    key: 'writing',
-    label: '写作',
-    description: '章节管理与正文创作',
-    icon: 'book',
-    defaultRouteName: 'writing'
   },
   {
     key: 'materials',
@@ -39,18 +32,18 @@ export const ACTIVITY_ITEMS = [
 ]
 
 export const SIDE_PANELS = {
-  experience: {
-    title: '体验',
+  authoring: {
+    title: '创作',
     items: [
+      {
+        routeName: 'authoring',
+        label: '小说',
+        description: '章节与正文管理'
+      },
       {
         routeName: 'opening',
         label: '开场页',
         description: '独立选择开局行动'
-      },
-      {
-        routeName: 'settings-worldbook',
-        label: '选择世界',
-        description: '选择世界与开场行动'
       },
       {
         routeName: 'experience',
@@ -60,17 +53,7 @@ export const SIDE_PANELS = {
       {
         routeName: 'online-experience',
         label: '联机',
-        description: '创建或加入联机房间'
-      }
-    ]
-  },
-  writing: {
-    title: '写作',
-    items: [
-      {
-        routeName: 'writing',
-        label: '小说',
-        description: '章节与正文管理'
+        description: '创建或加入联机房间（兼容入口）'
       }
     ]
   },

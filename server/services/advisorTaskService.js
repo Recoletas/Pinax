@@ -32,6 +32,31 @@ export function normalizeAdvisorTaskType(taskType) {
   return validateAdvisorTaskType(taskType)
 }
 
+// 服务端结果模板历史上按旧任务键维护；canonical 任务通过该映射复用同族模板。
+const CANONICAL_TASK_TEMPLATE_KEYS = Object.freeze({
+  'authoring.rewrite': 'writing.fix.selection',
+  'authoring.review.selection': 'writing.close.thread',
+  'authoring.review.chapter': 'writing.chapter.health',
+  'authoring.complete.inline': 'writing.continue.light',
+  'authoring.next-actions': 'experience.next-actions',
+  'authoring.emergence': 'experience.emergence',
+  // 统一创作命令链：九个 Authoring 命令全部可路由到既有同族模板。
+  'authoring.continue': 'writing.continue.light',
+  'authoring.advance': 'writing.continue.light',
+  'authoring.simulate.character': 'writing.continue.light',
+  'authoring.simulate.scene': 'writing.continue.light',
+  'authoring.insert': 'writing.continue.light',
+  'authoring.dialogue-options': 'experience.next-actions'
+})
+
+function resolveTaskTemplateKey(taskType) {
+  return CANONICAL_TASK_TEMPLATE_KEYS[taskType] || taskType
+}
+
+export function resolveServerTaskTemplateKey(taskType) {
+  return resolveTaskTemplateKey(taskType)
+}
+
 function stripJsonFence(text) {
   return String(text || '')
     .trim()
@@ -123,6 +148,7 @@ function parseSectionedAdvice(text) {
 }
 
 function buildAdvisorResult(taskType, advice, options = {}) {
+  taskType = resolveTaskTemplateKey(taskType)
   const parsed = parseAdvisorJson(advice)
   const sectioned = parseSectionedAdvice(advice)
   const base = parsed && typeof parsed === 'object'

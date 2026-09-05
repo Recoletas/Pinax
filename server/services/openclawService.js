@@ -49,6 +49,27 @@ const ADVISOR_TASK_INSTRUCTIONS = {
   'storyboard.video.prompt': '任务：为当前已确认分镜镜头准备一条视频生成提示词。只返回待确认请求，不提交媒体任务。'
 }
 
+// 服务端指令模板历史上按旧任务键维护；canonical 任务通过该映射复用同族模板。
+const CANONICAL_TASK_TEMPLATE_KEYS = Object.freeze({
+  'authoring.rewrite': 'writing.fix.selection',
+  'authoring.review.selection': 'writing.close.thread',
+  'authoring.review.chapter': 'writing.chapter.health',
+  'authoring.complete.inline': 'writing.continue.light',
+  'authoring.next-actions': 'experience.next-actions',
+  'authoring.emergence': 'experience.emergence',
+  // 统一创作命令链：九个 Authoring 命令全部可路由到既有同族模板。
+  'authoring.continue': 'writing.continue.light',
+  'authoring.advance': 'writing.continue.light',
+  'authoring.simulate.character': 'writing.continue.light',
+  'authoring.simulate.scene': 'writing.continue.light',
+  'authoring.insert': 'writing.continue.light',
+  'authoring.dialogue-options': 'experience.next-actions'
+})
+
+function resolveTaskTemplateKey(taskType) {
+  return CANONICAL_TASK_TEMPLATE_KEYS[taskType] || taskType
+}
+
 function readGatewayTokenFromConfig() {
   try {
     const configPath = join(homedir(), '.openclaw', 'openclaw.json')
@@ -94,7 +115,7 @@ function normalizeTaskType(taskType) {
 }
 
 function getTaskInstruction(taskType) {
-  const instruction = ADVISOR_TASK_INSTRUCTIONS[taskType]
+  const instruction = ADVISOR_TASK_INSTRUCTIONS[resolveTaskTemplateKey(taskType)]
   if (!instruction) {
     const error = new Error(`Agent 任务缺少服务端指令：${taskType}`)
     error.code = 'AGENT_TASK_UNAVAILABLE'
@@ -104,6 +125,7 @@ function getTaskInstruction(taskType) {
 }
 
 function getTaskOutputInstruction(taskType, options = {}) {
+  taskType = resolveTaskTemplateKey(taskType)
   if (taskType === 'writing.continue.light') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {

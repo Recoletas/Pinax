@@ -4,6 +4,18 @@ import {
   normalizeCreationGenerationAction,
   normalizeCreationGenerationState
 } from './worldbookCreationState'
+import { sha256HexOfText } from './contentHash'
+import { normalizeEncodingDetection } from './encodingDetector'
+import {
+  aggregateChapterDetectionConfidence,
+  CHAPTER_DETECTION_BASIS,
+  CHAPTER_CONFIDENCES,
+  computeUnmatchedRanges,
+  normalizeChapterList
+} from '../../shared/chapterContract'
+import { detectChapters } from './chapterDetector'
+
+export { CHAPTER_CONFIDENCES, CHAPTER_DETECTION_BASIS }
 
 /**
  * 世界书创建工作区的来源归档合同。
@@ -76,6 +88,31 @@ export function hashSourceText(value) {
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
 }
 
+/**
+ * 永久内容身份：SHA-256 前 128 位（16 hex）。32-bit FNV 碰撞概率不可忽略，
+ * 跨编码重复识别与增量重解析都依赖这个哈希。
+ */
+export function hashSourceTextSha256(value) {
+  return `sha256-${sha256HexOfText(value).slice(0, 16)}`
+}
+
+const WORK_ID_SLUG_RE = /[^\p{Script=Han}\p{L}\p{N}]+/gu
+
+function workSlug(value) {
+  const slug = asText(value).trim().replace(WORK_ID_SLUG_RE, '-').replace(/^-+|-+$/g, '').toLowerCase()
+  return (slug || 'untitled').slice(0, 32)
+}
+
+/**
+ * 作品 ID：`work-${slug}-${authorHash8}`。仅在元数据（EPUB metadata）或用户
+ * 显式提供 title/author 时生成；纯 TXT 没有可靠元数据，返回 null。
+ */
+export function buildWorkId({ title, author } = {}) {
+  const normalizedAuthor = asText(author).trim()
+  if (!asText(title).trim() && !normalizedAuthor) return null
+  return `work-${workSlug(title)}-${sha256HexOfText(normalizedAuthor).slice(0, 8)}`
+}
+
 function normalizeId(value, fallback) {
   const text = asText(value).trim()
   return text || fallback
@@ -130,27 +167,71 @@ function chooseChunkEnd(text, start, limit) {
   return hardEnd
 }
 
+/**
+ * 把 [start, end) 区间按 chunkSize 切成片段（优先段落边界）。
+ */
+function sliceRangeIntoChunks(text, start, end, chunkSize) {
+  const pieces = []
+  let cursor = start
+  while (cursor < end) {
+    let pieceEnd = chooseChunkEnd(text, cursor, Math.min(chunkSize, end - cursor))
+    if (pieceEnd <= cursor) pieceEnd = Math.min(end, cursor + chunkSize)
+    pieces.push({ start: cursor, end: pieceEnd })
+    cursor = pieceEnd
+  }
+  return pieces
+}
+
+/**
+ * 章节优先切块：
+ * - 提供 options.chapters（或自动检测到章节）时，章节边界优先于长度边界；
+ *   章内按段落 + maxChars 切；未被章节覆盖的区间（unmatchedRanges）照常切块不丢。
+ * - 每个 chunk 携带 chapterId：`${sourceId}:chapter:${ordinal}`；无章节为 null。
+ */
 export function buildSourceChunks(content, options = {}) {
   const text = normalizeSourceText(content)
   if (!text) return []
 
   const sourceId = normalizeId(options.sourceId, 'source-unknown')
   const chunkSize = Math.max(256, Number(options.chunkSize) || DEFAULT_CHUNK_SIZE)
-  const chunks = []
-  let start = 0
 
-  while (start < text.length) {
-    let end = chooseChunkEnd(text, start, chunkSize)
-    if (end <= start) end = Math.min(text.length, start + chunkSize)
-    const chunkText = text.slice(start, end).trim()
-    const leadingWhitespace = text.slice(start, end).search(/\S/)
-    const contentStart = leadingWhitespace < 0 ? start : start + leadingWhitespace
-    const contentEnd = contentStart + chunkText.length
-    if (chunkText) {
+  let chapters = Array.isArray(options.chapters) ? options.chapters : []
+  if (!chapters.length && options.skipChapterDetection !== true && !options.locator?.type) {
+    chapters = detectChapters(text).chapters
+  }
+  chapters = normalizeChapterList(chapters).map((chapter) => ({
+    ...chapter,
+    chapterId: chapter.chapterId || `${sourceId}:chapter:${chapter.ordinal}`
+  }))
+
+  const segments = []
+  if (chapters.length) {
+    let cursor = 0
+    for (const chapter of chapters) {
+      const chapterStart = Math.max(cursor, Math.min(chapter.startOffset, text.length))
+      const chapterEnd = Math.max(chapterStart, Math.min(chapter.endOffset, text.length))
+      if (chapterStart > cursor) segments.push({ start: cursor, end: chapterStart, chapter: null })
+      if (chapterEnd > chapterStart) segments.push({ start: chapterStart, end: chapterEnd, chapter })
+      cursor = Math.max(cursor, chapterEnd)
+    }
+    if (cursor < text.length) segments.push({ start: cursor, end: text.length, chapter: null })
+  } else {
+    segments.push({ start: 0, end: text.length, chapter: null })
+  }
+
+  const chunks = []
+  for (const segment of segments) {
+    for (const piece of sliceRangeIntoChunks(text, segment.start, segment.end, chunkSize)) {
+      const chunkText = text.slice(piece.start, piece.end).trim()
+      if (!chunkText) continue
+      const leadingWhitespace = text.slice(piece.start, piece.end).search(/\S/)
+      const contentStart = leadingWhitespace < 0 ? piece.start : piece.start + leadingWhitespace
+      const contentEnd = contentStart + chunkText.length
       const hash = hashSourceText(chunkText)
       chunks.push({
         id: `${sourceId}:chunk:${chunks.length + 1}:${hash}`,
         sourceId,
+        chapterId: segment.chapter?.chapterId || null,
         text: chunkText,
         hash,
         charCount: chunkText.length,
@@ -161,19 +242,67 @@ export function buildSourceChunks(content, options = {}) {
         }]
       })
     }
-    start = end
   }
 
   return chunks
+}
+
+/**
+ * 归一 SourceArtifact 附带的章节元数据；缺失 chapterId 时按
+ * `${artifactId}:chapter:${ordinal}` 注入。
+ */
+function normalizeArtifactChapters(input, totalLength, artifactId) {
+  const chapters = normalizeChapterList(Array.isArray(input.chapters) ? input.chapters : [])
+    .map((chapter) => ({
+      ...chapter,
+      chapterId: chapter.chapterId || `${artifactId}:chapter:${chapter.ordinal}`
+    }))
+  return {
+    chapters,
+    chapterDetectionConfidence: aggregateChapterDetectionConfidence(chapters, { totalLength }),
+    unmatchedRanges: computeUnmatchedRanges(chapters, totalLength),
+    chapterWarnings: (Array.isArray(input.chapterWarnings) ? input.chapterWarnings : [])
+      .map((warning) => asText(warning).trim()).filter(Boolean).slice(0, 16)
+  }
+}
+
+export function createFileInstanceId() {
+  const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+  return `upload-${uuid}`
+}
+
+function normalizeEpubMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return null
+  const title = asText(metadata.title).trim()
+  const author = asText(metadata.author).trim()
+  const language = asText(metadata.language).trim()
+  const identifier = asText(metadata.identifier).trim()
+  if (!title && !author && !language && !identifier) return null
+  return {
+    title,
+    author,
+    language,
+    identifier
+  }
 }
 
 export function normalizeSourceArtifact(input = {}) {
   const hasContent = Object.prototype.hasOwnProperty.call(input, 'content')
   const content = normalizeSourceText(input.content)
   const id = normalizeId(input.id, `source_${Date.now().toString(36)}`)
+  const rawContentHash = normalizeId(input.contentHash, '')
+  // 旧数据（fnv1a-*）保留为 legacyContentHash；新内容身份一律 SHA-256。
+  const legacyFromInput = /^fnv1a-/.test(rawContentHash)
+    ? rawContentHash
+    : normalizeId(input.legacyContentHash, hasContent ? hashSourceText(content) : '')
+  const chapterInfo = normalizeArtifactChapters(input, content.length || Number(input.normalizedLength) || 0, id)
   return {
     schemaVersion: SOURCE_ARCHIVE_SCHEMA_VERSION,
     id,
+    fileInstanceId: normalizeId(input.fileInstanceId, ''),
+    workId: normalizeId(input.workId, buildWorkId(input.workMeta || {}) || ''),
     title: normalizeId(input.title, '导入资料'),
     kind: normalizeId(input.kind, 'reference-text'),
     sourceLabel: normalizeId(input.sourceLabel, '本地资料'),
@@ -184,8 +313,12 @@ export function normalizeSourceArtifact(input = {}) {
       ? content.length
       : Number(input.normalizedLength) || 0,
     contentHash: hasContent
-      ? hashSourceText(content)
-      : normalizeId(input.contentHash, hashSourceText(content)),
+      ? hashSourceTextSha256(content)
+      : normalizeId(rawContentHash, hashSourceTextSha256(content)),
+    legacyContentHash: legacyFromInput,
+    encoding: input.encoding ? normalizeEncodingDetection(input.encoding) : null,
+    ...chapterInfo,
+    epubMetadata: normalizeEpubMetadata(input.epubMetadata),
     createdAt: Number(input.createdAt) || Date.now(),
     file: input.file && typeof input.file === 'object'
       ? {
@@ -388,12 +521,16 @@ async function assertArchiveCapacity({ artifacts = [], chunks = [], workspaces =
 export async function saveSourceArchiveBundle(bundle) {
   let artifact = normalizeSourceArtifact(bundle?.artifact)
   const allArtifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
+  // 增量重解析第一层：内容哈希（SHA-256）一致 → 整个来源跳过，直接复用。
   const existing = allArtifacts.find((candidate) => candidate.contentHash === artifact.contentHash)
+    || allArtifacts.find((candidate) => artifact.legacyContentHash
+      && candidate.contentHash === artifact.legacyContentHash)
   if (existing) {
     return {
       artifact: existing,
       chunks: await loadSourceChunks(existing.chunkIds),
-      reused: true
+      reused: true,
+      reusedChunkCount: existing.chunkIds?.length || 0
     }
   }
   const sameId = allArtifacts.find((candidate) => candidate.id === artifact.id)
@@ -409,12 +546,14 @@ export async function saveSourceArchiveBundle(bundle) {
   const chunksByHash = new Map(existingChunks.map((chunk) => [chunk.hash || hashSourceText(chunk.text), chunk]))
   const chunksToSave = []
   const chunkIds = []
+  let reusedChunkCount = 0
   for (const [incomingIndex, incoming] of incomingChunks.entries()) {
     const normalized = normalizeSourceText(incoming?.text)
     if (!normalized) continue
     const hash = normalizeId(incoming?.hash, hashSourceText(normalized))
     const current = chunksByHash.get(hash)
     if (current) {
+      // 内容变了但章节未变：相同 chunk 文本按 hash 复用，只保存新增片段。
       const ref = sourceRefForChunk({ ...incoming, text: normalized, sourceId: artifact.id })
       const sourceRefs = [...(Array.isArray(current.sourceRefs) ? current.sourceRefs : []), ref]
         .filter((item, index, refs) => refs.findIndex((candidate) => (
@@ -425,6 +564,7 @@ export async function saveSourceArchiveBundle(bundle) {
       chunksByHash.set(hash, updated)
       chunksToSave.push(updated)
       chunkIds.push(current.id)
+      reusedChunkCount += 1
       continue
     }
     const created = {
@@ -442,7 +582,7 @@ export async function saveSourceArchiveBundle(bundle) {
   }
   const savedArtifact = { ...artifact, chunkIds }
   const saved = await saveSourceArchiveRecords([savedArtifact], chunksToSave)
-  return { artifact: saved.artifacts[0], chunks: chunksToSave, reused: false }
+  return { artifact: saved.artifacts[0], chunks: chunksToSave, reused: false, reusedChunkCount }
 }
 
 async function saveSourceArchiveRecords(artifacts, chunks) {

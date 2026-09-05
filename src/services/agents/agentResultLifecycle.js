@@ -319,3 +319,20 @@ export function extractGenerationRequest(result) {
     sourceRefs: a.sourceRefs || []
   }))
 }
+
+export function normalizeTransactionReceipt(receipt) {
+  if (receipt == null) return { appliedActions: 0, operations: [] }
+  if (Array.isArray(receipt)) return { appliedActions: receipt.length, operations: receipt }
+  if (typeof receipt !== 'object') return { appliedActions: 0, operations: [] }
+  const operations = Array.isArray(receipt.operations)
+    ? receipt.operations
+    : Array.isArray(receipt.actions)
+      ? receipt.actions
+      : []
+  const appliedActions = Number.isFinite(Number(receipt.appliedActions))
+    ? Number(receipt.appliedActions)
+    : Number.isFinite(Number(receipt.applied))
+      ? Number(receipt.applied)
+      : operations.length
+  return { ...receipt, operations, appliedActions }
+}

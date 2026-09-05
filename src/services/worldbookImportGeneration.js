@@ -239,7 +239,7 @@ function describeGenerationFailure(result, fallback, invalidStructure = '返回�
   return `${fallback}：${invalidStructure}`
 }
 
-export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameHint }) {
+export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameHint, signal = null }) {
   const apiSettings = await getResolvedApiSettings()
   if (!apiSettings?.baseUrl || !apiSettings?.apiKey || !apiSettings?.model) {
     return {
@@ -284,6 +284,7 @@ export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameH
       }
     ],
     settings: apiSettings,
+    signal,
     generationOptions: {
       max_tokens: 3400,
       temperature: 0.35,
@@ -318,6 +319,18 @@ export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameH
   return {
     ok: true,
     parsed: generationResult.parsed || parseJsonFromAiContent(generationResult.content)
+  }
+}
+
+export function createQuickImportExtractServices() {
+  return {
+    extract: async ({ sourceText, targetCount, nameHint, signal }) => {
+      const aiResult = await tryAiExtractWorldbookJson({ sourceText, targetCount, nameHint, signal })
+      if (!aiResult?.ok || !aiResult.parsed) {
+        throw new Error(aiResult?.reason || 'AI 提炼未产出可用结构，已自动回退本地提炼')
+      }
+      return aiResult.parsed
+    }
   }
 }
 

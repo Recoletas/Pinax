@@ -114,7 +114,7 @@ export async function summarizeExperienceAssets(context = {}) {
 
   try {
     const result = await runGenerationTask({
-      taskType: 'experience.asset-summary',
+      taskType: 'authoring.asset.summarize',
       baseMessages: messages,
       settings,
       generationOptions: {

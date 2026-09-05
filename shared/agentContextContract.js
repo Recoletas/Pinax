@@ -109,6 +109,21 @@ export function clipAgentContextEnvelope(envelope, maxCharsOverride) {
   }
 }
 
+export function buildAgentContextEnvelope({ surface, target = null, budget = {}, blocks = [] }) {
+  return {
+    version: AGENT_CONTEXT_SCHEMA_VERSION,
+    surface: String(surface || ''),
+    projectId: null,
+    target: {
+      type: String(target?.type || ''),
+      id: target?.id != null ? String(target.id) : null,
+      revision: String(target?.revision || '')
+    },
+    budget: { ...budget },
+    blocks
+  }
+}
+
 export function createAgentContextLedger(envelope) {
   const dropped = envelope?.dropReport?.dropped || []
   const estimateTokens = (chars) => Math.max(0, Math.ceil(Number(chars || 0) / 4))
@@ -124,12 +139,20 @@ export function createAgentContextLedger(envelope) {
       ...(envelope?.blocks || []).map((block, order) => ({
         order,
         kind: block.kind,
-        status: block.truncated ? 'truncated' : 'included',
+        // included:false 的块（如记忆排除审计）不进入正文，状态必须是 excluded。
+        status: block.included === false
+          ? 'excluded'
+          : (block.truncated ? 'truncated' : 'included'),
         chars: serializeAgentBlockContent(block.content).length,
         estimatedTokens: estimateTokens(serializeAgentBlockContent(block.content).length),
         originalChars: block.originalChars ?? null,
+        entryId: block.entryId ? String(block.entryId) : null,
         sourceRefs: block.sourceRefs || [],
-        reason: block.truncated ? 'priority-block-retained-partially' : 'within-budget'
+        score: block.score && typeof block.score === 'object' ? block.score : null,
+        recallAudit: block.recallAudit && typeof block.recallAudit === 'object' ? block.recallAudit : null,
+        reason: block.truncated
+          ? 'priority-block-retained-partially'
+          : (block.reason || 'within-budget')
       })),
       ...dropped.map((block, offset) => ({
         order: (envelope?.blocks?.length || 0) + offset,
@@ -138,7 +161,10 @@ export function createAgentContextLedger(envelope) {
         chars: block.estimatedChars,
         estimatedTokens: estimateTokens(block.estimatedChars),
         originalChars: block.estimatedChars,
+        entryId: null,
         sourceRefs: block.sourceRefs || [],
+        score: null,
+        recallAudit: null,
         reason: block.reason
       }))
     ]

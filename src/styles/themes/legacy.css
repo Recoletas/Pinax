@@ -570,7 +570,7 @@
 }
 
 .theme-legacy .ws-codex-detail-title {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
   font-size: 18px;
   font-weight: 650;
   color: var(--archive-ink);
@@ -705,4 +705,65 @@
   .theme-legacy .ws-codex-detail-close {
     transition: none;
   }
+}
+
+/* 2026-08-22 暗色解锁（P-DARK slice 1）：legacy 变体的暗色覆盖。
+   此前 :root.theme-legacy(0,2,0) 恒压过 .theme-dark(0,1,0)，导致产品默认
+   变体在暗色下"不变暗"。本块用 (0,3,0) 特异性提供蓝钢夜读配色，token 集
+   与 :root.theme-legacy 一一对应，另补齐 main.css .theme-dark 缺失的
+   surface-workbench / signal / experience-signal / shadow-workbench 十项。 */
+:root.theme-legacy.theme-dark {
+  --bg-primary: #10161d;
+  --bg-secondary: #161f29;
+  --bg-tertiary: #1e2a36;
+  --bg-hover: #263442;
+  --text-primary: #e6eef7;
+  --text-secondary: #9fb2c5;
+  --text-muted: #6b8098;
+
+  --accent: #4da3ff;
+  --accent-hover: #6db5ff;
+  --accent-light: rgba(77, 163, 255, 0.16);
+  --accent-text: #0b1220;
+  --accent-purple: #8fa3e8;
+  --accent-purple-light: rgba(143, 163, 232, 0.16);
+  --accent-teal: #38b8c9;
+  --accent-teal-light: rgba(56, 184, 201, 0.14);
+  --accent-amber: #c9a35c;
+  --accent-amber-light: rgba(201, 163, 92, 0.14);
+  --accent-rose: #d47f92;
+  --accent-rose-light: rgba(212, 127, 146, 0.14);
+  --accent-emerald: #5bc9a3;
+  --accent-emerald-light: rgba(91, 201, 163, 0.14);
+
+  --border: #2a3948;
+  --border-strong: #3b4f63;
+  --shadow: rgba(0, 0, 0, 0.34);
+  --shadow-md: rgba(0, 0, 0, 0.46);
+
+  --archive-paper: #101a24;
+  --archive-paper-strong: #18242f;
+  --archive-paper-soft: #14202b;
+  --archive-ink: #dbe6f2;
+  --archive-ink-soft: #8aa3bd;
+  --archive-olive: #4f8bc4;
+  --archive-olive-strong: #2b5d8f;
+  --archive-gold: #6c8caf;
+  --archive-gold-soft: #3d5a7a;
+  --archive-rose: #b04a5c;
+  --archive-photo: #0c1620;
+  --experience-signal-warm: #8a7f3d;
+  --experience-signal-cool: #4f7482;
+  --hairline-soft: rgba(138, 163, 189, 0.18);
+  --hairline-accent: rgba(108, 140, 175, 0.42);
+  --hairline-rose: rgba(176, 74, 92, 0.40);
+
+  --surface-workbench: #121b25;
+  --surface-workbench-raised: #182430;
+  --surface-workbench-muted: #0f1720;
+  --signal-primary: #4da3ff;
+  --signal-secondary: #38b8c9;
+  --signal-warm: #c9a35c;
+  --shadow-workbench: 0 12px 30px rgba(0, 0, 0, 0.34);
+  --shadow-workbench-float: 0 18px 44px rgba(0, 0, 0, 0.46);
 }

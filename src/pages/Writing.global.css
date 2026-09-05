@@ -287,6 +287,35 @@
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 10%, transparent);
 }
 
+/* 复验修复（非功能）：检查器动作区的唯一共享定义——
+   无虚线分隔、无自建边框按钮，与稿件导航同一套文字动作层级。 */
+.writing-page .writing-inspector__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+}
+.writing-page .writing-inspector__actions button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-height: 44px;
+  padding: 4px 6px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.writing-page .writing-inspector__actions button:hover:not(:disabled) {
+  color: var(--archive-olive);
+  text-decoration-style: solid;
+}
+.writing-page .writing-inspector__actions button:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
 .writing-page .writing-inspector__context span,
 .writing-page .writing-inspector__context small {
   color: var(--archive-ink-soft);

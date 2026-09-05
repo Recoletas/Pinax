@@ -169,7 +169,7 @@ export async function generateAdventureProseDraft({
   sessionTitle = ''
 } = {}) {
   const result = await runGenerationTask({
-    taskType: 'adventure.trigger.prose',
+    taskType: 'authoring.trigger',
     baseMessages: buildAdventureProseMessages({
       worldbook,
       runtimeState,

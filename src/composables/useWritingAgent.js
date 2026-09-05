@@ -317,7 +317,7 @@ export function useWritingAgent(options = {}) {
       const result = await requestAdvisorTask({
         envelope: input.envelope,
         question: '续写光标处的下一句正文，只返回正文。',
-        taskType: 'writing.continue.light',
+        taskType: 'authoring.complete.inline',
         scope: 'continue',
         options: { contextLedgerVersion: input.ledger?.schemaVersion || 1 }
       })

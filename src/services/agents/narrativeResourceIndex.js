@@ -7,6 +7,7 @@ import {
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
 // P1-5：与 worldbookContextBuilder 共用同一关键词匹配原语
 import { keyMatches } from '../worldbookContextBuilder'
+import { rankMemoryCandidates } from '../memoryRetrieval'
 
 const CACHE_LIMIT = 4
 const indexCache = new Map()
@@ -237,7 +238,8 @@ function historyResources(worldbook) {
 function memoryResources(memories = []) {
   return (Array.isArray(memories) ? memories : [])
     .filter((memory) => memory?.status === 'active')
-    .map((memory) => resource({
+    .map((memory) => {
+      const item = resource({
       id: memory?.id,
       domain: 'memory',
       type: memory?.kind || memory?.metadata?.sourceType || 'memory',
@@ -267,7 +269,11 @@ function memoryResources(memories = []) {
       conflictState: memory?.metadata?.conflictState || (memory?.status === 'stale' ? 'stale' : 'clean'),
       conflictRefs: memory?.metadata?.conflictRefs || [],
       updatedAt: memory?.updatedAt || memory?.createdAt
-    }))
+    })
+    // 受控记忆排序：保留原始候选，供 rankMemoryCandidates 统一评分。
+    item.raw = memory
+    return item
+  })
     .filter((item) => item.id && item.summary)
 }
 
@@ -621,20 +627,52 @@ function pageResources(resources, {
 
 export function searchNarrativeResources(index, domain, input = {}, options = {}) {
   const candidates = index?.byDomain?.get(domain) || []
+  // 受控记忆：排序统一交给 rankMemoryCandidates（同一 scope/threshold/topK 策略）。
+  let memoryScores = null
+  if (domain === 'memory') {
+    const ranking = rankMemoryCandidates({
+      candidates: candidates.map((item) => item.raw).filter(Boolean),
+      query: input.query || '',
+      projectId: text(index?.projectId),
+      sessionId: text(index?.sessionId)
+    })
+    memoryScores = new Map()
+    for (const entry of [...ranking.included, ...ranking.excluded.filter((entryItem) => entryItem.skipReason !== 'status' && entryItem.skipReason !== 'scope')]) {
+      if (entry.score) memoryScores.set(entry.id, entry.score)
+    }
+  }
   const ranked = candidates
     .filter((item) => matchesFilters(item, input.filters))
-    .map((item) => ({ item, match: scoreResource(item, input.query, options.currentPlaceId) }))
-    .filter((entry) => !input.query || entry.match.score > 0)
-    .sort((left, right) => (
-      right.match.score - left.match.score
-      || right.item.updatedAt - left.item.updatedAt
-      || left.item.id.localeCompare(right.item.id)
-    ))
+    .filter((item) => domain !== 'memory' || !input.query || !memoryScores || memoryScores.has(item.id))
+    .map((item) => ({ item, match: scoreResource(item, input.query, options.currentPlaceId), memoryScore: memoryScores?.get(item.id) || null }))
+    .filter((entry) => !input.query || entry.match.score > 0 || (domain === 'memory' && entry.memoryScore))
+    .sort((left, right) => {
+      if (memoryScores) {
+        const leftFinal = left.memoryScore ? left.memoryScore.final : -1
+        const rightFinal = right.memoryScore ? right.memoryScore.final : -1
+        if (rightFinal !== leftFinal) return rightFinal - leftFinal
+      }
+      return right.match.score - left.match.score
+        || right.item.updatedAt - left.item.updatedAt
+        || left.item.id.localeCompare(right.item.id)
+    })
     .map((entry) => ({
       ...entry.item,
-      matchReasons: entry.match.reasons,
-      _searchSortKey: sortKey(entry.match.score, entry.item.updatedAt),
-      _searchScore: entry.match.score
+      matchReasons: [
+        ...entry.match.reasons,
+        ...(entry.memoryScore ? [
+          `relevance:${entry.memoryScore.relevance}`,
+          `importance:${entry.memoryScore.importance}`,
+          `authority:${entry.memoryScore.authority}`,
+          `recency:${entry.memoryScore.recency}`,
+          `scopeFit:${entry.memoryScore.scopeFit}`
+        ] : [])
+      ],
+      _searchSortKey: sortKey(
+        entry.memoryScore ? Math.round(entry.memoryScore.final * 1000) : entry.match.score,
+        entry.item.updatedAt
+      ),
+      _searchScore: entry.memoryScore ? Math.round(entry.memoryScore.final * 1000) : entry.match.score
     }))
   const paged = pageResources(ranked, {
     revision: index?.revision,

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
-import { createMemoryCandidate } from '../services/memoryCandidates'
+import { confirmMemoryCandidate, createMemoryCandidate, listMemoryCandidates } from '../services/memoryCandidates'
 import { listNarrativeAssets } from '../services/narrativeAssets'
 import { consumePlayableWorldHistoryIntent } from '../services/playableWorldEntry'
 import {
@@ -74,8 +74,84 @@ describe('gameStore sessions', () => {
     vi.restoreAllMocks()
   })
 
-  it('creates a session with the active worldbook and empty runtime snapshot', () => {
-    const worldStore = useWorldStore()
+  it("creates a session with the active worldbook and empty runtime snapshot（合并4例）（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
 
     const gameStore = useGameStore()
@@ -90,19 +166,97 @@ describe('gameStore sessions', () => {
     const explicitlyScoped = gameStore.createSession({ title: '第二章', worldbookId: 'wb_beta' })
     expect(explicitlyScoped.worldbookId).toBe('wb_beta')
     expect(explicitlyScoped.worldId).toBe('wb_beta')
-  })
 
-  it('keeps the current place on extracted activity records', () => {
-    const gameStore = useGameStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const gameStore = useGameStore()
     gameStore.worldMapState = { placeId: 'place:current', currentScene: '旧税所' }
 
     gameStore.addActivity({ title: '发现旧税册', type: 'event', date: '2026-07-15' })
 
     expect(gameStore.activities[0].placeId).toBe('place:current')
-  })
 
-  it('persists runtime edits into the active session and restores them on load', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
 
     const gameStore = useGameStore()
@@ -179,10 +333,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.playerCharacter.avatar).toBe('avatar.png')
     expect(gameStore.aiCharacter.name).toBe('叙述者')
     expect(gameStore.narrativeSceneSummary?.revision).toBe(sceneSummary.revision)
-  })
 
-  it('builds a compact plot journal entry after enough assistant turns and avoids duplicates', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -235,10 +428,91 @@ describe('gameStore sessions', () => {
     expect(nextEntry.sourceStartIndex).toBe(16)
     expect(nextEntry.sourceEndIndex).toBe(32)
     expect(gameStore.plotJournal).toHaveLength(2)
-  })
 
-  it('writes a generated plot journal window back to world history once', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     const worldbook = await worldStore.createWorldbook({ name: '灰墙历史测试' })
 
     const gameStore = useGameStore()
@@ -285,10 +559,49 @@ describe('gameStore sessions', () => {
 
     await gameStore.persistLatestPlayerHistoryNode()
     expect(worldStore.activeWorldbook.geoHistory.playerNodes).toHaveLength(1)
-  })
 
-  it('collects place-bound emergence candidates after state extraction and persists dismissal', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = {
       id: 'wb_emergence',
       name: '地点候选测试',
@@ -538,10 +851,49 @@ describe('gameStore sessions', () => {
     gameStore.loadSession(sessionId)
     expect(gameStore.emergenceCandidates).toEqual([])
     expect(gameStore.emergenceDismissedIds).toContain(conflictCandidates[0].id)
-  })
 
-  it('generates a constrained emergence draft and restores it with the session', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = {
       id: 'wb_emergence_draft',
       name: '事件具体化测试',
@@ -610,7 +962,7 @@ describe('gameStore sessions', () => {
     }]
 
     vi.mocked(runGenerationTask).mockImplementation(async ({ taskType, parseContent }) => {
-      expect(taskType).toBe('emergence.event')
+      expect(taskType).toBe('authoring.emergence')
       const content = JSON.stringify({
         title: '旧税所的账册回响',
         summary: '林舟在旧税所找到被撕走的账页，线索因此重新指向失踪税册。',
@@ -750,10 +1102,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.emergenceDraft.event.title).toBe('旧税所的账册回响')
     expect(gameStore.characterRelations['relation:lin-keeper'].kind).toBe('guardian')
     expect(gameStore.canonicalFacts['fact:ledger-status'].value).toBe('missing')
-  })
 
-  it('rejects an emergence draft without mutating runtime state', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_emergence_reject', name: '事件拒绝测试', entries: [] }
     const gameStore = useGameStore()
     gameStore.createSession({ title: '拒绝事件', worldbookId: worldStore.activeWorldbook.id })
@@ -777,10 +1168,91 @@ describe('gameStore sessions', () => {
     expect(gameStore.flags.shouldNotApply).toBeUndefined()
     expect(gameStore.emergenceDraft.decision).toBe('rejected')
     expect(gameStore.runtimeEvents.some((event) => event.payload?.kind === 'emergence-draft-rejected')).toBe(true)
-  })
 
-  it('generates and accepts a prose trigger draft from the latest plot journal entry', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -809,7 +1281,7 @@ describe('gameStore sessions', () => {
     })
 
     vi.mocked(runGenerationTask).mockImplementation(async ({ taskType, parseContent }) => {
-      expect(taskType).toBe('adventure.trigger.prose')
+      expect(taskType).toBe('authoring.trigger')
       const content = '钟楼上的风卷着潮腥，阿离把证据按进衣襟最内层，盯着林舟不肯先松口。她知道只要天亮前交错一步，整件事就会变成别人手里的筹码，于是她把沉默也当成了谈判的一部分。'
       return {
         success: true,
@@ -843,10 +1315,49 @@ describe('gameStore sessions', () => {
     gameStore.loadSession(session.id)
     expect(gameStore.adventureTriggers.prose.status).toBe('accepted')
     expect(gameStore.adventureTriggers.prose.assetId).toBe(accepted.asset.id)
-  })
 
-  it('generates and accepts a storyboard trigger draft into storyboard storage', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -934,10 +1445,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.adventureTriggers.storyboard.status).toBe('accepted')
     expect(gameStore.adventureTriggers.storyboard.storyboardDocumentId).toBe(storyboardDocuments[0].id)
     expect(gameStore.adventureTriggers.storyboard.storyboardVersionId).toBe(accepted.storyboard.version.versionId)
-  })
 
-  it('syncs direct runtime writes and leaves global storage alone when resetting runtime state', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
 
     const gameStore = useGameStore()
@@ -977,10 +1527,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.isLoading).toBe(false)
     expect(getItem(STORAGE_KEYS.WRITING_CHARACTER).name).toBe('林舟')
     expect(getItem(STORAGE_KEYS.WRITING_TIME).eraName).toBe('新纪元')
-  })
 
-  it('returns scoped active memories only after the model requests memory_lookup', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -1071,10 +1660,91 @@ describe('gameStore sessions', () => {
         expect.objectContaining({ tool: 'memory_lookup' })
       ]
     })
-  })
 
-  it('stores a bounded Kernel and tool ledger without restoring eager prompt layers', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = {
       id: 'project-ledger',
       name: 'Ledger World',
@@ -1222,10 +1892,49 @@ describe('gameStore sessions', () => {
     })
     expect(JSON.stringify(productionMetrics)).not.toContain('所有线索必须有代价')
     expect(JSON.stringify(productionMetrics)).not.toContain('secret-provider-key')
-  })
 
-  it('keeps memory tool evidence bounded and excludes pending or cross-project records', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -1332,10 +2041,49 @@ describe('gameStore sessions', () => {
     expect(JSON.stringify(gameStore.lastContextLedger)).not.toContain('另一部作品')
     expect(JSON.stringify(gameStore.lastContextLedger)).not.toContain('未确认')
     expect(gameStore.lastContextLedger.parts.every((part) => part.preview.length <= 120)).toBe(true)
-  })
 
-  it('does not inject Mem0 or a memory prompt when the model does not request memory', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -1370,10 +2118,49 @@ describe('gameStore sessions', () => {
     expect(recall.source).toBe('narrative-tools')
     expect(gameStore.lastMemoryContext).toBe('')
     expect(vi.mocked(runNarrativeAgentTurn)).toHaveBeenCalledTimes(2)
-  })
 
-  it('extends the last assistant message in place without creating a new message (C4)', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
     const gameStore = useGameStore()
     gameStore.createSession({ title: '续接测试', worldbookId: 'project-1' })
@@ -1446,7 +2233,15 @@ describe('gameStore sessions', () => {
     expect(mergedThread.recentRepetitions).toEqual(expect.arrayContaining([
       '反复描述雨水', '翻阅日志', '翻出铜扣', '铜扣内侧刻着编号'
     ]))
-  })
+
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+})
 
   it('opens seed worlds by looking up the overview and related entries on narrative init', async () => {
     const preset = seedWorldbookPresets[0]
@@ -1535,8 +2330,84 @@ describe('gameStore sessions', () => {
     })
   })
 
-  it('appends and persists capped runtime events across save and load', () => {
-    const worldStore = useWorldStore()
+  it("appends and persists capped runtime events across save and load（合并4例）（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
 
     const gameStore = useGameStore()
@@ -1567,10 +2438,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.runtimeEvents[0].branchId).toBe('main')
     expect(gameStore.sessions[0].runtimeState.runtimeEvents).toHaveLength(1)
     expect(gameStore.sessions[0].runtimeState.runtimeEvents[0].payload.preview).toBe('先去钟楼')
-  })
 
-  it('caps runtime events at 200 and keeps the latest events in saved snapshots', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_alpha', name: 'Alpha' }
 
     const gameStore = useGameStore()
@@ -1597,10 +2507,49 @@ describe('gameStore sessions', () => {
     expect(gameStore.runtimeEvents).toHaveLength(200)
     expect(gameStore.runtimeEvents[0].payload.preview).toBe('evt-5')
     expect(gameStore.runtimeEvents[199].payload.preview).toBe('evt-204')
-  })
 
-  it('records user and assistant turn events as a sidecar without changing generation prompts', async () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'project-1', name: 'Alpha', entries: [] }
 
     const gameStore = useGameStore()
@@ -1664,10 +2613,49 @@ describe('gameStore sessions', () => {
         loadingOwnerSettled: true
       }
     })
-  })
 
-  it('seeds a fresh session with plotJournal, runtimeEvents, worldMapState and factionRelations when entering from a history node', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_history', name: 'History World' }
 
     const gameStore = useGameStore()
@@ -1732,10 +2720,91 @@ describe('gameStore sessions', () => {
         contextual: false
       })
     })
-  })
 
-  it('persists the active history node in the session runtime for later context builds', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_history_runtime', name: 'History Runtime' }
 
     const gameStore = useGameStore()
@@ -1756,10 +2825,49 @@ describe('gameStore sessions', () => {
 
     gameStore.loadSession(session.id)
     expect(gameStore.historyNode).toMatchObject(node)
-  })
 
-  it('does not mutate the new session when the consumed history intent has no usable historyNode', () => {
-    const worldStore = useWorldStore()
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
     worldStore.activeWorldbook = { id: 'wb_plain', name: 'Plain World' }
 
     const gameStore = useGameStore()
@@ -1773,5 +2881,679 @@ describe('gameStore sessions', () => {
     expect(gameStore.runtimeEvents).toEqual([])
     expect(gameStore.factionRelations).toEqual({})
     expect(gameStore.worldMapState.currentScene).toBe('')
+
+    vi.restoreAllMocks()
+
+}
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const { createNarrativeSceneWorkflow } = await import('../services/agents/authoring/narrativeSceneWorkflow')
+    const { buildNarrativeKernel } = await import('../services/agents/narrativeKernel')
+
+    const kernel = buildNarrativeKernel({
+      worldbook: { id: 'wb_intent', entries: [] },
+      runtimeState: {},
+      messages: [{ id: 'm-intent', role: 'user', content: '继续。' }],
+      projectId: 'wb_intent',
+      sessionId: 'session-intent',
+      intentMode: 'continue'
+    })
+    expect(kernel.intentMode).toBe('continue')
+    expect(JSON.stringify(kernel)).not.toContain('planningTranscript')
+
+    const runTurn = vi.fn(async () => ({
+      text: '潮水漫过台阶。',
+      trace: { planningTranscript: [{ role: 'assistant', content: '内部规划' }] }
+    }))
+    const workflow = createNarrativeSceneWorkflow({ runTurn })
+    const result = await workflow.run({
+      task: { id: 'authoring.continue' },
+      request: { target: { revision: 'doc-r1' }, intent: {} },
+      context: { envelope: {} }
+    })
+    expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({ intentMode: 'continue' }))
+    expect(result.actions).toEqual([expect.objectContaining({ type: 'text-insert', content: '潮水漫过台阶。' })])
+    expect(JSON.stringify(result)).not.toContain('planningTranscript')
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
+    worldStore.activeWorldbook = { id: 'wb_bridge', name: 'Bridge World' }
+
+    const gameStore = useGameStore()
+    gameStore.createSession({ title: '桥接会话', worldbookId: 'wb_bridge' })
+    gameStore.messages = []
+    gameStore.chatHistory = [
+      { role: 'system', content: '系统提示' },
+      { role: 'user', content: '我推开钟楼的门。' }
+    ]
+    gameStore.resetAuthoringObserverRuntime()
+
+    vi.mocked(runNarrativeAgentTurn).mockResolvedValueOnce({
+      kind: 'final_ready',
+      text: '潮水漫过台阶，林昭推开了门。',
+      calls: [],
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+    })
+
+    await gameStore.generateAIResponse()
+
+    const events = gameStore.getAuthoringObserverEvents()
+    expect(events).toHaveLength(1)
+    expect(String(events[0].documentRevision)).toMatch(/:doc-r\d+$/)
+    const lastAssistant = [...gameStore.messages].reverse().find((message) => message.role === 'assistant')
+    expect(events[0].text).toBe(String(lastAssistant?.cleanContent || lastAssistant?.content || '').trim())
+    expect(Array.isArray(events[0].sourceRefs)).toBe(true)
+
+    // Regex-derived state updates are deterministic parses, not AI extractions.
+    gameStore.extractGoalState('目标：找到失踪的账册。')
+    expect(gameStore.goals.at(-1)?.source).toBe('derived-parse')
+
+    vi.restoreAllMocks()
+
+}
+})
+  describe('authoring memory triggers', () => {
+    it("emits the prose-commit trigger only after persistence succeeds（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const worldStore = useWorldStore()
+      worldStore.activeWorldbook = { id: 'wb_trigger', name: 'Trigger World' }
+
+      const gameStore = useGameStore()
+      gameStore.createSession({ title: '触发会话', worldbookId: 'wb_trigger' })
+      gameStore.messages = []
+      gameStore.chatHistory = [
+        { role: 'system', content: '系统提示' },
+        { role: 'user', content: '我推开钟楼的门。' }
+      ]
+      gameStore.resetAuthoringObserverRuntime()
+
+      // 持久化失败路径：空正文直接返回，不发射任何触发。
+      await gameStore.commitAuthoringProseResult({ text: '', sourceRefs: ['chapter:1'] })
+      expect(gameStore.getAuthoringMemoryTriggerEvents()).toHaveLength(0)
+
+      vi.mocked(runNarrativeAgentTurn).mockResolvedValueOnce({
+        kind: 'final_ready',
+        text: '林昭在钟楼顶层点起了灯。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      })
+
+      await gameStore.generateAIResponse()
+
+      const events = gameStore.getAuthoringMemoryTriggerEvents()
+      expect(events.length).toBeGreaterThanOrEqual(1)
+      const proseCommit = events.find((event) => event.type === 'prose-commit')
+      expect(proseCommit).toBeTruthy()
+      expect(String(proseCommit.revision)).toMatch(/:doc-r\d+$/)
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+try {
+      const worldStore = useWorldStore()
+      worldStore.activeWorldbook = { id: 'wb_book_mismatch', name: 'Mismatch World' }
+      const gameStore = useGameStore()
+      gameStore.createSession({ title: '书内提交', worldbookId: 'wb_book_mismatch' })
+      gameStore.resetAuthoringObserverRuntime()
+
+      // 页面以 selectedBookId 作为项目标识写入，而不是 active worldbook ID。
+      const scheduleResult = gameStore.noteAuthoringTextCommit({
+        text: '林昭答应在天亮前返回钟楼。',
+        sourceRefs: ['chapter:ch-1'],
+        revision: 'doc-r9',
+        memoryProjectId: 'book-77',
+        sessionId: gameStore.currentSessionId || ''
+      })
+      expect(scheduleResult.accepted).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 4600))
+
+      const stored = listMemoryCandidates({ status: 'pending', scopeId: 'book-77' })
+      expect(stored.length).toBeGreaterThanOrEqual(1)
+      expect(stored[0].sourceRevision).toBe('doc-r9')
+      expect(stored[0].derivedBy).toBe('prose-commit')
+    } finally {
+    }
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const gameStore = useGameStore()
+    gameStore.createSession({ title: '记住确认', worldbookId: 'wb_confirm' })
+    gameStore.resetAuthoringObserverRuntime()
+    const remembered = await gameStore.rememberAuthoringSelection({
+      content: '林昭害怕密闭空间。',
+      projectId: 'book-confirm',
+      sourceRefs: ['chapter:ch-9'],
+      sourceRevision: 'doc-r5'
+    })
+    expect(remembered.candidate).toMatchObject({
+      status: 'pending',
+      sourceRevision: 'doc-r5',
+      sourceRefs: ['chapter:ch-9']
+    })
+    localStorage.setItem(
+      STORAGE_KEYS.MEMORY_CANDIDATES,
+      JSON.stringify([remembered.candidate])
+    )
+    const confirmed = confirmMemoryCandidate(remembered.candidate.id)
+    expect(confirmed).toMatchObject({ status: 'active', authority: 'accepted' })
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+vi.useFakeTimers()
+    try {
+      const worldStore = useWorldStore()
+      worldStore.activeWorldbook = { id: 'wb_gate', name: 'Gate World' }
+      const gameStore = useGameStore()
+      gameStore.createSession({ title: '门禁会话', worldbookId: 'wb_gate' })
+      gameStore.resetAuthoringObserverRuntime()
+
+      gameStore.setAuthoringMemoryAgentEnabled(false)
+      const blocked = gameStore.noteAuthoringTextCommit({
+        text: '关闭 Agent 后的正文提交。',
+        sourceRefs: ['chapter:g1'],
+        revision: 'doc-g1',
+        memoryProjectId: 'book-gate'
+      })
+      expect(blocked).toMatchObject({ accepted: false, reason: 'agent-disabled' })
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(listMemoryCandidates({ scopeId: 'book-gate' })).toHaveLength(0)
+
+      gameStore.setAuthoringMemoryAgentEnabled(true)
+      const allowed = gameStore.noteAuthoringTextCommit({
+        text: '重新打开 Agent 后的正文提交，林昭答应了请求。',
+        sourceRefs: ['chapter:g2'],
+        revision: 'doc-g2',
+        memoryProjectId: 'book-gate'
+      })
+      expect(allowed.accepted).toBe(true)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(listMemoryCandidates({ status: 'pending', scopeId: 'book-gate' }).length).toBeGreaterThanOrEqual(1)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    vi.restoreAllMocks()
+
+}
+})
+
+  it("keeps explicit remembers scoped to the provided project id（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const gameStore = useGameStore()
+    gameStore.createSession({ title: '显式记住', worldbookId: 'wb_other' })
+    gameStore.resetAuthoringObserverRuntime()
+    const result = await gameStore.rememberAuthoringSelection({
+      content: '林昭害怕密闭空间。',
+      projectId: 'book-42',
+      sourceRefs: ['chapter:ch-2:r1']
+    })
+    expect(result.candidate).toMatchObject({ scopeId: 'book-42', status: 'pending' })
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+vi.useFakeTimers()
+    try {
+      const worldStore = useWorldStore()
+      worldStore.activeWorldbook = { id: 'wb_boundary', name: 'Boundary World' }
+      const gameStore = useGameStore()
+      gameStore.createSession({ title: '边界会话', worldbookId: 'wb_boundary' })
+      gameStore.resetAuthoringObserverRuntime()
+
+      const first = await gameStore.noteAuthoringBoundary({
+        scopeKey: 'chapter:old',
+        text: '林昭在旧章节的最后一句正文。',
+        sourceRefs: ['chapter:old'],
+        revision: 'doc-old-1',
+        memoryProjectId: 'book-b'
+      })
+      expect(first.handled).toBe(true)
+      const duplicate = await gameStore.noteAuthoringBoundary({
+        scopeKey: 'chapter:old',
+        text: '林昭在旧章节的最后一句正文。',
+        sourceRefs: ['chapter:old'],
+        revision: 'doc-old-1',
+        memoryProjectId: 'book-b'
+      })
+      expect(duplicate.handled).toBe(false)
+      // boundary 必须真正执行：与后续 prose-commit 不同调度键，不会被取消。
+      await vi.advanceTimersByTimeAsync(4500)
+      const stored = listMemoryCandidates({ status: 'pending', scopeId: 'book-b' })
+      expect(stored.length).toBe(1)
+      expect(stored[0].sourceRevision).toBe('doc-old-1')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+vi.useFakeTimers()
+    try {
+      const worldStore = useWorldStore()
+      worldStore.activeWorldbook = { id: 'wb_reset', name: 'Reset World' }
+      const gameStore = useGameStore()
+      gameStore.createSession({ title: '重置会话', worldbookId: 'wb_reset' })
+      gameStore.resetAuthoringObserverRuntime()
+
+      const handled = await gameStore.noteAuthoringBoundary({
+        scopeKey: 'chapter:old',
+        text: '旧章节的最后一句正文，等待边界派生。',
+        sourceRefs: ['chapter:old'],
+        revision: 'doc-old-9',
+        memoryProjectId: 'book-reset'
+      })
+      expect(handled.handled).toBe(true)
+
+      // 切换/重置会话：boundary 独立键任务也必须被取消。
+      gameStore.resetAuthoringObserverRuntime()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(listMemoryCandidates({ scopeId: 'book-reset' })).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    vi.restoreAllMocks()
+
+}
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.mocked(runGenerationTask).mockReset()
+    vi.mocked(runGenerationStreamTask).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockReset()
+    vi.mocked(runNarrativeAgentTurn).mockImplementation(async ({ tools }) => {
+      if (tools?.length === 1 && tools[0]?.name === 'submit_narrative_beat_plan') {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            id: 'default-beat-plan',
+            name: 'submit_narrative_beat_plan',
+            arguments: {
+              responseObligation: '回应玩家',
+              causalSteps: ['承接当前动作'],
+              revealOrChange: '当前动作产生可观察后果',
+              endCondition: '人物确认眼前的结果'
+            }
+          }],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+        }
+      }
+      return {
+        kind: 'final_ready',
+        text: '暮湾钟楼仍然沉默。',
+        calls: [],
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      }
+    })
+    vi.mocked(runGenerationStreamTask).mockImplementation(async ({ callbacks }) => {
+      callbacks?.onChunk?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      callbacks?.onComplete?.({ content: ':::narration\n暮湾钟楼仍然沉默。' })
+      return { content: ':::narration\n暮湾钟楼仍然沉默。' }
+    })
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+const gameStore = useGameStore()
+      gameStore.createSession({ title: '撤销会话', worldbookId: 'wb_undo' })
+      gameStore.resetAuthoringObserverRuntime()
+
+      await gameStore.handleAuthoringProseUndo({
+        sourceRefs: ['chapter:1:node:7'],
+        revision: 'rev-3'
+      })
+      const events = gameStore.getAuthoringMemoryTriggerEvents()
+      expect(events.some((event) => event.type === 'invalidation')).toBe(true)
+
+    vi.restoreAllMocks()
+
+}
+})
   })
 })

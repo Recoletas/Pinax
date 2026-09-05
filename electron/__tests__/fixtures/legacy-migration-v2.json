@@ -1,0 +1,19 @@
+{
+  "app": "Pinax",
+  "schemaVersion": 2,
+  "exportedAt": "2026-08-20T00:00:00.000Z",
+  "keys": {
+    "writing_books": "[{\"id\":\"book-1\",\"title\":\"雾港纪事\",\"chapters\":[{\"id\":\"chapter-1\",\"title\":\"潮声\",\"content\":\"# 潮声\\n\\n雾从码头升起。\",\"annotations\":[{\"id\":\"note-1\",\"body\":\"保留潮湿感\"}]},{\"id\":\"chapter-2\",\"title\":\"来客\",\"content\":\"旧的后备正文\",\"editorDocument\":{\"schemaVersion\":3,\"revision\":1,\"content\":[{\"attrs\":{\"unitId\":\"unit-1\",\"kind\":\"scene\",\"unitRevision\":2,\"originRefs\":[]},\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"nodeId\":\"node-1\",\"kind\":\"prose\",\"nodeRevision\":3},\"content\":[{\"type\":\"text\",\"text\":\"陌生人敲了三下门。\"}]}]}]}}]}]",
+    "worldbooks_index": "[{\"id\":\"wb-1\",\"name\":\"雾港世界\"}]",
+    "worldbook_wb-1": "{\"id\":\"wb-1\",\"name\":\"雾港世界\",\"description\":\"一座终年有雾的港城。\",\"entries\":[{\"id\":\"char-1\",\"name\":\"林澈\",\"type\":\"character\",\"content\":\"守灯人，沉默寡言。\"},{\"id\":\"place-1\",\"name\":\"旧码头\",\"type\":\"location\",\"description\":\"退潮时露出黑色石阶。\"}]}",
+    "writing_sessions": "[{\"id\":\"session-1\",\"messages\":[{\"id\":\"turn-1\",\"role\":\"assistant\",\"content\":\"雾里传来钟声。\"}]}]",
+    "writing_snapshots_v1": "[{\"id\":\"snapshot-orphan\",\"chapterId\":\"missing-chapter\",\"content\":\"孤立历史\"}]",
+    "writing_block_history_v1": "[{\"id\":\"history-1\",\"chapterId\":\"chapter-1\",\"patches\":[]}]",
+    "narrative_assets_v1": "[{\"id\":\"asset-detached\",\"title\":\"无来源素材\",\"sourceRefs\":[]}]",
+    "prose_cards_v1": "[{\"id\":\"card-1\",\"content\":\"码头场景卡\"}]",
+    "storyboard_documents_v1": "[{\"id\":\"board-1\",\"cards\":[\"card-1\"]}]",
+    "writing_notes": "{broken-json",
+    "apiSettings": "{\"apiKey\":\"sk-must-not-import\"}",
+    "experience_reading_profile_v1": "{\"fontSize\":18}"
+  }
+}

@@ -639,10 +639,12 @@ import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbookFeedback'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
+  createWorldbookMaintenanceServices,
   findWorldbookAuditTargets,
-  runWorldbookMaintenance,
   WORLDBOOK_MAINTENANCE_MODES
 } from '../services/worldbookMaintenance'
+import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
+import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
@@ -650,6 +652,13 @@ import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
+
+// 设定 Agent 调度入口：高级编辑维护统一走 canonical settings.maintenance.audit 任务。
+const settingsDispatcher = createSettingsPageDispatcher({
+  adapters: {
+    settingsMaintenance: createSettingsMaintenanceWorkflow(createWorldbookMaintenanceServices())
+  }
+})
 
 const entrySearch = ref('')
 const entryTypeFilter = ref('all')
@@ -1241,19 +1250,24 @@ async function runMaintenance() {
   maintenanceCompleted.value = false
   const sourceWorldbook = activeWorldbook.value
   try {
-    const result = await runWorldbookMaintenance({
-      worldbook: sourceWorldbook,
-      mode: maintenanceMode.value,
-      brief: maintenanceBrief.value,
-      selectedEntryIds: selectedEntryIds.value
+    const dispatched = await settingsDispatcher.dispatch('settings.maintenance.audit', {
+      project: { id: sourceWorldbook.id, revision: String(sourceWorldbook.updatedAt || '') },
+      target: { type: 'worldbook', id: sourceWorldbook.id, revision: String(sourceWorldbook.updatedAt || '') },
+      intent: {
+        worldbook: sourceWorldbook,
+        mode: maintenanceMode.value,
+        brief: maintenanceBrief.value,
+        selectedEntryIds: selectedEntryIds.value
+      }
     })
-    if (!result.ok) {
-      maintenanceError.value = result.reason || '世界书处理失败。'
+    if (dispatched.status !== 'completed') {
+      maintenanceError.value = dispatched.error?.message || dispatched.error?.code || '世界书处理失败。'
       return
     }
-    maintenanceRevision.value = String(result.sourceRevision || sourceWorldbook.updatedAt || '')
-    maintenanceSummary.value = result.summary || '已生成候选，请逐项审阅。'
-    maintenanceCandidates.value = (result.candidates || []).map(prepareMaintenanceCandidate)
+    const auditResult = dispatched.suggestions?.[0] || {}
+    maintenanceRevision.value = String(auditResult.sourceRevision || sourceWorldbook.updatedAt || '')
+    maintenanceSummary.value = auditResult.summary || '已生成候选，请逐项审阅。'
+    maintenanceCandidates.value = (auditResult.candidates || []).map(prepareMaintenanceCandidate)
     maintenanceCompleted.value = true
   } catch (error) {
     maintenanceError.value = error?.message || '世界书处理失败。'

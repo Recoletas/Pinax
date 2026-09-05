@@ -164,11 +164,11 @@ import {
 } from '../../services/settingPanelSchema'
 import {
   buildSettingPromptPreview,
-  generateSettingDraftRevision,
-  generateSettingFieldDraft,
-  generateSettingSectionDraft,
+  createSettingGenerationServices,
   isStructuredSettingRevisionCurrent
 } from '../../services/settingFieldGeneration'
+import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
+import { createSettingsGenerationWorkflow } from '../../services/agents/settings/settingsGenerationWorkflow'
 import { hashSettingDraftContent } from '../../../shared/settingDraftRevisionContract'
 import { parseCharacterCards } from '../../services/characterCard'
 import SettingFieldCard from './SettingFieldCard.vue'
@@ -186,6 +186,25 @@ const emit = defineEmits(['saved'])
 
 const worldStore = useWorldStore()
 const { isKao } = useTheme()
+
+// 设定 Agent 调度入口：字段/分区/修订统一走 canonical 任务分发，草稿仍只进入审核区。
+const settingsDispatcher = createSettingsPageDispatcher({
+  adapters: {
+    settingsGeneration: createSettingsGenerationWorkflow(createSettingGenerationServices())
+  }
+})
+
+function requireDispatchActions(result, fallbackMessage) {
+  if (result?.status !== 'completed') {
+    const failure = new Error(
+      result?.error?.message || result?.error?.code || fallbackMessage || '设定任务失败。'
+    )
+    if (result?.error?.code === 'AGENT_ABORTED') failure.name = 'AbortError'
+    throw failure
+  }
+  return result.actions
+}
+
 const sections = SETTING_SECTIONS
 const activeSectionKey = ref('world')
 const workingKey = ref('')
@@ -276,13 +295,17 @@ async function generateField({ sectionKey, fieldKey }) {
     userBrief: sectionBrief.value
   })
   try {
-    const result = await generateSettingFieldDraft({
-      worldbook: { ...props.worldbook, structuredSettings: form },
-      sectionKey,
-      fieldKey,
-      userBrief: sectionBrief.value,
-      signal: ac.signal
-    })
+    const actions = requireDispatchActions(await settingsDispatcher.dispatch('settings.field.complete', {
+      project: { id: props.worldbook.id, revision: generationRevision },
+      target: { type: 'setting-field', id: `${sectionKey}.${fieldKey}`, revision: generationRevision },
+      intent: {
+        sectionKey,
+        fieldKey,
+        worldbook: { ...props.worldbook, structuredSettings: form },
+        userBrief: sectionBrief.value
+      }
+    }, { signal: ac.signal }), '结构化设定生成失败。')
+    const result = actions[0]?.payload
     if (ac.signal.aborted || runId !== fieldRunSequence) return
     if (!result.ok) {
       feedback.value = result.reason
@@ -490,12 +513,17 @@ async function runSectionGen({ fieldKeys = null } = {}) {
     : section.fields
   sectionGenProgress.value = `0/${requestedFields.length}`
   try {
-    const results = await generateSettingSectionDraft({
-      sectionKey: section.key,
-      worldbook: { ...props.worldbook, structuredSettings: form },
-      userBrief: sectionBrief.value,
+    const actions = requireDispatchActions(await settingsDispatcher.dispatch('settings.section.complete', {
+      project: { id: props.worldbook.id, revision: generationRevision },
+      target: { type: 'setting-section', id: section.key, revision: generationRevision },
+      intent: {
+        sectionKey: section.key,
+        worldbook: { ...props.worldbook, structuredSettings: form },
+        userBrief: sectionBrief.value,
+        fieldKeys: requestedFields.map((field) => field.key)
+      }
+    }, {
       signal: ac.signal,
-      fieldKeys: requestedFields.map((field) => field.key),
       onProgress: ({ index, total, phase }) => {
         if (sectionAbortController !== ac) return
         sectionGenPhase.value = phase === 'repairing'
@@ -507,7 +535,8 @@ async function runSectionGen({ fieldKeys = null } = {}) {
             : '请求模型'
         sectionGenProgress.value = phase === 'validated' ? '' : `${Math.min(index + 1, total)}/${total}`
       }
-    })
+    }), '结构化分区生成失败，请稍后重试。')
+    const results = actions[0]?.payload
 
     if (sectionAbortController !== ac) return
     if (ac.signal.aborted) {
@@ -860,20 +889,31 @@ async function reviseFocusedDraft() {
   const sourceContent = String(draft.content || '')
   const sourceHash = hashSettingDraftContent(sourceContent)
   const generationRevision = getWorldbookRevision()
-  const result = await generateSettingDraftRevision({
-    worldbook: { ...props.worldbook, structuredSettings: form },
-    sectionKey: activeSectionKey.value,
-    fieldKey,
-    draftContent: sourceContent,
-    revisionInstruction: instruction,
-    previousVersions: Array.isArray(draft.revisionHistory)
-      ? draft.revisionHistory.slice(0, Math.max(0, Number(draft.revisionIndex) || 0))
-      : [],
-    sourceDraftHash: sourceHash,
-    signal: ac.signal
-  })
-
-  if (ac.signal.aborted) return
+  let dispatched
+  try {
+    dispatched = await settingsDispatcher.dispatch('settings.draft.revise', {
+      project: { id: props.worldbook.id, revision: generationRevision },
+      target: { type: 'setting-field', id: `${activeSectionKey.value}.${fieldKey}`, revision: generationRevision },
+      intent: {
+        sectionKey: activeSectionKey.value,
+        fieldKey,
+        worldbook: { ...props.worldbook, structuredSettings: form },
+        draftContent: sourceContent,
+        revisionInstruction: instruction,
+        previousVersions: Array.isArray(draft.revisionHistory)
+          ? draft.revisionHistory.slice(0, Math.max(0, Number(draft.revisionIndex) || 0))
+          : [],
+        sourceDraftHash: sourceHash
+      }
+    }, { signal: ac.signal })
+  } catch (error) {
+    if (!ac.signal.aborted) {
+      revisionState.value = 'error'
+      revisionError.value = error?.message || '修订失败，请稍后重试。'
+    }
+    return
+  }
+  if (ac.signal.aborted || dispatched.error?.code === 'AGENT_ABORTED') return
   revisionAbortController = null
   const currentDraft = getSectionDrafts(activeSectionKey.value).get(fieldKey)
   if (
@@ -886,6 +926,9 @@ async function reviseFocusedDraft() {
     revisionError.value = '草稿或世界书已更新，本次修订未应用。请确认当前内容后重试。'
     return
   }
+  const result = dispatched.status === 'completed'
+    ? dispatched.actions[0]?.payload
+    : { ok: false, reason: dispatched.error?.message || '修订失败，请稍后重试。' }
   if (!result.ok) {
     revisionState.value = 'error'
     revisionError.value = result.reason || '修订失败，请稍后重试。'

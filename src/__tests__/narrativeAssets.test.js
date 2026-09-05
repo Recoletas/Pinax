@@ -45,8 +45,14 @@ describe('narrativeAssets', () => {
     localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
   })
 
-  it('creates normalized inbox assets', () => {
-    const asset = createNarrativeAsset({
+  it("creates normalized inbox assets（合并4例）", async () => {
+{
+
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const asset = createNarrativeAsset({
       content: '  第一段正文候选  ',
       kind: 'draft-prose',
       embeddedImagePresentations: {
@@ -91,10 +97,14 @@ describe('narrativeAssets', () => {
         excerpt: null
       }
     ])
-  })
+}
+{
 
-  it('normalizes content refs and fingerprints whitespace-equivalent text', () => {
-    expect(normalizeContentRef({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+expect(normalizeContentRef({
       type: 'chapter',
       id: 'ch-1',
       projectId: 'book-1',
@@ -127,10 +137,14 @@ describe('narrativeAssets', () => {
       'narrative-asset:asset-history'
     ])
     expect(createChapterOutlineItemFromAsset(asset).sourceRefs).toEqual(merged)
-  })
+}
+{
 
-  it('finds duplicates only when project, content, and source ref all match', () => {
-    const original = addNarrativeAsset({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const original = addNarrativeAsset({
       content: '同一段正文',
       projectId: 'book-1',
       sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-1' }]
@@ -151,20 +165,31 @@ describe('narrativeAssets', () => {
       projectId: 'book-1',
       sourceRefs: [{ refType: 'chapter', refId: 'ch-2', projectId: 'book-1' }]
     })).toBeNull()
-  })
+}
+{
 
-  it('describes asset sources', () => {
-    expect(getAssetSourceLabel({ type: 'experience-session' })).toBe('体验会话')
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+expect(getAssetSourceLabel({ type: 'experience-session' })).toBe('体验会话')
     expect(getAssetSourceLabel({ type: 'poetry-node' })).toBe('诗歌节点')
     expect(getAssetSourceLabel({ type: 'prose-card' })).toBe('散文卡片')
     expect(getAssetSourceLabel({ type: 'relation-canvas' })).toBe('卡片画布')
     expect(getAssetSourceLabel({ type: 'note' })).toBe('素材')
     expect(getAssetSourceDetail({ type: 'experience-session', id: 'session-a', messageIds: ['m1', 'm2'] }))
       .toBe('体验会话 · session-a · 2 段')
-  })
+}
+})
 
-  it('stores, filters, and updates assets', () => {
-    const first = addNarrativeAsset({
+  it("stores, filters, and updates assets（合并4例）", async () => {
+{
+
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const first = addNarrativeAsset({
       content: '角色得知了新的秘密。',
       kind: 'event',
       projectId: 'book-a',
@@ -200,10 +225,14 @@ describe('narrativeAssets', () => {
     setNarrativeAssetStatus(first.id, 'accepted')
     expect(listNarrativeAssets({ status: 'inbox', projectId: 'book-a' })).toHaveLength(0)
     expect(listNarrativeAssets({ status: 'accepted', projectId: 'book-a' })).toHaveLength(1)
-  })
+}
+{
 
-  it('updates multiple asset statuses at once', () => {
-    const first = addNarrativeAsset({ content: '素材一', kind: 'draft-prose' })
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const first = addNarrativeAsset({ content: '素材一', kind: 'draft-prose' })
     const second = addNarrativeAsset({ content: '素材二', kind: 'draft-prose' })
 
     const updated = setNarrativeAssetsStatus([first.id, second.id], 'archived')
@@ -211,10 +240,14 @@ describe('narrativeAssets', () => {
     expect(updated).toHaveLength(2)
     expect(listNarrativeAssets({ status: 'inbox' })).toHaveLength(0)
     expect(listNarrativeAssets({ status: 'archived' })).toHaveLength(2)
-  })
+}
+{
 
-  it('merges same-project assets while preserving content and source refs', () => {
-    const first = addNarrativeAsset({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const first = addNarrativeAsset({
       content: '第一段',
       projectId: 'book-1',
       sourceRefs: [{ refType: 'chapter', refId: 'ch-1', projectId: 'book-1' }]
@@ -232,19 +265,30 @@ describe('narrativeAssets', () => {
     expect(result?.asset.sourceRefs).toHaveLength(2)
     expect(listNarrativeAssets({ status: null })).toHaveLength(1)
     expect(mergeNarrativeAssets([first.id, 'missing'])).toBeNull()
-  })
+}
+{
 
-  it('lists only active inbox and accepted assets for material sidebar views', () => {
-    const inbox = addNarrativeAsset({ content: '待处理素材', kind: 'inspiration', status: 'inbox' })
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const inbox = addNarrativeAsset({ content: '待处理素材', kind: 'inspiration', status: 'inbox' })
     const accepted = addNarrativeAsset({ content: '采纳素材', kind: 'event', status: 'accepted' })
     addNarrativeAsset({ content: '归档素材', kind: 'draft-prose', status: 'archived' })
     addNarrativeAsset({ content: '拒绝素材', kind: 'worldbook-draft', status: 'rejected' })
 
     expect(listActiveNarrativeAssets().map((asset) => asset.id)).toEqual([accepted.id, inbox.id])
-  })
+}
+})
 
-  it('imports an ordered asset selection into canvas cards idempotently', () => {
-    const assetA = createNarrativeAsset({ id: 'asset-a', content: '素材 A' })
+  it("imports an ordered asset selection into canvas cards idempotently（合并4例）", async () => {
+{
+
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const assetA = createNarrativeAsset({ id: 'asset-a', content: '素材 A' })
     const assetB = createNarrativeAsset({ id: 'asset-b', content: '素材 B' })
 
     const result = ensureAssetCanvasCards([assetB, assetA, assetB, null, {}])
@@ -266,10 +310,14 @@ describe('narrativeAssets', () => {
     expect(listRelationCanvasCards()).toHaveLength(2)
     expect(listRelationCanvasCards().find((card) => card.assetId === assetB.id))
       .toMatchObject({ content: '画布中已经修改的内容', x: 120 })
-  })
+}
+{
 
-  it('returns an empty canvas import result for invalid selections', () => {
-    expect(ensureAssetCanvasCards([])).toEqual({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+expect(ensureAssetCanvasCards([])).toEqual({
       cards: [],
       createdAssetIds: [],
       existingAssetIds: []
@@ -280,10 +328,14 @@ describe('narrativeAssets', () => {
       existingAssetIds: []
     })
     expect(listRelationCanvasCards()).toEqual([])
-  })
+}
+{
 
-  it('permanently deletes an asset instead of archiving it', () => {
-    const first = addNarrativeAsset({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const first = addNarrativeAsset({
       content: '要删除的素材',
       kind: 'inspiration',
       embeddedImagePresentations: { 'media:image-a': { wrap: 'square', align: 'left' } }
@@ -302,10 +354,14 @@ describe('narrativeAssets', () => {
     expect(listNarrativeAssets({ status: null }).map((asset) => asset.id)).toEqual([second.id])
     expect(deleteNarrativeAsset(first.id)).toBeNull()
     expect(deleteNarrativeAsset('')).toBeNull()
-  })
+}
+{
 
-  it('falls back invalid kind and exposes labels', () => {
-    const asset = createNarrativeAsset({
+    localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+
+const asset = createNarrativeAsset({
       content: '一条没有类型的材料。',
       kind: 'unknown-kind'
     })
@@ -314,7 +370,8 @@ describe('narrativeAssets', () => {
     expect(getAssetKindLabel('worldbook-draft')).toBe('世界书草稿')
     expect(getAssetKindExplanation('worldbook-draft')).toContain('世界书')
     expect(getAssetKindExplanation('unknown-kind')).toBe('可复用的写作素材条目。')
-  })
+}
+})
 
   it('migrates reference image binaries into MediaAsset storage', async () => {
     const blobs = new Map()

@@ -1,7 +1,13 @@
 <template>
-  <section ref="notebookRoot" class="writing-notebook-editor" aria-label="实时 Markdown 写作编辑器">
+  <section
+    ref="notebookRoot"
+    class="writing-notebook-editor"
+    :class="{ 'is-focus-paragraph': focusParagraph }"
+    aria-label="实时 Markdown 写作编辑器"
+  >
     <EditorContent
       v-if="editor"
+      ref="notebookSurface"
       :editor="editor"
       class="writing-notebook-editor__surface"
       @contextmenu.prevent="handleContextMenu"
@@ -137,6 +143,9 @@ import {
   writingDocumentToEditorContent
 } from '../../services/writing/writingDocumentSchema.js'
 import {
+  createWritingUnitFromAuthoringTurn
+} from '../../services/writing/writingAuthoringTurnImport.js'
+import {
   WritingDocumentNode,
   WritingNodeAttributes,
   WritingUnitNode
@@ -160,13 +169,16 @@ const props = defineProps({
   inlineSuggestion: { type: String, default: '' },
   inlineSuggestionVisible: Boolean,
   inlineSuggestionGenerating: Boolean,
-  inlineSuggestionError: { type: String, default: '' }
+  inlineSuggestionError: { type: String, default: '' },
+  typewriter: Boolean,
+  focusParagraph: Boolean
 })
 
 const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'writing-command', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'retry-inline-suggestion', 'ready'])
 
 const initialDocument = props.document || createWritingDocument(props.modelValue)
 const notebookRoot = ref(null)
+const notebookSurface = ref(null)
 const commandMenuRef = ref(null)
 const commandSubmenuRef = ref(null)
 const commandMenu = ref({ open: false, activeIndex: 0, rootIndex: 0, sectionId: null, anchorFrom: null, anchorTo: null, top: 0, left: 0, width: 300, maxHeight: 320 })
@@ -740,6 +752,37 @@ const AnnotationDecorations = Extension.create({
   }
 })
 
+// 段落聚焦装饰（P0c）：光标所在段落打 is-focus-current-block 标记，
+// 其余段落由 CSS 淡化到 35%。用 PM 原生 decoration 而非命令式 class——
+// 命令式标记会被 ProseMirror 的 DOM 重渲染抹掉。
+const FocusParagraphDecorations = Extension.create({
+  name: 'writingFocusParagraphDecorations',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: new PluginKey('writingFocusParagraphDecorations'),
+      props: {
+        decorations(state) {
+          if (!props.focusParagraph || !state.selection.empty) return DecorationSet.empty
+          const { from } = state.selection
+          let target = null
+          state.doc.forEach((unit, unitOffset) => {
+            if (target) return
+            if (from < unitOffset || from > unitOffset + unit.nodeSize) return
+            unit.forEach((block, blockOffset) => {
+              const start = unitOffset + 1 + blockOffset
+              const end = start + block.nodeSize
+              if (!target && from >= start && from <= end) {
+                target = Decoration.node(start, end, { class: 'is-focus-current-block' })
+              }
+            })
+          })
+          return target ? DecorationSet.create(state.doc, [target]) : DecorationSet.empty
+        }
+      }
+    })]
+  }
+})
+
 const currentDocument = ref(initialDocument)
 
 const editor = useEditor({
@@ -753,6 +796,7 @@ const editor = useEditor({
     WritingUnitNode,
     WritingNodeAttributes,
     AnnotationDecorations,
+    FocusParagraphDecorations,
     LiveMarkdownInput,
     LiveMarkdownDecorations,
     WritingCommandMenu,
@@ -868,14 +912,34 @@ const editor = useEditor({
       cursorRect
     })
     updateCurrentLineOverlay()
+    scrollTypewriterIntoView()
   },
   onFocus() {
     updateCurrentLineOverlay()
+    scrollTypewriterIntoView()
   },
   onBlur() {
     currentLineOverlay.value.visible = false
   }
 })
+
+// 打字机滚动（P0c）：光标行保持视口垂直居中。直接 scrollTop 赋值，
+// 不用 smooth——逐字平滑滚动会晕。
+function scrollTypewriterIntoView() {
+  if (!props.typewriter) return
+  const currentEditor = editor.value
+  const surface = notebookSurface.value?.$el || notebookSurface.value
+  if (!currentEditor || !surface || !currentEditor.view.hasFocus()) return
+  if (!currentEditor.state.selection.empty) return
+  try {
+    const coordinates = currentEditor.view.coordsAtPos(currentEditor.state.selection.head, 1)
+    const box = surface.getBoundingClientRect()
+    const delta = (coordinates.top + coordinates.bottom) / 2 - (box.top + box.height / 2)
+    if (Math.abs(delta) > 1) surface.scrollTop += delta
+  } catch {
+    // best-effort typewriter scrolling
+  }
+}
 
 function updateCurrentLineOverlay() {
   const currentEditor = editor.value
@@ -992,6 +1056,68 @@ function insertPlainText(text) {
 function insertDivider() {
   if (!editor.value) return false
   return editor.value.chain().focus().setHorizontalRule().run()
+}
+
+// 一次 AI 正文 = 一个新 writingUnit（plan Task 2.3 / worldbook scene closure Task 3）：
+// 原子插入 schema-v3 单元（稳定 unitId/nodeId + originRefs）。
+// 目标感知：afterUnitId 指定插入位置（目标单元之后）；目标缺失/revision 过期时
+// 返回 typed 失败，绝不静默回退到文档末尾。
+function insertAsNewWritingUnit({ text, originRefs, afterUnitId, expectedUnitRevision } = {}) {
+  const currentEditor = editor.value
+  const value = String(text ?? '')
+  if (!currentEditor || !value) return { ok: false, reason: 'no-editor' }
+  const originRef = Array.isArray(originRefs) ? originRefs[0] : null
+  const created = createWritingUnitFromAuthoringTurn({ text: value, originRef })
+  if (!created.ok) return { ok: false, reason: 'invalid-turn' }
+  const schema = currentEditor.state.schema
+  const unitType = schema.nodes.writingUnit
+  if (!unitType) return { ok: false, reason: 'no-unit-type' }
+  // 定位目标单元（顶层 writingUnit）。
+  let target = null
+  if (afterUnitId) {
+    currentEditor.state.doc.forEach((node, offset) => {
+      if (node.type.name === 'writingUnit' && node.attrs.unitId === afterUnitId) {
+        target = { node, pos: offset }
+      }
+    })
+    if (!target) return { ok: false, reason: 'target-unit-missing' }
+    if (
+      expectedUnitRevision !== null && expectedUnitRevision !== undefined
+      && Number(target.node.attrs.unitRevision || 0) !== Number(expectedUnitRevision || 0)
+    ) {
+      return { ok: false, reason: 'target-unit-stale' }
+    }
+  }
+  const paragraphType = schema.nodes.paragraph
+  const children = created.unit.content.map((node) => {
+    const paragraph = paragraphType.create(
+      { ...node.attrs, nodeKind: node.attrs.kind },
+      node.content.map((inline) => schema.text(inline.text || ''))
+    )
+    return paragraph
+  })
+  const unitNode = unitType.create({
+    unitId: created.unit.attrs.unitId,
+    unitRevision: 0,
+    unitKind: 'passage',
+    sceneId: null,
+    originRefs: [created.originRef]
+  }, children)
+  const insertPosition = target ? target.pos + target.node.nodeSize : Math.max(1, currentEditor.state.doc.content.size)
+  const transaction = currentEditor.state.tr
+    .insert(insertPosition, unitNode)
+    .setMeta('writingAgentInsert', true)
+    .setMeta('writingUnitTransition', {
+      type: 'insert',
+      keptUnitId: created.unit.attrs.unitId,
+      createdUnitId: created.unit.attrs.unitId,
+      removedUnitId: null,
+      nodeUnitMap: Object.fromEntries(children.map((child) => [child.attrs.nodeId, created.unit.attrs.unitId]))
+    })
+    .scrollIntoView()
+  currentEditor.view.dispatch(transaction)
+  nextTick(() => currentEditor.commands.focus('end'))
+  return { ok: true, unitId: created.unit.attrs.unitId }
 }
 
 function undo() {
@@ -1228,6 +1354,7 @@ defineExpose({
   focus,
   insertText,
   insertPlainText,
+  insertAsNewWritingUnit,
   insertDivider,
   undo,
   redo,
@@ -1281,11 +1408,11 @@ defineExpose({
   min-height: 100%;
   margin: 0 auto;
   outline: none;
-  font-family: var(--notebook-font-family, Menlo, "Ubuntu Mono", Consolas, "Courier New", "Microsoft Yahei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif);
+  font-family: var(--notebook-font-family, var(--font-writing));
   font-size: var(--notebook-font-size, 17.5px);
   font-weight: var(--notebook-font-weight, 400);
   font-style: var(--notebook-font-style, normal);
-  line-height: 1.92;
+  line-height: var(--notebook-line-height, 1.92);
   text-decoration: var(--notebook-text-decoration, none);
   letter-spacing: 0;
   white-space: pre-wrap;
@@ -1306,21 +1433,32 @@ defineExpose({
 
 .writing-notebook-editor__surface section[data-writing-unit] > * {
   position: relative;
-  margin: 0 0 1.05em;
+  margin: 0 0 var(--notebook-paragraph-gap, 1.05em);
   padding-inline-start: 12px;
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-current-writing-line {
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 2.5%, transparent);
+  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 6%, transparent);
 }
 
 .writing-current-line {
   position: absolute;
   z-index: 3;
-  border-top: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 8%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 6%, transparent);
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 3.5%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 16%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 12%, transparent);
+  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 8%, transparent);
   pointer-events: none;
+}
+
+/* 段落聚焦（P0c）：块级淡化——光标所在段落保持全亮，其余段落 35%。
+   单元内 Enter 不拆分写作单元，因此按段落块而非单元维度标记；
+   仅在编辑器持焦时生效，失焦恢复全亮避免干扰批注/预览。 */
+.writing-notebook-editor.is-focus-paragraph section[data-writing-unit] > * {
+  transition: opacity 0.18s ease;
+}
+
+.writing-notebook-editor.is-focus-paragraph .ProseMirror-focused section[data-writing-unit] > *:not(.is-focus-current-block) {
+  opacity: 0.35;
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-empty-command-line::after {
@@ -1582,7 +1720,6 @@ defineExpose({
 
   .writing-notebook-editor__surface .ProseMirror {
     font-size: 17px;
-    line-height: 1.82;
   }
 
   .writing-notebook-editor__surface .ProseMirror > * {

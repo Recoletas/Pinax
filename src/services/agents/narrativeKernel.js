@@ -378,7 +378,10 @@ export function buildNarrativeKernel({
   sessionId = '',
   authorNote = '',  // R2：本轮导演注（仅下一轮生效，用户输入）
   continuityFrame = null,  // C2.3：ContinuityFrame（无 LLM 结构化连续性，供 turn note/transcript 使用）
-  sceneThread = null       // Q2：SceneThread 软状态（跨回合场景线程）
+  sceneThread = null,      // Q2：SceneThread 软状态（跨回合场景线程）
+  intentMode = '',         // authoring runtime：narrative-scene profile 的意图模式（continue/advance/character/scene/trigger），仅透传记录
+  turnContext = null,      // authoring turn contract 的低敏元数据（类型/说话人/对象），正文指令仍取最后一条 user message
+  sceneProjection = null   // authoring fusion：与左栏/composer 同一份共享现场投影（spec §10），覆盖地点并落 chapter 证据
 } = {}) {
   const recent = compactMessages(messages)
   const latestUser = [...recent].reverse().find((message) => message.role === 'user') || null
@@ -392,7 +395,16 @@ export function buildNarrativeKernel({
       status: text(character?.status || character?.state)
     }))
     .filter((character) => character.name)
-  const place = runtimeState?.worldMapState || {}
+  // 共享投影优先：地点/场景名以 UI 现场条看到的同一份投影为准，不从 store 二次猜测。
+  const projectionLocation = sceneProjection && typeof sceneProjection === 'object' ? sceneProjection.location : null
+  const baseMapState = runtimeState?.worldMapState || {}
+  const place = projectionLocation
+    ? {
+        ...baseMapState,
+        placeId: text(projectionLocation.id) || text(baseMapState.placeId),
+        currentScene: text(projectionLocation.name) || text(baseMapState.currentScene)
+      }
+    : baseMapState
   const time = runtimeState?.writingTime || {}
   const historyNode = runtimeState?.historyNode || null
   const causality = buildRuntimeCausalityContext({ runtimeState })
@@ -476,7 +488,11 @@ export function buildNarrativeKernel({
     ]),
     makeBlock('turn', {
       input: latestUser?.content || '',
-      messageId: latestUser?.id || null
+      messageId: latestUser?.id || null,
+      intentMode: text(intentMode),
+      kind: text(turnContext?.kind),
+      actorId: text(turnContext?.actorId),
+      targetId: text(turnContext?.targetId)
     }, latestUser?.id ? [`message:${latestUser.id}`] : []),
     makeBlock('scene', {
       world: {
@@ -503,6 +519,25 @@ export function buildNarrativeKernel({
       ...(text(place.placeId) ? [`place:${text(place.placeId)}`] : []),
       ...characters.map((character) => `character:${character.id || character.name}`)
     ]),
+    // 共享现场投影证据块（spec §10）：只带稳定 ID 与低敏摘要，来源与左栏一致。
+    ...(sceneProjection && typeof sceneProjection === 'object' ? [makeBlock('projection', {
+      schemaVersion: text(sceneProjection.schemaVersion),
+      chapterId: text(sceneProjection.chapterId),
+      sceneId: text(sceneProjection.sceneId),
+      revision: clip(sceneProjection.revision, 80),
+      viewpointCharacterId: text(sceneProjection.viewpointCharacter?.id),
+      activeActorId: text(sceneProjection.activeActor?.id),
+      dialogueTargetId: text(sceneProjection.dialogueTarget?.id),
+      locationName: text(sceneProjection.location?.name),
+      timeLabel: text(sceneProjection.time?.label),
+      presentCharacterIds: (Array.isArray(sceneProjection.presentCharacters) ? sceneProjection.presentCharacters : [])
+        .map((member) => text(member?.id))
+        .filter(Boolean)
+        .slice(0, 8)
+    }, [
+      ...(text(sceneProjection.chapterId) ? [`chapter:${text(sceneProjection.chapterId)}`] : []),
+      ...(Array.isArray(sceneProjection.sourceRefs) ? sceneProjection.sourceRefs.map(text).filter(Boolean).slice(0, 16) : [])
+    ])] : []),
     // R4：场景角色编排 —— 主 speaker 完整角色卡 + 其他角色受限摘要
     ...(cast.length > 0 ? [makeCastBlock(cast)] : []),
     // P2：activatedLore —— 当前地点/角色/历史/关键词命中的世界书普通条目（请求模型前确定性装配）。
@@ -588,6 +623,7 @@ export function buildNarrativeKernel({
     revision,
     projectId: text(projectId || worldbook?.id),
     sessionId: text(sessionId),
+    intentMode: text(intentMode),
     blocks,
     toolCatalog,
     activeToolNames,

@@ -3,6 +3,7 @@ import {
   buildBackup,
   createRestorePlan,
   exportAllBackup,
+  exportLegacyMigrationBundle,
   PINAX_BACKUP_KEYS,
   restoreBackup
 } from '../utils/backupExport'
@@ -13,8 +14,12 @@ describe('backupExport', () => {
     localStorage.clear()
   })
 
-  it('buildBackup returns version + timestamp + keys', () => {
-    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"sk-test"}')
+  it("buildBackup returns version + timestamp + keys（合并4例）", async () => {
+{
+
+    localStorage.clear()
+
+localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"sk-test"}')
     localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, '[]')
     const b = buildBackup()
     expect(b.version).toBe(2)
@@ -24,10 +29,34 @@ describe('backupExport', () => {
     expect(b.keyCount).toBeGreaterThanOrEqual(2)
     expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBe('{"apiKey":"sk-test"}')
     expect(b.keys[STORAGE_KEYS.WRITING_BOOKS]).toBe('[]')
-  })
+}
+{
 
-  it('discovers dynamic worldbook and runtime keys', () => {
-    localStorage.setItem('worldbook_wb-1', '{"id":"wb-1"}')
+    localStorage.clear()
+
+const books = [{
+      id: 'book-1',
+      title: '海港书稿',
+      worldbookId: 'wb-harbor',
+      chapters: [{ id: 'ch-1', title: '第一章', worldbookId: undefined, sceneAnchors: [] }]
+    }]
+    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books))
+    const b = buildBackup()
+    const exportedBook = JSON.parse(b.keys[STORAGE_KEYS.WRITING_BOOKS])[0]
+    // 绑定与新字段原样进出备份：不做迁移剥离、不回填全局 active 世界书。
+    expect(exportedBook.worldbookId).toBe('wb-harbor')
+    expect(exportedBook.chapters[0].sceneAnchors).toEqual([])
+    // 恢复计划同样保留字段（round-trip）。
+    const plan = createRestorePlan(b)
+    expect(plan.valid).toBe(true)
+    restoreBackup(b)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS))[0].worldbookId).toBe('wb-harbor')
+}
+{
+
+    localStorage.clear()
+
+localStorage.setItem('worldbook_wb-1', '{"id":"wb-1"}')
     localStorage.setItem('worldbook:brief:wb-1:story', 'brief text')
     localStorage.setItem('active_worldbook_id', 'wb-1')
     localStorage.setItem('dialogue_characters', '[]')
@@ -38,10 +67,12 @@ describe('backupExport', () => {
     expect(b.keys['worldbook:brief:wb-1:story']).toBe('brief text')
     expect(b.keys.active_worldbook_id).toBe('wb-1')
     expect(b.keys.dialogue_characters).toBe('[]')
-  })
+}
+{
 
-  it('builds a side-effect-free restore plan', () => {
-    localStorage.setItem('same-key', 'same')
+    localStorage.clear()
+
+localStorage.setItem('same-key', 'same')
     localStorage.setItem('overwrite-key', 'old')
 
     const plan = createRestorePlan({
@@ -60,10 +91,15 @@ describe('backupExport', () => {
     expect(plan.skip).toEqual(['same-key'])
     expect(plan.incompatible).toEqual([])
     expect(localStorage.getItem('overwrite-key')).toBe('old')
-  })
+}
+})
 
-  it('rejects malformed or future-version backups without touching storage', () => {
-    localStorage.setItem('protected-key', 'keep')
+  it("rejects malformed or future-version backups without touching storage（合并4例）", async () => {
+{
+
+    localStorage.clear()
+
+localStorage.setItem('protected-key', 'keep')
 
     const malformed = createRestorePlan('{"app":"Pinax"}')
     const future = createRestorePlan({
@@ -77,24 +113,30 @@ describe('backupExport', () => {
     expect(future.valid).toBe(false)
     expect(future.incompatible).toContain('不支持的备份版本：99')
     expect(localStorage.getItem('protected-key')).toBe('keep')
-  })
+}
+{
 
-  it('excludes missing keys (does not store as null)', () => {
-    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '"x"')
+    localStorage.clear()
+
+localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '"x"')
     const b = buildBackup()
     expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBe('"x"')
     expect('undefined' in b.keys).toBe(false)
     expect(b.keys[STORAGE_KEYS.WRITING_BOOKS]).toBeUndefined()
-  })
+}
+{
 
-  it('PINAX_BACKUP_KEYS contains all STORAGE_KEYS values', () => {
-    for (const v of Object.values(STORAGE_KEYS)) {
+    localStorage.clear()
+
+for (const v of Object.values(STORAGE_KEYS)) {
       expect(PINAX_BACKUP_KEYS).toContain(v)
     }
-  })
+}
+{
 
-  it('exportAllBackup triggers download via stubbed link', () => {
-    // jsdom doesn't ship URL.createObjectURL/revokeObjectURL — stub them
+    localStorage.clear()
+
+// jsdom doesn't ship URL.createObjectURL/revokeObjectURL — stub them
     const origCreate = URL.createObjectURL
     const origRevoke = URL.revokeObjectURL
     URL.createObjectURL = () => 'blob:mock'
@@ -116,18 +158,62 @@ describe('backupExport', () => {
       URL.createObjectURL = origCreate
       URL.revokeObjectURL = origRevoke
     }
-  })
+}
+})
 
-  it('backup JSON is parseable', () => {
-    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"abc"}')
+  it("exports a project-only desktop migration bundle without changing backup v2（合并4例）", async () => {
+{
+
+    localStorage.clear()
+
+const origCreate = URL.createObjectURL
+    const origRevoke = URL.revokeObjectURL
+    let downloadedBlob = null
+    URL.createObjectURL = (blob) => {
+      downloadedBlob = blob
+      return 'blob:migration'
+    }
+    URL.revokeObjectURL = () => {}
+    const fakeAnchor = { click: vi.fn(), href: '', download: '' }
+    const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(fakeAnchor)
+
+    try {
+      localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, '[{"id":"book-1"}]')
+      localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"sk-private"}')
+
+      const result = await exportLegacyMigrationBundle({
+        now: () => new Date('2026-08-21T12:00:00.000Z')
+      })
+      const downloaded = JSON.parse(await downloadedBlob.text())
+
+      expect(buildBackup().schemaVersion).toBe(2)
+      expect(result.filename).toMatch(/^pinax-desktop-migration-.+\.json$/)
+      expect(result.recordCount).toBe(1)
+      expect(downloaded.schemaVersion).toBe(3)
+      expect(downloaded.records[0].sourceRecordId).toBe(STORAGE_KEYS.WRITING_BOOKS)
+      expect(JSON.stringify(downloaded)).not.toContain('sk-private')
+      expect(fakeAnchor.click).toHaveBeenCalledOnce()
+    } finally {
+      createElementSpy.mockRestore()
+      URL.createObjectURL = origCreate
+      URL.revokeObjectURL = origRevoke
+    }
+}
+{
+
+    localStorage.clear()
+
+localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"abc"}')
     const b = buildBackup()
     const round = JSON.parse(JSON.stringify(b))
     expect(round.version).toBe(2)
     expect(round.keys[STORAGE_KEYS.API_SETTINGS]).toBe('{"apiKey":"abc"}')
-  })
+}
+{
 
-  it('writes a confirmed restore and leaves overwrite keys untouched when disabled', () => {
-    localStorage.setItem('existing-key', 'old')
+    localStorage.clear()
+
+localStorage.setItem('existing-key', 'old')
 
     const result = restoreBackup({
       app: 'Pinax',
@@ -142,10 +228,12 @@ describe('backupExport', () => {
     expect(result.written).toEqual(['new-key'])
     expect(localStorage.getItem('existing-key')).toBe('old')
     expect(localStorage.getItem('new-key')).toBe('value')
-  })
+}
+{
 
-  it('rolls back already written keys when storage throws quota error', () => {
-    const values = new Map([['stable-key', 'old']])
+    localStorage.clear()
+
+const values = new Map([['stable-key', 'old']])
     const storage = {
       getItem: (key) => values.get(key) ?? null,
       setItem: (key, value) => {
@@ -170,5 +258,6 @@ describe('backupExport', () => {
     expect(result.reason).toBe('quota')
     expect(result.rolledBack).toBe(true)
     expect(values.get('stable-key')).toBe('old')
-  })
+}
+})
 })

@@ -2,6 +2,7 @@ import api, { getResolvedApiSettings } from './api'
 import { adaptLegacyContextToEnvelope } from './agents/legacyAdapter'
 import { clipContextEnvelope, toPromptText } from './agents/agentContextEnvelope'
 import { getTask, validateTaskType } from './agents/agentTaskRegistry'
+import { recordAuthoringAliasUse } from './agents/authoring/authoringTaskDispatcher'
 import {
   createAgentRequestId,
   recordAgentRequestTrace,
@@ -9,11 +10,11 @@ import {
 } from './agents/agentRequestTrace'
 
 export const ADVISOR_TASK_TYPES = {
-  selection: 'writing.fix.selection',
-  paragraph: 'writing.fix.paragraph',
-  thread: 'writing.close.thread',
-  chapter: 'writing.chapter.health',
-  continue: 'writing.continue.light'
+  selection: 'authoring.rewrite',
+  paragraph: 'authoring.rewrite',
+  thread: 'authoring.review.selection',
+  chapter: 'authoring.review.chapter',
+  continue: 'authoring.complete.inline'
 }
 
 export const ADVISOR_TASK_TIMEOUT_MS = 80000
@@ -54,6 +55,10 @@ export function normalizeAdvisorTaskType(taskType, scope = '') {
     error.taskType = validation.canonical || requested
     error.retryable = false
     throw error
+  }
+
+  if (explicit && explicit !== validation.canonical) {
+    recordAuthoringAliasUse(explicit, validation.canonical)
   }
 
   return validation.canonical

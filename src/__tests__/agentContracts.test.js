@@ -436,7 +436,7 @@ describe('agentContracts', function () {
       apiSettings: undefined
     })).not.toContain('fixture-secret')
 
-    expect(getTask('worldbook.import.structure').surfaces).toContain('worldbook')
+    expect(getTask('worldbook.import.structure').id).toBe('settings.import.extract')
 
     for (var i = 0; i < Object.keys(LEGACY_ALIASES).length; i++) {
       var legacy = Object.keys(LEGACY_ALIASES)[i]
@@ -447,7 +447,7 @@ describe('agentContracts', function () {
 
     expect(validateTaskType('advisor.fix.paragraph')).toEqual({
       valid: true,
-      canonical: 'writing.fix.paragraph'
+      canonical: 'authoring.rewrite'
     })
     expect(validateTaskType('unknown.task')).toEqual({
       valid: false,
@@ -465,7 +465,7 @@ describe('agentContracts', function () {
     expect(getExecutableTaskTypes()).toEqual(getServerTaskTypes())
     expect(validateServerTaskType('advisor.fix.selection')).toMatchObject({
       valid: true,
-      taskType: 'writing.fix.selection',
+      taskType: 'authoring.rewrite',
       wasLegacyAlias: true
     })
     expect(validateServerTaskType('canvas.organize')).toMatchObject({
@@ -473,40 +473,40 @@ describe('agentContracts', function () {
       taskType: 'canvas.organize'
     })
     expect(getTask('canvas.organize')).toMatchObject({
-      availability: 'available',
+      id: 'canvas.organize',
       owner: 'canvas',
-      actionTypes: ['canvas-layout']
+      workflowKind: 'structured-one-shot',
+      contextProfile: 'canvas-neighborhood',
+      inputSchema: 'canvas-selection.v1',
+      resultSchema: 'canvas-actions.v1',
+      effectPolicy: 'review-draft'
     })
-    expect(getTask('canvas.relate').actionTypes).toEqual(['canvas-relations'])
-    expect(getTask('canvas.transition').actionTypes).toEqual(['canvas-transition'])
-    expect(getTask('experience.next-actions')).toMatchObject({
-      availability: 'available',
-      owner: 'experience',
-      actionTypes: ['runtime-candidate'],
-      targetTypes: ['experience-turn']
-    })
-    expect(getTask('experience.emergence').targetTypes).toEqual(['experience-state'])
+    expect(getTask('canvas.relate').effectPolicy).toBe('review-draft')
+    expect(getTask('canvas.transition').resultSchema).toBe('canvas-actions.v1')
+    expect(getTask('experience.next-actions').id).toBe('authoring.next-actions')
+    expect(getTask('experience.next-actions').effectPolicy).toBe('ephemeral')
+    expect(getTask('experience.emergence').id).toBe('authoring.emergence')
     expect(getTask('storyboard.review')).toMatchObject({
-      availability: 'available',
+      id: 'storyboard.review',
       owner: 'storyboard',
-      actionTypes: ['storyboard-shot-patch'],
-      targetTypes: ['storyboard-shot']
+      effectPolicy: 'review-draft'
     })
-    expect(getTask('storyboard.video.prompt').actionTypes).toEqual(['generation-request'])
+    expect(getTask('storyboard.video.prompt').resultSchema).toBe('generation-request.v1')
     expect(getTask('advisor.fix.selection')).toMatchObject({
-      availability: 'available',
-      owner: 'writing',
-      actionTypes: ['text-patch']
+      id: 'authoring.rewrite',
+      owner: 'authoring',
+      resultSchema: 'text-patch.v1'
     })
 
-    expect(getTasksBySurface('experience').length).toBe(3)
-    expect(getTasksBySurface('writing').length).toBeGreaterThanOrEqual(7)
-    expect(getTasksBySurface('materials').map(function (item) { return item.taskType })).toEqual(
+    expect(getTasksBySurface('settings').length).toBe(12)
+    expect(getTasksBySurface('authoring').length).toBe(17)
+    expect(getTasksBySurface('observer').length).toBe(6)
+    expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(
       expect.arrayContaining(['materials.refine', 'materials.classify', 'materials.split', 'materials.relate'])
     )
-    expect(getTask('materials.classify').actionTypes).toEqual(['material-classification'])
-    expect(getTask('materials.split').actionTypes).toEqual(['material-split'])
-    expect(getTask('materials.relate').actionTypes).toEqual(['material-relations'])
+    expect(getTask('materials.classify').resultSchema).toBe('material-actions.v1')
+    expect(getTask('materials.split').resultSchema).toBe('material-actions.v1')
+    expect(getTask('materials.relate').resultSchema).toBe('material-actions.v1')
 
     var materialContext = buildMaterialsAgentContext({
       selectedAsset: { id: 'selected', title: '当前素材', content: 'VISIBLE MATERIAL' },
@@ -3651,5 +3651,46 @@ describe('agentContracts', function () {
     })
     expect(structuredProbeFetch).toHaveBeenCalledTimes(1)
     expect(structuredProbeFetch.mock.calls[0][1].body).toContain('json_schema')
+  })
+
+  it('maps legacy advisor task aliases to canonical ids at the request boundary with an alias metric', async function () {
+    const { normalizeAdvisorTaskType } = await import('../services/advisorTaskService')
+    const {
+      getAuthoringAliasMetricSnapshot,
+      resetAuthoringAliasMetric
+    } = await import('../services/agents/authoring/authoringTaskDispatcher')
+
+    resetAuthoringAliasMetric()
+    expect(normalizeAdvisorTaskType('writing.fix.paragraph')).toBe('authoring.rewrite')
+    expect(normalizeAdvisorTaskType('', 'continue')).toBe('authoring.complete.inline')
+    const metric = getAuthoringAliasMetricSnapshot()
+    expect(metric['writing.fix.paragraph->authoring.rewrite']).toBe(1)
+    expect(Object.keys(metric)).not.toContain('authoring.complete.inline->authoring.complete.inline')
+  })
+})
+
+describe('context ledger memory parts', () => {
+  it('carries bounded memory provenance with a structured reason', async () => {
+    const { createContextLedgerPart } = await import('../services/contextLedger')
+    const part = createContextLedgerPart({
+      source: 'memory',
+      title: '已确认记忆',
+      content: '林昭答应在天亮前返回钟楼，这是第一章的承诺。',
+      entryId: 'mem-1',
+      sourceRefs: ['chapter:1:node:7'],
+      included: true,
+      truncated: false,
+      reason: 'relevance-above-threshold'
+    })
+    expect(part).toMatchObject({
+      source: 'memory',
+      entryId: 'mem-1',
+      sourceRefs: ['chapter:1:node:7'],
+      included: true,
+      truncated: false,
+      warning: '',
+      reason: 'relevance-above-threshold'
+    })
+    expect(part.preview.length).toBeLessThanOrEqual(120)
   })
 })

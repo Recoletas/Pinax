@@ -37,8 +37,21 @@ export const useThemeStore = defineStore('theme', {
   }),
   actions: {
     initTheme() {
-      // 全局锁定「主题2 · 亮色」(legacy + light)：不再读取 localStorage 里的
-      // variant / colorScheme，即使旧数据存了主题1或暗色也一律回归默认。
+      // 2026-08-22 解锁外观切换：恢复读取 localStorage 的 variant/colorScheme
+      // （2026-08-10 曾应用户要求锁定 legacy+light 并隐藏切换 UI；现在暗色
+      // token 体系已补齐 legacy 变体，见 docs/superpowers/research/
+      // writing-ui-typography-keyboard-research-20260822.md §8）。
+      let storedVariant = null
+      let storedColorScheme = null
+      try {
+        storedVariant = localStorage.getItem(LS_VARIANT)
+        storedColorScheme = localStorage.getItem(LS_COLOR)
+      } catch (_) {
+        storedVariant = null
+        storedColorScheme = null
+      }
+      this.variant = VALID_VARIANTS.includes(storedVariant) ? storedVariant : DEFAULT_VARIANT
+      this.colorScheme = VALID_COLOR_SCHEMES.includes(storedColorScheme) ? storedColorScheme : DEFAULT_COLOR_SCHEME
       // 缩放的 stored 值仍保留（用户手动调过的 85/90/95/100% 会继续生效）。
       let z = null
       try {
@@ -46,8 +59,6 @@ export const useThemeStore = defineStore('theme', {
       } catch (_) {
         z = null
       }
-      this.variant = DEFAULT_VARIANT
-      this.colorScheme = DEFAULT_COLOR_SCHEME
       const parsedZoom = Number(z)
       this.uiZoom = VALID_UI_ZOOMS.includes(parsedZoom) ? parsedZoom : DEFAULT_UI_ZOOM
       this.applyToHtml()

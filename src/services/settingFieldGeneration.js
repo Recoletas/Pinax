@@ -875,3 +875,42 @@ export async function generateSettingSectionDraft({
 
   return results
 }
+
+// Canonical Agent 设定任务 → 现有结构化生成服务的固定映射（供 settings dispatcher 使用）。
+export function createSettingGenerationServices() {
+  return Object.freeze({
+    generateFoundation: null,
+    generateCandidates: ({ request }) => generateSettingCandidates({
+      sectionKey: request.intent?.sectionKey,
+      worldbook: request.intent?.worldbook,
+      userBrief: request.intent?.userBrief || '',
+      fieldKeys: Array.isArray(request.intent?.fieldKeys) ? request.intent.fieldKeys : [],
+      signal: request.options?.signal || null
+    }),
+    generateField: ({ request }) => generateSettingFieldDraft({
+      worldbook: request.intent?.worldbook,
+      sectionKey: request.intent?.sectionKey,
+      fieldKey: request.intent?.fieldKey,
+      userBrief: request.intent?.userBrief || '',
+      signal: request.options?.signal || null
+    }),
+    generateSection: ({ request }) => generateSettingSectionDraft({
+      sectionKey: request.intent?.sectionKey,
+      worldbook: request.intent?.worldbook,
+      userBrief: request.intent?.userBrief || '',
+      signal: request.options?.signal || null,
+      fieldKeys: Array.isArray(request.intent?.fieldKeys) ? request.intent.fieldKeys : null,
+      onProgress: typeof request.options?.onProgress === 'function' ? request.options.onProgress : null
+    }),
+    reviseDraft: ({ request }) => generateSettingDraftRevision({
+      worldbook: request.intent?.worldbook,
+      sectionKey: request.intent?.sectionKey,
+      fieldKey: request.intent?.fieldKey,
+      draftContent: request.intent?.draftContent || '',
+      revisionInstruction: request.intent?.revisionInstruction || '',
+      previousVersions: Array.isArray(request.intent?.previousVersions) ? request.intent.previousVersions : [],
+      sourceDraftHash: request.intent?.sourceDraftHash || '',
+      signal: request.options?.signal || null
+    })
+  })
+}

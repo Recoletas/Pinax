@@ -23,6 +23,7 @@ Pinax 当前的问题不是“缺少更多按钮”，而是缺少一条贯穿�
 - 地理语义提取、历史节点生成、历史开局和玩家历史摘要的底层模块；
 - 文字冒险、会话、剧情日志、角色、目标、阵营关系、随机机制和记忆；
 - 素材库、写作编辑器、Copilot、顾问动作、章节大纲和文本改写；
+- Authoring 统一创作工作区：写作与离线推演共用同一持续可编辑正文，AI 命令针对光标/选区执行、结果立即可编辑并附请求级撤销；旧体验会话历史幂等投影为带来源的 writingUnit；
 - 关系画布、分镜版本、镜头导出、图片生成和剪辑包导出。
 
 但这些能力现在主要靠路由跳转、localStorage 键和临时导入动作连接。用户必须自己理解“这一页的结果要去哪里”，系统也无法稳定回答：
@@ -92,9 +93,9 @@ Pinax 是一个“活世界创作系统”：作者建立世界，进入其中�
 | 世界设定 | `worldStore`、快速导入、高级条目、结构化设定 | 中 | 4 个入口视觉和操作层级不一致；草稿、正式条目与结构字段关系弱 |
 | 地图 | Voronoi engine、Worker、Canvas renderer、marker CRUD | 中 | 常规重复生成、超时后的 Worker 恢复、语义点审阅和地点双向 UI 已有支撑；地图数据作为可版本化一等资产、20 次压力指标和浏览器 smoke 仍未收口 |
 | 历史 | map semantics、history generator、history opening、player history helper | 中 | 地图到历史草案、逐项审阅、历史开局、玩家历史写回和 PlaceEntity 入口已进入生产链；受控状态变化、完整冲突检测和旧 `mapBinding` 的迁移仍需继续 |
-| 冒险 | 会话、GM、上下文、日志、事件、机制、记忆 | 中 | 多处 prompt 副本；事件与历史只记录不演化；调试数据多数不可见 |
+| 冒险 | 会话、GM、上下文、日志、事件、机制、受控项目记忆（schema v2 候选 owner、确定性 importance、可解释 lexical 检索、来源 revision 失效、facade memory reader） | 中 | 记忆层代码侧已完成；多处 prompt 副本收敛仍需继续；事件与历史只记录不演化；调试数据多数不可见 |
 | 素材 | narrative assets、速记、对话导入、图片资产 | 中 | 已保留旧 `source` 并补 `sourceRefs[]`、内容指纹、同项目同来源去重和批量合并；summarizer 前置、revision/tags、全局检索和跨项目迁移仍未完成 |
-| 写作 | 章节、富文本/Markdown、Copilot、顾问、改写 | 中 | 单页超过 5700 行；动作体系双轨；项目上下文与素材引用仍需手工组织 |
+| 写作 | Authoring 统一创作工作区（canonical `/authoring`，旧 `/writing` 兼容重定向）、章节、Notebook schema v3、Copilot、命令条 AI 任务、事务化插入 + 请求级撤销、体验历史幂等投影 | 中 | 旧体验页仍并行保留等待 parity 审批；live browser audit、真实 provider 矩阵与 Electron 持久化尚未收口 |
 | 分镜 | relation canvas、storyboard versions、shot exporter | 中 | `useDirector` 无生产调用；分镜与图像供应商逻辑混在巨型页面中 |
 | 图片/漫画 | 共享 provider/config、MediaAsset、素材插画、ComicPage 制作字段 | 中 | 景别/机位/透视、格框、制作阶段和视觉圣经字段已直接接入现有漫画页；仍缺改编分页、自由构图画布、真实阶段生成、文字排版与质检 |
 | 视频 | 无正式任务层 | 无 | 不能直接复用当前同步生图逻辑；缺异步任务、回调、资产下载和成本治理 |

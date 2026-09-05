@@ -156,6 +156,29 @@ function moveUnitTransaction(state, dispatch, direction) {
   return true
 }
 
+// 删除整个单元（worldbook scene closure Task 4）：发出 typed delete transition，
+// 场景锚点据此把该单元的锚点标记为 stale（保留可诊断，不静默丢弃）。
+// 文档至少要剩一个单元（doc 内容模型是 writingUnit+），最后一个单元不可删。
+function deleteUnitTransaction(state, dispatch) {
+  const current = currentUnit(state)
+  if (!current || current.unitIndex < 0) return false
+  if (state.doc.childCount <= 1) return false
+  const removed = current.node
+  const from = current.unitPos
+  const to = from + removed.nodeSize
+  if (dispatch) {
+    const transaction = state.tr.delete(from, to)
+    transaction.setMeta('writingUnitTransition', {
+      ...createTransition('delete', null, null, removed.attrs?.unitId || null, []),
+      keptUnitId: null,
+      createdUnitId: null,
+      removedUnitId: removed.attrs?.unitId || null
+    })
+    dispatch(transaction)
+  }
+  return true
+}
+
 export const WritingDocumentNode = Node.create({
   name: 'doc',
   topNode: true,
@@ -184,7 +207,8 @@ export const WritingUnitNode = Node.create({
     return {
       splitWritingUnit: () => ({ state, dispatch }) => splitUnitTransaction(state, dispatch, makeId),
       mergeWritingUnit: (direction = 'previous') => ({ state, dispatch }) => mergeUnitTransaction(state, dispatch, direction),
-      moveWritingUnit: (direction) => ({ state, dispatch }) => moveUnitTransaction(state, dispatch, direction)
+      moveWritingUnit: (direction) => ({ state, dispatch }) => moveUnitTransaction(state, dispatch, direction),
+      deleteWritingUnit: () => ({ state, dispatch }) => deleteUnitTransaction(state, dispatch)
     }
   }
 })
@@ -204,4 +228,4 @@ export const WritingNodeAttributes = Extension.create({
   }]
 })
 
-export { splitUnitTransaction, mergeUnitTransaction, moveUnitTransaction }
+export { splitUnitTransaction, mergeUnitTransaction, moveUnitTransaction, deleteUnitTransaction }

@@ -26,6 +26,9 @@ import {
 import { detectSourceKind } from '../services/worldbookSourceAdapters'
 import { parseSourceFilesWithWorker } from '../services/worldbookSourceParser'
 import { selectSourceChunks } from '../services/worldbookSourceSelection'
+import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
+import { createSettingsImportWorkflow } from '../services/agents/settings/settingsImportWorkflow'
+import { createSettingsGenerationWorkflow } from '../services/agents/settings/settingsGenerationWorkflow'
 import {
   getCreationGenerationFailure,
   getCreationGenerationLabel,
@@ -53,6 +56,32 @@ const archiveCleaning = ref(false)
 const removedSourceIds = ref([])
 const cancelAvailable = ref(false)
 let activeAbortController = null
+
+// 设定 Agent 调度入口：本地解析与基础基调统一走 canonical 任务分发。
+const settingsDispatcher = createSettingsPageDispatcher({
+  adapters: {
+    settingsImport: createSettingsImportWorkflow({
+      parseLocal: (files, options) => parseSourceFilesWithWorker(files, options)
+    }),
+    settingsGeneration: createSettingsGenerationWorkflow({
+      generateFoundation: ({ request }) => tryAiGenerateFromBrief({
+        brief: request.intent?.basis || '',
+        nameHint: request.intent?.nameHint || '',
+        genre: 'general',
+        genreLabel: request.intent?.genreLabel || '自定义创作',
+        signal: request.options?.signal || null
+      })
+    })
+  }
+})
+
+function throwDispatchFailure(result, fallbackMessage) {
+  const aborted = result?.error?.code === 'AGENT_ABORTED'
+  const failure = new Error(result?.error?.message || fallbackMessage)
+  if (aborted) failure.name = 'AbortError'
+  failure.code = aborted ? 'AbortError' : result?.error?.code
+  throw failure
+}
 
 const workspace = reactive(createCreationWorkspace({
   id: String(route.query.workspaceId || 'creation-active'),
@@ -328,7 +357,11 @@ async function parseFiles(files) {
       action: 'sources',
       message: '正在本地提取文字，不会上传原始文件。'
     })
-    const results = await parseSourceFilesWithWorker(list, {
+    const dispatched = await settingsDispatcher.dispatch('source.parse', {
+      project: { id: workspace.id, revision: String(workspace.updatedAt || '') },
+      target: { type: 'source-batch', revision: String(workspace.updatedAt || '') },
+      intent: { files: list }
+    }, {
       signal: abortController.signal,
       onProgress: ({ index, status, error }) => {
         const item = sourceQueue.value.find((entry) => entry.id === processingIds[index])
@@ -349,6 +382,8 @@ async function parseFiles(files) {
         if (metrics && typeof metrics === 'object') workspace.sourceParseMetrics = metrics
       }
     })
+    if (dispatched.status !== 'completed') throwDispatchFailure(dispatched, '资料读取失败。')
+    const results = dispatched.actions[0].payload
     let readyCount = 0
     let failedCount = 0
     let memoryOnlyCount = 0
@@ -569,13 +604,17 @@ async function generateFoundation() {
       action: 'foundation',
       message: '正在生成基础基调草稿，原始文件不会直接上传。'
     })
-    const result = await tryAiGenerateFromBrief({
-      brief: basis,
-      nameHint: workspace.name,
-      genre: 'general',
-      genreLabel: '自定义创作',
-      signal: abortController.signal
-    })
+    const dispatched = await settingsDispatcher.dispatch('settings.foundation.generate', {
+      project: { id: workspace.id, revision: String(workspace.updatedAt || '') },
+      target: { type: 'setting-foundation', revision: String(workspace.updatedAt || '') },
+      intent: {
+        basis,
+        nameHint: workspace.name,
+        genreLabel: '自定义创作'
+      }
+    }, { signal: abortController.signal })
+    if (dispatched.status !== 'completed') throwDispatchFailure(dispatched, 'AI 未返回可用的基础基调。')
+    const result = dispatched.actions[0]?.payload
     if (!result.ok || !result.payload) {
       const failure = new Error(result.reason || 'AI 未返回可用的基础基调。')
       failure.code = /配置|配置中|AI 配置/.test(failure.message) ? 'configuration' : 'schema-invalid'

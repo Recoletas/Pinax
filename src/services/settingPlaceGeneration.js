@@ -430,3 +430,20 @@ export async function generatePlaceFleshOut({
     return { ok: false, code: error?.code || 'PLACE_FLESH_OUT_FAILED', reason: error?.message || '地点补全失败。', place: null }
   }
 }
+
+// Canonical Agent 设定地点任务 → 现有地点生成服务的固定映射（供 settings dispatcher 使用）。
+export function createSettingPlaceServices() {
+  return Object.freeze({
+    extractPlaces: ({ request }) => generatePlacesFromOverview({
+      worldbook: request.intent?.worldbook
+    }),
+    fleshOutPlace: ({ request }) => generatePlaceFleshOut({
+      worldbook: request.intent?.worldbook,
+      seed: request.intent?.seed || {},
+      userBrief: request.intent?.userBrief || '',
+      excludeEntryId: request.intent?.excludeEntryId || '',
+      excludeName: request.intent?.excludeName || '',
+      mode: request.intent?.mode || 'expand'
+    })
+  })
+}

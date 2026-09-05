@@ -28,30 +28,51 @@ function createNodeId(seed = '') {
     : `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function normalizeAuthoringTurnOriginRef(ref) {
+  const requestId = String(ref.requestId || '').trim()
+  if (!requestId) return null
+  return {
+    type: 'authoring-turn',
+    requestId,
+    turnKind: String(ref.turnKind || 'action'),
+    taskId: String(ref.taskId || ''),
+    documentRevision: String(ref.documentRevision || ''),
+    sourceRevision: Math.max(1, Number(ref.sourceRevision || 1))
+  }
+}
+
 export function normalizeWritingOriginRefs(values) {
   const seen = new Set()
   return (Array.isArray(values) ? values : []).filter((ref) => {
-    if (!ref || ref.type !== 'experience-turn') return false
-    const fingerprint = [
-      ref.type,
-      ref.sessionId,
-      ref.branchId,
-      ref.turnId,
-      ref.messageId,
-      Number(ref.sourceRevision || 1)
-    ].join('\u0000')
-    if (!ref.sessionId || !ref.turnId || !ref.messageId || seen.has(fingerprint)) return false
+    if (!ref || !['experience-turn', 'authoring-turn'].includes(ref.type)) return false
+    const fingerprint = ref.type === 'authoring-turn'
+      ? ['authoring-turn', String(ref.requestId || ''), Math.max(1, Number(ref.sourceRevision || 1))].join('\u0000')
+      : [
+          ref.type,
+          ref.sessionId,
+          ref.branchId,
+          ref.turnId,
+          ref.messageId,
+          Number(ref.sourceRevision || 1)
+        ].join('\u0000')
+    if ((ref.type === 'experience-turn' && (!ref.sessionId || !ref.turnId || !ref.messageId))
+      || (ref.type === 'authoring-turn' && !String(ref.requestId || '').trim())
+      || seen.has(fingerprint)) return false
     seen.add(fingerprint)
     return true
-  }).map((ref) => ({
-    type: 'experience-turn',
-    sessionId: String(ref.sessionId),
-    branchId: String(ref.branchId || 'main'),
-    turnId: String(ref.turnId),
-    messageId: String(ref.messageId),
-    worldbookId: String(ref.worldbookId || ''),
-    sourceRevision: Math.max(1, Number(ref.sourceRevision || 1))
-  }))
+  }).map((ref) => (
+    ref.type === 'authoring-turn'
+      ? normalizeAuthoringTurnOriginRef(ref)
+      : {
+          type: 'experience-turn',
+          sessionId: String(ref.sessionId),
+          branchId: String(ref.branchId || 'main'),
+          turnId: String(ref.turnId),
+          messageId: String(ref.messageId),
+          worldbookId: String(ref.worldbookId || ''),
+          sourceRevision: Math.max(1, Number(ref.sourceRevision || 1))
+        }
+  ))
 }
 
 function inlineText(tokens = []) {

@@ -15,8 +15,9 @@ import {
 } from '../services/runtimeEvents'
 
 describe('runtimeEvents', () => {
-  it('exports the schema constants and allowlists', () => {
-    expect(RUNTIME_EVENT_TYPES).toEqual([
+  it("exports the schema constants and allowlists（合并4例）", async () => {
+{
+expect(RUNTIME_EVENT_TYPES).toEqual([
       'turn',
       'state_delta',
       'display_event',
@@ -35,10 +36,9 @@ describe('runtimeEvents', () => {
       'writingTime'
     ]))
     expect(RUNTIME_EVENT_LIMIT).toBe(200)
-  })
-
-  it('creates a v1 envelope on the main branch with generated id and numeric timestamp', () => {
-    const event = createRuntimeEvent({
+}
+{
+const event = createRuntimeEvent({
       type: 'turn',
       source: 'user',
       payload: { role: 'user', preview: '先去钟楼' }
@@ -55,10 +55,9 @@ describe('runtimeEvents', () => {
     expect(event.ts).toBeGreaterThan(0)
     expect(event.payload).toEqual({ role: 'user', preview: '先去钟楼' })
     expect(event.parentId).toBe('')
-  })
-
-  it('falls back to safe defaults for unknown type, source, branch and ts', () => {
-    const event = createRuntimeEvent({
+}
+{
+const event = createRuntimeEvent({
       type: 'mystery',
       source: 'rogue',
       branchId: '   ',
@@ -71,10 +70,9 @@ describe('runtimeEvents', () => {
     expect(event.branchId).toBe('main')
     expect(typeof event.ts).toBe('number')
     expect(event.payload).toEqual({})
-  })
-
-  it('marks display events as non-contextual by default and preserves explicit contextual flag', () => {
-    const defaulted = createRuntimeEvent({ type: 'display_event', payload: { kind: 'inline' } })
+}
+{
+const defaulted = createRuntimeEvent({ type: 'display_event', payload: { kind: 'inline' } })
     expect(defaulted.type).toBe('display_event')
     expect(defaulted.payload.contextual).toBe(false)
     expect(defaulted.payload.kind).toBe('inline')
@@ -84,16 +82,17 @@ describe('runtimeEvents', () => {
       payload: { kind: 'inline', contextual: true }
     })
     expect(optedIn.payload.contextual).toBe(true)
-  })
+}
+})
 
-  it('accepts state-delta ops only when op and path root are in the allowlist', () => {
-    expect(validateStateDelta([{ op: 'set', path: 'goals', value: [] }]).valid).toBe(true)
+  it("accepts state-delta ops only when op and path root are in the allowlist（合并4例）", async () => {
+{
+expect(validateStateDelta([{ op: 'set', path: 'goals', value: [] }]).valid).toBe(true)
     expect(validateStateDelta([{ op: 'push', path: 'inventory', value: 'sword' }]).valid).toBe(true)
     expect(validateStateDelta([{ op: 'merge', path: 'flags', value: { ok: true } }]).valid).toBe(true)
-  })
-
-  it('rejects state-delta ops whose path escapes the allowlist or attempts prototype pollution', () => {
-    const polluted = validateStateDelta([{ op: 'set', path: '__proto__.polluted', value: true }])
+}
+{
+const polluted = validateStateDelta([{ op: 'set', path: '__proto__.polluted', value: true }])
     expect(polluted.valid).toBe(false)
     expect(polluted.errors[0]).toMatchObject({ index: 0, code: 'invalid-path' })
 
@@ -112,16 +111,14 @@ describe('runtimeEvents', () => {
     const unknownRoot = validateStateDelta([{ op: 'set', path: 'malicious', value: 1 }])
     expect(unknownRoot.valid).toBe(false)
     expect(unknownRoot.errors[0].code).toBe('invalid-path')
-  })
-
-  it('rejects non-array state-delta input with a stable error code', () => {
-    const result = validateStateDelta(null)
+}
+{
+const result = validateStateDelta(null)
     expect(result.valid).toBe(false)
     expect(result.errors[0]).toMatchObject({ code: 'not-array' })
-  })
-
-  it('normalizes an existing raw event into the v1 envelope shape', () => {
-    const event = normalizeRuntimeEvent({
+}
+{
+const event = normalizeRuntimeEvent({
       v: 99,
       type: 'state_delta',
       id: 'evt_test',
@@ -140,10 +137,12 @@ describe('runtimeEvents', () => {
     expect(event.ts).toBe(12345)
     expect(event.source).toBe('system')
     expect(event.parentId).toBe('evt_parent')
-  })
+}
+})
 
-  it('caps events to the configured limit and keeps the latest events', () => {
-    const events = Array.from({ length: 205 }, (_, index) => ({
+  it("caps events to the configured limit and keeps the latest events（合并4例）", async () => {
+{
+const events = Array.from({ length: 205 }, (_, index) => ({
       v: 1,
       type: 'turn',
       id: `evt_${index}`,
@@ -167,10 +166,9 @@ describe('runtimeEvents', () => {
     const smallCapped = capRuntimeEvents(small)
     expect(smallCapped).toHaveLength(12)
     expect(smallCapped).not.toBe(small)
-  })
-
-  it('appendRuntimeEvent appends and caps in a single call', () => {
-    const initial = Array.from({ length: 199 }, (_, index) => ({
+}
+{
+const initial = Array.from({ length: 199 }, (_, index) => ({
       id: `pre_${index}`,
       ts: index,
       payload: {}
@@ -186,10 +184,9 @@ describe('runtimeEvents', () => {
     expect(result.events[198]).toMatchObject({ id: 'pre_198' })
     expect(result.events[199].id.startsWith('evt_')).toBe(true)
     expect(result.events[199].payload.preview).toBe('new')
-  })
-
-  it('builds a v1 display_event envelope for history-node-init, defaulting contextual=false', () => {
-    const event = createRuntimeEvent({
+}
+{
+const event = createRuntimeEvent({
       type: 'display_event',
       source: 'runtime',
       payload: {
@@ -218,10 +215,9 @@ describe('runtimeEvents', () => {
       }
     })
     expect(event.id.startsWith('evt_')).toBe(true)
-  })
-
-  it('preserves explicit contextual=true on history-node-init when caller opts in', () => {
-    const event = createRuntimeEvent({
+}
+{
+const event = createRuntimeEvent({
       type: 'display_event',
       source: 'runtime',
       payload: {
@@ -232,10 +228,12 @@ describe('runtimeEvents', () => {
     })
 
     expect(event.payload.contextual).toBe(true)
-  })
+}
+})
 
-  it('appendRuntimeEvent caps to the runtime event limit and returns the new event', () => {
-    const seed = Array.from({ length: 3 }, (_, index) => ({
+  it("appendRuntimeEvent caps to the runtime event limit and returns the new event（合并4例）", async () => {
+{
+const seed = Array.from({ length: 3 }, (_, index) => ({
       type: 'display_event',
       source: 'runtime',
       payload: { kind: 'seed', index }
@@ -251,10 +249,9 @@ describe('runtimeEvents', () => {
       payload: { kind: 'history-node-init', historyNodeId: 'hn_1', contextual: false }
     })
     expect(event).toBe(events[3])
-  })
-
-  it('state_delta ops targeting controlled narrative roots are accepted by the allowlist', () => {
-    const result = validateStateDelta([
+}
+{
+const result = validateStateDelta([
       { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
       { op: 'push', path: 'plotJournal', value: { summary: 's' } },
       {
@@ -314,10 +311,9 @@ describe('runtimeEvents', () => {
       { op: 'merge', path: 'writingTime', value: { eraId: 'crisis', year: 227, month: 9, day: 15 } },
       { op: 'merge', path: 'worldMapState', value: { currentScene: '灯痕码头' } }
     ]))
-  })
-
-  it('previews and applies constrained deltas without mutating the source state', () => {
-    const state = {
+}
+{
+const state = {
       flags: { ledgerSeen: false },
       factionRelations: { 潮盐行会: -8 },
       worldMapState: { placeId: 'place:old', currentScene: '旧税所' }
@@ -346,10 +342,9 @@ describe('runtimeEvents', () => {
       { op: 'set', path: 'factionRelations', value: { 潮盐行会: -8 } },
       { op: 'set', path: 'worldMapState', value: { placeId: 'place:old', currentScene: '旧税所' } }
     ])
-  })
-
-  it('rejects unsafe semantic delta values and prevents rollback over later changes', () => {
-    expect(validateStateDelta([
+}
+{
+expect(validateStateDelta([
       { op: 'set', path: 'worldMapState', value: { map: { countries: [] } } }
     ]).valid).toBe(false)
     expect(validateStateDelta([
@@ -404,5 +399,6 @@ describe('runtimeEvents', () => {
     expect(rollback.valid).toBe(false)
     expect(rollback.code).toBe('rollback-conflict')
     expect(rollback.conflicts).toContain('flags')
-  })
+}
+})
 })

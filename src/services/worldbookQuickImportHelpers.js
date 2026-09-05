@@ -12,9 +12,11 @@
  */
 
 import {
-  tryAiExtractWorldbookJson,
-  tryAiGenerateWorldbookJsonFromBrief
+  tryAiGenerateWorldbookJsonFromBrief,
+  createQuickImportExtractServices
 } from './worldbookImportGeneration'
+import { createSettingsPageDispatcher } from './agents/settings/settingsTaskDispatcher'
+import { createSettingsImportWorkflow } from './agents/settings/settingsImportWorkflow'
 import { formatWorldbookStatus } from './worldbookFeedback'
 import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
 import { seedWorldbookPresets as presets } from './seedWorldbookPresets'
@@ -640,17 +642,33 @@ export async function createWorldbookFromPayload(worldStore, payload, options = 
 
 // ----- AI-driven extract / generate (advanced 入口) -----
 
+// 快速导入 AI 提炼统一走 canonical settings.import.extract 任务分发。
+const settingsDispatcher = createSettingsPageDispatcher({
+  adapters: {
+    settingsImport: createSettingsImportWorkflow(createQuickImportExtractServices())
+  }
+})
+
 export async function tryAiExtractEntries(sourceText, targetCount, nameHint) {
   const safeTargetCount = clampNumber(targetCount, 10, 3, 30)
-  const aiResult = await tryAiExtractWorldbookJson({
-    sourceText,
-    targetCount: safeTargetCount,
-    nameHint
+  const dispatched = await settingsDispatcher.dispatch('settings.import.extract', {
+    project: { id: 'quick-import', revision: '' },
+    target: { type: 'worldbook-import', revision: '' },
+    intent: {
+      targetCount: safeTargetCount,
+      nameHint,
+      blocks: [{ kind: 'references', content: String(sourceText || '') }]
+    }
   })
 
-  if (!aiResult.ok || !aiResult.parsed) return aiResult
+  if (dispatched.status !== 'completed') {
+    return {
+      ok: false,
+      reason: dispatched.error?.message || dispatched.error?.code || 'AI 提炼未产出可用结构，已自动回退本地提炼'
+    }
+  }
 
-  const parsed = aiResult.parsed
+  const parsed = dispatched.actions[0]?.payload
   const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries : []
   const normalizedEntries = rawEntries
     .slice(0, safeTargetCount)

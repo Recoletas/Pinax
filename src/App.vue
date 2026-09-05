@@ -10,6 +10,7 @@ import { useGameStore } from './stores/gameStore'
 import { useThemeStore } from './stores/themeStore.js'
 import { useTipState } from './composables/useTipState'
 import { ensureDefaultImageConfig } from './services/media/imageProviderConfigStore'
+import DesktopProjectGate from './components/desktop/DesktopProjectGate.vue'
 
 const { initTheme } = useTheme()
 const themeStore = useThemeStore()
@@ -146,19 +147,21 @@ watch(
 <template>
   <div class="app-root">
     <ThemeAssets />
-    <router-view />
-    <transition name="meta-toast-fade">
-      <div
-        v-if="generationMetaNotice"
-        class="generation-meta-toast"
-        role="status"
-        aria-live="polite"
-      >
-        {{ generationMetaNotice }}
-      </div>
-    </transition>
-    <MemoryIndicator v-if="showGlobalMemoryIndicator" />
-    <TipBanner />
+    <DesktopProjectGate>
+      <router-view />
+      <transition name="meta-toast-fade">
+        <div
+          v-if="generationMetaNotice"
+          class="generation-meta-toast"
+          role="status"
+          aria-live="polite"
+        >
+          {{ generationMetaNotice }}
+        </div>
+      </transition>
+      <MemoryIndicator v-if="showGlobalMemoryIndicator" />
+      <TipBanner />
+    </DesktopProjectGate>
   </div>
 </template>
 

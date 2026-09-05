@@ -115,6 +115,48 @@
 .wall {
   background: var(--bg-primary);
 }
+
+/* 专注全屏（P0c）：隐藏顶栏/书架/检查器，编辑面独占整屏。
+   wall__main 是 248px+1fr 网格——书架隐藏后必须同时收起第一轨，
+   否则 dossier 会掉进 248px 窄轨导致整页塌陷。 */
+.wall.is-zen .wall__cork,
+.wall.is-zen .wall__shelf,
+.wall.is-zen .wall__chapter-overlay,
+.wall.is-zen .writing-inspector,
+.wall.is-zen .editor-toolbar,
+.wall.is-zen .find-bar {
+  display: none !important;
+}
+
+.wall.is-zen .wall__main {
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: 16px clamp(20px, 6vw, 72px);
+}
+
+.wall.is-zen .wall__dossier {
+  min-height: 0;
+}
+
+.wall__zen-exit {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 60;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wall__zen-exit:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
 .wall__cork {
   display: flex;
   align-items: center;
@@ -283,13 +325,25 @@
   overflow: auto;
   min-height: 0;
 }
+/* Fusion P1 (Task 1.2)：左栏改为两行 grid —— 稿件区滚动（minmax(180px,1fr)），
+   本章现场区固定在下部 auto 行，长章节列表不会把现场摘要推出视口。 */
 .wall__shelf {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: minmax(180px, 1fr) auto;
   gap: 4px;
   padding: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
+}
+.wall__shelf-manuscript {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wall__shelf-scene {
+  min-height: 0;
 }
 .wall__folder {
   position: relative;
@@ -373,7 +427,7 @@
   justify-content: center;
   background: var(--bg-primary);
   border-right: 1px solid var(--border);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", Georgia, serif);
+  font-family: var(--font-display);
   letter-spacing: 0.04em;
 }
 .wall__folder--book .wall__folder-tab {
@@ -453,12 +507,44 @@
   border-style: solid;
 }
 
-/* Paper-tactile shelf decorative — restored in K5 (2026-06-27).
-   The shelf has a wood-board backdrop + a rolled manuscript
-   underneath the folders (anchored by a sticky note). These are
-   the physical "this is an archive" cues that the writing page
-   needs; they are NOT industrial-collage decoration (lamp +
-   lamp-cone + CharacterPortrait portrait card stay deleted). */
+/* 书与世界书显式绑定行（Task 2）：一行文字 + 文字动作，与书架同一套低干扰层级。 */
+.wall__binding-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.wall__binding-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.wall__binding-text.is-missing {
+  color: var(--signal-danger, #a04b3c);
+}
+.wall__binding-select {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  padding: 2px 0;
+}
+.wall__binding-select:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+/* Paper-tactile shelf decorative — Fusion P1 (Task 1.2) removed the
+   decorative "unopened scroll" roll (it carried no real state); only the
+   wood-board backdrop remains. */
 .wall__shelf-board {
   position: absolute;
   left: -10px;
@@ -467,43 +553,6 @@
   bottom: 36px;
   z-index: -1;
   pointer-events: none;
-}
-
-.wall__shelf-roll {
-  position: relative;
-  margin-top: auto;
-  align-self: stretch;
-  height: 48px;
-  border-top: 1px solid var(--border);
-}
-
-.wall__shelf-scroll {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 8px;
-  bottom: 8px;
-}
-
-.wall__shelf-note {
-  position: absolute;
-  right: 18px;
-  bottom: 6px;
-  width: 64px;
-  height: 22px;
-  transform: rotate(-7deg);
-}
-
-.wall__shelf-roll-label {
-  position: absolute;
-  left: 32px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  pointer-events: none;
-  z-index: 1;
 }
 
 .wall__dossier {
@@ -604,7 +653,7 @@
   font-size: 28px;
   font-weight: 700;
   color: var(--archive-ink);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
 }
 .wall__dossier-title {
   flex: 1;
@@ -614,7 +663,7 @@
   border: none;
   outline: none;
   color: var(--archive-ink);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
 }
 .wall__dossier-body {
   flex: 1;
@@ -658,7 +707,7 @@
   border: none;
   outline: none;
   padding: 0 12px 0 0;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
   font-size: 17px;
   line-height: 28px;
   color: var(--archive-ink);
@@ -2530,7 +2579,7 @@
   pointer-events: none;
   z-index: 3;
   color: var(--archive-ink);
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
   font-size: 17px;
   line-height: 1.9;
   white-space: pre-wrap;
@@ -2622,4 +2671,440 @@
     grid-template-columns: 1fr;
   }
 
+}
+
+/* 瞬时反馈条：单行 role=status，可带一次撤销。 */
+.authoring-transient-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 4px 2px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.authoring-transient-notice__undo {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.authoring-transient-notice__undo:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+/* 辅助候选列表：选项/涌现候选只在此展示，永不自动写入正文。 */
+.authoring-auxiliary-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 6px 2px 2px;
+  border-top: 1px dashed var(--archive-line, rgba(0, 0, 0, 0.18));
+}
+
+.authoring-auxiliary-panel__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.authoring-auxiliary-panel__option {
+  appearance: none;
+  border: 1px solid var(--archive-line, rgba(0, 0, 0, 0.18));
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.authoring-auxiliary-panel__option:hover,
+.authoring-auxiliary-panel__option:focus-visible {
+  background: var(--archive-ink-soft, rgba(0, 0, 0, 0.08));
+}
+
+.authoring-auxiliary-panel__option:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+.authoring-auxiliary-panel__candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.authoring-auxiliary-panel__candidate {
+  margin: 0;
+  font-size: 12px;
+}
+
+.authoring-auxiliary-panel__candidate strong {
+  font-size: 12px;
+}
+
+.authoring-auxiliary-panel__candidate p {
+  margin: 0;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.authoring-auxiliary-panel__dismiss {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  text-decoration: underline dotted;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.authoring-auxiliary-panel__dismiss:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+/* 上下文说明入口与瞬时层 */
+.authoring-context-row {
+  display: flex;
+  align-items: center;
+  padding: 2px 2px 8px;
+}
+
+.authoring-context-trigger {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  padding: 2px 4px;
+}
+
+.authoring-context-trigger:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+.authoring-context-inspector {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-transient-layer, 90);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.authoring-context-inspector__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 18, 14, 0.42);
+}
+
+.authoring-context-inspector__panel {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  background: var(--paper, #faf6ee);
+  color: inherit;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  padding: 14px 16px 12px;
+}
+
+.authoring-context-inspector__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.authoring-context-inspector__close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.authoring-context-inspector__close:focus-visible,
+.authoring-context-inspector__foot button:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+.authoring-context-inspector__empty {
+  margin: 12px 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.authoring-context-inspector__list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.authoring-context-inspector__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  font-size: 13px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.14);
+  padding-bottom: 8px;
+}
+
+.authoring-context-inspector__kind {
+  font-weight: 600;
+}
+
+.authoring-context-inspector__status {
+  opacity: 0.85;
+}
+
+.authoring-context-inspector__chars {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.authoring-context-inspector__refs {
+  flex-basis: 100%;
+  font-size: 11px;
+  opacity: 0.55;
+  word-break: break-all;
+}
+
+.authoring-context-inspector__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.authoring-context-inspector__foot button {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+
+/* 派生观察：安静状态行 + 异常审阅卡。 */
+.authoring-observer-status {
+  margin: 0 0 6px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.authoring-exception-review {
+  margin: 0 0 10px;
+  border: 1px solid rgba(179, 38, 30, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.authoring-exception-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.authoring-exception-review__dismiss {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.authoring-exception-review__item {
+  border-top: 1px dashed rgba(0, 0, 0, 0.14);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.authoring-exception-review__reason {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--control-danger, #b3261e);
+}
+
+.authoring-exception-review__summary {
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+
+.authoring-exception-review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.authoring-exception-review__actions button,
+.authoring-exception-review__confirm button {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.authoring-exception-review__actions button:focus-visible,
+.authoring-exception-review__confirm button:focus-visible,
+.authoring-exception-review__dismiss:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+.authoring-exception-review__confirm {
+  margin: 8px 0 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* —— 受控记忆：低干扰提示与异常审阅 —— */
+.authoring-memory-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.authoring-memory-notice__review {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.authoring-memory-notice__review:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+.authoring-memory-review {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.authoring-memory-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.authoring-memory-review__dismiss {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.authoring-memory-review__item {
+  border-top: 1px dashed rgba(0, 0, 0, 0.14);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.authoring-memory-review__reason {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.authoring-memory-review__summary {
+  margin: 4px 0 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.authoring-memory-review__source {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.authoring-memory-review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.authoring-memory-review__actions button {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: transparent;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.authoring-memory-review__actions button:focus-visible,
+.authoring-memory-review__dismiss:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+@media (max-width: 760px) {
+  .authoring-memory-review {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-transient, 60);
+    border-radius: 12px 12px 0 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
 }

@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '../composables/useStorage'
+import { buildLegacyMigrationBundle } from '../services/migration/legacyMigrationBundle'
 import { downloadJsonFile, timestampForFilename } from './download'
 
 /**
@@ -410,4 +411,11 @@ export function exportAllBackup() {
   const filename = `pinax-backup-${timestampForFilename()}.json`
   downloadJsonFile(backup, filename)
   return { filename, keyCount: backup.keyCount }
+}
+
+export async function exportLegacyMigrationBundle(options = {}) {
+  const bundle = await buildLegacyMigrationBundle(options.storage || localStorage, options)
+  const filename = `pinax-desktop-migration-${timestampForFilename()}.json`
+  downloadJsonFile(bundle, filename)
+  return { filename, bundleId: bundle.bundleId, recordCount: bundle.recordCount }
 }

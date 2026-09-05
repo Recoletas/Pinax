@@ -72,7 +72,8 @@ export function createContextLedgerPart(input = {}) {
     limit: Number.isFinite(Number(input.limit)) ? Number(input.limit) : null,
     entryId: normalizeText(input.entryId),
     sourceRefs,
-    warning: normalizeText(input.warning)
+    warning: normalizeText(input.warning),
+    reason: normalizeText(input.reason)
   }
 }
 

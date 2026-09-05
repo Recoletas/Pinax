@@ -16,6 +16,10 @@
           @click="activeTab = 'general'"
         >通用</button>
         <button
+          :class="['tab', { active: activeTab === 'appearance' }]"
+          @click="activeTab = 'appearance'"
+        >外观</button>
+        <button
           :class="['tab', { active: activeTab === 'api' }]"
           @click="activeTab = 'api'"
         >AI API</button>
@@ -46,6 +50,44 @@
           <div class="setting-item">
             <label>自动存档</label>
             <input type="checkbox" v-model="settings.autoSave" />
+          </div>
+        </div>
+
+        <!-- 外观设置（2026-08-22 解锁：主题版本 × 明暗模式 × 界面缩放） -->
+        <div v-if="activeTab === 'appearance'" class="tab-panel">
+          <div class="setting-item">
+            <label>主题版本</label>
+            <div class="appearance-options">
+              <button
+                v-for="variant in themeVariants"
+                :key="variant.key"
+                type="button"
+                :class="['appearance-option', { active: themeStore.variant === variant.key }]"
+                @click="themeStore.setAppearance(variant.key, themeStore.colorScheme)"
+              >{{ variant.label }}</button>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label>明暗模式</label>
+            <div class="appearance-options">
+              <button
+                v-for="scheme in ['light', 'dark']"
+                :key="scheme"
+                type="button"
+                :class="['appearance-option', { active: themeStore.colorScheme === scheme }]"
+                @click="themeStore.setColorScheme(scheme)"
+              >{{ scheme === 'light' ? '亮色' : '暗色' }}</button>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label>界面缩放</label>
+            <select
+              class="input"
+              :value="themeStore.uiZoom"
+              @change="themeStore.setUiZoom(Number($event.target.value))"
+            >
+              <option v-for="zoom in THEME_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option>
+            </select>
           </div>
         </div>
 
@@ -203,10 +245,16 @@
 import { ref, reactive, watch, onMounted, computed } from 'vue'
 import { useApiSettings } from '@/composables/useApiSettings'
 import { getItem, setItem, STORAGE_KEYS } from '@/composables/useStorage'
+import { useThemeStore, VALID_UI_ZOOMS as THEME_UI_ZOOMS } from '@/stores/themeStore'
 import api, { getOrCreatePreferenceUserId } from '@/services/api'
 
 const emit = defineEmits(['close'])
 
+const themeStore = useThemeStore()
+const themeVariants = [
+  { key: 'legacy', label: '经典（默认）' },
+  { key: 'kao', label: '档案册' }
+]
 const activeTab = ref('general')
 const showApiKey = ref(false)
 const isInitializing = ref(true)
@@ -454,6 +502,32 @@ async function saveAllAndClose() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.appearance-options {
+  display: flex;
+  gap: 8px;
+}
+
+.appearance-option {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft, transparent);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.appearance-option:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.appearance-option.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--text-primary);
 }
 
 .setting-item label {

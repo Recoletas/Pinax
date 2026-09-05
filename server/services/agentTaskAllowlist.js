@@ -1,23 +1,45 @@
 import {
-  AGENT_TASK_ERROR_CODES,
-  getExecutableAgentTaskTypes,
-  LEGACY_AGENT_TASK_ALIASES,
-  resolveExecutableAgentTask
-} from '../../shared/agentTaskContract.js'
+  LEGACY_CAPABILITY_ALIASES,
+  getCanonicalAgentTask,
+  listCanonicalAgentTaskIds,
+  resolveLegacyTaskAlias
+} from '../../shared/agentCapabilityContract.js'
+import { AGENT_TASK_ERROR_CODES } from '../../shared/agentTaskContract.js'
+
+export { AGENT_TASK_ERROR_CODES, LEGACY_AGENT_TASK_ALIASES } from '../../shared/agentTaskContract.js'
 
 export function validateServerTaskType(taskType) {
-  const validation = resolveExecutableAgentTask(taskType)
-  if (!validation.valid) return validation
+  const requested = String(taskType || '').trim()
+  if (!requested) {
+    return {
+      valid: false,
+      code: AGENT_TASK_ERROR_CODES.MISSING,
+      reason: 'missing-task-type',
+      requested,
+      canonical: null
+    }
+  }
+  const canonical = resolveLegacyTaskAlias(requested)
+  const definition = getCanonicalAgentTask(canonical)
+  if (!definition) {
+    return {
+      valid: false,
+      code: AGENT_TASK_ERROR_CODES.UNKNOWN,
+      reason: 'unknown-task-type',
+      requested,
+      canonical: null
+    }
+  }
   return {
     valid: true,
-    taskType: validation.canonical,
-    definition: validation.definition,
-    wasLegacyAlias: validation.wasLegacyAlias
+    taskType: canonical,
+    definition,
+    wasLegacyAlias: canonical !== requested
   }
 }
 
 export function getServerTaskTypes() {
-  return getExecutableAgentTaskTypes()
+  return listCanonicalAgentTaskIds()
 }
 
 export function isNewEnvelopePayload(body) {
@@ -37,4 +59,4 @@ export function isLegacyPayload(body) {
   )
 }
 
-export { AGENT_TASK_ERROR_CODES, LEGACY_AGENT_TASK_ALIASES }
+export { LEGACY_CAPABILITY_ALIASES }

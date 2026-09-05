@@ -762,8 +762,9 @@ describe('PromptBuilder', () => {
 })
 
 describe('Narrative presentation contract', () => {
-  it('parses markers into clean text and falls back without losing legacy content', () => {
-    const structured = parseNarrativePresentation([
+  it("parses markers into clean text and falls back without losing legacy content（合并4例）", async () => {
+{
+const structured = parseNarrativePresentation([
       ':::narration',
       '雨水沿着舷窗滑落。',
       ':::dialogue|陆晨曦',
@@ -1103,10 +1104,9 @@ describe('Narrative presentation contract', () => {
     // 参与者完全更换 → 线程重建（cast 刷新为新角色，而非滚动复用旧 cast）
     expect(switchedCastThread.cast.map((member) => member.name)).toEqual(['屠夫', '马贩'])
     expect(switchedCastThread.revision).not.toBe(castThread.revision)
-  })
-
-  it('normalizes complete dialogue wrappers and splits a long monologue without losing its speaker', () => {
-    const normalized = parseNarrativePresentation(':::dialogue|林岫\n「都有。」', {
+}
+{
+const normalized = parseNarrativePresentation(':::dialogue|林岫\n「都有。」', {
       messageId: 'dialogue-normalization-contract'
     })
     expect(normalized.blocks.map((block) => block.text)).toEqual(['“都有。”'])
@@ -1123,19 +1123,17 @@ describe('Narrative presentation contract', () => {
       '林岫:“都有。第一封是三年前寄出的。”',
       '林岫:“第二封没有落款。第三封上的墨迹还没有干。”'
     ])
-  })
-
-  it('splits an overlong comma-only narration without changing its text', () => {
-    const text = '风从门缝里钻进来，吹得灯焰不断偏向墙角，沈砚按住桌上的信纸，没有回答林岫的问题，只抬眼听着台阶外越来越近的脚步，门环轻轻撞上木板，屋里所有人的呼吸都停了一瞬，窗外的雨点越来越密，檐下积水一线线落下来，守在后门的人悄悄换了位置，长廊尽头又亮起一盏灯，映出墙边一道陌生的影子，谁也没有先开口，仿佛只要继续沉默，那封信就不会变成已经发生的事实'
+}
+{
+const text = '风从门缝里钻进来，吹得灯焰不断偏向墙角，沈砚按住桌上的信纸，没有回答林岫的问题，只抬眼听着台阶外越来越近的脚步，门环轻轻撞上木板，屋里所有人的呼吸都停了一瞬，窗外的雨点越来越密，檐下积水一线线落下来，守在后门的人悄悄换了位置，长廊尽头又亮起一盏灯，映出墙边一道陌生的影子，谁也没有先开口，仿佛只要继续沉默，那封信就不会变成已经发生的事实'
     const parsed = parseNarrativePresentation(`:::narration\n${text}`, {
       messageId: 'comma-density-contract'
     })
     expect(parsed.blocks.length).toBeGreaterThan(1)
     expect(parsed.blocks.map((block) => block.text).join('')).toBe(text)
-  })
-
-  it('selectively refreshes a current presentation that still uses corner dialogue quotes', () => {
-    const refreshed = ensureNarrativeMessage({
+}
+{
+const refreshed = ensureNarrativeMessage({
       id: 'quote-refresh-contract',
       role: 'assistant',
       content: ':::dialogue|林岫\n「都有。」',
@@ -1145,7 +1143,8 @@ describe('Narrative presentation contract', () => {
       }
     })
     expect(refreshed.presentation.blocks.map((block) => block.text)).toEqual(['“都有。”'])
-  })
+}
+})
 
   it('keeps stable ids and one prompt format contract', () => {
     expect(createNarrativeMessageId({ role: 'assistant', content: '同一段' }, 0))
@@ -2448,8 +2447,9 @@ describe('Media services', () => {
 })
 
 describe('ShotExporter', () => {
-  it('extracts shots from relation canvas tree nodes', () => {
-    const nodes = [
+  it("extracts shots from relation canvas tree nodes（合并4例）", async () => {
+{
+const nodes = [
       {
         id: '1',
         text: '夜色',
@@ -2478,15 +2478,13 @@ describe('ShotExporter', () => {
     expect(shots[0].tone).toBe('淡蓝冷色调')
     expect(shots[1].dialogue).toBe('光线落在街角')
     expect(shots[1].transition).toBe('cut')
-  })
-
-  it('exports to markdown', () => {
-    const md = toMarkdown([{ sequence: 1, content: '测试', shotType: 'wide', camera: 'fixed', duration: 3 }])
+}
+{
+const md = toMarkdown([{ sequence: 1, content: '测试', shotType: 'wide', camera: 'fixed', duration: 3 }])
     expect(md).toContain('分镜脚本')
-  })
-
-  it('maps prose essay director fields into shared shots and premiere csv', () => {
-    const shots = extractShotsFromProseEssay({
+}
+{
+const shots = extractShotsFromProseEssay({
       cards: [
         {
           id: 'card-1',
@@ -2544,10 +2542,9 @@ describe('ShotExporter', () => {
     expect(jianying.tracks.videoTracks[0].clips[0].referenceImages[0].assetId).toBe('asset-img-1')
     expect(fcpxml).toContain('<asset_id>asset-1</asset_id>')
     expect(fcpxml).toContain('<relation_label>前后镜</relation_label>')
-  })
-
-  it('builds a stable editing package manifest and file list', () => {
-    const shots = extractShotsFromProseEssay({
+}
+{
+const shots = extractShotsFromProseEssay({
       cards: [
         {
           id: 'card-1',
@@ -2605,7 +2602,8 @@ describe('ShotExporter', () => {
     expect(zipText).toContain('storyboard.md')
     expect(zipText).toContain('timeline.fcpxml')
     expect(zipText).toContain('metadata.json')
-  })
+}
+})
 
   it('extracts shots from narrative assets and chapter outline blocks', () => {
     const assetShots = extractShotsFromNarrativeAssets({
@@ -2644,5 +2642,42 @@ describe('ShotExporter', () => {
     expect(chapterShots).toHaveLength(1)
     expect(chapterShots[0].notes).toContain('第一章')
     expect(chapterShots[0].content).toBe('开场')
+  })
+})
+
+describe('Settings agent dispatcher integration', () => {
+  it('routes canonical settings tasks through the shared engine and returns review drafts', async () => {
+    const { createSettingsPageDispatcher } = await import('../services/agents/settings/settingsTaskDispatcher')
+    const { createSettingsGenerationWorkflow } = await import('../services/agents/settings/settingsGenerationWorkflow')
+    const dispatcher = createSettingsPageDispatcher({
+      adapters: {
+        settingsGeneration: createSettingsGenerationWorkflow({
+          generateField: vi.fn(async () => ({ ok: true, content: '港城终年潮湿' })),
+          generateSection: vi.fn(async () => {
+            const error = new Error('aborted')
+            error.name = 'AbortError'
+            throw error
+          })
+        })
+      }
+    })
+    const result = await dispatcher.dispatch('settings.field.complete', {
+      project: { id: 'wb-1', revision: 'wb-r2' },
+      target: { type: 'setting-field', id: 'world.geography', revision: 'r3' },
+      intent: { sectionKey: 'world', fieldKey: 'geography' }
+    }, { signal: null })
+    expect(result.status).toBe('completed')
+    expect(result.actions[0]).toMatchObject({ type: 'setting-draft', baseRevision: 'r3' })
+    expect(result.actions[0].payload.ok).toBe(true)
+
+    const abortedController = new AbortController()
+    abortedController.abort()
+    const aborted = await dispatcher.dispatch('settings.section.complete', {
+      project: { id: 'wb-1', revision: 'wb-r2' },
+      target: { type: 'setting-section', id: 'world', revision: 'r3' },
+      intent: {}
+    }, { signal: abortedController.signal })
+    expect(aborted.status).toBe('failed')
+    expect(aborted.error.code).toBe('AGENT_TASK_UNKNOWN'.replace('TASK_UNKNOWN', 'ABORTED'))
   })
 })

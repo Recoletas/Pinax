@@ -10,6 +10,21 @@
 
 ## 活跃问题
 
+### 受控项目记忆系统外部门禁
+
+- ✅ 2026-08-22：M0 记忆内核（schema v2、确定性 importance、可解释 lexical 排序、来源 revision 失效、receipt/软上限）与 M1 运行时/UI 接入（四类触发边界、observer 输出进候选 owner、facade memory reader、Authoring 低干扰审阅）代码侧完成；全量 34 文件 / 300 用例与 verify:full 通过。
+- 🟡 **已知缺口**：live browser audit 未对本分支运行——本机仅有服务共享 checkout 旧代码的用户进程，按计划不重启用户服务，1440/1024/390 与 200% zoom 记为 not run。
+- 🟡 **已知缺口**：真实 provider 3×3 矩阵未运行（`server/.env` 缺失）；正文提交产出有界 pending 候选、revision 变化拒绝迟到 observer 输出等六项行为验收留待外部凭据。
+- 处理入口：[受控记忆 handoff](../agent-runs/2026-08-22-controlled-project-memory/summary.md)。
+
+### 统一创作工作区（Authoring）外部门禁
+
+- ✅ 2026-08-22：`Writing.vue` 已演进为 `Authoring.vue` 并成为 canonical 创作路由 `/authoring`；`/writing` 与 `name: 'writing'` 兼容重定向，一级导航合并为单一“创作”。命令条、事务化 AI 插入 + 请求级撤销、低敏感上下文说明层和 typed exception 审阅已落地；旧体验会话经 `?sessionId=` 幂等投影进章节 writingUnit。
+- 🟡 **已知缺口**：Experience 路由尚未下线。Task 8（offline Experience 重定向到 Authoring）的前置条件——parity artifact 含 1440/1024/390 截图与用户验收——未满足，gate 保持 pending；当前 `/experience` 原样可用，属有意保留而非回归。
+- 🟡 **已知缺口**：live browser audit（`UI_AUDIT_ROUTES=authoring,experience ... npm run audit:ui`）与真实 provider 矩阵未运行（无开发服务/凭据）。audit 脚本已具备 authoring 路由与 regular/long/generating/error/stale/context/conflict 状态及 advisor 拦截场景。
+- 🟡 **已知缺口**：conflict 审计状态目前只能验证“无异常时审阅面保持安静”；向页面注入 typed exception 需要审计钩子或 observer runtime 真实输出，留待 live gate 阶段补齐。
+- 处理入口：[统一创作工作区计划](../superpowers/plans/2026-08-22-unified-authoring-workspace.md) 与 [parity 证据](../agent-runs/2026-08-22-unified-authoring-workspace/parity.md)。
+
 ### 体验叙事工具协议兼容
 
 - ✅ 单 transcript 工具运行时已完成：assistant tool call、tool result、调用 ID、provider content block、必要的 reasoning metadata 与最终正文保持在同一会话内；typed repair、超时、空/stale 结果与有界恢复已有确定性覆盖。
@@ -56,6 +71,9 @@
 
 ## 已知缺口
 
+- 🟡 Windows x64 portable ZIP 已完成压缩完整性、ASAR、PE32+ 及真实 Linux package 激活后路由 smoke。Windows 实测发现的目录 `fsync` `EPERM` 与项目激活后 Web History 白屏均已修复并重建包，但仍需 clean-machine 复验新建、导入、刷新、OS 目录对话框、SQLite、锁与原子替换；host 证据不能替代该门禁。Squirrel installer 仍需 Windows runner，或在 Linux 安装 Wine/Mono 后再生成。
+- 🟡 `desktop-project-empty/error/readonly` 已加入 UI audit mock state 和 1440/390 可运行配置，但当前 5173 服务属于另一 worktree。按“不启动或重启现有服务”约定，本分支 live browser audit 未执行；组件行为、初始焦点、键盘、共享 token 与 768px 合同测试已通过。
+- 🟢 P1 只建立新桌面项目 repository/schema/bridge，不迁移现有 localStorage 项目记录，也不把 legacy key-value 数据伪装为 SQLite rows。迁移归 P2，plain-text editor 归 P3。
 - 🟡 C3 场景素材板已有静态合同、单元测试和审计 fixture，但当前无开发服务，尚未执行 1440/390 live browser audit。此项是视觉/真实交互验收门禁，不是已确认的代码回归。
 - 🟡 场景板可确定识别 linked/archived/detached/untracked；通用 stale 状态需要可比较的源 revision 或 content hash 基线，现有旧数据不具备该证据，因此本轮不根据时间或缺失字段猜测 stale。
 - 🟡 `ProseEssay.vue` 仍直接持有画布编排状态；是否抽取 `useCanvasBoard` 留到场景板用户验收后决定，避免在交互边界未稳定时先制造新 owner。

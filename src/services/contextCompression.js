@@ -246,7 +246,7 @@ async function buildLlmSummary({
 
   try {
     const result = await runGenerationTask({
-      taskType: 'context.compress',
+      taskType: 'authoring.context.compact',
       baseMessages: buildContextCompressionMessages({
         messages,
         existingSummaries,

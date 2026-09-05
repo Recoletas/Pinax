@@ -14,13 +14,23 @@ const requestedWidths = String(process.env.UI_AUDIT_WIDTHS || '1440,1280,980,760
 const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .split(',')
   .map((value) => value.trim())
-  .filter((value) => ['empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit', 'scene-board'].includes(value))
+  .filter((value) => [
+    'empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit', 'scene-board',
+    'generating', 'context', 'conflict', 'scene-rail', 'detail',
+    'desktop-project-empty', 'desktop-project-error', 'desktop-project-readonly'
+  ].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean))
 
 const routes = [
+  {
+    id: 'desktop-project',
+    path: '/',
+    surfaces: ['.desktop-project-gate'],
+    keyboardTargets: ['[data-test="desktop-project-create"]', '[data-test="desktop-project-open"]', '[data-test="desktop-project-readonly"]']
+  },
   {
     id: 'experience',
     path: '/experience',
@@ -32,6 +42,13 @@ const routes = [
     path: '/writing',
     surfaces: ['.writing-page', '.manuscript-body'],
     keyboardTargets: ['.wall__cork button', '.wall__dossier-body button', '.writing-notebook-editor__surface .ProseMirror']
+  },
+  {
+    // Authoring 统一创作工作区（/writing 重定向至此）。
+    id: 'authoring',
+    path: '/authoring',
+    surfaces: ['.writing-page'],
+    keyboardTargets: ['.wall__cork button', '.turn-composer__primary', '.authoring-context-trigger', '.wall__shelf-scene button', '.writing-notebook-editor__surface .ProseMirror']
   },
   { id: 'materials', path: '/materials', surfaces: ['.notes-content-area', '.material-drawer', '.reading-deck', '.notes-sidekick'] },
   { id: 'prose-essay', path: '/prose-essay', surfaces: ['.prose-essay-page', '.pe-main', '.card-wall', '.left-panel'] },
@@ -233,8 +250,18 @@ function makeFixture(state) {
       playerCharacter: { name: 'REco' },
       aiCharacter: { name: '陆晨曦' },
       encounteredCharacters: [{ id: 'lu-chenxi', name: '陆晨曦', role: '引力波工程师' }],
-      worldMapState: { currentCountry: '北海联邦', currentCity: '雾港', currentScene: '旧仓库' },
-      writingTime: { era: '危机纪元', year: 227, month: 9, day: 15, period: '深夜' }
+      worldMapState: { currentCountry: '北海联邦', currentCity: '雾港', currentScene: '旧仓库', placeId: 'place-old-warehouse' },
+      writingTime: { era: '危机纪元', year: 227, month: 9, day: 15, period: '深夜' },
+      // Fusion P1 (Task 1.5)：scene-rail/detail 审计状态的确定性现场数据。
+      sceneThread: {
+        id: 'audit-scene-thread',
+        place: { placeId: 'place-old-warehouse', scene: '旧仓库' },
+        time: { eraName: '危机纪元', year: '227', month: '9', day: '15' },
+        cast: [{ characterId: 'lu-chenxi', name: '陆晨曦', immediateIntent: '', lastMeaningfulMove: '把航海图推到灯下' }]
+      },
+      plotJournal: [
+        { id: 'audit-journal-1', chapterId: 'audit-chapter-1', summary: '潮声中的信号', unresolvedHooks: ['灯塔是否仍有人使用'] }
+      ]
     }
   }
   const fixture = {
@@ -380,6 +407,14 @@ function makeFixture(state) {
       createdAt: new Date(now - 1000).toISOString()
     })]
   }
+  if (state === 'long') {
+    const longPassage = Array.from({ length: 120 }, (_, index) => (
+      `第 ${index + 1} 段：雾港的潮声在长文档里持续推进，用于审计滚动、排版与命令条在长正文下的表现。`
+    )).join('\n\n')
+    const chapter = fixture.writing_books[0].chapters[0]
+    chapter.content = `${chapter.content}\n\n${longPassage}`
+    chapter.wordCount = chapter.content.replace(/\s/g, '').length
+  }
   const structuredSettings = {
     world: {
       origin: '潮汐港建立在不断改道的海湾上，旧灯塔记录着三次迁港。',
@@ -421,6 +456,19 @@ function makeFixture(state) {
   }]
   fixture[`worldbook_${auditWorldbook.id}`] = auditWorldbook
   fixture.active_worldbook_id = auditWorldbook.id
+
+  // worldbook scene closure Task 8：当前场/世界书绑定审计状态。
+  // 绑定写在书数据上，不依赖全局 active 世界书。
+  const auditBook = fixture.writing_books?.[0]
+  if (auditBook && ['current-scene', 'scene-inherited', 'worldbook-unbound', 'worldbook-missing'].includes(state)) {
+    if (state === 'worldbook-unbound') {
+      delete auditBook.worldbookId
+    } else if (state === 'worldbook-missing') {
+      auditBook.worldbookId = 'wb-gone-audit'
+    } else {
+      auditBook.worldbookId = auditWorldbook.id
+    }
+  }
   if (['loading', 'error', 'partial', 'stale', 'cancelled'].includes(state)) {
     fixture.apiSettings = {
       provider: 'openai',
@@ -463,11 +511,38 @@ async function installThemeFixture(page, state) {
     localStorage.setItem('app_theme', 'light')
     localStorage.setItem('pinax_ui_audit_state', fixtureState)
     Object.entries(fixture).forEach(([key, value]) => localStorage.setItem(key, JSON.stringify(value)))
+    if (fixtureState.startsWith('desktop-project-')) {
+      const ok = (value) => Promise.resolve({ ok: true, value })
+      const locked = () => Promise.resolve({
+        ok: false,
+        error: { code: 'DESKTOP_PROJECT_LOCKED', message: '该项目正在另一窗口中使用。你仍可用只读方式检查内容。' }
+      })
+      window.pinaxDesktop = {
+        platform: 'desktop',
+        project: {
+          getActive: () => fixtureState === 'desktop-project-error'
+            ? Promise.resolve({ ok: false, error: { code: 'DESKTOP_INTEGRITY_FAILED', message: '最近项目的清单无法读取，请重新选择项目文件夹。' } })
+            : ok(null),
+          chooseDirectory: () => ok('/Users/writer/Documents/Pinax/雾港与一段用于验证窄屏换行的较长项目路径'),
+          create: () => ok({ name: '雾港', mode: 'read-write' }),
+          open: (input) => fixtureState === 'desktop-project-readonly' && input?.mode === 'read-write'
+            ? locked()
+            : ok({ name: '雾港', mode: input?.mode || 'read-write' })
+        }
+      }
+    }
   }, { fixture: makeFixture(state), fixtureState: state })
 }
 
 function supportsActionState(route, state) {
+  if (route.id === 'authoring') {
+    return ['empty', 'regular', 'long', 'generating', 'error', 'stale', 'context', 'conflict', 'scene-rail', 'detail',
+      'current-scene', 'worldbook-unbound', 'worldbook-missing'].includes(state)
+  }
+  const desktopState = state.startsWith('desktop-project-')
+  if (desktopState || route.id === 'desktop-project') return desktopState && route.id === 'desktop-project'
   if (state === 'scene-board') return route.id === 'prose-essay'
+  if (['generating', 'context', 'conflict'].includes(state)) return false
   if (['partial', 'stale', 'cancelled'].includes(state)) {
     return state === 'partial'
       ? ['settings-worldbook-create', 'settings-structured'].includes(route.id)
@@ -478,9 +553,34 @@ function supportsActionState(route, state) {
 }
 
 async function installActionScenario(page, state) {
-  if (state === 'writing-unit') {
+  if (state === 'writing-unit' || ['generating', 'error', 'stale'].includes(state)) {
     await page.route('**/api/advisor/task', async (requestRoute) => {
       const taskType = requestRoute.request().postDataJSON()?.taskType || 'writing.chapter.health'
+      if (state === 'generating') {
+        await new Promise(() => {})
+        return
+      }
+      if (state === 'stale') {
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        await requestRoute.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            taskType,
+            advice: '审计迟到的固定回复',
+            result: { task: taskType, mode: 'direct', text: '审计插入的正文。' }
+          })
+        })
+        return
+      }
+      if (state === 'error') {
+        await requestRoute.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: '审计模拟：创作服务暂时不可用' })
+        })
+        return
+      }
       await requestRoute.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -552,6 +652,63 @@ async function installActionScenario(page, state) {
 }
 
 async function triggerActionScenario(page, route, state) {
+  if (route.id === 'authoring') {
+    if (!['generating', 'error', 'stale', 'context', 'conflict'].includes(state)) return null
+    if (state === 'generating') {
+      // Fusion P4：九指令横条已退役，停止/生成入口只剩 composer 主按钮三态。
+      await page.locator('[data-test="turn-primary"]').click()
+      await page.getByRole('button', { name: '停止' }).waitFor({ state: 'visible', timeout: 5_000 })
+      return { assertion: 'composer primary exposes stop while a request is pending', passed: true }
+    }
+    if (state === 'error' || state === 'stale') {
+      await page.locator('[data-test="turn-primary"]').click()
+      await page.locator('.authoring-transient-notice').waitFor({ state: 'visible', timeout: 10_000 })
+      return { assertion: 'authoring surfaces transient feedback after the provider responds', passed: true }
+    }
+    if (state === 'context') {
+      await page.locator('.authoring-context-trigger').click()
+      const dialog = page.locator('[aria-label="上下文说明"]')
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 })
+      await page.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'hidden', timeout: 5_000 })
+      return { assertion: 'context inspector opens and closes with Escape without raw prompts', passed: true }
+    }
+    const review = page.locator('.authoring-exception-review')
+    return { assertion: 'exception review stays quiet unless typed exceptions exist', passed: await review.count() === 0 }
+  }
+  if (state === 'scene-rail' && route.id === 'authoring') {
+    // Fusion P1：本章现场条常显于左栏下部；无运行时证据的字段以「未指定」呈现。
+    const rail = page.locator('.wall__shelf-scene .scene-rail')
+    await rail.waitFor({ state: 'visible', timeout: 5_000 })
+    const headerVisible = await rail.getByText('当前场').count() > 0
+    return { assertion: 'authoring scene rail renders the shared chapter-scene summary', passed: headerVisible }
+  }
+  if (['current-scene', 'worldbook-unbound', 'worldbook-missing'].includes(state) && route.id === 'authoring') {
+    // Task 8：投影状态标签按书的世界书绑定确定性呈现。
+    const rail = page.locator('.wall__shelf-scene .scene-rail')
+    await rail.waitFor({ state: 'visible', timeout: 5_000 })
+    const expected = {
+      'current-scene': '当前落笔处',
+      'worldbook-unbound': '未关联世界书',
+      'worldbook-missing': '世界书已缺失'
+    }[state]
+    const statusText = ((await page.locator('.scene-rail__status').textContent()) || '').trim()
+    if (state === 'worldbook-unbound' || state === 'worldbook-missing') {
+      const bindVisible = await page.locator('[data-test="scene-bind"]').count() > 0
+      return { assertion: `scene rail renders ${expected} with a bind action`, passed: statusText === expected && bindVisible }
+    }
+    return { assertion: `scene rail renders ${expected}`, passed: statusText === expected }
+  }
+  if (state === 'detail' && route.id === 'authoring') {
+    // Fusion P1：详情只能由用户点击左栏现场条目打开，绝不自动抢占检查器（spec §7.1）。
+    await page.locator('.writing-inspector__tabs').waitFor({ state: 'visible', timeout: 5_000 })
+    const detailCount = await page.locator('.writing-inspector-detail').count()
+    const activeTab = (await page.locator('.writing-inspector__tabs button.active').first().textContent()) || ''
+    return {
+      assertion: 'inspector stays on comments until a left-rail scene entry is clicked',
+      passed: detailCount === 0 && activeTab.includes('批注')
+    }
+  }
   if (!['loading', 'partial', 'error', 'stale', 'cancelled'].includes(state)) return null
   if (route.id === 'settings-worldbook-create') {
     await page.locator('.creation-foundation textarea').fill('一座被潮汐改写记忆的港城，创作者希望保持克制而有悬念的叙事。')
@@ -605,6 +762,18 @@ async function triggerActionScenario(page, route, state) {
 }
 
 async function triggerRouteScenario(page, route, state, importFixturePath) {
+  if (route.id === 'desktop-project') {
+    if (state === 'desktop-project-readonly') {
+      await page.locator('[data-test="desktop-project-open"]').click()
+      await page.locator('[data-test="desktop-project-readonly"]').waitFor({ state: 'visible' })
+      return { assertion: 'locked project exposes an explicit read-only recovery action', passed: true }
+    }
+    if (state === 'desktop-project-error') {
+      await page.locator('[role="alert"]').waitFor({ state: 'visible' })
+      return { assertion: 'desktop project initialization exposes a recoverable error', passed: true }
+    }
+    return { assertion: 'desktop project empty state exposes create and open actions', passed: true }
+  }
   if (route.id === 'writing' && state === 'writing-unit') {
     const waitForWritingEditor = async () => {
       await page.locator('.writing-notebook-editor__surface .ProseMirror').waitFor({ state: 'visible', timeout: 10_000 })

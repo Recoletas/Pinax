@@ -1,4 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter } from 'vue-router'
+import { createPinaxRouterHistory } from './history'
 
 // 懒加载页面组件
 const AppShell = () => import('../layouts/AppShell.vue')
@@ -8,7 +9,7 @@ const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorks
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
 const WorldMapPage = () => import('../pages/WorldMapPage.vue')
-const Writing = () => import('../pages/Writing.vue')
+const Authoring = () => import('../pages/Authoring.vue')
 const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
 const ComicStudio = () => import('../pages/ComicStudio.vue')
@@ -37,7 +38,7 @@ const workbenchChildren = [
       hideActivityBar: true,
       hideSidePanel: true,
       hideGlobalMemory: true,
-      activityKey: 'experience',
+      activityKey: 'authoring',
       title: '开场'
     }
   },
@@ -47,7 +48,7 @@ const workbenchChildren = [
     component: ThemeVariantView,
     props: { view: 'experience' },
     meta: {
-      activityKey: 'experience',
+      activityKey: 'authoring',
       title: '体验'
     }
   },
@@ -99,13 +100,19 @@ const workbenchChildren = [
     }
   },
   {
+    path: 'authoring',
+    name: 'authoring',
+    component: Authoring,
+    meta: {
+      activityKey: 'authoring',
+      title: '创作'
+    }
+  },
+  {
+    // 兼容别名：旧的写作子路由与站内 name: 'writing' 跳转统一进入 Authoring。
     path: 'writing',
     name: 'writing',
-    component: Writing,
-    meta: {
-      activityKey: 'writing',
-      title: '写作'
-    }
+    redirect: { name: 'authoring' }
   },
   {
     path: 'materials',
@@ -139,7 +146,7 @@ const workbenchChildren = [
     name: 'online-experience',
     component: OnlineExperience,
     meta: {
-      activityKey: 'experience',
+      activityKey: 'authoring',
       title: '联机'
     }
   }
@@ -162,7 +169,7 @@ const routes = [
       title: '使用指南'
     }
   },
-  { path: '/writing', redirect: { name: 'writing' } },
+  { path: '/writing', redirect: { name: 'authoring' } },
   { path: '/materials', redirect: { name: 'materials' } },
   { path: '/notes', redirect: { name: 'materials' } },
   { path: '/poetry-lab', redirect: { name: 'prose-essay' } },
@@ -174,7 +181,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createPinaxRouterHistory(),
   routes
 })
 

@@ -342,6 +342,10 @@ export async function runWorldbookMaintenance({
   const completed = []
   const failures = []
   for (const [batchIndex, auditTargetSubset] of batches.entries()) {
+    if (signal?.aborted) {
+      failures.push('世界书处理已停止。')
+      break
+    }
     const batchResult = await runWorldbookMaintenanceBatch({
       worldbook,
       mode,
@@ -349,7 +353,8 @@ export async function runWorldbookMaintenance({
       selectedEntryIds,
       auditTargetSubset,
       settings: apiSettings,
-      batchIndex
+      batchIndex,
+      signal
     })
     if (batchResult.ok) completed.push(batchResult)
     else failures.push(batchResult.reason || `第 ${batchIndex + 1} 批审查失败。`)
@@ -400,7 +405,8 @@ async function runWorldbookMaintenanceBatch({
   selectedEntryIds,
   auditTargetSubset = null,
   settings,
-  batchIndex = 0
+  batchIndex = 0,
+  signal = null
 }) {
   const messages = buildWorldbookMaintenanceMessages({
     worldbook,
@@ -415,6 +421,7 @@ async function runWorldbookMaintenanceBatch({
       taskType: `worldbook.maintenance.${mode}`,
       baseMessages: messages,
       settings,
+      signal,
       generationOptions: {
         max_tokens: isAudit ? 2800 : 4200,
         temperature: 0.1,
@@ -481,5 +488,28 @@ async function runWorldbookMaintenanceBatch({
       }
     }
     return { ok: false, reason: error?.message || '世界书处理失败。' }
+  }
+}
+
+export function createWorldbookMaintenanceServices() {
+  return {
+    audit: async ({ request }) => {
+      const intent = request?.intent || {}
+      const result = await runWorldbookMaintenance({
+        worldbook: intent.worldbook,
+        mode: intent.mode,
+        brief: intent.brief,
+        selectedEntryIds: intent.selectedEntryIds
+      })
+      if (!result?.ok) {
+        throw new Error(result?.reason || '世界书处理失败。')
+      }
+      return {
+        sourceRevision: result.sourceRevision,
+        summary: result.summary,
+        candidates: result.candidates || [],
+        warnings: result.warnings || []
+      }
+    }
   }
 }

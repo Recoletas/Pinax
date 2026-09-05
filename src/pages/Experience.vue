@@ -577,6 +577,7 @@ import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/n
 import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
+import { createAuthoringTaskDispatcher } from '../services/agents/authoring/authoringTaskDispatcher'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { trapFocusWithin, useTransientLayer } from '../composables/useTransientLayer'
 import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
@@ -1372,19 +1373,21 @@ function openWorldbookQuickImport() {
   router.push({ name: 'settings-worldbook' })
 }
 
+const authoringTaskDispatcher = createAuthoringTaskDispatcher()
+
 const experienceAdvisorActions = computed(() => [
   {
     label: '生成下一步选项',
     question: '根据当前对话、地点历史、角色状态和未决线索，生成 2-3 个由玩家自行选择的下一步行动。',
     scope: 'experience',
-    taskType: 'experience.next-actions',
+    taskType: authoringTaskDispatcher.resolveTaskId('experience.next-actions'),
     disabled: !(gameStore.messages || []).length
   },
   {
     label: '审阅涌现候选',
     question: '审阅当前已有涌现候选，找出最符合当前对话、地点历史和角色状态的一项，并说明依据。',
     scope: 'experience',
-    taskType: 'experience.emergence',
+    taskType: authoringTaskDispatcher.resolveTaskId('experience.emergence'),
     disabled: !(gameStore.emergenceCandidates || []).length
   }
 ])
@@ -1419,7 +1422,7 @@ async function handleAskAdvisor(input) {
         label: input,
         question: input,
         scope: 'experience',
-        taskType: 'experience.next-actions'
+        taskType: authoringTaskDispatcher.resolveTaskId('experience.next-actions')
       }
     : input
   if (!action || action.disabled) return
@@ -2090,7 +2093,7 @@ function quickNoteWordCount(text) {
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
   border-radius: 12px 0 0 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, #ffffff 10%);
+  background: color-mix(in srgb, var(--bg-secondary) 90%, var(--archive-paper) 10%);
   color: var(--text-primary);
   cursor: pointer;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
@@ -2352,7 +2355,7 @@ function quickNoteWordCount(text) {
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-secondary) 96%, #ffffff 4%);
+  background: color-mix(in srgb, var(--bg-secondary) 96%, var(--archive-paper) 4%);
   color: var(--text-primary);
   box-shadow: 0 12px 28px color-mix(in srgb, #000 18%, transparent);
   cursor: pointer;
@@ -2578,12 +2581,12 @@ function quickNoteWordCount(text) {
 }
 
 .sidebar-head-copy strong {
-  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-ink));
 }
 
 .quick-notes-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-ink));
   color: var(--archive-ink);
 }
 
@@ -2607,15 +2610,15 @@ function quickNoteWordCount(text) {
 
 .sidebar-head-copy strong {
   max-width: none;
-  color: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  color: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-ink));
+  font-family: var(--font-display);
   font-size: 18px;
   line-height: 1.1;
 }
 
 .quick-notes-btn {
   border-color: color-mix(in srgb, var(--archive-gold) 28%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper-soft) 96%, #fff);
+  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-ink));
   color: var(--archive-ink);
 }
 
@@ -3372,7 +3375,7 @@ function quickNoteWordCount(text) {
 }
 
 :not(.theme-kao) .ws-topstrip__title {
-  font-family: var(--font-display, "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -3384,7 +3387,7 @@ function quickNoteWordCount(text) {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  font-family: var(--font-body, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-body, var(--font-display));
   font-size: 13px;
   color: color-mix(in srgb, var(--archive-ink) 78%, transparent);
   white-space: nowrap;

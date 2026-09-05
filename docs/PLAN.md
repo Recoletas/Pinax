@@ -20,8 +20,16 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 - [体验页叙事运行时与阅读体验收口计划](./plan/agent-runtime-architecture-research-20260814.md)：复核前三轮体验计划后的当前执行真源；先修工具轮次与 provider 超时，再把现有世界书 matcher 接入 NarrativeKernel，以因果拍替代硬字符下限，并收口语义分段与桌面阅读密度。
 - [世界书与设定工作区重构计划](./plan/settings-import-and-review-ux-plan-20260817.md)：从属于 G1.2/G1.2.2；重构世界书首页、可恢复创建工作区和详细设定，支持多文件本地文字抽取、精确去重、基础基调与按分区渐进提炼，并统一进入唯一草稿审阅区。
 - [素材→画布与 C3 场景素材板计划](./superpowers/plans/2026-08-20-scene-material-loop.md)：从属于 G4.1/G1.5；精确反查同源素材，幂等送入现有画布，并以有界场景板作为默认组织面。
+- [统一创作工作区计划](./superpowers/plans/2026-08-22-unified-authoring-workspace.md)：从属于桌面创作方向的 Web 先行阶段；把体验与写作合并为以持续可编辑正文为中心的 Authoring 工作区，AI 结果立即可编辑、只保留瞬时来源提示与请求级撤销，旧体验在 parity 门禁通过前保留。Authoring 已是 canonical 离线创作/推演目的地，Experience 下线等待 parity 审批。
+- [桌面创作迁移总计划](./superpowers/plans/2026-08-21-desktop-authoring-transition-program.md)：P1-P8 的执行顺序、所有权和发布门禁真源。
+- [P1 桌面项目底座计划](./superpowers/plans/2026-08-21-desktop-project-foundation.md)：Electron 安全边界、本地项目、SQLite/原子文本、备份、缓存、IPC 与最小项目门禁的实施真源；已合并本地 `main`。
+- [P2 浏览器旧项目迁移计划](./superpowers/plans/2026-08-21-legacy-project-migration.md)：project-only v3 bundle、v2 兼容 dry-run、稳定 ID、SQLite import journal、staging/校验/原子完成、幂等与最小迁移入口的实施真源；已合并本地 `main`。
+- [受控项目记忆系统计划](./superpowers/plans/2026-08-22-controlled-project-memory-system.md)：从属于统一 Agent 能力架构（Foundation Knowledge Facade）；把 memoryCandidates 升级为有来源、有 revision、可解释检索的受控派生记忆层。M0 记忆内核（schema v2、确定性 importance、lexical 排序、来源失效、receipt/容量）与 M1 运行时/UI 接入（四类触发边界、observer 输出进候选 owner、facade memory reader、Authoring 低干扰审阅）代码侧已完成；剩 live browser audit 与真实 provider 3×3 外部门禁。
+- [Authoring 世界书场景闭环计划](./superpowers/plans/2026-08-23-authoring-worldbook-scene-closure.md)：从属于统一创作工作区；以书为项目、显式绑定世界书为设定源、当前 writingUnit 为现场定位。Task 1-12 与 R3 事务收口已进入整合真源：typed 生成失败与低敏诊断、book.worldbookId 显式绑定及加载门禁、下一拍冻结目标单元插入、chapter.sceneAnchors 场景锚点与 split/merge/delete 迁移、投影 v2、NarrativeKernel provider 前门禁、旧体验导入适配，以及左栏“当前场”/续写坞/检查器现场调整。换书 boundary 保持旧项目归属，persist 再次保存恢复真实撤销。剩 live 截图审计与真实 provider 五用例矩阵外部门禁；`/experience` 保留，退役需用户单独书面审批。
 
 ## 当前优先级
+
+桌面迁移按 P1-P8 顺序推进。P1/P2 已合并本地 `main`；桌面打包运行时修复已产出 Windows x64 portable ZIP，完成 host 侧 ZIP/ASAR/PE 静态检查，随后进入 P3 plain-text editor。迁移保持 copy-first，不删除浏览器 localStorage；Windows clean-machine 门禁前不得宣称桌面发行就绪。
 
 1. Living Atlas：当前优先执行 [G2.4-A 结构化地点目录](./plan/pinax-integrated-product-roadmap.md#g24-a-结构化地点目录当前优先执行)，不再继续扩张地图侧正文地名正则。地理概述只保留叙事和整理依据；城市、城镇、区域、河流与路线以独立世界书地点条目作为作者事实真源，经设定页编辑或 AI 整理草稿逐项确认后再进入地图。地点目录打通后继续 G2.4 的父子区域、相邻求解、remap 评分、LOD 与压力门禁。
 2. Living History / World Research：从历史节点进入冒险，并把当前位置、参与者、未决线索、玩家经历和有限世界状态写回运行时。设定主入口已切到结构化工作台；一键 AI 只生成世界概述和创作基调，不再一次生成角色、地点、历史或联网研究大包。结构化页面现为当前世界书条目的编辑视图，保存时按稳定引用 upsert 唯一条目；只有规则、文风和禁写常驻，其他类型继续按需命中，运行时不再全量注入结构摘要。角色字段现在生成可复用角色卡，草稿可直接导入体验页主角档案或人物索引。高级条目管理新增世界书维护工作台，承担自然语言新增、重复/冲突审查和逐项候选写回；体验页 Agent 不负责全局世界书变更。G1.2.2 的结构化端点、整节部分修复、上下文缓存、真实连接探测、阶段状态和 revision 防覆盖代码切片已完成；当前进入 S8 草稿局部意见修订，修订入口放在草稿审阅区，Agent 只生成带版本的新草稿，条目管理只负责最终写入。S7 剩余是 MiniMax M3 Responses、OpenAI-compatible 与 Anthropic-compatible 的真实 Gate，以及完成后清理历史 XML parser。能力矩阵明确区分原生 schema、强制提交工具、JSON object 和不支持，MiniMax M3 关闭 reasoning，M2.x 不再伪装成可靠结构化渠道。小说片段原文继续作为世界书资料持久化，真实历史、地理和制度资料由对应结构字段按需研究与审阅。运行时因果 v3 已覆盖地点控制、角色存活/目标、年代切换/回退、亲属/canonical fact 冲突、显式分支合并和 rollback stale。
@@ -30,7 +38,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 5. Narrative Context Runtime：G4.6 M0-M6 与 G4.6.13 R0-R8 的单 transcript、多步工具、恢复和审计主链已完成。真实性 MVP 进一步加入有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见生成分离、只记录 allowlist 低敏指标的 shadow critic；它不是生产影子双链，不能生成、替换或改写可见正文。当前只剩真实渠道门禁、质量标注与发布收口。世界书、地理、历史和记忆仍由现有 owner 持有，模型只按需调用只读工具；不恢复 eager 全量注入或静默 fallback。
 6. UI Coherence：G1.5 UI-A 至 UI-F 已完成，主题2的浏览器审计、窄屏 pane、共享视觉基础、阅读面、创作空间、设定链和瞬态层均已收敛。全局 task center 随 G4.2 的真实任务合约实施，不在 UI 层复制状态；主题1的米色游戏化 UI 继续冻结，仅保持共享行为兼容。
 7. Experience Reading：G1.4 M1-M4 与基础响应式 smoke 已完成；G1.4.10 R0/R1 已冻结主题2标准档为物理 `17.5px`、`62em`、B 型 speaker label、仅真实对白轻斜体和 15% 强调硬上限。R2 已开始收口角色识别和段落节奏：纯叙述不再伪造“旁白”署名，玩家与明确角色只在必要处署名，动作回正体、心理保留轻斜体。下一步继续完成行内强调去重、触发标记、阅读外观入口与移动端避让；随后继续双浏览器联机和 M5 真实模型指标。
-8. Writing Notebook：WNB-6A 写作单元重构已完成。schema v3 使用“段落节点 -> 多段 writingUnit -> 场景”，Enter 保持在当前单元，显式 split/merge/move 可单事务撤销；批注、候选、版本、恢复和体验回合导入均使用稳定 `unitId + nodeId` 与来源引用。下一步继续常用 Markdown、`targets[]` 与查找同类。
+8. Writing Notebook：WNB-6A 写作单元重构已完成。schema v3 使用“段落节点 -> 多段 writingUnit -> 场景”，Enter 保持在当前单元，显式 split/merge/move 可单事务撤销；批注、候选、版本、恢复和体验回合导入均使用稳定 `unitId + nodeId` 与来源引用。写作页已演进为 Authoring 统一创作工作区（canonical `/authoring` 路由），AI 命令以光标/选区命令而非页面模式提供，生成正文经单事务插入并支持请求级撤销；下一步继续常用 Markdown、`targets[]` 与查找同类。
 9. Agent Runtime：G4.2 M0-M6 实现 Gate 已全部关闭。统一总开关会同时停止手动顾问与后台补全；写作补全、明显冲突和待审结果提醒均有频率上限及无正文本地指标。旧直连 `useCopilot` 已删除，现代路径使用 canonical task，legacy 兼容只保留真实调用边界。可用后端上仍需补 M2 的 30 次真实 provider smoke，完成后才最终结项 G4.2。
 10. Gate 0 可靠性与存储安全网：作为上述主线的支撑项继续补齐，不再单独占据产品主线。
 11. Creative Graph：地理、历史、会话和剧情日志来源已沿素材、章节/纲要、分镜、写作 ContextLedger、分镜 Agent 与视频任务贯通；素材页已能按项目和精确 `sourceRefs` 反查同源素材，并将勾选项幂等送入关系画布。画布默认显示 C3 场景素材板，复用现有 card/outline/edge 数据组织关系、节拍与未放置素材；桌面保留自由画布和导演/视频出口，移动端不提供自由定位。漫画 M2-M6 已支持多页改编、语义视觉圣经、自由构图与出版链。下一步进入 G4.4 M7 连续性质检与分镜转换；跨资产 revision/tag、通用 stale 识别和画布 composable 清理保留后续处理。

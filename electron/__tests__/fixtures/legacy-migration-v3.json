@@ -1,0 +1,25 @@
+{
+  "app": "Pinax",
+  "kind": "desktop-project-migration",
+  "schemaVersion": 3,
+  "bundleId": "b67fdfdd02908fc76bd9116334478bd32da8f499404f29dcb9fa3c5e5be448b1",
+  "exportedAt": "2026-08-21T12:00:00.000Z",
+  "recordCount": 1,
+  "sourceInventory": [
+    {
+      "sourceRecordId": "worldbook_wb-v3",
+      "recordType": "worldbook",
+      "byteLength": 45,
+      "sha256": "3485a815d5d3f02507fee74d7ae2636e85017744d34420379dff27cee0086343"
+    }
+  ],
+  "records": [
+    {
+      "sourceRecordId": "worldbook_wb-v3",
+      "recordType": "worldbook",
+      "raw": "{\"id\":\"wb-v3\",\"name\":\"V3世界\",\"entries\":[]}",
+      "byteLength": 45,
+      "sha256": "3485a815d5d3f02507fee74d7ae2636e85017744d34420379dff27cee0086343"
+    }
+  ]
+}

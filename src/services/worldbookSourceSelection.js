@@ -1,6 +1,9 @@
 const HAN_RUN = /[\p{Script=Han}]+/gu
 const WORD_TOKEN = /[A-Za-z0-9_]{2,}/g
 
+import { findChapterMarks } from './chapterDetector'
+import { normalizeChapterList } from '../../shared/chapterContract'
+
 function text(value) {
   return String(value ?? '').trim()
 }
@@ -27,27 +30,65 @@ export function buildSourceSearchTerms(values = []) {
 }
 
 function splitSourceText(content, chunkSize = 900) {
-  const normalized = text(content)
-  if (!normalized) return []
-  const paragraphs = normalized.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
+  const normalized = String(content ?? '')
+  if (!normalized.trim()) return []
   const chunks = []
-  let offset = 0
-  for (const paragraph of paragraphs) {
-    let localOffset = 0
-    while (localOffset < paragraph.length) {
-      const chunk = paragraph.slice(localOffset, localOffset + chunkSize).trim()
-      if (chunk) {
-        const start = offset + localOffset
+  // 用真实偏移扫描空行分段，保证 locator 与章节区间可对齐。
+  const blankLine = /\n\s*\n/g
+  let segmentStart = 0
+  const segments = []
+  let match = blankLine.exec(normalized)
+  while (match) {
+    segments.push([segmentStart, match.index])
+    segmentStart = match.index + match[0].length
+    match = blankLine.exec(normalized)
+  }
+  segments.push([segmentStart, normalized.length])
+
+  for (const [segStart, segEnd] of segments) {
+    let localOffset = segStart
+    while (localOffset < segEnd) {
+      const end = Math.min(segEnd, localOffset + chunkSize)
+      const chunkText = normalized.slice(localOffset, end).trim()
+      if (chunkText) {
         chunks.push({
-          text: chunk,
-          locator: { type: 'preview-offset', start, end: start + chunk.length }
+          text: chunkText,
+          locator: { type: 'preview-offset', start: localOffset, end }
         })
       }
-      localOffset += chunkSize
+      localOffset = end
     }
-    offset += paragraph.length + 2
   }
   return chunks
+}
+
+/**
+ * 章节聚合：为预览文本的 chunk 标注 chapterId/chapterTitle，
+ * 多 chunk 同章时保留章首（前缀）chunk。
+ */
+function chaptersOfPreview(content) {
+  const value = String(content ?? '')
+  if (!value.trim()) return []
+  const marks = findChapterMarks(value)
+  return normalizeChapterList(marks.map((mark, index) => ({
+    title: mark.line,
+    ordinal: index + 1,
+    startOffset: mark.offset,
+    endOffset: index + 1 < marks.length ? marks[index + 1].offset : value.length
+  })))
+}
+
+function attachChapterInfo(candidate, chapters) {
+  if (!chapters.length) return { ...candidate, chapterId: null, chapterTitle: '', isChapterStart: false }
+  const center = (candidate.locator.start + candidate.locator.end) / 2
+  const chapter = chapters.find((item) => center >= item.startOffset && center < item.endOffset)
+  if (!chapter) return { ...candidate, chapterId: null, chapterTitle: '', isChapterStart: false }
+  return {
+    ...candidate,
+    chapterId: `${candidate.sourceId}:preview-chapter:${chapter.ordinal}`,
+    chapterTitle: chapter.title,
+    isChapterStart: candidate.locator.start <= chapter.startOffset + 2
+  }
 }
 
 function scoreCandidate(candidate, terms, linkedSourceIds) {
@@ -85,6 +126,7 @@ export function selectSourceChunks({
   documents.forEach((document, documentIndex) => {
     const sourceId = text(document?.id) || `source-${documentIndex + 1}`
     const title = text(document?.title) || `原始资料 ${documentIndex + 1}`
+    const chapters = chaptersOfPreview(document?.content)
     splitSourceText(document?.content).forEach((chunk, chunkIndex) => {
       const candidate = {
         sourceId,
@@ -95,14 +137,15 @@ export function selectSourceChunks({
         sourceRefs: [{ sourceId, locator: chunk.locator }],
         sourceTitles: { [sourceId]: title }
       }
-      const score = scoreCandidate(candidate, terms, linkedSourceIds)
-      const existing = candidatesByText.get(candidate.text)
+      const enriched = attachChapterInfo(candidate, chapters)
+      const score = scoreCandidate(enriched, terms, linkedSourceIds)
+      const existing = candidatesByText.get(enriched.text)
       if (!existing) {
-        candidatesByText.set(candidate.text, { ...candidate, score })
+        candidatesByText.set(enriched.text, { ...enriched, score })
         return
       }
       existing.score = Math.max(existing.score, score)
-      existing.sourceRefs.push(...candidate.sourceRefs)
+      existing.sourceRefs.push(...enriched.sourceRefs)
       existing.sourceTitles[sourceId] = title
     })
   })
@@ -114,7 +157,10 @@ export function selectSourceChunks({
       && JSON.stringify(item.locator) === JSON.stringify(ref.locator)
     )) === index)
   }))
-  const ranked = [...candidates].sort((left, right) => right.score - left.score || left.order - right.order)
+  const ranked = [...candidates].sort((left, right) =>
+    right.score - left.score
+    || Number(Boolean(right.isChapterStart)) - Number(Boolean(left.isChapterStart))
+    || left.order - right.order)
   const selected = []
   const selectedPerSource = new Map()
   let usedChars = 0
@@ -143,7 +189,8 @@ export function selectSourceChunks({
         .map((ref) => `${ref.sourceId} · ${candidate.sourceTitles[ref.sourceId] || candidate.title}`)
         .join(' / ')
       const locator = candidate.locator.type === 'preview-offset' ? `片段 ${candidate.locator.start + 1}` : '资料'
-      return `【来源 ${sources} · ${locator}】\n${candidate.text}`
+      const chapterLabel = candidate.chapterTitle ? ` · 章节「${candidate.chapterTitle}」` : ''
+      return `【来源 ${sources} · ${locator}${chapterLabel}】\n${candidate.text}`
     })
     .join('\n\n')
   return {

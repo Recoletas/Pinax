@@ -225,7 +225,7 @@ export async function generateEmergenceEventDraft({
   const allowedFactions = collectKnownFactions(candidate, runtimeState)
   try {
     const result = await runGenerationTask({
-      taskType: 'emergence.event',
+      taskType: 'authoring.emergence',
       baseMessages: buildEmergenceEventMessages({ candidate, worldbook, runtimeState, chatHistory }),
       settings,
       worldId,

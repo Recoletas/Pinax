@@ -3,8 +3,9 @@ import { buildWorldbookContext, describeWorldbookWarning } from '../services/wor
 import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
 
 describe('worldbookContextBuilder', () => {
-  it('builds worldbook context with matched entries and budget report', () => {
-    const result = buildWorldbookContext({
+  it("builds worldbook context with matched entries and budget report（合并4例）", async () => {
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '测试世界书',
         worldDescription: '世界设定描述',
@@ -56,10 +57,9 @@ describe('worldbookContextBuilder', () => {
     expect(result.budgetReport.tokenBudget).toBe(1200)
     expect(result.budgetReport.usedChars).toBeGreaterThan(0)
     expect(result.warnings).toEqual([])
-  })
-
-  it('uses lightweight runtime state to help worldbook matching', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '边境世界书',
         entries: [
@@ -89,10 +89,9 @@ describe('worldbookContextBuilder', () => {
     })
 
     expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['character-entry', 'goal-entry'])
-  })
-
-  it('uses bounded player history signals without requiring the full history payload', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '灰墙世界书',
         entries: [
@@ -125,10 +124,9 @@ describe('worldbookContextBuilder', () => {
     })
 
     expect(result.matchedEntries.map((entry) => entry.id)).toEqual(['history-location', 'history-hook'])
-  })
-
-  it('matches entries from rich plot journal fields and faction runtime state', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '雾潮暮湾世界书',
         entries: [
@@ -175,10 +173,12 @@ describe('worldbookContextBuilder', () => {
       'faction-entry',
       'hook-entry'
     ])
-  })
+}
+})
 
-  it('orders constant entries before typed keyword matches', () => {
-    const result = buildWorldbookContext({
+  it("orders constant entries before typed keyword matches（合并4例）", async () => {
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '排序世界书',
         entries: [
@@ -199,10 +199,9 @@ describe('worldbookContextBuilder', () => {
       'style',
       'general'
     ])
-  })
-
-  it('returns warnings when nothing matches', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '空世界书',
         entries: [{
@@ -226,15 +225,13 @@ describe('worldbookContextBuilder', () => {
       included: false,
       warning: 'no-matched-entries'
     })
-  })
-
-  it('describes warning codes for preview', () => {
-    expect(describeWorldbookWarning('no-worldbook')).toContain('世界书')
+}
+{
+expect(describeWorldbookWarning('no-worldbook')).toContain('世界书')
     expect(describeWorldbookWarning('no-matched-entries')).toContain('命中')
-  })
-
-  it('returns a skipped ledger part when no worldbook is active', () => {
-    const result = buildWorldbookContext({ worldbook: null })
+}
+{
+const result = buildWorldbookContext({ worldbook: null })
 
     expect(result.messages).toEqual([])
     expect(result.contextLedger.parts[0]).toMatchObject({
@@ -243,10 +240,12 @@ describe('worldbookContextBuilder', () => {
       included: false,
       warning: 'no-worldbook'
     })
-  })
+}
+})
 
-  it('records included and truncated worldbook entries in the context ledger without raw content fields', () => {
-    const longContent = '林舟知道钟楼密室的细节。'.repeat(80)
+  it("records included and truncated worldbook entries in the context ledger without raw content fields（合并4例）", async () => {
+{
+const longContent = '林舟知道钟楼密室的细节。'.repeat(80)
     const result = buildWorldbookContext({
       worldbook: {
         id: 'wb-ledger',
@@ -291,10 +290,9 @@ describe('worldbookContextBuilder', () => {
     expect(truncated).not.toHaveProperty('content')
     expect(result.messages[0].content).toContain('常驻短规则')
     expect(result.messages[0].content).not.toContain(longContent)
-  })
-
-  it('does not inject the structured authoring shadow as global context', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '雾港',
         worldDescription: '雾港每夜失去一段记忆。',
@@ -322,10 +320,9 @@ describe('worldbookContextBuilder', () => {
     expect(result.messages[0].content).not.toContain('一句话故事：书记官追查吞噬姓名的雾。')
     expect(result.messages[0].content).not.toContain('一致性规则：所有魔法都必须付出记忆代价。')
     expect(result.messages[0].content).toContain('◆ 【常驻规则】')
-  })
-
-  it('injects starter entries for promoted playable seed worlds on narrative init', () => {
-    for (const preset of seedWorldbookPresets) {
+}
+{
+for (const preset of seedWorldbookPresets) {
       const result = buildWorldbookContext({
         worldbook: {
           ...preset,
@@ -352,10 +349,9 @@ describe('worldbookContextBuilder', () => {
       expect(starterTypes.has('quest')).toBe(true)
       expect(starterEntries.length).toBeGreaterThanOrEqual(8)
     }
-  })
-
-  it('uses runtimeState.historyNode to surface participants / hooks / fact keywords', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '归档世界书',
         entries: [
@@ -407,10 +403,12 @@ describe('worldbookContextBuilder', () => {
       'tower-entry',
       'hook-entry'
     ])
-  })
+}
+})
 
-  it('boosts historyEntryIds into the matched set with history matchReason', () => {
-    const result = buildWorldbookContext({
+  it("boosts historyEntryIds into the matched set with history matchReason（合并4例）", async () => {
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '归档世界书',
         entries: [
@@ -443,10 +441,9 @@ describe('worldbookContextBuilder', () => {
       matchReason: 'history',
       matchedKeysLabel: '历史节点绑定'
     })
-  })
-
-  it('falls back to runtimeState.historyNode.entryIds when historyEntryIds option is omitted', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '归档世界书',
         entries: [
@@ -473,10 +470,9 @@ describe('worldbookContextBuilder', () => {
       id: 'fallback-entry',
       matchReason: 'history'
     })
-  })
-
-  it('orders history-bound entries before constants and keywords', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '排序世界书',
         entries: [
@@ -512,10 +508,9 @@ describe('worldbookContextBuilder', () => {
       'constant-entry',
       'keyword-entry'
     ])
-  })
-
-  it('does not double-include an entry that is both history-bound and a keyword match', () => {
-    const result = buildWorldbookContext({
+}
+{
+const result = buildWorldbookContext({
       worldbook: {
         name: '归档世界书',
         entries: [
@@ -540,5 +535,6 @@ describe('worldbookContextBuilder', () => {
     expect(result.matchedEntries).toHaveLength(1)
     expect(result.matchedEntries[0].id).toBe('overlap-entry')
     expect(result.matchedEntries[0].matchReason).toBe('history')
-  })
+}
+})
 })

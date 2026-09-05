@@ -1,7 +1,16 @@
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { compactMemoryText, MEMORY_TEXT_LIMIT } from './memoryCompaction'
-
-export const MEMORY_SCHEMA_VERSION = 1
+import { deriveMemoryImportance } from './memoryImportance'
+import { rankMemoryCandidates } from './memoryRetrieval'
+import { isMemorySourceCurrent } from './memoryProvenance'
+import {
+  MEMORY_SCHEMA_VERSION,
+  MEMORY_AUTHORITIES,
+  MEMORY_DERIVATIONS,
+  MEMORY_RETRIEVAL_POLICY,
+  normalizeStringList,
+  defaultMemoryAuthority
+} from '../../shared/memoryContract'
 
 export const MEMORY_KINDS = [
   { value: 'author-preference', label: '作者偏好' },
@@ -36,9 +45,57 @@ const MEMORY_CONTEXT_SECTIONS = [
   { scope: 'session', label: '当前会话记忆' }
 ]
 
+function storedMemoryNeedsMigration(item) {
+  return !item
+    || typeof item !== 'object'
+    || item.schemaVersion !== MEMORY_SCHEMA_VERSION
+    || !Array.isArray(item.sourceRefs)
+    || !MEMORY_AUTHORITIES.includes(item.authority)
+    || !Array.isArray(item.supersedes)
+    || !('recallCount' in item)
+    || !('importanceOverride' in item)
+}
+
+// 存量数据读时迁移：v1 记录补齐 v2 字段；缺来源的标 migrationWarning，不删除。
+function migrateStoredMemoryCandidate(item) {
+  const sourceRefs = (Array.isArray(item.sourceRefs) && item.sourceRefs.length)
+    ? normalizeStringList(item.sourceRefs)
+    : normalizeStringList(item.sourceRef)
+  const metadata = { ...(item.metadata || {}) }
+  if (!sourceRefs.length && !metadata.migrationWarning) {
+    metadata.migrationWarning = 'missing-source-ref'
+  }
+  return {
+    ...item,
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    sourceRef: sourceRefs[0] || '',
+    sourceRefs,
+    sourceRevision: normalizeText(item.sourceRevision),
+    authority: MEMORY_AUTHORITIES.includes(item.authority) ? item.authority : defaultMemoryAuthority(item.status),
+    derivedBy: MEMORY_DERIVATIONS.includes(item.derivedBy) ? item.derivedBy : '',
+    importance: clampOptionalUnit(item.importance),
+    importanceOverride: clampOptionalUnit(item.importanceOverride),
+    supersedes: normalizeStringList(item.supersedes),
+    recallCount: normalizeNonNegativeInt(item.recallCount),
+    lastRecalledAt: normalizeTimestamp(item.lastRecalledAt),
+    metadata
+  }
+}
+
 export function listMemoryCandidates({ scope = null, scopeId = null, status = null } = {}) {
   const stored = getItem(STORAGE_KEYS.MEMORY_CANDIDATES)
-  const list = compactStoredPendingCandidates(Array.isArray(stored) ? stored : [])
+  let list = Array.isArray(stored) ? stored : []
+  let migrated = false
+  list = list.map((item) => {
+    if (!storedMemoryNeedsMigration(item)) return item
+    migrated = true
+    return migrateStoredMemoryCandidate(item)
+  })
+  // 压缩与迁移都可能改动存储：各自一次性写回。
+  list = compactStoredPendingCandidates(list)
+  if (migrated) {
+    setItem(STORAGE_KEYS.MEMORY_CANDIDATES, list)
+  }
 
   return list
     .filter((item) => !scope || item.scope === scope)
@@ -59,6 +116,16 @@ export function createMemoryCandidate(input = {}) {
       input.metadata || {}
     )
   const status = normalizeStatus(input.status)
+  const authority = normalizeAuthority(input.authority, status)
+  const sourceRefs = input.sourceRefs !== undefined || input.sourceRef !== undefined
+    ? normalizeStringList(input.sourceRefs ?? input.sourceRef)
+    : []
+  // durable 不变式：derived/imported 的 active 记忆必须有来源 ref 和来源 revision。
+  if (status === 'active' && (authority === 'derived' || authority === 'imported')) {
+    if (!sourceRefs.length || !normalizeText(input.sourceRevision)) {
+      throw new Error('MEMORY_SOURCE_REQUIRED: durable derived/imported memory needs source refs and source revision')
+    }
+  }
   const contentHash = input.contentHash || createMemoryContentHash(content)
 
   return {
@@ -69,7 +136,20 @@ export function createMemoryCandidate(input = {}) {
     kind: normalizeKind(input.kind),
     content,
     confidence: clampConfidence(input.confidence),
-    sourceRef: normalizeText(input.sourceRef),
+    sourceRef: sourceRefs[0] || '',
+    sourceRefs,
+    sourceRevision: normalizeText(input.sourceRevision),
+    authority,
+    derivedBy: normalizeDerivation(input.derivedBy),
+    importance: clampOptionalUnit(input.importance) ?? deriveMemoryImportance({
+      kind: normalizeKind(input.kind),
+      signals: input.signals || {},
+      override: input.importanceOverride
+    }),
+    importanceOverride: clampOptionalUnit(input.importanceOverride),
+    supersedes: normalizeStringList(input.supersedes),
+    recallCount: normalizeNonNegativeInt(input.recallCount),
+    lastRecalledAt: normalizeTimestamp(input.lastRecalledAt),
     status,
     syncStatus: normalizeSyncStatus(input.syncStatus, status),
     remoteId: normalizeText(input.remoteId),
@@ -79,10 +159,36 @@ export function createMemoryCandidate(input = {}) {
     duplicateOf: normalizeText(input.duplicateOf),
     similarTo: normalizeText(input.similarTo),
     conflictsWith: normalizeConflictList(input.conflictsWith),
-    metadata: normalizeMetadata(input.metadata),
+    metadata: buildMetadataWithMigrationWarning(input.metadata, sourceRefs),
     createdAt: input.createdAt || now,
     updatedAt: input.updatedAt || now
   }
+}
+
+function normalizeAuthority(authority, status) {
+  return MEMORY_AUTHORITIES.includes(authority) ? authority : defaultMemoryAuthority(status)
+}
+
+function normalizeDerivation(derivedBy) {
+  return MEMORY_DERIVATIONS.includes(derivedBy) ? derivedBy : ''
+}
+
+function clampOptionalUnit(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return null
+  return Math.min(1, Math.max(0, Math.round(num * 100) / 100))
+}
+
+function normalizeNonNegativeInt(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return 0
+  return Math.floor(num)
+}
+
+function buildMetadataWithMigrationWarning(metadata, sourceRefs) {
+  const base = normalizeMetadata(metadata)
+  if (sourceRefs.length || base.migrationWarning) return base
+  return { ...base, migrationWarning: 'missing-source-ref' }
 }
 
 function compactStoredPendingCandidates(list = []) {
@@ -157,6 +263,106 @@ export function queueMemoryCandidate(input = {}) {
   return { success: true, queued: true, candidate }
 }
 
+export function invalidateMemoryBySource({ sourceRef = '', currentRevision = '', reason = 'source-revision-changed' } = {}) {
+  const ref = normalizeText(sourceRef)
+  if (!ref) {
+    return { success: false, skipped: true, reason: 'missing-source-ref', staledIds: [], untouchedIds: [] }
+  }
+
+  const current = listMemoryCandidates()
+  const staledIds = []
+  const untouchedIds = []
+  const now = Date.now()
+
+  const next = current.map((item) => {
+    const refs = Array.isArray(item.sourceRefs) ? item.sourceRefs : [item.sourceRef].filter(Boolean)
+    if (!refs.includes(ref)) return item
+    // 只豁免 global-author + explicit 偏好；带章节来源的 accepted 项目记忆必须随来源失效。
+    if (item.scope === 'global-author' && item.derivedBy === 'explicit') {
+      untouchedIds.push(item.id)
+      return item
+    }
+    const recordedRevision = normalizeText(item.sourceRevision)
+    if (!normalizeText(currentRevision) || !recordedRevision || recordedRevision === normalizeText(currentRevision)) {
+      untouchedIds.push(item.id)
+      return item
+    }
+    if (item.status === 'stale' || item.status === 'rejected') {
+      untouchedIds.push(item.id)
+      return item
+    }
+    staledIds.push(item.id)
+    return {
+      ...item,
+      status: 'stale',
+      syncStatus: 'local-only',
+      lastSyncError: '',
+      conflictsWith: [],
+      metadata: {
+        ...item.metadata,
+        previousStatus: item.status,
+        staleReason: normalizeText(reason) || 'source-revision-changed',
+        invalidatedAt: now
+      },
+      updatedAt: now
+    }
+  })
+
+  if (!staledIds.length) {
+    return { success: true, staledIds, untouchedIds, reason: 'nothing-to-stale' }
+  }
+  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  return { success: true, staledIds, untouchedIds, reason: normalizeText(reason) || 'source-revision-changed' }
+}
+
+export function supersedeMemoryCandidates(input = {}) {
+  const current = listMemoryCandidates()
+  const supersedesIds = normalizeStringList(input.supersedes)
+  if (!supersedesIds.length) {
+    return { success: false, skipped: true, reason: 'no-targets' }
+  }
+
+  const scope = normalizeScope(input.scope)
+  const scopeId = normalizeText(input.scopeId)
+  const targets = []
+  for (const targetId of supersedesIds) {
+    const target = current.find((item) => item.id === targetId) || null
+    if (!target || target.scope !== scope || normalizeText(target.scopeId) !== scopeId || target.status === 'stale') {
+      return { success: false, skipped: true, reason: 'invalid-target', invalidId: targetId }
+    }
+    targets.push(target)
+  }
+
+  const now = Date.now()
+  const candidate = createMemoryCandidate({
+    ...input,
+    status: 'active',
+    scope,
+    scopeId,
+    supersedes: supersedesIds
+  })
+  const next = [candidate, ...current.map((item) => {
+    if (!supersedesIds.includes(item.id)) return item
+    return {
+      ...item,
+      status: 'stale',
+      syncStatus: 'local-only',
+      lastSyncError: '',
+      conflictsWith: [],
+      metadata: {
+        ...item.metadata,
+        supersededBy: candidate.id,
+        previousStatus: item.status,
+        supersededAt: now
+      },
+      updatedAt: now
+    }
+  })]
+  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  emitMemoryCandidateEvent(candidate)
+  return { success: true, candidate, supersededIds: supersedesIds }
+}
+
 export function updateMemoryCandidate(candidateId, patch = {}) {
   const current = listMemoryCandidates()
   const now = Date.now()
@@ -204,8 +410,16 @@ export function updateMemoryCandidate(candidateId, patch = {}) {
 }
 
 export function confirmMemoryCandidate(candidateId) {
+  const candidate = listMemoryCandidates().find((item) => item.id === candidateId) || null
+  if (!candidate) return null
+  // durable 升级闭环：用户确认即明确升级为 accepted 权威；
+  // project/session 记忆必须有来源 ref + 来源 revision；global-author 偏好以确认动作本身为显式 receipt。
+  const canUpgrade = candidate.scope === 'global-author'
+    || (Array.isArray(candidate.sourceRefs) && candidate.sourceRefs.length > 0 && normalizeText(candidate.sourceRevision))
+  if (!canUpgrade) return null
   return updateMemoryCandidate(candidateId, {
     status: 'active',
+    authority: 'accepted',
     syncStatus: 'local-only',
     lastSyncError: ''
   })
@@ -285,6 +499,64 @@ export function restoreMemoryCandidate(candidateId, { status = '' } = {}) {
   }
 }
 
+// append-only 替换/合并：创建带 supersedes[] 的新 active revision，旧条目统一 stale，
+// 单次 setItem 原子写入；中途失败不会留下半完成状态。
+function commitSupersedeTransaction({ target, conflictTargets = [], content, note = '' }) {
+  // 与普通确认同一来源约束：project/session 记忆必须有来源 ref + 来源 revision 才能升级为 durable。
+  const canPromote = target.scope === 'global-author'
+    || (Array.isArray(target.sourceRefs) && target.sourceRefs.length > 0 && normalizeText(target.sourceRevision))
+  if (!canPromote) {
+    return { error: 'missing-source-provenance' }
+  }
+
+  const current = listMemoryCandidates()
+  const now = Date.now()
+  const supersededIds = [target.id, ...conflictTargets.map((item) => item.id)]
+  const candidate = createMemoryCandidate({
+    kind: target.kind,
+    scope: target.scope,
+    scopeId: target.scopeId,
+    content,
+    status: 'active',
+    authority: 'accepted',
+    derivedBy: 'explicit',
+    sourceRefs: Array.isArray(target.sourceRefs) ? target.sourceRefs : [],
+    sourceRevision: normalizeText(target.sourceRevision),
+    importanceOverride: clampOptionalUnit(target.importanceOverride),
+    supersedes: supersededIds,
+    metadata: {
+      note: normalizeText(note),
+      replacesCount: supersededIds.length
+    }
+  })
+  const next = [
+    candidate,
+    ...current.map((item) => {
+      if (!supersededIds.includes(item.id)) return item
+      return {
+        ...item,
+        status: 'stale',
+        syncStatus: 'local-only',
+        lastSyncError: '',
+        conflictsWith: [],
+        metadata: {
+          ...item.metadata,
+          supersededBy: candidate.id,
+          previousStatus: item.status,
+          supersededAt: now
+        },
+        updatedAt: now
+      }
+    })
+  ]
+  // 持久化失败必须如实报告，不能发事件假装成功。
+  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+    return { error: 'storage-failed' }
+  }
+  emitMemoryCandidateEvent(candidate)
+  return { candidate, supersededIds, staledAt: now }
+}
+
 export function replaceMemoryCandidateConflicts(candidateId, { note = '' } = {}) {
   const current = listMemoryCandidates()
   const target = current.find((item) => item.id === candidateId) || null
@@ -293,36 +565,26 @@ export function replaceMemoryCandidateConflicts(candidateId, { note = '' } = {})
   }
 
   const conflictIds = findConflictingMemoryCandidates(target, current, { excludeId: candidateId })
-  const confirmed = updateMemoryCandidate(candidateId, {
-    status: 'active',
-    syncStatus: 'local-only',
-    lastSyncError: '',
-    conflictsWith: []
+  const conflictTargets = conflictIds
+    .map((conflictId) => current.find((item) => item.id === conflictId))
+    .filter(Boolean)
+
+  const committed = commitSupersedeTransaction({
+    target,
+    conflictTargets,
+    content: target.content,
+    note
   })
-
-  if (!confirmed) {
-    return { success: false, skipped: true, reason: 'not-found' }
-  }
-
-  const replacedCandidates = []
-  for (const conflictId of conflictIds) {
-    const replaced = updateMemoryCandidate(conflictId, {
-      status: 'stale',
-      syncStatus: 'local-only',
-      lastSyncError: note || '已被新记忆替换',
-      conflictsWith: []
-    })
-    if (replaced) {
-      replacedCandidates.push(replaced)
-    }
+  if (committed.error) {
+    return { success: false, skipped: true, reason: committed.error }
   }
 
   return {
     success: true,
-    candidate: confirmed,
-    replacedCandidates,
-    replacedIds: replacedCandidates.map((item) => item.id),
-    replacedCount: replacedCandidates.length
+    candidate: committed.candidate,
+    replacedCandidates: [target, ...conflictTargets],
+    replacedIds: committed.supersededIds,
+    replacedCount: committed.supersededIds.length
   }
 }
 
@@ -337,49 +599,32 @@ export function mergeMemoryCandidateConflicts(candidateId, { note = '' } = {}) {
   if (!conflictIds.length) {
     return { success: false, skipped: true, reason: 'no-conflicts' }
   }
-
-  const conflictCandidates = conflictIds
-    .map((conflictId) => current.find((item) => item.id === conflictId) || null)
+  const conflictTargets = conflictIds
+    .map((conflictId) => current.find((item) => item.id === conflictId))
     .filter(Boolean)
 
   const mergedContent = mergeMemoryContentPieces([
     target.content,
-    ...conflictCandidates.map((item) => item.content)
+    ...conflictTargets.map((item) => item.content)
   ])
 
-  const confirmed = updateMemoryCandidate(candidateId, {
+  const committed = commitSupersedeTransaction({
+    target,
+    conflictTargets,
     content: mergedContent,
-    status: 'active',
-    syncStatus: 'local-only',
-    lastSyncError: '',
-    duplicateOf: '',
-    conflictsWith: []
+    note
   })
-
-  if (!confirmed) {
-    return { success: false, skipped: true, reason: 'not-found' }
-  }
-
-  const mergedCandidates = []
-  for (const conflictId of conflictIds) {
-    const merged = updateMemoryCandidate(conflictId, {
-      status: 'stale',
-      syncStatus: 'local-only',
-      lastSyncError: note || '已合并到新记忆',
-      conflictsWith: []
-    })
-    if (merged) {
-      mergedCandidates.push(merged)
-    }
+  if (committed.error) {
+    return { success: false, skipped: true, reason: committed.error }
   }
 
   return {
     success: true,
-    candidate: confirmed,
+    candidate: committed.candidate,
     mergedContent,
-    mergedCandidates,
-    mergedIds: mergedCandidates.map((item) => item.id),
-    mergedCount: mergedCandidates.length,
+    mergedCandidates: [target, ...conflictTargets],
+    mergedIds: committed.supersededIds,
+    mergedCount: committed.supersededIds.length,
     mergedSourceCount: conflictIds.length
   }
 }
@@ -480,6 +725,82 @@ export function listScopedActiveMemoryCandidates({
     .slice(0, limit))
 }
 
+export const MEMORY_RECALL_PREVIEW_LIMIT = 120
+
+function runLegacyScopedRanking({ authorId, projectId, sessionId, query, limitPerScope }) {
+  const limit = Math.max(1, Math.floor(Number(limitPerScope) || 4))
+  const active = listMemoryCandidates({ status: 'active' })
+  const byId = new Map(active.map((item) => [item.id, item]))
+  const result = rankMemoryCandidates({
+    candidates: active,
+    query,
+    authorId,
+    projectId,
+    sessionId,
+    policy: {
+      ...MEMORY_RETRIEVAL_POLICY,
+      minRelevance: 0,
+      topK: Number.MAX_SAFE_INTEGER,
+      maxPerScope: limit
+    }
+  })
+  return { limit, result, byId }
+}
+
+function toLegacyRecallItem(entry, { included, byId, queryTerms = [] }) {
+  const candidate = byId.get(entry.id)
+  const content = normalizeText(candidate?.content)
+  const base = {
+    id: entry.id,
+    scope: entry.scope ?? candidate?.scope,
+    scopeId: entry.scopeId ?? candidate?.scopeId ?? '',
+    kind: entry.kind ?? candidate?.kind,
+    score: entry.score ? entry.score.final : 0,
+    confidence: entry.confidence ?? clampConfidence(candidate?.confidence),
+    matchedTerms: entry.matchedTerms ?? scoreMemoryCandidate(candidate, queryTerms).matchedTerms,
+    queryTerms: queryTerms.length,
+    recency: entry.updatedAt || Number(candidate?.updatedAt || candidate?.createdAt || 0),
+    preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
+    contentChars: content.length,
+    // 内部使用：构造上下文文本时不丢失原始内容；审计元数据仅依赖 preview。
+    _content: content,
+    included
+  }
+  if (!included) base.skipReason = entry.skipReason || 'per-scope-cap'
+  return base
+}
+
+export function rankScopedActiveMemoryCandidates({
+  authorId = '',
+  projectId = '',
+  sessionId = '',
+  query = '',
+  limitPerScope = 4
+} = {}) {
+  const { result, byId } = runLegacyScopedRanking({ authorId, projectId, sessionId, query, limitPerScope })
+  const normalizedQuery = normalizeText(query).toLowerCase()
+  const queryTerms = tokenizeRecallQuery(normalizedQuery)
+
+  const ranked = [
+    ...result.included.map((entry) => toLegacyRecallItem(entry, { included: true, byId, queryTerms })),
+    ...result.excluded
+      .filter((entry) => entry.skipReason === 'per-scope-cap')
+      .map((entry) => toLegacyRecallItem(entry, { included: true, byId, queryTerms }))
+  ]
+
+  return {
+    query: normalizedQuery,
+    queryTerms,
+    items: ranked,
+    counts: {
+      eligible: result.counts.eligible,
+      perScope: Object.fromEntries(
+        MEMORY_CONTEXT_SECTIONS.map((section) => [section.scope, ranked.filter((item) => item.scope === section.scope).length])
+      )
+    }
+  }
+}
+
 export function buildScopedMemoryContext({
   authorId = '',
   projectId = '',
@@ -498,91 +819,6 @@ export function buildScopedMemoryContext({
   return recall.content
 }
 
-export const MEMORY_RECALL_PREVIEW_LIMIT = 120
-
-export function rankScopedActiveMemoryCandidates({
-  authorId = '',
-  projectId = '',
-  sessionId = '',
-  query = '',
-  limitPerScope = 4
-} = {}) {
-  const limit = Math.max(1, Math.floor(Number(limitPerScope) || 4))
-  const active = listMemoryCandidates({ status: 'active' })
-  const normalizedQuery = normalizeText(query).toLowerCase()
-  const queryTerms = tokenizeRecallQuery(normalizedQuery)
-
-  // Build per-scope filtered list (same rules as listScopedActiveMemoryCandidates)
-  const perScope = {}
-  for (const section of MEMORY_CONTEXT_SECTIONS) {
-    perScope[section.scope] = active
-      .filter((candidate) => candidate.scope === section.scope)
-      .filter((candidate) => {
-        if (section.scope === 'global-author') {
-          return !normalizeText(authorId) || !candidate.scopeId || candidate.scopeId === normalizeText(authorId)
-        }
-        if (section.scope === 'project') {
-          return Boolean(normalizeText(projectId)) && candidate.scopeId === normalizeText(projectId)
-        }
-        return Boolean(normalizeText(sessionId)) && candidate.scopeId === normalizeText(sessionId)
-      })
-  }
-
-  // Rank and limit per scope
-  const ranked = []
-  for (const section of MEMORY_CONTEXT_SECTIONS) {
-    const scopedCandidates = perScope[section.scope]
-    if (!scopedCandidates.length) continue
-
-    const scored = scopedCandidates
-      .map((candidate) => ({
-        candidate,
-        score: scoreMemoryCandidate(candidate, queryTerms)
-      }))
-      .sort((a, b) => {
-        if (b.score.matchedTerms !== a.score.matchedTerms) {
-          return b.score.matchedTerms - a.score.matchedTerms
-        }
-        if (b.score.confidence !== a.score.confidence) {
-          return b.score.confidence - a.score.confidence
-        }
-        return Number(b.candidate.updatedAt || b.candidate.createdAt || 0)
-          - Number(a.candidate.updatedAt || a.candidate.createdAt || 0)
-      })
-      .slice(0, limit)
-
-    for (const entry of scored) {
-      const content = normalizeText(entry.candidate.content)
-      ranked.push({
-        id: entry.candidate.id,
-        scope: entry.candidate.scope,
-        scopeId: entry.candidate.scopeId,
-        kind: entry.candidate.kind,
-        score: entry.score.matchedTerms,
-        confidence: entry.score.confidence,
-        matchedTerms: entry.score.matchedTerms,
-        queryTerms: queryTerms.length,
-        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
-        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
-        contentChars: content.length,
-        included: true
-      })
-    }
-  }
-
-  return {
-    query: normalizedQuery,
-    queryTerms,
-    items: ranked,
-    counts: {
-      eligible: active.length,
-      perScope: Object.fromEntries(
-        MEMORY_CONTEXT_SECTIONS.map((section) => [section.scope, perScope[section.scope].length])
-      )
-    }
-  }
-}
-
 export function buildScopedMemoryRecallContext({
   authorId = '',
   projectId = '',
@@ -591,79 +827,38 @@ export function buildScopedMemoryRecallContext({
   limitPerScope = 4,
   maxItemChars = 180
 } = {}) {
-  const limit = Math.max(1, Math.floor(Number(limitPerScope) || 4))
+  const { limit, result, byId } = runLegacyScopedRanking({ authorId, projectId, sessionId, query, limitPerScope })
   const maxChars = Math.max(60, Math.floor(Number(maxItemChars) || 180))
   const normalizedQuery = normalizeText(query).toLowerCase()
   const queryTerms = tokenizeRecallQuery(normalizedQuery)
 
-  const active = listMemoryCandidates({ status: 'active' })
-  const filtered = filterCandidatesByScope(active, { authorId, projectId, sessionId })
+  let includedEntries = result.included
+  let excludedEntries = result.excluded.filter((entry) => entry.skipReason === 'per-scope-cap')
 
-  // Score + sort within each scope, take top `limit`
-  const included = []
-  const excluded = []
-  for (const section of MEMORY_CONTEXT_SECTIONS) {
-    const scoped = filtered.filter((candidate) => candidate.scope === section.scope)
-    if (!scoped.length) continue
-
-    const ranked = scoped
-      .map((candidate) => ({
-        candidate,
-        score: scoreMemoryCandidate(candidate, queryTerms)
-      }))
-      .sort((a, b) => {
-        if (b.score.matchedTerms !== a.score.matchedTerms) {
-          return b.score.matchedTerms - a.score.matchedTerms
-        }
-        if (b.score.confidence !== a.score.confidence) {
-          return b.score.confidence - a.score.confidence
-        }
-        return Number(b.candidate.updatedAt || b.candidate.createdAt || 0)
-          - Number(a.candidate.updatedAt || a.candidate.createdAt || 0)
-      })
-
-    const winners = ranked.slice(0, limit)
-    const losers = ranked.slice(limit)
-    for (const entry of winners) {
-      const content = normalizeText(entry.candidate.content)
-      included.push({
-        id: entry.candidate.id,
-        scope: entry.candidate.scope,
-        scopeId: entry.candidate.scopeId,
-        kind: entry.candidate.kind,
-        score: entry.score.matchedTerms,
-        confidence: entry.score.confidence,
-        matchedTerms: entry.score.matchedTerms,
-        queryTerms: queryTerms.length,
-        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
-        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
-        contentChars: content.length,
-        // 内部使用：构造上下文文本时不丢失原始内容；审计元数据仅依赖 preview。
-        _content: content,
-        included: true
-      })
-    }
-    for (const entry of losers) {
-      const content = normalizeText(entry.candidate.content)
-      excluded.push({
-        id: entry.candidate.id,
-        scope: entry.candidate.scope,
-        scopeId: entry.candidate.scopeId,
-        kind: entry.candidate.kind,
-        score: entry.score.matchedTerms,
-        confidence: entry.score.confidence,
-        matchedTerms: entry.score.matchedTerms,
-        queryTerms: queryTerms.length,
-        recency: Number(entry.candidate.updatedAt || entry.candidate.createdAt || 0),
-        preview: buildMemoryRecallPreview(content, MEMORY_RECALL_PREVIEW_LIMIT),
-        contentChars: content.length,
-        _content: content,
-        included: false,
-        skipReason: 'per-scope-cap'
-      })
+  if (!normalizedQuery) {
+    // 兼容旧行为：空查询用于显式“查看记忆”，仍按 confidence/recency 返回 scoped active。
+    const perScopeCount = {}
+    includedEntries = []
+    excludedEntries = []
+    const scoped = filterCandidatesByScope([...byId.values()], { authorId, projectId, sessionId })
+      .sort((a, b) => (
+        clampConfidence(b.confidence) - clampConfidence(a.confidence)
+        || Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0)
+        || (a.id < b.id ? -1 : 1)
+      ))
+    for (const candidate of scoped) {
+      const used = perScopeCount[candidate.scope] || 0
+      if (used >= limit) {
+        excludedEntries.push({ id: candidate.id, skipReason: 'per-scope-cap' })
+      } else {
+        perScopeCount[candidate.scope] = used + 1
+        includedEntries.push({ id: candidate.id })
+      }
     }
   }
 
+  const included = includedEntries.map((entry) => toLegacyRecallItem(entry, { included: true, byId }))
+  const excluded = excludedEntries.map((entry) => toLegacyRecallItem(entry, { included: false, byId }))
   const items = [...included, ...excluded]
   const content = buildMemoryContextText(included, maxChars)
 
@@ -678,7 +873,7 @@ export function buildScopedMemoryRecallContext({
     includedCount: included.length,
     contentChars: content.length,
     counts: {
-      eligible: active.length,
+      eligible: result.counts.eligible,
       included: included.length,
       excluded: excluded.length
     }

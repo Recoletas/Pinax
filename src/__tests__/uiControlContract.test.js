@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { trapFocusWithin } from '../composables/useTransientLayer'
 
@@ -13,7 +14,7 @@ const inputArea = readFileSync(resolve(__dirname, '../components/InputArea.vue')
 const uiAudit = readFileSync(resolve(__dirname, '../../scripts/ui-audit.mjs'), 'utf8')
 const proseEssay = readFileSync(resolve(__dirname, '../pages/ProseEssay.vue'), 'utf8')
 const notes = readFileSync(resolve(__dirname, '../pages/Notes.vue'), 'utf8')
-const writing = readFileSync(resolve(__dirname, '../pages/Writing.vue'), 'utf8')
+const writing = readFileSync(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
 const legacyExperience = readFileSync(resolve(__dirname, '../pages/legacy/Experience.vue'), 'utf8')
 const notebookEditor = readFileSync(resolve(__dirname, '../components/writing/WritingNotebookEditor.vue'), 'utf8')
 const gamePanel = readFileSync(resolve(__dirname, '../components/GamePanel.vue'), 'utf8')
@@ -23,10 +24,41 @@ const sceneMaterialBoardPath = resolve(__dirname, '../components/canvas/SceneMat
 const sceneMaterialBoard = existsSync(sceneMaterialBoardPath)
   ? readFileSync(sceneMaterialBoardPath, 'utf8')
   : ''
+const desktopProjectGatePath = resolve(__dirname, '../components/desktop/DesktopProjectGate.vue')
+const desktopProjectGate = existsSync(desktopProjectGatePath)
+  ? readFileSync(desktopProjectGatePath, 'utf8')
+  : ''
 
 describe('workbench control contract (U1)', () => {
-  it('defines the six control semantics with shared focus, hit areas, and no transition:all', () => {
-    for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'control-icon', 'control-toggle', 'control-danger', 'control-group']) {
+  it("uses one authoring destination while retaining writing and experience compatibility（合并4例）", async () => {
+{
+const routerSource = await readFile(resolve(__dirname, '../router/index.js'), 'utf8')
+    const navSource = await readFile(resolve(__dirname, '../config/workbenchNav.js'), 'utf8')
+    expect(routerSource).toContain("name: 'authoring'")
+    expect(routerSource).toContain("path: 'authoring'")
+    expect(routerSource).toContain("path: 'experience'")
+    expect(routerSource).toContain("path: '/writing', redirect: { name: 'authoring' }")
+    expect(navSource).toContain("key: 'authoring'")
+    expect(navSource).not.toMatch(/key: 'experience'[\s\S]*key: 'writing'/)
+}
+{
+const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+    expect(source.match(/<WritingNotebookEditor/g)).toHaveLength(1)
+    expect(source).not.toContain('AuthoringCommandBar')
+    expect(source).not.toMatch(/scene[- ]branch|场景分支|草稿分支/)
+    expect(source).not.toMatch(/authoring-mode-tabs|体验模式|写作模式/)
+}
+{
+expect(existsSync(desktopProjectGatePath)).toBe(true)
+    for (const token of ['var(--bg-primary)', 'var(--bg-secondary)', 'var(--text-primary)', 'var(--text-secondary)', 'var(--accent)', 'var(--border)', 'var(--font-sans)']) {
+      expect(desktopProjectGate).toContain(token)
+    }
+    expect(desktopProjectGate).toContain('@media (max-width: 768px)')
+    expect(desktopProjectGate).toContain(':focus-visible')
+    expect(desktopProjectGate).not.toMatch(/transition:\s*all/)
+}
+{
+for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'control-icon', 'control-toggle', 'control-danger', 'control-group']) {
       expect(css).toContain(`.${cls}`)
     }
     // 共享基座：disabled / focus-visible / coarse pointer 命中区
@@ -46,10 +78,12 @@ describe('workbench control contract (U1)', () => {
     expect(css).toContain('--control-danger')
     // ThemeAssets 只在主题2（legacy）加载控件层
     expect(themeAssets).toContain('workbench-controls.css')
-  })
+}
+})
 
-  it('closes the topmost experience overlay with Escape before the rail', () => {
-    expect(experience).toContain('if (writingCollectOpen.value) {')
+  it("closes the topmost experience overlay with Escape before the rail（合并4例）", async () => {
+{
+expect(experience).toContain('if (writingCollectOpen.value) {')
     expect(experience).toContain("id: 'experience-writing-collect'")
     expect(experience).toContain('initialFocus: () => writingCollectCloseRef.value')
     expect(experience).toContain('@keydown="trapWritingCollectFocus"')
@@ -68,10 +102,9 @@ describe('workbench control contract (U1)', () => {
     expect(trapFocusWithin(backwards, dialog)).toBe(true)
     expect(document.activeElement).toBe(last)
     dialog.remove()
-  })
-
-  it('keeps shell navigation and experience context single-owned', () => {
-    const shellTemplate = appShell.split('<style scoped>')[0]
+}
+{
+const shellTemplate = appShell.split('<style scoped>')[0]
     const experienceTemplate = experience.split('<script setup>')[0]
 
     expect(shellTemplate).not.toContain('shell-tabbar')
@@ -85,10 +118,9 @@ describe('workbench control contract (U1)', () => {
     expect(experienceTemplate).toContain('ws-session-trigger')
     expect(experienceTemplate).toContain('ws-more-menu')
     expect(experienceTemplate).toContain('ws-topstrip__codex-toggle')
-  })
-
-  it('keeps the composer focused on one input and one primary action slot', () => {
-    expect(inputArea).toContain('<textarea')
+}
+{
+expect(inputArea).toContain('<textarea')
     expect(inputArea).toContain('placeholder="写下行动或续写方向"')
     expect(inputArea).toContain('aria-label="发送"')
     expect(inputArea).toContain('aria-label="停止生成"')
@@ -97,15 +129,16 @@ describe('workbench control contract (U1)', () => {
     expect(inputArea).toContain('<span class="quick-btn__label">对话</span>')
     expect(inputArea).not.toContain('<span class="quick-btn__label">对话模式</span>')
     expect(inputArea).not.toContain('placeholder="输入你的行动... (Cmd+Enter 发送 · Esc 清空)"')
-  })
-
-  it('does not count hidden drawers or normal document scrolling as clipped UI', () => {
-    expect(uiAudit).toContain("element.closest('[aria-hidden=\"true\"], [inert]')")
+}
+{
+expect(uiAudit).toContain("element.closest('[aria-hidden=\"true\"], [inert]')")
     expect(uiAudit).toContain("const fixedVerticalOverflow = ['fixed', 'sticky'].includes(style.position)")
-  })
+}
+})
 
-  it('keeps image generation in materials and removes the retired canvas drawer', () => {
-    const proseTemplate = proseEssay.split('<script setup>')[0]
+  it("keeps image generation in materials and removes the retired canvas drawer（合并4例）", async () => {
+{
+const proseTemplate = proseEssay.split('<script setup>')[0]
     expect(proseEssay).toContain('buildDirectorSourceRefs()')
     expect(proseTemplate).not.toContain('image-gen-rail')
     expect(proseTemplate).not.toContain('aria-label="生图功能"')
@@ -119,10 +152,9 @@ describe('workbench control contract (U1)', () => {
     expect(imageWorkbench).toContain('ref="referenceInput"')
     expect(imageWorkbench).toContain('isSupportedLocalImage')
     expect(imageWorkbench).toContain('referenceUploadMessage')
-  })
-
-  it('passes the current notebook document to AI commands and uses viewport coordinates', () => {
-    expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDocument.value)')
+}
+{
+expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDocument.value)')
     expect(notebookEditor).toContain('markdownFrom')
     expect(notebookEditor).toContain('resolveWritingCommandMenuPosition')
     expect(notebookEditor).toContain('const scale = getBodyUiScale()')
@@ -163,16 +195,14 @@ describe('workbench control contract (U1)', () => {
     expect(selectionPayload).not.toMatch(/blockId:|blockRevision:|startBlockId:|endBlockId:/)
     const exposedEditorApi = notebookEditor.slice(notebookEditor.indexOf('defineExpose({'), notebookEditor.indexOf('</script>'))
     expect(exposedEditorApi).not.toMatch(/findBlockRange|focusBlock|replaceBlockText|replaceBlockRanges/)
-  })
-
-  it('restores the writing viewport after creating an annotation', () => {
-    expect(writing).toContain('const scrollState = captureWritingScrollState()')
+}
+{
+expect(writing).toContain('const scrollState = captureWritingScrollState()')
     expect(writing).toContain('restoreWritingScrollState(scrollState)')
     expect(writing).toContain("focus({ preventScroll: true })")
-  })
-
-  it('uses exact source-linked materials and transfers the checked selection to canvas', () => {
-    const notesTemplate = notes.split('<script setup>')[0]
+}
+{
+const notesTemplate = notes.split('<script setup>')[0]
 
     expect(notes).toContain("import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'")
     expect(notes).toContain('const exactRelatedAssets = computed')
@@ -195,10 +225,12 @@ describe('workbench control contract (U1)', () => {
     for (const unchangedAction of ['mergeCheckedAssets', "setCheckedAssetsState('archived')", 'deleteCheckedAssets']) {
       expect(notesTemplate).toContain(unchangedAction)
     }
-  })
+}
+})
 
-  it('defines a controlled, keyboard-operable scene material board', () => {
-    expect(existsSync(sceneMaterialBoardPath)).toBe(true)
+  it("defines a controlled, keyboard-operable scene material board（合并4例）", async () => {
+{
+expect(existsSync(sceneMaterialBoardPath)).toBe(true)
     for (const prop of ['model', 'selectedCardId', 'relationTypes', 'directorExportStatus']) {
       expect(sceneMaterialBoard).toContain(`${prop}:`)
     }
@@ -226,10 +258,9 @@ describe('workbench control contract (U1)', () => {
     expect(sceneMaterialBoard).toContain('请选择两张卡片建立关系')
     expect(sceneMaterialBoard).not.toMatch(/pointerdown|pointermove|pointerup|touchstart|touchmove|draggable=/)
     expect(sceneMaterialBoard).toContain('@media (max-width: 760px)')
-  })
-
-  it('makes the scene board the default organizer while retaining desktop free canvas workflows', () => {
-    const proseTemplate = proseEssay.split('<script setup>')[0]
+}
+{
+const proseTemplate = proseEssay.split('<script setup>')[0]
     const mobilePanes = proseEssay.slice(
       proseEssay.indexOf('const canvasMobilePanes'),
       proseEssay.indexOf('// Director mode edge types')
@@ -267,15 +298,43 @@ describe('workbench control contract (U1)', () => {
     expect(proseTemplate).toContain('openStoryboardVideoPanel')
     expect(proseTemplate).toContain('openCardMaterial')
     expect(proseEssay).not.toContain('MATERIAL_BEATS_V1')
-  })
-
-  it('seeds and waits for a deterministic scene-board browser audit state', () => {
-    expect(uiAudit).toContain("'scene-board'")
+}
+{
+expect(uiAudit).toContain("'scene-board'")
     expect(uiAudit).toContain('function makeSceneBoardFixture')
     expect(uiAudit).toContain("state === 'scene-board'")
     expect(uiAudit).toContain("'/prose-essay?assetId=scene-asset-1'")
     expect(uiAudit).toContain("page.locator('[data-scene-material-board]')")
     expect(uiAudit).toContain("status: index === 4 ? 'archived' : 'accepted'")
     expect(uiAudit).toContain("assetId: index === 5 ? 'scene-asset-missing' : assets[index].id")
-  })
+}
+{
+expect(uiAudit).toContain("id: 'authoring'")
+    expect(uiAudit).toContain("'generating', 'context', 'conflict'")
+    expect(uiAudit).toContain('composer primary exposes stop while a request is pending')
+    expect(uiAudit).toContain('context inspector opens and closes with Escape without raw prompts')
+    expect(uiAudit).toContain("path: '/experience'")
+}
+})
+})
+
+describe('authoring memory projection contracts', () => {
+  it("shows a transient candidate count and reserves review for exceptions（合并3例）", async () => {
+{
+const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+    expect(source).toContain('<AuthoringMemoryNotice')
+    expect(source).toContain('<AuthoringMemoryReview')
+    expect(source).not.toMatch(/memory-confirm-modal-per-candidate/)
+}
+{
+const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+    expect(source).toContain('data-action="remember-selection"')
+    expect(source).toContain('rememberAuthoringSelection')
+}
+{
+const reviewSource = await readFile(resolve(__dirname, '../components/authoring/AuthoringMemoryReview.vue'), 'utf8')
+    expect(reviewSource).toContain('@keydown.esc')
+    expect(reviewSource).not.toMatch(/#[0-9a-fA-F]{6}/)
+}
+})
 })

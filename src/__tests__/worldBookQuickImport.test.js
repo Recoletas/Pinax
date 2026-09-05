@@ -164,8 +164,13 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     routerPush.mockClear()
   })
 
-  it('S17-1: 渲染 1 屏 4 段 (SettingsSectionNav + Hero + MyWorldbooks + Preset + Extra)', async () => {
-    mockWorldStoreLifecycle()
+  it("S17-1: 渲染 1 屏 4 段 (SettingsSectionNav + Hero + MyWorldbooks + Preset + Extra)（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    routerPush.mockClear()
+
+mockWorldStoreLifecycle()
     const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
     expect(wrapper.find('.settings-section-nav').exists()).toBe(true)
@@ -233,19 +238,25 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     expect(persistedReview.focused).toBeNull()
     expect(persistedReview.drafts.world.geography.content).toContain('旧港')
     panelWrapper.unmount()
-  })
+}
+{
 
-  it('S17-2: Hero card 显示默认 preset 的 name + hook + briefing 3 chip', async () => {
-    mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+mockWorldStoreLifecycle()
     const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
     const hero = wrapper.find('.worldbook-hero')
     expect(hero.text()).toContain('边境王国')
     expect(hero.findAll('.worldbook-hero__briefing li')).toHaveLength(3)
-  })
+}
+{
 
-  it('S17-3b: hero 显示当前世界书时，「开始冒险」不再重复生成新世界书', async () => {
-    const worldStore = mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+const worldStore = mockWorldStoreLifecycle()
     worldStore.worldbooksIndex = [{ id: 'wb-active', name: '我的世界', entryCount: 0 }]
     worldStore.activeWorldbook = { id: 'wb-active', name: '我的世界', entries: [] }
     worldStore.createWorldbook = vi.fn().mockResolvedValue({ id: 'wb-new' })
@@ -257,10 +268,13 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     await wrapper.find('[data-test="hero-cta"]').trigger('click')
     await flushPromises()
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
-  })
+}
+{
 
-  it('S17-3c: 同 preset 第二次点击直接复用既有副本，不新建第二份', async () => {
-    const worldStore = mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+const worldStore = mockWorldStoreLifecycle()
     worldStore.worldbooksIndex = [
       { id: 'wb-existing', name: '边境王国副本', entryCount: 39, sourcePresetId: 'preset-border' }
     ]
@@ -272,10 +286,16 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     const created = await enterPresetWorld(worldStore, { push: vi.fn() }, preset)
     expect(created?.id).toBe('wb-existing')
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
-  })
+}
+})
 
-  it('S17-3d: 旧版本副本没有 sourcePresetId，但内容签名一致时也能复用', async () => {
-    const worldStore = mockWorldStoreLifecycle()
+  it("S17-3d: 旧版本副本没有 sourcePresetId，但内容签名一致时也能复用（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    routerPush.mockClear()
+
+const worldStore = mockWorldStoreLifecycle()
     const preset = {
       id: 'preset-border',
       name: '边境王国',
@@ -297,10 +317,13 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     const created = await enterPresetWorld(worldStore, { push: vi.fn() }, preset)
     expect(created?.id).toBe('wb-legacy')
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
-  })
+}
+{
 
-  it('S17-4: MyWorldbooks select 切换 → 调 worldStore.setActiveWorldbook', async () => {
-    const worldStore = mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+const worldStore = mockWorldStoreLifecycle()
     worldStore.worldbooksIndex = [
       { id: 'wb-1', name: '边境小镇', entryCount: 12 },
       { id: 'wb-2', name: '灯塔档案', entryCount: 8 }
@@ -321,10 +344,13 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
       name: 'experience',
       query: { worldbookId: 'wb-2' }
     })
-  })
+}
+{
 
-  it('S17-5: 辅助入口突出结构化设定，保留导入与基调初始化', async () => {
-    mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+mockWorldStoreLifecycle()
     const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
     const importBtn = wrapper.find('[data-test="extra-btn-import"]')
@@ -338,15 +364,19 @@ describe('WorldBookQuickImport 主页 (S17 简化)', () => {
     await aiBtn.trigger('click')
     expect(importBtn.exists()).toBe(true)
     expect(aiBtn.exists()).toBe(true)
-  })
+}
+{
 
-  it('S17-6: 空状态 (worldbooksIndex 为空) → select 灰显 "暂无世界书"', async () => {
-    mockWorldStoreLifecycle()
+    localStorage.clear()
+    routerPush.mockClear()
+
+mockWorldStoreLifecycle()
     const wrapper = mount(WorldBookQuickImport, { global: { plugins: [router] } })
     await flushPromises()
     const select = wrapper.find('[data-test="my-worldbooks-select"]')
     expect(select.text()).toContain('暂无世界书')
-  })
+}
+})
 
   it('S17-7: Preset 网格显示前 5 个 preset (cap 5)', async () => {
     mockWorldStoreLifecycle()
@@ -776,8 +806,13 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     setActivePinia(createPinia())
   })
 
-  it('createWorldbook keeps geoHistory and loadWorldbook re-normalizes to { nodes }', async () => {
-    const store = useWorldStore()
+  it("createWorldbook keeps geoHistory and loadWorldbook re-normalizes to { nodes }（合并4例）", async () => {
+{
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+
+const store = useWorldStore()
     const wb = await store.createWorldbook({
       name: '有地图的世界',
       geoHistory: { version: 1, nodes: [{ id: 'n1', title: '建城', playable: true }] }
@@ -796,10 +831,13 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     await rehydratedStore.loadWorldbooksIndex()
     await rehydratedStore.ensureActiveWorldbook()
     expect(rehydratedStore.activeWorldbook?.id).toBe(second.id)
-  })
+}
+{
 
-  it('worldbook without map data imports with null geoHistory (does not block import)', async () => {
-    const store = useWorldStore()
+    localStorage.clear()
+    setActivePinia(createPinia())
+
+const store = useWorldStore()
     const research = {
       provider: 'brave',
       queries: ['宋代港口 城市制度'],
@@ -1505,10 +1543,13 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
       }
     })
     expect(stalePreview.research.review).toMatchObject({ needsReview: true, revisionStale: true })
-  })
+}
+{
 
-  it('updateWorldbook can attach geoHistory to an already-imported world', async () => {
-    const store = useWorldStore()
+    localStorage.clear()
+    setActivePinia(createPinia())
+
+const store = useWorldStore()
     const wb = await store.createWorldbook({ name: '后挂历史' })
     expect(wb.geoHistory).toBeNull()
 
@@ -1541,10 +1582,13 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
 
     await store.updateStructuredSetting(wb.id, 'world', 'history', '')
     expect(store.activeWorldbook.entries.some((entry) => entry.metadata?.structuredSettingRef === 'world.history')).toBe(false)
-  })
+}
+{
 
-  it('resolves a canonical place entity from the active worldbook', async () => {
-    const worldStore = useWorldStore()
+    localStorage.clear()
+    setActivePinia(createPinia())
+
+const worldStore = useWorldStore()
     const worldbook = await worldStore.createWorldbook({
       name: '地点索引测试',
       geoHistory: {
@@ -1566,7 +1610,8 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
       name: '灰墙',
       historyNodeIds: ['history-1']
     })
-  })
+}
+})
 
   it('normalizeWorldbook coerces an array-form geoHistory into { nodes } and drops non-objects', async () => {
     const store = useWorldStore()

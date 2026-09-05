@@ -67,9 +67,16 @@
 }
 
 :root {
-  --font-display: "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
-  --font-serif: "ZCOOL XiaoWei", "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  /* 展示/标题字体：霞鹜文楷（自打包子集）打头，CJK 兜底全为合格黑体。
+     旧栈 "ZCOOL XiaoWei"/"Iowan Old Style"/"Songti SC" 在 Windows 全部缺失，
+     会一路落到系统默认宋体（可用性调研确认的"丑字体"根因），已删除。 */
+  --font-display: "LXGW WenKai", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-serif: var(--font-display);
   --font-sans: "Segoe UI Variable", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  /* 正文阅读唯一权威定义：中文黑体系，消除此前三处回退漂移。 */
+  --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  /* 写作面正文：Cmd 配方 —— 西文等宽给码字节奏，中文苹方/雅黑保证观感。 */
+  --font-writing: Menlo, Consolas, Monaco, "Courier New", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 

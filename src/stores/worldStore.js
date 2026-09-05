@@ -460,6 +460,15 @@ export const useWorldStore = defineStore('world', {
       }
     },
 
+    // 项目绑定加载：只返回请求 ID 对应的世界书，绝不回退到之前的 active 世界书。
+    // 加载失败/ID 不匹配时返回 null，由调用方决定“缺失”提示。
+    async loadWorldbookForProject(worldbookId) {
+      const id = String(worldbookId || '').trim()
+      if (!id) return null
+      const loaded = await this.loadWorldbook(id)
+      return String(loaded?.id || '') === id ? loaded : null
+    },
+
     async createWorldbook(data = {}) {
       const now = Date.now()
       const worldbook = {

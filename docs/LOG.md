@@ -8,7 +8,73 @@
 - 根路由真实首屏现已收口到 `src/views/WelcomeView.vue`；历史残留 `Home.vue` 已清理，不再保留并行假入口。
 - 当前主要稳定链路：体验页 -> 世界书/设定 -> 素材 -> 卡片画布/分镜 -> 写作出口。
 - 当前产品主线已调整为：地图结果 -> 地理语义 -> 历史草案 -> 历史开局 -> 冒险运行时 -> 玩家历史；地图 Worker 和存储安全网作为支撑项推进。
-- 当前验证基线：25 个测试文件 / 436 个用例；Vite/VitePress build 与 diff check 通过。历史 22/224、21/398、200 与 203 属于旧测试结构，不再作为当前上限。
+- 2026-08-23 整合树已合并统一创作 Phase 1-4、受控项目记忆 r2、桌面 P1/P2 与 Windows 打包修复；`verify:full` 为 68 文件 / 808 用例，Vite/VitePress/diff check 全过。叙事恢复、60 项 production dry-run 与桌面迁移 smoke 通过；desktop foundation smoke 仍需先生成 Linux package。
+- 2026-08-24 Authoring 世界书场景闭环完成 R3 并整合：每本书显式绑定世界书、下一拍插在当前 writingUnit 之后、chapter.sceneAnchors 场景锚点、投影 v2 + 投影指纹、typed 失败与 phase 级恢复、左栏“当前场”/续写坞/检查器现场调整 UI 收口；补齐换书 boundary 旧项目归属、世界书加载窗口门禁和 persist 再保存真实撤销。verify:full 73 文件/901 用例 exit 0。
+- 2026-08-24 恢复测试规模硬门禁：核心 Vitest 从整合后的 73 文件/901 用例收敛到 20 文件/111 用例，保留高风险主链并合并相邻用例，阶段性重复合同与已有 eval/smoke 覆盖项退出核心测试；仓库 canonical `testing-verification` skill 与自定义 reporter 共同强制 20 文件/200 用例总上限，超限不得声明完成。
+- 2026-08-24 修复 Authoring 控制文本泄漏门禁误杀：内部协议 token 仍在正文任意位置拒绝；用户 instruction 与导演注不再按任意子串拒绝，只拦截完整输出、独立控制行和显式标签元文本，使“守卫拦住她的去路”这类正常实现用户意图的正文可以提交。
+
+## 2026-08-23 - Authoring 世界书场景闭环
+
+- 行为变化：Authoring 的设定源改为书上的显式 `worldbookId` 绑定（新建书可选、书架可关联/换绑/重新关联），生成链不再读取全局 active 世界书；缺失绑定会显示 typed 提示并阻止下一拍。下一拍正文插在请求发起时的活动 writingUnit 之后，目标被编辑则按 stale 处理且不写入。生成失败现在区分 provider/protocol/stale/editor-write/persist 阶段并给出对应恢复动作（重试 / 再次保存），持久化失败保留一次只重试保存的回执。
+- 现场：章节新增场景锚点（时间/地点/在场人物绑定到单元），单元拆分/合并/删除自动迁移；左栏改为“当前场”索引并从检查器提供受控现场调整；行动者/对象选择移入续写坞；Zen 下续写坞收成一行。旧体验导入只在显式确认时写绑定并生成 legacy-import 锚点；浏览器与桌面迁移均原样透传新字段。
+- 验证：verify:full exit 0（73 文件/889 用例）、narrative recovery smoke passed=true、production dry-run exit 0、test:desktop 68 用例全绿。外部门禁未跑：live 截图审计（本机 dev server 服务旧版本）与真实 provider 五用例矩阵（无凭据）。
+
+## 2026-08-23 - 完成交付整合
+
+- 从当前集成提交建立隔离整合树，合并 `fix/desktop-win-package` 与 `feature/controlled-project-memory-r2`；现有 Authoring 融合、来源摄取、真实性/戏剧实验等已在基线中，无重复 cherry-pick。
+- 合并冲突只涉及共享计划/状态、UI 合同和 audit/package 脚本；解决时同时保留 Authoring Phase 4 的九指令横条退役、受控记忆 UI 合同、桌面项目门禁以及各自 audit 状态。
+- Authoring 原三个代码缺口已在后续 parity closure 收口；live browser/真实 provider、Windows clean-machine 与需 package 的 desktop foundation smoke 仍是外部门禁。`/experience` 继续保留到用户书面审批。
+
+## 2026-08-23 - Authoring 等价缺口收口
+
+- 下一拍请求会从当前 schema-v3 章节确定性构造有界 narrative context：短稿传原文消息，超过 6000 字时只传最近四段，并复用不落正文真源的派生 scene summary；workflow 与 executor 均有透传回归，避免在统一 TaskRequest 边界静默丢失。提交前审阅同时修复了既有显式 `turn.instruction` 未进入 Kernel 的问题：指令现为最后一条 user message，类型/行动者/对象进入 turn block，显式推进走 respond 义务而不是泛化 advance。
+- 半自动在每拍记录 runtime event 起点，成功提交后合并正文触发器、`activeMechanism/mechanismContext` 与本拍新增机制事件；命中后以 typed `mechanism-trigger` 暂停，不自动打开面板，失败/stale 不制造信号。
+- Authoring 既有“更多”菜单新增当前章节/整书 Markdown 正文导出，读取 canonical schema-v3 稿件并过滤跨平台非法文件名；分镜导出继续独立保留，等价测试不再用分镜冒充正文导出。
+- 验证：focused 7 文件 / 117 用例通过；`verify:full` exit 0（69 文件 / 811 用例、Vite、diff check、VitePress）；recovery smoke `passed=true`，production dry-run 60 项通过。未检测到现有 dev server，因此没有启动服务或运行 live UI audit；真实 provider 矩阵仍保留为外部门禁。
+
+## 2026-08-22 - 受控项目记忆系统（M0+M1 代码侧完成）
+
+- 记忆候选升级为受控派生记忆层：schema v2 冻结 authority/sourceRefs/sourceRevision/supersedes/importance；v1 数据无损兼容读取，durable derived 写入必须有来源引用。确定性 importance 与 append-only supersession 落地，模型不能给输出打分或直接提升权威。
+- 检索改为可解释 lexical 策略：term overlap + 中文 bigram Dice + 人物/地点 ID 命中，topK=5、单 scope ≤3、相关度阈值 0.18；召回次数不改变主排序；narrativeResourceIndex 的 memory 域与旧 scoped recall 共用同一排序结果。
+- 来源失效链路：正文 revision 变化或撤销会使对应派生记忆 stale（invalidate 先于重算，accepted/global-author explicit 偏好豁免）；observer 记忆输出经规范化进入候选 owner，冲突进异常审阅、迟到输出整批丢弃。
+- ProjectKnowledgeFacade 增加 memory reader：任务解析前自动召回当前有效记忆，ledger 携带 entryId/score/reason 分项；排除记忆只留零内容审计块，不泄漏其他项目/session 内容。
+- Authoring 低干扰体验：普通候选只有一条可自动消失的状态提示；选区工具栏新增"记住"（无 provider 也可本地建 pending）；仅冲突/来源失效候选进入审阅面板，支持确认/拒绝/置顶/降权/跳来源。
+- 验证：34 文件 / 300 用例全绿、recovery smoke、production dry-run（60 项）、verify:full 全过。live browser audit 与真实 provider 3×3 矩阵未运行（无本分支服务与凭据），记为外部门禁。详见 `docs/agent-runs/2026-08-22-controlled-project-memory/summary.md`。
+
+## 2026-08-22 - 统一创作工作区（Authoring）落地
+
+- `src/pages/Writing.vue` 原位演进为 `src/pages/Authoring.vue` 并成为 canonical 创作路由 `/authoring`；旧 `/writing` 链接、workbench 子路由与站内 `name: 'writing'` 跳转统一兼容重定向。一级导航把“体验 / 写作”合并为单一“创作”，联机在创作侧栏保留为兼容子项；`/experience` 路由原样保留。
+- 旧体验会话历史通过 `authoringSessionProjection` 幂等投影为章节内可编辑 writingUnit：只导入已提交助手回合、按来源指纹去重、不创建场景分支或平行文档；Authoring 打开带 `?sessionId=` 的链接时执行一次并走正常文档保存事务。
+- 编辑器仍是唯一正文表面。命令条把“续写 / 推进 / 人物反应 / 推演场景 / 插入 / 改写选区”及体验对等的“下一步 / 对话选项 / 涌现”暴露为针对光标与选区的命令，不是互斥页面模式。AI 正文经 `authoringTextTransaction` 单事务立即插入，附一次请求级撤销回执；6 秒瞬时通知提示结果，手动编辑即失效回执。
+- 上下文说明层（`AuthoringContextInspector`）只显示低敏感 ledger：来源类型、采用/截断状态、字数与来源引用标签；不接收消息原文、完整 prompt 或推理链。
+- 派生观察保持安静：常规 applied 观察只有一条 6 秒状态文案；仅 locked-conflict / identity-ambiguity / destructive-retcon 进入 `AuthoringExceptionReview`，“采用正文派生”对破坏性回溯要求二次确认。
+- UI audit 新增 authoring 路由与 regular/long/generating/error/stale/context/conflict 状态（advisor 拦截挂起/延迟/503，长文 fixture，上下文层 Escape 场景）。
+- 验证：focused 4 文件 / 59 用例通过；`smoke:narrative-recovery` exit 0；`smoke:narrative-production --dry-run` exit 0（60 项矩阵）；`verify:full` exit 0（31 文件 / 512 用例、Vite、diff check、VitePress 全过）。live browser audit 与真实 provider 矩阵未运行（无服务/凭据）；Experience 下线（Task 8）因 parity 未获用户审批记录为 documented skip，gate 保持 pending。
+
+## 2026-08-22 - Windows 桌面便携包与打包运行时修复
+
+- 修复打包后主进程因 package `type: module` 与 CJS bundle 冲突而触发的 `exports is not defined`：Vite main 现在以显式 ESM library 模式构建。preload 改为 bundle 同目录固定文件；迁移 SQL loader 同时读取源码 file URL 与 Vite 内联 data URL。
+- Forge ASAR 只额外保留桌面运行必需的 `better-sqlite3`、`bindings`、`file-uri-to-path`。Electron 固定为 42.9.3，因为 `better-sqlite3` 12.11.1 未发布 Electron 43 / ABI 148 的 Windows x64 预编译包，而 Electron 42 / ABI 146 有官方包。
+- Linux 跨打 Windows 时，post-package 钩子按固定 Electron 版本下载官方原生预编译包，验证 `MZ` 文件头后注入最终 ASAR unpacked 目录，并删除宿主平台残留 `.node`。Windows ZIP maker 现可生成免安装便携包。
+- `pinax-win32-x64-1.0.0.zip` 通过 `unzip -t`；解包后 `pinax.exe` 与 `better_sqlite3.node` 均确认为 PE32+ x64，ASAR 必需运行文件齐全。Linux 包复制到无父级 `node_modules` 的临时目录后，以禁用 GPU 参数运行至 8 秒 timeout，没有再出现主进程 JavaScript 异常。全量验证为 42 文件 / 519 tests，并通过 Vite、diff check 与 VitePress。Windows clean-machine 启动、目录对话框、SQLite、锁和原子替换仍待外部验收；Linux 主机缺少 Wine/Mono，因此本轮不提供 Squirrel 安装器。
+- Windows 首轮从浏览器导出后导入时，项目 manifest 原子 rename 后的目录 `fsync` 返回 `EPERM` 并中断迁移。根因是 Windows 不支持该目录耐久同步语义，而旧 allowlist 未包含其错误码。目录同步现统一到共享 helper：仅 Windows 的目录 `EPERM` 作为不支持项降级，普通文件 `fsync` 和非 Windows `EPERM` 继续抛出。项目创建、正文替换、备份和缓存提交均复用这一边界；更新后的 Windows ZIP 已重建，等待真机导入复验。
+- Windows 继续实测发现新建或导入完成后应用直接空白。根因不是项目内容丢失，而是桌面 renderer 加载于 `file://.../index.html`，旧 `createWebHistory()` 将物理文件路径作为当前路由；项目门禁撤下后没有路由匹配，`#app` 只剩空注释节点。桌面现在使用 Hash History，公网浏览器仍使用 Web History。真实 Linux package 在相同“创建项目→刷新”序列中从空 DOM 恢复为完整 Pinax 工作台，URL 为 `index.html#/`，0 console/page error；Windows ZIP 已再次重建。
+
+## 2026-08-21 - P2 浏览器旧项目迁移
+
+- 浏览器备份/恢复继续使用 schema v2；新增独立 migration bundle v3，只扫描 storage policy 中的 project 数据。每个原始 localStorage 字符串带稳定 record type、UTF-8 byte length 和 SHA-256，排序清单生成 bundle ID。浏览器与桌面双重分类，明确排除 provider credential、应用偏好和 disposable diagnostics；导出不写、不删浏览器源数据。
+- 桌面转换器兼容 v2/v3，dry-run 只生成确定性 operations/report，不创建目录或 SQLite。books/chapters 转成 volume/chapter 与 UTF-8 TXT，worldbook entries 转成 reference TXT；Experience、writing unit metadata/annotations/history、materials、media metadata、canvas 和 storyboard 进入有类型的一次性 `legacy_records`，分别标记 supported/detached/orphaned/rejected，后续 P3/P5/P7 接管时再删除兼容所有权。
+- SQLite schema v2 增加 bundle journal、source-to-target mapping 与 compatibility records。导入在目标同级建立唯一 staging 项目，事务写入 metadata/journal、逐文件写入并复核数量/byte length/SHA-256，checkpoint/close 后才 rename 为最终项目；取消或异常只清理 owned staging，已完成同 bundle 重入返回 idempotent 结果，不覆盖无关目标。
+- Electron preload/IPC 通过主进程持有的限时 opaque token 串联 choose bundle、choose destination、dry-run、import 和 cancel；renderer 不接触原始路径、bundle、数据库或文件系统能力。桌面入口使用低层级“迁移浏览器旧项目”，先显示五类 dry-run 计数与问题记录，再选择父目录并确认；预检后聚焦确认动作，导入中仍可停止。
+- 定向 `npm run test:desktop` 为 14 文件 / 62 个用例；`npm run smoke:desktop-migration` 在非 ASCII 临时路径完成 dry-run、导入、重复导入、章节/资料 TXT 与 journal 复核。`npm run verify:full` 为 42 文件 / 516 个用例并通过 Vite、diff check 与 VitePress；`npm run desktop:package` 产出 Linux x64 package。live UI 与 Windows clean-machine 仍是外部门禁，不由宿主机测试替代。
+
+## 2026-08-21 - P1 桌面项目底座
+
+- 新增 Electron Forge/Vite 壳。renderer 保持 sandbox、context isolation、无 Node integration；preload 只暴露逐项命名方法，IPC 在验证 active main frame、可信 origin 与 payload 后才调用单一服务方法，并把异常转成 typed failure。
+- 本地项目固定使用 `manuscript/`、`reference/`、`assets/` 与 `.pinax/`。manifest、nonce lock、SQLite schema v1、WAL/FULL synchronous、revision-checked UTF-8 LF 文本写入、staged/file_committed 恢复和独立完整性维度均已实现；路径 containment 同时阻止 traversal、absolute path 与 symlink escape。
+- 托管备份先 checkpoint WAL，只复制 manifest/SQLite/正文/资料与允许的资产，排除 lock/tmp/cache，写入并 fsync 清单，逐项核对 byte length/SHA-256 后才提交目录。全局缓存默认 1 GiB，限制 64 MiB–100 GiB，原子维护 index，按 oldest-accessed-first 删除未 pinned 条目且拒绝与项目根重叠。
+- browser compatibility repository 保留现有 JSON/text localStorage 语义；desktop adapter 不在失败后降级 localStorage。App 只增加一个无活动项目时的克制门禁，打开后原应用不变。P1 未迁移任何现有项目内容、未接管 Experience/Writing，也未修改 provider 进程行为。
+- 验证：`npm run test:desktop` 为 10 文件 / 36 用例；`npm run verify:full` 为 37 文件 / 481 用例并通过 Vite、diff check、VitePress；`npm run desktop:package` 产出 Linux x64 artifact；`npm run smoke:desktop-foundation` 在临时非 ASCII 项目完成创建/关闭/重开/TXT revision 写入/双写锁/只读/托管备份/锁清理。当前 5173 服务来自另一 worktree，按约定未重启，因此新门禁 1440/390 live audit 未执行；Windows clean-machine 未执行。
 
 ## 2026-08-21 - 体验叙事规划与正文阶段隔离
 

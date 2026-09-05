@@ -487,7 +487,7 @@ summary .arrow {
 .tavern-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .tavern-btn.primary:hover {

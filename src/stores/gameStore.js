@@ -57,6 +57,11 @@ import {
 } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
+import { createLegacyExperienceStateBridge } from '../services/agents/authoring/legacyExperienceStateBridge'
+import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler'
+import { createAuthoringObserverRunner } from '../services/agents/observers/authoringObserverDerivation'
+import { createMemoryTriggers } from '../services/memoryTriggers'
+import { invalidateMemoryBySource } from '../services/memoryCandidates'
 import { buildNarrativeContinuityFrame } from '../services/agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../services/agents/narrativeResourceIndex'
 import { buildNarrativeContextAudit } from '../services/agents/narrativeContextAudit'
@@ -905,6 +910,41 @@ if (typeof window !== 'undefined') {
   }
 }
 
+// Authoring runtime（模块级、非持久化）：正文提交后经统一 bridge 调度后台派生观察器。
+// 观察器输出永远是低优先级 derived state / typed exception，不直接改正文和 locked canon。
+let authoringObserverBridge = null
+let authoringObserverScheduler = null
+let authoringMemoryTriggers = null
+let authoringMemoryAgentEnabled = true
+// Authoring 记忆的项目标识真源：页面选书时同步；未同步时回退 active worldbook。
+let authoringActiveProjectId = ''
+const authoringMemoryTriggerEvents = []
+const authoringObserverEvents = []
+const authoringDerivedState = []
+const authoringObserverExceptions = []
+let authoringLastDocumentRevision = ''
+let authoringDocumentSequence = 0
+
+function recordAuthoringObserverEvent(delta) {
+  authoringObserverEvents.push({ ...delta, scheduledAt: Date.now() })
+  if (authoringObserverEvents.length > 50) authoringObserverEvents.shift()
+}
+
+function recordAuthoringObserverResult(result) {
+  for (const exception of result?.exceptions || []) {
+    authoringObserverExceptions.push({
+      id: String(exception.observationId || `exception-${Date.now().toString(36)}`),
+      reason: String(exception.reason || ''),
+      summary: String(exception.text || ''),
+      documentRevision: String(result.documentRevision || ''),
+      recordedAt: Date.now()
+    })
+  }
+  if (authoringObserverExceptions.length > 50) {
+    authoringObserverExceptions.splice(0, authoringObserverExceptions.length - 50)
+  }
+}
+
 export const useGameStore = defineStore('game', {
   state: () => ({
     gameId: null,
@@ -1205,6 +1245,36 @@ export const useGameStore = defineStore('game', {
       }
       this.saveCurrentSession()
       return this.emergenceCandidates
+    },
+
+    // 涌现候选确认（写作工作区审阅闭环 / spec §8.3）：
+    // 只走派生状态路径——留下确认 runtime event 并把候选移出待审；
+    // 不直接改写 locked/canonical 设定，正文与事实仍由用户在文档中显式落笔。
+    acknowledgeEmergenceCandidate(candidateId) {
+      const id = normalizeTextValue(candidateId)
+      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id)
+      if (!candidate) return { ok: false, reason: 'candidate-missing' }
+      this.emergenceDismissedIds = normalizeEmergenceDismissedIds([
+        ...(this.emergenceDismissedIds || []),
+        id
+      ])
+      this.emergenceCandidates = (this.emergenceCandidates || []).filter((item) => item?.id !== id)
+      if (this.emergenceDraft?.candidateId === id && this.emergenceDraft.decision !== 'applied') {
+        this.emergenceDraft = null
+      }
+      this.appendRuntimeEvent({
+        type: 'display_event',
+        source: 'emergence',
+        payload: {
+          kind: 'emergence-candidate-confirmed',
+          candidateId: id,
+          candidateType: candidate.type,
+          placeId: candidate.placeId || '',
+          sourceRefs: candidate.sourceRefs
+        }
+      })
+      this.saveCurrentSession()
+      return { ok: true, candidateId: id }
     },
 
     dismissEmergenceCandidate(candidateId) {
@@ -3693,6 +3763,13 @@ export const useGameStore = defineStore('game', {
           this.saveCurrentSession()
         }
 
+        // Authoring runtime：可见正文提交后，经统一 bridge 调度一次后台派生观察器。
+        // 观察器不阻塞、不改正文；保存/回滚顺序保持不变（此调用在事务与落盘之后）。
+        await this.commitAuthoringProseResult({
+          text: finalParsed.content,
+          sourceRefs: turnRecord?.id ? [`turn:${turnRecord.id}`] : []
+        })
+
         productionOutcome = 'success'
       } catch (e) {
         productionError = e
@@ -4156,6 +4233,227 @@ export const useGameStore = defineStore('game', {
       this.extractFactionRelations(text)
     },
 
+    // Authoring runtime：惰性创建正文→观察器 bridge（模块级单例，非持久化）。
+    ensureAuthoringObserverRuntime() {
+      if (authoringObserverBridge) return authoringObserverBridge
+      authoringObserverScheduler = createAuthoringObserverScheduler({
+        // 真实派生：编辑空闲后对文档 delta 执行五个 observer derive workflow；
+        // 常规结果写入 derived-state，typed exception 分离进入审阅队列。
+        run: async (delta) => {
+          const runner = createAuthoringObserverRunner({
+            // 候选项目归属优先用 delta 携带的 memoryProjectId（Authoring 书 ID），
+            // 否则回退 active worldbook，保证写入口径与召回口径一致。
+            memoryTarget: (delta) => ({
+              projectId: String(delta?.memoryProjectId || '').trim() || authoringActiveProjectId || resolveActiveWorldbookId() || ''
+            }),
+            applyDerived: async (routine, meta) => {
+              for (const observation of routine) {
+                authoringDerivedState.push({ ...observation, baseRevision: String(meta?.baseRevision || '') })
+              }
+              if (authoringDerivedState.length > 200) {
+                authoringDerivedState.splice(0, authoringDerivedState.length - 200)
+              }
+              return { count: routine.length }
+            },
+            onException: null
+          })
+          const result = await runner.run(delta)
+          recordAuthoringObserverResult(result)
+          return result
+        }
+      })
+      authoringObserverBridge = createLegacyExperienceStateBridge({
+        insertText: async ({ text }) => {
+          // 正文已由回合事务提交；此处只生成确定性 document receipt 供观察器对齐版本。
+          authoringDocumentSequence += 1
+          return {
+            revision: `${this.currentSessionId || 'session'}:doc-r${authoringDocumentSequence}`,
+            chars: String(text || '').length
+          }
+        },
+        scheduleObservers: (delta) => {
+          recordAuthoringObserverEvent(delta)
+          // Agent-off gate：关闭后不做自动派生调度。
+          if (!authoringMemoryAgentEnabled) return
+          authoringMemoryTriggerEvents.push({
+            type: 'prose-commit',
+            projectId: String(delta.memoryProjectId || '').trim() || authoringActiveProjectId,
+            sessionId: this.currentSessionId || '',
+            sourceRefs: delta.sourceRefs || [],
+            revision: delta.documentRevision || '',
+            emittedAt: Date.now()
+          })
+          authoringObserverScheduler.scheduleObservers({
+            documentId: this.currentSessionId || 'session',
+            ...delta
+          })
+        }
+      })
+      return authoringObserverBridge
+    },
+
+    // 受控记忆触发边界：prose-commit 只在正文持久化成功后发射；undo 发射失效。
+    ensureAuthoringMemoryTriggers() {
+      if (authoringMemoryTriggers) return authoringMemoryTriggers
+      authoringMemoryTriggers = createMemoryTriggers({
+        // derive 真正生成候选：经 observer scheduler → runner(memoryTarget) 队列化。
+        derive: async (payload) => {
+          authoringMemoryTriggerEvents.push({ ...payload, emittedAt: Date.now() })
+          if (authoringMemoryTriggerEvents.length > 100) {
+            authoringMemoryTriggerEvents.splice(0, authoringMemoryTriggerEvents.length - 100)
+          }
+          if (!authoringObserverScheduler || !payload.text) return
+          // boundary 使用独立调度键：避免与紧随其后的 prose-commit 因同 key 合并而互相取消。
+          const documentId = payload.type === 'boundary'
+            ? `${payload.sessionId || 'authoring'}:boundary:${payload.scopeKey || 'unknown'}`
+            : (payload.sessionId || 'authoring')
+          authoringObserverScheduler.scheduleObservers({
+            documentId,
+            documentRevision: payload.revision,
+            text: payload.text,
+            sourceRefs: payload.sourceRefs,
+            memoryProjectId: payload.projectId
+          })
+        },
+        invalidate: async (payload) => {
+          for (const sourceRef of payload.sourceRefs || []) {
+            invalidateMemoryBySource({ sourceRef, currentRevision: payload.revision, reason: payload.reason })
+          }
+          authoringMemoryTriggerEvents.push({ ...payload, type: 'invalidation', emittedAt: Date.now() })
+        },
+        isAgentEnabled: () => authoringMemoryAgentEnabled
+      })
+      return authoringMemoryTriggers
+    },
+
+    setAuthoringProjectId(projectId) {
+      authoringActiveProjectId = String(projectId || '').trim()
+    },
+
+    setAuthoringMemoryAgentEnabled(value) {
+      authoringMemoryAgentEnabled = value !== false
+    },
+
+    resolveAuthoringMemoryProjectId() {
+      return authoringActiveProjectId || resolveActiveWorldbookId() || ''
+    },
+
+    // 显式“记住”：provider 不可用也创建本地 pending 候选。
+    async rememberAuthoringSelection({ content = '', sourceRefs = [], sourceRevision = '', confirm = false, projectId = '' } = {}) {
+      const trimmed = String(content || '').trim()
+      if (!trimmed) return { success: false, skipped: true, reason: 'empty-content' }
+      const triggers = this.ensureAuthoringMemoryTriggers()
+      const result = await triggers.rememberExplicitly({
+        content: trimmed,
+        projectId: String(projectId || '').trim() || this.resolveAuthoringMemoryProjectId(),
+        sessionId: this.currentSessionId || '',
+        sourceRefs: Array.isArray(sourceRefs) && sourceRefs.length ? sourceRefs : [`user-action:remember:${Date.now()}`],
+        sourceRevision,
+        confirm
+      })
+      return result
+    },
+
+    // Authoring 页面正文事务提交：调度一次有界观察派生（真正产出记忆候选）并记录 prose-commit 事件。
+    noteAuthoringTextCommit({ text = '', sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
+      const contentText = String(text || '')
+      if (!contentText.trim()) return { accepted: false, reason: 'empty-text' }
+      // Agent-off gate：关闭后不做自动记忆派生（显式“记住”仍可本地建候选）。
+      if (!authoringMemoryAgentEnabled) {
+        return { accepted: false, reason: 'agent-disabled' }
+      }
+      const contentTextTrimmed = contentText
+      this.setAuthoringProjectId(memoryProjectId)
+      this.ensureAuthoringObserverRuntime()
+      const memoryProjectIdResolved = String(memoryProjectId || '').trim() || this.resolveAuthoringMemoryProjectId()
+      const result = authoringObserverScheduler.scheduleObservers({
+        documentId: sessionId || this.currentSessionId || 'authoring',
+        documentRevision: revision,
+        text: contentTextTrimmed,
+        sourceRefs,
+        memoryProjectId: memoryProjectIdResolved
+      })
+      authoringMemoryTriggerEvents.push({
+        type: 'prose-commit',
+        projectId: memoryProjectIdResolved,
+        sessionId: sessionId || this.currentSessionId || '',
+        sourceRefs,
+        revision,
+        emittedAt: Date.now()
+      })
+      return result
+    },
+
+    // 章节/会话边界：对上一范围做一次去重后的有界派生，不重扫整个项目。
+    async noteAuthoringBoundary({ scopeKey = '', text = '', sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
+      const triggers = this.ensureAuthoringMemoryTriggers()
+      return triggers.handle({
+        type: 'boundary',
+        projectId: String(memoryProjectId || '').trim() || this.resolveAuthoringMemoryProjectId(),
+        sessionId: sessionId || this.currentSessionId || '',
+        scopeKey,
+        text,
+        sourceRefs,
+        revision
+      })
+    },
+
+    getAuthoringMemoryTriggerEvents() {
+      return authoringMemoryTriggerEvents.map((event) => ({ ...event }))
+    },
+
+    // 每次可见正文提交后调用一次：先落正文 receipt，再调度派生观察器（顺序由 bridge 保证）。
+    async commitAuthoringProseResult({ text, sourceRefs = [], memoryProjectId = '' } = {}) {
+      const contentText = String(text || '')
+      if (!contentText.trim()) return null
+      try {
+        if (String(memoryProjectId || '').trim()) this.setAuthoringProjectId(memoryProjectId)
+        const bridge = this.ensureAuthoringObserverRuntime()
+        const receipt = await bridge.commitNarrativeResult({
+          text: contentText,
+          baseRevision: authoringLastDocumentRevision,
+          sourceRefs,
+          // 派生候选的项目归属与召回口径保持一致。
+          memoryProjectId: String(memoryProjectId || '').trim() || authoringActiveProjectId
+        })
+        authoringLastDocumentRevision = receipt.revision
+        return receipt
+      } catch {
+        // 观察器调度失败绝不影响已提交的可见正文。
+        return null
+      }
+    },
+
+    async handleAuthoringProseUndo({ sourceRefs = [], revision = '' } = {}) {
+      await this.ensureAuthoringMemoryTriggers().invalidate({
+        sourceRefs,
+        revision,
+        reason: 'prose-undo'
+      })
+    },
+
+    getAuthoringObserverEvents() {
+      return authoringObserverEvents.map((event) => ({ ...event }))
+    },
+
+    getAuthoringObserverExceptions() {
+      return authoringObserverExceptions.map((exception) => ({ ...exception }))
+    },
+
+    getAuthoringDerivedState() {
+      return authoringDerivedState.map((item) => ({ ...item }))
+    },
+
+    resetAuthoringObserverRuntime() {
+      // 取消全部待执行派生（含 boundary 独立键），避免切换/重置会话后旧任务继续执行。
+      authoringObserverScheduler?.cancelAll()
+      authoringLastDocumentRevision = ''
+      authoringObserverEvents.length = 0
+      authoringDerivedState.length = 0
+      authoringMemoryTriggerEvents.length = 0
+      authoringObserverExceptions.length = 0
+    },
+
     extractGoalState(content) {
       const goalPatterns = [
         /(?:目标|任务目标|当前目标)[：:\s]+([^。！？\n]{4,40})/,
@@ -4168,7 +4466,7 @@ export const useGameStore = defineStore('game', {
         if (!title) continue
         this.upsertGoal({
           title,
-          source: 'ai-extract',
+          source: 'derived-parse',
           status: /完成|达成|解决/.test(content) ? 'completed' : 'active',
           updatedAt: Date.now()
         })
@@ -4201,7 +4499,7 @@ export const useGameStore = defineStore('game', {
         if (!label) continue
         this.recordKeyChoice({
           label,
-          source: 'ai-extract',
+          source: 'derived-parse',
           createdAt: Date.now()
         })
       }

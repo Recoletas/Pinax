@@ -250,7 +250,9 @@ import {
 } from '../../../shared/placeEntryContract.js'
 import { mergeUniqueSentences } from '../../../shared/placeDescriptionMerge.js'
 import { adoptPlaceDraft, getPlaceDeleteImpact, getPlaceOverview, listPlaceEntries } from '../../services/worldbookPlaceCatalog'
-import { generatePlacesFromOverview, generatePlaceFleshOut } from '../../services/settingPlaceGeneration'
+import { createSettingPlaceServices } from '../../services/settingPlaceGeneration'
+import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
+import { createSettingsPlaceWorkflow } from '../../services/agents/settings/settingsPlaceWorkflow'
 
 const props = defineProps({
   worldbook: { type: Object, required: true }
@@ -274,6 +276,29 @@ const fleshOutState = ref('idle')
 const createState = ref('idle')
 const drafts = ref([])
 const deleteImpact = ref(null)
+
+// 地点 Agent 调度入口：提取与补全统一走 canonical 任务分发，候选仍逐项审阅。
+const settingsDispatcher = createSettingsPageDispatcher({
+  adapters: {
+    settingsPlace: createSettingsPlaceWorkflow(createSettingPlaceServices())
+  }
+})
+
+function dispatchPlaceFailure(result, fallbackMessage) {
+  const failure = new Error(result?.error?.message || fallbackMessage)
+  if (result?.error?.code === 'AGENT_ABORTED') failure.name = 'AbortError'
+  throw failure
+}
+
+function placeDispatchInput(intent) {
+  const revision = String(props.worldbook?.updatedAt || props.worldbook?.revision || '')
+  return {
+    project: { id: props.worldbook.id, revision },
+    target: { type: 'setting-place', revision },
+    intent
+  }
+}
+
 
 let relationSequence = 0
 const blankForm = () => ({
@@ -474,7 +499,9 @@ async function generateFromOverview() {
   generationErrors.value = []
   feedback.value = ''
   try {
-    const result = await generatePlacesFromOverview({ worldbook: props.worldbook })
+    const dispatched = await settingsDispatcher.dispatch('settings.places.extract', placeDispatchInput({ worldbook: props.worldbook }), {})
+    if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '地点整理失败。')
+    const result = dispatched.actions[0]?.payload
     drafts.value = (result.drafts || []).map(decorateDraft)
     generationErrors.value = result.errors || []
     if (!result.ok && !drafts.value.length) {
@@ -551,7 +578,7 @@ async function runFleshOut() {
       .filter((relation) => text(relation.targetName))
       .slice(0, 8)
       .map((relation) => ({ type: relation.type || 'adjacent', targetName: text(relation.targetName) }))
-    const result = await generatePlaceFleshOut({
+    const dispatched = await settingsDispatcher.dispatch('settings.place.fleshout', placeDispatchInput({
       worldbook: props.worldbook,
       seed: {
         name: form.name,
@@ -565,8 +592,11 @@ async function runFleshOut() {
       },
       userBrief: form.userBrief,
       excludeEntryId: isCreating.value ? '' : selectedId.value,
-      excludeName: text(form.name)
-    })
+      excludeName: text(form.name),
+      mode: 'expand'
+    }), {})
+    if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '地点补全未返回结果。')
+    const result = dispatched.actions[0]?.payload
     if (!result.ok || !result.place) {
       feedback.value = result.reason || '地点补全未返回结果。'
       feedbackKind.value = 'error'
@@ -640,12 +670,14 @@ async function runPlaceCreate() {
   createState.value = 'pending'
   feedback.value = ''
   try {
-    const result = await generatePlaceFleshOut({
+    const dispatched = await settingsDispatcher.dispatch('settings.place.fleshout', placeDispatchInput({
       worldbook: props.worldbook,
       seed: { name: text(form.name) },
       mode: 'create',
       excludeName: text(form.name)
-    })
+    }), {})
+    if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '生成新地点失败，请重试。')
+    const result = dispatched.actions[0]?.payload
     if (!result.ok || !result.place) {
       feedback.value = result.reason || '生成新地点失败，请重试。'
       feedbackKind.value = 'error'

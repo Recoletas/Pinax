@@ -56,7 +56,7 @@ export function buildFallbackResearchQueries({ brief, genreLabel, nameHint, maxQ
   return [...new Set(seeds.map((item) => text(item, 220)).filter(Boolean))].slice(0, Math.max(1, maxQueries))
 }
 
-export async function planWorldbookResearchQueries({ brief, genreLabel, nameHint, maxQueries = 3 } = {}) {
+export async function planWorldbookResearchQueries({ brief, genreLabel, nameHint, maxQueries = 3, signal = null } = {}) {
   const fallback = buildFallbackResearchQueries({ brief, genreLabel, nameHint, maxQueries })
   const apiSettings = await getResolvedApiSettings()
   if (!apiSettings?.baseUrl || !apiSettings?.apiKey || !apiSettings?.model) {
@@ -83,6 +83,7 @@ export async function planWorldbookResearchQueries({ brief, genreLabel, nameHint
       }
     ],
     settings: apiSettings,
+    signal,
     generationOptions: {
       max_tokens: 500,
       temperature: 0.15,
@@ -250,7 +251,8 @@ export async function researchWorldbookBrief({ brief, genreLabel, nameHint, sett
     brief,
     genreLabel,
     nameHint,
-    maxQueries: normalized.maxQueries
+    maxQueries: normalized.maxQueries,
+    signal
   })
   const search = await searchWorldbookSources({ queries: plan.queries, settings: normalized, signal })
   let sourceEvidence = { sources: [], warnings: [] }
