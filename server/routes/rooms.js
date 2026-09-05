@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getRoomBySlug, createRoom, listRooms } from '../realtime/RoomRegistry.js'
+import { getRoomBySlug, createRoom } from '../realtime/RoomRegistry.js'
 import { validateNickname } from '../realtime/validators.js'
 
 const router = Router()
@@ -26,7 +26,7 @@ router.post('/api/rooms', (req, res) => {
 })
 
 router.get('/api/rooms', (_req, res) => {
-  return res.json(listRooms())
+  return res.status(410).json({ error: 'ERR_ROOM_LIST_REMOVED', message: '房间不可公开发现；请使用直接邀请链接或房间码。', migration: 'direct-invite-required' })
 })
 
 export default router

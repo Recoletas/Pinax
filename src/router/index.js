@@ -1,4 +1,5 @@
 import { createRouter } from 'vue-router'
+import { AUTHORING_REHEARSAL_INVITE_ROUTE_PATH, COLLABORATION_INVITE_ROUTE_PATH } from '../services/collaboration/endpoint'
 import { createPinaxRouterHistory } from './history'
 
 // 懒加载页面组件
@@ -14,6 +15,7 @@ const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
 const ComicStudio = () => import('../pages/ComicStudio.vue')
 const OnlineExperience = () => import('../pages/OnlineExperience.vue')
+const CollaborationReview = () => import('../pages/CollaborationReview.vue')
 const DocsPage = () => import('../pages/DocsPage.vue')
 
 const workbenchChildren = [
@@ -145,14 +147,26 @@ const workbenchChildren = [
     }
   },
   {
-    path: 'experience/online/:roomSlug?',
+    path: COLLABORATION_INVITE_ROUTE_PATH,
     name: 'online-experience',
     component: OnlineExperience,
     meta: {
       activityKey: 'authoring',
       title: '联机'
     }
-  }
+  },
+  ...(import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true' ? [{
+    path: AUTHORING_REHEARSAL_INVITE_ROUTE_PATH,
+    name: 'collaboration-review',
+    component: CollaborationReview,
+    meta: {
+      hideGlobalMemory: true,
+      hideActivityBar: true,
+      hideSidePanel: true,
+      activityKey: 'authoring',
+      title: '协作审阅'
+    }
+  }] : [])
 ]
 
 const routes = [

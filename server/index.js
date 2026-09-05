@@ -17,7 +17,13 @@ import roomsRouter from './routes/rooms.js'
 import createMediaRouter from './routes/media.js'
 import createImageRouter from './routes/image.js'
 import researchRouter from './routes/research.js'
+import { createCollaborationRouter } from './routes/collaboration.js'
 import { setupWebSocket } from './realtime/wsHandler.js'
+import { isCollaborationUpgradeOriginAllowed, setupCollaborationRelay } from './realtime/v2/relayHandler.js'
+import { CollaborationRateLimiter } from './realtime/v2/security.js'
+import { createCollaborationMaintenanceScheduler } from './realtime/v2/maintenanceScheduler.js'
+import { SqliteCollaborationRepository } from './repositories/collaboration/SqliteCollaborationRepository.js'
+import { COLLABORATION_LIMITS } from '../shared/collaboration/constants.js'
 import { startCleanupInterval, stopCleanupInterval } from './realtime/RoomRegistry.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -25,6 +31,16 @@ const __dirname = dirname(__filename)
 
 const app = express()
 const PORT = process.env.PORT || 3001
+const collaborationEnabled = process.env.COLLABORATION_V2_ENABLED === 'true'
+let collaborationRepository = null
+let collaborationRelay = null
+const collaborationAllowedOrigins = String(process.env.COLLABORATION_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)
+if (collaborationEnabled) {
+  const filename = process.env.COLLABORATION_SQLITE_PATH
+  const secretPepper = process.env.COLLABORATION_SECRET_PEPPER
+  if (!filename || !secretPepper) throw new Error('collaboration-v2-requires-sqlite-path-and-secret-pepper')
+  collaborationRepository = new SqliteCollaborationRepository({ filename, secretPepper })
+}
 
 process.on('uncaughtException', (error) => {
   console.error('[Server] uncaughtException:', error)
@@ -35,6 +51,11 @@ process.on('unhandledRejection', (reason) => {
 })
 
 app.use(cors())
+if (collaborationRepository) app.use('/api/collaboration', createCollaborationRouter({
+  repository: collaborationRepository,
+  allowedOrigins: collaborationAllowedOrigins,
+  onMembersInvalidated: result => collaborationRelay?.invalidateMembers(result)
+}))
 app.use(express.json({ limit: '16mb' }))
 
 const mediaRouter = createMediaRouter()
@@ -78,10 +99,22 @@ const server = createServer(app)
 
 const wss = new WebSocketServer({ noServer: true })
 setupWebSocket(wss)
+const collaborationWss = collaborationEnabled ? new WebSocketServer({ noServer: true, maxPayload: COLLABORATION_LIMITS.wsMaxPayloadBytes }) : null
+collaborationRelay = collaborationWss ? setupCollaborationRelay(collaborationWss, { repository: collaborationRepository, rateLimiter: new CollaborationRateLimiter() }) : null
+const collaborationMaintenance = collaborationRepository ? createCollaborationMaintenanceScheduler({
+  repository: collaborationRepository,
+  onRoomEvents: (roomId, events) => collaborationRelay?.broadcastEvents(roomId, events),
+  onMembersInvalidated: result => collaborationRelay?.invalidateMembers(result),
+  onRoomsInvalidated: roomIds => collaborationRelay?.invalidateRooms(roomIds),
+  onSweepConnections: () => collaborationRelay?.sweepInactiveConnections()
+}) : null
 
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url, 'http://localhost')
-  if (url.pathname.startsWith('/ws/rooms')) {
+  if (url.pathname === '/ws/collaboration' && collaborationWss) {
+    if (!isCollaborationUpgradeOriginAllowed(request, collaborationAllowedOrigins)) return socket.destroy()
+    collaborationWss.handleUpgrade(request, socket, head, (ws) => collaborationWss.emit('connection', ws, request))
+  } else if (url.pathname.startsWith('/ws/rooms')) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request)
     })
@@ -93,6 +126,7 @@ server.on('upgrade', (request, socket, head) => {
 export function startServer(port = PORT) {
   if (server.listening) return server
   startCleanupInterval()
+  collaborationMaintenance?.start()
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`)
   })
@@ -101,12 +135,15 @@ export function startServer(port = PORT) {
 
 export async function stopServer() {
   stopCleanupInterval()
+  collaborationMaintenance?.stop()
   mediaRouter.mediaRuntime?.shutdown?.()
   for (const client of wss.clients) client.terminate()
+  collaborationRelay?.close()
   await new Promise((resolveClose) => {
     if (!server.listening) return resolveClose()
     server.close(() => resolveClose())
   })
+  collaborationRepository?.close()
 }
 
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === resolve(__filename)
@@ -120,4 +157,4 @@ if (isDirectRun) {
   process.once('SIGINT', () => { void shutdown('SIGINT') })
 }
 
-export { app, server, wss, mediaRouter }
+export { app, server, wss, collaborationWss, collaborationRepository, collaborationMaintenance, mediaRouter }

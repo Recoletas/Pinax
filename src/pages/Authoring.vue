@@ -537,10 +537,16 @@
                 :rehearsal-directions="interventionRehearsalDirections"
                 :rehearsal-selection="interventionComposer.rehearsalSelection"
                 :candidate-review-pending-count="interventionCandidateReviewPendingCount"
+                :collaboration-enabled="authoringCollaborationEnabled"
+                :collaboration-ready="interventionRehearsalScopeResult.ok"
+                :collaboration-active="authoringRehearsalActive"
+                :collaboration-state="authoringRehearsalState.connectionState"
                 @submit="prepareAuthoringIntervention"
                 @review-candidate="reviewInterventionCandidate"
                 @select-rehearsal="selectInterventionRehearsal"
                 @rehearse="runInterventionRehearsal"
+                @collaborate="startAuthoringRehearsalRoom"
+                @open-collaboration="openAuthoringRehearsalInspector"
                 @cancel="closeInterventionComposer"
               />
             </Teleport>
@@ -803,6 +809,7 @@
         v-if="!isKao"
         :active-tool="activeInspectorTool"
         :dual="inspectorDualColumn"
+        :collaboration-visible="authoringRehearsalActive"
         @before-select="freezeWritingSurfaceBeforeToolSelect"
         @select="selectInspectorTool"
       />
@@ -828,7 +835,7 @@
               title="固定检查器"
               @click="inspectorPinned = !inspectorPinned"
             >⌖</button>
-            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeWritingInspector">×</button>
+            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeActiveWritingInspector">×</button>
           </div>
         </header>
 
@@ -862,6 +869,28 @@
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
             @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
             @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
+        </div>
+        <div v-else-if="activeInspectorTool === 'collaboration'" class="writing-inspector__body" data-authoring-inspector="collaboration">
+          <RehearsalReviewSurface
+            :mode="authoringRehearsalState.room?.hostId === authoringRehearsalState.selfMemberId ? 'host' : 'reviewer'"
+            :connection-state="authoringRehearsalState.connectionState"
+            :members="authoringRehearsalState.members"
+            :artifacts="authoringRehearsalState.artifacts"
+            :proposals="authoringRehearsalState.proposals"
+            :votes="authoringRehearsalState.votes"
+            :generation="authoringRehearsalState.generation"
+            :invite-url="authoringRehearsalState.invite?.url || ''"
+            :busy-action="authoringRehearsalBusy"
+            :error="authoringRehearsalState.error || authoringRehearsalError"
+            :stale="authoringRehearsalState.stale"
+            @copy-invite="copyAuthoringRehearsalInvite"
+            @propose="proposeAuthoringRehearsalDirection"
+            @vote="voteAuthoringRehearsalProposal"
+            @select-generate="generateAuthoringRehearsalProposal"
+            @promote="promoteAuthoringRehearsalBranch"
+            @leave="leaveAuthoringRehearsalRoom"
+            @close="closeActiveWritingInspector"
+          />
         </div>
         <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body" data-authoring-inspector="outline">
           <AuthoringOutlinePanel
@@ -1476,7 +1505,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
@@ -1518,6 +1547,7 @@ import { collectWritingContextDependencyRevisions, discoverCrossChapterContext }
 import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPositionIndex.js'
 import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { sourceRefForAuthoringEvidenceLocator } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { createAuthoringInterventionSession } from '../services/agents/authoring/authoringInterventionSession.js'
 import { readAuthoringOutlineCausalLinks } from '../services/agents/authoring/authoringCausalLinkReader.js'
 import {
@@ -2347,7 +2377,7 @@ const inspectorOutlineNodeId = ref('')
 const activeWritingPane = ref('main')
 const activeInspectorTool = ref('annotations')
 const inspectorDualColumn = computed(() => inspectorOpen.value && activeInspectorTool.value === 'dual')
-const inspectorLabels = Object.freeze({ annotations: '批注', outline: '大纲', characters: '角色', worldbook: '设定', scene: '现场', materials: '素材', ai: '助手', history: '历史', dual: '双栏' })
+const inspectorLabels = Object.freeze({ annotations: '批注', outline: '大纲', characters: '角色', worldbook: '设定', scene: '现场', collaboration: '共同排演', materials: '素材', ai: '助手', history: '历史', dual: '双栏' })
 const activeInspectorLabel = computed(() => inspectorLabels[activeInspectorTool.value] || '批注')
 const inspectorReturnSurface = shallowRef(null)
 const knowledgeAssistantInvocation = shallowRef(null)
@@ -5732,6 +5762,34 @@ let interventionRequestVersion = 0
 let interventionAbortController = null
 let authoringInterventionRunner = null
 let authoringInterventionRehearsalRunner = null
+const authoringCollaborationEnabled = import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true'
+const RehearsalReviewSurface = authoringCollaborationEnabled
+  ? defineAsyncComponent(() => import('../components/collaboration/RehearsalReviewSurface.vue'))
+  : null
+const authoringRehearsalState = shallowRef({
+  enabled: authoringCollaborationEnabled,
+  role: null,
+  connectionState: authoringCollaborationEnabled ? 'idle' : 'disabled',
+  stale: false,
+  error: null,
+  room: null,
+  members: [],
+  invite: null,
+  artifacts: {},
+  proposals: [],
+  votes: {},
+  generation: { requests: {} },
+  promotions: {}
+})
+const authoringRehearsalBusy = ref('')
+const authoringRehearsalError = ref('')
+const authoringRehearsalPromotion = shallowRef(null)
+const authoringRehearsalActive = computed(() => Boolean(authoringRehearsalState.value.room?.roomId))
+let authoringRehearsalController = null
+let authoringRehearsalUnsubscribe = null
+let authoringRehearsalReturnFocus = null
+let authoringRehearsalBridgeModule = null
+let authoringRehearsalRoomModule = null
 const interventionGhostTeleportReady = ref(false)
 const lastInterventionUmbrellaReceipt = shallowRef(null)
 const interventionImpactGroups = computed(() => {
@@ -5931,6 +5989,222 @@ function getAuthoringInterventionRehearsalRunner() {
     generateDrafts: generateAuthoringInterventionRehearsalDrafts
   })
   return authoringInterventionRehearsalRunner
+}
+
+function readCurrentRehearsalTarget(locator = {}) {
+  const position = buildInterventionPositionIndex()?.entries?.find((entry) => (
+    String(entry.documentId || '') === String(locator.documentId || '')
+    && String(entry.unitId || '') === String(locator.unitId || '')
+    && String(entry.nodeId || '') === String(locator.nodeId || '')
+  ))
+  if (!position) return null
+  return {
+    ...locator,
+    documentRevision: position.documentRevision,
+    unitRevision: position.unitRevision,
+    nodeRevision: position.nodeRevision
+  }
+}
+
+async function readCurrentRehearsalEvidence(session, locator = {}) {
+  const sourceRef = sourceRefForAuthoringEvidenceLocator(locator)
+  if (!sourceRef) return null
+  const reconciled = await getAuthoringInterventionRunner().reconcile(session)
+  return authoringRehearsalBridgeModule?.resolveAuthoringRehearsalEvidenceAfterReconciliation({ reconciled, locator, sourceRef }) || null
+}
+
+function openAuthoringRehearsalInspector(payload = {}) {
+  if (typeof payload?.returnFocus?.focus === 'function') authoringRehearsalReturnFocus = payload.returnFocus
+  activeInspectorTool.value = 'collaboration'
+  inspectorOpen.value = true
+  inspectorPinned.value = true
+}
+
+function closeActiveWritingInspector() {
+  const restoreCollaborationFocus = activeInspectorTool.value === 'collaboration'
+  closeWritingInspector()
+  if (!restoreCollaborationFocus) return
+  const target = authoringRehearsalReturnFocus
+  nextTick(() => target?.isConnected && target.focus({ preventScroll: true }))
+}
+
+function disposeAuthoringRehearsalController() {
+  authoringRehearsalUnsubscribe?.()
+  authoringRehearsalUnsubscribe = null
+  authoringRehearsalController?.destroy()
+  authoringRehearsalController = null
+}
+
+async function startAuthoringRehearsalRoom(payload = {}) {
+  if (!authoringCollaborationEnabled || authoringRehearsalBusy.value || interventionComposer.phase !== 'ready'
+    || !interventionComposer.session || !interventionRehearsalScopeResult.value?.ok) return false
+  if (authoringRehearsalActive.value) {
+    openAuthoringRehearsalInspector(payload)
+    return true
+  }
+  if (typeof payload?.returnFocus?.focus === 'function') authoringRehearsalReturnFocus = payload.returnFocus
+  authoringRehearsalBusy.value = 'create-room'
+  authoringRehearsalError.value = ''
+  try {
+    [authoringRehearsalBridgeModule, authoringRehearsalRoomModule] = await Promise.all([
+      import('../services/collaboration/authoringRehearsalBridge.js'),
+      import('../services/collaboration/authoringRehearsalRoom.js')
+    ])
+  } catch {
+    authoringRehearsalBusy.value = ''
+    authoringRehearsalError.value = '共同排演模块加载失败，请重试。'
+    return false
+  }
+  const session = interventionComposer.session
+  const liveReader = authoringRehearsalBridgeModule.createAuthoringRehearsalLiveReader({
+    readTarget: readCurrentRehearsalTarget,
+    readEvidence: locator => readCurrentRehearsalEvidence(session, locator)
+  })
+  const registry = authoringRehearsalBridgeModule.createAuthoringRehearsalHostRegistry({
+    runRehearsal: getAuthoringInterventionRehearsalRunner(),
+    liveReader
+  })
+  const registered = registry.registerSource({ session, scope: interventionRehearsalScopeResult.value.scope })
+  if (!registered.ok) {
+    authoringRehearsalBusy.value = ''
+    authoringRehearsalError.value = '当前排演范围无法安全分享，请重新核对。'
+    return false
+  }
+  disposeAuthoringRehearsalController()
+  authoringRehearsalController = authoringRehearsalRoomModule.createAuthoringRehearsalRoomController({ enabled: true, registry })
+  authoringRehearsalState.value = { ...authoringRehearsalController.state }
+  authoringRehearsalUnsubscribe = authoringRehearsalController.subscribe(value => {
+    authoringRehearsalState.value = value
+    if (value.connectionState === 'connected') flushAuthoringRehearsalPromotionReceipt()
+  })
+  const result = await authoringRehearsalController.createHostRoom({
+    sourceHandle: registered.sourceHandle,
+    roomSlug: `rehearsal-${Date.now().toString(36)}`,
+    displayName: '作者'
+  })
+  authoringRehearsalBusy.value = ''
+  if (!result.ok) {
+    authoringRehearsalError.value = result.reason || '共同排演房间创建失败'
+    disposeAuthoringRehearsalController()
+    return false
+  }
+  openAuthoringRehearsalInspector(payload)
+  return true
+}
+
+async function runAuthoringRehearsalAction(action, task) {
+  if (!authoringRehearsalController || authoringRehearsalBusy.value) return null
+  authoringRehearsalBusy.value = action
+  authoringRehearsalError.value = ''
+  const result = await task()
+  authoringRehearsalBusy.value = ''
+  if (!result?.ok) authoringRehearsalError.value = result?.reason || '协作操作未完成'
+  return result
+}
+
+function proposeAuthoringRehearsalDirection(payload) {
+  return runAuthoringRehearsalAction('proposal', () => authoringRehearsalController.proposeDirection(payload))
+}
+
+function voteAuthoringRehearsalProposal(payload) {
+  return runAuthoringRehearsalAction(`vote:${payload.proposalId}`, () => authoringRehearsalController.castVote(payload))
+}
+
+function generateAuthoringRehearsalProposal(proposalId) {
+  return runAuthoringRehearsalAction(`generation:${proposalId}`, () => authoringRehearsalController.selectAndGenerate({ proposalId }))
+}
+
+async function promoteAuthoringRehearsalBranch({ proposalId, generationRequestId } = {}) {
+  const prepared = await runAuthoringRehearsalAction(`promotion:${proposalId}`, () => (
+    authoringRehearsalController.preparePromotion({ proposalId, generationRequestId })
+  ))
+  if (!prepared?.ok) return false
+  const request = authoringRehearsalState.value.promotions?.[proposalId]
+  const artifact = authoringRehearsalState.value.generation?.requests?.[generationRequestId]?.artifact
+  authoringRehearsalPromotion.value = {
+    proposalId,
+    artifactFingerprint: request?.artifactFingerprint || artifact?.fingerprint || '',
+    pendingReceipt: null,
+    reported: false
+  }
+  interventionComposer.open = true
+  interventionComposer.target = prepared.session.target
+  interventionComposer.originalText = prepared.session.intervention?.before || ''
+  interventionComposer.session = prepared.session
+  interventionComposer.rehearsalSelection = prepared.selection
+  interventionComposer.rehearsalResult = prepared.result
+  interventionComposer.phase = 'ghosts'
+  interventionComposer.activeGhostId = prepared.ghostIds?.[0] || ''
+  if (interventionComposer.activeGhostId) await selectInterventionGhost(interventionComposer.activeGhostId)
+  return true
+}
+
+async function flushAuthoringRehearsalPromotionReceipt() {
+  const promotion = authoringRehearsalPromotion.value
+  if (!promotion?.pendingReceipt || promotion.reported || !authoringRehearsalController
+    || authoringRehearsalState.value.connectionState !== 'connected') return false
+  const result = await authoringRehearsalController.reportPromotionStatus({
+    proposalId: promotion.proposalId,
+    artifactFingerprint: promotion.artifactFingerprint,
+    status: 'adopted',
+    receipt: promotion.pendingReceipt
+  })
+  if (!result?.ok) return false
+  const settled = authoringRehearsalRoomModule?.settleAuthoringRehearsalPromotionReceipt({
+    current: authoringRehearsalPromotion.value,
+    owner: promotion,
+    result
+  })
+  if (settled === authoringRehearsalPromotion.value) return false
+  authoringRehearsalPromotion.value = settled
+  return true
+}
+
+function queueAuthoringRehearsalAdoptionReceipt(targetCount = 1) {
+  const promotion = authoringRehearsalPromotion.value
+  if (!promotion || promotion.reported || promotion.pendingReceipt) return
+  authoringRehearsalPromotion.value = {
+    ...promotion,
+    pendingReceipt: { code: 'adopted', targetCount: Math.max(1, Number(targetCount) || 1) }
+  }
+  flushAuthoringRehearsalPromotionReceipt()
+}
+
+async function copyAuthoringRehearsalInvite() {
+  const url = authoringRehearsalState.value.invite?.url
+  if (!url) return false
+  try {
+    await navigator.clipboard.writeText(url)
+    authoringTask.notify('共同排演邀请已复制')
+    return true
+  } catch {
+    authoringRehearsalError.value = '浏览器未授权复制，请选中页面中的邀请链接复制。'
+    return false
+  }
+}
+
+function leaveAuthoringRehearsalRoom() {
+  authoringRehearsalController?.disconnect()
+  disposeAuthoringRehearsalController()
+  authoringRehearsalState.value = {
+    ...authoringRehearsalState.value,
+    role: null,
+    connectionState: 'closed',
+    room: null,
+    members: [],
+    invite: null,
+    artifacts: {},
+    proposals: [],
+    votes: {},
+    generation: { requests: {} },
+    promotions: {}
+  }
+  authoringRehearsalPromotion.value = null
+  activeInspectorTool.value = 'annotations'
+  inspectorOpen.value = false
+  const target = authoringRehearsalReturnFocus
+  authoringRehearsalReturnFocus = null
+  nextTick(() => target?.isConnected && target.focus({ preventScroll: true }))
 }
 
 function clearInterventionRehearsalResult() {
@@ -6263,6 +6537,7 @@ async function persistPendingInterventionAdoption() {
       retryable: true
     })
   }
+  queueAuthoringRehearsalAdoptionReceipt(1)
   const discarded = discardAuthoringInterventionGhost(interventionComposer.rehearsalResult, pending.ghostId)
   interventionComposer.pendingAdoption = null
   interventionComposer.adoptingGhostId = ''
@@ -6480,6 +6755,7 @@ async function adoptAllInterventionGhosts() {
       message: '正文已保存，相关记忆将在稍后刷新', retryable: true
     })
   }
+  queueAuthoringRehearsalAdoptionReceipt(prepared.receipt.groupCount)
   lastInterventionUmbrellaReceipt.value = prepared.receipt
   const changedCount = prepared.receipt.groupCount
   const chapterCount = prepared.receipt.chapterCount
@@ -6568,7 +6844,10 @@ watch(knowledgeAssistantRevisionSignal, async () => {
   interventionComposer.notice = ''
 })
 
-onBeforeUnmount(() => interventionAbortController?.abort())
+onBeforeUnmount(() => {
+  interventionAbortController?.abort()
+  disposeAuthoringRehearsalController()
+})
 
 function openBlockComposer(target = notebookSelection.value, options = {}) {
   const frozenTarget = resolveBlockComposerTarget(target || {})
@@ -8243,7 +8522,7 @@ function handleWritingInspectorKeydown(event) {
     closeSceneDetail()
     return
   }
-  closeWritingInspector()
+  closeActiveWritingInspector()
 }
 
 const copilotReferenceLabel = computed(() => {

@@ -20,7 +20,8 @@ export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
   'settings-worldbook': 'settings-worldbook',
   'settings-worldbook-create': 'settings-worldbook-create',
   'settings-worldbook-advanced': 'settings-worldbook-advanced',
-  'online-experience': 'online-experience'
+  'online-experience': 'online-experience',
+  'collaboration-review': 'collaboration-review'
 })
 
 export const SURFACE_LABELS = Object.freeze({
@@ -35,7 +36,8 @@ export const SURFACE_LABELS = Object.freeze({
   'settings-worldbook': '设定',
   'settings-worldbook-create': '创建世界书',
   'settings-worldbook-advanced': '高级设定',
-  'online-experience': '联机'
+  'online-experience': '联机',
+  'collaboration-review': '协作审阅'
 })
 
 let tabIdSequence = 0
@@ -49,8 +51,9 @@ export function buildProjectTabKey(projectId, surface) {
   return `project:${String(projectId || '')}:${surface}`
 }
 
-export function buildGlobalTabKey(surface) {
-  return `global:${surface}`
+export function buildGlobalTabKey(surface, instanceId = '') {
+  const instance = String(instanceId || '').trim()
+  return instance ? `global:${surface}:${encodeURIComponent(instance)}` : `global:${surface}`
 }
 
 export function parseTabKey(key) {
@@ -60,7 +63,15 @@ export function parseTabKey(key) {
     return { scope: 'project', projectId: parts[1], surface: parts[2] }
   }
   if (parts[0] === 'global' && parts.length === 2 && parts[1]) {
-    return { scope: 'global', projectId: null, surface: parts[1] }
+    return { scope: 'global', projectId: null, surface: parts[1], instanceId: null }
+  }
+  if (parts[0] === 'global' && parts.length === 3 && parts[1] && parts[2]) {
+    try {
+      const instanceId = decodeURIComponent(parts[2])
+      return instanceId ? { scope: 'global', projectId: null, surface: parts[1], instanceId } : null
+    } catch {
+      return null
+    }
   }
   return null
 }
@@ -85,7 +96,11 @@ export function resolveRouteIntent(route) {
   }
   for (const [surface, routeName] of Object.entries(GLOBAL_SURFACE_ROUTE_NAMES)) {
     if (routeName === name) {
-      return { scope: 'global', surface, projectId: null, worldbookId: null }
+      const instanceId = surface === 'collaboration-review' && typeof route.params?.roomSlug === 'string'
+        ? route.params.roomSlug.trim()
+        : ''
+      if (surface === 'collaboration-review' && !instanceId) return null
+      return { scope: 'global', surface, projectId: null, worldbookId: null, instanceId: instanceId || null }
     }
   }
   return null
@@ -94,7 +109,7 @@ export function resolveRouteIntent(route) {
 export function intentToTabKey(intent) {
   if (!intent || typeof intent !== 'object') return ''
   if (intent.scope === 'project') return buildProjectTabKey(intent.projectId, intent.surface)
-  if (intent.scope === 'global') return buildGlobalTabKey(intent.surface)
+  if (intent.scope === 'global') return buildGlobalTabKey(intent.surface, intent.instanceId)
   return ''
 }
 
@@ -112,13 +127,15 @@ export function buildDefaultRouteForIntent(intent) {
   }
   const routeName = GLOBAL_SURFACE_ROUTE_NAMES[intent.surface]
   if (!routeName) return null
-  return { name: routeName, query: {} }
+  const params = intent.instanceId ? { roomSlug: intent.instanceId } : undefined
+  return { name: routeName, ...(params ? { params } : {}), query: {} }
 }
 
 // 标题规则：写作标签显示书名；项目子 surface 显示「书名 · 素材/画布/设定」。
 export function resolveTabTitle(intent, bookTitle) {
   if (!intent) return '工作区'
   if (intent.scope === 'global') {
+    if (intent.surface === 'collaboration-review' && intent.instanceId) return `协作审阅 · ${intent.instanceId}`
     return SURFACE_LABELS[intent.surface] || '工作区'
   }
   const title = String(bookTitle || '').trim() || '未命名项目'
@@ -135,6 +152,7 @@ export function createWorkspaceTab(intent, { bookTitle = '', route = null, resto
     key,
     scope: intent.scope,
     surface: intent.surface,
+    instanceId: intent.instanceId ? String(intent.instanceId) : null,
     projectId: intent.scope === 'project' ? String(intent.projectId) : null,
     worldbookId: intent.worldbookId ? String(intent.worldbookId) : null,
     title: resolveTabTitle(intent, bookTitle),
@@ -159,6 +177,7 @@ export function normalizeWorkspaceTab(raw) {
     key: raw.key,
     scope: parsed.scope,
     surface: parsed.surface,
+    instanceId: parsed.instanceId || null,
     projectId: parsed.scope === 'project' ? parsed.projectId : null,
     worldbookId: typeof raw.worldbookId === 'string' && raw.worldbookId ? raw.worldbookId : null,
     title: String(raw.title || '').trim() || resolveTabTitle(parsed),
@@ -205,6 +224,7 @@ export function tabRouteEqualsRoute(tab, route) {
   if (tab.route.name !== route.name) return false
   const tabQuery = tab.route.query || {}
   const routeQuery = route.query || {}
+  if (String(tab.route.params?.roomSlug || '') !== String(route.params?.roomSlug || '')) return false
   const keys = ['bookId', 'chapterId', 'focus', 'worldbookId']
   return keys.every((key) => String(tabQuery[key] || '') === String(routeQuery[key] || ''))
 }

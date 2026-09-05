@@ -168,7 +168,8 @@ export const useWorkspaceTabsStore = defineStore('workspaceTabs', {
         return null
       }
       const restoreState = extractRestoreStateFromRoute(route)
-      const tab = this.openOrFocus(intent, { route: { name: route.name, query: { ...route.query } }, restoreState })
+      const params = route.params && Object.keys(route.params).length ? { ...route.params } : null
+      const tab = this.openOrFocus(intent, { route: { name: route.name, ...(params ? { params } : {}), query: { ...route.query } }, restoreState })
       return tab
     },
 

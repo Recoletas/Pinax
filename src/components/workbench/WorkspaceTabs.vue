@@ -27,7 +27,8 @@ const SURFACE_ICONS = {
   'settings-worldbook-create': 'bookmark-plus',
   'settings-worldbook-advanced': 'settings',
   'settings-world-map': 'compass',
-  'online-experience': 'users'
+  'online-experience': 'users',
+  'collaboration-review': 'users'
 }
 
 const tabs = computed(() => workspaceTabs.tabs)

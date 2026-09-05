@@ -26,6 +26,9 @@ const desktopBridge = Object.freeze({
     getUsage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.CACHE_GET_USAGE),
     setLimit: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.CACHE_SET_LIMIT, input),
     prune: () => ipcRenderer.invoke(DESKTOP_CHANNELS.CACHE_PRUNE)
+  }),
+  collaboration: Object.freeze({
+    getPublicConfig: () => ipcRenderer.invoke(DESKTOP_CHANNELS.COLLABORATION_GET_PUBLIC_CONFIG)
   })
 })
 

@@ -1,17 +1,7 @@
-<template>
-  <nav class="writing-tool-rail" aria-label="写作工具">
-    <button v-for="tool in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id"
-      :aria-label="tool.label" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tool.label"
-      @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
-      <WorkbenchIcon :name="tool.icon" :size="16" />
-      <span class="writing-tool-rail__label">{{ tool.label }}</span>
-    </button>
-  </nav>
-</template>
-
 <script setup>
+import { computed } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-defineProps({ activeTool: { type: String, default: 'annotations' }, dual: Boolean })
+const props = defineProps({ activeTool: { type: String, default: 'annotations' }, dual: Boolean, collaborationVisible: Boolean })
 const emit = defineEmits(['before-select', 'select'])
 
 // pointerdown 发生在浏览器把焦点从 ProseMirror 移到 rail 按钮之前。
@@ -24,7 +14,7 @@ function emitBeforeSelect(toolId, event) {
 // 常用工具直接以“图标 + 文字”暴露，不让人猜图标含义；素材收进“更多”菜单，
 // 不再占一格。顺序对齐高频动线：校对 → 结构 → 事实 → 助手 → 回溯。
 const assistantTool = { id: 'ai', label: '助手' }
-const tools = Object.freeze([
+const baseTools = Object.freeze([
   { id: 'annotations', label: '批注', icon: 'message-square' },
   { id: 'outline', label: '大纲', icon: 'book' },
   { id: 'characters', label: '角色', icon: 'users' },
@@ -34,7 +24,25 @@ const tools = Object.freeze([
   { ...assistantTool, icon: 'sparkles' },
   { id: 'history', label: '历史', icon: 'undo-extension' }
 ])
+const tools = computed(() => props.collaborationVisible
+  ? [
+      ...baseTools.slice(0, 5),
+      { id: 'collaboration', label: '协作', icon: 'users' },
+      ...baseTools.slice(5)
+    ]
+  : baseTools)
 </script>
+
+<template>
+  <nav class="writing-tool-rail" aria-label="写作工具">
+    <button v-for="tool in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id"
+      :aria-label="tool.label" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tool.label"
+      @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
+      <WorkbenchIcon :name="tool.icon" :size="16" />
+      <span class="writing-tool-rail__label">{{ tool.label }}</span>
+    </button>
+  </nav>
+</template>
 
 <style scoped>
 .writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; width: 52px; min-width: 52px; padding-block: 6px; border-inline: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--surface-primary) 94%, transparent); }

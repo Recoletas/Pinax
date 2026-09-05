@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/consolidation-20260823` | F3-5 已完成并释放 Authoring/F3 独占 owner：当前章“场景与因果”只从 canonical 正文、现场、精确世界书命中和项目大纲显式关系即时派生；复用右侧“现场”、正文定位、世界书详情与既有 intervention，390 为线性 sheet。下一窗口是 C2-3 单一 integration owner 的“一个 intervention 共同排演”，不得另建协作改稿或第二套因果 owner。 |
+| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/consolidation-20260823` | C2-3 共同排演代码纵切已接入：Authoring 房主入口、受邀只读页、加密 artifact/proposal/branch、host-only generation、promotion→既有分组 Ghost 与 adopted receipt 均已完成；独立流程/UI 审查 blocker/high 清零，最终 `verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿。下一阶段不是直接做 C2-4，而是至少 5 次真实双人 pilot。不得另建协作改稿、第二套因果或 adoption owner。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
@@ -154,14 +154,14 @@
 
 ## Next up
 
-1. 执行 F3-5：只做当前章节的“场景与因果”最小投影，从 canonical scene/beat/writingUnit/history/worldbook refs 派生纵向序列与轻量泳道；点击节点复用双栏/资料窗，可发起 intervention，但不支持拖动重排也不持久化第二份图谱。390 使用线性列表。
+1. 执行 C2-3 pilot Gate：在开启 `VITE_COLLABORATION_V2_ENABLED` 的 TLS/WSS 环境完成至少 5 次真实双人共同排演，记录低敏 join/reconnect、proposal→selected→promoted→adopted 漏斗和失败原因；同时验证 1440/1024/390、深浅主题与 packaged Electron。Gate 通过前不进入 C2-4。
 2. 桌面方向进入 P3：把 Authoring 正文与桌面项目真源适配到 plain-text manuscript editor；并在 Windows clean-machine 验证 portable 包、v2/v3 迁移、原生 SQLite、锁与原子 rename。
 3. 在现有服务上执行 Authoring/受控记忆的 1440/1024/900/390 与 Zen live audit；随后跑真实 provider 矩阵，核对导演注、半自动暂停、记忆召回和控制文本零泄漏；通过后再请求用户书面审批 `/experience` 退役。
 4. 让创建工作区消费 ImportReport 的编码置信度、章节、重复与失败建议；用真实 GB18030/Big5/UTF-16/EPUB 和实体设备 20MB 文件验收来源摄取。
 5. 写作 Notebook 继续常用 Markdown 无损往返、批注 `targets[]` 与查找同类；不恢复每段一个业务 block，也不把整章直接交给模型检索。
 6. 在已有服务上执行 C3 场景素材板 live audit；地图继续 G2.4-A 真实地点整理、父子区域、相邻关系、remap、LOD 与标签碰撞。
 7. 体验真实性只做小样本真实 provider 复验，重点检查关系惯性、场景前状态、无因果神秘化和机器腔；戏剧消融与局部编辑器继续保持显式实验工具。
-8. C2 与 F3 并行：从干净 base 创建 `feature/collaboration-v2-foundation` 独立 worktree，记录 owner/写集/合流条件；先做 C2-0/C2-1 RED fixture、协议/repository/materializer、身份/epoch/ACK/恢复/权限/密文边界，再做 transport。F3-2 前双方只共享 JSON fixture；共同排演 UI 留给单一 integration window。漫画 M7、真实插画和 6 秒视频 smoke 仍独立推进。
+8. C2-3 代码已完成；外部 pilot 通过后才按计划进入 C2-4 通用 Authoring 审阅、F2 助手与画师接线。漫画 M7、真实插画和 6 秒视频 smoke 仍独立推进。
 
 ## Working rules
 

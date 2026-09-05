@@ -5,6 +5,8 @@ import { createCacheManager } from './cache/cacheManager.mjs'
 import { registerProjectHandlers } from './ipc/registerProjectHandlers.mjs'
 import { createLegacyMigrationService } from './migration/legacyMigrationService.mjs'
 import { createProjectService } from './projects/projectService.mjs'
+import { DESKTOP_CHANNELS } from './ipc/channels.cjs'
+import { resolveDesktopCollaborationConfig } from './collaboration/publicConfig.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let mainWindow = null
@@ -68,6 +70,11 @@ app.whenReady().then(async () => {
     activateProject: (input) => projectService.open(input)
   })
   const cacheManager = await createCacheManager({ root: join(app.getPath('userData'), 'cache') })
+  const collaborationConfig = resolveDesktopCollaborationConfig(process.env)
+  ipcMain.handle(DESKTOP_CHANNELS.COLLABORATION_GET_PUBLIC_CONFIG, event => {
+    if (!isTrustedApplicationUrl(event.senderFrame.url)) throw new Error('untrusted-collaboration-config-request')
+    return collaborationConfig
+  })
   registerProjectHandlers({
     ipcMain,
     getWindow: () => mainWindow,

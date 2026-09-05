@@ -1,3 +1,78 @@
+<script setup>
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+
+const props = defineProps({
+  target: { type: Object, required: true },
+  originalText: { type: String, required: true },
+  phase: { type: String, default: 'draft' },
+  notice: { type: String, default: '' },
+  evidenceCount: { type: Number, default: 0 },
+  impactGroups: { type: Array, default: () => [] },
+  candidateGroups: { type: Array, default: () => [] },
+  rehearsalDirections: { type: Array, default: () => [] },
+  rehearsalSelection: { type: Object, default: null },
+  candidateReviewPendingCount: { type: Number, default: 0 },
+  collaborationEnabled: Boolean,
+  collaborationReady: Boolean,
+  collaborationActive: Boolean,
+  collaborationState: { type: String, default: 'idle' }
+})
+const emit = defineEmits(['submit', 'cancel', 'draft-change', 'review-candidate', 'select-rehearsal', 'rehearse', 'collaborate', 'open-collaboration'])
+const operationOptions = Object.freeze([
+  { id: 'change-event', label: '事件' },
+  { id: 'replace-fact', label: '事实' },
+  { id: 'change-time', label: '时间' },
+  { id: 'reframe-function', label: '作用' }
+])
+const operation = ref('change-event')
+const after = ref('')
+const rationale = ref('')
+const afterInput = ref(null)
+const busy = computed(() => props.phase === 'preparing' || props.phase === 'generating')
+const readyLike = computed(() => props.phase === 'ready' || props.phase === 'generating')
+const canSubmit = computed(() => Boolean(after.value.trim()) && !busy.value)
+const primaryLabel = computed(() => {
+  if (props.phase === 'preparing') return '正在核对'
+  if (props.phase === 'generating') return '范围已冻结'
+  if (props.phase === 'ready' || props.phase === 'stale' || props.phase === 'failed') return '重新核对'
+  return '先看影响'
+})
+const statusCopy = computed(() => {
+  if (props.notice) return props.notice
+  if (props.phase === 'preparing') return '正在冻结落笔处与相关依据……'
+  if (props.phase === 'generating') return '正在按冻结范围生成各处修改草稿……'
+  if (props.phase === 'ready') return '条件与相关依据已冻结。下一步只会列出有依据的后续位置。'
+  return ''
+})
+
+watch([operation, after, rationale], () => emit('draft-change', {
+  operation: operation.value,
+  after: after.value,
+  rationale: rationale.value
+}))
+
+function submit() {
+  if (!canSubmit.value) return
+  emit('submit', {
+    projectId: props.target.projectId,
+    target: props.target,
+    operation: operation.value,
+    before: props.originalText,
+    after: after.value.trim(),
+    rationale: rationale.value.trim()
+  })
+}
+
+function handleKeydown(event) {
+  if (event.isComposing || event.keyCode === 229 || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  emit('cancel')
+}
+
+onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true })))
+</script>
+
 <template>
   <section class="authoring-intervention" data-test="intervention-composer" aria-label="改变故事条件">
     <header class="authoring-intervention__head">
@@ -149,6 +224,13 @@
         :disabled="phase === 'generating'"
         @click="emit('rehearse')"
       >{{ phase === 'generating' ? '正在生成草稿' : '生成修改草稿' }}</button>
+      <button
+        v-if="collaborationEnabled && collaborationReady"
+        type="button"
+        data-test="intervention-collaborate"
+        :disabled="collaborationState === 'configuring' || collaborationState === 'joining'"
+        @click="emit(collaborationActive ? 'open-collaboration' : 'collaborate', { returnFocus: $event.currentTarget })"
+      >{{ collaborationActive ? '打开共同排演' : (collaborationState === 'configuring' || collaborationState === 'joining' ? '正在建立房间' : '邀请共同排演') }}</button>
     </section>
 
     <footer>
@@ -162,77 +244,6 @@
     </footer>
   </section>
 </template>
-
-<script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-
-const props = defineProps({
-  target: { type: Object, required: true },
-  originalText: { type: String, required: true },
-  phase: { type: String, default: 'draft' },
-  notice: { type: String, default: '' },
-  evidenceCount: { type: Number, default: 0 },
-  impactGroups: { type: Array, default: () => [] },
-  candidateGroups: { type: Array, default: () => [] },
-  rehearsalDirections: { type: Array, default: () => [] },
-  rehearsalSelection: { type: Object, default: null },
-  candidateReviewPendingCount: { type: Number, default: 0 }
-})
-const emit = defineEmits(['submit', 'cancel', 'draft-change', 'review-candidate', 'select-rehearsal', 'rehearse'])
-const operationOptions = Object.freeze([
-  { id: 'change-event', label: '事件' },
-  { id: 'replace-fact', label: '事实' },
-  { id: 'change-time', label: '时间' },
-  { id: 'reframe-function', label: '作用' }
-])
-const operation = ref('change-event')
-const after = ref('')
-const rationale = ref('')
-const afterInput = ref(null)
-const busy = computed(() => props.phase === 'preparing' || props.phase === 'generating')
-const readyLike = computed(() => props.phase === 'ready' || props.phase === 'generating')
-const canSubmit = computed(() => Boolean(after.value.trim()) && !busy.value)
-const primaryLabel = computed(() => {
-  if (props.phase === 'preparing') return '正在核对'
-  if (props.phase === 'generating') return '范围已冻结'
-  if (props.phase === 'ready' || props.phase === 'stale' || props.phase === 'failed') return '重新核对'
-  return '先看影响'
-})
-const statusCopy = computed(() => {
-  if (props.notice) return props.notice
-  if (props.phase === 'preparing') return '正在冻结落笔处与相关依据……'
-  if (props.phase === 'generating') return '正在按冻结范围生成各处修改草稿……'
-  if (props.phase === 'ready') return '条件与相关依据已冻结。下一步只会列出有依据的后续位置。'
-  return ''
-})
-
-watch([operation, after, rationale], () => emit('draft-change', {
-  operation: operation.value,
-  after: after.value,
-  rationale: rationale.value
-}))
-
-function submit() {
-  if (!canSubmit.value) return
-  emit('submit', {
-    projectId: props.target.projectId,
-    target: props.target,
-    operation: operation.value,
-    before: props.originalText,
-    after: after.value.trim(),
-    rationale: rationale.value.trim()
-  })
-}
-
-function handleKeydown(event) {
-  if (event.isComposing || event.keyCode === 229 || event.key !== 'Escape') return
-  event.preventDefault()
-  event.stopPropagation()
-  emit('cancel')
-}
-
-onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true })))
-</script>
 
 <style scoped>
 .authoring-intervention {
@@ -403,6 +414,7 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
 .authoring-intervention__rehearsal [role="radio"][aria-checked="true"] em { color: var(--text-primary); }
 .authoring-intervention__rehearsal > p { margin: 7px 0 0; color: var(--text-secondary); font-size: 10px; }
 .authoring-intervention__rehearsal > [data-test="intervention-rehearse"] { min-height: 34px; margin-top: 4px; color: var(--text-primary); border-bottom-color: var(--accent-primary); font-size: 11px; }
+.authoring-intervention__rehearsal > [data-test="intervention-collaborate"] { min-height: 34px; margin: 4px 0 0 12px; padding-inline: 4px; color: var(--text-primary); border-bottom-color: var(--border-strong, var(--border-subtle)); font-size: 11px; }
 .authoring-intervention footer { align-items: center; margin-top: 9px; }
 .authoring-intervention [data-test="intervention-primary"] { flex-shrink: 0; min-width: 72px; color: var(--text-primary); border-bottom-color: var(--accent-primary); }
 @media (max-width: 720px) {

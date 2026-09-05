@@ -215,8 +215,10 @@ describe('workspace tabs store', () => {
 // 合同：key 构建/解析 + 路由意图。project surface 必须带 bookId。
     expect(buildProjectTabKey('b1', 'settings')).toBe('project:b1:settings')
     expect(buildGlobalTabKey('docs')).toBe('global:docs')
+    expect(buildGlobalTabKey('collaboration-review', 'room:一')).toBe('global:collaboration-review:room%3A%E4%B8%80')
     expect(parseTabKey('project:b1:settings')).toEqual({ scope: 'project', projectId: 'b1', surface: 'settings' })
-    expect(parseTabKey('global:docs')).toEqual({ scope: 'global', projectId: null, surface: 'docs' })
+    expect(parseTabKey('global:docs')).toEqual({ scope: 'global', projectId: null, surface: 'docs', instanceId: null })
+    expect(parseTabKey('global:collaboration-review:room%3A%E4%B8%80')).toEqual({ scope: 'global', projectId: null, surface: 'collaboration-review', instanceId: 'room:一' })
     expect(parseTabKey('project:b1')).toBe(null)
     expect(resolveRouteIntent({ name: 'authoring', query: { bookId: 'b1', chapterId: 'c3' } }))
       .toMatchObject({ scope: 'project', surface: 'authoring', projectId: 'b1' })
@@ -228,6 +230,9 @@ describe('workspace tabs store', () => {
       .toMatchObject({ scope: 'project', surface: 'map', projectId: 'b1', worldbookId: 'wb-1' })
     expect(resolveRouteIntent({ name: 'settings-world-map', query: {} })).toBe(null)
     expect(resolveRouteIntent({ name: 'docs', query: {} })).toMatchObject({ scope: 'global', surface: 'docs' })
+    expect(resolveRouteIntent({ name: 'collaboration-review', params: { roomSlug: 'room-one' }, query: {} }))
+      .toMatchObject({ scope: 'global', surface: 'collaboration-review', instanceId: 'room-one' })
+    expect(resolveRouteIntent({ name: 'collaboration-review', params: {}, query: {} })).toBe(null)
 }
 {
 // openOrFocus：同 key 去重聚焦，restoreState 合并，不产生重复标签。
@@ -249,6 +254,11 @@ describe('workspace tabs store', () => {
     expect(store.tabs).toHaveLength(2)
     expect(settingsTab.key).toBe('project:b1:settings')
     expect(store.activeTabId).toBe(settingsTab.id)
+    const reviewOne = store.openOrFocus({ scope: 'global', surface: 'collaboration-review', instanceId: 'room-one' })
+    const reviewTwo = store.openOrFocus({ scope: 'global', surface: 'collaboration-review', instanceId: 'room-two' })
+    expect(reviewOne.key).toBe('global:collaboration-review:room-one')
+    expect(reviewTwo.key).toBe('global:collaboration-review:room-two')
+    expect(reviewTwo.id).not.toBe(reviewOne.id)
     // updateContext：dirty 与 restoreState 不互相覆盖。
     store.updateContext(first.id, { dirty: true })
     store.updateContext(first.id, { restoreState: { chapterId: 'c9' } })

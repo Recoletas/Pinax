@@ -1,4 +1,6 @@
 import { ref, reactive, computed, onBeforeUnmount, getCurrentInstance } from 'vue'
+import { createExperienceV1CompatibilityRoom } from '../services/collaboration/experienceV1Compatibility.js'
+import { resolveCollaborationEndpoints } from '../services/collaboration/endpoint.js'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
@@ -11,8 +13,8 @@ function nanoid() {
 }
 
 export function deriveWsUrl(_roomSlug, locationLike = window.location) {
-  const proto = locationLike.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${locationLike.host}/ws/rooms`
+  if (import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true') return resolveCollaborationEndpoints({ override: import.meta.env.VITE_COLLABORATION_RELAY, locationLike }).wsUrl
+  const proto = locationLike.protocol === 'https:' ? 'wss' : 'ws'; return `${proto}://${locationLike.host}/ws/rooms`
 }
 
 function sequenceStorageKey(roomSlug) {
@@ -26,7 +28,8 @@ function recallSession(key) {
   try { return sessionStorage.getItem(key) } catch { return null }
 }
 
-export function useOnlineRoom() {
+export function useOnlineRoom(options = {}) {
+  if (import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true') return createExperienceV1CompatibilityRoom(options)
   const roomSlug = ref('')
   const room = ref(null)
   const members = reactive([])
@@ -227,7 +230,7 @@ export function useOnlineRoom() {
 
     try {
       ws = new WebSocket(url)
-    } catch (err) {
+    } catch {
       setConnectionState('disconnected')
       error.value = '无法创建连接'
       scheduleReconnect()
@@ -335,6 +338,8 @@ export function useOnlineRoom() {
     connect()
   }
 
+  const createRoom = joinRoom
+
   function leaveRoom() {
     sendCommand('room.leave', {})
     closeSocket()
@@ -382,6 +387,7 @@ export function useOnlineRoom() {
     isConnected,
     isHost,
     joinRoom,
+    createRoom,
     leaveRoom,
     sendChat,
     sendCommand,

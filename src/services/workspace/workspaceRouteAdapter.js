@@ -17,7 +17,7 @@ let inFlightRouteKey = ''
 let bufferedExternalRoute = null
 
 function routeKey(route) {
-  return JSON.stringify([route?.name ?? null, route?.query ?? null])
+  return JSON.stringify([route?.name ?? null, route?.params ?? null, route?.query ?? null])
 }
 
 function runProgrammatic(store, router, method, target) {

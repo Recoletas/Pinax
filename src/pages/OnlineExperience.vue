@@ -1,7 +1,158 @@
+<script setup>
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useOnlineRoom } from '../composables/useOnlineRoom'
+import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
+import { scrubCollaborationInviteFragment } from '../services/collaboration/endpoint'
+import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
+import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
+import Experience from './Experience.vue'
+
+const route = useRoute()
+const router = useRouter()
+
+const roomSlug = computed(() => route.params.roomSlug || '')
+const inviteCredentials = import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true' && /^#(?:invite|secret|contentKey)=/.test(window.location.hash)
+  ? scrubCollaborationInviteFragment()
+  : null
+
+const {
+  members,
+  events,
+  chatMessages,
+  proposals,
+  votes,
+  connectionState,
+  error,
+  nickname,
+  isHost,
+  isConnected,
+  shareInviteUrl,
+  refreshShareInviteState,
+  joinRoom,
+  createRoom,
+  leaveRoom,
+  sendChat,
+  proposeAction,
+  sendCommand,
+  castVote,
+  selectAction
+} = useOnlineRoom({ inviteCredentials })
+
+const sessionAdapter = createExperienceSessionAdapter({
+  events,
+  isHost,
+  sendCommand
+})
+const onlineSession = {
+  adapter: sessionAdapter,
+  isHost,
+  isConnected,
+  proposeAction
+}
+const dispatchedEventIds = new Set()
+
+const lobbyNickname = ref(nickname.value || '')
+const lobbyRoomSlug = ref(roomSlug.value || '')
+const lobbyError = ref('')
+const copyError = ref('')
+const hasEnteredRoom = ref(false)
+let pendingCreateSlug = ''
+let pendingJoinSlug = ''
+
+function generateSlug() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let s = ''
+  for (let i = 0; i < 8; i++) {
+    s += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return s
+}
+
+async function onEnterRoom() {
+  lobbyError.value = ''
+  if (!lobbyNickname.value) {
+    lobbyError.value = '请输入昵称'
+    return
+  }
+  const targetSlug = lobbyRoomSlug.value || generateSlug()
+  pendingJoinSlug = targetSlug
+  if (roomSlug.value !== targetSlug) await router.push({ name: 'online-experience', params: { roomSlug: targetSlug } })
+  pendingJoinSlug = ''
+  hasEnteredRoom.value = true
+  await joinRoom(targetSlug, lobbyNickname.value)
+}
+
+function onCreateRoom() {
+  lobbyError.value = ''
+  if (!lobbyNickname.value) {
+    lobbyError.value = '请输入昵称'
+    return
+  }
+  const targetSlug = generateSlug()
+  pendingCreateSlug = targetSlug
+  hasEnteredRoom.value = true
+  router.push({ name: 'online-experience', params: { roomSlug: targetSlug } }).then(() => createRoom(targetSlug, lobbyNickname.value))
+}
+
+function onRoomSendChat(text) {
+  sendChat(text)
+}
+
+function onRoomVote(proposalId) {
+  castVote(proposalId)
+}
+
+function onRoomSelectAction(proposalId) {
+  selectAction(proposalId)
+  const proposal = proposals.find((item) => item.id === proposalId)
+  if (proposal) {
+    sessionAdapter.requestNarrative({ proposalId, text: proposal.text })
+  }
+}
+
+function onRoomLeave() {
+  leaveRoom()
+  hasEnteredRoom.value = false
+  router.push({ name: 'online-experience' })
+}
+
+function onCopyRoomLink() {
+  refreshShareInviteState()
+  const url = shareInviteUrl.value
+  if (!url) {
+    copyError.value = '分享邀请已过期或尚未生成，请由房主重新创建邀请'
+    return
+  }
+  copyError.value = ''
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).catch(() => {})
+  }
+}
+
+watch(roomSlug, (newSlug) => {
+  if (newSlug && lobbyNickname.value) {
+    if (pendingCreateSlug === newSlug) { pendingCreateSlug = ''; return }
+    if (pendingJoinSlug === newSlug) return
+    hasEnteredRoom.value = true
+    if (connectionState.value === 'idle') joinRoom(newSlug, lobbyNickname.value)
+  }
+}, { immediate: true })
+
+watch(() => events.length, () => {
+  for (const event of events) {
+    if (!event?.id || dispatchedEventIds.has(event.id)) continue
+    dispatchedEventIds.add(event.id)
+    sessionAdapter.handleEvent(event)
+  }
+})
+
+</script>
+
 <template>
   <div class="online-page">
     <div class="online-page__body">
-      <div v-if="!roomSlug" class="online-page__lobby">
+      <div v-if="!roomSlug || !hasEnteredRoom" class="online-page__lobby">
         <div class="online-page__lobby-card">
           <h1 class="online-page__lobby-title">联机体验</h1>
           <p class="online-page__lobby-desc">创建或加入一个房间，与朋友一起进行文字冒险</p>
@@ -65,7 +216,7 @@
           class="online-page__room-panel"
           :room-slug="roomSlug"
           :connection-state="connectionState"
-          :error="error"
+          :error="copyError || error"
           :members="members"
           :proposals="proposals"
           :votes="votes"
@@ -85,135 +236,6 @@
     </div>
   </div>
 </template>
-
-<script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useOnlineRoom } from '../composables/useOnlineRoom'
-import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
-import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
-import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
-import Experience from './Experience.vue'
-
-const route = useRoute()
-const router = useRouter()
-
-const roomSlug = computed(() => route.params.roomSlug || '')
-
-const {
-  members,
-  events,
-  chatMessages,
-  proposals,
-  votes,
-  connectionState,
-  error,
-  nickname,
-  isHost,
-  isConnected,
-  joinRoom,
-  leaveRoom,
-  sendChat,
-  proposeAction,
-  sendCommand,
-  castVote,
-  selectAction
-} = useOnlineRoom()
-
-const sessionAdapter = createExperienceSessionAdapter({
-  events,
-  isHost,
-  sendCommand
-})
-const onlineSession = {
-  adapter: sessionAdapter,
-  isHost,
-  isConnected,
-  proposeAction
-}
-const dispatchedEventIds = new Set()
-
-const lobbyNickname = ref(nickname.value || '')
-const lobbyRoomSlug = ref('')
-const lobbyError = ref('')
-
-function generateSlug() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-  let s = ''
-  for (let i = 0; i < 8; i++) {
-    s += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return s
-}
-
-function onEnterRoom() {
-  lobbyError.value = ''
-  if (!lobbyNickname.value) {
-    lobbyError.value = '请输入昵称'
-    return
-  }
-  const targetSlug = lobbyRoomSlug.value || generateSlug()
-  router.push({ name: 'online-experience', params: { roomSlug: targetSlug } })
-}
-
-function onCreateRoom() {
-  lobbyError.value = ''
-  if (!lobbyNickname.value) {
-    lobbyError.value = '请输入昵称'
-    return
-  }
-  const targetSlug = generateSlug()
-  router.push({ name: 'online-experience', params: { roomSlug: targetSlug } })
-}
-
-function onRoomSendChat(text) {
-  sendChat(text)
-}
-
-function onRoomVote(proposalId) {
-  castVote(proposalId)
-}
-
-function onRoomSelectAction(proposalId) {
-  selectAction(proposalId)
-  const proposal = proposals.find((item) => item.id === proposalId)
-  if (proposal) {
-    sessionAdapter.requestNarrative({ proposalId, text: proposal.text })
-  }
-}
-
-function onRoomLeave() {
-  leaveRoom()
-  router.push({ name: 'online-experience' })
-}
-
-function onCopyRoomLink() {
-  const url = window.location.href
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).catch(() => {})
-  }
-}
-
-watch(roomSlug, (newSlug) => {
-  if (newSlug && lobbyNickname.value) {
-    joinRoom(newSlug, lobbyNickname.value)
-  }
-}, { immediate: true })
-
-watch(() => events.length, () => {
-  for (const event of events) {
-    if (!event?.id || dispatchedEventIds.has(event.id)) continue
-    dispatchedEventIds.add(event.id)
-    sessionAdapter.handleEvent(event)
-  }
-})
-
-onMounted(() => {
-  if (!nickname.value && roomSlug.value) {
-    router.push({ name: 'online-experience' })
-  }
-})
-</script>
 
 <style scoped>
 .online-page {

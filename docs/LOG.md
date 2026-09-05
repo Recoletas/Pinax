@@ -2,6 +2,12 @@
 
 > 只记录近期用户可感知变化、验证结果和仍会影响后续判断的风险。过程性 UI 微调不再逐条保留。
 
+## 2026-09-02 - C2-3 共同排演首个可见纵切
+
+- “改变条件”在影响范围冻结后可邀请共同排演。作者右侧协作栏与受邀只读页共用同一审阅面；成员可查看明确分享的原条件、改变、影响和方向，提交建议、所得/代价并一人一票。邀请密钥只在 URL fragment 和页面只读复制框出现，访客页进入时同步清除地址栏 fragment。
+- 初始 artifact、建议正文、所得/代价和 branch 内容均走客户端密文；relay 只保存控制元数据。只有房主设备可调用既有 F3 排演 provider，生成结果在房间只读；promotion 会重新核对 intervention、所有目标、证据 revision、因果关系、host epoch 与 fingerprint，随后只恢复成原有分组 Ghost，不直接写正文。采用成功后才回传低敏 adopted receipt，断线失败可重试且晚到 ACK 不会覆盖下一次 promotion。
+- 访客路由、共享 surface、bridge 和 controller 受 `VITE_COLLABORATION_V2_ENABLED` 控制并异步装载；关闭 flag 时不注册路由、不装载协作实现。独立流程/UI 复审已清零 blocker/high；房间矩阵 9/9、bridge 16/16、transport 43/43、focused 3 文件/36 用例与 feature-on/off build 通过。C2-4 仍由真实 pilot Gate 阻挡：至少 5 次双人共同排演及 packaged Electron/TLS-WSS 观察尚未执行。
+
 ## 2026-09-02 - F3-5 活故事图谱最小投影
 
 - 右侧“现场”新增“场景与因果”页签，不增加新的工具 rail 项。它把当前章 canonical writingUnit 按场景与节拍排成纵向序列，并以轻量人物、地点、线索泳道和“因果 / 揭示 / 改变 / 兑现”筛选提供作者可读的章节投影。

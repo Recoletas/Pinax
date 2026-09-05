@@ -16,7 +16,8 @@ const DESKTOP_CHANNELS = Object.freeze({
   MIGRATION_CANCEL: 'pinax:migration:cancel',
   CACHE_GET_USAGE: 'pinax:cache:get-usage',
   CACHE_SET_LIMIT: 'pinax:cache:set-limit',
-  CACHE_PRUNE: 'pinax:cache:prune'
+  CACHE_PRUNE: 'pinax:cache:prune',
+  COLLABORATION_GET_PUBLIC_CONFIG: 'pinax:collaboration:get-public-config'
 })
 
 module.exports = { DESKTOP_CHANNELS }
